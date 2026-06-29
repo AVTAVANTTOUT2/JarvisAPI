@@ -297,6 +297,17 @@ class AudioDaemon:
         logger.info("[audio_daemon] Actif — state=%s wake_word=%s", self.state, self.wake_word_enabled)
         await self._broadcast_state()
 
+        # Pre-charger le modele STT local (evite le lag de 2s au premier message)
+        try:
+            from audio.stt_local import stt_local as _stt_local
+            if _stt_local.available and not _stt_local._loaded:
+                logger.info("[audio_daemon] Pre-chargement modele STT local (%s) ...", _stt_local._model_size)
+                loop_local = asyncio.get_running_loop()
+                await loop_local.run_in_executor(None, _stt_local._ensure_model_sync)
+                logger.info("[audio_daemon] Modele STT local pret")
+        except Exception:
+            pass
+
         # Attendre que l'une des tâches se termine (= crash)
         done, pending = await asyncio.wait(
             [self._vad_task, self._process_task, self._watchdog_task],
@@ -909,44 +920,45 @@ class AudioDaemon:
         self.state = "processing"
         await self._broadcast_state()
 
-        # 1. STT — ElevenLabs Scribe en priorité (~300ms), faster-whisper en fallback
+        # 1. STT — faster-whisper local d'abord (~50ms), ElevenLabs Scribe cloud en fallback (~400ms)
         wav_bytes = self._pcm_to_wav(pcm_bytes)
         text = ""
 
-        # 1a. ElevenLabs Scribe (cloud, rapide)
-        scribe_available = False
+        # 1a. STT local (faster-whisper, gratuit, zero latence reseau)
+        local_available = False
         try:
-            from audio.stt import stt as _stt
-            scribe_available = _stt is not None and getattr(_stt, "available", False)
+            from audio.stt_local import stt_local as _stt_local
+            local_available = _stt_local is not None and getattr(_stt_local, "available", False)
         except Exception:
             pass
 
-        if scribe_available:
-            try:
-                from audio.stt import stt as _stt
-                text = await _stt.transcribe(wav_bytes, language=getattr(config, "LANGUAGE", "fr"))
-                if text:
-                    logger.debug("[audio_daemon] STT ElevenLabs : %s", text[:80])
-            except Exception as e:
-                logger.warning("[audio_daemon] STT ElevenLabs échoue : %s — fallback local", e)
-
-        # 1b. Fallback STT local (faster-whisper)
-        local_stt_available = False
-        if not text:
-            try:
-                from audio.stt_local import stt_local as _stt_local
-                local_stt_available = _stt_local.available
-            except Exception:
-                pass
-
-        if not text and local_stt_available:
+        if local_available:
             try:
                 from audio.stt_local import stt_local as _stt_local
                 text = await _stt_local.transcribe(wav_bytes, language=getattr(config, "LANGUAGE", "fr"))
-                if text:
+                if text and len(text.strip()) >= 3:
                     logger.debug("[audio_daemon] STT local : %s", text[:80])
             except Exception as e:
-                logger.warning("[audio_daemon] STT local échoue : %s", e)
+                logger.warning("[audio_daemon] STT local echoue : %s — fallback Scribe", e)
+                text = ""
+
+        # 1b. STT cloud (ElevenLabs Scribe, fallback si local echoue)
+        if not text:
+            scribe_available = False
+            try:
+                from audio.stt import stt as _stt
+                scribe_available = _stt is not None and getattr(_stt, "available", False)
+            except Exception:
+                pass
+
+            if scribe_available:
+                try:
+                    from audio.stt import stt as _stt
+                    text = await _stt.transcribe(wav_bytes, language=getattr(config, "LANGUAGE", "fr"))
+                    if text:
+                        logger.debug("[audio_daemon] STT ElevenLabs : %s", text[:80])
+                except Exception as e:
+                    logger.warning("[audio_daemon] STT ElevenLabs echoue : %s", e)
 
         # Vérifier interruption après STT
         if interrupt_event.is_set():
@@ -1051,7 +1063,7 @@ class AudioDaemon:
 
         # 5. Purge post-TTS obligatoire
         #    a) Attendre que l'écho acoustique s'éteigne
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(0.15)
         #    b) Purger la queue audio (résidus du TTS captés par le micro)
         if self._audio_queue is not None:
             drained = 0
@@ -1309,7 +1321,25 @@ class AudioDaemon:
             self._last_tts_end = time.time()
 
     async def _play_audio_local(self, audio_bytes: bytes) -> None:
-        """Joue l'audio (MP3 Edge, WAV Kokoro, M4A macOS) sur les haut-parleurs via afplay."""
+        """Joue l'audio (MP3 Edge, WAV Kokoro, M4A macOS) localement.
+
+        Priorite : sounddevice (direct CoreAudio, instantane) → afplay (fallback subprocess).
+        """
+        # 1. Tenter sounddevice (instantané, pas de subprocess)
+        try:
+            import sounddevice as sd
+            import soundfile as sf
+
+            audio_data, samplerate = sf.read(io.BytesIO(audio_bytes))
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, lambda: sd.play(audio_data, samplerate, blocking=True))
+            return
+        except ImportError:
+            pass  # sounddevice/soundfile pas installés → fallback afplay
+        except Exception as e:
+            logger.warning("[audio_daemon] sounddevice erreur : %s — fallback afplay", e)
+
+        # 2. Fallback : afplay (subprocess macOS, ~200ms startup)
         tmp_path: str | None = None
         try:
             # Detection du format : WAV = RIFF, MP3 = ID3 ou 0xFF 0xFB

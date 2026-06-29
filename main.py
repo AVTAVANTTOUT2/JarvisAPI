@@ -3717,8 +3717,8 @@ B) Si tu as besoin d'une action -> ecris UNIQUEMENT le bloc action, rien avant, 
             messages=messages,
             model=config.DEEPSEEK_FAST_MODEL,
             system=system,
-            max_tokens=getattr(config, "VOICE_MAX_TOKENS", 500),
-            temperature=0.7,
+            max_tokens=250,
+            temperature=0.5,
         )
         raw_response = result.get("content", "") or ""
         total_cost += float(result.get("cost", 0.0))

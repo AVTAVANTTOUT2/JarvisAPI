@@ -22,7 +22,7 @@ import config
 logger = logging.getLogger(__name__)
 
 # Modele par defaut — tiny (75 Mo, ultra-rapide) ; small (500 Mo, plus precis)
-DEFAULT_MODEL_SIZE = "tiny"
+DEFAULT_MODEL_SIZE = "base"
 MODEL_SIZES = frozenset({"tiny", "tiny.en", "base", "base.en", "small", "small.en", "medium", "medium.en", "large-v3"})
 
 
@@ -36,7 +36,8 @@ class LocalSTT:
         self._load_lock: asyncio.Lock = asyncio.Lock()
 
         stt_engine = (getattr(config, "AUDIO_DAEMON_STT_ENGINE", "") or "").strip()
-        self.available: bool = (stt_engine == "local")
+        # active par defaut si faster-whisper est installe ET pas explicitement desactive
+        self.available: bool = (stt_engine != "cloud")
         self.last_text: str = ""
 
         if not self.available:
@@ -94,6 +95,36 @@ class LocalSTT:
                 logger.exception("[STT-local] Echec chargement du modele : %s", e)
                 self.available = False
                 return False
+
+    def _ensure_model_sync(self) -> bool:
+        """Charge le modele de maniere synchrone (pour pre-chargement au boot dans un executor)."""
+        if self._loaded:
+            return True
+        try:
+            from faster_whisper import WhisperModel
+
+            compute_type = "auto"
+            cpu_count = os.cpu_count() or 4
+            num_workers = max(1, min(cpu_count // 2, 4))
+            model_path_or_size = self._model_size
+
+            logger.info("[STT-local] Pre-chargement synchrone %s (compute=%s, workers=%d) ...",
+                        model_path_or_size, compute_type, num_workers)
+
+            self._model = WhisperModel(
+                model_path_or_size,
+                device="auto",
+                compute_type=compute_type,
+                num_workers=num_workers,
+                download_root=str(Path.home() / ".cache" / "faster-whisper"),
+            )
+            self._loaded = True
+            logger.info("[STT-local] Modele %s pre-charge", model_path_or_size)
+            return True
+        except Exception as e:
+            logger.exception("[STT-local] Echec pre-chargement : %s", e)
+            self.available = False
+            return False
 
     async def transcribe(self, audio_bytes: bytes, language: str = "fr", timeout: float | None = None) -> str:
         """Transcrit des bytes audio WAV en texte via faster-whisper.
