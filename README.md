@@ -3257,3 +3257,20 @@ print(f'RMS max: {max_rms:.6f}')
 ### Coexistence avec /voice web
 
 Le daemon audio (micro Mac) et la page `/voice` (micro navigateur) utilisent des micros differents et convergent vers `_process_message_internal`. Aucun conflit possible.
+
+### Dernier changelog — 29 juin 2026 (23h40) : Initialisation du repo Git + push GitHub
+
+**Repo cree** : [`https://github.com/AVTAVANTTOUT2/JarvisAPI`](https://github.com/AVTAVANTTOUT2/JarvisAPI) (prive).
+
+**Preparation** :
+- `gh` installe via Homebrew (`brew install gh`)
+- Authentifie en tant que `AVTAVANTTOUT2` (device auth)
+- Git config : `user.name=AVTAVANTTOUT2`, `user.email=208137561+AVTAVANTTOUT2@users.noreply.github.com`
+- Branche renommee `master` → `main`
+
+**Fichiers exclus du commit initial** (ajoutes au `.gitignore`) :
+- `*.bak` — fichiers backup (`main.py.bak`)
+- `resume_conversations_*.md` — resumes de conversations personnelles
+- `pwa/*.db-shm` — SQLite WAL shared memory
+
+**Commit initial** : 214 fichiers, 59 362 lignes inserees.
