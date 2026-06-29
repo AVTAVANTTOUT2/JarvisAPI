@@ -3288,3 +3288,20 @@ Le daemon audio (micro Mac) et la page `/voice` (micro navigateur) utilisent des
 | #5 | `actions.py` | `_action_name_place` accepte `name\|place_name\|lieu` + validation categorie |
 
 **Validation** : tous les tests passent (STT, max_tokens, persona, open_app, name_place, integration pipeline).
+
+### Dernier changelog — 30 juin 2026 (00h05) : Reduction latence vocale (5s -> 2s)
+
+**6 optimisations** appliquees pour fluidifier la conversation mains libres :
+
+| Opt | Fichier | Changement | Gain |
+|---|---|---|---|
+| #1 | `config.py` + `.env` | VAD silence 1500ms → 800ms | **700ms** |
+| #2 | `audio_daemon.py` | STT local first (faster-whisper `base`, 142Mo) + cloud fallback | **350ms** |
+| #3 | `audio_daemon.py` | Post-TTS sleep 500ms → 150ms (micro stoppe) | **350ms** |
+| #4 | `audio_daemon.py` | Playback `sounddevice` direct CoreAudio au lieu de `afplay` subprocess | **180ms** |
+| #5 | `main.py` | `temperature=0.5` + `max_tokens=250` pass 1 (LLM plus rapide) | **50ms** |
+| #6 | `audio_daemon.py` + `stt_local.py` | Pre-chargement modele STT au boot (`_ensure_model_sync`) | **2s au 1er msg** |
+
+**Benchmark** : moyenne 2189ms (cible < 2500ms). Direct ~1500ms, action ~4000ms.
+
+**Dependances ajoutees** : `faster-whisper>=1.2`, `sounddevice>=0.5`, `soundfile>=0.13` (requis pour playback direct).

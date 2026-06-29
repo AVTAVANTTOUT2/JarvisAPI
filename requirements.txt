@@ -26,6 +26,11 @@ Pillow>=10.0
 pvporcupine>=3.0          # wake word "Jarvis" (optionnel — désactivable via WAKE_WORD_ENABLED=false)
 pyaudio>=0.2.14           # micro pour wake word + écoute conversation daemon (optionnel)
 
+# STT local — faster-whisper (gratuit, zero latence reseau) + playback direct
+faster-whisper>=1.2        # transcription locale via CTranslate2 (Apple Silicon natif)
+sounddevice>=0.5           # playback direct CoreAudio (evite afplay subprocess)
+soundfile>=0.13            # decode audio pour sounddevice (WAV/MP3/M4A)
+
 # Dual-LLM (jarvis/ package) — anonymisation PII + backend DeepSeek
 spacy==3.7.*             # NER PII (modèle : python -m spacy download fr_core_news_sm)
 
