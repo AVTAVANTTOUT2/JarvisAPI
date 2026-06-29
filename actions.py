@@ -341,7 +341,7 @@ async def _action_open_app(action: dict) -> dict:
     from integrations.computer import computer
 
     name = (
-        (action.get("app_name") or action.get("name") or action.get("app") or "").strip()
+        (action.get("app_name") or action.get("name") or action.get("app") or action.get("application") or "").strip()
     )
     if not computer or not computer.allowed:
         return {"ok": False, "message": "Accès ordinateur désactivé."}
@@ -401,16 +401,29 @@ async def _action_system_info(action: dict) -> dict:
 async def _action_name_place(action: dict) -> dict:
     from database.location_helpers import create_place, get_current_location
 
-    name = (action.get("name") or "").strip()
+    name = (
+        action.get("name")
+        or action.get("place_name")
+        or action.get("lieu")
+        or ""
+    ).strip()
     if not name:
-        return {"ok": False, "message": "Nom manquant."}
-    cat = (action.get("category") or "other").strip()
+        return {"ok": False, "message": "Nom du lieu manquant."}
+
+    category = (action.get("category") or "other").strip().lower()
+    VALID_CATEGORIES = {
+        "home", "school", "work", "gym", "restaurant", "shop",
+        "friend", "family", "medical", "transport", "leisure", "other",
+    }
+    if category not in VALID_CATEGORIES:
+        category = "other"
+
     cur = get_current_location()
     if not cur:
-        return {"ok": False, "message": "Pas de position GPS récente."}
+        return {"ok": False, "message": "Aucune position GPS connue. Activez le tracking GPS d'abord."}
     pid = create_place(
         name=name,
-        category=cat,
+        category=category,
         lat=float(cur["latitude"]),
         lng=float(cur["longitude"]),
         radius=float(action["radius"]) if action.get("radius") is not None else None,

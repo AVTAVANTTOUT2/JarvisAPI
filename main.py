@@ -3646,6 +3646,15 @@ async def _process_voice_fast(text: str, conversation_id: int) -> dict:
     import time as _time
     _t0 = _time.time()
 
+    # ── 0. Persona condensee pour le vocal (~50 tokens) ────────────────────────
+    VOICE_PERSONA = (
+        "Tu es JARVIS, majordome IA d'{}. Ton britannique, concis, sec. "
+        "Tu l'appelles 'Monsieur' avec ironie bienveillante. "
+        "Jamais d'emoji. Jamais de presentation ('je suis JARVIS'). "
+        "Jamais de 'je reviens vers vous' ou 'un instant'. "
+        "3 phrases max a l'oral. Pas de Markdown."
+    ).format(config.USER_NAME)
+
     # ── 1. Contexte temporel minimal ──────────────────────────────────────────
     from agents import _get_horodatage
     horodatage = _get_horodatage()
@@ -3665,15 +3674,11 @@ async def _process_voice_fast(text: str, conversation_id: int) -> dict:
         logger.debug("[voice_fast] get_conversation_history : %s", e)
 
     # ── 3. System prompt — le LLM DOIT choisir : reponse directe OU bloc action seul ──
-    system = f"""Tu es JARVIS, assistant personnel de {config.USER_NAME}. Tu parles a l'ORAL.
+    system = f"""{horodatage}
 
-REGLES IMPERATIVES :
-- Reponses de 1 a 3 phrases MAXIMUM
-- Ton naturel, concis, direct
-- Pas de Markdown, pas de listes, pas de formatage
-- Appelle-le "Monsieur" avec ironie bienveillante
-- Ne dis JAMAIS "je reviens vers vous", "un instant", "laissez-moi verifier"
-- Ne dis JAMAIS "je n'ai pas acces a" — tu as acces a tout
+{VOICE_PERSONA}
+
+Tu ne dis JAMAIS 'je n'ai pas acces a' — tu as acces a tout.
 
 DATE ET HEURE : {horodatage}
 LIEU : {config.WEATHER_CITY}, France
@@ -3712,7 +3717,7 @@ B) Si tu as besoin d'une action -> ecris UNIQUEMENT le bloc action, rien avant, 
             messages=messages,
             model=config.DEEPSEEK_FAST_MODEL,
             system=system,
-            max_tokens=300,
+            max_tokens=getattr(config, "VOICE_MAX_TOKENS", 500),
             temperature=0.7,
         )
         raw_response = result.get("content", "") or ""
@@ -3803,7 +3808,7 @@ Date : {horodatage}."""
             messages=pass2_messages,
             model=config.DEEPSEEK_FAST_MODEL,
             system=pass2_system,
-            max_tokens=200,
+            max_tokens=min(getattr(config, "VOICE_MAX_TOKENS", 500), 300),
             temperature=0.7,
         )
         response_text = result2.get("content", "") or ""

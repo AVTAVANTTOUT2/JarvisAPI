@@ -44,7 +44,7 @@ class STT:
                 response = await client.post(
                     "https://api.elevenlabs.io/v1/speech-to-text",
                     headers={"xi-api-key": self.api_key},
-                    files={"file": ("audio.webm", audio_bytes, "audio/webm")},
+                    files={"file": ("audio.wav", audio_bytes, "audio/wav")},
                     data={
                         "model_id": "scribe_v2",
                         "language_code": language,
