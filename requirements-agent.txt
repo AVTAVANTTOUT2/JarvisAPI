@@ -1,0 +1,14 @@
+# JARVIS Agent — dépendances minimales pour le client distant
+# (script `scripts/jarvis_agent.py` à installer sur les machines secondaires,
+# typiquement un MacBook Pro qui se connecte au Mac Mini via Tailscale).
+#
+# Installation :
+#   python3 -m venv venv-agent
+#   source venv-agent/bin/activate
+#   pip install -r requirements-agent.txt
+#
+# Lancement :
+#   python scripts/jarvis_agent.py --server http://100.x.x.x:8081 --token MON_TOKEN
+
+requests>=2.31
+Pillow>=10.0

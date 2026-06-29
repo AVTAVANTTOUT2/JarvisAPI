@@ -1,0 +1,43 @@
+# ── Python ──────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# ── Environnement ───────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+
+# ── Données locales ─────────────────────────────────────────
+data/
+uploads/
+
+# ── Certificats SSL (ne JAMAIS committer les clés privées) ──
+certs/*.pem
+certs/*.key
+certs/*.crt
+certs/*.p12
+# Le .gitkeep est volontairement exclu de cette règle
+
+# ── Frontend ────────────────────────────────────────────────
+web/node_modules/
+web/dist/
+web/.vite/
+
+# ── Modèles ML (gros fichiers locaux) ─────────────────────
+models/
+test_kokoro_output.wav
+
+# ── IDE / OS ────────────────────────────────────────────────
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+*.bak
+resume_conversations_*.md

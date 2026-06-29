@@ -1,0 +1,28 @@
+Tu reçois une transcription d'un enregistrement audio (cours, réunion, conversation).
+Label de l'enregistrement : {{label}}
+Durée : {{duration}}
+
+TRANSCRIPTION (segment {{segment_num}}/{{total_segments}}) :
+{{chunk}}
+
+Extrais UNIQUEMENT ce JSON (pas de texte avant ou après, pas de markdown) :
+{
+  "key_points": ["point clé 1", "point clé 2"],
+  "action_items": [
+    {"title": "tâche à faire", "assignee": "qui doit le faire ou null", "deadline": "date ou null"}
+  ],
+  "dates_mentioned": [
+    {"date": "YYYY-MM-DD ou description", "context": "pourquoi cette date est mentionnée"}
+  ],
+  "people_mentioned": [
+    {"name": "prénom", "role": "prof/collègue/etc", "said_what": "résumé de ce qu'ils ont dit"}
+  ],
+  "facts_learned": [
+    {"category": "school|work|personal|finance|health", "content": "fait concret"}
+  ],
+  "decisions_made": ["décision prise"],
+  "questions_unanswered": ["question restée sans réponse"],
+  "mood_tone": "détendu|sérieux|stressé|conflictuel|productif|ennuyeux"
+}
+
+Maximum 10 items par liste (sauf mood_tone). Sois factuel. Réponds en français.

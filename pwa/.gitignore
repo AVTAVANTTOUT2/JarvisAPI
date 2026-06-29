@@ -1,0 +1,30 @@
+# Dependances
+node_modules/
+.next/
+
+# DB locale
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+
+# Tokens OAuth
+credentials.json
+token.json
+
+# Environnement
+.env.local
+.env.production
+
+# Build
+out/
+dist/
+
+# Certificats HTTPS dev (autosignes)
+certificates/
+
+# IDE
+.idea/
+*.swp
+*.swo
+.DS_Store

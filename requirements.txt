@@ -1,0 +1,33 @@
+# Core
+fastapi==0.115.*
+uvicorn[standard]==0.34.*
+python-dotenv==1.1.*
+websockets==15.*
+python-multipart==0.0.*
+jinja2==3.1.*
+
+# LLM — DeepSeek via httpx (format OpenAI compatible)
+
+# Audio (ElevenLabs Scribe STT + Edge TTS)
+edge-tts==7.*
+
+# Intégrations
+httpx==0.28.*
+apscheduler==3.10.*
+
+# PDF
+pymupdf==1.25.*
+
+# Code execution engine
+open-interpreter==0.4.*
+
+# Daemon JARVIS — screen watcher + wake word
+Pillow>=10.0
+pvporcupine>=3.0          # wake word "Jarvis" (optionnel — désactivable via WAKE_WORD_ENABLED=false)
+pyaudio>=0.2.14           # micro pour wake word + écoute conversation daemon (optionnel)
+
+# Dual-LLM (jarvis/ package) — anonymisation PII + backend DeepSeek
+spacy==3.7.*             # NER PII (modèle : python -m spacy download fr_core_news_sm)
+
+# Utils
+python-dateutil==2.9.*

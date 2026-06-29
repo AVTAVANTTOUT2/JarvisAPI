@@ -1,0 +1,72 @@
+@import 'tailwindcss';
+
+@source '../index.html';
+@source './**/*.{js,ts,jsx,tsx}';
+
+@theme {
+  --color-background: oklch(0.12 0 0);
+  --color-foreground: oklch(0.95 0 0);
+  --color-muted-foreground: oklch(0.62 0 0);
+  --color-border: oklch(0.28 0 0);
+  --color-secondary: oklch(0.18 0 0);
+}
+
+@layer base {
+  body {
+    @apply bg-background text-foreground antialiased;
+    margin: 0;
+  }
+}
+
+@layer utilities {
+  .bg-grid-pattern {
+    background-color: var(--color-background);
+    background-image: radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.06) 1px, transparent 0);
+    background-size: 24px 24px;
+  }
+  .glass-panel {
+    background-color: rgba(255, 255, 255, 0.04);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  .animate-slide-up {
+    animation: jarvis-slide-up 0.55s ease-out forwards;
+  }
+  .animate-fade-in {
+    animation: jarvis-fade-in 0.45s ease-out forwards;
+  }
+  .animate-scale-in {
+    animation: jarvis-scale-in 0.35s ease-out forwards;
+  }
+}
+
+@keyframes jarvis-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes jarvis-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes jarvis-scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}

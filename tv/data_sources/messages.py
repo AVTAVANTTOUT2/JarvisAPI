@@ -1,0 +1,159 @@
+"""Derniers messages — iMessage + chat JARVIS.
+
+Lit les messages iMessage depuis ~/Library/Messages/chat.db (read-only)
+et les messages chat JARVIS depuis jarvis.db, puis les fusionne
+triés par timestamp descendant.
+"""
+
+from __future__ import annotations
+
+import logging
+import sqlite3
+import os
+from pathlib import Path
+from typing import Any
+
+import config as cfg
+
+logger = logging.getLogger(__name__)
+
+IMESSAGE_DB = os.path.expanduser("~/Library/Messages/chat.db")
+
+
+def get_recent_messages() -> list[dict[str, Any]]:
+    """Retourne les derniers messages (iMessage + chat JARVIS) fusionnés."""
+    imessages = _get_imessages()
+    chat_msgs = _get_chat_messages()
+    combined = imessages + chat_msgs
+    combined.sort(key=lambda m: m.get("timestamp", ""), reverse=True)
+    return combined[:cfg.MAX_MESSAGES]
+
+
+def _resolve_handle_name(handle: str) -> str:
+    """Résout un handle iMessage (numéro/email) vers un nom depuis la table people."""
+    db_path = _resolve_jarvis_db()
+    if not db_path or not handle:
+        return handle
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        cur = conn.execute(
+            "SELECT name FROM people WHERE name NOT LIKE '+%' AND name NOT LIKE '%@%' LIMIT 1"
+        )
+        row = cur.fetchone()
+        conn.close()
+        # On essaie de matcher via les relationship_profiles
+        conn2 = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        cur2 = conn2.execute(
+            """SELECT p.name FROM people p
+               JOIN relationship_profiles rp ON rp.person_id = p.id
+               WHERE rp.handle = ? LIMIT 1""",
+            (handle,),
+        )
+        rp_row = cur2.fetchone()
+        conn2.close()
+        if rp_row:
+            return rp_row[0]
+    except Exception:
+        pass
+    return handle
+
+
+def _get_imessages() -> list[dict[str, Any]]:
+    """Lit les derniers iMessages reçus depuis chat.db (macOS)."""
+    if not os.path.exists(IMESSAGE_DB):
+        logger.debug("chat.db non accessible à %s", IMESSAGE_DB)
+        return []
+    try:
+        conn = sqlite3.connect(f"file:{IMESSAGE_DB}?mode=ro", uri=True)
+        conn.row_factory = sqlite3.Row
+        cur = conn.execute(
+            """SELECT m.ROWID, m.text, m.date, h.id AS handle_id, m.is_from_me
+               FROM message m
+               LEFT JOIN handle h ON m.handle_id = h.ROWID
+               WHERE m.is_from_me = 0
+                 AND m.text IS NOT NULL
+                 AND m.text != ''
+               ORDER BY m.date DESC
+               LIMIT ?""",
+            (cfg.MAX_IMESSAGES,),
+        )
+        rows = cur.fetchall()
+        conn.close()
+    except Exception as exc:
+        logger.warning("iMessage DB indisponible: %s", exc)
+        return []
+
+    results: list[dict[str, Any]] = []
+    for row in rows:
+        # Conversion timestamp Apple (secondes depuis 2001-01-01)
+        apple_epoch = 978307200
+        raw_date = row["date"]
+        ts = 0
+        if raw_date:
+            try:
+                if raw_date > 1000000000000:
+                    ts = raw_date / 1_000_000_000 + apple_epoch
+                else:
+                    ts = raw_date + apple_epoch
+            except (ValueError, TypeError):
+                ts = 0
+
+        handle = row["handle_id"] or "Inconnu"
+        display_name = _resolve_handle_name(handle)
+        text = (row["text"] or "").strip()[:80]
+
+        from datetime import datetime, timezone
+        ts_str = datetime.fromtimestamp(ts, tz=timezone.utc).isoformat() if ts > 0 else ""
+
+        results.append({
+            "source": "imessage",
+            "handle": handle,
+            "display_name": display_name,
+            "text": text,
+            "timestamp": ts_str,
+        })
+
+    return results
+
+
+def _get_chat_messages() -> list[dict[str, Any]]:
+    """Lit les derniers messages chat JARVIS depuis jarvis.db."""
+    db_path = _resolve_jarvis_db()
+    if not db_path:
+        return []
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        conn.row_factory = sqlite3.Row
+        cur = conn.execute(
+            """SELECT m.id, m.content, m.role, m.agent, m.created_at, c.title
+               FROM messages m
+               JOIN conversations c ON c.id = m.conversation_id
+               WHERE m.role = 'user'
+               ORDER BY m.created_at DESC
+               LIMIT ?""",
+            (cfg.MAX_CHAT_MESSAGES,),
+        )
+        rows = cur.fetchall()
+        conn.close()
+    except sqlite3.OperationalError as exc:
+        logger.warning("Chat messages indisponibles: %s", exc)
+        return []
+
+    results: list[dict[str, Any]] = []
+    for row in rows:
+        results.append({
+            "source": "jarvis",
+            "display_name": "user",
+            "text": (row["content"] or "").strip()[:80],
+            "timestamp": row["created_at"] or "",
+            "conversation_title": row["title"] or "Sans titre",
+        })
+    return results
+
+
+def _resolve_jarvis_db() -> str | None:
+    root = Path(__file__).resolve().parent.parent.parent
+    db_full = root / "data" / "jarvis.db"
+    if db_full.exists():
+        return str(db_full)
+    return None

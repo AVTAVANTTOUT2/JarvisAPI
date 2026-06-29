@@ -1,0 +1,49 @@
+Extrais des données structurées de cette conversation iMessage.
+
+UTILISATEUR : {{user_name}}
+CONTACT : {{handle}}
+
+MESSAGES :
+{{messages}}
+
+Retourne UNIQUEMENT ce JSON. Sois factuel, base-toi sur les messages :
+
+```json
+{
+  "person": {
+    "likely_name": "prénom utilisé dans la conv ou null",
+    "relationship_guess": "ami|famille|collègue|partenaire|connaissance|client|ex|prof",
+    "communication_style": "description courte du style de communication de cette personne",
+    "response_speed": "rapide|normal|lent|variable",
+    "topics": ["sujets récurrents"],
+    "sentiment": "très_proche|proche|neutre|distant|tendu|conflictuel",
+    "power_dynamic": "équilibré|user_domine|contact_domine",
+    "trust_level": "total|fort|moyen|faible"
+  },
+  "facts_about_user": [
+    {"category": "preference|habit|opinion|event|relationship|health|work|school|finance|goal",
+     "content": "fait concret appris sur l'utilisateur via cette conversation",
+     "confidence": "high|medium|low"}
+  ],
+  "facts_about_contact": [
+    {"content": "fait appris sur le contact", "confidence": "high|medium|low"}
+  ],
+  "notable_events": [
+    {"date_approx": "YYYY-MM-DD ou null",
+     "type": "conflict|support|milestone|deep_conversation|mood_impact|pattern_observed",
+     "summary": "ce qui s'est passé",
+     "impact_on_user": "comment ça a affecté l'utilisateur ou null"}
+  ],
+  "patterns_observed": [
+    {"type": "behavioral|emotional|relational",
+     "description": "pattern observé dans cette conversation"}
+  ]
+}
+```
+
+Règles :
+- N'invente rien. Si tu ne peux pas déduire quelque chose, mets null.
+- "facts_about_user" : choses que l'utilisateur RÉVÈLE sur lui-même dans la conversation (goûts, projets, problèmes, opinions).
+- "facts_about_contact" : choses que le contact révèle sur lui-même.
+- Un fait doit être ATOMIQUE : "aime le café" pas "aime le café et va souvent au restaurant le weekend et fait du sport".
+- Maximum 10 faits par catégorie. Priorise les plus importants.

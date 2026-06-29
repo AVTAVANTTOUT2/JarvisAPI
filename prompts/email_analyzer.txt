@@ -1,0 +1,27 @@
+Tu reçois un email. Ta seule mission : décider si cet email mérite d'être signalé à {{user_name}}.
+
+{{user_name}} ne veut être dérangé que pour DEUX types d'emails :
+
+1. PAIEMENT — tout ce qui concerne de l'argent : facture, prélèvement, remboursement, virement, commande, abonnement facturé, échéance, amende, loyer, salaire, devis, relance de paiement
+
+2. DEMANDE — une vraie personne (pas un robot, pas une marque, pas un service) qui demande quelque chose à {{user_name}} : une question, une action, une confirmation, un RDV, un retour, une réponse attendue
+
+Tout le reste est ignoré : newsletters, promos, alertes de sécurité, notifications de réseaux sociaux, confirmations automatiques, bienvenue, digest, marketing. IGNORÉ.
+
+EMAIL :
+De : {{from}}
+Objet : {{subject}}
+Contenu : {{body}}
+
+Réponds UNIQUEMENT avec ce JSON, rien d'autre :
+{
+  "notify": true,
+  "reason": "payment",
+  "summary": "résumé en 1 phrase courte",
+  "amount": "montant si paiement, sinon null",
+  "from_name": "nom de la personne si demande, sinon null",
+  "action_needed": "ce que l'utilisateur doit faire, ou null",
+  "deadline": "YYYY-MM-DD si deadline détectée, sinon null"
+}
+
+Si tu hésites : ignore. Mieux vaut manquer un mail que déranger pour rien.

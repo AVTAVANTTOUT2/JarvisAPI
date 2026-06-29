@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1920, initial-scale=1.0">
+<title>JARVIS Command Center</title>
+<link rel="stylesheet" href="/static/css/tv.css">
+</head>
+<body>
+<div class="orb-container">
+<div class="orb orb-1"></div><div class="orb orb-2"></div>
+<div class="orb orb-3"></div><div class="orb orb-4"></div>
+</div>
+<div class="dashboard">
+<header class="glass header-glass fade-in">
+<div class="header-left"><div class="logo-mark">J</div><span class="header-title">JARVIS</span></div>
+<div class="header-center"><span class="header-clock" id="clock">00:00:00</span></div>
+<div class="header-right">
+<div class="header-location"><i data-lucide="map-pin" style="width:14px;height:14px"></i><span id="location-label">Lille, France</span></div>
+<div class="status-indicator"><span class="status-dot pulse" id="status-dot"></span><span id="status-text">Operationnel</span></div>
+</div>
+</header>
+<div class="glass weather-panel fade-in">
+<div class="card-header"><i data-lucide="cloud-sun"></i>METEO<span class="refresh-dot" id="rd-weather"></span></div>
+<div class="card-body" id="widget-weather"><div class="empty-state"><i data-lucide="loader"></i>Chargement...</div></div>
+</div>
+<div class="glass system-panel fade-in">
+<div class="card-header"><i data-lucide="cpu"></i>SYSTEME<span class="refresh-dot" id="rd-stats"></span></div>
+<div class="card-body" id="widget-stats"><div class="empty-state"><i data-lucide="loader"></i>Chargement...</div></div>
+</div>
+<div class="glass globe-panel fade-in">
+<div class="globe-container" id="globe-container"><div class="globe-fallback" id="globe-fallback">Chargement globe...</div></div>
+</div>
+<div class="glass activity-panel fade-in">
+<div class="card-header"><i data-lucide="brain"></i>ACTIVITE IA 24H<span class="refresh-dot" id="rd-automations"></span></div>
+<div class="card-body" id="widget-automations"><div class="empty-state"><i data-lucide="loader"></i>Chargement...</div></div>
+</div>
+<div class="glass calendar-panel fade-in">
+<div class="card-header"><i data-lucide="calendar"></i>CALENDRIER<span class="refresh-dot" id="rd-calendar"></span></div>
+<div class="card-body" id="widget-calendar"><div class="empty-state"><i data-lucide="loader"></i>Chargement...</div></div>
+</div>
+<div class="glass tasks-panel fade-in">
+<div class="card-header"><i data-lucide="check-square"></i>TACHES<span class="refresh-dot" id="rd-tasks"></span></div>
+<div class="card-body" id="widget-tasks"><div class="empty-state"><i data-lucide="loader"></i>Chargement...</div></div>
+</div>
+<div class="glass notifications-panel fade-in">
+<div class="card-header"><i data-lucide="bell"></i>ALERTES<span class="refresh-dot" id="rd-notifications"></span></div>
+<div class="card-body" id="widget-notifications"><div class="empty-state"><i data-lucide="loader"></i>Chargement...</div></div>
+</div>
+<div class="glass messages-panel fade-in">
+<div class="card-header"><i data-lucide="message-circle"></i>MESSAGES<span class="refresh-dot" id="rd-messages"></span></div>
+<div class="card-body" id="widget-messages"><div class="empty-state"><i data-lucide="loader"></i>Chargement...</div></div>
+</div>
+<footer class="glass footer-glass fade-in">
+<div class="footer-devices" id="footer-devices"><span style="color:var(--text-muted)">Aucun device</span></div>
+<div class="footer-cost" id="footer-cost">$0.0000</div>
+</footer>
+</div>
+
+<!-- Voice Overlay — conversation temps reel -->
+<div id="voice-overlay" style="
+    display: none;
+    position: fixed;
+    bottom: 40px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 80%;
+    max-width: 1200px;
+    background: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 24px;
+    padding: 30px 40px;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    z-index: 1000;
+    font-family: 'JetBrains Mono', monospace;
+    transition: opacity 0.3s ease, transform 0.3s ease;
+">
+
+    <!-- Orbe anime -->
+    <div id="voice-orb" style="
+        width: 60px;
+        height: 60px;
+        border-radius: 50%;
+        border: 2px solid #00d4ff;
+        background: radial-gradient(circle, rgba(0,212,255,0.25), rgba(0,212,255,0.05));
+        animation: voice-orb-pulse 2s infinite ease-in-out;
+    "></div>
+
+    <!-- Etat -->
+    <div id="voice-state" style="
+        font-size: 14px;
+        letter-spacing: 4px;
+        text-transform: uppercase;
+        color: #00d4ff;
+    ">VEILLE</div>
+
+    <!-- Transcription utilisateur -->
+    <div id="voice-transcript" style="
+        font-size: 20px;
+        color: rgba(255, 255, 255, 0.7);
+        text-align: center;
+        min-height: 28px;
+        font-style: italic;
+    "></div>
+
+    <!-- Reponse JARVIS -->
+    <div id="voice-response" style="
+        font-size: 22px;
+        color: #ffffff;
+        text-align: center;
+        min-height: 30px;
+        font-weight: 500;
+    "></div>
+</div>
+
+<style>
+@keyframes voice-orb-pulse {
+    0%, 100% { transform: scale(1); opacity: 0.8; }
+    50% { transform: scale(1.15); opacity: 1; }
+}
+</style>
+
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>window.TV_INTERVALS={clock:{{intervals.clock}},weather:{{intervals.weather}},mood:{{intervals.mood}},stats:{{intervals.stats}},automations:{{intervals.automations}},calendar:{{intervals.calendar}},tasks:{{intervals.tasks}},messages:{{intervals.messages}},emails:{{intervals.emails}},notifications:{{intervals.notifications}},devices:{{intervals.devices}}};</script>
+<script src="/static/js/utils.js"></script>
+<script src="/static/js/clock.js"></script>
+<script src="/static/js/weather.js"></script>
+<script src="/static/js/stats.js"></script>
+<script src="/static/js/automations.js"></script>
+<script src="/static/js/calendar.js"></script>
+<script src="/static/js/tasks.js"></script>
+<script src="/static/js/messages.js"></script>
+<script src="/static/js/notifications.js"></script>
+<script src="/static/js/globe.js"></script>
+<script src="/static/js/voice-overlay.js"></script>
+<script src="/static/js/main.js"></script>
+</body>
+</html>

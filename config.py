@@ -1,0 +1,175 @@
+"""Configuration centralisée JARVIS — charge .env et expose les settings."""
+
+import os
+import socket
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Charge .env depuis la racine du projet
+BASE_DIR = Path(__file__).resolve().parent
+load_dotenv(BASE_DIR / ".env")
+
+
+def _get(key: str, default: str = "") -> str:
+    return os.getenv(key, default)
+
+
+# ── DeepSeek API ──────────────────────────────────────────────
+DEEPSEEK_API_KEY = _get("DEEPSEEK_API_KEY", "")
+DEEPSEEK_BASE_URL = _get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+DEEPSEEK_FAST_MODEL = _get("DEEPSEEK_FAST_MODEL", "deepseek-v4-flash")
+DEEPSEEK_MAIN_MODEL = _get("DEEPSEEK_MAIN_MODEL", "deepseek-v4-pro")
+
+# ── Audio — ElevenLabs (STT Scribe + TTS) ────────────────────
+ELEVENLABS_API_KEY = _get("ELEVENLABS_API_KEY")
+ELEVENLABS_VOICE_ID = _get("ELEVENLABS_VOICE_ID")
+
+TTS_ENGINE = _get("TTS_ENGINE", "edge")
+TTS_VOICE = _get("TTS_VOICE", "fr-FR-VivienneMultilingualNeural")
+KOKORO_VOICE = _get("KOKORO_VOICE", "af_nicole")
+KOKORO_LANG = _get("KOKORO_LANG", "fr-fr")
+WAKE_WORD = _get("WAKE_WORD", "jarvis")
+
+# Mode conversation mains libres (client : détection silence ; valeurs envoyées dans le status HTTP)
+VOICE_SILENCE_DURATION_MS = int(_get("VOICE_SILENCE_DURATION_MS", "1200"))
+VOICE_MIN_SPEECH_MS = int(_get("VOICE_MIN_SPEECH_MS", "400"))
+VOICE_MAX_TOKENS = int(_get("VOICE_MAX_TOKENS", "500"))
+
+# Localisation (GPS / lieux nommés)
+LOCATION_TRACKING = _get("LOCATION_TRACKING", "true").lower() == "true"
+LOCATION_PLACE_RADIUS = int(_get("LOCATION_PLACE_RADIUS", "100"))
+
+# Mode écoute continue (enregistrement long → transcription → synthèse)
+RECORDING_MAX_DURATION_MIN = int(_get("RECORDING_MAX_DURATION_MIN", "180"))  # refus au-delà
+RECORDING_CHUNK_SIZE_MB = int(_get("RECORDING_CHUNK_SIZE_MB", "20"))        # taille max par requête Scribe
+RECORDING_SUMMARY_ONLY = _get("RECORDING_SUMMARY_ONLY", "false").lower() == "true"  # n’inclut pas la transcription dans les réponses API/liste
+
+# ── Intégrations ────────────────────────────────────────────
+# Mail / Calendar : Apple Mail + Calendar.app en AppleScript — aucune OAuth.
+WEATHER_API_KEY = _get("WEATHER_API_KEY")
+WEATHER_CITY = _get("WEATHER_CITY", "Lille")
+TAVILY_API_KEY = _get("TAVILY_API_KEY")
+
+# ── iMessage bridge (macOS uniquement) ──────────────────────
+# Polling de ~/Library/Messages/chat.db + envoi via osascript.
+# Nécessite : Full Disk Access (lecture chat.db) + Automation (Messages.app).
+IMESSAGE_TARGET = _get("IMESSAGE_TARGET", "")            # numéro ou email iMessage
+IMESSAGE_POLLING_INTERVAL = float(_get("IMESSAGE_POLLING_INTERVAL", "3.0"))
+IMESSAGE_PREFIX = _get("IMESSAGE_PREFIX", "")            # vide = traite tout
+                                                          # défini = traite seulement les msgs commençant par ce mot
+
+# ── Système ─────────────────────────────────────────────────
+DB_PATH = _get("DB_PATH", "./data/jarvis.db")
+UPLOAD_DIR = _get("UPLOAD_DIR", "./data/uploads")
+SCHOOL_OUTPUT_DIR = _get("SCHOOL_OUTPUT_DIR", "./data/outputs/school")
+LANGUAGE = _get("LANGUAGE", "fr")
+TIMEZONE = _get("TIMEZONE", "Europe/Paris")
+USER_NAME = _get("USER_NAME", "Nolann")
+WEB_PORT = int(_get("WEB_PORT", "8080"))
+# "0.0.0.0" = toutes les interfaces IPv4. "127.0.0.1" = machine locale uniquement.
+# "::" = IPv6 seul sur certains OS (peut casser http://127.0.0.1:PORT) — à n’utiliser que si tu sais pourquoi.
+WEB_HOST = _get("WEB_HOST", "0.0.0.0")
+# HTTPS optionnel : si false, ignore les certs et démarre en HTTP.
+# Utile pour le proxy server-side du PWA (Next.js refuse les certs self-signed).
+# Pour l'accès direct iPhone via Tailscale → mettre WEB_HTTPS=true + certs/cert.pem.
+WEB_HTTPS = _get("WEB_HTTPS", "false").lower() == "true"
+
+# ── Contrôle ordinateur local (macOS) ────────────────────────
+COMPUTER_ACCESS = _get("COMPUTER_ACCESS", "true")
+COMPUTER_SHELL = _get("COMPUTER_SHELL", "/bin/zsh")
+COMPUTER_TIMEOUT = int(_get("COMPUTER_TIMEOUT", "30"))
+
+# ── Exécution de code avancée ────────────────────────────────
+CODE_EXECUTOR_ENABLED = _get("CODE_EXECUTOR_ENABLED", "true").lower() == "true"
+CODE_EXECUTOR_TIMEOUT = int(_get("CODE_EXECUTOR_TIMEOUT", "120"))
+CODE_EXECUTOR_MODEL = _get("CODE_EXECUTOR_MODEL", "") or DEEPSEEK_MAIN_MODEL
+
+# Notifications bureau macOS (`display notification`)
+DESKTOP_NOTIFICATIONS = _get("DESKTOP_NOTIFICATIONS", "true").lower() == "true"
+NOTIFICATION_SOUND = _get("NOTIFICATION_SOUND", "Glass")
+
+# Résumé de la dernière conversation terminée — injecté dans le contexte mémoire à la reconnexion WS.
+PRIOR_SESSION_SUMMARY: str = ""
+
+# ── MLX local model (package jarvis/) ──────────────────────
+JARVIS_LOCAL_MODEL = _get("JARVIS_LOCAL_MODEL", "mlx-community/Qwen3-30B-A3B-4bit")
+JARVIS_VENV = _get("JARVIS_VENV", os.path.expanduser("~/mlx-env"))
+
+# ── Gemini CLI ──────────────────────────────────────────────
+# Gemini est utilisé via la CLI `gemini` (subprocess), PAS via une API HTTP.
+# On délègue à Gemini les tâches longues / créatives qui n'ont pas besoin
+# du contexte de mémoire JARVIS (rédaction d'exercices, dissertations, code…).
+GEMINI_CLI_PATH = _get("GEMINI_CLI_PATH", "gemini")
+GEMINI_MODEL = _get("GEMINI_MODEL", "gemini-2.5-pro")
+
+# Types de tâches déléguées à Gemini CLI plutôt qu'à Claude.
+# Critère : contenu long, autonome, peu de contexte mémoire requis.
+GEMINI_TASKS: set[str] = {
+    "exercise",         # exercices d'entraînement (BTS, etc.)
+    "dissertation",     # dissertations structurées
+    "essay",            # essais argumentatifs
+    "code",             # génération de code longue
+    "report",           # rapports/comptes-rendus
+    "summary_long",     # résumés longs (PDF entier, livre, cours complet)
+    "email_draft",      # premier jet d'email à reformuler
+    "file_generation",  # génération de fichiers complets (md, csv, txt…)
+    "flashcards_bulk",  # génération en masse de flashcards (>20)
+}
+
+# ── Briefings ───────────────────────────────────────────────
+MORNING_BRIEFING_TIME = _get("MORNING_BRIEFING_TIME", "07:30")
+EVENING_SUMMARY_TIME = _get("EVENING_SUMMARY_TIME", "22:00")
+
+# ── Surveillance email proactive ────────────────────────────
+# Intervalle (en secondes) entre chaque check des nouveaux emails par
+# `scripts/email_watcher.py`. Le watcher analyse chaque mail non lu via
+# Haiku (~$0.001/email) et crée des tâches/rappels/notifications auto.
+EMAIL_CHECK_INTERVAL = float(_get("EMAIL_CHECK_INTERVAL", "120"))
+
+# ── Daemon JARVIS (sentinelle permanente) ───────────────────
+# Le daemon tourne en parallèle du serveur web : screen watcher,
+# notifications proactives, wake word, TTS local.
+DAEMON_ENABLED = _get("DAEMON_ENABLED", "true").lower() == "true"
+SCREEN_WATCHER_ENABLED = _get("SCREEN_WATCHER_ENABLED", "true").lower() == "true"
+SCREEN_WATCHER_INTERVAL = int(_get("SCREEN_WATCHER_INTERVAL", "12"))      # secondes
+SCREEN_CHANGE_THRESHOLD = float(_get("SCREEN_CHANGE_THRESHOLD", "5"))     # % minimum
+SCREEN_ANALYSIS_THRESHOLD = float(_get("SCREEN_ANALYSIS_THRESHOLD", "15"))  # % pour LLM
+SCREEN_VISION_MODEL = _get("SCREEN_VISION_MODEL", "qwen2.5-vl:7b")
+TRIAGE_MODEL = _get("TRIAGE_MODEL", "qwen2.5:7b")
+OLLAMA_URL = _get("OLLAMA_URL", "http://localhost:11434")
+
+# Identité de la machine — sert pour register_device + screen_watcher
+DEVICE_ID = _get("DEVICE_ID", socket.gethostname())
+DEVICE_NAME = _get("DEVICE_NAME", "Mac Mini")
+
+# Wake word "Jarvis" via Porcupine (Picovoice — gratuit usage perso)
+WAKE_WORD_ENABLED = _get("WAKE_WORD_ENABLED", "false").lower() == "true"
+PORCUPINE_ACCESS_KEY = _get("PORCUPINE_ACCESS_KEY", "")
+
+# Anti-spam vocal en mode veille : minimum N secondes entre deux notifs voix
+DAEMON_TTS_COOLDOWN = int(_get("DAEMON_TTS_COOLDOWN", "30"))
+
+# ── Audio Daemon (micro natif Mac Mini — wake word + conversation mains libres) ──
+AUDIO_DAEMON_ENABLED = _get("AUDIO_DAEMON_ENABLED", "false").lower() == "true"
+AUDIO_DAEMON_SPEECH_THRESHOLD = float(_get("AUDIO_DAEMON_SPEECH_THRESHOLD", "0.02"))
+AUDIO_DAEMON_SILENCE_MS = int(_get("AUDIO_DAEMON_SILENCE_MS", "1500"))
+AUDIO_DAEMON_MIN_SPEECH_MS = int(_get("AUDIO_DAEMON_MIN_SPEECH_MS", "600"))
+AUDIO_DAEMON_MAX_UTTERANCE_S = int(_get("AUDIO_DAEMON_MAX_UTTERANCE_S", "15"))
+AUDIO_DAEMON_CONVERSATION_TIMEOUT = float(_get("AUDIO_DAEMON_CONVERSATION_TIMEOUT", "15.0"))
+AUDIO_DAEMON_INPUT_DEVICE = _get("AUDIO_DAEMON_INPUT_DEVICE", "")  # vide = auto Blue Snowball sinon defaut systeme
+AUDIO_DAEMON_WAKE_SOUND = _get("AUDIO_DAEMON_WAKE_SOUND", "true").lower() == "true"
+AUDIO_DAEMON_STT_ENGINE = _get("AUDIO_DAEMON_STT_ENGINE", "").strip().lower()  # "local" pour faster-whisper, "" = ElevenLabs Scribe
+AUDIO_DAEMON_STT_MODEL = _get("AUDIO_DAEMON_STT_MODEL", "tiny")  # tiny (75Mo, rapide) ou small (500Mo, précis)
+
+# ── Mapping modèles par agent ───────────────────────────────
+AGENT_MODELS = {
+    "orchestrator": DEEPSEEK_FAST_MODEL,
+    "school": DEEPSEEK_MAIN_MODEL,
+    "productivity_triage": DEEPSEEK_FAST_MODEL,
+    "productivity_draft": DEEPSEEK_MAIN_MODEL,
+    "coach": DEEPSEEK_MAIN_MODEL,
+    "coach_deep": DEEPSEEK_MAIN_MODEL,  # DeepSeek v4 suffit pour l'escalade
+    "info": DEEPSEEK_FAST_MODEL,
+    "journal": DEEPSEEK_MAIN_MODEL,
+    "memory": DEEPSEEK_FAST_MODEL,
+}
