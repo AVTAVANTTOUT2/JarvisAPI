@@ -3274,3 +3274,17 @@ Le daemon audio (micro Mac) et la page `/voice` (micro navigateur) utilisent des
 - `pwa/*.db-shm` — SQLite WAL shared memory
 
 **Commit initial** : 214 fichiers, 59 362 lignes inserees.
+
+### Dernier changelog — 29 juin 2026 (23h58) : Corrections pipeline vocal (5 fixes)
+
+**5 corrections** identifiees dans `VOCAL_PIPELINE_ANALYSIS.md` et appliquees :
+
+| Fix | Fichier | Changement |
+|---|---|---|
+| #1 | `audio/stt.py` | MIME `audio/webm` → `audio/wav` (Scribe ElevenLabs) |
+| #2 | `main.py` | `max_tokens=300/200` hardcodes → `config.VOICE_MAX_TOKENS` dynamique |
+| #3 | `main.py` | `VOICE_PERSONA` condense (~50 tokens) injecte dans le system prompt vocal |
+| #4 | `actions.py` | `_action_open_app` accepte `app_name\|name\|app\|application` |
+| #5 | `actions.py` | `_action_name_place` accepte `name\|place_name\|lieu` + validation categorie |
+
+**Validation** : tous les tests passent (STT, max_tokens, persona, open_app, name_place, integration pipeline).
