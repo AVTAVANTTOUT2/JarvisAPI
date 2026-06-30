@@ -1,6 +1,6 @@
 """Surveillance proactive des emails via Apple Mail.
 
-Haiku analyse chaque nouveau mail (~$0.001) et décide seul s'il mérite d'être
+DeepSeek (modèle rapide) analyse chaque nouveau mail (~$0.001) et décide seul s'il mérite d'être
 signalé. Seuls deux types d'emails sont notifiés :
   - PAIEMENT : facture, prélèvement, virement, commande, etc.
   - DEMANDE : une vraie personne qui attend une réponse/action.
@@ -78,7 +78,7 @@ def _parse_json(raw: str) -> dict | None:
 
 
 class EmailWatcher:
-    """Worker async — polling Mail.app, analyse Haiku, actions automatiques.
+    """Worker async — polling Mail.app, analyse DeepSeek, actions automatiques.
 
     Lifecycle :
         watcher = EmailWatcher()
@@ -256,7 +256,7 @@ class EmailWatcher:
     # ── Analyse d'un email ─────────────────────────────────────
 
     async def _analyze_email(self, email_summary: dict) -> None:
-        """Récupère le body → Haiku → JSON → agit si notify=true.
+        """Récupère le body → DeepSeek → JSON → agit si notify=true.
         
         Stocke également le contenu intégral et le résumé en DB
         via ``save_email_full`` pour une lecture vocale instantanée (sans AppleScript).
@@ -283,7 +283,7 @@ class EmailWatcher:
                 use_cache=False,
             )
         except Exception as e:
-            logger.error(f"[email_watcher] Haiku call : {e}")
+            logger.error(f"[email_watcher] DeepSeek call : {e}")
             return
 
         analysis = _parse_json(result.get("content", ""))
@@ -322,7 +322,7 @@ class EmailWatcher:
             # Déjà sauvegardé via save_email_full plus haut — rien à faire
             return
 
-        # Haiku dit de notifier → on agit
+        # DeepSeek dit de notifier → on agit
         logger.info(
             f"[email_watcher] NOTIF ({reason}) : {sender_short} — {summary}"
         )

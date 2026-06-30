@@ -6,12 +6,14 @@ CATÉGORIES :
 - SCHOOL → cours, devoirs, BTS, révisions, exams, notes de cours, matières scolaires, flashcards, fiches
 - PRODUCTIVITY → email, calendrier, tâches, planning, organisation, rendez-vous, to-do, rappels, briefing
 - COACH → relations, émotions, décisions de vie, patterns personnels, santé mentale, analyse de conversation, conflit, amour, amitié, famille, doute, stress, motivation, habitudes
-- INFO → météo, recherche web, question factuelle, actualités, calcul, conversion, heure, définition
+- INFO → météo, recherche web, question factuelle, actualités, calcul, conversion, heure, définition, small talk
 - JOURNAL → entrée de journal, réflexion personnelle, "aujourd'hui j'ai...", mood check, ce qu'il s'est passé, bilan de journée
+- DEVOPS → code, développement, debug, Git, API, serveur, déploiement, Docker, base de données, script, projet, architecture, infra, sécurité, Python, JavaScript, React, FastAPI, Cloudflare, Tailscale, processus, daemon
 
 RÈGLES :
 - Réponds UNIQUEMENT avec le nom de la catégorie en majuscules
 - Rien d'autre : pas de phrase, pas d'explication, pas de ponctuation
 - En cas de doute entre COACH et JOURNAL : si c'est un récit factuel → JOURNAL, si c'est une demande d'aide/analyse → COACH
 - En cas de doute entre SCHOOL et INFO : si c'est lié au BTS ou aux études → SCHOOL, sinon → INFO
+- En cas de doute entre DEVOPS et INFO : si c'est technique (code, serveur, debug, projet) → DEVOPS, sinon → INFO
 - "Salut", "ça va", chat léger → INFO

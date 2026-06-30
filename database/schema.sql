@@ -1,9 +1,15 @@
--- JARVIS — Schéma SQLite complet
--- Exécuter avec : sqlite3 data/jarvis.db < database/schema.sql
-
--- ═══ MÉMOIRE ═══
-
-CREATE TABLE IF NOT EXISTS conversations (
+CREATE TABLE episodes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent TEXT NOT NULL,
+    content TEXT NOT NULL,
+    summary TEXT,
+    importance INTEGER DEFAULT 5 CHECK(importance BETWEEN 1 AND 10),
+    tags TEXT,                   -- JSON array
+    embedding BLOB,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE sqlite_sequence(name,seq);
+CREATE TABLE conversations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     ended_at DATETIME,
@@ -11,42 +17,26 @@ CREATE TABLE IF NOT EXISTS conversations (
     summary TEXT,
     mood_start INTEGER,
     mood_end INTEGER
-);
-
-CREATE TABLE IF NOT EXISTS messages (
+, title TEXT, pinned BOOLEAN DEFAULT 0, archived BOOLEAN DEFAULT 0, tags TEXT, last_message_at DATETIME, message_count INTEGER DEFAULT 0);
+CREATE TABLE messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     conversation_id INTEGER REFERENCES conversations(id),
     role TEXT NOT NULL CHECK(role IN ('user', 'assistant', 'system')),
     content TEXT NOT NULL,
     agent TEXT,
     model TEXT,
-    tokens_in INTEGER DEFAULT 0,
-    tokens_out INTEGER DEFAULT 0,
-    cost REAL DEFAULT 0.0,
+    tokens_in INTEGER,
+    tokens_out INTEGER,
+    cost REAL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
-
-CREATE TABLE IF NOT EXISTS episodes (
+CREATE TABLE life_profile (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    agent TEXT NOT NULL,
-    content TEXT NOT NULL,
-    summary TEXT,
-    importance INTEGER DEFAULT 5 CHECK(importance BETWEEN 1 AND 10),
-    tags TEXT,
-    embedding BLOB,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-
--- ═══ LIFE COACH ═══
-
-CREATE TABLE IF NOT EXISTS life_profile (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    category TEXT NOT NULL CHECK(category IN ('values','goals','fears','patterns','strengths')),
+    category TEXT NOT NULL,       -- values, goals, fears, patterns, strengths
     content TEXT NOT NULL,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
-
-CREATE TABLE IF NOT EXISTS people (
+CREATE TABLE people (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL UNIQUE,
     relationship TEXT,
@@ -54,20 +44,17 @@ CREATE TABLE IF NOT EXISTS people (
     dynamics TEXT,
     patterns TEXT,
     last_mentioned DATETIME,
-    ai_description TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS people_events (
+, ai_description TEXT, imessage_count INTEGER DEFAULT 0, timeline_cache TEXT, timeline_updated_at DATETIME);
+CREATE TABLE people_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     person_id INTEGER REFERENCES people(id) ON DELETE CASCADE,
-    event_type TEXT CHECK(event_type IN ('conversation','insight','conflict','milestone','note')),
+    event_type TEXT,
     content TEXT NOT NULL,
     lesson_learned TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
-
-CREATE TABLE IF NOT EXISTS mood_log (
+CREATE TABLE mood_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     mood_score INTEGER CHECK(mood_score BETWEEN 1 AND 10),
     energy_level INTEGER CHECK(energy_level BETWEEN 1 AND 10),
@@ -75,39 +62,33 @@ CREATE TABLE IF NOT EXISTS mood_log (
     triggers TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
-
-CREATE TABLE IF NOT EXISTS patterns (
+CREATE TABLE patterns (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    pattern_type TEXT CHECK(pattern_type IN ('behavioral','emotional','relational','productivity','health')),
+    pattern_type TEXT,
     description TEXT NOT NULL,
     occurrences INTEGER DEFAULT 1,
     first_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
     last_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
-    status TEXT DEFAULT 'active' CHECK(status IN ('active','resolved','monitoring'))
+    status TEXT DEFAULT 'active' CHECK(status IN ('active', 'resolved', 'monitoring'))
 );
-
--- ═══ ÉCOLE ═══
-
-CREATE TABLE IF NOT EXISTS school_subjects (
+CREATE TABLE school_subjects (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL UNIQUE,
     teacher TEXT,
     schedule TEXT,
     notes TEXT
 );
-
-CREATE TABLE IF NOT EXISTS school_documents (
+CREATE TABLE school_documents (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     subject_id INTEGER REFERENCES school_subjects(id),
     title TEXT NOT NULL,
     content TEXT,
-    doc_type TEXT CHECK(doc_type IN ('cours','exercice','devoir','fiche','autre')),
+    doc_type TEXT,
     file_path TEXT,
     embedding BLOB,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
-
-CREATE TABLE IF NOT EXISTS school_flashcards (
+CREATE TABLE school_flashcards (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     subject_id INTEGER REFERENCES school_subjects(id),
     question TEXT NOT NULL,
@@ -117,53 +98,35 @@ CREATE TABLE IF NOT EXISTS school_flashcards (
     interval_days INTEGER DEFAULT 1,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
-
--- ═══ PRODUCTIVITÉ ═══
-
-CREATE TABLE IF NOT EXISTS tasks (
+CREATE TABLE tasks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     title TEXT NOT NULL,
     description TEXT,
-    priority TEXT DEFAULT 'medium' CHECK(priority IN ('high','medium','low')),
-    status TEXT DEFAULT 'todo' CHECK(status IN ('todo','doing','done')),
+    priority TEXT DEFAULT 'medium' CHECK(priority IN ('high', 'medium', 'low')),
+    status TEXT DEFAULT 'todo' CHECK(status IN ('todo', 'doing', 'done')),
     due_date DATETIME,
     category TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     completed_at DATETIME
 );
-
-CREATE TABLE IF NOT EXISTS email_summaries (
+CREATE TABLE email_summaries (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     gmail_id TEXT UNIQUE,
     sender TEXT,
     subject TEXT,
     summary TEXT,
     action_needed BOOLEAN DEFAULT 0,
-    priority TEXT CHECK(priority IN ('high','medium','low')),
+    priority TEXT,
     processed_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS daily_briefings (
+, body TEXT DEFAULT '', received_at TEXT DEFAULT '', category TEXT DEFAULT 'info', is_read INTEGER DEFAULT 0, created_at TEXT DEFAULT '');
+CREATE TABLE daily_briefings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     date DATE UNIQUE,
     morning_briefing TEXT,
     evening_summary TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
-
-CREATE TABLE IF NOT EXISTS llm_action_logs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    agent TEXT,
-    action_type TEXT,
-    payload TEXT,
-    status TEXT CHECK(status IN ('success', 'error', 'pending')),
-    execution_time_ms INTEGER
-);
-
--- ═══ RÉSUMÉS ═══
-
-CREATE TABLE IF NOT EXISTS weekly_summaries (
+CREATE TABLE weekly_summaries (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     week_start DATE,
     summary TEXT,
@@ -171,22 +134,28 @@ CREATE TABLE IF NOT EXISTS weekly_summaries (
     recommendations TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
-
--- ═══ INDEX ═══
-
-CREATE INDEX IF NOT EXISTS idx_episodes_agent ON episodes(agent);
-CREATE INDEX IF NOT EXISTS idx_episodes_created ON episodes(created_at);
-CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id);
-CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at);
-CREATE INDEX IF NOT EXISTS idx_people_name ON people(name);
-CREATE INDEX IF NOT EXISTS idx_mood_created ON mood_log(created_at);
-CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
-CREATE INDEX IF NOT EXISTS idx_flashcards_review ON school_flashcards(next_review);
-CREATE INDEX IF NOT EXISTS idx_patterns_status ON patterns(status);
-
--- ═══ MÉMOIRE PROFONDE ═══
-
-CREATE TABLE IF NOT EXISTS user_facts (
+CREATE INDEX idx_episodes_agent ON episodes(agent);
+CREATE INDEX idx_episodes_created ON episodes(created_at);
+CREATE INDEX idx_messages_conv ON messages(conversation_id);
+CREATE INDEX idx_messages_created ON messages(created_at);
+CREATE INDEX idx_people_name ON people(name);
+CREATE INDEX idx_mood_created ON mood_log(created_at);
+CREATE INDEX idx_tasks_status ON tasks(status);
+CREATE INDEX idx_flashcards_review ON school_flashcards(next_review);
+CREATE TABLE notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source TEXT NOT NULL,          -- email, pattern, calendar, system…
+    title TEXT NOT NULL,
+    content TEXT,
+    priority TEXT DEFAULT 'medium' CHECK(priority IN ('urgent', 'high', 'medium', 'low')),
+    read BOOLEAN DEFAULT 0,
+    email_id TEXT,                 -- lien vers gmail_id si source=email
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_notif_read ON notifications(read);
+CREATE INDEX idx_notif_created ON notifications(created_at);
+CREATE INDEX idx_email_summaries_gmail ON email_summaries(gmail_id);
+CREATE TABLE user_facts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     category TEXT NOT NULL,
     content TEXT NOT NULL,
@@ -197,10 +166,9 @@ CREATE TABLE IF NOT EXISTS user_facts (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
-CREATE INDEX IF NOT EXISTS idx_facts_category ON user_facts(category);
-CREATE INDEX IF NOT EXISTS idx_facts_current ON user_facts(is_current);
-
-CREATE TABLE IF NOT EXISTS relationship_profiles (
+CREATE INDEX idx_facts_category ON user_facts(category);
+CREATE INDEX idx_facts_current ON user_facts(is_current);
+CREATE TABLE relationship_profiles (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     person_id INTEGER REFERENCES people(id) ON DELETE CASCADE,
     handle TEXT,
@@ -216,9 +184,8 @@ CREATE TABLE IF NOT EXISTS relationship_profiles (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
-CREATE INDEX IF NOT EXISTS idx_relprofile_person ON relationship_profiles(person_id);
-
-CREATE TABLE IF NOT EXISTS relationship_events (
+CREATE INDEX idx_relprofile_person ON relationship_profiles(person_id);
+CREATE TABLE relationship_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     person_id INTEGER REFERENCES people(id) ON DELETE CASCADE,
     event_date DATE,
@@ -229,10 +196,9 @@ CREATE TABLE IF NOT EXISTS relationship_events (
     source TEXT DEFAULT 'imessage',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
-CREATE INDEX IF NOT EXISTS idx_relevents_person ON relationship_events(person_id);
-CREATE INDEX IF NOT EXISTS idx_relevents_date ON relationship_events(event_date);
-
-CREATE TABLE IF NOT EXISTS cross_insights (
+CREATE INDEX idx_relevents_person ON relationship_events(person_id);
+CREATE INDEX idx_relevents_date ON relationship_events(event_date);
+CREATE TABLE cross_insights (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     insight_type TEXT,
     content TEXT NOT NULL,
@@ -244,9 +210,8 @@ CREATE TABLE IF NOT EXISTS cross_insights (
     last_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
     status TEXT DEFAULT 'active'
 );
-CREATE INDEX IF NOT EXISTS idx_crossinsights_type ON cross_insights(insight_type);
-
-CREATE TABLE IF NOT EXISTS life_context (
+CREATE INDEX idx_crossinsights_type ON cross_insights(insight_type);
+CREATE TABLE life_context (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     period_start DATE,
     period_end DATE,
@@ -257,9 +222,16 @@ CREATE TABLE IF NOT EXISTS life_context (
     active BOOLEAN DEFAULT 1,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
-CREATE INDEX IF NOT EXISTS idx_lifecontext_active ON life_context(active);
-
-CREATE TABLE IF NOT EXISTS recordings (
+CREATE INDEX idx_lifecontext_active ON life_context(active);
+CREATE TABLE imessage_analysis_cache (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    handle TEXT NOT NULL,
+    last_analyzed_rowid INTEGER DEFAULT 0,
+    last_analyzed_at DATETIME,
+    total_messages_analyzed INTEGER DEFAULT 0
+);
+CREATE UNIQUE INDEX idx_imcache_handle ON imessage_analysis_cache(handle);
+CREATE TABLE recordings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     conversation_id INTEGER REFERENCES conversations(id),
     label TEXT,
@@ -272,11 +244,8 @@ CREATE TABLE IF NOT EXISTS recordings (
     audio_size_kb INTEGER,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
-CREATE INDEX IF NOT EXISTS idx_recordings_date ON recordings(created_at);
-
--- ═══ LOCALISATION ═══
-
-CREATE TABLE IF NOT EXISTS places (
+CREATE INDEX idx_recordings_date ON recordings(created_at);
+CREATE TABLE places (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     category TEXT CHECK(category IN (
@@ -293,10 +262,9 @@ CREATE TABLE IF NOT EXISTS places (
     last_visit DATETIME,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
-CREATE INDEX IF NOT EXISTS idx_places_name ON places(name);
-CREATE INDEX IF NOT EXISTS idx_places_category ON places(category);
-
-CREATE TABLE IF NOT EXISTS location_history (
+CREATE INDEX idx_places_name ON places(name);
+CREATE INDEX idx_places_category ON places(category);
+CREATE TABLE location_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     latitude REAL NOT NULL,
     longitude REAL NOT NULL,
@@ -308,10 +276,9 @@ CREATE TABLE IF NOT EXISTS location_history (
     place_id INTEGER REFERENCES places(id),
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
-CREATE INDEX IF NOT EXISTS idx_location_date ON location_history(created_at);
-CREATE INDEX IF NOT EXISTS idx_location_place ON location_history(place_id);
-
-CREATE TABLE IF NOT EXISTS visits (
+CREATE INDEX idx_location_date ON location_history(created_at);
+CREATE INDEX idx_location_place ON location_history(place_id);
+CREATE TABLE visits (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     place_id INTEGER NOT NULL REFERENCES places(id),
     arrived_at DATETIME NOT NULL,
@@ -321,11 +288,10 @@ CREATE TABLE IF NOT EXISTS visits (
     notes TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
-CREATE INDEX IF NOT EXISTS idx_visits_place ON visits(place_id);
-CREATE INDEX IF NOT EXISTS idx_visits_date ON visits(arrived_at);
-CREATE INDEX IF NOT EXISTS idx_visits_day ON visits(day_of_week);
-
-CREATE TABLE IF NOT EXISTS trips (
+CREATE INDEX idx_visits_place ON visits(place_id);
+CREATE INDEX idx_visits_date ON visits(arrived_at);
+CREATE INDEX idx_visits_day ON visits(day_of_week);
+CREATE TABLE trips (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     from_place_id INTEGER REFERENCES places(id),
     to_place_id INTEGER REFERENCES places(id),
@@ -337,9 +303,8 @@ CREATE TABLE IF NOT EXISTS trips (
     route_points TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
-CREATE INDEX IF NOT EXISTS idx_trips_date ON trips(started_at);
-
-CREATE TABLE IF NOT EXISTS location_patterns (
+CREATE INDEX idx_trips_date ON trips(started_at);
+CREATE TABLE location_patterns (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     pattern_type TEXT CHECK(pattern_type IN (
         'routine', 'absence', 'new_place', 'frequency_change',
@@ -352,19 +317,7 @@ CREATE TABLE IF NOT EXISTS location_patterns (
     last_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
     status TEXT DEFAULT 'active' CHECK(status IN ('active', 'acknowledged', 'resolved'))
 );
-
-CREATE TABLE IF NOT EXISTS imessage_analysis_cache (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    handle TEXT NOT NULL,
-    last_analyzed_rowid INTEGER DEFAULT 0,
-    last_analyzed_at DATETIME,
-    total_messages_analyzed INTEGER DEFAULT 0
-);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_imcache_handle ON imessage_analysis_cache(handle);
-
--- ═══ CONVERSATIONS ENRICHIES ═══
-
-CREATE TABLE IF NOT EXISTS conversation_documents (
+CREATE TABLE conversation_documents (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
     filename TEXT NOT NULL,
@@ -376,11 +329,23 @@ CREATE TABLE IF NOT EXISTS conversation_documents (
     summary TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
-CREATE INDEX IF NOT EXISTS idx_convdocs_conv ON conversation_documents(conversation_id);
-
--- ═══ DAEMON JARVIS — ACTIVITÉ ÉCRAN ═══
-
-CREATE TABLE IF NOT EXISTS screen_activity (
+CREATE INDEX idx_convdocs_conv ON conversation_documents(conversation_id);
+CREATE TABLE llm_action_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    agent TEXT,
+    action_type TEXT,
+    payload TEXT,
+    status TEXT CHECK(status IN ('success', 'error', 'pending')),
+    execution_time_ms INTEGER
+);
+CREATE INDEX idx_llm_logs_created ON llm_action_logs(created_at);
+CREATE INDEX idx_llm_logs_action_type ON llm_action_logs(action_type);
+CREATE TABLE app_settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+CREATE TABLE screen_activity (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     device TEXT NOT NULL DEFAULT 'mac_mini',
     app TEXT,
@@ -391,13 +356,10 @@ CREATE TABLE IF NOT EXISTS screen_activity (
     change_pct REAL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
-CREATE INDEX IF NOT EXISTS idx_screen_date ON screen_activity(created_at);
-CREATE INDEX IF NOT EXISTS idx_screen_device ON screen_activity(device);
-CREATE INDEX IF NOT EXISTS idx_screen_app ON screen_activity(app);
-
--- ═══ DAEMON JARVIS — TEMPS PAR APPLICATION ═══
-
-CREATE TABLE IF NOT EXISTS app_usage (
+CREATE INDEX idx_screen_date ON screen_activity(created_at);
+CREATE INDEX idx_screen_device ON screen_activity(device);
+CREATE INDEX idx_screen_app ON screen_activity(app);
+CREATE TABLE app_usage (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     device TEXT NOT NULL DEFAULT 'mac_mini',
     app TEXT NOT NULL,
@@ -407,11 +369,8 @@ CREATE TABLE IF NOT EXISTS app_usage (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(device, app, date)
 );
-CREATE INDEX IF NOT EXISTS idx_appusage_date ON app_usage(date);
-
--- ═══ DAEMON JARVIS — MACHINES CONNECTÉES ═══
-
-CREATE TABLE IF NOT EXISTS devices (
+CREATE INDEX idx_appusage_date ON app_usage(date);
+CREATE TABLE devices (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     device_id TEXT UNIQUE NOT NULL,
     device_name TEXT NOT NULL,
@@ -424,11 +383,8 @@ CREATE TABLE IF NOT EXISTS devices (
     auth_token TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
-CREATE UNIQUE INDEX IF NOT EXISTS idx_devices_id ON devices(device_id);
-
--- ═══ DAEMON JARVIS — SESSIONS DE TRAVAIL ═══
-
-CREATE TABLE IF NOT EXISTS work_sessions (
+CREATE UNIQUE INDEX idx_devices_id ON devices(device_id);
+CREATE TABLE work_sessions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     device TEXT,
     app TEXT,
@@ -438,4 +394,18 @@ CREATE TABLE IF NOT EXISTS work_sessions (
     description TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
-CREATE INDEX IF NOT EXISTS idx_worksessions_date ON work_sessions(started_at);
+CREATE INDEX idx_worksessions_date ON work_sessions(started_at);
+CREATE TABLE agentic_workflows (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    conversation_id INTEGER NOT NULL REFERENCES conversations(id),
+    user_message TEXT NOT NULL,
+    steps_json TEXT NOT NULL,
+    final_synthesis TEXT,
+    status TEXT DEFAULT 'running' CHECK(status IN ('running','completed','failed','partial')),
+    started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    completed_at DATETIME,
+    total_steps INTEGER DEFAULT 0,
+    total_output_chars INTEGER DEFAULT 0
+);
+CREATE INDEX idx_agentic_conv ON agentic_workflows(conversation_id);
+CREATE INDEX idx_agentic_status ON agentic_workflows(status);

@@ -205,6 +205,12 @@ class IMessageBridge:
 
     def _send_message(self, text: str) -> int:
         """Envoie le texte (split en chunks si long). Retourne le nombre de chunks envoyés."""
+        if not config.IMESSAGE_SEND_ENABLED:
+            logger.warning(
+                "[imessage] Envoi bloqué — IMESSAGE_SEND_ENABLED=false. "
+                f"Tentative ignorée vers {self.target!r}."
+            )
+            raise RuntimeError("Envoi iMessage désactivé (IMESSAGE_SEND_ENABLED=false)")
         if not text:
             return 0
         chunks = [
@@ -279,6 +285,9 @@ class IMessageBridge:
 
     async def start_polling(self, interval: float = 3.0) -> None:
         """Lance la boucle de polling. À mettre dans `asyncio.create_task()`."""
+        if not config.IMESSAGE_SEND_ENABLED:
+            logger.info("[imessage] Bridge (polling+réponse) désactivé — sourcing seul actif.")
+            return
         if not self.is_available():
             logger.warning("[iMessage] Polling annulé (bridge indisponible)")
             return
@@ -352,6 +361,12 @@ class IMessageBridge:
 
 def send_imessage_to_address(address: str, text: str) -> tuple[bool, str]:
     """Envoie un message iMessage à une adresse (téléphone ou email Apple ID)."""
+    if not config.IMESSAGE_SEND_ENABLED:
+        logger.warning(
+            f"[imessage] Envoi bloqué — IMESSAGE_SEND_ENABLED=false. "
+            f"Tentative ignorée vers {address!r}."
+        )
+        raise RuntimeError("Envoi iMessage désactivé (IMESSAGE_SEND_ENABLED=false)")
     addr = (address or "").strip()
     if not addr:
         return False, "Adresse vide"

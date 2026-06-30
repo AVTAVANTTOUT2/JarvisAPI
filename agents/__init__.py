@@ -2,6 +2,7 @@
 
 import logging
 import re
+import time as _time
 from abc import ABC, abstractmethod
 from pathlib import Path
 
@@ -9,6 +10,7 @@ import config
 import llm
 from agents.display_text import strip_assistant_code_fences
 from database import save_episode, save_message
+from jarvis.event_bus import JarvisEvent, event_bus
 
 logger = logging.getLogger(__name__)
 
@@ -84,9 +86,31 @@ class BaseAgent(ABC):
 
         if context:
             for key, value in context.items():
-                if key in ("voice_mode", "history"):
+                if key in ("voice_mode", "history", "history_text"):
                     continue
                 base = base.replace(f"{{{{{key}}}}}", str(value))
+            # ── Historique conversation (derniers 50 messages formatés) ─────
+            history_messages = context.get("history")
+            if history_messages:
+                timed_lines: list[str] = []
+                for msg in history_messages:
+                    role = msg.get("role", "?")
+                    label = "Utilisateur" if role == "user" else "JARVIS"
+                    ts = msg.get("created_at") or ""
+                    content = (msg.get("content") or "").strip()
+                    if not content:
+                        continue
+                    # Tronquer les messages très longs (500 chars max)
+                    if len(content) > 500:
+                        content = content[:500] + "…"
+                    timed_lines.append(f"[{ts}] {label} : {content}")
+                if timed_lines:
+                    base += (
+                        "\n\n---\n\n"
+                        "HISTORIQUE DE LA CONVERSATION (du plus ancien au plus récent) :\n"
+                        + "\n".join(timed_lines[-50:])
+                        + "\n\n(Fin de l'historique)"
+                    )
             if context.get("voice_mode"):
                 base += (
                     "\n\n---\n"
@@ -94,13 +118,22 @@ class BaseAgent(ABC):
                     "Tes réponses doivent être extrêmement concises, naturelles et conversationnelles. "
                     "Pas de Markdown, pas de listes à puces, pas de longs paragraphes. "
                     "3 phrases maximum sauf si l'utilisateur demande explicitement un développement.\n\n"
-                    "IMPORTANT — Tu peux et DOIS utiliser les blocs ```action {{...}}``` "
-                    "pour exécuter des commandes réelles : météo, ouvrir une app, créer une tâche, "
-                    "consulter le calendrier, donner l'heure, terminal, etc. "
-                    "Les actions sont exécutées automatiquement puis le résultat te sera "
-                    "communiqué pour que tu le reformules à l'oral. "
-                    "Ne dis JAMAIS « je n'ai pas accès à l'heure / à la météo / au calendrier » "
-                    "— utilise systématiquement l'action appropriée."
+                    "IMPORTANT — TU PEUX AGIR ET RÉPONDRE EN MÊME TEMPS :\n"
+                    "- Pour les actions simples (météo, calendrier, tâche, humeur, mail) : "
+                    "utilise ```action {{\"type\":\"...\"}}```\n"
+                    "- Pour les tâches complexes (analyser du code, créer un script, "
+                    "lire un fichier, déployer, débugger, chaîner des commandes) : "
+                    "utilise ```action {{\"type\":\"terminal\",\"command\":\"...\",\"complex\":true}}```\n"
+                    "- Tu peux enchaîner plusieurs actions si nécessaire "
+                    "(le système les exécutera en boucle et te redonnera la main)\n"
+                    "- Ne dis JAMAIS « je n'ai pas accès à... » — tu as accès à tout via les actions.\n"
+                    "- Si tu proposes de faire quelque chose et que l'utilisateur dit 'oui' ou 'vas-y', "
+                    "tu DOIS immédiatement produire le bloc action correspondant dans ta réponse.\n\n"
+                    "EXEMPLES :\n"
+                    "- User demande la météo → Toi: ```action {{\"type\":\"weather\",\"city\":\"Lille\"}}```\n"
+                    "- User: \"analyse data.csv\" → Toi: ```action {{\"type\":\"terminal\",\"command\":\"lis et analyse le fichier data.csv, fais des stats descriptives\",\"complex\":true}}```\n"
+                    "- User: \"pourquoi mon serveur crash\" → Toi: ```action {{\"type\":\"terminal\",\"command\":\"trouve les logs d'erreur et diagnostique la cause du crash\",\"complex\":true}}```\n"
+                    "- User: \"crée un script qui scrap Amazon\" → Toi: ```action {{\"type\":\"terminal\",\"command\":\"écris un script Python qui scrape les prix Amazon et le sauvegarde dans data/outputs/scraper.py\",\"complex\":true}}```"
                 )
         return base
 
@@ -161,6 +194,14 @@ class BaseAgent(ABC):
             cap = getattr(config, "VOICE_MAX_TOKENS", 500)
             mt = min(mt, cap)
 
+        t_start = _time.time()
+
+        await event_bus.emit(JarvisEvent(
+            type="agent.start",
+            agent=self.name,
+            data={"model": eff_model, "message": user_message[:120]},
+        ))
+
         result = await llm.chat(
             messages=messages,
             model=eff_model,
@@ -168,6 +209,21 @@ class BaseAgent(ABC):
             temperature=temperature,
             max_tokens=mt,
         )
+
+        latency_ms = int((_time.time() - t_start) * 1000)
+
+        await event_bus.emit(JarvisEvent(
+            type="agent.response",
+            agent=self.name,
+            data={
+                "content": result["content"][:300],
+                "model": result["model"],
+                "tokens_in": result.get("tokens_in", 0),
+                "tokens_out": result.get("tokens_out", 0),
+                "cost": result.get("cost", 0),
+                "latency_ms": latency_ms,
+            },
+        ))
 
         emotion, clean_text = self._extract_emotion(result["content"])
         if strip_fences:
@@ -224,33 +280,66 @@ class BaseAgent(ABC):
         }
 
     _ACTION_RE = re.compile(
-        r"```action\s*\n(.*?)\n```",
+        r"```action\s*\n?(.*?)```",
         re.DOTALL | re.IGNORECASE,
     )
 
+    # JSON inline hors backticks que DeepSeek produit parfois (Trace #39)
+    _ACTION_JSON_INLINE_RE = re.compile(
+        r'\{\s*"type"\s*:\s*"(\w+)"\s*[,}].*?\}',
+        re.DOTALL,
+    )
+
     def _extract_action(self, response: str) -> tuple[dict | None, str]:
-        """Extrait un bloc ```action {JSON} ``` de la réponse.
+        """Extrait un bloc action de la réponse — tolérant au format.
 
-        Retourne (action_dict, texte_sans_bloc) ou (None, response) si aucun bloc.
+        Accepte :
+        - `` ```action\\n{JSON}\\n``` `` (standard)
+        - `` ```action {JSON}``` `` (sans newline, que DeepSeek produit)
+        - JSON brut inline hors backticks (fallback)
+
+        Retourne (action_dict, texte_sans_bloc) ou (None, response) si rien.
         """
-        import json
+        import json as _json
 
+        # ── 1. Format standard / tolérant : ```action ...``` ──
         m = self._ACTION_RE.search(response)
-        if not m:
-            return None, response
+        if m:
+            json_str = m.group(1).strip()
+            clean_text = (response[: m.start()] + response[m.end():]).strip()
+            try:
+                action = _json.loads(json_str)
+                if isinstance(action, dict) and "type" in action:
+                    return action, clean_text
+            except _json.JSONDecodeError:
+                # Tente de parser même un JSON partiel
+                pass
 
-        json_str = m.group(1).strip()
-        clean_text = (response[: m.start()] + response[m.end() :]).strip()
+        # ── 2. Fallback : JSON inline avec "type" (pas de backticks) ──
+        m2 = self._ACTION_JSON_INLINE_RE.search(response)
+        if m2:
+            try:
+                # Extrait l'objet JSON complet (du premier { au dernier })
+                start = m2.start()
+                depth = 0
+                end = start
+                for i, ch in enumerate(response[start:], start):
+                    if ch == '{':
+                        depth += 1
+                    elif ch == '}':
+                        depth -= 1
+                        if depth == 0:
+                            end = i + 1
+                            break
+                json_str = response[start:end]
+                action = _json.loads(json_str)
+                if isinstance(action, dict) and "type" in action:
+                    clean_text = (response[:start] + response[end:]).strip()
+                    return action, clean_text
+            except (_json.JSONDecodeError, ValueError):
+                pass
 
-        try:
-            action = json.loads(json_str)
-            if not isinstance(action, dict) or "type" not in action:
-                logger.warning("[action] JSON invalide (pas de champ 'type') : %r", json_str[:100])
-                return None, clean_text
-            return action, clean_text
-        except json.JSONDecodeError as e:
-            logger.warning("[action] JSON malformé : %s — %r", e, json_str[:100])
-            return None, clean_text
+        return None, response
 
     async def _route_task(self, user_message: str, conversation_id: int = None,
                           context: dict = None, history: list = None) -> dict:
@@ -312,6 +401,130 @@ class BaseAgent(ABC):
             context=context,
             history=history,
         )
+
+    # ── Boucle agentique ─────────────────────────────────────────────────────
+
+    MAX_AGENTIC_STEPS = 5
+    MAX_AGENTIC_OUTPUT_CHARS = 8000
+
+    async def _run_agentic_loop(
+        self,
+        user_message: str,
+        conversation_id: int | None,
+        context: dict | None,
+        initial_action: dict,
+    ) -> dict:
+        """Boucle agentique : exécute une série d'actions pour accomplir une tâche.
+
+        Chaque étape :
+        1. Exécute l'action
+        2. Si succès, demande au LLM si une nouvelle action est nécessaire
+        3. Si échec répété, abandonne
+
+        Retourne un dict avec ``results`` (liste des étapes), ``step_count``,
+        ``total_output_chars``, ``final_status``.
+        """
+        from actions import execute_action as _exec_action
+
+        results: list[dict] = []
+        total_output_chars = 0
+        current_action = initial_action
+        consecutive_failures = 0
+
+        for step in range(self.MAX_AGENTIC_STEPS):
+            logger.info(
+                "[agentic] Step %d/%d: type=%s",
+                step + 1, self.MAX_AGENTIC_STEPS, current_action.get("type", "?"),
+            )
+
+            try:
+                result = await _exec_action(current_action)
+            except Exception as e:
+                result = {"ok": False, "message": str(e)}
+
+            results.append({
+                "step": step + 1,
+                "action": current_action,
+                "result": result,
+            })
+
+            total_output_chars += len(
+                str(result.get("output", result.get("message", "")))
+            )
+
+            if result.get("ok"):
+                consecutive_failures = 0
+            else:
+                consecutive_failures += 1
+
+            # Abandon si 2 échecs consécutifs
+            if consecutive_failures >= 2:
+                results.append({
+                    "step": "aborted",
+                    "reason": (
+                        f"Échecs répétés ({consecutive_failures}) : "
+                        f"{result.get('message', result.get('error', 'inconnu'))}"
+                    ),
+                })
+                break
+
+            # Limite de sortie
+            if total_output_chars > self.MAX_AGENTIC_OUTPUT_CHARS:
+                results.append({
+                    "step": "truncated",
+                    "reason": f"Limite de sortie atteinte ({self.MAX_AGENTIC_OUTPUT_CHARS} chars)",
+                })
+                break
+
+            # Dernière étape → pas besoin de demander
+            if step >= self.MAX_AGENTIC_STEPS - 1:
+                break
+
+            # Demander au LLM si une nouvelle action est nécessaire
+            context_summary = "\n".join([
+                f"Step {r['step']}: {r['action'].get('type')} → "
+                f"{str(r['result'].get('output', r['result'].get('message', '')))[:500]}"
+                for r in results
+                if isinstance(r.get("step"), int)
+            ])
+
+            decision_prompt = (
+                f"Contexte d'exécution :\n{context_summary}\n\n"
+                f"Question originale : {user_message}\n\n"
+                "Décide : faut-il une action supplémentaire pour répondre complètement ?\n"
+                "Si OUI → ```action {\"type\":\"terminal\",\"command\":\"...\",\"complex\":true}```\n"
+                "Si NON → réponds TERMINE"
+            )
+
+            try:
+                decision = await llm.chat(
+                    messages=[{"role": "user", "content": decision_prompt}],
+                    model=config.DEEPSEEK_FAST_MODEL,
+                    max_tokens=200,
+                    temperature=0.0,
+                )
+            except Exception as e:
+                logger.warning("[agentic] LLM décision indisponible : %s", e)
+                break
+
+            decision_text = decision.get("content", "TERMINE")
+
+            if "TERMINE" in decision_text.upper():
+                break
+
+            next_action, _ = self._extract_action(decision_text)
+            if next_action:
+                current_action = next_action
+            else:
+                # Pas d'action → on arrête
+                break
+
+        return {
+            "results": results,
+            "step_count": len([r for r in results if isinstance(r.get("step"), int)]),
+            "total_output_chars": total_output_chars,
+            "final_status": "completed" if consecutive_failures == 0 else "partial",
+        }
 
 
 # Registry global des agents

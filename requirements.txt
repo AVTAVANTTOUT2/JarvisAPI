@@ -31,6 +31,10 @@ faster-whisper>=1.2        # transcription locale via CTranslate2 (Apple Silicon
 sounddevice>=0.5           # playback direct CoreAudio (evite afplay subprocess)
 soundfile>=0.13            # decode audio pour sounddevice (WAV/MP3/M4A)
 
+# VAD neural — Silero VAD (1 Mo, <1ms par chunk, distingue parole/bruit)
+torch>=2.0                 # backend Silero VAD via torch.hub (~2 Go, CPU only)
+torchaudio>=2.0            # compagnon torch
+
 # Dual-LLM (jarvis/ package) — anonymisation PII + backend DeepSeek
 spacy==3.7.*             # NER PII (modèle : python -m spacy download fr_core_news_sm)
 

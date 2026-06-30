@@ -22,19 +22,35 @@ import os
 import struct
 import subprocess
 import tempfile
+import threading
 import time
 import wave
 from pathlib import Path
 from typing import Any, Callable, Coroutine
 
 import config
+
+# Detection Silero VAD (sans log, le logger est defini plus bas)
+try:
+    from audio.vad_silero import silero_vad as _vad_silero, SileroVAD
+    USE_SILERO_VAD: bool = _vad_silero.available
+except ImportError:
+    USE_SILERO_VAD = False
+    _vad_silero = None
+
 from database import create_conversation, get_setting, save_message
+from jarvis.event_bus import JarvisEvent, event_bus
 
 logger = logging.getLogger("audio_daemon")
 
+if USE_SILERO_VAD:
+    logger.info("[audio_daemon] VAD : Silero (neural)")
+else:
+    logger.info("[audio_daemon] VAD : RMS (fallback)")
+
 # ── Constantes nominales ─────────────────────────────────────────────────────
 
-SAMPLE_RATE = 16000
+SAMPLE_RATE = int(getattr(config, "AUDIO_DAEMON_SAMPLE_RATE", 16000) or 16000)
 CHANNELS = 1
 SAMPLE_WIDTH = 2  # 16-bit
 CHUNK_MS = 30  # fenêtre VAD
@@ -46,13 +62,8 @@ FALLBACK_WAKE_RMS = 0.03
 FALLBACK_WAKE_DURATION_MS = 500
 FALLBACK_WAKE_CHUNKS = int(FALLBACK_WAKE_DURATION_MS / CHUNK_MS)
 
-# Phrases de fin de conversation
-END_PHRASES: tuple[str, ...] = (
-    "merci jarvis", "c'est bon jarvis", "c'est tout jarvis",
-    "merci c'est bon", "c'est fini", "bonne nuit jarvis",
-    "a plus jarvis", "ok merci", "au revoir", "stop",
-    "arrête", "arrête-toi",
-)
+# Timeout subprocess audio (afplay / say)
+AFPLAY_TIMEOUT_S = 30.0
 
 # Son de confirmation
 WAKE_SOUND_PATH = Path(__file__).resolve().parent.parent / "data" / "sounds" / "wake.wav"
@@ -60,6 +71,100 @@ END_SOUND_PATH = Path(__file__).resolve().parent.parent / "data" / "sounds" / "e
 
 # Type du callback broadcast injecté par main.py
 BroadcastFn = Callable[[dict[str, Any]], Coroutine[Any, Any, None]]
+
+# ── Filtre hallucinations STT (bruit TV/YouTube) ──
+# Whisper / faster-whisper hallucine des phrases de sous-titres YouTube
+# sur du silence ou bruit ambiant non-vocal. Ce filtre bloque ces artefacts
+# avant qu'ils n'atteignent le LLM.
+STT_GHOST_PHRASES: list[str] = [
+    "sous-titres realises par",
+    "amara.org",
+    "sous-titrage",
+    "merci d'avoir regarde",
+    "merci d avoir regarde",
+    "abonnez-vous",
+    "n'oubliez pas de",
+    "n oubliez pas de",
+    "like and subscribe",
+    "subtitles by",
+    "thank you for watching",
+    "musique",
+    "\u266a",  # ♪
+    "[musique]",
+    "[applaudissements]",
+    "community generated",
+    "auto-generated",
+    "cc by",
+    "creative commons",
+]
+
+# Phrases de mise en veille / reveil (detection directe, bypass LLM)
+SLEEP_PHRASES: list[str] = [
+    "mets-toi en veille",
+    "mets toi en veille",
+    "en veille",
+    "dors",
+    "bonne nuit",
+    "pause",
+    "silence",
+    "arrete d'ecouter",
+    "arrete de m'ecouter",
+]
+WAKE_PHRASES: list[str] = [
+    "reveille-toi",
+    "reveille toi",
+    "reveille-toi",
+    "je suis la",
+    "je suis ici",
+    "c'est bon",
+]
+
+
+def _is_stt_hallucination(text: str) -> bool:
+    """Detecte les hallucinations classiques de Whisper sur bruit ambiant.
+
+    Retourne True si le texte est probablement un artefact de sous-titrage
+    genere par le modele STT sur du silence ou du bruit non-vocal.
+    """
+    lower = text.lower().strip()
+    if len(lower) < 3:
+        return True
+    return any(ghost in lower for ghost in STT_GHOST_PHRASES)
+
+
+def _is_low_confidence(segments: list) -> bool:
+    """Retourne True si la transcription est probablement du bruit.
+
+    faster-whisper retourne un score `avg_logprob` par segment.
+    avg_logprob < -1.0 = probable bruit / hallucination STT.
+    """
+    if not segments:
+        return True
+    scores = []
+    for s in segments:
+        if hasattr(s, "avg_logprob") and s.avg_logprob is not None and s.avg_logprob > -100:
+            scores.append(s.avg_logprob)
+    if not scores:
+        return False
+    avg_score = sum(scores) / len(scores)
+    return avg_score < -1.0
+
+
+async def _wait_subprocess(
+    proc: asyncio.subprocess.Process,
+    timeout: float = AFPLAY_TIMEOUT_S,
+    context: str = "subprocess",
+) -> None:
+    """Attend la fin d'un subprocess avec timeout ; kill si dépassé."""
+    try:
+        await asyncio.wait_for(proc.wait(), timeout=timeout)
+    except asyncio.TimeoutError:
+        logger.warning("[audio_daemon] %s timeout (%.0fs) — kill", context, timeout)
+        try:
+            proc.kill()
+            await proc.wait()
+        except Exception as e:
+            logger.debug("[audio_daemon] %s kill: %s", context, e)
 
 
 def _generate_wake_sound() -> None:
@@ -134,7 +239,7 @@ class AudioDaemon:
         "_vad_task",
         "_process_task",
         "_watchdog_task",
-        "_tts_playing",
+        "_tts_playing_event",
         "_last_interaction",
         "_last_tts_end",
         "_conv_start_time",
@@ -149,6 +254,9 @@ class AudioDaemon:
         "_speech_frames",
         "_silence_frames",
         "_mic_mute_logged",
+        "_sleep_detected",
+        "_last_frame_time",
+        "_sleep_mode",
     )
 
     def __init__(self) -> None:
@@ -171,7 +279,7 @@ class AudioDaemon:
         self._vad_task: asyncio.Task[Any] | None = None
         self._process_task: asyncio.Task[Any] | None = None
         self._watchdog_task: asyncio.Task[Any] | None = None
-        self._tts_playing: bool = False
+        self._tts_playing_event = threading.Event()
         self._last_interaction: float = 0.0
         self._last_tts_end: float = 0.0
         self._conv_start_time: float = 0.0
@@ -187,6 +295,21 @@ class AudioDaemon:
         self._silence_frames: int = 0
         self._mic_mute_logged: bool = False
 
+        # Mode veille applicative (controle par action LLM ou commande directe)
+        self._sleep_mode: bool = False
+
+    # ── Mode veille applicative ───────────────────────────────────────────────
+
+    def enter_sleep_mode(self) -> None:
+        """Coupe l'ecoute active — seul 'wake' ou le wake word peut reactiver."""
+        self._sleep_mode = True
+        logger.info("[audio_daemon] Mode veille active — micro en sourdine")
+
+    def exit_sleep_mode(self) -> None:
+        """Reactive l'ecoute."""
+        self._sleep_mode = False
+        logger.info("[audio_daemon] Mode veille desactive — ecoute active")
+
     # ── API publique ──────────────────────────────────────────────────────────
 
     async def start(self) -> None:
@@ -201,6 +324,7 @@ class AudioDaemon:
             return
         self._running = True
         self.enabled = True
+        self._sleep_detected = False
         self._loop = asyncio.get_running_loop()
         logger.info("[audio_daemon] Démarrage (boucle immortelle)…")
 
@@ -227,14 +351,27 @@ class AudioDaemon:
             except Exception as e:
                 consecutive_crashes += 1
                 crash_type = type(e).__name__
+
+                # Détection veille système : délai supplémentaire pour laisser macOS
+                # réactiver les périphériques audio après un réveil
+                extra_delay = 0.0
+                if self._sleep_detected:
+                    extra_delay = 5.0
+                    logger.warning(
+                        "[audio_daemon] Veille systeme detectee — delai de reprise de %.0fs",
+                        extra_delay,
+                    )
+                    self._sleep_detected = False
+
                 logger.error(
                     "[audio_daemon] Crash #%d (%s) : %s — redémarrage dans %.0fs",
-                    consecutive_crashes, crash_type, e, backoff_s,
+                    consecutive_crashes, crash_type, e, backoff_s + extra_delay,
+                    exc_info=True,
                 )
                 self._cleanup()
 
-                # Backoff exponentiel avec cap
-                await asyncio.sleep(backoff_s)
+                # Backoff exponentiel avec cap + délai veille
+                await asyncio.sleep(backoff_s + extra_delay)
                 backoff_s = min(backoff_s * 1.5, max_backoff_s)
 
                 # Si trop de crashes consecutifs → abandon temporaire
@@ -275,6 +412,8 @@ class AudioDaemon:
         self._last_tts_end = 0.0
         self._no_frame_count = 0
         self._mic_mute_logged = False
+        self._last_frame_time: float = 0.0
+        self._sleep_detected: bool = False
 
         self._pa = pyaudio.PyAudio()
         self._audio_queue = asyncio.Queue(maxsize=300)
@@ -296,6 +435,7 @@ class AudioDaemon:
         self.state = "wake_listening" if self.wake_word_enabled else "listening"
         logger.info("[audio_daemon] Actif — state=%s wake_word=%s", self.state, self.wake_word_enabled)
         await self._broadcast_state()
+        asyncio.create_task(event_bus.emit(JarvisEvent(type="voice.listening")))
 
         # Pre-charger le modele STT local (evite le lag de 2s au premier message)
         try:
@@ -305,8 +445,8 @@ class AudioDaemon:
                 loop_local = asyncio.get_running_loop()
                 await loop_local.run_in_executor(None, _stt_local._ensure_model_sync)
                 logger.info("[audio_daemon] Modele STT local pret")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("[audio_daemon] pre-chargement STT local: %s", e)
 
         # Attendre que l'une des tâches se termine (= crash)
         done, pending = await asyncio.wait(
@@ -337,7 +477,7 @@ class AudioDaemon:
                 pass
             self._tts_proc = None
 
-        self._tts_playing = False
+        self._tts_playing_event.clear()
 
         # Annuler les tâches async
         for task_attr in ("_vad_task", "_process_task", "_watchdog_task"):
@@ -385,6 +525,10 @@ class AudioDaemon:
         self._speech_frames = 0
         self._silence_frames = 0
         self._mic_mute_logged = False
+
+        # Reset Silero VAD
+        if USE_SILERO_VAD:
+            _vad_silero.reset()
 
         # Annuler le thread wake word
         if self._wake_thread_future:
@@ -477,15 +621,15 @@ class AudioDaemon:
             from audio.stt import stt as _stt
             if getattr(_stt, "available", False):
                 stt_engine = "elevenlabs_scribe"
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("[audio_daemon] get_status STT cloud: %s", e)
         if stt_engine == "none":
             try:
                 from audio.stt_local import stt_local as _stt_local
                 if _stt_local.available:
                     stt_engine = _stt_local.get_backend_name()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("[audio_daemon] get_status STT local: %s", e)
 
         # TTS engine — Edge TTS (fr-FR-VivienneMultilingualNeural)
         tts_engine = "edge"
@@ -494,7 +638,8 @@ class AudioDaemon:
             engine = _get_tts("edge")
             if not (engine and engine.available):
                 tts_engine = "macos"  # fallback effectif
-        except Exception:
+        except Exception as e:
+            logger.debug("[audio_daemon] get_status TTS edge: %s", e)
             tts_engine = "macos"
 
         return {
@@ -502,6 +647,7 @@ class AudioDaemon:
             "state": self.state,
             "wake_word_enabled": self.wake_word_enabled,
             "continuous_mode": self.continuous_mode,
+            "sleep_mode": self._sleep_mode,
             "last_interaction": self._last_interaction,
             "stt_engine": stt_engine,
             "tts_engine": tts_engine,
@@ -553,8 +699,20 @@ class AudioDaemon:
                 while self._running:
                     try:
                         data = stream.read(CHUNK_SAMPLES, exception_on_overflow=False)
-                    except OSError:
+                    except OSError as e:
+                        logger.warning("[audio_daemon] OSError sur stream.read() : %s — sortie boucle input", e)
+                        # Détection veille système : si on n'a pas eu de frame depuis > 30s,
+                        # c'est probablement un réveil de veille → force reinit complète
+                        now = time.time()
+                        if self._last_frame_time > 0 and (now - self._last_frame_time) > 30:
+                            self._sleep_detected = True
+                            logger.warning(
+                                "[audio_daemon] Veille systeme detectee (gap=%.0fs) — reinit complete PyAudio au prochain cycle",
+                                now - self._last_frame_time,
+                            )
                         break
+
+                    self._last_frame_time = time.time()
 
                     rms = self._chunk_rms(data)
                     if rms <= 0.0001:
@@ -569,7 +727,7 @@ class AudioDaemon:
                         silent_since = 0
 
                     # Ne pas alimenter la queue pendant le TTS (anti-écho + éviter QueueFull)
-                    if self._tts_playing:
+                    if self._tts_playing_event.is_set():
                         continue
 
                     # Safe put: QueueFull est catché DANS le callback (pas autour de call_soon_threadsafe)
@@ -622,9 +780,24 @@ class AudioDaemon:
         silence_chunks = int(silence_ms / CHUNK_MS)
         min_speech_chunks = int(min_speech_ms / CHUNK_MS)
         max_chunks = int(max_utterance_s * 1000 / CHUNK_MS)
-        # Seuil de silence adaptatif : si parole < 2s, exiger au moins 2s de silence
-        ADAPTIVE_SILENCE_CHUNKS = int(2000 / CHUNK_MS)
-        PRE_SPEECH_CHUNKS = 10  # 300ms de pré-buffer
+        # Seuil de silence adaptatif 3 paliers (francais parle).
+        # Avec Silero, la detection est plus fiable → seuils reduits.
+        # Avec le fallback RMS, seuils conservateurs.
+        if USE_SILERO_VAD:
+            # Silero detecte mieux → couper plus vite sans tronquer
+            SILENCE_MS_DEFAULT = 1000
+            ADAPTIVE_SHORT_MS = 1500  # parole < 2s
+            ADAPTIVE_LONG_MS = 800    # parole >= 5s
+        else:
+            SILENCE_MS_DEFAULT = silence_ms  # 1200ms config
+            ADAPTIVE_SHORT_MS = 2000
+            ADAPTIVE_LONG_MS = 1000
+
+        DEFAULT_CHUNKS = int(SILENCE_MS_DEFAULT / CHUNK_MS)
+        ADAPTIVE_SHORT_CHUNKS = int(ADAPTIVE_SHORT_MS / CHUNK_MS)
+        ADAPTIVE_LONG_THRESHOLD_S = 5.0
+        ADAPTIVE_LONG_CHUNKS = int(ADAPTIVE_LONG_MS / CHUNK_MS)
+        PRE_SPEECH_CHUNKS = 10  # 300ms de pre-buffer
 
         # ── État VAD ──
         frames: list[bytes] = []
@@ -641,6 +814,25 @@ class AudioDaemon:
 
         while self._running and self._stop_event and not self._stop_event.is_set():
             try:
+                # ── Mode veille applicative : micro en sourdine, seul le wake word peut reactiver ──
+                if self._sleep_mode:
+                    # Drainer les frames accumulees sans les traiter
+                    while not audio_queue.empty():
+                        try:
+                            audio_queue.get_nowait()
+                        except asyncio.QueueEmpty:
+                            break
+                    # Verifier le wake word (event leve par le thread Porcupine)
+                    if self.wake_word_enabled and self._wake_event and self._wake_event.is_set():
+                        self._wake_event.clear()
+                        self.exit_sleep_mode()
+                        logger.info("[audio_daemon] Wake word detecte — sortie de veille")
+                        self.state = "wake_listening"
+                        await self._broadcast_state()
+                        continue
+                    await asyncio.sleep(0.5)  # economiser CPU en veille
+                    continue
+
                 # ── Mode veille / wake_listening : on ne consomme pas la queue ──
                 if self.state in ("idle", "wake_listening"):
                     wake = self._wake_event
@@ -661,11 +853,11 @@ class AudioDaemon:
                                     "afplay", str(WAKE_SOUND_PATH),
                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                 )
-                                await proc.wait()
+                                await _wait_subprocess(proc, context="wake_sound afplay")
                             else:
                                 await self._play_tts("Oui Monsieur ?", emotion="neutral")
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.debug("[audio_daemon] wake sound/TTS: %s", e)
                         self.state = "listening"
                         await self._broadcast_state()
                         # Reset VAD après wake
@@ -675,6 +867,8 @@ class AudioDaemon:
                         speech_chunks = 0
                         silent_chunks = 0
                         total_chunks = 0
+                        if USE_SILERO_VAD:
+                            _vad_silero.reset()
                     continue
 
                 # ── Consomme la queue PCM ──
@@ -705,8 +899,9 @@ class AudioDaemon:
                 # Heartbeat toutes les ~60s
                 if frame_count % HEARTBEAT_INTERVAL == 0:
                     logger.debug(
-                        "[audio_daemon] Heartbeat — state=%s, queue=%d, speech=%d",
+                        "[audio_daemon] Heartbeat — state=%s queue=%d speech=%d vad=%s",
                         self.state, audio_queue.qsize(), self._speech_frames,
+                        "silero" if USE_SILERO_VAD else "rms",
                     )
 
                 # ── En speaking ou processing : détection d'interruption ──
@@ -717,10 +912,10 @@ class AudioDaemon:
                         if self._tts_proc and self._tts_proc.returncode is None:
                             try:
                                 self._tts_proc.kill()
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                logger.debug("[audio_daemon] kill TTS proc: %s", e)
                             self._tts_proc = None
-                        self._tts_playing = False
+                        self._tts_playing_event.clear()
                         self.state = "listening"
                         interrupt_event.set()
                         await self._broadcast_state()
@@ -743,14 +938,20 @@ class AudioDaemon:
                 # ── Mode listening : accumulation et VAD ──
                 frames.append(chunk)
                 total_chunks += 1
-                rms = self._chunk_rms(chunk)
 
                 # Pre-speech ring buffer
                 pre_speech_ring.append(chunk)
                 if len(pre_speech_ring) > PRE_SPEECH_CHUNKS:
                     pre_speech_ring.pop(0)
 
-                if rms > speech_threshold:
+                # Detection parole : Silero neural (prioritaire) ou RMS (fallback)
+                if USE_SILERO_VAD:
+                    is_speech = _vad_silero.is_speech(chunk)
+                else:
+                    rms = self._chunk_rms(chunk)
+                    is_speech = rms > speech_threshold
+
+                if is_speech:
                     if not has_speech:
                         has_speech = True
                         speech_chunks = 0
@@ -758,16 +959,27 @@ class AudioDaemon:
                         # Injecter le pre-speech buffer (300ms avant le seuil)
                         frames = list(pre_speech_ring) + frames
                         total_chunks += len(pre_speech_ring)
+                        # ── Event bus ──
+                        try:
+                            asyncio.create_task(event_bus.emit(JarvisEvent(
+                                type="voice.speech_start",
+                            )))
+                        except Exception:
+                            pass
                     speech_chunks += 1
                     self._speech_frames += 1
                 elif has_speech:
                     silent_chunks += 1
                     self._silence_frames += 1
 
-                # Seuil de silence adaptatif : parole courte → silence plus long exigé
-                effective_silence = silence_chunks
-                if speech_chunks < ADAPTIVE_SILENCE_CHUNKS:
-                    effective_silence = max(silence_chunks, ADAPTIVE_SILENCE_CHUNKS)
+                # Seuil de silence adaptatif 3 paliers :
+                speech_duration_s = speech_chunks * CHUNK_MS / 1000.0
+                if speech_duration_s < 2.0:
+                    effective_silence = ADAPTIVE_SHORT_CHUNKS
+                elif speech_duration_s >= ADAPTIVE_LONG_THRESHOLD_S:
+                    effective_silence = ADAPTIVE_LONG_CHUNKS
+                else:
+                    effective_silence = DEFAULT_CHUNKS
 
                 # Fin de phrase ou flush forcé
                 flush_force = has_speech and total_chunks >= max_chunks
@@ -794,6 +1006,10 @@ class AudioDaemon:
                         utterance_queue.put_nowait(audio_bytes)
                     except asyncio.QueueFull:
                         logger.warning("[audio_daemon] utterance_queue pleine — utterance jetée")
+
+                    # Reset Silero entre les phrases (etat recurrent propre)
+                    if USE_SILERO_VAD:
+                        _vad_silero.reset()
 
                 # Timeout conversation (pas en mode continu)
                 if (
@@ -842,14 +1058,14 @@ class AudioDaemon:
         try:
             from audio.stt import stt as _stt
             stt_available = _stt is not None and getattr(_stt, "available", False)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("[audio_daemon] detection STT cloud: %s", e)
         if not stt_available:
             try:
                 from audio.stt_local import stt_local as _stt_local
                 stt_available = _stt_local.available
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("[audio_daemon] detection STT local: %s", e)
 
         if not stt_available:
             logger.warning("[audio_daemon] Aucun STT disponible — daemon muet")
@@ -888,18 +1104,36 @@ class AudioDaemon:
                 consecutive_errors += 1
                 logger.error("[audio_daemon] Process erreur #%d: %s", consecutive_errors, e)
                 # Remettre le micro en marche si crashé pendant TTS
-                self._tts_playing = False
+                self._tts_playing_event.clear()
                 if self._stream and not self._stream.is_active():
                     try:
                         self._stream.start_stream()
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug("[audio_daemon] restart stream apres erreur process: %s", e)
                 if consecutive_errors > MAX_CONSECUTIVE_ERRORS:
                     logger.error("[audio_daemon] Trop d'erreurs process (%d) — restart", consecutive_errors)
                     raise RuntimeError(f"Process loop crash after {consecutive_errors} errors") from e
                 await asyncio.sleep(1)
 
-        logger.info("[audio_daemon] Boucle process terminée")
+        logger.info("[audio_daemon] Boucle process terminee")
+
+    # ── Filtres bruit ambiant + detection sleep/wake ──────────────────────────
+
+    def _check_sleep_wake(self, transcript: str) -> bool:
+        """Retourne True si le transcript est une commande sleep/wake (traitee, skip LLM)."""
+        lower = transcript.lower().strip()
+
+        if any(p in lower for p in SLEEP_PHRASES):
+            self.enter_sleep_mode()
+            asyncio.create_task(self._play_tts("Bien, Monsieur. Je me mets en veille.", emotion="warm"))
+            return True
+
+        if any(p in lower for p in WAKE_PHRASES):
+            self.exit_sleep_mode()
+            asyncio.create_task(self._play_tts("Me revoici, Monsieur.", emotion="warm"))
+            return True
+
+        return False
 
     # ── Traitement d'une utterance ────────────────────────────────────────────
 
@@ -907,8 +1141,10 @@ class AudioDaemon:
         """Traitement complet d'une phrase : STT → _process_voice_fast → TTS → playback + purge post-TTS.
 
         Utilise le pipeline vocal rapide (_process_voice_fast) qui bypass l'orchestrateur
-        et appelle DeepSeek flash directement. Cible : < 2s entre fin de phrase et début TTS.
+        et appelle DeepSeek flash directement. Cible : < 2s entre fin de phrase et debut TTS.
+        Envoie des events WebSocket de debug : voice_debug_stt et voice_debug_tts.
         """
+        import time as _time
         interrupt_event = self._interrupt_event
         assert interrupt_event is not None
 
@@ -923,24 +1159,40 @@ class AudioDaemon:
         # 1. STT — faster-whisper local d'abord (~50ms), ElevenLabs Scribe cloud en fallback (~400ms)
         wav_bytes = self._pcm_to_wav(pcm_bytes)
         text = ""
+        stt_segments: list = []
+        used_local_stt = False
+        used_scribe_stt = False
+        audio_duration_ms = round(len(pcm_bytes) / (SAMPLE_RATE * SAMPLE_WIDTH) * 1000)
+        _t_stt_start = _time.time()
 
         # 1a. STT local (faster-whisper, gratuit, zero latence reseau)
         local_available = False
         try:
             from audio.stt_local import stt_local as _stt_local
             local_available = _stt_local is not None and getattr(_stt_local, "available", False)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("[audio_daemon] import STT local: %s", e)
 
         if local_available:
             try:
                 from audio.stt_local import stt_local as _stt_local
-                text = await _stt_local.transcribe(wav_bytes, language=getattr(config, "LANGUAGE", "fr"))
-                if text and len(text.strip()) >= 3:
+                meta = await _stt_local.transcribe_with_metadata(
+                    wav_bytes, language=getattr(config, "LANGUAGE", "fr")
+                )
+                if meta and meta.get("text") and len(meta["text"].strip()) >= 3:
+                    text = meta["text"]
+                    stt_segments = meta.get("segments", [])
+                    used_local_stt = True
                     logger.debug("[audio_daemon] STT local : %s", text[:80])
+                elif meta:
+                    text = meta.get("text", "")
+                    stt_segments = meta.get("segments", [])
+                else:
+                    stt_segments = []
             except Exception as e:
                 logger.warning("[audio_daemon] STT local echoue : %s — fallback Scribe", e)
                 text = ""
+                stt_segments = []
 
         # 1b. STT cloud (ElevenLabs Scribe, fallback si local echoue)
         if not text:
@@ -948,17 +1200,49 @@ class AudioDaemon:
             try:
                 from audio.stt import stt as _stt
                 scribe_available = _stt is not None and getattr(_stt, "available", False)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("[audio_daemon] import STT Scribe: %s", e)
 
             if scribe_available:
                 try:
                     from audio.stt import stt as _stt
                     text = await _stt.transcribe(wav_bytes, language=getattr(config, "LANGUAGE", "fr"))
                     if text:
+                        used_scribe_stt = True
                         logger.debug("[audio_daemon] STT ElevenLabs : %s", text[:80])
                 except Exception as e:
                     logger.warning("[audio_daemon] STT ElevenLabs echoue : %s", e)
+
+        stt_latency_ms = round((_time.time() - _t_stt_start) * 1000)
+        stt_engine = "local" if used_local_stt else ("scribe" if used_scribe_stt else "none")
+
+        # ── Event bus : STT result ──
+        try:
+            asyncio.create_task(event_bus.emit(JarvisEvent(
+                type="voice.stt_result",
+                data={
+                    "transcript": text[:200] if text else "",
+                    "latency_ms": stt_latency_ms,
+                    "engine": stt_engine,
+                },
+            )))
+        except Exception:
+            pass
+
+        # ── Broadcast debug STT ───────────────────────────────────────────────
+        try:
+            await self._broadcast_state({
+                "type": "voice_debug_stt",
+                "timestamp": _time.strftime("%H:%M:%S"),
+                "transcript": text,
+                "audio_duration_ms": audio_duration_ms,
+                "stt_latency_ms": stt_latency_ms,
+                "stt_engine": stt_engine,
+                "vad_engine": "silero" if USE_SILERO_VAD else "rms",
+                "audio_bytes": len(pcm_bytes),
+            })
+        except Exception as e:
+            logger.debug("[audio_daemon] broadcast debug STT: %s", e)
 
         # Vérifier interruption après STT
         if interrupt_event.is_set():
@@ -975,6 +1259,12 @@ class AudioDaemon:
             await self._broadcast_state()
             return
 
+        # ── 1. Detection sleep/wake (bypass total LLM, latence zero) ──
+        if self._check_sleep_wake(text):
+            self.state = "wake_listening" if self.wake_word_enabled else "listening"
+            await self._broadcast_state()
+            return
+
         # Filtrage post-TTS : transcription trop courte dans les 2s après un TTS → résidu d'écho
         now = time.time()
         if len(text.strip()) < 10 and (now - self._last_tts_end) < 2.0:
@@ -984,10 +1274,31 @@ class AudioDaemon:
             return
 
         if len(text.strip()) < 3:
-            logger.debug("[audio_daemon] Transcription trop courte ou vide — ignorée")
+            logger.debug("[audio_daemon] Transcription trop courte ou vide — ignoree")
             self.state = "wake_listening" if self.wake_word_enabled else "listening"
             await self._broadcast_state()
             return
+
+        # Filtre mots isoles : < 2 mots = souvent du bruit
+        if len(text.strip().split()) < 2:
+            logger.debug("[audio_daemon] Transcription < 2 mots ignoree : %r", text)
+            self.state = "wake_listening" if self.wake_word_enabled else "listening"
+            await self._broadcast_state()
+            return
+
+        # ── Filtre hallucinations STT (bruit TV/YouTube) ──
+        if _is_stt_hallucination(text):
+            logger.debug("[audio_daemon] Hallucination STT ignoree : %r", text)
+            self.state = "wake_listening" if self.wake_word_enabled else "listening"
+            await self._broadcast_state()
+            return  # DROP — ne pas envoyer au LLM
+
+        # ── Filtre confidence STT (faster-whisper uniquement) ──
+        if used_local_stt and _is_low_confidence(stt_segments):
+            logger.debug("[audio_daemon] Confidence faible ignoree : %r", text[:80])
+            self.state = "wake_listening" if self.wake_word_enabled else "listening"
+            await self._broadcast_state()
+            return  # DROP — probable bruit
 
         logger.info("[audio_daemon] Entendu : %s", text)
 
@@ -996,7 +1307,7 @@ class AudioDaemon:
 
         # 2. Vérification phrases de fin
         lower = text.lower()
-        if any(p in lower for p in END_PHRASES):
+        if any(p in lower for p in config.END_PHRASES):
             logger.info("[audio_daemon] Phrase de fin détectée → retour veille")
             self._conv_start_time = 0.0
             self.state = "wake_listening" if self.wake_word_enabled else "listening"
@@ -1041,7 +1352,7 @@ class AudioDaemon:
         if interrupt_event.is_set():
             interrupt_event.clear()
             logger.debug("[audio_daemon] Interruption avant TTS — abandon playback")
-            self._tts_playing = False
+            self._tts_playing_event.clear()
             self.state = "wake_listening" if self.wake_word_enabled else "listening"
             await self._broadcast_state()
             return
@@ -1053,13 +1364,38 @@ class AudioDaemon:
         if self._stream:
             try:
                 self._stream.stop_stream()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("[audio_daemon] stop stream avant TTS: %s", e)
 
+        _t_tts_start = _time.time()
+        tts_engine_name = "edge"
         try:
             await self._play_tts(response_text, emotion=emotion)
+            # Recuperer le nom du moteur TTS utilise
+            try:
+                from audio.tts import get_tts_by_name as _get_tts
+                engine = _get_tts("edge")
+                if engine and engine.available:
+                    tts_engine_name = "edge"
+                elif hasattr(config, "TTS_ENGINE"):
+                    tts_engine_name = str(getattr(config, "TTS_ENGINE", "edge"))
+            except Exception:
+                pass
         except Exception as e:
-            logger.warning("[audio_daemon] TTS/playback échoué : %s", e)
+            logger.warning("[audio_daemon] TTS/playback echoue : %s", e)
+        tts_latency_ms = round((_time.time() - _t_tts_start) * 1000)
+
+        # ── Broadcast debug TTS ───────────────────────────────────────────────
+        try:
+            await self._broadcast_state({
+                "type": "voice_debug_tts",
+                "timestamp": _time.strftime("%H:%M:%S"),
+                "text": response_text[:200] if response_text else "",
+                "tts_engine": tts_engine_name,
+                "tts_latency_ms": tts_latency_ms,
+            })
+        except Exception as e:
+            logger.debug("[audio_daemon] broadcast debug TTS: %s", e)
 
         # 5. Purge post-TTS obligatoire
         #    a) Attendre que l'écho acoustique s'éteigne
@@ -1084,14 +1420,18 @@ class AudioDaemon:
                 except asyncio.QueueEmpty:
                     break
 
+        #    d) Reset Silero apres purge (buffer d'accumulation vide)
+        if USE_SILERO_VAD:
+            _vad_silero.reset_buffer()
+
         # 6. Reprendre le micro
         if self._stream and self._running:
             try:
                 self._stream.start_stream()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("[audio_daemon] restart stream apres TTS: %s", e)
 
-        self._tts_playing = False
+        self._tts_playing_event.clear()
         self._last_tts_end = time.time()
         self._conv_start_time = time.time()  # reset timeout
         self.state = "wake_listening" if self.wake_word_enabled else "listening"
@@ -1105,27 +1445,59 @@ class AudioDaemon:
         Toutes les 10 secondes :
         - Vérifie que le stream est actif (sinon tente de le redémarrer)
         - Vérifie que des frames arrivent dans la queue (sinon, après 60s de silence, restart)
+
+        Anti-spam : les échecs consécutifs de vérification du stream sont comptés.
+        Un restart n'est déclenché qu'après MIC_RESTART_THRESHOLD échecs (défaut : 3 = 30s).
+        Cela évite la boucle crash→restart→crash observée quand le stream est instable.
         """
         MIC_WATCHDOG_INTERVAL = 10  # secondes
         MAX_NO_FRAME_ITERATIONS = 6  # 6 x 10s = 60s sans frame → restart
+        MIC_RESTART_THRESHOLD = 3  # échecs consécutifs de stream avant restart
+
+        _consecutive_stream_failures = 0  # compteur anti-spam
 
         while self.enabled and self._stop_event and not self._stop_event.is_set():
             try:
                 await asyncio.sleep(MIC_WATCHDOG_INTERVAL)
 
-                if self._tts_playing:
+                if self._tts_playing_event.is_set():
                     # Micro volontairement arrêté pendant le playback TTS
                     self._no_frame_count = 0
+                    _consecutive_stream_failures = 0
                     continue
 
                 # Vérifier que le stream est actif
-                if self._stream and not self._stream.is_active():
-                    logger.warning("[audio_daemon] Stream micro inactif — tentative de réouverture")
-                    try:
-                        self._stream.start_stream()
-                    except Exception as e:
-                        logger.error("[audio_daemon] Micro inaccessible : %s — restart complet", e)
-                        raise RuntimeError("Micro déconnecté (stream inaccessible)") from e
+                try:
+                    stream_alive = self._stream is not None and self._stream.is_active()
+                except (OSError, AttributeError) as e:
+                    # Stream corrompu — état PyAudio incohérent après crash audio
+                    stream_alive = False
+                    _consecutive_stream_failures += 1
+                    if _consecutive_stream_failures == 1:
+                        logger.warning(
+                            "[audio_daemon] Stream micro corrompu (%s) — "
+                            "échec #%d/%d avant restart",
+                            e, _consecutive_stream_failures, MIC_RESTART_THRESHOLD,
+                        )
+
+                if not stream_alive and not self._tts_playing_event.is_set():
+                    if _consecutive_stream_failures >= MIC_RESTART_THRESHOLD:
+                        logger.error(
+                            "[audio_daemon] %d échecs stream consécutifs — restart complet",
+                            _consecutive_stream_failures,
+                        )
+                        raise RuntimeError(
+                            f"Micro déconnecté après {_consecutive_stream_failures} échecs"
+                        )
+                    # Essayer de redémarrer le stream
+                    if self._stream and not stream_alive:
+                        try:
+                            self._stream.start_stream()
+                            _consecutive_stream_failures = 0  # succès
+                        except Exception:
+                            _consecutive_stream_failures += 1
+                else:
+                    _consecutive_stream_failures = max(0, _consecutive_stream_failures - 1)
 
                 # Vérifier que la queue reçoit des frames (seulement en mode écoute)
                 if self._audio_queue.empty() and self.state in ("listening", "wake_listening"):
@@ -1175,8 +1547,8 @@ class AudioDaemon:
         if self._porcupine:
             try:
                 self._porcupine.delete()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("[audio_daemon] porcupine delete: %s", e)
             self._porcupine = None
 
     def _porcupine_wake_loop(self) -> None:
@@ -1286,7 +1658,7 @@ class AudioDaemon:
         if not text or not text.strip():
             return
 
-        self._tts_playing = True
+        self._tts_playing_event.set()
         try:
             from audio.tts import get_tts_by_name as _get_tts, macos_tts as _macos
 
@@ -1313,11 +1685,11 @@ class AudioDaemon:
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
-            await proc.wait()
+            await _wait_subprocess(proc, context="say fallback")
         except Exception as e:
             logger.warning("[audio_daemon] TTS erreur : %s", e)
         finally:
-            self._tts_playing = False
+            self._tts_playing_event.clear()
             self._last_tts_end = time.time()
 
     async def _play_audio_local(self, audio_bytes: bytes) -> None:
@@ -1358,7 +1730,7 @@ class AudioDaemon:
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
-            await self._tts_proc.wait()
+            await _wait_subprocess(self._tts_proc, context="afplay playback")
             self._tts_proc = None
         except Exception as e:
             logger.warning("[audio_daemon] playback erreur : %s", e)
@@ -1366,8 +1738,8 @@ class AudioDaemon:
             if tmp_path:
                 try:
                     Path(tmp_path).unlink(missing_ok=True)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("[audio_daemon] unlink tmp audio: %s", e)
 
     async def _play_end_sound(self) -> None:
         """Joue le son de fin de session (bip grave 440Hz)."""
@@ -1379,7 +1751,7 @@ class AudioDaemon:
                 "afplay", str(END_SOUND_PATH),
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
-            await proc.wait()
+            await _wait_subprocess(proc, context="end_sound afplay")
         except Exception as e:
             logger.debug("[audio_daemon] Son de fin erreur : %s", e)
 
@@ -1443,7 +1815,7 @@ class AudioDaemon:
                 self._tts_proc = None
             except Exception:
                 pass
-        self._tts_playing = False
+        self._tts_playing_event.clear()
         if self._stream:
             try:
                 if self._stream.is_active():
@@ -1482,8 +1854,8 @@ class AudioDaemon:
             event.update(extra)
         try:
             await self._broadcast(event)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("[audio_daemon] broadcast state: %s", e)
 
     def _schedule_state_broadcast(self, state: str) -> None:
         """Programme un broadcast d'état depuis un thread (thread-safe)."""

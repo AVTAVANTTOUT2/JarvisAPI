@@ -1,12 +1,13 @@
 """Speech-to-Text local via faster-whisper — zero latence reseau, zero cout API.
 
-Utilise le modele `tiny` (75 Mo, ~20 ms de transcription par tranche audio)
-ou `small` (500 Mo, plus precis). Optimise pour Apple Silicon via CTranslate2
-(c'est exactement ce que fait faster-whisper en interne).
+Utilise le modele `small` (244 Mo, ~100ms de transcription, meilleur compromis
+precision/latence pour le francais) ou `base` (142 Mo), `tiny` (75 Mo).
+Optimise pour Apple Silicon via CTranslate2 (faster-whisper en interne).
 
 Usage :
     stt_local = LocalSTT()
     text = await stt_local.transcribe(wav_bytes)
+    meta = await stt_local.transcribe_with_metadata(wav_bytes)  # avec segments
 """
 
 from __future__ import annotations
@@ -21,8 +22,8 @@ import config
 
 logger = logging.getLogger(__name__)
 
-# Modele par defaut — tiny (75 Mo, ultra-rapide) ; small (500 Mo, plus precis)
-DEFAULT_MODEL_SIZE = "base"
+# Modele par defaut — small (244 Mo, bon compromis precision/latence pour le francais)
+DEFAULT_MODEL_SIZE = "small"
 MODEL_SIZES = frozenset({"tiny", "tiny.en", "base", "base.en", "small", "small.en", "medium", "medium.en", "large-v3"})
 
 
@@ -129,28 +130,34 @@ class LocalSTT:
     async def transcribe(self, audio_bytes: bytes, language: str = "fr", timeout: float | None = None) -> str:
         """Transcrit des bytes audio WAV en texte via faster-whisper.
 
-        Args:
-            audio_bytes: PCM 16-bit 16kHz mono WAV
-            language: code langue (fr, en, ...)
-            timeout: ignore (pour compatibilite API avec STT cloud)
+        Version simplifiee qui retourne uniquement le texte.
+        Pour les segments avec scores de confiance, utiliser transcribe_with_metadata.
+        """
+        result = await self.transcribe_with_metadata(audio_bytes, language, timeout)
+        return result["text"] if result else ""
 
-        Returns:
-            texte transcrit, ou "" si echec
+    async def transcribe_with_metadata(
+        self,
+        audio_bytes: bytes,
+        language: str = "fr",
+        timeout: float | None = None,
+    ) -> dict | None:
+        """Transcrit + retourne ``{text, segments, language, duration}``.
+
+        ``segments`` contient les objets Segment de faster-whisper avec
+        ``avg_logprob`` pour le filtrage de confiance.
+        Retourne ``None`` si indisponible ou echec.
         """
         if not self.available:
-            return ""
-
+            return None
         if len(audio_bytes) < 1000:
-            return ""
-
+            return None
         if not await self._ensure_model():
-            return ""
-
+            return None
         if self._model is None:
-            return ""
+            return None
 
         try:
-            # Sauvegarde temporaire (faster-whisper lit un fichier)
             import tempfile
 
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
@@ -165,29 +172,30 @@ class LocalSTT:
                         tmp_path,
                         language=language if language != "auto" else None,
                         beam_size=5,
-                        vad_filter=False,  # pas besoin, on fait deja le VAD cote daemon
+                        vad_filter=False,
                     ),
                 )
 
-                texts = []
-                for seg in segments:
-                    t = seg.text.strip()
-                    if t:
-                        texts.append(t)
+                segments_list = list(segments)
+                texts = [s.text.strip() for s in segments_list if s.text.strip()]
+                text = " ".join(texts).strip()
+                self.last_text = text
+                logger.debug(
+                    "[STT-local] Transcription : %s",
+                    text[:100] if len(text) > 100 else text,
+                )
 
-                result = " ".join(texts).strip()
-                self.last_text = result
-                logger.debug("[STT-local] Transcription : %s", result[:100] if len(result) > 100 else result)
-                return result
+                return {
+                    "text": text,
+                    "segments": segments_list,
+                    "language": info.language if info else None,
+                    "duration": info.duration if info else None,
+                }
             finally:
-                try:
-                    Path(tmp_path).unlink(missing_ok=True)
-                except Exception:
-                    pass
-
-        except Exception as e:
-            logger.exception("[STT-local] Transcription echouee : %s", e)
-            return ""
+                Path(tmp_path).unlink(missing_ok=True)
+        except Exception:
+            logger.exception("[STT-local] Echec transcription")
+            return None
 
     def get_backend_name(self) -> str:
         return f"local:{self._model_size}"

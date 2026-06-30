@@ -58,6 +58,11 @@ IMESSAGE_POLLING_INTERVAL = float(_get("IMESSAGE_POLLING_INTERVAL", "3.0"))
 IMESSAGE_PREFIX = _get("IMESSAGE_PREFIX", "")            # vide = traite tout
                                                           # défini = traite seulement les msgs commençant par ce mot
 
+# ── iMessage — sourcing (lecture) et envoi (séparés, jamais couplés) ──
+IMESSAGE_SOURCING_ENABLED = _get("IMESSAGE_SOURCING_ENABLED", "true").lower() == "true"
+IMESSAGE_SEND_ENABLED = _get("IMESSAGE_SEND_ENABLED", "false").lower() == "true"
+IMESSAGE_SCAN_INTERVAL = int(_get("IMESSAGE_SCAN_INTERVAL", "300"))  # secondes entre 2 scans (défaut 5min)
+
 # ── Système ─────────────────────────────────────────────────
 DB_PATH = _get("DB_PATH", "./data/jarvis.db")
 UPLOAD_DIR = _get("UPLOAD_DIR", "./data/uploads")
@@ -78,6 +83,9 @@ WEB_HTTPS = _get("WEB_HTTPS", "false").lower() == "true"
 COMPUTER_ACCESS = _get("COMPUTER_ACCESS", "true")
 COMPUTER_SHELL = _get("COMPUTER_SHELL", "/bin/zsh")
 COMPUTER_TIMEOUT = int(_get("COMPUTER_TIMEOUT", "30"))
+# TV contrôle ADB
+TV_IP = _get("TV_IP", "192.168.3.82")
+TV_ADB_PORT = _get("TV_ADB_PORT", "5555")
 
 # ── Exécution de code avancée ────────────────────────────────
 CODE_EXECUTOR_ENABLED = _get("CODE_EXECUTOR_ENABLED", "true").lower() == "true"
@@ -134,7 +142,12 @@ SCREEN_WATCHER_ENABLED = _get("SCREEN_WATCHER_ENABLED", "true").lower() == "true
 SCREEN_WATCHER_INTERVAL = int(_get("SCREEN_WATCHER_INTERVAL", "12"))      # secondes
 SCREEN_CHANGE_THRESHOLD = float(_get("SCREEN_CHANGE_THRESHOLD", "5"))     # % minimum
 SCREEN_ANALYSIS_THRESHOLD = float(_get("SCREEN_ANALYSIS_THRESHOLD", "15"))  # % pour LLM
-SCREEN_VISION_MODEL = _get("SCREEN_VISION_MODEL", "qwen2.5-vl:7b")
+SCREEN_RESIZE_WIDTH = int(_get("SCREEN_RESIZE_WIDTH", "1280"))
+SCREEN_RESIZE_HEIGHT = int(_get("SCREEN_RESIZE_HEIGHT", "800"))
+SCREEN_RESIZE: tuple[int, int] = (SCREEN_RESIZE_WIDTH, SCREEN_RESIZE_HEIGHT)
+SCREEN_MAX_ANALYSIS_WIDTH = int(_get("SCREEN_MAX_ANALYSIS_WIDTH", "1280"))
+SCREEN_JPEG_QUALITY = int(_get("SCREEN_JPEG_QUALITY", "70"))
+SCREEN_VISION_MODEL = _get("SCREEN_VISION_MODEL", "qwen2.5vl:7b")
 TRIAGE_MODEL = _get("TRIAGE_MODEL", "qwen2.5:7b")
 OLLAMA_URL = _get("OLLAMA_URL", "http://localhost:11434")
 
@@ -149,17 +162,29 @@ PORCUPINE_ACCESS_KEY = _get("PORCUPINE_ACCESS_KEY", "")
 # Anti-spam vocal en mode veille : minimum N secondes entre deux notifs voix
 DAEMON_TTS_COOLDOWN = int(_get("DAEMON_TTS_COOLDOWN", "30"))
 
+# Phrases de fin de conversation vocale (union audio_daemon + jarvis_daemon)
+END_PHRASES: tuple[str, ...] = (
+    "merci jarvis", "c'est bon jarvis", "c'est tout jarvis",
+    "merci c'est bon", "c'est fini", "bonne nuit jarvis",
+    "a plus jarvis", "à plus jarvis", "ok merci", "au revoir", "stop",
+    "arrête", "arrête-toi",
+)
+
 # ── Audio Daemon (micro natif Mac Mini — wake word + conversation mains libres) ──
 AUDIO_DAEMON_ENABLED = _get("AUDIO_DAEMON_ENABLED", "false").lower() == "true"
+AUDIO_DAEMON_SAMPLE_RATE = int(_get("AUDIO_DAEMON_SAMPLE_RATE", "16000"))
 AUDIO_DAEMON_SPEECH_THRESHOLD = float(_get("AUDIO_DAEMON_SPEECH_THRESHOLD", "0.02"))
-AUDIO_DAEMON_SILENCE_MS = int(_get("AUDIO_DAEMON_SILENCE_MS", "800"))
+AUDIO_DAEMON_SILENCE_MS = int(_get("AUDIO_DAEMON_SILENCE_MS", "1200"))
 AUDIO_DAEMON_MIN_SPEECH_MS = int(_get("AUDIO_DAEMON_MIN_SPEECH_MS", "600"))
 AUDIO_DAEMON_MAX_UTTERANCE_S = int(_get("AUDIO_DAEMON_MAX_UTTERANCE_S", "15"))
 AUDIO_DAEMON_CONVERSATION_TIMEOUT = float(_get("AUDIO_DAEMON_CONVERSATION_TIMEOUT", "15.0"))
 AUDIO_DAEMON_INPUT_DEVICE = _get("AUDIO_DAEMON_INPUT_DEVICE", "")  # vide = auto Blue Snowball sinon defaut systeme
 AUDIO_DAEMON_WAKE_SOUND = _get("AUDIO_DAEMON_WAKE_SOUND", "true").lower() == "true"
 AUDIO_DAEMON_STT_ENGINE = _get("AUDIO_DAEMON_STT_ENGINE", "").strip().lower()  # "local" pour faster-whisper, "" = ElevenLabs Scribe
-AUDIO_DAEMON_STT_MODEL = _get("AUDIO_DAEMON_STT_MODEL", "tiny")  # tiny (75Mo, rapide) ou small (500Mo, précis)
+AUDIO_DAEMON_STT_MODEL = _get("AUDIO_DAEMON_STT_MODEL", "small")  # small (244Mo, bon FR) | base (142Mo) | tiny (75Mo)
+
+# ── VAD (Voice Activity Detection) ────────────────────────────
+SILERO_VAD_THRESHOLD = float(_get("SILERO_VAD_THRESHOLD", "0.5"))  # 0.3=tres sensible, 0.5=defaut, 0.7=strict
 
 # ── Mapping modèles par agent ───────────────────────────────
 AGENT_MODELS = {

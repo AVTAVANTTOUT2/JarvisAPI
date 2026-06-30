@@ -23,14 +23,14 @@ import fitz  # pymupdf — extraction texte PDF
 import uvicorn
 from fastapi import Body, FastAPI, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 import config
 import llm
 from actions import execute_action
-from agents import register_agent
+from agents import get_agent, register_agent
 from agents.coach import coach_agent
 from agents.info import info_agent
 from agents.journal import journal_agent
@@ -38,11 +38,13 @@ from agents.memory import memory_agent
 from agents.orchestrator import orchestrator
 from agents.productivity import productivity_agent
 from agents.school import school_agent
+from agents.devops import devops_agent
 from agents.display_text import (
     extract_leading_emotion,
     finalize_assistant_display_text,
     strip_leading_emotion,
 )
+from jarvis.event_bus import JarvisEvent, event_bus
 
 # Audio : STT (ElevenLabs Scribe) + TTS (ElevenLabs / Edge).
 # Chargement conditionnel — l'absence d'audio ne doit pas empêcher le serveur de tourner.
@@ -64,8 +66,10 @@ from database import (
     count_memory_stats,
     create_conversation,
     create_task,
+    delete_all_tasks,
     delete_conversation,
     delete_life_profile_entry,
+    delete_task,
     end_conversation,
     get_active_device,
     get_active_patterns,
@@ -117,6 +121,8 @@ from database import (
     update_life_profile_entry,
     update_task_status,
     upsert_person,
+    _save_voice_debug_trace,
+    get_voice_debug_logs,
 )
 
 
@@ -150,6 +156,20 @@ logging.basicConfig(
 logger = logging.getLogger("jarvis")
 
 BASE_DIR = Path(__file__).resolve().parent
+
+# File handlers pour les daemons critiques (diagnostic crash)
+_logs_dir = BASE_DIR / "data" / "logs"
+_logs_dir.mkdir(parents=True, exist_ok=True)
+_daemon_formatter = logging.Formatter(
+    "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%H:%M:%S",
+)
+for _daemon_logger_name in ("audio_daemon", "scripts.jarvis_daemon"):
+    _fh = logging.FileHandler(_logs_dir / f"{_daemon_logger_name}.log")
+    _fh.setLevel(logging.DEBUG)
+    _fh.setFormatter(_daemon_formatter)
+    logging.getLogger(_daemon_logger_name).addHandler(_fh)
+    logging.getLogger(_daemon_logger_name).setLevel(logging.DEBUG)
 _WELCOME_MARKER = BASE_DIR / "data" / ".welcome_day"
 
 
@@ -443,6 +463,7 @@ _SPA_SEGMENTS = frozenset({
     "chat", "voice", "tasks", "documents", "memory", "status",
     "dashboard", "contacts", "map", "analytics", "search", "data",
     "conversations", "calendar", "logs", "monitoring",
+    "voice-debug",
 })
 
 
@@ -539,6 +560,22 @@ async def broadcast_ws(event: dict[str, Any]) -> None:
     connected_ws -= dead
 
 
+async def _auto_pull_ollama(model: str) -> None:
+    """Pull un modele Ollama en background (ne bloque pas le demarrage)."""
+    try:
+        async with httpx.AsyncClient(timeout=600) as client:
+            resp = await client.post(
+                "http://localhost:11434/api/pull",
+                json={"name": model, "stream": False},
+            )
+            if resp.status_code == 200:
+                logger.info("[startup] Ollama : %s pulle avec succes", model)
+            else:
+                logger.warning("[startup] Ollama pull %s : HTTP %s", model, resp.status_code)
+    except Exception as e:
+        logger.warning("[startup] Ollama pull erreur : %s", e)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Démarrage : init DB + enregistrement des agents disponibles."""
@@ -589,7 +626,8 @@ async def lifespan(app: FastAPI):
     register_agent(coach_agent)
     register_agent(journal_agent)
     register_agent(memory_agent)
-    logger.info("Agents enregistrés : info, school, productivity, coach, journal, memory")
+    register_agent(devops_agent)
+    logger.info("Agents enregistrés : devops, info, school, productivity, coach, journal, memory")
 
     # Création des dossiers de sortie
     Path(config.SCHOOL_OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
@@ -609,57 +647,66 @@ async def lifespan(app: FastAPI):
     if not config.DEEPSEEK_API_KEY:
         logger.warning("⚠️  DEEPSEEK_API_KEY manquant — copie .env.example en .env et ajoute ta clé")
 
-    # iMessage bridge — polling en background si configuré + accessible
-    imessage_task = None
-    if imessage_bridge is not None and imessage_bridge.is_available():
-        imessage_task = asyncio.create_task(
-            imessage_bridge.start_polling(config.IMESSAGE_POLLING_INTERVAL)
-        )
-        logger.info(
-            f"iMessage bridge activé — écoute les messages de {config.IMESSAGE_TARGET}"
-        )
-    elif config.IMESSAGE_TARGET:
-        logger.warning(
-            "⚠️  IMESSAGE_TARGET défini mais bridge inaccessible "
-            "(vérifier Full Disk Access dans Réglages Système > Confidentialité)"
-        )
+    # ── Helper : scan initial de l'analyse relationnelle ──
+    async def _initial_relationship_scan(analyzer, reader) -> None:
+        try:
+            from database import get_analysis_cursor
 
-    # Email watcher — surveillance proactive des mails non lus.
-    # On démarre toujours le watcher (il gère lui-même les retries si
-    # Mail.app est lent au démarrage ou temporairement inaccessible).
-    email_task = asyncio.create_task(email_watcher.start())
-    logger.info(
-        f"Email watcher lancé — scan toutes les {config.EMAIL_CHECK_INTERVAL:.0f}s"
-    )
+            logger.info("[analyzer] Lancement du scan initial iMessage…")
+            stats = await analyzer.run_initial_scan()
+            logger.info("[analyzer] Scan initial terminé : %s", stats)
+        except Exception as e:
+            logger.error("[analyzer] Scan initial échoué : %s", e)
 
-    # Analyse relationnelle — scan initial si iMessage est disponible
-    relationship_task = None
+    # ── iMessage sourcing (lecture seule, chat.db) ──
+    _imessage_scan_task = None
+    _imessage_relationship_task = None
     try:
-        from integrations.imessage_reader import imessage_reader
+        if config.IMESSAGE_SOURCING_ENABLED:
+            from integrations.imessage_reader import imessage_reader
 
-        if imessage_reader.is_available():
-            async def _initial_relationship_scan():
-                try:
-                    from scripts.relationship_analyzer import analyzer
-                    from database import get_analysis_cursor
+            if imessage_reader.is_available():
+                from scripts.relationship_analyzer import analyzer
 
-                    logger.info("[analyzer] Lancement du scan initial iMessage…")
-                    stats = await analyzer.run_initial_scan()
-                    logger.info("[analyzer] Scan initial terminé : %s", stats)
-                except Exception as e:
-                    logger.error("[analyzer] Scan initial échoué : %s", e)
-
-            logger.info(
-                "[startup] iMessage reader disponible — create_task(scan initial relationship_analyzer)"
-            )
-            relationship_task = asyncio.create_task(_initial_relationship_scan())
-            logger.info("Analyse relationnelle iMessage programmée en background")
+                _imessage_relationship_task = asyncio.create_task(
+                    _initial_relationship_scan(analyzer, imessage_reader),
+                    name="imessage_relationship_scan",
+                )
+                _imessage_scan_task = asyncio.create_task(
+                    imessage_reader.periodic_scan(config.IMESSAGE_SCAN_INTERVAL),
+                    name="imessage_sourcing_scan",
+                )
+                logger.info(
+                    "iMessage sourcing activé (lecture seule, scan %ss)",
+                    config.IMESSAGE_SCAN_INTERVAL,
+                )
+            else:
+                logger.warning(
+                    "[startup] imessage_reader indisponible "
+                    "(Full Disk Access manquant ?)"
+                )
         else:
-            logger.warning(
-                "[startup] iMessage reader NON disponible — vérifier Full Disk Access et présence de chat.db"
+            logger.info(
+                "iMessage sourcing désactivé (IMESSAGE_SOURCING_ENABLED=false)"
             )
     except ImportError:
-        logger.warning("[startup] modules iMessage reader / analyzer non importables")
+        logger.warning(
+            "[startup] modules iMessage reader / analyzer non importables"
+        )
+    except Exception as e:
+        logger.warning("[startup] iMessage sourcing erreur : %s", e)
+
+    # ── iMessage bridge (envoi) — VOLONTAIREMENT NON DÉMARRÉ ──
+    # Le bridge n'est pas lancé au startup. L'envoi reste bloqué
+    # au niveau de integrations/imessage.py tant que
+    # IMESSAGE_SEND_ENABLED=false (défaut .env).
+
+    # Email watcher — surveillance proactive des mails non lus.
+    email_task = asyncio.create_task(email_watcher.start())
+    logger.info(
+        "Email watcher lancé — scan toutes les %.0fs",
+        config.EMAIL_CHECK_INTERVAL,
+    )
 
     try:
         from scripts.sync_contacts import sync_people_names
@@ -696,6 +743,19 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("[startup] daemon désactivé (DAEMON_ENABLED=false)")
 
+    # Auto-pull du modèle vision Ollama si dispo mais modèle manquant
+    try:
+        import httpx as _httpx
+        resp = _httpx.get("http://localhost:11434/api/tags", timeout=3)
+        if resp.status_code == 200:
+            models = [m["name"] for m in resp.json().get("models", [])]
+            vision_model = getattr(config, "SCREEN_VISION_MODEL", "qwen2.5vl:7b")
+            if not any(vision_model.split(":")[0] in m for m in models):
+                logger.info("[startup] Ollama : pull %s en background...", vision_model)
+                asyncio.create_task(_auto_pull_ollama(vision_model))
+    except Exception:
+        pass
+
     # Audio Daemon — micro natif Mac Mini (wake word + conversation mains libres)
     audio_daemon_task = None
     if getattr(config, "AUDIO_DAEMON_ENABLED", False):
@@ -722,25 +782,23 @@ async def lifespan(app: FastAPI):
     shutdown_scheduler()
     if imessage_bridge is not None:
         imessage_bridge.stop()
-    if imessage_task is not None:
-        imessage_task.cancel()
-        try:
-            await imessage_task
-        except (asyncio.CancelledError, Exception):
-            pass
+    # Annulation des tâches de sourcing iMessage
+    for _task, _label in [
+        (_imessage_scan_task, "imessage_scan"),
+        (_imessage_relationship_task, "imessage_relationship"),
+    ]:
+        if _task is not None:
+            _task.cancel()
+            try:
+                await _task
+            except (asyncio.CancelledError, Exception):
+                pass
 
     email_watcher.stop()
     if email_task is not None:
         email_task.cancel()
         try:
             await email_task
-        except (asyncio.CancelledError, Exception):
-            pass
-
-    if relationship_task is not None:
-        relationship_task.cancel()
-        try:
-            await relationship_task
         except (asyncio.CancelledError, Exception):
             pass
 
@@ -786,6 +844,16 @@ app.add_middleware(
         "http://localhost:3000",
         "http://127.0.0.1:3000",
         "http://0.0.0.0:3000",
+        "http://localhost:9000",
+        "http://127.0.0.1:9000",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
+        "http://localhost:8080",
+        "http://127.0.0.1:8080",
+        "http://localhost:8081",
+        "http://127.0.0.1:8081",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -887,6 +955,9 @@ async def api_status():
             "available": imessage_bridge is not None and imessage_bridge.is_available(),
             "target": config.IMESSAGE_TARGET,
             "prefix": config.IMESSAGE_PREFIX or None,
+            "sourcing_enabled": config.IMESSAGE_SOURCING_ENABLED,
+            "send_enabled": config.IMESSAGE_SEND_ENABLED,
+            "scan_interval": config.IMESSAGE_SCAN_INTERVAL,
         },
         "email_watcher": {
             "running": email_watcher.running,
@@ -1148,6 +1219,8 @@ async def api_integrations():
         "calendar": cal_status,
         "weather": weather_ok,
         "imessage": imessage_bridge is not None and imessage_bridge.is_available(),
+        "imessage_sourcing": config.IMESSAGE_SOURCING_ENABLED,
+        "imessage_send": config.IMESSAGE_SEND_ENABLED,
         "email_watcher": email_watcher.running,
         "computer": _computer_status_payload(),
         "code_executor": _code_executor_status_payload(),
@@ -1206,6 +1279,86 @@ async def audio_daemon_continuous(body: dict[str, Any]):
     from scripts.audio_daemon import audio_daemon as _ad
     await _ad.set_continuous_mode(body.get("enabled", True))
     return {"ok": True, "continuous_mode": _ad.continuous_mode}
+
+
+@app.get("/api/voice-debug")
+async def api_voice_debug_logs(limit: int = 50):
+    """Retourne les dernières traces de debug du pipeline vocal."""
+    try:
+        logs = get_voice_debug_logs(limit=limit)
+    except Exception as e:
+        logger.error(f"voice_debug_logs : {e}")
+        raise HTTPException(500, str(e))
+    return {"logs": logs}
+
+
+# ── Mission Control ──────────────────────────────────────────
+
+
+@app.get("/api/events/stream")
+async def events_stream():
+    """SSE — flux temps réel de tous les événements JARVIS.
+
+    Le frontend MissionControl.tsx consomme ce flux pour afficher
+    l'activité en temps réel (pipeline vocal, orchestration, agents, TTS).
+    """
+    queue: asyncio.Queue[JarvisEvent] = event_bus.subscribe()
+
+    async def generate():
+        try:
+            # Envoyer l'historique récent au connect
+            for evt in event_bus.get_history(30):
+                yield f"data: {json.dumps(evt, ensure_ascii=False)}\n\n"
+            while True:
+                event = await queue.get()
+                yield event.to_sse()
+        except asyncio.CancelledError:
+            pass
+        finally:
+            event_bus.unsubscribe(queue)
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@app.post("/api/mission/prompt")
+async def mission_prompt(payload: dict[str, Any]):
+    """Prompt depuis Mission Control — passe par l'orchestrateur normal.
+
+    Body: {"message": "...", "conversation_id": "..."}
+    """
+    message = payload.get("message", "")
+    if not message or not message.strip():
+        raise HTTPException(status_code=400, detail="Message requis")
+
+    conversation_id = payload.get("conversation_id", "mission-control")
+    conv_id_int: int | None = None
+
+    if isinstance(conversation_id, str) and conversation_id != "mission-control":
+        try:
+            conv_id_int = int(conversation_id)
+        except (ValueError, TypeError):
+            pass
+    elif isinstance(conversation_id, (int, float)):
+        conv_id_int = int(conversation_id)
+
+    if conv_id_int is None and conversation_id == "mission-control":
+        from database import create_conversation
+        try:
+            conv_id_int = create_conversation(agent="mission_control")
+        except Exception as e:
+            logger.warning("[mission] create_conversation: %s", e)
+            conv_id_int = None
+
+    result = await orchestrator.handle(message, conv_id_int)
+    return result
 
 
 @app.post("/api/email-watcher/catchup")
@@ -1350,7 +1503,11 @@ async def api_mood():
 
 @app.get("/api/tasks")
 async def api_tasks_list(status: str | None = None):
-    """Liste les tâches. Sans filtre = todo + doing (pas les `done`)."""
+    """Liste les tâches. Filtre optionnel : `all`, `todo`, `doing`, `done`.
+    Sans filtre = todo + doing (pas les `done`).
+    """
+    if status and status not in ("all", "todo", "doing", "done"):
+        raise HTTPException(400, "`status` invalide. Valeurs acceptées : all, todo, doing, done")
     return {"tasks": get_tasks(status=status)}
 
 
@@ -1390,6 +1547,22 @@ async def api_tasks_update(task_id: int, payload: dict):
         raise HTTPException(404, "Tâche introuvable")
 
     return {"task": get_task(task_id)}
+
+
+@app.delete("/api/tasks/{task_id}")
+async def api_tasks_delete(task_id: int):
+    """Supprime une tâche individuelle."""
+    if not delete_task(task_id):
+        raise HTTPException(404, "Tâche introuvable")
+    return {"ok": True, "deleted_id": task_id}
+
+
+@app.delete("/api/tasks")
+async def api_tasks_delete_all():
+    """Supprime TOUTES les tâches (tous statuts confondus)."""
+    deleted_count = delete_all_tasks()
+    logger.info(f"[tasks] {deleted_count} tâche(s) supprimée(s) — purge totale")
+    return {"ok": True, "deleted_count": deleted_count}
 
 
 # ── Phase 5 : Life profile / People / Journal / Patterns ────
@@ -2679,7 +2852,6 @@ INTERNAL_SERVICES = [
     "email_watcher",
     "jarvis_daemon",
     "screen_watcher",
-    "imessage_bridge",
     "scheduler",
     "relationship_analyzer",
 ]
@@ -2751,20 +2923,6 @@ def _get_all_services_status() -> list[dict[str, object]]:
         })
     except Exception:
         services.append({"id": "screen_watcher", "name": "Screen Watcher", "running": False, "can_control": True, "category": "monitoring", "description": "Analyse ecran Ollama"})
-
-    # ── iMessage Bridge ──
-    try:
-        running_imsg = getattr(imessage_bridge, '_polling', False) or getattr(imessage_bridge, '_task', None) is not None
-        services.append({
-            "id": "imessage_bridge",
-            "name": "iMessage Bridge",
-            "description": f"Ecoute iMessage ({config.IMESSAGE_TARGET or '?'})",
-            "category": "integrations",
-            "running": running_imsg,
-            "can_control": True,
-        })
-    except Exception:
-        services.append({"id": "imessage_bridge", "name": "iMessage Bridge", "running": False, "can_control": True, "category": "integrations", "description": "Ecoute iMessage"})
 
     # ── Scheduler ──
     try:
@@ -2857,7 +3015,7 @@ async def _start_service(service: str) -> dict[str, object]:
 
     if svc == "audio_daemon":
         from scripts.audio_daemon import audio_daemon as _ad
-        if _ad.enabled:
+        if _ad.enabled and _ad._running:
             return {"ok": True, "message": "Deja actif"}
         _service_tasks["audio_daemon"] = asyncio.create_task(_ad.start(), name="audio_daemon_ctrl")
         return {"ok": True, "message": "Audio daemon demarre"}
@@ -2882,15 +3040,6 @@ async def _start_service(service: str) -> dict[str, object]:
             return {"ok": True, "message": "Deja actif"}
         _service_tasks["screen_watcher"] = asyncio.create_task(_sw.start(), name="screen_watcher_ctrl")
         return {"ok": True, "message": "Screen watcher demarre"}
-
-    if svc == "imessage_bridge":
-        if getattr(imessage_bridge, '_polling', False):
-            return {"ok": True, "message": "Deja actif"}
-        interval = float(getattr(config, "IMESSAGE_POLLING_INTERVAL", 3.0))
-        _service_tasks["imessage_bridge"] = asyncio.create_task(
-            imessage_bridge.start_polling(interval), name="imessage_bridge_ctrl"
-        )
-        return {"ok": True, "message": "iMessage bridge demarre"}
 
     if svc == "scheduler":
         from scripts.scheduler import start_scheduler as _start_sched
@@ -2956,13 +3105,6 @@ async def _stop_service(service: str) -> dict[str, object]:
             task.cancel()
         return {"ok": True, "message": "Screen watcher arrete"}
 
-    if svc == "imessage_bridge":
-        imessage_bridge.stop()
-        task = _service_tasks.pop("imessage_bridge", None)
-        if task and not task.done():
-            task.cancel()
-        return {"ok": True, "message": "iMessage bridge arrete"}
-
     if svc == "scheduler":
         from scripts.scheduler import shutdown_scheduler as _stop_sched
         _stop_sched()
@@ -2998,7 +3140,6 @@ _SERVICE_LOG_TAGS: dict[str, str] = {
     "email_watcher": "email_watcher",
     "jarvis_daemon": "daemon",
     "screen_watcher": "screen",
-    "imessage_bridge": "iMessage",
     "scheduler": "scheduler",
     "relationship_analyzer": "analyzer",
     "ollama": "ollama",
@@ -3099,7 +3240,17 @@ async def control_service_logs(service: str, lines: int = 50):
 
 # ── WebSocket chat ──────────────────────────────────────────
 
-_ACTION_RE = re.compile(r"```action\s*\n(.*?)\n```", re.DOTALL | re.IGNORECASE)
+# Mémoire de proposition en attente — quand JARVIS propose "Veux-tu que je fasse X ?"
+# et que l'utilisateur répond "oui" / "vas-y", on exécute immédiatement.
+_pending_proposal: dict | None = None
+
+_ACTION_RE = re.compile(r"```action\s*\n?(.*?)```", re.DOTALL | re.IGNORECASE)
+
+# Regex fallback pour JSON inline hors backticks
+_ACTION_JSON_INLINE_RE = re.compile(
+    r'\{\s*"type"\s*:\s*"(\w+)"\s*[,}].*?\}',
+    re.DOTALL,
+)
 
 ACTIONS_WITH_FOLLOWUP = frozenset({
     "terminal",
@@ -3116,6 +3267,79 @@ ACTIONS_WITH_FOLLOWUP = frozenset({
     "where_am_i",
     "day_route",
 })
+
+# Types d'actions qui déclenchent la boucle agentique (multi-étapes)
+AGENTIC_ACTION_TYPES = frozenset({"terminal"})
+
+
+def _maybe_store_pending_proposal(action: dict, conversation_id: int) -> None:
+    """Stocke une proposition d'action en attente de confirmation de l'utilisateur.
+
+    Quand JARVIS dit « Veux-tu que je fasse X ? » avec un bloc action,
+    on mémorise l'action pour que si l'utilisateur répond « oui » / « vas-y »
+    au message suivant, l'action soit exécutée immédiatement.
+    """
+    global _pending_proposal
+    _pending_proposal = {
+        "conversation_id": conversation_id,
+        "action": action,
+    }
+
+
+async def _check_pending_proposal(
+    ws, text: str, conversation_id: int,
+) -> dict | None:
+    """Vérifie si l'utilisateur confirme une proposition en attente.
+
+    Retourne le résultat de l'action si confirmée, None sinon.
+    """
+    global _pending_proposal
+
+    if not _pending_proposal:
+        return None
+
+    if _pending_proposal.get("conversation_id") != conversation_id:
+        _pending_proposal = None
+        return None
+
+    text_lower = text.strip().lower()
+    confirmation_patterns = (
+        "oui", "vas-y", "vas y", "fais-le", "fais le", "ok", "okay",
+        "d'accord", "go", "lance", "exécute", "execute", "yes",
+        "pourquoi pas", "je veux bien", "allez", "allé", "fonce",
+        "oui vas-y", "oui vas y", "oui fais le", "oui stp", "oui merci",
+    )
+
+    is_confirmation = (
+        text_lower in confirmation_patterns
+        or any(text_lower.startswith(p) for p in confirmation_patterns if len(p) > 3)
+    )
+
+    if is_confirmation:
+        action = _pending_proposal["action"]
+        _pending_proposal = None
+        logger.info(
+            "[pending] Confirmation détectée « %s » → exécution de %s",
+            text[:60], action.get("type"),
+        )
+
+        await ws.send_json({
+            "type": "status",
+            "content": f"Exécution de l'action : {action.get('type')}…",
+        })
+
+        try:
+            result = await execute_action(action)
+            return result
+        except Exception as e:
+            logger.exception("[pending] execute_action : %s", e)
+            return {"ok": False, "message": str(e)}
+
+    # L'utilisateur a dit autre chose → annuler la proposition
+    if _pending_proposal:
+        logger.info("[pending] Proposition annulée (user a dit autre chose)")
+    _pending_proposal = None
+    return None
 
 
 def _schedule_llm_log(
@@ -3212,20 +3436,53 @@ def _format_action_result_for_followup(action: dict, action_result: dict) -> str
 
 
 def _extract_action_from_text(text: str) -> tuple[dict | None, str]:
-    """Extrait le bloc ```action {JSON}``` d'une réponse et retourne (action, texte_propre)."""
-    m = _ACTION_RE.search(text)
-    if not m:
-        return None, text
-    clean = (text[: m.start()] + text[m.end() :]).strip()
-    try:
-        import json as _json
+    """Extrait un bloc ```action {JSON}``` d'une réponse — tolérant au format.
 
-        action = _json.loads(m.group(1).strip())
-        if not isinstance(action, dict) or "type" not in action:
-            return None, clean
-        return action, clean
-    except Exception:
-        return None, clean
+    Accepte :
+    - `` ```action\\n{JSON}\\n``` `` (standard)
+    - `` ```action {JSON}``` `` (sans nouvelle ligne)
+    - JSON inline hors backticks (fallback)
+
+    Retourne (action_dict, texte_propre) ou (None, text).
+    """
+    import json as _json
+
+    # 1. Format standard / tolérant
+    m = _ACTION_RE.search(text)
+    if m:
+        json_str = m.group(1).strip()
+        clean = (text[: m.start()] + text[m.end():]).strip()
+        try:
+            action = _json.loads(json_str)
+            if isinstance(action, dict) and "type" in action:
+                return action, clean
+        except _json.JSONDecodeError:
+            pass
+
+    # 2. Fallback : JSON inline avec "type"
+    m2 = _ACTION_JSON_INLINE_RE.search(text)
+    if m2:
+        try:
+            start = m2.start()
+            depth = 0
+            end = start
+            for i, ch in enumerate(text[start:], start):
+                if ch == '{':
+                    depth += 1
+                elif ch == '}':
+                    depth -= 1
+                    if depth == 0:
+                        end = i + 1
+                        break
+            json_str = text[start:end]
+            action = _json.loads(json_str)
+            if isinstance(action, dict) and "type" in action:
+                clean = (text[:start] + text[end:]).strip()
+                return action, clean
+        except (_json.JSONDecodeError, ValueError):
+            pass
+
+    return None, text
 
 
 async def _maybe_title_conversation(conv_id: int) -> None:
@@ -3549,36 +3806,79 @@ async def _process_message_internal(
                 payload={"conversation_id": conversation_id, "action": action},
                 status="pending",
             )
-            try:
-                action_result = await execute_action(action)
-                logger.info("[internal-action] %s → ok=%s", action.get("type"), action_result.get("ok") if action_result else None)
-            except Exception as e:
-                logger.exception("[internal-action] execute_action : %s", e)
-                action_result = {"ok": False, "message": str(e)}
 
-            # 2e passe pour les actions avec followup
-            if (
-                action_result
-                and action.get("type") in ACTIONS_WITH_FOLLOWUP
-                and not action_result.get("needs_confirmation")
-                and action_result.get("ok")
-            ):
-                try:
-                    payload = _format_action_result_for_followup(action, action_result)
+            # Détecter si on passe en mode agent
+            is_agentic = (
+                action.get("complex") is True
+                or action.get("type") in AGENTIC_ACTION_TYPES
+            )
+
+            if is_agentic and action.get("type") == "terminal":
+                agent_name = result.get("agent", "orchestrator")
+                agent_obj = get_agent(agent_name) or orchestrator
+                loop_result = await agent_obj._run_agentic_loop(
+                    user_message=original_text,
+                    conversation_id=conversation_id,
+                    context=context,
+                    initial_action=action,
+                )
+                results_text = "\n".join([
+                    f"Étape {r['step']}: "
+                    f"{str(r['result'].get('output', r['result'].get('message', '')))[:1000]}"
+                    for r in loop_result.get("results", [])
+                    if isinstance(r.get("step"), int)
+                ])
+                action_result = {
+                    "ok": loop_result.get("final_status") != "failed",
+                    "output": results_text,
+                    "agentic": True,
+                }
+                if results_text:
                     fu = await orchestrator.handle(
                         (
-                            f"Résultat brut de l'action :\n\n{payload}\n\n"
-                            f"Question originale : {original_text}\n\n"
-                            "Résume ce résultat de façon claire et utile. Pas de bloc action."
+                            f"Résultats :\n\n{results_text}\n\n"
+                            f"Question : {original_text}\n\n"
+                            "Synthétise."
                         ),
                         conversation_id=conversation_id,
                         voice_mode=False,
                     )
                     emotion = fu.get("emotion", emotion)
-                    display_text = finalize_assistant_display_text(fu.get("response", display_text))
+                    display_text = finalize_assistant_display_text(
+                        fu.get("response", display_text)
+                    )
                     final_meta = fu
+            else:
+                try:
+                    action_result = await execute_action(action)
+                    logger.info("[internal-action] %s → ok=%s", action.get("type"), action_result.get("ok") if action_result else None)
                 except Exception as e:
-                    logger.exception("[internal-followup] %s", e)
+                    logger.exception("[internal-action] execute_action : %s", e)
+                    action_result = {"ok": False, "message": str(e)}
+
+                # 2e passe pour les actions avec followup
+                if (
+                    action_result
+                    and action.get("type") in ACTIONS_WITH_FOLLOWUP
+                    and not action_result.get("needs_confirmation")
+                    and action_result.get("ok")
+                ):
+                    try:
+                        payload = _format_action_result_for_followup(action, action_result)
+                        fu = await orchestrator.handle(
+                            (
+                                f"Résultat brut de l'action :\n\n{payload}\n\n"
+                                f"Question originale : {original_text}\n\n"
+                                "Résume ce résultat de façon claire et utile. Pas de bloc action."
+                            ),
+                            conversation_id=conversation_id,
+                            voice_mode=False,
+                        )
+                        emotion = fu.get("emotion", emotion)
+                        display_text = finalize_assistant_display_text(fu.get("response", display_text))
+                        final_meta = fu
+                    except Exception as e:
+                        logger.exception("[internal-followup] %s", e)
 
         # Nettoyage final
         display_text = re.sub(r'```(?:json|action|save)\s*\{[\s\S]*?\}\s*```', '', display_text).strip()
@@ -3628,7 +3928,7 @@ async def _process_message_internal(
 
 
 async def _process_voice_fast(text: str, conversation_id: int) -> dict:
-    """Pipeline vocal ultra-rapide — 2 passes si action necessaire.
+    """Pipeline vocal ultra-rapide — 2 passes si action necessaire, avec tracing debug.
 
     Pass 1 : DeepSeek flash decide quoi faire (reponse directe OU bloc action).
     Pass 2 : si action -> execute -> DeepSeek reformule le resultat en reponse vocale.
@@ -3641,10 +3941,35 @@ async def _process_voice_fast(text: str, conversation_id: int) -> dict:
         conversation_id: ID de la conversation daemon audio.
 
     Returns:
-        dict avec cles: text, emotion, cost, action, latency_ms.
+        dict avec cles: text, emotion, cost, action, latency_ms, debug_trace.
     """
     import time as _time
+    from datetime import datetime as _datetime
     _t0 = _time.time()
+
+    # ── Trace de debug ────────────────────────────────────────────────────────
+    debug_trace: dict[str, Any] = {
+        "timestamp": _datetime.now().strftime("%H:%M:%S"),
+        "input_text": text,
+        "system_prompt": "",
+        "messages_sent": [],
+        "raw_response": "",
+        "response_clean": "",
+        "emotion": "",
+        "action_detected": None,
+        "action_result": None,
+        "pass2_prompt": None,
+        "pass2_response": None,
+        "latency_llm_pass1_ms": 0,
+        "latency_llm_pass2_ms": 0,
+        "latency_tts_ms": 0,
+        "latency_total_ms": 0,
+        "model": "",
+        "tokens_in": 0,
+        "tokens_out": 0,
+        "cost": 0.0,
+        "error": None,
+    }
 
     # ── 0. Persona condensee pour le vocal (~50 tokens) ────────────────────────
     VOICE_PERSONA = (
@@ -3673,45 +3998,65 @@ async def _process_voice_fast(text: str, conversation_id: int) -> dict:
     except Exception as e:
         logger.debug("[voice_fast] get_conversation_history : %s", e)
 
-    # ── 3. System prompt — le LLM DOIT choisir : reponse directe OU bloc action seul ──
+    # ── Contexte ecran ──────────────────────────────────────────────────
+    screen_context = ""
+    try:
+        ctx = get_current_screen_context()
+        if ctx and ctx.get("app"):
+            screen_context = f"\nECRAN : {ctx['app']}"
+            if ctx.get("activity"):
+                screen_context += f" — {ctx['activity']}"
+            if ctx.get("mood"):
+                screen_context += f" (mood: {ctx['mood']})"
+    except Exception:
+        pass
+
+    # ── 3. System prompt compact — permet de répondre ET d'agir ──
+    weather_city = getattr(config, "WEATHER_CITY", "Lille")
+
+    ACTIONS_COMPACT = """ACTIONS (bloc ```action {"type":"...", ...} ``` — tu peux répondre ET agir) :
+weather(city) | open_app(app_name) | task(title,priority) | reminder(title,due_date)
+calendar(range?) | calendar_create(summary,start,end?) | mood(score)
+mail(to,subject,body) | mail_read | note(content) | find_file(query)
+clipboard(action,text?) | system_info(info) | name_place(name) | where_am_i | day_route
+search_conversations(query) | search(query) | sleep | wake
+terminal(command) — COMMANDE SHELL uniquement (ls, grep, python...), JAMAIS une question
+
+RÈGLES :
+- Questions d'actu, sport, résultats, infos : search(query) — pas la météo ni l'heure
+- Météo : weather(city) — pas search
+- Heure, date, aujourd'hui : réponds directement avec l'horodatage fourni
+- Recherche dans tes conversations passées : search_conversations(query)
+- Commande système : terminal(command) — le command doit être un shell valide
+- Tâches complexes (code, analyse, debug) : terminal(command, complex:true)
+- "mets-toi en veille" / "dors" / "pause" : sleep
+- "réveille-toi" / "je suis là" : wake
+- Si le contexte mémoire contient déjà l'info (météo chargée, calendar...) : réponds directement
+- Tu peux répondre ET inclure un bloc action dans la même réponse.
+- Pour les questions simples (heure, date, fait) : réponds directement.
+- Pour les actions : ajoute le bloc action après ta réponse, ou uniquement le bloc action si c'est purement exécutif.
+- Si l'utilisateur dit "oui" ou "vas-y" après ta proposition : produis immédiatement le bloc action."""
+
     system = f"""{horodatage}
-
 {VOICE_PERSONA}
+LIEU : {weather_city}, France{screen_context}
 
-Tu ne dis JAMAIS 'je n'ai pas acces a' — tu as acces a tout.
+{ACTIONS_COMPACT}
 
-DATE ET HEURE : {horodatage}
-LIEU : {config.WEATHER_CITY}, France
+RÈGLES SUPPLEMENTAIRES :
+- Aucun bloc action = pas autorise a en inventer. Utilise uniquement les types decrits ci-dessus."""
 
-ACTIONS DISPONIBLES (utilise UNIQUEMENT un bloc action, JAMAIS de texte avant) :
-- weather : meteo -> ```action {{"type":"weather","city":"{config.WEATHER_CITY}"}} ```
-- open_app : ouvrir une app -> ```action {{"type":"open_app","app_name":"Safari"}} ```
-- task : creer une tache -> ```action {{"type":"task","title":"...","priority":"medium"}} ```
-- reminder : rappel -> ```action {{"type":"reminder","title":"...","due_date":"demain 14h"}} ```
-- calendar : consulter l'agenda -> ```action {{"type":"calendar"}} ``` (range:"week" pour la semaine)
-- calendar_create : creer un evenement -> ```action {{"type":"calendar_create","summary":"...","start":"..."}} ```
-- terminal : commande shell -> ```action {{"type":"terminal","command":"ls -la"}} ```
-- mood : humeur -> ```action {{"type":"mood","score":7}} ```
-- mail : preparer un email -> ```action {{"type":"mail","to":"...","subject":"...","body":"..."}} ```
-- mail_read : lire les emails non lus -> ```action {{"type":"mail_read"}} ```
-- note : sauvegarder une note -> ```action {{"type":"note","content":"..."}} ```
-- find_file : chercher un fichier -> ```action {{"type":"find_file","query":"..."}} ```
-- clipboard : presse-papiers -> ```action {{"type":"clipboard","action":"get"}} ``` ou {{"action":"set","text":"..."}}
-- system_info : infos systeme Mac -> ```action {{"type":"system_info","info":"battery"}} ``` (battery/wifi/disk/apps)
-- name_place : nommer le lieu actuel -> ```action {{"type":"name_place","name":"Maison"}} ```
-- where_am_i : position actuelle -> ```action {{"type":"where_am_i"}} ```
-- day_route : parcours de la journee -> ```action {{"type":"day_route"}} ```
-- search_conversations : chercher dans les conversations -> ```action {{"type":"search_conversations","query":"..."}} ```
 
-CHOISIS UNE SEULE OPTION :
-A) Si tu as l'information (heure, date, question simple) -> reponds directement
-B) Si tu as besoin d'une action -> ecris UNIQUEMENT le bloc action, rien avant, rien apres.
-   Le resultat te sera fourni pour que tu formules ta reponse ensuite."""
+    # ── Capture debug ─────────────────────────────────────────────────────────
+    debug_trace["system_prompt"] = system
+    debug_trace["messages_sent"] = [{"role": m["role"], "content": m["content"][:200]} for m in history]
+    debug_trace["model"] = getattr(config, "DEEPSEEK_FAST_MODEL", "deepseek-chat")
 
     # ── 4. Pass 1 : DeepSeek flash decide (reponse directe OU action seule) ────
     messages = history + [{"role": "user", "content": text}]
     total_cost: float = 0.0
 
+    _t_llm1 = _time.time()
     try:
         result = await llm.chat(
             messages=messages,
@@ -3720,16 +4065,27 @@ B) Si tu as besoin d'une action -> ecris UNIQUEMENT le bloc action, rien avant, 
             max_tokens=250,
             temperature=0.5,
         )
+        debug_trace["latency_llm_pass1_ms"] = round((_time.time() - _t_llm1) * 1000)
         raw_response = result.get("content", "") or ""
+        debug_trace["raw_response"] = raw_response
+        debug_trace["tokens_in"] = int(result.get("tokens_in", 0))
+        debug_trace["tokens_out"] = int(result.get("tokens_out", 0))
+        debug_trace["cost"] = float(result.get("cost", 0.0))
         total_cost += float(result.get("cost", 0.0))
     except Exception as e:
         logger.error("[voice_fast] LLM erreur pass 1 : %s", e)
+        debug_trace["error"] = str(e)
+        debug_trace["latency_llm_pass1_ms"] = round((_time.time() - _t_llm1) * 1000)
+        debug_trace["latency_total_ms"] = round((_time.time() - _t0) * 1000)
+        asyncio.create_task(_broadcast_voice_debug(debug_trace))
+        _save_voice_debug_trace(debug_trace)
         return {
             "text": "Desole Monsieur, un probleme technique.",
             "emotion": "concerned",
             "cost": 0.0,
             "action": None,
-            "latency_ms": (_time.time() - _t0) * 1000,
+            "latency_ms": debug_trace["latency_total_ms"],
+            "debug_trace": debug_trace,
         }
 
     # ── 5. Extraire l'emotion (tag [emotion] en debut de reponse) ─────────────
@@ -3739,18 +4095,26 @@ B) Si tu as besoin d'une action -> ecris UNIQUEMENT le bloc action, rien avant, 
         emotion = emotion_match.group(1)
         raw_response = raw_response[emotion_match.end():]
 
+    debug_trace["emotion"] = emotion
+
     # ── 6. Detecter un bloc action ────────────────────────────────────────────
-    action_match = re.search(r'```action\s*(\{.*?\})\s*(?:```|$)', raw_response, re.DOTALL)
+    action_match = re.search(r'```action\s*\n?(.*?)```', raw_response, re.DOTALL | re.IGNORECASE)
     if not action_match:
-        # Fallback : JSON brut apres "action" sans backticks
-        action_match = re.search(r'action\s*(\{"type":\s*"[^"]+.*?\})', raw_response, re.DOTALL)
+        # Fallback : JSON brut inline avec "type"
+        action_match = re.search(r'\{\s*"type"\s*:\s*"(\w+)"\s*[,}].*?\}', raw_response, re.DOTALL)
 
     if not action_match:
         # ── Pas d'action -> reponse directe (1 seul appel LLM) ─────────────────
         response_text = raw_response.strip()
         response_text = re.sub(r'```\w*\s*```', '', response_text).strip()
+        debug_trace["response_clean"] = response_text
+        debug_trace["latency_total_ms"] = round((_time.time() - _t0) * 1000)
+
         _save_voice_messages(conversation_id, text, response_text, total_cost)
-        latency_ms = (_time.time() - _t0) * 1000
+        asyncio.create_task(_broadcast_voice_debug(debug_trace))
+        _save_voice_debug_trace(debug_trace)
+
+        latency_ms = debug_trace["latency_total_ms"]
         logger.info(
             "[voice_fast] %.0fms (direct) — «%s» → «%s»",
             latency_ms, text[:40], response_text[:60],
@@ -3761,14 +4125,106 @@ B) Si tu as besoin d'une action -> ecris UNIQUEMENT le bloc action, rien avant, 
             "cost": total_cost,
             "action": None,
             "latency_ms": latency_ms,
+            "debug_trace": debug_trace,
         }
 
-    # ── 7. Action detectee -> executer l'action ────────────────────────────────
+    # ── 7. Action detectee -> parser de maniere robuste ──────────────────────
     action_result: dict | None = None
     action: dict = {}
     try:
-        action = json.loads(action_match.group(1))
-        action_result = await execute_action(action)
+        if action_match:
+            json_str = action_match.group(0)
+            # Si c'est un match inline (pas de backticks), extraire l'objet JSON complet
+            if not json_str.startswith("```"):
+                # Trouver les bornes de l'objet JSON
+                start = action_match.start()
+                depth = 0
+                end = start
+                for i, ch in enumerate(raw_response[start:], start):
+                    if ch == '{':
+                        depth += 1
+                    elif ch == '}':
+                        depth -= 1
+                        if depth == 0:
+                            end = i + 1
+                            break
+                json_str = raw_response[start:end]
+            else:
+                # Format ```action ...``` → prendre le contenu
+                inner = re.search(r'```action\s*\n?(.*?)```', json_str, re.DOTALL | re.IGNORECASE)
+                if inner:
+                    json_str = inner.group(1).strip()
+                else:
+                    json_str = action_match.group(1).strip()
+
+            action = json.loads(json_str)
+            debug_trace["action_detected"] = action
+
+            # ── Handlers directs bypass execute_action (latence zero) ────
+            action_type_direct = action.get("type", "").strip()
+
+            if action_type_direct == "search":
+                query = (action.get("query") or "").strip()
+                if not query:
+                    action_result = {"ok": True, "message": "Aucun terme de recherche fourni."}
+                else:
+                    try:
+                        from integrations.web_search import web_search
+                        summary = await web_search(query)
+                        action_result = {"ok": True, "message": summary[:600], "query": query}
+                    except Exception as e:
+                        action_result = {"ok": False, "message": f"Recherche indisponible : {e}"}
+
+            elif action_type_direct == "sleep":
+                try:
+                    from scripts.audio_daemon import audio_daemon
+                    audio_daemon.enter_sleep_mode()
+                    action_result = {"ok": True, "message": "Mode veille active — micro en sourdine"}
+                except Exception as e:
+                    action_result = {"ok": False, "message": f"Veille indisponible : {e}"}
+
+            elif action_type_direct == "wake":
+                try:
+                    from scripts.audio_daemon import audio_daemon
+                    audio_daemon.exit_sleep_mode()
+                    action_result = {"ok": True, "message": "Mode ecoute reactive"}
+                except Exception as e:
+                    action_result = {"ok": False, "message": f"Reveil indisponible : {e}"}
+
+            else:
+                action_result = await execute_action(action)
+
+            # ── Event bus : action detectee ──
+            try:
+                from jarvis.event_bus import JarvisEvent, event_bus as _eb
+                _action_type = action.get("type", "?")
+                _action_params = {k: v for k, v in action.items() if k != "type"}
+                asyncio.create_task(_eb.emit(JarvisEvent(
+                    type="agent.action",
+                    agent="voice",
+                    data={"action_type": _action_type, "action_params": _action_params},
+                )))
+            except Exception:
+                pass
+
+            debug_trace["action_result"] = action_result
+
+            # ── Event bus : resultat action ──
+            try:
+                from jarvis.event_bus import JarvisEvent, event_bus as _eb
+                _action_type = action.get("type", "?")
+                _result_str = str(action_result.get("output", action_result.get("message", action_result)))[:300]
+                asyncio.create_task(_eb.emit(JarvisEvent(
+                    type="agent.action_result",
+                    agent="voice",
+                    data={
+                        "action_type": _action_type,
+                        "result": _result_str,
+                        "latency_ms": int((_time.time() - _t_llm1) * 1000),
+                    },
+                )))
+            except Exception:
+                pass
     except json.JSONDecodeError as e:
         logger.warning("[voice_fast] JSON action invalide : %s", e)
         action_result = {"ok": False, "error": "JSON invalide"}
@@ -3803,6 +4259,9 @@ Formule une reponse naturelle a partir du resultat d'action ci-dessous.
 Donne l'information directement comme si tu la savais.
 Date : {horodatage}."""
 
+    debug_trace["pass2_prompt"] = pass2_system
+
+    _t_llm2 = _time.time()
     try:
         result2 = await llm.chat(
             messages=pass2_messages,
@@ -3811,8 +4270,13 @@ Date : {horodatage}."""
             max_tokens=min(getattr(config, "VOICE_MAX_TOKENS", 500), 300),
             temperature=0.7,
         )
+        debug_trace["latency_llm_pass2_ms"] = round((_time.time() - _t_llm2) * 1000)
         response_text = result2.get("content", "") or ""
+        debug_trace["pass2_response"] = response_text
         total_cost += float(result2.get("cost", 0.0))
+        debug_trace["cost"] = total_cost
+        debug_trace["tokens_in"] += int(result2.get("tokens_in", 0))
+        debug_trace["tokens_out"] += int(result2.get("tokens_out", 0))
 
         # Extraire emotion pass 2
         em2 = re.match(r'^\s*\[(\w+)\]\s*\n?', response_text)
@@ -3820,6 +4284,7 @@ Date : {horodatage}."""
             emotion = em2.group(1)
             response_text = response_text[em2.end():]
 
+        debug_trace["emotion"] = emotion
         response_text = response_text.strip()
 
         # Fallback si le LLM pass 2 a genere une reponse vide
@@ -3828,11 +4293,19 @@ Date : {horodatage}."""
 
     except Exception as e:
         logger.error("[voice_fast] LLM erreur pass 2 : %s", e)
+        debug_trace["latency_llm_pass2_ms"] = round((_time.time() - _t_llm2) * 1000)
+        debug_trace["error"] = str(e)
         response_text = _fallback_action_response(action_type, action_result)
 
     # ── 9. Sauvegarder et retourner ────────────────────────────────────────────
+    debug_trace["response_clean"] = response_text
+    debug_trace["latency_total_ms"] = round((_time.time() - _t0) * 1000)
+
     _save_voice_messages(conversation_id, text, response_text, total_cost)
-    latency_ms = (_time.time() - _t0) * 1000
+    asyncio.create_task(_broadcast_voice_debug(debug_trace))
+    _save_voice_debug_trace(debug_trace)
+
+    latency_ms = debug_trace["latency_total_ms"]
     logger.info(
         "[voice_fast] %.0fms (action:%s) — «%s» → «%s»",
         latency_ms, action_type, text[:40], response_text[:60],
@@ -3844,7 +4317,23 @@ Date : {horodatage}."""
         "cost": total_cost,
         "action": action_result,
         "latency_ms": latency_ms,
+        "debug_trace": debug_trace,
     }
+
+
+async def _broadcast_voice_debug(trace: dict[str, Any]) -> None:
+    """Broadcast la trace de debug vocal via WebSocket (fire-and-forget)."""
+    try:
+        safe_trace = {
+            k: v for k, v in trace.items()
+            if isinstance(v, (str, int, float, bool, list, dict, type(None)))
+        }
+        await broadcast_ws({
+            "type": "voice_debug_trace",
+            **safe_trace,
+        })
+    except Exception as e:
+        logger.debug("[voice_fast] broadcast debug: %s", e)
 
 
 def _fallback_action_response(action_type: str, result: dict) -> str:
@@ -4033,6 +4522,44 @@ async def _process_message(
         except Exception as e:
             logger.debug("[conv] update_activity user : %s", e)
 
+        # ── Vérifier si l'utilisateur confirme une proposition en attente ──
+        pending_action_type = (
+            _pending_proposal.get("action", {}).get("type")
+            if _pending_proposal else None
+        )
+        pending_result = await _check_pending_proposal(ws, content, conversation_id)
+        if pending_result is not None:
+            # L'utilisateur a dit "oui/vas-y" → on exécute l'action proposée
+            await ws.send_json({
+                "type": "action_result",
+                "action": pending_action_type or "?",
+                "result": pending_result,
+            })
+            # 2e passe pour reformuler le résultat
+            if pending_result.get("ok") and not pending_result.get("needs_confirmation"):
+                action_type = "pending"
+                try:
+                    from actions import _format_action_result_for_followup as _fmt
+                    payload = _fmt(
+                        {"type": action_type, "command": content},
+                        pending_result,
+                    )
+                except Exception:
+                    payload = str(pending_result)[:1000]
+                fu = await orchestrator.handle(
+                    (
+                        f"Résultat de l'action exécutée :\n\n{payload}\n\n"
+                        f"Question originale : {original_text}\n\n"
+                        "Résume ce résultat pour l'utilisateur de façon concise."
+                    ),
+                    conversation_id=conversation_id,
+                    voice_mode=voice_mode,
+                )
+                display_text = finalize_assistant_display_text(fu.get("response", ""))
+                emotion = fu.get("emotion", emotion)
+                await ws.send_json({"type": "response_followup", "content": display_text})
+            return {"emotion": emotion, "response": display_text or str(pending_result.get("message", ""))}
+
         full_response = ""
         final_meta: dict = {}
         emotion = "neutral"
@@ -4090,55 +4617,148 @@ async def _process_message(
                 payload={"conversation_id": conversation_id, "action": action},
                 status="pending",
             )
-            try:
-                action_result = await execute_action(action)
+
+            # Détecter si on passe en mode agent (plusieurs étapes)
+            is_agentic = (
+                action.get("complex") is True
+                or action.get("type") in AGENTIC_ACTION_TYPES
+            )
+
+            if is_agentic and action.get("type") == "terminal":
+                # Mode agent : boucle d'exécution multi-étapes
+                agent_name = final_meta.get("agent", "orchestrator")
+                agent = get_agent(agent_name) or orchestrator
+                logger.info("[agentic] Démarrage boucle agentique pour %s", action.get("type"))
+
                 await ws.send_json({
-                    "type": "action_result",
-                    "action": action.get("type"),
-                    "result": action_result,
-                })
-                logger.info("[action] %s → ok=%s", action.get("type"), action_result.get("ok"))
-            except Exception as e:
-                logger.exception("[action] execute_action exception : %s", e)
-                action_result = {"ok": False, "message": str(e)}
-                await ws.send_json({
-                    "type": "action_result",
-                    "action": action.get("type"),
-                    "result": action_result,
+                    "type": "status",
+                    "content": "Mode agent activé — exécution en cours…",
                 })
 
-        if (
-            action
-            and action_result
-            and action.get("type") in ACTIONS_WITH_FOLLOWUP
-            and not action_result.get("needs_confirmation")
-            and action_result.get("ok")
-        ):
-            try:
-                payload = _format_action_result_for_followup(action, action_result)
-                await ws.send_json({"type": "status", "content": "Synthèse du résultat…"})
-                fu = await orchestrator.handle(
-                    (
-                        f"Résultat brut de l'action :\n\n{payload}\n\n"
-                        f"Question originale : {original_text}\n\n"
-                        "Résumé ce résultat de façon claire et utile pour l'utilisateur. "
-                        "Pas de bloc action."
-                    ),
-                    conversation_id=conversation_id,
-                    voice_mode=False,
-                )
-                display_text = finalize_assistant_display_text(fu.get("response", ""))
-                emotion = fu.get("emotion", emotion)
-                final_meta = {
-                    "agent": fu.get("agent", final_meta.get("agent")),
-                    "model": fu.get("model", final_meta.get("model")),
-                    "tokens_in": int(fu.get("tokens_in") or 0),
-                    "tokens_out": int(fu.get("tokens_out") or 0),
-                    "cost": float(fu.get("cost") or 0.0),
+                try:
+                    loop_result = await agent._run_agentic_loop(
+                        user_message=original_text,
+                        conversation_id=conversation_id,
+                        context=extra_context,
+                        initial_action=action,
+                    )
+                except Exception as e:
+                    logger.exception("[agentic] boucle : %s", e)
+                    loop_result = {
+                        "results": [{"step": 1, "action": action, "result": {"ok": False, "message": str(e)}}],
+                        "step_count": 1,
+                        "final_status": "failed",
+                    }
+
+                await ws.send_json({
+                    "type": "agentic_result",
+                    "steps": loop_result.get("step_count", 0),
+                    "status": loop_result.get("final_status", "completed"),
+                })
+
+                # Synthèse finale des résultats
+                results_text = "\n".join([
+                    f"Étape {r['step']}: "
+                    f"{str(r['result'].get('output', r['result'].get('message', '')))[:1000]}"
+                    for r in loop_result.get("results", [])
+                    if isinstance(r.get("step"), int)
+                ])
+
+                action_result = {
+                    "ok": loop_result.get("final_status") != "failed",
+                    "output": results_text,
+                    "agentic": True,
                 }
-                await ws.send_json({"type": "response_followup", "content": display_text})
-            except Exception as e:
-                logger.exception("[followup] action %s : %s", action.get("type"), e)
+
+                if results_text:
+                    fu = await orchestrator.handle(
+                        (
+                            f"Résultats des actions exécutées :\n\n{results_text}\n\n"
+                            f"Question originale : {original_text}\n\n"
+                            "Synthétise ces résultats de façon claire et utile."
+                        ),
+                        conversation_id=conversation_id,
+                        voice_mode=False,
+                    )
+                    display_text = finalize_assistant_display_text(
+                        fu.get("response", display_text)
+                    )
+                    emotion = fu.get("emotion", emotion)
+                    final_meta = fu
+                    await ws.send_json({
+                        "type": "response_followup",
+                        "content": display_text,
+                    })
+            else:
+                # Mode simple : une action
+                # Si c'est un mail sans confirmation, stocker en pending
+                if action.get("type") == "mail" and not action.get("confirmed"):
+                    _maybe_store_pending_proposal(action, conversation_id)
+                    logger.info("[pending] Proposition mail stockée pour confirmation")
+
+                try:
+                    action_result = await execute_action(action)
+                    await ws.send_json({
+                        "type": "action_result",
+                        "action": action.get("type"),
+                        "result": action_result,
+                    })
+                    logger.info(
+                        "[action] %s → ok=%s",
+                        action.get("type"),
+                        action_result.get("ok"),
+                    )
+                except Exception as e:
+                    logger.exception("[action] execute_action exception : %s", e)
+                    action_result = {"ok": False, "message": str(e)}
+                    await ws.send_json({
+                        "type": "action_result",
+                        "action": action.get("type"),
+                        "result": action_result,
+                    })
+
+                # 2e passe pour les actions avec followup
+                if (
+                    action_result
+                    and action.get("type") in ACTIONS_WITH_FOLLOWUP
+                    and not action_result.get("needs_confirmation")
+                    and action_result.get("ok")
+                ):
+                    try:
+                        payload = _format_action_result_for_followup(
+                            action, action_result
+                        )
+                        await ws.send_json({
+                            "type": "status",
+                            "content": "Synthèse du résultat…",
+                        })
+                        fu = await orchestrator.handle(
+                            (
+                                f"Résultat brut de l'action :\n\n{payload}\n\n"
+                                f"Question originale : {original_text}\n\n"
+                                "Résume ce résultat de façon claire et utile pour l'utilisateur. "
+                                "Pas de bloc action."
+                            ),
+                            conversation_id=conversation_id,
+                            voice_mode=False,
+                        )
+                        display_text = finalize_assistant_display_text(
+                            fu.get("response", "")
+                        )
+                        emotion = fu.get("emotion", emotion)
+                        final_meta = {
+                            "agent": fu.get("agent", final_meta.get("agent")),
+                            "model": fu.get("model", final_meta.get("model")),
+                            "tokens_in": int(fu.get("tokens_in") or 0),
+                            "tokens_out": int(fu.get("tokens_out") or 0),
+                            "cost": float(fu.get("cost") or 0.0),
+                        }
+                        await ws.send_json({
+                            "type": "response_followup",
+                            "content": display_text,
+                        })
+                    except Exception as e:
+                        logger.exception("[followup] action %s : %s", action.get("type"), e)
 
         if raw_accumulated:
             try:

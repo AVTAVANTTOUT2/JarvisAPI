@@ -38,6 +38,26 @@
   .animate-scale-in {
     animation: jarvis-scale-in 0.35s ease-out forwards;
   }
+  .debug-prompt {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 8px;
+    padding: 12px;
+    font-size: 11px;
+    line-height: 1.5;
+    color: rgba(255, 255, 255, 0.7);
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .latency-bar {
+    height: 4px;
+    border-radius: 2px;
+    transition: width 0.3s ease;
+  }
+  .latency-fast { background: #22c55e; }
+  .latency-ok { background: #f59e0b; }
+  .latency-slow { background: #ef4444; }
 }
 
 @keyframes jarvis-slide-up {

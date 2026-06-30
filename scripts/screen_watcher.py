@@ -1,13 +1,16 @@
 """Screen Watcher — capture et analyse l'écran en continu.
 
 Pipeline :
-  1. Capture (`screencapture` macOS) toutes les `SCREEN_WATCHER_INTERVAL` secondes.
-  2. Hash + diff pixel (NumPy non requis — Pillow suffit).
-  3. Si changement >= `SCREEN_CHANGE_THRESHOLD` % → on note l'app au premier plan
-     et on incrémente `app_usage`. En dessous → idle counter.
-  4. Si changement >= `SCREEN_ANALYSIS_THRESHOLD` % → analyse Ollama vision locale.
+  1. Capture (`screencapture` macOS) toutes les `SCREEN_WATCHER_INTERVAL` secondes
+     en résolution native (sans resize).
+  2. Détection de la fenêtre active via osascript (app + bounds).
+  3. Crop de la fenêtre active + resize proportionnel si > MAX_ANALYSIS_WIDTH.
+  4. Hash + diff pixel sur le crop (thumbnails 64×64 niveaux de gris).
+  5. Si changement >= `SCREEN_CHANGE_THRESHOLD` % → on tracke l'app et on
+     incrémente `app_usage` chaque cycle.
+  6. Si changement >= `SCREEN_ANALYSIS_THRESHOLD` % → analyse Ollama vision locale.
      Le résultat (app, activity, mood, notable) est stocké dans `screen_activity`.
-  5. Si `analysis["notable"]` est non vide → callback `on_notable` (le daemon
+  7. Si `analysis["notable"]` est non vide → callback `on_notable` (le daemon
      décide si une notif vocale doit être déclenchée).
 
 Le screen watcher ne parle PAS à Claude API directement — c'est le daemon qui
@@ -32,6 +35,18 @@ from database import save_screen_activity, upsert_app_usage
 
 logger = logging.getLogger(__name__)
 
+# ── Constantes ────────────────────────────────────────────────────────────────
+_MAX_ANALYSIS_WIDTH_FROM_CONFIG = getattr(config, "SCREEN_MAX_ANALYSIS_WIDTH", None)
+MAX_ANALYSIS_WIDTH: int = (
+    int(_MAX_ANALYSIS_WIDTH_FROM_CONFIG)
+    if _MAX_ANALYSIS_WIDTH_FROM_CONFIG is not None
+    else 1280
+)
+CAPTURE_TIMEOUT: int = 5
+OSASCRIPT_TIMEOUT: int = 3
+_JPEG_QUALITY_FROM_CONFIG = getattr(config, "SCREEN_JPEG_QUALITY", None)
+JPEG_QUALITY: int = int(_JPEG_QUALITY_FROM_CONFIG) if _JPEG_QUALITY_FROM_CONFIG is not None else 70
+
 
 class ScreenWatcher:
     def __init__(self) -> None:
@@ -39,9 +54,13 @@ class ScreenWatcher:
         self.interval = int(getattr(config, "SCREEN_WATCHER_INTERVAL", 12))
         self.change_threshold = float(getattr(config, "SCREEN_CHANGE_THRESHOLD", 5))
         self.analysis_threshold = float(getattr(config, "SCREEN_ANALYSIS_THRESHOLD", 15))
-        self.ollama_model = str(getattr(config, "SCREEN_VISION_MODEL", "qwen2.5-vl:7b"))
+        self.ollama_model = str(getattr(config, "SCREEN_VISION_MODEL", "qwen2.5vl:7b"))
         self.ollama_url = str(getattr(config, "OLLAMA_URL", "http://localhost:11434"))
         self.device = str(getattr(config, "DEVICE_ID", "mac_mini"))
+        self.max_analysis_width = MAX_ANALYSIS_WIDTH
+        self.capture_timeout = CAPTURE_TIMEOUT
+        self.osascript_timeout = OSASCRIPT_TIMEOUT
+        self.jpeg_quality = JPEG_QUALITY
 
         # Anti-spam : desactiver Ollama apres N echecs consecutifs, retenter apres cooldown
         self._ollama_available: bool = True
@@ -50,17 +69,23 @@ class ScreenWatcher:
         self._ollama_cooldown_s: float = float(getattr(config, "SCREEN_OLLAMA_COOLDOWN_S", "300"))
         self._ollama_next_retry: float = 0.0
 
+        # Resolution logique de l'écran principal (points) — pour le scale factor retina
+        self._screen_point_width: int = 0
+        self._screen_point_height: int = 0
+
         self.last_image: Image.Image | None = None
         self.last_hash: str | None = None
         self.last_app: str | None = None
-        self.last_app_time = time.time()
-        self.idle_seconds = 0
-        self.idle_alerted = False
-        self.running = False
+        self.last_app_time: float = time.time()
+        self.idle_seconds: int = 0
+        self.idle_alerted: bool = False
+        self.running: bool = False
 
         # Callbacks asynchrones définis par le daemon
         self.on_notable = None  # async (notable_text: str, context: dict) -> None
         self.on_idle = None     # async (idle_minutes: int) -> None
+
+    # ── Contrôle ────────────────────────────────────────────────────────────
 
     async def start(self) -> None:
         """Boucle principale du screen watcher."""
@@ -70,9 +95,12 @@ class ScreenWatcher:
 
         self.running = True
         logger.info(
-            "[screen] démarré — interval=%ss, seuils=%s%%/%s%%",
-            self.interval, self.change_threshold, self.analysis_threshold,
+            "[screen] démarré — interval=%ss, seuils=%s%%/%s%%, max_width=%spx",
+            self.interval, self.change_threshold, self.analysis_threshold, self.max_analysis_width,
         )
+
+        # Détection unique de la résolution logique de l'écran (scale factor retina)
+        await self._detect_screen_point_dimensions()
 
         while self.running:
             try:
@@ -84,44 +112,57 @@ class ScreenWatcher:
     def stop(self) -> None:
         self.running = False
 
+    # ── Tick principal ──────────────────────────────────────────────────────
+
     async def _tick(self) -> None:
-        """Un cycle de capture + analyse."""
-        image = await self._capture()
-        if image is None:
+        """Un cycle de capture + crop + analyse."""
+        # 1. Capture écran complet (sans resize)
+        img, tmp_path = await self._capture()
+        if img is None:
             return
 
-        current_hash = self._hash_image(image)
+        # 2. Fenêtre active (app + bounds)
+        window_info = await self._get_active_window_info()
+        current_app = window_info.get("app") if window_info else None
+
+        # 3. Crop sur la fenêtre active + resize proportionnel
+        cropped = self._crop_active_window(img, window_info)
+
+        # 4. Nettoyage du fichier temporaire de capture
+        self._cleanup_file(tmp_path)
+
+        # 5. Hash + diff sur le CROP
+        current_hash = self._hash_image(cropped)
         if current_hash == self.last_hash:
             self.idle_seconds += self.interval
             await self._check_idle()
             return
 
-        change_pct = self._compute_diff(image, self.last_image) if self.last_image else 100.0
-        self.last_image = image
+        change_pct = self._compute_diff(cropped, self.last_image) if self.last_image else 100.0
+        self.last_image = cropped
         self.last_hash = current_hash
 
+        # 6. Tracker app usage — chaque cycle (pas seulement sur changement d'app)
+        if self.last_app:
+            duration = int(time.time() - self.last_app_time)
+            if duration > 0:
+                upsert_app_usage(self.device, self.last_app, duration)
+        self.last_app = current_app
+        self.last_app_time = time.time()
+
+        # 7. Peu de changement → idle
         if change_pct < self.change_threshold:
             self.idle_seconds += self.interval
             await self._check_idle()
             return
 
+        # Réinitialiser compteur idle quand il y a du mouvement
         self.idle_seconds = 0
         self.idle_alerted = False
 
-        current_app = await self._get_frontmost_app()
-
-        # Tracker le temps par app : on prolonge la fenêtre tant que l'app
-        # courante reste la même. Quand elle change, on persiste le temps cumulé.
-        if current_app and current_app != self.last_app:
-            if self.last_app:
-                elapsed = int(time.time() - self.last_app_time)
-                if elapsed > 0:
-                    upsert_app_usage(self.device, self.last_app, elapsed)
-            self.last_app = current_app
-            self.last_app_time = time.time()
-
+        # 8. Analyse Ollama si changement significatif
         if change_pct >= self.analysis_threshold:
-            analysis = await self._analyze_with_ollama(image)
+            analysis = await self._analyze_with_ollama(cropped, current_app, window_info)
             if analysis:
                 save_screen_activity(
                     device=self.device,
@@ -147,6 +188,7 @@ class ScreenWatcher:
                     change_pct=round(change_pct, 1),
                 )
         else:
+            # 9. Changement mineur — sauvegarde basique
             save_screen_activity(
                 device=self.device,
                 app=current_app,
@@ -155,8 +197,17 @@ class ScreenWatcher:
                 change_pct=round(change_pct, 1),
             )
 
-    async def _capture(self) -> Image.Image | None:
-        """Capture l'écran via `screencapture` macOS."""
+    # ── Capture écran ───────────────────────────────────────────────────────
+
+    async def _capture(self) -> tuple[Image.Image | None, str | None]:
+        """Capture l'écran en résolution native via `screencapture` macOS.
+
+        Returns:
+            Tuple (image PIL brute, chemin du fichier temporaire).
+            (None, None) si échec.
+        """
+        import os as _os
+
         tmp_path: str | None = None
         try:
             with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
@@ -167,41 +218,81 @@ class ScreenWatcher:
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.DEVNULL,
             )
-            await asyncio.wait_for(proc.wait(), timeout=5)
+            await asyncio.wait_for(proc.wait(), timeout=self.capture_timeout)
+
+            # Attendre que le fichier soit complètement écrit (race condition macOS)
+            await asyncio.sleep(0.1)
+
+            if _os.path.getsize(tmp_path) < 500:
+                raise IOError(f"capture vide ({_os.path.getsize(tmp_path)} octets)")
 
             img = Image.open(tmp_path)
             img.load()
-            img = img.resize((1280, 800), Image.Resampling.LANCZOS)
-            return img
+            return img, tmp_path
         except Exception as e:
             logger.warning("[screen] capture échouée : %s", e)
-            return None
-        finally:
-            if tmp_path:
-                try:
-                    Path(tmp_path).unlink(missing_ok=True)
-                except Exception:
-                    pass
+            self._cleanup_file(tmp_path)
+            return None, None
 
-    def _compute_diff(self, img1: Image.Image, img2: Image.Image) -> float:
-        """% de pixels qui ont changé de plus de 30 niveaux entre deux images."""
+    # ── Fenêtre active ──────────────────────────────────────────────────────
+
+    async def _get_active_window_info(self) -> dict | None:
+        """osascript : récupère le nom de l'app et les bounds de la fenêtre active.
+
+        Fallback vers _get_frontmost_app() (app seule, sans bounds) si échec.
+
+        Retourne un dict {'app': str, 'x': int, 'y': int, 'width': int, 'height': int}
+        ou None si rien n'a été récupéré.
+        """
         try:
-            if img1.size != img2.size:
-                img2 = img2.resize(img1.size)
-            g1 = img1.convert("L").getdata()
-            g2 = img2.convert("L").getdata()
-            total = len(g1)
-            if total == 0:
-                return 100.0
-            changed = sum(1 for a, b in zip(g1, g2) if abs(a - b) > 30)
-            return (changed / total) * 100
-        except Exception:
-            return 100.0
+            script = (
+                'tell application "System Events"\n'
+                '  set frontProc to first application process whose frontmost is true\n'
+                '  set appName to name of frontProc\n'
+                '  try\n'
+                '    set winPos to position of window 1 of frontProc\n'
+                '    set winSize to size of window 1 of frontProc\n'
+                '    return appName & "|" & (item 1 of winPos) & "|" & (item 2 of winPos)'
+                ' & "|" & (item 1 of winSize) & "|" & (item 2 of winSize)\n'
+                '  on error\n'
+                '    return appName & "|0|0|0|0"\n'
+                '  end try\n'
+                'end tell'
+            )
+            proc = await asyncio.create_subprocess_exec(
+                "osascript", "-e", script,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=self.osascript_timeout)
+            text = (stdout or b"").decode().strip()
 
-    def _hash_image(self, img: Image.Image) -> str:
-        """Hash MD5 d'une vignette 64×64 en niveaux de gris."""
-        small = img.resize((64, 64)).convert("L")
-        return hashlib.md5(small.tobytes()).hexdigest()
+            if not text:
+                return await self._get_frontmost_app_or_none()
+
+            parts = text.split("|")
+            # Gérer le cas du on error osascript : "App||0|0|0|0" → 6 parties
+            if len(parts) == 6 and parts[1] == "":
+                parts = [parts[0]] + parts[2:]
+            if len(parts) == 5:
+                try:
+                    return {
+                        "app": parts[0] or None,
+                        "x": int(parts[1]) if parts[1] else 0,
+                        "y": int(parts[2]) if parts[2] else 0,
+                        "width": int(parts[3]) if parts[3] else 0,
+                        "height": int(parts[4]) if parts[4] else 0,
+                    }
+                except (ValueError, TypeError):
+                    pass
+            # Fallback : osascript a retourné seulement le nom de l'app
+            return {"app": text, "x": 0, "y": 0, "width": 0, "height": 0}
+        except asyncio.TimeoutError:
+            logger.debug("[screen] osascript timeout — fallback frontmost app")
+            return await self._get_frontmost_app_or_none()
+        except Exception as e:
+            logger.debug("[screen] _get_active_window_info : %s", e)
+            return await self._get_frontmost_app_or_none()
 
     async def _get_frontmost_app(self) -> str | None:
         """Nom de l'app au premier plan (AppleScript)."""
@@ -212,13 +303,103 @@ class ScreenWatcher:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.DEVNULL,
             )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=3)
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=self.osascript_timeout)
             name = (stdout or b"").decode().strip()
             return name or None
         except Exception:
             return None
 
-    async def _analyze_with_ollama(self, image: Image.Image) -> dict | None:
+    async def _get_frontmost_app_or_none(self) -> dict | None:
+        """Retourne un dict contenant uniquement l'app, sans bounds."""
+        name = await self._get_frontmost_app()
+        if name:
+            return {"app": name, "x": 0, "y": 0, "width": 0, "height": 0}
+        return None
+
+    # ── Crop + resize proportionnel ────────────────────────────────────────
+
+    def _crop_active_window(self, img: Image.Image, window_info: dict | None) -> Image.Image:
+        """Crop l'image sur la fenêtre active, avec resize proportionnel.
+
+        - Détecte le scale factor retina via _screen_point_width.
+        - Convertit les bounds (points) → pixels.
+        - Recadre l'image sur ces coordonnées.
+        - Si le crop dépasse MAX_ANALYSIS_WIDTH en largeur, resize proportionnel.
+        - Si les bounds sont invalides (width=0), resize proportionnel de l'image entière.
+
+        Args:
+            img: Image PIL brute (capture native non redimensionnée).
+            window_info: Dict de bounds (x, y, width, height) ou None.
+
+        Returns:
+            Image PIL croppée et éventuellement redimensionnée.
+        """
+        if window_info and window_info.get("width", 0) > 0 and window_info.get("height", 0) > 0:
+            # Détecter le scale factor retina
+            scale_factor: float = 1.0
+            if self._screen_point_width > 0 and img.width > 0:
+                scale_factor = img.width / self._screen_point_width
+
+            # Convertir les bounds (points) → pixels
+            x = int(window_info["x"] * scale_factor)
+            y = int(window_info["y"] * scale_factor)
+            w = int(window_info["width"] * scale_factor)
+            h = int(window_info["height"] * scale_factor)
+
+            # Borner aux dimensions de l'image
+            x = max(0, min(x, img.width - 1))
+            y = max(0, min(y, img.height - 1))
+            w = max(1, min(w, img.width - x))
+            h = max(1, min(h, img.height - y))
+
+            cropped = img.crop((x, y, x + w, y + h))
+        else:
+            # Pas de bounds valides → image entière
+            cropped = img
+
+        # Resize proportionnel si > MAX_ANALYSIS_WIDTH
+        if cropped.width > self.max_analysis_width:
+            ratio = self.max_analysis_width / cropped.width
+            new_height = max(1, int(cropped.height * ratio))
+            cropped = cropped.resize((self.max_analysis_width, new_height), Image.Resampling.LANCZOS)
+
+        return cropped
+
+    # ── Diff pixel ──────────────────────────────────────────────────────────
+
+    def _compute_diff(self, img1: Image.Image, img2: Image.Image) -> float:
+        """% de pixels qui ont changé (>30 niveaux) entre deux images.
+
+        Utilise des thumbnails 64×64 en niveaux de gris pour la comparaison.
+        Si les tailles diffèrent → changement de fenêtre → return 100.0.
+        """
+        try:
+            if img1.size != img2.size:
+                return 100.0
+            small1 = img1.resize((64, 64)).convert("L")
+            small2 = img2.resize((64, 64)).convert("L")
+            data1 = small1.getdata()
+            data2 = small2.getdata()
+            total = len(data1)
+            if total == 0:
+                return 100.0
+            changed = sum(1 for a, b in zip(data1, data2) if abs(a - b) > 30)
+            return (changed / total) * 100
+        except Exception:
+            return 100.0
+
+    # ── Hash ────────────────────────────────────────────────────────────────
+
+    def _hash_image(self, img: Image.Image) -> str:
+        """Hash MD5 d'une vignette 64×64 en niveaux de gris."""
+        small = img.resize((64, 64)).convert("L")
+        return hashlib.md5(small.tobytes()).hexdigest()
+
+    # ── Analyse Ollama ─────────────────────────────────────────────────────
+
+    async def _analyze_with_ollama(
+        self, img: Image.Image, app: str | None, window_info: dict | None
+    ) -> dict | None:
         """Analyse l'image avec le LLM vision local (Ollama).
 
         Le prompt force une sortie JSON ultra-courte. Le résultat est texte pur
@@ -226,23 +407,42 @@ class ScreenWatcher:
 
         Anti-spam : après N échecs consécutifs, désactive Ollama temporairement
         (cooldown de 5 min) pour éviter le flood de logs. Réessaie automatiquement.
+
+        Args:
+            img: Image PIL croppée (fenêtre active).
+            app: Nom de l'application au premier plan.
+            window_info: Dict de bounds (pour contexte dans le prompt).
+
+        Returns:
+            Dict JSON parsé ou None si échec.
         """
         # Cooldown : vérifier si on peut réessayer
         if not self._ollama_available:
             if time.time() < self._ollama_next_retry:
                 return None  # silencieux, pas de log
             # Fin du cooldown → retenter
-            logger.info("[screen] Re-tentative Ollama apres cooldown")
+            logger.info("[screen] Re-tentative Ollama après cooldown")
             self._ollama_available = True
             self._ollama_failures = 0
 
         try:
             buffer = BytesIO()
-            image.save(buffer, format="PNG", optimize=True)
+            img_to_save = img
+            if img_to_save.mode == "RGBA":
+                img_to_save = img_to_save.convert("RGB")
+            img_to_save.save(buffer, format="JPEG", quality=self.jpeg_quality)
             img_b64 = base64.b64encode(buffer.getvalue()).decode()
+
+            win_w = window_info.get("width", 0) if window_info else 0
+            win_h = window_info.get("height", 0) if window_info else 0
+            app_label = app or "inconnue"
 
             prompt = (
                 "Décris en 1 ligne ce que tu vois sur cet écran.\n"
+                f"Application active : {app_label}. "
+                f"Dimensions de la fenêtre : {win_w}x{win_h} points. "
+                "L'écran complet fait 5120×1440 (ultrawide 32:9). "
+                "L'image montrée est uniquement la fenêtre active, croppée.\n"
                 "Retourne UNIQUEMENT ce JSON, rien d'autre :\n"
                 '{"app": "nom de l\'application visible", '
                 '"activity": "ce que l\'utilisateur fait en 5 mots max", '
@@ -289,13 +489,15 @@ class ScreenWatcher:
                 self._ollama_available = False
                 self._ollama_next_retry = time.time() + self._ollama_cooldown_s
                 logger.warning(
-                    "[screen] Ollama indisponible (%d echecs) — desactive pour %ds",
+                    "[screen] Ollama indisponible (%d échecs) — désactivé pour %ds",
                     self._ollama_failures, int(self._ollama_cooldown_s),
                 )
             else:
-                logger.debug("[screen] analyse Ollama echouee (%d/%d) : %s",
+                logger.debug("[screen] analyse Ollama échouée (%d/%d) : %s",
                            self._ollama_failures, self._ollama_max_failures, e)
             return None
+
+    # ── Idle ────────────────────────────────────────────────────────────────
 
     async def _check_idle(self) -> None:
         """Notifie le daemon si l'utilisateur est inactif depuis longtemps."""
@@ -307,6 +509,47 @@ class ScreenWatcher:
                     await self.on_idle(idle_minutes)
                 except Exception as e:
                     logger.warning("[screen] on_idle callback : %s", e)
+
+    # ── Screen point dimensions ────────────────────────────────────────────
+
+    async def _detect_screen_point_dimensions(self) -> None:
+        """Détecte la résolution logique de l'écran principal (points) pour le
+        calcul du scale factor retina.
+
+        Utilise : osascript → bounds of window of desktop (item 3 = width, item 4 = height).
+        """
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "osascript", "-e",
+                'tell application "System Events" to return (item 3 of bounds of window of desktop) & "|" & (item 4 of bounds of window of desktop)',
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=self.osascript_timeout)
+            text = (stdout or b"").decode().strip()
+            parts = text.split("|")
+            if len(parts) == 2:
+                self._screen_point_width = int(parts[0])
+                self._screen_point_height = int(parts[1])
+                logger.info(
+                    "[screen] résolution logique détectée : %dx%d points",
+                    self._screen_point_width, self._screen_point_height,
+                )
+        except Exception as e:
+            logger.debug("[screen] détection résolution logique échouée : %s", e)
+            self._screen_point_width = 0
+            self._screen_point_height = 0
+
+    # ── Utilitaire ─────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _cleanup_file(path: str | None) -> None:
+        """Supprime silencieusement un fichier temporaire."""
+        if path:
+            try:
+                Path(path).unlink(missing_ok=True)
+            except Exception:
+                pass
 
 
 screen_watcher = ScreenWatcher()

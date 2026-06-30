@@ -22,10 +22,10 @@ PRIORITY_COLORS: dict[str, str] = {
 }
 
 PRIORITY_ICONS: dict[str, str] = {
-    "urgent": "\uD83D\uDD34",   # 🔴
-    "high": "\uD83D\uDD34",
-    "medium": "\uD83D\uDFE1",   # 🟡
-    "low": "\uD83D\uDFE2",      # 🟢
+    "urgent": "\U0001F534",   # 🔴
+    "high": "\U0001F534",
+    "medium": "\U0001F7E1",   # 🟡
+    "low": "\U0001F7E2",      # 🟢
 }
 
 
@@ -64,11 +64,11 @@ def get_unread_notifications() -> list[dict[str, Any]]:
     for row in rows:
         priority = (row["priority"] or "low").lower()
         color = PRIORITY_COLORS.get(priority, "#888888")
-        icon = PRIORITY_ICONS.get(priority, "\u25CF")
-        title = (row["title"] or "").strip()[:60]
-        content = (row["content"] or "").strip()[:80]
+        icon = _sanitize(PRIORITY_ICONS.get(priority, "\u25CF"))
+        title = _sanitize((row["title"] or "").strip())[:60]
+        content = _sanitize((row["content"] or "").strip())[:80]
         display = title or content or "Notification"
-        source = row["source"] or "system"
+        source = _sanitize(row["source"] or "system")
 
         results.append({
             "id": row["id"],
@@ -90,3 +90,8 @@ def _resolve_db_path() -> str | None:
         return str(db_full)
     logger.warning("jarvis.db introuvable")
     return None
+
+
+def _sanitize(text: str) -> str:
+    """Nettoie les surrogate characters et autres artefacts Unicode."""
+    return text.encode("utf-8", errors="surrogateescape").decode("utf-8", errors="replace")

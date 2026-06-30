@@ -188,6 +188,7 @@ class JarvisAgent:
             )
             img = Image.open(tmp_path)
             img.load()
+            # SCREEN_RESIZE aligné sur config.SCREEN_RESIZE / scripts/screen_watcher.py (1280×800)
             img = img.resize((1280, 800), Image.Resampling.LANCZOS)
             return img
         except Exception as e:
@@ -234,7 +235,11 @@ class JarvisAgent:
                             tmp.write(audio)
                             tmp_path = tmp.name
                         try:
-                            subprocess.run(["afplay", tmp_path], capture_output=True)
+                            subprocess.run(
+                                ["afplay", tmp_path],
+                                capture_output=True,
+                                timeout=30,
+                            )
                         finally:
                             try:
                                 Path(tmp_path).unlink(missing_ok=True)

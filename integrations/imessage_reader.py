@@ -4,6 +4,7 @@ Utilisé par le RelationshipAnalyzer pour extraire l'historique des conversation
 Distinct du bridge iMessage (integrations/imessage.py) qui gère le polling temps réel + envoi.
 """
 
+import asyncio
 import logging
 import sqlite3
 from datetime import datetime, timedelta
@@ -347,6 +348,125 @@ class IMessageReader:
         except Exception as e:
             logger.error("[iMsgReader] search_messages : %s", e)
             return []
+
+    # ── Sourcing : scan périodique en lecture seule ──────────
+
+    def scan_new_messages(self) -> int:
+        """Lit chat.db en `mode=ro`, retourne le nombre de nouveaux messages détectés.
+
+        Cette méthode est purement en lecture seule. Elle ne modifie jamais
+        chat.db et n'appelle jamais osascript / Messages.app en écriture.
+        """
+        if not self.is_available():
+            return 0
+        try:
+            conn = sqlite3.connect(
+                f"file:{self.db_path}?mode=ro", uri=True, timeout=5.0
+            )
+            # Récupère le ROWID max actuel
+            row = conn.execute(
+                "SELECT COALESCE(MAX(ROWID), 0) FROM message"
+            ).fetchone()
+            current_max = int(row[0]) if row else 0
+            conn.close()
+
+            # Détection de nouveaux messages par rapport au dernier scan
+            last_max = getattr(self, "_last_sourced_rowid", 0)
+            if current_max <= last_max:
+                return 0
+
+            count = current_max - last_max
+            self._last_sourced_rowid = current_max
+            return count
+        except sqlite3.Error as e:
+            logger.warning("[imessage_reader] scan_new_messages : %s", e)
+            return 0
+
+    def scan_new_messages_with_last_id(self) -> tuple[int, int]:
+        """Comme scan_new_messages() mais retourne (count, last_rowid).
+
+        Returns:
+            Tuple (nombre_de_nouveaux_messages, dernier_rowid_scanné).
+            (0, 0) si aucun nouveau message ou erreur.
+        """
+        if not self.is_available():
+            return 0, 0
+        try:
+            conn = sqlite3.connect(
+                f"file:{self.db_path}?mode=ro", uri=True, timeout=5.0
+            )
+            row = conn.execute(
+                "SELECT COALESCE(MAX(ROWID), 0) FROM message"
+            ).fetchone()
+            current_max = int(row[0]) if row else 0
+            conn.close()
+
+            last_max = getattr(self, "_last_sourced_rowid", 0)
+            if current_max <= last_max:
+                return 0, current_max
+
+            count = current_max - last_max
+            self._last_sourced_rowid = current_max
+            return count, current_max
+        except sqlite3.Error as e:
+            logger.warning("[imessage_reader] scan_new_messages_with_last_id : %s", e)
+            return 0, 0
+
+    async def periodic_scan(self, interval: int = 300) -> None:
+        """Boucle de lecture chat.db en lecture seule — jamais d'écriture côté Messages.app.
+
+        Args:
+            interval: secondes entre chaque scan (défaut 300 = 5 minutes)
+        """
+        logger.info("[imessage_reader] Scan périodique démarré (interval=%ds)", interval)
+        while True:
+            try:
+                if self.is_available():
+                    count, last_id = self.scan_new_messages_with_last_id()
+                    if count:
+                        logger.info(
+                            "[imessage_reader] %d nouveaux messages sourcés "
+                            "(jusqu'à rowid=%d)",
+                            count,
+                            last_id,
+                        )
+                        # Déclenche l'analyse en tâche séparée (jamais bloquant)
+                        asyncio.create_task(
+                            _trigger_message_intelligence(
+                                since_id=last_id - count,
+                            ),
+                            name="message_intelligence",
+                        )
+            except Exception as e:
+                logger.error(
+                    "[imessage_reader] ÉCHEC scan — sourcing pourrait être "
+                    "bloqué : %s",
+                    e,
+                    exc_info=True,
+                )
+            await asyncio.sleep(interval)
+
+
+
+async def _trigger_message_intelligence(since_id: int) -> None:
+    """Déclenche l'analyse d'intelligence sur les messages récents.
+
+    Appelée en `asyncio.create_task` (non bloquant) après chaque scan
+    réussi de chat.db. L'import est lazy pour éviter les cycles.
+    """
+    try:
+        from jarvis.message_intelligence import analyze_recent_messages
+
+        result = await analyze_recent_messages(since_id=since_id)
+        if result.get("status") != "ok":
+            logger.debug(
+                "[imessage_reader] message_intelligence terminé : %s",
+                result.get("status"),
+            )
+    except Exception as e:
+        logger.warning(
+            "[imessage_reader] message_intelligence erreur : %s", e
+        )
 
 
 imessage_reader = IMessageReader()

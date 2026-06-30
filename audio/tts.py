@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import AsyncGenerator
 
 import config
+from jarvis.event_bus import JarvisEvent, event_bus
 
 logger = logging.getLogger(__name__)
 
@@ -87,9 +88,19 @@ class TTSEngine:
             return b""
         emotion = emotion if emotion in VALID_EMOTIONS else "neutral"
         logger.debug("[TTS] synthesize backend=%s emotion=%s len=%d", self._backend, emotion, len(text))
+
+        asyncio.create_task(event_bus.emit(JarvisEvent(
+            type="tts.start",
+            data={"engine": self._backend, "text_length": len(text)},
+        )))
+
         if self._backend == "elevenlabs":
-            return await self._synth_elevenlabs_full(text, emotion)
-        return await self._synth_edge(text)
+            result = await self._synth_elevenlabs_full(text, emotion)
+        else:
+            result = await self._synth_edge(text)
+
+        asyncio.create_task(event_bus.emit(JarvisEvent(type="tts.done")))
+        return result
 
     async def synthesize_stream(
         self, text: str, emotion: str = "neutral"
@@ -277,6 +288,12 @@ class KokoroTTSEngine:
             return b""
         if not self._ensure_loaded():
             return await self.get_fallback().synthesize(text, emotion)
+
+        asyncio.create_task(event_bus.emit(JarvisEvent(
+            type="tts.start",
+            data={"engine": "kokoro", "text_length": len(text)},
+        )))
+
         try:
             loop = asyncio.get_event_loop()
             samples, sr = await loop.run_in_executor(
@@ -287,6 +304,7 @@ class KokoroTTSEngine:
                 "[TTS] Kokoro OK : %d bytes WAV, %.1fs audio",
                 len(wav), len(samples) / sr,
             )
+            asyncio.create_task(event_bus.emit(JarvisEvent(type="tts.done")))
             return wav
         except Exception as e:
             logger.exception("[TTS] Kokoro synthesize erreur : %s", e)
@@ -343,7 +361,16 @@ class MacOSTTSEngine:
         """Synthétise `text` en M4A (AAC) via say + afconvert."""
         if not self.available or not (text and text.strip()):
             return b""
-        return await self._synth_macos(text)
+
+        asyncio.create_task(event_bus.emit(JarvisEvent(
+            type="tts.start",
+            data={"engine": "macos", "text_length": len(text)},
+        )))
+
+        result = await self._synth_macos(text)
+
+        asyncio.create_task(event_bus.emit(JarvisEvent(type="tts.done")))
+        return result
 
     async def synthesize_stream(
         self, text: str, emotion: str = "neutral"

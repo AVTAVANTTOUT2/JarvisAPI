@@ -1262,3 +1262,76 @@ python scripts/jarvis_agent.py --server http://100.123.50.38:8081 --token abc123
 ```
 
 L'agent enregistre automatiquement la machine, envoie un heartbeat toutes les 30 s, capture l'écran toutes les 12 s, et joue les TTS reçus via `afplay`.
+
+## TV Browser MCP Bridge — Contrôle navigateur TV via CDP
+
+Kiwi Browser (Chromium 137 open-source) est installé sur la TV Philips. Un bridge MCP permet à Cursor de contrôler le navigateur TV directement via le Chrome DevTools Protocol.
+
+### Architecture
+
+```
+Cursor IDE (MCP Client)
+  ↓ stdio JSON-RPC
+scripts/tv_mcp_server.py (Python, 7 outils MCP)
+  ↓ HTTP CDP (localhost:9222)
+ADB forward tcp:9222 → localabstract:chrome_devtools_remote
+  ↓
+Kiwi Browser (com.kiwibrowser.browser) sur TV Philips (192.168.3.82)
+  ↓
+Dashboard JARVIS WAR ROOM (http://192.168.3.52:5174/)
+```
+
+### Outils MCP
+
+| Outil | Action |
+|-------|--------|
+| `tv_navigate` | Ouvre une URL sur la TV |
+| `tv_screenshot` | Capture d'écran TV (base64 PNG via ADB screencap) |
+| `tv_get_info` | Titre + URL de la page active |
+| `tv_open_dashboard` | Ouvre le dashboard War Room |
+| `tv_refresh` | F5 sur la page active |
+| `tv_press_key` | Touche clavier (HOME, BACK, DPAD_UP/DOWN/LEFT/RIGHT/CENTER) |
+| `tv_status` | État connexion ADB + CDP + dashboard |
+
+### Fichiers
+
+| Fichier | Rôle |
+|--------|------|
+| `scripts/tv_mcp_server.py` | Serveur MCP — communication stdin/stdout JSON-RPC |
+| `scripts/launch_tv_browser.sh` | Script shell : ADB connect + réveil TV + lancement Kiwi + forward CDP |
+| `tv/com.jarvis.tv-browser.plist` | LaunchAgent macOS — démarrage auto au boot |
+| `~/.cursor/mcp.json` | Configuration Cursor → pointe sur `tv-browser` MCP server |
+
+### Quick start
+
+```bash
+# Lancement manuel du bridge TV
+bash scripts/launch_tv_browser.sh
+
+# Test MCP
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"tv_status","arguments":{}}}' \
+  | python3 scripts/tv_mcp_server.py
+
+# Test CDP direct
+curl -s http://localhost:9222/json/list | python3 -m json.tool
+
+# Puppeteer via CDP
+node -e "
+const puppeteer = require('puppeteer-core');
+(async () => {
+  const browser = await puppeteer.connect({browserURL:'http://localhost:9222'});
+  const pages = await browser.pages();
+  console.log(await pages[0].title());
+  await browser.disconnect();
+})();
+"
+```
+
+### Variables d'env
+
+```bash
+TV_IP=192.168.3.82        # IP TV Philips
+TV_ADB_PORT=5555          # Port ADB TV
+CDP_LOCAL_PORT=9222       # Port local bridge CDP
+TV_DASHBOARD_URL=http://192.168.3.52:5174/  # Dashboard URL
+```

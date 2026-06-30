@@ -1,7 +1,7 @@
 """Agent COACH — life coaching, relations, émotions, décisions.
 
-Particularité : escalade automatique vers Opus pour les sujets structurants
-(décisions de carrière, ruptures, déménagement, crises). Détecte les mentions
+Particularité : escalade automatique vers le modèle principal DeepSeek pour les sujets
+structurants (décisions de carrière, ruptures, déménagement, crises). Détecte les mentions
 de personnes connues et met à jour `last_mentioned` dans la table `people`.
 
 JAMAIS Gemini ici — le coaching exige le contexte mémoire JARVIS complet.
@@ -71,7 +71,7 @@ def _format_moods(moods: list[dict]) -> str:
 
 
 class CoachAgent(BaseAgent):
-    """Coach personnel : Sonnet par défaut, Opus pour les sujets structurants."""
+    """Coach personnel : DeepSeek principal, escalade pour les sujets structurants."""
 
     name = "coach"
     description = "Life coach — relations, émotions, patterns, décisions"
@@ -96,7 +96,7 @@ class CoachAgent(BaseAgent):
         return ctx
 
     async def _should_escalate(self, user_message: str) -> bool:
-        """Décide via Haiku si on passe à Opus pour ce message."""
+        """Décide si le sujet est structurant (pré-check via modèle rapide)."""
         try:
             res = await llm.chat(
                 messages=[{"role": "user", "content": user_message}],
@@ -112,7 +112,7 @@ class CoachAgent(BaseAgent):
             )
             decision = "OUI" in res["content"].strip().upper()
             if decision:
-                logger.info("[coach] Escalade → Opus (sujet structurant)")
+                logger.info("[coach] Escalade — sujet structurant (modèle principal)")
             return decision
         except Exception as e:
             logger.error(f"[coach] should_escalate : {e}")
@@ -148,10 +148,10 @@ class CoachAgent(BaseAgent):
 
     async def _call_with_routing(self, user_message: str, conversation_id: int | None,
                                    context: dict) -> dict:
-        """Appel Claude avec choix Sonnet/Opus selon escalade.
+        """Appel DeepSeek avec escalade modèle principal si sujet structurant.
 
         En mode vocal, on bypass l'escalade (coûteuse en latence) et on délègue
-        directement à _call_claude qui forcera Haiku + VOICE_MAX_TOKENS.
+        directement à _call_claude qui forcera le modèle rapide + VOICE_MAX_TOKENS.
         """
         if context.get("voice_mode"):
             return await self._call_claude(
@@ -160,7 +160,11 @@ class CoachAgent(BaseAgent):
             )
 
         escalate = await self._should_escalate(user_message)
-        model = config.DEEPSEEK_MAIN_MODEL
+        model = (
+            config.AGENT_MODELS.get("coach_deep", config.DEEPSEEK_MAIN_MODEL)
+            if escalate
+            else config.DEEPSEEK_MAIN_MODEL
+        )
         result = await self._call_claude(
             user_message, conversation_id=conversation_id,
             context=context, model=model,

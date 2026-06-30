@@ -23,11 +23,12 @@ TV_PORT: Final[int] = int(os.getenv("TV_PORT", "5174"))
 # ── Backend principal JARVIS ─────────────────────────────────
 BACKEND_HOST: Final[str] = os.getenv("BACKEND_HOST", "127.0.0.1")
 BACKEND_PORT: Final[int] = int(os.getenv("BACKEND_PORT", "8081"))
-BACKEND_BASE_URL: Final[str] = f"https://{BACKEND_HOST}:{BACKEND_PORT}"
+BACKEND_BASE_URL: Final[str] = f"http://{BACKEND_HOST}:{BACKEND_PORT}"
 
 # ── Sécurité — IP Whitelist ──────────────────────────────────
 WHITELIST_NETWORKS: Final[list[str]] = [
     "192.168.1.0/24",    # réseau local
+    "192.168.3.0/24",    # réseau TV Philips
     "100.64.0.0/10",     # Tailscale CGNAT
     "127.0.0.1",         # localhost
 ]

@@ -263,25 +263,8 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    """Page unique du dashboard TV."""
-    intervals = {
-        "clock": cfg.REFRESH_CLOCK,
-        "weather": cfg.REFRESH_WEATHER,
-        "mood": cfg.REFRESH_MOOD,
-        "stats": cfg.REFRESH_STATS,
-        "automations": cfg.REFRESH_AUTOMATIONS,
-        "calendar": cfg.REFRESH_CALENDAR,
-        "tasks": cfg.REFRESH_TASKS,
-        "messages": cfg.REFRESH_MESSAGES,
-        "emails": cfg.REFRESH_EMAILS,
-        "notifications": cfg.REFRESH_NOTIFICATIONS,
-        "devices": cfg.REFRESH_DEVICES,
-    }
-    return templates.TemplateResponse("tv.html", {
-        "request": request,
-        "intervals": intervals,
-        "timezone": cfg.TIMEZONE,
-    })
+    """Dashboard TV v2 — War Room militaire."""
+    return templates.TemplateResponse("tv-v2.html", {"request": request})
 
 
 # ═══════════════════════════════════════════════════════════════

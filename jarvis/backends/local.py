@@ -167,14 +167,29 @@ class LocalBackend:
                 process.communicate(), timeout=timeout
             )
         except asyncio.TimeoutError as exc:
+            logger.error(
+                "[LocalBackend] MLX timeout après %ds — process tué, "
+                "modèle probablement déchargé ou mémoire saturée.",
+                timeout,
+            )
             await self._kill(process)
             raise LocalBackendError(
-                f"mlx_lm.generate : timeout après {timeout}s (modèle '{self.model}')."
+                f"mlx_lm.generate : timeout après {timeout}s (modèle '{self.model}'). "
+                f"Cause probable : modèle déchargé en RAM, rechargement nécessaire."
             ) from exc
+
+        stderr_text = stderr_b.decode("utf-8", errors="replace")
+        if process.returncode is not None and process.returncode != 0:
+            truncated = stderr_text[:500] if stderr_text else "(stderr vide)"
+            logger.error(
+                "[LocalBackend] MLX exit=%s, stderr=%r",
+                process.returncode,
+                truncated,
+            )
 
         return (
             stdout_b.decode("utf-8", errors="replace"),
-            stderr_b.decode("utf-8", errors="replace"),
+            stderr_text,
             process.returncode if process.returncode is not None else -1,
         )
 

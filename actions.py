@@ -64,6 +64,8 @@ async def execute_action(action: dict) -> dict:
             out = await _action_day_route(action)
         elif action_type == "search_conversations":
             out = await _action_search_conversations(action)
+        elif action_type == "tv":
+            out = await _action_tv(action)
         else:
             out = {"ok": False, "message": f"Type d'action inconnu : {action_type}"}
     except Exception as e:
@@ -284,6 +286,11 @@ async def _action_terminal(action: dict) -> dict:
         if code_executor.available:
             timeout = int(action.get("timeout", 120))
             return await code_executor.execute(command, timeout=timeout)
+        else:
+            # Fallback : le code_executor n'est pas disponible (Open Interpreter absent).
+            # On utilise le LLM pour générer des commandes shell exécutables.
+            logger.warning("[terminal] code_executor indisponible, fallback LLM shell")
+            return await _execute_via_llm_fallback(command, int(action.get("timeout", 120)))
 
     timeout = int(action.get("timeout", 30))
     needs_confirm = any(p.search(command) for p in _TERMINAL_CONFIRM_PATTERNS)
@@ -335,6 +342,78 @@ def _is_natural_language(text: str) -> bool:
         return False
     words = set(text_lower.split())
     return bool(words & _NL_INDICATORS)
+
+
+async def _execute_via_llm_fallback(instruction: str, timeout: int = 120) -> dict:
+    """Fallback quand code_executor n'est pas disponible.
+
+    Utilise le LLM pour traduire une instruction en langage naturel
+    en commandes shell macOS exécutables, puis les exécute via ``computer.run``.
+    """
+    from integrations.computer import computer
+    import llm as llm_module
+    import config as cfg
+
+    if not computer or not computer.allowed:
+        return {"ok": False, "message": "Accès ordinateur désactivé."}
+
+    try:
+        result = await llm_module.chat(
+            messages=[{
+                "role": "user",
+                "content": (
+                    "Traduis cette instruction en commandes shell exécutables "
+                    f"sur macOS (zsh) :\n\n{instruction}\n\n"
+                    "RÈGLES :\n"
+                    "- Une commande par ligne, rien d'autre.\n"
+                    "- Pas de markdown, pas d'explications.\n"
+                    "- Utilise des chemins absolus si nécessaire.\n"
+                    "- Pas plus de 8 commandes.\n"
+                    "- Si la tâche nécessite du code Python, utilise python3 -c \"...\""
+                ),
+            }],
+            model=getattr(cfg, "DEEPSEEK_FAST_MODEL", "deepseek-chat"),
+            max_tokens=500,
+            temperature=0.0,
+        )
+    except Exception as e:
+        return {"ok": False, "message": f"LLM fallback indisponible : {e}"}
+
+    commands = [
+        cmd.strip()
+        for cmd in result.get("content", "").split("\n")
+        if cmd.strip() and not cmd.strip().startswith("#")
+    ]
+
+    if not commands:
+        return {"ok": False, "message": "Aucune commande générée par le fallback LLM."}
+
+    outputs: list[str] = []
+    code_blocks: list[dict] = []
+    errors: list[str] = []
+
+    for cmd in commands[:8]:
+        outputs.append(f"$ {cmd}")
+        try:
+            res = await computer.run(cmd, timeout=timeout)
+            stdout = res.get("stdout", res.get("output", ""))
+            if stdout:
+                outputs.append(str(stdout)[:3000])
+            if res.get("stderr"):
+                errors.append(str(res["stderr"])[:1000])
+            code_blocks.append({"language": "shell", "code": cmd})
+            if not res.get("ok"):
+                outputs.append(f"[ERREUR] {res.get('stderr', res.get('message', 'commande échouée'))[:500]}")
+        except Exception as e:
+            outputs.append(f"[EXCEPTION] {e}")
+
+    return {
+        "ok": len(errors) == 0,
+        "output": "\n".join(outputs)[:5000],
+        "code": code_blocks,
+        "errors": errors[:3],
+        "summary": outputs[-1][:500] if outputs else "Exécution terminée.",
+    }
 
 
 async def _action_open_app(action: dict) -> dict:
@@ -484,3 +563,104 @@ async def _action_search_conversations(action: dict) -> dict:
         for r in results
     ])
     return {"ok": True, "messages": formatted, "count": len(results)}
+
+
+# ── TV Control ──────────────────────────────────────────────────────────────
+
+# Mapping commandes → keycodes Android
+_TV_COMMANDS: dict[str, str] = {
+    "power": "KEYCODE_POWER",
+    "off": "KEYCODE_POWER",
+    "on": "KEYCODE_WAKEUP",
+    "wake": "KEYCODE_WAKEUP",
+    "home": "KEYCODE_HOME",
+    "back": "KEYCODE_BACK",
+    "menu": "KEYCODE_MENU",
+    "up": "DPAD_UP",
+    "down": "DPAD_DOWN",
+    "left": "DPAD_LEFT",
+    "right": "DPAD_RIGHT",
+    "center": "DPAD_CENTER",
+    "enter": "KEYCODE_ENTER",
+    "ok": "DPAD_CENTER",
+    "select": "DPAD_CENTER",
+    "vol_up": "KEYCODE_VOLUME_UP",
+    "volume_up": "KEYCODE_VOLUME_UP",
+    "vol_down": "KEYCODE_VOLUME_DOWN",
+    "volume_down": "KEYCODE_VOLUME_DOWN",
+    "mute": "KEYCODE_VOLUME_MUTE",
+    "play": "KEYCODE_MEDIA_PLAY_PAUSE",
+    "pause": "KEYCODE_MEDIA_PLAY_PAUSE",
+    "stop": "KEYCODE_MEDIA_STOP",
+    "next": "KEYCODE_MEDIA_NEXT",
+    "prev": "KEYCODE_MEDIA_PREVIOUS",
+    "rewind": "KEYCODE_MEDIA_REWIND",
+    "ffwd": "KEYCODE_MEDIA_FAST_FORWARD",
+}
+
+
+async def _action_tv(action: dict) -> dict:
+    """Contrôle la TV Philips via ADB.
+
+    Commandes supportées :
+    - ``off`` / ``power`` : éteindre (KEYCODE_POWER)
+    - ``on`` / ``wake`` : allumer/réveiller
+    - ``home``, ``back``, ``menu`` : navigation Android TV
+    - ``up``, ``down``, ``left``, ``right``, ``center`` : DPAD
+    - ``vol_up``, ``vol_down``, ``mute`` : volume
+    - ``play``, ``pause``, ``stop``, ``next``, ``prev`` : média
+    """
+    import config as cfg
+    import subprocess
+
+    command = (action.get("command") or action.get("action") or "").strip().lower()
+    if not command:
+        return {"ok": False, "message": "Commande TV manquante. Commandes : off, on, home, back, vol_up, vol_down, mute..."}
+
+    keycode = _TV_COMMANDS.get(command)
+    if not keycode:
+        suggestions = [k for k in _TV_COMMANDS if command in k]
+        available = ", ".join(sorted(set(_TV_COMMANDS.keys())))
+        hint = f" Vouliez-vous dire : {', '.join(suggestions[:3])} ?" if suggestions else ""
+        return {
+            "ok": False,
+            "message": f"Commande TV inconnue : '{command}'. Commandes disponibles : {available}.{hint}",
+        }
+
+    adb_cmd = ["adb", "shell", "input", "keyevent", keycode]
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *adb_cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=10.0)
+    except asyncio.TimeoutError:
+        logger.warning("[tv] ADB timeout pour %s", command)
+        return {"ok": False, "message": "La TV n'a pas répondu à temps. Vérifie la connexion ADB."}
+    except FileNotFoundError:
+        return {"ok": False, "message": "ADB introuvable. Installe `brew install android-platform-tools`."}
+    except Exception as e:
+        logger.exception("[tv] ADB error for %s: %s", command, e)
+        return {"ok": False, "message": f"Erreur ADB : {e}"}
+
+    stderr_text = (stderr or b"").decode(errors="replace").strip()
+    if proc.returncode != 0 or stderr_text:
+        logger.warning("[tv] ADB exited %s stderr=%r", proc.returncode, stderr_text[:200])
+        # ADB peut renvoyer du stderr informatif sans que ce soit une erreur réelle
+        if "error" in stderr_text.lower() or "cannot" in stderr_text.lower():
+            return {"ok": False, "message": f"Erreur ADB : {stderr_text[:200]}"}
+
+    friendly: str = {
+        "KEYCODE_POWER": "TV éteinte" if command == "off" else "bouton power envoyé",
+        "KEYCODE_WAKEUP": "TV allumée",
+        "KEYCODE_HOME": "Accueil TV",
+        "KEYCODE_BACK": "Retour",
+        "KEYCODE_VOLUME_UP": "Volume +",
+        "KEYCODE_VOLUME_DOWN": "Volume -",
+        "KEYCODE_VOLUME_MUTE": "Muet",
+    }.get(keycode, f"Commande '{command}' envoyée")
+
+    logger.info("[tv] %s → %s", command, friendly)
+    return {"ok": True, "message": friendly, "command": command, "keycode": keycode}

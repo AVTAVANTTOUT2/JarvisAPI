@@ -1,4 +1,4 @@
-"""Génération d'une timeline relationnelle via Haiku (à la demande, coût tokens)."""
+"""Génération d'une timeline relationnelle via DeepSeek (à la demande, coût tokens)."""
 
 from __future__ import annotations
 
@@ -159,7 +159,7 @@ async def generate_timeline(person_name: str, handle_override: str | None = None
             events = _parse_events_json(result.get("content") or "")
             all_events.extend(events)
         except Exception as e:
-            logger.warning("[timeline] chunk Haiku : %s", e)
+            logger.warning("[timeline] chunk DeepSeek : %s", e)
 
     seen: set[tuple[str, str]] = set()
     deduped: list[dict] = []

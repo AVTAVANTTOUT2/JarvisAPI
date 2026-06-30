@@ -26,6 +26,8 @@ cp .env.example .env
 # Lancer
 python main.py
 # → http://localhost:8080 (ou le port défini par WEB_PORT, ex. 8081)
+# Launcher en 24/7 (demarrage auto au boot, resistant aux crashs) :
+python scripts/jarvis_launchd.py install
 #
 # Si le navigateur affiche « connexion refusée » sur localhost alors que les logs indiquent « JARVIS prêt » :
 # utilise **http://127.0.0.1:PORT** (remplace PORT par WEB_PORT dans `.env`, souvent 8081), pas `http://localhost` sans numéro de port.
@@ -59,6 +61,120 @@ python main.py
 - Risque double `screen_watcher` si lancé via daemon + `/api/control`
 
 **Latence** : voir section détaillée dans la réponse agent / `VOCAL_PIPELINE_ANALYSIS.md`. Gains estimés : −3 à 5 s sur `/voice` en routant vers `_process_voice_fast` ; −100–300 ms via client httpx réutilisé + Edge TTS stream réel.
+
+### Changelog — 30 juin 2026 (22h16) : Filtre hallucination STT — sous-titres fantômes
+
+**Problème** : faster-whisper hallucinait des phrases de sous-titres YouTube sur du bruit ambiant non-vocal (TV, silence). Le transcript `"sous-titres réalisés par Amara.org"` ou `"merci d'avoir regardé"` arrivait au LLM et JARVIS répondait comme si l'utilisateur avait parlé.
+
+**Correction chirurgicale** dans `scripts/audio_daemon.py` :
+- **Constante `STT_GHOST_PHRASES`** : 15 motifs de sous-titres connus (français + anglais + caractères Unicode comme `♪`)
+- **Fonction `_is_stt_hallucination(text)`** : retourne `True` si le texte match un motif ou fait moins de 3 caractères
+- **Check dans `_process_single_utterance()`** : placé après le filtre de texte court et juste avant le log `"Entendu"`. Si hallucination → `logger.debug` + retour à l'état d'écoute, **sans** appeler le LLM
+- **Zéro impact** sur les vraies transcriptions : les motifs ciblent uniquement des artefacts de sous-titrage qui n'apparaissent jamais dans la parole normale
+
+**Chaîne de filtrage complète** dans `_process_single_utterance` :
+1. Texte vide → skip
+2. Résidu d'écho post-TTS (texte < 10 chars dans les 2s après playback) → skip
+3. Texte < 3 caractères → skip
+4. **Hallucination STT (NOUVEAU)** → skip
+5. Phrase de fin (`"merci jarvis"`, `"c'est tout"`) → retour veille
+6. Pipeline LLM normal
+
+### Changelog — 30 juin 2026 (21h21) : Backfill iMessage — rattrapage historique
+
+**294 messages iMessage backfillés** dans `messages` (table JARVIS) depuis `chat.db` macOS. Période couverte : **29 mai → 30 juin 2026** (33 en mai, 261 en juin, 0 trou). 10 conversations virtuelles créées, 9 contacts uniques.
+
+**Nouveau fichier** : `scripts/backfill_imessages.py` — script one-shot local (zéro réseau) avec :
+- Dry-run (`--dry-run`) pour compter avant d'écrire
+- Déduplication par GUID (`external_id`)
+- Conversion Apple Cocoa Core Data timestamp → ISO 8601
+- Création automatique de conversations virtuelles (`iMessage: {chat_name}`)
+- ALTER TABLE idempotent (`external_id`, `source`, `sender`, `chat_name`, `is_from_me`)
+
+**Usage** :
+```bash
+cd ~/JarvisAPI && source venv/bin/activate
+python scripts/backfill_imessages.py --since 2026-05-29 --dry-run  # compter
+python scripts/backfill_imessages.py --since 2026-05-29             # insérer
+```
+
+### Changelog — 30 juin 2026 (21h16) : Mission Control — HUD temps réel multi-agents
+
+**Mission Control** — page unique `/mission` qui affiche toute l'activité JARVIS en temps réel :
+- **Architecture** : `jarvis/event_bus.py` — bus d'événements central avec pattern pub/sub via `asyncio.Queue`, historique glissant (200 événements), singleton global.
+- **SSE** : endpoint `GET /api/events/stream` — flux Server-Sent Events consommé par le frontend. Envoie l'historique récent (30 événements) au connect puis les nouveaux en temps réel.
+- **Prompt embarqué** : `POST /api/mission/prompt` — permet de prompter directement depuis Mission Control via l'orchestrateur standard.
+- **Instrumentation backend** — 6 composants émettent des événements typés :
+  - `agents/__init__.py` (BaseAgent) : `agent.start`, `agent.response`
+  - `agents/orchestrator.py` (classify_category + OrchestratorAgent.classify) : `orchestrator.classify`, `orchestrator.route`
+  - `scripts/audio_daemon.py` (VAD + STT) : `voice.listening`, `voice.speech_start`, `voice.stt_result`
+  - `audio/tts.py` (TTSEngine, MacOSTTSEngine, KokoroTTSEngine) : `tts.start`, `tts.done`
+  - `main.py` (_process_voice_fast) : `agent.action`, `agent.action_result`
+- **Frontend** — 3 composants + page principale dans un layout HUD Iron Man :
+  - `JarvisTerminal.tsx` : terminal scrolling monospace avec logs formatés (timestamp, tag coloré, message)
+  - `PipelineView.tsx` : SVG animé des nœuds du pipeline (MICRO → STT → ORCHESTRATOR → AGENT → ACTION → TTS) avec glow cyan, pulse et connexions actives
+  - `AgentBar.tsx` : barre d'état des 9 agents (orchestrator, info, devops, school, productivity, coach, journal, memory, voice) avec pastilles idle/working/done/error
+  - `MissionControl.tsx` : layout 3 zones (prompt bar + terminal gauche + pipeline droite + agent bar bas), scanlines CSS, SSE temps réel
+  - Design : palette OLED (#0a0a0f), cyan accent (#00d4ff), polices JetBrains Mono, animations pulse/glow
+- **Navigation** : entrée "Mission Control" ajoutée dans la sidebar et la barre de navigation rapide (icône `Activity`).
+- **Dépendances** : `framer-motion` installé, `JetBrains Mono` chargé via Google Fonts dans `index.html`.
+
+### Changelog — 30 juin 2026 (20h59) : Diagnostic + fix crashs aléatoires daemon + blocage redémarrage
+
+**Diagnostic complet exécuté** (logs, ports, launchctl, disk/memory, processus). **4 causes corrigées** :
+
+| Cause | Fichier | Correction |
+|---|---|---|
+| **A** — Supervisor s'auto-détecte comme orphelin (port 8081) | `supervisor.py` | Singleton lock (`fcntl.flock`), `_force_kill_port` avec `kill -9`, exclusion des PIDs gérés, `_tail_log` pour forensics crash, health check enrichi (log 5 dernières lignes backend.log + alertes critiques après 3 échecs) |
+| **B** — launchd throttle macOS après crashs répétés | `com.jarvis.supervisor.plist` | `KeepAlive` → `SuccessfulExit=false` (ne relance qu'après crash, pas après exit normal), `ThrottleInterval=5` confirmé |
+| **C** — Audio daemon "Stream not open" en boucle infinie | `scripts/audio_daemon.py` | Watchdog anti-spam : compteur d'échecs consécutifs (`MIC_RESTART_THRESHOLD=3` = 30s avant restart), différenciation `AttributeError`/`OSError` du stream corrompu, `exc_info=True` dans le log de crash |
+| **D** — Logs daemon inexistants (silencieux au crash) | `main.py` | File handlers dédiés : `data/logs/audio_daemon.log` + `data/logs/scripts.jarvis_daemon.log` (niveau DEBUG) |
+
+**Bug préexistant corrigé** : `school_agent` manquait dans les imports de `main.py` (remplacé accidentellement par `devops_agent` sans conservation).
+
+**Test validé** : `kill -9` du backend → redémarrage automatique en ~8 secondes. Tous les services actifs (backend, TV dashboard, Ollama).
+
+### Changelog — 30 juin 2026 (15h10) : Page Voice Debug (diagnostic pipeline vocal)
+
+**Page de diagnostic temps reel** accessible via `/voice-debug` dans l'interface web :
+
+- **Live WebSocket** : transcription STT exacte, prompt système complet, messages envoyes, reponse brute LLM, latences, emotion, cout token
+- **Historique DB** : traces persistees dans `voice_debug_log` (50 dernieres)
+- **Detail expand/collapse** : system prompt complet, messages, reponse brute pour chaque interaction
+- **Metriques** : duree audio, latence STT, latence LLM (pass 1 + pass 2), latence TTS, latence totale
+- **Fichiers modifies** : `main.py` (+`_broadcast_voice_debug`, +`/api/voice-debug`), `scripts/audio_daemon.py` (+debug STT/TTS broadcasts), `database/__init__.py` (+table `voice_debug_log` + helpers), `web/src/services/api.ts` (+type `VoiceDebugTrace`), `VoiceDebugView.tsx` (nouvelle page), `App.tsx` (+route), `BigBrotherLayout.tsx` (+entree sidebar), `index.css` (+styles debug)
+
+### Changelog — 30 juin 2026 : Corrections P0/P1 post-revue de code
+
+**14 problèmes critiques/hauts corrigés** (plan post code-review du 30/06/2026) :
+
+| ID | Fichier(s) | Correction |
+|----|------------|------------|
+| P0-1 | `scripts/audio_daemon.py` | `_tts_playing` bool → `threading.Event()` (race thread/coroutine) |
+| P0-2 | `email_watcher.py`, `relationship_analyzer.py` | Références « Haiku » → « DeepSeek » (logs/docstrings) |
+| P0-3 | `audio_daemon.py`, `jarvis_daemon.py`, `jarvis_agent.py` | Timeout 30s sur tous les appels `afplay` |
+| P0-4 | `jarvis_daemon.py` | `sqlite3.connect` wrappé dans `with` (2 occurrences) |
+| P0-5 | `audio_daemon.py` | `except Exception: pass` → `logger.debug` (sauf `_cleanup`) |
+| P0-6 | `supervisor.py`, `main.py` | CORS restreint aux origines localhost (3000/5173/5174/8080/8081/9000) |
+| P1-1 | `config.py` | `END_PHRASES` unifié (11 phrases), importé par les 2 daemons |
+| P1-2 | `config.py`, `screen_watcher.py` | `SCREEN_RESIZE` (1280×800) centralisé |
+| P1-3 | `tv/config.py` | `BACKEND_BASE_URL` HTTPS → HTTP |
+| P1-4 | `agents/coach.py` | Docstrings DeepSeek, escalade clarifiée |
+| P1-5 | `database/schema.sql` | Régénéré depuis `data/jarvis.db` (397 lignes) |
+| P1-6 | `prompts/coach.txt` | Référence « Opus » supprimée |
+
+**Validation** : `py_compile` OK sur tous les `.py`, grep Haiku absent de `email_watcher`/`relationship_analyzer`, grep Opus absent de `prompts/`.
+
+**Note post-redémarrage (00:49)** : le TV Dashboard signalait `backend: false` car son processus (démarré 23:26) utilisait encore l'ancienne config HTTPS en mémoire. Redémarré (PID 88013) → `backend: true`. Backend `main.py` également redémarré (PID 87652) pour charger les modules `config.py` et `coach.py` mis à jour.
+
+### Dernier changelog — 30 juin 2026 (01:40) : Correction audio daemon — sample rate configurable
+
+**Probleme** : le Blue Snowball (48 kHz natif) etait ouvert a 16 kHz par le daemon. Sous macOS, PyAudio + Core Audio ne font pas de resampling automatique → 0 frame recue → crash loop `Micro muet`.
+
+**Solution** :
+- **`.env`** : `AUDIO_DAEMON_SAMPLE_RATE=48000` (defaut 16000 pour micro interne Mac)
+- **`config.py`** : `AUDIO_DAEMON_SAMPLE_RATE = int(...)` 
+- **`scripts/audio_daemon.py`** : `SAMPLE_RATE` lit `config.AUDIO_DAEMON_SAMPLE_RATE` au lieu d'etre hardcode a 16000. `CHUNK_SAMPLES` et `_pcm_to_wav` s'adaptent dynamiquement.
 
 ### Changelog — 29 juin 2026 (23h15) : Correction réponse vocale (wake word)
 
@@ -143,6 +259,130 @@ async def test():
 asyncio.run(test())
 "
 ```
+
+### Changelog — 30 juin 2026 (20h30) : Agent DEVOPS — agent principal pour le technique et les projets
+
+**Ajout** : nouvel agent `devops` (DeepSeek v4 Pro) — agent principal pour code, debug, Git, API, serveur, déploiement, Docker, base de données, architecture, infra, sécurité, scripts, Cloudflare, Tailscale.
+
+**Fichiers créés** :
+| Fichier | Rôle |
+|---------|------|
+| `agents/devops.py` | Agent DEVOPS (DeepSeek v4 Pro, temperature 0.4) |
+| `prompts/devops.txt` | System prompt : capacités, actions, règles (format Cursor-prompt) |
+| `tests/test_devops_routing.py` | 22 cas de test classification (pytest) |
+
+**Fichiers modifiés** :
+| Fichier | Changement |
+|---------|-----------|
+| `agents/orchestrator.py` | 6 listes de mots-clés plates (`DEVOPS_KEYWORDS`, `COACH_PATTERNS`, `SCHOOL_PATTERNS`, `PRODUCTIVITY_PATTERNS`, `JOURNAL_PATTERNS`, `INFO_PATTERNS`) + `_match_any()` avec frontières de mots + fonction `classify_category()` + remplacement de `self.classify()` par `classify_category()` dans `handle()` et `handle_stream()` |
+| `prompts/orchestrator.txt` | Catégorie DEVOPS + règle de doute DEVOPS vs INFO |
+| `main.py` | Import + `register_agent(devops_agent)` |
+
+**Classification** — priorité stricte :
+```
+COACH > JOURNAL > SCHOOL > PRODUCTIVITY > DEVOPS > INFO (filet sécurité)
+```
+
+`_match_any()` utilise des **frontières de mots** (regex implicite) : `"api"` ne matche PAS `"capitale"`, `"log"` ne matche PAS `"catalogue"`. Tous les mots-clés ont des variantes avec et sans accents (ex: `"tâche"` ET `"tache"`).
+
+**Tests** : `pytest tests/test_devops_routing.py -v` → **22/22 corrects en <400ms, 0 appel LLM**.
+
+### Changelog — 30 juin 2026 (18h45) : FIX classification orchestrateur (vide → heuristique)
+
+**Problème** : l'orchestrateur retournait `Classification ambiguë '' → fallback INFO` sur tous les messages hors contexte FastAPI. DeepSeek Flash renvoyait systématiquement un contenu vide pour les appels `classify()` (probable cache-hit corrompu sur les prompts très courts).
+
+**Solution** :
+1. **Heuristique par mots-clés en priorité** (0 token, 0 latence) — couvre ~90% des cas
+2. **LLM en filet de sécurité** — uniquement si l'heuristique ne matche pas
+3. **Tokenisation par préfixes** — évite les faux positifs (`"hier"` dans `"fichiers"`, `"exam"` dans `"examen"` OK)
+
+**Détails** (`agents/orchestrator.py`) :
+- `_KEYWORD_CLASSIFICATION` : 5 catégories × ~15 mots-clés, ordonnées par priorité (COACH > JOURNAL > SCHOOL > PRODUCTIVITY > INFO)
+- `_heuristic_classify(text_lower)` : match par préfixe de token avec `re` (ex: `"stress"` dans `"stressé"`, mais pas `"hier"` dans `"fichiers"`)
+- `classify()` : heuristique d'abord → LLM si échec → INFO si échec LLM
+- **21/21 cas de test corrects en 7.9s** (sans LLM pour 90% des messages)
+
+### Changelog — 30 juin 2026 (18h30) : MODE AGENT — JARVIS exécute maintenant ce qu'il propose
+
+**Problème résolu** : JARVIS proposait des actions (« Veux-tu que j'analyse ce fichier ? ») mais quand l'utilisateur disait « vas-y », il passait à autre chose sans exécuter. Le prompt vocal imposait « UNE SEULE OPTION : répondre OU agir », jamais les deux.
+
+**Changements** (9 fichiers) :
+
+| Fichier | Changement |
+|---------|-----------|
+| `agents/__init__.py` | Regex d'extraction d'action robuste (accepte JSON inline hors backticks) + prompt vocal enrichi (`complex:true`) + `_run_agentic_loop()` |
+| `main.py` | `_check_pending_proposal()` — mémoire de « oui/vas-y » (exécute l'action proposée automatiquement) + intégration boucle agentique dans `_process_message` et `_process_message_internal` + suppression de « UNE SEULE OPTION » dans `_process_voice_fast` |
+| `actions.py` | `_execute_via_llm_fallback()` — quand `code_executor` est indisponible, traduit le langage naturel en shell via LLM |
+| `prompts/agent.txt` | Nouveau prompt pour le mode agent (planifie → exécute → vérifie → synthétise) |
+| `database/schema.sql` | Table `agentic_workflows` (persistance des workflows multi-étapes) |
+
+**Nouveau comportement** :
+```
+User: "analyse data.csv"
+JARVIS: "Je regarde ce fichier." + action {"type":"terminal","command":"head -20 data.csv","complex":true}
+→ Résultat → JARVIS planifie l'étape suivante automatiquement → synthèse finale
+```
+
+```
+JARVIS: "Veux-tu que j'analyse ton code ?"
+User: "vas-y"
+JARVIS: exécute immédiatement l'action proposée → résultat → synthèse
+```
+
+### Changelog — 30 juin 2026 (15h54) : FIX Silero buffer leak a 48kHz
+
+**Probleme** : le daemon audio tourne a 48kHz (`AUDIO_DAEMON_SAMPLE_RATE=48000`) mais Silero VAD etait code pour 16kHz. Les frames de 2880 bytes (1440 samples) s'accumulaient dans le buffer sans jamais etre consommees correctement → purge forcee toutes les 2s (`Buffer anormalement grand` dans les logs).
+
+**Correction** — `audio/vad_silero.py` reecrit :
+- Downsampling automatique 48kHz → 16kHz (1 sample/3, nearest-neighbor)
+- Fenetre glissante de 2s max (64000 bytes a 16kHz)
+- Singleton `silero_vad` lit `AUDIO_DAEMON_SAMPLE_RATE` pour configurer le `input_sr`
+- Suppression de la purge forcee (plus necessaire)
+
+**Tests** : 50 frames de silence a 48kHz → buffer 0 bytes, pas de fuite. 4 frames signal → OK.
+
+### Changelog — 30 juin 2026 (15h36) : Silero VAD neural + STT small
+
+**Silero VAD — detection neurale parole/silence** :
+- Creation de `audio/vad_silero.py` — wrapper autour du modele Silero (~1 Mo, <1ms par chunk)
+- Integration dans `scripts/audio_daemon.py` : remplacement du seuil RMS par Silero (avec fallback gracieux si torch absent)
+- Reset du modele entre chaque phrase, apres chaque TTS, et dans `_cleanup()`
+- Debug enrichi : `vad_engine` dans `voice_debug_stt`, heartbeat VAD dans les logs
+- Seuils de silence reduits avec Silero (1000/1500/800ms) vs RMS (1200/2000/1000ms)
+- Config : `SILERO_VAD_THRESHOLD=0.5` (0.3=tres sensible, 0.7=strict)
+
+**STT modele `small`** :
+- `audio/stt_local.py` : `DEFAULT_MODEL_SIZE` `base` (142 Mo) → `small` (244 Mo)
+- Meilleure precision FR (~100ms de latence vs ~50ms pour base)
+- `config.py` : `AUDIO_DAEMON_STT_MODEL` defaut `small`
+
+**Dependances** : `torch>=2.0` + `torchaudio>=2.0` dans `requirements.txt`
+
+**Tests** : Silero disponible ✓, distinction silence/parole ✓, config STT small ✓, pipeline vocal OK ✓, daemon imports ✓
+
+### Changelog — 30 juin 2026 (15h23) : FIX VAD + prompt vocal compact
+
+**FIX 1 — VAD plus tolerant** :
+- `config.py` : `AUDIO_DAEMON_SILENCE_MS` defaut 800 → 1200ms (`.env` + `.env.example` synchronises)
+- `scripts/audio_daemon.py` : seuil adaptatif 3 paliers au lieu de binaire
+  - Parole < 2s → 2000ms de silence exige (phrase courte, attendre plus)
+  - Parole 2-5s → `AUDIO_DAEMON_SILENCE_MS` (1200ms)
+  - Parole >= 5s → 1000ms de silence (phrase longue, les pauses sont des fins)
+
+**FIX 2 — Horodatage duplique** :
+- `main.py` `_process_voice_fast()` : suppression de la ligne redondante `DATE ET HEURE : {horodatage}`
+  - L'horodatage etait injecte 2 fois (via `_get_horodatage()` au debut + ligne explicite au milieu)
+  - Count `[HORODATAGE]` passe de 2 a 1 dans le system prompt
+
+**FIX 3 — System prompt vocal compresse** :
+- Actions : format compact `type(param)` au lieu de 17 descriptions verbeuses → ~400 tokens → ~80 tokens
+- Ecran : conditionnel — `ECRAN : ...` uniquement si `get_current_screen_context()` retourne des donnees
+- Taille resultante : ~320 tokens (cible < 500, etait ~803)
+
+**FIX 4 — RuntimeWarning corrige** :
+- `_broadcast_voice_debug()` dans `_process_voice_fast()` : 3 appels passes de `_broadcast_voice_debug(trace)` a `asyncio.create_task(_broadcast_voice_debug(trace))` (coroutine never awaited)
+
+**Tests** : 4/4 OK — `AUDIO_DAEMON_SILENCE_MS >= 1200`, horodatage unique, system prompt < 500 tokens, pipeline vocal fonctionnel.
 
 ### Changelog precedent — 29 juin 2026 (17h58) : Horodatage dynamique + pipeline vocal
 
@@ -1094,6 +1334,53 @@ python main.py
 - **`osascript` exit 1** → manque la permission Automation pour Messages.app (accordée au 1er envoi)
 - **Messages non reçus** → vérifier que ton iPhone envoie bien en iMessage (bulle bleue) et pas SMS (verte)
 
+#### Backfill iMessage — rattrapage historique
+
+Le script `scripts/backfill_imessages.py` permet de rattraper les messages iMessage manquants dans `jarvis.db` à partir de `chat.db` (base locale macOS). **100% local, zéro appel réseau.**
+
+```bash
+cd ~/JarvisAPI && source venv/bin/activate
+
+# Dry-run : compter sans insérer
+python scripts/backfill_imessages.py --since 2026-05-29 --dry-run
+
+# Insertion réelle
+python scripts/backfill_imessages.py --since 2026-05-29
+```
+
+**Schéma** : le script ajoute 5 colonnes à la table `messages` (idempotent via `ALTER TABLE IF NOT EXISTS`) :
+- `external_id` (TEXT) : GUID iMessage — clé de déduplication
+- `source` (TEXT) : `'imessage'` vs `'chat'`
+- `sender` (TEXT) : numéro/email de l'expéditeur
+- `chat_name` (TEXT) : nom de la conversation iMessage
+- `is_from_me` (INTEGER) : 1 = envoyé, 0 = reçu
+
+**Conversations** : chaque chat iMessage crée une conversation virtuelle (`title = "iMessage: {chat_name}"`, `agent = 'imessage'`) dans la table `conversations`. Les messages sont liés via `conversation_id`.
+
+**Dates** : conversion Apple Cocoa Core Data timestamp (nanosecondes depuis 2001-01-01) → ISO 8601 datetime UTC.
+
+**Prérequis** : Full Disk Access activé pour Terminal.app → `ls -la ~/Library/Messages/chat.db` doit fonctionner.
+
+**Vérification post-backfill** :
+```bash
+python3 -c "
+import sqlite3
+conn = sqlite3.connect('data/jarvis.db')
+r = conn.execute(\"SELECT MAX(created_at) FROM messages WHERE source='imessage'\").fetchone()
+print(f'Dernier message iMessage : {r[0]}')
+r = conn.execute(\"SELECT COUNT(*) FROM messages WHERE source='imessage'\").fetchone()
+print(f'Total messages iMessage : {r[0]}')
+rows = conn.execute('''
+    SELECT strftime(\"%Y-%m\", created_at) as mois, COUNT(*)
+    FROM messages WHERE source=\"imessage\"
+    GROUP BY mois ORDER BY mois
+''').fetchall()
+for mois, count in rows:
+    print(f'  {mois}: {count} messages')
+conn.close()
+"
+```
+
 ### Email watcher proactif (mai 2026)
 
 JARVIS surveille **en continu** ta boîte mail (Apple Mail) et agit de lui-même.
@@ -1277,8 +1564,8 @@ JARVIS intègre un moteur d'exécution de code avancé capable de traduire des i
 ```
 Input texte (WebSocket)
    ↓
-Orchestrateur (Haiku, ~50 tokens)
-   → classifie en SCHOOL | PRODUCTIVITY | COACH | INFO | JOURNAL
+Orchestrateur (DeepSeek Flash, ~50 tokens)
+   → classifie en SCHOOL | PRODUCTIVITY | COACH | INFO | JOURNAL | DEVOPS
    ↓
 Agent spécialisé (Haiku / Sonnet / Opus selon)
    → reçoit system prompt avec [LIFE_PROFILE + MEMORY] caché (cache_control: ephemeral)
@@ -2544,6 +2831,38 @@ Permissions macOS requises (sur la machine où tourne le screen watcher / l'agen
 
 ## Journal des opérations manuelles
 
+### 2026-06-30 — Réactivation sourcing iMessage (lecture seule)
+
+`imessage_reader` réactivé : scan périodique (5min) + analyse relationnelle.
+`imessage_bridge` (polling + envoi) reste désactivé. Garde-fou dur dans
+`integrations/imessage.py` : `send_message()` lève `RuntimeError` tant que
+`IMESSAGE_SEND_ENABLED=false` (défaut .env).
+
+- `config.py` : nouvelles variables `IMESSAGE_SOURCING_ENABLED`, `IMESSAGE_SEND_ENABLED`, `IMESSAGE_SCAN_INTERVAL`
+- `.env.example` : sourcing `true`, send `false`, scan `300`
+- `integrations/imessage.py` : garde-fou `RuntimeError` sur `_send_message()`, `send_imessage_to_address()`, `start_polling()`
+- `integrations/imessage_reader.py` : méthodes `scan_new_messages()` et `periodic_scan()` (lecture `chat.db` en `mode=ro`)
+- `main.py` : sourcing démarré en lifespan (`periodic_scan` + `run_initial_scan`), `imessage_bridge.start_polling()` absent
+- `tests/test_imessage_sourcing.py` : 6 tests (send bloqué, scan sans erreur, config par défaut)
+
+### 2026-06-30 — Diagnostic arrêt sourcing (29 mai) + intelligence DeepSeek anonymisée sur messages
+
+**Diagnostic** : DB messages s'arrête au 29 mai (`imessage_analysis_cache.last_analyzed_at = 2026-05-29 01:00:07`).
+Cause probable : redémarrage JARVIS via un lanceur sans Full Disk Access → `imessage_reader`
+ne peut plus ouvrir `chat.db` (`OperationalError`). L'espace disque est OK (72 Go libres).
+`LocalBackend` (MLX) n'est pas impliqué — il n'est pas utilisé dans le pipeline actif
+(`relationship_analyzer` appelle DeepSeek directement).
+
+**Pipeline intelligence** : DeepSeek peut maintenant faire annonces, créer tâches,
+proposer des actions à partir du contenu des messages — JAMAIS de texte brut vers DeepSeek.
+
+- `jarvis/backends/local.py` : logs explicites sur timeout MLX (process tué, modèle probablement déchargé) et exit code avec stderr
+- `jarvis/pii/boundary.py` : `FORBIDDEN_PATTERNS` étendu aux téléphones (`+33\d{9}`), emails bruts (`[\w.+-]+@[\w-]+\.[A-Za-z]{2,}`) et `chat.db`
+- `jarvis/message_intelligence.py` (nouveau) : pipeline complet — LocalBackend résumé → `PIIAnonymizer` → DeepSeek analysé → dé-anonymisation → stockage `message_insights`
+- `database/__init__.py` : migration `_migrate_message_insights()` + helpers `get_messages_since()`, `save_message_insight()`
+- `integrations/imessage_reader.py` : `scan_new_messages_with_last_id()` retourne `(count, last_id)` ; `periodic_scan()` déclenche `analyze_recent_messages` en tâche séparée non bloquante ; `logger.error(..., exc_info=True)` sur échec
+- `tests/test_message_intelligence.py` : 11 tests (blocage phones/emails/chat.db, round-trip anonymisation, table existe)
+
 ### 2026-05-18 — Rattrapage post-coupure (mails + iMessage)
 
 - **Premier essai** : `./venv/bin/python scripts/catchup_after_downtime.py` (~6 min 40, `exit_code: 0`) — **Mail** en timeout 60s (Mail.app / Automation) ; iMessage + `force_full_mac_sync` OK ; `email_summaries` inchangé (~46 lignes, derniers en mai 2026-05-06).
@@ -3089,7 +3408,218 @@ Elle n'appelle pas le backend Python (port 8081). Les deux applications sont iso
 
 ---
 
+### 2026-06-30 — Mise en place 24/7 (launchd + caffeinate + resilience veille)
+
+**Contexte** : Le Mac se met en veille quand l'utilisateur quitte le bureau. Au réveil,
+macOS révoque les permissions micro et réseau, ce qui cause une boucle de crash (29 redémarrages
+backends en une nuit). Trois mesures pour garantir le fonctionnement 24/7.
+
+**Fichiers créés :**
+- `scripts/jarvis_launchd.plist` — configuration launchd macOS qui démarre le supervisor au boot
+  et le relance automatiquement en cas de crash (KeepAlive + ThrottleInterval=5s). Survit aux
+  déconnexions utilisateur.
+- `scripts/jarvis_launchd.py` — script pour installer/désinstaller/vérifier le service launchd.
+  Usage : `python scripts/jarvis_launchd.py install | uninstall | status`.
+
+**Fichiers modifiés :**
+- `supervisor.py` — ajout du support `JARVIS_CAFFEINATE` (optionnel, `false` par défaut). Quand
+  activé, lance `caffeinate -dims` en subprocess pour empêcher la veille système (écran allumé).
+  Arrêt propre du caffeinate au shutdown.
+- `scripts/audio_daemon.py` — détection de réveil de veille : si le stream micro lève un `OSError`
+  après un silence > 30s, le flag `_sleep_detected = True` déclenche un délai supplémentaire de
+  5s avant réinitialisation PyAudio (le temps que macOS réactive le périphérique audio). Suivi du
+  `_last_frame_time` pour mesurer l'écart temporel.
+- `.env` — nouvelle section `Maintenance 24/7` avec `JARVIS_CAFFEINATE=false`.
+
+**Utilisation :**
+```bash
+# Pour le 24/7 simple (sans anti-veille agressif) :
+python scripts/jarvis_launchd.py install
+
+# Si dysfonctionnements au réveil, activer caffeinate dans .env :
+JARVIS_CAFFEINATE=true
+
+# Vérifier le statut :
+python scripts/jarvis_launchd.py status
+```
+
+### 2026-06-30 — Dashboard TV : audit + corrections (launchd, whitelist, ADB)
+
+**Contexte** : Audit complet du dashboard TV JARVIS. Le serveur était arrêté depuis ~16h.
+Corrections appliquées : whitelist IP, launchd, ADB pour la TV Philips.
+
+**Fichiers créés :**
+- Aucun. Tous les fichiers sont préexistants dans `tv/`.
+
+**Fichiers modifiés :**
+- `tv/config.py` — ajout du sous-réseau `192.168.3.0/24` dans `WHITELIST_NETWORKS` (la TV
+  Philips est sur ce réseau).
+- `tv/com.jarvis.tv.plist` — correction du path Python : `/usr/bin/python3` →
+  `/Users/zeldris/JarvisAPI/venv/bin/python3` (les dépendances sont dans le venv).
+- `tv/server.py` — route `/v2` supprimée (était cassée).
+
+**Installation launchd :**
+```bash
+cp ~/JarvisAPI/tv/com.jarvis.tv.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.jarvis.tv.plist
+```
+
+**Widgets et leurs endpoints :**
+
+| Widget | Endpoint | Rafraîchissement |
+|--------|----------|-------------------|
+| Horloge | JS local | 1 s |
+| Globe 3D | Canvas animé | 60 fps |
+| Météo | `/api/weather` | 15 min |
+| Serveur | `/api/stats` | 10 s |
+| Agenda | `/api/calendar` | 5 min |
+| Tâches | `/api/tasks` | 2 min |
+| Messages | `/api/messages` | 30 s |
+| Emails | `/api/emails` | 5 min |
+| Actions IA | `/api/automations` | 30 s |
+| Machines | `/api/devices` | 1 min |
+| Humeur | `/api/mood` | 5 min |
+| Coût API | `/api/status` | 1 min |
+| Overlay vocal | `/api/events` (SSE) | Temps réel |
+
+**URLs :**
+- Dashboard : `http://<ip>:5174/` (Jinja2 template + 14 modules JS)
+- Endpoints API : `http://<ip>:5174/api/weather|stats|calendar|tasks|messages|emails|notifications|mood|devices|automations|health`
+
+**Lancement sur TV Philips :**
+```bash
+adb connect 192.168.3.82
+adb shell am start -a android.intent.action.VIEW -d "http://192.168.3.52:5174"
+```
+
+### 2026-06-30 — Fix dashboard TV (rendu cassé + endpoints déconnectés)
+
+**Problèmes corrigés :**
+1. **`/v2` + `tv-v2.html` supprimés** — la route `/v2` servait un bundle dc-runtime
+   avec des `<span data-var>` incompatibles. Le CSS fuyait dans le contenu visible
+   (`transform: none; transition: opacity 3s ease;` affiché en texte brut).
+   Suppression de `tv/static/tv-v2.html` (256 KB), `tv/static/js/tv-data-v2.js` (32 KB),
+   et la route `/v2` dans `tv/server.py`.
+2. **Endpoint `/api/notifications` fixé** — les emojis (`🔴🟡🟢`) étaient définis en
+   surrogate pairs Unicode (`\uD83D\uDD34`) au lieu de vrais codepoints (`\U0001F534`),
+   causant une `UnicodeEncodeError` au moment du render JSON → HTTP 500.
+   Correction dans `tv/data_sources/notifications.py` : vraies séquences Unicode +
+   fonction `_sanitize()` pour nettoyer tout surrogate.
+
+**Architecture finale (dashboard `/`) :**
+- `tv/templates/tv.html` (6 KB Jinja2, 143 lignes) — layout grid CSS glass
+- `tv/static/css/tv.css` (496 lignes) — thème dark cyan, animations
+- 14 modules JS dans `tv/static/js/` — chaque widget fait `TV.fetch('/api/...')` →
+  endpoint serveur TV → `data_sources/` (SQLite read-only, psutil, Open-Meteo, proxy backend)
+- Overlay vocal SSE `/api/events` → WebSocket backend → navigateur TV
+
+**Tous les endpoints HTTP 200 confirmés** (health, weather, stats, calendar, tasks,
+messages, emails, notifications, mood, devices, automations).
+
 ## Changelog
+
+### 2026-06-30 — Installation Kiwi Browser TV + MCP Bridge CDP
+
+**Navigateur open-source Kiwi Browser installe sur la TV Philips en remplacement de Vewd.**
+
+| Fichier | Changement |
+|---------|-----------|
+| `scripts/tv_mcp_server.py` | **Nouveau** — Serveur MCP Python (`tv-browser-mcp`) exposant 7 outils : `tv_navigate`, `tv_screenshot`, `tv_get_info`, `tv_open_dashboard`, `tv_refresh`, `tv_press_key`, `tv_status`. Communication via CDP HTTP + ADB. |
+| `scripts/launch_tv_browser.sh` | **Nouveau** — Script de lancement automatique : connexion ADB, reveil TV, mode immersif, lancement Kiwi, forward CDP port 9222. |
+| `tv/com.jarvis.tv-browser.plist` | **Nouveau** — LaunchAgent macOS pour demarrage auto du bridge TV au boot. |
+| `~/.cursor/mcp.json` | Ajout serveur MCP `tv-browser` pointe sur `scripts/tv_mcp_server.py`. |
+| `.cursor/rules/CLAUDE.md` | (memo) Documentation de l'architecture MCP + CDP + Kiwi. |
+
+**Architecture :**
+```
+Cursor IDE (MCP Client)
+  ↓ stdio JSON-RPC
+tv_mcp_server.py (Python)
+  ↓ HTTP CDP
+ADB forward tcp:9222 → localabstract:chrome_devtools_remote
+  ↓
+Kiwi Browser (Chromium 137) sur TV Philips
+  ↓
+Dashboard JARVIS WAR ROOM (http://192.168.3.52:5174/)
+```
+
+**Outils MCP disponibles :**
+
+| Outil | Description |
+|-------|------------|
+| `tv_navigate` | Navigue vers une URL sur la TV |
+| `tv_screenshot` | Capture d'ecran TV (ADB screencap) |
+| `tv_get_info` | Titre + URL de la page active |
+| `tv_open_dashboard` | Ouvre le dashboard War Room |
+| `tv_refresh` | F5 sur la page active |
+| `tv_press_key` | Envoi touche clavier (HOME, BACK, DPAD_*) |
+| `tv_status` | Etat connexion (ADB, CDP, dashboard) |
+
+**Verification :**
+```bash
+# Test MCP
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"tv_status","arguments":{}}}' \
+  | python3 scripts/tv_mcp_server.py
+
+# Test CDP direct
+curl -s http://localhost:9222/json/list | python3 -m json.tool
+
+# Relancement TV
+bash scripts/launch_tv_browser.sh
+```
+
+**Pourquoi Kiwi Browser :**
+- Open-source (GitHub `kiwibrowser/src.next`, Chromium 137)
+- CDP natif (`chrome_devtools_remote`) sans configuration
+- Support extensions Chrome (unique sur Android)
+- DevTools integres accessibles via le menu
+- APK arm-v7a compatible TV Philips (177 MB)
+
+### 2026-06-30 — Fix 3 bugs vocaux (routing, bruit TV, veille)
+
+**Correction de 3 bugs vocaux de production.**
+
+| Bug | Fix | Fichiers |
+|-----|-----|----------|
+| A — "match de France" → `terminal` | Nouvelle action `search(query)` + clarification `terminal` "COMMANDE SHELL uniquement" | `main.py` (ACTIONS_COMPACT + handler), `integrations/web_search.py` (nouveau) |
+| B — "Sous-titres Amara.org" traite | Filtre blacklist etendu + filtre confidence STT (avg_logprob) + filtre < 2 mots | `scripts/audio_daemon.py`, `audio/stt_local.py` (retourne segments) |
+| C — "Mets-toi en veille" sans effet | Actions `sleep`/`wake` + mode veille applicative dans AudioDaemon + detection directe sans LLM | `scripts/audio_daemon.py`, `main.py` |
+
+**Architecture filtres vocaux (ordre) :** STT → sleep/wake → echo post-TTS → < 2 mots → blacklist → confidence (local STT) → LLM
+
+**DuckDuckGo Instant Answer :** zero cle API, zero rate limit, AbstractText + RelatedTopics fallback, timeout 8s.
+
+**Mode veille (sleep_mode) :** flag `_sleep_mode` dans AudioDaemon, API `enter_sleep_mode()` / `exit_sleep_mode()`, detection directe sans LLM (SLEEP_PHRASES / WAKE_PHRASES), wake word Porcupine toujours actif en veille, drain frames + sleep 500ms pour economiser CPU.
+
+### 2026-06-30 — Action TV : controle ADB (on/off, volume, navigation)
+
+**Ajout de l'action `tv` dans le systeme JARVIS pour controler la TV Philips via ADB.**
+
+| Fichier | Changement |
+|---------|-----------|
+| `actions.py` | Ajout `_action_tv()` + dispatch `action_type == "tv"`. Mapping 20+ commandes (`off`, `on`, `home`, `back`, `vol_up`, `vol_down`, `mute`, `play`...) vers keycodes Android. Execution via `adb shell input keyevent`. |
+| `config.py` | Ajout `TV_IP` (192.168.3.82) et `TV_ADB_PORT` (5555). |
+| `prompts/persona.txt` | Documentation action `tv` pour le LLM : commandes disponibles, exemples d'usage. |
+
+**Commandes disponibles :**
+
+| Commande | Keycode | Effet |
+|----------|---------|-------|
+| `off` / `power` | KEYCODE_POWER | Eteindre la TV |
+| `on` / `wake` | KEYCODE_WAKEUP | Allumer / reveiller |
+| `home` | KEYCODE_HOME | Accueil Android TV |
+| `back` | KEYCODE_BACK | Retour |
+| `vol_up` / `vol_down` | KEYCODE_VOLUME_* | Volume |
+| `mute` | KEYCODE_VOLUME_MUTE | Muet |
+| `play` / `pause` | KEYCODE_MEDIA_PLAY_PAUSE | Lecture/Pause |
+| `up` / `down` / `left` / `right` | DPAD_* | Navigation directionnelle |
+| `center` / `ok` | DPAD_CENTER | Validation |
+
+**Exemples d'usage :**
+- "Jarvis, eteins la tele" → `{"type":"tv","command":"off"}`
+- "Allume la TV" → `{"type":"tv","command":"on"}`
+- "Baisse le son" → `{"type":"tv","command":"vol_down"}`
+- "Retour a l'accueil" → `{"type":"tv","command":"home"}`
 
 ### 2026-06-25 — Phase 1 Migration Claude → DeepSeek (fondations)
 
@@ -3209,9 +3739,10 @@ macOS say + afconvert (AAC/M4A) → afplay
 ```bash
 AUDIO_DAEMON_ENABLED=true              # active le daemon au boot
 AUDIO_DAEMON_STT_ENGINE=local          # "local" = faster-whisper, "" = ElevenLabs Scribe
-AUDIO_DAEMON_STT_MODEL=tiny            # tiny (75Mo) ou small (500Mo, plus precis)
-AUDIO_DAEMON_SPEECH_THRESHOLD=0.02     # RMS seuil de parole (0.02 = plus conservateur)
-AUDIO_DAEMON_SILENCE_MS=1500           # ms de silence avant fin de phrase (1.5s)
+AUDIO_DAEMON_STT_MODEL=small           # small (244Mo, bon FR) | base (142Mo) | tiny (75Mo)
+SILERO_VAD_THRESHOLD=0.5              # seuil parole 0.0-1.0 (0.3=sensible, 0.5=defaut, 0.7=strict)
+AUDIO_DAEMON_SPEECH_THRESHOLD=0.02     # RMS seuil de parole (fallback si Silero indisponible)
+AUDIO_DAEMON_SILENCE_MS=1200           # ms de silence avant fin de phrase (1200ms, compromis francais parle)
 AUDIO_DAEMON_MIN_SPEECH_MS=600         # duree minimale de parole (600ms)
 AUDIO_DAEMON_MAX_UTTERANCE_S=15        # duree max d'une utterance
 AUDIO_DAEMON_CONVERSATION_TIMEOUT=45.0 # secondes avant retour veille (~37s de replique apres reponse)
@@ -3243,6 +3774,13 @@ for _ in range(100):
 stream.close(); pa.terminate()
 print(f'RMS max: {max_rms:.6f}')
 "
+
+# Diagnostic complet du pipeline vocal (WebSocket + historique)
+# → Page web : http://127.0.0.1:8081/voice-debug
+# Affiche en temps reel : transcription STT, prompt systeme complet,
+# messages envoyes, reponse brute LLM, metriques de latence.
+# Ou via API :
+curl -s "http://127.0.0.1:8081/api/voice-debug?limit=10" | python3 -m json.tool
 ```
 
 ### Correctif 26 juin 2026 — Coupure audio + QueueFull
@@ -3324,3 +3862,95 @@ Le daemon audio (micro Mac) et la page `/voice` (micro navigateur) utilisent des
 **Benchmark** : moyenne 2189ms (cible < 2500ms). Direct ~1500ms, action ~4000ms.
 
 **Dependances ajoutees** : `faster-whisper>=1.2`, `sounddevice>=0.5`, `soundfile>=0.13` (requis pour playback direct).
+
+### Dernier changelog — 30 juin 2026 (00h30) : Code review complete
+
+**Revue exhaustive** du projet (82 fichiers Python, 55 TSX, 1 SQL). **27 problemes** identifies, classes par severite.
+
+#### Critiques (P0 — 6 problemes)
+
+| # | Fichier | Probleme |
+|---|---|---|
+| 1 | `.env` | **Cles API exposees en clair** (DeepSeek, ElevenLabs, Weather, Tavily, telephone perso). Rotation immediate necessaire. |
+| 2 | `agents/productivity.py:129` | `asyncio.sleep(0, result=[])` — API invalide, plante le fallback |
+| 3 | `agents/memory.py:437` | `except Exception: pass` — erreurs JSON avalees silencieusement |
+| 4 | `agents/memory.py:320` | N+1 query : `get_all_people()` appelee dans une boucle for |
+| 5 | `agents/memory.py:202-337` | Boucle `people` traitee 2 fois (doublon potentiel `relationship_event`) |
+| 6 | `.env.example` | `DEEPSEEK_API_KEY` defini 2 fois ; `DEEPSEEK_BASE_URL` a `/v1` en trop (collision avec `llm.py`) |
+
+#### Hautes (P1 — 8 problemes)
+
+| # | Fichier | Probleme |
+|---|---|---|
+| 7 | `database/__init__.py` vs `schema.sql` | Schema SQL duplique et divergent (contraintes CHECK absentes dans la version inline) |
+| 8 | `agents/coach.py:163` | Escalade detectee mais modele jamais change (`DEEPSEEK_MAIN_MODEL` systematique) |
+| 9 | `config.py:78` | `COMPUTER_ACCESS` est une string, pas un bool (incoherent avec les autres) |
+| 10 | `main.py` | **4537 lignes / 179 Ko** — monolithique, a diviser en routers FastAPI |
+| 11 | Multiple | References residuelles a "Claude" dans ~10 fichiers (noms de methodes, docstrings, commentaires) |
+| 12 | `supervisor.py:34` | `venv/bin/python` hardcode, pas de config `SUPERVISOR_PYTHON_PATH` |
+| 13 | `integrations/web_search.py` | Fichier vide (0 octet) — importe mais inutilisable |
+| 14 | `database/queries.py` | Fichier vide (0 octet) |
+
+#### Moyennes (P2 — 8 problemes)
+
+| # | Fichier | Probleme |
+|---|---|---|
+| 15 | `agents/journal.py:149` | `isinstance(mood, (int, float))` accepte les booleens (True/False) |
+| 16 | `agents/memory.py` | 19 `except Exception` en bare, `_parse_and_apply` fait 207 lignes |
+| 17 | `agents/orchestrator.py:506-527` | Detection d'emotion dupliquee (inline + `_extract_emotion()`) |
+| 18-21 | Frontend | 5 composants TSX > 30 Ko (a splitter) |
+| 22 | `llm.py:18-22` | `MODEL_COSTS` utilise des cles dynamiques → fallback si renommage |
+
+#### Securite (8 problemes)
+
+- Cles API en clair (critique)
+- Pas de rate limiting
+- `create_subprocess_shell` expose a l'injection shell via LLM
+- Pas de CSP headers
+- `CORS allow_origins=["*"]`
+- `auth_token` stocke en clair dans `devices`
+- WebSocket sans authentification
+- Logs peuvent contenir des paths sensibles (`command[:500]`)
+
+#### Architecture
+
+- 3 applications web dans le meme depot, pas de coordination centrale
+- `actions.py` (487 lignes, 20 handlers) — a diviser
+- Couverture de tests < 5% (3 fichiers de test seulement)
+- `tv/server.py` dependances non listees dans `requirements.txt`
+
+---
+
+## Page Tâches (2026-06-30)
+
+Ajout d'une page de gestion des tâches complète dans l'interface BIG BROTHER.
+
+### Backend
+
+- **Nouvelles fonctions DB** (`database/__init__.py`) :
+  - `delete_task(task_id: int) -> bool` — supprime une tâche par ID
+  - `delete_all_tasks() -> int` — supprime toutes les tâches (retourne le nombre supprimé)
+- **Modification `get_tasks`** — supporte désormais `status="all"` pour récupérer toutes les tâches (y compris `done`)
+- **Nouveaux endpoints** (`main.py`) :
+  - `DELETE /api/tasks/{task_id}` — suppression individuelle
+  - `DELETE /api/tasks` — suppression totale (purge)
+
+### Frontend
+
+- **`TasksView.tsx`** (`web/src/app/components/views/TasksView.tsx`) :
+  - Liste des tâches avec tri par priorité (haute → moyenne → basse)
+  - Filtres par statut (Toutes / À faire / En cours / Terminées) avec compteurs
+  - Cycle de statut au clic (todo → doing → done → todo)
+  - Suppression individuelle (bouton apparait au hover)
+  - Suppression de toutes les tâches avec confirmation modale
+  - Formulaire de création : titre, priorité, date d'échéance, catégorie
+  - Indicateurs visuels de priorité (rouge = haute, ambre = moyenne, bleu = basse)
+  - États : chargement, erreur, vide, liste
+- **Route** : `/tasks` (ajoutée dans `App.tsx`)
+- **Navigation** : lien dans la sidebar et la barre rapide supérieure (`BigBrotherLayout.tsx`)
+
+### API Frontend
+
+- `api.deleteTask(id: number)` — supprime une tâche
+- `api.deleteAllTasks()` — supprime toutes les tâches
+- `api.getTasks(status?: string)` — supporte maintenant `status="all"`

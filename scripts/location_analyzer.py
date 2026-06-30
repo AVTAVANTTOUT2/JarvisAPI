@@ -1,4 +1,4 @@
-"""Analyse quotidienne des habitudes géographiques (Haiku) — patterns + faits."""
+"""Analyse quotidienne des habitudes géographiques (DeepSeek) — patterns + faits."""
 
 from __future__ import annotations
 

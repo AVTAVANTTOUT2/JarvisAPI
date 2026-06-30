@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { ws } from '@/services/websocket';
-import { Activity, CalendarDays, MessageSquare, Mic, Settings2, TerminalSquare } from 'lucide-react';
+import { Activity, CalendarDays, ListTodo, MessageSquare, Mic, Settings2, TerminalSquare, Bug } from 'lucide-react';
 
 function navCls({ isActive }: { isActive: boolean }) {
   return `block w-full text-left px-3 py-2.5 rounded-xl text-sm transition-colors border border-transparent ${
@@ -45,6 +45,12 @@ export function BigBrotherLayout() {
               Voix
             </span>
           </NavLink>
+          <NavLink to="/mission" className={navCls}>
+            <span className="inline-flex items-center gap-2">
+              <Activity size={14} />
+              Mission Control
+            </span>
+          </NavLink>
           <NavLink to="/dashboard" className={navCls}>
             Dashboard
           </NavLink>
@@ -55,6 +61,12 @@ export function BigBrotherLayout() {
             <span className="inline-flex items-center gap-2">
               <CalendarDays size={14} />
               Agenda
+            </span>
+          </NavLink>
+          <NavLink to="/tasks" className={navCls}>
+            <span className="inline-flex items-center gap-2">
+              <ListTodo size={14} />
+              Tâches
             </span>
           </NavLink>
           <NavLink to="/map" className={navCls}>
@@ -90,6 +102,12 @@ export function BigBrotherLayout() {
               Control
             </span>
           </NavLink>
+          <NavLink to="/voice-debug" className={navCls}>
+            <span className="inline-flex items-center gap-2">
+              <Bug size={14} />
+              Voice Debug
+            </span>
+          </NavLink>
         </nav>
       </aside>
       <main className="flex-1 min-h-0 min-w-0 flex flex-col">
@@ -109,9 +127,17 @@ export function BigBrotherLayout() {
               <Mic size={14} />
               Voix
             </NavLink>
+            <NavLink to="/mission" className={topNavCls}>
+              <Activity size={14} />
+              Mission Control
+            </NavLink>
             <NavLink to="/calendar" className={topNavCls}>
               <CalendarDays size={14} />
               Agenda
+            </NavLink>
+            <NavLink to="/tasks" className={topNavCls}>
+              <ListTodo size={14} />
+              Tâches
             </NavLink>
             <NavLink to="/dashboard" className={topNavCls}>
               Dashboard

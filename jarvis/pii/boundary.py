@@ -35,6 +35,9 @@ class DataBoundary:
         r"conversation_id\s*[=:]\s*\d+",
         r"SELECT\s+.*\s+FROM\s+messages",
         r"db\.messages\.",
+        r"chat\.db",
+        r"\+33\d{9}",
+        r"[\w.+-]+@[\w-]+\.[A-Za-z]{2,}",
     )
 
     def __init__(self) -> None:

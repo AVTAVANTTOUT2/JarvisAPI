@@ -1,8 +1,8 @@
-"""Analyseur relationnel — Haiku extrait des données structurées des conversations iMessage.
+"""Analyseur relationnel — DeepSeek (modèle rapide) extrait des données structurées des conversations iMessage.
 
 Architecture 2 tiers :
-  1. Haiku lit les messages bruts → JSON structuré → stocké dans la DB (~$0.002/analyse)
-  2. Sonnet/Opus reçoit les données structurées de la DB, jamais les messages bruts
+  1. DeepSeek rapide lit les messages bruts → JSON structuré → stocké dans la DB (~$0.002/analyse)
+  2. DeepSeek principal reçoit les données structurées de la DB, jamais les messages bruts
 
 Workers :
   - run_initial_scan() : première analyse complète de tout l'historique
@@ -50,7 +50,7 @@ def _load_extractor_prompt() -> str:
 
 
 def _format_messages_for_prompt(messages: list[dict], user_name: str) -> str:
-    """Formate les messages iMessage pour le prompt Haiku."""
+    """Formate les messages iMessage pour le prompt extracteur."""
     lines = []
     for m in messages:
         who = "MOI" if m.get("is_from_me") else "CONTACT"
@@ -62,7 +62,7 @@ def _format_messages_for_prompt(messages: list[dict], user_name: str) -> str:
 
 
 class RelationshipAnalyzer:
-    """Analyse les conversations iMessage via Haiku et stocke les données en DB."""
+    """Analyse les conversations iMessage via DeepSeek rapide et stocke les données en DB."""
 
     def __init__(self):
         self._prompt_template = ""
@@ -217,7 +217,7 @@ class RelationshipAnalyzer:
         return batches_done
 
     async def _analyze_batch(self, handle: str, messages: list[dict]) -> None:
-        """Envoie un batch à Haiku et stocke les résultats en DB."""
+        """Envoie un batch à DeepSeek et stocke les résultats en DB."""
         prompt_template = self._get_prompt()
         if not prompt_template:
             return
@@ -263,7 +263,7 @@ class RelationshipAnalyzer:
             end = response.rindex("}") + 1
             return json.loads(response[start:end])
         except (ValueError, json.JSONDecodeError):
-            logger.warning("[analyzer] JSON invalide dans la réponse Haiku")
+            logger.warning("[analyzer] JSON invalide dans la réponse DeepSeek")
             return None
 
     def _store_results(self, handle: str, data: dict, msg_count: int = 0) -> None:

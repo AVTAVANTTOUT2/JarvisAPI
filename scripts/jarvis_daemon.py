@@ -90,13 +90,12 @@ class JarvisDaemon:
             from integrations.imessage_reader import imessage_reader
 
             if imessage_reader and imessage_reader.is_available():
-                db = sqlite3.connect(
+                with sqlite3.connect(
                     f"file:{Path.home() / 'Library/Messages/chat.db'}?mode=ro",
                     uri=True,
-                )
-                row = db.execute("SELECT MAX(ROWID) FROM message").fetchone()
-                self.last_imsg_rowid = int(row[0] or 0)
-                db.close()
+                ) as db:
+                    row = db.execute("SELECT MAX(ROWID) FROM message").fetchone()
+                    self.last_imsg_rowid = int(row[0] or 0)
                 logger.info("[daemon] iMessage starting rowid: %s", self.last_imsg_rowid)
         except Exception as e:
             logger.warning("[daemon] init iMessage rowid échoué : %s", e)
@@ -200,21 +199,20 @@ class JarvisDaemon:
 
         rows: list[Any] = []
         try:
-            db = sqlite3.connect(
+            with sqlite3.connect(
                 f"file:{Path.home() / 'Library/Messages/chat.db'}?mode=ro",
                 uri=True,
-            )
-            db.row_factory = sqlite3.Row
-            rows = db.execute(
-                """SELECT m.ROWID, m.text, m.is_from_me, m.date, h.id as handle
-                   FROM message m
-                   LEFT JOIN handle h ON m.handle_id = h.ROWID
-                   WHERE m.ROWID > ? AND m.text IS NOT NULL AND m.text != ''
-                   ORDER BY m.ROWID ASC
-                   LIMIT 10""",
-                (self.last_imsg_rowid,),
-            ).fetchall()
-            db.close()
+            ) as db:
+                db.row_factory = sqlite3.Row
+                rows = db.execute(
+                    """SELECT m.ROWID, m.text, m.is_from_me, m.date, h.id as handle
+                       FROM message m
+                       LEFT JOIN handle h ON m.handle_id = h.ROWID
+                       WHERE m.ROWID > ? AND m.text IS NOT NULL AND m.text != ''
+                       ORDER BY m.ROWID ASC
+                       LIMIT 10""",
+                    (self.last_imsg_rowid,),
+                ).fetchall()
         except Exception as e:
             logger.warning("[daemon] iMessage scan : %s", e)
             return
@@ -445,7 +443,12 @@ class JarvisDaemon:
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.DEVNULL,
             )
-            await proc.wait()
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=30.0)
+            except asyncio.TimeoutError:
+                logger.warning("[daemon] afplay timeout (30s) — kill")
+                proc.kill()
+                await proc.wait()
         except Exception as e:
             logger.warning("[daemon] playback erreur : %s", e)
         finally:
@@ -552,12 +555,7 @@ class JarvisDaemon:
 
                 logger.info("[daemon] entendu : %s", text)
                 lower = text.lower()
-                end_phrases = [
-                    "merci jarvis", "c'est bon jarvis", "c'est tout jarvis",
-                    "merci c'est bon", "c'est fini", "bonne nuit jarvis",
-                    "à plus jarvis", "ok merci",
-                ]
-                if any(p in lower for p in end_phrases):
+                if any(p in lower for p in config.END_PHRASES):
                     await self.tts_queue.put(
                         "Bien Monsieur, je reste en veille si vous avez besoin."
                     )

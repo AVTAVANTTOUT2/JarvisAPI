@@ -494,6 +494,35 @@ CREATE TABLE IF NOT EXISTS work_sessions (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_worksessions_date ON work_sessions(started_at);
+
+-- ═══════════════════════════════════════════════════════════
+-- VOICE DEBUG — traces de pipeline vocal (STT + LLM + TTS)
+-- ═══════════════════════════════════════════════════════════
+
+CREATE TABLE IF NOT EXISTS voice_debug_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT DEFAULT (datetime('now', 'localtime')),
+    input_text TEXT,
+    system_prompt TEXT,
+    messages_json TEXT,
+    raw_response TEXT,
+    response_clean TEXT,
+    emotion TEXT,
+    action_json TEXT,
+    model TEXT,
+    tokens_in INTEGER DEFAULT 0,
+    tokens_out INTEGER DEFAULT 0,
+    cost REAL DEFAULT 0,
+    latency_stt_ms INTEGER DEFAULT 0,
+    latency_llm1_ms INTEGER DEFAULT 0,
+    latency_llm2_ms INTEGER DEFAULT 0,
+    latency_tts_ms INTEGER DEFAULT 0,
+    latency_total_ms INTEGER DEFAULT 0,
+    stt_engine TEXT,
+    tts_engine TEXT,
+    audio_duration_ms INTEGER DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_vdebug_created ON voice_debug_log(created_at);
 """
 
 
@@ -528,6 +557,8 @@ def init_db():
         _migrate_conversations(conn)
         _migrate_app_settings(conn)
         _migrate_email_summaries(conn)
+        _migrate_message_insights(conn)
+        _create_voice_debug_table(conn)
     logger.info("[DB] Base initialisée : %s", DB_PATH)
 
 
@@ -603,6 +634,20 @@ def _migrate_email_summaries(conn: sqlite3.Connection) -> None:
             conn.execute(sql)
         except Exception:
             pass  # colonne déjà existante
+
+
+def _migrate_message_insights(conn: sqlite3.Connection) -> None:
+    """Crée la table message_insights si elle n'existe pas (idempotent)."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS message_insights (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            since_message_id INTEGER NOT NULL,
+            message_count INTEGER NOT NULL,
+            result_json TEXT NOT NULL,
+            created_at TEXT DEFAULT (datetime('now')),
+            acknowledged INTEGER DEFAULT 0
+        )
+    """)
 
 
 # ── Helpers CRUD ────────────────────────────────────────────
@@ -1248,11 +1293,16 @@ def get_active_patterns() -> list:
 def get_tasks(status: str = None) -> list:
     """Liste les tâches. Par défaut : toutes celles non terminées (todo + doing).
 
+    ``status`` : None (actives), ``"all"`` (toutes), ou ``"todo" | "doing" | "done"``.
     Tri intelligent : priorité (high < medium < low) puis date d'échéance.
     """
     priority_case = "CASE priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END"
     with get_db() as conn:
-        if status:
+        if status == "all":
+            rows = conn.execute(
+                f"SELECT * FROM tasks ORDER BY {priority_case}, due_date IS NULL, due_date"
+            ).fetchall()
+        elif status:
             rows = conn.execute(
                 f"SELECT * FROM tasks WHERE status = ? ORDER BY {priority_case}, due_date IS NULL, due_date",
                 (status,),
@@ -1301,6 +1351,20 @@ def get_task(task_id: int) -> dict | None:
     with get_db() as conn:
         row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
         return dict(row) if row else None
+
+
+def delete_task(task_id: int) -> bool:
+    """Supprime une tâche par son ID. Retourne True si supprimée, False si absente."""
+    with get_db() as conn:
+        cur = conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+        return cur.rowcount > 0
+
+
+def delete_all_tasks() -> int:
+    """Supprime TOUTES les tâches de la base. Retourne le nombre de lignes supprimées."""
+    with get_db() as conn:
+        cur = conn.execute("DELETE FROM tasks")
+        return cur.rowcount
 
 
 def get_daily_messages(date: str = None) -> list:
@@ -2429,6 +2493,166 @@ def get_work_sessions(days: int = 7) -> list[dict]:
         return [dict(r) for r in rows]
 
 
+def _create_voice_debug_table(conn: sqlite3.Connection) -> None:
+    """Crée la table voice_debug_log si elle n'existe pas (idempotent)."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS voice_debug_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TEXT DEFAULT (datetime('now', 'localtime')),
+            input_text TEXT,
+            system_prompt TEXT,
+            messages_json TEXT,
+            raw_response TEXT,
+            response_clean TEXT,
+            emotion TEXT,
+            action_json TEXT,
+            model TEXT,
+            tokens_in INTEGER DEFAULT 0,
+            tokens_out INTEGER DEFAULT 0,
+            cost REAL DEFAULT 0,
+            latency_stt_ms INTEGER DEFAULT 0,
+            latency_llm1_ms INTEGER DEFAULT 0,
+            latency_llm2_ms INTEGER DEFAULT 0,
+            latency_tts_ms INTEGER DEFAULT 0,
+            latency_total_ms INTEGER DEFAULT 0,
+            stt_engine TEXT,
+            tts_engine TEXT,
+            audio_duration_ms INTEGER DEFAULT 0
+        )
+    """)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_vdebug_created ON voice_debug_log(created_at)"
+    )
+
+
+def _save_voice_debug_trace(trace: dict[str, Any]) -> None:
+    """Sauvegarde une trace de debug vocal en DB (fire-and-forget, silencieux).
+
+    Args:
+        trace: dict contenant les champs du debug trace (input_text, system_prompt,
+               messages_sent, raw_response, response_clean, emotion, action_detected,
+               model, tokens_in, tokens_out, cost, latency_*).
+    """
+    import json as _json
+
+    try:
+        with get_db() as conn:
+            conn.execute(
+                """INSERT INTO voice_debug_log
+                   (input_text, system_prompt, messages_json, raw_response, response_clean,
+                    emotion, action_json, model, tokens_in, tokens_out, cost,
+                    latency_stt_ms, latency_llm1_ms, latency_llm2_ms, latency_tts_ms,
+                    latency_total_ms, stt_engine, tts_engine, audio_duration_ms)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    str(trace.get("input_text", ""))[:3000] if trace.get("input_text") else "",
+                    str(trace.get("system_prompt", ""))[:50000] if trace.get("system_prompt") else "",
+                    _json.dumps(trace.get("messages_sent", []), ensure_ascii=False) if trace.get("messages_sent") else "",
+                    str(trace.get("raw_response", ""))[:10000] if trace.get("raw_response") else "",
+                    str(trace.get("response_clean", ""))[:5000] if trace.get("response_clean") else "",
+                    str(trace.get("emotion", "")),
+                    _json.dumps(trace.get("action_detected"), ensure_ascii=False) if trace.get("action_detected") else None,
+                    str(trace.get("model", "")),
+                    int(trace.get("tokens_in", 0)),
+                    int(trace.get("tokens_out", 0)),
+                    float(trace.get("cost", 0.0)),
+                    int(trace.get("latency_stt_ms", 0)),
+                    int(trace.get("latency_llm_pass1_ms", 0)),
+                    int(trace.get("latency_llm_pass2_ms", 0)),
+                    int(trace.get("latency_tts_ms", 0)),
+                    int(trace.get("latency_total_ms", 0)),
+                    str(trace.get("stt_engine", "")),
+                    str(trace.get("tts_engine", "")),
+                    int(trace.get("audio_duration_ms", 0)),
+                ),
+            )
+    except Exception:
+        pass  # Fire-and-forget — ne jamais crasher le pipeline vocal
+
+
+def get_voice_debug_logs(limit: int = 50) -> list[dict[str, Any]]:
+    """Récupère les dernières traces de debug vocal.
+
+    Args:
+        limit: Nombre maximum de traces à retourner (défaut 50).
+
+    Returns:
+        Liste de dicts, ordre décroissant par id (plus récent d'abord).
+    """
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM voice_debug_log ORDER BY id DESC LIMIT ?",
+            (max(1, min(int(limit), 500)),),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
 # ── Init au premier import ──────────────────────────────────
 if __name__ == "__main__":
     init_db()
+
+
+# ── Message Intelligence helpers ─────────────────────────────
+
+
+def get_messages_since(
+    since_id: int, limit: int = 50
+) -> list[dict[str, Any]]:
+    """Récupère les messages (table messages) postérieurs à ``since_id``.
+
+    Args:
+        since_id: ID du dernier message déjà traité.
+        limit: Nombre max de messages à retourner.
+
+    Returns:
+        Liste de dicts {id, content, role, created_at}. Vide si aucun nouveau message.
+    """
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT id, content, role, created_at
+               FROM messages
+               WHERE id > ?
+               ORDER BY id ASC
+               LIMIT ?""",
+            (since_id, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def save_message_insight(
+    since_id: int,
+    raw_response: str,
+    message_count: int,
+) -> int:
+    """Persiste un insight généré à partir des messages.
+
+    Args:
+        since_id: ID du dernier message couvert par cet insight.
+        raw_response: Contenu dé-anonymisé de la réponse DeepSeek (JSON stringifié).
+        message_count: Nombre de messages analysés.
+
+    Returns:
+        ID de la ligne insérée.
+    """
+    import json as _json
+
+    # Valide que le JSON est bien formé avant l'insertion.
+    if isinstance(raw_response, dict):
+        raw_response = _json.dumps(raw_response, ensure_ascii=False)
+    else:
+        try:
+            _json.loads(raw_response)
+        except (_json.JSONDecodeError, ValueError):
+            # Enveloppe le texte brut dans un JSON pour éviter les corruptions.
+            raw_response = _json.dumps(
+                {"raw": raw_response}, ensure_ascii=False
+            )
+
+    with get_db() as conn:
+        cur = conn.execute(
+            """INSERT INTO message_insights
+               (since_message_id, message_count, result_json)
+               VALUES (?, ?, ?)""",
+            (since_id, message_count, raw_response),
+        )
+        return cur.lastrowid

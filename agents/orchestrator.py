@@ -4,7 +4,10 @@ Utilise Haiku pour une classification ultra-rapide (~50 tokens), puis appelle
 l'agent spécialisé via le registry.
 """
 
+import asyncio
 import logging
+import re
+import time as _time
 from typing import AsyncGenerator
 
 import config
@@ -21,6 +24,7 @@ from database import (
     get_recent_episodes,
     save_message,
 )
+from jarvis.event_bus import JarvisEvent, event_bus
 
 logger = logging.getLogger(__name__)
 
@@ -158,14 +162,149 @@ async def append_recent_mails_to_context(ctx: dict, user_message: str, category:
     ctx["memory_context"] = (mem + "\n\n" + merged).strip() if mem else merged
 
 
-CATEGORIES = ["SCHOOL", "PRODUCTIVITY", "COACH", "INFO", "JOURNAL"]
+CATEGORIES = ["SCHOOL", "PRODUCTIVITY", "COACH", "INFO", "JOURNAL", "DEVOPS"]
 CATEGORY_TO_AGENT = {
     "SCHOOL": "school",
     "PRODUCTIVITY": "productivity",
     "COACH": "coach",
     "INFO": "info",
     "JOURNAL": "journal",
+    "DEVOPS": "devops",
 }
+
+# ── Classification par mots-clés (0 token, 0 latence) ──────────────────────
+#
+# Chaque liste est une priorité. L'ordre des listes détermine l'ordre
+# de priorité : COACH > JOURNAL > SCHOOL > PRODUCTIVITY > DEVOPS > INFO.
+# _match_any() vérifie si *au moins un* mot-clé apparaît dans le message.
+# Le fallback LLM (quick_classify) n'est appelé que si aucun mot-clé ne matche.
+
+DEVOPS_KEYWORDS = [
+    "code", "bug", "debug", "erreur", "exception", "stack trace", "crash",
+    "git", "commit", "push", "pull request", "merge", "branch", "repo",
+    "api", "endpoint", "rest", "graphql", "webhook", "requête http",
+    "serveur", "deploy", "déploiement", "production", "staging",
+    "docker", "container", "image docker", "kubernetes", "k8s",
+    "base de données", "sql", "sqlite", "postgres", "migration", "schema",
+    "architecture", "infra", "infrastructure", "pipeline", "ci/cd",
+    "sécurité", "vulnérabilité", "cve", "firewall", "tls", "ssl", "certificat",
+    "script", "shell", "bash", "terminal", "process", "processus", "daemon",
+    "cloudflare", "tailscale", "dns", "reverse proxy", "nginx", "ssh",
+    "config", "variable d'environnement", "env", "log", "logs", "monitoring",
+    "performance", "latence", "optimisation", "refactor", "test unitaire",
+    "package", "dépendance", "venv", "requirements", "build", "compile",
+]
+
+COACH_PATTERNS = [
+    # Accentué
+    "stressé", "anxiété", "triste", "déprimé", "peur", "dispute", "conflit",
+    "fatigué", "épuisé", "découragé", "inquiet",
+    # Sans accent (messages tapés au clavier)
+    "stresse", "stress", "anxieux", "anxiete", "deprime", "fatigue",
+    "epuise", "decourage",
+    # Expressions
+    "je me sens", "j'en peux plus", "je n'arrive pas",
+]
+
+SCHOOL_PATTERNS = [
+    # Accentué
+    "exercice", "devoir", "devoirs", "cours", "examen", "contrôle",
+    "professeur", "prof", "note scolaire", "td", "tp", "partiel",
+    "révision", "diplôme",
+    # Sans accent
+    "controle", "partiels", "diplome", "revision", "matiere",
+]
+
+PRODUCTIVITY_PATTERNS = [
+    # Accentué
+    "tâche", "rappel", "rendez-vous", "réunion", "délai", "échéance",
+    # Sans accent
+    "tache", "todo", "planning", "agenda", "deadline",
+    "calendrier", "reunion", "delai", "echeance",
+    "organiser ma journee", "organiser ma journée",
+]
+
+INFO_PATTERNS = [
+    "météo", "meteo", "quel temps", "quelle heure",
+    "définition", "definition", "c'est quoi", "combien de",
+    "calcule", "convertir", "explique", "cherche", "trouve",
+    "blague", "capitale", "raconte", "donne-moi", "donne moi",
+    "salut", "ça va", "ca va", "bonjour",
+]
+
+JOURNAL_PATTERNS = [
+    "aujourd'hui j'ai", "je voulais raconter", "ma journée",
+    "j'ai vécu", "je tenais à noter",
+]
+
+VALID_CATEGORIES = frozenset(["COACH", "JOURNAL", "SCHOOL", "PRODUCTIVITY", "DEVOPS", "INFO"])
+
+
+def _match_any(message: str, patterns: list[str]) -> bool:
+    """Retourne True si au moins un pattern est présent comme mot entier ou préfixe.
+
+    Utilise des frontières de mots (caractères alphabétiques contigus) pour
+    éviter les faux positifs : ``"api"`` ne matche PAS ``"capitale"``,
+    ``"log"`` ne matche PAS ``"catalogue"``, ``"prof"`` ne matche PAS
+    ``"professionnel"`` (à moins qu'il soit isolé).
+    """
+    msg = message.lower()
+    for p in patterns:
+        idx = msg.find(p)
+        if idx == -1:
+            continue
+        before_ok = idx == 0 or not msg[idx - 1].isalpha()
+        after_ok = (idx + len(p)) == len(msg) or not msg[idx + len(p)].isalpha()
+        if before_ok and after_ok:
+            return True
+    return False
+
+
+async def classify_category(message: str) -> str:
+    """Classification par mots-clés avec fallback LLM (DeepSeek Flash).
+
+    Priorité stricte :
+        COACH > JOURNAL > SCHOOL > PRODUCTIVITY > DEVOPS > INFO (filet sécurité)
+
+    Si aucun mot-clé ne matche, appel ``llm.quick_classify`` (DeepSeek Flash,
+    ~50 tokens, gratuit/discount) avec la liste complète des catégories.
+    """
+    t0 = _time.time()
+
+    def _resolve(cat: str, method: str) -> str:
+        elapsed = int((_time.time() - t0) * 1000)
+        asyncio.create_task(event_bus.emit(JarvisEvent(
+            type="orchestrator.classify",
+            data={"message": message[:80], "category": cat, "method": method, "latency_ms": elapsed},
+        )))
+        asyncio.create_task(event_bus.emit(JarvisEvent(
+            type="orchestrator.route",
+            data={"agent": cat.lower(), "message": message[:80]},
+        )))
+        return cat
+
+    if _match_any(message, COACH_PATTERNS):
+        return _resolve("COACH", "keyword")
+    if _match_any(message, JOURNAL_PATTERNS):
+        return _resolve("JOURNAL", "keyword")
+    if _match_any(message, SCHOOL_PATTERNS):
+        return _resolve("SCHOOL", "keyword")
+    if _match_any(message, PRODUCTIVITY_PATTERNS):
+        return _resolve("PRODUCTIVITY", "keyword")
+    if _match_any(message, DEVOPS_KEYWORDS):
+        return _resolve("DEVOPS", "keyword")
+    if _match_any(message, INFO_PATTERNS):
+        return _resolve("INFO", "keyword")
+
+    try:
+        category = await llm.quick_classify(message, list(VALID_CATEGORIES))
+        category = category.strip().upper()
+        if category in VALID_CATEGORIES:
+            return _resolve(category, "llm")
+    except Exception as exc:
+        logger.warning("quick_classify échec : %s", exc)
+
+    return _resolve("INFO", "fallback")
 
 # Agent fallback si le ciblé n'existe pas encore (Phase 1 : seul `info` est implémenté)
 DEFAULT_AGENT = "info"
@@ -206,7 +345,7 @@ class OrchestratorAgent(BaseAgent):
             content = (msg.get("content") or "").strip()
             if not content:
                 continue
-            messages.append({"role": msg["role"], "content": content})
+            messages.append({"role": msg["role"], "content": content, "created_at": msg.get("created_at")})
 
         if messages and messages[-1]["role"] == "user":
             messages.pop()
@@ -214,27 +353,87 @@ class OrchestratorAgent(BaseAgent):
         return messages
 
     async def classify(self, user_message: str) -> str:
-        """Classifie le message dans une des catégories. Retourne la catégorie en MAJUSCULES."""
-        system = self.build_system_prompt({"user_name": config.USER_NAME})
+        """Classifie le message dans une des catégories. Retourne la catégorie en MAJUSCULES.
 
-        try:
-            result = await llm.chat(
-                messages=[{"role": "user", "content": user_message}],
-                model=self.model,
-                system=system,
-                max_tokens=20,
-                temperature=0.0,
-                use_cache=True,
-            )
-            raw = result["content"].strip().upper()
+        Stratégie optimisée :
+        1. Heuristique par mots-clés (0 token, instantané)
+        2. Si l'heuristique ne matche pas → appel LLM (DeepSeek Flash)
+        3. Si LLM vide ou non reconnu → INFO (safe default)
+
+        L'heuristique couvre ~85% des cas. Le LLM est le filet de sécurité
+        pour les messages ambigus que les mots-clés ne capturent pas.
+        """
+        t0 = _time.time()
+        msg_lower = user_message.lower()
+
+        # ── 1. Heuristique (gratuite, instantanée) ──
+        heuristic = None
+        if _match_any(msg_lower, COACH_PATTERNS):
+            heuristic = "COACH"
+        elif _match_any(msg_lower, JOURNAL_PATTERNS):
+            heuristic = "JOURNAL"
+        elif _match_any(msg_lower, SCHOOL_PATTERNS):
+            heuristic = "SCHOOL"
+        elif _match_any(msg_lower, PRODUCTIVITY_PATTERNS):
+            heuristic = "PRODUCTIVITY"
+        elif _match_any(msg_lower, DEVOPS_KEYWORDS):
+            heuristic = "DEVOPS"
+        elif _match_any(msg_lower, INFO_PATTERNS):
+            heuristic = "INFO"
+
+        if heuristic:
+            elapsed = int((_time.time() - t0) * 1000)
+            asyncio.create_task(event_bus.emit(JarvisEvent(
+                type="orchestrator.classify",
+                data={"message": user_message[:80], "category": heuristic, "method": "keyword", "latency_ms": elapsed},
+            )))
+            asyncio.create_task(event_bus.emit(JarvisEvent(
+                type="orchestrator.route",
+                data={"agent": heuristic.lower(), "message": user_message[:80]},
+            )))
+            return heuristic
+
+        # ── 2. LLM (pour les cas ambigus) ──
+        system = self.build_system_prompt({"user_name": config.USER_NAME})
+        raw = ""
+        for attempt, tokens in enumerate((20, 50), start=1):
+            try:
+                result = await llm.chat(
+                    messages=[{"role": "user", "content": user_message}],
+                    model=self.model,
+                    system=system,
+                    max_tokens=tokens,
+                    temperature=0.0,
+                    use_cache=False,
+                )
+                raw = (result.get("content") or "").strip().upper()
+            except Exception as e:
+                logger.warning(
+                    "Classification LLM échec (tentative %d) : %s", attempt, e,
+                )
+            if raw:
+                break
+            logger.debug("Classification LLM vide (tentative %d)", attempt)
+
+        final_cat = "INFO"
+        if raw:
             for cat in CATEGORIES:
                 if cat in raw:
-                    return cat
-            logger.warning(f"Classification ambiguë '{raw}' → fallback INFO")
-            return "INFO"
-        except Exception as e:
-            logger.error(f"Erreur classification : {e}")
-            return "INFO"
+                    final_cat = cat
+                    break
+            if final_cat == "INFO":
+                logger.info("Classification LLM '%s' → fallback INFO", raw[:40])
+
+        elapsed = int((_time.time() - t0) * 1000)
+        asyncio.create_task(event_bus.emit(JarvisEvent(
+            type="orchestrator.classify",
+            data={"message": user_message[:80], "category": final_cat, "method": "llm", "latency_ms": elapsed},
+        )))
+        asyncio.create_task(event_bus.emit(JarvisEvent(
+            type="orchestrator.route",
+            data={"agent": final_cat.lower(), "message": user_message[:80]},
+        )))
+        return final_cat
 
     def build_context(self) -> dict:
         """Construit le contexte dense pour Sonnet/Opus.
@@ -413,7 +612,7 @@ class OrchestratorAgent(BaseAgent):
         ``[VOICE_MODE] `` et le contexte porte ``voice_mode=True`` (Haiku +
         ``VOICE_MAX_TOKENS`` via ``_route_task`` / ``_call_claude``).
         """
-        category = await self.classify(user_message)
+        category = await classify_category(user_message)
 
         base_ctx = self.build_context()
         if context:
@@ -457,7 +656,7 @@ class OrchestratorAgent(BaseAgent):
             {type: "saved_file", path: str}    (optionnel, agents qui produisent des fichiers)
             {type: "done", tokens_in, tokens_out, cost, model, agent}
         """
-        category = await self.classify(user_message)
+        category = await classify_category(user_message)
 
         base_ctx = self.build_context()
         if context:
@@ -509,7 +708,6 @@ class OrchestratorAgent(BaseAgent):
             full_response += chunk
 
             if not emotion_tag_stripped:
-                import re
                 m = re.match(r"^\s*\[(\w+)\]\s*\n?", full_response)
                 if m and m.group(1).lower() in agent._VALID_EMOTIONS:
                     detected_emotion = m.group(1).lower()

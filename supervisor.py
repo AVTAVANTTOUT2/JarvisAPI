@@ -9,6 +9,7 @@ Ce processus ne s'arrete JAMAIS depuis l'UI.
 from __future__ import annotations
 
 import asyncio
+import fcntl
 import logging
 import os
 import signal
@@ -37,6 +38,7 @@ BACKEND_PORT = int(os.getenv("WEB_PORT", "8081"))
 BACKEND_URL = f"http://127.0.0.1:{BACKEND_PORT}"
 DIST_DIR = PROJECT_DIR / "web" / "dist"
 LOGS_DIR = PROJECT_DIR / "data" / "logs"
+LOCK_PATH = "/tmp/jarvis_supervisor.lock"
 
 # ── Logging ─────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -50,7 +52,20 @@ log = logging.getLogger("supervisor")
 app = FastAPI(title="JARVIS Supervisor", docs_url=None, redoc_url=None)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:9000",
+        "http://127.0.0.1:9000",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
+        "http://localhost:8080",
+        "http://127.0.0.1:8080",
+        "http://localhost:8081",
+        "http://127.0.0.1:8081",
+    ],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -60,6 +75,7 @@ _start_time = time.time()
 _managed: dict[str, subprocess.Popen | None] = {
     "backend": None, "tv_dashboard": None, "ollama": None, "vite_dev": None,
 }
+_caffeinate_proc: subprocess.Popen | None = None
 _ws_clients: set[WebSocket] = set()
 _health_check_task: asyncio.Task | None = None
 _backend_restart_count: int = 0
@@ -72,10 +88,52 @@ _http = httpx.AsyncClient(
     limits=httpx.Limits(max_keepalive_connections=5, max_connections=20),
 )
 
+# ── Lock file — empeche deux supervisors de tourner en meme temps ───────
+_lock_file: Any = None  # objet fichier pour fcntl.flock
+
+
+def _acquire_singleton_lock() -> None:
+    """Empêche deux supervisors de tourner en même temps — cause #1 de port bloqué."""
+    global _lock_file
+    _lock_file = open(LOCK_PATH, "w")
+    try:
+        fcntl.flock(_lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        _lock_file.write(str(os.getpid()))
+        _lock_file.flush()
+        log.info("Lock singleton acquis (PID %d)", os.getpid())
+    except BlockingIOError:
+        log.error("Un autre supervisor tourne deja (lock %s pris) — arret.", LOCK_PATH)
+        sys.exit(1)
+
+
+def _release_singleton_lock() -> None:
+    """Libère le lock singleton au shutdown."""
+    global _lock_file
+    if _lock_file is not None:
+        try:
+            fcntl.flock(_lock_file, fcntl.LOCK_UN)
+            _lock_file.close()
+        except Exception:
+            pass
+        _lock_file = None
+    try:
+        Path(LOCK_PATH).unlink(missing_ok=True)
+    except Exception:
+        pass
+
 
 # ══════════════════════════════════════════════════════════════════════════
 # HELPERS
 # ══════════════════════════════════════════════════════════════════════════
+
+def _managed_pids() -> set[int]:
+    """Retourne les PIDs de tous les processus geres encore vivants."""
+    pids: set[int] = {os.getpid()}  # le supervisor lui-meme
+    for proc in _managed.values():
+        if proc is not None and proc.poll() is None:
+            pids.add(proc.pid)
+    return pids
+
 
 def _port_open(port: int, timeout: float = 1.0) -> bool:
     try:
@@ -102,19 +160,54 @@ def _pids_on_port(port: int) -> list[int]:
 
 
 def _kill_port(port: int) -> None:
-    pids = _pids_on_port(port)
+    """Tue les processus sur un port, en excluant les notres (supervisor + enfants geres)."""
+    our_pids = _managed_pids()
+    pids = [p for p in _pids_on_port(port) if p not in our_pids]
+    if not pids:
+        return
+    log.warning("Port %d occupe par %d processus orphelin(s) — nettoyage", port, len(pids))
     for pid in pids:
         try:
             os.kill(pid, signal.SIGTERM)
         except ProcessLookupError:
             pass
+    time.sleep(0.8)
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
     if pids:
-        time.sleep(0.8)
-        for pid in pids:
-            try:
-                os.kill(pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
+        time.sleep(0.5)  # laisser le port se liberer
+
+
+def _force_kill_port(port: int) -> None:
+    """Tue TOUT processus sur le port, sans exception. Utilise kill -9 directement."""
+    our_pids = _managed_pids()
+    pids = [p for p in _pids_on_port(port) if p not in our_pids]
+    if not pids:
+        return
+    log.warning("Force kill port %d — %d processus resistant(s) : %s", port, len(pids), pids)
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGKILL)
+            log.warning("Processus orphelin tue sur port %d : PID %d", port, pid)
+        except ProcessLookupError:
+            pass
+    time.sleep(1)
+
+
+def _tail_log(log_name: str, lines: int = 5) -> str:
+    """Lit les N dernieres lignes d'un fichier de log pour forensics au crash."""
+    fpath = LOGS_DIR / log_name
+    if not fpath.exists():
+        return "(fichier introuvable)"
+    try:
+        content = fpath.read_text(errors="replace")
+        all_lines = content.strip().splitlines()
+        return "\n".join(all_lines[-lines:])
+    except Exception as e:
+        return f"(erreur lecture: {e})"
 
 
 async def _broadcast(event: dict[str, Any]) -> None:
@@ -159,20 +252,23 @@ async def _svc_status(svc: dict) -> dict:
 
 def _start_sync(sid: str) -> dict:
     if sid == "backend":
-        # Si le port est deja occupe, verifier si c'est par un processus qu'on gere
         if _port_open(BACKEND_PORT):
             managed_proc = _managed.get("backend")
-            # Si on gere deja ce processus et qu'il est vivant → OK
             if managed_proc is not None and managed_proc.poll() is None:
                 return {"ok": True, "message": "Backend deja actif"}
-            # Sinon, un processus orphelin occupe le port → le tuer d'abord
+            # Port occupe par un processus inconnu — nettoyage force
             log.warning("Port %d occupe par un processus orphelin — nettoyage force", BACKEND_PORT)
             _kill_port(BACKEND_PORT)
             time.sleep(0.5)
-            # Re-verifier apres kill
             if _port_open(BACKEND_PORT):
-                return {"ok": False, "error": f"Impossible de liberer le port {BACKEND_PORT} (processus resistant)"}
+                # Premier nettoyage insuffisant → kill -9
+                log.warning("Port %d toujours occupe apres SIGTERM — kill -9 force", BACKEND_PORT)
+                _force_kill_port(BACKEND_PORT)
+                time.sleep(1)
+                if _port_open(BACKEND_PORT):
+                    return {"ok": False, "error": f"Impossible de liberer le port {BACKEND_PORT} (processus resistant)"}
         else:
+            # Port libre mais on nettoie par precaution
             _kill_port(BACKEND_PORT)
         (LOGS_DIR / "backend.log").parent.mkdir(parents=True, exist_ok=True)
         proc = subprocess.Popen(
@@ -478,8 +574,15 @@ else:
 # ══════════════════════════════════════════════════════════════════════════
 
 async def _health_check_loop() -> None:
-    """Boucle de fond : verifie que le backend est vivant et le redemarre si mort."""
+    """Boucle de fond : verifie que le backend est vivant et le redemarre si mort.
+
+    Inclut maintenant un historique des 5 dernieres lignes du log backend
+    au moment du crash, pour identifier la cause racine sans avoir a reproduire.
+    """
     global _backend_restart_count
+    _consecutive_failures = 0
+    MAX_CONSECUTIVE_FAILURES = 3
+
     while True:
         await asyncio.sleep(_health_check_interval)
         try:
@@ -488,11 +591,13 @@ async def _health_check_loop() -> None:
             port_open = _port_open(BACKEND_PORT)
 
             if not proc_alive and not port_open:
-                # Le backend est mort et le port est libre → redemarrer
                 _backend_restart_count += 1
+                _consecutive_failures += 1
+                crash_tail = _tail_log("backend.log", 5)
                 log.warning(
-                    "Backend detecte mort (restart #%d) — redemarrage automatique",
-                    _backend_restart_count,
+                    "Backend detecte mort (restart #%d, echec #%d) — "
+                    "dernieres lignes du log :\n%s",
+                    _backend_restart_count, _consecutive_failures, crash_tail,
                 )
                 await asyncio.to_thread(_start_sync, "backend")
                 await _broadcast({
@@ -504,23 +609,43 @@ async def _health_check_loop() -> None:
                 })
 
             elif not proc_alive and port_open:
-                # Port occupe mais pas par notre processus → orphelin
-                log.warning("Backend orphelin detecte sur port %d — nettoyage + restart", BACKEND_PORT)
-                await asyncio.to_thread(_kill_port, BACKEND_PORT)
+                # Port occupe mais pas par notre processus → orphelin resistant
+                log.warning("Backend orphelin detecte sur port %d — force kill + restart", BACKEND_PORT)
+                _consecutive_failures += 1
+                await asyncio.to_thread(_force_kill_port, BACKEND_PORT)
                 await asyncio.sleep(1)
-                _backend_restart_count += 1
-                await asyncio.to_thread(_start_sync, "backend")
-                await _broadcast({
-                    "type": "service_update",
-                    "service": "backend",
-                    "action": "orphan_cleanup",
-                    "restart_count": _backend_restart_count,
-                    "ok": True,
-                })
+                # Si le port est toujours occupe apres kill -9 → abandon temporaire
+                if _port_open(BACKEND_PORT):
+                    log.error(
+                        "Port %d toujours occupe apres force kill — abandon pour ce cycle. "
+                        "PIDs restants : %s",
+                        BACKEND_PORT, _pids_on_port(BACKEND_PORT),
+                    )
+                else:
+                    _backend_restart_count += 1
+                    await asyncio.to_thread(_start_sync, "backend")
+                    await _broadcast({
+                        "type": "service_update",
+                        "service": "backend",
+                        "action": "orphan_cleanup",
+                        "restart_count": _backend_restart_count,
+                        "ok": True,
+                    })
 
             elif proc_alive and not port_open:
-                # Processus vivant mais port pas encore ouvert (demarrage en cours)
                 log.debug("Backend en cours de demarrage (PID %d) — port pas encore pret", managed_proc.pid)
+
+            else:
+                # Backend vivant et port ouvert → tout va bien
+                _consecutive_failures = 0
+
+            # Si trop d'echecs consecutifs → alerte critique
+            if _consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                log.critical(
+                    "ALERTE : %d echecs consecutifs de redemarrage du backend. "
+                    "Verifier backend.log et supervisor.log.",
+                    _consecutive_failures,
+                )
 
         except Exception:
             log.exception("Erreur dans la boucle health-check — sera reessayee")
@@ -532,23 +657,34 @@ async def _health_check_loop() -> None:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    global _health_check_task
+    global _health_check_task, _caffeinate_proc
     # Startup
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
     log.info("Superviseur JARVIS demarre sur port %d", SUPERVISOR_PORT)
     log.info("Frontend : %s", "web/dist/" if DIST_DIR.exists() else "NON BUILDE")
     log.info("Backend proxy -> %s", BACKEND_URL)
 
+    # ── Caffeinate : empeche la veille macOS (configurable) ──
+    if os.getenv("JARVIS_CAFFEINATE", "false").lower() == "true":
+        try:
+            _caffeinate_proc = subprocess.Popen(
+                ["caffeinate", "-dims", "-t", "0"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            log.info("Caffeinate actif — veille systeme desactivee (affichage, idle, disque, sleep)")
+        except Exception as e:
+            log.warning("Caffeinate indisponible : %s", e)
+
     if os.getenv("SUPERVISOR_AUTO_START_BACKEND", "true").lower() == "true":
         if not _port_open(BACKEND_PORT):
             log.info("Auto-start du backend...")
             _start_sync("backend")
         else:
-            # Port deja occupe — tentative de cleanup si orphelin
             managed_proc = _managed.get("backend")
             if managed_proc is None or managed_proc.poll() is not None:
                 log.warning("Port %d occupe au demarrage — nettoyage orphelin", BACKEND_PORT)
-                _kill_port(BACKEND_PORT)
+                _force_kill_port(BACKEND_PORT)
                 time.sleep(1)
                 _start_sync("backend")
 
@@ -558,6 +694,16 @@ async def lifespan(_app: FastAPI):
     yield
     # Shutdown — tuer TOUS les processus enfants dans l'ordre inverse
     log.info("Superviseur arrete — nettoyage des processus enfants...")
+
+    # Arreter caffeinate
+    if _caffeinate_proc and _caffeinate_proc.poll() is None:
+        try:
+            _caffeinate_proc.terminate()
+            _caffeinate_proc.wait(timeout=5)
+        except Exception:
+            _caffeinate_proc.kill()
+        _caffeinate_proc = None
+        log.info("Caffeinate arrete")
 
     # Arreter le health-check
     if _health_check_task is not None and not _health_check_task.done():
@@ -575,6 +721,7 @@ async def lifespan(_app: FastAPI):
             log.exception("Erreur lors de l'arret du service %s", sid)
 
     await _http.aclose()
+    _release_singleton_lock()
     log.info("Superviseur proprement arrete")
 
 
@@ -586,4 +733,5 @@ app.router.lifespan_context = lifespan
 # ══════════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
+    _acquire_singleton_lock()
     uvicorn.run(app, host="0.0.0.0", port=SUPERVISOR_PORT, log_level="warning")

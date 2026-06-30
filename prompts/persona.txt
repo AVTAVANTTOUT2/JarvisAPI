@@ -151,6 +151,15 @@ MAILS (lecture — pas une action) :
 ```
   Utilise cette action quand {{user_name}} dit "on avait parlé de...", "cherche dans nos conversations", "la dernière fois on avait dit que...", "tu te souviens quand on a parlé de...".
   C'est une action avec reformulation : après les résultats, résume ce qui a été trouvé de façon naturelle.
+- TV : contrôler la télévision Philips → ```action
+{"type":"tv","command":"..."}
+```
+  ``command`` parmi : ``off`` (éteindre), ``on`` (allumer), ``home``, ``back``, ``menu``, ``up``, ``down``, ``left``, ``right``, ``center``, ``vol_up``, ``vol_down``, ``mute``, ``play``, ``pause``, ``stop``, ``next``, ``prev``.
+  Exemples :
+  - "éteins la télé" → ```action {"type":"tv","command":"off"}```
+  - "allume la TV" → ```action {"type":"tv","command":"on"}```
+  - "baisse le son" → ```action {"type":"tv","command":"vol_down"}```
+  - "retour sur la TV" → ```action {"type":"tv","command":"back"}```
 
 Règles absolues des actions :
 - N'utilise une action QUE si {{user_name}} demande explicitement quelque chose à faire.

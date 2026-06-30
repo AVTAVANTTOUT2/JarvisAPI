@@ -63,11 +63,15 @@ export const api = {
   markAllRead: () => request('/api/notifications/read-all', { method: 'POST' }),
 
   getTasks: (status?: string) =>
-    request(`/api/tasks${status ? `?status=${encodeURIComponent(status)}` : ''}`),
+    request('/api/tasks' + (status ? `?status=${encodeURIComponent(status)}` : '')),
   createTask: (body: Record<string, unknown>) =>
     request('/api/tasks', { method: 'POST', body: JSON.stringify(body) }),
   updateTask: (id: number, status: string) =>
     request(`/api/tasks/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+  deleteTask: (id: number) =>
+    request<{ ok: boolean; deleted_id: number }>(`/api/tasks/${id}`, { method: 'DELETE' }),
+  deleteAllTasks: () =>
+    request<{ ok: boolean; deleted_count: number }>('/api/tasks', { method: 'DELETE' }),
 
   getLifeProfile: () => request('/api/life-profile'),
   addProfileEntry: (category: string, content: string) =>
@@ -277,6 +281,10 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ enabled }),
     }),
+
+  // ── Voice Debug ──
+  getVoiceDebugLogs: (limit?: number) =>
+    request<{ logs: VoiceDebugTrace[] }>(`/api/voice-debug?limit=${limit || 50}`),
 
   // ── Service Control ──
   getServices: () => request<{ services: ServiceInfo[] }>('/api/control/services'),
@@ -499,6 +507,31 @@ export interface SupervisorStatus {
     uptime_s: number
   }
   services: SupervisorService[]
+}
+
+// ── Voice Debug ──
+export interface VoiceDebugTrace {
+  id: number
+  created_at: string
+  input_text: string
+  system_prompt: string
+  messages_json: string
+  raw_response: string
+  response_clean: string
+  emotion: string
+  action_json: string | null
+  model: string
+  tokens_in: number
+  tokens_out: number
+  cost: number
+  latency_stt_ms: number
+  latency_llm1_ms: number
+  latency_llm2_ms: number
+  latency_tts_ms: number
+  latency_total_ms: number
+  stt_engine: string
+  tts_engine: string
+  audio_duration_ms: number
 }
 
 /** URL WebSocket vers le superviseur (port 9000). */

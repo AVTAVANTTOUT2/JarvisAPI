@@ -6,7 +6,7 @@
     <string>com.jarvis.tv</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/bin/python3</string>
+        <string>/Users/zeldris/JarvisAPI/venv/bin/python3</string>
         <string>/Users/zeldris/JarvisAPI/tv/server.py</string>
     </array>
     <key>KeepAlive</key>

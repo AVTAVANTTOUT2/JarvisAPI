@@ -13,6 +13,9 @@ import { LogsView } from '@/app/components/views/LogsView';
 import { VoiceView } from '@/app/components/views/VoiceView';
 import { MonitoringView } from '@/app/components/views/MonitoringView';
 import ControlView from '@/app/components/views/ControlView';
+import TasksView from '@/app/components/views/TasksView';
+import VoiceDebugView from '@/app/components/views/VoiceDebugView';
+import MissionControl from '@/pages/MissionControl';
 
 export default function App() {
   return (
@@ -33,6 +36,9 @@ export default function App() {
           <Route path="voice" element={<VoiceView />} />
           <Route path="monitoring" element={<MonitoringView />} />
           <Route path="control" element={<ControlView />} />
+          <Route path="tasks" element={<TasksView />} />
+          <Route path="voice-debug" element={<VoiceDebugView />} />
+          <Route path="mission" element={<MissionControl />} />
           <Route path="*" element={<Navigate to="/chat" replace />} />
         </Route>
       </Routes>
