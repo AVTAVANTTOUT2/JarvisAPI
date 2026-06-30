@@ -3036,8 +3036,14 @@ async def _start_service(service: str) -> dict[str, object]:
 
     if svc == "screen_watcher":
         from scripts.screen_watcher import screen_watcher as _sw
-        if getattr(_sw, '_running', False) or getattr(_sw, 'running', False):
+        if getattr(_sw, "running", False):
             return {"ok": True, "message": "Deja actif"}
+        try:
+            from scripts.jarvis_daemon import daemon as _jd
+            if getattr(_jd, "running", False):
+                return {"ok": True, "message": "Deja actif via jarvis_daemon"}
+        except Exception:
+            pass
         _service_tasks["screen_watcher"] = asyncio.create_task(_sw.start(), name="screen_watcher_ctrl")
         return {"ok": True, "message": "Screen watcher demarre"}
 
@@ -3533,12 +3539,13 @@ async def _send_tts_streaming(ws: WebSocket, text: str, emotion: str) -> None:
     appel — pas besoin de redémarrer le serveur pour changer de backend.
     """
     from audio.tts import get_tts_by_name
+    from audio.audio_format import tts_audio_mime
     from database import get_setting as _get_setting
 
     engine_name = _get_setting("tts_engine", getattr(config, "TTS_ENGINE", "edge") or "edge")
     active_engine = get_tts_by_name(engine_name)
 
-    audio_mime = "audio/wav" if engine_name == "kokoro" else "audio/mpeg"
+    audio_mime = tts_audio_mime(engine_name)
     await ws.send_json({"type": "speaking", "emotion": emotion, "audio_mime": audio_mime})
     if not (text and text.strip()) or active_engine is None or not getattr(active_engine, "available", False):
         await ws.send_json({"type": "speech_done"})
@@ -3841,7 +3848,7 @@ async def _process_message_internal(
                             "Synthétise."
                         ),
                         conversation_id=conversation_id,
-                        voice_mode=False,
+                        voice_mode=voice_mode,
                     )
                     emotion = fu.get("emotion", emotion)
                     display_text = finalize_assistant_display_text(
@@ -3872,7 +3879,7 @@ async def _process_message_internal(
                                 "Résume ce résultat de façon claire et utile. Pas de bloc action."
                             ),
                             conversation_id=conversation_id,
-                            voice_mode=False,
+                            voice_mode=voice_mode,
                         )
                         emotion = fu.get("emotion", emotion)
                         display_text = finalize_assistant_display_text(fu.get("response", display_text))
@@ -4678,7 +4685,7 @@ async def _process_message(
                             "Synthétise ces résultats de façon claire et utile."
                         ),
                         conversation_id=conversation_id,
-                        voice_mode=False,
+                        voice_mode=voice_mode,
                     )
                     display_text = finalize_assistant_display_text(
                         fu.get("response", display_text)
@@ -4740,7 +4747,7 @@ async def _process_message(
                                 "Pas de bloc action."
                             ),
                             conversation_id=conversation_id,
-                            voice_mode=False,
+                            voice_mode=voice_mode,
                         )
                         display_text = finalize_assistant_display_text(
                             fu.get("response", "")
@@ -4811,7 +4818,7 @@ async def _process_message(
 async def _handle_hands_free_blob(
     ws: WebSocket, audio_bytes: bytes, conv_session: dict,
 ) -> None:
-    """Mains libres : STT → même pipeline que le chat (`_process_message`, voice_mode)."""
+    """Mains libres : STT → pipeline vocal rapide (`_process_voice_fast`) + TTS."""
     cid = conv_session["conversation_id"]
     conv_session["is_processing"] = True
 
@@ -4858,7 +4865,21 @@ async def _handle_hands_free_blob(
         conv_session["is_speaking"] = True
 
         try:
-            await _process_message(ws, text, cid, voice_mode=True, stream=False, send_tts=True)
+            result = await _process_voice_fast(text, cid)
+            display_text = finalize_assistant_display_text(result.get("text", ""))
+            emotion = result.get("emotion", "neutral") or "neutral"
+            await ws.send_json({
+                "type": "response",
+                "agent": "voice",
+                "category": "VOICE",
+                "content": display_text,
+                "model": config.DEEPSEEK_FAST_MODEL,
+                "tokens_in": 0,
+                "tokens_out": 0,
+                "cost": float(result.get("cost") or 0.0),
+                "emotion": emotion,
+            })
+            await _send_tts_streaming(ws, display_text, emotion)
         except Exception as e:
             logger.exception("traitement message mains libres : %s", e)
             await ws.send_json({"type": "error", "content": f"Erreur agent : {type(e).__name__}"})

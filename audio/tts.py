@@ -112,9 +112,23 @@ class TTSEngine:
             async for chunk in self._synth_elevenlabs_stream(text, emotion):
                 yield chunk
         else:
-            data = await self.synthesize(text, emotion)
-            if data:
-                yield data
+            async for chunk in self._synth_edge_stream(text):
+                yield chunk
+
+    async def _synth_edge_stream(self, text: str) -> AsyncGenerator[bytes, None]:
+        """Stream Edge TTS chunk par chunk (time-to-first-byte réduit)."""
+        try:
+            import edge_tts
+        except ImportError:
+            return
+
+        try:
+            communicate = edge_tts.Communicate(text, config.TTS_VOICE)
+            async for chunk in communicate.stream():
+                if chunk.get("type") == "audio" and chunk.get("data"):
+                    yield chunk["data"]
+        except Exception as e:
+            logger.exception("[TTS] Edge stream : %s", e)
 
     def _elevenlabs_payload(self, text: str, emotion: str) -> dict:
         settings = ELEVENLABS_EMOTION_SETTINGS.get(

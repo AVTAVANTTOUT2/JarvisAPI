@@ -43,7 +43,26 @@ python scripts/jarvis_launchd.py install
 >
 > Toutes les autres variables (modèles, chemins, audio, briefings, timezone) ont des valeurs par défaut prêtes à l'emploi.
 
-### Dernier changelog — 30 juin 2026 : Audit audio / daemon / latence vocale
+### Dernier changelog — 1 juillet 2026 : Correctifs audit audio / daemon / latence
+
+**11 bugs corrigés** suite à l'audit du 30 juin, avec tests unitaires (`tests/test_audio_pipeline_fixes.py`, 11/11 passent).
+
+| Fix | Fichier | Correction |
+|-----|---------|------------|
+| P0 | `audio_daemon.py` | `local_stt_available` → `local_available` (NameError) |
+| P0 | `audio/audio_format.py` + `stt.py` | MIME dynamique WebM/WAV/PCM + client httpx réutilisé |
+| P0 | `jarvis_daemon.py` | `prepare_stt_bytes()` avant Scribe (PCM → WAV) |
+| P1 | `jarvis_daemon.py` | Playback format-aware (`.wav`/`.mp3`/`.m4a`) |
+| P1 | `jarvis_daemon.py` | Wake word → `_process_voice_fast` (plus de double TTS) |
+| P1 | `jarvis_daemon.py` | Cooldown TTS : `sleep` au lieu de jeter le message |
+| P1 | `jarvis_daemon.py` | Mail via `email_summaries` si watcher inactif ; skip si watcher actif |
+| P1 | `main.py` | `/voice` mains libres → `_process_voice_fast` |
+| P1 | `main.py` | Followup action `voice_mode=voice_mode` ; `audio_mime` macOS |
+| P1 | `screen_watcher.py` + `main.py` | Garde-fou double démarrage |
+| P2 | `audio/tts.py` | Edge TTS vrai streaming (`Communicate().stream()`) |
+| P2 | `continuous_recorder.py` | Plus de découpe WebM arbitraire |
+
+### Changelog — 30 juin 2026 : Audit audio / daemon / latence vocale
 
 **Audit statique** (pas de correctif appliqué dans ce commit) — recensement des bugs, redondances et leviers de latence sur le pipeline vocal et les daemons.
 

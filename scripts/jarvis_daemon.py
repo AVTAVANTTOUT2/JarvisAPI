@@ -31,10 +31,12 @@ from typing import Any
 import httpx
 
 import config
+from audio.audio_format import playback_file_extension, prepare_stt_bytes
 from database import (
     create_conversation,
     create_notification,
     get_all_devices,
+    get_all_processed_email_ids,
     get_current_screen_context,
     mark_device_offline,
     save_message,
@@ -99,6 +101,16 @@ class JarvisDaemon:
                 logger.info("[daemon] iMessage starting rowid: %s", self.last_imsg_rowid)
         except Exception as e:
             logger.warning("[daemon] init iMessage rowid échoué : %s", e)
+
+        # Hydrater le cache mail depuis la DB (évite re-notif au redémarrage)
+        try:
+            for gid in get_all_processed_email_ids():
+                if gid:
+                    self.known_mail_ids.add(str(gid))
+            if self.known_mail_ids:
+                logger.info("[daemon] %d mail(s) connus hydratés depuis email_summaries", len(self.known_mail_ids))
+        except Exception as e:
+            logger.warning("[daemon] hydratation known_mail_ids : %s", e)
 
         tasks = [
             asyncio.create_task(self._tts_loop(), name="daemon_tts"),
@@ -265,52 +277,44 @@ class JarvisDaemon:
                 logger.debug("[daemon] create_notification imessage : %s", e)
 
     async def _check_mail(self) -> None:
-        """Lit les nouveaux mails non lus via Apple Mail."""
-        from integrations.mail import mail_client
+        """Notifications vocales mail — délégué à email_watcher si actif."""
+        try:
+            from scripts.email_watcher import email_watcher as _ew
+            if _ew and (getattr(_ew, "_running", False) or getattr(_ew, "running", False)):
+                return
+        except Exception:
+            pass
 
-        if not mail_client or not mail_client.is_available():
-            return
+        from database import get_recent_email_summaries
 
         try:
-            mails = await mail_client.get_unread(5) or []
+            summaries = get_recent_email_summaries(limit=10, action_needed_only=True)
         except Exception as e:
-            logger.warning("[daemon] mail get_unread : %s", e)
+            logger.warning("[daemon] email_summaries : %s", e)
             return
 
-        for mail in mails:
-            mail_id = (
-                f"{mail.get('from', '')}_{mail.get('subject', '')}_{mail.get('date', '')}"
-            )
-            if mail_id in self.known_mail_ids:
+        for row in summaries:
+            mail_id = str(row.get("gmail_id") or row.get("id") or "")
+            if not mail_id or mail_id in self.known_mail_ids:
                 continue
             self.known_mail_ids.add(mail_id)
 
+            sender = row.get("sender") or "?"
+            subject = row.get("subject") or "?"
             should_notify = await self._local_triage(
-                f"Email de {mail.get('from', '?')}, objet : {mail.get('subject', '?')}"
+                f"Email de {sender}, objet : {subject}"
             )
 
             if should_notify:
-                try:
-                    from main import _process_message_internal
-
-                    temp_conv = create_conversation(agent="daemon_email")
-                    prompt = (
-                        f"[NOTIFICATION EMAIL] Nouveau mail de "
-                        f"{mail.get('from', '?')}. Objet : "
-                        f"{mail.get('subject', '?')}. Annonce-le brièvement (1 phrase)."
-                    )
-                    result = await _process_message_internal(prompt, temp_conv, voice_mode=True)
-                    if result and result.get("text"):
-                        await self.tts_queue.put(result["text"])
-                except Exception as e:
-                    logger.warning("[daemon] formulation mail : %s", e)
+                summary = (row.get("summary") or subject or "")[:120]
+                await self.tts_queue.put(f"Monsieur, mail de {sender} : {summary}")
 
             try:
                 create_notification(
                     source="email",
-                    title=f"Mail de {mail.get('from', '?')}",
-                    content=mail.get("subject", ""),
-                    priority="medium" if should_notify else "low",
+                    title=f"Mail de {sender}",
+                    content=subject,
+                    priority=str(row.get("priority") or "medium"),
                 )
             except Exception as e:
                 logger.debug("[daemon] create_notification mail : %s", e)
@@ -414,10 +418,16 @@ class JarvisDaemon:
 
             if self.mode == "veille":
                 now = time.time()
-                if now - self.last_tts_time < self.tts_cooldown:
-                    logger.info("[daemon] TTS cooldown — message ignoré : %s", text[:50])
-                    continue
-                self.last_tts_time = now
+                elapsed = now - self.last_tts_time
+                if elapsed < self.tts_cooldown:
+                    wait_s = self.tts_cooldown - elapsed
+                    logger.info(
+                        "[daemon] TTS cooldown — report %.0fs : %s",
+                        wait_s,
+                        text[:50],
+                    )
+                    await asyncio.sleep(wait_s)
+                self.last_tts_time = time.time()
 
             try:
                 from audio.tts import tts as _tts
@@ -431,10 +441,11 @@ class JarvisDaemon:
                 logger.warning("[daemon] TTS erreur : %s", e)
 
     async def _play_audio_local(self, audio_bytes: bytes) -> None:
-        """Joue l'audio sur les haut-parleurs locaux via `afplay`."""
+        """Joue l'audio localement (MP3, WAV, M4A) via afplay."""
         tmp_path: str | None = None
+        ext = playback_file_extension(audio_bytes)
         try:
-            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
+            with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
                 tmp.write(audio_bytes)
                 tmp_path = tmp.name
 
@@ -544,8 +555,9 @@ class JarvisDaemon:
 
                 if not _stt:
                     break
+                stt_payload = prepare_stt_bytes(audio_bytes, sample_rate=16000)
                 try:
-                    text = await _stt.transcribe(audio_bytes)
+                    text = await _stt.transcribe(stt_payload)
                 except Exception as e:
                     logger.warning("[daemon] STT échoué : %s", e)
                     text = ""
@@ -561,32 +573,18 @@ class JarvisDaemon:
                     )
                     break
 
-                screen_ctx = get_current_screen_context()
-                enriched = text
-                if screen_ctx:
-                    enriched = (
-                        f"[CONTEXTE: l'utilisateur est sur "
-                        f"{screen_ctx.get('app', '?')}, "
-                        f"{screen_ctx.get('activity', '?')}] {text}"
-                    )
+                from main import _process_voice_fast
 
-                from main import _process_message_internal
-
-                save_message(self.conversation_id, "user", text)
                 try:
-                    result = await _process_message_internal(
-                        enriched, self.conversation_id, voice_mode=True
-                    )
+                    result = await _process_voice_fast(text, self.conversation_id)
                 except Exception as e:
-                    logger.exception("[daemon] _process_message_internal : %s", e)
+                    logger.exception("[daemon] _process_voice_fast : %s", e)
                     await self.tts_queue.put("Désolé Monsieur, une erreur est survenue.")
                     break
 
-                if result.get("text"):
-                    await self.tts_queue.put(result["text"])
-                ar = result.get("action_result")
-                if ar and isinstance(ar, dict) and ar.get("message"):
-                    await self.tts_queue.put(str(ar["message"]))
+                response_text = (result or {}).get("text") or ""
+                if response_text.strip():
+                    await self.tts_queue.put(response_text.strip())
 
         except Exception as e:
             logger.exception("[daemon] erreur conversation : %s", e)
@@ -599,8 +597,8 @@ class JarvisDaemon:
     async def _listen_with_vad(self, timeout: int = 15) -> bytes | None:
         """Capture micro avec VAD volume basique. Retourne bytes ou None.
 
-        L'enregistrement tourne dans un thread pyaudio (bloquant). On envoie
-        des PCM 16k mono — JARVIS encapsulera plus tard si besoin.
+        L'enregistrement tourne dans un thread pyaudio (bloquant).
+        Retourne du PCM 16 kHz mono ; encapsulé en WAV avant STT.
         """
         try:
             import pyaudio  # type: ignore[import-not-found]
