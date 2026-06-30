@@ -41,7 +41,26 @@ python main.py
 >
 > Toutes les autres variables (modèles, chemins, audio, briefings, timezone) ont des valeurs par défaut prêtes à l'emploi.
 
-### Dernier changelog — 29 juin 2026 (23h15) : Correction réponse vocale (wake word)
+### Dernier changelog — 30 juin 2026 : Audit audio / daemon / latence vocale
+
+**Audit statique** (pas de correctif appliqué dans ce commit) — recensement des bugs, redondances et leviers de latence sur le pipeline vocal et les daemons.
+
+**Constat principal** : trois pipelines vocaux coexistent (`/voice` Web → orchestrateur complet ; `audio_daemon` → `_process_voice_fast` ; `jarvis_daemon` wake word → `_process_message_internal`). Seul `audio_daemon` utilise le chemin rapide (~2 s). Le Web reste sur le chemin lourd (~5–8 s).
+
+**Bugs P0/P1 identifiés** :
+- `audio_daemon.py:972` — `NameError` (`local_stt_available` au lieu de `local_available`)
+- `jarvis_daemon.py:545` — PCM brut envoyé à Scribe sans encapsulation WAV (contrairement à `audio_daemon._pcm_to_wav`)
+- `jarvis_daemon.py:439` — playback TTS forcé en `.mp3` (macOS/Kokoro = M4A/WAV)
+- `jarvis_daemon.py:587-591` — double TTS (texte + `action_result.message`)
+- `jarvis_daemon.py:417-421` — cooldown TTS en veille **supprime** les messages (pas de file différée)
+- `main.py:4241` — `/voice` n'utilise pas `_process_voice_fast`
+- `main.py:4128` — followup action en `voice_mode=False` (réponses longues + latence)
+- Doublon mail : `email_watcher` + `jarvis_daemon._check_mail` sans coordination
+- Risque double `screen_watcher` si lancé via daemon + `/api/control`
+
+**Latence** : voir section détaillée dans la réponse agent / `VOCAL_PIPELINE_ANALYSIS.md`. Gains estimés : −3 à 5 s sur `/voice` en routant vers `_process_voice_fast` ; −100–300 ms via client httpx réutilisé + Edge TTS stream réel.
+
+### Changelog — 29 juin 2026 (23h15) : Correction réponse vocale (wake word)
 
 **Probleme resolu** : JARVIS ne repondait pas en vocal. Cause : `wake_word_enabled` etait hardcode a `True` dans `audio_daemon.py`, sans lecture de config. Porcupine n'etant pas installe, le fallback volume (`FALLBACK_WAKE_RMS=0.03`) ne declenchait jamais avec le Blue Snowball. Resultat : le daemon restait bloque en `wake_listening`, ne consommait jamais les frames audio, et vidait la queue toutes les 6 secondes.
 
