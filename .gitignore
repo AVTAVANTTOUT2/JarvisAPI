@@ -41,3 +41,4 @@ test_kokoro_output.wav
 *.swo
 *.bak
 resume_conversations_*.md
+logs/
