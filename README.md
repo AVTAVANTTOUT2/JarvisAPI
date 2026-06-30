@@ -43,7 +43,26 @@ python scripts/jarvis_launchd.py install
 >
 > Toutes les autres variables (modèles, chemins, audio, briefings, timezone) ont des valeurs par défaut prêtes à l'emploi.
 
-### Dernier changelog — 30 juin 2026 : Audit pipeline actions + boucle agentique
+### Dernier changelog — 1 juillet 2026 : Correctifs audit audio / daemon / latence
+
+**11 bugs corrigés** suite à l'audit du 30 juin, avec tests unitaires (`tests/test_audio_pipeline_fixes.py`, 11/11 passent).
+
+| Fix | Fichier | Correction |
+|-----|---------|------------|
+| P0 | `audio_daemon.py` | `local_stt_available` → `local_available` (NameError) |
+| P0 | `audio/audio_format.py` + `stt.py` | MIME dynamique WebM/WAV/PCM + client httpx réutilisé |
+| P0 | `jarvis_daemon.py` | `prepare_stt_bytes()` avant Scribe (PCM → WAV) |
+| P1 | `jarvis_daemon.py` | Playback format-aware (`.wav`/`.mp3`/`.m4a`) |
+| P1 | `jarvis_daemon.py` | Wake word → `_process_voice_fast` (plus de double TTS) |
+| P1 | `jarvis_daemon.py` | Cooldown TTS : `sleep` au lieu de jeter le message |
+| P1 | `jarvis_daemon.py` | Mail via `email_summaries` si watcher inactif ; skip si watcher actif |
+| P1 | `main.py` | `/voice` mains libres → `_process_voice_fast` |
+| P1 | `main.py` | Followup action `voice_mode=voice_mode` ; `audio_mime` macOS |
+| P1 | `screen_watcher.py` + `main.py` | Garde-fou double démarrage |
+| P2 | `audio/tts.py` | Edge TTS vrai streaming (`Communicate().stream()`) |
+| P2 | `continuous_recorder.py` | Plus de découpe WebM arbitraire |
+
+### Changelog — 30 juin 2026 : Audit pipeline actions + boucle agentique
 
 **Audit** du pipeline ````action```` → `execute_action()` → 2e passe LLM et de `_run_agentic_loop()`.
 
@@ -63,19 +82,7 @@ python scripts/jarvis_launchd.py install
 | `_process_voice_fast` ignore la boucle agentique | Routage vers `_run_agentic_loop()` si `complex:true` |
 | `final_status` jamais `"failed"` | `agents/__init__.py` — statuts `completed` / `partial` / `failed` |
 
-**Manques identifiés (non corrigés dans ce commit)** :
-- Table `agentic_workflows` créée en schéma mais **jamais écrite** (pas de persistance des workflows)
-- Frontend (`ChatView.tsx`) : pas d'envoi WebSocket `action_confirm` pour les commandes sensibles
-- Streaming chat : les chunks bruts exposent les blocs ````action```` avant `response_clean`
-- Proposition « Veux-tu que je… ? » sans bloc action au tour 1 : le LLM doit regénérer l'action au « vas-y » (pas de stockage automatique du texte proposé)
-- `_process_message_internal` : pas de `_check_pending_proposal` (REST journal/contacts)
-
-**Tests** : `tests/test_action_pipeline.py` (détection agentique, extraction action, strip affichage).
-
-### Changelog — 30 juin 2026 (suite) : Compléments pipeline actions / agentique
-
-**Tous les manques listés ci-dessus sont corrigés dans ce commit** :
-
+**Compléments architecture** :
 | Composant | Correction |
 |-----------|------------|
 | `database/__init__.py` | Table `agentic_workflows` dans SCHEMA + `create_agentic_workflow()` / `update_agentic_workflow()` |
@@ -84,7 +91,7 @@ python scripts/jarvis_launchd.py install
 | `main.py` | Streaming filtré ; `_should_defer_action()` + `action_pending` ; `_pop_pending_action_if_confirmed()` ; REST pending ; `action_payload` dans les WS |
 | `ChatView.tsx` | Boutons Confirmer/Annuler → `action_confirm` ; handler `action_pending` |
 
-**Tests** : `tests/test_action_pipeline.py` étendu (defer, streaming sanitize).
+**Tests** : `tests/test_action_pipeline.py` (agentique, defer, extraction, streaming sanitize).
 
 ### Changelog — 30 juin 2026 : Audit audio / daemon / latence vocale
 

@@ -1167,6 +1167,7 @@ class AudioDaemon:
 
         # 1a. STT local (faster-whisper, gratuit, zero latence reseau)
         local_available = False
+        scribe_available = False
         try:
             from audio.stt_local import stt_local as _stt_local
             local_available = _stt_local is not None and getattr(_stt_local, "available", False)
@@ -1253,7 +1254,7 @@ class AudioDaemon:
             return
 
         if not text:
-            if not scribe_available and not local_stt_available:
+            if not local_available and not scribe_available:
                 logger.warning("[audio_daemon] Aucun STT disponible — skip")
             self.state = "wake_listening" if self.wake_word_enabled else "listening"
             await self._broadcast_state()

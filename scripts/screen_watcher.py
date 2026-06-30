@@ -93,6 +93,10 @@ class ScreenWatcher:
             logger.info("[screen] désactivé (SCREEN_WATCHER_ENABLED=false)")
             return
 
+        if self.running:
+            logger.info("[screen] déjà actif — démarrage ignoré")
+            return
+
         self.running = True
         logger.info(
             "[screen] démarré — interval=%ss, seuils=%s%%/%s%%, max_width=%spx",

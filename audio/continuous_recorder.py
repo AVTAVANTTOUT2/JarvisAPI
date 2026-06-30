@@ -242,9 +242,13 @@ class ContinuousRecording:
             if len(c) <= mb_limit:
                 segment_units.append(c)
             else:
-                # découpe brute ultra-longue (rare avec timeslice 5s)
-                for i in range(0, len(c), mb_limit):
-                    segment_units.append(c[i : i + mb_limit])
+                # WebM ne supporte pas la découpe arbitraire — segment entier ou skip
+                logger.warning(
+                    "[recording] Chunk WebM %d Mo > limite %d Mo — transcription entière",
+                    len(c) // (1024 * 1024),
+                    config.RECORDING_CHUNK_SIZE_MB,
+                )
+                segment_units.append(c)
 
         n = len(segment_units)
         for i, seg in enumerate(segment_units, start=1):
