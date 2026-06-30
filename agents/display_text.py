@@ -20,6 +20,11 @@ _LEADING_EMOTION_RE = re.compile(r"^\s*\[(\w+)\]\s*\n?", re.MULTILINE)
 _RE_ACTION = re.compile(r"```action\s*\n?.*?```", re.DOTALL | re.IGNORECASE)
 _RE_JSON = re.compile(r"```json\s*\n.*?\n```", re.DOTALL | re.IGNORECASE)
 _RE_SAVE = re.compile(r"```save\s*\n.*?\n```", re.DOTALL | re.IGNORECASE)
+# Bloc ```action / ```json / ```save incomplet en fin de flux streaming
+_PARTIAL_FENCE_RE = re.compile(
+    r"```(?:action|json|save)\b[\s\S]*$",
+    re.IGNORECASE,
+)
 
 
 def extract_leading_emotion(text: str) -> tuple[str, str]:
@@ -59,6 +64,15 @@ def strip_assistant_code_fences(
     if include_save:
         t = _RE_SAVE.sub("", t)
     return t.strip()
+
+
+def sanitize_streaming_display(text: str) -> str:
+    """Texte affichable pendant le streaming (masque blocs complets et partiels)."""
+    if not text:
+        return ""
+    cleaned = strip_assistant_code_fences(strip_leading_emotion(text), include_save=True)
+    cleaned = _PARTIAL_FENCE_RE.sub("", cleaned)
+    return cleaned.rstrip()
 
 
 def finalize_assistant_display_text(text: str) -> str:

@@ -12,6 +12,7 @@ interface UIMessage {
   meta?: string
   actionType?: string
   actionResult?: Record<string, unknown>
+  pendingAction?: Record<string, unknown>
   savedFile?: string
   isError?: boolean
 }
@@ -192,11 +193,36 @@ export function ChatView() {
     }))
 
     unsubs.push(ws.on('action_result', (d) => {
+      const result = d.result as Record<string, unknown> | undefined
+      const payload = (d.action_payload ?? d.action) as Record<string, unknown> | undefined
+      const needsConfirm = result?.needs_confirmation === true
       setMessages(prev => {
         const updated = [...prev]
         const idx = updated.map((m, i) => ({ m, i })).reverse().find(x => x.m.role === 'assistant')?.i
         if (idx != null) {
-          updated[idx] = { ...updated[idx], actionType: d.action as string, actionResult: d.result as Record<string, unknown> }
+          updated[idx] = {
+            ...updated[idx],
+            actionType: d.action as string,
+            actionResult: result,
+            pendingAction: needsConfirm && payload ? payload : undefined,
+          }
+        }
+        return updated
+      })
+    }))
+
+    unsubs.push(ws.on('action_pending', (d) => {
+      const action = d.action as Record<string, unknown> | undefined
+      setMessages(prev => {
+        const updated = [...prev]
+        const idx = updated.map((m, i) => ({ m, i })).reverse().find(x => x.m.role === 'assistant')?.i
+        if (idx != null && action) {
+          updated[idx] = {
+            ...updated[idx],
+            actionType: (d.action_type as string) || (action.type as string),
+            pendingAction: action,
+            actionResult: { ok: true, deferred: true },
+          }
         }
         return updated
       })
@@ -646,7 +672,36 @@ function MessageBubble({ message, streaming }: { message: UIMessage; streaming?:
           {message.agent && <span className="font-mono">{message.agent}</span>}
           {message.meta && <span>{message.meta}</span>}
         </div>
-        {message.actionType && <ActionBadge type={message.actionType} result={message.actionResult} />}
+        {message.actionType && (
+          <ActionBadge
+            type={message.actionType}
+            result={message.actionResult}
+            pendingAction={message.pendingAction}
+            onConfirm={(action) => {
+              ws.send({ type: 'action_confirm', action })
+              setMessages(prev => {
+                const updated = [...prev]
+                const idx = updated.map((m, i) => ({ m, i })).reverse().find(x => x.m.role === 'assistant')?.i
+                if (idx != null) updated[idx] = { ...updated[idx], pendingAction: undefined }
+                return updated
+              })
+            }}
+            onCancel={() => {
+              setMessages(prev => {
+                const updated = [...prev]
+                const idx = updated.map((m, i) => ({ m, i })).reverse().find(x => x.m.role === 'assistant')?.i
+                if (idx != null) {
+                  updated[idx] = {
+                    ...updated[idx],
+                    pendingAction: undefined,
+                    actionResult: { ok: false, cancelled: true },
+                  }
+                }
+                return updated
+              })
+            }}
+          />
+        )}
         {message.savedFile && (
           <div className="bg-white/5 border border-white/10 rounded-lg px-2.5 py-1 text-xs text-white/60">
             Fichier : <span className="font-mono text-white/80">{message.savedFile.split('/').pop()}</span>
@@ -669,8 +724,21 @@ function MessageContent({ content }: { content: string }) {
   })}</>
 }
 
-function ActionBadge({ type, result }: { type: string; result?: Record<string, unknown> }) {
-  const ok = result?.ok !== false
+function ActionBadge({
+  type,
+  result,
+  pendingAction,
+  onConfirm,
+  onCancel,
+}: {
+  type: string
+  result?: Record<string, unknown>
+  pendingAction?: Record<string, unknown>
+  onConfirm?: (action: Record<string, unknown>) => void
+  onCancel?: () => void
+}) {
+  const ok = result?.ok !== false && !result?.cancelled
+  const needsConfirm = Boolean(pendingAction) || result?.needs_confirmation === true
   const labels: Record<string, string> = {
     task: `Tache${result?.task_id ? ` #${result.task_id}` : ' creee'}`,
     reminder: 'Rappel cree',
@@ -680,11 +748,37 @@ function ActionBadge({ type, result }: { type: string; result?: Record<string, u
     calendar_create: 'Evenement cree',
     mood: 'Humeur enregistree',
     note: 'Note enregistree',
-    terminal: ok ? 'Commande executee' : 'Erreur commande',
+    terminal: needsConfirm ? 'Commande en attente' : ok ? 'Commande executee' : 'Erreur commande',
     find_file: `${Array.isArray(result?.files) ? (result.files as unknown[]).length : 0} fichier(s) trouve(s)`,
     search_conversations: `${result?.count || 0} resultat(s) trouve(s)`,
   }
-  return <div className="bg-white/5 border border-white/10 rounded-lg px-2.5 py-1 text-xs text-white/50 font-mono">{labels[type] || type}</div>
+  const cmd = pendingAction?.command as string | undefined
+  return (
+    <div className="bg-white/5 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white/50 font-mono space-y-1.5">
+      <div>{labels[type] || type}</div>
+      {needsConfirm && cmd && (
+        <div className="text-white/40 break-all">{cmd}</div>
+      )}
+      {needsConfirm && pendingAction && onConfirm && onCancel && (
+        <div className="flex gap-2 pt-0.5">
+          <button
+            type="button"
+            onClick={() => onConfirm(pendingAction)}
+            className="px-2 py-0.5 rounded bg-white/15 border border-white/20 text-white/80 hover:bg-white/25 transition-colors"
+          >
+            Confirmer
+          </button>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="px-2 py-0.5 rounded border border-white/10 text-white/40 hover:text-white/60 transition-colors"
+          >
+            Annuler
+          </button>
+        </div>
+      )}
+    </div>
+  )
 }
 
 function WelcomeScreen({ suggestions, onSelect }: { suggestions: string[]; onSelect: (s: string) => void }) {

@@ -422,9 +422,20 @@ class BaseAgent(ABC):
         3. Si échec répété, abandonne
 
         Retourne un dict avec ``results`` (liste des étapes), ``step_count``,
-        ``total_output_chars``, ``final_status``.
+        ``total_output_chars``, ``final_status``, ``workflow_id``.
         """
+        import json as _json
         from actions import execute_action as _exec_action
+
+        workflow_id: int | None = None
+        if conversation_id:
+            try:
+                from database import create_agentic_workflow, update_agentic_workflow
+                workflow_id = create_agentic_workflow(
+                    conversation_id, user_message, initial_action
+                )
+            except Exception as e:
+                logger.warning("[agentic] création workflow : %s", e)
 
         results: list[dict] = []
         total_output_chars = 0
@@ -519,15 +530,32 @@ class BaseAgent(ABC):
                 # Pas d'action → on arrête
                 break
 
+        final_status = (
+            "failed" if consecutive_failures >= 2
+            else "partial" if consecutive_failures > 0
+            else "completed"
+        )
+        step_count = len([r for r in results if isinstance(r.get("step"), int)])
+
+        if workflow_id:
+            try:
+                from database import update_agentic_workflow
+                update_agentic_workflow(
+                    workflow_id,
+                    steps_json=_json.dumps(results, ensure_ascii=False, default=str),
+                    status=final_status,
+                    total_steps=step_count,
+                    total_output_chars=total_output_chars,
+                )
+            except Exception as e:
+                logger.warning("[agentic] mise à jour workflow %s : %s", workflow_id, e)
+
         return {
             "results": results,
-            "step_count": len([r for r in results if isinstance(r.get("step"), int)]),
+            "step_count": step_count,
             "total_output_chars": total_output_chars,
-            "final_status": (
-                "failed" if consecutive_failures >= 2
-                else "partial" if consecutive_failures > 0
-                else "completed"
-            ),
+            "final_status": final_status,
+            "workflow_id": workflow_id,
         }
 
 

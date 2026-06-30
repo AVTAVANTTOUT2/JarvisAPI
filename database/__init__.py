@@ -523,6 +523,25 @@ CREATE TABLE IF NOT EXISTS voice_debug_log (
     audio_duration_ms INTEGER DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_vdebug_created ON voice_debug_log(created_at);
+
+-- ═══════════════════════════════════════════════════════════
+-- WORKFLOWS AGENTIQUES (multi-étapes terminal complex)
+-- ═══════════════════════════════════════════════════════════
+
+CREATE TABLE IF NOT EXISTS agentic_workflows (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    conversation_id INTEGER NOT NULL REFERENCES conversations(id),
+    user_message TEXT NOT NULL,
+    steps_json TEXT NOT NULL,
+    final_synthesis TEXT,
+    status TEXT DEFAULT 'running' CHECK(status IN ('running','completed','failed','partial')),
+    started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    completed_at DATETIME,
+    total_steps INTEGER DEFAULT 0,
+    total_output_chars INTEGER DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_agentic_conv ON agentic_workflows(conversation_id);
+CREATE INDEX IF NOT EXISTS idx_agentic_status ON agentic_workflows(status);
 """
 
 
@@ -682,6 +701,55 @@ def save_message(conversation_id: int, role: str, content: str,
             (conversation_id, role, content, agent, model, tokens_in, tokens_out, cost)
         )
         return cur.lastrowid
+
+
+def create_agentic_workflow(
+    conversation_id: int,
+    user_message: str,
+    initial_action: dict,
+) -> int:
+    """Crée un workflow agentique en cours."""
+    payload = json.dumps(
+        [{"step": 0, "action": initial_action}],
+        ensure_ascii=False,
+        default=str,
+    )
+    with get_db() as conn:
+        cur = conn.execute(
+            """INSERT INTO agentic_workflows
+               (conversation_id, user_message, steps_json, status, total_steps, total_output_chars)
+               VALUES (?, ?, ?, 'running', 0, 0)""",
+            (conversation_id, user_message, payload),
+        )
+        return int(cur.lastrowid)
+
+
+def update_agentic_workflow(
+    workflow_id: int,
+    *,
+    steps_json: str,
+    status: str,
+    final_synthesis: str | None = None,
+    total_steps: int = 0,
+    total_output_chars: int = 0,
+) -> None:
+    """Met à jour un workflow agentique à la fin (ou en échec)."""
+    with get_db() as conn:
+        conn.execute(
+            """UPDATE agentic_workflows
+               SET steps_json = ?, status = ?, final_synthesis = ?,
+                   total_steps = ?, total_output_chars = ?,
+                   completed_at = CURRENT_TIMESTAMP
+               WHERE id = ?""",
+            (
+                steps_json,
+                status,
+                final_synthesis,
+                total_steps,
+                total_output_chars,
+                workflow_id,
+            ),
+        )
 
 
 def create_conversation(agent: str = None) -> int:

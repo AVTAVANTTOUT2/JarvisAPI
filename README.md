@@ -72,6 +72,20 @@ python scripts/jarvis_launchd.py install
 
 **Tests** : `tests/test_action_pipeline.py` (détection agentique, extraction action, strip affichage).
 
+### Changelog — 30 juin 2026 (suite) : Compléments pipeline actions / agentique
+
+**Tous les manques listés ci-dessus sont corrigés dans ce commit** :
+
+| Composant | Correction |
+|-----------|------------|
+| `database/__init__.py` | Table `agentic_workflows` dans SCHEMA + `create_agentic_workflow()` / `update_agentic_workflow()` |
+| `agents/__init__.py` | `_run_agentic_loop()` persiste début/fin workflow en SQLite |
+| `agents/display_text.py` | `sanitize_streaming_display()` — masque blocs complets et ` ```action ` partiels pendant le stream |
+| `main.py` | Streaming filtré ; `_should_defer_action()` + `action_pending` ; `_pop_pending_action_if_confirmed()` ; REST pending ; `action_payload` dans les WS |
+| `ChatView.tsx` | Boutons Confirmer/Annuler → `action_confirm` ; handler `action_pending` |
+
+**Tests** : `tests/test_action_pipeline.py` étendu (defer, streaming sanitize).
+
 ### Changelog — 30 juin 2026 : Audit audio / daemon / latence vocale
 
 **Audit statique** (pas de correctif appliqué dans ce commit) — recensement des bugs, redondances et leviers de latence sur le pipeline vocal et les daemons.

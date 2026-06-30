@@ -42,6 +42,7 @@ from agents.devops import devops_agent
 from agents.display_text import (
     extract_leading_emotion,
     finalize_assistant_display_text,
+    sanitize_streaming_display,
     strip_leading_emotion,
 )
 from jarvis.event_bus import JarvisEvent, event_bus
@@ -3280,27 +3281,26 @@ def _is_agentic_action(action: dict) -> bool:
     )
 
 
-def _maybe_store_pending_proposal(action: dict, conversation_id: int) -> None:
-    """Stocke une proposition d'action en attente de confirmation de l'utilisateur.
-
-    Quand JARVIS dit « Veux-tu que je fasse X ? » avec un bloc action,
-    on mémorise l'action pour que si l'utilisateur répond « oui » / « vas-y »
-    au message suivant, l'action soit exécutée immédiatement.
-    """
-    global _pending_proposal
-    _pending_proposal = {
-        "conversation_id": conversation_id,
-        "action": action,
-    }
+_PROPOSAL_MARKERS = (
+    "veux-tu", "veux tu", "voulez-vous", "souhaites-tu", "souhaites tu",
+    "dois-je", "dois je", "puis-je", "puis je", "tu confirmes",
+    "confirmer", "je peux le", "je peux la", "je peux les",
+    "shall i", "want me to", "should i",
+)
 
 
-async def _check_pending_proposal(
-    ws, text: str, conversation_id: int,
-) -> dict | None:
-    """Vérifie si l'utilisateur confirme une proposition en attente.
+def _should_defer_action(display_text: str, action: dict) -> bool:
+    """Reporte l'exécution si JARVIS pose une question de confirmation."""
+    if action.get("type") == "mail" and not action.get("confirmed"):
+        return False  # mail : brouillon immédiat, pending séparé
+    text = (display_text or "").lower()
+    if "?" not in text:
+        return False
+    return any(marker in text for marker in _PROPOSAL_MARKERS)
 
-    Retourne le résultat de l'action si confirmée, None sinon.
-    """
+
+def _pop_pending_action_if_confirmed(text: str, conversation_id: int) -> dict | None:
+    """Retire et retourne l'action pending si l'utilisateur confirme (« oui », « vas-y »…)."""
     global _pending_proposal
 
     if not _pending_proposal:
@@ -3323,31 +3323,56 @@ async def _check_pending_proposal(
         or any(text_lower.startswith(p) for p in confirmation_patterns if len(p) > 3)
     )
 
-    if is_confirmation:
-        action = {**_pending_proposal["action"], "confirmed": True}
+    if not is_confirmation:
+        if _pending_proposal:
+            logger.info("[pending] Proposition annulée (user a dit autre chose)")
         _pending_proposal = None
-        logger.info(
-            "[pending] Confirmation détectée « %s » → exécution de %s",
-            text[:60], action.get("type"),
-        )
+        return None
 
-        await ws.send_json({
-            "type": "status",
-            "content": f"Exécution de l'action : {action.get('type')}…",
-        })
-
-        try:
-            result = await execute_action(action)
-            return result
-        except Exception as e:
-            logger.exception("[pending] execute_action : %s", e)
-            return {"ok": False, "message": str(e)}
-
-    # L'utilisateur a dit autre chose → annuler la proposition
-    if _pending_proposal:
-        logger.info("[pending] Proposition annulée (user a dit autre chose)")
+    action = {**_pending_proposal["action"], "confirmed": True}
     _pending_proposal = None
-    return None
+    logger.info(
+        "[pending] Confirmation détectée « %s » → exécution de %s",
+        text[:60], action.get("type"),
+    )
+    return action
+
+
+def _maybe_store_pending_proposal(action: dict, conversation_id: int) -> None:
+    """Stocke une proposition d'action en attente de confirmation de l'utilisateur.
+
+    Quand JARVIS dit « Veux-tu que je fasse X ? » avec un bloc action,
+    on mémorise l'action pour que si l'utilisateur répond « oui » / « vas-y »
+    au message suivant, l'action soit exécutée immédiatement.
+    """
+    global _pending_proposal
+    _pending_proposal = {
+        "conversation_id": conversation_id,
+        "action": action,
+    }
+
+
+async def _check_pending_proposal(
+    ws, text: str, conversation_id: int,
+) -> dict | None:
+    """Vérifie si l'utilisateur confirme une proposition en attente.
+
+    Retourne le résultat de l'action si confirmée, None sinon.
+    """
+    action = _pop_pending_action_if_confirmed(text, conversation_id)
+    if action is None:
+        return None
+
+    await ws.send_json({
+        "type": "status",
+        "content": f"Exécution de l'action : {action.get('type')}…",
+    })
+
+    try:
+        return await execute_action(action)
+    except Exception as e:
+        logger.exception("[pending] execute_action : %s", e)
+        return {"ok": False, "message": str(e)}
 
 
 def _schedule_llm_log(
@@ -3786,6 +3811,73 @@ async def _process_message_internal(
         original_text = text
         lower = text.lower()
 
+        # Confirmation « oui / vas-y » sur une action en attente (REST)
+        pending_action = _pop_pending_action_if_confirmed(original_text, conversation_id)
+        if pending_action is not None:
+            try:
+                action_result = await execute_action(pending_action)
+            except Exception as e:
+                logger.exception("[internal-pending] execute_action : %s", e)
+                action_result = {"ok": False, "message": str(e)}
+
+            display_text = str(action_result.get("message", "Action exécutée."))
+            emotion = "neutral"
+            final_meta: dict = {
+                "agent": "orchestrator",
+                "model": None,
+                "tokens_in": 0,
+                "tokens_out": 0,
+                "cost": 0.0,
+            }
+
+            if (
+                action_result.get("ok")
+                and not action_result.get("needs_confirmation")
+                and pending_action.get("type") in ACTIONS_WITH_FOLLOWUP
+            ):
+                try:
+                    payload = _format_action_result_for_followup(pending_action, action_result)
+                    fu = await orchestrator.handle(
+                        (
+                            f"Résultat brut de l'action :\n\n{payload}\n\n"
+                            f"Question originale : {original_text}\n\n"
+                            "Résume ce résultat de façon claire et utile. Pas de bloc action."
+                        ),
+                        conversation_id=conversation_id,
+                        voice_mode=voice_mode,
+                    )
+                    emotion = fu.get("emotion", emotion)
+                    display_text = finalize_assistant_display_text(fu.get("response", display_text))
+                    final_meta = fu
+                except Exception as e:
+                    logger.exception("[internal-pending-followup] %s", e)
+
+            display_text = re.sub(
+                r'```(?:json|action|save)\s*\{[\s\S]*?\}\s*```', '', display_text
+            ).strip() or display_text
+
+            try:
+                save_message(
+                    conversation_id, "assistant", display_text,
+                    agent=final_meta.get("agent"),
+                    model=final_meta.get("model"),
+                    tokens_in=final_meta.get("tokens_in", 0),
+                    tokens_out=final_meta.get("tokens_out", 0),
+                    cost=final_meta.get("cost", 0.0),
+                )
+            except Exception as e:
+                logger.error("[internal-pending] save assistant : %s", e)
+
+            return {
+                "text": display_text,
+                "emotion": emotion,
+                "action": pending_action,
+                "action_result": action_result,
+                "agent": final_meta.get("agent"),
+                "model": final_meta.get("model"),
+                "cost": float(final_meta.get("cost") or 0.0),
+            }
+
         context = await _build_enriched_context(text, conversation_id)
 
         if voice_mode:
@@ -3851,22 +3943,31 @@ async def _process_message_internal(
                     )
                     final_meta = fu
             else:
-                try:
-                    action_result = await execute_action(action)
-                    logger.info("[internal-action] %s → ok=%s", action.get("type"), action_result.get("ok") if action_result else None)
-                    if action_result.get("needs_confirmation"):
-                        _maybe_store_pending_proposal(action, conversation_id)
+                if _should_defer_action(display_text, action):
+                    _maybe_store_pending_proposal(action, conversation_id)
+                    action_result = {
+                        "ok": True,
+                        "deferred": True,
+                        "message": display_text,
+                    }
+                else:
+                    try:
+                        action_result = await execute_action(action)
                         logger.info(
-                            "[pending] Action %s en attente de confirmation",
+                            "[internal-action] %s → ok=%s",
                             action.get("type"),
+                            action_result.get("ok") if action_result else None,
                         )
-                except Exception as e:
-                    logger.exception("[internal-action] execute_action : %s", e)
-                    action_result = {"ok": False, "message": str(e)}
+                        if action_result.get("needs_confirmation"):
+                            _maybe_store_pending_proposal(action, conversation_id)
+                    except Exception as e:
+                        logger.exception("[internal-action] execute_action : %s", e)
+                        action_result = {"ok": False, "message": str(e)}
 
                 # 2e passe pour les actions avec followup
                 if (
                     action_result
+                    and not action_result.get("deferred")
                     and action.get("type") in ACTIONS_WITH_FOLLOWUP
                     and not action_result.get("needs_confirmation")
                     and action_result.get("ok")
@@ -4568,6 +4669,7 @@ async def _process_message(
             await ws.send_json({
                 "type": "action_result",
                 "action": pending_action_type or "?",
+                "action_payload": pending_action,
                 "result": pending_result,
             })
             # 2e passe pour reformuler le résultat
@@ -4595,6 +4697,7 @@ async def _process_message(
         final_meta: dict = {}
         emotion = "neutral"
         pending_done: dict | None = None
+        stream_clean_sent = ""
 
         if stream:
             async for event in orchestrator.handle_stream(
@@ -4605,9 +4708,15 @@ async def _process_message(
                     final_meta = event
                     emotion = event.get("emotion", "neutral")
                     continue
-                await ws.send_json(event)
-                if event["type"] == "chunk":
+                if event.get("type") == "chunk":
                     full_response += event["content"]
+                    clean_now = sanitize_streaming_display(full_response)
+                    delta = clean_now[len(stream_clean_sent):]
+                    stream_clean_sent = clean_now
+                    if delta:
+                        await ws.send_json({"type": "chunk", "content": delta})
+                    continue
+                await ws.send_json(event)
         else:
             result = await orchestrator.handle(
                 content, conversation_id=conversation_id, voice_mode=voice_mode,
@@ -4716,43 +4825,59 @@ async def _process_message(
                     })
             else:
                 # Mode simple : une action
-                # Si c'est un mail sans confirmation, stocker en pending
-                if action.get("type") == "mail" and not action.get("confirmed"):
+                if _should_defer_action(display_text, action):
                     _maybe_store_pending_proposal(action, conversation_id)
-                    logger.info("[pending] Proposition mail stockée pour confirmation")
-
-                try:
-                    action_result = await execute_action(action)
+                    action_result = {
+                        "ok": True,
+                        "deferred": True,
+                        "message": display_text,
+                    }
                     await ws.send_json({
-                        "type": "action_result",
-                        "action": action.get("type"),
-                        "result": action_result,
+                        "type": "action_pending",
+                        "action": action,
+                        "action_type": action.get("type"),
+                        "message": display_text,
                     })
-                    if action_result.get("needs_confirmation"):
+                    logger.info("[pending] Action différée (proposition utilisateur)")
+                else:
+                    if action.get("type") == "mail" and not action.get("confirmed"):
                         _maybe_store_pending_proposal(action, conversation_id)
+                        logger.info("[pending] Proposition mail stockée pour confirmation")
+
+                    try:
+                        action_result = await execute_action(action)
+                        await ws.send_json({
+                            "type": "action_result",
+                            "action": action.get("type"),
+                            "action_payload": action,
+                            "result": action_result,
+                        })
+                        if action_result.get("needs_confirmation"):
+                            _maybe_store_pending_proposal(action, conversation_id)
+                            logger.info(
+                                "[pending] Action %s en attente de confirmation",
+                                action.get("type"),
+                            )
                         logger.info(
-                            "[pending] Action %s en attente de confirmation",
+                            "[action] %s → ok=%s",
                             action.get("type"),
+                            action_result.get("ok"),
                         )
-                    logger.info(
-                        "[action] %s → ok=%s",
-                        action.get("type"),
-                        action_result.get("ok"),
-                    )
-                except Exception as e:
-                    logger.exception("[action] execute_action exception : %s", e)
-                    action_result = {"ok": False, "message": str(e)}
-                    await ws.send_json({
-                        "type": "action_result",
-                        "action": action.get("type"),
-                        "result": action_result,
-                    })
+                    except Exception as e:
+                        logger.exception("[action] execute_action exception : %s", e)
+                        action_result = {"ok": False, "message": str(e)}
+                        await ws.send_json({
+                            "type": "action_result",
+                            "action": action.get("type"),
+                            "action_payload": action,
+                            "result": action_result,
+                        })
 
                 # 2e passe pour les actions avec followup
                 if (
                     action_result
+                    and not (action_result.get("deferred") or action_result.get("needs_confirmation"))
                     and action.get("type") in ACTIONS_WITH_FOLLOWUP
-                    and not action_result.get("needs_confirmation")
                     and action_result.get("ok")
                 ):
                     try:
@@ -5204,6 +5329,7 @@ async def websocket_endpoint(ws: WebSocket):
                     await ws.send_json({
                         "type": "action_result",
                         "action": act.get("type"),
+                        "action_payload": act,
                         "result": res,
                     })
                     if (
