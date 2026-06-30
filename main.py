@@ -3268,8 +3268,16 @@ ACTIONS_WITH_FOLLOWUP = frozenset({
     "day_route",
 })
 
-# Types d'actions qui déclenchent la boucle agentique (multi-étapes)
+# Types d'actions qui peuvent déclencher la boucle agentique (multi-étapes)
 AGENTIC_ACTION_TYPES = frozenset({"terminal"})
+
+
+def _is_agentic_action(action: dict) -> bool:
+    """Boucle agentique uniquement pour terminal + complex:true (pas un simple ls/grep)."""
+    return (
+        action.get("type") in AGENTIC_ACTION_TYPES
+        and action.get("complex") is True
+    )
 
 
 def _maybe_store_pending_proposal(action: dict, conversation_id: int) -> None:
@@ -3316,7 +3324,7 @@ async def _check_pending_proposal(
     )
 
     if is_confirmation:
-        action = _pending_proposal["action"]
+        action = {**_pending_proposal["action"], "confirmed": True}
         _pending_proposal = None
         logger.info(
             "[pending] Confirmation détectée « %s » → exécution de %s",
@@ -3807,13 +3815,7 @@ async def _process_message_internal(
                 status="pending",
             )
 
-            # Détecter si on passe en mode agent
-            is_agentic = (
-                action.get("complex") is True
-                or action.get("type") in AGENTIC_ACTION_TYPES
-            )
-
-            if is_agentic and action.get("type") == "terminal":
+            if _is_agentic_action(action):
                 agent_name = result.get("agent", "orchestrator")
                 agent_obj = get_agent(agent_name) or orchestrator
                 loop_result = await agent_obj._run_agentic_loop(
@@ -3852,6 +3854,12 @@ async def _process_message_internal(
                 try:
                     action_result = await execute_action(action)
                     logger.info("[internal-action] %s → ok=%s", action.get("type"), action_result.get("ok") if action_result else None)
+                    if action_result.get("needs_confirmation"):
+                        _maybe_store_pending_proposal(action, conversation_id)
+                        logger.info(
+                            "[pending] Action %s en attente de confirmation",
+                            action.get("type"),
+                        )
                 except Exception as e:
                     logger.exception("[internal-action] execute_action : %s", e)
                     action_result = {"ok": False, "message": str(e)}
@@ -4160,10 +4168,34 @@ RÈGLES SUPPLEMENTAIRES :
             action = json.loads(json_str)
             debug_trace["action_detected"] = action
 
-            # ── Handlers directs bypass execute_action (latence zero) ────
             action_type_direct = action.get("type", "").strip()
 
-            if action_type_direct == "search":
+            if _is_agentic_action(action):
+                from agents import get_agent as _get_agent
+                agent_obj = _get_agent("devops") or _get_agent("info")
+                if agent_obj:
+                    loop_result = await agent_obj._run_agentic_loop(
+                        user_message=text,
+                        conversation_id=conversation_id,
+                        context=None,
+                        initial_action=action,
+                    )
+                    results_text = "\n".join([
+                        f"Étape {r['step']}: "
+                        f"{str(r['result'].get('output', r['result'].get('message', '')))[:1000]}"
+                        for r in loop_result.get("results", [])
+                        if isinstance(r.get("step"), int)
+                    ])
+                    action_result = {
+                        "ok": loop_result.get("final_status") != "failed",
+                        "output": results_text,
+                        "agentic": True,
+                    }
+                else:
+                    action_result = await execute_action(action)
+
+            # ── Handlers directs bypass execute_action (latence zero) ────
+            elif action_type_direct == "search":
                 query = (action.get("query") or "").strip()
                 if not query:
                     action_result = {"ok": True, "message": "Aucun terme de recherche fourni."}
@@ -4523,10 +4555,13 @@ async def _process_message(
             logger.debug("[conv] update_activity user : %s", e)
 
         # ── Vérifier si l'utilisateur confirme une proposition en attente ──
-        pending_action_type = (
-            _pending_proposal.get("action", {}).get("type")
-            if _pending_proposal else None
+        pending_action = (
+            dict(_pending_proposal["action"])
+            if _pending_proposal
+            and _pending_proposal.get("conversation_id") == conversation_id
+            else None
         )
+        pending_action_type = pending_action.get("type") if pending_action else None
         pending_result = await _check_pending_proposal(ws, content, conversation_id)
         if pending_result is not None:
             # L'utilisateur a dit "oui/vas-y" → on exécute l'action proposée
@@ -4537,13 +4572,9 @@ async def _process_message(
             })
             # 2e passe pour reformuler le résultat
             if pending_result.get("ok") and not pending_result.get("needs_confirmation"):
-                action_type = "pending"
+                fu_action = pending_action or {"type": pending_action_type or "unknown"}
                 try:
-                    from actions import _format_action_result_for_followup as _fmt
-                    payload = _fmt(
-                        {"type": action_type, "command": content},
-                        pending_result,
-                    )
+                    payload = _format_action_result_for_followup(fu_action, pending_result)
                 except Exception:
                     payload = str(pending_result)[:1000]
                 fu = await orchestrator.handle(
@@ -4556,7 +4587,7 @@ async def _process_message(
                     voice_mode=voice_mode,
                 )
                 display_text = finalize_assistant_display_text(fu.get("response", ""))
-                emotion = fu.get("emotion", emotion)
+                emotion = fu.get("emotion", "neutral")
                 await ws.send_json({"type": "response_followup", "content": display_text})
             return {"emotion": emotion, "response": display_text or str(pending_result.get("message", ""))}
 
@@ -4618,13 +4649,7 @@ async def _process_message(
                 status="pending",
             )
 
-            # Détecter si on passe en mode agent (plusieurs étapes)
-            is_agentic = (
-                action.get("complex") is True
-                or action.get("type") in AGENTIC_ACTION_TYPES
-            )
-
-            if is_agentic and action.get("type") == "terminal":
+            if _is_agentic_action(action):
                 # Mode agent : boucle d'exécution multi-étapes
                 agent_name = final_meta.get("agent", "orchestrator")
                 agent = get_agent(agent_name) or orchestrator
@@ -4703,6 +4728,12 @@ async def _process_message(
                         "action": action.get("type"),
                         "result": action_result,
                     })
+                    if action_result.get("needs_confirmation"):
+                        _maybe_store_pending_proposal(action, conversation_id)
+                        logger.info(
+                            "[pending] Action %s en attente de confirmation",
+                            action.get("type"),
+                        )
                     logger.info(
                         "[action] %s → ok=%s",
                         action.get("type"),

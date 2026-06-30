@@ -16,7 +16,8 @@ VALID_EMOTIONS = frozenset(
 _LEADING_EMOTION_RE = re.compile(r"^\s*\[(\w+)\]\s*\n?", re.MULTILINE)
 
 # Blocs à masquer à l'utilisateur (save : affichage seulement — l'agent école parse avant strip)
-_RE_ACTION = re.compile(r"```action\s*\n.*?\n```", re.DOTALL | re.IGNORECASE)
+# \n? : DeepSeek produit parfois ```action {JSON}``` sans saut de ligne (aligné sur main.py)
+_RE_ACTION = re.compile(r"```action\s*\n?.*?```", re.DOTALL | re.IGNORECASE)
 _RE_JSON = re.compile(r"```json\s*\n.*?\n```", re.DOTALL | re.IGNORECASE)
 _RE_SAVE = re.compile(r"```save\s*\n.*?\n```", re.DOTALL | re.IGNORECASE)
 

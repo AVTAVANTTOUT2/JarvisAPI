@@ -43,7 +43,36 @@ python scripts/jarvis_launchd.py install
 >
 > Toutes les autres variables (modèles, chemins, audio, briefings, timezone) ont des valeurs par défaut prêtes à l'emploi.
 
-### Dernier changelog — 30 juin 2026 : Audit audio / daemon / latence vocale
+### Dernier changelog — 30 juin 2026 : Audit pipeline actions + boucle agentique
+
+**Audit** du pipeline ````action```` → `execute_action()` → 2e passe LLM et de `_run_agentic_loop()`.
+
+**Bugs P0 corrigés** :
+| Bug | Fichier | Correction |
+|-----|---------|------------|
+| Boucle agentique sur **toute** commande `terminal` (même `ls`) | `main.py` | `_is_agentic_action()` — agentique uniquement si `complex:true` |
+| Crash « oui/vas-y » : import `_format_action_result_for_followup` depuis `actions` (n'existe pas) | `main.py` | Appel direct à la fonction locale + action pending capturée avant clear |
+| `NameError: emotion` sur confirmation pending | `main.py` | `emotion = fu.get("emotion", "neutral")` |
+| Confirmation `rm`/`sudo` re-boucle sans exécuter | `main.py` | `confirmed: True` injecté dans `_check_pending_proposal()` |
+| Blocs ````action {JSON}```` visibles dans le chat (sans `\n`) | `agents/display_text.py` | Regex alignée sur `main.py` (`\n?` optionnel) |
+
+**Bugs P1 corrigés** :
+| Bug | Correction |
+|-----|------------|
+| `needs_confirmation` non mémorisé → « oui » inopérant | `_maybe_store_pending_proposal()` après exécution si `needs_confirmation` |
+| `_process_voice_fast` ignore la boucle agentique | Routage vers `_run_agentic_loop()` si `complex:true` |
+| `final_status` jamais `"failed"` | `agents/__init__.py` — statuts `completed` / `partial` / `failed` |
+
+**Manques identifiés (non corrigés dans ce commit)** :
+- Table `agentic_workflows` créée en schéma mais **jamais écrite** (pas de persistance des workflows)
+- Frontend (`ChatView.tsx`) : pas d'envoi WebSocket `action_confirm` pour les commandes sensibles
+- Streaming chat : les chunks bruts exposent les blocs ````action```` avant `response_clean`
+- Proposition « Veux-tu que je… ? » sans bloc action au tour 1 : le LLM doit regénérer l'action au « vas-y » (pas de stockage automatique du texte proposé)
+- `_process_message_internal` : pas de `_check_pending_proposal` (REST journal/contacts)
+
+**Tests** : `tests/test_action_pipeline.py` (détection agentique, extraction action, strip affichage).
+
+### Changelog — 30 juin 2026 : Audit audio / daemon / latence vocale
 
 **Audit statique** (pas de correctif appliqué dans ce commit) — recensement des bugs, redondances et leviers de latence sur le pipeline vocal et les daemons.
 

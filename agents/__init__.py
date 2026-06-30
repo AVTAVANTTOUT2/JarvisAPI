@@ -523,7 +523,11 @@ class BaseAgent(ABC):
             "results": results,
             "step_count": len([r for r in results if isinstance(r.get("step"), int)]),
             "total_output_chars": total_output_chars,
-            "final_status": "completed" if consecutive_failures == 0 else "partial",
+            "final_status": (
+                "failed" if consecutive_failures >= 2
+                else "partial" if consecutive_failures > 0
+                else "completed"
+            ),
         }
 
 
