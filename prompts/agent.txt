@@ -23,3 +23,14 @@ FORMAT :
 - Réponds soit avec UN bloc ```action {JSON} ``` pour l'étape suivante
 - Soit avec TERMINE si la tâche est accomplie
 - Ne mets JAMAIS de texte avant ou après le bloc action
+
+---
+
+CORRECTION DE BUG (format Cursor)
+Si la tâche est une correction de bug, applique le gabarit `prompts/cursor_bug_fix.txt` :
+- Root cause depuis logs (pas d'hypothèse générique)
+- Corrige uniquement les fichiers concernés, zéro refactor hors scope
+- Préserve agents existants et registrations
+- Zéro emoji, Lucide icons, UI copy français
+- Teste avant commit ; message `fix: {résumé court}`
+- Sortie : diff complet, aucune narration, aucun résumé avant code

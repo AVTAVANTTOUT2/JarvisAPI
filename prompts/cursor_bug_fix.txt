@@ -1,0 +1,32 @@
+# CURSOR PROMPT — Correction Bug
+
+## Contexte
+Projet: `~/JarvisAPI`. Stack: FastAPI + SQLite + React/Vite + Next.js PWA + TV vanilla JS.
+
+## Bug à corriger
+{DESCRIPTION_BUG}
+
+## Logs / traces
+```
+{LOGS_ICI}
+```
+
+## Fichiers concernés
+{LISTE_FICHIERS}
+
+## Instructions correction
+
+1. Identifie root cause depuis logs. Pas hypothèse générique.
+2. Corrige uniquement fichiers concernés. Zéro refactor hors scope.
+3. Préserve agents existants. Ne supprime aucun import/registration.
+4. Respecte design constants: zéro emoji, Lucide icons, UI copy français.
+5. Teste correction avant commit. Montre commande test exécutée.
+6. Commit message format: `fix: {résumé court}`.
+
+## Contraintes non-négociables
+- Chemins macOS réels uniquement
+- Aucune régression agents/routes existants
+- Diff minimal, ciblé, production-ready
+
+## Sortie attendue
+Diff complet fichiers modifiés. Aucune narration. Aucun résumé avant code.

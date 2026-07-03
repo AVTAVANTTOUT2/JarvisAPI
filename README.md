@@ -43,7 +43,20 @@ python scripts/jarvis_launchd.py install
 >
 > Toutes les autres variables (modèles, chemins, audio, briefings, timezone) ont des valeurs par défaut prêtes à l'emploi.
 
-### Dernier changelog — 1 juillet 2026 : Correctifs audit audio / daemon / latence
+### Dernier changelog — 3 juillet 2026 : Gabarit Cursor — Correction Bug
+
+**Nouveau** : `prompts/cursor_bug_fix.txt` — template CURSOR PROMPT pour corrections de bug ciblées (root cause, diff minimal, tests, commit `fix:`).
+
+**Intégration system prompts** :
+| Fichier | Usage |
+|---------|--------|
+| `prompts/cursor_bug_fix.txt` | Gabarit canonique avec placeholders `{DESCRIPTION_BUG}`, `{LOGS_ICI}`, `{LISTE_FICHIERS}` |
+| `prompts/devops.txt` | Règle : appliquer le gabarit sur correction de bug |
+| `prompts/agent.txt` | Règle mode agent : même gabarit pour tâches fix |
+| `agents/devops.py` | Injection auto via `supplementary_prompt_files` |
+| `agents/__init__.py` | Support `supplementary_prompt_files` sur `BaseAgent` |
+
+### Changelog — 1 juillet 2026 : Correctifs audit audio / daemon / latence
 
 **11 bugs corrigés** suite à l'audit du 30 juin, avec tests unitaires (`tests/test_audio_pipeline_fixes.py`, 11/11 passent).
 
