@@ -21,7 +21,7 @@ from typing import Any
 
 import fitz  # pymupdf — extraction texte PDF
 import uvicorn
-from fastapi import Body, FastAPI, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import BackgroundTasks, Body, FastAPI, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -39,6 +39,15 @@ from agents.orchestrator import orchestrator
 from agents.productivity import productivity_agent
 from agents.school import school_agent
 from agents.devops import devops_agent
+from agents.devagent import (
+    lock_spec,
+    next_interview_step,
+    run_loop,
+    slugify,
+    submit_answer,
+)
+from agents.devagent.models import InterviewAnswer
+from database import devagent as devagent_db
 from agents.autonomous_loop import parse_loop_command, run_autonomous_loop
 from agents.display_text import (
     extract_leading_emotion,
@@ -1439,13 +1448,100 @@ async def api_notifications_unread():
 
 @app.get("/api/logs")
 async def api_logs(type: str | None = None, limit: int = 100):
-    """Logs système des actions LLM (récent -> ancien)."""
+    """Logs systeme des actions LLM (recent -> ancien). Inclut DevAgent si pas de filtre."""
     try:
         logs = get_llm_logs(limit=limit, action_type=type)
         return {"logs": logs, "count": len(logs)}
     except Exception as e:
         logger.error("Erreur get_llm_logs : %s", e)
         return {"logs": [], "count": 0}
+
+
+# ── DevAgent autonome (interview -> spec -> boucle dev isolee) ─────────────
+
+
+@app.post("/api/devagent/start")
+async def devagent_start(name: str):
+    """Demarre un projet DevAgent et renvoie la premiere question d'interview."""
+    if not name or not name.strip():
+        raise HTTPException(400, "Le nom du projet est requis.")
+    clean_name = name.strip()
+    slug = slugify(clean_name)
+    if devagent_db.get_project_by_slug(slug):
+        raise HTTPException(409, f"Un projet avec le slug '{slug}' existe deja.")
+    from agents.devagent.spec_builder import build_isolation_path
+
+    isolation = str(build_isolation_path(slug))
+    project_id = devagent_db.create_dev_project(slug, clean_name, isolation)
+    first_question = await next_interview_step(project_id, {})
+    return {"project_id": project_id, "first_question": first_question}
+
+
+@app.post("/api/devagent/{project_id}/answer")
+async def devagent_answer(project_id: int, payload: InterviewAnswer):
+    """Soumet une reponse d'interview ; verrouille la spec si l'interview est terminee."""
+    project = devagent_db.get_project(project_id)
+    if not project:
+        raise HTTPException(404, "Projet DevAgent introuvable.")
+    if project.get("status") not in ("interviewing",):
+        raise HTTPException(400, f"Interview deja terminee (status={project.get('status')}).")
+
+    context = devagent_db.get_interview_context(project_id)
+    result = await submit_answer(
+        project_id, payload.question, payload.answer, context
+    )
+
+    if result.get("done"):
+        spec_dict = result.get("spec")
+        if not isinstance(spec_dict, dict):
+            raise HTTPException(502, "Spec DeepSeek invalide.")
+        spec = lock_spec(spec_dict)
+        devagent_db.save_spec(project_id, spec.model_dump_json())
+        devagent_db.complete_interview_session(project_id)
+        devagent_db.save_interview_context(project_id, context)
+        devagent_db.update_project_status(project_id, "spec_locked")
+        return {"done": True, "spec": spec.model_dump()}
+
+    devagent_db.save_interview_context(project_id, context)
+    return {"done": False, "next_question": result}
+
+
+@app.post("/api/devagent/{project_id}/run")
+async def devagent_run(project_id: int, background_tasks: BackgroundTasks):
+    """Lance la boucle autonome en arriere-plan."""
+    project = devagent_db.get_project(project_id)
+    if not project:
+        raise HTTPException(404, "Projet DevAgent introuvable.")
+    if project.get("status") not in ("spec_locked", "paused", "failed"):
+        raise HTTPException(
+            400,
+            f"Impossible de lancer (status={project.get('status')}). Spec verrouillee requise.",
+        )
+    if not project.get("spec_json"):
+        raise HTTPException(400, "Spec absente — terminez l'interview d'abord.")
+
+    devagent_db.update_project_status(project_id, "running")
+    background_tasks.add_task(run_loop, project_id)
+    return {"status": "started"}
+
+
+@app.get("/api/devagent/{project_id}/status")
+async def devagent_status(project_id: int):
+    """Etat du projet et de la boucle autonome."""
+    payload = devagent_db.get_project_status_payload(project_id)
+    if not payload:
+        raise HTTPException(404, "Projet DevAgent introuvable.")
+    return payload
+
+
+@app.post("/api/devagent/{project_id}/pause")
+async def devagent_pause(project_id: int):
+    """Met en pause la boucle autonome."""
+    project = devagent_db.get_project(project_id)
+    if not project:
+        raise HTTPException(404, "Projet DevAgent introuvable.")
+    devagent_db.update_project_status(project_id, "paused")
+    return {"status": "paused"}
 
 
 @app.get("/api/notifications/all")

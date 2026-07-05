@@ -43,6 +43,50 @@ python scripts/jarvis_launchd.py install
 >
 > Toutes les autres variables (modèles, chemins, audio, briefings, timezone) ont des valeurs par défaut prêtes à l'emploi.
 
+### Dernier changelog — 3 juillet 2026 : DevAgent autonome (interview → spec → boucle dev)
+
+Nouveau module **`agents/devagent/`** — agent de développement autonome isolé, moteur **DeepSeek v4 Pro uniquement** (jamais Claude/Groq dans ce module).
+
+**Pipeline** :
+1. Interview adaptative (QCM + texte libre) via DeepSeek → `spec.json` verrouillée
+2. Projet isolé dans `dev_projects/{slug}/` (venv + git + `src/` séparés)
+3. Boucle autonome : plan → code → test → fix → commit (budget `max_iterations`, `max_tokens`, `max_consecutive_failures`)
+
+**Fichiers ajoutés** :
+| Composant | Rôle |
+|-----------|------|
+| `agents/devagent/` | `interview.py`, `spec_builder.py`, `planner.py`, `coder.py`, `executor.py`, `loop.py`, `models.py` |
+| `integrations/deepseek_client.py` | Client HTTP DevAgent (DeepSeek API, mode JSON) |
+| `database/devagent.py` | Helpers SQLite (5 tables) |
+| `scripts/migrate_devagent.py` | Migration idempotente |
+| `tests/test_devagent.py` | 12 tests (interview, spec, sandbox, DB, logs) |
+
+**Tables SQLite** : `dev_projects`, `dev_interview_sessions`, `dev_spec`, `dev_loop_state`, `dev_loop_log`
+
+**Endpoints REST** (ajoutés à `main.py`, agents existants non modifiés) :
+| Route | Action |
+|-------|--------|
+| `POST /api/devagent/start?name=` | Démarre interview |
+| `POST /api/devagent/{id}/answer` | Réponse interview ; verrouille spec si terminé |
+| `POST /api/devagent/{id}/run` | Lance boucle autonome (background) |
+| `GET /api/devagent/{id}/status` | État projet + boucle |
+| `POST /api/devagent/{id}/pause` | Pause |
+
+**Logs** : `dev_loop_log` exposé via `GET /api/logs` (fusionné sans filtre, ou `?type=devagent`).
+
+**Config** (`.env`) :
+```bash
+DEEPSEEK_API_KEY=sk-...          # déjà requis
+DEV_PROJECTS_ROOT=./dev_projects
+DEVAGENT_EXEC_TIMEOUT=120
+```
+
+**Migration** :
+```bash
+python scripts/migrate_devagent.py
+```
+
+
 
 ### Changelog — 1 juillet 2026 : Correctifs audit audio / daemon / latence
 

@@ -577,6 +577,7 @@ def init_db():
         _migrate_app_settings(conn)
         _migrate_email_summaries(conn)
         _migrate_message_insights(conn)
+        _migrate_devagent(conn)
         _create_voice_debug_table(conn)
     logger.info("[DB] Base initialisée : %s", DB_PATH)
 
@@ -667,6 +668,13 @@ def _migrate_message_insights(conn: sqlite3.Connection) -> None:
             acknowledged INTEGER DEFAULT 0
         )
     """)
+
+
+def _migrate_devagent(conn: sqlite3.Connection) -> None:
+    """Cree les tables DevAgent autonome (idempotent)."""
+    from database.devagent import migrate_devagent_tables
+
+    migrate_devagent_tables(conn)
 
 
 # ── Helpers CRUD ────────────────────────────────────────────
@@ -1599,8 +1607,26 @@ def log_llm_action(
 
 
 def get_llm_logs(limit: int = 100, action_type: str | None = None) -> list[dict]:
-    """Retourne les logs LLM les plus récents, optionnellement filtrés par type."""
+    """Retourne les logs LLM les plus recents, optionnellement filtres par type.
+
+    Si ``action_type`` vaut ``devagent`` ou commence par ``devagent_``, lit
+    ``dev_loop_log``. Sans filtre, fusionne ``llm_action_logs`` et DevAgent.
+    """
+    from database.devagent import get_dev_loop_logs
+
     lim = max(1, min(int(limit), 1000))
+
+    if action_type == "devagent" or (
+        action_type and action_type.startswith("devagent_")
+    ):
+        phase = None
+        if action_type and action_type.startswith("devagent_"):
+            phase = action_type.removeprefix("devagent_")
+        logs = get_dev_loop_logs(limit=lim)
+        if phase:
+            logs = [row for row in logs if row.get("action_type") == action_type]
+        return logs[:lim]
+
     with get_db() as conn:
         if action_type:
             rows = conn.execute(
@@ -1613,17 +1639,23 @@ def get_llm_logs(limit: int = 100, action_type: str | None = None) -> list[dict]
                 """,
                 (action_type, lim),
             ).fetchall()
-        else:
-            rows = conn.execute(
-                """
-                SELECT *
-                FROM llm_action_logs
-                ORDER BY created_at DESC, id DESC
-                LIMIT ?
-                """,
-                (lim,),
-            ).fetchall()
-        return [dict(r) for r in rows]
+            return [dict(r) for r in rows]
+
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM llm_action_logs
+            ORDER BY created_at DESC, id DESC
+            LIMIT ?
+            """,
+            (lim,),
+        ).fetchall()
+        llm_logs = [dict(r) for r in rows]
+
+    dev_logs = get_dev_loop_logs(limit=lim)
+    merged = llm_logs + dev_logs
+    merged.sort(key=lambda item: (item.get("created_at") or "", item.get("id") or 0), reverse=True)
+    return merged[:lim]
 
 
 # ── Email summaries ─────────────────────────────────────────
