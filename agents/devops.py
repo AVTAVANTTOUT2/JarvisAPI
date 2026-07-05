@@ -22,6 +22,7 @@ class DevopsAgent(BaseAgent):
         "debug, architecture, shell, Git, Cloudflare, base de données."
     )
     model = config.DEEPSEEK_MAIN_MODEL
+    supplementary_prompt_files = ("cursor_bug_fix.txt",)
 
     async def handle(self, user_message: str, conversation_id: int = None,
                      context: dict = None) -> dict:

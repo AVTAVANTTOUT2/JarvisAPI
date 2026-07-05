@@ -43,27 +43,6 @@ python scripts/jarvis_launchd.py install
 >
 > Toutes les autres variables (modèles, chemins, audio, briefings, timezone) ont des valeurs par défaut prêtes à l'emploi.
 
-### Dernier changelog — 3 juillet 2026 : Mode autonome `/loop` (DeepSeek sans limite)
-
-**Produit** : boucle agentique autonome déclenchée par `/loop [tâche]` dans le chat (ou message WebSocket `{ "type": "loop", "task": "…" }`).
-
-| Composant | Rôle |
-|-----------|------|
-| `agents/autonomous_loop.py` | Moteur : planification DeepSeek → exécution actions → décision suivante → synthèse. Persistance `agentic_workflows`. |
-| `prompts/autonomous_loop.txt` | Prompt dédié — pas de confirmation utilisateur, actions auto-confirmées |
-| `config.py` | `LOOP_UNLIMITED=true` par défaut ; `LOOP_MAX_STEPS/OUTPUT/LLM_CALLS=0` = illimité côté utilisateur |
-| `main.py` | Détection `/loop` dans `_process_message` et REST ; événements WS `loop_started`, `loop_step`, `loop_progress`, `loop_done` |
-| `ChatView.tsx` | Affichage temps réel des étapes ; correction doublon bulle assistant vide |
-
-**Usage chat** :
-```
-/loop installe redis et vérifie qu'il tourne
-/loop: corrige les tests qui échouent dans tests/
-```
-
-**Variables `.env`** (voir `.env.example`) : `LOOP_UNLIMITED`, `LOOP_MAX_STEPS`, `LOOP_MAX_LLM_CALLS`, `LOOP_MODEL`, `LOOP_DECISION_MODEL`.
-
-**Tests** : `tests/test_autonomous_loop.py`.
 
 ### Changelog — 1 juillet 2026 : Correctifs audit audio / daemon / latence
 

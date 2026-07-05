@@ -55,13 +55,18 @@ class BaseAgent(ABC):
     description: str = ""
     model: str = config.DEEPSEEK_MAIN_MODEL
     inject_persona: bool = True
+    supplementary_prompt_files: tuple[str, ...] = ()
 
     def load_prompt(self) -> str:
-        """Charge le system prompt spécifique depuis prompts/{name}.txt."""
+        """Charge le system prompt specifique depuis prompts/{name}.txt."""
         path = PROMPTS_DIR / f"{self.name}.txt"
-        if path.exists():
-            return path.read_text(encoding="utf-8")
-        return ""
+        base = path.read_text(encoding="utf-8") if path.exists() else ""
+        for filename in self.supplementary_prompt_files:
+            extra_path = PROMPTS_DIR / filename
+            if extra_path.exists():
+                extra = extra_path.read_text(encoding="utf-8")
+                base = f"{base}\n\n---\n\n{extra}" if base else extra
+        return base
 
     def build_system_prompt(self, context: dict = None) -> str:
         """Construit le system prompt complet : [horodatage] + [persona] + [agent-specific].
