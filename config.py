@@ -186,6 +186,16 @@ AUDIO_DAEMON_STT_MODEL = _get("AUDIO_DAEMON_STT_MODEL", "small")  # small (244Mo
 # ── VAD (Voice Activity Detection) ────────────────────────────
 SILERO_VAD_THRESHOLD = float(_get("SILERO_VAD_THRESHOLD", "0.5"))  # 0.3=tres sensible, 0.5=defaut, 0.7=strict
 
+# ── Mode autonome /loop (DeepSeek sans limite configurable) ──
+LOOP_UNLIMITED = _get("LOOP_UNLIMITED", "true").lower() == "true"
+LOOP_MAX_STEPS = int(_get("LOOP_MAX_STEPS", "0"))  # 0 = illimité (garde-fou technique 500)
+LOOP_MAX_OUTPUT_CHARS = int(_get("LOOP_MAX_OUTPUT_CHARS", "0"))  # 0 = illimité
+LOOP_MAX_LLM_CALLS = int(_get("LOOP_MAX_LLM_CALLS", "0"))  # 0 = illimité
+LOOP_MAX_TOKENS = int(_get("LOOP_MAX_TOKENS", "1024"))
+LOOP_MAX_CONSECUTIVE_FAILURES = int(_get("LOOP_MAX_CONSECUTIVE_FAILURES", "3"))
+LOOP_MODEL = _get("LOOP_MODEL", "") or DEEPSEEK_MAIN_MODEL
+LOOP_DECISION_MODEL = _get("LOOP_DECISION_MODEL", "") or DEEPSEEK_FAST_MODEL
+
 # ── Mapping modèles par agent ───────────────────────────────
 AGENT_MODELS = {
     "orchestrator": DEEPSEEK_FAST_MODEL,
