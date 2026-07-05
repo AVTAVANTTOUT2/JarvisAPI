@@ -86,6 +86,8 @@ DEVAGENT_EXEC_TIMEOUT=120
 python scripts/migrate_devagent.py
 ```
 
+
+
 ### Changelog — 1 juillet 2026 : Correctifs audit audio / daemon / latence
 
 **11 bugs corrigés** suite à l'audit du 30 juin, avec tests unitaires (`tests/test_audio_pipeline_fixes.py`, 11/11 passent).
@@ -1879,6 +1881,7 @@ Nouveaux types de messages supportés :
 - `/cherche [texte]` — recherche dans les conversations
 - `/briefing` — briefing matin
 - `/tâche [texte]` — créer une tâche
+- `/loop [tâche]` — mode autonome DeepSeek : exécute la tâche de bout en bout sans confirmation (pas de limite API par défaut)
 
 #### Upload de documents
 

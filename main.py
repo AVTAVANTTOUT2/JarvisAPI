@@ -48,6 +48,7 @@ from agents.devagent import (
 )
 from agents.devagent.models import InterviewAnswer
 from database import devagent as devagent_db
+from agents.autonomous_loop import parse_loop_command, run_autonomous_loop
 from agents.display_text import (
     extract_leading_emotion,
     finalize_assistant_display_text,
@@ -3383,6 +3384,107 @@ def _is_agentic_action(action: dict) -> bool:
     )
 
 
+async def _run_loop_mode_ws(
+    ws: WebSocket,
+    task: str,
+    conversation_id: int,
+    *,
+    voice_mode: bool = False,
+) -> dict:
+    """Exécute le mode /loop autonome avec événements WebSocket temps réel."""
+    context = await _build_enriched_context(task, conversation_id)
+    if voice_mode:
+        context["voice_mode"] = True
+
+    async def _on_event(event_type: str, data: dict) -> None:
+        await ws.send_json({"type": event_type, **data})
+
+    await ws.send_json({
+        "type": "status",
+        "content": f"Mode autonome activé — {task[:120]}",
+    })
+
+    loop_result = await run_autonomous_loop(
+        task,
+        conversation_id,
+        context,
+        on_event=_on_event,
+    )
+
+    synthesis = loop_result.get("synthesis") or "Boucle terminée."
+    emotion = "neutral"
+    display_text = finalize_assistant_display_text(synthesis)
+
+    try:
+        save_message(
+            conversation_id,
+            "assistant",
+            display_text,
+            agent="loop",
+            model=config.LOOP_MODEL,
+            cost=float(loop_result.get("total_cost") or 0.0),
+        )
+        update_conversation_activity(conversation_id)
+        asyncio.create_task(_maybe_title_conversation(conversation_id))
+    except Exception as exc:
+        logger.warning("[loop] save_message : %s", exc)
+
+    await ws.send_json({
+        "type": "response",
+        "agent": "loop",
+        "category": "LOOP",
+        "content": display_text,
+        "model": config.LOOP_MODEL,
+        "cost": loop_result.get("total_cost", 0.0),
+        "emotion": emotion,
+        "loop": {
+            "status": loop_result.get("final_status"),
+            "steps": loop_result.get("step_count"),
+            "llm_calls": loop_result.get("total_llm_calls"),
+        },
+    })
+
+    return {"emotion": emotion, "response": display_text, "loop_result": loop_result}
+
+
+async def _run_loop_mode_internal(
+    task: str,
+    conversation_id: int,
+    *,
+    voice_mode: bool = False,
+) -> dict:
+    """Mode /loop sans WebSocket (REST, daemon, iMessage)."""
+    context = await _build_enriched_context(task, conversation_id)
+    if voice_mode:
+        context["voice_mode"] = True
+
+    loop_result = await run_autonomous_loop(task, conversation_id, context)
+    synthesis = loop_result.get("synthesis") or "Boucle terminée."
+    display_text = finalize_assistant_display_text(synthesis)
+
+    try:
+        save_message(
+            conversation_id,
+            "assistant",
+            display_text,
+            agent="loop",
+            model=config.LOOP_MODEL,
+            cost=float(loop_result.get("total_cost") or 0.0),
+        )
+        update_conversation_activity(conversation_id)
+    except Exception as exc:
+        logger.warning("[loop] save_message internal : %s", exc)
+
+    return {
+        "text": display_text,
+        "emotion": "neutral",
+        "agent": "loop",
+        "model": config.LOOP_MODEL,
+        "cost": float(loop_result.get("total_cost") or 0.0),
+        "loop_result": loop_result,
+    }
+
+
 _PROPOSAL_MARKERS = (
     "veux-tu", "veux tu", "voulez-vous", "souhaites-tu", "souhaites tu",
     "dois-je", "dois je", "puis-je", "puis je", "tu confirmes",
@@ -3913,6 +4015,29 @@ async def _process_message_internal(
 
         original_text = text
         lower = text.lower()
+
+        # ── Mode autonome /loop ──
+        loop_task = parse_loop_command(original_text)
+        if loop_task is not None:
+            if not loop_task.strip():
+                return {
+                    "text": "Usage : /loop [tâche à accomplir autonomement]",
+                    "emotion": "neutral",
+                    "action": None,
+                    "action_result": None,
+                    "agent": "loop",
+                    "model": config.LOOP_MODEL,
+                    "cost": 0.0,
+                }
+            try:
+                save_message(conversation_id, "user", original_text)
+            except Exception as exc:
+                logger.debug("[loop] save user internal : %s", exc)
+            return await _run_loop_mode_internal(
+                loop_task.strip(),
+                conversation_id,
+                voice_mode=voice_mode,
+            )
 
         # Confirmation « oui / vas-y » sur une action en attente (REST)
         pending_action = _pop_pending_action_if_confirmed(original_text, conversation_id)
@@ -4758,6 +4883,22 @@ async def _process_message(
         except Exception as e:
             logger.debug("[conv] update_activity user : %s", e)
 
+        # ── Mode autonome /loop ──
+        loop_task = parse_loop_command(original_text)
+        if loop_task is not None:
+            if not loop_task.strip():
+                await ws.send_json({
+                    "type": "error",
+                    "message": "Usage : /loop [tâche à accomplir autonomement]",
+                })
+                return {"emotion": "neutral", "response": ""}
+            return await _run_loop_mode_ws(
+                ws,
+                loop_task.strip(),
+                conversation_id,
+                voice_mode=voice_mode,
+            )
+
         # ── Vérifier si l'utilisateur confirme une proposition en attente ──
         pending_action = (
             dict(_pending_proposal["action"])
@@ -5518,6 +5659,27 @@ async def websocket_endpoint(ws: WebSocket):
                     except Exception as e:
                         logger.exception("[ws] switch_conversation : %s", e)
                         await ws.send_json({"type": "error", "message": f"Switch échoué : {e}"})
+                    continue
+
+                if msg_type == "loop":
+                    task = (msg.get("task") or msg.get("content") or "").strip()
+                    if not task:
+                        await ws.send_json({
+                            "type": "error",
+                            "message": "Usage : { \"type\": \"loop\", \"task\": \"…\" }",
+                        })
+                        continue
+                    try:
+                        save_message(conversation_id, "user", f"/loop {task}")
+                    except Exception as e:
+                        logger.debug("[ws] loop save user : %s", e)
+                    try:
+                        await _run_loop_mode_ws(
+                            ws, task, conversation_id, voice_mode=bool(msg.get("voice_mode")),
+                        )
+                    except Exception:
+                        logger.exception("[ws] loop mode")
+                        await ws.send_json({"type": "error", "message": "Erreur mode autonome"})
                     continue
 
                 # Message texte classique

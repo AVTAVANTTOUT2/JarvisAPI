@@ -174,8 +174,63 @@ export function ChatView() {
     }))
 
     unsubs.push(ws.on('response', (d) => {
-      setMessages(prev => [...prev, { role: 'assistant', content: d.content as string, agent: d.agent as string | undefined }])
+      setMessages(prev => {
+        const updated = [...prev]
+        const emptyIdx = updated.map((m, i) => ({ m, i })).reverse()
+          .find(x => x.m.role === 'assistant' && !x.m.content)?.i
+        if (emptyIdx != null) {
+          updated[emptyIdx] = {
+            ...updated[emptyIdx],
+            content: d.content as string,
+            agent: d.agent as string | undefined,
+          }
+        } else {
+          updated.push({
+            role: 'assistant',
+            content: d.content as string,
+            agent: d.agent as string | undefined,
+          })
+        }
+        return updated
+      })
       setIsStreaming(false)
+    }))
+
+    unsubs.push(ws.on('loop_started', (d) => {
+      setMessages(prev => [...prev, {
+        role: 'system',
+        content: `Mode autonome — ${(d.task as string) || 'tâche'}`,
+        meta: 'loop',
+      }])
+    }))
+
+    unsubs.push(ws.on('loop_step', (d) => {
+      const step = d.step as number
+      const actionType = d.action_type as string
+      const status = d.status as string
+      const ok = d.ok as boolean | undefined
+      let label = `Étape ${step} · ${actionType}`
+      if (status === 'running') label += ' · en cours…'
+      else if (ok === true) label += ' · OK'
+      else if (ok === false) label += ' · échec'
+      setMessages(prev => [...prev, { role: 'system', content: label, meta: 'loop-step' }])
+    }))
+
+    unsubs.push(ws.on('loop_progress', (d) => {
+      const msg = d.message as string
+      if (msg) setMessages(prev => [...prev, { role: 'system', content: msg, meta: 'loop' }])
+    }))
+
+    unsubs.push(ws.on('loop_done', (d) => {
+      const steps = d.steps as number
+      const status = d.status as string
+      setMessages(prev => [...prev, {
+        role: 'system',
+        content: `Boucle terminée — ${steps} étape(s), statut : ${status}`,
+        meta: 'loop-done',
+      }])
+      setIsStreaming(false)
+      loadConversations()
     }))
 
     unsubs.push(ws.on('response_followup', (d) => {
