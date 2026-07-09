@@ -293,7 +293,8 @@ export function ChatView() {
     }))
 
     unsubs.push(ws.on('error', (d) => {
-      setMessages(prev => [...prev, { role: 'system', content: d.message as string || 'Erreur', isError: true }])
+      const msg = (d.message ?? d.content) as string | undefined
+      setMessages(prev => [...prev, { role: 'system', content: msg || 'Erreur', isError: true }])
       setIsStreaming(false)
     }))
 

@@ -5201,8 +5201,12 @@ async def _process_message(
         return {"emotion": emotion, "response": display_text}
     except Exception as e:
         logger.exception("_process_message : %s", e)
+        detail = f"{type(e).__name__}: {e}"[:200]
         try:
-            await ws.send_json({"type": "error", "content": "Une erreur est survenue lors du traitement du message."})
+            await ws.send_json({
+                "type": "error",
+                "message": f"Erreur lors du traitement du message ({detail}).",
+            })
         except Exception:
             pass
         return {"emotion": "neutral", "response": ""}
@@ -5225,7 +5229,7 @@ async def _handle_hands_free_blob(
         await ws.send_json({"type": "processing"})
 
         if stt is None or not getattr(stt, "available", False):
-            await ws.send_json({"type": "error", "content": "STT indisponible (ELEVENLABS_API_KEY manquante)."})
+            await ws.send_json({"type": "error", "message": "STT indisponible (ELEVENLABS_API_KEY manquante)."})
             await reset_listening()
             return
 
@@ -5237,7 +5241,7 @@ async def _handle_hands_free_blob(
             text = await stt.transcribe(audio_bytes, language=config.LANGUAGE)
         except Exception as e:
             logger.exception("STT mains libres : %s", e)
-            await ws.send_json({"type": "error", "content": f"Transcription : {type(e).__name__}"})
+            await ws.send_json({"type": "error", "message": f"Transcription : {type(e).__name__}"})
             await reset_listening()
             return
 
@@ -5275,7 +5279,7 @@ async def _handle_hands_free_blob(
             await _send_tts_streaming(ws, display_text, emotion)
         except Exception as e:
             logger.exception("traitement message mains libres : %s", e)
-            await ws.send_json({"type": "error", "content": f"Erreur agent : {type(e).__name__}"})
+            await ws.send_json({"type": "error", "message": f"Erreur agent : {type(e).__name__}"})
             conv_session["is_speaking"] = False
             await reset_listening()
             return
@@ -5361,7 +5365,7 @@ async def websocket_endpoint(ws: WebSocket):
                 if stt is None or not getattr(stt, "available", False):
                     await ws.send_json({
                         "type": "error",
-                        "content": "STT indisponible (ELEVENLABS_API_KEY manquante).",
+                        "message": "STT indisponible (ELEVENLABS_API_KEY manquante).",
                     })
                     continue
 
@@ -5373,14 +5377,14 @@ async def websocket_endpoint(ws: WebSocket):
                     logger.exception("Erreur STT : %s", e)
                     await ws.send_json({
                         "type": "error",
-                        "content": f"Erreur transcription : {type(e).__name__}",
+                        "message": f"Erreur transcription : {type(e).__name__}",
                     })
                     continue
 
                 if not text or len(text) < 2:
                     await ws.send_json({
                         "type": "error",
-                        "content": "Je n'ai pas compris, réessaie.",
+                        "message": "Je n'ai pas compris, réessaie.",
                     })
                     continue
 
@@ -5395,7 +5399,7 @@ async def websocket_endpoint(ws: WebSocket):
                     logger.exception("Erreur traitement message audio")
                     await ws.send_json({
                         "type": "error",
-                        "content": f"Erreur agent : {type(e).__name__}: {e}",
+                        "message": f"Erreur agent : {type(e).__name__}: {e}",
                     })
                 continue
 
@@ -5414,7 +5418,7 @@ async def websocket_endpoint(ws: WebSocket):
                     if stt is None or not getattr(stt, "available", False):
                         await ws.send_json({
                             "type": "error",
-                            "content": "STT indisponible (ELEVENLABS_API_KEY manquante).",
+                            "message": "STT indisponible (ELEVENLABS_API_KEY manquante).",
                         })
                         continue
                     from audio.continuous_recorder import ContinuousRecording
@@ -5519,7 +5523,7 @@ async def websocket_endpoint(ws: WebSocket):
                     if stt is None or not getattr(stt, "available", False):
                         await ws.send_json({
                             "type": "error",
-                            "content": "STT indisponible (ELEVENLABS_API_KEY manquante).",
+                            "message": "STT indisponible (ELEVENLABS_API_KEY manquante).",
                         })
                         if conversation_mode:
                             await ws.send_json({"type": "listening"})
@@ -5533,7 +5537,7 @@ async def websocket_endpoint(ws: WebSocket):
                         logger.exception("Erreur STT conversation : %s", e)
                         await ws.send_json({
                             "type": "error",
-                            "content": f"Transcription : {type(e).__name__}",
+                            "message": f"Transcription : {type(e).__name__}",
                         })
                         if conversation_mode:
                             await ws.send_json({"type": "listening"})
@@ -5555,7 +5559,7 @@ async def websocket_endpoint(ws: WebSocket):
                         logger.exception("Erreur conversation audio : %s", e)
                         await ws.send_json({
                             "type": "error",
-                            "content": f"Erreur : {type(e).__name__}",
+                            "message": f"Erreur : {type(e).__name__}",
                         })
                         is_speaking = False
                         if conversation_mode:

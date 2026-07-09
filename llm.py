@@ -23,6 +23,33 @@ MODEL_COSTS = {
 
 GEMINI_TIMEOUT_SEC = 180
 
+# Client httpx partagé : évite un handshake TCP+TLS par appel LLM
+# (2 appels minimum par message utilisateur : classification + agent).
+_http_client: httpx.AsyncClient | None = None
+
+# Erreurs transitoires DeepSeek qui méritent un retry (surcharge / rate limit).
+_RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+_MAX_RETRIES = 3
+
+
+def _get_http_client() -> httpx.AsyncClient:
+    """Retourne le client httpx partagé (créé paresseusement)."""
+    global _http_client
+    if _http_client is None or _http_client.is_closed:
+        _http_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(120.0, connect=10.0),
+            limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
+        )
+    return _http_client
+
+
+def _check_api_key() -> None:
+    """Échoue immédiatement avec un message clair si la clé API manque."""
+    if not config.DEEPSEEK_API_KEY:
+        raise RuntimeError(
+            "DEEPSEEK_API_KEY manquante — ajoute-la dans .env pour activer le LLM."
+        )
+
 
 def estimate_cost(model: str, tokens_in: int, tokens_out: int, cache_hit: int = 0) -> float:
     """Calcule le coût estimé en dollars pour un appel LLM.
@@ -87,10 +114,34 @@ async def chat(
         "stream": False,
     }
 
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        response = await client.post(url, json=payload, headers=headers)
-        response.raise_for_status()
-        data = response.json()
+    _check_api_key()
+    client = _get_http_client()
+    data = None
+    for attempt in range(_MAX_RETRIES):
+        try:
+            response = await client.post(url, json=payload, headers=headers)
+            if response.status_code in _RETRYABLE_STATUS and attempt < _MAX_RETRIES - 1:
+                delay = 2 ** attempt
+                logger.warning(
+                    "DeepSeek HTTP %s — retry %d/%d dans %ds",
+                    response.status_code, attempt + 1, _MAX_RETRIES - 1, delay,
+                )
+                await asyncio.sleep(delay)
+                continue
+            response.raise_for_status()
+            data = response.json()
+            break
+        except httpx.TransportError as e:
+            if attempt >= _MAX_RETRIES - 1:
+                raise
+            delay = 2 ** attempt
+            logger.warning(
+                "DeepSeek erreur réseau (%s) — retry %d/%d dans %ds",
+                type(e).__name__, attempt + 1, _MAX_RETRIES - 1, delay,
+            )
+            await asyncio.sleep(delay)
+    if data is None:
+        raise RuntimeError("DeepSeek : aucune réponse après retries")
 
     choice = data["choices"][0]
     content = choice["message"]["content"]
@@ -152,23 +203,24 @@ async def chat_stream(
         "stream": True,
     }
 
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        async with client.stream("POST", url, json=payload, headers=headers) as response:
-            response.raise_for_status()
-            async for line in response.aiter_lines():
-                if not line.startswith("data: "):
-                    continue
-                data_str = line[6:]  # skip "data: "
-                if data_str == "[DONE]":
-                    break
-                try:
-                    data = json.loads(data_str)
-                    delta = data.get("choices", [{}])[0].get("delta", {})
-                    chunk_content = delta.get("content", "")
-                    if chunk_content:
-                        yield chunk_content
-                except json.JSONDecodeError:
-                    continue
+    _check_api_key()
+    client = _get_http_client()
+    async with client.stream("POST", url, json=payload, headers=headers) as response:
+        response.raise_for_status()
+        async for line in response.aiter_lines():
+            if not line.startswith("data: "):
+                continue
+            data_str = line[6:]  # skip "data: "
+            if data_str == "[DONE]":
+                break
+            try:
+                data = json.loads(data_str)
+                delta = data.get("choices", [{}])[0].get("delta", {})
+                chunk_content = delta.get("content", "")
+                if chunk_content:
+                    yield chunk_content
+            except json.JSONDecodeError:
+                continue
 
 
 async def quick_classify(text: str, categories: list[str], model: str = None) -> str:
