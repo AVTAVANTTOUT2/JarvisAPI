@@ -92,6 +92,7 @@ from database import (
     get_conversation_documents,
     get_conversation_history,
     get_conversations,
+    get_cost_summary,
     get_current_screen_context,
     get_daily_activity_stats,
     get_last_conversation_summary,
@@ -1021,6 +1022,52 @@ async def api_stats_weekly(days: int = 7):
         "cost": round(sum(d["cost"] for d in daily), 6),
     }
     return {"days": daily, "change": change, "totals": totals}
+
+
+@app.get("/api/costs")
+async def api_costs():
+    """Dépenses LLM (jour / 7 jours / mois, par modèle) + budget configuré."""
+    try:
+        return get_cost_summary()
+    except Exception as e:
+        logger.error("get_cost_summary : %s", e)
+        raise HTTPException(500, "Coûts indisponibles") from e
+
+
+@app.get("/api/backups")
+async def api_backups_list():
+    """Sauvegardes SQLite présentes (plus récente en premier)."""
+    from scripts.db_maintenance import list_backups
+
+    return {
+        "backups": list_backups(),
+        "dir": config.BACKUP_DIR,
+        "keep": config.BACKUP_KEEP,
+        "enabled": config.BACKUP_ENABLED,
+    }
+
+
+@app.post("/api/backups/run")
+async def api_backups_run():
+    """Déclenche une sauvegarde immédiate (VACUUM INTO + rotation)."""
+    from scripts.db_maintenance import run_backup
+
+    report = await asyncio.to_thread(run_backup)
+    if not report.get("ok"):
+        raise HTTPException(500, report.get("error", "Sauvegarde échouée"))
+    return report
+
+
+@app.post("/api/maintenance/run")
+async def api_maintenance_run():
+    """Purge de rétention + optimisation FTS/WAL immédiates."""
+    from scripts.db_maintenance import run_maintenance
+
+    try:
+        return await asyncio.to_thread(run_maintenance)
+    except Exception as e:
+        logger.exception("run_maintenance : %s", e)
+        raise HTTPException(500, "Maintenance échouée") from e
 
 
 @app.get("/api/memory")

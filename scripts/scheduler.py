@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime
 
@@ -136,6 +137,40 @@ def _parse_hh_mm(s: str) -> tuple[int, int]:
         return 7, 30
 
 
+async def _db_backup_job():
+    """Sauvegarde SQLite quotidienne (04:15)."""
+    if not config.BACKUP_ENABLED:
+        return
+    try:
+        from scripts.db_maintenance import run_backup
+
+        report = await asyncio.to_thread(run_backup)
+        if not report.get("ok"):
+            logger.error("[scheduler] backup : %s", report.get("error"))
+    except Exception as e:
+        logger.exception("[scheduler] db_backup : %s", e)
+
+
+async def _db_maintenance_job():
+    """Purge de rétention + optimisation (dimanche 04:45)."""
+    try:
+        from scripts.db_maintenance import run_maintenance
+
+        await asyncio.to_thread(run_maintenance)
+    except Exception as e:
+        logger.exception("[scheduler] db_maintenance : %s", e)
+
+
+async def _llm_budget_job():
+    """Vérification du budget LLM mensuel (21:30)."""
+    try:
+        from scripts.db_maintenance import check_llm_budget
+
+        await asyncio.to_thread(check_llm_budget)
+    except Exception as e:
+        logger.exception("[scheduler] llm_budget : %s", e)
+
+
 def setup_scheduler() -> None:
     """Enregistre les jobs (idempotent avec replace_existing)."""
     h, m = _parse_hh_mm(config.MORNING_BRIEFING_TIME)
@@ -183,11 +218,30 @@ def setup_scheduler() -> None:
         id="relationship_analysis_daily",
         replace_existing=True,
     )
+    scheduler.add_job(
+        _db_backup_job,
+        CronTrigger(hour=4, minute=15),
+        id="db_backup",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        _db_maintenance_job,
+        CronTrigger(day_of_week="sun", hour=4, minute=45),
+        id="db_maintenance",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        _llm_budget_job,
+        CronTrigger(hour=21, minute=30),
+        id="llm_budget",
+        replace_existing=True,
+    )
 
     logger.info(
-        "[scheduler] 7 jobs enregistrés (briefing %02d:%02d, résumé soir %02d:%02d, "
+        "[scheduler] 10 jobs enregistrés (briefing %02d:%02d, résumé soir %02d:%02d, "
         "hebdo dim 20:00, overdue chaque heure, analyse géo 23:00, "
-        "alertes relationnelles /6h, analyse relationnelle 3:00)",
+        "alertes relationnelles /6h, analyse relationnelle 3:00, "
+        "backup 4:15, maintenance dim 4:45, budget LLM 21:30)",
         h, m, eh, em,
     )
 

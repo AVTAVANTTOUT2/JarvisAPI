@@ -740,6 +740,9 @@ Le fichier `database/schema.sql` contient toutes les tables. Les voici regroupé
 - `POST /api/memory` → modifier le life profile
 - `GET /api/status` → stats d'utilisation, agents actifs, coûts
 - `GET /api/stats/weekly?days=7` → série d'activité quotidienne (messages, vocal, tokens, coût) + variations jour/jour + totaux
+- `GET /api/costs` → dépenses LLM (jour / 7j / mois, par modèle) + budget configuré
+- `GET /api/backups`, `POST /api/backups/run` → sauvegardes SQLite (VACUUM INTO, rotation `BACKUP_KEEP`, job 04:15)
+- `POST /api/maintenance/run` → purge de rétention (screen/location/logs/notifs lues) + optimisation FTS/WAL (job dim 04:45)
 - `GET /api/journal` → historique du journal
 - `POST /api/journal` → nouvelle entrée journal
 

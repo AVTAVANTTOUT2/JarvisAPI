@@ -416,6 +416,12 @@ class JarvisDaemon:
             if not text or not str(text).strip():
                 continue
 
+            # Heures calmes : JARVIS ne parle pas la nuit en mode veille.
+            # Les notifications restent en base ; seule la voix est coupée.
+            if self.mode == "veille" and config.is_quiet_hours():
+                logger.info("[daemon] heures calmes — TTS ignoré : %s", str(text)[:50])
+                continue
+
             if self.mode == "veille":
                 now = time.time()
                 elapsed = now - self.last_tts_time

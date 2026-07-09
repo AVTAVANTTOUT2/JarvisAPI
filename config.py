@@ -198,6 +198,50 @@ LOOP_MAX_CONSECUTIVE_FAILURES = int(_get("LOOP_MAX_CONSECUTIVE_FAILURES", "3"))
 LOOP_MODEL = _get("LOOP_MODEL", "") or DEEPSEEK_MAIN_MODEL
 LOOP_DECISION_MODEL = _get("LOOP_DECISION_MODEL", "") or DEEPSEEK_FAST_MODEL
 
+# ── Fiabilité — sauvegardes, rétention, budget LLM, heures calmes ──
+BACKUP_ENABLED = _get("BACKUP_ENABLED", "true").lower() == "true"
+BACKUP_DIR = _get("BACKUP_DIR", "./data/backups")
+BACKUP_KEEP = int(_get("BACKUP_KEEP", "7"))            # nb de sauvegardes conservées
+
+# Rétention des tables volumineuses (jours). 0 = conserver indéfiniment.
+RETENTION_SCREEN_DAYS = int(_get("RETENTION_SCREEN_DAYS", "30"))
+RETENTION_LOCATION_DAYS = int(_get("RETENTION_LOCATION_DAYS", "90"))
+RETENTION_NOTIF_READ_DAYS = int(_get("RETENTION_NOTIF_READ_DAYS", "60"))
+RETENTION_LLM_LOGS_DAYS = int(_get("RETENTION_LLM_LOGS_DAYS", "90"))
+
+# Budget LLM mensuel en dollars. 0 = pas d'alerte.
+LLM_BUDGET_MONTHLY = float(_get("LLM_BUDGET_MONTHLY", "20"))
+LLM_BUDGET_ALERT_PCT = int(_get("LLM_BUDGET_ALERT_PCT", "80"))
+
+# Heures calmes : pas de TTS daemon ni d'iMessage proactif dans la plage.
+# Format "HH:MM" ; les deux vides = désactivé. Gère les plages nocturnes
+# (23:30 → 07:00). Les notifications restent enregistrées en base.
+QUIET_HOURS_START = _get("QUIET_HOURS_START", "")
+QUIET_HOURS_END = _get("QUIET_HOURS_END", "")
+
+
+def is_quiet_hours(now=None) -> bool:
+    """True si l'heure courante tombe dans la plage d'heures calmes."""
+    import datetime as _dt
+
+    if not QUIET_HOURS_START or not QUIET_HOURS_END:
+        return False
+    try:
+        sh, sm = (int(x) for x in QUIET_HOURS_START.split(":"))
+        eh, em = (int(x) for x in QUIET_HOURS_END.split(":"))
+    except (ValueError, AttributeError):
+        return False
+    now = now or _dt.datetime.now()
+    cur = now.hour * 60 + now.minute
+    start = sh * 60 + sm
+    end = eh * 60 + em
+    if start == end:
+        return False
+    if start < end:                     # plage diurne (13:00 → 14:00)
+        return start <= cur < end
+    return cur >= start or cur < end    # plage nocturne (23:30 → 07:00)
+
+
 # ── Mapping modèles par agent ───────────────────────────────
 AGENT_MODELS = {
     "orchestrator": DEEPSEEK_FAST_MODEL,

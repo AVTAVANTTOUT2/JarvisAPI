@@ -2439,6 +2439,50 @@ def get_usage_stats() -> dict:
         return dict(row)
 
 
+def get_cost_summary() -> dict:
+    """Dépenses LLM : aujourd'hui, 7 derniers jours, mois en cours, par modèle.
+
+    Sert /api/costs et l'alerte budget. Les montants viennent de
+    messages.cost (calculé à chaque appel par llm.estimate_cost).
+    """
+    from datetime import timedelta
+
+    now = datetime.now()
+    today = now.strftime("%Y-%m-%d")
+    week_start = (now.date() - timedelta(days=6)).isoformat()
+    month_start = now.strftime("%Y-%m-01")
+    with get_db() as conn:
+        def _agg(where: str, params: tuple) -> dict:
+            row = conn.execute(
+                f"""SELECT COUNT(*) AS msg_count,
+                           COALESCE(SUM(cost), 0) AS cost,
+                           COALESCE(SUM(tokens_in), 0) AS tokens_in,
+                           COALESCE(SUM(tokens_out), 0) AS tokens_out
+                    FROM messages WHERE {where}""",
+                params,
+            ).fetchone()
+            return dict(row)
+
+        by_model = [dict(r) for r in conn.execute(
+            """SELECT COALESCE(model, 'inconnu') AS model,
+                      COUNT(*) AS msg_count,
+                      COALESCE(SUM(cost), 0) AS cost
+               FROM messages
+               WHERE DATE(created_at) >= ? AND model IS NOT NULL
+               GROUP BY COALESCE(model, 'inconnu')
+               ORDER BY cost DESC""",
+            (month_start,),
+        )]
+        return {
+            "today": _agg("DATE(created_at) = ?", (today,)),
+            "last_7_days": _agg("DATE(created_at) >= ?", (week_start,)),
+            "month": _agg("DATE(created_at) >= ?", (month_start,)),
+            "by_model_month": by_model,
+            "budget_monthly": config.LLM_BUDGET_MONTHLY,
+            "budget_alert_pct": config.LLM_BUDGET_ALERT_PCT,
+        }
+
+
 def get_daily_activity_stats(days: int = 7) -> list[dict]:
     """Activité agrégée par jour sur les `days` derniers jours (plus ancien en premier).
 

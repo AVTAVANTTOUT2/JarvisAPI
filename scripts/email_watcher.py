@@ -389,14 +389,18 @@ class EmailWatcher:
             except Exception as e:
                 logger.error(f"[email_watcher] create_task (request) : {e}")
 
-        # 4. Alerte iMessage
-        display_name = from_name or sender_short
-        imsg = f"Mail de {display_name} : {summary}"
-        if amount:
-            imsg += f" — {amount}"
-        if deadline:
-            imsg += f" — avant le {deadline}"
-        await self._send_imessage_alert(imsg)
+        # 4. Alerte iMessage — supprimée pendant les heures calmes
+        #    (la notification reste en base et dans l'UI).
+        if config.is_quiet_hours():
+            logger.info("[email_watcher] heures calmes — iMessage non envoyé : %s", subject[:60])
+        else:
+            display_name = from_name or sender_short
+            imsg = f"Mail de {display_name} : {summary}"
+            if amount:
+                imsg += f" — {amount}"
+            if deadline:
+                imsg += f" — avant le {deadline}"
+            await self._send_imessage_alert(imsg)
 
         # Note : le contenu intégral + résumé est déjà en DB via save_email_full
         # (appelé avant la branche notify/ignore). Pas besoin d'upsert_email_summary.
