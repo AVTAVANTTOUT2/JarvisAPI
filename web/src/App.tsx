@@ -1,21 +1,40 @@
+import { Suspense, lazy, type ReactNode } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { BigBrotherLayout } from '@/app/components/layout/BigBrotherLayout';
-import { Dashboard } from '@/app/components/views/Dashboard';
-import { ContactsView } from '@/app/components/views/ContactsView';
 import { ChatView } from '@/app/components/views/ChatView';
-import { CalendarView } from '@/app/components/views/CalendarView';
-import { MapView } from '@/app/components/views/MapView';
-import { DocumentsView } from '@/app/components/views/DocumentsView';
-import { AnalyticsView } from '@/app/components/views/AnalyticsView';
-import { SearchView } from '@/app/components/views/SearchView';
-import { DataView } from '@/app/components/views/DataView';
-import { LogsView } from '@/app/components/views/LogsView';
-import { VoiceView } from '@/app/components/views/VoiceView';
-import { MonitoringView } from '@/app/components/views/MonitoringView';
-import ControlView from '@/app/components/views/ControlView';
-import TasksView from '@/app/components/views/TasksView';
-import VoiceDebugView from '@/app/components/views/VoiceDebugView';
-import MissionControl from '@/pages/MissionControl';
+
+// Lazy-loading : chaque vue devient un chunk séparé — recharts et les vues
+// lourdes ne sont téléchargés qu'à la première navigation. ChatView reste
+// eager : c'est la route par défaut.
+const Dashboard = lazy(() => import('@/app/components/views/Dashboard').then(m => ({ default: m.Dashboard })));
+const ContactsView = lazy(() => import('@/app/components/views/ContactsView').then(m => ({ default: m.ContactsView })));
+const CalendarView = lazy(() => import('@/app/components/views/CalendarView').then(m => ({ default: m.CalendarView })));
+const MapView = lazy(() => import('@/app/components/views/MapView').then(m => ({ default: m.MapView })));
+const DocumentsView = lazy(() => import('@/app/components/views/DocumentsView').then(m => ({ default: m.DocumentsView })));
+const AnalyticsView = lazy(() => import('@/app/components/views/AnalyticsView').then(m => ({ default: m.AnalyticsView })));
+const SearchView = lazy(() => import('@/app/components/views/SearchView').then(m => ({ default: m.SearchView })));
+const DataView = lazy(() => import('@/app/components/views/DataView').then(m => ({ default: m.DataView })));
+const LogsView = lazy(() => import('@/app/components/views/LogsView').then(m => ({ default: m.LogsView })));
+const VoiceView = lazy(() => import('@/app/components/views/VoiceView').then(m => ({ default: m.VoiceView })));
+const MonitoringView = lazy(() => import('@/app/components/views/MonitoringView').then(m => ({ default: m.MonitoringView })));
+const ControlView = lazy(() => import('@/app/components/views/ControlView'));
+const TasksView = lazy(() => import('@/app/components/views/TasksView'));
+const VoiceDebugView = lazy(() => import('@/app/components/views/VoiceDebugView'));
+const MissionControl = lazy(() => import('@/pages/MissionControl'));
+
+function S({ children }: { children: ReactNode }) {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center h-full min-h-[40vh] text-sm text-muted-foreground font-mono">
+          Chargement…
+        </div>
+      }
+    >
+      {children}
+    </Suspense>
+  );
+}
 
 export default function App() {
   return (
@@ -24,21 +43,21 @@ export default function App() {
         <Route path="/" element={<BigBrotherLayout />}>
           <Route index element={<Navigate to="/chat" replace />} />
           <Route path="chat" element={<ChatView />} />
-          <Route path="dashboard" element={<Dashboard />} />
-          <Route path="contacts" element={<ContactsView />} />
-          <Route path="calendar" element={<CalendarView />} />
-          <Route path="map" element={<MapView />} />
-          <Route path="documents" element={<DocumentsView />} />
-          <Route path="analytics" element={<AnalyticsView />} />
-          <Route path="search" element={<SearchView />} />
-          <Route path="data" element={<DataView />} />
-          <Route path="logs" element={<LogsView />} />
-          <Route path="voice" element={<VoiceView />} />
-          <Route path="monitoring" element={<MonitoringView />} />
-          <Route path="control" element={<ControlView />} />
-          <Route path="tasks" element={<TasksView />} />
-          <Route path="voice-debug" element={<VoiceDebugView />} />
-          <Route path="mission" element={<MissionControl />} />
+          <Route path="dashboard" element={<S><Dashboard /></S>} />
+          <Route path="contacts" element={<S><ContactsView /></S>} />
+          <Route path="calendar" element={<S><CalendarView /></S>} />
+          <Route path="map" element={<S><MapView /></S>} />
+          <Route path="documents" element={<S><DocumentsView /></S>} />
+          <Route path="analytics" element={<S><AnalyticsView /></S>} />
+          <Route path="search" element={<S><SearchView /></S>} />
+          <Route path="data" element={<S><DataView /></S>} />
+          <Route path="logs" element={<S><LogsView /></S>} />
+          <Route path="voice" element={<S><VoiceView /></S>} />
+          <Route path="monitoring" element={<S><MonitoringView /></S>} />
+          <Route path="control" element={<S><ControlView /></S>} />
+          <Route path="tasks" element={<S><TasksView /></S>} />
+          <Route path="voice-debug" element={<S><VoiceDebugView /></S>} />
+          <Route path="mission" element={<S><MissionControl /></S>} />
           <Route path="*" element={<Navigate to="/chat" replace />} />
         </Route>
       </Routes>

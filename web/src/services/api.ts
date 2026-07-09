@@ -43,6 +43,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
 export const api = {
   getStatus: () => request('/api/status'),
+  getWeeklyStats: (days = 7) => request<WeeklyStats>(`/api/stats/weekly?days=${days}`),
   getIntegrations: () => request('/api/integrations'),
 
   getTTSSetting: () => request<{ engine: string }>('/api/settings/tts'),
@@ -363,6 +364,32 @@ export const api = {
       `/api/supervisor/sub/${encodeURIComponent(id)}/${encodeURIComponent(action)}`,
       { method: 'POST' },
     ),
+}
+
+export interface DailyActivity {
+  date: string
+  msg_count: number
+  voice_count: number
+  tokens_in: number
+  tokens_out: number
+  cost: number
+}
+
+export interface WeeklyStats {
+  days: DailyActivity[]
+  change: {
+    messages_pct: number | null
+    voice_pct: number | null
+    interactions_pct: number | null
+    cost_pct: number | null
+  }
+  totals: {
+    msg_count: number
+    voice_count: number
+    tokens_in: number
+    tokens_out: number
+    cost: number
+  }
 }
 
 export interface ServiceInfo {

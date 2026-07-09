@@ -2325,7 +2325,7 @@ def get_usage_stats() -> dict:
     with get_db() as conn:
         today = datetime.now().strftime("%Y-%m-%d")
         row = conn.execute(
-            """SELECT COUNT(*) as msg_count, 
+            """SELECT COUNT(*) as msg_count,
                       COALESCE(SUM(tokens_in), 0) as total_in,
                       COALESCE(SUM(tokens_out), 0) as total_out,
                       COALESCE(SUM(cost), 0) as total_cost
@@ -2333,6 +2333,43 @@ def get_usage_stats() -> dict:
             (today,)
         ).fetchone()
         return dict(row)
+
+
+def get_daily_activity_stats(days: int = 7) -> list[dict]:
+    """Activité agrégée par jour sur les `days` derniers jours (plus ancien en premier).
+
+    Chaque entrée : {date, msg_count, voice_count, tokens_in, tokens_out, cost}.
+    Les jours sans activité sont présents avec des compteurs à zéro, pour que
+    les séries temporelles côté UI soient continues.
+    """
+    from datetime import timedelta
+
+    days = max(1, min(days, 90))
+    today = datetime.now().date()
+    start = (today - timedelta(days=days - 1)).isoformat()
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT DATE(m.created_at) AS date,
+                      COUNT(*) AS msg_count,
+                      COALESCE(SUM(CASE WHEN c.agent = 'voice' THEN 1 ELSE 0 END), 0) AS voice_count,
+                      COALESCE(SUM(m.tokens_in), 0) AS tokens_in,
+                      COALESCE(SUM(m.tokens_out), 0) AS tokens_out,
+                      COALESCE(SUM(m.cost), 0) AS cost
+               FROM messages m
+               LEFT JOIN conversations c ON c.id = m.conversation_id
+               WHERE DATE(m.created_at) >= ?
+               GROUP BY DATE(m.created_at)""",
+            (start,),
+        ).fetchall()
+    by_date = {r["date"]: dict(r) for r in rows}
+    out: list[dict] = []
+    for i in range(days - 1, -1, -1):
+        d = (today - timedelta(days=i)).isoformat()
+        out.append(by_date.get(d, {
+            "date": d, "msg_count": 0, "voice_count": 0,
+            "tokens_in": 0, "tokens_out": 0, "cost": 0.0,
+        }))
+    return out
 
 
 # ═══════════════════════════════════════════════════════════

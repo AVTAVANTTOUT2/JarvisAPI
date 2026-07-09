@@ -3,36 +3,28 @@ import { TrendingUp, TrendingDown, MessageSquare, MapPin, Users, Activity, Clock
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from 'recharts';
 import { api } from '@/services/api';
 import type { ApiPerson, NotificationItem } from '@/app/types/jarvis';
-import type { DeviceInfo, AudioDaemonStatus } from '@/services/api';
+import type { DeviceInfo, AudioDaemonStatus, WeeklyStats } from '@/services/api';
 import { formatRelativeTime } from '@/app/lib/timeFormat';
 
-// TODO: remplacer par /api/stats/weekly ou série agrégée côté backend quand disponible
-const messageData = [
-  { name: 'Lun', messages: 45, calls: 12 },
-  { name: 'Mar', messages: 52, calls: 19 },
-  { name: 'Mer', messages: 38, calls: 8 },
-  { name: 'Jeu', messages: 65, calls: 22 },
-  { name: 'Ven', messages: 72, calls: 28 },
-  { name: 'Sam', messages: 34, calls: 15 },
-  { name: 'Dim', messages: 28, calls: 10 },
-];
+const DAY_LABELS = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
 
-// TODO: variation % depuis API tendance quotidienne | valeurs mock conservées pour le design
-const STAT_CHANGE_MOCK = [
-  { change: '+12.5%', changeType: 'up' as const },
-  { change: '+8.2%', changeType: 'up' as const },
-  { change: '+15.3%', changeType: 'up' as const },
-  { change: '-2.1%', changeType: 'down' as const },
-];
+/** '2026-07-09' → 'Jeu' (fuseau local, pas d'UTC shift). */
+function frDayLabel(isoDate: string): string {
+  const d = new Date(`${isoDate}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? isoDate : DAY_LABELS[d.getDay()]!;
+}
 
-// TODO: tendance réelle par contact quand endpoint disponible
-const TOP_CONTACT_TREND_MOCK = [12, 8, -3, 15, 5];
+/** 12.5 → '+12.5%' ; null (pas d'historique) → undefined (badge masqué). */
+function pctLabel(pct: number | null | undefined): string | undefined {
+  if (pct == null) return undefined;
+  return `${pct > 0 ? '+' : ''}${pct}%`;
+}
 
 interface StatCardProps {
   title: string;
   value: string;
-  change: string;
-  changeType: 'up' | 'down';
+  change?: string;
+  changeType?: 'up' | 'down';
   icon: ElementType;
   delay?: number;
 }
@@ -53,16 +45,18 @@ function StatCard({ title, value, change, changeType, icon: Icon, delay = 0 }: S
         }`}>
           <Icon className="w-6 h-6 text-white" />
         </div>
-        <div className={`flex items-center gap-1 px-2 py-1 rounded-lg ${
-          changeType === 'up' ? 'text-white bg-white/10' : 'text-gray-400 bg-white/5'
-        }`}>
-          {changeType === 'up' ? (
-            <TrendingUp className="w-4 h-4" />
-          ) : (
-            <TrendingDown className="w-4 h-4" />
-          )}
-          <span className="text-sm font-mono">{change}</span>
-        </div>
+        {change !== undefined && (
+          <div className={`flex items-center gap-1 px-2 py-1 rounded-lg ${
+            changeType === 'up' ? 'text-white bg-white/10' : 'text-gray-400 bg-white/5'
+          }`}>
+            {changeType === 'up' ? (
+              <TrendingUp className="w-4 h-4" />
+            ) : (
+              <TrendingDown className="w-4 h-4" />
+            )}
+            <span className="text-sm font-mono">{change}</span>
+          </div>
+        )}
       </div>
       <div className="space-y-1">
         <p className="text-sm text-muted-foreground">{title}</p>
@@ -111,6 +105,7 @@ export function Dashboard() {
   const [topPeople, setTopPeople] = useState<ApiPerson[]>([]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [activityRadar, setActivityRadar] = useState<{ subject: string; A: number; fullMark: number }[]>([]);
+  const [weekly, setWeekly] = useState<WeeklyStats | null>(null);
   const [devices, setDevices] = useState<DeviceInfo[]>([]);
   const [activeDevice, setActiveDevice] = useState<DeviceInfo | null>(null);
   const [daemon, setDaemon] = useState<AudioDaemonStatus>({
@@ -121,17 +116,19 @@ export function Dashboard() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [st, peopleR, placesR, notifR, devR, daemonR] = await Promise.all([
+      const [st, peopleR, placesR, notifR, weeklyR, devR, daemonR] = await Promise.all([
         api.getStatus() as Promise<{ today?: { msg_count?: number; total_in?: number; total_out?: number } }>,
         api.getPeople(),
         api.getPlaces() as Promise<{ places?: unknown[] }>,
         api.getNotifications(),
+        api.getWeeklyStats().catch(() => null),
         api.getDevices().catch(() => ({ devices: [], active: null })),
         api.getAudioDaemonStatus().catch(() => ({
           enabled: false, state: 'idle' as const, wake_word_enabled: false,
           continuous_mode: false, last_interaction: 0, stt_engine: 'none', tts_engine: 'macos', has_porcupine: false,
         })),
       ]);
+      setWeekly(weeklyR);
       setDevices(devR?.devices ?? []);
       setActiveDevice(devR?.active ?? null);
       setDaemon(daemonR);
@@ -171,6 +168,13 @@ export function Dashboard() {
   }, [load]);
 
   const interactions = tokensIn + tokensOut;
+  const messageData = (weekly?.days ?? []).map(d => ({
+    name: frDayLabel(d.date),
+    messages: d.msg_count,
+    calls: d.voice_count,
+  }));
+  const messagesChange = pctLabel(weekly?.change.messages_pct);
+  const interactionsChange = pctLabel(weekly?.change.interactions_pct);
   const radarScorePct =
     activityRadar.length > 0
       ? Math.round(
@@ -191,32 +195,28 @@ export function Dashboard() {
         <StatCard
           title="Messages Total"
           value={loading ? '…' : String(msgCount)}
-          change={STAT_CHANGE_MOCK[0]!.change}
-          changeType={STAT_CHANGE_MOCK[0]!.changeType}
+          change={messagesChange}
+          changeType={(weekly?.change.messages_pct ?? 0) >= 0 ? 'up' : 'down'}
           icon={MessageSquare}
           delay={0}
         />
         <StatCard
           title="Contacts Actifs"
           value={loading ? '…' : String(peopleCount)}
-          change={STAT_CHANGE_MOCK[1]!.change}
-          changeType={STAT_CHANGE_MOCK[1]!.changeType}
           icon={Users}
           delay={100}
         />
         <StatCard
           title="Lieux Visités"
           value={loading ? '…' : String(placesCount)}
-          change={STAT_CHANGE_MOCK[2]!.change}
-          changeType={STAT_CHANGE_MOCK[2]!.changeType}
           icon={MapPin}
           delay={200}
         />
         <StatCard
           title="Interactions"
           value={loading ? '…' : interactions.toLocaleString()}
-          change={STAT_CHANGE_MOCK[3]!.change}
-          changeType={STAT_CHANGE_MOCK[3]!.changeType}
+          change={interactionsChange}
+          changeType={(weekly?.change.interactions_pct ?? 0) >= 0 ? 'up' : 'down'}
           icon={Activity}
           delay={300}
         />
@@ -242,6 +242,9 @@ export function Dashboard() {
               </div>
             </div>
           </div>
+          {!loading && messageData.length === 0 && (
+            <p className="text-sm text-muted-foreground py-10 text-center">Statistiques indisponibles.</p>
+          )}
           <ResponsiveContainer width="100%" height={300}>
             <AreaChart data={messageData}>
               <defs>
@@ -346,9 +349,7 @@ export function Dashboard() {
                 <div className="flex-1 min-w-0">
                   <p className="truncate">{contact.name}</p>
                   <p className="text-sm text-muted-foreground font-mono">
-                    {(contact.message_count ?? 0).toLocaleString()} msgs ·{' '}
-                    {TOP_CONTACT_TREND_MOCK[index] !== undefined && TOP_CONTACT_TREND_MOCK[index]! > 0 ? '+' : ''}
-                    {TOP_CONTACT_TREND_MOCK[index]}% · {formatRelativeTime(contact.last_mentioned)} · {contact.relationship || '—'}
+                    {(contact.message_count ?? 0).toLocaleString()} msgs · {formatRelativeTime(contact.last_mentioned)} · {contact.relationship || '—'}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">

@@ -739,6 +739,7 @@ Le fichier `database/schema.sql` contient toutes les tables. Les voici regroupé
 - `GET /api/memory` → life profile + people
 - `POST /api/memory` → modifier le life profile
 - `GET /api/status` → stats d'utilisation, agents actifs, coûts
+- `GET /api/stats/weekly?days=7` → série d'activité quotidienne (messages, vocal, tokens, coût) + variations jour/jour + totaux
 - `GET /api/journal` → historique du journal
 - `POST /api/journal` → nouvelle entrée journal
 

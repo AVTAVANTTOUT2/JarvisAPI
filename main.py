@@ -93,6 +93,7 @@ from database import (
     get_conversation_history,
     get_conversations,
     get_current_screen_context,
+    get_daily_activity_stats,
     get_last_conversation_summary,
     get_life_profile,
     get_life_profile_entries,
@@ -981,6 +982,45 @@ async def api_status():
         "location": loc_payload,
         "audio_daemon": _audio_daemon_status_payload(),
     }
+
+
+@app.get("/api/stats/weekly")
+async def api_stats_weekly(days: int = 7):
+    """Série d'activité quotidienne (messages, échanges vocaux, tokens, coût).
+
+    Retourne aussi la variation jour/jour (dernier jour vs avant-dernier) pour
+    les cartes de tendance du dashboard. `days` borné à [2, 90].
+    """
+    days = max(2, min(days, 90))
+    try:
+        daily = get_daily_activity_stats(days)
+    except Exception as e:
+        logger.error("get_daily_activity_stats : %s", e)
+        raise HTTPException(500, "Statistiques indisponibles") from e
+
+    def _pct(cur: float, prev: float) -> float | None:
+        if prev <= 0:
+            return None
+        return round((cur - prev) / prev * 100, 1)
+
+    last, prev = daily[-1], daily[-2]
+    change = {
+        "messages_pct": _pct(last["msg_count"], prev["msg_count"]),
+        "voice_pct": _pct(last["voice_count"], prev["voice_count"]),
+        "interactions_pct": _pct(
+            last["tokens_in"] + last["tokens_out"],
+            prev["tokens_in"] + prev["tokens_out"],
+        ),
+        "cost_pct": _pct(last["cost"], prev["cost"]),
+    }
+    totals = {
+        "msg_count": sum(d["msg_count"] for d in daily),
+        "voice_count": sum(d["voice_count"] for d in daily),
+        "tokens_in": sum(d["tokens_in"] for d in daily),
+        "tokens_out": sum(d["tokens_out"] for d in daily),
+        "cost": round(sum(d["cost"] for d in daily), 6),
+    }
+    return {"days": daily, "change": change, "totals": totals}
 
 
 @app.get("/api/memory")
