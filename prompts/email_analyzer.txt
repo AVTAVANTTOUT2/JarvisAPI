@@ -17,11 +17,16 @@ Réponds UNIQUEMENT avec ce JSON, rien d'autre :
 {
   "notify": true,
   "reason": "payment",
+  "urgent": false,
   "summary": "résumé en 1 phrase courte",
   "amount": "montant si paiement, sinon null",
   "from_name": "nom de la personne si demande, sinon null",
   "action_needed": "ce que l'utilisateur doit faire, ou null",
   "deadline": "YYYY-MM-DD si deadline détectée, sinon null"
 }
+
+"urgent": true UNIQUEMENT si l'email exige une action sous 48h : deadline imminente,
+mise en demeure, dernier rappel avant pénalité, rendez-vous à confirmer aujourd'hui ou
+demain, coupure de service annoncée. Un paiement sans échéance proche n'est PAS urgent.
 
 Si tu hésites : ignore. Mieux vaut manquer un mail que déranger pour rien.

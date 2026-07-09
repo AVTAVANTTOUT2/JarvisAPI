@@ -297,6 +297,20 @@ end tell'''
             logger.error(f"[Mail] mark_read({msg_id}) : {e}")
             return False
 
+    async def flag_message(self, msg_id: str) -> bool:
+        """Pose un drapeau (flag rouge) sur un message — mails urgents."""
+        safe_id = int(msg_id) if str(msg_id).isdigit() else msg_id
+        script = f'''tell application "Mail"
+    set flagged status of (first message of inbox whose id is {safe_id}) to true
+end tell'''
+        loop = asyncio.get_event_loop()
+        try:
+            result = await loop.run_in_executor(None, self._run_applescript, script)
+            return result is not None
+        except Exception as e:
+            logger.error(f"[Mail] flag_message({msg_id}) : {e}")
+            return False
+
     async def send(self, to: str, subject: str, body: str) -> dict | None:
         """Envoie un email via Mail.app. Retourne {status} ou None."""
         escaped_subject = self._escape(subject)

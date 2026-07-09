@@ -269,6 +269,19 @@
     $("#cost-model").textContent = d?.data?.models?.main||"---";
   }
 
+  async function renderRituals() {
+    const d = await fetchJSON("/api/rituals");
+    if (!d || !d.ok) {
+      $("#prod-score").textContent = "--";
+      $("#prod-label").textContent = "---";
+      $("#quote-text").textContent = "---";
+      return;
+    }
+    $("#prod-score").textContent = d.score != null ? d.score : "--";
+    $("#prod-label").textContent = d.label || "---";
+    $("#quote-text").textContent = d.quote || "---";
+  }
+
   // ═══════════════════════════════════════════════════════
   // VOICE OVERLAY (SSE)
   // ═══════════════════════════════════════════════════════
@@ -340,6 +353,7 @@
     poll(renderMachines,  60_000);
     poll(renderMood,     300_000);
     poll(renderCost,      60_000);
+    poll(renderRituals,  600_000);
     connectSSE();
   }
 

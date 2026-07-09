@@ -171,6 +171,64 @@ async def _llm_budget_job():
         logger.exception("[scheduler] llm_budget : %s", e)
 
 
+async def _roast_job():
+    """Roast quotidien des tâches non faites."""
+    if not config.RITUALS_ENABLED:
+        return
+    try:
+        from scripts.rituals import daily_roast
+
+        await daily_roast()
+    except Exception as e:
+        logger.exception("[scheduler] roast : %s", e)
+
+
+async def _debrief_job():
+    """Debrief du soir (résumé + ratés) + score productivité figé."""
+    if not config.RITUALS_ENABLED:
+        return
+    try:
+        from scripts.rituals import evening_debrief
+
+        await evening_debrief()
+    except Exception as e:
+        logger.exception("[scheduler] debrief : %s", e)
+
+
+async def _quote_job():
+    """Citation ironique du jour (widget TV)."""
+    if not config.RITUALS_ENABLED:
+        return
+    try:
+        from scripts.rituals import daily_quote
+
+        await daily_quote()
+    except Exception as e:
+        logger.exception("[scheduler] quote : %s", e)
+
+
+async def _birthday_job():
+    """Anniversaires des contacts du jour."""
+    if not config.RITUALS_ENABLED:
+        return
+    try:
+        from scripts.rituals import check_birthdays
+
+        await asyncio.to_thread(check_birthdays)
+    except Exception as e:
+        logger.exception("[scheduler] birthdays : %s", e)
+
+
+async def _coffee_break_job():
+    """Alerte pause café si activité écran continue trop longue."""
+    try:
+        from scripts.rituals import check_coffee_break
+
+        await asyncio.to_thread(check_coffee_break)
+    except Exception as e:
+        logger.exception("[scheduler] coffee_break : %s", e)
+
+
 def setup_scheduler() -> None:
     """Enregistre les jobs (idempotent avec replace_existing)."""
     h, m = _parse_hh_mm(config.MORNING_BRIEFING_TIME)
@@ -237,12 +295,39 @@ def setup_scheduler() -> None:
         replace_existing=True,
     )
 
+    rh, rm = _parse_hh_mm(config.ROAST_TIME)
+    scheduler.add_job(
+        _roast_job, CronTrigger(hour=rh, minute=rm),
+        id="daily_roast", replace_existing=True,
+    )
+    dh, dm = _parse_hh_mm(config.DEBRIEF_TIME)
+    scheduler.add_job(
+        _debrief_job, CronTrigger(hour=dh, minute=dm),
+        id="evening_debrief", replace_existing=True,
+    )
+    qh, qm = _parse_hh_mm(config.QUOTE_TIME)
+    scheduler.add_job(
+        _quote_job, CronTrigger(hour=qh, minute=qm),
+        id="daily_quote", replace_existing=True,
+    )
+    bh, bm = _parse_hh_mm(config.BIRTHDAY_CHECK_TIME)
+    scheduler.add_job(
+        _birthday_job, CronTrigger(hour=bh, minute=bm),
+        id="birthday_check", replace_existing=True,
+    )
+    scheduler.add_job(
+        _coffee_break_job, CronTrigger(hour="9-22", minute="*/20"),
+        id="coffee_break", replace_existing=True,
+    )
+
     logger.info(
-        "[scheduler] 10 jobs enregistrés (briefing %02d:%02d, résumé soir %02d:%02d, "
+        "[scheduler] 15 jobs enregistrés (briefing %02d:%02d, résumé soir %02d:%02d, "
         "hebdo dim 20:00, overdue chaque heure, analyse géo 23:00, "
         "alertes relationnelles /6h, analyse relationnelle 3:00, "
-        "backup 4:15, maintenance dim 4:45, budget LLM 21:30)",
+        "backup 4:15, maintenance dim 4:45, budget LLM 21:30, "
+        "roast %s, debrief %s, citation %s, anniversaires %s, pause café /20min 9-22h)",
         h, m, eh, em,
+        config.ROAST_TIME, config.DEBRIEF_TIME, config.QUOTE_TIME, config.BIRTHDAY_CHECK_TIME,
     )
 
 

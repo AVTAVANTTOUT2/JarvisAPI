@@ -709,6 +709,8 @@ Le fichier `database/schema.sql` contient toutes les tables. Les voici regroupé
 - `GET /api/costs` → dépenses LLM (jour / 7j / mois, par modèle) + budget configuré
 - `GET /api/backups`, `POST /api/backups/run` → sauvegardes SQLite (VACUUM INTO, rotation `BACKUP_KEEP`, job 04:15)
 - `POST /api/maintenance/run` → purge de rétention (screen/location/logs/notifs lues) + optimisation FTS/WAL (job dim 04:45)
+- `GET /api/rituals/today`, `POST /api/rituals/{roast|debrief|quote}/run` → rituels quotidiens (table `daily_rituals`, jobs 18:30 / 21:45 / 07:00)
+- `GET /api/productivity/score` → score hebdo déterministe 0-100 (50 + 8×faites − 12×en retard) ; widget TV `/api/rituals` côté serveur TV
 - `GET /api/journal` → historique du journal
 - `POST /api/journal` → nouvelle entrée journal
 

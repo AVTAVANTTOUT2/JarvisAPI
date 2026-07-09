@@ -31,6 +31,7 @@ import config
 import llm
 from actions import execute_action
 from agents import get_agent, register_agent
+from agents import easter_eggs
 from agents.coach import coach_agent
 from agents.info import info_agent
 from agents.journal import journal_agent
@@ -1067,6 +1068,51 @@ async def api_maintenance_run():
     except Exception as e:
         logger.exception("run_maintenance : %s", e)
         raise HTTPException(500, "Maintenance échouée") from e
+
+
+@app.get("/api/rituals/today")
+async def api_rituals_today():
+    """Rituels du jour : roast, debrief, citation, score productivité."""
+    from scripts.rituals import compute_productivity_score
+
+    from database import get_daily_ritual
+
+    row = get_daily_ritual(datetime.now().strftime("%Y-%m-%d")) or {}
+    return {
+        "date": datetime.now().strftime("%Y-%m-%d"),
+        "roast": row.get("roast"),
+        "debrief": row.get("debrief"),
+        "quote": row.get("quote"),
+        "productivity": compute_productivity_score(),
+    }
+
+
+@app.post("/api/rituals/{ritual}/run")
+async def api_rituals_run(ritual: str):
+    """Déclenche un rituel à la demande : roast, debrief ou quote."""
+    from scripts import rituals
+
+    runners = {
+        "roast": rituals.daily_roast,
+        "debrief": rituals.evening_debrief,
+        "quote": rituals.daily_quote,
+    }
+    fn = runners.get(ritual)
+    if fn is None:
+        raise HTTPException(404, f"Rituel inconnu : {ritual} (roast | debrief | quote)")
+    try:
+        return await fn()
+    except Exception as e:
+        logger.exception("rituel %s : %s", ritual, e)
+        raise HTTPException(500, f"Rituel {ritual} échoué") from e
+
+
+@app.get("/api/productivity/score")
+async def api_productivity_score():
+    """Score de productivité hebdomadaire (déterministe, 0-100)."""
+    from scripts.rituals import compute_productivity_score
+
+    return compute_productivity_score()
 
 
 @app.get("/api/memory")
@@ -4984,6 +5030,29 @@ async def _process_message(
                 conversation_id,
                 voice_mode=voice_mode,
             )
+
+        # ── Easter eggs vocaux : réplique codée en dur, zéro LLM ──
+        egg = easter_eggs.match(original_text)
+        if egg is not None:
+            egg_text = egg["response"]
+            egg_emotion = egg["emotion"]
+            try:
+                save_message(conversation_id, "assistant", egg_text, agent="jarvis")
+            except Exception as e:
+                logger.error("save easter egg : %s", e)
+            await ws.send_json({
+                "type": "response",
+                "agent": "jarvis",
+                "content": egg_text,
+                "emotion": egg_emotion,
+                "model": "easter-egg",
+                "tokens_in": 0,
+                "tokens_out": 0,
+                "cost": 0.0,
+            })
+            if send_tts:
+                await _send_tts_streaming(ws, egg_text, egg_emotion)
+            return {"emotion": egg_emotion, "response": egg_text}
 
         # ── Vérifier si l'utilisateur confirme une proposition en attente ──
         pending_action = (

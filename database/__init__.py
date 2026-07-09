@@ -580,7 +580,32 @@ def init_db():
         _migrate_devagent(conn)
         _create_voice_debug_table(conn)
         _migrate_messages_fts(conn)
+        _migrate_daily_rituals(conn)
+        _migrate_people_birthday(conn)
     logger.info("[DB] Base initialisée : %s", DB_PATH)
+
+
+def _migrate_daily_rituals(conn: sqlite3.Connection) -> None:
+    """Table des rituels quotidiens : roast, debrief, citation, score (idempotent)."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS daily_rituals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT UNIQUE NOT NULL,
+            roast TEXT,
+            debrief TEXT,
+            quote TEXT,
+            productivity_score INTEGER,
+            score_detail TEXT,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+
+def _migrate_people_birthday(conn: sqlite3.Connection) -> None:
+    """Ajoute people.birthday ('YYYY-MM-DD' ou 'MM-DD') aux bases existantes."""
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(people)").fetchall()}
+    if "birthday" not in cols:
+        conn.execute("ALTER TABLE people ADD COLUMN birthday TEXT")
 
 
 def _migrate_messages_fts(conn: sqlite3.Connection) -> None:
@@ -1263,10 +1288,11 @@ def update_person_timeline_cache(name: str, events: list) -> None:
 def patch_person(old_name: str, fields: dict[str, Any]) -> dict | None:
     """Met à jour une ligne `people` identifiée par le nom (insensible à la casse).
 
-    Champs autorisés : name, relationship, personality_notes, dynamics, patterns.
-    Lève ``ValueError`` si le nouveau nom est déjà utilisé par un autre contact.
+    Champs autorisés : name, relationship, personality_notes, dynamics,
+    patterns, birthday. Lève ``ValueError`` si le nouveau nom est déjà
+    utilisé par un autre contact.
     """
-    allowed = ("name", "relationship", "personality_notes", "dynamics", "patterns")
+    allowed = ("name", "relationship", "personality_notes", "dynamics", "patterns", "birthday")
     key = (old_name or "").strip()
     if not key:
         return None
@@ -2437,6 +2463,49 @@ def get_usage_stats() -> dict:
             (today,)
         ).fetchone()
         return dict(row)
+
+
+def set_daily_ritual(date: str, field: str, value) -> None:
+    """UPSERT d'un champ du rituel quotidien (roast/debrief/quote/score…)."""
+    allowed = {"roast", "debrief", "quote", "productivity_score", "score_detail"}
+    if field not in allowed:
+        raise ValueError(f"champ rituel invalide : {field}")
+    with get_db() as conn:
+        conn.execute(
+            f"""INSERT INTO daily_rituals (date, {field}) VALUES (?, ?)
+                ON CONFLICT(date) DO UPDATE SET
+                    {field} = excluded.{field},
+                    updated_at = CURRENT_TIMESTAMP""",  # noqa: S608 — champ whitelisté
+            (date, value),
+        )
+
+
+def get_daily_ritual(date: str) -> dict | None:
+    """Retourne la ligne de rituels du jour demandé, ou None."""
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT * FROM daily_rituals WHERE date = ?", (date,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def get_todays_birthdays(today_mm_dd: str | None = None) -> list[dict]:
+    """Contacts dont l'anniversaire tombe aujourd'hui.
+
+    ``people.birthday`` accepte 'YYYY-MM-DD' (âge calculable) ou 'MM-DD'.
+    """
+    mm_dd = today_mm_dd or datetime.now().strftime("%m-%d")
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT id, name, relationship, birthday FROM people
+               WHERE birthday IS NOT NULL AND birthday != ''
+                 AND (
+                     substr(birthday, 6, 5) = ?  -- format YYYY-MM-DD
+                     OR birthday = ?             -- format MM-DD
+                 )""",
+            (mm_dd, mm_dd),
+        ).fetchall()
+        return [dict(r) for r in rows]
 
 
 def get_cost_summary() -> dict:

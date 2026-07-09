@@ -409,9 +409,17 @@ class JarvisDaemon:
         """Consomme la file d'attente de messages à prononcer."""
         while self.running:
             try:
-                text = await asyncio.wait_for(self.tts_queue.get(), timeout=1.0)
+                item = await asyncio.wait_for(self.tts_queue.get(), timeout=1.0)
             except asyncio.TimeoutError:
                 continue
+
+            # La file accepte un str ou un tuple (texte, émotion) — les rituels
+            # (roast/debrief) passent leur émotion, le reste parle en neutral.
+            emotion = "neutral"
+            if isinstance(item, tuple) and len(item) == 2:
+                text, emotion = item
+            else:
+                text = item
 
             if not text or not str(text).strip():
                 continue
@@ -439,8 +447,8 @@ class JarvisDaemon:
                 from audio.tts import tts as _tts
 
                 if _tts:
-                    logger.info("[daemon] TTS : %s", text[:80])
-                    audio_bytes = await _tts.synthesize(text, emotion="neutral")
+                    logger.info("[daemon] TTS (%s) : %s", emotion, str(text)[:80])
+                    audio_bytes = await _tts.synthesize(text, emotion=emotion)
                     if audio_bytes:
                         await self._play_audio_local(audio_bytes)
             except Exception as e:

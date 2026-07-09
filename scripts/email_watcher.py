@@ -77,6 +77,13 @@ def _parse_json(raw: str) -> dict | None:
         return None
 
 
+def _priority_for(reason: str, urgent) -> str:
+    """Priorité de notification : urgent (48h) > paiement (high) > demande (medium)."""
+    if urgent is True:
+        return "urgent"
+    return "high" if reason == "payment" else "medium"
+
+
 class EmailWatcher:
     """Worker async — polling Mail.app, analyse DeepSeek, actions automatiques.
 
@@ -331,7 +338,14 @@ class EmailWatcher:
         from_name = analysis.get("from_name")
         action_needed = analysis.get("action_needed")
         deadline = analysis.get("deadline")
-        priority = "high" if reason == "payment" else "medium"
+        priority = _priority_for(reason, analysis.get("urgent"))
+
+        # Mail urgent → drapeau dans Mail.app (best-effort, jamais bloquant)
+        if priority == "urgent":
+            try:
+                await mail_client.flag_message(email_id)
+            except Exception as e:
+                logger.debug(f"[email_watcher] flag Mail.app : {e}")
 
         try:
             from integrations.notifications_macos import mac_notifier

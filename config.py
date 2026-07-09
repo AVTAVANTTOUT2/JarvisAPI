@@ -227,6 +227,19 @@ def is_quiet_hours(now=None) -> bool:
     return cur >= start or cur < end    # plage nocturne (23:30 → 07:00)
 
 
+# ── Rituels quotidiens (roast, debrief, citation, anniversaires) ──
+RITUALS_ENABLED = _get("RITUALS_ENABLED", "true").lower() == "true"
+ROAST_TIME = _get("ROAST_TIME", "18:30")            # critique sèche des tâches non faites
+DEBRIEF_TIME = _get("DEBRIEF_TIME", "21:45")        # bilan de journée, ton concerned
+QUOTE_TIME = _get("QUOTE_TIME", "07:00")            # citation ironique du jour
+BIRTHDAY_CHECK_TIME = _get("BIRTHDAY_CHECK_TIME", "08:00")
+RITUALS_TTS = _get("RITUALS_TTS", "true").lower() == "true"  # roast/debrief parlés via daemon
+
+# ── Alerte pause café (écran sans interruption) ──────────────
+BREAK_ALERT_MINUTES = int(_get("BREAK_ALERT_MINUTES", "90"))   # durée continue avant alerte ; 0 = off
+BREAK_GAP_MINUTES = int(_get("BREAK_GAP_MINUTES", "15"))       # trou considéré comme une pause
+BREAK_COOLDOWN_MINUTES = int(_get("BREAK_COOLDOWN_MINUTES", "90"))
+
 # ── Mapping modèles par agent ───────────────────────────────
 AGENT_MODELS = {
     "orchestrator": DEEPSEEK_FAST_MODEL,
