@@ -1,6 +1,8 @@
 /**
  * Service REST central — BASE vide : même origine (FastAPI prod) ou proxy Vite (/api → backend).
  */
+import type { ApiPerson, NotificationItem } from '@/app/types/jarvis'
+
 export const BASE = ''
 
 export class ApiError extends Error {
@@ -58,7 +60,7 @@ export const api = {
     return request<{ logs: LlmActionLog[]; count: number }>(`/api/logs${q ? `?${q}` : ''}`)
   },
 
-  getNotifications: () => request('/api/notifications'),
+  getNotifications: () => request<{ notifications?: NotificationItem[] }>('/api/notifications'),
   markRead: (id: number) => request(`/api/notifications/${id}/read`, { method: 'POST' }),
   markAllRead: () => request('/api/notifications/read-all', { method: 'POST' }),
 
@@ -83,7 +85,7 @@ export const api = {
     request(`/api/life-profile/${id}`, { method: 'PUT', body: JSON.stringify({ content }) }),
   deleteProfileEntry: (id: number) => request(`/api/life-profile/${id}`, { method: 'DELETE' }),
 
-  getPeople: () => request('/api/people'),
+  getPeople: () => request<{ people?: ApiPerson[] }>('/api/people'),
   getPerson: (name: string) => request(`/api/people/${encodeURIComponent(name)}`),
   updatePerson: (name: string, data: Record<string, unknown>) =>
     request(`/api/people/${encodeURIComponent(name)}`, {

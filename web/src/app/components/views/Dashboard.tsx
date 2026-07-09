@@ -122,9 +122,9 @@ export function Dashboard() {
     setLoading(true);
     try {
       const [st, peopleR, placesR, notifR, devR, daemonR] = await Promise.all([
-        api.getStatus(),
+        api.getStatus() as Promise<{ today?: { msg_count?: number; total_in?: number; total_out?: number } }>,
         api.getPeople(),
-        api.getPlaces(),
+        api.getPlaces() as Promise<{ places?: unknown[] }>,
         api.getNotifications(),
         api.getDevices().catch(() => ({ devices: [], active: null })),
         api.getAudioDaemonStatus().catch(() => ({

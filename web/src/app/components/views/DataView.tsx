@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   RefreshCw, Database, Users, Brain, MapPin, FileText, MessageSquare,
-  Activity, Cpu, CheckCircle, XCircle, Download, Shield, Layers, Zap,
+  Activity, CheckCircle, XCircle, Download, Shield, Layers, Zap,
   Mail, Calendar, Cloud, Smartphone, Bell, Mic, Volume2, Monitor, SlidersHorizontal,
 } from 'lucide-react';
 import { api } from '@/services/api';
@@ -63,7 +63,7 @@ interface StatusData {
 
 interface IntegrationsData {
   mail?: boolean;
-  calendar?: boolean;
+  calendar?: boolean | { available?: boolean };
   weather?: boolean;
   imessage?: boolean;
   email_watcher?: boolean;
@@ -321,7 +321,7 @@ export function DataView() {
       active:
         typeof integrations.calendar === 'boolean'
           ? integrations.calendar
-          : (integrations.calendar as { available?: boolean })?.available ?? false,
+          : integrations.calendar?.available ?? false,
     },
     { id: 'weather', label: 'Météo (OpenWeatherMap)', icon: Cloud, active: integrations.weather ?? false },
     { id: 'imessage', label: 'iMessage Bridge', icon: Smartphone, active: integrations.imessage ?? false },
