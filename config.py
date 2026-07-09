@@ -105,26 +105,11 @@ PRIOR_SESSION_SUMMARY: str = ""
 JARVIS_LOCAL_MODEL = _get("JARVIS_LOCAL_MODEL", "mlx-community/Qwen3-30B-A3B-4bit")
 JARVIS_VENV = _get("JARVIS_VENV", os.path.expanduser("~/mlx-env"))
 
-# ── Gemini CLI ──────────────────────────────────────────────
-# Gemini est utilisé via la CLI `gemini` (subprocess), PAS via une API HTTP.
-# On délègue à Gemini les tâches longues / créatives qui n'ont pas besoin
-# du contexte de mémoire JARVIS (rédaction d'exercices, dissertations, code…).
-GEMINI_CLI_PATH = _get("GEMINI_CLI_PATH", "gemini")
-GEMINI_MODEL = _get("GEMINI_MODEL", "gemini-2.5-pro")
-
-# Types de tâches déléguées à Gemini CLI plutôt qu'à Claude.
-# Critère : contenu long, autonome, peu de contexte mémoire requis.
-GEMINI_TASKS: set[str] = {
-    "exercise",         # exercices d'entraînement (BTS, etc.)
-    "dissertation",     # dissertations structurées
-    "essay",            # essais argumentatifs
-    "code",             # génération de code longue
-    "report",           # rapports/comptes-rendus
-    "summary_long",     # résumés longs (PDF entier, livre, cours complet)
-    "email_draft",      # premier jet d'email à reformuler
-    "file_generation",  # génération de fichiers complets (md, csv, txt…)
-    "flashcards_bulk",  # génération en masse de flashcards (>20)
-}
+# ── Tâches lourdes (production longue) ──────────────────────
+# Les productions longues (exercices complets, dissertations, code, rapports,
+# fichiers, flashcards en masse) restent sur DEEPSEEK_MAIN_MODEL mais avec un
+# plafond de tokens élevé. Détection via llm.classify_task_type().
+HEAVY_TASK_MAX_TOKENS = int(_get("HEAVY_TASK_MAX_TOKENS", "8192"))
 
 # ── Briefings ───────────────────────────────────────────────
 MORNING_BRIEFING_TIME = _get("MORNING_BRIEFING_TIME", "07:30")

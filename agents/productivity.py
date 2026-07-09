@@ -1,8 +1,8 @@
 """Agent PRODUCTIVITÉ — emails, calendrier, tâches, briefings.
 
 Enrichit le contexte avec les données live (Apple Mail, Calendar.app, météo) puis route
-vers Claude (résumé/triage rapide) ou Gemini CLI (rédaction longue d'email,
-plan d'action détaillé) via `_route_task`.
+vers le modèle fast (résumé/triage rapide) ou le mode tâche lourde DeepSeek
+(rédaction longue d'email, plan d'action détaillé) via `_route_task`.
 
 Méthodes spéciales : `morning_briefing()` et `evening_summary()` pour les
 résumés quotidiens (appelables via cron/launchd ou depuis l'UI).
@@ -104,7 +104,7 @@ def _format_notifications(notifs: list[dict], max_items: int = 10) -> str:
 
 
 class ProductivityAgent(BaseAgent):
-    """Agent productivité : Sonnet par défaut, Gemini CLI pour les rédactions longues."""
+    """Agent productivité : DeepSeek main par défaut, mode tâche lourde pour les rédactions longues."""
 
     name = "productivity"
     description = "Emails, calendrier, tâches, briefings"

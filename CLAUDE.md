@@ -16,7 +16,7 @@ JARVIS est un assistant personnel multi-agents avec interface vocale + web, tour
 - **Backend** : Python 3.12 + FastAPI + WebSocket
 - **Frontend** : React 19 + Vite + Tailwind (SPA dans `web/`, build `web/dist/` servi par FastAPI)
 - **Base de données** : SQLite (fichier local `data/jarvis.db`)
-- **LLM** : DeepSeek API (format OpenAI, `llm.py`) — routing fast/main + **Gemini CLI** (subprocess, tâches longues)
+- **LLM** : DeepSeek API (format OpenAI, `llm.py`) — routing fast/main, mode « tâche lourde » (max_tokens élevé) pour les productions longues
 - **STT** : ElevenLabs Scribe (API cloud, accepte directement WebM/Opus — zéro ffmpeg)
 - **TTS** : deux backends dans `audio/tts.py` — **Edge TTS** (défaut, faible latence) ou **ElevenLabs** (qualité / émotions, `eleven_multilingual_v2`).
 - **VAD** : côté client uniquement (Web Audio API `AnalyserNode`)
@@ -108,84 +108,50 @@ Le mapping agent → modèle vit dans `config.AGENT_MODELS` (surchargez via `.en
 
 **Ordre du system prompt inchangé** : `[LIFE_PROFILE]` + `[MEMORY_CONTEXT]` d'abord, puis `[AGENT_INSTRUCTIONS]`. DeepSeek gère le prompt caching automatiquement côté serveur (pas de `cache_control` explicite — le cache hit est lu dans `usage.prompt_cache_hit_tokens`).
 
-## Architecture dual-LLM — DeepSeek (cerveau) + Gemini CLI (production)
+## Routing des tâches — standard vs tâche lourde
 
-JARVIS utilise **deux LLMs** avec des rôles distincts. L'objectif : économiser les tokens DeepSeek en déléguant les tâches lourdes à **Gemini CLI** qui est gratuit via le forfait étudiant.
+Tout passe par **DeepSeek**. `llm.classify_task_type()` (fast model, ~10 tokens)
+détecte les demandes de **production longue** et retourne `"heavy"` ou
+`"standard"` :
 
-### DeepSeek API (payant, tokens optimisés) = le cerveau
-
-DeepSeek gère tout ce qui demande **du contexte mémoire, de l'analyse fine ou de la conversation** :
-- **Routing** via l'orchestrateur (Haiku ~20 tokens)
-- **Coaching et analyse relationnelle** (Sonnet/Opus)
-- **Mémoire et extraction d'insights** (Haiku/Sonnet)
-- **Journal et extraction JSON** (Sonnet)
-- **Pré-analyse des demandes** avant délégation à Gemini (Haiku ~200 tokens)
-
-### Gemini CLI (gratuit, forfait étudiant, terminal subprocess) = la production
-
-Gemini gère tout ce qui demande **du contenu long et autonome** :
-- **Exercices et devoirs** complets
-- **Code et projets** de dev
-- **Rédaction longue** (rapports, dissertations)
-- **Génération de fichiers** sauvés dans `data/outputs/`
-- **Résumés longs** de documents volumineux
-- **Flashcards en masse**
-
-Gemini CLI est appelé via :
-```python
-asyncio.create_subprocess_exec(
-    config.GEMINI_CLI_PATH, "--model", config.GEMINI_MODEL, ...
-)
-```
-avec le prompt envoyé en **stdin**. Ce n'est **PAS une API HTTP**.
-
-### Tableau de routing par type de tâche
-
-| Tâche                              | Routé vers              |
-|------------------------------------|-------------------------|
-| Exercice / devoir complet          | Gemini CLI              |
-| Dissertation                       | Gemini CLI              |
-| Code (génération longue)           | Gemini CLI              |
-| Rapport                            | Gemini CLI              |
-| Résumé long (PDF entier, livre)    | Gemini CLI              |
-| Flashcards en masse (>20)          | Gemini CLI              |
-| Classification de message          | Claude Haiku            |
-| Analyse relationnelle              | Claude Sonnet           |
-| Coaching décisionnel               | Claude Sonnet / Opus    |
-| Extraction insights journal        | Claude Sonnet           |
-| Briefing matin                     | Claude Haiku + Gemini   |
-| Résumé email court                 | Claude Haiku            |
+| Tâche                              | Route                                        |
+|------------------------------------|----------------------------------------------|
+| Exercice / devoir complet          | heavy — `DEEPSEEK_MAIN_MODEL`, `HEAVY_TASK_MAX_TOKENS` |
+| Dissertation / rapport / code long | heavy                                        |
+| Résumé long (PDF entier, livre)    | heavy                                        |
+| Flashcards en masse (>20)          | heavy                                        |
+| Classification de message          | standard — `DEEPSEEK_FAST_MODEL`             |
+| Analyse relationnelle / coaching   | standard — `DEEPSEEK_MAIN_MODEL`             |
+| Extraction insights journal        | standard — `DEEPSEEK_MAIN_MODEL`             |
+| Résumé email court                 | standard — `DEEPSEEK_FAST_MODEL`             |
 
 ### Flux type pour un exercice
 
 ```
 Utilisateur : "Fais-moi une dissertation sur la mondialisation"
    ↓
-Haiku — orchestrateur classifie en SCHOOL
+fast — orchestrateur classifie en SCHOOL
    ↓
-Haiku — classify_task_type() détecte une tâche lourde → "gemini"
+fast — classify_task_type() détecte une tâche lourde → "heavy"
    ↓
-Haiku — produit un brief court (300 tokens max) :
-        type / matière / consignes / format / niveau BTS
-   ↓
-Gemini CLI — produit le devoir complet via subprocess
-             (prompt = brief + demande originale, gratuit)
+DEEPSEEK_MAIN_MODEL — produit le devoir complet avec le contexte mémoire
+                      JARVIS (max_tokens = HEAVY_TASK_MAX_TOKENS, défaut 8192)
    ↓
 Le système parse le bloc ```save JSON``` à la fin de la réponse
    ↓
 Fichier sauvé dans data/outputs/school/[matière]/[filename].md
 ```
 
-### Règle simple pour les développeurs
-
-- **Si l'output dépasse ~500 tokens OU si ça génère un fichier** → Gemini CLI
-- **Si c'est de l'analyse, du routing, de l'extraction, du coaching** → Claude
-
 ### Implémentation
 
-- Le set `config.GEMINI_TASKS` liste les types de tâches déléguées à Gemini : `exercise`, `dissertation`, `essay`, `code`, `report`, `summary_long`, `email_draft`, `file_generation`, `flashcards_bulk`.
-- Chaque agent peut utiliser `self._route_task()` dans `BaseAgent` pour router automatiquement entre Claude et Gemini sans logique custom.
-- Les fonctions bas-niveau sont dans `llm.py` : `gemini_chat()`, `gemini_chat_stream()`, `classify_task_type()`.
+- Chaque agent peut utiliser `self._route_task()` dans `BaseAgent` : mode vocal
+  → réponse courte (`VOICE_MAX_TOKENS`) ; tâche lourde → `DEEPSEEK_MAIN_MODEL`
+  avec `HEAVY_TASK_MAX_TOKENS` ; sinon appel standard avec le modèle de l'agent.
+- La détection bas-niveau est `llm.classify_task_type()`.
+
+> **Note (2026)** : l'ancienne délégation **Gemini CLI** (subprocess) a été
+> supprimée — les tâches lourdes sont désormais servies par DeepSeek avec un
+> plafond de tokens élevé, en conservant le contexte mémoire JARVIS.
 
 ## Bridge iMessage (macOS)
 
@@ -510,7 +476,7 @@ Détection de parole par volume en temps réel via Web Audio API `AnalyserNode` 
 **Pipeline** :
 1. `prompts/persona.txt` demande à Claude de commencer chaque réponse par `[emotion]` sur la 1ère ligne.
 2. `BaseAgent._extract_emotion(response)` (regex `^\s*\[(\w+)\]\s*\n?`) extrait le tag et retourne `(emotion, texte_propre)`.
-3. `_call_claude()` et `_call_gemini()` appellent `_extract_emotion` avant de retourner. L'émotion est dans `result["emotion"]`.
+3. `_call_claude()` appelle `_extract_emotion` avant de retourner. L'émotion est dans `result["emotion"]`.
 4. `orchestrator.handle_stream()` strip le tag du flux streaming (les chunks n'affichent PAS `[warm]` dans la bulle).
 5. `_process_message()` (`main.py`, unique pipeline WebSocket texte + audio) passe `emotion` à `tts.synthesize()` pour adapter la voix.
 
@@ -579,7 +545,7 @@ RECORDING_SUMMARY_ONLY=false
 jarvis/
 ├── main.py                  # Entry point FastAPI + WebSocket + routes
 ├── config.py                # Charge .env, expose tous les settings
-├── llm.py                   # Client DeepSeek API + Gemini CLI (chat, stream, classify)
+├── llm.py                   # Client DeepSeek API (chat, stream, classify)
 ├── actions.py               # execute_action : tâches, mails, terminal, ordinateur…
 ├── .env                     # Clés API (gitignored)
 ├── .env.example             # Template
@@ -721,7 +687,7 @@ Le fichier `database/schema.sql` contient toutes les tables. Les voici regroupé
 - Fonction `chat()` : appel standard avec retry/backoff sur 429/5xx, retourne `{content, tokens_in, tokens_out, cache_hit, cost, model}`
 - Fonction `chat_stream()` : générateur async qui yield les chunks (SSE)
 - Fonction `quick_classify()` : classification rapide via `DEEPSEEK_FAST_MODEL`, retourne un string
-- Fonctions `gemini_chat()` / `gemini_chat_stream()` : délégation Gemini CLI (subprocess, stdin)
+- Fonction `classify_task_type()` : détecte les productions longues → route « heavy »
 - **Prompt caching** : automatique côté DeepSeek — le cache hit est lu dans `usage.prompt_cache_hit_tokens`
 - **Tracking des coûts** : chaque appel calcule et retourne le coût estimé (`estimate_cost`, table `MODEL_COSTS`)
 
@@ -878,7 +844,7 @@ DEEPSEEK_API_KEY=sk-...
 DEEPSEEK_BASE_URL=https://api.deepseek.com
 DEEPSEEK_FAST_MODEL=deepseek-v4-flash   # classification, triage, extraction
 DEEPSEEK_MAIN_MODEL=deepseek-v4-pro     # rédaction, coaching, raisonnement
-GEMINI_CLI_PATH=gemini                  # binaire Gemini CLI (tâches longues)
+HEAVY_TASK_MAX_TOKENS=8192              # plafond tokens des productions longues
 ELEVENLABS_API_KEY=         # STT Scribe + TTS (même clé)
 ELEVENLABS_VOICE_ID=        # voix TTS ElevenLabs
 TTS_ENGINE=edge             # edge (défaut) ou elevenlabs

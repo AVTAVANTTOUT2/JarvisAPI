@@ -16,10 +16,8 @@ import { formatRelativeTime } from '@/app/lib/timeFormat';
 interface StatusData {
   user?: string;
   models?: {
-    haiku?: string;
-    sonnet?: string;
-    opus?: string;
-    gemini?: string;
+    fast?: string;
+    main?: string;
   };
   agents_registered?: string[];
   today?: {
@@ -123,7 +121,7 @@ const DB_GROUPS = [
     id: 'documents',
     label: 'Documents & Médias',
     icon: FileText,
-    description: 'Documents scolaires, outputs Gemini, enregistrements',
+    description: 'Documents scolaires, devoirs générés, enregistrements',
     statsKeys: [],
   },
 ];
@@ -138,10 +136,8 @@ const AGENT_DESCRIPTIONS: Record<string, string> = {
 };
 
 const MODELS_INFO = [
-  { key: 'haiku', label: 'Haiku', role: 'Routing, classification, tâches légères' },
-  { key: 'sonnet', label: 'Sonnet', role: 'Agents spécialisés, coaching, rédaction' },
-  { key: 'opus', label: 'Opus', role: 'Décisions profondes, coaching structurant' },
-  { key: 'gemini', label: 'Gemini CLI', role: 'Génération longue, devoirs, code (gratuit)' },
+  { key: 'fast', label: 'DeepSeek Fast', role: 'Routing, classification, triage, extraction' },
+  { key: 'main', label: 'DeepSeek Main', role: 'Agents spécialisés, coaching, rédaction, tâches lourdes' },
 ];
 
 const PRIORITY_COLOR: Record<string, string> = {

@@ -643,7 +643,7 @@ class OrchestratorAgent(BaseAgent):
         """Version streaming : yield {type, ...} successifs.
 
         Si l'agent ciblé expose `handle_stream()`, on lui délègue (ex : SchoolAgent
-        fait du pseudo-streaming car il peut router vers Gemini CLI).
+        fait du pseudo-streaming car _route_task produit la réponse d'un bloc).
         Sinon : streaming Claude générique via `llm.chat_stream`.
 
         ``voice_mode=True`` : même enrichissement que ``handle(..., voice_mode=True)`` ;
@@ -675,7 +675,7 @@ class OrchestratorAgent(BaseAgent):
 
         to_agent = f"[VOICE_MODE] {user_message}" if voice_mode else user_message
 
-        # Si l'agent a son propre streaming (cas school avec route Gemini), on lui délègue.
+        # Si l'agent a son propre streaming (cas school avec _route_task), on lui délègue.
         # conversation_id=None pour éviter un double save (c'est le handler WebSocket qui persiste).
         if hasattr(agent, "handle_stream") and callable(getattr(agent, "handle_stream")):
             async for event in agent.handle_stream(to_agent, conversation_id=None, context=ctx):

@@ -948,7 +948,6 @@ async def api_status():
         "models": {
             "fast": config.DEEPSEEK_FAST_MODEL,
             "main": config.DEEPSEEK_MAIN_MODEL,
-            "gemini": config.GEMINI_MODEL,
         },
         "agents_registered": ["info", "school", "productivity", "coach", "journal", "memory"],
         "today": stats,

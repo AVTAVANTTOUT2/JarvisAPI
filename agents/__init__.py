@@ -253,37 +253,6 @@ class BaseAgent(ABC):
     # Alias de compatibilité — l'ancien nom reste utilisable par les agents existants.
     _call_llm = _call_claude
 
-    async def _call_gemini(self, user_message: str, conversation_id: int = None,
-                           system: str = "") -> dict:
-        """Helper : délègue à Gemini CLI (subprocess, gratuit).
-
-        À utiliser pour les contenus longs/autonomes (exos, dissertations, code…)
-        qui n'ont pas besoin du contexte mémoire JARVIS.
-        """
-        result = await llm.gemini_chat(user_message, system=system)
-
-        emotion, clean_text = self._extract_emotion(result["content"])
-        clean_text = strip_assistant_code_fences(clean_text, include_save=False)
-
-        if conversation_id:
-            save_message(
-                conversation_id, "assistant", clean_text,
-                agent=self.name, model=result["model"],
-                tokens_in=0, tokens_out=0, cost=0.0,
-            )
-
-        logger.info(f"[{self.name}] Gemini CLI : production terminée (gratuit)")
-
-        return {
-            "response": clean_text,
-            "agent": self.name,
-            "model": result["model"],
-            "tokens_in": 0,
-            "tokens_out": 0,
-            "cost": 0.0,
-            "emotion": emotion,
-        }
-
     _ACTION_RE = re.compile(
         r"```action\s*\n?(.*?)```",
         re.DOTALL | re.IGNORECASE,
@@ -348,15 +317,12 @@ class BaseAgent(ABC):
 
     async def _route_task(self, user_message: str, conversation_id: int = None,
                           context: dict = None, history: list = None) -> dict:
-        """Routeur intra-agent : décide entre Claude (analyse/contexte) et Gemini (production lourde).
+        """Routeur intra-agent : détecte les productions lourdes.
 
-        Workflow Gemini :
-            1. Claude Haiku produit un brief court (5 lignes max) extrayant
-               type d'exercice / matière / consignes / format / niveau BTS.
-            2. Le brief + la demande originale sont envoyés à Gemini CLI.
-            3. Le system prompt JARVIS de l'agent est passé en system à Gemini.
-
-        Workflow Claude : appel standard via `_call_claude` avec contexte mémoire.
+        Tout passe par DeepSeek. Les tâches lourdes (dissertation, exercice
+        complet, code, rapport…) utilisent DEEPSEEK_MAIN_MODEL avec un plafond
+        de tokens élevé (config.HEAVY_TASK_MAX_TOKENS) ; le reste suit l'appel
+        standard `_call_claude` avec le modèle par défaut de l'agent.
         """
         ctx_raw = context or {}
         if ctx_raw.get("voice_mode"):
@@ -371,35 +337,18 @@ class BaseAgent(ABC):
 
         route = await llm.classify_task_type(user_message)
 
-        if route == "gemini":
-            logger.info(f"[{self.name}] Route → Gemini CLI (tâche lourde)")
-
-            brief = await llm.chat(
-                messages=[{"role": "user", "content": user_message}],
-                model=config.DEEPSEEK_FAST_MODEL,
-                system=(
-                    "Analyse cette demande. Extrais en 5 lignes max : "
-                    "le type d'exercice, la matière, les consignes précises, "
-                    "le format attendu, le niveau BTS. "
-                    "C'est un brief pour Gemini qui va produire le contenu."
-                ),
-                max_tokens=300,
-                temperature=0.0,
-            )
-
-            full_prompt = (
-                f"BRIEF :\n{brief['content']}\n\n"
-                f"DEMANDE ORIGINALE :\n{user_message}"
-            )
-            system_prompt = self.build_system_prompt(context or {})
-
-            return await self._call_gemini(
-                full_prompt,
+        if route == "heavy":
+            logger.info(f"[{self.name}] Route → DeepSeek main (tâche lourde, max_tokens élevé)")
+            return await self._call_claude(
+                user_message,
                 conversation_id=conversation_id,
-                system=system_prompt,
+                context=context,
+                history=history,
+                model=config.DEEPSEEK_MAIN_MODEL,
+                max_tokens=config.HEAVY_TASK_MAX_TOKENS,
             )
 
-        logger.info(f"[{self.name}] Route → Claude (analyse)")
+        logger.info(f"[{self.name}] Route → DeepSeek (analyse)")
         return await self._call_claude(
             user_message,
             conversation_id=conversation_id,

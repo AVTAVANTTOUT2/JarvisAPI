@@ -6,7 +6,7 @@ Le prompt `prompts/journal.txt` demande à Claude de :
      topics, key_insights, pattern_match, action_items
 
 On parse ce JSON pour alimenter mood_log, people, episodes, patterns, tasks.
-TOUJOURS Claude (jamais Gemini) — c'est de l'extraction fine, pas de la rédaction.
+TOUJOURS le modèle principal en mode standard — extraction fine, pas de rédaction longue.
 """
 
 import asyncio
