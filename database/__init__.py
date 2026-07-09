@@ -579,7 +579,70 @@ def init_db():
         _migrate_message_insights(conn)
         _migrate_devagent(conn)
         _create_voice_debug_table(conn)
+        _migrate_messages_fts(conn)
     logger.info("[DB] Base initialisée : %s", DB_PATH)
+
+
+def _migrate_messages_fts(conn: sqlite3.Connection) -> None:
+    """Index plein-texte FTS5 sur messages.content (idempotent).
+
+    Table externe (content='messages') synchronisée par triggers, backfill
+    automatique si l'index est désynchronisé (base existante, restauration…).
+    Si SQLite est compilé sans FTS5, la recherche retombe sur LIKE.
+    """
+    try:
+        conn.execute("""
+            CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+                content,
+                content='messages', content_rowid='id',
+                tokenize='unicode61 remove_diacritics 2'
+            )
+        """)
+    except sqlite3.OperationalError as e:
+        logger.warning("[DB] FTS5 indisponible (%s) — recherche en LIKE", e)
+        return
+    conn.executescript("""
+        CREATE TRIGGER IF NOT EXISTS messages_fts_ai AFTER INSERT ON messages BEGIN
+            INSERT INTO messages_fts(rowid, content) VALUES (new.id, new.content);
+        END;
+        CREATE TRIGGER IF NOT EXISTS messages_fts_ad AFTER DELETE ON messages BEGIN
+            INSERT INTO messages_fts(messages_fts, rowid, content)
+            VALUES ('delete', old.id, old.content);
+        END;
+        CREATE TRIGGER IF NOT EXISTS messages_fts_au AFTER UPDATE OF content ON messages BEGIN
+            INSERT INTO messages_fts(messages_fts, rowid, content)
+            VALUES ('delete', old.id, old.content);
+            INSERT INTO messages_fts(rowid, content) VALUES (new.id, new.content);
+        END;
+    """)
+    n_msg = conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
+    n_fts = conn.execute("SELECT COUNT(*) FROM messages_fts").fetchone()[0]
+    if n_fts != n_msg:
+        logger.info("[DB] Rebuild index FTS (%d messages, index=%d)", n_msg, n_fts)
+        conn.execute("INSERT INTO messages_fts(messages_fts) VALUES ('rebuild')")
+
+
+def _fts_available(conn: sqlite3.Connection) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='messages_fts'"
+    ).fetchone()
+    return row is not None
+
+
+def _fts_query(query: str) -> str:
+    """Transforme une saisie libre en requête FTS5 sûre.
+
+    Chaque mot est mis entre guillemets (neutralise les opérateurs AND/OR/NEAR
+    et la ponctuation), le dernier mot est en préfixe pour la recherche
+    au fil de la saisie.
+    """
+    tokens = [t.replace('"', "") for t in query.split()]
+    tokens = [t for t in tokens if t]
+    if not tokens:
+        return ""
+    quoted = [f'"{t}"' for t in tokens]
+    quoted[-1] += "*"
+    return " ".join(quoted)
 
 
 def _migrate_people_ai_description(conn: sqlite3.Connection) -> None:
@@ -839,17 +902,58 @@ def delete_conversation(conv_id: int) -> None:
 
 
 def search_conversations(query: str, limit: int = 20) -> list[dict]:
-    """Recherche dans les titres et le contenu des messages de toutes les conversations."""
+    """Recherche dans les titres et le contenu des messages de toutes les conversations.
+
+    Une conversation n'apparaît qu'une fois, avec son message correspondant le
+    plus récent. Utilise l'index FTS5 (insensible aux accents, préfixe sur le
+    dernier mot) quand il existe, sinon LIKE.
+    """
+    q = (query or "").strip()
+    if not q:
+        return []
     with get_db() as conn:
-        rows = conn.execute("""
-            SELECT DISTINCT c.id, c.title, c.started_at, c.last_message_at, c.message_count,
-                m.content as matching_message, m.created_at as match_date
-            FROM conversations c
-            JOIN messages m ON m.conversation_id = c.id
-            WHERE m.content LIKE ? OR c.title LIKE ?
-            ORDER BY m.created_at DESC
-            LIMIT ?
-        """, (f"%{query}%", f"%{query}%", limit)).fetchall()
+        rows: list = []
+        fts_q = _fts_query(q)
+        if fts_q and _fts_available(conn):
+            try:
+                rows = conn.execute("""
+                    SELECT c.id, c.title, c.started_at, c.last_message_at, c.message_count,
+                           m.content AS matching_message, MAX(m.created_at) AS match_date
+                    FROM messages_fts f
+                    JOIN messages m ON m.id = f.rowid
+                    JOIN conversations c ON c.id = m.conversation_id
+                    WHERE messages_fts MATCH ?
+                    GROUP BY c.id
+                    ORDER BY match_date DESC
+                    LIMIT ?
+                """, (fts_q, limit)).fetchall()
+            except sqlite3.OperationalError as e:
+                logger.warning("search_conversations FTS (%s) — fallback LIKE", e)
+                rows = []
+            if rows:
+                # L'index FTS ne couvre que le contenu — ajoute les matchs de titre.
+                seen = {r["id"] for r in rows}
+                title_rows = conn.execute("""
+                    SELECT c.id, c.title, c.started_at, c.last_message_at, c.message_count,
+                           NULL AS matching_message, c.last_message_at AS match_date
+                    FROM conversations c
+                    WHERE c.title LIKE ?
+                    ORDER BY c.last_message_at DESC
+                    LIMIT ?
+                """, (f"%{q}%", limit)).fetchall()
+                rows = list(rows) + [r for r in title_rows if r["id"] not in seen]
+                rows = rows[:limit]
+        if not rows:
+            rows = conn.execute("""
+                SELECT c.id, c.title, c.started_at, c.last_message_at, c.message_count,
+                       m.content AS matching_message, MAX(m.created_at) AS match_date
+                FROM conversations c
+                JOIN messages m ON m.conversation_id = c.id
+                WHERE m.content LIKE ? OR c.title LIKE ?
+                GROUP BY c.id
+                ORDER BY match_date DESC
+                LIMIT ?
+            """, (f"%{q}%", f"%{q}%", limit)).fetchall()
         return [dict(r) for r in rows]
 
 
