@@ -1,0 +1,6 @@
+# Approbation des scripts postinstall (esbuild telecharge son binaire natif).
+# onlyBuiltDependencies : pnpm <= 10 ; allowBuilds : pnpm >= 11.
+onlyBuiltDependencies:
+  - esbuild
+allowBuilds:
+  esbuild: true
