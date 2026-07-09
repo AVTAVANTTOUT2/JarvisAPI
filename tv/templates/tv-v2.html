@@ -248,6 +248,20 @@ html,body{width:1920px;height:1080px;overflow:hidden;transform:scale(1.0);transf
       <div class="fw-sub" style="color:rgba(255,255,255,.35)" id="cost-tokens">---</div>
       <div class="fw-bottom" id="cost-model">---</div>
     </div>
+    <!-- Productivité (score hebdo, ton stoïque) -->
+    <div id="widget-productivity" class="card card-pad2" style="display:flex;flex-direction:column;gap:6px">
+      <div class="card-title">Productivité 7j</div>
+      <div style="display:flex;align-items:baseline;gap:10px">
+        <span class="fw-value" id="prod-score">--</span>
+        <span class="fw-unit">/ 100</span>
+      </div>
+      <div class="fw-sub" style="color:rgba(255,255,255,.5)" id="prod-label">---</div>
+    </div>
+    <!-- Citation ironique du jour -->
+    <div id="widget-quote" class="card card-pad2" style="display:flex;flex-direction:column;gap:6px;grid-column:span 2">
+      <div class="card-title">Citation du jour</div>
+      <div id="quote-text" style="font-size:15px;line-height:1.5;font-style:italic;color:rgba(255,255,255,.75)">---</div>
+    </div>
   </div>
 
   <!-- Voice Overlay -->

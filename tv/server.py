@@ -335,6 +335,15 @@ async def api_stats():
     return {**await get_server_stats(), "backend": backend["alive"], "backend_data": backend.get("data")}
 
 
+@app.get("/api/rituals")
+async def api_rituals():
+    """Citation ironique du jour + score productivité (table daily_rituals)."""
+    def _fetch():
+        from data_sources.rituals import get_rituals
+        return get_rituals()
+    return cached("rituals", _fetch, 300)
+
+
 @app.get("/api/automations")
 async def api_automations():
     """Actions IA récentes (dernières 24h)."""

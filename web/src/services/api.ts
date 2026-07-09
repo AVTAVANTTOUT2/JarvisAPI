@@ -1,6 +1,8 @@
 /**
  * Service REST central — BASE vide : même origine (FastAPI prod) ou proxy Vite (/api → backend).
  */
+import type { ApiPerson, NotificationItem } from '@/app/types/jarvis'
+
 export const BASE = ''
 
 export class ApiError extends Error {
@@ -41,6 +43,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
 export const api = {
   getStatus: () => request('/api/status'),
+  getWeeklyStats: (days = 7) => request<WeeklyStats>(`/api/stats/weekly?days=${days}`),
   getIntegrations: () => request('/api/integrations'),
 
   getTTSSetting: () => request<{ engine: string }>('/api/settings/tts'),
@@ -58,7 +61,7 @@ export const api = {
     return request<{ logs: LlmActionLog[]; count: number }>(`/api/logs${q ? `?${q}` : ''}`)
   },
 
-  getNotifications: () => request('/api/notifications'),
+  getNotifications: () => request<{ notifications?: NotificationItem[] }>('/api/notifications'),
   markRead: (id: number) => request(`/api/notifications/${id}/read`, { method: 'POST' }),
   markAllRead: () => request('/api/notifications/read-all', { method: 'POST' }),
 
@@ -83,7 +86,7 @@ export const api = {
     request(`/api/life-profile/${id}`, { method: 'PUT', body: JSON.stringify({ content }) }),
   deleteProfileEntry: (id: number) => request(`/api/life-profile/${id}`, { method: 'DELETE' }),
 
-  getPeople: () => request('/api/people'),
+  getPeople: () => request<{ people?: ApiPerson[] }>('/api/people'),
   getPerson: (name: string) => request(`/api/people/${encodeURIComponent(name)}`),
   updatePerson: (name: string, data: Record<string, unknown>) =>
     request(`/api/people/${encodeURIComponent(name)}`, {
@@ -361,6 +364,32 @@ export const api = {
       `/api/supervisor/sub/${encodeURIComponent(id)}/${encodeURIComponent(action)}`,
       { method: 'POST' },
     ),
+}
+
+export interface DailyActivity {
+  date: string
+  msg_count: number
+  voice_count: number
+  tokens_in: number
+  tokens_out: number
+  cost: number
+}
+
+export interface WeeklyStats {
+  days: DailyActivity[]
+  change: {
+    messages_pct: number | null
+    voice_pct: number | null
+    interactions_pct: number | null
+    cost_pct: number | null
+  }
+  totals: {
+    msg_count: number
+    voice_count: number
+    tokens_in: number
+    tokens_out: number
+    cost: number
+  }
 }
 
 export interface ServiceInfo {

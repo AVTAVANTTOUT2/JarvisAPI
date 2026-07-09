@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    name: Tests Python (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Installer les dépendances de test
+        # Sous-ensemble léger de requirements.txt : les dépendances lourdes
+        # (torch, open-interpreter, faster-whisper, pyaudio…) sont optionnelles
+        # au runtime — tous les modules dégradent proprement sans elles.
+        run: |
+          pip install \
+            "fastapi==0.115.*" "uvicorn[standard]==0.34.*" "python-dotenv==1.1.*" \
+            "websockets==15.*" "python-multipart==0.0.*" "jinja2==3.1.*" \
+            "httpx==0.28.*" "apscheduler==3.10.*" "pymupdf==1.25.*" \
+            "edge-tts==7.*" "Pillow>=10.0" "python-dateutil==2.9.*" \
+            "requests>=2.31" \
+            "pytest==8.*" "pytest-asyncio>=0.24,<0.27"
+
+      - name: Vérifier que tous les modules s'importent
+        run: |
+          python - <<'EOF'
+          import importlib, os, sys
+          fails = []
+          mods = ["config", "llm", "actions", "supervisor", "main"]
+          for root in ["agents", "audio", "database", "integrations", "scripts", "jarvis"]:
+              for dirpath, dirs, files in os.walk(root):
+                  dirs[:] = [d for d in dirs if d != "__pycache__"]
+                  for f in files:
+                      if f.endswith(".py"):
+                          m = os.path.join(dirpath, f)[:-3].replace(os.sep, ".")
+                          mods.append(m[:-9] if m.endswith(".__init__") else m)
+          for m in sorted(set(mods)):
+              try:
+                  importlib.import_module(m)
+              except Exception as e:
+                  fails.append(f"{m}: {type(e).__name__}: {e}")
+          if fails:
+              print("\n".join(fails))
+              sys.exit(1)
+          print(f"{len(set(mods))} modules importés sans erreur")
+          EOF
+
+      - name: pytest
+        run: python -m pytest tests/ jarvis/tests agents/devagent -q
+
+  frontend:
+    name: Frontend (typecheck + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Installer les dépendances
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck + build Vite
+        run: pnpm run build

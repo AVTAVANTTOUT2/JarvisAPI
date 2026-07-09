@@ -13,7 +13,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity, Calendar, Cloud, Cpu, FileCode, Mail, MapPin,
   MessageSquare, Mic, Monitor, Pause, Play, Plus, RefreshCw,
-  Smartphone, Square, Volume2, Wifi, X, CheckCircle, XCircle,
+  Square, Volume2, Wifi, X, CheckCircle, XCircle,
   AlertCircle, Database, Bot, Search,
 } from 'lucide-react';
 import { api } from '@/services/api';

@@ -1,8 +1,9 @@
 """Agent ÉCOLE — cours, résumés, fiches, flashcards, exercices/devoirs.
 
 Particularité : utilise `_route_task()` de BaseAgent qui décide automatiquement
-entre Claude (analyse, conversation, fiche courte) et Gemini CLI (devoir complet,
-dissertation, code long). Quand Gemini produit un devoir, le prompt système
+entre l'appel standard (analyse, conversation, fiche courte) et le mode tâche
+lourde DeepSeek (devoir complet, dissertation, code long — max_tokens élevé).
+Quand le mode lourd produit un devoir, le prompt système
 demande de terminer la réponse par un bloc ```save JSON``` qu'on parse ici pour
 sauver le fichier dans data/outputs/school/[matière]/.
 """
@@ -28,12 +29,12 @@ logger = logging.getLogger(__name__)
 #   ```
 SAVE_BLOCK_RE = re.compile(r"```save\s*\n(.*?)\n```", re.DOTALL)
 
-# Découpage pour pseudo-streaming (Gemini ne stream pas en JSON, on simule)
+# Découpage pour pseudo-streaming (_route_task ne stream pas, on simule)
 STREAM_CHUNK_SIZE = 20
 
 
 class SchoolAgent(BaseAgent):
-    """Agent école : Sonnet pour analyse/fiches, Gemini CLI pour devoirs longs."""
+    """Agent école : DeepSeek main pour analyse/fiches, mode tâche lourde pour devoirs longs."""
 
     name = "school"
     description = "Agent école — cours, résumés, exercices, devoirs"
@@ -41,7 +42,7 @@ class SchoolAgent(BaseAgent):
 
     async def handle(self, user_message: str, conversation_id: int = None,
                      context: dict = None) -> dict:
-        """Traite un message scolaire — route automatiquement vers Claude ou Gemini.
+        """Traite un message scolaire — route automatiquement standard / tâche lourde.
 
         Si la réponse contient un bloc ```save JSON```, sauvegarde le devoir
         dans data/outputs/school/[matière]/ et ajoute `saved_file` au résultat.
@@ -61,7 +62,7 @@ class SchoolAgent(BaseAgent):
                             context: dict = None) -> AsyncGenerator[dict, None]:
         """Version pseudo-streaming.
 
-        `_route_task` n'expose pas de streaming (Gemini CLI subprocess est lu d'un coup,
+        `_route_task` n'expose pas de streaming (la réponse est produite d'un bloc,
         Claude pourrait streamer mais on uniformise). On découpe la réponse complète
         en chunks de STREAM_CHUNK_SIZE caractères pour rester compatible avec le
         WebSocket frontend qui attend des events `{type: chunk}`.

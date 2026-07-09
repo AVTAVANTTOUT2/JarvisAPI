@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   RefreshCw, Database, Users, Brain, MapPin, FileText, MessageSquare,
-  Activity, Cpu, CheckCircle, XCircle, Download, Shield, Layers, Zap,
+  Activity, CheckCircle, XCircle, Download, Shield, Layers, Zap,
   Mail, Calendar, Cloud, Smartphone, Bell, Mic, Volume2, Monitor, SlidersHorizontal,
 } from 'lucide-react';
 import { api } from '@/services/api';
@@ -16,10 +16,8 @@ import { formatRelativeTime } from '@/app/lib/timeFormat';
 interface StatusData {
   user?: string;
   models?: {
-    haiku?: string;
-    sonnet?: string;
-    opus?: string;
-    gemini?: string;
+    fast?: string;
+    main?: string;
   };
   agents_registered?: string[];
   today?: {
@@ -63,7 +61,7 @@ interface StatusData {
 
 interface IntegrationsData {
   mail?: boolean;
-  calendar?: boolean;
+  calendar?: boolean | { available?: boolean };
   weather?: boolean;
   imessage?: boolean;
   email_watcher?: boolean;
@@ -123,7 +121,7 @@ const DB_GROUPS = [
     id: 'documents',
     label: 'Documents & Médias',
     icon: FileText,
-    description: 'Documents scolaires, outputs Gemini, enregistrements',
+    description: 'Documents scolaires, devoirs générés, enregistrements',
     statsKeys: [],
   },
 ];
@@ -138,10 +136,8 @@ const AGENT_DESCRIPTIONS: Record<string, string> = {
 };
 
 const MODELS_INFO = [
-  { key: 'haiku', label: 'Haiku', role: 'Routing, classification, tâches légères' },
-  { key: 'sonnet', label: 'Sonnet', role: 'Agents spécialisés, coaching, rédaction' },
-  { key: 'opus', label: 'Opus', role: 'Décisions profondes, coaching structurant' },
-  { key: 'gemini', label: 'Gemini CLI', role: 'Génération longue, devoirs, code (gratuit)' },
+  { key: 'fast', label: 'DeepSeek Fast', role: 'Routing, classification, triage, extraction' },
+  { key: 'main', label: 'DeepSeek Main', role: 'Agents spécialisés, coaching, rédaction, tâches lourdes' },
 ];
 
 const PRIORITY_COLOR: Record<string, string> = {
@@ -321,7 +317,7 @@ export function DataView() {
       active:
         typeof integrations.calendar === 'boolean'
           ? integrations.calendar
-          : (integrations.calendar as { available?: boolean })?.available ?? false,
+          : integrations.calendar?.available ?? false,
     },
     { id: 'weather', label: 'Météo (OpenWeatherMap)', icon: Cloud, active: integrations.weather ?? false },
     { id: 'imessage', label: 'iMessage Bridge', icon: Smartphone, active: integrations.imessage ?? false },

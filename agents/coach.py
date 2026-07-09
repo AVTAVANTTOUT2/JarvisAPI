@@ -4,7 +4,7 @@ Particularité : escalade automatique vers le modèle principal DeepSeek pour le
 structurants (décisions de carrière, ruptures, déménagement, crises). Détecte les mentions
 de personnes connues et met à jour `last_mentioned` dans la table `people`.
 
-JAMAIS Gemini ici — le coaching exige le contexte mémoire JARVIS complet.
+JAMAIS le mode tâche lourde ici — le coaching exige le contexte mémoire JARVIS complet.
 """
 
 import asyncio

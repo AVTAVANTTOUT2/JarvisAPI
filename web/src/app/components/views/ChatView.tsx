@@ -293,7 +293,8 @@ export function ChatView() {
     }))
 
     unsubs.push(ws.on('error', (d) => {
-      setMessages(prev => [...prev, { role: 'system', content: d.message as string || 'Erreur', isError: true }])
+      const msg = (d.message ?? d.content) as string | undefined
+      setMessages(prev => [...prev, { role: 'system', content: msg || 'Erreur', isError: true }])
       setIsStreaming(false)
     }))
 
@@ -431,6 +432,33 @@ export function ChatView() {
     userScrolledUp.current = (el.scrollHeight - el.scrollTop - el.clientHeight) >= 60
   }
 
+  // ── Confirmation d'action (commandes sensibles) ─────────
+
+  const confirmPendingAction = useCallback((action: Record<string, unknown>) => {
+    ws.send({ type: 'action_confirm', action })
+    setMessages(prev => {
+      const updated = [...prev]
+      const idx = updated.map((m, i) => ({ m, i })).reverse().find(x => x.m.role === 'assistant')?.i
+      if (idx != null) updated[idx] = { ...updated[idx], pendingAction: undefined }
+      return updated
+    })
+  }, [])
+
+  const cancelPendingAction = useCallback(() => {
+    setMessages(prev => {
+      const updated = [...prev]
+      const idx = updated.map((m, i) => ({ m, i })).reverse().find(x => x.m.role === 'assistant')?.i
+      if (idx != null) {
+        updated[idx] = {
+          ...updated[idx],
+          pendingAction: undefined,
+          actionResult: { ok: false, cancelled: true },
+        }
+      }
+      return updated
+    })
+  }, [])
+
   // ── Computed state ──────────────────────────────────────
 
   const groups = groupConversations(conversations)
@@ -543,7 +571,9 @@ export function ChatView() {
             <WelcomeScreen suggestions={SUGGESTIONS} onSelect={(s) => { setInput(s); textareaRef.current?.focus() }} />
           ) : (
             <>
-              {messages.map((m, i) => <MessageBubble key={i} message={m} />)}
+              {messages.map((m, i) => (
+                <MessageBubble key={i} message={m} onConfirmAction={confirmPendingAction} onCancelAction={cancelPendingAction} />
+              ))}
               {isStreaming && streamingContent && <MessageBubble message={{ role: 'assistant', content: streamingContent }} streaming />}
               {isStreaming && !streamingContent && (
                 <div className="flex gap-3">
@@ -706,7 +736,12 @@ function ConvTitleEditor({ conv, onSave }: { conv: ConversationSummary; onSave: 
   return <button onClick={() => setEditing(true)} className="text-sm text-white/80 hover:text-white truncate font-medium text-left">{conv.title || 'Nouvelle conversation'}</button>
 }
 
-function MessageBubble({ message, streaming }: { message: UIMessage; streaming?: boolean }) {
+function MessageBubble({ message, streaming, onConfirmAction, onCancelAction }: {
+  message: UIMessage
+  streaming?: boolean
+  onConfirmAction?: (action: Record<string, unknown>) => void
+  onCancelAction?: () => void
+}) {
   const isUser = message.role === 'user'
   const isSystem = message.role === 'system'
 
@@ -732,29 +767,8 @@ function MessageBubble({ message, streaming }: { message: UIMessage; streaming?:
             type={message.actionType}
             result={message.actionResult}
             pendingAction={message.pendingAction}
-            onConfirm={(action) => {
-              ws.send({ type: 'action_confirm', action })
-              setMessages(prev => {
-                const updated = [...prev]
-                const idx = updated.map((m, i) => ({ m, i })).reverse().find(x => x.m.role === 'assistant')?.i
-                if (idx != null) updated[idx] = { ...updated[idx], pendingAction: undefined }
-                return updated
-              })
-            }}
-            onCancel={() => {
-              setMessages(prev => {
-                const updated = [...prev]
-                const idx = updated.map((m, i) => ({ m, i })).reverse().find(x => x.m.role === 'assistant')?.i
-                if (idx != null) {
-                  updated[idx] = {
-                    ...updated[idx],
-                    pendingAction: undefined,
-                    actionResult: { ok: false, cancelled: true },
-                  }
-                }
-                return updated
-              })
-            }}
+            onConfirm={(action) => onConfirmAction?.(action)}
+            onCancel={() => onCancelAction?.()}
           />
         )}
         {message.savedFile && (

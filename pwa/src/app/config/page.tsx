@@ -32,10 +32,8 @@ import { jarvisFetch } from '@/lib/api';
 interface StatusResponse {
   user: string;
   models: {
-    haiku?: string;
-    sonnet?: string;
-    opus?: string;
-    gemini?: string;
+    fast?: string;
+    main?: string;
   };
   audio?: {
     stt_available?: boolean;
@@ -120,10 +118,8 @@ export default function ConfigPage() {
   ];
 
   const llmModels = [
-    { tier: 'Haiku', model: status.data?.models?.haiku },
-    { tier: 'Sonnet', model: status.data?.models?.sonnet },
-    { tier: 'Opus', model: status.data?.models?.opus },
-    { tier: 'Gemini', model: status.data?.models?.gemini },
+    { tier: 'Fast', model: status.data?.models?.fast },
+    { tier: 'Main', model: status.data?.models?.main },
   ].filter((m) => m.model);
 
   return (

@@ -31,6 +31,7 @@ import config
 import llm
 from actions import execute_action
 from agents import get_agent, register_agent
+from agents import easter_eggs
 from agents.coach import coach_agent
 from agents.info import info_agent
 from agents.journal import journal_agent
@@ -92,7 +93,9 @@ from database import (
     get_conversation_documents,
     get_conversation_history,
     get_conversations,
+    get_cost_summary,
     get_current_screen_context,
+    get_daily_activity_stats,
     get_last_conversation_summary,
     get_life_profile,
     get_life_profile_entries,
@@ -946,7 +949,6 @@ async def api_status():
         "models": {
             "fast": config.DEEPSEEK_FAST_MODEL,
             "main": config.DEEPSEEK_MAIN_MODEL,
-            "gemini": config.GEMINI_MODEL,
         },
         "agents_registered": ["info", "school", "productivity", "coach", "journal", "memory"],
         "today": stats,
@@ -981,6 +983,136 @@ async def api_status():
         "location": loc_payload,
         "audio_daemon": _audio_daemon_status_payload(),
     }
+
+
+@app.get("/api/stats/weekly")
+async def api_stats_weekly(days: int = 7):
+    """Série d'activité quotidienne (messages, échanges vocaux, tokens, coût).
+
+    Retourne aussi la variation jour/jour (dernier jour vs avant-dernier) pour
+    les cartes de tendance du dashboard. `days` borné à [2, 90].
+    """
+    days = max(2, min(days, 90))
+    try:
+        daily = get_daily_activity_stats(days)
+    except Exception as e:
+        logger.error("get_daily_activity_stats : %s", e)
+        raise HTTPException(500, "Statistiques indisponibles") from e
+
+    def _pct(cur: float, prev: float) -> float | None:
+        if prev <= 0:
+            return None
+        return round((cur - prev) / prev * 100, 1)
+
+    last, prev = daily[-1], daily[-2]
+    change = {
+        "messages_pct": _pct(last["msg_count"], prev["msg_count"]),
+        "voice_pct": _pct(last["voice_count"], prev["voice_count"]),
+        "interactions_pct": _pct(
+            last["tokens_in"] + last["tokens_out"],
+            prev["tokens_in"] + prev["tokens_out"],
+        ),
+        "cost_pct": _pct(last["cost"], prev["cost"]),
+    }
+    totals = {
+        "msg_count": sum(d["msg_count"] for d in daily),
+        "voice_count": sum(d["voice_count"] for d in daily),
+        "tokens_in": sum(d["tokens_in"] for d in daily),
+        "tokens_out": sum(d["tokens_out"] for d in daily),
+        "cost": round(sum(d["cost"] for d in daily), 6),
+    }
+    return {"days": daily, "change": change, "totals": totals}
+
+
+@app.get("/api/costs")
+async def api_costs():
+    """Dépenses LLM (jour / 7 jours / mois, par modèle) + budget configuré."""
+    try:
+        return get_cost_summary()
+    except Exception as e:
+        logger.error("get_cost_summary : %s", e)
+        raise HTTPException(500, "Coûts indisponibles") from e
+
+
+@app.get("/api/backups")
+async def api_backups_list():
+    """Sauvegardes SQLite présentes (plus récente en premier)."""
+    from scripts.db_maintenance import list_backups
+
+    return {
+        "backups": list_backups(),
+        "dir": config.BACKUP_DIR,
+        "keep": config.BACKUP_KEEP,
+        "enabled": config.BACKUP_ENABLED,
+    }
+
+
+@app.post("/api/backups/run")
+async def api_backups_run():
+    """Déclenche une sauvegarde immédiate (VACUUM INTO + rotation)."""
+    from scripts.db_maintenance import run_backup
+
+    report = await asyncio.to_thread(run_backup)
+    if not report.get("ok"):
+        raise HTTPException(500, report.get("error", "Sauvegarde échouée"))
+    return report
+
+
+@app.post("/api/maintenance/run")
+async def api_maintenance_run():
+    """Purge de rétention + optimisation FTS/WAL immédiates."""
+    from scripts.db_maintenance import run_maintenance
+
+    try:
+        return await asyncio.to_thread(run_maintenance)
+    except Exception as e:
+        logger.exception("run_maintenance : %s", e)
+        raise HTTPException(500, "Maintenance échouée") from e
+
+
+@app.get("/api/rituals/today")
+async def api_rituals_today():
+    """Rituels du jour : roast, debrief, citation, score productivité."""
+    from scripts.rituals import compute_productivity_score
+
+    from database import get_daily_ritual
+
+    row = get_daily_ritual(datetime.now().strftime("%Y-%m-%d")) or {}
+    return {
+        "date": datetime.now().strftime("%Y-%m-%d"),
+        "roast": row.get("roast"),
+        "debrief": row.get("debrief"),
+        "quote": row.get("quote"),
+        "productivity": compute_productivity_score(),
+    }
+
+
+@app.post("/api/rituals/{ritual}/run")
+async def api_rituals_run(ritual: str):
+    """Déclenche un rituel à la demande : roast, debrief ou quote."""
+    from scripts import rituals
+
+    runners = {
+        "roast": rituals.daily_roast,
+        "debrief": rituals.evening_debrief,
+        "quote": rituals.daily_quote,
+    }
+    fn = runners.get(ritual)
+    if fn is None:
+        raise HTTPException(404, f"Rituel inconnu : {ritual} (roast | debrief | quote)")
+    try:
+        return await fn()
+    except Exception as e:
+        logger.exception("rituel %s : %s", ritual, e)
+        raise HTTPException(500, f"Rituel {ritual} échoué") from e
+
+
+@app.get("/api/productivity/score")
+async def api_productivity_score():
+    """Score de productivité hebdomadaire (déterministe, 0-100)."""
+    from scripts.rituals import compute_productivity_score
+
+    return compute_productivity_score()
 
 
 @app.get("/api/memory")
@@ -4899,6 +5031,29 @@ async def _process_message(
                 voice_mode=voice_mode,
             )
 
+        # ── Easter eggs vocaux : réplique codée en dur, zéro LLM ──
+        egg = easter_eggs.match(original_text)
+        if egg is not None:
+            egg_text = egg["response"]
+            egg_emotion = egg["emotion"]
+            try:
+                save_message(conversation_id, "assistant", egg_text, agent="jarvis")
+            except Exception as e:
+                logger.error("save easter egg : %s", e)
+            await ws.send_json({
+                "type": "response",
+                "agent": "jarvis",
+                "content": egg_text,
+                "emotion": egg_emotion,
+                "model": "easter-egg",
+                "tokens_in": 0,
+                "tokens_out": 0,
+                "cost": 0.0,
+            })
+            if send_tts:
+                await _send_tts_streaming(ws, egg_text, egg_emotion)
+            return {"emotion": egg_emotion, "response": egg_text}
+
         # ── Vérifier si l'utilisateur confirme une proposition en attente ──
         pending_action = (
             dict(_pending_proposal["action"])
@@ -5201,8 +5356,12 @@ async def _process_message(
         return {"emotion": emotion, "response": display_text}
     except Exception as e:
         logger.exception("_process_message : %s", e)
+        detail = f"{type(e).__name__}: {e}"[:200]
         try:
-            await ws.send_json({"type": "error", "content": "Une erreur est survenue lors du traitement du message."})
+            await ws.send_json({
+                "type": "error",
+                "message": f"Erreur lors du traitement du message ({detail}).",
+            })
         except Exception:
             pass
         return {"emotion": "neutral", "response": ""}
@@ -5225,7 +5384,7 @@ async def _handle_hands_free_blob(
         await ws.send_json({"type": "processing"})
 
         if stt is None or not getattr(stt, "available", False):
-            await ws.send_json({"type": "error", "content": "STT indisponible (ELEVENLABS_API_KEY manquante)."})
+            await ws.send_json({"type": "error", "message": "STT indisponible (ELEVENLABS_API_KEY manquante)."})
             await reset_listening()
             return
 
@@ -5237,7 +5396,7 @@ async def _handle_hands_free_blob(
             text = await stt.transcribe(audio_bytes, language=config.LANGUAGE)
         except Exception as e:
             logger.exception("STT mains libres : %s", e)
-            await ws.send_json({"type": "error", "content": f"Transcription : {type(e).__name__}"})
+            await ws.send_json({"type": "error", "message": f"Transcription : {type(e).__name__}"})
             await reset_listening()
             return
 
@@ -5275,7 +5434,7 @@ async def _handle_hands_free_blob(
             await _send_tts_streaming(ws, display_text, emotion)
         except Exception as e:
             logger.exception("traitement message mains libres : %s", e)
-            await ws.send_json({"type": "error", "content": f"Erreur agent : {type(e).__name__}"})
+            await ws.send_json({"type": "error", "message": f"Erreur agent : {type(e).__name__}"})
             conv_session["is_speaking"] = False
             await reset_listening()
             return
@@ -5361,7 +5520,7 @@ async def websocket_endpoint(ws: WebSocket):
                 if stt is None or not getattr(stt, "available", False):
                     await ws.send_json({
                         "type": "error",
-                        "content": "STT indisponible (ELEVENLABS_API_KEY manquante).",
+                        "message": "STT indisponible (ELEVENLABS_API_KEY manquante).",
                     })
                     continue
 
@@ -5373,14 +5532,14 @@ async def websocket_endpoint(ws: WebSocket):
                     logger.exception("Erreur STT : %s", e)
                     await ws.send_json({
                         "type": "error",
-                        "content": f"Erreur transcription : {type(e).__name__}",
+                        "message": f"Erreur transcription : {type(e).__name__}",
                     })
                     continue
 
                 if not text or len(text) < 2:
                     await ws.send_json({
                         "type": "error",
-                        "content": "Je n'ai pas compris, réessaie.",
+                        "message": "Je n'ai pas compris, réessaie.",
                     })
                     continue
 
@@ -5395,7 +5554,7 @@ async def websocket_endpoint(ws: WebSocket):
                     logger.exception("Erreur traitement message audio")
                     await ws.send_json({
                         "type": "error",
-                        "content": f"Erreur agent : {type(e).__name__}: {e}",
+                        "message": f"Erreur agent : {type(e).__name__}: {e}",
                     })
                 continue
 
@@ -5414,7 +5573,7 @@ async def websocket_endpoint(ws: WebSocket):
                     if stt is None or not getattr(stt, "available", False):
                         await ws.send_json({
                             "type": "error",
-                            "content": "STT indisponible (ELEVENLABS_API_KEY manquante).",
+                            "message": "STT indisponible (ELEVENLABS_API_KEY manquante).",
                         })
                         continue
                     from audio.continuous_recorder import ContinuousRecording
@@ -5519,7 +5678,7 @@ async def websocket_endpoint(ws: WebSocket):
                     if stt is None or not getattr(stt, "available", False):
                         await ws.send_json({
                             "type": "error",
-                            "content": "STT indisponible (ELEVENLABS_API_KEY manquante).",
+                            "message": "STT indisponible (ELEVENLABS_API_KEY manquante).",
                         })
                         if conversation_mode:
                             await ws.send_json({"type": "listening"})
@@ -5533,7 +5692,7 @@ async def websocket_endpoint(ws: WebSocket):
                         logger.exception("Erreur STT conversation : %s", e)
                         await ws.send_json({
                             "type": "error",
-                            "content": f"Transcription : {type(e).__name__}",
+                            "message": f"Transcription : {type(e).__name__}",
                         })
                         if conversation_mode:
                             await ws.send_json({"type": "listening"})
@@ -5555,7 +5714,7 @@ async def websocket_endpoint(ws: WebSocket):
                         logger.exception("Erreur conversation audio : %s", e)
                         await ws.send_json({
                             "type": "error",
-                            "content": f"Erreur : {type(e).__name__}",
+                            "message": f"Erreur : {type(e).__name__}",
                         })
                         is_speaking = False
                         if conversation_mode:

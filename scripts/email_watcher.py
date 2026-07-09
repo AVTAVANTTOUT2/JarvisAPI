@@ -77,6 +77,13 @@ def _parse_json(raw: str) -> dict | None:
         return None
 
 
+def _priority_for(reason: str, urgent) -> str:
+    """Priorité de notification : urgent (48h) > paiement (high) > demande (medium)."""
+    if urgent is True:
+        return "urgent"
+    return "high" if reason == "payment" else "medium"
+
+
 class EmailWatcher:
     """Worker async — polling Mail.app, analyse DeepSeek, actions automatiques.
 
@@ -331,7 +338,14 @@ class EmailWatcher:
         from_name = analysis.get("from_name")
         action_needed = analysis.get("action_needed")
         deadline = analysis.get("deadline")
-        priority = "high" if reason == "payment" else "medium"
+        priority = _priority_for(reason, analysis.get("urgent"))
+
+        # Mail urgent → drapeau dans Mail.app (best-effort, jamais bloquant)
+        if priority == "urgent":
+            try:
+                await mail_client.flag_message(email_id)
+            except Exception as e:
+                logger.debug(f"[email_watcher] flag Mail.app : {e}")
 
         try:
             from integrations.notifications_macos import mac_notifier
@@ -389,14 +403,18 @@ class EmailWatcher:
             except Exception as e:
                 logger.error(f"[email_watcher] create_task (request) : {e}")
 
-        # 4. Alerte iMessage
-        display_name = from_name or sender_short
-        imsg = f"Mail de {display_name} : {summary}"
-        if amount:
-            imsg += f" — {amount}"
-        if deadline:
-            imsg += f" — avant le {deadline}"
-        await self._send_imessage_alert(imsg)
+        # 4. Alerte iMessage — supprimée pendant les heures calmes
+        #    (la notification reste en base et dans l'UI).
+        if config.is_quiet_hours():
+            logger.info("[email_watcher] heures calmes — iMessage non envoyé : %s", subject[:60])
+        else:
+            display_name = from_name or sender_short
+            imsg = f"Mail de {display_name} : {summary}"
+            if amount:
+                imsg += f" — {amount}"
+            if deadline:
+                imsg += f" — avant le {deadline}"
+            await self._send_imessage_alert(imsg)
 
         # Note : le contenu intégral + résumé est déjà en DB via save_email_full
         # (appelé avant la branche notify/ignore). Pas besoin d'upsert_email_summary.

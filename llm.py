@@ -1,4 +1,4 @@
-"""Client DeepSeek API (format OpenAI) + Gemini CLI avec routing de modèles."""
+"""Client DeepSeek API (format OpenAI) avec routing de modèles fast/main."""
 
 import asyncio
 import json
@@ -14,14 +14,37 @@ logger = logging.getLogger(__name__)
 # Coûts par million de tokens (input, output, cache_hit)
 # DeepSeek v4-flash : input ~$0.27/M, output ~$1.10/M, cache ~$0.07/M (prix indicatifs)
 # DeepSeek v4-pro   : input ~$2.00/M, output ~$8.00/M, cache ~$0.50/M (prix indicatifs)
-# Gemini CLI = gratuit (quota Google AI Studio gratuit ou auth perso) → tout à zéro.
 MODEL_COSTS = {
     config.DEEPSEEK_FAST_MODEL: (0.27, 1.10, 0.07),
     config.DEEPSEEK_MAIN_MODEL: (2.00, 8.00, 0.50),
-    config.GEMINI_MODEL: (0.0, 0.0, 0.0),
 }
 
-GEMINI_TIMEOUT_SEC = 180
+# Client httpx partagé : évite un handshake TCP+TLS par appel LLM
+# (2 appels minimum par message utilisateur : classification + agent).
+_http_client: httpx.AsyncClient | None = None
+
+# Erreurs transitoires DeepSeek qui méritent un retry (surcharge / rate limit).
+_RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+_MAX_RETRIES = 3
+
+
+def _get_http_client() -> httpx.AsyncClient:
+    """Retourne le client httpx partagé (créé paresseusement)."""
+    global _http_client
+    if _http_client is None or _http_client.is_closed:
+        _http_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(120.0, connect=10.0),
+            limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
+        )
+    return _http_client
+
+
+def _check_api_key() -> None:
+    """Échoue immédiatement avec un message clair si la clé API manque."""
+    if not config.DEEPSEEK_API_KEY:
+        raise RuntimeError(
+            "DEEPSEEK_API_KEY manquante — ajoute-la dans .env pour activer le LLM."
+        )
 
 
 def estimate_cost(model: str, tokens_in: int, tokens_out: int, cache_hit: int = 0) -> float:
@@ -87,10 +110,34 @@ async def chat(
         "stream": False,
     }
 
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        response = await client.post(url, json=payload, headers=headers)
-        response.raise_for_status()
-        data = response.json()
+    _check_api_key()
+    client = _get_http_client()
+    data = None
+    for attempt in range(_MAX_RETRIES):
+        try:
+            response = await client.post(url, json=payload, headers=headers)
+            if response.status_code in _RETRYABLE_STATUS and attempt < _MAX_RETRIES - 1:
+                delay = 2 ** attempt
+                logger.warning(
+                    "DeepSeek HTTP %s — retry %d/%d dans %ds",
+                    response.status_code, attempt + 1, _MAX_RETRIES - 1, delay,
+                )
+                await asyncio.sleep(delay)
+                continue
+            response.raise_for_status()
+            data = response.json()
+            break
+        except httpx.TransportError as e:
+            if attempt >= _MAX_RETRIES - 1:
+                raise
+            delay = 2 ** attempt
+            logger.warning(
+                "DeepSeek erreur réseau (%s) — retry %d/%d dans %ds",
+                type(e).__name__, attempt + 1, _MAX_RETRIES - 1, delay,
+            )
+            await asyncio.sleep(delay)
+    if data is None:
+        raise RuntimeError("DeepSeek : aucune réponse après retries")
 
     choice = data["choices"][0]
     content = choice["message"]["content"]
@@ -152,23 +199,24 @@ async def chat_stream(
         "stream": True,
     }
 
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        async with client.stream("POST", url, json=payload, headers=headers) as response:
-            response.raise_for_status()
-            async for line in response.aiter_lines():
-                if not line.startswith("data: "):
-                    continue
-                data_str = line[6:]  # skip "data: "
-                if data_str == "[DONE]":
-                    break
-                try:
-                    data = json.loads(data_str)
-                    delta = data.get("choices", [{}])[0].get("delta", {})
-                    chunk_content = delta.get("content", "")
-                    if chunk_content:
-                        yield chunk_content
-                except json.JSONDecodeError:
-                    continue
+    _check_api_key()
+    client = _get_http_client()
+    async with client.stream("POST", url, json=payload, headers=headers) as response:
+        response.raise_for_status()
+        async for line in response.aiter_lines():
+            if not line.startswith("data: "):
+                continue
+            data_str = line[6:]  # skip "data: "
+            if data_str == "[DONE]":
+                break
+            try:
+                data = json.loads(data_str)
+                delta = data.get("choices", [{}])[0].get("delta", {})
+                chunk_content = delta.get("content", "")
+                if chunk_content:
+                    yield chunk_content
+            except json.JSONDecodeError:
+                continue
 
 
 async def quick_classify(text: str, categories: list[str], model: str = None) -> str:
@@ -200,166 +248,14 @@ async def quick_classify(text: str, categories: list[str], model: str = None) ->
     return categories[0].upper()
 
 
-# ═══════════════════════════════════════════════════════════
-# GEMINI CLI — délégation des tâches longues / autonomes
-# ═══════════════════════════════════════════════════════════
-# Gemini est invoqué comme un BINAIRE TERMINAL via subprocess, jamais via HTTP.
-# Le prompt est passé sur stdin, la réponse arrive sur stdout.
-
-
-def _build_gemini_prompt(prompt: str, system: str = "") -> str:
-    """Concatène system + prompt avec un séparateur lisible."""
-    if system:
-        return f"{system}\n\n---\n\n{prompt}"
-    return prompt
-
-
-async def gemini_chat(prompt: str, system: str = "") -> dict:
-    """Appel Gemini CLI bloquant. Retourne un dict au même format que ``chat()``.
-
-    Le prompt complet est envoyé sur stdin, on lit toute la sortie d'un coup.
-    Timeout : 180 secondes (Gemini peut être lent sur les longues générations).
-    """
-    full_prompt = _build_gemini_prompt(prompt, system)
-
-    try:
-        process = await asyncio.create_subprocess_exec(
-            config.GEMINI_CLI_PATH,
-            "--model", config.GEMINI_MODEL,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-    except FileNotFoundError:
-        msg = (
-            f"Gemini CLI introuvable (chemin testé : '{config.GEMINI_CLI_PATH}'). "
-            "Installe-la depuis https://github.com/google-gemini/gemini-cli "
-            "ou ajuste GEMINI_CLI_PATH dans .env."
-        )
-        logger.error(msg)
-        return {
-            "content": msg,
-            "tokens_in": 0,
-            "tokens_out": 0,
-            "cost": 0.0,
-            "model": config.GEMINI_MODEL,
-            "stop_reason": "error",
-        }
-
-    try:
-        stdout, stderr = await asyncio.wait_for(
-            process.communicate(input=full_prompt.encode("utf-8")),
-            timeout=GEMINI_TIMEOUT_SEC,
-        )
-    except asyncio.TimeoutError:
-        try:
-            process.kill()
-            await process.wait()
-        except ProcessLookupError:
-            pass
-        msg = f"Gemini CLI : timeout après {GEMINI_TIMEOUT_SEC}s. Tâche trop longue, à découper."
-        logger.error(msg)
-        return {
-            "content": msg,
-            "tokens_in": 0,
-            "tokens_out": 0,
-            "cost": 0.0,
-            "model": config.GEMINI_MODEL,
-            "stop_reason": "timeout",
-        }
-
-    if process.returncode != 0:
-        err_text = stderr.decode("utf-8", errors="replace").strip()
-        logger.error(f"Gemini CLI exit={process.returncode}: {err_text}")
-        return {
-            "content": (
-                "Gemini CLI a renvoyé une erreur. "
-                "Vérifie ton authentification (`gemini auth login`) et ton quota."
-            ),
-            "tokens_in": 0,
-            "tokens_out": 0,
-            "cost": 0.0,
-            "model": config.GEMINI_MODEL,
-            "stop_reason": "error",
-        }
-
-    return {
-        "content": stdout.decode("utf-8", errors="replace").strip(),
-        "tokens_in": 0,
-        "tokens_out": 0,
-        "cost": 0.0,
-        "model": config.GEMINI_MODEL,
-        "stop_reason": "end_turn",
-    }
-
-
-async def gemini_chat_stream(prompt: str, system: str = "") -> AsyncGenerator[str, None]:
-    """Appel Gemini CLI en streaming ligne par ligne sur stdout.
-
-    On envoie le prompt sur stdin puis on ferme stdin pour signaler EOF,
-    et on lit stdout au fur et à mesure (chaque ``readline()`` yield un chunk).
-    """
-    full_prompt = _build_gemini_prompt(prompt, system)
-
-    try:
-        process = await asyncio.create_subprocess_exec(
-            config.GEMINI_CLI_PATH,
-            "--model", config.GEMINI_MODEL,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-    except FileNotFoundError:
-        msg = (
-            f"Gemini CLI introuvable (chemin testé : '{config.GEMINI_CLI_PATH}'). "
-            "Installe-la ou ajuste GEMINI_CLI_PATH dans .env.\n"
-        )
-        logger.error(msg)
-        yield msg
-        return
-
-    # Envoi du prompt sur stdin puis fermeture pour signaler EOF
-    if process.stdin is not None:
-        try:
-            process.stdin.write(full_prompt.encode("utf-8"))
-            await process.stdin.drain()
-            process.stdin.close()
-        except (BrokenPipeError, ConnectionResetError) as e:
-            logger.error(f"Gemini CLI stdin fermé prématurément : {e}")
-
-    try:
-        while True:
-            line = await process.stdout.readline()
-            if not line:
-                break
-            yield line.decode("utf-8", errors="replace")
-    except asyncio.CancelledError:
-        try:
-            process.kill()
-        except ProcessLookupError:
-            pass
-        raise
-    finally:
-        try:
-            await process.wait()
-        except Exception:
-            pass
-
-    if process.returncode and process.returncode != 0:
-        try:
-            err_bytes = await process.stderr.read()
-            err_text = err_bytes.decode("utf-8", errors="replace").strip()
-            logger.error(f"Gemini CLI stream exit={process.returncode}: {err_text}")
-        except Exception:
-            pass
-
-
 async def classify_task_type(user_message: str) -> str:
-    """Décide via DeepSeek Fast si la tâche doit aller à Gemini ou rester sur DeepSeek.
+    """Décide via DeepSeek Fast si la demande est une production lourde.
 
     Retourne :
-        "gemini" → contenu long autonome (exo, dissertation, code, rapport, fichier…)
-        "claude" → conversation, analyse contextuelle, décision, mémoire
+        "heavy"    → contenu long autonome (exo, dissertation, code, rapport,
+                     fichier, flashcards en masse) → DEEPSEEK_MAIN_MODEL avec
+                     plafond de tokens élevé (config.HEAVY_TASK_MAX_TOKENS)
+        "standard" → conversation, analyse contextuelle, décision, mémoire
     """
     response = await chat(
         messages=[{"role": "user", "content": user_message}],
@@ -368,11 +264,11 @@ async def classify_task_type(user_message: str) -> str:
             "Cette demande implique-t-elle de produire un contenu long "
             "(exercice complet, dissertation, code, rapport, résumé de document, "
             "fichier, série de flashcards) ? "
-            "Réponds UN SEUL MOT : GEMINI si oui, CLAUDE si non."
+            "Réponds UN SEUL MOT : LOURDE si oui, STANDARD si non."
         ),
         max_tokens=10,
         temperature=0.0,
     )
 
     raw = response["content"].strip().upper()
-    return "gemini" if "GEMINI" in raw else "claude"
+    return "heavy" if "LOURDE" in raw else "standard"
