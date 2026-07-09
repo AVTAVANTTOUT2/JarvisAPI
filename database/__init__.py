@@ -582,6 +582,8 @@ def init_db():
         _migrate_messages_fts(conn)
         _migrate_daily_rituals(conn)
         _migrate_people_birthday(conn)
+        _migrate_mood_signals(conn)
+        _migrate_presence_sessions(conn)
     logger.info("[DB] Base initialisée : %s", DB_PATH)
 
 
@@ -599,6 +601,42 @@ def _migrate_daily_rituals(conn: sqlite3.Connection) -> None:
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(daily_rituals)").fetchall()}
+    if "weekly_debrief" not in cols:
+        conn.execute("ALTER TABLE daily_rituals ADD COLUMN weekly_debrief TEXT")
+
+
+def _migrate_mood_signals(conn: sqlite3.Connection) -> None:
+    """Signaux comportementaux quotidiens (aucun diagnostic, juste des chiffres)."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS mood_signals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT UNIQUE NOT NULL,
+            msg_count INTEGER DEFAULT 0,
+            msg_avg_14d REAL DEFAULT 0,
+            deviation_pct REAL,
+            voice_count INTEGER DEFAULT 0,
+            screen_minutes REAL DEFAULT 0,
+            late_night_points INTEGER DEFAULT 0,
+            flags TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+
+def _migrate_presence_sessions(conn: sqlite3.Connection) -> None:
+    """Sessions de présence au bureau (détection par le son)."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS presence_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            arrived_at DATETIME NOT NULL,
+            left_at DATETIME,
+            duration_min REAL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_presence_arrived ON presence_sessions(arrived_at)")
 
 
 def _migrate_people_birthday(conn: sqlite3.Connection) -> None:
@@ -2467,7 +2505,7 @@ def get_usage_stats() -> dict:
 
 def set_daily_ritual(date: str, field: str, value) -> None:
     """UPSERT d'un champ du rituel quotidien (roast/debrief/quote/score…)."""
-    allowed = {"roast", "debrief", "quote", "productivity_score", "score_detail"}
+    allowed = {"roast", "debrief", "quote", "productivity_score", "score_detail", "weekly_debrief"}
     if field not in allowed:
         raise ValueError(f"champ rituel invalide : {field}")
     with get_db() as conn:
@@ -2506,6 +2544,66 @@ def get_todays_birthdays(today_mm_dd: str | None = None) -> list[dict]:
             (mm_dd, mm_dd),
         ).fetchall()
         return [dict(r) for r in rows]
+
+
+def upsert_mood_signal(date: str, signal: dict) -> None:
+    """UPSERT du signal comportemental du jour."""
+    with get_db() as conn:
+        conn.execute(
+            """INSERT INTO mood_signals
+                   (date, msg_count, msg_avg_14d, deviation_pct, voice_count,
+                    screen_minutes, late_night_points, flags)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(date) DO UPDATE SET
+                   msg_count = excluded.msg_count,
+                   msg_avg_14d = excluded.msg_avg_14d,
+                   deviation_pct = excluded.deviation_pct,
+                   voice_count = excluded.voice_count,
+                   screen_minutes = excluded.screen_minutes,
+                   late_night_points = excluded.late_night_points,
+                   flags = excluded.flags""",
+            (
+                date,
+                signal.get("msg_count", 0),
+                signal.get("msg_avg_14d", 0.0),
+                signal.get("deviation_pct"),
+                signal.get("voice_count", 0),
+                signal.get("screen_minutes", 0.0),
+                signal.get("late_night_points", 0),
+                signal.get("flags"),
+            ),
+        )
+
+
+def get_mood_signals(days: int = 14) -> list[dict]:
+    """Signaux comportementaux des `days` derniers jours (récent en premier)."""
+    days = max(1, min(days, 90))
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM mood_signals ORDER BY date DESC LIMIT ?", (days,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def open_presence_session(arrived_at: str) -> int:
+    """Ouvre une session de présence. Retourne son id."""
+    with get_db() as conn:
+        cur = conn.execute(
+            "INSERT INTO presence_sessions (arrived_at) VALUES (?)", (arrived_at,)
+        )
+        return cur.lastrowid
+
+
+def close_presence_session(session_id: int, left_at: str) -> None:
+    """Ferme une session de présence et calcule sa durée en minutes."""
+    with get_db() as conn:
+        conn.execute(
+            """UPDATE presence_sessions
+               SET left_at = ?,
+                   duration_min = ROUND((julianday(?) - julianday(arrived_at)) * 1440, 1)
+               WHERE id = ? AND left_at IS NULL""",
+            (left_at, left_at, session_id),
+        )
 
 
 def get_cost_summary() -> dict:

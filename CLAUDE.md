@@ -711,6 +711,9 @@ Le fichier `database/schema.sql` contient toutes les tables. Les voici regroupé
 - `POST /api/maintenance/run` → purge de rétention (screen/location/logs/notifs lues) + optimisation FTS/WAL (job dim 04:45)
 - `GET /api/rituals/today`, `POST /api/rituals/{roast|debrief|quote}/run` → rituels quotidiens (table `daily_rituals`, jobs 18:30 / 21:45 / 07:00)
 - `GET /api/productivity/score` → score hebdo déterministe 0-100 (50 + 8×faites − 12×en retard) ; widget TV `/api/rituals` côté serveur TV
+- `POST /api/rituals/weekly/run` → debrief hebdo vocal (dim 21:00, TTS daemon)
+- `GET /api/mood/signals?days=14` → signaux comportementaux quotidiens (écran + messages, zéro diagnostic, job 23:15)
+- `GET /api/presence` → présence bureau par le son (micro daemon audio ; arrivée = bruit > `PRESENCE_NOISE_RMS` → « Vous êtes là, Monsieur » ; départ = `PRESENCE_TIMEOUT_MIN` min de silence, tick /10 min)
 - `GET /api/journal` → historique du journal
 - `POST /api/journal` → nouvelle entrée journal
 

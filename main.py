@@ -1083,19 +1083,21 @@ async def api_rituals_today():
         "roast": row.get("roast"),
         "debrief": row.get("debrief"),
         "quote": row.get("quote"),
+        "weekly_debrief": row.get("weekly_debrief"),
         "productivity": compute_productivity_score(),
     }
 
 
 @app.post("/api/rituals/{ritual}/run")
 async def api_rituals_run(ritual: str):
-    """Déclenche un rituel à la demande : roast, debrief ou quote."""
+    """Déclenche un rituel à la demande : roast, debrief, quote ou weekly."""
     from scripts import rituals
 
     runners = {
         "roast": rituals.daily_roast,
         "debrief": rituals.evening_debrief,
         "quote": rituals.daily_quote,
+        "weekly": rituals.weekly_debrief,
     }
     fn = runners.get(ritual)
     if fn is None:
@@ -1113,6 +1115,25 @@ async def api_productivity_score():
     from scripts.rituals import compute_productivity_score
 
     return compute_productivity_score()
+
+
+@app.get("/api/mood/signals")
+async def api_mood_signals(days: int = 14):
+    """Signaux comportementaux quotidiens (écran + messages). Aucun diagnostic."""
+    from database import get_mood_signals
+
+    return {"signals": get_mood_signals(days)}
+
+
+@app.get("/api/presence")
+async def api_presence():
+    """Présence au bureau détectée par le son (micro daemon audio)."""
+    from scripts.presence import get_today_sessions, presence_detector
+
+    return {
+        **presence_detector.get_status(),
+        "today_sessions": get_today_sessions(),
+    }
 
 
 @app.get("/api/memory")

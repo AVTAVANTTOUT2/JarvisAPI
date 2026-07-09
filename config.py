@@ -235,6 +235,18 @@ QUOTE_TIME = _get("QUOTE_TIME", "07:00")            # citation ironique du jour
 BIRTHDAY_CHECK_TIME = _get("BIRTHDAY_CHECK_TIME", "08:00")
 RITUALS_TTS = _get("RITUALS_TTS", "true").lower() == "true"  # roast/debrief parlés via daemon
 
+# ── Debrief hebdo vocal + mood tracking discret ──────────────
+WEEKLY_DEBRIEF_TIME = _get("WEEKLY_DEBRIEF_TIME", "21:00")   # dimanche soir
+MOOD_SIGNAL_TIME = _get("MOOD_SIGNAL_TIME", "23:15")         # calcul du signal quotidien
+
+# ── Présence au bureau (détection par le son, micro daemon audio) ──
+# Arrivée : un son dépasse PRESENCE_NOISE_RMS → « Vous êtes là, Monsieur. »
+# Départ : aucun son pendant PRESENCE_TIMEOUT_MIN minutes.
+PRESENCE_ENABLED = _get("PRESENCE_ENABLED", "true").lower() == "true"
+PRESENCE_TIMEOUT_MIN = int(_get("PRESENCE_TIMEOUT_MIN", "60"))
+PRESENCE_NOISE_RMS = float(_get("PRESENCE_NOISE_RMS", "0.015"))  # < seuil parole (0.02)
+PRESENCE_GREETING = _get("PRESENCE_GREETING", "Vous êtes là, Monsieur. Bon retour.")
+
 # ── Alerte pause café (écran sans interruption) ──────────────
 BREAK_ALERT_MINUTES = int(_get("BREAK_ALERT_MINUTES", "90"))   # durée continue avant alerte ; 0 = off
 BREAK_GAP_MINUTES = int(_get("BREAK_GAP_MINUTES", "15"))       # trou considéré comme une pause

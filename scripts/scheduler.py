@@ -229,6 +229,38 @@ async def _coffee_break_job():
         logger.exception("[scheduler] coffee_break : %s", e)
 
 
+async def _weekly_debrief_job():
+    """Debrief hebdo vocal (dimanche soir)."""
+    if not config.RITUALS_ENABLED:
+        return
+    try:
+        from scripts.rituals import weekly_debrief
+
+        await weekly_debrief()
+    except Exception as e:
+        logger.exception("[scheduler] weekly_debrief : %s", e)
+
+
+async def _mood_signal_job():
+    """Signal comportemental quotidien (aucun diagnostic)."""
+    try:
+        from scripts.rituals import compute_mood_signal
+
+        await asyncio.to_thread(compute_mood_signal)
+    except Exception as e:
+        logger.exception("[scheduler] mood_signal : %s", e)
+
+
+async def _presence_tick_job():
+    """Contrôle de départ : ferme la session après le timeout de silence."""
+    try:
+        from scripts.presence import presence_detector
+
+        await asyncio.to_thread(presence_detector.tick)
+    except Exception as e:
+        logger.exception("[scheduler] presence_tick : %s", e)
+
+
 def setup_scheduler() -> None:
     """Enregistre les jobs (idempotent avec replace_existing)."""
     h, m = _parse_hh_mm(config.MORNING_BRIEFING_TIME)
@@ -319,15 +351,31 @@ def setup_scheduler() -> None:
         _coffee_break_job, CronTrigger(hour="9-22", minute="*/20"),
         id="coffee_break", replace_existing=True,
     )
+    wh, wm = _parse_hh_mm(config.WEEKLY_DEBRIEF_TIME)
+    scheduler.add_job(
+        _weekly_debrief_job, CronTrigger(day_of_week="sun", hour=wh, minute=wm),
+        id="weekly_debrief", replace_existing=True,
+    )
+    mh, mm = _parse_hh_mm(config.MOOD_SIGNAL_TIME)
+    scheduler.add_job(
+        _mood_signal_job, CronTrigger(hour=mh, minute=mm),
+        id="mood_signal", replace_existing=True,
+    )
+    scheduler.add_job(
+        _presence_tick_job, CronTrigger(minute="*/10"),
+        id="presence_tick", replace_existing=True,
+    )
 
     logger.info(
-        "[scheduler] 15 jobs enregistrés (briefing %02d:%02d, résumé soir %02d:%02d, "
+        "[scheduler] 18 jobs enregistrés (briefing %02d:%02d, résumé soir %02d:%02d, "
         "hebdo dim 20:00, overdue chaque heure, analyse géo 23:00, "
         "alertes relationnelles /6h, analyse relationnelle 3:00, "
         "backup 4:15, maintenance dim 4:45, budget LLM 21:30, "
-        "roast %s, debrief %s, citation %s, anniversaires %s, pause café /20min 9-22h)",
+        "roast %s, debrief %s, citation %s, anniversaires %s, pause café /20min 9-22h, "
+        "debrief hebdo dim %s, signal mood %s, présence /10min)",
         h, m, eh, em,
         config.ROAST_TIME, config.DEBRIEF_TIME, config.QUOTE_TIME, config.BIRTHDAY_CHECK_TIME,
+        config.WEEKLY_DEBRIEF_TIME, config.MOOD_SIGNAL_TIME,
     )
 
 

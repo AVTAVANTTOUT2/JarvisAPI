@@ -715,6 +715,26 @@ class AudioDaemon:
                     self._last_frame_time = time.time()
 
                     rms = self._chunk_rms(data)
+
+                    # Présence au bureau : tout son ambiant au-dessus du seuil
+                    # compte (pas seulement la parole). Le TTS de JARVIS est
+                    # exclu pour ne pas se détecter soi-même.
+                    if (
+                        rms > getattr(config, "PRESENCE_NOISE_RMS", 0.015)
+                        and not self._tts_playing_event.is_set()
+                    ):
+                        try:
+                            from scripts.presence import presence_detector
+
+                            if presence_detector.on_sound() == "arrived":
+                                if not config.is_quiet_hours():
+                                    asyncio.run_coroutine_threadsafe(
+                                        self._play_tts(config.PRESENCE_GREETING, emotion="warm"),
+                                        loop,
+                                    )
+                        except Exception as e:
+                            logger.debug("[audio_daemon] presence : %s", e)
+
                     if rms <= 0.0001:
                         silent_since += 1
                         if silent_since == PERM_CHECK_CHUNKS and not self._mic_mute_logged:
