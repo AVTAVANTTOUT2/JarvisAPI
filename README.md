@@ -7,6 +7,21 @@ Assistant personnel autonome, multi-agents, voice-first. Tourne entièrement en 
 → "Bonjour Monsieur. Que puis-je faire pour vous ?"
 ```
 
+## Dernier changelog — 10 juillet 2026 : fusion des commits en attente (post-PR #7)
+
+Trois commits orphelins de `claude/workflow-project-improvements-yknzqs`, jamais inclus dans la PR #7 (fix web), ont été rebasés sur `main` et fusionnés :
+
+| Domaine | Ajouts |
+|---------|--------|
+| Présence | détection arrivée/départ au bureau via le son (`scripts/presence.py`) |
+| Mood | signal d'humeur comportemental discret (déviation vs baseline) |
+| Rituels | debrief hebdo vocal (dimanche 21h), comparatif semaine, retour tardif |
+| Batch 2 | running gags, alerte binge streaming, tracker réunions, engagements/promesses, DND |
+| Voix | cache TTS spéculatif + raccourci « répète » (`audio/tts_cache.py`) |
+| Docs | README condensé aligné codebase + `CHANGELOG_HISTORIQUE.md` (archive ancien README) |
+
+29 tests dédiés : `test_batch_gags_dnd`, `test_presence_mood_weekly`, `test_voice_cache`.
+
 ## Ce que JARVIS fait
 
 - **Converse** — chat web avec conversations persistantes, page vocale mains libres, bridge iMessage (on lui parle depuis l'iPhone comme à un contact), wake word « Jarvis » optionnel.
