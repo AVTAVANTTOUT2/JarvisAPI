@@ -711,6 +711,8 @@ def init_db():
         _migrate_sessions(conn)
         _migrate_push_subscriptions(conn)
         _migrate_imessage_import(conn)
+        _migrate_conversation_turns(conn)
+        _migrate_memory_embeddings(conn)
     logger.info("[DB] Base initialisée : %s", DB_PATH)
 
 
@@ -905,6 +907,55 @@ def _migrate_imessage_import(conn: sqlite3.Connection) -> None:
             last_sync_at DATETIME,
             status TEXT DEFAULT 'idle' CHECK(status IN ('importing', 'idle', 'error')),
             error_message TEXT
+        )
+    """)
+
+
+def _migrate_conversation_turns(conn: sqlite3.Connection) -> None:
+    """Tours de parole diarisés d'un enregistrement (mode écoute).
+
+    `speaker_label` est un identifiant temporaire propre à CET enregistrement
+    (« A », « B »…) — il n'est jamais réutilisé d'un enregistrement à l'autre
+    (la diarisation ElevenLabs ne fournit pas d'empreinte vocale persistante).
+    `person_id` est renseigné après coup quand l'utilisateur répond
+    « qui était la personne A ? ».
+    """
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS conversation_turns (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            recording_id INTEGER NOT NULL REFERENCES recordings(id) ON DELETE CASCADE,
+            turn_order INTEGER NOT NULL,
+            speaker_label TEXT NOT NULL,
+            person_id INTEGER REFERENCES people(id),
+            text TEXT NOT NULL,
+            start_ms INTEGER,
+            end_ms INTEGER,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_turns_recording ON conversation_turns(recording_id)"
+    )
+
+
+def _migrate_memory_embeddings(conn: sqlite3.Connection) -> None:
+    """Vecteurs d'embedding pour la recherche sémantique (episodes/recordings).
+
+    `embedding` : vecteur float32 sérialisé (`numpy.tobytes()`). Le volume
+    personnel (quelques milliers d'entrées au plus) rend une recherche par
+    similarité cosinus en mémoire largement suffisante — pas besoin d'un
+    moteur vectoriel dédié.
+    """
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS memory_embeddings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_type TEXT NOT NULL CHECK(source_type IN ('recording', 'episode')),
+            source_id INTEGER NOT NULL,
+            text_preview TEXT,
+            embedding BLOB NOT NULL,
+            model TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(source_type, source_id)
         )
     """)
 
@@ -1463,7 +1514,30 @@ def save_episode(agent: str, content: str, summary: str = None,
                VALUES (?, ?, ?, ?, ?)""",
             (agent, content, summary, importance, json.dumps(tags or []))
         )
-        return cur.lastrowid
+        episode_id = cur.lastrowid
+    _dispatch_semantic_indexing("episode", episode_id, summary or content)
+    return episode_id
+
+
+def _dispatch_semantic_indexing(source_type: str, source_id: int, text: str) -> None:
+    """Indexe un texte pour la recherche sémantique — arrière-plan, best-effort, jamais bloquant.
+
+    Ne fait rien silencieusement si `sentence-transformers` n'est pas
+    installé (dépendance lourde optionnelle) — jamais de crash appelant.
+    """
+    import threading
+
+    def _index():
+        try:
+            from scripts.semantic_search import SemanticSearchUnavailable, index_text
+
+            index_text(source_type, source_id, text)
+        except SemanticSearchUnavailable:
+            pass
+        except Exception:
+            logger.debug("[semantic_search] indexation échouée (best-effort)", exc_info=True)
+
+    threading.Thread(target=_index, daemon=True).start()
 
 
 def save_recording(
@@ -1494,7 +1568,9 @@ def save_recording(
                 audio_size_kb,
             ),
         )
-        return cur.lastrowid
+        rec_id = cur.lastrowid
+    _dispatch_semantic_indexing("recording", rec_id, summary or transcription[:2000])
+    return rec_id
 
 
 def get_recordings(limit: int = 20) -> list:
@@ -3508,6 +3584,84 @@ def delete_push_subscription(endpoint: str) -> bool:
 def get_all_push_subscriptions() -> list[dict]:
     with get_db() as conn:
         rows = conn.execute("SELECT * FROM push_subscriptions").fetchall()
+        return [dict(r) for r in rows]
+
+
+# ── Tours de parole diarisés (mode écoute) ────────────────────
+
+def save_conversation_turns(recording_id: int, turns: list[dict]) -> int:
+    """Persiste les tours de parole d'un enregistrement. Retourne le nombre inséré."""
+    with get_db() as conn:
+        for i, t in enumerate(turns):
+            conn.execute(
+                """INSERT INTO conversation_turns
+                   (recording_id, turn_order, speaker_label, text, start_ms, end_ms)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (recording_id, i, t["speaker_label"], t["text"], t.get("start_ms"), t.get("end_ms")),
+            )
+        return len(turns)
+
+
+def get_conversation_turns(recording_id: int) -> list[dict]:
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT ct.*, p.name AS person_name FROM conversation_turns ct
+               LEFT JOIN people p ON p.id = ct.person_id
+               WHERE ct.recording_id = ? ORDER BY ct.turn_order ASC""",
+            (recording_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_unlabeled_speakers(recording_id: int) -> list[str]:
+    """Labels temporaires ("A", "B"…) pas encore associés à une personne."""
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT DISTINCT speaker_label FROM conversation_turns
+               WHERE recording_id = ? AND person_id IS NULL
+               ORDER BY speaker_label""",
+            (recording_id,),
+        ).fetchall()
+        return [r["speaker_label"] for r in rows]
+
+
+def assign_speaker_to_person(recording_id: int, speaker_label: str, person_id: int) -> int:
+    """Associe un label temporaire à une personne pour tous ses tours dans cet enregistrement."""
+    with get_db() as conn:
+        cur = conn.execute(
+            """UPDATE conversation_turns SET person_id = ?
+               WHERE recording_id = ? AND speaker_label = ?""",
+            (person_id, recording_id, speaker_label),
+        )
+        return cur.rowcount
+
+
+# ── Embeddings mémoire (recherche sémantique) ─────────────────
+
+def upsert_memory_embedding(
+    source_type: str, source_id: int, text_preview: str, embedding: bytes, model: str
+) -> int:
+    with get_db() as conn:
+        cur = conn.execute(
+            """INSERT INTO memory_embeddings (source_type, source_id, text_preview, embedding, model)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(source_type, source_id) DO UPDATE SET
+                   text_preview = excluded.text_preview,
+                   embedding = excluded.embedding,
+                   model = excluded.model""",
+            (source_type, source_id, text_preview, embedding, model),
+        )
+        return cur.lastrowid
+
+
+def get_all_memory_embeddings(source_type: str | None = None) -> list[dict]:
+    with get_db() as conn:
+        if source_type:
+            rows = conn.execute(
+                "SELECT * FROM memory_embeddings WHERE source_type = ?", (source_type,)
+            ).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM memory_embeddings").fetchall()
         return [dict(r) for r in rows]
 
 

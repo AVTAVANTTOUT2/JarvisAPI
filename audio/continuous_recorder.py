@@ -211,8 +211,11 @@ class ContinuousRecording:
             title=title,
         )
 
+        turns_captured = await self._maybe_capture_turns(stt, rec_id)
+
         out = {
             "ok": True,
+            "turns_captured": turns_captured,
             "recording_id": rec_id,
             "title": title,
             "summary": summary_text,
@@ -268,6 +271,42 @@ class ContinuousRecording:
                 parts_text.append(txt.strip())
 
         return "\n\n".join(parts_text)
+
+    async def _maybe_capture_turns(self, stt, recording_id: int) -> int:
+        """Capture les tours de parole diarisés en UN SEUL appel STT.
+
+        Les labels « A »/« B » ne sont cohérents qu'au sein d'un même appel —
+        d'où un appel unique sur l'audio entier. Plusieurs chunks issus d'un
+        même ``MediaRecorder`` sont des fragments d'un seul flux WebM : leur
+        concaténation est le fichier complet valide. Si l'audio concaténé
+        n'était pas exploitable (chunks indépendants, flux corrompu), Scribe
+        échoue et on dégrade proprement (0 tour, transcription classique
+        déjà persistée par ailleurs).
+        """
+        if not config.DIARIZATION_ENABLED:
+            return 0
+        chunks = [c for c in self.audio_chunks if len(c) >= 800] or self.audio_chunks
+        if not chunks:
+            return 0
+        audio = chunks[0] if len(chunks) == 1 else b"".join(chunks)
+        if len(audio) > WARN_BYTES:
+            logger.info(
+                "[recording] Diarisation ignorée — audio trop volumineux (%.0f MB)",
+                len(audio) / (1024 * 1024),
+            )
+            return 0
+        try:
+            turns = await stt.transcribe_with_diarization(
+                audio, language=config.LANGUAGE, timeout=_stt_timeout_for_bytes(len(audio)),
+            )
+        except Exception as e:
+            logger.warning("[recording] Diarisation échouée : %s", e)
+            return 0
+        if not turns:
+            return 0
+        from database import save_conversation_turns
+
+        return save_conversation_turns(recording_id, turns)
 
     async def _synthesize(self, transcription: str, duration_sec: int) -> dict:
         dur_human = f"{duration_sec // 3600}h {(duration_sec % 3600) // 60}min" if duration_sec >= 3600 else f"{duration_sec // 60} min {duration_sec % 60}s"

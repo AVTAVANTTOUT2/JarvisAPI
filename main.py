@@ -479,7 +479,7 @@ _SPA_SEGMENTS = frozenset({
     "chat", "voice", "tasks", "documents", "memory", "status",
     "dashboard", "contacts", "map", "analytics", "search", "data",
     "conversations", "calendar", "logs", "monitoring",
-    "voice-debug",
+    "voice-debug", "control", "mission",
 })
 
 
@@ -1063,14 +1063,22 @@ async def security_middleware(request: Request, call_next):
             # Défense en profondeur : le cookie de session est SameSite=Strict,
             # ce qui bloque déjà le CSRF cross-site dans tout navigateur moderne.
             # Quand un navigateur fournit Origin/Referer (quasi systématique en
-            # fetch/XHR), on vérifie en plus qu'il correspond au Host demandé —
-            # mais on ne bloque pas les clients qui n'envoient ni l'un ni l'autre
-            # (TestClient, scripts, curl) pour ne pas casser l'intégration hors
-            # navigateur au prix de la seule protection SameSite déjà active.
+            # fetch/XHR), on vérifie en plus que son HOSTNAME (parsé, pas une
+            # sous-chaîne — « victim:8080.evil.com » contiendrait « victim:8080 »)
+            # correspond à celui du Host demandé. Comparaison sans port : le
+            # proxy Vite en dev réécrit Host vers le port backend alors que
+            # l'Origin du navigateur garde le port du dev server. Les clients
+            # sans Origin/Referer (scripts, curl) ne sont pas bloqués — pour
+            # eux, SameSite=Strict est déjà la protection effective.
             origin = request.headers.get("origin") or request.headers.get("referer")
             host = request.headers.get("host", "")
-            if origin and host and host not in origin:
-                return JSONResponse({"error": "csrf_check_failed"}, status_code=403)
+            if origin and host:
+                from urllib.parse import urlsplit
+
+                origin_hostname = urlsplit(origin).hostname or ""
+                host_hostname = host.rsplit(":", 1)[0] if ":" in host and not host.startswith("[") else host
+                if origin_hostname and origin_hostname != host_hostname:
+                    return JSONResponse({"error": "csrf_check_failed"}, status_code=403)
 
     response = await call_next(request)
     for key, value in _SECURITY_HEADERS.items():
@@ -1928,6 +1936,66 @@ async def api_recordings_detail(recording_id: int):
     if config.RECORDING_SUMMARY_ONLY and row.get("transcription"):
         row = {**row, "transcription": "[omis — RECORDING_SUMMARY_ONLY dans la configuration]"}
     return row
+
+
+@app.get("/api/recordings/{recording_id}/turns")
+async def api_recording_turns(recording_id: int):
+    """Tours de parole diarisés d'un enregistrement (si capturés — voir DIARIZATION_ENABLED)."""
+    from database import get_conversation_turns
+
+    if not get_recording(recording_id):
+        raise HTTPException(404, "Enregistrement introuvable")
+    return {"turns": get_conversation_turns(recording_id)}
+
+
+@app.get("/api/recordings/{recording_id}/speakers")
+async def api_recording_unlabeled_speakers(recording_id: int):
+    """Labels temporaires (« A », « B »…) pas encore associés à une personne."""
+    from database import get_unlabeled_speakers
+
+    if not get_recording(recording_id):
+        raise HTTPException(404, "Enregistrement introuvable")
+    return {"unlabeled_speakers": get_unlabeled_speakers(recording_id)}
+
+
+@app.post("/api/recordings/{recording_id}/speakers/{label}/assign")
+async def api_recording_assign_speaker(recording_id: int, label: str, body: dict):
+    """Répond à « qui était la personne {label} ? » — associe le label à une personne
+    (existante ou nouvellement créée par nom)."""
+    from database import assign_speaker_to_person, get_db, get_person
+
+    name = (body.get("name") or "").strip()
+    if not name:
+        raise HTTPException(400, "`name` requis")
+    if not get_recording(recording_id):
+        raise HTTPException(404, "Enregistrement introuvable")
+
+    person = get_person(name)
+    if person:
+        person_id = person["id"]
+    else:
+        with get_db() as conn:
+            cur = conn.execute("INSERT INTO people (name) VALUES (?)", (name,))
+            person_id = cur.lastrowid
+
+    updated = assign_speaker_to_person(recording_id, label, person_id)
+    if updated == 0:
+        raise HTTPException(404, f"Aucun tour de parole pour le label « {label} »")
+    return {"ok": True, "person_id": person_id, "name": name, "turns_updated": updated}
+
+
+@app.get("/api/memory/search-semantic")
+async def api_memory_search_semantic(q: str, limit: int = 10, source_type: str | None = None):
+    """Recherche sémantique (similarité de sens, pas seulement mots-clés) sur la mémoire indexée."""
+    if not q or not q.strip():
+        raise HTTPException(400, "`q` requis")
+    try:
+        from scripts.semantic_search import SemanticSearchUnavailable, semantic_search
+
+        results = await asyncio.to_thread(semantic_search, q.strip(), limit, source_type)
+    except SemanticSearchUnavailable as e:
+        raise HTTPException(503, str(e)) from e
+    return {"results": results}
 
 
 # ── École : documents uploadés + fichiers produits ──────────

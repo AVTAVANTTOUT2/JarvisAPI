@@ -87,6 +87,30 @@ def test_post_with_mismatched_origin_rejected(tmp_db):
     assert r.json()["error"] == "csrf_check_failed"
 
 
+def test_post_with_origin_containing_host_as_substring_rejected(tmp_db):
+    """« testserver.evil.com » contient « testserver » — un test en sous-chaîne le laisserait passer."""
+    with _client() as client:
+        authenticate(client)
+        r = client.post(
+            "/api/life-context",
+            json={"context_type": "test", "description": "x"},
+            headers={"Origin": "http://testserver.evil.com"},
+        )
+    assert r.status_code == 403
+
+
+def test_post_with_same_hostname_different_port_allowed(tmp_db):
+    """Proxy dev Vite : Host réécrit vers le port backend, Origin garde le port du dev server."""
+    with _client() as client:
+        authenticate(client)
+        r = client.post(
+            "/api/life-context",
+            json={"context_type": "test", "description": "x"},
+            headers={"Origin": "https://testserver:5173"},
+        )
+    assert r.status_code == 200
+
+
 def test_post_with_matching_origin_allowed(tmp_db):
     with _client() as client:
         authenticate(client)

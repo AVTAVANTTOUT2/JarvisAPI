@@ -1582,3 +1582,72 @@ celle visée par « le téléphone devient l'interface principale ».
 - Vérification faite dans un navigateur headless en sandbox (pas de vrai
   téléphone) — conso batterie/CPU réelle et comportement d'installation
   natif à valider sur device physique.
+
+## Mode écoute — diarisation + mémoire conversationnelle + recherche sémantique
+
+Étend le pipeline d'enregistrement existant (déclenchement **explicite** par
+l'utilisateur — `recording_start`/`recording_stop`, jamais d'écoute ambiante
+permanente). Trois briques :
+
+### Diarisation (`audio/stt.py`)
+
+- `stt.transcribe_with_diarization()` : même appel Scribe avec `diarize=true`,
+  puis `group_words_into_turns()` (fonction pure, testée) regroupe la liste
+  `words` (un `speaker_id` par mot) en tours de parole consécutifs
+  `{speaker_label, text, start_ms, end_ms}`.
+- Les labels (« A », « B »…) sont **temporaires et propres à UN
+  enregistrement** — Scribe distingue des voix dans un flux, il ne fournit
+  aucune empreinte biométrique persistante. Le système ne prétend JAMAIS
+  identifier une personne réelle automatiquement.
+- `ContinuousRecording._maybe_capture_turns()` : un seul appel STT sur
+  l'audio entier (chunks MediaRecorder concaténés = flux WebM complet),
+  plafonné à 100 Mo, échec silencieux vers 0 tour (la transcription
+  classique reste persistée par ailleurs). `DIARIZATION_ENABLED=true`.
+- **Non vérifié contre l'API ElevenLabs réelle** (pas de clé en dev) — le
+  parsing dégrade vers un tour unique si la réponse n'a pas la structure
+  `words`/`speaker_id` attendue.
+
+### Attribution des locuteurs (« qui était la personne A ? »)
+
+Après l'enregistrement, l'utilisateur associe chaque label à une personne
+(existante ou créée à la volée) — `conversation_turns.person_id` rempli
+après coup, jamais deviné.
+
+### Recherche sémantique (`scripts/semantic_search.py`)
+
+- Embeddings locaux `sentence-transformers` (`all-MiniLM-L6-v2`), similarité
+  cosinus en mémoire (volume personnel — pas besoin de moteur vectoriel).
+- Indexation automatique en arrière-plan à chaque `save_episode()` /
+  `save_recording()` (`database._dispatch_semantic_indexing`, best-effort,
+  jamais bloquant, silencieux si la lib n'est pas installée).
+- Table `memory_embeddings` (UNIQUE `source_type`+`source_id`, vecteur
+  float32 en BLOB).
+- **Téléchargement initial du modèle (~90 Mo) impossible en sandbox dev**
+  (réseau restreint) — vérifié uniquement avec embeddings mockés ; sur le
+  Mac de déploiement le modèle se télécharge une fois puis reste en cache.
+
+### Tables
+
+- `conversation_turns` : recording_id (FK CASCADE), turn_order,
+  speaker_label, person_id (FK, NULL tant que non attribué), text,
+  start_ms/end_ms.
+- `memory_embeddings` : source_type ('recording'|'episode'), source_id,
+  text_preview, embedding (BLOB float32), model.
+
+### Endpoints
+
+| Route | Méthode | Description |
+|---|---|---|
+| `/api/recordings/{id}/turns` | GET | Tours de parole diarisés |
+| `/api/recordings/{id}/speakers` | GET | Labels pas encore attribués |
+| `/api/recordings/{id}/speakers/{label}/assign` | POST | `{name}` — associe le label à une personne |
+| `/api/memory/search-semantic` | GET | `?q=&limit=&source_type=` — recherche par sens (503 si lib absente) |
+
+### Note tests (isolation)
+
+`tests/conftest.py` neutralise globalement les déclencheurs de threads
+d'arrière-plan (`database._dispatch_semantic_indexing`,
+`database._dispatch_push_notification`) : un thread daemon lancé pendant un
+test peut survivre au `monkeypatch` de `DB_PATH` et toucher la vraie
+`data/jarvis.db`. Les fichiers qui testent le déclenchement lui-même
+surchargent la fixture `_no_background_db_threads` par une version vide.

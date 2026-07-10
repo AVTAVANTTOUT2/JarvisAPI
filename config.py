@@ -350,6 +350,19 @@ PROCRASTINATION_HOURLY_VALUE = float(_get("PROCRASTINATION_HOURLY_VALUE", "0")) 
 JARVIS_JOURNAL_ENABLED = _get("JARVIS_JOURNAL_ENABLED", "true").lower() == "true"
 JARVIS_JOURNAL_TIME = _get("JARVIS_JOURNAL_TIME", "23:50")
 
+# ── Recherche sémantique (embeddings locaux) ─────────────────
+# Nécessite `sentence-transformers` (dépendance lourde optionnelle, comme
+# torch/faster-whisper) — dégrade proprement (erreur claire, pas de crash)
+# si absente. Le modèle (~90 Mo) se télécharge une fois puis reste en cache.
+SEMANTIC_SEARCH_MODEL = _get("SEMANTIC_SEARCH_MODEL", "all-MiniLM-L6-v2")
+
+# ── Diarisation (mode écoute) ─────────────────────────────────
+# N'identifie PAS une personne réelle automatiquement — segmente juste les
+# tours de parole ("A", "B"…) au sein d'UN enregistrement. Les labels ne
+# sont cohérents que dans un seul appel STT : l'audio entier (chunks
+# concaténés) est donc envoyé en un seul appel, plafonné à 100 Mo.
+DIARIZATION_ENABLED = _get("DIARIZATION_ENABLED", "true").lower() == "true"
+
 # ── Authentification / verrouillage app ──────────────────────
 SESSION_COOKIE_NAME = _get("SESSION_COOKIE_NAME", "jarvis_session")
 SESSION_MAX_AGE_DAYS = int(_get("SESSION_MAX_AGE_DAYS", "30"))       # expiration absolue

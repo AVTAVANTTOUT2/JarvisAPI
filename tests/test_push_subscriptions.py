@@ -14,6 +14,12 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 
+@pytest.fixture(autouse=True)
+def _no_background_db_threads():
+    """Surcharge la fixture globale (conftest) : ici on teste précisément le déclenchement."""
+    yield
+
+
 @pytest.fixture
 def tmp_db(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     db_path = tmp_path / "test_jarvis.db"

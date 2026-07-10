@@ -43,3 +43,7 @@ python-dateutil==2.9.*
 
 # Sécurité — chiffrement optionnel des sauvegardes (Fernet/AES)
 cryptography>=41.0
+
+# Recherche sémantique — embeddings locaux (all-MiniLM-L6-v2, ~90 Mo au 1er run)
+# Le code dégrade proprement si absent (torch est déjà requis ci-dessus).
+sentence-transformers>=3.0
