@@ -10,6 +10,8 @@ import pytest
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from tests.conftest import authenticate  # noqa: E402
+
 
 @pytest.fixture
 def tmp_db(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
@@ -31,6 +33,7 @@ def _client():
 
 def test_get_life_context_empty(tmp_db):
     with _client() as client:
+        authenticate(client)
         r = client.get("/api/life-context")
     assert r.status_code == 200
     assert r.json()["periods"] == []
@@ -38,6 +41,7 @@ def test_get_life_context_empty(tmp_db):
 
 def test_create_and_list_life_context(tmp_db):
     with _client() as client:
+        authenticate(client)
         r = client.post("/api/life-context", json={
             "context_type": "demenagement", "description": "Déménagement à Lille",
         })
@@ -53,12 +57,14 @@ def test_create_and_list_life_context(tmp_db):
 
 def test_create_requires_type_and_description(tmp_db):
     with _client() as client:
+        authenticate(client)
         r = client.post("/api/life-context", json={"context_type": "", "description": ""})
     assert r.status_code == 400
 
 
 def test_active_only_filters_closed_periods(tmp_db):
     with _client() as client:
+        authenticate(client)
         r1 = client.post("/api/life-context", json={
             "context_type": "travail", "description": "Nouveau travail",
         })
@@ -79,5 +85,6 @@ def test_active_only_filters_closed_periods(tmp_db):
 
 def test_close_unknown_context_404(tmp_db):
     with _client() as client:
+        authenticate(client)
         r = client.post("/api/life-context/999/close")
     assert r.status_code == 404

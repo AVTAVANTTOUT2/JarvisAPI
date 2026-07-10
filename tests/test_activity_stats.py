@@ -90,7 +90,10 @@ def test_stats_weekly_endpoint(tmp_db):
         _insert_message(conn, 1, f"{today} 09:00:00", tokens_in=20, tokens_out=20)
         _insert_message(conn, 1, f"{today} 10:00:00", tokens_in=20, tokens_out=20)
 
+    from tests.conftest import authenticate
+
     with TestClient(main.app) as client:
+        authenticate(client)
         r = client.get("/api/stats/weekly?days=7")
     assert r.status_code == 200
     body = r.json()

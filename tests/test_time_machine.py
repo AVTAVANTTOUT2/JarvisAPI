@@ -104,7 +104,10 @@ def test_endpoint_returns_timeline(tmp_db):
     import main
     from fastapi.testclient import TestClient
 
+    from tests.conftest import authenticate
+
     with TestClient(main.app) as client:
+        authenticate(client)
         r = client.get("/api/time-machine/2026-07-10")
     assert r.status_code == 200
     body = r.json()

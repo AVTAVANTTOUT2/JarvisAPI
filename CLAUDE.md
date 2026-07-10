@@ -1403,3 +1403,72 @@ Photos, appels téléphoniques, historique musical, navigation web — explicite
 exclus de `time_machine.py`. Les 16 autres features du lot « Production Ready »
 (alter ego, détecteur de mensonge, HUD Iron Man, simulateur de scénarios,
 avocat du diable, jumeau numérique, etc.) restent à spécifier avant implémentation.
+
+## Sécurité — verrouillage app, sessions, jetons, CSP (mai 2026)
+
+Avant ce lot, **aucune authentification n'existait** : n'importe qui
+atteignant le port du serveur (tout le Tailnet) pouvait lire/écrire toutes
+les données (mails, journal, localisation, conversations). Correctif :
+verrouillage complet **fail-closed** — tant qu'aucun secret n'est configuré,
+tous les endpoints `/api/*` (hors `/api/auth/*`) répondent `428`.
+
+### Modules
+
+| Fichier | Rôle |
+|---|---|
+| `auth.py` | PIN/passphrase (hash `scrypt`, jamais en clair), sessions DB-backed (jeton opaque, seul le hash SHA-256 est stocké), anti-brute-force (verrou global après `AUTH_LOCKOUT_MAX_ATTEMPTS` échecs) |
+| `main.py` (`security_middleware`) | En-têtes de sécurité (CSP, X-Frame-Options, Referrer-Policy, Permissions-Policy, HSTS si HTTPS) sur toute réponse ; verrou de session sur `/api/*` (allowlist : `/api/auth/*`, ingestion device/localisation qui s'authentifient autrement) ; vérification Origin/Referer sur les requêtes qui modifient l'état (défense en profondeur — SameSite=Strict protège déjà l'essentiel) |
+| `web/src/app/components/auth/LockGate.tsx` | Écran de configuration/déverrouillage + verrouillage automatique client après `AUTO_LOCK_MINUTES` d'inactivité |
+| `scripts/db_maintenance.py` | Chiffrement optionnel des sauvegardes (Fernet/AES, clé dérivée de `BACKUP_ENCRYPTION_PASSPHRASE`) + `restore_backup()` (déchiffre si besoin, snapshot de sécurité de la base courante avant d'écraser) |
+
+### Failles corrigées
+
+1. **Aucune authentification** → verrou PIN/passphrase + sessions, fail-closed tant que non configuré.
+2. **Jetons device jamais vérifiés** — `register_device` générait un `auth_token` mais `heartbeat`/`screen` ne le vérifiaient jamais (n'importe qui pouvait usurper un device_id). Corrigé : `X-Device-Token` obligatoire, comparaison `hmac.compare_digest`.
+3. **`/api/location*` (Shortcuts iOS) et lecture de l'historique GPS** ouverts sans contrôle — jeton partagé optionnel (`LOCATION_API_TOKEN`) pour l'ingestion ; les endpoints de lecture/écriture consultés depuis le navigateur passent désormais par le verrou de session standard.
+4. **Aucun en-tête de sécurité** sur les réponses FastAPI (CSP, X-Frame-Options absents) — ajoutés globalement.
+5. **Aucune restauration de sauvegarde possible** — `restore_backup()` + `POST /api/backups/{name}/restore` ajoutés (protection contre le path traversal, snapshot de sécurité automatique).
+6. **Sauvegardes en clair sur disque** — chiffrement Fernet optionnel (`BACKUP_ENCRYPTION_ENABLED`).
+
+### Endpoints
+
+| Route | Méthode | Description |
+|---|---|---|
+| `/api/auth/status` | GET | `{configured, authenticated, locked_out, lockout_seconds, auto_lock_minutes}` |
+| `/api/auth/setup` | POST | `{secret}` — une seule fois, ouvre une session |
+| `/api/auth/unlock` | POST | `{secret}` — ouvre une session (soumis au verrou anti-brute-force) |
+| `/api/auth/verify` | POST | `{secret}` — ré-authentification écran verrouillé (ne touche pas à la session) |
+| `/api/auth/logout` | POST | Révoque la session courante |
+| `/api/auth/change-secret` | POST | `{current, new}` — révoque toutes les autres sessions |
+| `/api/auth/sessions` | GET | Sessions actives (device, IP, dernière activité) |
+| `/api/auth/sessions/{id}/revoke` | POST | Révoque une session précise (ex. téléphone perdu) |
+| `/api/backups/{name}/restore` | POST | Restaure une sauvegarde (déchiffre si `.enc`, snapshot de sécurité avant) |
+
+### Config
+
+```bash
+SESSION_COOKIE_NAME=jarvis_session
+SESSION_MAX_AGE_DAYS=30
+SESSION_INACTIVITY_DAYS=14
+AUTH_LOCKOUT_MAX_ATTEMPTS=5
+AUTH_LOCKOUT_MINUTES=15
+AUTO_LOCK_MINUTES=5
+WEB_HTTPS=false                  # true → cookie Secure + HSTS
+LOCATION_API_TOKEN=              # vide = /api/location reste ouvert (Shortcuts)
+BACKUP_ENCRYPTION_ENABLED=false
+BACKUP_ENCRYPTION_PASSPHRASE=
+```
+
+### Limites assumées (documentées, pas corrigées dans ce lot)
+
+- `POST /api/devices/register` reste sans authentification (un nouveau
+  device s'auto-enregistre) — protégé uniquement par le périmètre réseau
+  privé (Tailscale/LAN), comme `/api/location` sans jeton configuré.
+- Le verrou anti-brute-force est **global** (mono-utilisateur), pas par IP —
+  cohérent avec un usage personnel, mais un attaquant sur le réseau peut
+  bloquer temporairement l'accès légitime en multipliant les échecs.
+- Pas d'audit externe (pentest réel) — l'audit est un examen de code, pas
+  une certification.
+- Écran de verrouillage implémenté côté `web/` (SPA principale) ; `pwa/`
+  (Next.js) n'a pas encore son propre LockGate — à faire dans un lot dédié
+  PWA offline-first.

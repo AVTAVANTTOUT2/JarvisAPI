@@ -592,6 +592,7 @@ def init_db():
         _migrate_duplicate_findings(conn)
         _migrate_jarvis_journal(conn)
         _migrate_day_scores(conn)
+        _migrate_sessions(conn)
     logger.info("[DB] Base initialisée : %s", DB_PATH)
 
 
@@ -619,6 +620,28 @@ def _migrate_day_scores(conn: sqlite3.Connection) -> None:
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     """)
+
+
+def _migrate_sessions(conn: sqlite3.Connection) -> None:
+    """Sessions d'authentification (verrouillage app). Un seul utilisateur, plusieurs devices.
+
+    Le token brut n'est jamais stocké — seulement son hash SHA-256
+    (`token_hash`), pour qu'une fuite de la base ne permette pas de rejouer
+    une session active.
+    """
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            token_hash TEXT UNIQUE NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            expires_at DATETIME NOT NULL,
+            last_seen_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            user_agent TEXT,
+            ip TEXT,
+            revoked INTEGER DEFAULT 0
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash)")
 
 
 def _migrate_schema_migrations_table(conn: sqlite3.Connection) -> None:
@@ -3085,6 +3108,86 @@ def get_top_days(metric: str = "exceptional_score", limit: int = 10, days: int =
             (since, limit),
         ).fetchall()
         return [dict(r) for r in rows]
+
+
+# ── Sessions (verrouillage app) ───────────────────────────────
+
+def create_session_row(token_hash: str, expires_at: str, user_agent: str = "", ip: str = "") -> int:
+    with get_db() as conn:
+        cur = conn.execute(
+            """INSERT INTO sessions (token_hash, expires_at, user_agent, ip)
+               VALUES (?, ?, ?, ?)""",
+            (token_hash, expires_at, user_agent, ip),
+        )
+        return cur.lastrowid
+
+
+def get_session_by_token_hash(token_hash: str) -> dict | None:
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT * FROM sessions WHERE token_hash = ? AND revoked = 0", (token_hash,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def touch_session(token_hash: str, new_expires_at: str) -> None:
+    """Glisse l'expiration (activité récente) et met à jour `last_seen_at`."""
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE sessions SET last_seen_at = CURRENT_TIMESTAMP, expires_at = ? WHERE token_hash = ?",
+            (new_expires_at, token_hash),
+        )
+
+
+def revoke_session_by_token_hash(token_hash: str) -> bool:
+    with get_db() as conn:
+        cur = conn.execute(
+            "UPDATE sessions SET revoked = 1 WHERE token_hash = ? AND revoked = 0", (token_hash,)
+        )
+        return cur.rowcount > 0
+
+
+def revoke_session_by_id(session_id: int) -> bool:
+    with get_db() as conn:
+        cur = conn.execute(
+            "UPDATE sessions SET revoked = 1 WHERE id = ? AND revoked = 0", (session_id,)
+        )
+        return cur.rowcount > 0
+
+
+def revoke_all_sessions(except_token_hash: str | None = None) -> None:
+    with get_db() as conn:
+        if except_token_hash:
+            conn.execute(
+                "UPDATE sessions SET revoked = 1 WHERE revoked = 0 AND token_hash != ?",
+                (except_token_hash,),
+            )
+        else:
+            conn.execute("UPDATE sessions SET revoked = 1 WHERE revoked = 0")
+
+
+def list_active_sessions() -> list[dict]:
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT id, created_at, expires_at, last_seen_at, user_agent, ip FROM sessions
+               WHERE revoked = 0 AND datetime(expires_at) > datetime('now')
+               ORDER BY last_seen_at DESC"""
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def purge_expired_sessions() -> int:
+    with get_db() as conn:
+        cur = conn.execute(
+            "DELETE FROM sessions WHERE revoked = 1 OR datetime(expires_at) <= datetime('now')"
+        )
+        return cur.rowcount
+
+
+def get_device_by_id(device_id: str) -> dict | None:
+    with get_db() as conn:
+        row = conn.execute("SELECT * FROM devices WHERE device_id = ?", (device_id,)).fetchone()
+        return dict(row) if row else None
 
 
 def get_cost_summary() -> dict:

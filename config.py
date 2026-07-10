@@ -335,6 +335,23 @@ PROCRASTINATION_HOURLY_VALUE = float(_get("PROCRASTINATION_HOURLY_VALUE", "0")) 
 JARVIS_JOURNAL_ENABLED = _get("JARVIS_JOURNAL_ENABLED", "true").lower() == "true"
 JARVIS_JOURNAL_TIME = _get("JARVIS_JOURNAL_TIME", "23:50")
 
+# ── Authentification / verrouillage app ──────────────────────
+SESSION_COOKIE_NAME = _get("SESSION_COOKIE_NAME", "jarvis_session")
+SESSION_MAX_AGE_DAYS = int(_get("SESSION_MAX_AGE_DAYS", "30"))       # expiration absolue
+SESSION_INACTIVITY_DAYS = int(_get("SESSION_INACTIVITY_DAYS", "14"))  # ré-émise à chaque requête active
+AUTH_LOCKOUT_MAX_ATTEMPTS = int(_get("AUTH_LOCKOUT_MAX_ATTEMPTS", "5"))
+AUTH_LOCKOUT_MINUTES = int(_get("AUTH_LOCKOUT_MINUTES", "15"))
+AUTO_LOCK_MINUTES = int(_get("AUTO_LOCK_MINUTES", "5"))  # verrouillage écran côté client après inactivité
+
+# ── Jetons pour intégrations non-navigateur ──────────────────
+# Vide = endpoint non protégé (rétro-compatible mais déconseillé — un avertissement
+# est loggué au démarrage). À définir dès que l'app quitte un LAN totalement fermé.
+LOCATION_API_TOKEN = _get("LOCATION_API_TOKEN", "")
+
+# ── Chiffrement des sauvegardes (optionnel) ──────────────────
+BACKUP_ENCRYPTION_ENABLED = _get("BACKUP_ENCRYPTION_ENABLED", "false").lower() == "true"
+BACKUP_ENCRYPTION_PASSPHRASE = _get("BACKUP_ENCRYPTION_PASSPHRASE", "")
+
 # ── Mapping modèles par agent ───────────────────────────────
 AGENT_MODELS = {
     "orchestrator": DEEPSEEK_FAST_MODEL,

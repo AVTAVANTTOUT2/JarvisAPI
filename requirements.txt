@@ -40,3 +40,6 @@ spacy==3.7.*             # NER PII (modèle : python -m spacy download fr_core_n
 
 # Utils
 python-dateutil==2.9.*
+
+# Sécurité — chiffrement optionnel des sauvegardes (Fernet/AES)
+cryptography>=41.0

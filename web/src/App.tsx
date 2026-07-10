@@ -1,6 +1,7 @@
 import { Suspense, lazy, type ReactNode } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { BigBrotherLayout } from '@/app/components/layout/BigBrotherLayout';
+import { LockGate } from '@/app/components/auth/LockGate';
 import { ChatView } from '@/app/components/views/ChatView';
 
 // Lazy-loading : chaque vue devient un chunk séparé — recharts et les vues
@@ -38,29 +39,31 @@ function S({ children }: { children: ReactNode }) {
 
 export default function App() {
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<BigBrotherLayout />}>
-          <Route index element={<Navigate to="/chat" replace />} />
-          <Route path="chat" element={<ChatView />} />
-          <Route path="dashboard" element={<S><Dashboard /></S>} />
-          <Route path="contacts" element={<S><ContactsView /></S>} />
-          <Route path="calendar" element={<S><CalendarView /></S>} />
-          <Route path="map" element={<S><MapView /></S>} />
-          <Route path="documents" element={<S><DocumentsView /></S>} />
-          <Route path="analytics" element={<S><AnalyticsView /></S>} />
-          <Route path="search" element={<S><SearchView /></S>} />
-          <Route path="data" element={<S><DataView /></S>} />
-          <Route path="logs" element={<S><LogsView /></S>} />
-          <Route path="voice" element={<S><VoiceView /></S>} />
-          <Route path="monitoring" element={<S><MonitoringView /></S>} />
-          <Route path="control" element={<S><ControlView /></S>} />
-          <Route path="tasks" element={<S><TasksView /></S>} />
-          <Route path="voice-debug" element={<S><VoiceDebugView /></S>} />
-          <Route path="mission" element={<S><MissionControl /></S>} />
-          <Route path="*" element={<Navigate to="/chat" replace />} />
-        </Route>
-      </Routes>
-    </BrowserRouter>
+    <LockGate>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<BigBrotherLayout />}>
+            <Route index element={<Navigate to="/chat" replace />} />
+            <Route path="chat" element={<ChatView />} />
+            <Route path="dashboard" element={<S><Dashboard /></S>} />
+            <Route path="contacts" element={<S><ContactsView /></S>} />
+            <Route path="calendar" element={<S><CalendarView /></S>} />
+            <Route path="map" element={<S><MapView /></S>} />
+            <Route path="documents" element={<S><DocumentsView /></S>} />
+            <Route path="analytics" element={<S><AnalyticsView /></S>} />
+            <Route path="search" element={<S><SearchView /></S>} />
+            <Route path="data" element={<S><DataView /></S>} />
+            <Route path="logs" element={<S><LogsView /></S>} />
+            <Route path="voice" element={<S><VoiceView /></S>} />
+            <Route path="monitoring" element={<S><MonitoringView /></S>} />
+            <Route path="control" element={<S><ControlView /></S>} />
+            <Route path="tasks" element={<S><TasksView /></S>} />
+            <Route path="voice-debug" element={<S><VoiceDebugView /></S>} />
+            <Route path="mission" element={<S><MissionControl /></S>} />
+            <Route path="*" element={<Navigate to="/chat" replace />} />
+          </Route>
+        </Routes>
+      </BrowserRouter>
+    </LockGate>
   );
 }
