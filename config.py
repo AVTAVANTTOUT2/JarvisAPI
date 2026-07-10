@@ -68,6 +68,11 @@ IIMPORT_BATCH_SIZE = int(_get("IIMPORT_BATCH_SIZE", "5000"))       # messages pa
 IIMPORT_MAX_RETRIES = int(_get("IIMPORT_MAX_RETRIES", "3"))        # tentatives max par batch
 IIMPORT_SYNC_INTERVAL = int(_get("IIMPORT_SYNC_INTERVAL", "300"))  # secondes entre 2 syncs auto
 
+# ── Daemon iMessage — processus permanent d'acces a chat.db ──
+IMESSAGE_DAEMON_ENABLED = _get("IMESSAGE_DAEMON_ENABLED", "true").lower() == "true"
+IMESSAGE_DAEMON_URL = _get("IMESSAGE_DAEMON_URL", "http://127.0.0.1:8193")
+IMESSAGE_DAEMON_PORT = int(_get("IMESSAGE_DAEMON_PORT", "8193"))
+
 # ── Système ─────────────────────────────────────────────────
 DB_PATH = _get("DB_PATH", "./data/jarvis.db")
 UPLOAD_DIR = _get("UPLOAD_DIR", "./data/uploads")

@@ -726,6 +726,38 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("[startup] Impossible d'ouvrir Calendar.app : %s", e)
 
+    # ── Daemon iMessage ──
+    _imessage_daemon_process = None
+    if config.IMESSAGE_DAEMON_ENABLED:
+        try:
+            import signal as _sig
+            daemon_script = str(Path(__file__).parent / "scripts" / "imessage_daemon.py")
+            if Path(daemon_script).exists():
+                _imessage_daemon_process = subprocess.Popen(
+                    [sys.executable, daemon_script, "--port", str(config.IMESSAGE_DAEMON_PORT)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    preexec_fn=lambda: _sig.signal(_sig.SIGINT, _sig.SIG_IGN),
+                )
+                logger.info(
+                    "[startup] Daemon iMessage lance (PID=%d, port=%d)",
+                    _imessage_daemon_process.pid,
+                    config.IMESSAGE_DAEMON_PORT,
+                )
+        except Exception as e:
+            logger.warning("[startup] Echec lancement daemon iMessage: %s", e)
+
+    # ── Diagnostic iMessage ──
+    try:
+        from integrations.imessage_daemon_client import daemon_client
+        health = daemon_client.health()
+        if health.ok and health.data.get("ok"):
+            logger.info("[imessage] Daemon OK — %s msg dans jarvis.db", health.data.get("messages_in_db", "?"))
+        else:
+            logger.warning("[imessage] Daemon: chat.db inaccessible — %s", health.data.get("error", health.error))
+    except Exception:
+        pass
+
     if not config.DEEPSEEK_API_KEY:
         logger.warning("⚠️  DEEPSEEK_API_KEY manquant — copie .env.example en .env et ajoute ta clé")
 
@@ -849,6 +881,27 @@ async def lifespan(app: FastAPI):
             logger.info("[startup] Audio daemon démarré (wake word + micro natif)")
         except Exception as e:
             logger.warning("[startup] Audio daemon non démarré : %s", e)
+
+    # Connexion ADB automatique à la TV au démarrage (prépare le terrain,
+    # évite la latence de adb connect au premier "allume la télé")
+    try:
+        import asyncio as _asyncio
+        tv_ip = getattr(config, "TV_IP", "")
+        tv_port = int(getattr(config, "TV_ADB_PORT", "5555") or "5555")
+        if tv_ip:
+            proc = await _asyncio.create_subprocess_exec(
+                "adb", "connect", f"{tv_ip}:{tv_port}",
+                stdout=_asyncio.subprocess.PIPE,
+                stderr=_asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await _asyncio.wait_for(proc.communicate(), timeout=5.0)
+            output = (stdout + stderr).decode(errors="replace").strip()
+            if "connected" in output.lower() or "already" in output.lower():
+                logger.info("[startup] ADB connecté à la TV (%s:%s) — %s", tv_ip, tv_port, output.split("\n")[0][:80])
+            else:
+                logger.debug("[startup] ADB TV non joignable (%s) : %s", tv_ip, output[:100])
+    except Exception as e:
+        logger.debug("[startup] ADB TV skip : %s", e)
 
     logger.info(f"JARVIS prêt → http://localhost:{config.WEB_PORT}")
 
@@ -1366,6 +1419,64 @@ async def api_maintenance_run():
     except Exception as e:
         logger.exception("run_maintenance : %s", e)
         raise HTTPException(500, "Maintenance échouée") from e
+
+
+# ── Import iMessage ─────────────────────────────────────────
+
+@app.post("/api/imessage-import/run")
+async def api_imessage_import_run(background_tasks: BackgroundTasks):
+    """Declenche un import iMessage en arriere-plan.
+
+    Lance l'import initial si jamais fait, sinon une sync incrementale.
+    Retourne immediatement un statut 'started'. L'import tourne en background.
+    """
+    from integrations.imessage_import import IMessageImporter
+
+    importer = IMessageImporter()
+
+    if not importer.is_available():
+        raise HTTPException(
+            503,
+            "chat.db inaccessible — verifier Full Disk Access. "
+            "Utilisez --doctor pour un diagnostic complet.",
+        )
+
+    cursor = importer.get_status()
+    mode = "initial" if cursor.get("total_imported", 0) == 0 else "incremental"
+
+    async def _run_import():
+        try:
+            if mode == "initial":
+                logger.info("[api] Demarrage import iMessage initial (background)")
+                result = importer.import_all()
+            else:
+                logger.info("[api] Demarrage sync iMessage incrementale (background)")
+                result = importer.sync_incremental()
+            logger.info(
+                "[api] Import iMessage termine — %d messages, %d skip, %d erreurs",
+                result.total_messages,
+                result.total_skipped,
+                result.total_failed,
+            )
+        except Exception as e:
+            logger.exception("[api] Echec import iMessage background : %s", e)
+
+    background_tasks.add_task(_run_import)
+
+    return {
+        "status": "started",
+        "mode": mode,
+        "cursor": cursor,
+    }
+
+
+@app.get("/api/imessage-import/status")
+async def api_imessage_import_status():
+    """Retourne l'etat du curseur d'import iMessage."""
+    from integrations.imessage_import import IMessageImporter
+
+    importer = IMessageImporter()
+    return importer.get_status()
 
 
 @app.get("/api/rituals/today")
@@ -4313,6 +4424,7 @@ ACTIONS_WITH_FOLLOWUP = frozenset({
     "name_place",
     "where_am_i",
     "day_route",
+    "tv",
 })
 
 # Types d'actions qui peuvent déclencher la boucle agentique (multi-étapes)
@@ -5320,6 +5432,7 @@ calendar(range?) | calendar_create(summary,start,end?) | mood(score)
 mail(to,subject,body) | mail_read | note(content) | find_file(query)
 clipboard(action,text?) | system_info(info) | name_place(name) | where_am_i | day_route
 search_conversations(query) | search(query) | sleep | wake
+tv(command) — commandes TV : on, off, home, back, vol_up, vol_down, mute, next, prev, play, pause
 terminal(command) — COMMANDE SHELL uniquement (ls, grep, python...), JAMAIS une question
 
 RÈGLES :
@@ -5331,6 +5444,7 @@ RÈGLES :
 - Tâches complexes (code, analyse, debug) : terminal(command, complex:true)
 - "mets-toi en veille" / "dors" / "pause" : sleep
 - "réveille-toi" / "je suis là" : wake
+- TV : si l'utilisateur parle d'allumer, éteindre, ou contrôler la télévision → tv(command)
 - Si le contexte mémoire contient déjà l'info (météo chargée, calendar...) : réponds directement
 - Tu peux répondre ET inclure un bloc action dans la même réponse.
 - Pour les questions simples (heure, date, fait) : réponds directement.
@@ -5409,6 +5523,14 @@ RÈGLES SUPPLEMENTAIRES :
         response_text = re.sub(r'```\w*\s*```', '', response_text).strip()
         debug_trace["response_clean"] = response_text
         debug_trace["latency_total_ms"] = round((_time.time() - _t0) * 1000)
+
+        # ── Fallback reponse vide : DeepSeek peut ne rien produire sur des
+        # transcriptions courtes/ambigues ("Oui ou non ?", bruit). On evite
+        # le silence vocal en injectant une reponse minimale.
+        if not response_text:
+            response_text = "Je n'ai pas compris, Monsieur."
+            emotion = "concerned"
+            logger.debug("[voice_fast] Reponse LLM vide — fallback injecte")
 
         _save_voice_messages(conversation_id, text, response_text, total_cost)
         asyncio.create_task(_broadcast_voice_debug(debug_trace))
