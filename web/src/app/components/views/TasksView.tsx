@@ -12,6 +12,7 @@ import {
   X,
 } from 'lucide-react';
 import { api } from '@/services/api';
+import { enqueueWrite, isNetworkError } from '@/lib/offline/queue';
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -25,6 +26,8 @@ interface Task {
   category: string | null;
   created_at: string;
   completed_at: string | null;
+  /** Créée hors ligne, en attente de synchronisation (jamais renvoyé par l'API). */
+  pendingSync?: boolean;
 }
 
 type FilterStatus = 'all' | 'todo' | 'doing' | 'done';
@@ -110,6 +113,14 @@ export function TasksView() {
     loadTasks();
   }, [loadTasks]);
 
+  // Recharge la liste une fois la file hors-ligne resynchronisée (les tâches
+  // "en attente" créées localement laissent place aux vraies entrées serveur.
+  useEffect(() => {
+    const onSyncDone = () => loadTasks();
+    window.addEventListener('jarvis:offline-sync-done', onSyncDone);
+    return () => window.removeEventListener('jarvis:offline-sync-done', onSyncDone);
+  }, [loadTasks]);
+
   // ── Actions ─────────────────────────────────────────────────
 
   const handleStatusCycle = async (task: Task) => {
@@ -137,13 +148,14 @@ export function TasksView() {
     const title = newTitle.trim();
     if (!title) return;
     setCreating(true);
+    const body = {
+      title,
+      priority: newPriority,
+      due_date: newDueDate || undefined,
+      category: newCategory.trim() || undefined,
+    };
     try {
-      const data: any = await api.createTask({
-        title,
-        priority: newPriority,
-        due_date: newDueDate || undefined,
-        category: newCategory.trim() || undefined,
-      });
+      const data: any = await api.createTask(body);
       if (data?.task) {
         setTasks(prev => [data.task, ...prev]);
       }
@@ -153,7 +165,38 @@ export function TasksView() {
       setNewCategory('');
       setShowCreate(false);
     } catch (e: any) {
-      setError(e?.message || 'Erreur lors de la création');
+      if (isNetworkError(e)) {
+        // Hors ligne : la tâche part dans la file d'attente et sera créée
+        // côté serveur au retour réseau — l'utilisateur la voit tout de suite.
+        await enqueueWrite({
+          method: 'POST',
+          path: '/api/tasks',
+          body,
+          label: `Nouvelle tâche : ${title}`,
+        });
+        setTasks(prev => [
+          {
+            id: -Date.now(),
+            title,
+            description: null,
+            priority: newPriority,
+            status: 'todo',
+            due_date: newDueDate || null,
+            category: newCategory.trim() || null,
+            created_at: new Date().toISOString(),
+            completed_at: null,
+            pendingSync: true,
+          },
+          ...prev,
+        ]);
+        setNewTitle('');
+        setNewPriority('medium');
+        setNewDueDate('');
+        setNewCategory('');
+        setShowCreate(false);
+      } else {
+        setError(e?.message || 'Erreur lors de la création');
+      }
     } finally {
       setCreating(false);
     }
@@ -379,6 +422,14 @@ export function TasksView() {
                       <span className={`text-sm truncate ${isDone ? 'line-through text-white/40' : 'text-white/90'}`}>
                         {task.title}
                       </span>
+                      {task.pendingSync && (
+                        <span
+                          className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-mono bg-amber-500/10 text-amber-400"
+                          title="Créée hors ligne — sera synchronisée au retour du réseau"
+                        >
+                          en attente
+                        </span>
+                      )}
                       {task.category && (
                         <span className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-mono bg-white/5 text-white/30">
                           {task.category}

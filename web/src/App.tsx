@@ -2,6 +2,8 @@ import { Suspense, lazy, type ReactNode } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { BigBrotherLayout } from '@/app/components/layout/BigBrotherLayout';
 import { LockGate } from '@/app/components/auth/LockGate';
+import { InstallPrompt } from '@/app/components/pwa/InstallPrompt';
+import { NotificationsPrompt } from '@/app/components/pwa/NotificationsPrompt';
 import { ChatView } from '@/app/components/views/ChatView';
 
 // Lazy-loading : chaque vue devient un chunk séparé — recharts et les vues
@@ -64,6 +66,8 @@ export default function App() {
           </Route>
         </Routes>
       </BrowserRouter>
+      <InstallPrompt />
+      <NotificationsPrompt />
     </LockGate>
   );
 }

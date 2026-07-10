@@ -3,6 +3,7 @@ import path from 'path'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import basicSsl from '@vitejs/plugin-basic-ssl'
+import { VitePWA } from 'vite-plugin-pwa'
 
 // Backend FastAPI — HTTPS si certs/cert.pem existe, HTTP sinon
 import { existsSync } from 'fs'
@@ -30,6 +31,36 @@ export default defineConfig({
     react(),
     tailwindcss(),
     basicSsl(),
+    VitePWA({
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.ts',
+      injectRegister: 'auto',
+      manifest: {
+        name: 'JARVIS',
+        short_name: 'JARVIS',
+        description: 'Assistant personnel de Nolann',
+        start_url: '/chat',
+        scope: '/',
+        display: 'standalone',
+        background_color: '#0a0a0f',
+        theme_color: '#0a0a0f',
+        orientation: 'portrait',
+        icons: [
+          { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+          { src: '/icons/icon-512-maskable.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+        ],
+      },
+      injectManifest: {
+        // Le shell JS/CSS/HTML uniquement — jamais /api/* (données
+        // personnelles) dans le précache du Service Worker.
+        globPatterns: ['**/*.{js,css,html,svg,woff2}'],
+      },
+      devOptions: {
+        enabled: false,
+      },
+    }),
   ],
   resolve: {
     alias: {

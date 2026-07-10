@@ -593,6 +593,7 @@ def init_db():
         _migrate_jarvis_journal(conn)
         _migrate_day_scores(conn)
         _migrate_sessions(conn)
+        _migrate_push_subscriptions(conn)
     logger.info("[DB] Base initialisée : %s", DB_PATH)
 
 
@@ -642,6 +643,20 @@ def _migrate_sessions(conn: sqlite3.Connection) -> None:
         )
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash)")
+
+
+def _migrate_push_subscriptions(conn: sqlite3.Connection) -> None:
+    """Abonnements Web Push (un navigateur/device par ligne)."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS push_subscriptions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            endpoint TEXT UNIQUE NOT NULL,
+            p256dh TEXT NOT NULL,
+            auth TEXT NOT NULL,
+            user_agent TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
 
 
 def _migrate_schema_migrations_table(conn: sqlite3.Connection) -> None:
@@ -1836,7 +1851,11 @@ def get_conversation_history(conv_id: int, limit: int = 50) -> list:
 
 def create_notification(source: str, title: str, content: str = None,
                         priority: str = "medium", email_id: str = None) -> int:
-    """Crée une notification. `priority` ∈ {urgent, high, medium, low}."""
+    """Crée une notification. `priority` ∈ {urgent, high, medium, low}.
+
+    Les priorités urgent/high déclenchent aussi un envoi Web Push (best-effort,
+    en arrière-plan — ne bloque jamais et ne fait jamais échouer la création).
+    """
     if priority not in ("urgent", "high", "medium", "low"):
         priority = "medium"
     with get_db() as conn:
@@ -1845,7 +1864,34 @@ def create_notification(source: str, title: str, content: str = None,
                VALUES (?, ?, ?, ?, ?)""",
             (source, title, content, priority, email_id),
         )
-        return cur.lastrowid
+        notif_id = cur.lastrowid
+    if priority in ("urgent", "high"):
+        _dispatch_push_notification(title, content, priority)
+    return notif_id
+
+
+def _dispatch_push_notification(title: str, content: str | None, priority: str) -> None:
+    """Envoi Web Push à tous les abonnements connus — en arrière-plan, jamais bloquant."""
+    import threading
+
+    def _send():
+        try:
+            import push
+
+            for sub in get_all_push_subscriptions():
+                subscription = {
+                    "endpoint": sub["endpoint"],
+                    "keys": {"p256dh": sub["p256dh"], "auth": sub["auth"]},
+                }
+                ok, status = push.send_web_push(
+                    subscription, {"title": title, "body": content or "", "priority": priority}
+                )
+                if not ok and status in (404, 410):
+                    delete_push_subscription(sub["endpoint"])
+        except Exception:
+            logger.debug("[push] dispatch échoué (best-effort)", exc_info=True)
+
+    threading.Thread(target=_send, daemon=True).start()
 
 
 def get_unread_notifications(limit: int = 50) -> list:
@@ -3188,6 +3234,31 @@ def get_device_by_id(device_id: str) -> dict | None:
     with get_db() as conn:
         row = conn.execute("SELECT * FROM devices WHERE device_id = ?", (device_id,)).fetchone()
         return dict(row) if row else None
+
+
+# ── Abonnements Web Push ───────────────────────────────────────
+
+def upsert_push_subscription(endpoint: str, p256dh: str, auth: str, user_agent: str = "") -> int:
+    with get_db() as conn:
+        cur = conn.execute(
+            """INSERT INTO push_subscriptions (endpoint, p256dh, auth, user_agent)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(endpoint) DO UPDATE SET p256dh = excluded.p256dh, auth = excluded.auth""",
+            (endpoint, p256dh, auth, user_agent),
+        )
+        return cur.lastrowid
+
+
+def delete_push_subscription(endpoint: str) -> bool:
+    with get_db() as conn:
+        cur = conn.execute("DELETE FROM push_subscriptions WHERE endpoint = ?", (endpoint,))
+        return cur.rowcount > 0
+
+
+def get_all_push_subscriptions() -> list[dict]:
+    with get_db() as conn:
+        rows = conn.execute("SELECT * FROM push_subscriptions").fetchall()
+        return [dict(r) for r in rows]
 
 
 def get_cost_summary() -> dict:

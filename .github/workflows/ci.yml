@@ -27,7 +27,7 @@ jobs:
             "websockets==15.*" "python-multipart==0.0.*" "jinja2==3.1.*" \
             "httpx==0.28.*" "apscheduler==3.10.*" "pymupdf==1.25.*" \
             "edge-tts==7.*" "Pillow>=10.0" "python-dateutil==2.9.*" \
-            "requests>=2.31" \
+            "requests>=2.31" "cryptography>=41.0" \
             "pytest==8.*" "pytest-asyncio>=0.24,<0.27"
 
       - name: Vérifier que tous les modules s'importent
@@ -78,6 +78,9 @@ jobs:
 
       - name: Installer les dépendances
         run: pnpm install --frozen-lockfile
+
+      - name: Tests unitaires (vitest)
+        run: pnpm run test
 
       - name: Typecheck + build Vite
         run: pnpm run build

@@ -1472,3 +1472,113 @@ BACKUP_ENCRYPTION_PASSPHRASE=
 - Écran de verrouillage implémenté côté `web/` (SPA principale) ; `pwa/`
   (Next.js) n'a pas encore son propre LockGate — à faire dans un lot dédié
   PWA offline-first.
+
+## PWA offline-first — Service Worker, file d'écriture, push (mai 2026)
+
+`web/` (SPA principale, Vite + React) devient une vraie PWA installable et
+utilisable hors ligne — c'est l'interface qui porte déjà le LockGate, donc
+celle visée par « le téléphone devient l'interface principale ».
+
+### Service Worker (Workbox, mode injectManifest)
+
+- Source : `web/src/sw.ts` — précache l'app shell (JS/CSS/HTML) uniquement,
+  **jamais** les réponses `/api/*` (données personnelles) dans le cache HTTP
+  du navigateur. La lecture hors-ligne de données passe par IndexedDB côté
+  application (`src/lib/offline/readCache.ts`), pas par ce cache HTTP.
+- `NavigationRoute` avec `denylist: [/^\/api\//, /^\/ws/]` : toute navigation
+  de page sert l'app shell depuis le précache si hors ligne, mais les appels
+  API ne sont jamais servis depuis un cache obsolète.
+- Gère aussi les évènements `push` / `notificationclick` et un message
+  `jarvis:flush-offline-queue` envoyé aux clients ouverts sur un event
+  `sync` (Background Sync, best-effort — indisponible sur Safari/iOS).
+- `main.py` sert explicitement `sw.js`, `manifest.webmanifest`,
+  `registerSW.js` et `icons/` à la racine (le Service Worker DOIT être
+  servi à la racine `/sw.js` pour contrôler toute l'app — il ne peut pas
+  vivre sous `/assets`).
+
+### File d'écriture hors ligne (`web/src/lib/offline/`)
+
+- `db.ts` : base IndexedDB (`idb`) avec deux stores — `writeQueue` (clé
+  auto-incrémentée pour un ordre chronologique garanti même si plusieurs
+  écritures arrivent dans la même milliseconde) et `readCache`.
+- `queue.ts` : `enqueueWrite()`, `flushQueue()` (rejoue dans l'ordre,
+  s'arrête au premier échec réseau pour ne pas marteler), `initOfflineSync()`
+  (retente au retour réseau, au message Background Sync, et par un filet de
+  sécurité périodique de 30s pour Safari/iOS).
+- `readCache.ts` : cache de lecture avec TTL pour affichage "dernières
+  données connues" (pas branché sur toutes les vues — voir limites).
+- Politique de conflit **volontairement simple** : dernière écriture
+  gagne, aucune fusion. Une vraie résolution de conflits multi-device
+  demanderait un versioning par entité — hors scope de ce lot.
+- Intégré concrètement sur la création de tâche (`TasksView.tsx`) comme
+  point de référence : hors ligne, la tâche apparaît immédiatement avec un
+  badge « en attente », puis se synchronise et l'écran se recharge au
+  retour réseau (`jarvis:offline-sync-done`). Vérifié en conditions réelles
+  (Playwright, réseau coupé/rétabli).
+- Purge automatique du cache/file IndexedDB à la déconnexion
+  (`clearOfflineDB()` dans `LockGate`) — hygiène de confidentialité.
+
+### Notifications Push (Web Push, RFC 8291/8292)
+
+- `push.py` — implémentation **maison** (VAPID + chiffrement aes128gcm),
+  volontairement sans dépendre de `pywebpush` (sa dépendance `http_ece` ne
+  compile plus avec les outils actuels). Utilise uniquement `cryptography`
+  (déjà une dépendance directe). Testé par un round-trip de chiffrement
+  complet avec un déchiffreur indépendant dans les tests.
+- Clé VAPID générée une fois, persistée dans `app_settings` (jamais exposée
+  côté client — seule la clé publique sert de `applicationServerKey`).
+- `create_notification()` déclenche un envoi push (thread daemon,
+  best-effort, jamais bloquant) pour les priorités `urgent`/`high` ;
+  supprime l'abonnement si le push service répond 404/410 (expiré).
+- Frontend : `web/src/lib/push.ts` (`subscribeToPush`), bannière
+  `NotificationsPrompt.tsx` (une fois, si permission `default`).
+
+### Installation (Android/iPhone)
+
+- `manifest.webmanifest` généré par `vite-plugin-pwa` (icônes 192/512 +
+  512 maskable, `display: standalone`, `start_url: /chat`).
+- Métadonnées iOS ajoutées à la main dans `index.html` (Safari ignore
+  certains champs du manifest pour le mode standalone) :
+  `apple-mobile-web-app-capable`, `apple-touch-icon`, etc.
+- `InstallPrompt.tsx` : bouton natif via `beforeinstallprompt` sur
+  Android/Chrome ; instructions manuelles (Partager → Sur l'écran
+  d'accueil) sur iOS où cet évènement n'existe pas.
+
+### Endpoints
+
+| Route | Méthode | Description |
+|---|---|---|
+| `/api/push/vapid-public-key` | GET | Clé publique pour `PushManager.subscribe` |
+| `/api/push/subscribe` | POST | Enregistre un abonnement (`endpoint`, `keys.{p256dh,auth}`) |
+| `/api/push/unsubscribe` | POST | Supprime un abonnement (`endpoint`) |
+
+### Tests
+
+- Backend (pytest) : `tests/test_push.py` (chiffrement aes128gcm — round-trip
+  avec un déchiffreur indépendant, structure du JWT VAPID, signature
+  vérifiée cryptographiquement), `tests/test_push_subscriptions.py`,
+  `tests/test_push_endpoints.py`.
+- Frontend (vitest + fake-indexeddb) : `web/src/lib/offline/queue.test.ts`,
+  `readCache.test.ts` — `pnpm test` dans `web/`.
+- Vérification réelle (Playwright, réseau coupé via `context.set_offline`) :
+  création de tâche hors ligne → badge "en attente" → IndexedDB contient
+  l'écriture → réseau rétabli → synchronisation automatique en ~3s →
+  IndexedDB vidée → UI rechargée.
+
+### Limites assumées (documentées, pas corrigées dans ce lot)
+
+- Résolution de conflits multi-device volontairement absente (dernière
+  écriture gagne) — pas de versioning par entité.
+- Seule la création de tâche est branchée sur la file hors ligne pour
+  l'instant (point de référence) ; les autres écritures (journal, contacts,
+  etc.) suivraient le même patron si besoin.
+- `readCache.ts` existe mais n'est pas encore branché sur les vues (lecture
+  hors ligne des listes tâches/notifications) — l'app shell fonctionne hors
+  ligne, mais les données déjà chargées ne persistent pas automatiquement
+  entre sessions sans réseau pour l'instant.
+- `pwa/` (l'app Next.js séparée) n'a reçu ni le Service Worker ni le
+  LockGate de ce lot — tout le travail a porté sur `web/`, l'interface
+  principale.
+- Vérification faite dans un navigateur headless en sandbox (pas de vrai
+  téléphone) — conso batterie/CPU réelle et comportement d'installation
+  natif à valider sur device physique.

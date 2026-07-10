@@ -494,6 +494,36 @@ def _setup_frontend(app: FastAPI) -> None:
         if assets_dir.is_dir():
             app.mount("/assets", StaticFiles(directory=assets_dir), name="vite_assets")
 
+        icons_dir = WEB_DIST / "icons"
+        if icons_dir.is_dir():
+            app.mount("/icons", StaticFiles(directory=icons_dir), name="vite_icons")
+
+        # Fichiers PWA générés à la racine par vite-plugin-pwa — servis
+        # explicitement (le Service Worker DOIT être à la racine "/sw.js"
+        # pour contrôler toute l'app, il ne peut pas vivre sous /assets).
+        for name, media_type in (
+            ("manifest.webmanifest", "application/manifest+json"),
+            ("sw.js", "application/javascript"),
+            ("registerSW.js", "application/javascript"),
+        ):
+            file_path = WEB_DIST / name
+
+            if not file_path.is_file():
+                continue
+
+            def _make_pwa_file_route(fp: Path, mt: str):
+                async def _serve():
+                    return FileResponse(
+                        fp, media_type=mt,
+                        headers={"Cache-Control": "no-cache"},
+                    )
+                return _serve
+
+            app.add_api_route(
+                f"/{name}", _make_pwa_file_route(file_path, media_type),
+                methods=["GET"], include_in_schema=False,
+            )
+
         @app.get("/", include_in_schema=False)
         async def serve_spa_root():
             try:
@@ -2210,6 +2240,41 @@ async def api_notifications_unread():
     except Exception as e:
         logger.error("Erreur get_unread_notifications : %s", e)
         return {"notifications": []}
+
+
+@app.get("/api/push/vapid-public-key")
+async def api_push_vapid_public_key():
+    """Clé publique VAPID — à passer en `applicationServerKey` de `PushManager.subscribe`."""
+    import push
+
+    return {"key": push.get_vapid_public_key_b64url()}
+
+
+@app.post("/api/push/subscribe")
+async def api_push_subscribe(body: dict, request: Request):
+    """Enregistre un abonnement Web Push (format `PushSubscription.toJSON()`)."""
+    from database import upsert_push_subscription
+
+    endpoint = (body.get("endpoint") or "").strip()
+    keys = body.get("keys") or {}
+    if not endpoint or not keys.get("p256dh") or not keys.get("auth"):
+        raise HTTPException(400, "`endpoint` et `keys.{p256dh,auth}` requis")
+
+    upsert_push_subscription(
+        endpoint, keys["p256dh"], keys["auth"], request.headers.get("user-agent", "")
+    )
+    return {"ok": True}
+
+
+@app.post("/api/push/unsubscribe")
+async def api_push_unsubscribe(body: dict):
+    from database import delete_push_subscription
+
+    endpoint = (body.get("endpoint") or "").strip()
+    if not endpoint:
+        raise HTTPException(400, "`endpoint` requis")
+    delete_push_subscription(endpoint)
+    return {"ok": True}
 
 
 @app.get("/api/logs")

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { api, ApiError, type AuthStatus } from '@/services/api'
+import { clearOfflineDB } from '@/lib/offline/db'
+import { initOfflineSync } from '@/lib/offline/queue'
 
 const INACTIVITY_EVENTS = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'] as const
 
@@ -60,6 +62,21 @@ export function LockGate({ children }: { children: ReactNode }) {
     const t = setInterval(() => setLockoutSeconds((s) => Math.max(0, s - 1)), 1000)
     return () => clearInterval(t)
   }, [lockoutSeconds])
+
+  // Resynchronisation de la file d'écritures hors ligne — uniquement une fois authentifié.
+  useEffect(() => {
+    if (!status?.authenticated) return
+    return initOfflineSync(() => {
+      window.dispatchEvent(new CustomEvent('jarvis:offline-sync-done'))
+    })
+  }, [status?.authenticated])
+
+  // Hygiène de confidentialité : purge le cache/la file hors ligne à la déconnexion.
+  useEffect(() => {
+    if (status && !status.authenticated) {
+      void clearOfflineDB()
+    }
+  }, [status?.authenticated])
 
   if (!status) {
     return (

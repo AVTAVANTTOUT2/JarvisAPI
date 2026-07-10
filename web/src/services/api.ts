@@ -81,6 +81,19 @@ export const api = {
   authSessions: () => request<{ sessions: AuthSession[] }>('/api/auth/sessions'),
   authRevokeSession: (id: number) =>
     request<{ ok: boolean }>(`/api/auth/sessions/${id}/revoke`, { method: 'POST' }),
+
+  getVapidPublicKey: () => request<{ key: string }>('/api/push/vapid-public-key'),
+  subscribePush: (subscription: { endpoint: string; keys: { p256dh: string; auth: string } }) =>
+    request<{ ok: boolean }>('/api/push/subscribe', {
+      method: 'POST',
+      body: JSON.stringify(subscription),
+    }),
+  unsubscribePush: (endpoint: string) =>
+    request<{ ok: boolean }>('/api/push/unsubscribe', {
+      method: 'POST',
+      body: JSON.stringify({ endpoint }),
+    }),
+
   getWeeklyStats: (days = 7) => request<WeeklyStats>(`/api/stats/weekly?days=${days}`),
   getIntegrations: () => request('/api/integrations'),
 
