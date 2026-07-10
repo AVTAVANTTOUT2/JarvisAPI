@@ -7,7 +7,25 @@ Assistant personnel autonome, multi-agents, voice-first. Tourne entièrement en 
 → "Bonjour Monsieur. Que puis-je faire pour vous ?"
 ```
 
-## Dernier changelog — 10 juillet 2026 : import iMessage + fusion commits en attente
+## Dernier changelog — 10 juillet 2026
+
+### Pull & build — intégration commit distant "Mode écoute : diarization"
+- `git pull origin main` — commit `27d3609` fusionné sans conflit avec les 5 fichiers locaux modifiés
+- 18 fichiers ajoutés/modifiés : diarization (`audio/continuous_recorder.py`, `audio/stt.py`), recherche sémantique (`scripts/semantic_search.py`), 7 nouveaux fichiers de tests, mise à jour `config.py` / `database/__init__.py` / `main.py` / `CLAUDE.md`
+- `requirements.txt` auto-merged : ajout local `catt>=0.12` + ajout distant `sentence-transformers`, `annoy`, etc.
+- `pip install -r requirements.txt` OK (avertissement non-bloquant : `kokoro-onnx` vs `numpy 1.26.4`)
+- `pnpm install && pnpm build` OK — 3067 modules, Service Worker actif, 53 assets précachés
+
+### Changements locaux préservés (non commités)
+| Fichier | Contenu |
+|---|---|
+| `actions.py` | Contrôle TV complet : WoL, Google Cast fallback (deep standby), anti-spam 30s, `_adb_connect_ensure`, `_wake_tv_via_cast`, `_open_tv_dashboard` |
+| `prompts/persona.txt` | Doc commandes TV mise à jour (`on` ouvre dashboard, `wol` magic packet seul) |
+| `requirements.txt` | Ajout `catt>=0.12` (Google Cast) |
+| `scripts/audio_daemon.py` | Fix segfault PyAudio Apple Silicon, phrases fantômes TV, silence micro non-crash |
+| `scripts/screen_watcher.py` | Anti-RAM-kill : espacement minimum 120s entre analyses Ollama vision |
+
+## Ancien changelog — import iMessage + fusion commits en attente
 
 **Import iMessage** — nouveau systeme d'import idempotent et incremental de `chat.db` vers `jarvis.db` :
 - 8 nouvelles tables SQLite (`imessage_handles`, `imessage_chats`, `imessage_messages`, etc.)

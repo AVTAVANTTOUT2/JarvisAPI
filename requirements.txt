@@ -38,6 +38,9 @@ torchaudio>=2.0            # compagnon torch
 # Dual-LLM (jarvis/ package) — anonymisation PII + backend DeepSeek
 spacy==3.7.*             # NER PII (modèle : python -m spacy download fr_core_news_sm)
 
+# TV control — Google Cast fallback (reveil TV Philips deep standby)
+catt>=0.12
+
 # Utils
 python-dateutil==2.9.*
 

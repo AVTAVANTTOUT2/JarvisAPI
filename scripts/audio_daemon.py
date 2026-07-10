@@ -96,6 +96,13 @@ STT_GHOST_PHRASES: list[str] = [
     "auto-generated",
     "cc by",
     "creative commons",
+    # Bruit TV françophone (hallucinations Whisper sur fond sonore)
+    "l'une de",
+    "service à",
+    "pour votre",
+    "votre attention",
+    "merci de",
+    "merci pour",
 ]
 
 # Phrases de mise en veille / reveil (detection directe, bypass LLM)
@@ -376,6 +383,10 @@ class AudioDaemon:
                     consecutive_crashes, crash_type, e, backoff_s + extra_delay,
                     exc_info=True,
                 )
+                # Signal au thread pyaudio de s'arrêter AVANT _cleanup()
+                # (pa.terminate() segfault sur Apple Silicon si le thread tient encore le stream)
+                self._running = False
+                await asyncio.sleep(0.3)  # laisse le thread pyaudio sortir de stream.read()
                 self._cleanup()
 
                 # Backoff exponentiel avec cap + délai veille
@@ -510,12 +521,11 @@ class AudioDaemon:
                 pass
             self._stream = None
 
-        # Terminer PyAudio
+        # Terminer PyAudio — avec prudence extrême.
+        # pa.terminate() segfault sur Apple Silicon si le thread pyaudio tient
+        # encore le stream. On skip terminate() et on laisse le GC nettoyer.
+        # Le prochain _run() crée un nouveau PyAudio() propre.
         if self._pa:
-            try:
-                self._pa.terminate()
-            except Exception:
-                pass
             self._pa = None
 
         # Vider les queues
@@ -1564,15 +1574,21 @@ class AudioDaemon:
                 else:
                     _consecutive_stream_failures = max(0, _consecutive_stream_failures - 1)
 
-                # Vérifier que la queue reçoit des frames (seulement en mode écoute)
+                # Vérifier que la queue reçoit des frames (seulement en mode écoute).
+                # Ne PAS forcer un restart ici : le silence micro est normal quand
+                # personne ne parle, et pa.terminate() segfault sur Apple Silicon.
+                # Si le stream est vraiment mort, le check stream_alive ci-dessus
+                # le détectera et déclenchera un restart contrôlé.
                 if self._audio_queue.empty() and self.state in ("listening", "wake_listening"):
                     self._no_frame_count += 1
-                    if self._no_frame_count > MAX_NO_FRAME_ITERATIONS:
-                        logger.error(
-                            "[audio_daemon] Aucune frame micro depuis %ds — restart",
+                    if self._no_frame_count == MAX_NO_FRAME_ITERATIONS:
+                        logger.warning(
+                            "[audio_daemon] Aucune frame micro depuis %ds — silence prolongé, pas de restart",
                             self._no_frame_count * MIC_WATCHDOG_INTERVAL,
                         )
-                        raise RuntimeError("Micro silencieux (aucune frame)")
+                    # Capper le compteur pour éviter l'overflow du log
+                    if self._no_frame_count > MAX_NO_FRAME_ITERATIONS + 60:
+                        self._no_frame_count = MAX_NO_FRAME_ITERATIONS + 1
                 else:
                     self._no_frame_count = 0
 
@@ -1900,10 +1916,6 @@ class AudioDaemon:
                 pass
             self._stream = None
         if self._pa:
-            try:
-                self._pa.terminate()
-            except Exception:
-                pass
             self._pa = None
         # Annuler les tâches async si encore actives (filet de sécurité)
         for task_attr in ("_vad_task", "_process_task", "_watchdog_task"):

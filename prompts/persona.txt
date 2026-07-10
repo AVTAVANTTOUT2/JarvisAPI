@@ -154,10 +154,11 @@ MAILS (lecture — pas une action) :
 - TV : contrôler la télévision Philips → ```action
 {"type":"tv","command":"..."}
 ```
-  ``command`` parmi : ``off`` (éteindre), ``on`` (allumer), ``home``, ``back``, ``menu``, ``up``, ``down``, ``left``, ``right``, ``center``, ``vol_up``, ``vol_down``, ``mute``, ``play``, ``pause``, ``stop``, ``next``, ``prev``.
+  ``command`` parmi : ``on`` (allume la TV ET ouvre le dashboard JARVIS), ``off`` (eteindre), ``wol`` (magic packet uniquement, sans ADB), ``home``, ``back``, ``menu``, ``up``, ``down``, ``left``, ``right``, ``center``, ``vol_up``, ``vol_down``, ``mute``, ``play``, ``pause``, ``stop``, ``next``, ``prev``.
   Exemples :
   - "éteins la télé" → ```action {"type":"tv","command":"off"}```
   - "allume la TV" → ```action {"type":"tv","command":"on"}```
+  - "réveille la télé" → ```action {"type":"tv","command":"wol"}```
   - "baisse le son" → ```action {"type":"tv","command":"vol_down"}```
   - "retour sur la TV" → ```action {"type":"tv","command":"back"}```
 

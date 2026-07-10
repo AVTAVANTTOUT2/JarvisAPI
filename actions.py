@@ -567,12 +567,17 @@ async def _action_search_conversations(action: dict) -> dict:
 
 # ── TV Control ──────────────────────────────────────────────────────────────
 
+# Anti-spam : dernière tentative d'allumage TV (évite boucle WoL→fail→WoL)
+_LAST_TV_ON_ATTEMPT: float = 0.0
+
 # Mapping commandes → keycodes Android
 _TV_COMMANDS: dict[str, str] = {
     "power": "KEYCODE_POWER",
     "off": "KEYCODE_POWER",
     "on": "KEYCODE_WAKEUP",
     "wake": "KEYCODE_WAKEUP",
+    "wol": "WOL",  # Wake-on-LAN — envoie un magic packet, pas un keyevent
+    "wake_on_lan": "WOL",
     "home": "KEYCODE_HOME",
     "back": "KEYCODE_BACK",
     "menu": "KEYCODE_MENU",
@@ -599,36 +604,372 @@ _TV_COMMANDS: dict[str, str] = {
 }
 
 
-async def _action_tv(action: dict) -> dict:
-    """Contrôle la TV Philips via ADB.
+def _send_wol(mac_address: str, broadcast_ip: str = "255.255.255.255") -> bool:
+    """Envoie un magic packet Wake-on-LAN pour reveiller la TV.
 
-    Commandes supportées :
-    - ``off`` / ``power`` : éteindre (KEYCODE_POWER)
-    - ``on`` / ``wake`` : allumer/réveiller
+    Le magic packet contient 6 octets 0xFF suivis de la MAC repetee 16 fois,
+    envoye en broadcast UDP sur le port 9.
+    """
+    import socket
+    import struct
+
+    # Normaliser la MAC (supprimer separateurs, pad a 2 digits par octet)
+    mac_clean = "".join(c for c in mac_address if c.isalnum())
+    if len(mac_clean) != 12:
+        logger.warning("[tv] MAC invalide pour WoL : %s", mac_address)
+        return False
+
+    mac_bytes = bytes.fromhex(mac_clean)
+    magic_packet = b"\xff" * 6 + mac_bytes * 16
+
+    sock: socket.socket | None = None
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        sock.settimeout(2.0)
+        sock.sendto(magic_packet, (broadcast_ip, 9))
+        sock.sendto(magic_packet, (broadcast_ip, 7))  # port fallback
+        logger.info("[tv] WoL magic packet envoye a %s (broadcast=%s)", mac_address, broadcast_ip)
+        return True
+    except Exception as e:
+        logger.warning("[tv] WoL echoue : %s", e)
+        return False
+    finally:
+        if sock:
+            sock.close()
+
+
+async def _adb_connect_ensure(tv_ip: str, tv_port: int, timeout: float = 5.0) -> str | None:
+    """Assure la connexion ADB a la TV. Retourne None si OK, ou un message d'erreur."""
+    import subprocess
+
+    # Verifier si deja connecte
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "adb", "devices",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=3.0)
+        devices_text = stdout.decode(errors="replace")
+        target = f"{tv_ip}:{tv_port}"
+        if target in devices_text and "\tdevice" in devices_text.split(target)[1][:20]:
+            return None  # deja connecte
+    except Exception:
+        pass  # continuer et tenter la connexion
+
+    # Tenter la connexion
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "adb", "connect", f"{tv_ip}:{tv_port}",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        output = (stdout + stderr).decode(errors="replace").strip()
+        logger.info("[tv] ADB connect %s:%d → %s", tv_ip, tv_port, output[:120])
+        if "connected" in output.lower() or "already" in output.lower():
+            return None
+        return f"ADB connexion echouee : {output[:200]}"
+    except asyncio.TimeoutError:
+        return f"ADB timeout — la TV ({tv_ip}) ne repond pas. Elle est peut-etre eteinte."
+    except FileNotFoundError:
+        return "ADB introuvable. Installe `brew install android-platform-tools`."
+    except Exception as e:
+        return f"Erreur ADB : {e}"
+
+
+async def _wake_tv_via_cast(tv_ip: str, dashboard_url: str, timeout: float = 20.0) -> tuple[bool, str]:
+    """Reveille la TV Philips via Google Cast (Chromecast integre).
+
+    Les TV Philips Android/OLED entrent en deep standby apres 5-10 minutes
+    d'arret. Dans cet etat, le WoL classique echoue, mais le module Google
+    Cast integre reste actif (ports 8008/8009). catt envoie un stream vers
+    la TV, ce qui la reveille ET ouvre le dashboard.
+
+    Args:
+        tv_ip: Adresse IP de la TV.
+        dashboard_url: URL du dashboard JARVIS a afficher.
+        timeout: Timeout en secondes pour l'operation catt.
+
+    Returns:
+        Tuple (succes, message).
+    """
+    import shutil
+
+    catt_bin = shutil.which("catt")
+    if not catt_bin:
+        return False, "catt non installe. Installe-le avec : pip install catt"
+
+    logger.info("[tv:cast] Tentative de reveil Google Cast vers %s → %s", tv_ip, dashboard_url)
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            catt_bin,
+            "-d", tv_ip,
+            "cast_site", dashboard_url,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        stdout_text = stdout.decode(errors="replace").strip()
+        stderr_text = stderr.decode(errors="replace").strip()
+
+        if proc.returncode == 0:
+            logger.info("[tv:cast] Google Cast OK — TV reveillee + dashboard ouvert")
+            return True, "Google Cast : TV reveillee + dashboard ouvert"
+        else:
+            err_msg = stderr_text or stdout_text or f"exit code {proc.returncode}"
+            logger.warning("[tv:cast] Google Cast echoue : %s", err_msg[:200])
+            return False, f"Google Cast echoue : {err_msg[:150]}"
+    except asyncio.TimeoutError:
+        logger.warning("[tv:cast] Google Cast timeout apres %.0fs", timeout)
+        return False, f"Google Cast timeout ({timeout:.0f}s). La TV ne repond pas."
+    except FileNotFoundError:
+        return False, "catt non installe. `pip install catt`"
+    except Exception as e:
+        logger.exception("[tv:cast] Erreur Google Cast : %s", e)
+        return False, f"Erreur Google Cast : {e}"
+
+
+async def _open_tv_dashboard(tv_ip: str, dashboard_url: str) -> bool:
+    """Ouvre le dashboard JARVIS sur le navigateur Kiwi de la TV via ADB.
+
+    Args:
+        tv_ip: Adresse IP de la TV (pas utilisee directement, ADB deja connecte).
+        dashboard_url: URL du dashboard a ouvrir.
+
+    Returns:
+        True si l'ouverture a reussi, False sinon.
+    """
+    kiwi_package = "com.kiwibrowser.browser"
+    kiwi_activity = f"{kiwi_package}/com.google.android.apps.chrome.Main"
+
+    try:
+        # Verifier si Kiwi est deja lance
+        proc = await asyncio.create_subprocess_exec(
+            "adb", "shell", "pidof", kiwi_package,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5.0)
+        kiwi_running = stdout.decode(errors="replace").strip()
+
+        if kiwi_running:
+            logger.info("[tv] Kiwi deja lance, navigation vers dashboard")
+            proc = await asyncio.create_subprocess_exec(
+                "adb", "shell", "am", "start",
+                "-n", kiwi_activity,
+                "-d", dashboard_url,
+                "-f", "0x10000000",  # FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_CLEAR_TOP
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+        else:
+            logger.info("[tv] Lancement Kiwi avec dashboard")
+            proc = await asyncio.create_subprocess_exec(
+                "adb", "shell", "am", "start",
+                "-n", kiwi_activity,
+                "-d", dashboard_url,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=10.0)
+        stderr_text = (stderr or b"").decode(errors="replace").strip()
+        if proc.returncode != 0 and "error" in stderr_text.lower():
+            logger.warning("[tv] Echec ouverture dashboard: %s", stderr_text[:200])
+            return False
+        logger.info("[tv] Dashboard ouvert sur la TV")
+        return True
+    except asyncio.TimeoutError:
+        logger.warning("[tv] Timeout ouverture dashboard")
+        return False
+    except Exception as e:
+        logger.warning("[tv] Erreur ouverture dashboard: %s", e)
+        return False
+
+
+async def _action_tv(action: dict) -> dict:
+    """Contrôle la TV Philips via ADB + Wake-on-LAN.
+
+    Commandes supportees :
+    - ``on`` / ``wake`` : allumer/reveiller (WoL + ADB KEYCODE_WAKEUP)
+    - ``off`` / ``power`` : eteindre (KEYCODE_POWER)
+    - ``wol`` / ``wake_on_lan`` : envoyer uniquement le magic packet WoL
     - ``home``, ``back``, ``menu`` : navigation Android TV
     - ``up``, ``down``, ``left``, ``right``, ``center`` : DPAD
     - ``vol_up``, ``vol_down``, ``mute`` : volume
-    - ``play``, ``pause``, ``stop``, ``next``, ``prev`` : média
+    - ``play``, ``pause``, ``stop``, ``next``, ``prev`` : media
     """
     import config as cfg
     import subprocess
+    import time as _time
+
+    tv_ip = getattr(cfg, "TV_IP", "192.168.3.82")
+    tv_port = int(getattr(cfg, "TV_ADB_PORT", "5555") or "5555")
 
     command = (action.get("command") or action.get("action") or "").strip().lower()
     if not command:
-        return {"ok": False, "message": "Commande TV manquante. Commandes : off, on, home, back, vol_up, vol_down, mute..."}
+        return {"ok": False, "message": "Commande TV manquante. Commandes : on, off, home, back, vol_up, vol_down, mute..."}
 
     keycode = _TV_COMMANDS.get(command)
     if not keycode:
         suggestions = [k for k in _TV_COMMANDS if command in k]
-        available = ", ".join(sorted(set(_TV_COMMANDS.keys())))
+        available = ", ".join(sorted(set(_TV_COMMANDS.keys()) - {"wake_on_lan"}))
         hint = f" Vouliez-vous dire : {', '.join(suggestions[:3])} ?" if suggestions else ""
         return {
             "ok": False,
             "message": f"Commande TV inconnue : '{command}'. Commandes disponibles : {available}.{hint}",
         }
 
-    adb_cmd = ["adb", "shell", "input", "keyevent", keycode]
+    # ── Commande WoL (Wake-on-LAN sans keyevent) ──────────────────────────
+    if keycode == "WOL":
+        tv_mac = getattr(cfg, "TV_MAC", "")
+        if not tv_mac:
+            return {"ok": False, "message": "Adresse MAC TV non configuree. Ajoute TV_MAC dans .env"}
+        ok = await asyncio.get_running_loop().run_in_executor(None, _send_wol, tv_mac)
+        if ok:
+            return {"ok": True, "message": "Magic packet WoL envoye a la TV. La TV devrait s'allumer d'ici 10-20 secondes.", "command": "wol"}
+        return {"ok": False, "message": "Echec de l'envoi du magic packet WoL. Verifie que la TV est sur le meme reseau."}
 
+    # ── Commande "on" / "wake" : WoL d'abord, puis ADB ───────────────────
+    if command in ("on", "wake"):
+        tv_mac = getattr(cfg, "TV_MAC", "")
+        steps: list[str] = []
+
+        # Anti-spam : si on a déjà tenté d'allumer la TV dans les 30 dernieres
+        # secondes, ne pas réessayer (evite la boucle WoL→fail→WoL→fail)
+        global _LAST_TV_ON_ATTEMPT
+        now_ts = _time.time()
+        if _LAST_TV_ON_ATTEMPT > 0 and (now_ts - _LAST_TV_ON_ATTEMPT) < 30:
+            logger.debug("[tv] Anti-spam : dernière tentative TV 'on' il y a %.0fs — skip", now_ts - _LAST_TV_ON_ATTEMPT)
+            return {
+                "ok": False,
+                "message": (
+                    "J'ai deja envoye le signal de reveil a la TV il y a quelques secondes. "
+                    "Patientez 20-30 secondes qu'elle demarre, puis reessayez."
+                ),
+            }
+        _LAST_TV_ON_ATTEMPT = now_ts
+
+        if tv_mac:
+            # Broadcast local plus efficace que 255.255.255.255 sur certains routeurs
+            subnet_broadcast = ".".join(tv_ip.split(".")[:3]) + ".255"
+            ok_wol = _send_wol(tv_mac, broadcast_ip=subnet_broadcast)
+            if not ok_wol:
+                # Fallback broadcast global
+                ok_wol = _send_wol(tv_mac, broadcast_ip="255.255.255.255")
+            if ok_wol:
+                steps.append("Magic packet WoL envoye")
+                await asyncio.sleep(8.0)
+            else:
+                steps.append("WoL echoue")
+
+        # Tenter ADB
+        dashboard_url = getattr(cfg, "TV_DASHBOARD_URL", "http://192.168.3.52:5174/")
+        adb_err = await _adb_connect_ensure(tv_ip, tv_port, timeout=8.0)
+        if adb_err:
+            # WoL + ADB echoue → la TV est probablement en deep standby (>5-10 min d'arret)
+            # Fallback : Google Cast (Chromecast integre) qui reste actif meme en deep standby
+            steps.append(f"ADB indisponible ({adb_err[:100]})")
+            cast_enabled = getattr(cfg, "TV_CAST_ENABLED", True)
+            cast_timeout = float(getattr(cfg, "TV_CAST_TIMEOUT", "20") or "20")
+
+            if cast_enabled:
+                logger.info("[tv] ADB echoue, tentative Google Cast fallback (deep standby probable)")
+                ok_cast, cast_msg = await _wake_tv_via_cast(tv_ip, dashboard_url, timeout=cast_timeout)
+                steps.append(cast_msg)
+                if ok_cast:
+                    # Google Cast a reveille la TV → attendre que le systeme demarre, puis retenter ADB
+                    await asyncio.sleep(5.0)
+                    adb_err2 = await _adb_connect_ensure(tv_ip, tv_port, timeout=10.0)
+                    if adb_err2:
+                        steps.append(f"ADB toujours indisponible ({adb_err2[:100]})")
+                        return {
+                            "ok": False,
+                            "message": (
+                                f"Google Cast a reveille la TV (dashboard ouvert), "
+                                f"mais ADB ne repond pas encore. "
+                                f"Patientez 10-15 secondes puis reessayez. "
+                                f"Erreur : {adb_err2[:150]}"
+                            ),
+                        }
+                    # ADB connecte → KEYCODE_WAKEUP pour allumer l'ecran si besoin
+                    try:
+                        proc = await asyncio.create_subprocess_exec(
+                            "adb", "shell", "input", "keyevent", keycode,
+                            stdout=asyncio.subprocess.PIPE,
+                            stderr=asyncio.subprocess.PIPE,
+                        )
+                        await asyncio.wait_for(proc.communicate(), timeout=10.0)
+                    except Exception:
+                        pass  # l'ecran est peut-etre deja allume via Cast
+                    # Ouvrir le dashboard (deja ouvert via Cast, mais refocus via ADB)
+                    await _open_tv_dashboard(tv_ip, dashboard_url)
+                    return {
+                        "ok": True,
+                        "message": f"TV reveillee, dashboard ouvert ({'; '.join(steps)})",
+                        "command": command,
+                        "keycode": keycode,
+                    }
+                else:
+                    # Cast aussi echoue → echec total
+                    return {
+                        "ok": False,
+                        "message": (
+                            f"Impossible de reveiller la TV. "
+                            f"WoL : {'OK' if tv_mac and ok_wol else 'echec'}. "
+                            f"ADB : {adb_err[:120]}. "
+                            f"Google Cast : {cast_msg[:120]}. "
+                            f"Verifie que la TV est branchee et sur le meme reseau."
+                        ),
+                    }
+            else:
+                # Cast desactive → pas de fallback
+                return {
+                    "ok": False,
+                    "message": (
+                        f"J'ai envoye le signal de reveil a la TV"
+                        + (f" ({steps[0]})" if steps else "")
+                        + f", mais ADB ne repond pas. "
+                        f"La TV est en deep standby (eteinte depuis >10 min). "
+                        f"Active TV_CAST_ENABLED=true dans .env pour le fallback Chromecast, "
+                        f"ou allume la TV manuellement."
+                    ),
+                }
+
+        # ADB connecte → envoyer KEYCODE_WAKEUP
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "adb", "shell", "input", "keyevent", keycode,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=10.0)
+            stderr_text = (stderr or b"").decode(errors="replace").strip()
+            if proc.returncode != 0 and "error" in stderr_text.lower():
+                return {"ok": False, "message": f"Erreur ADB : {stderr_text[:200]}"}
+        except asyncio.TimeoutError:
+            return {"ok": False, "message": "La TV n'a pas repondu au keyevent. Reessayez."}
+        except Exception as e:
+            return {"ok": False, "message": f"Erreur ADB : {e}"}
+
+        # Ouvrir le dashboard JARVIS sur la TV
+        dashboard_ok = await _open_tv_dashboard(tv_ip, dashboard_url)
+        if dashboard_ok:
+            steps.append("dashboard ouvert")
+        else:
+            steps.append("dashboard non ouvert")
+
+        return {"ok": True, "message": "TV allumee, dashboard ouvert" + (f" ({'; '.join(steps)})" if steps else ""), "command": command, "keycode": keycode}
+
+    # ── Toutes les autres commandes : ADB standard ────────────────────────
+    adb_err = await _adb_connect_ensure(tv_ip, tv_port)
+    if adb_err:
+        return {"ok": False, "message": f"Impossible de se connecter a la TV : {adb_err}"}
+
+    adb_cmd = ["adb", "shell", "input", "keyevent", keycode]
     try:
         proc = await asyncio.create_subprocess_exec(
             *adb_cmd,
@@ -638,7 +979,7 @@ async def _action_tv(action: dict) -> dict:
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=10.0)
     except asyncio.TimeoutError:
         logger.warning("[tv] ADB timeout pour %s", command)
-        return {"ok": False, "message": "La TV n'a pas répondu à temps. Vérifie la connexion ADB."}
+        return {"ok": False, "message": "La TV n'a pas repondu a temps. Verifie la connexion."}
     except FileNotFoundError:
         return {"ok": False, "message": "ADB introuvable. Installe `brew install android-platform-tools`."}
     except Exception as e:
@@ -648,19 +989,26 @@ async def _action_tv(action: dict) -> dict:
     stderr_text = (stderr or b"").decode(errors="replace").strip()
     if proc.returncode != 0 or stderr_text:
         logger.warning("[tv] ADB exited %s stderr=%r", proc.returncode, stderr_text[:200])
-        # ADB peut renvoyer du stderr informatif sans que ce soit une erreur réelle
         if "error" in stderr_text.lower() or "cannot" in stderr_text.lower():
             return {"ok": False, "message": f"Erreur ADB : {stderr_text[:200]}"}
 
     friendly: str = {
-        "KEYCODE_POWER": "TV éteinte" if command == "off" else "bouton power envoyé",
-        "KEYCODE_WAKEUP": "TV allumée",
+        "KEYCODE_POWER": "TV eteinte",
         "KEYCODE_HOME": "Accueil TV",
         "KEYCODE_BACK": "Retour",
         "KEYCODE_VOLUME_UP": "Volume +",
         "KEYCODE_VOLUME_DOWN": "Volume -",
         "KEYCODE_VOLUME_MUTE": "Muet",
-    }.get(keycode, f"Commande '{command}' envoyée")
+        "KEYCODE_MEDIA_PLAY_PAUSE": "Lecture/Pause",
+        "KEYCODE_MEDIA_STOP": "Stop",
+        "KEYCODE_MEDIA_NEXT": "Suivant",
+        "KEYCODE_MEDIA_PREVIOUS": "Precedent",
+        "KEYCODE_MEDIA_REWIND": "Retour rapide",
+        "KEYCODE_MEDIA_FAST_FORWARD": "Avance rapide",
+        "KEYCODE_WAKEUP": "TV reveillee",
+        "KEYCODE_ENTER": "OK",
+        "KEYCODE_MENU": "Menu",
+    }.get(keycode, f"Commande '{command}' envoyee")
 
     logger.info("[tv] %s → %s", command, friendly)
     return {"ok": True, "message": friendly, "command": command, "keycode": keycode}

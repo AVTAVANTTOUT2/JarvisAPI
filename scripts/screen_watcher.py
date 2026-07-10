@@ -69,6 +69,14 @@ class ScreenWatcher:
         self._ollama_cooldown_s: float = float(getattr(config, "SCREEN_OLLAMA_COOLDOWN_S", "300"))
         self._ollama_next_retry: float = 0.0
 
+        # Anti-RAM-kill : delai minimum entre deux analyses vision (evite
+        # l'accumulation memoire Ollama qwen2.5-vl:7b (~5 GB par appel) qui
+        # cause un OOM kill macOS sur Mac Mini 16 Go apres ~100 appels).
+        self._ollama_min_interval_s: float = float(
+            getattr(config, "SCREEN_OLLAMA_MIN_INTERVAL_S", "120")
+        )
+        self._last_ollama_call: float = 0.0
+
         # Resolution logique de l'écran principal (points) — pour le scale factor retina
         self._screen_point_width: int = 0
         self._screen_point_height: int = 0
@@ -429,6 +437,17 @@ class ScreenWatcher:
             self._ollama_available = True
             self._ollama_failures = 0
 
+        # Anti-RAM-kill : espacement minimum entre analyses vision.
+        # Chaque appel charge ~5 Go (qwen2.5-vl:7b) en RAM. Sans ce delai,
+        # 618 appels en 6h saturent les 16 Go du Mac Mini → OOM kill macOS.
+        now = time.time()
+        if self._last_ollama_call > 0:
+            since_last = now - self._last_ollama_call
+            if since_last < self._ollama_min_interval_s:
+                logger.debug("[screen] Ollama skip — dernier appel il y a %.0fs (min=%ds)",
+                             since_last, int(self._ollama_min_interval_s))
+                return None
+
         try:
             buffer = BytesIO()
             img_to_save = img
@@ -475,8 +494,9 @@ class ScreenWatcher:
                 response.raise_for_status()
                 result = response.json()
 
-            # Succès → reset le compteur d'échecs
+            # Succès → reset le compteur d'échecs + timestamp anti-RAM-kill
             self._ollama_failures = 0
+            self._last_ollama_call = time.time()
 
             text = (result.get("response") or "").strip()
             start = text.find("{")
