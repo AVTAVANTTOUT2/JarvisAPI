@@ -413,16 +413,32 @@ class JarvisDaemon:
             except asyncio.TimeoutError:
                 continue
 
-            # La file accepte un str ou un tuple (texte, émotion) — les rituels
-            # (roast/debrief) passent leur émotion, le reste parle en neutral.
-            emotion = "neutral"
-            if isinstance(item, tuple) and len(item) == 2:
-                text, emotion = item
+            # La file accepte un str, un tuple (texte, émotion) ou
+            # (texte, émotion, priorité). priorité "urgent" = seul son
+            # autorisé pendant le mode « silence total sauf feu ».
+            emotion, priority = "neutral", "normal"
+            if isinstance(item, tuple):
+                if len(item) >= 3:
+                    text, emotion, priority = item[0], item[1], item[2]
+                elif len(item) == 2:
+                    text, emotion = item
+                else:
+                    text = item[0] if item else ""
             else:
                 text = item
 
             if not text or not str(text).strip():
                 continue
+
+            # Silence total sauf feu : seul l'urgent passe.
+            try:
+                from database import is_dnd_active
+
+                if priority != "urgent" and is_dnd_active():
+                    logger.info("[daemon] DND actif — TTS ignoré : %s", str(text)[:50])
+                    continue
+            except Exception:
+                pass
 
             # Heures calmes : JARVIS ne parle pas la nuit en mode veille.
             # Les notifications restent en base ; seule la voix est coupée.

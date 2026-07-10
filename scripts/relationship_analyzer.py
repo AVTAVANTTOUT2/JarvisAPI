@@ -353,6 +353,17 @@ class RelationshipAnalyzer:
             except Exception as e:
                 logger.error("[analyzer] add_event : %s", e)
 
+        # 5bis. Running gags — blagues récurrentes avec ce contact
+        for gag in data.get("running_gags") or []:
+            if not isinstance(gag, str) or not gag.strip():
+                continue
+            try:
+                from database import add_running_gag
+
+                add_running_gag(person_id, gag)
+            except Exception as e:
+                logger.error("[analyzer] add_running_gag : %s", e)
+
         # 5. Patterns observed
         for pattern in data.get("patterns_observed") or []:
             if not isinstance(pattern, dict) or not pattern.get("description"):

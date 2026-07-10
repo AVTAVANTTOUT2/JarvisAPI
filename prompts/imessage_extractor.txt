@@ -37,6 +37,9 @@ Retourne UNIQUEMENT ce JSON. Sois factuel, base-toi sur les messages :
   "patterns_observed": [
     {"type": "behavioral|emotional|relational",
      "description": "pattern observé dans cette conversation"}
+  ],
+  "running_gags": [
+    "blague récurrente, surnom, référence ou private joke partagée avec ce contact"
   ]
 }
 ```
@@ -47,3 +50,4 @@ Règles :
 - "facts_about_contact" : choses que le contact révèle sur lui-même.
 - Un fait doit être ATOMIQUE : "aime le café" pas "aime le café et va souvent au restaurant le weekend et fait du sport".
 - Maximum 10 faits par catégorie. Priorise les plus importants.
+- "running_gags" : UNIQUEMENT les blagues/références qui reviennent plusieurs fois ou sont clairement des private jokes (surnoms, expressions détournées, taquineries rituelles). Une vanne isolée n'est PAS un running gag. Liste vide si aucun.

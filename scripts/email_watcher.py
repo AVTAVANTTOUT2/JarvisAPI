@@ -403,10 +403,15 @@ class EmailWatcher:
             except Exception as e:
                 logger.error(f"[email_watcher] create_task (request) : {e}")
 
-        # 4. Alerte iMessage — supprimée pendant les heures calmes
-        #    (la notification reste en base et dans l'UI).
+        # 4. Alerte iMessage — supprimée pendant les heures calmes et le mode
+        #    « silence total sauf feu » (seul l'urgent passe le DND).
+        #    La notification reste en base et dans l'UI dans tous les cas.
+        from database import is_dnd_active
+
         if config.is_quiet_hours():
             logger.info("[email_watcher] heures calmes — iMessage non envoyé : %s", subject[:60])
+        elif is_dnd_active() and priority != "urgent":
+            logger.info("[email_watcher] DND actif — iMessage non envoyé : %s", subject[:60])
         else:
             display_name = from_name or sender_short
             imsg = f"Mail de {display_name} : {summary}"
