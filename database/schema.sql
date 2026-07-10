@@ -409,3 +409,119 @@ CREATE TABLE agentic_workflows (
 );
 CREATE INDEX idx_agentic_conv ON agentic_workflows(conversation_id);
 CREATE INDEX idx_agentic_status ON agentic_workflows(status);
+
+-- ═══════════════════════════════════════════════════════════
+-- IMPORT iMessage — données brutes depuis chat.db
+-- ═══════════════════════════════════════════════════════════
+
+CREATE TABLE imessage_handles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    apple_handle_id INTEGER UNIQUE NOT NULL,
+    handle TEXT NOT NULL,
+    country TEXT,
+    service TEXT DEFAULT 'iMessage',
+    uncanonicalized_id TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX idx_imessage_handles_apple ON imessage_handles(apple_handle_id);
+CREATE INDEX idx_imessage_handles_value ON imessage_handles(handle);
+
+CREATE TABLE imessage_chats (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    apple_chat_id INTEGER UNIQUE NOT NULL,
+    chat_identifier TEXT,
+    display_name TEXT,
+    group_id TEXT,
+    style INTEGER DEFAULT 0,
+    is_filtered INTEGER DEFAULT 0,
+    last_message_at DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX idx_imessage_chats_apple ON imessage_chats(apple_chat_id);
+CREATE INDEX idx_imessage_chats_identifier ON imessage_chats(chat_identifier);
+
+CREATE TABLE imessage_chat_handles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id INTEGER NOT NULL REFERENCES imessage_chats(id),
+    handle_id INTEGER NOT NULL REFERENCES imessage_handles(id),
+    UNIQUE(chat_id, handle_id)
+);
+CREATE INDEX idx_imessage_ch_handle ON imessage_chat_handles(handle_id);
+CREATE INDEX idx_imessage_ch_chat ON imessage_chat_handles(chat_id);
+
+CREATE TABLE imessage_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    apple_rowid INTEGER UNIQUE NOT NULL,
+    guid TEXT UNIQUE NOT NULL,
+    chat_id INTEGER REFERENCES imessage_chats(id),
+    handle_id INTEGER REFERENCES imessage_handles(id),
+    text TEXT,
+    attributed_body BLOB,
+    date INTEGER,
+    date_read INTEGER,
+    is_from_me INTEGER DEFAULT 0,
+    is_read INTEGER DEFAULT 0,
+    item_type INTEGER DEFAULT 0,
+    group_title TEXT,
+    associated_message_guid TEXT,
+    associated_message_type INTEGER DEFAULT 0,
+    content_hash TEXT UNIQUE,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX idx_imessage_msg_rowid ON imessage_messages(apple_rowid);
+CREATE UNIQUE INDEX idx_imessage_msg_guid ON imessage_messages(guid);
+CREATE UNIQUE INDEX idx_imessage_msg_hash ON imessage_messages(content_hash);
+CREATE INDEX idx_imessage_msg_chat ON imessage_messages(chat_id);
+CREATE INDEX idx_imessage_msg_handle ON imessage_messages(handle_id);
+CREATE INDEX idx_imessage_msg_date ON imessage_messages(date);
+CREATE INDEX idx_imessage_msg_associated ON imessage_messages(associated_message_guid);
+
+CREATE TABLE imessage_attachments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    apple_attachment_id INTEGER UNIQUE NOT NULL,
+    guid TEXT UNIQUE,
+    filename TEXT,
+    mime_type TEXT,
+    transfer_name TEXT,
+    total_bytes INTEGER,
+    is_outgoing INTEGER DEFAULT 0,
+    hide_attachment INTEGER DEFAULT 0,
+    created_date INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX idx_imessage_att_apple ON imessage_attachments(apple_attachment_id);
+CREATE UNIQUE INDEX idx_imessage_att_guid ON imessage_attachments(guid);
+
+CREATE TABLE imessage_message_attachments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    message_id INTEGER NOT NULL REFERENCES imessage_messages(id),
+    attachment_id INTEGER NOT NULL REFERENCES imessage_attachments(id),
+    UNIQUE(message_id, attachment_id)
+);
+CREATE INDEX idx_imessage_ma_msg ON imessage_message_attachments(message_id);
+CREATE INDEX idx_imessage_ma_att ON imessage_message_attachments(attachment_id);
+
+CREATE TABLE imessage_reactions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    message_id INTEGER NOT NULL REFERENCES imessage_messages(id),
+    reactor_handle_id INTEGER NOT NULL REFERENCES imessage_handles(id),
+    reaction_type INTEGER NOT NULL,
+    apple_associated_guid TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(message_id, reactor_handle_id)
+);
+CREATE INDEX idx_imessage_reactions_msg ON imessage_reactions(message_id);
+
+CREATE TABLE imessage_sync_cursor (
+    id INTEGER PRIMARY KEY CHECK(id = 1),
+    last_apple_rowid INTEGER DEFAULT 0,
+    last_date INTEGER DEFAULT 0,
+    last_guid TEXT,
+    total_imported INTEGER DEFAULT 0,
+    total_failed INTEGER DEFAULT 0,
+    started_at DATETIME,
+    completed_at DATETIME,
+    last_sync_at DATETIME,
+    status TEXT DEFAULT 'idle' CHECK(status IN ('importing', 'idle', 'error')),
+    error_message TEXT
+);

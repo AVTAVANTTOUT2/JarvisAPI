@@ -63,6 +63,11 @@ IMESSAGE_SOURCING_ENABLED = _get("IMESSAGE_SOURCING_ENABLED", "true").lower() ==
 IMESSAGE_SEND_ENABLED = _get("IMESSAGE_SEND_ENABLED", "false").lower() == "true"
 IMESSAGE_SCAN_INTERVAL = int(_get("IMESSAGE_SCAN_INTERVAL", "300"))  # secondes entre 2 scans (défaut 5min)
 
+# ── Import iMessage — paramètres de l'importeur chat.db → jarvis.db ──
+IIMPORT_BATCH_SIZE = int(_get("IIMPORT_BATCH_SIZE", "5000"))       # messages par batch
+IIMPORT_MAX_RETRIES = int(_get("IIMPORT_MAX_RETRIES", "3"))        # tentatives max par batch
+IIMPORT_SYNC_INTERVAL = int(_get("IIMPORT_SYNC_INTERVAL", "300"))  # secondes entre 2 syncs auto
+
 # ── Système ─────────────────────────────────────────────────
 DB_PATH = _get("DB_PATH", "./data/jarvis.db")
 UPLOAD_DIR = _get("UPLOAD_DIR", "./data/uploads")
@@ -85,9 +90,13 @@ WEB_HTTPS = _get("WEB_HTTPS", "false").lower() == "true"
 COMPUTER_ACCESS = _get("COMPUTER_ACCESS", "true")
 COMPUTER_SHELL = _get("COMPUTER_SHELL", "/bin/zsh")
 COMPUTER_TIMEOUT = int(_get("COMPUTER_TIMEOUT", "30"))
-# TV contrôle ADB
+# TV contrôle ADB + Google Cast fallback
 TV_IP = _get("TV_IP", "192.168.3.82")
 TV_ADB_PORT = _get("TV_ADB_PORT", "5555")
+TV_MAC = _get("TV_MAC", "f0:ed:51:02:16:34")
+TV_CAST_ENABLED = _get("TV_CAST_ENABLED", "true").lower() == "true"
+TV_CAST_TIMEOUT = int(_get("TV_CAST_TIMEOUT", "20"))
+TV_DASHBOARD_URL = _get("TV_DASHBOARD_URL", "http://192.168.3.52:5174/")  # URL a ouvrir via Chromecast
 
 # ── Exécution de code avancée ────────────────────────────────
 CODE_EXECUTOR_ENABLED = _get("CODE_EXECUTOR_ENABLED", "true").lower() == "true"
@@ -126,15 +135,16 @@ EMAIL_CHECK_INTERVAL = float(_get("EMAIL_CHECK_INTERVAL", "120"))
 # notifications proactives, wake word, TTS local.
 DAEMON_ENABLED = _get("DAEMON_ENABLED", "true").lower() == "true"
 SCREEN_WATCHER_ENABLED = _get("SCREEN_WATCHER_ENABLED", "true").lower() == "true"
-SCREEN_WATCHER_INTERVAL = int(_get("SCREEN_WATCHER_INTERVAL", "12"))      # secondes
+SCREEN_WATCHER_INTERVAL = int(_get("SCREEN_WATCHER_INTERVAL", "30"))      # secondes (↑ 12→30 : allege RAM)
 SCREEN_CHANGE_THRESHOLD = float(_get("SCREEN_CHANGE_THRESHOLD", "5"))     # % minimum
-SCREEN_ANALYSIS_THRESHOLD = float(_get("SCREEN_ANALYSIS_THRESHOLD", "15"))  # % pour LLM
+SCREEN_ANALYSIS_THRESHOLD = float(_get("SCREEN_ANALYSIS_THRESHOLD", "40"))  # % pour LLM (↑ 15→40 : filtre anti-RAM-kill)
 SCREEN_RESIZE_WIDTH = int(_get("SCREEN_RESIZE_WIDTH", "1280"))
 SCREEN_RESIZE_HEIGHT = int(_get("SCREEN_RESIZE_HEIGHT", "800"))
 SCREEN_RESIZE: tuple[int, int] = (SCREEN_RESIZE_WIDTH, SCREEN_RESIZE_HEIGHT)
-SCREEN_MAX_ANALYSIS_WIDTH = int(_get("SCREEN_MAX_ANALYSIS_WIDTH", "1280"))
-SCREEN_JPEG_QUALITY = int(_get("SCREEN_JPEG_QUALITY", "70"))
+SCREEN_MAX_ANALYSIS_WIDTH = int(_get("SCREEN_MAX_ANALYSIS_WIDTH", "640"))
+SCREEN_JPEG_QUALITY = int(_get("SCREEN_JPEG_QUALITY", "50"))
 SCREEN_VISION_MODEL = _get("SCREEN_VISION_MODEL", "qwen2.5vl:7b")
+SCREEN_OLLAMA_MIN_INTERVAL_S = float(_get("SCREEN_OLLAMA_MIN_INTERVAL_S", "120"))  # delai min entre 2 analyses vision
 TRIAGE_MODEL = _get("TRIAGE_MODEL", "qwen2.5:7b")
 OLLAMA_URL = _get("OLLAMA_URL", "http://localhost:11434")
 

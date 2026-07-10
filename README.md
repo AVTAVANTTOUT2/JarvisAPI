@@ -7,9 +7,17 @@ Assistant personnel autonome, multi-agents, voice-first. Tourne entièrement en 
 → "Bonjour Monsieur. Que puis-je faire pour vous ?"
 ```
 
-## Dernier changelog — 10 juillet 2026 : fusion des commits en attente (post-PR #7)
+## Dernier changelog — 10 juillet 2026 : import iMessage + fusion commits en attente
 
-Trois commits orphelins de `claude/workflow-project-improvements-yknzqs`, jamais inclus dans la PR #7 (fix web), ont été rebasés sur `main` et fusionnés :
+**Import iMessage** — nouveau systeme d'import idempotent et incremental de `chat.db` vers `jarvis.db` :
+- 8 nouvelles tables SQLite (`imessage_handles`, `imessage_chats`, `imessage_messages`, etc.)
+- Triple cle de deduplication (ROWID, GUID, hash SHA256)
+- Curseur de synchronisation incremental par ROWID
+- Reconciliation automatique post-import
+- Script CLI (`scripts/imessage_import.py`) : import, sync, audit, status, reset
+- 33 tests unitaires et d'integration
+
+Trois commits orphelins de `claude/workflow-project-improvements-yknzqs`, jamais inclus dans la PR #7 (fix web), ont ete rebases sur `main` et fusionnes :
 
 | Domaine | Ajouts |
 |---------|--------|
@@ -116,6 +124,7 @@ Tout vit dans `.env` — [.env.example](./.env.example) documente chaque variabl
 | LLM | `DEEPSEEK_API_KEY` (obligatoire), `DEEPSEEK_FAST_MODEL`, `DEEPSEEK_MAIN_MODEL`, `HEAVY_TASK_MAX_TOKENS` |
 | Audio | `TTS_ENGINE` (edge/elevenlabs/macos/kokoro), `ELEVENLABS_API_KEY`, `AUDIO_DAEMON_ENABLED`, `WAKE_WORD_ENABLED` |
 | iMessage | `IMESSAGE_TARGET` (ton numéro — vide = bridge off), `IMESSAGE_SEND_ENABLED`, `IMESSAGE_PREFIX` |
+| Import iMessage | `IIMPORT_BATCH_SIZE` (5000), `IIMPORT_MAX_RETRIES` (3), `IIMPORT_SYNC_INTERVAL` (300) |
 | Sentinelle | `DAEMON_ENABLED`, `SCREEN_WATCHER_*`, `OLLAMA_URL`, `EMAIL_CHECK_INTERVAL` |
 | Fiabilité | `BACKUP_*`, `RETENTION_*`, `LLM_BUDGET_MONTHLY`, `QUIET_HOURS_START/END` |
 | Rituels | `ROAST_TIME`, `DEBRIEF_TIME`, `QUOTE_TIME`, `WEEKLY_DEBRIEF_TIME`, `RITUALS_TTS` |
@@ -138,6 +147,31 @@ Tout vit dans `.env` — [.env.example](./.env.example) documente chaque variabl
 L'utilisateur ne voit jamais le mot « agent » : JARVIS est une seule entité. La persona commune est injectée depuis `prompts/persona.txt` dans tous les agents user-facing.
 
 À part : **DevAgent** (`agents/devagent/`) — développement autonome dans `dev_projects/{slug}/` (venv + git isolés) : interview adaptative → spec verrouillée → boucle plan → code → test → fix → commit avec budget d'itérations/tokens et juge d'acceptation.
+
+## Import iMessage (chat.db vers jarvis.db)
+
+Import idempotent et incremental de l'historique iMessage complet depuis `~/Library/Messages/chat.db`. Stocke les donnees brutes (handles, chats, messages, pieces jointes, reactions) dans 8 nouvelles tables SQLite avec triple cle de deduplication (ROWID, GUID, hash de contenu).
+
+```bash
+# Import initial complet
+python scripts/imessage_import.py
+
+# Sync incrementale (nouveaux messages uniquement)
+python scripts/imessage_import.py --sync
+
+# Audit de coherence sans import
+python scripts/imessage_import.py --check
+
+# Etat du curseur
+python scripts/imessage_import.py --status
+
+# Reinitialiser le curseur
+python scripts/imessage_import.py --reset
+```
+
+Tables : `imessage_handles`, `imessage_chats`, `imessage_chat_handles`, `imessage_messages`, `imessage_attachments`, `imessage_message_attachments`, `imessage_reactions`, `imessage_sync_cursor`.
+
+Garanties : idempotence (relancer N fois = meme resultat), incremental (curseur ROWID), reconciliation auto, contraintes UNIQUE physiques.
 
 ## Automatisations (scheduler, 23 jobs)
 
