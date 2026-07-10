@@ -718,6 +718,33 @@ Le fichier `database/schema.sql` contient toutes les tables. Les voici regroupé
 - `GET/POST/DELETE /api/dnd` → mode « silence total sauf feu » (seul l'urgent passe : TTS daemon, iMessage watcher)
 - `GET /api/meetings` → réunions captées (opt-in MEETING_CAPTURE_ENABLED, micro daemon → résumé + actions, table recordings label 'réunion')
 - `GET /api/presence` → présence bureau par le son (micro daemon audio ; arrivée = bruit > `PRESENCE_NOISE_RMS` → « Vous êtes là, Monsieur » ; départ = `PRESENCE_TIMEOUT_MIN` min de silence, tick /10 min)
+
+## Outillage DevOps (lot 10-20)
+
+| Domaine | Endpoints | Fichiers |
+|---|---|---|
+| Migrations SQLite | `GET/POST /api/migrations/status\|run` | `scripts/db_migrations.py`, `database/migrations/` |
+| Perf + rollback | (interne, hook loop.py) | `scripts/perf_regression.py` |
+| Code dupliqué | `GET /api/quality/duplicates`, `POST .../scan` | `scripts/duplicate_scanner.py` |
+| Audit sécurité | `GET /api/quality/security`, `POST .../scan`, `POST .../{id}/fix` | `scripts/security_audit.py` |
+| Tests manquants | `POST /api/quality/tests/generate` | `scripts/test_coverage_scan.py` |
+| CI locale | `POST /api/quality/ci/run`, `POST .../install-hook` | `scripts/local_ci.py`, `scripts/install_git_hooks.py` |
+| Self-healing | `GET /api/self-healing/status`, `POST .../diagnose` | `scripts/self_healing.py` (hook `supervisor.py`) |
+| DevAgent — PR auto | `POST /api/devagent/{id}/pr` | `agents/devagent/pr.py` |
+| DevAgent — staging | `POST /api/devagent/{id}/deploy`, `GET .../deployments` | `agents/devagent/staging.py` |
+| DevAgent — rebase sûr | `POST /api/devagent/{id}/rebase` | `agents/devagent/git_ops.py` |
+| DevAgent — refactor | `POST /api/devagent/{id}/refactor` | `agents/devagent/refactor.py` |
+| DevAgent — autorun | `POST /api/devagent/autorun` | `agents/devagent/autorun.py` |
+
+Détails et garde-fous de chaque feature dans les docstrings de tête de
+chaque module — tous suivent le principe : **report-only sur la codebase
+JARVIS elle-même** (jamais de mutation auto du code de l'assistant sans
+opt-in explicite), **application + validation automatique réservée aux
+projets DevAgent** (isolés, versionnés, testés → rollback trivial).
+Self-healing est le plus encadré : diagnostic seul par défaut
+(`SELF_HEALING_ENABLED=false`), patch encore plus explicitement opt-in
+(`SELF_HEALING_AUTO_APPLY=false`), rollback automatique si la même
+boucle de crash revient sous `SELF_HEALING_REGRESSION_WINDOW_MIN`.
 - `GET /api/journal` → historique du journal
 - `POST /api/journal` → nouvelle entrée journal
 

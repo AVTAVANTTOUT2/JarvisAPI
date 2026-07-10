@@ -1172,6 +1172,48 @@ async def api_presence():
     }
 
 
+@app.get("/api/self-healing/status")
+async def api_self_healing_status():
+    """État du self-healing : activé ?, dernier patch, cooldown."""
+    from scripts.self_healing import _load_state
+
+    return {
+        "enabled": config.SELF_HEALING_ENABLED,
+        "auto_apply": config.SELF_HEALING_AUTO_APPLY,
+        "state": _load_state(),
+    }
+
+
+@app.post("/api/self-healing/diagnose")
+async def api_self_healing_diagnose(body: dict = None):
+    """Déclenche un diagnostic (+ patch si auto-apply) à la demande, sur un log fourni."""
+    from scripts.self_healing import handle_crash_loop
+
+    log_tail = (body or {}).get("log_tail", "")
+    if not log_tail.strip():
+        raise HTTPException(400, "Le champ 'log_tail' est requis.")
+    return await handle_crash_loop(log_tail)
+
+
+@app.post("/api/quality/ci/run")
+async def api_quality_ci_run():
+    """Déclenche la CI locale (lint + tests + build front optionnel) à la demande."""
+    from scripts.local_ci import run_local_ci
+
+    return await asyncio.to_thread(run_local_ci)
+
+
+@app.post("/api/quality/ci/install-hook")
+async def api_quality_ci_install_hook(force: bool = False):
+    """Installe le hook pre-commit qui déclenche la CI locale à chaque commit."""
+    from scripts.install_git_hooks import install
+
+    result = install(force=force)
+    if not result.get("ok"):
+        raise HTTPException(409, result.get("reason", "Installation du hook refusée."))
+    return result
+
+
 @app.get("/api/quality/duplicates")
 async def api_quality_duplicates():
     """Blocs de code dupliqué détectés (scan périodique, rapport seul)."""

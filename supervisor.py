@@ -582,6 +582,8 @@ async def _health_check_loop() -> None:
     global _backend_restart_count
     _consecutive_failures = 0
     MAX_CONSECUTIVE_FAILURES = 3
+    _last_crash_tail = ""
+    _healing_triggered = False  # une seule tentative self-healing par episode de crash-loop
 
     while True:
         await asyncio.sleep(_health_check_interval)
@@ -594,6 +596,7 @@ async def _health_check_loop() -> None:
                 _backend_restart_count += 1
                 _consecutive_failures += 1
                 crash_tail = _tail_log("backend.log", 5)
+                _last_crash_tail = crash_tail
                 log.warning(
                     "Backend detecte mort (restart #%d, echec #%d) — "
                     "dernieres lignes du log :\n%s",
@@ -638,14 +641,23 @@ async def _health_check_loop() -> None:
             else:
                 # Backend vivant et port ouvert → tout va bien
                 _consecutive_failures = 0
+                _healing_triggered = False  # nouvel episode de crash-loop possible
 
-            # Si trop d'echecs consecutifs → alerte critique
+            # Si trop d'echecs consecutifs → alerte critique + self-healing (opt-in)
             if _consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
                 log.critical(
                     "ALERTE : %d echecs consecutifs de redemarrage du backend. "
                     "Verifier backend.log et supervisor.log.",
                     _consecutive_failures,
                 )
+                if not _healing_triggered:
+                    _healing_triggered = True
+                    try:
+                        from scripts.self_healing import handle_crash_loop
+
+                        asyncio.create_task(handle_crash_loop(_last_crash_tail), name="self_healing")
+                    except Exception:
+                        log.exception("Erreur au declenchement self-healing (ignoree, jamais bloquant)")
 
         except Exception:
             log.exception("Erreur dans la boucle health-check — sera reessayee")
