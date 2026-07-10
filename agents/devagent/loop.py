@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from pathlib import Path
 from typing import Any
 
+import config
 from agents.devagent.coder import CODER_PROMPT, FIXER_PROMPT
-from agents.devagent.executor import git_commit, git_init, run_isolated, setup_venv
+from agents.devagent.executor import git_commit, git_current_sha, git_init, run_isolated, setup_venv
 from agents.devagent.planner import ACCEPTANCE_JUDGE_PROMPT, PLANNER_PROMPT
 from agents.devagent.utils import parse_json_response
 from database import devagent as devagent_db
@@ -175,11 +177,14 @@ async def _run_loop_inner(project_id: int) -> None:
         test_command = code.get("test_command") or "python3 -m pytest -q"
         success = False
         test_result: dict[str, Any] = {}
+        test_duration_ms = 0.0
 
         for attempt in range(2):
             state["phase"] = "test"
             devagent_db.update_loop_state(project_id, state)
+            _t0 = time.monotonic()
             test_result = run_isolated(test_command, cwd=project_path, timeout=120)
+            test_duration_ms = (time.monotonic() - _t0) * 1000
             success = test_result.get("returncode") == 0
             devagent_db.log_iteration(
                 project_id,
@@ -230,6 +235,35 @@ async def _run_loop_inner(project_id: int) -> None:
             state["consecutive_failures"] = 0
             state["last_error"] = None
 
+            # Détection de régression de perf — rollback auto si ce commit a
+            # nettement ralenti la suite de tests par rapport à la référence.
+            try:
+                from scripts.perf_regression import guard_devagent_iteration
+
+                perf_report = await guard_devagent_iteration(
+                    project_path, spec["slug"], git_current_sha(project_path), test_duration_ms,
+                )
+                devagent_db.log_iteration(
+                    project_id, iteration, "perf_guard",
+                    json.dumps(perf_report, ensure_ascii=False), not perf_report.get("rolled_back"),
+                )
+            except Exception as e:
+                logger.warning("[devagent] perf_guard : %s", e)
+
+            # Déploiement staging après des tests verts — filet de sécurité,
+            # ne bloque jamais la boucle même en cas d'échec.
+            if config.DEVAGENT_AUTO_DEPLOY_STAGING:
+                try:
+                    from agents.devagent.staging import deploy_to_staging
+
+                    deploy_report = deploy_to_staging(project_id, project_path, test_command)
+                    devagent_db.log_iteration(
+                        project_id, iteration, "staging",
+                        json.dumps(deploy_report, ensure_ascii=False), deploy_report.get("ok", False),
+                    )
+                except Exception as e:
+                    logger.warning("[devagent] deploy_to_staging : %s", e)
+
             if await _judge_acceptance(
                 spec,
                 project_path,
@@ -241,6 +275,20 @@ async def _run_loop_inner(project_id: int) -> None:
                 devagent_db.update_loop_state(project_id, state)
                 _write_state_file(project_path, state)
                 logger.info("[devagent] criteres acceptation OK project_id=%s", project_id)
+
+                if config.DEVAGENT_AUTO_PR:
+                    try:
+                        from agents.devagent.pr import generate_pr_description
+
+                        pr_report = await generate_pr_description(
+                            project_path, spec.get("project_name", spec["slug"]),
+                        )
+                        devagent_db.log_iteration(
+                            project_id, iteration, "pr", json.dumps(pr_report, ensure_ascii=False),
+                            pr_report.get("ok", False),
+                        )
+                    except Exception as e:
+                        logger.warning("[devagent] generate_pr_description : %s", e)
                 return
         else:
             state["consecutive_failures"] = int(state.get("consecutive_failures", 0)) + 1

@@ -586,7 +586,70 @@ def init_db():
         _migrate_presence_sessions(conn)
         _migrate_running_gags(conn)
         _migrate_commitments(conn)
+        _migrate_schema_migrations_table(conn)
+        _migrate_perf_benchmarks(conn)
+        _migrate_security_findings(conn)
+        _migrate_duplicate_findings(conn)
     logger.info("[DB] Base initialisée : %s", DB_PATH)
+
+
+def _migrate_schema_migrations_table(conn: sqlite3.Connection) -> None:
+    """Suivi des migrations SQLite versionnées appliquées (scripts/db_migrations.py)."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS schema_migrations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            filename TEXT UNIQUE NOT NULL,
+            checksum TEXT NOT NULL,
+            applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+
+def _migrate_perf_benchmarks(conn: sqlite3.Connection) -> None:
+    """Historique des temps d'exécution (suite de tests) — détection de régression."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS perf_benchmarks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            scope TEXT NOT NULL,
+            commit_sha TEXT,
+            duration_ms REAL NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_perf_scope ON perf_benchmarks(scope, created_at DESC)")
+
+
+def _migrate_security_findings(conn: sqlite3.Connection) -> None:
+    """Constats de l'audit sécurité (secrets exposés, patterns dangereux)."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS security_findings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            file TEXT NOT NULL,
+            line INTEGER NOT NULL,
+            rule TEXT NOT NULL,
+            severity TEXT NOT NULL CHECK(severity IN ('high', 'medium', 'low')),
+            snippet TEXT,
+            status TEXT DEFAULT 'open' CHECK(status IN ('open', 'fixed', 'ignored')),
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(file, line, rule)
+        )
+    """)
+
+
+def _migrate_duplicate_findings(conn: sqlite3.Connection) -> None:
+    """Blocs de code dupliqué détectés par le scanner périodique."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS duplicate_findings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            file_a TEXT NOT NULL, start_a INTEGER NOT NULL, end_a INTEGER NOT NULL,
+            file_b TEXT NOT NULL, start_b INTEGER NOT NULL, end_b INTEGER NOT NULL,
+            lines_count INTEGER NOT NULL,
+            status TEXT DEFAULT 'open' CHECK(status IN ('open', 'refactored', 'ignored')),
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(file_a, start_a, file_b, start_b)
+        )
+    """)
 
 
 def _migrate_running_gags(conn: sqlite3.Connection) -> None:
@@ -2806,6 +2869,119 @@ def get_week_comparison() -> dict:
         "deltas_pct": deltas,
         "period": {"this_start": cur_start, "prev_start": prev_start},
     }
+
+
+# ── Migrations SQLite versionnées ────────────────────────────
+
+def get_applied_migrations() -> dict[str, str]:
+    """{filename: checksum} de toutes les migrations déjà appliquées."""
+    with get_db() as conn:
+        rows = conn.execute("SELECT filename, checksum FROM schema_migrations").fetchall()
+        return {r["filename"]: r["checksum"] for r in rows}
+
+
+def record_migration(filename: str, checksum: str) -> None:
+    with get_db() as conn:
+        conn.execute(
+            "INSERT INTO schema_migrations (filename, checksum) VALUES (?, ?)",
+            (filename, checksum),
+        )
+
+
+# ── Benchmarks de performance ─────────────────────────────────
+
+def record_perf_benchmark(scope: str, commit_sha: str | None, duration_ms: float) -> None:
+    with get_db() as conn:
+        conn.execute(
+            "INSERT INTO perf_benchmarks (scope, commit_sha, duration_ms) VALUES (?, ?, ?)",
+            (scope, commit_sha, duration_ms),
+        )
+
+
+def get_perf_history(scope: str, limit: int = 20) -> list[dict]:
+    """Historique récent (plus récent en premier).
+
+    Tri secondaire sur ``id DESC`` : ``created_at`` a une résolution de la
+    seconde, insuffisante pour départager des benchmarks enregistrés dans la
+    même seconde (courant en test, possible en usage réel sur une machine
+    rapide).
+    """
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM perf_benchmarks WHERE scope = ? ORDER BY created_at DESC, id DESC LIMIT ?",
+            (scope, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_perf_baseline(scope: str, window: int = 5) -> float | None:
+    """Médiane des `window` derniers benchmarks de ce scope. None si historique insuffisant."""
+    history = get_perf_history(scope, limit=window)
+    if len(history) < 2:  # au moins 2 points avant de comparer à un 3e
+        return None
+    durations = sorted(h["duration_ms"] for h in history)
+    n = len(durations)
+    mid = n // 2
+    return durations[mid] if n % 2 else (durations[mid - 1] + durations[mid]) / 2
+
+
+# ── Constats sécurité ─────────────────────────────────────────
+
+def upsert_security_finding(file: str, line: int, rule: str, severity: str,
+                            snippet: str | None = None) -> bool:
+    """Insère un constat s'il est nouveau. Retourne True si c'est une nouveauté."""
+    with get_db() as conn:
+        cur = conn.execute(
+            """INSERT OR IGNORE INTO security_findings (file, line, rule, severity, snippet)
+               VALUES (?, ?, ?, ?, ?)""",
+            (file, line, rule, severity, snippet),
+        )
+        return cur.rowcount > 0
+
+
+def get_security_findings(status: str = "open", limit: int = 200) -> list[dict]:
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT * FROM security_findings WHERE status = ?
+               ORDER BY CASE severity WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
+                        created_at DESC LIMIT ?""",
+            (status, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def update_security_finding_status(finding_id: int, status: str) -> bool:
+    if status not in ("open", "fixed", "ignored"):
+        raise ValueError(f"statut invalide : {status}")
+    with get_db() as conn:
+        cur = conn.execute(
+            "UPDATE security_findings SET status = ? WHERE id = ?", (status, finding_id),
+        )
+        return cur.rowcount > 0
+
+
+# ── Constats de code dupliqué ─────────────────────────────────
+
+def upsert_duplicate_finding(file_a: str, start_a: int, end_a: int,
+                             file_b: str, start_b: int, end_b: int, lines_count: int) -> bool:
+    with get_db() as conn:
+        cur = conn.execute(
+            """INSERT OR IGNORE INTO duplicate_findings
+                   (file_a, start_a, end_a, file_b, start_b, end_b, lines_count)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (file_a, start_a, end_a, file_b, start_b, end_b, lines_count),
+        )
+        return cur.rowcount > 0
+
+
+def get_duplicate_findings(status: str = "open", limit: int = 100) -> list[dict]:
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT * FROM duplicate_findings WHERE status = ?
+               ORDER BY lines_count DESC LIMIT ?""",
+            (status, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
 
 
 def get_cost_summary() -> dict:

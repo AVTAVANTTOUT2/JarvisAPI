@@ -625,6 +625,13 @@ async def lifespan(app: FastAPI):
     logger.info("Démarrage JARVIS…")
     init_db()
 
+    try:
+        from scripts.db_migrations import run_startup_migrations
+
+        run_startup_migrations()
+    except Exception as e:
+        logger.critical("Erreur migrations au démarrage : %s", e)
+
     # Cache Contacts.app (résolution numéro / email → nom affiché)
     # build_cache() est synchrone et peut bloquer >20s : lancé en background
     # task pour ne pas retarder le démarrage FastAPI.
@@ -1163,6 +1170,148 @@ async def api_presence():
         **presence_detector.get_status(),
         "today_sessions": get_today_sessions(),
     }
+
+
+@app.get("/api/quality/duplicates")
+async def api_quality_duplicates():
+    """Blocs de code dupliqué détectés (scan périodique, rapport seul)."""
+    from scripts.duplicate_scanner import list_open_duplicates
+
+    return {"duplicates": list_open_duplicates()}
+
+
+@app.post("/api/quality/duplicates/scan")
+async def api_quality_duplicates_scan():
+    """Déclenche un scan de code dupliqué immédiat sur la codebase JARVIS."""
+    from scripts.duplicate_scanner import scan_and_report
+
+    return await asyncio.to_thread(scan_and_report)
+
+
+@app.get("/api/devagent/{project_id}/deployments")
+async def api_devagent_deployments(project_id: int):
+    """Historique des déploiements staging du projet."""
+    from database.devagent import get_deployments
+
+    project = devagent_db.get_project(project_id)
+    if not project:
+        raise HTTPException(404, "Projet DevAgent introuvable.")
+    return {"deployments": get_deployments(project_id)}
+
+
+@app.post("/api/devagent/{project_id}/deploy")
+async def api_devagent_deploy(project_id: int):
+    """Déploie manuellement le commit HEAD en staging et valide avec la suite de tests."""
+    from pathlib import Path
+
+    from agents.devagent.staging import deploy_to_staging
+
+    project = devagent_db.get_project(project_id)
+    if not project:
+        raise HTTPException(404, "Projet DevAgent introuvable.")
+    return await asyncio.to_thread(deploy_to_staging, project_id, Path(project["isolation_path"]))
+
+
+@app.post("/api/devagent/{project_id}/pr")
+async def api_devagent_pr(project_id: int, open_pr: bool = False):
+    """Génère description + changelog de PR ; ouvre la PR si `gh` + remote disponibles."""
+    from pathlib import Path
+
+    from agents.devagent.pr import generate_pr_description, open_pull_request
+
+    project = devagent_db.get_project(project_id)
+    if not project:
+        raise HTTPException(404, "Projet DevAgent introuvable.")
+    project_path = Path(project["isolation_path"])
+
+    result = await generate_pr_description(project_path, project.get("name") or project["slug"])
+    if not result.get("ok"):
+        return result
+    if open_pr:
+        body = Path(result["path"]).read_text(encoding="utf-8")
+        result["gh"] = await asyncio.to_thread(open_pull_request, project_path, result["title"], body)
+    return result
+
+
+@app.post("/api/devagent/{project_id}/rebase")
+async def api_devagent_rebase(project_id: int, onto: str = "main"):
+    """Rebase sûr : résout les conflits triviaux, abandonne sinon (jamais partiel)."""
+    from pathlib import Path
+
+    from agents.devagent.git_ops import safe_rebase
+
+    project = devagent_db.get_project(project_id)
+    if not project:
+        raise HTTPException(404, "Projet DevAgent introuvable.")
+    return await asyncio.to_thread(safe_rebase, Path(project["isolation_path"]), onto)
+
+
+@app.post("/api/devagent/{project_id}/refactor")
+async def api_devagent_refactor(project_id: int):
+    """Refactore le plus gros bloc dupliqué du projet (tests-gated, réversible)."""
+    from pathlib import Path
+
+    from agents.devagent.refactor import refactor_top_duplicate
+
+    project = devagent_db.get_project(project_id)
+    if not project:
+        raise HTTPException(404, "Projet DevAgent introuvable.")
+    return await refactor_top_duplicate(Path(project["isolation_path"]))
+
+
+@app.get("/api/quality/security")
+async def api_quality_security():
+    """Constats de l'audit sécurité (secrets, patterns dangereux)."""
+    from scripts.security_audit import list_open_findings
+
+    return {"findings": list_open_findings()}
+
+
+@app.post("/api/quality/security/scan")
+async def api_quality_security_scan():
+    """Déclenche un audit sécurité immédiat sur la codebase JARVIS."""
+    from scripts.security_audit import scan_and_report
+
+    return await asyncio.to_thread(scan_and_report)
+
+
+@app.post("/api/quality/security/{finding_id}/fix")
+async def api_quality_security_fix(finding_id: int):
+    """Applique le correctif mécanique (redaction) — requiert SECURITY_AUTO_FIX_ENABLED."""
+    from database import get_security_findings
+    from scripts.security_audit import apply_safe_fix
+
+    finding = next((f for f in get_security_findings("open", limit=1000) if f["id"] == finding_id), None)
+    if not finding:
+        raise HTTPException(404, "Constat introuvable ou déjà résolu.")
+    return await asyncio.to_thread(apply_safe_fix, finding)
+
+
+@app.post("/api/quality/tests/generate")
+async def api_quality_generate_tests():
+    """Génère des tests pour les fonctions non couvertes (opt-in, cf. .env.example)."""
+    from scripts.test_coverage_scan import run_test_generation
+
+    return await run_test_generation()
+
+
+@app.get("/api/migrations/status")
+async def api_migrations_status():
+    """Migrations SQLite appliquées / en attente."""
+    from scripts.db_migrations import migration_status
+
+    return migration_status()
+
+
+@app.post("/api/migrations/run")
+async def api_migrations_run():
+    """Applique les migrations en attente (sauvegarde automatique préalable)."""
+    from scripts.db_migrations import apply_pending_migrations
+
+    report = await asyncio.to_thread(apply_pending_migrations)
+    if not report["ok"]:
+        raise HTTPException(500, report["error"] or "Migration échouée")
+    return report
 
 
 @app.get("/api/stats/compare")
@@ -1715,6 +1864,23 @@ async def api_logs(type: str | None = None, limit: int = 100):
 
 
 # ── DevAgent autonome (interview -> spec -> boucle dev isolee) ─────────────
+
+
+@app.post("/api/devagent/autorun")
+async def api_devagent_autorun(payload: dict):
+    """Agent autonome bout en bout : interview auto-répondue → spec → boucle, zéro humain.
+
+    Body : {"description": "...", "name": "..." (optionnel)}.
+    """
+    from agents.devagent.autorun import autorun_project
+
+    description = (payload or {}).get("description", "").strip()
+    if not description:
+        raise HTTPException(400, "Le champ 'description' est requis.")
+    try:
+        return await autorun_project(description, name=(payload or {}).get("name"))
+    except RuntimeError as e:
+        raise HTTPException(502, str(e)) from e
 
 
 @app.post("/api/devagent/start")

@@ -275,6 +275,42 @@ MEETING_MIN_SPEECH_S = int(_get("MEETING_MIN_SPEECH_S", "240"))   # parole cumul
 MEETING_WINDOW_MIN = int(_get("MEETING_WINDOW_MIN", "15"))        # fenêtre de cumul avant ouverture
 MEETING_SILENCE_MIN = int(_get("MEETING_SILENCE_MIN", "10"))      # silence qui clôt la réunion
 
+# ── Migrations SQLite versionnées (backup automatique préalable) ──
+DB_MIGRATIONS_DIR = _get("DB_MIGRATIONS_DIR", str(BASE_DIR / "database" / "migrations"))
+DB_MIGRATIONS_AUTO_APPLY = _get("DB_MIGRATIONS_AUTO_APPLY", "true").lower() == "true"
+
+# ── Détection de régression de performance ──────────────────
+PERF_REGRESSION_THRESHOLD_PCT = int(_get("PERF_REGRESSION_THRESHOLD_PCT", "40"))
+PERF_BASELINE_WINDOW = int(_get("PERF_BASELINE_WINDOW", "5"))
+
+# ── Scan de code dupliqué ────────────────────────────────────
+DUPLICATE_SCAN_ENABLED = _get("DUPLICATE_SCAN_ENABLED", "true").lower() == "true"
+DUPLICATE_SCAN_MIN_LINES = int(_get("DUPLICATE_SCAN_MIN_LINES", "6"))
+DUPLICATE_SCAN_DIRS = _get("DUPLICATE_SCAN_DIRS", "agents,scripts,integrations,database")
+
+# ── Audit sécurité (secrets, patterns dangereux) ────────────
+SECURITY_AUDIT_ENABLED = _get("SECURITY_AUDIT_ENABLED", "true").lower() == "true"
+SECURITY_AUDIT_DIRS = _get("SECURITY_AUDIT_DIRS", "agents,scripts,integrations,database,main.py,config.py,llm.py,actions.py")
+SECURITY_AUTO_FIX_ENABLED = _get("SECURITY_AUTO_FIX_ENABLED", "false").lower() == "true"
+
+# ── Génération auto de tests manquants (opt-in, coûte des tokens) ──
+AUTO_TEST_GEN_ENABLED = _get("AUTO_TEST_GEN_ENABLED", "false").lower() == "true"
+AUTO_TEST_GEN_TARGET_DIRS = _get("AUTO_TEST_GEN_TARGET_DIRS", "")  # vide = aucune cible, opt-in explicite
+AUTO_TEST_GEN_MAX_PER_RUN = int(_get("AUTO_TEST_GEN_MAX_PER_RUN", "5"))
+
+# ── DevAgent : PR auto, déploiement staging ─────────────────
+DEVAGENT_AUTO_PR = _get("DEVAGENT_AUTO_PR", "true").lower() == "true"
+DEVAGENT_AUTO_DEPLOY_STAGING = _get("DEVAGENT_AUTO_DEPLOY_STAGING", "true").lower() == "true"
+DEVAGENT_AUTORUN_MAX_INTERVIEW_ROUNDS = int(_get("DEVAGENT_AUTORUN_MAX_INTERVIEW_ROUNDS", "6"))
+
+# ── CI locale (pré-commit) ───────────────────────────────────
+LOCAL_CI_RUN_FRONTEND_BUILD = _get("LOCAL_CI_RUN_FRONTEND_BUILD", "false").lower() == "true"
+
+# ── Self-healing (diagnostic + patch réversible, désactivé par défaut) ──
+SELF_HEALING_ENABLED = _get("SELF_HEALING_ENABLED", "false").lower() == "true"
+SELF_HEALING_AUTO_APPLY = _get("SELF_HEALING_AUTO_APPLY", "false").lower() == "true"
+SELF_HEALING_CRASH_THRESHOLD = int(_get("SELF_HEALING_CRASH_THRESHOLD", "3"))
+
 # ── Mapping modèles par agent ───────────────────────────────
 AGENT_MODELS = {
     "orchestrator": DEEPSEEK_FAST_MODEL,

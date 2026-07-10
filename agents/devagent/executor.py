@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import subprocess
 from pathlib import Path
 from typing import Sequence
@@ -18,8 +19,14 @@ def run_isolated(
     command: str | Sequence[str],
     cwd: Path,
     timeout: int = 120,
+    env: dict[str, str] | None = None,
 ) -> dict[str, str | int]:
-    """Execute une commande dans le repertoire isole du projet."""
+    """Execute une commande dans le repertoire isole du projet.
+
+    ``env`` (optionnel) est fusionné par-dessus l'environnement courant —
+    utile pour ``GIT_EDITOR=true`` lors d'un ``git rebase --continue`` sans
+    éditeur interactif disponible.
+    """
     if isinstance(command, str):
         args = command.split()
     else:
@@ -29,6 +36,8 @@ def run_isolated(
     if not resolved_cwd.exists():
         raise FileNotFoundError(f"Repertoire projet introuvable : {resolved_cwd}")
 
+    full_env = {**os.environ, **env} if env else None
+
     try:
         result = subprocess.run(
             args,
@@ -36,6 +45,7 @@ def run_isolated(
             capture_output=True,
             text=True,
             timeout=timeout,
+            env=full_env,
         )
         return {
             "returncode": result.returncode,
@@ -46,6 +56,30 @@ def run_isolated(
         raise ExecutionTimeout(
             f"Commande depassee {timeout}s : {' '.join(args)}"
         ) from exc
+
+
+def git_current_sha(project_path: Path) -> str | None:
+    """SHA du commit HEAD, ou None si le dépôt n'a pas encore de commit."""
+    result = run_isolated(["git", "rev-parse", "HEAD"], cwd=project_path, timeout=10)
+    if result["returncode"] != 0:
+        return None
+    return result["stdout"].strip() or None
+
+
+def git_log_range(project_path: Path, base: str = "", head: str = "HEAD") -> str:
+    """Log oneline entre ``base`` (exclu) et ``head``. ``base`` vide = tout l'historique."""
+    rev_range = f"{base}..{head}" if base else head
+    result = run_isolated(
+        ["git", "log", "--oneline", "--no-decorate", rev_range], cwd=project_path, timeout=15,
+    )
+    return result["stdout"] if result["returncode"] == 0 else ""
+
+
+def git_diff_stat(project_path: Path, base: str = "", head: str = "HEAD") -> str:
+    """Statistiques de diff (fichiers touchés, +/-) entre ``base`` et ``head``."""
+    rev_range = f"{base}..{head}" if base else head
+    result = run_isolated(["git", "diff", "--stat", rev_range], cwd=project_path, timeout=15)
+    return result["stdout"] if result["returncode"] == 0 else ""
 
 
 def setup_venv(project_path: Path, timeout: int = 120) -> dict[str, str | int]:

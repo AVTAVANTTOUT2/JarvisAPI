@@ -61,8 +61,19 @@ CREATE TABLE IF NOT EXISTS dev_loop_log (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS dev_deployments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER REFERENCES dev_projects(id),
+    commit_sha TEXT,
+    status TEXT NOT NULL CHECK(status IN ('success', 'failed')),
+    staging_path TEXT,
+    log TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE INDEX IF NOT EXISTS idx_dev_loop_log_project ON dev_loop_log(project_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_dev_projects_status ON dev_projects(status);
+CREATE INDEX IF NOT EXISTS idx_dev_deployments_project ON dev_deployments(project_id, created_at DESC);
 """
 
 
@@ -314,6 +325,33 @@ def get_dev_loop_logs(
             }
         )
     return logs
+
+
+def record_deployment(
+    project_id: int,
+    commit_sha: Optional[str],
+    status: str,
+    staging_path: Optional[str] = None,
+    log: Optional[str] = None,
+) -> int:
+    """Enregistre une tentative de déploiement staging (succès ou échec)."""
+    with get_db() as conn:
+        cur = conn.execute(
+            """INSERT INTO dev_deployments (project_id, commit_sha, status, staging_path, log)
+               VALUES (?, ?, ?, ?, ?)""",
+            (project_id, commit_sha, status, staging_path, log),
+        )
+        return int(cur.lastrowid)
+
+
+def get_deployments(project_id: int, limit: int = 20) -> list[dict[str, Any]]:
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT * FROM dev_deployments WHERE project_id = ?
+               ORDER BY created_at DESC LIMIT ?""",
+            (project_id, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
 
 
 def get_project_status_payload(project_id: int) -> dict[str, Any]:

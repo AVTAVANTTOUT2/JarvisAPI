@@ -305,6 +305,36 @@ async def _commitments_extract_job():
         logger.exception("[scheduler] commitments_extract : %s", e)
 
 
+async def _duplicate_scan_job():
+    """Scan hebdomadaire de code dupliqué (rapport seul, jamais de réécriture auto)."""
+    try:
+        from scripts.duplicate_scanner import scan_and_report
+
+        await asyncio.to_thread(scan_and_report)
+    except Exception as e:
+        logger.exception("[scheduler] duplicate_scan : %s", e)
+
+
+async def _security_audit_job():
+    """Audit sécurité hebdomadaire (secrets, patterns dangereux — rapport)."""
+    try:
+        from scripts.security_audit import scan_and_report
+
+        await asyncio.to_thread(scan_and_report)
+    except Exception as e:
+        logger.exception("[scheduler] security_audit : %s", e)
+
+
+async def _test_gen_job():
+    """Génération de tests manquants (opt-in, no-op si non configuré)."""
+    try:
+        from scripts.test_coverage_scan import run_test_generation
+
+        await run_test_generation()
+    except Exception as e:
+        logger.exception("[scheduler] test_gen : %s", e)
+
+
 async def _commitments_overdue_job():
     """Rappel sec des promesses ouvertes depuis plus de 3 jours (10:00)."""
     if not config.RITUALS_ENABLED:
@@ -441,14 +471,27 @@ def setup_scheduler() -> None:
         _commitments_overdue_job, CronTrigger(hour=10, minute=0),
         id="commitments_overdue", replace_existing=True,
     )
+    scheduler.add_job(
+        _duplicate_scan_job, CronTrigger(day_of_week="wed", hour=5, minute=0),
+        id="duplicate_scan", replace_existing=True,
+    )
+    scheduler.add_job(
+        _security_audit_job, CronTrigger(day_of_week="wed", hour=5, minute=15),
+        id="security_audit", replace_existing=True,
+    )
+    scheduler.add_job(
+        _test_gen_job, CronTrigger(day_of_week="sat", hour=5, minute=30),
+        id="test_gen", replace_existing=True,
+    )
 
     logger.info(
-        "[scheduler] 23 jobs enregistrés (briefing %02d:%02d, résumé soir %02d:%02d, "
+        "[scheduler] 26 jobs enregistrés (briefing %02d:%02d, résumé soir %02d:%02d, "
         "hebdo dim 20:00, overdue chaque heure, analyse géo 23:00, "
         "alertes relationnelles /6h, analyse relationnelle 3:00, "
         "backup 4:15, maintenance dim 4:45, budget LLM 21:30, "
         "roast %s, debrief %s, citation %s, anniversaires %s, pause café /20min 9-22h, "
-        "debrief hebdo dim %s, signal mood %s, présence /10min)",
+        "debrief hebdo dim %s, signal mood %s, présence /10min, "
+        "scan doublons mer 5:00, audit sécurité mer 5:15, génération tests sam 5:30)",
         h, m, eh, em,
         config.ROAST_TIME, config.DEBRIEF_TIME, config.QUOTE_TIME, config.BIRTHDAY_CHECK_TIME,
         config.WEEKLY_DEBRIEF_TIME, config.MOOD_SIGNAL_TIME,
