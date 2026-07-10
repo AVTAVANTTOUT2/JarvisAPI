@@ -76,6 +76,114 @@ def test_backup_missing_db_fails_cleanly(tmp_db, monkeypatch, tmp_path):
     assert report["ok"] is False and "introuvable" in report["error"]
 
 
+# ── Chiffrement + restauration des sauvegardes ───────────────
+
+def test_backup_encrypted_when_enabled(tmp_db, monkeypatch):
+    from scripts.db_maintenance import run_backup
+
+    monkeypatch.setattr("config.BACKUP_ENCRYPTION_ENABLED", True)
+    monkeypatch.setattr("config.BACKUP_ENCRYPTION_PASSPHRASE", "correct-passphrase")
+
+    report = run_backup()
+    assert report["ok"] is True
+    assert report["encrypted"] is True
+    dest = Path(report["path"])
+    assert dest.suffix == ".enc"
+    # Le fichier chiffré n'est pas une base SQLite lisible en clair
+    assert not dest.read_bytes().startswith(b"SQLite format 3")
+
+
+def test_backup_not_encrypted_when_passphrase_missing(tmp_db, monkeypatch, caplog):
+    from scripts.db_maintenance import run_backup
+
+    monkeypatch.setattr("config.BACKUP_ENCRYPTION_ENABLED", True)
+    monkeypatch.setattr("config.BACKUP_ENCRYPTION_PASSPHRASE", "")
+
+    report = run_backup()
+    assert report["ok"] is True
+    assert report["encrypted"] is False
+    assert Path(report["path"]).suffix == ".db"
+
+
+def test_restore_roundtrip_encrypted_backup(tmp_db, monkeypatch):
+    from database import create_task, get_db
+    from scripts.db_maintenance import restore_backup, run_backup
+
+    monkeypatch.setattr("config.BACKUP_ENCRYPTION_ENABLED", True)
+    monkeypatch.setattr("config.BACKUP_ENCRYPTION_PASSPHRASE", "correct-passphrase")
+
+    create_task("Tâche avant sauvegarde")
+    report = run_backup()
+    backup_name = Path(report["path"]).name
+
+    # Modifie la base courante après la sauvegarde
+    create_task("Tâche après sauvegarde (doit disparaître après restore)")
+
+    result = restore_backup(backup_name)
+    assert result["ok"] is True
+    assert result["safety_backup"]
+
+    with get_db() as conn:
+        titles = {r["title"] for r in conn.execute("SELECT title FROM tasks")}
+    assert titles == {"Tâche avant sauvegarde"}
+
+
+def test_restore_plain_unencrypted_backup(tmp_db):
+    from database import create_task, get_db
+    from scripts.db_maintenance import restore_backup, run_backup
+
+    create_task("Avant")
+    report = run_backup()
+    backup_name = Path(report["path"]).name
+    create_task("Après")
+
+    result = restore_backup(backup_name)
+    assert result["ok"] is True
+    with get_db() as conn:
+        titles = {r["title"] for r in conn.execute("SELECT title FROM tasks")}
+    assert titles == {"Avant"}
+
+
+def test_restore_wrong_passphrase_fails_cleanly(tmp_db, monkeypatch):
+    from scripts.db_maintenance import restore_backup, run_backup
+
+    monkeypatch.setattr("config.BACKUP_ENCRYPTION_ENABLED", True)
+    monkeypatch.setattr("config.BACKUP_ENCRYPTION_PASSPHRASE", "correct-passphrase")
+    report = run_backup()
+    backup_name = Path(report["path"]).name
+
+    monkeypatch.setattr("config.BACKUP_ENCRYPTION_PASSPHRASE", "wrong-passphrase")
+    result = restore_backup(backup_name)
+    assert result["ok"] is False
+    assert "Déchiffrement" in result["error"]
+
+
+def test_restore_rejects_path_traversal(tmp_db):
+    from scripts.db_maintenance import restore_backup
+
+    result = restore_backup("../../etc/passwd")
+    assert result["ok"] is False
+    assert "introuvable" in result["error"]
+
+
+def test_restore_rejects_unknown_backup(tmp_db):
+    from scripts.db_maintenance import restore_backup
+
+    result = restore_backup("jarvis-does-not-exist.db")
+    assert result["ok"] is False
+
+
+def test_list_backups_reports_encrypted_flag(tmp_db, monkeypatch):
+    from scripts.db_maintenance import list_backups, run_backup
+
+    monkeypatch.setattr("config.BACKUP_ENCRYPTION_ENABLED", True)
+    monkeypatch.setattr("config.BACKUP_ENCRYPTION_PASSPHRASE", "secret")
+    run_backup()
+
+    backups = list_backups()
+    assert backups[0]["encrypted"] is True
+
+
 # ── Rétention / maintenance ──────────────────────────────────
 
 def _insert_aged_rows(conn) -> None:

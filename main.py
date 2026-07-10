@@ -9,6 +9,7 @@ Usage :
 """
 
 import asyncio
+import hmac
 import json
 import logging
 import re
@@ -21,7 +22,7 @@ from typing import Any
 
 import fitz  # pymupdf — extraction texte PDF
 import uvicorn
-from fastapi import BackgroundTasks, Body, FastAPI, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import BackgroundTasks, Body, FastAPI, HTTPException, Request, Response, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -87,6 +88,7 @@ from database import (
     get_active_patterns,
     get_all_devices,
     get_all_people,
+    get_device_by_id,
     get_app_usage,
     get_app_usage_range,
     get_conversation_detail,
@@ -491,6 +493,36 @@ def _setup_frontend(app: FastAPI) -> None:
         assets_dir = WEB_DIST / "assets"
         if assets_dir.is_dir():
             app.mount("/assets", StaticFiles(directory=assets_dir), name="vite_assets")
+
+        icons_dir = WEB_DIST / "icons"
+        if icons_dir.is_dir():
+            app.mount("/icons", StaticFiles(directory=icons_dir), name="vite_icons")
+
+        # Fichiers PWA générés à la racine par vite-plugin-pwa — servis
+        # explicitement (le Service Worker DOIT être à la racine "/sw.js"
+        # pour contrôler toute l'app, il ne peut pas vivre sous /assets).
+        for name, media_type in (
+            ("manifest.webmanifest", "application/manifest+json"),
+            ("sw.js", "application/javascript"),
+            ("registerSW.js", "application/javascript"),
+        ):
+            file_path = WEB_DIST / name
+
+            if not file_path.is_file():
+                continue
+
+            def _make_pwa_file_route(fp: Path, mt: str):
+                async def _serve():
+                    return FileResponse(
+                        fp, media_type=mt,
+                        headers={"Cache-Control": "no-cache"},
+                    )
+                return _serve
+
+            app.add_api_route(
+                f"/{name}", _make_pwa_file_route(file_path, media_type),
+                methods=["GET"], include_in_schema=False,
+            )
 
         @app.get("/", include_in_schema=False)
         async def serve_spa_root():
@@ -910,6 +942,225 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ── Sécurité : verrouillage app, headers, CSRF ──────────────
+
+import auth  # noqa: E402
+
+_DEVICE_TOKEN_ROUTE_RE = re.compile(r"^/api/devices/[^/]+/(heartbeat|screen)$")
+
+# Routes qui ne passent PAS par le verrou de session navigateur — soit parce
+# qu'elles servent à s'authentifier, soit parce qu'elles sont appelées par un
+# autre mécanisme (jeton device, jeton localisation) par un client qui n'est
+# pas un navigateur avec cookie de session.
+def _bypasses_session_gate(method: str, path: str) -> bool:
+    if path.startswith("/api/auth/"):
+        return True
+    if method == "POST" and path in ("/api/location", "/api/location/batch"):
+        return True
+    if method == "POST" and path == "/api/devices/register":
+        return True
+    if method == "POST" and _DEVICE_TOKEN_ROUTE_RE.match(path):
+        return True
+    return False
+
+
+_SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    "Permissions-Policy": "geolocation=(self), microphone=(self), camera=(), payment=(), usb=()",
+    "Content-Security-Policy": (
+        "default-src 'self'; "
+        "script-src 'self'; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src 'self' data: https://fonts.gstatic.com; "
+        "img-src 'self' data: blob: https://*.tile.openstreetmap.org; "
+        "media-src 'self' blob:; "
+        "connect-src 'self' ws: wss:; "
+        "worker-src 'self'; "
+        "frame-ancestors 'none'; "
+        "base-uri 'self'; "
+        "form-action 'self'"
+    ),
+}
+
+
+@app.middleware("http")
+async def security_middleware(request: Request, call_next):
+    """En-têtes de sécurité sur toutes les réponses + verrou de session sur `/api/*`.
+
+    Les routes listées par `_bypasses_session_gate` s'authentifient par un
+    autre mécanisme (jeton device, jeton localisation) et ne sont pas
+    concernées par le cookie de session — les autres routes `/api/*` exigent
+    une session valide (fail-closed tant qu'aucun secret n'est configuré).
+    """
+    path = request.url.path
+    method = request.method
+
+    if method != "OPTIONS" and path.startswith("/api/") and not _bypasses_session_gate(method, path):
+        if not auth.is_configured():
+            return JSONResponse({"error": "setup_required"}, status_code=428)
+
+        token = request.cookies.get(config.SESSION_COOKIE_NAME)
+        session = auth.verify_session(token)
+        if not session:
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+        if method in ("POST", "PUT", "PATCH", "DELETE"):
+            # Défense en profondeur : le cookie de session est SameSite=Strict,
+            # ce qui bloque déjà le CSRF cross-site dans tout navigateur moderne.
+            # Quand un navigateur fournit Origin/Referer (quasi systématique en
+            # fetch/XHR), on vérifie en plus qu'il correspond au Host demandé —
+            # mais on ne bloque pas les clients qui n'envoient ni l'un ni l'autre
+            # (TestClient, scripts, curl) pour ne pas casser l'intégration hors
+            # navigateur au prix de la seule protection SameSite déjà active.
+            origin = request.headers.get("origin") or request.headers.get("referer")
+            host = request.headers.get("host", "")
+            if origin and host and host not in origin:
+                return JSONResponse({"error": "csrf_check_failed"}, status_code=403)
+
+    response = await call_next(request)
+    for key, value in _SECURITY_HEADERS.items():
+        response.headers[key] = value
+    if config.WEB_HTTPS:
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
+
+
+def _client_ip(request: Request) -> str:
+    return request.client.host if request.client else ""
+
+
+def _set_session_cookie(response: Response, token: str, expires_at: datetime) -> None:
+    max_age = max(1, int((expires_at - datetime.now()).total_seconds()))
+    response.set_cookie(
+        key=config.SESSION_COOKIE_NAME,
+        value=token,
+        max_age=max_age,
+        httponly=True,
+        secure=config.WEB_HTTPS,
+        samesite="strict",
+        path="/",
+    )
+
+
+@app.get("/api/auth/status")
+async def api_auth_status(request: Request):
+    """État du verrou : configuré ?, session active ?, verrouillage en cours ?"""
+    configured = auth.is_configured()
+    locked_out, lockout_seconds = auth.is_locked_out()
+    session = auth.verify_session(request.cookies.get(config.SESSION_COOKIE_NAME)) if configured else None
+    return {
+        "configured": configured,
+        "authenticated": session is not None,
+        "locked_out": locked_out,
+        "lockout_seconds": lockout_seconds,
+        "auto_lock_minutes": config.AUTO_LOCK_MINUTES,
+    }
+
+
+@app.post("/api/auth/setup")
+async def api_auth_setup(body: dict, request: Request, response: Response):
+    """Définit le PIN/passphrase initial (une seule fois) et ouvre une session."""
+    if auth.is_configured():
+        raise HTTPException(409, "Déjà configuré — utilisez /api/auth/change-secret")
+    secret = (body.get("secret") or "").strip()
+    try:
+        auth.setup_secret(secret)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    token, expires_at = auth.create_session(
+        user_agent=request.headers.get("user-agent", ""), ip=_client_ip(request)
+    )
+    _set_session_cookie(response, token, expires_at)
+    return {"ok": True}
+
+
+@app.post("/api/auth/unlock")
+async def api_auth_unlock(body: dict, request: Request, response: Response):
+    """Déverrouille l'app et ouvre une session (cookie httpOnly)."""
+    if not auth.is_configured():
+        raise HTTPException(428, "Aucun secret configuré — appelez /api/auth/setup")
+    locked_out, seconds = auth.is_locked_out()
+    if locked_out:
+        raise HTTPException(429, f"Trop de tentatives — réessayez dans {seconds}s")
+
+    secret = (body.get("secret") or "").strip()
+    if not auth.verify_only(secret):
+        raise HTTPException(401, "Secret incorrect")
+
+    token, expires_at = auth.create_session(
+        user_agent=request.headers.get("user-agent", ""), ip=_client_ip(request)
+    )
+    _set_session_cookie(response, token, expires_at)
+    return {"ok": True}
+
+
+@app.post("/api/auth/verify")
+async def api_auth_verify(body: dict):
+    """Ré-authentification de l'écran de verrouillage — ne touche pas à la session existante."""
+    locked_out, seconds = auth.is_locked_out()
+    if locked_out:
+        raise HTTPException(429, f"Trop de tentatives — réessayez dans {seconds}s")
+    secret = (body.get("secret") or "").strip()
+    return {"ok": auth.verify_only(secret)}
+
+
+@app.post("/api/auth/logout")
+async def api_auth_logout(request: Request, response: Response):
+    token = request.cookies.get(config.SESSION_COOKIE_NAME)
+    if token:
+        auth.revoke_session(token)
+    response.delete_cookie(config.SESSION_COOKIE_NAME, path="/")
+    return {"ok": True}
+
+
+@app.post("/api/auth/change-secret")
+async def api_auth_change_secret(body: dict, request: Request):
+    current = (body.get("current") or "").strip()
+    new = (body.get("new") or "").strip()
+    try:
+        ok = auth.change_secret(current, new)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    if not ok:
+        raise HTTPException(401, "Secret actuel incorrect")
+
+    from database import revoke_all_sessions
+
+    current_token = request.cookies.get(config.SESSION_COOKIE_NAME)
+    token_hash = auth.hash_token(current_token) if current_token else None
+    revoke_all_sessions(except_token_hash=token_hash)
+    return {"ok": True}
+
+
+@app.get("/api/auth/sessions")
+async def api_auth_sessions(request: Request):
+    from database import list_active_sessions
+
+    current_token = request.cookies.get(config.SESSION_COOKIE_NAME)
+    current_hash = auth.hash_token(current_token) if current_token else None
+    sessions = list_active_sessions()
+    for s in sessions:
+        s["current"] = False
+    if current_hash:
+        current_row = auth.verify_session(current_token)
+        if current_row:
+            for s in sessions:
+                if s["id"] == current_row["id"]:
+                    s["current"] = True
+    return {"sessions": sessions}
+
+
+@app.post("/api/auth/sessions/{session_id}/revoke")
+async def api_auth_revoke_session(session_id: int):
+    from database import revoke_session_by_id
+
+    if not revoke_session_by_id(session_id):
+        raise HTTPException(404, "Session introuvable")
+    return {"ok": True}
+
+
 # ── Routes HTTP ─────────────────────────────────────────────
 
 
@@ -1091,6 +1342,17 @@ async def api_backups_run():
     report = await asyncio.to_thread(run_backup)
     if not report.get("ok"):
         raise HTTPException(500, report.get("error", "Sauvegarde échouée"))
+    return report
+
+
+@app.post("/api/backups/{name}/restore")
+async def api_backups_restore(name: str):
+    """Restaure une sauvegarde (écrase la base courante — un snapshot de sécurité est pris avant)."""
+    from scripts.db_maintenance import restore_backup
+
+    report = await asyncio.to_thread(restore_backup, name)
+    if not report.get("ok"):
+        raise HTTPException(400, report.get("error", "Restauration échouée"))
     return report
 
 
@@ -1978,6 +2240,41 @@ async def api_notifications_unread():
     except Exception as e:
         logger.error("Erreur get_unread_notifications : %s", e)
         return {"notifications": []}
+
+
+@app.get("/api/push/vapid-public-key")
+async def api_push_vapid_public_key():
+    """Clé publique VAPID — à passer en `applicationServerKey` de `PushManager.subscribe`."""
+    import push
+
+    return {"key": push.get_vapid_public_key_b64url()}
+
+
+@app.post("/api/push/subscribe")
+async def api_push_subscribe(body: dict, request: Request):
+    """Enregistre un abonnement Web Push (format `PushSubscription.toJSON()`)."""
+    from database import upsert_push_subscription
+
+    endpoint = (body.get("endpoint") or "").strip()
+    keys = body.get("keys") or {}
+    if not endpoint or not keys.get("p256dh") or not keys.get("auth"):
+        raise HTTPException(400, "`endpoint` et `keys.{p256dh,auth}` requis")
+
+    upsert_push_subscription(
+        endpoint, keys["p256dh"], keys["auth"], request.headers.get("user-agent", "")
+    )
+    return {"ok": True}
+
+
+@app.post("/api/push/unsubscribe")
+async def api_push_unsubscribe(body: dict):
+    from database import delete_push_subscription
+
+    endpoint = (body.get("endpoint") or "").strip()
+    if not endpoint:
+        raise HTTPException(400, "`endpoint` requis")
+    delete_push_subscription(endpoint)
+    return {"ok": True}
 
 
 @app.get("/api/logs")
@@ -3071,9 +3368,23 @@ async def api_time_machine(date: str):
 # ── Localisation (GPS, lieux nommés, visites) ───────────────
 
 
+def _require_location_token(request: Request) -> None:
+    """Vérifie le jeton partagé pour les intégrations non-navigateur (Shortcuts iOS).
+
+    Si `LOCATION_API_TOKEN` n'est pas configuré, l'endpoint reste ouvert
+    (rétro-compatibilité) — un avertissement est loggué une fois au démarrage.
+    """
+    if not config.LOCATION_API_TOKEN:
+        return
+    provided = request.headers.get("x-location-token") or request.query_params.get("token")
+    if provided != config.LOCATION_API_TOKEN:
+        raise HTTPException(401, "Jeton de localisation invalide ou manquant")
+
+
 @app.post("/api/location")
-async def api_location_receive(body: dict[str, Any]):
+async def api_location_receive(body: dict[str, Any], request: Request):
     """Réception d'un point GPS (app native, raccourci iOS, etc.)."""
+    _require_location_token(request)
     try:
         lat = float(body["latitude"])
         lng = float(body["longitude"])
@@ -3096,8 +3407,9 @@ async def api_location_receive(body: dict[str, Any]):
 
 
 @app.post("/api/location/batch")
-async def api_location_batch(body: dict[str, Any]):
+async def api_location_batch(body: dict[str, Any], request: Request):
     """Points groupés (ex. rattrapage hors ligne). Chaque point peut avoir timestamp."""
+    _require_location_token(request)
     points = body.get("points")
     if not isinstance(points, list):
         raise HTTPException(400, "Body attendu : {\"points\": [...]}")
@@ -3398,6 +3710,20 @@ def _get_device_tts_queue(device_id: str) -> asyncio.Queue:
     return _device_tts_queues[device_id]
 
 
+def _require_device_token(device_id: str, request: Request) -> None:
+    """Vérifie `X-Device-Token` contre le token émis à l'enregistrement du device.
+
+    Sans ce contrôle, n'importe qui sur le réseau pouvait usurper un
+    device_id enregistré (heartbeat, upload de screenshot, activation).
+    """
+    device = get_device_by_id(device_id)
+    if not device or not device.get("auth_token"):
+        raise HTTPException(404, "Device inconnu — enregistrez-le d'abord via /api/devices/register")
+    provided = request.headers.get("x-device-token")
+    if not provided or not hmac.compare_digest(provided, device["auth_token"]):
+        raise HTTPException(401, "Jeton device invalide ou manquant")
+
+
 @app.post("/api/devices/register")
 async def api_register_device(body: dict):
     """Enregistre une machine (ou met à jour les infos). Retourne un token unique."""
@@ -3415,18 +3741,20 @@ async def api_register_device(body: dict):
 
 
 @app.post("/api/devices/{device_id}/heartbeat")
-async def api_device_heartbeat(device_id: str):
+async def api_device_heartbeat(device_id: str, request: Request):
+    _require_device_token(device_id, request)
     update_device_heartbeat(device_id)
     return {"ok": True}
 
 
 @app.post("/api/devices/{device_id}/screen")
-async def api_device_screen(device_id: str, body: dict):
+async def api_device_screen(device_id: str, body: dict, request: Request):
     """Reçoit un screenshot d'un agent distant et l'analyse localement (Ollama).
 
     Si l'analyse retourne un `notable`, on demande à Claude une notification
     courte qui est ensuite renvoyée au device via la file TTS dédiée.
     """
+    _require_device_token(device_id, request)
     image_b64 = body.get("image_b64")
     declared_app = body.get("app", "unknown")
     change_pct = float(body.get("change_pct") or 0.0)
@@ -3527,6 +3855,7 @@ async def api_device_tts(device_id: str):
 
 @app.post("/api/devices/{device_id}/activate")
 async def api_activate_device(device_id: str):
+    """Action utilisateur (dashboard navigateur) — protégée par la session, pas par le jeton device."""
     set_active_device(device_id)
     return {"ok": True, "active": device_id}
 
@@ -5990,6 +6319,14 @@ async def websocket_endpoint(ws: WebSocket):
     - `listening` quand JARVIS a fini de parler (le client reprend le micro)
     - Bytes MP3 pour la réponse TTS
     """
+    if not auth.is_configured():
+        await ws.close(code=4428)
+        return
+    session = auth.verify_session(ws.cookies.get(config.SESSION_COOKIE_NAME))
+    if not session:
+        await ws.close(code=4401)
+        return
+
     await ws.accept()
     logger.info("WS client connecté")
     connected_ws.add(ws)

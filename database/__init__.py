@@ -592,6 +592,8 @@ def init_db():
         _migrate_duplicate_findings(conn)
         _migrate_jarvis_journal(conn)
         _migrate_day_scores(conn)
+        _migrate_sessions(conn)
+        _migrate_push_subscriptions(conn)
     logger.info("[DB] Base initialisée : %s", DB_PATH)
 
 
@@ -616,6 +618,42 @@ def _migrate_day_scores(conn: sqlite3.Connection) -> None:
             exceptional_score INTEGER,
             luck_score INTEGER,
             factors_json TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+
+def _migrate_sessions(conn: sqlite3.Connection) -> None:
+    """Sessions d'authentification (verrouillage app). Un seul utilisateur, plusieurs devices.
+
+    Le token brut n'est jamais stocké — seulement son hash SHA-256
+    (`token_hash`), pour qu'une fuite de la base ne permette pas de rejouer
+    une session active.
+    """
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            token_hash TEXT UNIQUE NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            expires_at DATETIME NOT NULL,
+            last_seen_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            user_agent TEXT,
+            ip TEXT,
+            revoked INTEGER DEFAULT 0
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash)")
+
+
+def _migrate_push_subscriptions(conn: sqlite3.Connection) -> None:
+    """Abonnements Web Push (un navigateur/device par ligne)."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS push_subscriptions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            endpoint TEXT UNIQUE NOT NULL,
+            p256dh TEXT NOT NULL,
+            auth TEXT NOT NULL,
+            user_agent TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     """)
@@ -1813,7 +1851,11 @@ def get_conversation_history(conv_id: int, limit: int = 50) -> list:
 
 def create_notification(source: str, title: str, content: str = None,
                         priority: str = "medium", email_id: str = None) -> int:
-    """Crée une notification. `priority` ∈ {urgent, high, medium, low}."""
+    """Crée une notification. `priority` ∈ {urgent, high, medium, low}.
+
+    Les priorités urgent/high déclenchent aussi un envoi Web Push (best-effort,
+    en arrière-plan — ne bloque jamais et ne fait jamais échouer la création).
+    """
     if priority not in ("urgent", "high", "medium", "low"):
         priority = "medium"
     with get_db() as conn:
@@ -1822,7 +1864,34 @@ def create_notification(source: str, title: str, content: str = None,
                VALUES (?, ?, ?, ?, ?)""",
             (source, title, content, priority, email_id),
         )
-        return cur.lastrowid
+        notif_id = cur.lastrowid
+    if priority in ("urgent", "high"):
+        _dispatch_push_notification(title, content, priority)
+    return notif_id
+
+
+def _dispatch_push_notification(title: str, content: str | None, priority: str) -> None:
+    """Envoi Web Push à tous les abonnements connus — en arrière-plan, jamais bloquant."""
+    import threading
+
+    def _send():
+        try:
+            import push
+
+            for sub in get_all_push_subscriptions():
+                subscription = {
+                    "endpoint": sub["endpoint"],
+                    "keys": {"p256dh": sub["p256dh"], "auth": sub["auth"]},
+                }
+                ok, status = push.send_web_push(
+                    subscription, {"title": title, "body": content or "", "priority": priority}
+                )
+                if not ok and status in (404, 410):
+                    delete_push_subscription(sub["endpoint"])
+        except Exception:
+            logger.debug("[push] dispatch échoué (best-effort)", exc_info=True)
+
+    threading.Thread(target=_send, daemon=True).start()
 
 
 def get_unread_notifications(limit: int = 50) -> list:
@@ -3084,6 +3153,111 @@ def get_top_days(metric: str = "exceptional_score", limit: int = 10, days: int =
                 ORDER BY {metric} DESC LIMIT ?""",  # noqa: S608 — metric whitelisté ci-dessus
             (since, limit),
         ).fetchall()
+        return [dict(r) for r in rows]
+
+
+# ── Sessions (verrouillage app) ───────────────────────────────
+
+def create_session_row(token_hash: str, expires_at: str, user_agent: str = "", ip: str = "") -> int:
+    with get_db() as conn:
+        cur = conn.execute(
+            """INSERT INTO sessions (token_hash, expires_at, user_agent, ip)
+               VALUES (?, ?, ?, ?)""",
+            (token_hash, expires_at, user_agent, ip),
+        )
+        return cur.lastrowid
+
+
+def get_session_by_token_hash(token_hash: str) -> dict | None:
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT * FROM sessions WHERE token_hash = ? AND revoked = 0", (token_hash,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def touch_session(token_hash: str, new_expires_at: str) -> None:
+    """Glisse l'expiration (activité récente) et met à jour `last_seen_at`."""
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE sessions SET last_seen_at = CURRENT_TIMESTAMP, expires_at = ? WHERE token_hash = ?",
+            (new_expires_at, token_hash),
+        )
+
+
+def revoke_session_by_token_hash(token_hash: str) -> bool:
+    with get_db() as conn:
+        cur = conn.execute(
+            "UPDATE sessions SET revoked = 1 WHERE token_hash = ? AND revoked = 0", (token_hash,)
+        )
+        return cur.rowcount > 0
+
+
+def revoke_session_by_id(session_id: int) -> bool:
+    with get_db() as conn:
+        cur = conn.execute(
+            "UPDATE sessions SET revoked = 1 WHERE id = ? AND revoked = 0", (session_id,)
+        )
+        return cur.rowcount > 0
+
+
+def revoke_all_sessions(except_token_hash: str | None = None) -> None:
+    with get_db() as conn:
+        if except_token_hash:
+            conn.execute(
+                "UPDATE sessions SET revoked = 1 WHERE revoked = 0 AND token_hash != ?",
+                (except_token_hash,),
+            )
+        else:
+            conn.execute("UPDATE sessions SET revoked = 1 WHERE revoked = 0")
+
+
+def list_active_sessions() -> list[dict]:
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT id, created_at, expires_at, last_seen_at, user_agent, ip FROM sessions
+               WHERE revoked = 0 AND datetime(expires_at) > datetime('now')
+               ORDER BY last_seen_at DESC"""
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def purge_expired_sessions() -> int:
+    with get_db() as conn:
+        cur = conn.execute(
+            "DELETE FROM sessions WHERE revoked = 1 OR datetime(expires_at) <= datetime('now')"
+        )
+        return cur.rowcount
+
+
+def get_device_by_id(device_id: str) -> dict | None:
+    with get_db() as conn:
+        row = conn.execute("SELECT * FROM devices WHERE device_id = ?", (device_id,)).fetchone()
+        return dict(row) if row else None
+
+
+# ── Abonnements Web Push ───────────────────────────────────────
+
+def upsert_push_subscription(endpoint: str, p256dh: str, auth: str, user_agent: str = "") -> int:
+    with get_db() as conn:
+        cur = conn.execute(
+            """INSERT INTO push_subscriptions (endpoint, p256dh, auth, user_agent)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(endpoint) DO UPDATE SET p256dh = excluded.p256dh, auth = excluded.auth""",
+            (endpoint, p256dh, auth, user_agent),
+        )
+        return cur.lastrowid
+
+
+def delete_push_subscription(endpoint: str) -> bool:
+    with get_db() as conn:
+        cur = conn.execute("DELETE FROM push_subscriptions WHERE endpoint = ?", (endpoint,))
+        return cur.rowcount > 0
+
+
+def get_all_push_subscriptions() -> list[dict]:
+    with get_db() as conn:
+        rows = conn.execute("SELECT * FROM push_subscriptions").fetchall()
         return [dict(r) for r in rows]
 
 

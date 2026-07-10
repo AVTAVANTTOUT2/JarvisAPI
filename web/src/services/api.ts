@@ -31,6 +31,9 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${root}${p}`, { ...options, headers })
   const text = await res.text()
   if (!res.ok) {
+    if ((res.status === 401 || res.status === 428) && !p.startsWith('/api/auth/')) {
+      window.dispatchEvent(new CustomEvent('jarvis:auth-required'))
+    }
     throw new ApiError(`API ${res.status}`, res.status, text)
   }
   if (!text) return {} as T
@@ -41,8 +44,56 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   }
 }
 
+export interface AuthStatus {
+  configured: boolean
+  authenticated: boolean
+  locked_out: boolean
+  lockout_seconds: number
+  auto_lock_minutes: number
+}
+
+export interface AuthSession {
+  id: number
+  created_at: string
+  expires_at: string
+  last_seen_at: string
+  user_agent: string
+  ip: string
+  current: boolean
+}
+
 export const api = {
   getStatus: () => request('/api/status'),
+
+  getAuthStatus: () => request<AuthStatus>('/api/auth/status'),
+  authSetup: (secret: string) =>
+    request<{ ok: boolean }>('/api/auth/setup', { method: 'POST', body: JSON.stringify({ secret }) }),
+  authUnlock: (secret: string) =>
+    request<{ ok: boolean }>('/api/auth/unlock', { method: 'POST', body: JSON.stringify({ secret }) }),
+  authVerify: (secret: string) =>
+    request<{ ok: boolean }>('/api/auth/verify', { method: 'POST', body: JSON.stringify({ secret }) }),
+  authLogout: () => request<{ ok: boolean }>('/api/auth/logout', { method: 'POST' }),
+  authChangeSecret: (current: string, next: string) =>
+    request<{ ok: boolean }>('/api/auth/change-secret', {
+      method: 'POST',
+      body: JSON.stringify({ current, new: next }),
+    }),
+  authSessions: () => request<{ sessions: AuthSession[] }>('/api/auth/sessions'),
+  authRevokeSession: (id: number) =>
+    request<{ ok: boolean }>(`/api/auth/sessions/${id}/revoke`, { method: 'POST' }),
+
+  getVapidPublicKey: () => request<{ key: string }>('/api/push/vapid-public-key'),
+  subscribePush: (subscription: { endpoint: string; keys: { p256dh: string; auth: string } }) =>
+    request<{ ok: boolean }>('/api/push/subscribe', {
+      method: 'POST',
+      body: JSON.stringify(subscription),
+    }),
+  unsubscribePush: (endpoint: string) =>
+    request<{ ok: boolean }>('/api/push/unsubscribe', {
+      method: 'POST',
+      body: JSON.stringify({ endpoint }),
+    }),
+
   getWeeklyStats: (days = 7) => request<WeeklyStats>(`/api/stats/weekly?days=${days}`),
   getIntegrations: () => request('/api/integrations'),
 

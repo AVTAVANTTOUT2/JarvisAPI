@@ -2,7 +2,10 @@
 
 Trois responsabilités, appelées par le scheduler et exposées en REST :
 
-- ``run_backup()``    : snapshot cohérent via ``VACUUM INTO`` + rotation.
+- ``run_backup()``    : snapshot cohérent via ``VACUUM INTO`` + rotation,
+  chiffrement optionnel (``BACKUP_ENCRYPTION_ENABLED``).
+- ``restore_backup()``: restauration (déchiffre si besoin) — prend d'abord
+  un snapshot de sécurité de la base courante avant d'écraser quoi que ce soit.
 - ``run_maintenance()``: purge des tables volumineuses selon la rétention
   configurée, optimisation FTS, checkpoint WAL, ``PRAGMA optimize``.
 - ``check_llm_budget()``: alerte (table ``notifications``) quand la dépense
@@ -12,6 +15,8 @@ Trois responsabilités, appelées par le scheduler et exposées en REST :
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import logging
 import sqlite3
 import time
@@ -34,12 +39,39 @@ def _backup_dir() -> Path:
     return d
 
 
+def _derive_fernet_key(passphrase: str) -> bytes:
+    """Dérive une clé Fernet (32 octets base64) d'une passphrase — déterministe."""
+    digest = hashlib.sha256(passphrase.encode("utf-8")).digest()
+    return base64.urlsafe_b64encode(digest)
+
+
+def _encrypt_backup_file(path: Path) -> Path:
+    """Chiffre `path` en place (Fernet/AES) et supprime le fichier en clair. Retourne le nouveau chemin."""
+    from cryptography.fernet import Fernet
+
+    key = _derive_fernet_key(config.BACKUP_ENCRYPTION_PASSPHRASE)
+    token = Fernet(key).encrypt(path.read_bytes())
+    enc_path = path.with_suffix(path.suffix + ".enc")
+    enc_path.write_bytes(token)
+    path.unlink()
+    return enc_path
+
+
+def _decrypt_backup_bytes(path: Path) -> bytes:
+    from cryptography.fernet import Fernet
+
+    key = _derive_fernet_key(config.BACKUP_ENCRYPTION_PASSPHRASE)
+    return Fernet(key).decrypt(path.read_bytes())
+
+
 def run_backup() -> dict:
     """Sauvegarde cohérente de la base (VACUUM INTO) puis rotation.
 
     ``VACUUM INTO`` produit un fichier compacté et transactionnellement
-    cohérent même pendant que JARVIS écrit (mode WAL). Retourne un rapport
-    {ok, path, size_bytes, duration_s, removed}.
+    cohérent même pendant que JARVIS écrit (mode WAL). Si
+    ``BACKUP_ENCRYPTION_ENABLED``, le fichier est ensuite chiffré (Fernet,
+    clé dérivée de ``BACKUP_ENCRYPTION_PASSPHRASE``) et l'original en clair
+    supprimé. Retourne un rapport {ok, path, size_bytes, duration_s, removed, encrypted}.
     """
     src = Path(config.DB_PATH)
     if not src.exists():
@@ -47,9 +79,16 @@ def run_backup() -> dict:
 
     backup_dir = _backup_dir()
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+
+    def _candidate_taken(p: Path) -> bool:
+        # Le nom final peut devenir `.db.enc` après chiffrement — il faut
+        # vérifier les deux variantes pour éviter d'écraser une sauvegarde
+        # existante prise à la même seconde.
+        return p.exists() or p.with_suffix(p.suffix + ".enc").exists()
+
     dest = backup_dir / f"jarvis-{stamp}.db"
     n = 1
-    while dest.exists():                     # collision même seconde
+    while _candidate_taken(dest):
         dest = backup_dir / f"jarvis-{stamp}-{n}.db"
         n += 1
 
@@ -63,6 +102,17 @@ def run_backup() -> dict:
     finally:
         conn.close()
 
+    encrypted = False
+    if config.BACKUP_ENCRYPTION_ENABLED:
+        if not config.BACKUP_ENCRYPTION_PASSPHRASE:
+            logger.error(
+                "[backup] BACKUP_ENCRYPTION_ENABLED=true mais BACKUP_ENCRYPTION_PASSPHRASE "
+                "vide — sauvegarde laissée en clair"
+            )
+        else:
+            dest = _encrypt_backup_file(dest)
+            encrypted = True
+
     removed = _rotate_backups(backup_dir)
     report = {
         "ok": True,
@@ -70,12 +120,47 @@ def run_backup() -> dict:
         "size_bytes": dest.stat().st_size,
         "duration_s": round(time.monotonic() - t0, 2),
         "removed": removed,
+        "encrypted": encrypted,
     }
     logger.info(
-        "[backup] %s (%.1f Mo, %.2fs, rotation: %d supprimée(s))",
-        dest.name, report["size_bytes"] / 1e6, report["duration_s"], len(removed),
+        "[backup] %s (%.1f Mo, %.2fs, chiffré=%s, rotation: %d supprimée(s))",
+        dest.name, report["size_bytes"] / 1e6, report["duration_s"], encrypted, len(removed),
     )
     return report
+
+
+def restore_backup(name: str) -> dict:
+    """Restaure une sauvegarde (déchiffre si `.enc`) en écrasant la base courante.
+
+    Sécurité : `name` doit être un simple nom de fichier dans `BACKUP_DIR`
+    (aucun `..`/chemin absolu accepté) ; un snapshot de sécurité de la base
+    courante est pris via `run_backup()` avant toute écrasement.
+    """
+    backup_dir = _backup_dir().resolve()
+    candidate = (backup_dir / name).resolve()
+    if candidate.parent != backup_dir or not candidate.is_file():
+        return {"ok": False, "error": "Sauvegarde introuvable"}
+
+    # Lire (et déchiffrer) la sauvegarde cible AVANT de prendre le snapshot de
+    # sécurité — sinon un nom de fichier généré à la même seconde peut écraser
+    # `candidate` (VACUUM INTO + chiffrement partagent le même horodatage).
+    try:
+        if candidate.suffix == ".enc":
+            if not config.BACKUP_ENCRYPTION_PASSPHRASE:
+                return {"ok": False, "error": "BACKUP_ENCRYPTION_PASSPHRASE requise pour déchiffrer"}
+            data = _decrypt_backup_bytes(candidate)
+        else:
+            data = candidate.read_bytes()
+    except Exception as e:
+        logger.error("[restore] déchiffrement de %s : %s", name, e)
+        return {"ok": False, "error": "Déchiffrement impossible (passphrase incorrecte ?)"}
+
+    safety = run_backup()
+
+    Path(config.DB_PATH).write_bytes(data)
+    logger.warning("[restore] base restaurée depuis %s (snapshot de sécurité : %s)",
+                    name, safety.get("path"))
+    return {"ok": True, "restored_from": name, "safety_backup": safety.get("path")}
 
 
 def _rotate_backups(backup_dir: Path, keep: int | None = None) -> list[str]:
@@ -83,7 +168,7 @@ def _rotate_backups(backup_dir: Path, keep: int | None = None) -> list[str]:
     keep = config.BACKUP_KEEP if keep is None else keep
     if keep <= 0:
         return []
-    files = sorted(backup_dir.glob("jarvis-*.db"), key=lambda f: f.stat().st_mtime)
+    files = sorted(backup_dir.glob("jarvis-*.db*"), key=lambda f: f.stat().st_mtime)
     removed: list[str] = []
     for f in files[:-keep] if len(files) > keep else []:
         try:
@@ -100,13 +185,14 @@ def list_backups() -> list[dict]:
     if not backup_dir.is_dir():
         return []
     out = []
-    for f in sorted(backup_dir.glob("jarvis-*.db"),
+    for f in sorted(backup_dir.glob("jarvis-*.db*"),
                     key=lambda f: f.stat().st_mtime, reverse=True):
         st = f.stat()
         out.append({
             "name": f.name,
             "size_bytes": st.st_size,
             "created_at": datetime.fromtimestamp(st.st_mtime).isoformat(timespec="seconds"),
+            "encrypted": f.suffix == ".enc",
         })
     return out
 

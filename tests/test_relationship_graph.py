@@ -120,9 +120,12 @@ def test_relationship_graph_endpoint(tmp_db):
     import main
     from fastapi.testclient import TestClient
 
+    from tests.conftest import authenticate
+
     _add_person("Karim")
 
     with TestClient(main.app) as client:
+        authenticate(client)
         r = client.get("/api/relationship-graph")
     assert r.status_code == 200
     body = r.json()
