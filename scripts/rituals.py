@@ -198,6 +198,12 @@ async def evening_debrief() -> dict:
 
     # Le score du jour est figé au debrief (le widget TV le lit en base).
     compute_productivity_score(persist=True)
+    try:
+        from scripts.day_scoring import score_day
+
+        score_day(persist=True)
+    except Exception as e:
+        logger.debug("[rituals] score_day indisponible : %s", e)
     return {"debrief": text, **{k: len(v) if isinstance(v, list) else v for k, v in snap.items()}}
 
 

@@ -1161,6 +1161,84 @@ async def api_mood_signals(days: int = 14):
     return {"signals": get_mood_signals(days)}
 
 
+@app.get("/api/predictions/messages")
+async def api_predictions_messages(limit: int = 20):
+    """Prédiction heuristique de qui va écrire prochainement (iMessage)."""
+    from scripts.message_predictor import predict_for_all_contacts
+
+    return {"predictions": await predict_for_all_contacts(limit=limit)}
+
+
+@app.get("/api/places/favorites")
+async def api_places_favorites(limit: int = 10):
+    """Lieux les plus fréquentés (visit_count >= seuil configuré)."""
+    from scripts.favorite_places import get_favorite_places
+
+    return {"places": get_favorite_places(limit=limit)}
+
+
+@app.get("/api/places/missed-opportunities")
+async def api_places_missed_opportunities():
+    """Lieux favoris délaissés depuis plus de `OPPORTUNITY_MIN_DAYS_NAMED` jours."""
+    from scripts.favorite_places import detect_missed_opportunities
+
+    return {"opportunities": detect_missed_opportunities()}
+
+
+@app.get("/api/doomscroll")
+async def api_doomscroll(days: int = 7):
+    """Journées où le temps sur les apps à risque dépasse le seuil configuré."""
+    from scripts.doomscroll_detector import detect_doomscrolling
+
+    return {"days": detect_doomscrolling(days=days)}
+
+
+@app.get("/api/procrastination/cost")
+async def api_procrastination_cost():
+    """Coût (temps + estimation monétaire optionnelle) des tâches laissées en plan."""
+    from scripts.procrastination_cost import get_procrastination_cost
+
+    return get_procrastination_cost()
+
+
+@app.get("/api/jarvis-journal")
+async def api_jarvis_journal(days: int = 7):
+    """Journal de JARVIS — son point de vue sur les derniers jours."""
+    from database import get_jarvis_journal_entries
+
+    return {"entries": get_jarvis_journal_entries(days=days)}
+
+
+@app.post("/api/jarvis-journal/generate")
+async def api_jarvis_journal_generate(payload: dict | None = None):
+    """Force la génération de l'entrée du jour (ou d'une date donnée)."""
+    from scripts.jarvis_journal import generate_journal_entry
+
+    date = (payload or {}).get("date")
+    return await generate_journal_entry(date=date)
+
+
+@app.get("/api/day-scores")
+async def api_day_scores(metric: str = "exceptional_score", limit: int = 10, days: int = 90):
+    """Top jours par score (jour exceptionnel ou indice de chance)."""
+    from database import get_top_days
+
+    if metric not in ("exceptional_score", "luck_score"):
+        raise HTTPException(400, "metric ∈ {exceptional_score, luck_score}")
+    return {"days": get_top_days(metric=metric, limit=limit, days=days)}
+
+
+@app.get("/api/day-scores/{date}")
+async def api_day_score_detail(date: str):
+    """Score détaillé (exceptionnel + chance) d'une date donnée."""
+    from database import get_day_score
+
+    score = get_day_score(date)
+    if not score:
+        raise HTTPException(404, "Aucun score pour cette date")
+    return score
+
+
 @app.get("/api/presence")
 async def api_presence():
     """Présence au bureau détectée par le son (micro daemon audio)."""
@@ -1385,6 +1463,14 @@ async def api_commitments_update(commitment_id: int, body: dict):
     if not update_commitment_status(commitment_id, status):
         raise HTTPException(404, f"Engagement #{commitment_id} introuvable")
     return {"ok": True, "id": commitment_id, "status": status}
+
+
+@app.get("/api/commitments/consistency")
+async def api_commitments_consistency(days: int = 90):
+    """Score de cohérence promesses/actions sur les `days` derniers jours."""
+    from scripts.commitment_consistency import get_consistency_score
+
+    return get_consistency_score(days=days)
 
 
 @app.get("/api/dnd")
@@ -2170,6 +2256,48 @@ async def api_life_profile_delete(entry_id: int):
     return {"status": "deleted", "id": entry_id}
 
 
+@app.get("/api/life-context")
+async def api_life_context_list(active_only: bool = False):
+    """Périodes de vie détectées (déménagement, rupture, nouveau travail...).
+
+    ``active_only=true`` ne retourne que les périodes en cours ; par défaut
+    l'historique complet (actives + closes) est renvoyé, le plus récent en premier.
+    """
+    from database import get_active_life_context, get_all_life_context
+
+    return {
+        "periods": get_active_life_context() if active_only else get_all_life_context(),
+    }
+
+
+@app.post("/api/life-context")
+async def api_life_context_create(payload: dict):
+    from database import add_life_context
+
+    context_type = (payload.get("context_type") or "").strip()
+    description = (payload.get("description") or "").strip()
+    if not context_type or not description:
+        raise HTTPException(400, "`context_type` et `description` requis")
+
+    context_id = add_life_context(
+        context_type, description,
+        period_start=payload.get("period_start"),
+        period_end=payload.get("period_end"),
+        impact_on_mood=payload.get("impact_on_mood"),
+        impact_on_productivity=payload.get("impact_on_productivity"),
+    )
+    return {"id": context_id, "context_type": context_type, "description": description}
+
+
+@app.post("/api/life-context/{context_id}/close")
+async def api_life_context_close(context_id: int):
+    from database import close_life_context
+
+    if not close_life_context(context_id):
+        raise HTTPException(404, "Période introuvable")
+    return {"status": "closed", "id": context_id}
+
+
 @app.get("/api/people")
 async def api_people_list():
     return {"people": get_people_sorted_by_recent()}
@@ -2917,6 +3045,27 @@ async def api_relationship_detail(name: str):
         "relationship_profile": profile,
         "timeline": timeline,
     }
+
+
+@app.get("/api/relationship-graph")
+async def api_relationship_graph():
+    """Graphe vivant des relations : utilisateur + contacts + liens multi-personnes détectés."""
+    from scripts.relationship_graph import build_relationship_graph
+
+    return build_relationship_graph()
+
+
+@app.get("/api/time-machine/{date}")
+async def api_time_machine(date: str):
+    """Reconstruction chronologique d'une journée (messages, tâches, lieux, humeur, écran, journal)."""
+    from scripts.time_machine import build_day_timeline
+
+    try:
+        datetime.strptime(date, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(400, "Format de date invalide, attendu YYYY-MM-DD")
+
+    return build_day_timeline(date)
 
 
 # ── Localisation (GPS, lieux nommés, visites) ───────────────

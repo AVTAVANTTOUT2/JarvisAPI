@@ -590,7 +590,35 @@ def init_db():
         _migrate_perf_benchmarks(conn)
         _migrate_security_findings(conn)
         _migrate_duplicate_findings(conn)
+        _migrate_jarvis_journal(conn)
+        _migrate_day_scores(conn)
     logger.info("[DB] Base initialisée : %s", DB_PATH)
+
+
+def _migrate_jarvis_journal(conn: sqlite3.Connection) -> None:
+    """Journal quotidien écrit du point de vue de JARVIS (une entrée par jour)."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS jarvis_journal (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT UNIQUE NOT NULL,
+            entry TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+
+def _migrate_day_scores(conn: sqlite3.Connection) -> None:
+    """Scores quotidiens mis en cache : journée exceptionnelle, indice de chance."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS day_scores (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT UNIQUE NOT NULL,
+            exceptional_score INTEGER,
+            luck_score INTEGER,
+            factors_json TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
 
 
 def _migrate_schema_migrations_table(conn: sqlite3.Connection) -> None:
@@ -2283,12 +2311,23 @@ def get_active_life_context() -> list:
         return [dict(r) for r in rows]
 
 
-def close_life_context(context_id: int) -> None:
+def close_life_context(context_id: int) -> bool:
     with get_db() as conn:
-        conn.execute(
+        cur = conn.execute(
             "UPDATE life_context SET active = 0, period_end = DATE('now') WHERE id = ?",
             (context_id,),
         )
+        return cur.rowcount > 0
+
+
+def get_all_life_context(limit: int = 100) -> list:
+    """Historique complet (actifs + clos), le plus récent en premier."""
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM life_context ORDER BY COALESCE(period_start, created_at) DESC, id DESC LIMIT ?",
+            (max(1, min(limit, 500)),),
+        ).fetchall()
+        return [dict(r) for r in rows]
 
 
 # ── iMessage Analysis Cache ───────────────────────────────────
@@ -2980,6 +3019,70 @@ def get_duplicate_findings(status: str = "open", limit: int = 100) -> list[dict]
             """SELECT * FROM duplicate_findings WHERE status = ?
                ORDER BY lines_count DESC LIMIT ?""",
             (status, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+# ── Journal de JARVIS ─────────────────────────────────────────
+
+def upsert_jarvis_journal_entry(date: str, entry: str) -> None:
+    with get_db() as conn:
+        conn.execute(
+            """INSERT INTO jarvis_journal (date, entry) VALUES (?, ?)
+               ON CONFLICT(date) DO UPDATE SET entry = excluded.entry""",
+            (date, entry),
+        )
+
+
+def get_jarvis_journal_entries(days: int = 7) -> list[dict]:
+    """Entrées récentes (plus récente en premier)."""
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM jarvis_journal ORDER BY date DESC LIMIT ?",
+            (max(1, min(days, 365)),),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_jarvis_journal_entry(date: str) -> dict | None:
+    with get_db() as conn:
+        row = conn.execute("SELECT * FROM jarvis_journal WHERE date = ?", (date,)).fetchone()
+        return dict(row) if row else None
+
+
+# ── Scores quotidiens (jour exceptionnel, indice de chance) ───
+
+def upsert_day_score(date: str, exceptional_score: int, luck_score: int, factors: dict) -> None:
+    with get_db() as conn:
+        conn.execute(
+            """INSERT INTO day_scores (date, exceptional_score, luck_score, factors_json)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(date) DO UPDATE SET
+                   exceptional_score = excluded.exceptional_score,
+                   luck_score = excluded.luck_score,
+                   factors_json = excluded.factors_json""",
+            (date, exceptional_score, luck_score, json.dumps(factors, ensure_ascii=False)),
+        )
+
+
+def get_day_score(date: str) -> dict | None:
+    with get_db() as conn:
+        row = conn.execute("SELECT * FROM day_scores WHERE date = ?", (date,)).fetchone()
+        return dict(row) if row else None
+
+
+def get_top_days(metric: str = "exceptional_score", limit: int = 10, days: int = 90) -> list[dict]:
+    """Classement des meilleurs jours sur `metric` (exceptional_score ou luck_score)."""
+    from datetime import timedelta
+
+    if metric not in ("exceptional_score", "luck_score"):
+        raise ValueError(f"métrique invalide : {metric}")
+    since = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+    with get_db() as conn:
+        rows = conn.execute(
+            f"""SELECT * FROM day_scores WHERE date >= ? AND {metric} IS NOT NULL
+                ORDER BY {metric} DESC LIMIT ?""",  # noqa: S608 — metric whitelisté ci-dessus
+            (since, limit),
         ).fetchall()
         return [dict(r) for r in rows]
 

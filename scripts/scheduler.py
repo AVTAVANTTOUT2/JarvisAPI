@@ -251,6 +251,38 @@ async def _mood_signal_job():
         logger.exception("[scheduler] mood_signal : %s", e)
 
 
+async def _jarvis_journal_job():
+    """Entrée quotidienne du journal de JARVIS (point de vue majordome)."""
+    if not config.JARVIS_JOURNAL_ENABLED:
+        return
+    try:
+        from scripts.jarvis_journal import generate_journal_entry
+
+        await generate_journal_entry()
+    except Exception as e:
+        logger.exception("[scheduler] jarvis_journal : %s", e)
+
+
+async def _doomscroll_check_job():
+    """Notifie une fois par jour si le temps sur les apps à risque dépasse le seuil."""
+    try:
+        from scripts.doomscroll_detector import check_and_notify_today
+
+        await asyncio.to_thread(check_and_notify_today)
+    except Exception as e:
+        logger.exception("[scheduler] doomscroll_check : %s", e)
+
+
+async def _missed_opportunities_job():
+    """Notifie une fois par semaine s'il existe des lieux favoris délaissés."""
+    try:
+        from scripts.favorite_places import check_and_notify_weekly
+
+        await asyncio.to_thread(check_and_notify_weekly)
+    except Exception as e:
+        logger.exception("[scheduler] missed_opportunities : %s", e)
+
+
 async def _presence_tick_job():
     """Contrôle de départ : ferme la session après le timeout de silence."""
     try:
@@ -483,18 +515,32 @@ def setup_scheduler() -> None:
         _test_gen_job, CronTrigger(day_of_week="sat", hour=5, minute=30),
         id="test_gen", replace_existing=True,
     )
+    jh, jm = _parse_hh_mm(config.JARVIS_JOURNAL_TIME)
+    scheduler.add_job(
+        _jarvis_journal_job, CronTrigger(hour=jh, minute=jm),
+        id="jarvis_journal", replace_existing=True,
+    )
+    scheduler.add_job(
+        _doomscroll_check_job, CronTrigger(hour=22, minute=0),
+        id="doomscroll_check", replace_existing=True,
+    )
+    scheduler.add_job(
+        _missed_opportunities_job, CronTrigger(day_of_week="sun", hour=19, minute=0),
+        id="missed_opportunities", replace_existing=True,
+    )
 
     logger.info(
-        "[scheduler] 26 jobs enregistrés (briefing %02d:%02d, résumé soir %02d:%02d, "
+        "[scheduler] 29 jobs enregistrés (briefing %02d:%02d, résumé soir %02d:%02d, "
         "hebdo dim 20:00, overdue chaque heure, analyse géo 23:00, "
         "alertes relationnelles /6h, analyse relationnelle 3:00, "
         "backup 4:15, maintenance dim 4:45, budget LLM 21:30, "
         "roast %s, debrief %s, citation %s, anniversaires %s, pause café /20min 9-22h, "
         "debrief hebdo dim %s, signal mood %s, présence /10min, "
-        "scan doublons mer 5:00, audit sécurité mer 5:15, génération tests sam 5:30)",
+        "scan doublons mer 5:00, audit sécurité mer 5:15, génération tests sam 5:30, "
+        "journal JARVIS %s, doomscroll 22:00, lieux délaissés dim 19:00)",
         h, m, eh, em,
         config.ROAST_TIME, config.DEBRIEF_TIME, config.QUOTE_TIME, config.BIRTHDAY_CHECK_TIME,
-        config.WEEKLY_DEBRIEF_TIME, config.MOOD_SIGNAL_TIME,
+        config.WEEKLY_DEBRIEF_TIME, config.MOOD_SIGNAL_TIME, config.JARVIS_JOURNAL_TIME,
     )
 
 

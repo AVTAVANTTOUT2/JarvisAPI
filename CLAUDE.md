@@ -1352,3 +1352,54 @@ TV_ADB_PORT=5555          # Port ADB TV
 CDP_LOCAL_PORT=9222       # Port local bridge CDP
 TV_DASHBOARD_URL=http://192.168.3.52:5174/  # Dashboard URL
 ```
+
+## Lot 1 — Prédictions et rétrospectives (données déjà en base, aucun ML)
+
+Neuf features additionnelles, toutes des heuristiques déterministes sur des
+données déjà collectées (iMessage, GPS, app_usage, tasks, commitments) —
+jamais de modèle entraîné, chaque score expose son raisonnement (`explanation`
+ou `factors`).
+
+| Module | Rôle |
+|---|---|
+| `scripts/message_predictor.py` | Probabilité qu'un contact écrive bientôt (intervalle médian, heure/jour habituels) |
+| `scripts/favorite_places.py` | Lieux favoris (`visit_count` ≥ seuil) + détection d'opportunités manquées (lieu délaissé) |
+| `scripts/doomscroll_detector.py` | Journées où le temps sur les apps à risque dépasse `DOOMSCROLL_DAILY_MINUTES` |
+| `scripts/procrastination_cost.py` | Coût (heures + estimation monétaire optionnelle) des tâches laissées en plan |
+| `scripts/jarvis_journal.py` | Journal quotidien tenu par JARVIS lui-même (point de vue majordome), 23:50 |
+| `scripts/day_scoring.py` | Score « journée exceptionnelle » + « indice de chance » (formule fixe, calculé au debrief 21:45) |
+| `scripts/commitment_consistency.py` | Score de cohérence promesses/actions (ratio tenus/résolus, étend `commitments`) |
+| `scripts/relationship_graph.py` | Graphe vivant des relations (nœuds `people`, arêtes utilisateur↔contact + contact↔contact via `cross_insights`) |
+| `scripts/time_machine.py` | Reconstruction chronologique d'une journée (messages, tâches, visites, humeur, écran, journal) — sans photos/appels/musique |
+
+### Endpoints
+
+| Route | Méthode | Description |
+|---|---|---|
+| `/api/predictions/messages` | GET | Prédictions triées par probabilité décroissante |
+| `/api/places/favorites` | GET | Lieux les plus fréquentés |
+| `/api/places/missed-opportunities` | GET | Lieux favoris délaissés |
+| `/api/doomscroll` | GET | Journées de doomscrolling sur les N derniers jours |
+| `/api/procrastination/cost` | GET | Coût des tâches procrastinées |
+| `/api/jarvis-journal` | GET | Entrées du journal de JARVIS |
+| `/api/jarvis-journal/generate` | POST | Force la génération de l'entrée du jour |
+| `/api/day-scores` | GET | Top jours par `exceptional_score` ou `luck_score` |
+| `/api/day-scores/{date}` | GET | Score détaillé d'une date |
+| `/api/commitments/consistency` | GET | Score de cohérence promesses/actions |
+| `/api/relationship-graph` | GET | Graphe vivant des relations |
+| `/api/life-context` | GET/POST, `/{id}/close` POST | Périodes de vie détectées (déménagement, rupture...) |
+| `/api/time-machine/{date}` | GET | Reconstruction chronologique d'une journée |
+
+### Scheduler (jobs additionnels)
+
+- `jarvis_journal` (23:50, `JARVIS_JOURNAL_ENABLED`) : génère l'entrée du jour.
+- `doomscroll_check` (22:00) : notifie une fois par jour si seuil dépassé.
+- `missed_opportunities` (dim 19:00) : notifie une fois par semaine ISO les lieux délaissés.
+- Le score du jour (`day_scoring.score_day`) est calculé automatiquement à chaque debrief du soir (21:45), en plus du score de productivité existant.
+
+### Hors scope (nécessitent des sources de données que JARVIS ne collecte pas)
+
+Photos, appels téléphoniques, historique musical, navigation web — explicitement
+exclus de `time_machine.py`. Les 16 autres features du lot « Production Ready »
+(alter ego, détecteur de mensonge, HUD Iron Man, simulateur de scénarios,
+avocat du diable, jumeau numérique, etc.) restent à spécifier avant implémentation.

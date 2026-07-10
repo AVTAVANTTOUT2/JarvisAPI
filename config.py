@@ -313,6 +313,28 @@ SELF_HEALING_CRASH_THRESHOLD = int(_get("SELF_HEALING_CRASH_THRESHOLD", "3"))
 SELF_HEALING_REGRESSION_WINDOW_MIN = int(_get("SELF_HEALING_REGRESSION_WINDOW_MIN", "15"))
 SELF_HEALING_COOLDOWN_MIN = int(_get("SELF_HEALING_COOLDOWN_MIN", "60"))
 
+# ── Prédiction du prochain message ───────────────────────────
+MESSAGE_PREDICTION_LOOKBACK_DAYS = int(_get("MESSAGE_PREDICTION_LOOKBACK_DAYS", "60"))
+
+# ── Lieux favoris et opportunités ratées ─────────────────────
+FAVORITE_PLACE_MIN_VISITS = int(_get("FAVORITE_PLACE_MIN_VISITS", "5"))
+OPPORTUNITY_MIN_DAYS_NAMED = int(_get("OPPORTUNITY_MIN_DAYS_NAMED", "30"))  # lieu nommé depuis N jours...
+OPPORTUNITY_MAX_VISITS = int(_get("OPPORTUNITY_MAX_VISITS", "0"))          # ...avec au plus N visites = raté
+
+# ── Doomscrolling ─────────────────────────────────────────────
+DOOMSCROLL_APPS = _get(
+    "DOOMSCROLL_APPS", "instagram,tiktok,twitter,x,reddit,facebook,snapchat,threads"
+)
+DOOMSCROLL_DAILY_MINUTES = int(_get("DOOMSCROLL_DAILY_MINUTES", "90"))  # cumul quotidien, pas continu
+
+# ── Coût de la procrastination ───────────────────────────────
+PROCRASTINATION_ABANDONED_DAYS = int(_get("PROCRASTINATION_ABANDONED_DAYS", "30"))
+PROCRASTINATION_HOURLY_VALUE = float(_get("PROCRASTINATION_HOURLY_VALUE", "0"))  # 0 = pas d'estimation monétaire
+
+# ── Journal parallèle de JARVIS ──────────────────────────────
+JARVIS_JOURNAL_ENABLED = _get("JARVIS_JOURNAL_ENABLED", "true").lower() == "true"
+JARVIS_JOURNAL_TIME = _get("JARVIS_JOURNAL_TIME", "23:50")
+
 # ── Mapping modèles par agent ───────────────────────────────
 AGENT_MODELS = {
     "orchestrator": DEEPSEEK_FAST_MODEL,
