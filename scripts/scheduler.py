@@ -261,6 +261,62 @@ async def _presence_tick_job():
         logger.exception("[scheduler] presence_tick : %s", e)
 
 
+async def _binge_job():
+    """Commentaire sec si marathon streaming détecté."""
+    try:
+        from scripts.rituals import check_streaming_binge
+
+        await asyncio.to_thread(check_streaming_binge)
+    except Exception as e:
+        logger.exception("[scheduler] binge : %s", e)
+
+
+async def _late_return_job():
+    """« Rentrez, Monsieur » si dehors après LATE_RETURN_HOUR."""
+    try:
+        from scripts.rituals import check_late_return
+
+        await asyncio.to_thread(check_late_return)
+    except Exception as e:
+        logger.exception("[scheduler] late_return : %s", e)
+
+
+async def _meeting_tick_job():
+    """Clôt une réunion captée après le silence requis, puis la résume."""
+    try:
+        from scripts.meeting import meeting_tracker, summarize_meeting
+
+        meeting = meeting_tracker.tick()
+        if meeting:
+            await summarize_meeting(meeting)
+    except Exception as e:
+        logger.exception("[scheduler] meeting_tick : %s", e)
+
+
+async def _commitments_extract_job():
+    """Extraction des engagements pris dans les messages du jour (22:40)."""
+    if not config.RITUALS_ENABLED:
+        return
+    try:
+        from scripts.commitments import extract_today_commitments
+
+        await extract_today_commitments()
+    except Exception as e:
+        logger.exception("[scheduler] commitments_extract : %s", e)
+
+
+async def _commitments_overdue_job():
+    """Rappel sec des promesses ouvertes depuis plus de 3 jours (10:00)."""
+    if not config.RITUALS_ENABLED:
+        return
+    try:
+        from scripts.commitments import check_overdue_commitments_job
+
+        await asyncio.to_thread(check_overdue_commitments_job)
+    except Exception as e:
+        logger.exception("[scheduler] commitments_overdue : %s", e)
+
+
 def setup_scheduler() -> None:
     """Enregistre les jobs (idempotent avec replace_existing)."""
     h, m = _parse_hh_mm(config.MORNING_BRIEFING_TIME)
@@ -365,9 +421,29 @@ def setup_scheduler() -> None:
         _presence_tick_job, CronTrigger(minute="*/10"),
         id="presence_tick", replace_existing=True,
     )
+    scheduler.add_job(
+        _binge_job, CronTrigger(minute="*/30"),
+        id="streaming_binge", replace_existing=True,
+    )
+    scheduler.add_job(
+        _late_return_job, CronTrigger(hour="0-3,22-23", minute="*/30"),
+        id="late_return", replace_existing=True,
+    )
+    scheduler.add_job(
+        _meeting_tick_job, CronTrigger(minute="*/5"),
+        id="meeting_tick", replace_existing=True,
+    )
+    scheduler.add_job(
+        _commitments_extract_job, CronTrigger(hour=22, minute=40),
+        id="commitments_extract", replace_existing=True,
+    )
+    scheduler.add_job(
+        _commitments_overdue_job, CronTrigger(hour=10, minute=0),
+        id="commitments_overdue", replace_existing=True,
+    )
 
     logger.info(
-        "[scheduler] 18 jobs enregistrés (briefing %02d:%02d, résumé soir %02d:%02d, "
+        "[scheduler] 23 jobs enregistrés (briefing %02d:%02d, résumé soir %02d:%02d, "
         "hebdo dim 20:00, overdue chaque heure, analyse géo 23:00, "
         "alertes relationnelles /6h, analyse relationnelle 3:00, "
         "backup 4:15, maintenance dim 4:45, budget LLM 21:30, "

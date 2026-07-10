@@ -252,6 +252,29 @@ BREAK_ALERT_MINUTES = int(_get("BREAK_ALERT_MINUTES", "90"))   # durée continue
 BREAK_GAP_MINUTES = int(_get("BREAK_GAP_MINUTES", "15"))       # trou considéré comme une pause
 BREAK_COOLDOWN_MINUTES = int(_get("BREAK_COOLDOWN_MINUTES", "90"))
 
+# ── Détection binge streaming (screen watcher) ────────────────
+BINGE_ALERT_MINUTES = int(_get("BINGE_ALERT_MINUTES", "120"))  # streaming continu avant commentaire ; 0 = off
+BINGE_GAP_MINUTES = int(_get("BINGE_GAP_MINUTES", "20"))
+STREAMING_APPS = [a.strip().lower() for a in _get(
+    "STREAMING_APPS", "netflix,youtube,twitch,prime video,disney,plex,molotov,mycanal"
+).split(",") if a.strip()]
+
+# ── Alerte trajet retour tard (GPS + heure) ───────────────────
+LATE_RETURN_ENABLED = _get("LATE_RETURN_ENABLED", "true").lower() == "true"
+LATE_RETURN_HOUR = int(_get("LATE_RETURN_HOUR", "23"))         # à partir de cette heure
+
+# ── Voix : rejeu, session persistante, TTS spéculatif ─────────
+SPECULATIVE_TTS_ENABLED = _get("SPECULATIVE_TTS_ENABLED", "true").lower() == "true"
+VOICE_SESSION_GRACE_S = int(_get("VOICE_SESSION_GRACE_S", "180"))  # reprise après coupure courte
+
+# ── Auto-résumé de réunions (micro daemon audio) ──────────────
+# Opt-in : capture les transcriptions ambiantes du micro pour détecter une
+# réunion (parole soutenue) et produire résumé + actions à la fin.
+MEETING_CAPTURE_ENABLED = _get("MEETING_CAPTURE_ENABLED", "false").lower() == "true"
+MEETING_MIN_SPEECH_S = int(_get("MEETING_MIN_SPEECH_S", "240"))   # parole cumulée pour ouvrir (4 min)
+MEETING_WINDOW_MIN = int(_get("MEETING_WINDOW_MIN", "15"))        # fenêtre de cumul avant ouverture
+MEETING_SILENCE_MIN = int(_get("MEETING_SILENCE_MIN", "10"))      # silence qui clôt la réunion
+
 # ── Mapping modèles par agent ───────────────────────────────
 AGENT_MODELS = {
     "orchestrator": DEEPSEEK_FAST_MODEL,

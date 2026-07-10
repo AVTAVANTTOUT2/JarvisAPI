@@ -562,6 +562,35 @@ def _setup_frontend(app: FastAPI) -> None:
 
 connected_ws: set[WebSocket] = set()
 
+# Session vocale persistante : à la reconnexion dans la fenêtre de grâce
+# (coupure réseau courte), la même conversation reprend — le contexte survit.
+_ws_last_session: dict[str, Any] = {"conversation_id": None, "closed_at": 0.0, "ws": None}
+
+
+def _resume_or_create_conversation(now: float | None = None) -> tuple[int, bool]:
+    """Reprend la conversation précédente si la coupure est plus courte que
+    VOICE_SESSION_GRACE_S, sinon en crée une nouvelle. Retourne (id, reprise).
+
+    Deux cas de reprise :
+    - déconnexion détectée il y a moins de `grace` secondes ;
+    - l'ancienne socket a déjà quitté `connected_ws` sans que sa clôture soit
+      horodatée (coupure brutale, handler encore en cours) — même conversation.
+    """
+    import time as _time
+
+    now = now or _time.time()
+    grace = getattr(config, "VOICE_SESSION_GRACE_S", 180)
+    prev_id = _ws_last_session.get("conversation_id")
+    if prev_id:
+        closed_at = _ws_last_session.get("closed_at") or 0.0
+        prev_ws = _ws_last_session.get("ws")
+        recently_closed = closed_at > 0.0 and (now - closed_at) < grace
+        dropped = closed_at == 0.0 and prev_ws is not None and prev_ws not in connected_ws
+        if recently_closed or dropped:
+            logger.info("[ws] Reprise de la conversation #%s (coupure < %ds)", prev_id, grace)
+            return prev_id, True
+    return create_conversation(agent="orchestrator"), False
+
 
 async def broadcast_ws(event: dict[str, Any]) -> None:
     """Envoie un event JSON à tous les clients WebSocket connectés."""
@@ -1134,6 +1163,81 @@ async def api_presence():
         **presence_detector.get_status(),
         "today_sessions": get_today_sessions(),
     }
+
+
+@app.get("/api/stats/compare")
+async def api_stats_compare():
+    """Comparatif toi vs toi : cette semaine vs la précédente, ton neutre."""
+    from database import get_week_comparison
+
+    return get_week_comparison()
+
+
+@app.get("/api/commitments")
+async def api_commitments_list(status: str = "open"):
+    """Engagements pris par l'utilisateur (promesses traquées)."""
+    from database import get_commitments
+
+    if status not in ("open", "kept", "dropped"):
+        raise HTTPException(400, "status ∈ {open, kept, dropped}")
+    return {"commitments": get_commitments(status)}
+
+
+@app.patch("/api/commitments/{commitment_id}")
+async def api_commitments_update(commitment_id: int, body: dict):
+    """Marque un engagement tenu ('kept') ou abandonné ('dropped')."""
+    from database import update_commitment_status
+
+    status = (body or {}).get("status")
+    if status not in ("open", "kept", "dropped"):
+        raise HTTPException(400, "status ∈ {open, kept, dropped}")
+    if not update_commitment_status(commitment_id, status):
+        raise HTTPException(404, f"Engagement #{commitment_id} introuvable")
+    return {"ok": True, "id": commitment_id, "status": status}
+
+
+@app.get("/api/dnd")
+async def api_dnd_status():
+    """État du mode « silence total sauf feu »."""
+    from database import get_dnd_status
+
+    return get_dnd_status()
+
+
+@app.post("/api/dnd")
+async def api_dnd_enable(body: dict = None):
+    """Active le DND. body: {\"minutes\": 120} (défaut 120). Seul l'urgent passe."""
+    from database import set_dnd
+
+    minutes = int((body or {}).get("minutes") or 120)
+    minutes = max(1, min(minutes, 24 * 60))
+    until = set_dnd(minutes)
+    return {"active": True, "until": until}
+
+
+@app.delete("/api/dnd")
+async def api_dnd_disable():
+    """Coupe le DND immédiatement."""
+    from database import clear_dnd, get_dnd_status
+
+    clear_dnd()
+    return get_dnd_status()
+
+
+@app.get("/api/meetings")
+async def api_meetings_list(limit: int = 10):
+    """Réunions captées et résumées (table recordings, label 'réunion')."""
+    from database import get_db
+
+    lim = max(1, min(limit, 50))
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT id, title, created_at, duration_seconds, summary, actions_taken
+               FROM recordings WHERE label = 'réunion'
+               ORDER BY created_at DESC LIMIT ?""",
+            (lim,),
+        ).fetchall()
+    return {"meetings": [dict(r) for r in rows]}
 
 
 @app.get("/api/memory")
@@ -3926,6 +4030,8 @@ async def _send_tts_streaming(ws: WebSocket, text: str, emotion: str) -> None:
     from audio.audio_format import tts_audio_mime
     from database import get_setting as _get_setting
 
+    from audio.tts_cache import last_tts, speculative_tts
+
     engine_name = _get_setting("tts_engine", getattr(config, "TTS_ENGINE", "edge") or "edge")
     active_engine = get_tts_by_name(engine_name)
 
@@ -3934,13 +4040,31 @@ async def _send_tts_streaming(ws: WebSocket, text: str, emotion: str) -> None:
     if not (text and text.strip()) or active_engine is None or not getattr(active_engine, "available", False):
         await ws.send_json({"type": "speech_done"})
         return
+
+    # TTS spéculatif : la réponse correspond à un audio déjà pré-généré
+    cached = speculative_tts.get(text, emotion)
+    if cached:
+        try:
+            await ws.send_bytes(cached)
+            last_tts.store(text, emotion, cached, audio_mime)
+        except Exception as e:
+            logger.error("[TTS] envoi cache spéculatif : %s", e)
+        finally:
+            await ws.send_json({"type": "speech_done"})
+        return
+
+    collected: list[bytes] = []
     try:
         async for chunk in active_engine.synthesize_stream(text, emotion=emotion):
             if chunk:
+                collected.append(chunk)
                 await ws.send_bytes(chunk)
     except Exception as e:
         logger.error("[TTS] Erreur streaming (%s) : %s", engine_name, e)
     finally:
+        if collected:
+            # « répète » rejouera exactement cet audio, sans re-génération
+            last_tts.store(text, emotion, b"".join(collected), audio_mime)
         await ws.send_json({"type": "speech_done"})
 
 
@@ -5052,6 +5176,35 @@ async def _process_message(
                 voice_mode=voice_mode,
             )
 
+        # ── Raccourci « répète » : rejoue le dernier audio TTS tel quel ──
+        from audio.tts_cache import is_repeat_request, last_tts
+
+        if is_repeat_request(original_text):
+            entry = last_tts.get()
+            if entry:
+                try:
+                    save_message(conversation_id, "assistant", entry["text"], agent="jarvis")
+                except Exception as e:
+                    logger.error("save répète : %s", e)
+                await ws.send_json({
+                    "type": "response",
+                    "agent": "jarvis",
+                    "content": entry["text"],
+                    "emotion": entry["emotion"],
+                    "model": "replay",
+                    "tokens_in": 0, "tokens_out": 0, "cost": 0.0,
+                })
+                if send_tts:
+                    await ws.send_json({
+                        "type": "speaking",
+                        "emotion": entry["emotion"],
+                        "audio_mime": entry.get("mime", "audio/mpeg"),
+                    })
+                    await ws.send_bytes(entry["audio"])
+                    await ws.send_json({"type": "speech_done"})
+                return {"emotion": entry["emotion"], "response": entry["text"]}
+            # rien à rejouer → le pipeline normal répond naturellement
+
         # ── Easter eggs vocaux : réplique codée en dur, zéro LLM ──
         egg = easter_eggs.match(original_text)
         if egg is not None:
@@ -5492,7 +5645,8 @@ async def websocket_endpoint(ws: WebSocket):
     active_recording = None  # audio.continuous_recorder.ContinuousRecording | None
 
     try:
-        conversation_id = create_conversation(agent="orchestrator")
+        conversation_id, resumed = _resume_or_create_conversation()
+        _ws_last_session.update({"conversation_id": conversation_id, "closed_at": 0.0, "ws": ws})
         try:
             prev = get_last_conversation_summary()
             config.PRIOR_SESSION_SUMMARY = (prev or "").strip()
@@ -5504,8 +5658,10 @@ async def websocket_endpoint(ws: WebSocket):
             "type": "connected",
             "conversation_id": conversation_id,
             "user_name": config.USER_NAME,
+            "resumed": resumed,
         })
-        await _maybe_send_daily_welcome(ws)
+        if not resumed:
+            await _maybe_send_daily_welcome(ws)
 
         while True:
             packet = await ws.receive()
@@ -5893,6 +6049,12 @@ async def websocket_endpoint(ws: WebSocket):
         logger.exception("Erreur WS : %s", e)
     finally:
         connected_ws.discard(ws)
+        # Fenêtre de grâce : une reconnexion rapide reprendra cette conversation.
+        if conversation_id:
+            import time as _time
+
+            _ws_last_session["conversation_id"] = conversation_id
+            _ws_last_session["closed_at"] = _time.time()
         if conv_session:
             try:
                 end_conversation(conv_session["conversation_id"])

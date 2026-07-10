@@ -44,9 +44,20 @@ _FALLBACK_QUOTES = [
 
 
 def _speak(text: str, emotion: str = "neutral") -> None:
-    """Pousse le texte dans la file TTS du daemon (best-effort, jamais bloquant)."""
+    """Pousse le texte dans la file TTS du daemon (best-effort, jamais bloquant).
+
+    Muet en mode « silence total sauf feu » — les rituels ne sont jamais vitaux.
+    """
     if not config.RITUALS_TTS or not text:
         return
+    try:
+        from database import is_dnd_active
+
+        if is_dnd_active():
+            logger.info("[rituals] DND actif — voix coupée : %s", text[:50])
+            return
+    except Exception:
+        pass
     try:
         from scripts.jarvis_daemon import daemon
 
@@ -330,6 +341,124 @@ def check_coffee_break() -> dict | None:
     _speak(text, emotion="serious")
     logger.info("[rituals] pause café — %d min continues", int(minutes))
     return {"continuous_minutes": round(minutes, 1)}
+
+
+# ═══════════════════════════════════════════════════════════
+# Détection binge streaming — commentaire sec, zéro jugement moral
+# ═══════════════════════════════════════════════════════════
+
+def check_streaming_binge() -> dict | None:
+    """Commentaire sec si le streaming tourne sans pause depuis BINGE_ALERT_MINUTES.
+
+    Détection via screen_activity (app ou activité contenant un nom de
+    plateforme). Cooldown : un commentaire par tranche de 4 h.
+    """
+    if config.BINGE_ALERT_MINUTES <= 0:
+        return None
+    lookback = datetime.now() - timedelta(minutes=config.BINGE_ALERT_MINUTES * 3)
+    like_clauses = " OR ".join(
+        ["LOWER(COALESCE(app, '')) LIKE ? OR LOWER(COALESCE(activity, '')) LIKE ?"]
+        * len(config.STREAMING_APPS)
+    )
+    params: list = []
+    for name in config.STREAMING_APPS:
+        params += [f"%{name}%", f"%{name}%"]
+    with get_db() as conn:
+        rows = [r[0] for r in conn.execute(
+            f"""SELECT created_at FROM screen_activity
+                WHERE created_at >= ? AND ({like_clauses})
+                ORDER BY created_at ASC""",  # noqa: S608 — clauses générées, valeurs bindées
+            [lookback.strftime("%Y-%m-%d %H:%M:%S"), *params],
+        )]
+        last_alert = conn.execute(
+            """SELECT created_at FROM notifications
+               WHERE title = 'Marathon streaming' ORDER BY created_at DESC LIMIT 1"""
+        ).fetchone()
+
+    minutes = _continuous_screen_minutes(rows, config.BINGE_GAP_MINUTES)
+    if minutes < config.BINGE_ALERT_MINUTES:
+        return None
+    if last_alert:
+        fmt = "%Y-%m-%d %H:%M:%S"
+        elapsed = datetime.utcnow() - datetime.strptime(str(last_alert[0])[:19], fmt)
+        if elapsed.total_seconds() < 4 * 3600:
+            return None
+
+    hours = minutes / 60
+    text = (
+        f"{hours:.1f} heures de streaming sans interruption, Monsieur. "
+        "Je ne juge pas. Je comptabilise."
+    )
+    create_notification(source="system", title="Marathon streaming", content=text, priority="low")
+    _speak(text, emotion="amused")
+    logger.info("[rituals] binge streaming — %.0f min continues", minutes)
+    return {"continuous_minutes": round(minutes, 1)}
+
+
+# ═══════════════════════════════════════════════════════════
+# Alerte trajet retour tard — GPS + heure
+# ═══════════════════════════════════════════════════════════
+
+_HOME_KEYWORDS = ("maison", "home", "domicile", "chez moi", "appart")
+
+
+def check_late_return(now: datetime | None = None) -> dict | None:
+    """« Rentrez, Monsieur » si position fraîche hors de chez soi après LATE_RETURN_HOUR.
+
+    Une seule alerte par nuit (dédup sur la date de la nuit). L'alerte part en
+    notification + iMessage (best-effort — c'est le seul canal qui le suit
+    dehors). Rien ne part en mode silence total.
+    """
+    if not config.LATE_RETURN_ENABLED:
+        return None
+    now = now or datetime.now()
+    if not (now.hour >= config.LATE_RETURN_HOUR or now.hour < 4):
+        return None
+
+    from database import is_dnd_active
+    if is_dnd_active():
+        return None
+
+    from database.location_helpers import get_current_location
+    loc = get_current_location()   # dernier point < 10 min, sinon None
+    if not loc:
+        return None
+    place = (loc.get("place_name") or "").lower()
+    if place and any(k in place for k in _HOME_KEYWORDS):
+        return None
+    if loc.get("place_id"):
+        with get_db() as conn:
+            cat = conn.execute(
+                "SELECT category FROM places WHERE id = ?", (loc["place_id"],)
+            ).fetchone()
+        if cat and cat[0] == "home":
+            return None
+
+    # date de la nuit : après minuit, l'alerte appartient à la veille
+    night = (now - timedelta(hours=4)).strftime("%Y-%m-%d")
+    title = f"Retour tardif — {night}"
+    with get_db() as conn:
+        dup = conn.execute(
+            "SELECT 1 FROM notifications WHERE title = ? LIMIT 1", (title,)
+        ).fetchone()
+    if dup:
+        return None
+
+    where = f" ({loc['place_name']})" if loc.get("place_name") else ""
+    text = (
+        f"Il est {now.strftime('%H:%M')} et vous n'êtes pas chez vous{where}, Monsieur. "
+        "Rentrez. Demain existe, et il commence tôt."
+    )
+    create_notification(source="location", title=title, content=text, priority="medium")
+    try:
+        from integrations import imessage_bridge
+
+        if imessage_bridge is not None and imessage_bridge.is_available():
+            imessage_bridge._send_message(text)
+    except Exception as e:
+        logger.debug("[rituals] retour tardif iMessage : %s", e)
+    logger.info("[rituals] alerte retour tardif (%s)", place or "lieu inconnu")
+    return {"hour": now.strftime("%H:%M"), "place": loc.get("place_name")}
 
 
 # ═══════════════════════════════════════════════════════════

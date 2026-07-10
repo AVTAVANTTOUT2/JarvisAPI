@@ -713,6 +713,10 @@ Le fichier `database/schema.sql` contient toutes les tables. Les voici regroupé
 - `GET /api/productivity/score` → score hebdo déterministe 0-100 (50 + 8×faites − 12×en retard) ; widget TV `/api/rituals` côté serveur TV
 - `POST /api/rituals/weekly/run` → debrief hebdo vocal (dim 21:00, TTS daemon)
 - `GET /api/mood/signals?days=14` → signaux comportementaux quotidiens (écran + messages, zéro diagnostic, job 23:15)
+- `GET /api/stats/compare` → comparatif toi vs toi (7 derniers jours vs 7 précédents, ton neutre)
+- `GET/PATCH /api/commitments` → promesses traquées (extraction 22:40, rappel sec des oubliées 10:00)
+- `GET/POST/DELETE /api/dnd` → mode « silence total sauf feu » (seul l'urgent passe : TTS daemon, iMessage watcher)
+- `GET /api/meetings` → réunions captées (opt-in MEETING_CAPTURE_ENABLED, micro daemon → résumé + actions, table recordings label 'réunion')
 - `GET /api/presence` → présence bureau par le son (micro daemon audio ; arrivée = bruit > `PRESENCE_NOISE_RMS` → « Vous êtes là, Monsieur » ; départ = `PRESENCE_TIMEOUT_MIN` min de silence, tick /10 min)
 - `GET /api/journal` → historique du journal
 - `POST /api/journal` → nouvelle entrée journal

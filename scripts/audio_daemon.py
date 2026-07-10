@@ -335,6 +335,14 @@ class AudioDaemon:
         except Exception as e:
             logger.warning("[audio_daemon] Génération sons échouée : %s", e)
 
+        # TTS spéculatif : pré-génère les réponses probables en arrière-plan
+        try:
+            from audio.tts_cache import speculative_tts
+
+            asyncio.create_task(speculative_tts.warmup(), name="tts_warmup")
+        except Exception as e:
+            logger.debug("[audio_daemon] warmup TTS spéculatif : %s", e)
+
         backoff_s = 3.0
         max_backoff_s = 30.0
         consecutive_crashes = 0
@@ -727,7 +735,9 @@ class AudioDaemon:
                             from scripts.presence import presence_detector
 
                             if presence_detector.on_sound() == "arrived":
-                                if not config.is_quiet_hours():
+                                from database import is_dnd_active
+
+                                if not config.is_quiet_hours() and not is_dnd_active():
                                     asyncio.run_coroutine_threadsafe(
                                         self._play_tts(config.PRESENCE_GREETING, emotion="warm"),
                                         loop,
@@ -1323,6 +1333,40 @@ class AudioDaemon:
 
         logger.info("[audio_daemon] Entendu : %s", text)
 
+        # ── Raccourci « répète » : rejoue le dernier TTS, zéro re-génération ──
+        try:
+            from audio.tts_cache import is_repeat_request, last_tts as _last
+
+            if is_repeat_request(text):
+                entry = _last.get()
+                self.state = "speaking"
+                await self._broadcast_state()
+                if entry:
+                    logger.info("[audio_daemon] Répétition : %s", entry["text"][:60])
+                    self._tts_playing_event.set()
+                    try:
+                        await self._play_audio_local(entry["audio"])
+                    finally:
+                        self._tts_playing_event.clear()
+                        self._last_tts_end = time.time()
+                else:
+                    await self._play_tts("Je n'ai encore rien dit, Monsieur.", emotion="amused")
+                self.state = "wake_listening" if self.wake_word_enabled else "listening"
+                await self._broadcast_state()
+                return
+        except Exception as e:
+            logger.debug("[audio_daemon] répète : %s", e)
+
+        # Auto-résumé de réunions (opt-in) : chaque transcription ambiante
+        # alimente le tracker — l'ouverture/clôture est gérée par lui.
+        try:
+            from scripts.meeting import meeting_tracker
+
+            if meeting_tracker.add_utterance(text, audio_duration_ms / 1000) == "started":
+                logger.info("[audio_daemon] Réunion détectée — capture des transcriptions")
+        except Exception as e:
+            logger.debug("[audio_daemon] meeting tracker : %s", e)
+
         # Broadcast transcript
         await self._broadcast_state({"transcript": text})
 
@@ -1682,12 +1726,21 @@ class AudioDaemon:
         self._tts_playing_event.set()
         try:
             from audio.tts import get_tts_by_name as _get_tts, macos_tts as _macos
+            from audio.tts_cache import last_tts as _last_tts, speculative_tts as _spec_tts
+
+            # 0. Cache spéculatif : audio déjà pré-généré → lecture instantanée
+            cached = _spec_tts.get(text, emotion)
+            if cached:
+                _last_tts.store(text, emotion, cached)
+                await self._play_audio_local(cached)
+                return
 
             # 1. Edge TTS (voix naturelle, latence ~200ms)
             engine = _get_tts("edge")
             if engine and engine.available:
                 audio_bytes = await engine.synthesize(text, emotion=emotion)
                 if audio_bytes:
+                    _last_tts.store(text, emotion, audio_bytes)
                     await self._play_audio_local(audio_bytes)
                     return
 
@@ -1696,6 +1749,7 @@ class AudioDaemon:
                 logger.info("[audio_daemon] Edge TTS indisponible — fallback macOS TTS")
                 audio_bytes = await _macos.synthesize(text, emotion=emotion)
                 if audio_bytes:
+                    _last_tts.store(text, emotion, audio_bytes)
                     await self._play_audio_local(audio_bytes)
                     return
 
