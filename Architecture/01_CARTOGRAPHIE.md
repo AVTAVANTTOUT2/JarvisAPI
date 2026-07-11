@@ -33,7 +33,14 @@ JarvisAPI/
 │   └── devagent/              ← Développement autonome (interview → code → test)
 │
 ├── database/                  ← SQLite (72 tables après migrations)
-│   ├── __init__.py            ← CRUD monolithique (4169 lignes, ~208 fonctions)
+│   ├── __init__.py            ← CRUD monolithique en cours de découpage (3924 lignes)
+│   ├── core.py                ← Connexions et transactions SQLite
+│   ├── settings.py            ← Réglages clé-valeur
+│   ├── tasks.py               ← Domaine tâches
+│   ├── sessions.py            ← Sessions d'authentification
+│   ├── push.py                ← Abonnements Web Push
+│   ├── conversation_turns.py  ← Diarisation et attribution des locuteurs
+│   ├── embeddings.py          ← Embeddings mémoire
 │   ├── schema.sql             ← Schéma complet
 │   ├── location_helpers.py    ← CRUD localisation (déjà extrait)
 │   ├── devagent.py            ← CRUD projets dev (déjà extrait)
@@ -141,7 +148,7 @@ JarvisAPI/
 │
 ├── tv/                         ← Dashboard TV War Room
 ├── prompts/                    ← System prompts (.txt)
-├── tests/                      ← 529 fonctions de test (58 fichiers) pytest
+├── tests/                      ← 531 fonctions de test (59 fichiers) pytest
 ├── data/                       ← jarvis.db, uploads, outputs
 └── Architecture/               ← CE RAPPORT
 ```
@@ -188,7 +195,7 @@ graph TB
 |---|---|---|
 | `config.py` | Tout le monde | OK — feuille, pas de dépendance |
 | `llm.py` | Agents, scripts, main | OK |
-| `database/__init__.py` | Agents, scripts, main, integrations | God object (4169 lignes, 23 domaines) |
+| `database/__init__.py` | Agents, scripts, main, integrations | God object en réduction (3924 lignes, 7 modules extraits) |
 | `jarvis/event_bus.py` | Agents, main | Usage minimal : 1 abonné debug, pas encore de consommateurs métiers |
 | `main.py` | supervisor | **Monolithe** — 42 imports, 183 routes |
 | `agents/orchestrator.py` | main | OK |
@@ -566,7 +573,7 @@ RootLayout (layout.tsx)
 | Métrique | Valeur |
 |---|---|
 | Fichiers Python | 195 |
-| Lignes Python | 52 911 |
+| Lignes Python | 53 044 |
 | Fichiers frontend | 73 (41 web + 32 pwa) |
 | Lignes frontend | ~15 643 |
 | Tables SQLite | 44 |

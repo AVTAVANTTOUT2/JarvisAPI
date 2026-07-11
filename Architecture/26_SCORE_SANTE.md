@@ -34,7 +34,7 @@ Score = Σ (dimension_score × poids)
 
 | Dimension | Score | Justification |
 |---|---|---|
-| Couverture | 4 | 529 fonctions de test backend déclarées, 0 frontend, couverture non mesurée de façon fiable |
+| Couverture | 4 | 531 fonctions de test backend déclarées, 0 frontend, couverture non mesurée de façon fiable |
 | Duplication | 3 | 2 frontends, 8 duplications majeures, 25+ lecteurs chat.db |
 | Dette technique | 3 | 295 points de dette, ~108h de remboursement |
 | Dépendances | 8 | 1 seul cycle (lazy), architecture plutôt propre |

@@ -20,11 +20,11 @@ Le dossier `Architecture/` reflète fidèlement l'état du code **avec des écar
 | 7 agents LLM + orchestrateur | 12 fichiers dans agents/ | ✅ Exact (dont 5 utilitaires) |
 | 29 jobs APScheduler | 102 références dans scheduler.py | ✅ Exact |
 | 5 démons | screen, audio, email, imessage, supervisor | ✅ Exact |
-| 201 fichiers Python, 52 911 lignes | Vérifié après la Phase 1 | ✅ Actualisé |
+| 209 fichiers Python, 53 044 lignes | Vérifié pendant la Phase 2 | ✅ Actualisé |
 | ~70 fichiers frontend | 39 (web/) + 31 (pwa/) = 70 | ✅ Exact |
 | PWA sans LockGate | **Confirmé** — aucun composant auth dans pwa/ | ✅ Documenté comme P0-1 |
 | Event bus « inutilisé » | 1 abonné (`subscribe()`), 18 `emit()` | ⚠️ Corrigé — « usage minimal » |
-| 529 fonctions de test (58 fichiers) | Vérifié statiquement après la Phase 1 | ✅ Actualisé |
+| 531 fonctions de test (59 fichiers) | Vérifié statiquement pendant la Phase 2 | ✅ Actualisé |
 
 ## 2. Composants cibles (n'existent PAS encore — normal)
 
@@ -66,7 +66,7 @@ Tous les diagrammes sont cohérents avec leur contexte (actuel vs cible).
 | Document | Avant | Après |
 |---|---|---|
 | INDEX.md, 01_CARTOGRAPHIE.md, 03_AUDIT_TECHNIQUE.md, 19_VALIDATION_FINALE.md | Anciens comptages `44/45/46` limités au bloc `SCHEMA` | **72 tables réellement créées après migrations** |
-| Plusieurs documents | Comptages historiques (`174`, puis `486/53`, puis `523/55`) | **529 fonctions de test, 58 fichiers après Phase 1** |
+| Plusieurs documents | Comptages historiques (`174`, puis `486/53`, puis `523/55`) | **531 fonctions de test, 59 fichiers pendant la Phase 2** |
 | Plusieurs documents | « Event bus : 0 abonné » | **« Event bus : usage minimal (1 abonné debug), sera activé en Phase 3 »** |
 | INDEX.md | Comptages historiques variables | **35 fichiers Markdown + 3 sous-répertoires** |
 

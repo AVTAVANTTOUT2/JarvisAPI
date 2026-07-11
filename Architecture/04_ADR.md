@@ -116,6 +116,8 @@
 
 **Recommandation** : Solution A. Purement mécanique, zéro risque. Effort : 1 jour.
 
+**Statut** : En cours — 7 modules extraits avec réexports compatibles au 11 juillet 2026.
+
 ---
 
 ## ADR-010 — Dépendance circulaire main.py ↔ jarvis_daemon.py

@@ -8,7 +8,6 @@ import re
 from pathlib import Path
 from typing import Any
 from datetime import datetime
-from contextlib import contextmanager
 
 import config
 
@@ -667,28 +666,7 @@ CREATE TABLE IF NOT EXISTS imessage_consumer_cursors (
 """
 
 
-def get_connection() -> sqlite3.Connection:
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.row_factory = sqlite3.Row
-    # Les démons et l'API écrivent dans la même base. Laisser SQLite attendre
-    # brièvement un writer concurrent évite les échecs immédiats SQLITE_BUSY.
-    conn.execute("PRAGMA busy_timeout = 5000")
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    return conn
-
-
-@contextmanager
-def get_db():
-    conn = get_connection()
-    try:
-        yield conn
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
+from .core import get_connection, get_db
 
 
 def init_db():
@@ -1276,25 +1254,6 @@ def _migrate_devagent(conn: sqlite3.Connection) -> None:
 
 
 # ── Helpers CRUD ────────────────────────────────────────────
-
-
-def get_setting(key: str, default: str = "") -> str:
-    """Lit un réglage applicatif depuis `app_settings`. Retourne `default` si absent."""
-    with get_db() as conn:
-        row = conn.execute(
-            "SELECT value FROM app_settings WHERE key = ?", (key,)
-        ).fetchone()
-    return row[0] if row else default
-
-
-def set_setting(key: str, value: str) -> None:
-    """Écrit ou met à jour un réglage applicatif dans `app_settings`."""
-    with get_db() as conn:
-        conn.execute(
-            "INSERT INTO app_settings (key, value) VALUES (?, ?)"
-            " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            (key, value),
-        )
 
 
 def save_message(conversation_id: int, role: str, content: str,
@@ -2029,83 +1988,6 @@ def get_active_patterns() -> list:
             "SELECT * FROM patterns WHERE status = 'active' ORDER BY last_seen DESC"
         ).fetchall()
         return [dict(r) for r in rows]
-
-
-def get_tasks(status: str = None) -> list:
-    """Liste les tâches. Par défaut : toutes celles non terminées (todo + doing).
-
-    ``status`` : None (actives), ``"all"`` (toutes), ou ``"todo" | "doing" | "done"``.
-    Tri intelligent : priorité (high < medium < low) puis date d'échéance.
-    """
-    priority_case = "CASE priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END"
-    with get_db() as conn:
-        if status == "all":
-            rows = conn.execute(
-                f"SELECT * FROM tasks ORDER BY {priority_case}, due_date IS NULL, due_date"
-            ).fetchall()
-        elif status:
-            rows = conn.execute(
-                f"SELECT * FROM tasks WHERE status = ? ORDER BY {priority_case}, due_date IS NULL, due_date",
-                (status,),
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                f"SELECT * FROM tasks WHERE status != 'done' "
-                f"ORDER BY {priority_case}, due_date IS NULL, due_date"
-            ).fetchall()
-        return [dict(r) for r in rows]
-
-
-def create_task(title: str, description: str = None, priority: str = "medium",
-                due_date: str = None, category: str = None) -> int:
-    """Crée une tâche. Retourne l'id."""
-    if priority not in ("high", "medium", "low"):
-        priority = "medium"
-    with get_db() as conn:
-        cur = conn.execute(
-            """INSERT INTO tasks (title, description, priority, due_date, category)
-               VALUES (?, ?, ?, ?, ?)""",
-            (title, description, priority, due_date, category),
-        )
-        return cur.lastrowid
-
-
-def update_task_status(task_id: int, status: str) -> bool:
-    """Met à jour le status d'une tâche. Si `done`, remplit `completed_at`."""
-    if status not in ("todo", "doing", "done"):
-        return False
-    with get_db() as conn:
-        if status == "done":
-            cur = conn.execute(
-                "UPDATE tasks SET status = ?, completed_at = CURRENT_TIMESTAMP WHERE id = ?",
-                (status, task_id),
-            )
-        else:
-            cur = conn.execute(
-                "UPDATE tasks SET status = ?, completed_at = NULL WHERE id = ?",
-                (status, task_id),
-            )
-        return cur.rowcount > 0
-
-
-def get_task(task_id: int) -> dict | None:
-    with get_db() as conn:
-        row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
-        return dict(row) if row else None
-
-
-def delete_task(task_id: int) -> bool:
-    """Supprime une tâche par son ID. Retourne True si supprimée, False si absente."""
-    with get_db() as conn:
-        cur = conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
-        return cur.rowcount > 0
-
-
-def delete_all_tasks() -> int:
-    """Supprime TOUTES les tâches de la base. Retourne le nombre de lignes supprimées."""
-    with get_db() as conn:
-        cur = conn.execute("DELETE FROM tasks")
-        return cur.rowcount
 
 
 def get_daily_messages(date: str = None) -> list:
@@ -3498,187 +3380,10 @@ def get_top_days(metric: str = "exceptional_score", limit: int = 10, days: int =
         return [dict(r) for r in rows]
 
 
-# ── Sessions (verrouillage app) ───────────────────────────────
-
-def create_session_row(token_hash: str, expires_at: str, user_agent: str = "", ip: str = "") -> int:
-    with get_db() as conn:
-        cur = conn.execute(
-            """INSERT INTO sessions (token_hash, expires_at, user_agent, ip)
-               VALUES (?, ?, ?, ?)""",
-            (token_hash, expires_at, user_agent, ip),
-        )
-        return cur.lastrowid
-
-
-def get_session_by_token_hash(token_hash: str) -> dict | None:
-    with get_db() as conn:
-        row = conn.execute(
-            "SELECT * FROM sessions WHERE token_hash = ? AND revoked = 0", (token_hash,)
-        ).fetchone()
-        return dict(row) if row else None
-
-
-def touch_session(token_hash: str, new_expires_at: str) -> None:
-    """Glisse l'expiration (activité récente) et met à jour `last_seen_at`."""
-    with get_db() as conn:
-        conn.execute(
-            "UPDATE sessions SET last_seen_at = CURRENT_TIMESTAMP, expires_at = ? WHERE token_hash = ?",
-            (new_expires_at, token_hash),
-        )
-
-
-def revoke_session_by_token_hash(token_hash: str) -> bool:
-    with get_db() as conn:
-        cur = conn.execute(
-            "UPDATE sessions SET revoked = 1 WHERE token_hash = ? AND revoked = 0", (token_hash,)
-        )
-        return cur.rowcount > 0
-
-
-def revoke_session_by_id(session_id: int) -> bool:
-    with get_db() as conn:
-        cur = conn.execute(
-            "UPDATE sessions SET revoked = 1 WHERE id = ? AND revoked = 0", (session_id,)
-        )
-        return cur.rowcount > 0
-
-
-def revoke_all_sessions(except_token_hash: str | None = None) -> None:
-    with get_db() as conn:
-        if except_token_hash:
-            conn.execute(
-                "UPDATE sessions SET revoked = 1 WHERE revoked = 0 AND token_hash != ?",
-                (except_token_hash,),
-            )
-        else:
-            conn.execute("UPDATE sessions SET revoked = 1 WHERE revoked = 0")
-
-
-def list_active_sessions() -> list[dict]:
-    with get_db() as conn:
-        rows = conn.execute(
-            """SELECT id, created_at, expires_at, last_seen_at, user_agent, ip FROM sessions
-               WHERE revoked = 0 AND datetime(expires_at) > datetime('now')
-               ORDER BY last_seen_at DESC"""
-        ).fetchall()
-        return [dict(r) for r in rows]
-
-
-def purge_expired_sessions() -> int:
-    with get_db() as conn:
-        cur = conn.execute(
-            "DELETE FROM sessions WHERE revoked = 1 OR datetime(expires_at) <= datetime('now')"
-        )
-        return cur.rowcount
-
-
 def get_device_by_id(device_id: str) -> dict | None:
     with get_db() as conn:
         row = conn.execute("SELECT * FROM devices WHERE device_id = ?", (device_id,)).fetchone()
         return dict(row) if row else None
-
-
-# ── Abonnements Web Push ───────────────────────────────────────
-
-def upsert_push_subscription(endpoint: str, p256dh: str, auth: str, user_agent: str = "") -> int:
-    with get_db() as conn:
-        cur = conn.execute(
-            """INSERT INTO push_subscriptions (endpoint, p256dh, auth, user_agent)
-               VALUES (?, ?, ?, ?)
-               ON CONFLICT(endpoint) DO UPDATE SET p256dh = excluded.p256dh, auth = excluded.auth""",
-            (endpoint, p256dh, auth, user_agent),
-        )
-        return cur.lastrowid
-
-
-def delete_push_subscription(endpoint: str) -> bool:
-    with get_db() as conn:
-        cur = conn.execute("DELETE FROM push_subscriptions WHERE endpoint = ?", (endpoint,))
-        return cur.rowcount > 0
-
-
-def get_all_push_subscriptions() -> list[dict]:
-    with get_db() as conn:
-        rows = conn.execute("SELECT * FROM push_subscriptions").fetchall()
-        return [dict(r) for r in rows]
-
-
-# ── Tours de parole diarisés (mode écoute) ────────────────────
-
-def save_conversation_turns(recording_id: int, turns: list[dict]) -> int:
-    """Persiste les tours de parole d'un enregistrement. Retourne le nombre inséré."""
-    with get_db() as conn:
-        for i, t in enumerate(turns):
-            conn.execute(
-                """INSERT INTO conversation_turns
-                   (recording_id, turn_order, speaker_label, text, start_ms, end_ms)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (recording_id, i, t["speaker_label"], t["text"], t.get("start_ms"), t.get("end_ms")),
-            )
-        return len(turns)
-
-
-def get_conversation_turns(recording_id: int) -> list[dict]:
-    with get_db() as conn:
-        rows = conn.execute(
-            """SELECT ct.*, p.name AS person_name FROM conversation_turns ct
-               LEFT JOIN people p ON p.id = ct.person_id
-               WHERE ct.recording_id = ? ORDER BY ct.turn_order ASC""",
-            (recording_id,),
-        ).fetchall()
-        return [dict(r) for r in rows]
-
-
-def get_unlabeled_speakers(recording_id: int) -> list[str]:
-    """Labels temporaires ("A", "B"…) pas encore associés à une personne."""
-    with get_db() as conn:
-        rows = conn.execute(
-            """SELECT DISTINCT speaker_label FROM conversation_turns
-               WHERE recording_id = ? AND person_id IS NULL
-               ORDER BY speaker_label""",
-            (recording_id,),
-        ).fetchall()
-        return [r["speaker_label"] for r in rows]
-
-
-def assign_speaker_to_person(recording_id: int, speaker_label: str, person_id: int) -> int:
-    """Associe un label temporaire à une personne pour tous ses tours dans cet enregistrement."""
-    with get_db() as conn:
-        cur = conn.execute(
-            """UPDATE conversation_turns SET person_id = ?
-               WHERE recording_id = ? AND speaker_label = ?""",
-            (person_id, recording_id, speaker_label),
-        )
-        return cur.rowcount
-
-
-# ── Embeddings mémoire (recherche sémantique) ─────────────────
-
-def upsert_memory_embedding(
-    source_type: str, source_id: int, text_preview: str, embedding: bytes, model: str
-) -> int:
-    with get_db() as conn:
-        cur = conn.execute(
-            """INSERT INTO memory_embeddings (source_type, source_id, text_preview, embedding, model)
-               VALUES (?, ?, ?, ?, ?)
-               ON CONFLICT(source_type, source_id) DO UPDATE SET
-                   text_preview = excluded.text_preview,
-                   embedding = excluded.embedding,
-                   model = excluded.model""",
-            (source_type, source_id, text_preview, embedding, model),
-        )
-        return cur.lastrowid
-
-
-def get_all_memory_embeddings(source_type: str | None = None) -> list[dict]:
-    with get_db() as conn:
-        if source_type:
-            rows = conn.execute(
-                "SELECT * FROM memory_embeddings WHERE source_type = ?", (source_type,)
-            ).fetchall()
-        else:
-            rows = conn.execute("SELECT * FROM memory_embeddings").fetchall()
-        return [dict(r) for r in rows]
 
 
 def get_cost_summary() -> dict:
@@ -4183,3 +3888,37 @@ def save_message_insight(
             (since_id, message_count, raw_response),
         )
         return cur.lastrowid
+
+
+# Réexports rétrocompatibles des premiers domaines extraits en Phase 2.
+from .settings import get_setting, set_setting
+from .tasks import (
+    create_task,
+    delete_all_tasks,
+    delete_task,
+    get_task,
+    get_tasks,
+    update_task_status,
+)
+from .sessions import (
+    create_session_row,
+    get_session_by_token_hash,
+    list_active_sessions,
+    purge_expired_sessions,
+    revoke_all_sessions,
+    revoke_session_by_id,
+    revoke_session_by_token_hash,
+    touch_session,
+)
+from .push import (
+    delete_push_subscription,
+    get_all_push_subscriptions,
+    upsert_push_subscription,
+)
+from .conversation_turns import (
+    assign_speaker_to_person,
+    get_conversation_turns,
+    get_unlabeled_speakers,
+    save_conversation_turns,
+)
+from .embeddings import get_all_memory_embeddings, upsert_memory_embedding

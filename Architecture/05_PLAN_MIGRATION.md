@@ -71,6 +71,8 @@ Phase 6 → Frontend unifié + SDK auth                   Jour 11-15 [ADR-001, A
 
 ## Phase 2 — Database modulaire (Jour 2)
 
+**État** : 🟡 En cours — premier lot extrait le 11 juillet 2026 : `core`, `settings`, `tasks`, `sessions`, `push`, `conversation_turns`, `embeddings`. `database/__init__.py` est passé de 4 185 à 3 924 lignes, avec réexports rétrocompatibles.
+
 ### Extraction des modules
 
 17 nouveaux fichiers dans `database/`. `__init__.py` ré-exporte tout (backward compatible).
@@ -78,6 +80,7 @@ Phase 6 → Frontend unifié + SDK auth                   Jour 11-15 [ADR-001, A
 | Fichier | Contenu | Lignes estimées |
 |---|---|---|
 | `database/core.py` | `get_db`, `init_db`, `build_full_context`, migrations | ~600 |
+| `database/settings.py` | `get_setting`, `set_setting` | ~25 |
 | `database/conversations.py` | `save_message`, `create_conversation`, `delete_conversation` | ~200 |
 | `database/people.py` | `upsert_person`, `get_all_people`, `get_people_sorted_by_recent` | ~300 |
 | `database/relationships.py` | `upsert_relationship_profile`, events | ~150 |
@@ -91,6 +94,7 @@ Phase 6 → Frontend unifié + SDK auth                   Jour 11-15 [ADR-001, A
 | `database/sessions.py` | `create_session_row`, `verify_session`, `revoke_all_sessions` | ~150 |
 | `database/push.py` | `upsert_push_subscription`, `delete_push_subscription` | ~50 |
 | `database/embeddings.py` | `upsert_memory_embedding`, `get_all_memory_embeddings` | ~50 |
+| `database/conversation_turns.py` | Tours de parole, labels et association aux personnes | ~60 |
 | `database/rituals.py` | daily_rituals, commitments, dnd | ~150 |
 | `database/devops.py` | security_findings, perf_benchmarks | ~150 |
 | `database/stats.py` | `get_cost_summary`, `get_daily_activity_stats` | ~250 |

@@ -14,7 +14,7 @@
 | Imports | ❌ 42 top-level | Dont 8 singletons d'agents individuels |
 | Middleware | ✅ Correct | CORS configuré, security_middleware fonctionnel |
 | Lifespan | ⚠️ 5 services lancés | Devrait être délégué à un ServiceManager |
-| Tests | ⚠️ Couverture partielle | 529 fonctions de test (58 fichiers), couverture par route non mesurée |
+| Tests | ⚠️ Couverture partielle | 531 fonctions de test (59 fichiers), couverture par route non mesurée |
 
 ### 1.2 Middlewares
 
