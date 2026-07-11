@@ -32,7 +32,7 @@ JarvisAPI/
 │   ├── easter_eggs.py         ← Easter eggs
 │   └── devagent/              ← Développement autonome (interview → code → test)
 │
-├── database/                  ← SQLite (44 tables)
+├── database/                  ← SQLite (45 tables)
 │   ├── __init__.py            ← CRUD monolithique (4169 lignes, ~208 fonctions)
 │   ├── schema.sql             ← Schéma complet
 │   ├── location_helpers.py    ← CRUD localisation (déjà extrait)
@@ -141,7 +141,7 @@ JarvisAPI/
 │
 ├── tv/                         ← Dashboard TV War Room
 ├── prompts/                    ← System prompts (.txt)
-├── tests/                      ← 174 tests pytest
+├── tests/                      ← 486 tests (53 fichiers) pytest
 ├── data/                       ← jarvis.db, uploads, outputs
 └── Architecture/               ← CE RAPPORT
 ```
@@ -327,7 +327,7 @@ graph TB
 
 ## 4. Stockage
 
-### 4.1 SQLite — jarvis.db (44 tables)
+### 4.1 SQLite — jarvis.db (45 tables)
 
 ```mermaid
 erDiagram

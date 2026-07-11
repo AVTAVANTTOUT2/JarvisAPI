@@ -47,7 +47,7 @@ graph TB
     end
 
     subgraph "Storage"
-        SQLITE[(SQLite WAL<br/>jarvis.db<br/>44 tables)]
+        SQLITE[(SQLite WAL<br/>jarvis.db<br/>45 tables)]
         IDB[(IndexedDB<br/>offline queue<br/>read cache)]
         SW["Service Worker<br/>precache + push<br/>background sync"]
     end
@@ -178,7 +178,7 @@ Chaque connecteur externe implémente l'interface `Plugin` (ADR-015).
 
 | Stockage | Technologie | Usage |
 |---|---|---|
-| SQLite (jarvis.db) | WAL mode | Données persistantes (44 tables) |
+| SQLite (jarvis.db) | WAL mode | Données persistantes (45 tables) |
 | IndexedDB | idb v8 | File d'écriture offline + cache lecture |
 | Service Worker | Workbox | Precache app shell, push, background sync |
 

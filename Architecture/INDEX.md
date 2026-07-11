@@ -1,7 +1,7 @@
 # Architecture — Source de vérité officielle de JARVIS API
 
 **Date** : 11 juillet 2026
-**Périmètre** : 195 fichiers Python (52 552 lignes), 70 fichiers frontend (15 643 lignes), 44 tables SQLite
+**Périmètre** : 195 fichiers Python (52 552 lignes), 70 fichiers frontend (15 643 lignes), 45 tables SQLite
 **État** : **Documentation officielle — toute modification du code doit rester cohérente avec ce dossier**
 
 ---
@@ -71,7 +71,7 @@
 │  Backend           │ 195 fichiers Python, 52 552 lignes  │
 │  Frontend desktop  │ 41 fichiers, ~10 000 lignes         │
 │  PWA mobile        │ 32 fichiers, ~5 643 lignes          │
-│  Base de données   │ 44 tables SQLite, mode WAL          │
+│  Base de données   │ 45 tables SQLite, mode WAL          │
 │  Routes API        │ 183 endpoints REST                  │
 │  WebSocket         │ 1 endpoint, ~400 lignes de handler  │
 │  Agents LLM        │ 7 agents + orchestrateur            │
@@ -115,7 +115,7 @@ graph TB
     end
 
     subgraph "Database"
-        DB[(SQLite WAL<br/>jarvis.db<br/>44 tables)]
+        DB[(SQLite WAL<br/>jarvis.db<br/>45 tables)]
         CHATDB[(chat.db macOS<br/>READONLY)]
     end
 
