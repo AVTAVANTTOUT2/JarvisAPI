@@ -2236,348 +2236,6 @@ def get_llm_logs(limit: int = 100, action_type: str | None = None) -> list[dict]
     return merged[:lim]
 
 
-# ── Email summaries ─────────────────────────────────────────
-
-def upsert_email_summary(gmail_id: str, sender: str, subject: str,
-                         summary: str, action_needed: bool = False,
-                         priority: str = "medium") -> int:
-    """Insert ou update un résumé d'email (UPSERT sur `gmail_id`)."""
-    with get_db() as conn:
-        existing = conn.execute(
-            "SELECT id FROM email_summaries WHERE gmail_id = ?", (gmail_id,)
-        ).fetchone()
-        if existing:
-            conn.execute(
-                """UPDATE email_summaries
-                   SET sender = ?, subject = ?, summary = ?,
-                       action_needed = ?, priority = ?
-                   WHERE gmail_id = ?""",
-                (sender, subject, summary, 1 if action_needed else 0, priority, gmail_id),
-            )
-            return existing["id"]
-        cur = conn.execute(
-            """INSERT INTO email_summaries
-               (gmail_id, sender, subject, summary, action_needed, priority)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (gmail_id, sender, subject, summary, 1 if action_needed else 0, priority),
-        )
-        return cur.lastrowid
-
-
-def get_recent_email_summaries(limit: int = 30, action_needed_only: bool = False) -> list:
-    with get_db() as conn:
-        if action_needed_only:
-            rows = conn.execute(
-                """SELECT * FROM email_summaries
-                   WHERE action_needed = 1
-                   ORDER BY processed_at DESC LIMIT ?""",
-                (limit,),
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                "SELECT * FROM email_summaries ORDER BY processed_at DESC LIMIT ?",
-                (limit,),
-            ).fetchall()
-        return [dict(r) for r in rows]
-
-
-def get_processed_email_ids(limit: int = 200) -> set:
-    """Retourne les `gmail_id` déjà analysés (pour init du watcher au démarrage)."""
-    with get_db() as conn:
-        rows = conn.execute(
-            "SELECT gmail_id FROM email_summaries ORDER BY processed_at DESC LIMIT ?",
-            (limit,),
-        ).fetchall()
-        return {r["gmail_id"] for r in rows if r["gmail_id"]}
-
-
-def get_all_processed_email_ids() -> set[str]:
-    """Tous les `gmail_id` déjà présents dans `email_summaries` (dédupage fiable après long arrêt)."""
-    with get_db() as conn:
-        rows = conn.execute(
-            "SELECT gmail_id FROM email_summaries WHERE gmail_id IS NOT NULL AND TRIM(gmail_id) != ''"
-        ).fetchall()
-        return {str(r["gmail_id"]).strip() for r in rows if r["gmail_id"]}
-
-
-def save_email_full(
-    gmail_id: str,
-    sender: str,
-    subject: str,
-    body: str,
-    received_at: str,
-    summary: str,
-    category: str = "info",
-    priority: str = "low",
-) -> int:
-    """Sauvegarde un email pré-traité avec contenu intégral + résumé DeepSeek.
-
-    UPSERT sur ``gmail_id`` : si l'email est déjà en base, on met à jour
-    les champs (sender, subject, body, summary, category, priority).
-    ``is_read`` reste à ``0`` (l'email n'a pas encore été lu via JARVIS).
-    ``created_at`` est mis à jour au timestamp courant.
-    """
-    now_iso = datetime.now().isoformat(timespec="seconds")
-    with get_db() as conn:
-        existing = conn.execute(
-            "SELECT id FROM email_summaries WHERE gmail_id = ?", (gmail_id,)
-        ).fetchone()
-        if existing:
-            conn.execute(
-                """UPDATE email_summaries SET
-                       sender = ?, subject = ?, body = ?, received_at = ?,
-                       summary = ?, category = ?, priority = ?,
-                       created_at = ?
-                   WHERE gmail_id = ?""",
-                (sender, subject, body, received_at, summary, category, priority, now_iso, gmail_id),
-            )
-            return existing["id"]
-        cur = conn.execute(
-            """INSERT INTO email_summaries
-               (gmail_id, sender, subject, body, received_at, summary, category, priority, is_read, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)""",
-            (gmail_id, sender, subject, body, received_at, summary, category, priority, now_iso),
-        )
-        return cur.lastrowid
-
-
-def get_unread_emails_from_db(limit: int = 20) -> list[dict]:
-    """Récupère les emails non lus depuis la DB (instantané, pas d'AppleScript).
-
-    Retourne une liste de dicts avec les champs :
-      gmail_id, sender, subject, body, received_at, summary, category, priority.
-    """
-    with get_db() as conn:
-        rows = conn.execute(
-            """SELECT gmail_id, sender, subject, body, received_at, summary, category, priority
-               FROM email_summaries
-               WHERE is_read = 0
-               ORDER BY created_at DESC
-               LIMIT ?""",
-            (limit,),
-        ).fetchall()
-        return [dict(r) for r in rows]
-
-
-def get_recent_emails_from_db(limit: int = 20, category: str | None = None) -> list[dict]:
-    """Récupère les emails récents (lus ou non) depuis la DB.
-
-    Args:
-        limit: Nombre maximum d'emails à retourner.
-        category: Filtre optionnel par catégorie (ex: "urgent", "finance").
-    """
-    with get_db() as conn:
-        if category:
-            rows = conn.execute(
-                """SELECT gmail_id, sender, subject, body, received_at, summary, category, priority, is_read
-                   FROM email_summaries
-                   WHERE category = ?
-                   ORDER BY created_at DESC LIMIT ?""",
-                (category, limit),
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                """SELECT gmail_id, sender, subject, body, received_at, summary, category, priority, is_read
-                   FROM email_summaries
-                   ORDER BY created_at DESC LIMIT ?""",
-                (limit,),
-            ).fetchall()
-        return [dict(r) for r in rows]
-
-
-def mark_email_read(gmail_id: str) -> None:
-    """Marque un email comme lu en DB."""
-    with get_db() as conn:
-        conn.execute(
-            "UPDATE email_summaries SET is_read = 1 WHERE gmail_id = ?",
-            (gmail_id,),
-        )
-
-
-def get_email_stats() -> dict:
-    """Stats rapides : total, non lus, urgents."""
-    with get_db() as conn:
-        total = conn.execute("SELECT COUNT(*) FROM email_summaries").fetchone()[0]
-        unread = conn.execute("SELECT COUNT(*) FROM email_summaries WHERE is_read = 0").fetchone()[0]
-        urgent = conn.execute(
-            "SELECT COUNT(*) FROM email_summaries WHERE is_read = 0 AND priority = 'high'"
-        ).fetchone()[0]
-    return {"total": total, "unread": unread, "urgent": urgent}
-
-
-# ── User Facts (mémoire profonde) ─────────────────────────────
-
-def add_fact(category: str, content: str, source: str = "conversation",
-             confidence: str = "medium") -> int:
-    with get_db() as conn:
-        cur = conn.execute(
-            """INSERT INTO user_facts (category, content, source, confidence)
-               VALUES (?, ?, ?, ?)""",
-            (category, content, source, confidence),
-        )
-        return cur.lastrowid
-
-
-def get_facts(category: str = None, current_only: bool = True) -> list:
-    with get_db() as conn:
-        clauses = []
-        params: list = []
-        if current_only:
-            clauses.append("is_current = 1")
-        if category:
-            clauses.append("category = ?")
-            params.append(category)
-        where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
-        rows = conn.execute(
-            f"SELECT * FROM user_facts {where} ORDER BY updated_at DESC", params
-        ).fetchall()
-        return [dict(r) for r in rows]
-
-
-def get_all_facts_summary() -> dict:
-    """Retourne {category: [facts]} pour injection dans le contexte Sonnet."""
-    facts = get_facts(current_only=True)
-    summary: dict[str, list] = {}
-    for f in facts:
-        cat = f["category"]
-        if cat not in summary:
-            summary[cat] = []
-        summary[cat].append(f)
-    return summary
-
-
-def invalidate_fact(fact_id: int, superseded_by: int = None) -> None:
-    with get_db() as conn:
-        conn.execute(
-            "UPDATE user_facts SET is_current = 0, superseded_by = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-            (superseded_by, fact_id),
-        )
-
-
-def search_facts(query: str) -> list:
-    with get_db() as conn:
-        rows = conn.execute(
-            "SELECT * FROM user_facts WHERE is_current = 1 AND content LIKE ? ORDER BY updated_at DESC",
-            (f"%{query}%",),
-        ).fetchall()
-        return [dict(r) for r in rows]
-
-
-# ── Relationship Profiles ─────────────────────────────────────
-
-def upsert_relationship_profile(person_id: int, **kwargs) -> int:
-    with get_db() as conn:
-        existing = conn.execute(
-            "SELECT id FROM relationship_profiles WHERE person_id = ?", (person_id,)
-        ).fetchone()
-        if existing:
-            if kwargs:
-                sets = ", ".join(f"{k} = ?" for k in kwargs)
-                vals = list(kwargs.values()) + [existing["id"]]
-                conn.execute(
-                    f"UPDATE relationship_profiles SET {sets}, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                    vals,
-                )
-            return existing["id"]
-        cols = ["person_id"] + list(kwargs.keys())
-        placeholders = ", ".join(["?"] * len(cols))
-        vals = [person_id] + list(kwargs.values())
-        cur = conn.execute(
-            f"INSERT INTO relationship_profiles ({', '.join(cols)}) VALUES ({placeholders})",
-            vals,
-        )
-        return cur.lastrowid
-
-
-def get_relationship_profile(person_id: int) -> dict | None:
-    with get_db() as conn:
-        row = conn.execute(
-            """SELECT rp.*, p.name, p.relationship
-               FROM relationship_profiles rp
-               JOIN people p ON p.id = rp.person_id
-               WHERE rp.person_id = ?""",
-            (person_id,),
-        ).fetchone()
-        return dict(row) if row else None
-
-
-def get_all_relationship_profiles() -> list:
-    with get_db() as conn:
-        rows = conn.execute(
-            """SELECT rp.*, p.name, p.relationship, p.dynamics, p.personality_notes
-               FROM relationship_profiles rp
-               JOIN people p ON p.id = rp.person_id
-               ORDER BY rp.updated_at DESC"""
-        ).fetchall()
-        result = [dict(r) for r in rows]
-        profiled_ids = {r["person_id"] for r in result}
-        people_rows = conn.execute("SELECT * FROM people ORDER BY last_mentioned DESC").fetchall()
-        for p in people_rows:
-            if p["id"] not in profiled_ids:
-                d = dict(p)
-                d["person_id"] = d["id"]
-                result.append(d)
-        return result
-
-
-# ── Relationship Events ───────────────────────────────────────
-
-def add_relationship_event(person_id: int, event_type: str, summary: str,
-                           event_date: str = None, impact_on_user: str = None,
-                           lessons: str = None, source: str = "imessage") -> int:
-    with get_db() as conn:
-        cur = conn.execute(
-            """INSERT INTO relationship_events
-               (person_id, event_date, event_type, summary, impact_on_user, lessons, source)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (person_id, event_date, event_type, summary, impact_on_user, lessons, source),
-        )
-        return cur.lastrowid
-
-
-def get_relationship_timeline(person_id: int, limit: int = 20) -> list:
-    with get_db() as conn:
-        rows = conn.execute(
-            """SELECT * FROM relationship_events
-               WHERE person_id = ?
-               ORDER BY COALESCE(event_date, created_at) DESC
-               LIMIT ?""",
-            (person_id, limit),
-        ).fetchall()
-        return [dict(r) for r in rows]
-
-
-# ── Cross Insights ────────────────────────────────────────────
-
-def add_cross_insight(insight_type: str, content: str,
-                      people_involved: list = None, evidence: str = None,
-                      actionable: str = None) -> int:
-    with get_db() as conn:
-        cur = conn.execute(
-            """INSERT INTO cross_insights
-               (insight_type, content, people_involved, evidence, actionable)
-               VALUES (?, ?, ?, ?, ?)""",
-            (insight_type, content, json.dumps(people_involved or []), evidence, actionable),
-        )
-        return cur.lastrowid
-
-
-def get_active_insights() -> list:
-    with get_db() as conn:
-        rows = conn.execute(
-            "SELECT * FROM cross_insights WHERE status = 'active' ORDER BY last_seen DESC"
-        ).fetchall()
-        return [dict(r) for r in rows]
-
-
-def increment_insight(insight_id: int) -> None:
-    with get_db() as conn:
-        conn.execute(
-            "UPDATE cross_insights SET occurrences = occurrences + 1, last_seen = CURRENT_TIMESTAMP WHERE id = ?",
-            (insight_id,),
-        )
-
-
 # ── Life Context ──────────────────────────────────────────────
 
 def add_life_context(context_type: str, description: str,
@@ -3386,87 +3044,6 @@ def get_device_by_id(device_id: str) -> dict | None:
         return dict(row) if row else None
 
 
-def get_cost_summary() -> dict:
-    """Dépenses LLM : aujourd'hui, 7 derniers jours, mois en cours, par modèle.
-
-    Sert /api/costs et l'alerte budget. Les montants viennent de
-    messages.cost (calculé à chaque appel par llm.estimate_cost).
-    """
-    from datetime import timedelta
-
-    now = datetime.now()
-    today = now.strftime("%Y-%m-%d")
-    week_start = (now.date() - timedelta(days=6)).isoformat()
-    month_start = now.strftime("%Y-%m-01")
-    with get_db() as conn:
-        def _agg(where: str, params: tuple) -> dict:
-            row = conn.execute(
-                f"""SELECT COUNT(*) AS msg_count,
-                           COALESCE(SUM(cost), 0) AS cost,
-                           COALESCE(SUM(tokens_in), 0) AS tokens_in,
-                           COALESCE(SUM(tokens_out), 0) AS tokens_out
-                    FROM messages WHERE {where}""",
-                params,
-            ).fetchone()
-            return dict(row)
-
-        by_model = [dict(r) for r in conn.execute(
-            """SELECT COALESCE(model, 'inconnu') AS model,
-                      COUNT(*) AS msg_count,
-                      COALESCE(SUM(cost), 0) AS cost
-               FROM messages
-               WHERE DATE(created_at) >= ? AND model IS NOT NULL
-               GROUP BY COALESCE(model, 'inconnu')
-               ORDER BY cost DESC""",
-            (month_start,),
-        )]
-        return {
-            "today": _agg("DATE(created_at) = ?", (today,)),
-            "last_7_days": _agg("DATE(created_at) >= ?", (week_start,)),
-            "month": _agg("DATE(created_at) >= ?", (month_start,)),
-            "by_model_month": by_model,
-            "budget_monthly": config.LLM_BUDGET_MONTHLY,
-            "budget_alert_pct": config.LLM_BUDGET_ALERT_PCT,
-        }
-
-
-def get_daily_activity_stats(days: int = 7) -> list[dict]:
-    """Activité agrégée par jour sur les `days` derniers jours (plus ancien en premier).
-
-    Chaque entrée : {date, msg_count, voice_count, tokens_in, tokens_out, cost}.
-    Les jours sans activité sont présents avec des compteurs à zéro, pour que
-    les séries temporelles côté UI soient continues.
-    """
-    from datetime import timedelta
-
-    days = max(1, min(days, 90))
-    today = datetime.now().date()
-    start = (today - timedelta(days=days - 1)).isoformat()
-    with get_db() as conn:
-        rows = conn.execute(
-            """SELECT DATE(m.created_at) AS date,
-                      COUNT(*) AS msg_count,
-                      COALESCE(SUM(CASE WHEN c.agent = 'voice' THEN 1 ELSE 0 END), 0) AS voice_count,
-                      COALESCE(SUM(m.tokens_in), 0) AS tokens_in,
-                      COALESCE(SUM(m.tokens_out), 0) AS tokens_out,
-                      COALESCE(SUM(m.cost), 0) AS cost
-               FROM messages m
-               LEFT JOIN conversations c ON c.id = m.conversation_id
-               WHERE DATE(m.created_at) >= ?
-               GROUP BY DATE(m.created_at)""",
-            (start,),
-        ).fetchall()
-    by_date = {r["date"]: dict(r) for r in rows}
-    out: list[dict] = []
-    for i in range(days - 1, -1, -1):
-        d = (today - timedelta(days=i)).isoformat()
-        out.append(by_date.get(d, {
-            "date": d, "msg_count": 0, "voice_count": 0,
-            "tokens_in": 0, "tokens_out": 0, "cost": 0.0,
-        }))
-    return out
-
-
 # ═══════════════════════════════════════════════════════════
 # DAEMON JARVIS — helpers screen / app_usage / devices / work_sessions
 # ═══════════════════════════════════════════════════════════
@@ -3922,3 +3499,32 @@ from .conversation_turns import (
     save_conversation_turns,
 )
 from .embeddings import get_all_memory_embeddings, upsert_memory_embedding
+from .email import (
+    get_all_processed_email_ids,
+    get_email_stats,
+    get_processed_email_ids,
+    get_recent_email_summaries,
+    get_recent_emails_from_db,
+    get_unread_emails_from_db,
+    mark_email_read,
+    save_email_full,
+    upsert_email_summary,
+)
+from .facts import (
+    add_fact,
+    get_all_facts_summary,
+    get_facts,
+    invalidate_fact,
+    search_facts,
+)
+from .relationships import (
+    add_cross_insight,
+    add_relationship_event,
+    get_active_insights,
+    get_all_relationship_profiles,
+    get_relationship_profile,
+    get_relationship_timeline,
+    increment_insight,
+    upsert_relationship_profile,
+)
+from .stats import get_cost_summary, get_daily_activity_stats

@@ -24,7 +24,7 @@
 **Aucune zone majeure.** Approfondissements possibles dans le futur :
 
 - Diagrammes de séquence détaillés par flux (`diagrams/`)
-- Documentation exhaustive des 531 fonctions de test actuellement déclarées
+- Documentation exhaustive des 532 fonctions de test actuellement déclarées
 - Profilage de performance avant/après benchmarks
 - Plan de reprise après sinistre complet
 

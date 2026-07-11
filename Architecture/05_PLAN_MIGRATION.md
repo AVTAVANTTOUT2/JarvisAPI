@@ -71,7 +71,7 @@ Phase 6 → Frontend unifié + SDK auth                   Jour 11-15 [ADR-001, A
 
 ## Phase 2 — Database modulaire (Jour 2)
 
-**État** : 🟡 En cours — premier lot extrait le 11 juillet 2026 : `core`, `settings`, `tasks`, `sessions`, `push`, `conversation_turns`, `embeddings`. `database/__init__.py` est passé de 4 185 à 3 924 lignes, avec réexports rétrocompatibles.
+**État** : 🟡 En cours — 11 modules extraits au 11 juillet 2026 : `core`, `settings`, `tasks`, `sessions`, `push`, `conversation_turns`, `embeddings`, `email`, `facts`, `relationships`, `stats`. `database/__init__.py` est passé de 4 185 à 3 530 lignes, avec réexports rétrocompatibles.
 
 ### Extraction des modules
 

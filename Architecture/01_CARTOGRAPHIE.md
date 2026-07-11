@@ -33,7 +33,7 @@ JarvisAPI/
 │   └── devagent/              ← Développement autonome (interview → code → test)
 │
 ├── database/                  ← SQLite (72 tables après migrations)
-│   ├── __init__.py            ← CRUD monolithique en cours de découpage (3924 lignes)
+│   ├── __init__.py            ← CRUD monolithique en cours de découpage (3530 lignes)
 │   ├── core.py                ← Connexions et transactions SQLite
 │   ├── settings.py            ← Réglages clé-valeur
 │   ├── tasks.py               ← Domaine tâches
@@ -41,6 +41,10 @@ JarvisAPI/
 │   ├── push.py                ← Abonnements Web Push
 │   ├── conversation_turns.py  ← Diarisation et attribution des locuteurs
 │   ├── embeddings.py          ← Embeddings mémoire
+│   ├── email.py               ← Résumés et contenus emails
+│   ├── facts.py               ← Faits utilisateur durables
+│   ├── relationships.py       ← Profils, événements et insights relationnels
+│   ├── stats.py               ← Coûts LLM et activité quotidienne
 │   ├── schema.sql             ← Schéma complet
 │   ├── location_helpers.py    ← CRUD localisation (déjà extrait)
 │   ├── devagent.py            ← CRUD projets dev (déjà extrait)
@@ -148,7 +152,7 @@ JarvisAPI/
 │
 ├── tv/                         ← Dashboard TV War Room
 ├── prompts/                    ← System prompts (.txt)
-├── tests/                      ← 531 fonctions de test (59 fichiers) pytest
+├── tests/                      ← 532 fonctions de test (59 fichiers) pytest
 ├── data/                       ← jarvis.db, uploads, outputs
 └── Architecture/               ← CE RAPPORT
 ```
@@ -195,7 +199,7 @@ graph TB
 |---|---|---|
 | `config.py` | Tout le monde | OK — feuille, pas de dépendance |
 | `llm.py` | Agents, scripts, main | OK |
-| `database/__init__.py` | Agents, scripts, main, integrations | God object en réduction (3924 lignes, 7 modules extraits) |
+| `database/__init__.py` | Agents, scripts, main, integrations | God object en réduction (3530 lignes, 11 modules extraits) |
 | `jarvis/event_bus.py` | Agents, main | Usage minimal : 1 abonné debug, pas encore de consommateurs métiers |
 | `main.py` | supervisor | **Monolithe** — 42 imports, 183 routes |
 | `agents/orchestrator.py` | main | OK |
@@ -573,7 +577,7 @@ RootLayout (layout.tsx)
 | Métrique | Valeur |
 |---|---|
 | Fichiers Python | 195 |
-| Lignes Python | 53 044 |
+| Lignes Python | 53 167 |
 | Fichiers frontend | 73 (41 web + 32 pwa) |
 | Lignes frontend | ~15 643 |
 | Tables SQLite | 44 |
