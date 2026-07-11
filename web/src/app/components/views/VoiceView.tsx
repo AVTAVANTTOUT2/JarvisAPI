@@ -576,6 +576,21 @@ export function VoiceView() {
     let stream: MediaStream | null = null
     let ctx: AudioContext | null = null
 
+    // Vérification précoce : getUserMedia nécessite un contexte sécurisé (HTTPS ou localhost).
+    // Sur HTTP (ex. IP directe sans TLS), navigator.mediaDevices est undefined.
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      const isLocalhost =
+        location.hostname === 'localhost' || location.hostname === '127.0.0.1'
+      const msg = isLocalhost
+        ? 'Micro non supporté — votre navigateur bloque l’accès audio même en local.\n\nEssayez de recharger la page ou utilisez Chrome / Firefox.'
+        : 'Connexion HTTP détectée. L’accès au microphone nécessite HTTPS.\n\nSolutions :\n• Activez WEB_HTTPS=true dans .env et générez un certificat avec :\n  bash scripts/generate_certs.sh\n• Ou accédez au serveur depuis http://localhost:8081 (le micro fonctionne en local sans HTTPS).'
+      console.error('[Voice] navigator.mediaDevices absent — contexte non sécurisé (HTTP)')
+      setMicPermission('denied')
+      setSessionError('Micro : contexte non sécurisé (HTTP)')
+      window.alert(msg)
+      return
+    }
+
     try {
       stream = await navigator.mediaDevices.getUserMedia({
         audio: {

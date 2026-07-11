@@ -5,14 +5,14 @@ import { ClientLayout } from './client-layout';
 export const metadata: Metadata = {
   title: 'JARVIS',
   description: "Assistant personnel d'Elias",
-  manifest: '/manifest.json',
+  manifest: '/m/manifest.json',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
     title: 'JARVIS',
   },
   icons: {
-    apple: '/icons/icon-192.png',
+    apple: '/m/icons/icon-192.png',
   },
 };
 
@@ -33,7 +33,7 @@ export default function RootLayout({
   return (
     <html lang="fr">
       <head>
-        <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+        <link rel="apple-touch-icon" href="/m/icons/icon-192.png" />
       </head>
       <body className="min-h-screen bg-[#0a0a0f] text-text-primary antialiased">
         <ClientLayout>{children}</ClientLayout>

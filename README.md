@@ -7,7 +7,43 @@ Assistant personnel autonome, multi-agents, voice-first. Tourne entièrement en 
 → "Bonjour Monsieur. Que puis-je faire pour vous ?"
 ```
 
-## Dernier changelog — 10 juillet 2026
+## Dernier changelog — 11 juillet 2026
+
+### Fix microphone — HTTP → HTTPS
+- **Gardien `navigator.mediaDevices`** dans `web/src/app/components/views/VoiceView.tsx` :
+  message d'erreur explicite quand `getUserMedia` est absent (connexion HTTP).
+  L'API `getUserMedia` est une API de « contexte securise » — indisponible sur
+  HTTP sauf `localhost`. L'erreur `Cannot read properties of undefined (reading 'getUserMedia')`
+  est remplacee par une explication claire avec les solutions.
+- **`scripts/generate_certs.sh`** : nouveau script de generation de certificat
+  auto-signe avec SANs (localhost, hostname, IPs Tailscale detectees automatiquement).
+- **`.env.example`** : documentation enrichie de `WEB_HTTPS`.
+- **Installation** : section dediee au microphone/HTTPS dans le README.
+
+Pour activer le micro depuis un iPhone en acces distant :
+```bash
+bash scripts/generate_certs.sh
+# puis WEB_HTTPS=true dans .env, redemarrer main.py
+```
+
+### Architecture Review — audit complet
+- **Rapport d'architecture complet** dans le dossier [`Architecture/`](./Architecture/INDEX.md)
+- 23 problèmes identifiés (4 critiques, 6 majeurs, 8 modérés, 5 mineurs)
+- 10 ADR (Architecture Decision Records)
+- Plan de migration en 6 phases, 15 jours
+- Aucune modification de code tant que le rapport n'est pas validé
+
+### PWA mobile — détection automatique + redirection
+- Ajout de la détection automatique de terminal mobile (`_is_mobile_device`) via User-Agent
+- Redirection automatique `GET /` → `/m/` pour les téléphones (iPhone, Android Mobile, etc.)
+- La PWA est servie depuis le **même port** (WEB_PORT) sous le préfixe `/m/` — l'authentification est partagée automatiquement (même origine HTTP, cookie `jarvis_session`)
+- Build statique Next.js (`output: 'export'`, `basePath: '/m'`) → `pwa/out/`
+- Script de build : `bash scripts/build_pwa.sh`
+- Variables d'env : `PWA_ENABLED`, `PWA_DIR`, `PWA_URL`
+- `config.py` : nouvelles variables `PWA_ENABLED`, `PWA_DIR`, `PWA_URL`, `WEB_DIST_DIR`
+- `main.py` : `_is_mobile_device()`, `_setup_pwa_frontend()`, redirection mobile dans `_setup_frontend()`
+- `pwa/next.config.js` : export statique conditionnel (next-pwa en dev, export en prod)
+- `pwa/src/lib/api.ts` : `credentials: 'include'` pour le partage du cookie d'auth
 
 ### Pull & build — intégration commit distant "Mode écoute : diarization"
 - `git pull origin main` — commit `27d3609` fusionné sans conflit avec les 5 fichiers locaux modifiés
@@ -95,7 +131,7 @@ Trois commits orphelins de `claude/workflow-project-improvements-yknzqs`, jamais
 | STT | faster-whisper local d'abord, ElevenLabs Scribe en fallback |
 | TTS | Edge TTS (défaut) · ElevenLabs · macOS `say` · Kokoro — 7 émotions, cache spéculatif |
 | Desktop | React 19 · Vite · Tailwind (`web/`, lazy-loading par vue) |
-| Mobile | PWA Next.js 14 (`pwa/`, proxy pur vers le backend) |
+| Mobile | PWA Next.js 14 (`pwa/`, export statique servie par FastAPI sous `/m/`) |
 | TV | Dashboard War Room FastAPI + JS (`tv/`, port 5174, Philips 55") |
 | Apple | Mail, Calendar, Messages, Contacts via AppleScript — zéro OAuth |
 | Multi-device | Tailscale + `scripts/jarvis_agent.py` (client léger MacBook) |
@@ -123,7 +159,34 @@ python main.py            # backend seul → http://127.0.0.1:8080 (WEB_PORT)
 python scripts/jarvis_launchd.py install   # démarrage auto au boot macOS
 ```
 
-**Permissions macOS** (Réglages > Confidentialité) : Accès complet au disque (chat.db iMessage), Automation (Messages, Mail, Calendar, Contacts, System Events), Microphone (daemon audio), Enregistrement de l'écran (screen watcher). Check-list complète : [STARTUP_PROTOCOL.md](./STARTUP_PROTOCOL.md).
+**Permissions macOS** (Reglages > Confidentialite) : Acces complet au disque (chat.db iMessage), Automation (Messages, Mail, Calendar, Contacts, System Events), Microphone (daemon audio), Enregistrement de l'ecran (screen watcher). Check-list complete : [STARTUP_PROTOCOL.md](./STARTUP_PROTOCOL.md).
+
+### HTTPS et microphone (acces distant iPhone / navigateur externe)
+
+Le microphone du navigateur (`getUserMedia`) est une **API de contexte securise** — indisponible sur une connexion HTTP simple, sauf sur `localhost`. Si tu accedes a JARVIS depuis un iPhone ou un autre appareil via Tailscale (ex. `http://100.123.50.38:8081`), le micro sera bloque.
+
+**Solution : activer HTTPS avec un certificat auto-signe.**
+
+```bash
+# 1. Generer un certificat auto-signe (inclut automatiquement les IPs Tailscale detectees)
+bash scripts/generate_certs.sh
+
+# 2. Activer HTTPS dans .env
+#    Ajouter ou modifier :
+#      WEB_HTTPS=true
+
+# 3. Redemarrer JARVIS
+python main.py
+# → demarre en https://0.0.0.0:8081
+
+# 4. Acceder depuis l'iPhone (ou autre navigateur distant) :
+#    https://100.123.50.38:8081
+#    → Accepter l'avertissement "Certificat non valide" (c'est normal, il est auto-signe)
+```
+
+Le script `generate_certs.sh` cree `certs/cert.pem` et `certs/key.pem`, lus automatiquement par `main.py` quand `WEB_HTTPS=true`. Les certificats sont deja dans `.gitignore` (cles privees = jamais commitees).
+
+**Pas besoin de HTTPS si tu accedes en local** (`http://localhost:8081`) — le micro fonctionne directement sur localhost. Le HTTPS n'est necessaire que pour l'acces distant (IP Tailscale, reseau local, etc.).
 
 **Vérifier que tout est sain** :
 
@@ -132,6 +195,60 @@ python -m pytest tests/ jarvis/tests agents/devagent -q   # suite complète
 python scripts/imessage_sync_health_check.py               # santé sync iMessage
 curl http://127.0.0.1:8081/api/status                      # état runtime
 ```
+
+## PWA mobile — détection automatique et accès téléphone
+
+La PWA mobile est servie **depuis le même port** que le backend (WEB_PORT, défaut 8081) sous le préfixe `/m/`. Cela permet de partager l'authentification sans reconfiguration : le cookie `jarvis_session` est transmis automatiquement (même origine HTTP).
+
+### Fonctionnement
+
+```
+Requête GET / (tous navigateurs)
+ │
+ ├── Desktop / Tablette → sert web/dist/ (SPA Vite)
+ │
+ └── Mobile (téléphone) → redirect 302 vers /m/
+     └── /m/ → sert pwa/out/ (PWA Next.js statique)
+          └── /m/dashboard → pwa/out/dashboard.html
+          └── /m/map → pwa/out/map.html
+          └── /m/tasks → pwa/out/tasks.html
+          └── /m/mails → pwa/out/mails.html
+          └── /m/config → pwa/out/config.html
+```
+
+**Détection mobile** : analyse du User-Agent (regex) — iPhone, iPod, Android.*Mobile, webOS, Windows Phone, Opera Mini, BlackBerry, IEMobile. Les tablettes Android (sans le mot "Mobile" dans l'UA) reçoivent l'interface desktop.
+
+### Build et déploiement
+
+```bash
+# 1. Build de la PWA (Next.js → export statique dans pwa/out/)
+bash scripts/build_pwa.sh
+
+# 2. Démarrer le backend (ou redémarrer s'il tourne déjà)
+python main.py
+
+# 3. Accéder depuis un téléphone (sur le même réseau/Tailscale)
+#    http://TON_IP:8081/          → redirection auto vers /m/
+#    http://TON_IP:8081/m/        → accès direct PWA
+```
+
+### Variables d'env
+
+| Variable | Défaut | Description |
+|---|---|---|
+| `PWA_ENABLED` | `true` | Active la détection mobile et le serving PWA |
+| `PWA_DIR` | `./pwa/out` | Répertoire du build statique PWA |
+| `PWA_URL` | (vide) | URL externe optionnelle (si PWA sur un autre port/domaine). Vide = servie depuis FastAPI sous `/m/` |
+| `WEB_DIST_DIR` | `./web/dist` | Répertoire du build SPA desktop (fallback) |
+
+### Auth
+
+La PWA partage la **même origine HTTP** que le backend — le cookie `jarvis_session` (SameSite=Strict) est transmis automatiquement. Aucune configuration supplémentaire. Quand l'utilisateur se connecte sur `/m/`, le LockGate de l'app desktop est déjà actif.
+
+### Installation sur l'écran d'accueil (iOS/Android)
+
+- **Android (Chrome)** : un bouton "Installer" natif apparaît (événement `beforeinstallprompt`)
+- **iOS (Safari)** : Partager → "Sur l'écran d'accueil"
 
 ## Configuration
 
@@ -274,6 +391,7 @@ CI GitHub Actions (`.github/workflows/ci.yml`) sur chaque push/PR : import des ~
 
 | Fichier | Contenu |
 |---|---|
+| [Architecture/](./Architecture/INDEX.md) | **Audit architectural complet** — 23 problèmes, 10 ADR, plan de migration 6 phases |
 | [CLAUDE.md](./CLAUDE.md) | Référence technique complète (architecture, tables, endpoints, conventions) |
 | [STARTUP_PROTOCOL.md](./STARTUP_PROTOCOL.md) | Démarrage propre, permissions macOS, reprise après coupure |
 | [VOCAL_PIPELINE_ANALYSIS.md](./VOCAL_PIPELINE_ANALYSIS.md) | Pipeline vocal micro → haut-parleur, latences, points de défaillance |

@@ -9,9 +9,10 @@ import Providers from './providers';
 export function ClientLayout({ children }: { children: ReactNode }) {
   useEffect(() => {
     // Service worker (cache offline + push notifications)
+    // Le SW est servi à la racine de la PWA : /m/sw.js
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker
-        .register('/sw.js')
+        .register('/m/sw.js')
         .then((reg) => {
           console.log('[SW] Registered:', reg.scope);
         })
@@ -21,14 +22,14 @@ export function ClientLayout({ children }: { children: ReactNode }) {
     // Tracking GPS — demarre le watcher uniquement en contexte securise.
     //
     // Safari iOS bloque l'API Geolocation sur HTTP non-localhost (contexte non
-    // securise). Si la PWA est accedee via http://<ip>:3000 (Tailscale),
+    // securise). Si la PWA est accedee via http://<ip>:8081/m (Tailscale),
     // window.isSecureContext === false et getCurrentPosition echoue
     // silencieusement sans jamais afficher le prompt de permission.
     //
-    // La solution : le serveur Next.js doit tourner en HTTPS
-    // (--experimental-https dans package.json). Safari montrera un
-    // avertissement de certificat auto-signe au 1er acces — une fois
-    // accepte, le contexte devient securise et la geolocation fonctionne.
+    // La solution : le serveur backend doit tourner en HTTPS
+    // (WEB_HTTPS=true). Safari montrera un avertissement de certificat
+    // auto-signe au 1er acces — une fois accepte, le contexte devient
+    // securise et la geolocation fonctionne.
     //
     // Cas 1: contexte non securise → on n'essaie meme pas, on log un
     //        avertissement explicite (le widget LocationWidget affiche

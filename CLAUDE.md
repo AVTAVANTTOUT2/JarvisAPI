@@ -1583,6 +1583,93 @@ celle visée par « le téléphone devient l'interface principale ».
   téléphone) — conso batterie/CPU réelle et comportement d'installation
   natif à valider sur device physique.
 
+## PWA mobile — détection automatique et redirection (juillet 2026)
+
+La PWA mobile Next.js (`pwa/`) est désormais servie **depuis le même port**
+que le backend (WEB_PORT) sous le préfixe `/m/`. La détection de terminal
+mobile est automatique — aucun clic, aucune configuration côté client.
+
+### Architecture
+
+```
+GET / (tous navigateurs)
+ ├── Desktop / Tablette → sert web/dist/ (SPA Vite)
+ └── Mobile (téléphone) → redirect 302 vers /m/
+     └── /m/ → sert pwa/out/ (PWA Next.js statique, output: 'export')
+```
+
+- La PWA partage la **même origine HTTP** que le backend → le cookie
+  `jarvis_session` (SameSite=Strict) est transmis automatiquement.
+  Aucune configuration supplémentaire pour l'auth.
+- Les appels API (`/api/*`) atteignent directement FastAPI — pas de proxy
+  Next.js nécessaire en production (contrairement au mode dev où les
+  rewrites Next.js proxyfient vers le backend).
+
+### Détection mobile
+
+`_is_mobile_device(user_agent: str) -> bool` dans `main.py` :
+
+| Plateforme | Détecté ? |
+|---|---|
+| iPhone / iPod | Oui (mot-clé dans UA) |
+| Android Mobile (téléphone) | Oui (`Android.*Mobile`) |
+| Android Tablet | **Non** — sert le desktop (écran large) |
+| iPad | Non (UA iPad moderne = desktop-like) |
+| Windows Phone, BlackBerry, Opera Mini | Oui |
+
+Regex compilée : `_MOBILE_UA_PATTERN` + `_TABLET_UA_PATTERN` (exclusion Android sans "Mobile").
+
+### Serving PWA
+
+`_setup_pwa_frontend(app: FastAPI) -> bool` dans `main.py` :
+
+- Monte les assets Next.js : `/m/_next/static/` → `pwa/out/_next/static/`
+- Monte les icônes : `/m/icons/` → `pwa/out/icons/`
+- Sert les fichiers racine : `/m/manifest.json`, `/m/sw.js`, `/m/workbox-*.js`
+- Routes HTML : `/m/`, `/m/dashboard`, `/m/map`, `/m/mails`, `/m/tasks`, `/m/config`
+- Fallback SPA : toute route inconnue sous `/m/` sert l'index PWA
+
+### Build
+
+```bash
+# Build statique Next.js
+bash scripts/build_pwa.sh
+
+# → pwa/out/
+#   ├── index.html (redirect vers /dashboard)
+#   ├── dashboard.html
+#   ├── map.html, mails.html, tasks.html, config.html
+#   ├── _next/static/ (JS/CSS chunks)
+#   ├── icons/ (icônes PWA)
+#   ├── sw.js, workbox-4754cb34.js (Service Worker)
+#   └── manifest.json
+```
+
+### Next.js config (`pwa/next.config.js`)
+
+- **Dev** (`NODE_ENV=development`) : `next-pwa` actif (régénère le SW),
+  rewrites proxy `/api/*` → backend. Pas d'export statique.
+- **Prod** (`NODE_ENV=production`) : `output: 'export'`, `basePath: '/m'`.
+  `next-pwa` est désactivé (incompatible avec l'export statique). Le SW
+  dans `public/` (généré lors d'un précédent build dev) est copié dans
+  `out/` par Next.js.
+
+### Variables d'env
+
+| Variable | Défaut | Description |
+|---|---|---|
+| `PWA_ENABLED` | `true` | Active la détection mobile + serving PWA |
+| `PWA_DIR` | `./pwa/out` | Répertoire du build statique PWA |
+| `PWA_URL` | (vide) | URL externe optionnelle (redirection 302). Vide = servie localement sous `/m/` |
+| `WEB_DIST_DIR` | `./web/dist` | Répertoire du build SPA desktop (utilisé comme fallback) |
+
+### Mode dégradé
+
+- Si `PWA_ENABLED=false` ou `pwa/out/` absent → le comportement desktop
+  normal est conservé (pas de redirection mobile).
+- Si `PWA_URL` est renseigné → redirection HTTP 302 vers cette URL au lieu
+  de servir `/m/` localement (utile si la PWA tourne sur un autre port).
+
 ## Mode écoute — diarisation + mémoire conversationnelle + recherche sémantique
 
 Étend le pipeline d'enregistrement existant (déclenchement **explicite** par

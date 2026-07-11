@@ -380,6 +380,19 @@ LOCATION_API_TOKEN = _get("LOCATION_API_TOKEN", "")
 BACKUP_ENCRYPTION_ENABLED = _get("BACKUP_ENCRYPTION_ENABLED", "false").lower() == "true"
 BACKUP_ENCRYPTION_PASSPHRASE = _get("BACKUP_ENCRYPTION_PASSPHRASE", "")
 
+# ── PWA mobile — redirection automatique détection mobile ──────
+# Active la détection mobile et la redirection vers l'interface PWA optimisée.
+# La PWA est servie depuis le même port (WEB_PORT) sous le préfixe /m/.
+# L'auth est partagée automatiquement (même origine HTTP).
+PWA_ENABLED = _get("PWA_ENABLED", "true").lower() == "true"
+# Répertoire du build statique PWA (Next.js output: 'export')
+PWA_DIR = _get("PWA_DIR", str(BASE_DIR / "pwa" / "out"))
+# URL externe optionnelle de la PWA (si servie sur un autre port/domaine).
+# Vide = servie depuis FastAPI sous /m/. Renseignée = redirection HTTP 302.
+PWA_URL = _get("PWA_URL", "")
+# Répertoire du build web SPA (Vite) — utilisé comme fallback sur desktop
+WEB_DIST_DIR = _get("WEB_DIST_DIR", str(BASE_DIR / "web" / "dist"))
+
 # ── Mapping modèles par agent ───────────────────────────────
 AGENT_MODELS = {
     "orchestrator": DEEPSEEK_FAST_MODEL,
