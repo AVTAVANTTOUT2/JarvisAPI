@@ -58,13 +58,15 @@ Phase 6 → Frontend unifié + SDK auth                   Jour 11-15 [ADR-001, A
 
 ### 1.4 Cycle main↔daemon (ADR-010)
 
+**État** : ✅ Découplage implémenté le 11 juillet 2026 — contrat indépendant configuré par `main.py`, utilisé par les daemons.
+
 | | |
 |---|---|
 | **Fichiers créés** | `pipeline.py` (nouveau) |
-| **Fichiers modifiés** | `main.py` (déplacer `_process_message_internal`, `_process_voice_fast`, `_build_enriched_context`), `scripts/jarvis_daemon.py` (importer de `pipeline` au lieu de `main`) |
-| **Impact** | Les fonctions déplacées gardent la même signature. `main.py` importe depuis `pipeline` et ré-exporte. |
-| **Test** | `python -m pytest tests/ -q` — suite complète |
-| **Critère de validation** | Aucune régression. Le daemon peut parler à JARVIS. |
+| **Fichiers modifiés** | `main.py` configure le contrat ; `jarvis_daemon.py` et `audio_daemon.py` importent uniquement `pipeline.py`. |
+| **Impact** | Les signatures restent compatibles. Les implémentations de 895 lignes seront déplacées progressivement pendant la Phase 4, une fois leurs dépendances extraites. |
+| **Test** | Tests de contrat et vérification statique de l'absence d'import de `main` dans les daemons. |
+| **Critère de validation** | Aucun import inverse daemon → main ; délégation explicite des trois points d'entrée. |
 | **Réversibilité** | `git revert` |
 
 ## Phase 2 — Database modulaire (Jour 2)

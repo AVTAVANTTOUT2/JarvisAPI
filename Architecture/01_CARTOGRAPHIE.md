@@ -141,7 +141,7 @@ JarvisAPI/
 │
 ├── tv/                         ← Dashboard TV War Room
 ├── prompts/                    ← System prompts (.txt)
-├── tests/                      ← 527 fonctions de test (57 fichiers) pytest
+├── tests/                      ← 529 fonctions de test (58 fichiers) pytest
 ├── data/                       ← jarvis.db, uploads, outputs
 └── Architecture/               ← CE RAPPORT
 ```
@@ -190,21 +190,19 @@ graph TB
 | `llm.py` | Agents, scripts, main | OK |
 | `database/__init__.py` | Agents, scripts, main, integrations | God object (4169 lignes, 23 domaines) |
 | `jarvis/event_bus.py` | Agents, main | Usage minimal : 1 abonné debug, pas encore de consommateurs métiers |
-| `main.py` | supervisor, jarvis_daemon (lazy) | **Monolithe** — 42 imports, 183 routes |
+| `main.py` | supervisor | **Monolithe** — 42 imports, 183 routes |
 | `agents/orchestrator.py` | main | OK |
-| `scripts/jarvis_daemon.py` | main (lazy) | **Cycle** avec main.py |
+| `scripts/jarvis_daemon.py` | main (cycle de vie), `pipeline.py` (traitement) | Cycle d'import supprimé |
 
-### Dépendance circulaire
+### Dépendance circulaire — résolue en Phase 1
 
 ```
-main.py ──(lazy import)──▶ scripts/jarvis_daemon.py
-    ▲                            │
-    │                            │
-    └────(lazy import)───────────┘
-    _process_message_internal, _process_voice_fast
+main.py ──configure──▶ pipeline.py ◀──consume── jarvis_daemon.py
+   │                                         audio_daemon.py
+   └──cycle de vie──▶ daemons
 ```
 
-Le cycle est brisé par des imports `lazy` (à l'intérieur des fonctions), donc pas de crash au démarrage. Mais c'est un couplage fort : `main.py` dépend du daemon pour son cycle de vie, et le daemon dépend de fonctions internes de `main.py`.
+Les daemons ne dépendent plus de `main.py`. Le contrat échoue explicitement s'il est appelé avant sa configuration, et les implémentations seront déplacées derrière ce contrat pendant la Phase 4.
 
 ---
 
@@ -568,7 +566,7 @@ RootLayout (layout.tsx)
 | Métrique | Valeur |
 |---|---|
 | Fichiers Python | 195 |
-| Lignes Python | 52 778 |
+| Lignes Python | 52 911 |
 | Fichiers frontend | 73 (41 web + 32 pwa) |
 | Lignes frontend | ~15 643 |
 | Tables SQLite | 44 |
@@ -578,5 +576,5 @@ RootLayout (layout.tsx)
 | Jobs APScheduler | 29 |
 | Démons | 5 |
 | God objects | 2 (main.py 7194l, db/__init__.py 4169l) |
-| Dépendance circulaire | 1 (main.py ↔ jarvis_daemon.py) |
+| Dépendance circulaire | 0 |
 | Duplications majeures | 8 |

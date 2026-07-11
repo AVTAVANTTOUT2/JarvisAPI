@@ -31,6 +31,7 @@ from typing import Any
 import httpx
 
 import config
+from pipeline import process_message_internal, process_voice_fast
 from audio.audio_format import playback_file_extension, prepare_stt_bytes
 from database import (
     create_conversation,
@@ -148,8 +149,6 @@ class JarvisDaemon:
         """Quelque chose de pertinent vu à l'écran. Claude formule, peut-être TTS."""
         logger.info("[daemon] screen notable : %s", notable[:120])
 
-        from main import _process_message_internal
-
         temp_conv = create_conversation(agent="daemon_screen")
         prompt = (
             f"[NOTIFICATION ÉCRAN] L'utilisateur est sur "
@@ -159,7 +158,7 @@ class JarvisDaemon:
             "Si ce n'est pas pertinent, réponds juste NULL."
         )
         try:
-            result = await _process_message_internal(prompt, temp_conv, voice_mode=True)
+            result = await process_message_internal(prompt, temp_conv, voice_mode=True)
         except Exception as e:
             logger.warning("[daemon] _process_message_internal screen : %s", e)
             return
@@ -619,10 +618,8 @@ class JarvisDaemon:
                     )
                     break
 
-                from main import _process_voice_fast
-
                 try:
-                    result = await _process_voice_fast(text, self.conversation_id)
+                    result = await process_voice_fast(text, self.conversation_id)
                 except Exception as e:
                     logger.exception("[daemon] _process_voice_fast : %s", e)
                     await self.tts_queue.put("Désolé Monsieur, une erreur est survenue.")

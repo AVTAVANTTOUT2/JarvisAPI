@@ -1,7 +1,7 @@
 # Architecture — Source de vérité officielle de JARVIS API
 
 **Date** : 11 juillet 2026
-**Périmètre** : 199 fichiers Python (52 778 lignes), 70 fichiers frontend, 72 tables SQLite après migrations
+**Périmètre** : 201 fichiers Python (52 911 lignes), 70 fichiers frontend, 72 tables SQLite après migrations
 **État** : **Documentation officielle — toute modification du code doit rester cohérente avec ce dossier**
 
 ---
@@ -68,7 +68,7 @@
 ┌─────────────────────────────────────────────────────────┐
 │                     JARVIS API                           │
 ├─────────────────────────────────────────────────────────┤
-│  Backend           │ 199 fichiers Python, 52 778 lignes  │
+│  Backend           │ 201 fichiers Python, 52 911 lignes  │
 │  Frontend desktop  │ 41 fichiers, ~10 000 lignes         │
 │  PWA mobile        │ 32 fichiers, ~5 643 lignes          │
 │  Base de données   │ 72 tables SQLite, mode WAL          │
@@ -77,7 +77,7 @@
 │  Agents LLM        │ 7 agents + orchestrateur            │
 │  Jobs schedulés    │ 29 (APScheduler)                    │
 │  Démons            │ 5 (screen, audio, email, imessage)  │
-│  Tests             │ 527 fonctions de test, 57 fichiers  │
+│  Tests             │ 529 fonctions de test, 58 fichiers  │
 ├─────────────────────────────────────────────────────────┤
 │  God objects       │ main.py (7 194 lignes, 40+ resp.)   │
 │                    │ database/__init__.py (4 169 lignes)  │

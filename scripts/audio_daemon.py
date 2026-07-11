@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any, Callable, Coroutine
 
 import config
+from pipeline import process_voice_fast
 
 # Detection Silero VAD (sans log, le logger est defini plus bas)
 try:
@@ -1406,8 +1407,7 @@ class AudioDaemon:
             self._conv_id = create_conversation(agent="daemon_audio")
 
         try:
-            from main import _process_voice_fast
-            result = await _process_voice_fast(text, self._conv_id)
+            result = await process_voice_fast(text, self._conv_id)
         except Exception as e:
             logger.exception("[audio_daemon] _process_voice_fast : %s", e)
             self.state = "wake_listening" if self.wake_word_enabled else "listening"

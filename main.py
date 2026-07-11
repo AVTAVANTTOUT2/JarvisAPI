@@ -31,6 +31,7 @@ from fastapi.templating import Jinja2Templates
 
 import config
 import llm
+import pipeline
 from actions import execute_action
 from agents import get_agent, register_agent
 from agents import easter_eggs
@@ -7136,6 +7137,12 @@ async def _run_memory_in_background(conversation_id: int) -> None:
     except Exception as e:
         logger.error(f"[memory bg] conv {conversation_id} : {e}")
 
+
+pipeline.configure_pipeline(
+    process_message=_process_message_internal,
+    process_voice=_process_voice_fast,
+    build_context=_build_enriched_context,
+)
 
 _setup_frontend(app)
 

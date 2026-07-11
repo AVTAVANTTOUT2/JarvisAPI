@@ -22,7 +22,7 @@ Une dette technique est un choix d'implémentation qui sacrifie la qualité long
 | TD-007 | 25+ connexions directes chat.db | MAJEURE | 25+ fichiers | 24h | Phase 5 |
 | TD-008 | Event bus sans consommateurs métiers | MAJEURE | jarvis/event_bus.py | 16h | Phase 3 |
 | TD-009 | 4 conversions Apple timestamp | MODÉRÉE | 4 fichiers | 1h | Phase 5 |
-| TD-010 | Cycle main↔daemon | MODÉRÉE | 2 fichiers | 4h | Phase 1 |
+| TD-010 | Cycle main↔daemon | RÉSOLUE | `pipeline.py` | 0h | Phase 1 — 11/07/2026 |
 | TD-011 | 42 imports dans main.py | MODÉRÉE | main.py | 24h | Phase 4 |
 | TD-012 | Service Worker dupliqué | MINEURE | web/ + pwa/ | 2h | Phase 6 |
 | TD-013 | Dates relatives dupliquées | MINEURE | 2 frontends | 1h | Phase 6 |
@@ -34,6 +34,7 @@ Une dette technique est un choix d'implémentation qui sacrifie la qualité long
 | SQLite sans `busy_timeout` | `PRAGMA busy_timeout = 5000` sur chaque connexion applicative | 11/07/2026 |
 | Race condition sur le set WebSocket | Verrou sur les mutations et snapshot avant diffusion | 11/07/2026 |
 | Curseurs ROWID uniquement en mémoire | Registre SQLite central avec offset monotone par consommateur | 11/07/2026 |
+| Cycle d'import `main.py` ↔ daemons | Contrat `pipeline.py` configuré par injection | 11/07/2026 |
 
 ## Comment identifier une nouvelle dette
 

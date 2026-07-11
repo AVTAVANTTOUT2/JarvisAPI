@@ -123,10 +123,12 @@
 **Problème** : main.py importe daemon, daemon importe _process_message_internal de main.py.
 
 **Solutions** :
-- A. Extraire pipeline.py (process_message_internal, process_voice_fast, build_enriched_context). Les deux importent de pipeline.
+- A. Introduire un contrat `pipeline.py` indépendant. `main.py` enregistre les implémentations actuelles ; les daemons n'importent plus le point d'entrée. Le déplacement physique des implémentations se poursuit pendant la Phase 4.
 - B. Daemon envoie via WebSocket — ajoute latence.
 
-**Recommandation** : Solution A. Brise le cycle proprement. Effort : 4 heures.
+**Décision** : Solution A, implémentée le 11 juillet 2026. Le contrat conserve les signatures publiques et échoue explicitement s'il est utilisé avant configuration.
+
+**Statut** : Implémenté pour le découplage ; déplacement des implémentations planifié en Phase 4.
 
 ---
 

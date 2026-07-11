@@ -26,7 +26,7 @@
 - **Séparation (3/10)** : 2 god objects (main.py 7194l, database 4169l), 40+ responsabilités dans main.py, 23 domaines dans database. Score très bas.
 - **Couplage (4/10)** : 1 dépendance circulaire, 42 imports dans main.py, 25+ connexions directes à chat.db. Event bus limité à un abonné debug, sans consommateurs métiers.
 - **Cohésion (5/10)** : Les agents sont bien séparés, les intégrations aussi. Mais la database et main.py sont des fourre-tout.
-- **Testabilité (4/10)** : 527 fonctions de test backend déclarées dans 57 fichiers, mais 0 test frontend et pas de couverture fiable par route.
+- **Testabilité (4/10)** : 529 fonctions de test backend déclarées dans 58 fichiers, mais 0 test frontend et pas de couverture fiable par route.
 - **Documentation (7/10)** : CLAUDE.md est excellent (1500+ lignes). README complet. Architecture/ vient d'être créé. Manque des diagrammes de séquence.
 - **Sécurité (7/10)** : Auth robuste (scrypt, sessions, anti-brute-force). CSP, CORS, CSRF configurés. Mais PWA sans LockGate, pas de chiffrement au repos, HTTP par défaut.
 - **Performance (6/10)** : SQLite WAL, batch import. Mais pas de busy_timeout, pas de cache LLM, pas de monitoring.

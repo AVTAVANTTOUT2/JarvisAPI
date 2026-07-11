@@ -85,6 +85,8 @@
 
 ### P1-6 — Dépendance circulaire main.py ↔ jarvis_daemon.py
 
+**État** : ✅ Résolu en Phase 1 via le contrat indépendant `pipeline.py`.
+
 - **Gravité** : MAJEURE
 - **Fichiers** : `main.py`, `scripts/jarvis_daemon.py`
 - **Origine** : `main.py` importe le daemon pour le lancer. Le daemon importe `_process_message_internal` de `main.py` pour parler à JARVIS.
@@ -198,7 +200,7 @@ Fonctions `formatTime()`, `relativeDate()`, `formatDue()` dupliquées entre les 
 | P1-3 | Deux frontends | MAJEURE | 5 jours | Phase 6 |
 | P1-4 | Event bus à usage minimal (1 abonné debug) | MAJEURE | 2 jours | Phase 3 |
 | P1-5 | 25+ lecteurs chat.db | MAJEURE | 3 jours | Phase 5 |
-| P1-6 | Cycle main↔daemon | MAJEURE | 4 heures | Phase 1 |
+| P1-6 | Cycle main↔daemon | ✅ RÉSOLU | 0 | Phase 1 — 11/07/2026 |
 | P2-1 | 19 create_notification | MODÉRÉE | 1 jour | Phase 3 |
 | P2-2 | Écritures non coordonnées | MODÉRÉE | 2 jours | Phase 3 |
 | P2-3 | 40 endpoints orphelins | MODÉRÉE | 1 jour | Phase 4 |
