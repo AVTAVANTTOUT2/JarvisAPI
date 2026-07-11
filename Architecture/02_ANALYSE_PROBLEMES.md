@@ -53,7 +53,7 @@
 
 ### P1-2 — database/__init__.py : 4 169 lignes, ~208 fonctions, 23 domaines
 
-**État** : 🟡 En cours — 3 530 lignes après le deuxième lot de Phase 2, 11 modules extraits.
+**État** : 🟡 En cours — 3 284 lignes après le troisième lot de Phase 2, 12 modules extraits.
 
 - **Gravité** : MAJEURE
 - **Fichier** : `database/__init__.py`

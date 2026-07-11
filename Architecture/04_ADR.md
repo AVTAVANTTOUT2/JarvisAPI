@@ -116,7 +116,7 @@
 
 **Recommandation** : Solution A. Purement mécanique, zéro risque. Effort : 1 jour.
 
-**Statut** : En cours — 11 modules extraits avec réexports compatibles au 11 juillet 2026.
+**Statut** : En cours — 12 modules extraits avec réexports compatibles au 11 juillet 2026.
 
 ---
 

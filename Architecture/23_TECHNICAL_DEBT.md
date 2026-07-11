@@ -14,7 +14,7 @@ Une dette technique est un choix d'implémentation qui sacrifie la qualité long
 | ID | Description | Sévérité | Localisation | Estimé (h) | Planifié |
 |---|---|---|---|---|---|
 | TD-001 | God object main.py (7194 lignes) | CRITIQUE | main.py | 24h | Phase 4 |
-| TD-002 | God object database/__init__.py (3 530 lignes, 11 modules extraits) | CRITIQUE | database/__init__.py | 4h | Phase 2 — en cours |
+| TD-002 | God object database/__init__.py (3 284 lignes, 12 modules extraits) | CRITIQUE | database/__init__.py | 4h | Phase 2 — en cours |
 | TD-003 | PWA sans LockGate | CRITIQUE | pwa/ | 16h | Phase 6 |
 | TD-004 | 3 curseurs ROWID indépendants | RÉSOLUE | `imessage_cursor.py` | 0h | Phase 1 — 11/07/2026 |
 | TD-005 | 19 appels directs create_notification() | MAJEURE | 19 fichiers | 8h | Phase 3 |

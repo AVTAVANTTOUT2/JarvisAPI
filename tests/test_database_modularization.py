@@ -12,6 +12,7 @@ from database import (
     relationships,
     sessions,
     settings,
+    screen_daemon,
     stats,
     tasks,
 )
@@ -33,6 +34,8 @@ def test_phase2_reexports_keep_historical_api():
     assert database.add_fact is facts.add_fact
     assert database.upsert_relationship_profile is relationships.upsert_relationship_profile
     assert database.get_cost_summary is stats.get_cost_summary
+    assert database.save_screen_activity is screen_daemon.save_screen_activity
+    assert database.register_device is screen_daemon.register_device
 
 
 def test_extracted_modules_follow_dynamic_database_path(tmp_path, monkeypatch):
@@ -69,3 +72,25 @@ def test_second_phase2_domains_preserve_crud_behavior(tmp_path, monkeypatch):
     )
     assert profile_id > 0
     assert database.get_relationship_profile(person_id)["communication_style"] == "direct"
+
+
+def test_screen_daemon_domain_preserves_crud_behavior(tmp_path, monkeypatch):
+    monkeypatch.setattr(database, "DB_PATH", tmp_path / "screen.db")
+    database.init_db()
+
+    token = database.register_device("mac-mini", "Mac mini")
+    assert token
+    database.set_active_device("mac-mini")
+    assert database.get_active_device()["device_id"] == "mac-mini"
+
+    database.upsert_app_usage("mac-mini", "Codex", 30)
+    database.upsert_app_usage("mac-mini", "Codex", 15)
+    usage = database.get_app_usage(device="mac-mini")
+    assert usage[0]["duration_seconds"] == 45
+    assert usage[0]["session_count"] == 2
+
+    activity_id = database.save_screen_activity(
+        "mac-mini", "Codex", "Refactoring", mood="focused"
+    )
+    assert activity_id > 0
+    assert database.get_current_screen_context("mac-mini")["activity"] == "Refactoring"

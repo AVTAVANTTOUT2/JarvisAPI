@@ -1,7 +1,7 @@
 # 06 — Plan de Tests
 
 **Date** : 11 juillet 2026
-**Couverture actuelle** : 532 fonctions de test déclarées dans 59 fichiers (backend uniquement). La collecte complète doit être exécutée avec la version Python supportée par le projet.
+**Couverture actuelle** : 533 fonctions de test déclarées dans 59 fichiers (backend uniquement). La collecte complète doit être exécutée avec la version Python supportée par le projet.
 
 ## Stratégie
 
@@ -9,7 +9,7 @@
 
 | Niveau | Outil | Cible | Actuel | Cible |
 |---|---|---|---|---|
-| Unitaires backend | pytest | Fonctions pures, classes | 532 fonctions déclarées | Maintenir et mesurer la couverture |
+| Unitaires backend | pytest | Fonctions pures, classes | 533 fonctions déclarées | Maintenir et mesurer la couverture |
 | Intégration backend | pytest | Routes API, DB | Partiel | 50+ |
 | Unitaires frontend | Vitest | Composants, hooks, stores | 0 | 100+ |
 | Intégration frontend | Playwright | Flux utilisateur complets | 0 | 30+ |
@@ -104,7 +104,7 @@
 | Métrique | Actuel | Après Phase 3 | Après Phase 6 |
 |---|---|---|---|
 | Couverture backend (%) | ~60% | 75% | 90% |
-| Fonctions de test backend déclarées | 532 | ≥532 | ≥532 |
+| Fonctions de test backend déclarées | 533 | ≥533 | ≥533 |
 | Tests intégration backend | ~10 | 40 | 50+ |
 | Tests frontend | 0 | 0 | 100+ |
 | Tests E2E | 0 | 0 | 30+ |
