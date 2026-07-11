@@ -11,7 +11,7 @@ Phase 1 → Quick wins P0 (sécurité + stabilité)        Jour 1     [4 correct
 Phase 2 → Database modulaire                           Jour 2     [ADR-009]
 Phase 3 → Pipeline + Event bus                         Jour 3-4   [ADR-010, ADR-005]
 Phase 4 → main.py découpé en routeurs                  Jour 5-7   [ADR-008]
-Phase 5 → Apple Data Service + Curseur unique          Jour 8-10  [ADR-006, ADR-002]
+Phase 5 → Apple Data Service                            Jour 8-10  [ADR-006]
 Phase 6 → Frontend unifié + SDK auth                   Jour 11-15 [ADR-001, ADR-007]
 ```
 
@@ -45,13 +45,15 @@ Phase 6 → Frontend unifié + SDK auth                   Jour 11-15 [ADR-001, A
 
 ### 1.3 Curseur ROWID unique (ADR-002)
 
+**État** : ✅ Implémenté le 11 juillet 2026 — registre SQLite central, offsets persistants et monotones par consommateur.
+
 | | |
 |---|---|
-| **Fichiers** | `integrations/imessage_reader.py` (ajout), `integrations/imessage.py` (lit sans avancer), `scripts/jarvis_daemon.py` (lit sans avancer) |
-| **Changement** | Ajouter `get_global_rowid()` et `advance_global_rowid()` dans `imessage_reader`. Le bridge et le daemon appellent `get_global_rowid()` mais ne l'avancent PAS. Seul le reader l'avance. |
-| **Impact** | Le bridge et le daemon ne manqueront plus de messages. |
-| **Test** | Manuel : envoyer un iMessage, vérifier qu'un seul composant le traite |
-| **Critère de validation** | Un message entrant n'est traité qu'une seule fois |
+| **Fichiers** | `integrations/imessage_cursor.py`, `imessage_reader.py`, `imessage.py`, `scripts/jarvis_daemon.py` |
+| **Changement** | Centraliser les offsets dans `imessage_consumer_cursors`, avec progression atomique monotone et persistance après redémarrage. |
+| **Impact** | Reader, bridge et daemon ne dépendent plus de curseurs uniquement en mémoire et ne se masquent pas mutuellement leurs messages. |
+| **Test** | Tests unitaires de monotonie, isolation des consommateurs et reprise après redémarrage ; validation iMessage réelle à effectuer. |
+| **Critère de validation** | Aucun ancien attribut de curseur mémoire ; pas de double traitement par consommateur et aucun masquage entre consommateurs. |
 | **Réversibilité** | `git revert` |
 
 ### 1.4 Cycle main↔daemon (ADR-010)

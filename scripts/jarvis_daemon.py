@@ -63,7 +63,7 @@ class JarvisDaemon:
         self.tts_cooldown = int(getattr(config, "DAEMON_TTS_COOLDOWN", 30))
 
         # iMessage tracking
-        self.last_imsg_rowid: int = 0
+        self.imessage_cursor_name = "daemon.notifications"
         self.known_msg_ids: set[int] = set()
 
         # Mail tracking
@@ -97,8 +97,13 @@ class JarvisDaemon:
                     uri=True,
                 ) as db:
                     row = db.execute("SELECT MAX(ROWID) FROM message").fetchone()
-                    self.last_imsg_rowid = int(row[0] or 0)
-                logger.info("[daemon] iMessage starting rowid: %s", self.last_imsg_rowid)
+                    max_rowid = int(row[0] or 0)
+                from integrations.imessage_cursor import initialize_consumer_cursor
+
+                start_rowid = initialize_consumer_cursor(
+                    self.imessage_cursor_name, max_rowid
+                )
+                logger.info("[daemon] iMessage starting rowid: %s", start_rowid)
         except Exception as e:
             logger.warning("[daemon] init iMessage rowid échoué : %s", e)
 
@@ -211,6 +216,12 @@ class JarvisDaemon:
 
         rows: list[Any] = []
         try:
+            from integrations.imessage_cursor import (
+                advance_consumer_cursor,
+                get_consumer_cursor,
+            )
+
+            last_rowid = get_consumer_cursor(self.imessage_cursor_name)
             with sqlite3.connect(
                 f"file:{Path.home() / 'Library/Messages/chat.db'}?mode=ro",
                 uri=True,
@@ -223,15 +234,20 @@ class JarvisDaemon:
                        WHERE m.ROWID > ? AND m.text IS NOT NULL AND m.text != ''
                        ORDER BY m.ROWID ASC
                        LIMIT 10""",
-                    (self.last_imsg_rowid,),
+                    (last_rowid,),
                 ).fetchall()
         except Exception as e:
             logger.warning("[daemon] iMessage scan : %s", e)
             return
 
+        if rows:
+            advance_consumer_cursor(
+                self.imessage_cursor_name,
+                max(int(row["ROWID"]) for row in rows),
+            )
+
         for row in rows:
             rowid = int(row["ROWID"])
-            self.last_imsg_rowid = max(self.last_imsg_rowid, rowid)
 
             if rowid in self.known_msg_ids:
                 continue

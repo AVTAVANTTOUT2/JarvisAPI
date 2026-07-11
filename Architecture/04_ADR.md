@@ -23,11 +23,13 @@
 **Problème** : IMessageBridge, JarvisDaemon, IMessageReader maintiennent chacun leur propre last_rowid.
 
 **Solutions** :
-- A. Curseur unique dans SQLite (imessage_sync_cursor). Bridge et daemon lisent sans avancer.
+- A. Registre unique dans SQLite avec un offset monotone par consommateur. Un unique scalaire partagé ferait perdre des messages lorsqu'un consommateur avance avant les autres.
 - B. AppleDataService unique (plus lourd mais plus propre).
 - C. Coordination par verrou (ne résout pas le fond).
 
-**Recommandation** : A comme quick win immédiat (2h), puis migration vers B (ADR-006) pour la solution complète.
+**Décision** : A, implémentée via `imessage_consumer_cursors` et `integrations/imessage_cursor.py`. Les offsets survivent aux redémarrages et ne peuvent jamais reculer. Migration vers B (ADR-006) maintenue pour supprimer ensuite les lectures directes de `chat.db`.
+
+**Statut** : Implémenté le 11 juillet 2026.
 
 ---
 
@@ -133,7 +135,7 @@
 | ADR | Problème | Solution | Effort | Prérequis |
 |---|---|---|---|---|
 | 001 | PWA sans LockGate | SDK auth partagé | 2j | Aucun |
-| 002 | 3 curseurs ROWID | Curseur unique SQLite | 2h | Aucun |
+| 002 | 3 curseurs ROWID mémoire | Registre SQLite central, offset par consommateur | 2h | Aucun |
 | 003 | Race WS set | Lock + copie défensive | 15min | Aucun |
 | 004 | SQLite busy | busy_timeout=5000 | 5min | Aucun |
 | 005 | Event bus à usage minimal | Émission depuis DB | 2j | ADR-009 |

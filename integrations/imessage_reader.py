@@ -10,6 +10,11 @@ import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from .imessage_cursor import (
+    advance_consumer_cursor,
+    initialize_consumer_cursor,
+)
+
 logger = logging.getLogger(__name__)
 
 # Les dates iMessage sont des secondes depuis 2001-01-01 00:00:00 UTC,
@@ -53,6 +58,7 @@ class IMessageReader:
     def __init__(self):
         self.db_path = Path.home() / "Library" / "Messages" / "chat.db"
         self._available: bool | None = None
+        self.cursor_name = "reader.intelligence"
 
     def is_available(self) -> bool:
         if self._available is not None:
@@ -357,30 +363,8 @@ class IMessageReader:
         Cette méthode est purement en lecture seule. Elle ne modifie jamais
         chat.db et n'appelle jamais osascript / Messages.app en écriture.
         """
-        if not self.is_available():
-            return 0
-        try:
-            conn = sqlite3.connect(
-                f"file:{self.db_path}?mode=ro", uri=True, timeout=5.0
-            )
-            # Récupère le ROWID max actuel
-            row = conn.execute(
-                "SELECT COALESCE(MAX(ROWID), 0) FROM message"
-            ).fetchone()
-            current_max = int(row[0]) if row else 0
-            conn.close()
-
-            # Détection de nouveaux messages par rapport au dernier scan
-            last_max = getattr(self, "_last_sourced_rowid", 0)
-            if current_max <= last_max:
-                return 0
-
-            count = current_max - last_max
-            self._last_sourced_rowid = current_max
-            return count
-        except sqlite3.Error as e:
-            logger.warning("[imessage_reader] scan_new_messages : %s", e)
-            return 0
+        count, _ = self.scan_new_messages_with_last_id()
+        return count
 
     def scan_new_messages_with_last_id(self) -> tuple[int, int]:
         """Comme scan_new_messages() mais retourne (count, last_rowid).
@@ -401,12 +385,15 @@ class IMessageReader:
             current_max = int(row[0]) if row else 0
             conn.close()
 
-            last_max = getattr(self, "_last_sourced_rowid", 0)
+            # Au premier scan, initialise au maximum courant pour ne pas
+            # retraiter tout l'historique. Aux scans suivants, récupère
+            # l'offset persistant existant, y compris s'il vaut réellement 0.
+            last_max = initialize_consumer_cursor(self.cursor_name, current_max)
             if current_max <= last_max:
                 return 0, current_max
 
             count = current_max - last_max
-            self._last_sourced_rowid = current_max
+            advance_consumer_cursor(self.cursor_name, current_max)
             return count, current_max
         except sqlite3.Error as e:
             logger.warning("[imessage_reader] scan_new_messages_with_last_id : %s", e)

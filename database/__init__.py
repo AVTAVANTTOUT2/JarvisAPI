@@ -658,6 +658,12 @@ CREATE TABLE IF NOT EXISTS imessage_sync_cursor (
     status TEXT DEFAULT 'idle' CHECK(status IN ('importing', 'idle', 'error')),
     error_message TEXT
 );
+
+CREATE TABLE IF NOT EXISTS imessage_consumer_cursors (
+    consumer TEXT PRIMARY KEY,
+    last_apple_rowid INTEGER NOT NULL DEFAULT 0,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 
@@ -910,6 +916,13 @@ def _migrate_imessage_import(conn: sqlite3.Connection) -> None:
             last_sync_at DATETIME,
             status TEXT DEFAULT 'idle' CHECK(status IN ('importing', 'idle', 'error')),
             error_message TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS imessage_consumer_cursors (
+            consumer TEXT PRIMARY KEY,
+            last_apple_rowid INTEGER NOT NULL DEFAULT 0,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     """)
 

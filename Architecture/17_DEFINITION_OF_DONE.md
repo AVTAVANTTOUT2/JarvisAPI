@@ -28,7 +28,7 @@ Chaque phase doit satisfaire AU MINIMUM :
 
 - [ ] `busy_timeout` configuré → `PRAGMA busy_timeout` retourne 5000
 - [ ] Race condition WS → zéro `Set changed size during iteration` dans les logs
-- [ ] Curseur ROWID → `grep -r "last_rowid" --include="*.py" | grep -v imessage_reader` ≤ 1
+- [x] Curseurs ROWID → registre central persistant, offsets monotones nommés, aucun ancien attribut mémoire
 - [ ] Cycle main↔daemon → `grep "from main import" scripts/jarvis_daemon.py` retourne 0
 - [ ] pipeline.py existe et est importé par main.py ET jarvis_daemon.py
 

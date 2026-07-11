@@ -111,7 +111,7 @@ Trois commits orphelins de `claude/workflow-project-improvements-yknzqs`, jamais
               ┌─────▼─────┐      ┌──────▼──────┐      ┌─────▼─────┐
               │Orchestrator│ ───▶ │ 6 agents    │      │  SQLite   │
               │(classif.)  │      │ info school │      │ jarvis.db │
-              └────────────┘      │ produc coach│      │ 45 tables │
+              └────────────┘      │ produc coach│      │ 72 tables │
                                   │ journal mem.│      └───────────┘
                                   └─────────────┘
         LLM : DeepSeek API (fast = classification/triage, main = raisonnement,

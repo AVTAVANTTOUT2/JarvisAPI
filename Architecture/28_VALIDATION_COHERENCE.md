@@ -16,15 +16,15 @@ Le dossier `Architecture/` reflète fidèlement l'état du code **avec des écar
 | Affirmation dans Architecture/ | Réalité code | Statut |
 |---|---|---|
 | 183 routes REST | 183 `@app.*` décorateurs | ✅ Exact |
-| 45 tables SQLite | 45 `CREATE TABLE` | ✅ Corrigé (était 44) |
+| 72 tables SQLite après `init_db()` | Vérifié sur une base temporaire initialisée | ✅ Corrige l'ancien comptage limité au bloc `SCHEMA` |
 | 7 agents LLM + orchestrateur | 12 fichiers dans agents/ | ✅ Exact (dont 5 utilitaires) |
 | 29 jobs APScheduler | 102 références dans scheduler.py | ✅ Exact |
 | 5 démons | screen, audio, email, imessage, supervisor | ✅ Exact |
-| 195 fichiers Python, 52 552 lignes | Vérifié | ✅ Exact |
+| 199 fichiers Python, 52 778 lignes | Vérifié après le premier lot de Phase 1 | ✅ Actualisé |
 | ~70 fichiers frontend | 39 (web/) + 31 (pwa/) = 70 | ✅ Exact |
 | PWA sans LockGate | **Confirmé** — aucun composant auth dans pwa/ | ✅ Documenté comme P0-1 |
 | Event bus « inutilisé » | 1 abonné (`subscribe()`), 18 `emit()` | ⚠️ Corrigé — « usage minimal » |
-| 523 fonctions de test (55 fichiers) | Vérifié statiquement | ⚠️ Corrigé (était « 174 tests », puis 486/53) |
+| 527 fonctions de test (57 fichiers) | Vérifié statiquement après le premier lot de Phase 1 | ✅ Actualisé |
 
 ## 2. Composants cibles (n'existent PAS encore — normal)
 
@@ -65,8 +65,8 @@ Tous les diagrammes sont cohérents avec leur contexte (actuel vs cible).
 
 | Document | Avant | Après |
 |---|---|---|
-| INDEX.md, 01_CARTOGRAPHIE.md, 03_AUDIT_TECHNIQUE.md, 19_VALIDATION_FINALE.md | « 44 tables » | **45 tables** |
-| Plusieurs documents | « 174 tests » ou « 486 fonctions / 53 fichiers » | **523 fonctions de test, 55 fichiers** |
+| INDEX.md, 01_CARTOGRAPHIE.md, 03_AUDIT_TECHNIQUE.md, 19_VALIDATION_FINALE.md | Anciens comptages `44/45/46` limités au bloc `SCHEMA` | **72 tables réellement créées après migrations** |
+| Plusieurs documents | Comptages historiques (`174`, puis `486/53`, puis `523/55`) | **527 fonctions de test, 57 fichiers après Phase 1** |
 | Plusieurs documents | « Event bus : 0 abonné » | **« Event bus : usage minimal (1 abonné debug), sera activé en Phase 3 »** |
 | INDEX.md | Comptages historiques variables | **35 fichiers Markdown + 3 sous-répertoires** |
 

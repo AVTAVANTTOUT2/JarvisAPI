@@ -23,6 +23,11 @@ from pathlib import Path
 import config
 
 from ._applescript import escape_applescript_string, run_applescript
+from .imessage_cursor import (
+    advance_consumer_cursor,
+    get_consumer_cursor,
+    initialize_consumer_cursor,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +49,7 @@ class IMessageBridge:
     def __init__(self, target_address: str):
         self.target = (target_address or "").strip()
         self.db_path = Path.home() / "Library" / "Messages" / "chat.db"
-        self.last_check_rowid: int = 0
+        self.cursor_name = f"bridge.reply:{self.target}"
         self.running: bool = False
         self.processed_rowids: set[int] = set()
         self._processed_rowids_max = 5000
@@ -135,6 +140,7 @@ class IMessageBridge:
           - `text IS NOT NULL` → skip réactions, fichiers attachés sans texte
           - `h.id = self.target` → skip tous les autres contacts
         """
+        last_check_rowid = get_consumer_cursor(self.cursor_name)
         try:
             conn = sqlite3.connect(f"file:{self.db_path}?mode=ro", uri=True, timeout=2.0)
             cur = conn.execute(
@@ -149,7 +155,7 @@ class IMessageBridge:
                   AND h.id = ?
                 ORDER BY m.ROWID ASC
                 """,
-                (self.last_check_rowid, self.target),
+                (last_check_rowid, self.target),
             )
             rows = cur.fetchall()
             conn.close()
@@ -158,6 +164,7 @@ class IMessageBridge:
             return []
 
         messages = []
+        max_rowid = last_check_rowid
         for rowid, text, date_int, is_from_me, handle in rows:
             messages.append({
                 "rowid": rowid,
@@ -165,8 +172,10 @@ class IMessageBridge:
                 "date": date_int,
                 "handle": handle,
             })
-            if rowid > self.last_check_rowid:
-                self.last_check_rowid = rowid
+            max_rowid = max(max_rowid, int(rowid))
+
+        if max_rowid > last_check_rowid:
+            advance_consumer_cursor(self.cursor_name, max_rowid)
 
         return messages
 
@@ -295,10 +304,13 @@ class IMessageBridge:
         loop = asyncio.get_event_loop()
 
         # Init : on saute tous les messages déjà présents au démarrage
-        self.last_check_rowid = await loop.run_in_executor(None, self._max_rowid)
+        max_rowid = await loop.run_in_executor(None, self._max_rowid)
+        start_rowid = await loop.run_in_executor(
+            None, initialize_consumer_cursor, self.cursor_name, max_rowid
+        )
         logger.info(
             f"[iMessage] Polling démarré (interval={interval}s, "
-            f"start_rowid={self.last_check_rowid}, target={self.target}, "
+            f"start_rowid={start_rowid}, target={self.target}, "
             f"prefix={(config.IMESSAGE_PREFIX or '∅')!r})"
         )
 
@@ -306,7 +318,7 @@ class IMessageBridge:
         while self.running:
             try:
                 messages = await loop.run_in_executor(None, self._get_new_messages)
-                # `_get_new_messages` met déjà à jour `self.last_check_rowid`
+                # `_get_new_messages` avance le curseur persistant AVANT traitement
                 # AVANT qu'on lance le traitement → garantit qu'un message ne
                 # peut pas être retraité même si le LLM met du temps à répondre.
                 for msg in messages:
@@ -314,14 +326,12 @@ class IMessageBridge:
                     rowid = int(msg["rowid"])
                     # Garde-fou anti-boucle : ne traite jamais deux fois le même ROWID.
                     if rowid in self.processed_rowids:
-                        self.last_check_rowid = max(self.last_check_rowid, rowid)
                         logger.debug("[iMessage] rowid déjà traité — skip (%s)", rowid)
                         continue
                     self.processed_rowids.add(rowid)
                     if len(self.processed_rowids) > self._processed_rowids_max:
                         # Conserver une fenêtre glissante des derniers rowids.
                         self.processed_rowids = set(sorted(self.processed_rowids)[-self._processed_rowids_max:])
-                    self.last_check_rowid = max(self.last_check_rowid, rowid)
                     logger.info(
                         f"[iMessage] ← {msg.get('handle')} (rowid={msg['rowid']}) : "
                         f"{text[:80]!r}"
@@ -348,7 +358,10 @@ class IMessageBridge:
                 logger.exception(f"[iMessage] Erreur dans la boucle : {e}")
 
             try:
-                logger.debug("[iMessage] Poll cycle — last_rowid=%s", self.last_check_rowid)
+                logger.debug(
+                    "[iMessage] Poll cycle — last_rowid=%s",
+                    get_consumer_cursor(self.cursor_name),
+                )
                 await asyncio.sleep(interval)
             except asyncio.CancelledError:
                 break

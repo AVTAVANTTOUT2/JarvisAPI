@@ -16,7 +16,7 @@ Une dette technique est un choix d'implémentation qui sacrifie la qualité long
 | TD-001 | God object main.py (7194 lignes) | CRITIQUE | main.py | 24h | Phase 4 |
 | TD-002 | God object database/__init__.py (4169 lignes) | CRITIQUE | database/__init__.py | 8h | Phase 2 |
 | TD-003 | PWA sans LockGate | CRITIQUE | pwa/ | 16h | Phase 6 |
-| TD-004 | 3 curseurs ROWID indépendants | MAJEURE | 3 fichiers | 2h | Phase 1 |
+| TD-004 | 3 curseurs ROWID indépendants | RÉSOLUE | `imessage_cursor.py` | 0h | Phase 1 — 11/07/2026 |
 | TD-005 | 19 appels directs create_notification() | MAJEURE | 19 fichiers | 8h | Phase 3 |
 | TD-006 | 2 frontends, 0 composants partagés | MAJEURE | web/ + pwa/ | 40h | Phase 6 |
 | TD-007 | 25+ connexions directes chat.db | MAJEURE | 25+ fichiers | 24h | Phase 5 |
@@ -33,6 +33,7 @@ Une dette technique est un choix d'implémentation qui sacrifie la qualité long
 |---|---|---|
 | SQLite sans `busy_timeout` | `PRAGMA busy_timeout = 5000` sur chaque connexion applicative | 11/07/2026 |
 | Race condition sur le set WebSocket | Verrou sur les mutations et snapshot avant diffusion | 11/07/2026 |
+| Curseurs ROWID uniquement en mémoire | Registre SQLite central avec offset monotone par consommateur | 11/07/2026 |
 
 ## Comment identifier une nouvelle dette
 
