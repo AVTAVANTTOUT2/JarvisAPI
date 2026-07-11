@@ -103,7 +103,7 @@ JarvisAPI/
 │   └── jarvis_agent.py        ← Agent distant MacBook
 │
 ├── jarvis/                     ← Package Dual-LLM privacy
-│   ├── event_bus.py           ← Event bus (existe mais 0 abonné)
+│   ├── event_bus.py           ← Event bus (usage minimal : 1 abonné debug)
 │   ├── message_intelligence.py← Intelligence messages
 │   └── ...
 │
@@ -141,7 +141,7 @@ JarvisAPI/
 │
 ├── tv/                         ← Dashboard TV War Room
 ├── prompts/                    ← System prompts (.txt)
-├── tests/                      ← 486 tests (53 fichiers) pytest
+├── tests/                      ← 523 fonctions de test (55 fichiers) pytest
 ├── data/                       ← jarvis.db, uploads, outputs
 └── Architecture/               ← CE RAPPORT
 ```
@@ -189,7 +189,7 @@ graph TB
 | `config.py` | Tout le monde | OK — feuille, pas de dépendance |
 | `llm.py` | Agents, scripts, main | OK |
 | `database/__init__.py` | Agents, scripts, main, integrations | God object (4169 lignes, 23 domaines) |
-| `jarvis/event_bus.py` | Agents, main | Existe mais 0 abonné |
+| `jarvis/event_bus.py` | Agents, main | Usage minimal : 1 abonné debug, pas encore de consommateurs métiers |
 | `main.py` | supervisor, jarvis_daemon (lazy) | **Monolithe** — 42 imports, 183 routes |
 | `agents/orchestrator.py` | main | OK |
 | `scripts/jarvis_daemon.py` | main (lazy) | **Cycle** avec main.py |

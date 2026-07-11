@@ -20,7 +20,7 @@ Une dette technique est un choix d'implémentation qui sacrifie la qualité long
 | TD-005 | 19 appels directs create_notification() | MAJEURE | 19 fichiers | 8h | Phase 3 |
 | TD-006 | 2 frontends, 0 composants partagés | MAJEURE | web/ + pwa/ | 40h | Phase 6 |
 | TD-007 | 25+ connexions directes chat.db | MAJEURE | 25+ fichiers | 24h | Phase 5 |
-| TD-008 | Event bus inutilisé | MAJEURE | jarvis/event_bus.py | 16h | Phase 3 |
+| TD-008 | Event bus sans consommateurs métiers | MAJEURE | jarvis/event_bus.py | 16h | Phase 3 |
 | TD-009 | 4 conversions Apple timestamp | MODÉRÉE | 4 fichiers | 1h | Phase 5 |
 | TD-010 | Cycle main↔daemon | MODÉRÉE | 2 fichiers | 4h | Phase 1 |
 | TD-011 | 42 imports dans main.py | MODÉRÉE | main.py | 24h | Phase 4 |

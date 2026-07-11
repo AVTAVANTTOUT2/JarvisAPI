@@ -67,7 +67,7 @@
 - **Conséquence** : Les types `TaskItem`, `NotificationItem`, `Place` sont redéfinis dans chaque front avec des champs différents. Les wrappers API sont distincts. Tout bug corrigé dans un frontend doit être reporté manuellement dans l'autre.
 - **Correction** : App Next.js 15 unifiée responsive (ADR-007)
 
-### P1-4 — Event bus existant mais inutilisé (0 abonné)
+### P1-4 — Event bus existant mais sans consommateurs métiers
 
 - **Gravité** : MAJEURE
 - **Fichiers** : `jarvis/event_bus.py`, 19 émetteurs directs de `create_notification()`
@@ -196,7 +196,7 @@ Fonctions `formatTime()`, `relativeDate()`, `formatDue()` dupliquées entre les 
 | P1-1 | main.py monolithe | MAJEURE | 3 jours | Phase 4 |
 | P1-2 | database god object | MAJEURE | 1 jour | Phase 2 |
 | P1-3 | Deux frontends | MAJEURE | 5 jours | Phase 6 |
-| P1-4 | Event bus inutilisé | MAJEURE | 2 jours | Phase 3 |
+| P1-4 | Event bus à usage minimal (1 abonné debug) | MAJEURE | 2 jours | Phase 3 |
 | P1-5 | 25+ lecteurs chat.db | MAJEURE | 3 jours | Phase 5 |
 | P1-6 | Cycle main↔daemon | MAJEURE | 4 heures | Phase 1 |
 | P2-1 | 19 create_notification | MODÉRÉE | 1 jour | Phase 3 |

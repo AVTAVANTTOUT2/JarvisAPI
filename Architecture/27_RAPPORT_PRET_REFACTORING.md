@@ -7,7 +7,7 @@
 
 ## Le dossier d'architecture est-il complet ?
 
-**Oui.** Le dossier `Architecture/` contient désormais **28 documents** couvrant tous les aspects de la gouvernance du projet.
+**Oui.** Le dossier `Architecture/` contient désormais les **29 documents numérotés 00 à 28**, l'index et les documents des sous-répertoires, soit **35 fichiers Markdown** au total.
 
 | Catégorie | Documents | Nombre |
 |---|---|---|
@@ -24,7 +24,7 @@
 **Aucune zone majeure.** Approfondissements possibles dans le futur :
 
 - Diagrammes de séquence détaillés par flux (`diagrams/`)
-- Documentation exhaustive des 174 tests existants
+- Documentation exhaustive des 523 fonctions de test actuellement déclarées
 - Profilage de performance avant/après benchmarks
 - Plan de reprise après sinistre complet
 

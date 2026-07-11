@@ -24,7 +24,7 @@ Le dossier `Architecture/` reflète fidèlement l'état du code **avec des écar
 | ~70 fichiers frontend | 39 (web/) + 31 (pwa/) = 70 | ✅ Exact |
 | PWA sans LockGate | **Confirmé** — aucun composant auth dans pwa/ | ✅ Documenté comme P0-1 |
 | Event bus « inutilisé » | 1 abonné (`subscribe()`), 18 `emit()` | ⚠️ Corrigé — « usage minimal » |
-| 486 fonctions de test (53 fichiers) | Vérifié | ⚠️ Corrigé (était « 174 tests ») |
+| 523 fonctions de test (55 fichiers) | Vérifié statiquement | ⚠️ Corrigé (était « 174 tests », puis 486/53) |
 
 ## 2. Composants cibles (n'existent PAS encore — normal)
 
@@ -66,9 +66,9 @@ Tous les diagrammes sont cohérents avec leur contexte (actuel vs cible).
 | Document | Avant | Après |
 |---|---|---|
 | INDEX.md, 01_CARTOGRAPHIE.md, 03_AUDIT_TECHNIQUE.md, 19_VALIDATION_FINALE.md | « 44 tables » | **45 tables** |
-| Plusieurs documents | « 174 tests » | **486 fonctions de test, 53 fichiers** |
+| Plusieurs documents | « 174 tests » ou « 486 fonctions / 53 fichiers » | **523 fonctions de test, 55 fichiers** |
 | Plusieurs documents | « Event bus : 0 abonné » | **« Event bus : usage minimal (1 abonné debug), sera activé en Phase 3 »** |
-| INDEX.md | « 28 documents » (avant réorg) | **« 32 documents + 3 sous-répertoires »** |
+| INDEX.md | Comptages historiques variables | **35 fichiers Markdown + 3 sous-répertoires** |
 
 ### Pas de contradiction sur les composants cibles
 Aucun document ne prétend que `apple_data.py`, `queue_engine.py`, `ai_service.py`, `pipeline.py`, ou `/health` existent déjà. Tous sont clairement identifiés comme « architecture cible » ou « Phase X ».
@@ -120,9 +120,9 @@ Aucun document ne prétend que `apple_data.py`, `queue_engine.py`, `ai_service.p
 
 | Document | Correction |
 |---|---|
-| INDEX.md | 44 → 45 tables, 174 → 486/53, « 0 abonné » → « usage minimal » |
-| 01_CARTOGRAPHIE.md | 44 → 45 tables, 174 → 486 tests/53 fichiers |
-| 03_AUDIT_TECHNIQUE.md | 44 → 45 tables, 174 → 486 tests |
+| INDEX.md | 44 → 45 tables, métriques de tests actualisées, « 0 abonné » → « usage minimal » |
+| 01_CARTOGRAPHIE.md | 44 → 45 tables, métriques de tests actualisées |
+| 03_AUDIT_TECHNIQUE.md | 44 → 45 tables, métriques de tests actualisées |
 | 19_VALIDATION_FINALE.md | 44 → 45 tables |
 | diagrams/README.md | Créé — placeholder |
 | audit/README.md | Créé — placeholder |

@@ -55,7 +55,7 @@
 
 ---
 
-## ADR-005 — Event bus inutilisé
+## ADR-005 — Event bus sans consommateurs métiers
 
 **Problème** : jarvis/event_bus.py existe mais 0 événement émis, 0 handler enregistré.
 
@@ -136,7 +136,7 @@
 | 002 | 3 curseurs ROWID | Curseur unique SQLite | 2h | Aucun |
 | 003 | Race WS set | Lock + copie défensive | 15min | Aucun |
 | 004 | SQLite busy | busy_timeout=5000 | 5min | Aucun |
-| 005 | Event bus inutilisé | Émission depuis DB | 2j | ADR-009 |
+| 005 | Event bus à usage minimal | Émission depuis DB | 2j | ADR-009 |
 | 006 | 25+ lecteurs chat.db | AppleDataService | 3j | ADR-002 |
 | 007 | Deux frontends | App Next.js unifiée | 5j | ADR-001 |
 | 008 | main.py monolithe | Routeurs par domaine | 3j | ADR-009 |

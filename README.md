@@ -111,7 +111,7 @@ Trois commits orphelins de `claude/workflow-project-improvements-yknzqs`, jamais
               ┌─────▼─────┐      ┌──────▼──────┐      ┌─────▼─────┐
               │Orchestrator│ ───▶ │ 6 agents    │      │  SQLite   │
               │(classif.)  │      │ info school │      │ jarvis.db │
-              └────────────┘      │ produc coach│      │ 44 tables │
+              └────────────┘      │ produc coach│      │ 45 tables │
                                   │ journal mem.│      └───────────┘
                                   └─────────────┘
         LLM : DeepSeek API (fast = classification/triage, main = raisonnement,
@@ -243,7 +243,7 @@ python main.py
 
 ### Auth
 
-La PWA partage la **même origine HTTP** que le backend — le cookie `jarvis_session` (SameSite=Strict) est transmis automatiquement. Aucune configuration supplémentaire. Quand l'utilisateur se connecte sur `/m/`, le LockGate de l'app desktop est déjà actif.
+La PWA partage la **même origine HTTP** que le backend : le cookie `jarvis_session` (SameSite=Strict) est donc transmis automatiquement. En revanche, la PWA ne possède pas encore son propre `LockGate` : un téléphone disposant déjà d'une session valide accède directement à `/m/`. Ce point de sécurité est suivi comme **P0-1** dans `Architecture/02_ANALYSE_PROBLEMES.md` et sera corrigé par l'ADR-001.
 
 ### Installation sur l'écran d'accueil (iOS/Android)
 
@@ -375,13 +375,13 @@ JarvisAPI/
 ├── web/                  # SPA desktop React/Vite  → web/dist servi par FastAPI
 ├── pwa/                  # PWA mobile Next.js (proxy)
 ├── tv/                   # dashboard TV War Room (port 5174)
-└── tests/                # 174 tests pytest
+└── tests/                # suite pytest backend (voir Architecture/06_PLAN_TESTS.md)
 ```
 
 ## Tests et CI
 
 ```bash
-python -m pytest tests/ jarvis/tests agents/devagent -q   # 174 tests
+python -m pytest tests/ jarvis/tests agents/devagent -q   # suite backend complète
 cd web && pnpm run typecheck && pnpm run build             # front
 ```
 

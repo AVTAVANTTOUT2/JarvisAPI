@@ -77,7 +77,7 @@
 │  Agents LLM        │ 7 agents + orchestrateur            │
 │  Jobs schedulés    │ 29 (APScheduler)                    │
 │  Démons            │ 5 (screen, audio, email, imessage)  │
-│  Tests             │ 174 tests pytest                    │
+│  Tests             │ 523 fonctions de test, 55 fichiers  │
 ├─────────────────────────────────────────────────────────┤
 │  God objects       │ main.py (7 194 lignes, 40+ resp.)   │
 │                    │ database/__init__.py (4 169 lignes)  │
@@ -214,7 +214,7 @@ Chaque phase est **indépendante**, **réversible**, **testée**, et **sans inte
 - [ ] Validation par l'utilisateur
 - [ ] Début de l'implémentation (Phase 1)
 
-**Dossier Architecture/ : 31 documents + 3 sous-répertoires — source de vérité officielle du projet**
+**Dossier Architecture/ : 35 fichiers Markdown + 3 sous-répertoires — source de vérité officielle du projet**
 
 **Prochaine étape** : validation de ce dossier, puis lancement de la Phase 1 (Quick Wins P0 — 1 jour).
 
