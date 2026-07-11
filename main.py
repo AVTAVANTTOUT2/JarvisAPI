@@ -59,6 +59,12 @@ from agents.display_text import (
     strip_leading_emotion,
 )
 from jarvis.event_bus import JarvisEvent, event_bus
+from websocket_registry import (
+    add_websocket,
+    broadcast_ws,
+    connected_ws,
+    remove_websocket,
+)
 
 # Audio : STT (ElevenLabs Scribe) + TTS (ElevenLabs / Edge).
 # Chargement conditionnel — l'absence d'audio ne doit pas empêcher le serveur de tourner.
@@ -768,8 +774,6 @@ def _setup_frontend(app: FastAPI) -> None:
 
 # ── WebSocket broadcast (audio daemon → tous les clients) ────────────────────
 
-connected_ws: set[WebSocket] = set()
-
 # Session vocale persistante : à la reconnexion dans la fenêtre de grâce
 # (coupure réseau courte), la même conversation reprend — le contexte survit.
 _ws_last_session: dict[str, Any] = {"conversation_id": None, "closed_at": 0.0, "ws": None}
@@ -798,17 +802,6 @@ def _resume_or_create_conversation(now: float | None = None) -> tuple[int, bool]
             logger.info("[ws] Reprise de la conversation #%s (coupure < %ds)", prev_id, grace)
             return prev_id, True
     return create_conversation(agent="orchestrator"), False
-
-
-async def broadcast_ws(event: dict[str, Any]) -> None:
-    """Envoie un event JSON à tous les clients WebSocket connectés."""
-    dead: set[WebSocket] = set()
-    for ws in connected_ws:
-        try:
-            await ws.send_json(event)
-        except Exception:
-            dead.add(ws)
-    connected_ws -= dead
 
 
 async def _auto_pull_ollama(model: str) -> None:
@@ -6695,7 +6688,7 @@ async def websocket_endpoint(ws: WebSocket):
 
     await ws.accept()
     logger.info("WS client connecté")
-    connected_ws.add(ws)
+    await add_websocket(ws)
 
     conversation_id = None
     conversation_mode = False  # ancien flux (conversation_audio + fragments)
@@ -7108,7 +7101,7 @@ async def websocket_endpoint(ws: WebSocket):
     except Exception as e:
         logger.exception("Erreur WS : %s", e)
     finally:
-        connected_ws.discard(ws)
+        await remove_websocket(ws)
         # Fenêtre de grâce : une reconnexion rapide reprendra cette conversation.
         if conversation_id:
             import time as _time

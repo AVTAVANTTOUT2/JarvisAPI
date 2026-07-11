@@ -27,6 +27,13 @@ Une dette technique est un choix d'implémentation qui sacrifie la qualité long
 | TD-012 | Service Worker dupliqué | MINEURE | web/ + pwa/ | 2h | Phase 6 |
 | TD-013 | Dates relatives dupliquées | MINEURE | 2 frontends | 1h | Phase 6 |
 
+## Dettes critiques remboursées
+
+| Description | Résolution | Date |
+|---|---|---|
+| SQLite sans `busy_timeout` | `PRAGMA busy_timeout = 5000` sur chaque connexion applicative | 11/07/2026 |
+| Race condition sur le set WebSocket | Verrou sur les mutations et snapshot avant diffusion | 11/07/2026 |
+
 ## Comment identifier une nouvelle dette
 
 Lors d'une code review, si l'un des critères suivants est détecté, une entrée de dette DOIT être créée :

@@ -19,6 +19,8 @@ Phase 6 → Frontend unifié + SDK auth                   Jour 11-15 [ADR-001, A
 
 ### 1.1 SQLite busy_timeout (ADR-004)
 
+**État** : ✅ Implémenté le 11 juillet 2026 (`PRAGMA busy_timeout = 5000`) — test ciblé ajouté.
+
 | | |
 |---|---|
 | **Fichier** | `database/__init__.py`, fonction `get_connection()` |
@@ -30,10 +32,12 @@ Phase 6 → Frontend unifié + SDK auth                   Jour 11-15 [ADR-001, A
 
 ### 1.2 Race condition WebSocket (ADR-003)
 
+**État** : ✅ Implémenté le 11 juillet 2026 (verrou sur les mutations + snapshot défensif, sans verrou pendant les I/O) — test ciblé ajouté.
+
 | | |
 |---|---|
-| **Fichier** | `main.py`, fonctions `broadcast_ws()` et `websocket_endpoint()` |
-| **Changement** | Ajouter `asyncio.Lock` + copie défensive du set avant itération |
+| **Fichiers** | `websocket_registry.py`, `main.py` (`websocket_endpoint()`) |
+| **Changement** | Isoler le registre, ajouter `asyncio.Lock` + copie défensive du set avant itération |
 | **Impact** | Aucun changement d'API. WebSocket continue normalement. |
 | **Test** | `python -m pytest tests/ -q -k "websocket"` |
 | **Critère de validation** | Aucun `RuntimeError: Set changed size during iteration` |
