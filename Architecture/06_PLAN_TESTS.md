@@ -25,7 +25,7 @@
 
 1. Détection mobile (`_is_mobile_device`) — pas de tests
 2. Race condition WebSocket — pas de tests
-3. SQLite `busy_timeout` — pas de test de concurrence
+3. ~~SQLite `busy_timeout` — pas de test de concurrence~~ ✅ 13 tests dans `tests/test_sqlite_busy.py` (12/07/2026)
 4. Curseur ROWID unique — pas de test d'intégration iMessage
 5. PWA LockGate — pas de test de flux auth mobile
 6. Event bus — pas de test d'émission/consommation
@@ -46,7 +46,7 @@
 |---|---|
 | `tests/test_mobile_detection.py` | `_is_mobile_device` avec 20+ User-Agents (iPhone, Android, tablette, desktop) |
 | `tests/test_websocket_race.py` | Simulation déconnexion pendant broadcast |
-| `tests/test_sqlite_busy.py` | Écritures concurrentes avec `busy_timeout` |
+| `tests/test_sqlite_busy.py` | ✅ Écritures concurrentes avec `busy_timeout` (13 tests, 12/07/2026) |
 | `tests/test_rowid_cursor.py` | Intégration curseur unique |
 
 ### Phase 2 (accompagne Database modulaire)

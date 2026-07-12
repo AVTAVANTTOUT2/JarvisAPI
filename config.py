@@ -75,6 +75,7 @@ IMESSAGE_DAEMON_PORT = int(_get("IMESSAGE_DAEMON_PORT", "8193"))
 
 # ── Système ─────────────────────────────────────────────────
 DB_PATH = _get("DB_PATH", "./data/jarvis.db")
+SQLITE_BUSY_TIMEOUT_MS = int(_get("SQLITE_BUSY_TIMEOUT_MS", "5000"))
 UPLOAD_DIR = _get("UPLOAD_DIR", "./data/uploads")
 SCHOOL_OUTPUT_DIR = _get("SCHOOL_OUTPUT_DIR", "./data/outputs/school")
 DEV_PROJECTS_ROOT = _get("DEV_PROJECTS_ROOT", str(BASE_DIR / "dev_projects"))

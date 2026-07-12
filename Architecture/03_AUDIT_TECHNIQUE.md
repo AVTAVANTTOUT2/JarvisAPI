@@ -157,7 +157,7 @@
 | Paramètre | Valeur | Évaluation |
 |---|---|---|
 | Mode journal | WAL | ✅ Lectures concurrentes OK |
-| busy_timeout | ❌ Non configuré | CRITIQUE |
+| busy_timeout | ✅ 5000 ms (configurable via `SQLITE_BUSY_TIMEOUT_MS`) | Corrigé 12/07/2026 |
 | Foreign keys | ✅ ON | |
 | FTS5 | ✅ | Recherche plein-texte |
 | Sauvegardes | ✅ VACUUM INTO quotidien | Rotation configurable |
@@ -177,7 +177,7 @@
 | Risque | Mitigation |
 |---|---|
 | Corruption WAL | ✅ Sauvegardes quotidiennes |
-| Écritures concurrentes | ❌ Pas de busy_timeout |
+| Écritures concurrentes | ✅ busy_timeout = 5000 ms (configurable) |
 | Dédoublonnage | ✅ Contraintes UNIQUE multiples |
 | Cohérence référentielle | ✅ Foreign keys activées |
 
