@@ -63,8 +63,8 @@ from jarvis.event_bus import JarvisEvent, event_bus
 from websocket_registry import (
     add_websocket,
     broadcast_ws,
-    connected_ws,
     remove_websocket,
+    ws_is_connected,
 )
 
 # Audio : STT (ElevenLabs Scribe) + TTS (ElevenLabs / Edge).
@@ -798,7 +798,7 @@ def _resume_or_create_conversation(now: float | None = None) -> tuple[int, bool]
         closed_at = _ws_last_session.get("closed_at") or 0.0
         prev_ws = _ws_last_session.get("ws")
         recently_closed = closed_at > 0.0 and (now - closed_at) < grace
-        dropped = closed_at == 0.0 and prev_ws is not None and prev_ws not in connected_ws
+        dropped = closed_at == 0.0 and prev_ws is not None and not ws_is_connected(prev_ws)
         if recently_closed or dropped:
             logger.info("[ws] Reprise de la conversation #%s (coupure < %ds)", prev_id, grace)
             return prev_id, True

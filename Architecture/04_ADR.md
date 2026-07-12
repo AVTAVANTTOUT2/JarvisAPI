@@ -43,6 +43,14 @@
 
 **Recommandation** : Solution A — corrige en 15 minutes, zéro risque.
 
+**Statut** : ✅ Implémenté (12/07/2026) — Solution A retenue.
+
+**Implémentation** : `websocket_registry.py` — verrou `asyncio.Lock` protège
+les mutations et les snapshots ; le verrou n'est jamais maintenu pendant un
+`send_json()`. `main.py` n'accède plus directement au set `connected_ws`
+(fonctions `ws_is_connected`, `ws_count`). 12 tests dans
+`tests/test_websocket_registry.py`.
+
 ---
 
 ## ADR-004 — SQLite sans busy_timeout

@@ -1,7 +1,7 @@
 # 06 — Plan de Tests
 
 **Date** : 11 juillet 2026
-**Couverture actuelle** : 533 fonctions de test déclarées dans 59 fichiers (backend uniquement). La collecte complète doit être exécutée avec la version Python supportée par le projet.
+**Couverture actuelle** : 516 tests passants dans 60 fichiers (backend uniquement, 12/07/2026). La collecte complète doit être exécutée avec la version Python supportée par le projet.
 
 ## Stratégie
 
@@ -24,7 +24,7 @@
 ### P0 — Aucun test existant
 
 1. Détection mobile (`_is_mobile_device`) — pas de tests
-2. Race condition WebSocket — pas de tests
+2. ~~Race condition WebSocket — pas de tests~~ ✅ 12 tests dans `tests/test_websocket_registry.py` (12/07/2026)
 3. ~~SQLite `busy_timeout` — pas de test de concurrence~~ ✅ 13 tests dans `tests/test_sqlite_busy.py` (12/07/2026)
 4. Curseur ROWID unique — pas de test d'intégration iMessage
 5. PWA LockGate — pas de test de flux auth mobile
@@ -45,7 +45,7 @@
 | Fichier | Contenu |
 |---|---|
 | `tests/test_mobile_detection.py` | `_is_mobile_device` avec 20+ User-Agents (iPhone, Android, tablette, desktop) |
-| `tests/test_websocket_race.py` | Simulation déconnexion pendant broadcast |
+| `tests/test_websocket_registry.py` | ✅ Registre WS : concurrence, snapshots, sockets mortes (12 tests, 12/07/2026) |
 | `tests/test_sqlite_busy.py` | ✅ Écritures concurrentes avec `busy_timeout` (13 tests, 12/07/2026) |
 | `tests/test_rowid_cursor.py` | Intégration curseur unique |
 

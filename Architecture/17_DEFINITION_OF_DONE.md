@@ -27,7 +27,7 @@ Chaque phase doit satisfaire AU MINIMUM :
 ### Phase 1 — Quick Wins P0
 
 - [x] `busy_timeout` configuré → `PRAGMA busy_timeout` retourne 5000
-- [ ] Race condition WS → zéro `Set changed size during iteration` dans les logs
+- [x] Race condition WS → zéro `Set changed size during iteration` dans les logs (12/07/2026, 12 tests dans `tests/test_websocket_registry.py`)
 - [x] Curseurs ROWID → registre central persistant, offsets monotones nommés, aucun ancien attribut mémoire
 - [x] Cycle main↔daemon → aucun import de `main` dans `jarvis_daemon.py` ou `audio_daemon.py`
 - [x] `pipeline.py` existe, est configuré par `main.py` et consommé par les deux daemons

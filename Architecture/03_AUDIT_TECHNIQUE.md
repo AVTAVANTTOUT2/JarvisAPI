@@ -59,7 +59,7 @@
 | Reconnexion | ✅ Exponentielle (côté client) |
 | Types de messages | ✅ Texte, binaire (audio), action_confirm |
 | Streaming | ✅ SSE → chunks progressifs |
-| Broadcast | ⚠️ Race condition (set modifié pendant itération) |
+| Broadcast | ✅ Lock + snapshot (registre protégé, 12 tests) |
 | Gestion déconnexion | ✅ Nettoyage du set |
 | Reprise session | ✅ Grace period de 3 min après coupure |
 
