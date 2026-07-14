@@ -54,6 +54,11 @@ jobs:
           print(f"{len(set(mods))} modules importés sans erreur")
           EOF
 
+      - name: Configurer Git pour les dépôts temporaires des tests
+        run: |
+          git config --global user.name "JarvisAPI CI"
+          git config --global user.email "jarvisapi-ci@users.noreply.github.com"
+
       - name: pytest
         run: python -m pytest tests/ jarvis/tests agents/devagent -q
 

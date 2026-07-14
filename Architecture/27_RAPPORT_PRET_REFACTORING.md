@@ -84,4 +84,4 @@ Phase 6 → dépend de Phase 1 + Phase 3 + Phase 5
 
 **Le dossier Architecture/ est prêt. Il constitue désormais la source de vérité officielle du projet JARVIS. Aucune modification du code ne doit contredire cette documentation.**
 
-**Prochaine action : Phase 1 — Quick Wins P0 validée le 14/07/2026. Phase 2 — Database modulaire (en cours).**
+**Phase 1 — Quick Wins P0 validée le 14/07/2026. Prochaine action : poursuivre la Phase 2 — Database modulaire (en cours).**
