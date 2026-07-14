@@ -110,7 +110,10 @@ jobs:
           cache-dependency-path: frontend/pnpm-lock.yaml
 
       - name: Installer les dépendances
-        run: pnpm install --frozen-lockfile
+        run: |
+          npm --prefix ../pwa ci
+          pnpm --dir ../web install --frozen-lockfile
+          pnpm install --frozen-lockfile
 
       - name: Tests, typecheck et build Next.js
         run: pnpm test && pnpm typecheck && pnpm build
