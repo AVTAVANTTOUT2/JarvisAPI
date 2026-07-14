@@ -1,7 +1,7 @@
 # 06 — Plan de Tests
 
 **Date** : 11 juillet 2026
-**Couverture actuelle** : 534 fonctions de test déclarées dans 59 fichiers (backend uniquement). La collecte complète doit être exécutée avec la version Python supportée par le projet.
+**Couverture actuelle** : 534 fonctions de test déclarées dans 59 fichiers (backend uniquement). Validation Python 3.12 du 14/07/2026 : 536 cas passés, 1 ignoré et 0 échec avec la commande backend complète.
 
 ## Stratégie
 
@@ -41,6 +41,8 @@
 ## Plan de création de tests
 
 ### Phase 1 — implémentée et validée
+
+Preuves exécutées le 14/07/2026 : 7 tests ciblés Phase 1 passants ; suite backend complète `tests/ jarvis/tests agents/devagent` à 536 passants et 1 ignoré ; GitHub Actions run #24 vert (backend et frontend).
 
 | Fichier | Contenu |
 |---|---|

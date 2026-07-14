@@ -62,7 +62,7 @@
 | # | Blocage | Résolution |
 |---|---|---|
 | 1 | **Couverture frontend limitée** | 18 tests Vitest couvrent l'offline web ; les composants et la PWA restent à couvrir en Phase 6. |
-| 2 | **CI automatisée à stabiliser** | GitHub Actions exécute les imports, pytest et le frontend sur chaque PR. Le sous-ensemble de dépendances CI doit rester aligné sur les imports applicatifs. |
+| 2 | **CI automatisée — ✅ STABILISÉE le 14/07/2026** | GitHub Actions run #24 : 139 modules importés, 536 tests backend passants, 1 ignoré, frontend Vitest/typecheck/build vert. Le sous-ensemble de dépendances CI doit rester aligné sur les imports applicatifs. |
 | 3 | **Dépendance au cookie jarvis_session pour l'auth PWA** | La Phase 6 créera le SDK auth partagé. En attendant, la PWA partage le cookie (même origine HTTP). |
 | 4 | **Manque de monitoring** | Le `/health` endpoint sera ajouté en Phase 3 (avec l'Event Bus). Pas bloquant pour commencer. |
 

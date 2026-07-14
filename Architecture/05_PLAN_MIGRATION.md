@@ -103,7 +103,7 @@ Phase 6 → Frontend unifié + SDK auth                   Jour 11-15 [ADR-001, A
 
 | | |
 |---|---|
-| **Test** | `python -m pytest tests/ -q` — suite complète |
+| **Test** | `python -m pytest tests/ jarvis/tests agents/devagent -q` — suite backend complète |
 | **Critère** | Même nombre de tests passants qu'avant. Aucun import cassé. |
 | **Réversibilité** | `git revert` |
 

@@ -125,7 +125,7 @@ Tous les diagrammes sont cohérents avec leur contexte (actuel vs cible).
 | 03_AUDIT_TECHNIQUE.md | Configuration SQLite, WebSocket et curseurs actualisée |
 | 19_VALIDATION_FINALE.md | Risques Phase 1, CI et métriques actualisés |
 | Documents Phase 1 | Statuts busy timeout, WebSocket, curseurs iMessage et pipeline actualisés au 14/07/2026 |
-| Plan de tests | 7 tests ciblés Phase 1 et 534 fonctions de test déclarées |
+| Plan de tests | 7 tests ciblés Phase 1 ; suite Python 3.12 complète : 536 passants, 1 ignoré ; 534 fonctions de test déclarées |
 | diagrams/README.md | Créé — placeholder |
 | audit/README.md | Créé — placeholder |
 
