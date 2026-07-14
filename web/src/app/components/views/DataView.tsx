@@ -8,8 +8,8 @@ import {
   Activity, CheckCircle, XCircle, Download, Shield, Layers, Zap,
   Mail, Calendar, Cloud, Smartphone, Bell, Mic, Volume2, Monitor, SlidersHorizontal,
 } from 'lucide-react';
-import { api } from '@/services/api';
-import { formatRelativeTime } from '@/app/lib/timeFormat';
+import { api } from '@unified/lib/api';
+import { formatRelativeTime } from '@desktop/app/lib/timeFormat';
 
 // ── Types ─────────────────────────────────────────────────────
 

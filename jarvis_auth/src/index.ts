@@ -1,0 +1,6 @@
+export { AuthClient, AuthError, authClient } from './client'
+export type { AuthClientOptions, AuthStatus } from './client'
+export { LockGate } from './LockGate'
+export type { LockGateProps } from './LockGate'
+export { useLockGate } from './useLockGate'
+export type { LockGateState, UseLockGateOptions } from './useLockGate'

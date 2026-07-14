@@ -3,8 +3,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { X, Clock, Navigation, MapPin, Hash } from 'lucide-react';
 
-import type { Place, LocationPoint, Trip, Visit } from '@/lib/map-types';
-import { jarvisFetch } from '@/lib/api';
+import type { Place, LocationPoint, Trip, Visit } from '@mobile/lib/map-types';
+import { jarvisFetch } from '@unified/lib/api';
 
 // ─────────────────────────────────────────────────────────────
 // Types

@@ -29,7 +29,7 @@ import {
   addHours,
 } from 'date-fns';
 import { fr } from 'date-fns/locale';
-import { api } from '@/services/api';
+import { api } from '@unified/lib/api';
 
 interface CalendarEvent {
   id: string;

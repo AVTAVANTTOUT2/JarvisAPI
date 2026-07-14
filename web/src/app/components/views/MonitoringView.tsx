@@ -16,9 +16,9 @@ import {
   Square, Volume2, Wifi, X, CheckCircle, XCircle,
   AlertCircle, Database, Bot, Search,
 } from 'lucide-react';
-import { api } from '@/services/api';
-import { ws } from '@/services/websocket';
-import { formatRelativeTime } from '@/app/lib/timeFormat';
+import { api } from '@unified/lib/api';
+import { ws } from '@desktop/services/websocket';
+import { formatRelativeTime } from '@desktop/app/lib/timeFormat';
 
 // ─────────────────────────────────────────────────────────────
 // Types

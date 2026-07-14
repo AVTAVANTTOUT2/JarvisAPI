@@ -4,6 +4,7 @@ import JarvisTerminal from "../components/mission/JarvisTerminal";
 import PipelineView from "../components/mission/PipelineView";
 import AgentBar from "../components/mission/AgentBar";
 import type { JarvisEvent } from "../types/mission";
+import { jarvisFetch } from "@unified/lib/api";
 import "./mission-control.css";
 
 export default function MissionControl() {
@@ -30,7 +31,7 @@ export default function MissionControl() {
     if (!prompt.trim() || sending) return;
     setSending(true);
     try {
-      await fetch("/api/mission/prompt", {
+      await jarvisFetch("/api/mission/prompt", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: prompt }),

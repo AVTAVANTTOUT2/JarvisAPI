@@ -4,8 +4,8 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { MapPin, Navigation, RefreshCw, Tag, X } from 'lucide-react';
 
-import { jarvisFetch } from '@/lib/api';
-import { isSecureContextForGeo, sendCurrentPosition } from '@/lib/geolocation';
+import { jarvisFetch } from '@unified/lib/api';
+import { isSecureContextForGeo, sendCurrentPosition } from '@mobile/lib/geolocation';
 
 // ─────────────────────────────────────────────────────────────
 // Types backend

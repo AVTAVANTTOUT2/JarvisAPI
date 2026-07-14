@@ -18,6 +18,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 logger = logging.getLogger("jarvis")
 
 
+FRONTEND_DIST = Path(
+    os.getenv("FRONTEND_DIST_DIR", str(BASE_DIR / "frontend" / "out"))
+).resolve()
 WEB_DIST = Path(os.getenv("WEB_DIST_DIR", str(BASE_DIR / "web" / "dist"))).resolve()
 WEB_STATIC = BASE_DIR / "web" / "static"
 WEB_TEMPLATES = BASE_DIR / "web" / "templates"
@@ -52,6 +55,7 @@ _PWA_PREFIX = "/m"
 _PWA_SEGMENTS = frozenset({
     "dashboard", "map", "mails", "tasks", "config", "voice",
 })
+_UNIFIED_SEGMENTS = _SPA_SEGMENTS | _PWA_SEGMENTS
 
 
 def _is_mobile_device(user_agent: str) -> bool:
@@ -176,8 +180,89 @@ def _setup_pwa_frontend(app: FastAPI) -> bool:
     return True
 
 
+def _setup_unified_frontend(app: FastAPI) -> bool:
+    """Monte le build Next.js 15 responsive lorsqu'il est disponible.
+
+    L'ancien build Vite reste le fallback de :func:`_setup_frontend` et la
+    PWA historique reste accessible sous ``/m/``. Le frontend unifié est
+    volontairement servi à la racine : il choisit son layout côté client.
+    """
+    index_file = FRONTEND_DIST / "index.html"
+    if not index_file.is_file():
+        return False
+
+    next_static = FRONTEND_DIST / "_next" / "static"
+    if not next_static.is_dir():
+        logger.warning("Frontend unifié: _next/static absent — build incomplet")
+        return False
+
+    app.mount(
+        "/_next/static",
+        StaticFiles(directory=str(next_static)),
+        name="unified_next_static",
+    )
+
+    icons_dir = FRONTEND_DIST / "icons"
+    if icons_dir.is_dir():
+        app.mount("/icons", StaticFiles(directory=str(icons_dir)), name="unified_icons")
+
+    for name, media_type in (
+        ("manifest.webmanifest", "application/manifest+json"),
+        ("sw.js", "application/javascript"),
+    ):
+        file_path = FRONTEND_DIST / name
+        if not file_path.is_file():
+            continue
+
+        def _make_root_file_route(fp: Path, mt: str):
+            async def _serve():
+                return FileResponse(fp, media_type=mt, headers={"Cache-Control": "no-cache"})
+            return _serve
+
+        app.add_api_route(
+            f"/{name}",
+            _make_root_file_route(file_path, media_type),
+            methods=["GET"],
+            include_in_schema=False,
+        )
+
+    @app.get("/", include_in_schema=False)
+    async def serve_unified_root():
+        return FileResponse(
+            index_file,
+            media_type="text/html; charset=utf-8",
+            headers={"Cache-Control": "no-cache"},
+        )
+
+    @app.get("/{segment}", include_in_schema=False)
+    async def serve_unified_segment(segment: str):
+        if segment not in _UNIFIED_SEGMENTS:
+            raise HTTPException(404)
+        route_index = FRONTEND_DIST / segment / "index.html"
+        return FileResponse(
+            route_index if route_index.is_file() else index_file,
+            media_type="text/html; charset=utf-8",
+            headers={"Cache-Control": "no-cache"},
+        )
+
+    @app.get("/{parent}/{child:path}", include_in_schema=False)
+    async def serve_unified_nested(parent: str, child: str):
+        if parent in ("api", "_next", "icons", "static", "upload", "m"):
+            raise HTTPException(404)
+        if parent not in _UNIFIED_SEGMENTS or child.startswith("api/"):
+            raise HTTPException(404)
+        return FileResponse(
+            index_file,
+            media_type="text/html; charset=utf-8",
+            headers={"Cache-Control": "no-cache"},
+        )
+
+    logger.info("Frontend unifié Next.js 15 : %s", FRONTEND_DIST)
+    return True
+
+
 def _setup_frontend(app: FastAPI) -> None:
-    """Sert le build Vite (`web/dist`) si présent, sinon Jinja legacy.
+    """Sert le frontend unifié, puis Vite ou Jinja en fallback.
 
     Si la PWA mobile est configurée (``PWA_ENABLED=true``) et que le build
     statique Next.js est présent dans ``PWA_DIR``, elle est montée sous
@@ -190,6 +275,10 @@ def _setup_frontend(app: FastAPI) -> None:
     pwa_available = False
     if config.PWA_ENABLED:
         pwa_available = _setup_pwa_frontend(app)
+
+    # ── Frontend responsive unifié (prioritaire) ────────────────
+    if _setup_unified_frontend(app):
+        return
 
     index_file = WEB_DIST / "index.html"
     if index_file.is_file():

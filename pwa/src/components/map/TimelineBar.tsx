@@ -3,7 +3,7 @@
 import { useRef, useEffect, useMemo, useState, useCallback } from 'react';
 import { ChevronLeft, ChevronRight, MapPin, Navigation } from 'lucide-react';
 
-import type { Visit, Trip } from '@/lib/map-types';
+import type { Visit, Trip } from '@mobile/lib/map-types';
 
 // ─────────────────────────────────────────────────────────────
 // Types

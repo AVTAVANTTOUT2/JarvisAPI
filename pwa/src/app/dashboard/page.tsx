@@ -14,11 +14,11 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import Link from 'next/link';
 
-import { BriefingCard } from '@/components/dashboard/BriefingCard';
-import { LocationWidget } from '@/components/dashboard/LocationWidget';
-import { BottomNav } from '@/components/layout/BottomNav';
-import { jarvisFetch } from '@/lib/api';
-import { parseBriefing } from '@/lib/briefing-parser';
+import { BriefingCard } from '@mobile/components/dashboard/BriefingCard';
+import { LocationWidget } from '@mobile/components/dashboard/LocationWidget';
+import { BottomNav } from '@mobile/components/layout/BottomNav';
+import { jarvisFetch } from '@unified/lib/api';
+import { parseBriefing } from '@mobile/lib/briefing-parser';
 
 // ─────────────────────────────────────────────────────────────
 // Types des reponses backend

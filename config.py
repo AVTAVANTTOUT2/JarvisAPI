@@ -392,6 +392,8 @@ PWA_DIR = _get("PWA_DIR", str(BASE_DIR / "pwa" / "out"))
 PWA_URL = _get("PWA_URL", "")
 # Répertoire du build web SPA (Vite) — utilisé comme fallback sur desktop
 WEB_DIST_DIR = _get("WEB_DIST_DIR", str(BASE_DIR / "web" / "dist"))
+# Frontend responsive unifié (Next.js 15) — prioritaire lorsqu'il est construit.
+FRONTEND_DIST_DIR = _get("FRONTEND_DIST_DIR", str(BASE_DIR / "frontend" / "out"))
 
 # ── Mapping modèles par agent ───────────────────────────────
 AGENT_MODELS = {

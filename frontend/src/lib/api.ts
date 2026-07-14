@@ -1,7 +1,26 @@
 /**
  * Service REST central — BASE vide : même origine (FastAPI prod) ou proxy Vite (/api → backend).
  */
-import type { ApiPerson, NotificationItem } from '@/app/types/jarvis'
+import type { ApiPerson, NotificationItem } from '@unified/types/jarvis'
+import type {
+  AppUsageRow,
+  AudioDaemonStatus,
+  AuthSession,
+  AuthStatus,
+  CalendarEvent,
+  ConversationDetail,
+  ConversationSearchResult,
+  ConversationSummary,
+  DeviceInfo,
+  LlmActionLog,
+  ScreenActivityRow,
+  ServiceInfo,
+  SupervisorStatus,
+  VoiceDebugTrace,
+  WeeklyStats,
+} from '@unified/types/api'
+
+export type * from '@unified/types/api'
 
 export const BASE = ''
 
@@ -17,9 +36,10 @@ export class ApiError extends Error {
 }
 
 /** Compat imports existants (`lib/api.ts`). */
-export const API_BASE = (import.meta.env.VITE_API_URL as string | undefined) || ''
+export const API_BASE = ''
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
+/** Point réseau unique pour les vues desktop, mobile et la file hors-ligne. */
+export function jarvisRawFetch(path: string, options?: RequestInit): Promise<Response> {
   const root = API_BASE.replace(/\/$/, '')
   const p = path.startsWith('/') ? path : `/${path}`
   const headers: HeadersInit = {
@@ -28,11 +48,18 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
       : {}),
     ...options?.headers,
   }
-  const res = await fetch(`${root}${p}`, { ...options, headers })
+  return fetch(`${root}${p}`, { ...options, credentials: 'include', headers })
+}
+
+async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const p = path.startsWith('/') ? path : `/${path}`
+  const res = await jarvisRawFetch(p, options)
   const text = await res.text()
   if (!res.ok) {
     if ((res.status === 401 || res.status === 428) && !p.startsWith('/api/auth/')) {
-      window.dispatchEvent(new CustomEvent('jarvis:auth-required'))
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('jarvis:auth-required'))
+      }
     }
     throw new ApiError(`API ${res.status}`, res.status, text)
   }
@@ -44,22 +71,21 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   }
 }
 
-export interface AuthStatus {
-  configured: boolean
-  authenticated: boolean
-  locked_out: boolean
-  lockout_seconds: number
-  auto_lock_minutes: number
-}
-
-export interface AuthSession {
-  id: number
-  created_at: string
-  expires_at: string
-  last_seen_at: string
-  user_agent: string
-  ip: string
-  current: boolean
+/** Appel générique partagé par les vues mobiles et desktop. */
+export async function jarvisFetch<T = unknown>(
+  path: string,
+  options?: RequestInit,
+): Promise<T> {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 15_000)
+  try {
+    return await request<T>(path, {
+      ...options,
+      signal: options?.signal ?? controller.signal,
+    })
+  } finally {
+    clearTimeout(timeout)
+  }
 }
 
 export const api = {
@@ -206,15 +232,7 @@ export const api = {
   uploadFile: async (file: File) => {
     const form = new FormData()
     form.append('file', file)
-    const root = API_BASE.replace(/\/$/, '')
-    const res = await fetch(`${root}/upload`, { method: 'POST', body: form })
-    const text = await res.text()
-    if (!res.ok) throw new ApiError(`Upload ${res.status}`, res.status, text)
-    try {
-      return JSON.parse(text)
-    } catch {
-      return { raw: text }
-    }
+    return request('/upload', { method: 'POST', body: form })
   },
 
   getBriefing: (kind = 'morning') =>
@@ -307,18 +325,10 @@ export const api = {
   uploadToConversation: async (convId: number, file: File) => {
     const form = new FormData()
     form.append('file', file)
-    const root = API_BASE.replace(/\/$/, '')
-    const res = await fetch(`${root}/api/conversations/${convId}/upload`, {
+    return request(`/api/conversations/${convId}/upload`, {
       method: 'POST',
       body: form,
     })
-    const text = await res.text()
-    if (!res.ok) throw new ApiError(`Upload ${res.status}`, res.status, text)
-    try {
-      return JSON.parse(text)
-    } catch {
-      return { raw: text }
-    }
   },
 
   // ── Audio Daemon ──
@@ -415,203 +425,6 @@ export const api = {
       `/api/supervisor/sub/${encodeURIComponent(id)}/${encodeURIComponent(action)}`,
       { method: 'POST' },
     ),
-}
-
-export interface DailyActivity {
-  date: string
-  msg_count: number
-  voice_count: number
-  tokens_in: number
-  tokens_out: number
-  cost: number
-}
-
-export interface WeeklyStats {
-  days: DailyActivity[]
-  change: {
-    messages_pct: number | null
-    voice_pct: number | null
-    interactions_pct: number | null
-    cost_pct: number | null
-  }
-  totals: {
-    msg_count: number
-    voice_count: number
-    tokens_in: number
-    tokens_out: number
-    cost: number
-  }
-}
-
-export interface ServiceInfo {
-  id: string
-  name: string
-  description: string
-  category: string
-  running: boolean
-  state?: string
-  can_control: boolean
-}
-
-export interface ConversationSummary {
-  id: number
-  title: string | null
-  started_at: string
-  last_message_at: string | null
-  message_count: number
-  pinned: boolean
-  archived: boolean
-  tags: string | null
-  last_message: string | null
-  msg_count: number
-}
-
-export interface ConversationMessage {
-  id: number
-  role: 'user' | 'assistant' | 'system'
-  content: string
-  agent?: string
-  model?: string
-  created_at: string
-}
-
-export interface ConversationDocument {
-  id: number
-  original_name: string
-  file_type: string
-  file_size: number
-  summary: string | null
-  created_at: string
-}
-
-export interface ConversationDetail extends ConversationSummary {
-  messages: ConversationMessage[]
-  documents: ConversationDocument[]
-}
-
-export interface ConversationSearchResult {
-  id: number
-  title: string | null
-  started_at: string
-  last_message_at: string | null
-  message_count: number
-  matching_message: string | null
-  match_date: string | null
-}
-
-export interface CalendarEvent {
-  id: string
-  title: string
-  start: string
-  end: string
-  location: string
-  notes: string
-  calendar: string
-}
-
-export interface LlmActionLog {
-  id: number
-  created_at: string
-  agent: string | null
-  action_type: string | null
-  payload: string | null
-  status: 'success' | 'error' | 'pending'
-  execution_time_ms: number | null
-}
-
-export interface DeviceInfo {
-  id: number
-  device_id: string
-  device_name: string
-  device_type: string
-  is_active: 0 | 1 | boolean
-  is_online: 0 | 1 | boolean
-  last_heartbeat: string | null
-  last_screen_at: string | null
-  ip_tailscale: string | null
-  auth_token?: string | null
-  created_at: string
-}
-
-export interface ScreenActivityRow {
-  id: number
-  device: string
-  app: string | null
-  activity: string | null
-  mood: string | null
-  notable: string | null
-  screenshot_hash: string | null
-  change_pct: number | null
-  created_at: string
-}
-
-export interface AppUsageRow {
-  id: number
-  device: string
-  app: string
-  date: string
-  duration_seconds: number
-  session_count: number
-  created_at: string
-}
-
-// ── Audio Daemon ──
-export interface AudioDaemonStatus {
-  enabled: boolean
-  state: 'idle' | 'wake_listening' | 'listening' | 'processing' | 'speaking' | 'error'
-  wake_word_enabled: boolean
-  continuous_mode: boolean
-  last_interaction: number
-  stt_engine: string
-  tts_engine: string
-  has_porcupine: boolean
-}
-
-// ── Supervisor ──
-
-export interface SupervisorService {
-  id: string
-  name: string
-  description: string
-  category: string
-  port: number
-  running: boolean
-  can_control: boolean
-  sub_services?: ServiceInfo[]
-}
-
-export interface SupervisorStatus {
-  supervisor: {
-    pid: number
-    port: number
-    uptime_s: number
-  }
-  services: SupervisorService[]
-}
-
-// ── Voice Debug ──
-export interface VoiceDebugTrace {
-  id: number
-  created_at: string
-  input_text: string
-  system_prompt: string
-  messages_json: string
-  raw_response: string
-  response_clean: string
-  emotion: string
-  action_json: string | null
-  model: string
-  tokens_in: number
-  tokens_out: number
-  cost: number
-  latency_stt_ms: number
-  latency_llm1_ms: number
-  latency_llm2_ms: number
-  latency_tts_ms: number
-  latency_total_ms: number
-  stt_engine: string
-  tts_engine: string
-  audio_duration_ms: number
 }
 
 /** URL WebSocket vers le superviseur (port 9000). */

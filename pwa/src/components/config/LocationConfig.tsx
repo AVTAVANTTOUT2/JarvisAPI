@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { MapPin, Navigation, ToggleLeft, ToggleRight } from 'lucide-react';
 
-import { jarvisFetch } from '@/lib/api';
+import { jarvisFetch } from '@unified/lib/api';
 import {
   checkPermission,
   getTrackingInfo,
@@ -13,7 +13,7 @@ import {
   requestPermission,
   startTracking,
   stopTracking,
-} from '@/lib/geolocation';
+} from '@mobile/lib/geolocation';
 
 // ─────────────────────────────────────────────────────────────
 // Types backend

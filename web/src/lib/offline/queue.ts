@@ -1,4 +1,5 @@
 import { getOfflineDB, type QueuedWrite } from './db'
+import { jarvisRawFetch } from '@unified/lib/api'
 
 /**
  * True si `error` vient d'un vrai échec réseau (hors ligne) plutôt que
@@ -66,7 +67,7 @@ export async function flushQueue(): Promise<{ ok: number; failed: number }> {
     const writes = await listQueuedWrites()
     for (const w of writes) {
       try {
-        const res = await fetch(w.path, {
+        const res = await jarvisRawFetch(w.path, {
           method: w.method,
           headers: w.body !== undefined ? { 'Content-Type': 'application/json' } : {},
           body: w.body !== undefined ? JSON.stringify(w.body) : undefined,

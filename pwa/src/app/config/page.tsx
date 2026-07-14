@@ -21,9 +21,9 @@ import {
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
-import { LocationConfig } from '@/components/config/LocationConfig';
-import { BottomNav } from '@/components/layout/BottomNav';
-import { jarvisFetch } from '@/lib/api';
+import { LocationConfig } from '@mobile/components/config/LocationConfig';
+import { BottomNav } from '@mobile/components/layout/BottomNav';
+import { jarvisFetch } from '@unified/lib/api';
 
 // ─────────────────────────────────────────────────────────────
 // Types

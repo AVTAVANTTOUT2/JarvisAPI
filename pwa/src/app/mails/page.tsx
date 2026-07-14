@@ -4,12 +4,12 @@ import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { AlertTriangle, Inbox, Mail as MailIcon, RefreshCw } from 'lucide-react';
 
-import { BottomNav } from '@/components/layout/BottomNav';
-import { MailFilterPills } from '@/components/mails/MailFilterPills';
-import { MailList } from '@/components/mails/MailList';
-import { MailSummaryBanner } from '@/components/mails/MailSummaryBanner';
-import type { MailFilter, NotificationItem, NotificationsResponse } from '@/components/mails/types';
-import { jarvisFetch } from '@/lib/api';
+import { BottomNav } from '@mobile/components/layout/BottomNav';
+import { MailFilterPills } from '@mobile/components/mails/MailFilterPills';
+import { MailList } from '@mobile/components/mails/MailList';
+import { MailSummaryBanner } from '@mobile/components/mails/MailSummaryBanner';
+import type { MailFilter, NotificationItem, NotificationsResponse } from '@mobile/components/mails/types';
+import { jarvisFetch } from '@unified/lib/api';
 
 interface BriefingResponse {
   kind: string;

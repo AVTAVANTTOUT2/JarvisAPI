@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState, type ElementType } from 'react';
 import { TrendingUp, TrendingDown, MessageSquare, MapPin, Users, Activity, Clock, ArrowUpRight, Zap, Eye, Monitor, Laptop, Smartphone, Headphones } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from 'recharts';
-import { api } from '@/services/api';
-import type { ApiPerson, NotificationItem } from '@/app/types/jarvis';
-import type { DeviceInfo, AudioDaemonStatus, WeeklyStats } from '@/services/api';
-import { formatRelativeTime } from '@/app/lib/timeFormat';
+import { api } from '@unified/lib/api';
+import type { ApiPerson, NotificationItem } from '@unified/types/jarvis';
+import type { DeviceInfo, AudioDaemonStatus, WeeklyStats } from '@unified/lib/api';
+import { formatRelativeTime } from '@desktop/app/lib/timeFormat';
 
 const DAY_LABELS = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
 

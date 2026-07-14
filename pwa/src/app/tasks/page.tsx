@@ -3,12 +3,12 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { RefreshCw } from 'lucide-react';
 
-import { BottomNav } from '@/components/layout/BottomNav';
-import { ProgressBar } from '@/components/tasks/ProgressBar';
-import { TaskCreator } from '@/components/tasks/TaskCreator';
-import { TaskList } from '@/components/tasks/TaskList';
-import type { TaskItemRaw, TasksResponse } from '@/components/tasks/types';
-import { jarvisFetch } from '@/lib/api';
+import { BottomNav } from '@mobile/components/layout/BottomNav';
+import { ProgressBar } from '@mobile/components/tasks/ProgressBar';
+import { TaskCreator } from '@mobile/components/tasks/TaskCreator';
+import { TaskList } from '@mobile/components/tasks/TaskList';
+import type { TaskItemRaw, TasksResponse } from '@mobile/components/tasks/types';
+import { jarvisFetch } from '@unified/lib/api';
 
 export default function TasksPage() {
   const qc = useQueryClient();

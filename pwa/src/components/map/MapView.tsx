@@ -15,7 +15,7 @@ import {
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
-import type { LocationPoint, Place, Trip } from '@/lib/map-types';
+import type { LocationPoint, Place, Trip } from '@mobile/lib/map-types';
 
 // ─────────────────────────────────────────────────────────────
 // Icône custom pour les lieux nommés (circlee, couleur par cat)
