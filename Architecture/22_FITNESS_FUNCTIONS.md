@@ -43,10 +43,10 @@ python scripts/architecture_check.py --check-responsibilities --max 10
 ### F-04 — Aucune nouvelle lecture directe de chat.db
 
 ```bash
-python scripts/architecture_check.py --check-chatdb-access
+python -m pytest tests/test_apple_data.py -q
 ```
 
-**Seuil** : `chat.db` n'est référencé que dans `integrations/apple_data.py` et les tests
+**Seuil** : aucune expression exécutable ne reconstruit le chemin de Messages et aucun `sqlite3.connect` ne vise `chat.db` hors `integrations/apple_data.py`; la conversion canonique y est définie une seule fois.
 **Action si échec** : PR refusée
 
 ### F-05 — Aucune duplication de logique métier

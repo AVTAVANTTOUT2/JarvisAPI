@@ -174,7 +174,7 @@ JarvisAPI/
 │
 ├── tv/                         ← Dashboard TV War Room
 ├── prompts/                    ← System prompts (.txt)
-├── tests/                      ← 546 fonctions de test (63 fichiers) pytest
+├── tests/                      ← 553 fonctions de test (64 fichiers) pytest
 ├── data/                       ← jarvis.db, uploads, outputs
 └── Architecture/               ← CE RAPPORT
 ```
@@ -613,7 +613,7 @@ RootLayout (layout.tsx)
 | Lignes frontend | 18 498 |
 | Tables SQLite | 73 applicatives après initialisation et migrations (`sqlite_sequence` exclue) |
 | API | 174 opérations HTTP + 1 WebSocket ; 157 chemins OpenAPI |
-| Tests pytest | 546 fonctions déclarées dans 63 fichiers ; 548 cas passants, 1 ignoré |
+| Tests pytest | 553 fonctions déclarées dans 64 fichiers ; 555 cas passants, 1 ignoré |
 | Agents LLM | 7 + orchestrateur |
 | Jobs APScheduler | 29 |
 | Démons | 5 |

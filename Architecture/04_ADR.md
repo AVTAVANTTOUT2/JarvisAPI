@@ -83,7 +83,9 @@
 - A. AppleDataService unique — SEUL à ouvrir chat.db, expose get_new_messages(), get_conversation(), search_messages(), resolve_handle(), get_contacts(). UNE SEULE conversion Apple timestamp.
 - B. Wrapper fin sans refactoring des consommateurs — coexistence temporaire.
 
-**Recommandation** : Solution A avec migration progressive (1 consommateur/jour). Effort : 3 jours.
+**Décision** : Solution A.
+
+**Statut** : ✅ Implémenté et validé le 14 juillet 2026. `integrations/apple_data.py` est l'unique propriétaire de l'ouverture read-only de `chat.db` (`mode=ro`, `PRAGMA query_only`) et de la conversion `apple_epoch_to_datetime()`. Le bridge, le reader, le daemon, l'importeur, le backfill, le diagnostic et la source TV y délèguent leurs lectures ; les analyseurs relationnels passent déjà par `IMessageReader`. Preuves : 7 contrats `tests/test_apple_data.py`, garde-fou AST contre une réouverture directe et 67 tests iMessage ciblés ; suite backend complète : 555 passants, 1 ignoré. La validation TCC/Full Disk Access sur une vraie base macOS reste manuelle.
 
 ---
 

@@ -19,9 +19,9 @@ Une dette technique est un choix d'implémentation qui sacrifie la qualité long
 | TD-004 | 3 curseurs ROWID indépendants | RÉSOLUE | `imessage_cursor.py` | 0h | Phase 1 — 11/07/2026 |
 | TD-005 | 15 producteurs directs de create_notification() | MAJEURE | 15 fichiers | 8h | Backlog NotificationService |
 | TD-006 | 2 frontends, 0 composants partagés | MAJEURE | web/ + pwa/ | 40h | Phase 6 |
-| TD-007 | 25+ connexions directes chat.db | MAJEURE | 25+ fichiers | 24h | Phase 5 |
+| TD-007 | 25+ connexions directes chat.db | RÉSOLUE | `integrations/apple_data.py` + consommateurs migrés | 0h | Phase 5 — 14/07/2026 |
 | TD-008 | Event bus sans consommateurs métiers | RÉSOLUE | 10 événements, 3 consommateurs | 0h | Phase 3 — 14/07/2026 |
-| TD-009 | 4 conversions Apple timestamp | MODÉRÉE | 4 fichiers | 1h | Phase 5 |
+| TD-009 | 4 conversions Apple timestamp | RÉSOLUE | `apple_epoch_to_datetime()` / `datetime_to_apple_epoch()` | 0h | Phase 5 — 14/07/2026 |
 | TD-010 | Cycle main↔daemon | RÉSOLUE | `pipeline.py` | 0h | Phase 1 — 11/07/2026 |
 | TD-011 | 42 imports concentrés dans main.py | RÉSOLUE | Dépendances réparties dans `api/` | 0h | Phase 4 — 14/07/2026 |
 | TD-012 | Service Worker dupliqué | MINEURE | web/ + pwa/ | 2h | Phase 6 |
@@ -38,6 +38,7 @@ Une dette technique est un choix d'implémentation qui sacrifie la qualité long
 | Event bus sans consommateurs métiers | 10 événements typés, journal SQLite, WebSocket, TTS et PWA SSE | 14/07/2026 |
 | God object API | `main.py` réduit à 175 lignes, 12 routeurs et handlers/support spécialisés sous 500 lignes | 14/07/2026 |
 | Imports concentrés dans `main.py` | Dépendances déplacées avec leur responsabilité, sans import inverse `api → main` | 14/07/2026 |
+| Lecteurs directs de `chat.db` et conversions Apple dupliquées | `AppleDataService` read-only centralisé et garde-fou AST | 14/07/2026 |
 
 ## Comment identifier une nouvelle dette
 

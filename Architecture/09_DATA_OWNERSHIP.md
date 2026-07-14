@@ -23,10 +23,10 @@ Chaque donnée du système a **un propriétaire unique**. Seul le propriétaire 
 
 | Donnée | Propriétaire | Peut écrire | Peut lire | Ne doit JAMAIS modifier |
 |---|---|---|---|---|
-| **Messages iMessage bruts** | Apple Data Service | AppleDataService | Tous (via API) | Tout autre module |
-| **Contacts (people)** | Apple Data Service | AppleDataService | Tous (via API) | agents/memory.py, agents/coach.py, agents/journal.py |
-| **Calendrier** | Apple Data Service | AppleDataService | Tous (via API) | Tout autre module |
-| **Emails** | Apple Data Service | AppleDataService | Tous (via API) | Tout autre module |
+| **Messages iMessage bruts** | AppleDataService | Lecture seule via `integrations/apple_data.py` | Tous via sa façade | Tout autre module |
+| **Contacts (people)** | À consolider | `contacts_reader` + synchronisation existante | Tous | agents/memory.py, agents/coach.py, agents/journal.py |
+| **Calendrier** | À consolider | Intégration Calendar existante | Tous | Tout autre module |
+| **Emails** | À consolider | Intégration Mail existante | Tous | Tout autre module |
 | **Faits utilisateur** | Memory Service | MemoryService | Tous (via API) | agents/coach.py, audio/continuous_recorder.py, scripts/relationship_analyzer.py |
 | **Patterns** | Memory Service | MemoryService | Tous (via API) | Tout autre module |
 | **Life Profile** | Memory Service | MemoryService | Tous (via API) | Tout autre module |

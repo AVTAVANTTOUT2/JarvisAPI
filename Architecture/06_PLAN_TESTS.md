@@ -3,7 +3,7 @@
 **Date initiale** : 11 juillet 2026
 
 **Dernière validation locale** : 14 juillet 2026
-**Couverture actuelle** : 546 fonctions de test déclarées dans 63 fichiers (backend uniquement). Validation après Phase 4 : 548 cas passés, 1 ignoré et 0 échec avec la commande backend complète.
+**Couverture actuelle** : 553 fonctions de test déclarées dans 64 fichiers (backend uniquement). Validation après Phase 5 : 555 cas passés, 1 ignoré et 0 échec avec la commande backend complète.
 
 ## Stratégie
 
@@ -11,7 +11,7 @@
 
 | Niveau | Outil | Cible | Actuel | Cible |
 |---|---|---|---|---|
-| Unitaires backend | pytest | Fonctions pures, classes | 546 fonctions déclarées | Maintenir et mesurer la couverture |
+| Unitaires backend | pytest | Fonctions pures, classes | 553 fonctions déclarées | Maintenir et mesurer la couverture |
 | Intégration backend | pytest | Routes API, DB | Partiel | 50+ |
 | Unitaires frontend | Vitest | Composants, hooks, stores | 18 tests web, 0 PWA | 100+ |
 | Intégration frontend | Playwright | Flux utilisateur complets | 0 | 30+ |
@@ -36,7 +36,7 @@
 
 7. Pipeline `_process_message` — testé indirectement via WebSocket
 8. Actions (`execute_action`) — tests partiels
-9. Apple Data Service — n'existe pas encore
+9. Apple Data Service — ✅ service read-only, conversion centrale et garde-fou d'architecture couverts en Phase 5
 10. Offline queue — 2 tests seulement (création tâche)
 11. Routeurs API — structure, signatures et schéma OpenAPI verrouillés ; couverture métier par route encore partielle
 
@@ -79,11 +79,13 @@ Preuves : 6 tests ciblés passants ; signatures des 174 opérations HTTP et du W
 | `tests/test_phase4_architecture.py` | 12 `APIRouter`, limites de taille, absence d'import inverse et montage explicite du lifespan |
 | Suite existante | Tests `TestClient`, WebSocket et métiers assurant la non-régression comportementale |
 
-### Phase 5 (accompagne Apple Data Service)
+### Phase 5 — implémentée et validée le 14/07/2026
+
+Preuves : 7 contrats `test_apple_data.py` (base temporaire, lecture seule, conversion centralisée, compatibilité UTC du backfill, conversations/recherche/statistiques et Contacts injecté), plus 60 tests iMessage/pipeline reliés ; 67 tests ciblés passants. Le garde-fou AST interdit toute nouvelle ouverture directe de `chat.db` et toute seconde définition de `apple_epoch_to_datetime()`. Suite complète : 555 passants, 1 ignoré ; `compileall` et `git diff --check` réussis. La validation TCC sur le `chat.db` réel et l'observation opérationnelle 24 h ne sont pas vérifiables en CI.
 
 | Fichier | Contenu |
 |---|---|
-| `tests/test_apple_data.py` | Mock `chat.db`, conversion timestamp, déduplication |
+| `tests/test_apple_data.py` | Mock `chat.db`, mode read-only, conversion timestamp, conversations, recherche, statistiques, provider Contacts et invariant d'architecture |
 
 ### Phase 6 (accompagne Frontend unifié)
 

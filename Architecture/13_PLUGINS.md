@@ -67,7 +67,7 @@ class Plugin(ABC):
 
 | Plugin | Fichier actuel | Événements émis | Permissions |
 |---|---|---|---|
-| **Apple Data** | `integrations/apple_data.py` | `imessage.imported`, `imessage.sync_completed` | Full Disk Access |
+| **Apple Data** | `integrations/apple_data.py` | Aucun événement dédié à ce stade | Full Disk Access |
 | **AI Service** | `ai_service.py` (nouveau) | `llm.call_completed`, `embedding.generated` | Réseau (API DeepSeek) |
 | **Weather** | `integrations/weather.py` | `weather.updated` | Réseau (OpenWeatherMap) |
 | **Web Search** | `integrations/web_search.py` | `search.completed` | Réseau (Tavily) |

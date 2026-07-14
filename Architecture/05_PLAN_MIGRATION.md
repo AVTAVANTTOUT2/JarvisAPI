@@ -11,7 +11,7 @@ Phase 1 → Quick wins P0 (fait 14/07)                  Jour 1     [4 correction
 Phase 2 → Database modulaire (fait 14/07)              Jour 2     [ADR-009]
 Phase 3 → Pipeline + Event bus (fait 14/07)            Jour 3-4   [ADR-010, ADR-005]
 Phase 4 → main.py découpé en routeurs (fait 14/07)     Jour 5-7   [ADR-008]
-Phase 5 → Apple Data Service                            Jour 8-10  [ADR-006]
+Phase 5 → Apple Data Service (fait 14/07)               Jour 8-10  [ADR-006]
 Phase 6 → Frontend unifié + SDK auth                   Jour 11-15 [ADR-001, ADR-007]
 ```
 
@@ -206,12 +206,15 @@ _setup_frontend(app)
 
 ## Phase 5 — Apple Data Service (Jour 8-10)
 
+**État** : ✅ Implémentée et validée le 14/07/2026. La portée livrée est l'accès iMessage à `chat.db`; les intégrations Calendar, Mail et Contacts restent des travaux distincts et ne sont pas présentées comme migrées.
+
 ### Nouveau module
 
 ```
 integrations/apple_data.py
 ├── class AppleDataService
 │   ├── get_new_messages(since_rowid) → list[Message]
+│   ├── get_recent_messages(), count_messages(), health()
 │   ├── get_conversation(handle, limit, since_rowid) → list[Message]
 │   ├── get_all_conversation_stats() → list[ConversationStats]
 │   ├── search_messages(query) → list[Message]
@@ -221,27 +224,26 @@ integrations/apple_data.py
 └── singleton apple_data
 ```
 
-### Migration progressive des consommateurs
+### Migrations réalisées
 
-```
-Jour 8 : IMessageBridge    → apple_data.get_new_messages()
-Jour 8 : JarvisDaemon      → apple_data.get_new_messages()
-Jour 9 : RelationshipAnalyzer → apple_data.get_conversation()
-Jour 9 : ContactAnalytics  → apple_data.get_conversation()
-Jour 10: TimelineGenerator  → apple_data.get_conversation()
-Jour 10: message_predictor  → apple_data.get_conversation()
-```
+| Consommateur | Chemin migré |
+|---|---|
+| `IMessageBridge`, `JarvisDaemon` | `get_new_messages()` et `get_max_rowid()` |
+| `IMessageReader` | conversations, recherche, statistiques et contacts ; les analyseurs relationnels l'utilisent déjà |
+| `IMessageImporter`, backfill, diagnostics | unique ouverture `connect_readonly()` du service |
+| TV et lifespan API | messages récents et diagnostic `health()` |
 
-Chaque migration est un commit séparé, testable indépendamment.
+Les adaptations conservent les contrats publics historiques et les chemins `jarvis.db` restent hors périmètre.
 
 ### Validation
 
 | | |
 |---|---|
-| **Fichier** | `tests/test_apple_data.py` (nouveau) |
-| **Test** | Mock de `chat.db` — vérifier que `get_new_messages()` retourne les bons messages |
-| **Critère** | `grep -r "chat.db" --include="*.py" | grep -v apple_data | grep -v test` → 0 résultat |
-| **Réversibilité** | `git revert` par consommateur |
+| **Fichier** | `tests/test_apple_data.py` |
+| **Test** | Base SQLite temporaire : lecture seule, conversions secondes/nanosecondes, conversations, recherche, statistiques et provider Contacts injecté |
+| **Critère** | ✅ Garde-fou AST : aucune construction du chemin Messages ni `sqlite3.connect` visant `chat.db` hors `apple_data.py`; conversion canonique définie une seule fois |
+| **Résultat** | ✅ 67 tests ciblés ; suite backend : 555 passants, 1 ignoré ; `compileall` et `git diff --check` réussis |
+| **Réversibilité** | `git revert` par commit de Phase 5 |
 
 ## Phase 6 — Frontend unifié + SDK Auth (Jour 11-15)
 

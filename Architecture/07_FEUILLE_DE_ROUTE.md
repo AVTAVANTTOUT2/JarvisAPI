@@ -28,10 +28,9 @@ Les travaux sont classés selon l'ordre de priorité suivant :
 **Semaine 2 — Découplage**
 - [x] Phase 3 : Event bus actif (validée le 14/07/2026 — 10 événements, 3 consommateurs, PWA temps réel)
 - [x] Phase 4 : Routeurs FastAPI (validée le 14/07/2026 — 12 routeurs, `main.py` 175 lignes, contrat API inchangé)
-- [ ] Phase 5 : Apple Data Service (début)
+- [x] Phase 5 : Apple Data Service (validée le 14/07/2026 — accès `chat.db` centralisé et conversion Apple unique)
 
 **Semaines 3-4 — Unification**
-- [ ] Phase 5 : Apple Data Service (fin)
 - [ ] Phase 6 : Frontend unifié + SDK Auth
 - [ ] Tests de non-régression complets
 
@@ -75,6 +74,6 @@ Avant d'ajouter une feature :
 | Couverture tests backend | ~60% | 80% | 90% |
 | Tests frontend | 18 (web offline) | 50+ | 100+ |
 | Applications frontend | 2 | 1.5 (coexistence) | 1 |
-| Connexions directes `chat.db` | 25+ | 10 | 0 |
+| Connexions directes `chat.db` | 0 hors `AppleDataService` | 0 | 0 |
 | Temps démarrage backend | ~3s | <2s | <1s |
 | UI polling notifications/tâches | Push SSE depuis Phase 3 | Push | Push |

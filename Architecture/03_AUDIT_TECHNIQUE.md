@@ -15,7 +15,7 @@
 | Imports | ✅ Dépendances distribuées | Aucun module `api/` n'importe `main.py` |
 | Middleware | ✅ Correct | CORS configuré, security_middleware fonctionnel |
 | Lifespan | ✅ Extrait | `api/lifespan.py` est monté explicitement sur l'application |
-| Tests | ⚠️ Couverture partielle | 546 fonctions de test (63 fichiers), contrat de routes verrouillé ; couverture globale non mesurée |
+| Tests | ⚠️ Couverture partielle | 553 fonctions de test (64 fichiers), contrats routes et AppleData verrouillés ; couverture globale non mesurée |
 
 L'état initial (7 197 lignes, 40+ responsabilités et 42 imports concentrés) est conservé comme constat historique de l'audit. ADR-008 a été appliqué le 14/07/2026 sans changement de signature HTTP/WebSocket ni de schéma OpenAPI.
 
@@ -194,7 +194,7 @@ L'état initial (7 197 lignes, 40+ responsabilités et 42 imports concentrés)
 | Sync incrémentale | ✅ Curseur ROWID |
 | Déduplication | ✅ ROWID + GUID + SHA256 |
 | Curseurs parallèles | ✅ 3 offsets nommés, persistants et monotones dans un registre central |
-| Apple timestamp | ❌ 4 implémentations différentes |
+| Apple timestamp | ✅ Conversion unique dans `integrations/apple_data.py` |
 
 ### 4.2 Contacts
 
@@ -276,7 +276,7 @@ L'état initial (7 197 lignes, 40+ responsabilités et 42 imports concentrés)
 | Enregistrement écran | 1 | Élevé |
 | Microphone | 1 | Élevé |
 
-**Recommandation** : Principe de moindre privilège. Actuellement 4 composants ont Full Disk Access pour un besoin unique (lire chat.db).
+**État après Phase 5** : l'implémentation de lecture est unique (`AppleDataService`), mais tout processus qui l'utilise nécessite encore Full Disk Access. La réduction des identités macOS autorisées reste une validation opérationnelle à mener séparément.
 
 ### 5.6 Chiffrement
 
