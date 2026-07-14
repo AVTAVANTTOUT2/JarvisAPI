@@ -23,7 +23,8 @@ import logging
 from pathlib import Path
 
 import config
-from database import create_notification, get_perf_baseline, record_perf_benchmark
+from database import get_perf_baseline, record_perf_benchmark
+from jarvis.notification_service import notification_service
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +66,7 @@ def alert_regression(report: dict, extra: str = "") -> None:
         f"Suite de tests {report['pct']:+.0f}% plus lente que la référence "
         f"({report['duration_ms']:.0f} ms vs {report['baseline_ms']:.0f} ms). {extra}".strip()
     )
-    create_notification(
+    notification_service.create(
         source="system", title=f"Régression de performance — {report['scope']}",
         content=content, priority="high",
     )
@@ -94,7 +95,7 @@ async def guard_devagent_iteration(project_path: Path, slug: str, commit_sha: st
         + ("Commit annulé automatiquement (git revert)." if rolled_back
            else "Échec du git revert — intervention manuelle requise.")
     )
-    create_notification(
+    notification_service.create(
         source="devagent", title=f"Rollback perf — {slug}", content=content,
         priority="high" if rolled_back else "urgent",
     )

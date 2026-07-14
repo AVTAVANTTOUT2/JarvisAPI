@@ -2,13 +2,13 @@
 
 **Date initiale** : 11 juillet 2026
 **Dernière validation** : 14 juillet 2026
-**Statut** : Rapport de vérification doc vs code — Phases 1 à 6 implémentées
+**Statut** : Rapport de vérification doc vs code — Phases 1 à 6 et NotificationService implémentés
 
 ---
 
 ## Résultat : DOCUMENTATION VALIDÉE
 
-Le dossier `Architecture/` reflète l'état du code après l'implémentation de la Phase 6. Trois composants restent des **cibles futures** ; `pipeline.py`, l'Event Bus, la couche API modulaire, `AppleDataService`, le frontend Next.js 15 et le SDK auth partagé sont implémentés.
+Le dossier `Architecture/` reflète l'état du code après l'implémentation de la Phase 6 et de `NotificationService`. Les cibles futures restantes sont `Queue Engine`, `AI Service` et `/health`/`/metrics`; `pipeline.py`, l'Event Bus, la couche API modulaire, `AppleDataService`, `NotificationService`, le frontend Next.js 15 et le SDK auth partagé sont implémentés.
 
 ---
 
@@ -21,11 +21,11 @@ Le dossier `Architecture/` reflète l'état du code après l'implémentation de 
 | 7 agents LLM + orchestrateur | 12 fichiers dans agents/ | ✅ Exact (dont 5 utilitaires) |
 | 29 jobs APScheduler | 102 références dans scheduler.py | ✅ Exact |
 | 5 démons | screen, audio, email, imessage, supervisor | ✅ Exact |
-| 271 fichiers Python, 55 938 lignes | Vérifié après ajout du contrat Phase 6 | ✅ Actualisé |
-| 88 fichiers source frontend | 38 web + 32 pwa + 14 frontend + 4 jarvis_auth | ✅ Exact |
+| 273 fichiers Python, 56 261 lignes | Vérifié après ajout de NotificationService et de ses tests | ✅ Actualisé |
+| 99 fichiers source frontend | Vérifié par inventaire des sources TypeScript/JavaScript | ✅ Actualisé |
 | LockGate desktop/mobile | SDK `jarvis_auth/` importé par les trois chemins, rendu fail-closed | ✅ P0-1 résolu |
 | Event bus actif | 10 types de domaine, 11 émetteurs de production, 3 fichiers avec handlers réels | ✅ Validé par 4 tests Phase 3 |
-| 554 fonctions de test backend (68 fichiers) | Vérifié statiquement après ajout des 4 contrats Phase 6 | ✅ Actualisé |
+| 565 tests pytest (66 fichiers) | Collecte complète après ajout de NotificationService ; 564 passants, 1 ignoré | ✅ Actualisé |
 | Couche API modulaire | `main.py` 175 lignes, 12 routeurs, chaque module `api/` ≤ 500 lignes, aucun import `api → main` | ✅ Validé par 6 tests Phase 4 |
 | AppleDataService | ouverture read-only et conversion Apple centralisées ; consommateurs iMessage migrés | ✅ Validé par 6 contrats et garde-fou AST Phase 5 |
 | Frontend unifié | Next.js 15/React 19, 25 pages statiques, wrapper API unique et fallbacks conservés | ✅ 10 Vitest, 3 Playwright, 4 contrats FastAPI et 3 builds |
@@ -40,7 +40,7 @@ Ces trois composants sont documentés comme appartenant à l'architecture cible.
 | `ai_service.py` | 14_AI_SERVICE.md, ADR-014 | Évolution future |
 | `/health`, `/metrics` | 12_OBSERVABILITE.md | Q4 2026 |
 
-`pipeline.py` est implémenté depuis le 11 juillet 2026 et validé par les tests de contrat de la Phase 1. `jarvis/event_bus.py`, `jarvis/events.py` et `database/event_log.py` constituent l'infrastructure active de la Phase 3. La couche `api/` et son assemblage dans `main.py` constituent la Phase 4. `integrations/apple_data.py` est l'unique point d'ouverture de `chat.db` depuis la Phase 5. Le journal permet de sélectionner les événements non traités, mais le rejeu automatique attend le Queue Engine.
+`pipeline.py` est implémenté depuis le 11 juillet 2026 et validé par les tests de contrat de la Phase 1. `jarvis/event_bus.py`, `jarvis/events.py` et `database/event_log.py` constituent l'infrastructure active de la Phase 3. La couche `api/` et son assemblage dans `main.py` constituent la Phase 4. `integrations/apple_data.py` est l'unique point d'ouverture de `chat.db` depuis la Phase 5. `jarvis/notification_service.py` centralise les 16 producteurs de notifications depuis le 14/07/2026. Le journal permet de sélectionner les événements non traités, mais le rejeu automatique attend le Queue Engine.
 
 ## 3. PWA LockGate — résolu en Phase 6
 
@@ -69,7 +69,7 @@ Tous les diagrammes sont cohérents avec leur contexte (actuel vs cible).
 | Document | Avant | Après |
 |---|---|---|
 | INDEX.md, 01_CARTOGRAPHIE.md, 03_AUDIT_TECHNIQUE.md, 19_VALIDATION_FINALE.md | Anciens comptages `44/45/46/72` | **73 tables applicatives créées après migrations Phase 3** |
-| Plusieurs documents | Comptages historiques (`174`, puis `486/53`, `536/59`, `540/61`) | **554 fonctions de test backend, 68 fichiers après la Phase 6** |
+| Plusieurs documents | Comptages historiques (`174`, puis `486/53`, `536/59`, `540/61`) | **565 tests pytest, 66 fichiers, 564 passants et 1 ignoré après NotificationService** |
 | Plusieurs documents | « Event bus : 0 abonné » puis « usage minimal » | **Bus actif : 10 événements de domaine, 3 consommateurs réels** |
 | INDEX.md | Comptages historiques variables | **35 fichiers Markdown + 3 sous-répertoires** |
 
@@ -128,7 +128,7 @@ Tous les diagrammes sont cohérents avec leur contexte (actuel vs cible).
 | 03_AUDIT_TECHNIQUE.md | Monolithe distingué comme historique ; état API actuel audité |
 | 19_VALIDATION_FINALE.md | Score de maturité 7.60, sécurité mobile et couverture frontend actualisés |
 | Documents Phase 6 | ADR-001/007, cartographie, DoD, dette, score et roadmap synchronisés au 14/07/2026 |
-| Plan de tests | 10 Vitest + 3 Playwright + 4 contrats FastAPI Phase 6 ; 554 fonctions backend déclarées dans 68 fichiers ; dernière suite complète Phase 5 à 555 passants, 1 ignoré |
+| Plan de tests | 10 Vitest + 3 Playwright + 4 contrats FastAPI Phase 6 ; 565 tests pytest collectés dans 66 fichiers, 564 passants et 1 ignoré après NotificationService |
 | diagrams/README.md | Créé — placeholder |
 | audit/README.md | Créé — placeholder |
 

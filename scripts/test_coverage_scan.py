@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import config
-from database import create_notification
+from jarvis.notification_service import notification_service
 
 logger = logging.getLogger(__name__)
 
@@ -191,7 +191,7 @@ async def run_test_generation() -> dict:
         content = f"{len(generated)} test(s) généré(s) et validé(s)"
         if failed:
             content += f", {len(failed)} échec(s) de génération"
-        create_notification(
+        notification_service.create(
             source="system", title="Génération de tests manquants", content=content, priority="low",
         )
     logger.info("[test-gen] %d généré(s), %d échoué(s), %d fonction(s) non couverte(s) au total",

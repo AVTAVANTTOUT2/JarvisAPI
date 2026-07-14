@@ -19,13 +19,10 @@ from api.people_support import _decode_person_path, _resolve_handle_with_contact
 from database import (
     get_llm_logs,
     get_person,
-    get_recent_notifications,
-    get_unread_notifications,
-    mark_all_notifications_read,
-    mark_notification_read,
 )
 from integrations import calendar_client, imessage_bridge, mail_client, weather
 from jarvis.event_bus import JarvisEvent, event_bus
+from jarvis.notification_service import notification_service
 from scripts.email_watcher import email_watcher
 
 logger = logging.getLogger("jarvis")
@@ -225,7 +222,7 @@ async def api_set_tts_setting(body: dict):
 async def api_notifications_unread():
     """Liste des notifications non lues, triées par priorité."""
     try:
-        return {"notifications": get_unread_notifications()}
+        return {"notifications": notification_service.get_unread()}
     except Exception as e:
         logger.error("Erreur get_unread_notifications : %s", e)
         return {"notifications": []}
@@ -279,20 +276,20 @@ async def api_logs(type: str | None = None, limit: int = 100):
 async def api_notifications_all(limit: int = 50):
     """Toutes les notifications récentes (lues + non lues), pour historique UI."""
     try:
-        return {"notifications": get_recent_notifications(limit=limit)}
+        return {"notifications": notification_service.get_recent(limit=limit)}
     except Exception as e:
         logger.error("Erreur get_recent_notifications : %s", e)
         return {"notifications": []}
 
 
 async def api_notifications_mark_read(notif_id: int):
-    if not mark_notification_read(notif_id):
+    if not notification_service.mark_read(notif_id):
         raise HTTPException(404, "Notification introuvable")
     return {"ok": True}
 
 
 async def api_notifications_mark_all_read():
-    count = mark_all_notifications_read()
+    count = notification_service.mark_all_read()
     return {"ok": True, "marked": count}
 
 

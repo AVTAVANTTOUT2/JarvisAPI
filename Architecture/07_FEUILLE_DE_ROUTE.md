@@ -31,8 +31,10 @@ Les travaux sont classés selon l'ordre de priorité suivant :
 - [x] Phase 5 : Apple Data Service (validée le 14/07/2026 — accès `chat.db` centralisé et conversion Apple unique)
 
 **Semaines 3-4 — Unification**
-- [x] Phase 6 : Frontend unifié + SDK Auth (validée localement le 14/07/2026 — Next.js 15 responsive, LockGate partagé, wrapper API unique, fallbacks conservés)
-- [ ] CI de non-régression complète sur la branche Phase 6 et validation manuelle sur appareils réels
+- [x] Phase 6 : Frontend unifié + SDK Auth (validée sur `main` le 14/07/2026 — Next.js 15 responsive, LockGate partagé, wrapper API unique, fallbacks conservés)
+- [x] CI de non-régression complète (Python, Vite et Next.js unifié) sur le commit de merge Phase 6
+- [x] NotificationService : 16 producteurs migrés, déduplication atomique, Web Push et contrat de compatibilité validés le 14/07/2026
+- [ ] Validation manuelle sur appareils réels (installation, veille, GPS et ergonomie)
 
 ### Q4 2026 — Améliorations (Septembre-Décembre)
 
@@ -72,7 +74,7 @@ Avant d'ajouter une feature :
 | God objects API/DB (>1000 lignes) | 0 | 0 | 0 |
 | Duplications majeures | 8 | 3 | 0 |
 | Couverture tests backend | ~60% | 80% | 90% |
-| Tests frontend | 27 Vitest + 3 E2E | 50+ | 100+ |
+| Tests frontend | 28 Vitest + 3 E2E | 50+ | 100+ |
 | Applications frontend | 1 prioritaire + 2 fallbacks de rollback | 1 + fallbacks | 1 |
 | Connexions directes `chat.db` | 0 hors `AppleDataService` | 0 | 0 |
 | Temps démarrage backend | ~3s | <2s | <1s |

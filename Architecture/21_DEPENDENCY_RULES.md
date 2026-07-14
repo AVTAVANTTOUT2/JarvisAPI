@@ -113,3 +113,14 @@ Toute exception doit être documentée dans un ADR avec :
 2. La justification
 3. La date d'expiration de l'exception (si temporaire)
 4. Le plan pour résoudre la violation
+
+### Façade historique des notifications — ADR-011
+
+`database.notifications.create_notification()` conserve son nom public pour
+les intégrations existantes, mais délègue localement à
+`jarvis.notification_service.notification_service`. C'est une exception
+compatibilité documentée par ADR-011 : le repository ne charge jamais le
+service lors de son initialisation et ses primitives `_insert_notification()`,
+lecture et marquage restent sans dépendance vers la couche service. Les
+producteurs et les routes utilisent uniquement le service ; le bridge sera
+retiré lors de la prochaine rupture majeure d'API.

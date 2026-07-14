@@ -1,7 +1,7 @@
 # 19 — Validation Finale
 
 **Date** : 11 juillet 2026
-**Statut** : Synthèse actualisée après les Phases 1 à 6
+**Statut** : Synthèse actualisée après les Phases 1 à 6 et NotificationService
 
 ---
 
@@ -24,9 +24,9 @@
 ### Justification des scores
 
 - **Séparation (8/10)** : les god objects database et API sont résolus ; le SDK auth et le client réseau frontend ont maintenant un propriétaire unique.
-- **Couplage (8/10)** : cycle main↔daemon supprimé, Event Bus actif, aucun import `api → main` et accès iMessage à `chat.db` centralisé ; les 15 producteurs directs de notifications restent.
+- **Couplage (8/10)** : cycle main↔daemon supprimé, Event Bus actif, aucun import `api → main`, accès iMessage à `chat.db` centralisé et notifications orchestrées par `NotificationService` ; les fallbacks frontend et connecteurs historiques restent à retirer progressivement.
 - **Cohésion (8/10)** : routes, pipeline et persistance sont regroupés par responsabilité ; `frontend/` assemble les vues responsive autour de services partagés.
-- **Testabilité (6/10)** : 554 fonctions backend, 27 tests Vitest et 3 E2E ; les contrats frontend critiques sont verrouillés, mais la couverture globale n'est pas mesurée de façon fiable.
+- **Testabilité (6/10)** : 565 tests pytest collectés (564 passants, 1 ignoré), 28 tests Vitest et 3 E2E ; les contrats frontend critiques sont verrouillés, mais la couverture globale n'est pas mesurée de façon fiable.
 - **Documentation (9/10)** : CLAUDE.md, README et Architecture/ suivent les six phases ; les diagrammes détaillés par flux restent à enrichir.
 - **Sécurité (8/10)** : Auth robuste et LockGate fail-closed partagé sur desktop/mobile. Le chiffrement au repos, HTTPS par défaut et un pentest réel restent absents.
 - **Performance (6/10)** : SQLite WAL, `busy_timeout = 5000` et batch import. Le cache LLM et le monitoring restent à implémenter.
@@ -42,7 +42,7 @@
 | 4 | Messages iMessage traités en double | Moyenne | Faible | ✅ Résolu Phase 1 (curseur unique `imessage_consumer_cursors`, 11/07/2026) |
 | 5 | Conflits de merge sur main.py et database/__init__.py | Faible | Moyen | ✅ Database résolue en Phase 2 et couche API résolue en Phase 4 |
 | 6 | Dette technique croissante | Élevée | Élevé | Tout le plan de refactoring |
-| 7 | Couverture frontend encore partielle | Moyenne | Moyen | 27 Vitest + 3 E2E présents ; poursuivre par vue et mesurer la couverture |
+| 7 | Couverture frontend encore partielle | Moyenne | Moyen | 28 Vitest + 3 E2E présents ; poursuivre par vue et mesurer la couverture |
 | 8 | 25+ connexions à chat.db — contention | Faible | Faible | ✅ Résolu Phase 5 (ouverture centralisée read-only, 14/07/2026) |
 
 ## Dépendances critiques
@@ -61,7 +61,7 @@
 
 | # | Blocage | Résolution |
 |---|---|---|
-| 1 | **Couverture frontend partielle** | 27 Vitest et 3 E2E couvrent auth, layout, offline et flux principaux ; toutes les vues ne disposent pas encore d'un test métier dédié. |
+| 1 | **Couverture frontend partielle** | 28 Vitest et 3 E2E couvrent auth, layout, offline et flux principaux ; toutes les vues ne disposent pas encore d'un test métier dédié. |
 | 2 | **CI automatisée — ✅ STABILISÉE le 14/07/2026** | GitHub Actions run #24 : 139 modules importés, 536 tests backend passants, 1 ignoré, frontend Vitest/typecheck/build vert. Le sous-ensemble de dépendances CI doit rester aligné sur les imports applicatifs. |
 | 3 | **Validation appareils réels** | Le SDK partagé utilise le cookie même origine et le LockGate fail-closed ; installation, reprise après veille et ergonomie restent à vérifier sur iOS/Android physiques. |
 | 4 | **Manque de monitoring** | L'Event Bus et son journal sont actifs, mais `/health` et `/metrics` restent planifiés pour Q4. |
@@ -80,10 +80,10 @@
 
 ## Prochaine action
 
-**Phases 1 à 6 implémentées et validées localement le 14/07/2026. Prochaine action : CI de la branche Phase 6, validation sur appareils réels et retrait planifié des fallbacks.**
+**Phases 1 à 6 sont implémentées et validées sur `main`; NotificationService est validé localement le 14/07/2026. Prochaine action : validation sur appareils réels et retrait planifié des fallbacks.**
 
 ```
-Phase 6 : validée localement le 14/07/2026
+Phase 6 : validée sur `main` le 14/07/2026
 ├── Next.js 15 responsive et SDK auth partagé
 ├── wrapper API authentifié unique
 ├── fallback web/dist + pwa/out conservé

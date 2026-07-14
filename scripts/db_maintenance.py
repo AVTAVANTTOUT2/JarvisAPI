@@ -24,7 +24,8 @@ from datetime import datetime
 from pathlib import Path
 
 import config
-from database import create_notification, get_connection, get_cost_summary, get_db
+from database import get_connection, get_cost_summary, get_db
+from jarvis.notification_service import notification_service
 
 logger = logging.getLogger(__name__)
 
@@ -291,6 +292,6 @@ def check_llm_budget() -> dict | None:
         f"{spent:.2f}$ dépensés sur un budget de {budget:.2f}$ ce mois-ci "
         f"({pct:.0f} %)."
     )
-    create_notification(source="system", title=title, content=content, priority=priority)
+    notification_service.create(source="system", title=title, content=content, priority=priority)
     logger.warning("[budget] %s — %s", title, content)
     return {"threshold": threshold, "spent": round(spent, 4), "budget": budget, "pct": round(pct, 1)}

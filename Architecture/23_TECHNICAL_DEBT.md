@@ -17,7 +17,7 @@ Une dette technique est un choix d'implémentation qui sacrifie la qualité long
 | TD-002 | God object database/__init__.py | RÉSOLUE | Façade 236 lignes, 25 modules | 0h | Phase 2 — 14/07/2026 |
 | TD-003 | PWA sans LockGate | RÉSOLUE | `jarvis_auth/` partagé | 0h | Phase 6 — 14/07/2026 |
 | TD-004 | 3 curseurs ROWID indépendants | RÉSOLUE | `imessage_cursor.py` | 0h | Phase 1 — 11/07/2026 |
-| TD-005 | 15 producteurs directs de create_notification() | MAJEURE | 15 fichiers | 8h | Backlog NotificationService |
+| TD-005 | Producteurs directs de `create_notification()` | RÉSOLUE | `jarvis/notification_service.py` + 16 producteurs migrés | 0h | 14/07/2026 |
 | TD-006 | 2 frontends, 0 composants partagés | RÉSOLUE pour le chemin canonique | `frontend/` + sources réutilisées | 0h | Phase 6 — 14/07/2026 |
 | TD-007 | 25+ connexions directes chat.db | RÉSOLUE | `integrations/apple_data.py` + consommateurs migrés | 0h | Phase 5 — 14/07/2026 |
 | TD-008 | Event bus sans consommateurs métiers | RÉSOLUE | 10 événements, 3 consommateurs | 0h | Phase 3 — 14/07/2026 |
@@ -35,6 +35,7 @@ Une dette technique est un choix d'implémentation qui sacrifie la qualité long
 | Race condition sur le set WebSocket | Verrou sur les mutations et snapshot avant diffusion | 11/07/2026 |
 | Curseurs ROWID uniquement en mémoire | Registre SQLite central avec offset monotone par consommateur | 11/07/2026 |
 | Cycle d'import `main.py` ↔ daemons | Contrat `pipeline.py` configuré par injection | 11/07/2026 |
+| Producteurs directs de notifications | `NotificationService`, façade compatible et garde-fou statique sur 16 producteurs | 14/07/2026 |
 | Event bus sans consommateurs métiers | 10 événements typés, journal SQLite, WebSocket, TTS et PWA SSE | 14/07/2026 |
 | God object API | `main.py` réduit à 175 lignes, 12 routeurs et handlers/support spécialisés sous 500 lignes | 14/07/2026 |
 | Imports concentrés dans `main.py` | Dépendances déplacées avec leur responsabilité, sans import inverse `api → main` | 14/07/2026 |

@@ -12,6 +12,7 @@ from __future__ import annotations
 from collections import defaultdict
 
 import config
+from jarvis.notification_service import notification_service
 
 
 def _doomscroll_app_names() -> list[str]:
@@ -76,7 +77,7 @@ def detect_doomscrolling(days: int = 7, device: str | None = None) -> list[dict]
 
 def check_and_notify_today() -> dict | None:
     """Vérifie la journée en cours et notifie une seule fois par jour si dépassement."""
-    from database import create_notification, get_db
+    from database import get_db
 
     today_results = detect_doomscrolling(days=1)
     if not today_results:
@@ -90,7 +91,7 @@ def check_and_notify_today() -> dict | None:
     if already:
         return None
 
-    create_notification(
+    notification_service.create(
         source="pattern", title="Doomscrolling", content=today["message"], priority="low",
     )
     return today

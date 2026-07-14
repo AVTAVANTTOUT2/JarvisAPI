@@ -23,7 +23,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import config
-from database import create_notification, get_duplicate_findings, upsert_duplicate_finding
+from database import get_duplicate_findings, upsert_duplicate_finding
+from jarvis.notification_service import notification_service
 
 logger = logging.getLogger(__name__)
 
@@ -162,7 +163,7 @@ def scan_and_report(root: Path | None = None) -> dict:
         top = blocks[:3]
         lines = [f"{b.file_a}:{b.start_a}-{b.end_a} ≈ {b.file_b}:{b.start_b}-{b.end_b} ({b.lines} lignes)"
                 for b in top]
-        create_notification(
+        notification_service.create(
             source="system", title=f"Code dupliqué détecté ({new_count} nouveau(x) bloc(s))",
             content="; ".join(lines), priority="low",
         )

@@ -180,7 +180,7 @@ JarvisAPI/
 │
 ├── tv/                         ← Dashboard TV War Room
 ├── prompts/                    ← System prompts (.txt)
-├── tests/                      ← 554 fonctions de test backend (68 fichiers au total)
+├── tests/                      ← 565 tests pytest (66 fichiers au total)
 ├── data/                       ← jarvis.db, uploads, outputs
 └── Architecture/               ← CE RAPPORT
 ```
@@ -320,7 +320,7 @@ graph LR
 
 ```mermaid
 graph TB
-    subgraph "Producteurs historiques (15 fichiers directs restants)"
+    subgraph "Producteurs applicatifs (16 modules migrés)"
         EW["EmailWatcher"]
         LA["LocationAnalyzer"]
         CA["ContactAlerts"]
@@ -333,10 +333,15 @@ graph TB
         DC["DuplicateScanner"]
         PR["PerfRegression"]
         JD["JarvisDaemon"]
+        STG["DevAgent Staging"]
+        DBM["DB Maintenance"]
+        MEET["Meeting"]
+        COV["TestCoverageScan"]
     end
     
-    subgraph "Fonction centrale"
-        CN["create_notification()<br/>database/notifications.py"]
+    subgraph "Service propriétaire"
+        NS["NotificationService<br/>jarvis/notification_service.py"]
+        REPO["Repository<br/>database/notifications.py"]
     end
     
     subgraph "Consommateurs"
@@ -346,20 +351,25 @@ graph TB
         LOG["event_log<br/>(audit SQLite)"]
     end
     
-    EW --> CN
-    LA --> CN
-    CA --> CN
-    RIT --> CN
-    COM --> CN
-    DOOM --> CN
-    FP --> CN
-    SH --> CN
-    SA --> CN
-    DC --> CN
-    PR --> CN
-    JD --> CN
-    
-    CN --> DB[(SQLite<br/>notifications)]
+    EW --> NS
+    LA --> NS
+    CA --> NS
+    RIT --> NS
+    COM --> NS
+    DOOM --> NS
+    FP --> NS
+    SH --> NS
+    SA --> NS
+    DC --> NS
+    PR --> NS
+    JD --> NS
+    STG --> NS
+    DBM --> NS
+    MEET --> NS
+    COV --> NS
+
+    NS --> REPO
+    REPO --> DB[(SQLite<br/>notifications)]
     DB --> EV["NotificationCreated<br/>après commit"]
     EV --> WS
     EV --> UI
@@ -367,7 +377,7 @@ graph TB
     EV --> LOG
 ```
 
-**État après Phase 3** : toute notification persistée émet `notification.created`; l'UI reçoit donc la mutation en temps réel, le TTS traite les priorités `urgent/high` et le journal conserve l'événement. Les 15 producteurs qui appellent encore directement `create_notification()` constituent une dette d'orchestration séparée : ils bénéficient du bus au point de persistance, mais leur politique de priorité et d'anti-doublon reste à centraliser.
+**État au 14/07/2026** : les 16 producteurs applicatifs passent par `NotificationService`. Il centralise priorité, déduplication atomique à cinq minutes et Web Push best-effort ; le repository persiste, puis le service émet `notification.created` après commit. L'UI reçoit donc la mutation en temps réel, le TTS traite `urgent/high` et le journal conserve l'événement. `database.create_notification()` est conservé comme façade de compatibilité, sans appel direct restant dans les producteurs.
 
 ---
 
@@ -626,13 +636,13 @@ RootLayout (layout.tsx)
 
 | Métrique | Valeur |
 |---|---|
-| Fichiers Python | 271 |
-| Lignes Python | 55 938 |
-| Fichiers source frontend | 88 (38 web + 32 pwa + 14 frontend + 4 jarvis_auth) |
-| Lignes frontend | 18 970 |
+| Fichiers Python | 273 |
+| Lignes Python | 56 261 |
+| Fichiers source frontend | 99 (38 web + 38 pwa + 19 frontend + 4 jarvis_auth) |
+| Lignes frontend | 18 770 |
 | Tables SQLite | 73 applicatives après initialisation et migrations (`sqlite_sequence` exclue) |
 | API | 174 opérations HTTP + 1 WebSocket ; 157 chemins OpenAPI |
-| Tests backend | 554 fonctions déclarées dans 68 fichiers ; dernière suite complète Phase 5 : 555 cas passants, 1 ignoré |
+| Tests backend | 565 tests pytest collectés dans 66 fichiers ; 564 passants, 1 ignoré le 14/07/2026 |
 | Agents LLM | 7 + orchestrateur |
 | Jobs APScheduler | 29 |
 | Démons | 5 |

@@ -6,6 +6,8 @@ import logging
 import re
 from datetime import datetime, timedelta
 
+from jarvis.notification_service import notification_service
+
 logger = logging.getLogger(__name__)
 
 
@@ -61,7 +63,7 @@ def _resolve_handle(person: dict) -> str | None:
 
 
 async def check_relationship_alerts() -> None:
-    from database import create_notification, get_all_people
+    from database import get_all_people
     from integrations.imessage_reader import _apple_ts_to_datetime_from_value
     from integrations.imessage_reader import imessage_reader
 
@@ -102,7 +104,7 @@ async def check_relationship_alerts() -> None:
             if days_since > avg_gap_days * 2 and days_since > 3:
                 title = f"Silence avec {pname}"
                 if not _notification_recently_sent(title):
-                    create_notification(
+                    notification_service.create(
                         source="relationship",
                         title=title,
                         content=(
@@ -120,7 +122,7 @@ async def check_relationship_alerts() -> None:
                     title_u = f"Message non répondu — {pname}"
                     if not _notification_recently_sent(title_u, hours=18.0):
                         snippet = ((last.get("text") or "") or "")[:80]
-                        create_notification(
+                        notification_service.create(
                             source="relationship",
                             title=title_u,
                             content=f"Il y a ~{round(hours)} h : « {snippet} »",

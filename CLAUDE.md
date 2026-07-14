@@ -56,7 +56,7 @@ Depuis du code async, utiliser `await event_bus.emit(event)`. Depuis un chemin s
 - `web/dist` reste le fallback racine si `frontend/out` manque ; `pwa/out` reste accessible sous `/m/` si activé.
 - `frontend/public/sw.js` ne cache que `/_next/static` et `/icons`, jamais `/api`, HTML ou données personnelles.
 - Validation locale du 14/07/2026 : 10 Vitest, typecheck/build Next.js 15, 3 Playwright, 4 contrats FastAPI, 18 tests web et builds des deux fallbacks. Le dixième test vérifie l'arrêt des services privés lors du verrouillage automatique. GitHub Actions exécute aussi un job dédié au frontend unifié, à côté du build Vite historique.
-- Limites : CI backend complète encore à confirmer (PyAudio requiert `portaudio.h` localement), appareils physiques et observation 24 h non vérifiés.
+- Limites : la CI backend complète est verte sur `main`; le rejeu local reste bloqué par l'absence de `portaudio.h` pour PyAudio. Les appareils physiques et l'observation 24 h ne sont pas vérifiés.
 
 ## Personnalité JARVIS
 
@@ -618,6 +618,9 @@ jarvis/
 │   ├── schema.sql           # Schéma SQLite complet (toutes les tables)
 │   ├── location_helpers.py  # CRUD localisation (lieux, historique, visites, trajets, patterns)
 │   └── queries.py           # Helpers CRUD (save_message, get_life_profile, etc.)
+│
+├── jarvis/
+│   └── notification_service.py # Politique de notifications : priorité, déduplication, push, événements
 │
 ├── web/
 │   ├── src/
@@ -1566,9 +1569,11 @@ celle visée par « le téléphone devient l'interface principale ».
   complet avec un déchiffreur indépendant dans les tests.
 - Clé VAPID générée une fois, persistée dans `app_settings` (jamais exposée
   côté client — seule la clé publique sert de `applicationServerKey`).
-- `create_notification()` déclenche un envoi push (thread daemon,
+- `notification_service.create()` déclenche un envoi push (thread daemon,
   best-effort, jamais bloquant) pour les priorités `urgent`/`high` ;
-  supprime l'abonnement si le push service répond 404/410 (expiré).
+  supprime l'abonnement si le push service répond 404/410 (expiré). Tous les
+  producteurs applicatifs l'utilisent ; `database.create_notification()` est
+  une façade rétrocompatible qui lui délègue.
 - Frontend : `web/src/lib/push.ts` (`subscribeToPush`), bannière
   `NotificationsPrompt.tsx` (une fois, si permission `default`).
 

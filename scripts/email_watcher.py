@@ -23,12 +23,12 @@ from pathlib import Path
 import config
 import llm
 from database import (
-    create_notification,
     create_task,
     get_all_processed_email_ids,
     save_email_full,
     upsert_email_summary,
 )
+from jarvis.notification_service import notification_service
 
 logger = logging.getLogger(__name__)
 
@@ -366,7 +366,7 @@ class EmailWatcher:
 
         # 1. Notification
         try:
-            create_notification(
+            notification_service.create(
                 source="email",
                 title=summary,
                 content=action_needed,

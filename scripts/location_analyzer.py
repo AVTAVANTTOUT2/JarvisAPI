@@ -9,13 +9,14 @@ from pathlib import Path
 
 import config
 import llm
-from database import add_fact, create_notification
+from database import add_fact
 from database.location_helpers import (
     get_active_location_patterns,
     get_all_places,
     get_today_visits,
     visits_summary_last_days,
 )
+from jarvis.notification_service import notification_service
 
 logger = logging.getLogger(__name__)
 
@@ -154,7 +155,7 @@ class LocationAnalyzer:
 
             if atype in ("absence", "unusual_visit", "timing_change") and config.DESKTOP_NOTIFICATIONS:
                 try:
-                    create_notification(
+                    notification_service.create(
                         source="location",
                         title="JARVIS — Localisation",
                         content=desc[:500],
