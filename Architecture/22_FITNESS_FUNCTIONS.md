@@ -1,13 +1,13 @@
 # 22 — Architecture Fitness Functions
 
 **Date** : 11 juillet 2026
-**Statut** : Règles automatisables — à intégrer dans la CI
+**Statut** : Règles automatisables — implémentation partielle ; contrôles API Phase 4 actifs dans pytest
 
 ---
 
 ## Définition
 
-Les Fitness Functions sont des règles vérifiables automatiquement qui garantissent que l'architecture reste conforme aux principes définis. Elles sont exécutées à chaque PR et en CI.
+Les Fitness Functions sont des règles vérifiables automatiquement qui garantissent que l'architecture reste conforme aux principes définis. Le script général présenté ci-dessous est une cible et n'existe pas encore. Depuis la Phase 4, `tests/test_phase4_architecture.py` exécute les contrôles de taille et de dépendance inverse de la couche API dans la suite pytest.
 
 ## Règles automatiques
 
@@ -28,6 +28,8 @@ python scripts/architecture_check.py --check-size --max-lines 500
 
 **Seuil** : Aucun nouveau fichier > 500 lignes sans justification dans un ADR
 **Action si échec** : Warning — le module doit être split ou justifié
+
+**État Phase 4** : actif pour `main.py` et `api/*.py` via pytest (seuil 500 lignes).
 
 ### F-03 — Pas plus de 10 responsabilités par module
 
@@ -79,6 +81,8 @@ Vérifie :
 
 **Action si échec** : PR refusée
 
+**État Phase 4** : l'interdiction `api → main` est active via analyse AST dans pytest ; les autres couches attendent le script général.
+
 ### F-08 — Pas de lazy import non justifié
 
 ```bash
@@ -107,7 +111,7 @@ Compare le temps d'exécution des tests vs la baseline.
 **Seuil** : Pas d'augmentation > 20%
 **Action si échec** : Warning
 
-## Implémentation CI
+## Implémentation CI cible
 
 ```yaml
 # .github/workflows/architecture-check.yml

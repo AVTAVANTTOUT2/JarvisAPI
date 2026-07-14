@@ -2,13 +2,13 @@
 
 **Date initiale** : 11 juillet 2026
 **Dernière validation** : 14 juillet 2026
-**Statut** : Rapport de vérification doc vs code — Phases 1 à 3 clôturées
+**Statut** : Rapport de vérification doc vs code — Phases 1 à 4 clôturées
 
 ---
 
 ## Résultat : DOCUMENTATION VALIDÉE
 
-Le dossier `Architecture/` reflète l'état du code après la clôture de la Phase 3. Quatre composants restent des **cibles futures** ; `pipeline.py` et l'Event Bus, auparavant planifiés, sont maintenant implémentés.
+Le dossier `Architecture/` reflète l'état du code après la clôture de la Phase 4. Quatre composants restent des **cibles futures** ; `pipeline.py`, l'Event Bus et la couche API modulaire, auparavant planifiés, sont maintenant implémentés.
 
 ---
 
@@ -16,16 +16,17 @@ Le dossier `Architecture/` reflète l'état du code après la clôture de la Pha
 
 | Affirmation dans Architecture/ | Réalité code | Statut |
 |---|---|---|
-| 183 routes REST | 183 `@app.*` décorateurs | ✅ Exact |
+| 174 opérations HTTP + 1 WebSocket, 157 chemins OpenAPI | Inventaire FastAPI et snapshot déterministe avant/après Phase 4 | ✅ Contrat inchangé |
 | 73 tables applicatives après `init_db()` | Vérifié sur une base temporaire initialisée, hors table interne `sqlite_sequence` | ✅ Inclut `event_log` ajouté en Phase 3 |
 | 7 agents LLM + orchestrateur | 12 fichiers dans agents/ | ✅ Exact (dont 5 utilitaires) |
 | 29 jobs APScheduler | 102 références dans scheduler.py | ✅ Exact |
 | 5 démons | screen, audio, email, imessage, supervisor | ✅ Exact |
-| 228 fichiers Python, 54 342 lignes | Vérifié après la Phase 3 | ✅ Actualisé |
+| 268 fichiers Python, 55 545 lignes | Vérifié après la Phase 4 | ✅ Actualisé |
 | 74 fichiers source frontend | 41 (`web/src`) + 33 (`pwa/src`) | ✅ Exact |
 | PWA sans LockGate | **Confirmé** — aucun composant auth dans pwa/ | ✅ Documenté comme P0-1 |
 | Event bus actif | 10 types de domaine, 11 émetteurs de production, 3 fichiers avec handlers réels | ✅ Validé par 4 tests Phase 3 |
-| 540 fonctions de test (61 fichiers) | Vérifié statiquement après ajout des contrats Phase 3 | ✅ Actualisé |
+| 546 fonctions de test (63 fichiers) | Vérifié statiquement après ajout des contrats Phase 4 | ✅ Actualisé |
+| Couche API modulaire | `main.py` 175 lignes, 12 routeurs, chaque module `api/` ≤ 500 lignes, aucun import `api → main` | ✅ Validé par 6 tests Phase 4 |
 
 ## 2. Composants cibles restant à implémenter
 
@@ -38,7 +39,7 @@ Ces quatre composants sont documentés comme appartenant à l'architecture cible
 | `ai_service.py` | 14_AI_SERVICE.md, ADR-014 | Évolution future |
 | `/health`, `/metrics` | 12_OBSERVABILITE.md | Q4 2026 |
 
-`pipeline.py` est implémenté depuis le 11 juillet 2026 et validé par les tests de contrat de la Phase 1. `jarvis/event_bus.py`, `jarvis/events.py` et `database/event_log.py` constituent l'infrastructure active de la Phase 3. Le journal permet de sélectionner les événements non traités, mais le rejeu automatique attend le Queue Engine.
+`pipeline.py` est implémenté depuis le 11 juillet 2026 et validé par les tests de contrat de la Phase 1. `jarvis/event_bus.py`, `jarvis/events.py` et `database/event_log.py` constituent l'infrastructure active de la Phase 3. La couche `api/` et son assemblage dans `main.py` constituent la Phase 4. Le journal permet de sélectionner les événements non traités, mais le rejeu automatique attend le Queue Engine.
 
 ## 3. PWA LockGate — confirmé absent
 
@@ -66,12 +67,12 @@ Tous les diagrammes sont cohérents avec leur contexte (actuel vs cible).
 | Document | Avant | Après |
 |---|---|---|
 | INDEX.md, 01_CARTOGRAPHIE.md, 03_AUDIT_TECHNIQUE.md, 19_VALIDATION_FINALE.md | Anciens comptages `44/45/46/72` | **73 tables applicatives créées après migrations Phase 3** |
-| Plusieurs documents | Comptages historiques (`174`, puis `486/53`, puis `536/59`) | **540 fonctions de test, 61 fichiers après clôture de la Phase 3** |
+| Plusieurs documents | Comptages historiques (`174`, puis `486/53`, `536/59`, `540/61`) | **546 fonctions de test, 63 fichiers après clôture de la Phase 4** |
 | Plusieurs documents | « Event bus : 0 abonné » puis « usage minimal » | **Bus actif : 10 événements de domaine, 3 consommateurs réels** |
 | INDEX.md | Comptages historiques variables | **35 fichiers Markdown + 3 sous-répertoires** |
 
 ### Pas de contradiction sur les composants cibles
-`apple_data.py`, `queue_engine.py`, `ai_service.py` et `/health` restent clairement identifiés comme cibles futures. `pipeline.py` et le bus sont documentés comme composants courants implémentés.
+`apple_data.py`, `queue_engine.py`, `ai_service.py` et `/health` restent clairement identifiés comme cibles futures. `pipeline.py`, le bus et les routeurs FastAPI sont documentés comme composants courants implémentés.
 
 ## 6. Complétude
 
@@ -120,12 +121,12 @@ Tous les diagrammes sont cohérents avec leur contexte (actuel vs cible).
 
 | Document | Correction |
 |---|---|
-| INDEX.md | Comptage réel de 73 tables applicatives, métriques et Phases 1 à 3 actualisés |
-| 01_CARTOGRAPHIE.md | Flux Event Bus, journal et PWA temps réel ajoutés |
-| 03_AUDIT_TECHNIQUE.md | Contrats, handlers isolés et limites du rejeu documentés |
-| 19_VALIDATION_FINALE.md | Score 5.40, risques et prochaine Phase 4 actualisés |
-| Documents Phase 3 | ADR-005, gouvernance, DoD, dette et roadmap synchronisés au 14/07/2026 |
-| Plan de tests | 7 tests ciblés Phase 1, 6 contrats Phase 2, 4 tests Phase 3 ; suite complète : 542 passants, 1 ignoré ; 540 fonctions déclarées ; GitHub Actions PR #12 backend/frontend vert |
+| INDEX.md | Métriques et Phases 1 à 4 actualisées ; prochaine étape Phase 5 |
+| 01_CARTOGRAPHIE.md | Couche `api/`, routeurs, assemblage et dépendances actuelles documentés |
+| 03_AUDIT_TECHNIQUE.md | Monolithe distingué comme historique ; état API actuel audité |
+| 19_VALIDATION_FINALE.md | Score de maturité 6.70, risques et prochaine Phase 5 actualisés |
+| Documents Phase 4 | ADR-008, gouvernance, DoD, dette, score et roadmap synchronisés au 14/07/2026 |
+| Plan de tests | 7 tests ciblés Phase 1, 6 contrats Phase 2, 4 tests Phase 3, 6 tests Phase 4 ; suite complète : 548 passants, 1 ignoré ; 546 fonctions déclarées dans 63 fichiers |
 | diagrams/README.md | Créé — placeholder |
 | audit/README.md | Créé — placeholder |
 
@@ -135,7 +136,7 @@ Tous les diagrammes sont cohérents avec leur contexte (actuel vs cible).
 >
 > Il est cohérent avec le code réel. Les écarts identifiés sont soit des cibles futures documentées comme telles, soit des métriques mineures qui viennent d'être corrigées.
 >
-> **Prochaine action : Phase 4 — routeurs FastAPI.**
+> **Prochaine action : Phase 5 — Apple Data Service.**
 
 ---
 

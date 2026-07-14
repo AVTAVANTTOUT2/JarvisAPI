@@ -35,7 +35,17 @@ Le bus applicatif est actif et conserve la compatibilité de construction histor
 - Les handlers d'un même événement s'exécutent concurremment ; l'échec de l'un est journalisé sans interrompre les autres.
 - `jarvis/__init__.py` charge `JARVISRouter` à la demande : importer le bus ou la base ne charge aucun backend LLM.
 
-Depuis du code async, utiliser `await event_bus.emit(event)`. Depuis un chemin synchrone ou un thread scheduler, utiliser `event_bus.emit_nowait(event)` ; `main.py` lie le bus à la boucle applicative au démarrage. Ne jamais émettre un événement de fait avant la persistance. `get_unprocessed_events()` prépare un futur rejeu, mais aucun rejeu automatique au redémarrage n'est implémenté à ce stade.
+Depuis du code async, utiliser `await event_bus.emit(event)`. Depuis un chemin synchrone ou un thread scheduler, utiliser `event_bus.emit_nowait(event)` ; `api/lifespan.py` lie le bus à la boucle applicative au démarrage. Ne jamais émettre un événement de fait avant la persistance. `get_unprocessed_events()` prépare un futur rejeu, mais aucun rejeu automatique au redémarrage n'est implémenté à ce stade.
+
+## Couche API — Phase 4
+
+`main.py` est un point d'assemblage de 175 lignes : configuration FastAPI/CORS, montage des 12 `APIRouter`, branchement du WebSocket, configuration de `pipeline.py`, frontend et lancement Uvicorn. Les 174 opérations HTTP et le WebSocket `/ws` conservent leur contrat historique ; l'OpenAPI expose 157 chemins.
+
+- `api/router_*.py` contient exactement 12 routeurs par domaine ; aucun ne dépasse 449 lignes.
+- `api/lifespan.py`, `api/middleware.py` et `api/frontend.py` portent le cycle de vie, la sécurité HTTP et le serving des frontends.
+- `api/ws_handler.py`, `api/ws_messages.py`, `api/chat_*.py` et `api/voice_*.py` séparent le transport WebSocket, le contexte, les actions et les pipelines texte/vocal.
+- Tous les modules `api/*.py` restent sous 500 lignes et aucun n'importe `main.py`.
+- `tests/test_phase4_route_contract.py` verrouille les signatures des routes et l'empreinte OpenAPI ; `tests/test_phase4_architecture.py` verrouille les frontières structurelles.
 
 ## Personnalité JARVIS
 
@@ -388,7 +398,7 @@ JARVIS peut exécuter des actions sur le Mac local via `integrations/computer.py
 
 **Module** : `ComputerControl` — `run()` (shell `COMPUTER_SHELL`, timeout, motifs dangereux refusés dans `is_safe`), `open_app`, `find_files`, `clipboard` (`pbcopy` / `pbpaste`), `get_battery` / `get_wifi` / `get_disk_space`, `get_running_apps`, `get_active_window`, `run_applescript`.
 
-**Actions** (`actions.py` → `execute_action`) : `terminal`, `open_app`, `find_file`, `clipboard`, `system_info`. Types déclenchant une **2e passe LLM** (réformulation, pas de stdout brut dans le chat) : `terminal`, `find_file`, `system_info`, `clipboard` — flag `ACTIONS_WITH_FOLLOWUP` dans `main.py`.
+**Actions** (`actions.py` → `execute_action`) : `terminal`, `open_app`, `find_file`, `clipboard`, `system_info`. Types déclenchant une **2e passe LLM** (réformulation, pas de stdout brut dans le chat) : `terminal`, `find_file`, `system_info`, `clipboard` — flag `ACTIONS_WITH_FOLLOWUP` dans `api/chat_actions.py`.
 
 **Sécurité** : patterns bloqués (ex. `rm -rf /`, `shutdown`, fork bomb, `curl | bash`, etc.) ; commandes `rm`, `mv` vers `~/`, `sudo`, `brew uninstall` → retour `needs_confirmation` tant que l’action n’a pas `confirmed: true`. Le client envoie `{ "type": "action_confirm", "action": { ... "confirmed" implicite côté serveur } }`.
 
@@ -493,7 +503,7 @@ Détection de parole par volume en temps réel via Web Audio API `AnalyserNode` 
 2. `BaseAgent._extract_emotion(response)` (regex `^\s*\[(\w+)\]\s*\n?`) extrait le tag et retourne `(emotion, texte_propre)`.
 3. `_call_claude()` appelle `_extract_emotion` avant de retourner. L'émotion est dans `result["emotion"]`.
 4. `orchestrator.handle_stream()` strip le tag du flux streaming (les chunks n'affichent PAS `[warm]` dans la bulle).
-5. `_process_message()` (`main.py`, unique pipeline WebSocket texte + audio) passe `emotion` à `tts.synthesize()` pour adapter la voix.
+5. `_process_message()` (`api/ws_messages.py`, pipeline WebSocket texte + audio) passe `emotion` à `tts.synthesize()` pour adapter la voix.
 
 ### Mode conversation mains libres — page `/voice` (recommandé)
 
@@ -535,7 +545,7 @@ Détails du flux :
 
 ### Mode conversation continue (legacy — chat)
 
-Flux historique encore possible depuis le composer chat : `conversation_mode` + segments — voir codebase `main.py` / specs.
+Flux historique encore possible depuis le composer chat : `conversation_mode` + segments — voir `api/ws_handler.py` et les specs.
 
 ### Config
 
@@ -558,7 +568,8 @@ RECORDING_SUMMARY_ONLY=false
 
 ```
 jarvis/
-├── main.py                  # Entry point FastAPI + WebSocket + routes
+├── main.py                  # Assemblage FastAPI/Uvicorn (175 lignes)
+├── api/                     # 12 routeurs + lifespan, middleware, frontend et pipeline WebSocket
 ├── config.py                # Charge .env, expose tous les settings
 ├── llm.py                   # Client DeepSeek API (chat, stream, classify)
 ├── actions.py               # execute_action : tâches, mails, terminal, ordinateur…
@@ -770,7 +781,7 @@ boucle de crash revient sous `SELF_HEALING_REGRESSION_WINDOW_MIN`.
 # 1. User envoie via WebSocket
 msg = {"type": "text", "content": "J'ai un exam de droit demain"}
 
-# 2. main.py reçoit → orchestrateur classifie
+# 2. api/ws_handler.py reçoit → orchestrateur classifie
 category = await orchestrator.classify(msg["content"])  # → "SCHOOL"
 
 # 3. Contexte mémoire construit
@@ -789,7 +800,7 @@ memory_agent.maybe_store(msg["content"], result["response"], agent="school")
 
 ### Message audio (push-to-talk, conversation legacy, mains libres)
 
-Après STT, **le même** `_process_message()` que le texte (`main.py`) : `save_message` user, `orchestrator.handle_stream` (push / legacy avec `voice_mode=True` → en interne `stream=False` et `orchestrator.handle(..., voice_mode=True)`) ou `handle` seul, extraction `action`, TTS si demandé. Pas de `handle_voice` séparé.
+Après STT, **le même** `_process_message()` que le texte (`api/ws_messages.py`) : `save_message` user, `orchestrator.handle_stream` (push / legacy avec `voice_mode=True` → en interne `stream=False` et `orchestrator.handle(..., voice_mode=True)`) ou `handle` seul, extraction `action`, TTS si demandé. Pas de `handle_voice` séparé.
 
 ## Mémoire profonde — Architecture 2 tiers
 
@@ -967,7 +978,7 @@ Migration idempotente via `_migrate_conversations()` dans `init_db()`.
 
 ### Action SEARCH_CONVERSATIONS
 
-`actions.py` — `_action_search_conversations()` : recherche dans toutes les conversations via `search_conversations()`, résultats formatés pour la 2e passe LLM. Ajoutée à `ACTIONS_WITH_FOLLOWUP` dans `main.py`.
+`actions.py` — `_action_search_conversations()` : recherche dans toutes les conversations via `search_conversations()`, résultats formatés pour la 2e passe LLM. Ajoutée à `ACTIONS_WITH_FOLLOWUP` dans `api/chat_actions.py`.
 
 `prompts/persona.txt` — action documentée : déclenche sur "on avait parlé de...", "cherche dans nos conversations...".
 
@@ -1001,7 +1012,7 @@ Navigation : `/chat` est la route par défaut de l'app (`App.tsx`).
 
 ## Pipeline unifié — JARVIS a accès à TOUT, partout
 
-**Règle absolue** : `_process_message()` dans `main.py` est le seul point d'entrée pour parler à JARVIS. Chat, voix, recherche, contacts, journal — tout passe par ce pipeline. JARVIS a toujours accès à l'ensemble des données disponibles.
+**Règle absolue** : `_process_message()` dans `api/ws_messages.py`, avec le contrat public `pipeline.py` pour les appels sans socket, constitue le pipeline unifié pour parler à JARVIS. Chat, voix, recherche, contacts, journal — tout passe par ce pipeline. JARVIS a toujours accès à l'ensemble des données disponibles.
 
 ### Architecture du pipeline
 
@@ -1230,7 +1241,7 @@ File TTS par device : `_device_tts_queues: dict[device_id, asyncio.Queue]`. Quan
 
 ### Intégration au pipeline
 
-`_build_enriched_context` (dans `main.py`) ajoute deux clés :
+`_build_enriched_context` (dans `api/chat_context.py`) ajoute deux clés :
 
 - **`screen_context`** (toujours injecté si dispo, ≤ 5 min) : `Écran : VS Code — code Python (mood: focused)`.
 - **`screen_time_context`** (conditionnel sur mots-clés `temps`, `productivité`, `screen time`, `distrait`, `procrastin`, …) : top 10 apps avec minutes du jour.
@@ -1432,7 +1443,7 @@ tous les endpoints `/api/*` (hors `/api/auth/*`) répondent `428`.
 | Fichier | Rôle |
 |---|---|
 | `auth.py` | PIN/passphrase (hash `scrypt`, jamais en clair), sessions DB-backed (jeton opaque, seul le hash SHA-256 est stocké), anti-brute-force (verrou global après `AUTH_LOCKOUT_MAX_ATTEMPTS` échecs) |
-| `main.py` (`security_middleware`) | En-têtes de sécurité (CSP, X-Frame-Options, Referrer-Policy, Permissions-Policy, HSTS si HTTPS) sur toute réponse ; verrou de session sur `/api/*` (allowlist : `/api/auth/*`, ingestion device/localisation qui s'authentifient autrement) ; vérification Origin/Referer sur les requêtes qui modifient l'état (défense en profondeur — SameSite=Strict protège déjà l'essentiel) |
+| `api/middleware.py` (`security_middleware`) | En-têtes de sécurité (CSP, X-Frame-Options, Referrer-Policy, Permissions-Policy, HSTS si HTTPS) sur toute réponse ; verrou de session sur `/api/*` (allowlist : `/api/auth/*`, ingestion device/localisation qui s'authentifient autrement) ; vérification Origin/Referer sur les requêtes qui modifient l'état (défense en profondeur — SameSite=Strict protège déjà l'essentiel) |
 | `web/src/app/components/auth/LockGate.tsx` | Écran de configuration/déverrouillage + verrouillage automatique client après `AUTO_LOCK_MINUTES` d'inactivité |
 | `scripts/db_maintenance.py` | Chiffrement optionnel des sauvegardes (Fernet/AES, clé dérivée de `BACKUP_ENCRYPTION_PASSPHRASE`) + `restore_backup()` (déchiffre si besoin, snapshot de sécurité de la base courante avant d'écraser) |
 
@@ -1506,7 +1517,7 @@ celle visée par « le téléphone devient l'interface principale ».
 - Gère aussi les évènements `push` / `notificationclick` et un message
   `jarvis:flush-offline-queue` envoyé aux clients ouverts sur un event
   `sync` (Background Sync, best-effort — indisponible sur Safari/iOS).
-- `main.py` sert explicitement `sw.js`, `manifest.webmanifest`,
+- `api/frontend.py` sert explicitement `sw.js`, `manifest.webmanifest`,
   `registerSW.js` et `icons/` à la racine (le Service Worker DOIT être
   servi à la racine `/sw.js` pour contrôler toute l'app — il ne peut pas
   vivre sous `/assets`).
@@ -1622,7 +1633,7 @@ GET / (tous navigateurs)
 
 ### Détection mobile
 
-`_is_mobile_device(user_agent: str) -> bool` dans `main.py` :
+`_is_mobile_device(user_agent: str) -> bool` dans `api/frontend.py` :
 
 | Plateforme | Détecté ? |
 |---|---|
@@ -1636,7 +1647,7 @@ Regex compilée : `_MOBILE_UA_PATTERN` + `_TABLET_UA_PATTERN` (exclusion Android
 
 ### Serving PWA
 
-`_setup_pwa_frontend(app: FastAPI) -> bool` dans `main.py` :
+`_setup_pwa_frontend(app: FastAPI) -> bool` dans `api/frontend.py` :
 
 - Monte les assets Next.js : `/m/_next/static/` → `pwa/out/_next/static/`
 - Monte les icônes : `/m/icons/` → `pwa/out/icons/`

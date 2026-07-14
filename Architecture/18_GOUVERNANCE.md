@@ -74,8 +74,8 @@ Ces règles sont **non négociables**. Toute violation doit être justifiée par
 
 > **Aucun module ne doit dépasser 1000 lignes.**
 
-- Actuel : seul `main.py` dépasse 1000 lignes (7 197) ; `database/` culmine à 666 lignes et sa façade fait 236 lignes
-- Cible après refactoring : max 500 lignes par fichier
+- Actuel après Phase 4 : `main.py` fait 175 lignes et tous les modules `api/` restent à 500 lignes ou moins ; `database/` culmine à 666 lignes et sa façade fait 236 lignes
+- Cible : max 500 lignes par module impératif nouvellement créé ; les modules déclaratifs historiques doivent être justifiés
 - Exception : `schema.sql` (déclaratif), fichiers de tests
 - Détection : `wc -l *.py | sort -rn | head -10`
 - Sanction : Split avant merge
@@ -127,7 +127,9 @@ Avant de merger une PR :
 [ ] CHANGELOG mis à jour
 ```
 
-## outil de vérification automatique
+## Vérification automatique
+
+Le script général `scripts/architecture_check.py` décrit ci-dessous reste une cible : il n'existe pas encore dans le dépôt et ne doit pas être présenté comme exécuté. La Phase 4 matérialise les règles API dans `tests/test_phase4_architecture.py`.
 
 ```bash
 # Vérifie les règles 1, 2, 3, 8, 9, 11, 12
@@ -137,7 +139,7 @@ python scripts/architecture_check.py
 # [✓] Règle 1: Aucun accès direct à chat.db hors apple_data
 # [✓] Règle 2: Aucun accès direct à jarvis.db hors database/
 # [✓] Règle 3: Aucune duplication détectée
-# [✗] Règle 8: main.py dépasse 1000 lignes (7197)
+# [✓] Règle 8: main.py et tous les modules api/ restent sous le seuil Phase 4
 # [✓] Règle 9: Aucun lazy import détecté
 # ...
 ```

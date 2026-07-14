@@ -1,7 +1,7 @@
 # 19 — Validation Finale
 
 **Date** : 11 juillet 2026
-**Statut** : Synthèse actualisée après les Phases 1, 2 et 3
+**Statut** : Synthèse actualisée après les Phases 1 à 4
 
 ---
 
@@ -9,25 +9,25 @@
 
 | Dimension | Score (/10) | Poids | Pondéré |
 |---|---|---|---|
-| **Séparation des responsabilités** | 4/10 | 20% | 0.8 |
-| **Couplage** | 5/10 | 15% | 0.75 |
-| **Cohésion** | 6/10 | 10% | 0.6 |
-| **Testabilité** | 4/10 | 15% | 0.6 |
-| **Documentation** | 7/10 | 10% | 0.7 |
+| **Séparation des responsabilités** | 7/10 | 20% | 1.4 |
+| **Couplage** | 7/10 | 15% | 1.05 |
+| **Cohésion** | 7/10 | 10% | 0.7 |
+| **Testabilité** | 5/10 | 15% | 0.75 |
+| **Documentation** | 8/10 | 10% | 0.8 |
 | **Sécurité** | 7/10 | 15% | 1.05 |
 | **Performance** | 6/10 | 10% | 0.6 |
-| **Évolutivité** | 6/10 | 5% | 0.30 |
-| **TOTAL** | | **100%** | **5.40/10** |
+| **Évolutivité** | 7/10 | 5% | 0.35 |
+| **TOTAL** | | **100%** | **6.70/10** |
 
-**Interprétation** : Après les Phases 1, 2 et 3, l'architecture est à **5.40/10**. L'objectif après refactoring reste **8.5/10**.
+**Interprétation** : Après les Phases 1 à 4, l'architecture est à **6.70/10**. L'objectif après refactoring reste **8.5/10**.
 
 ### Justification des scores
 
-- **Séparation (4/10)** : le god object database est résolu (façade 236l, 25 modules) ; `main.py` reste à 7 197 lignes et 40+ responsabilités.
-- **Couplage (5/10)** : cycle main↔daemon supprimé et Event Bus actif avec 3 consommateurs réels ; 42 imports dans `main.py`, 25+ connexions directes à `chat.db` et 15 producteurs de notifications directs restent.
-- **Cohésion (6/10)** : agents, intégrations et persistance sont maintenant séparés par domaine ; `main.py` reste le principal fourre-tout.
-- **Testabilité (4/10)** : 540 fonctions de test backend déclarées dans 61 fichiers, dont 4 garanties Phase 3, mais couverture par route non mesurée de façon fiable.
-- **Documentation (7/10)** : CLAUDE.md est excellent (1500+ lignes). README complet. Architecture/ vient d'être créé. Manque des diagrammes de séquence.
+- **Séparation (7/10)** : les god objects database et API sont résolus ; `main.py` fait 175 lignes et monte 12 routeurs de domaine.
+- **Couplage (7/10)** : cycle main↔daemon supprimé, Event Bus actif et aucun import `api → main` ; 25+ connexions directes à `chat.db` et 15 producteurs de notifications directs restent.
+- **Cohésion (7/10)** : routes, WebSocket, pipeline, frontend, middleware et lifespan sont regroupés par responsabilité dans `api/`.
+- **Testabilité (5/10)** : 546 fonctions de test backend déclarées dans 63 fichiers ; contrat routes/OpenAPI et contraintes structurelles Phase 4 verrouillés, mais couverture globale non mesurée de façon fiable.
+- **Documentation (8/10)** : CLAUDE.md et Architecture/ suivent les quatre phases ; les diagrammes détaillés par flux restent à enrichir.
 - **Sécurité (7/10)** : Auth robuste (scrypt, sessions, anti-brute-force). CSP, CORS, CSRF configurés. Mais PWA sans LockGate, pas de chiffrement au repos, HTTP par défaut.
 - **Performance (6/10)** : SQLite WAL, `busy_timeout = 5000` et batch import. Le cache LLM et le monitoring restent à implémenter.
 - **Évolutivité (6/10)** : ajouter un domaine de persistance ne nécessite plus de modifier un monolithe et les réactions peuvent s'abonner au bus ; les connecteurs et deux frontends restent coûteux à faire évoluer.
@@ -40,7 +40,7 @@
 | 2 | SQLite sans busy_timeout — perte silencieuse d'écriture | Faible | Élevé | ✅ Résolu Phase 1 (`PRAGMA busy_timeout = 5000`, 11/07/2026) |
 | 3 | Race condition WebSocket — crash broadcast | Faible | Moyen | ✅ Résolu Phase 1 (verrou + snapshot défensif, 11/07/2026) |
 | 4 | Messages iMessage traités en double | Moyenne | Faible | ✅ Résolu Phase 1 (curseur unique `imessage_consumer_cursors`, 11/07/2026) |
-| 5 | Conflits de merge sur main.py et database/__init__.py | Moyenne | Moyen | ✅ Database résolue en Phase 2 ; `main.py` reste planifié en Phase 4 |
+| 5 | Conflits de merge sur main.py et database/__init__.py | Faible | Moyen | ✅ Database résolue en Phase 2 et couche API résolue en Phase 4 |
 | 6 | Dette technique croissante | Élevée | Élevé | Tout le plan de refactoring |
 | 7 | Couverture frontend limitée (18 tests web, 0 PWA) | Élevée | Moyen | Phase 6 (plan de tests) |
 | 8 | 25+ connexions à chat.db — contention | Faible | Faible | Phase 5 (AppleDataService) |
@@ -80,12 +80,12 @@
 
 ## Prochaine action
 
-**Phases 1, 2 et 3 validées le 14/07/2026. Prochaine action : Phase 4 — routeurs FastAPI.**
+**Phases 1 à 4 validées le 14/07/2026. Prochaine action : Phase 5 — Apple Data Service.**
 
 ```
-Phase 4 : 3 jours
-├── Extraire les routeurs par domaine
-├── Conserver les contrats HTTP/WebSocket
-├── Réduire main.py à moins de 500 lignes
-└── Valider chaque groupe de routes avant bascule
+Phase 5 : 3 jours
+├── Introduire AppleDataService
+├── Centraliser les accès directs à chat.db
+├── Unifier la conversion des timestamps Apple
+└── Migrer les consommateurs avec tests de non-régression
 ```

@@ -13,7 +13,7 @@ Une dette technique est un choix d'implémentation qui sacrifie la qualité long
 
 | ID | Description | Sévérité | Localisation | Estimé (h) | Planifié |
 |---|---|---|---|---|---|
-| TD-001 | God object main.py (7 197 lignes) | CRITIQUE | main.py | 24h | Phase 4 |
+| TD-001 | God object main.py (7 197 lignes) | RÉSOLUE | `main.py` 175 lignes + 12 routeurs | 0h | Phase 4 — 14/07/2026 |
 | TD-002 | God object database/__init__.py | RÉSOLUE | Façade 236 lignes, 25 modules | 0h | Phase 2 — 14/07/2026 |
 | TD-003 | PWA sans LockGate | CRITIQUE | pwa/ | 16h | Phase 6 |
 | TD-004 | 3 curseurs ROWID indépendants | RÉSOLUE | `imessage_cursor.py` | 0h | Phase 1 — 11/07/2026 |
@@ -23,7 +23,7 @@ Une dette technique est un choix d'implémentation qui sacrifie la qualité long
 | TD-008 | Event bus sans consommateurs métiers | RÉSOLUE | 10 événements, 3 consommateurs | 0h | Phase 3 — 14/07/2026 |
 | TD-009 | 4 conversions Apple timestamp | MODÉRÉE | 4 fichiers | 1h | Phase 5 |
 | TD-010 | Cycle main↔daemon | RÉSOLUE | `pipeline.py` | 0h | Phase 1 — 11/07/2026 |
-| TD-011 | 42 imports dans main.py | MODÉRÉE | main.py | 24h | Phase 4 |
+| TD-011 | 42 imports concentrés dans main.py | RÉSOLUE | Dépendances réparties dans `api/` | 0h | Phase 4 — 14/07/2026 |
 | TD-012 | Service Worker dupliqué | MINEURE | web/ + pwa/ | 2h | Phase 6 |
 | TD-013 | Dates relatives dupliquées | MINEURE | 2 frontends | 1h | Phase 6 |
 
@@ -36,6 +36,8 @@ Une dette technique est un choix d'implémentation qui sacrifie la qualité long
 | Curseurs ROWID uniquement en mémoire | Registre SQLite central avec offset monotone par consommateur | 11/07/2026 |
 | Cycle d'import `main.py` ↔ daemons | Contrat `pipeline.py` configuré par injection | 11/07/2026 |
 | Event bus sans consommateurs métiers | 10 événements typés, journal SQLite, WebSocket, TTS et PWA SSE | 14/07/2026 |
+| God object API | `main.py` réduit à 175 lignes, 12 routeurs et handlers/support spécialisés sous 500 lignes | 14/07/2026 |
+| Imports concentrés dans `main.py` | Dépendances déplacées avec leur responsabilité, sans import inverse `api → main` | 14/07/2026 |
 
 ## Comment identifier une nouvelle dette
 

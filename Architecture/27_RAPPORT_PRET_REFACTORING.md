@@ -24,7 +24,7 @@
 **Aucune zone majeure.** Approfondissements possibles dans le futur :
 
 - Diagrammes de séquence détaillés par flux (`diagrams/`)
-- Documentation exhaustive des 540 fonctions de test actuellement déclarées
+- Documentation exhaustive des 546 fonctions de test actuellement déclarées
 - Profilage de performance avant/après benchmarks
 - Plan de reprise après sinistre complet
 
@@ -79,10 +79,11 @@ Phase 6 → dépend de Phase 1 + Phase 3 + Phase 5
 1. **Phase 1 — Quick Wins P0** : ✅ validée le 14/07/2026
 2. **Phase 2 — Database modulaire** : ✅ validée le 14/07/2026 — façade 236 lignes, 25 modules après ajout du journal Phase 3
 3. **Phase 3 — Event bus actif** : ✅ validée le 14/07/2026 — 10 événements, 3 consommateurs et PWA temps réel
-4. **Phase 4 — Routeurs FastAPI** (3 jours) : prochaine étape
+4. **Phase 4 — Routeurs FastAPI** : ✅ validée le 14/07/2026 — 12 routeurs, `main.py` 175 lignes et contrat API inchangé
+5. **Phase 5 — Apple Data Service** (3 jours) : prochaine étape
 
 ## Conclusion
 
 **Le dossier Architecture/ est prêt. Il constitue désormais la source de vérité officielle du projet JARVIS. Aucune modification du code ne doit contredire cette documentation.**
 
-**Phases 1, 2 et 3 validées le 14/07/2026. Prochaine action : Phase 4 — routeurs FastAPI.**
+**Phases 1 à 4 validées le 14/07/2026. Prochaine action : Phase 5 — Apple Data Service.**

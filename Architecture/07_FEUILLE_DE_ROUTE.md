@@ -27,7 +27,7 @@ Les travaux sont classés selon l'ordre de priorité suivant :
 
 **Semaine 2 — Découplage**
 - [x] Phase 3 : Event bus actif (validée le 14/07/2026 — 10 événements, 3 consommateurs, PWA temps réel)
-- [ ] Phase 4 : Routeurs FastAPI (12 routeurs)
+- [x] Phase 4 : Routeurs FastAPI (validée le 14/07/2026 — 12 routeurs, `main.py` 175 lignes, contrat API inchangé)
 - [ ] Phase 5 : Apple Data Service (début)
 
 **Semaines 3-4 — Unification**
@@ -69,8 +69,8 @@ Avant d'ajouter une feature :
 | Métrique | État actuel | Cible Q3 2026 | Cible Q4 2026 |
 |---|---|---|---|
 | Problèmes critiques | 1 | 0 | 0 |
-| Problèmes majeurs | 3 | 2 | 0 |
-| God objects (>1000 lignes) | 1 | 0 | 0 |
+| Problèmes majeurs | 2 | 2 | 0 |
+| God objects API/DB (>1000 lignes) | 0 | 0 | 0 |
 | Duplications majeures | 8 | 3 | 0 |
 | Couverture tests backend | ~60% | 80% | 90% |
 | Tests frontend | 18 (web offline) | 50+ | 100+ |

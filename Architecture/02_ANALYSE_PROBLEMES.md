@@ -27,7 +27,7 @@
 ### P0-3 — Race condition sur le set WebSocket `connected_ws` ✅ RÉSOLU (Phase 1)
 
 - **Gravité** : CRITIQUE
-- **Fichier** : `main.py` (`broadcast_ws()`, `websocket_endpoint()`)
+- **Fichiers historiques** : ancien `main.py`; état actuel dans `websocket_registry.py` et `api/ws_handler.py`
 - **Origine** : `connected_ws` est un `set[WebSocket]` modifié pendant l'itération. `broadcast_ws()` itère pendant que `websocket_endpoint()` retire des éléments. Pas de `asyncio.Lock`.
 - **Conséquence** : `RuntimeError: Set changed size during iteration` si un client se déconnecte pendant un broadcast.
 - **Correction** : `asyncio.Lock` + copie défensive du set avant itération (ADR-003)
@@ -46,13 +46,15 @@
 
 ## MAJEURS (P1) — Correction prioritaire
 
-### P1-1 — main.py : 7 197 lignes, 183 routes, 40+ responsabilités
+### P1-1 — main.py : 7 197 lignes, 40+ responsabilités (état historique)
+
+**État** : ✅ RÉSOLU le 14/07/2026 — `main.py` est réduit à 175 lignes d'assemblage ; 12 `APIRouter` et les handlers/support associés sont isolés dans `api/`, sans import inverse vers `main.py`.
 
 - **Gravité** : MAJEURE
 - **Fichier** : `main.py`
 - **Origine** : Croissance organique sur 12+ mois. Chaque nouvelle feature a été ajoutée dans `main.py` plutôt que dans un module séparé.
 - **Conséquence** : Impossible à tester unitairement. Toute modification dans un domaine risque de casser un autre. Conflits de merge fréquents. Onboarding impossible pour un nouveau développeur.
-- **Correction** : Routeurs FastAPI par domaine (ADR-008). 12 routeurs extraits de `main.py`.
+- **Correction** : Routeurs FastAPI par domaine (ADR-008). Les 174 opérations HTTP et le WebSocket ont conservé leur contrat ; l'OpenAPI reste stable à 157 chemins.
 
 ### P1-2 — database/__init__.py : 4 169 lignes, ~208 fonctions, 23 domaines
 
@@ -85,7 +87,7 @@
 ### P1-5 — 25+ fichiers ouvrent des connexions directes à chat.db
 
 - **Gravité** : MAJEURE
-- **Fichiers** : `integrations/imessage.py`, `scripts/jarvis_daemon.py`, `scripts/relationship_analyzer.py`, `scripts/timeline_generator.py`, `scripts/contact_analytics.py`, `scripts/contact_alerts.py`, `scripts/message_predictor.py`, `scripts/backfill_imessages.py`, `scripts/force_full_mac_sync.py`, `main.py`, ...
+- **Fichiers** : `integrations/imessage.py`, `scripts/jarvis_daemon.py`, `scripts/relationship_analyzer.py`, `scripts/timeline_generator.py`, `scripts/contact_analytics.py`, `scripts/contact_alerts.py`, `scripts/message_predictor.py`, `scripts/backfill_imessages.py`, `scripts/force_full_mac_sync.py`, modules `api/`, ...
 - **Origine** : Aucune couche d'abstraction n'a été créée pour l'accès à `chat.db`. Chaque développeur a ouvert sa propre connexion.
 - **Conséquence** : 25+ connexions SQLite ouvertes simultanément. 4 implémentations de la conversion Apple timestamp → datetime. Impossible de changer le format de date sans toucher 4 fichiers.
 - **Correction** : AppleDataService unique (ADR-006)
@@ -125,7 +127,7 @@
 ### P2-3 — ~40 endpoints (30%) sans consommateur frontend
 
 - **Gravité** : MODÉRÉE
-- **Fichiers** : `main.py` (endpoints quality, self-healing, migrations, audio-daemon, imessage-import, voice-debug, commitments, DND, meetings, presence)
+- **Fichiers** : routeurs `api/` (quality, self-healing, migrations, audio-daemon, imessage-import, voice-debug, commitments, DND, meetings, presence)
 - **Origine** : Accumulation de fonctionnalités d'administration sans interface utilisateur.
 - **Conséquence** : Code potentiellement mort. Maintenance inutile.
 - **Correction** : Audit des endpoints non utilisés, suppression ou documentation
@@ -174,13 +176,13 @@
 
 ## MINEURS (P3) — À traiter dans le backlog
 
-### P3-1 — main.py importe 42 modules distincts
+### P3-1 — main.py importait 42 modules distincts
 
-42 imports top-level, dont 8 singletons d'agents importés individuellement.
+**État** : ✅ RÉSOLU en Phase 4 — `main.py` n'importe plus que les éléments nécessaires à l'assemblage. Les dépendances métier résident avec leurs routeurs et handlers.
 
-### P3-2 — 13 lazy imports cachent un couplage fort
+### P3-2 — 13 lazy imports cachaient un couplage fort dans le monolithe
 
-`from X import Y` dans les fonctions au lieu d'imports top-level.
+**État** : ✅ Concentration dans `main.py` résolue en Phase 4. Les imports ont été replacés dans les modules responsables ; toute exception lazy résiduelle reste soumise à la règle d'architecture dédiée.
 
 ### P3-3 — Pas de tests pour la détection mobile
 
@@ -204,7 +206,7 @@ Fonctions `formatTime()`, `relativeDate()`, `formatDue()` dupliquées entre les 
 | P0-2 | 3 curseurs ROWID | ✅ RÉSOLU | 0 | Phase 1 — 11/07/2026 |
 | P0-3 | Race condition WS | ✅ RÉSOLU | 0 | Phase 1 — 11/07/2026 |
 | P0-4 | SQLite busy_timeout | ✅ RÉSOLU | 0 | Phase 1 — 11/07/2026 |
-| P1-1 | main.py monolithe | MAJEURE | 3 jours | Phase 4 |
+| P1-1 | main.py monolithe | ✅ RÉSOLU | 0 | Phase 4 — 14/07/2026 |
 | P1-2 | database god object | ✅ RÉSOLU | 0 | Phase 2 — 14/07/2026 |
 | P1-3 | Deux frontends | MAJEURE | 5 jours | Phase 6 |
 | P1-4 | Event bus sans consommateurs métiers | ✅ RÉSOLU | 0 | Phase 3 — 14/07/2026 |
@@ -212,14 +214,14 @@ Fonctions `formatTime()`, `relativeDate()`, `formatDue()` dupliquées entre les 
 | P1-6 | Cycle main↔daemon | ✅ RÉSOLU | 0 | Phase 1 — 11/07/2026 |
 | P2-1 | 15 producteurs directs de notification | MODÉRÉE | 1 jour | Backlog `NotificationService` |
 | P2-2 | Écritures non coordonnées | 🟡 PARTIEL | 2 jours | Gouvernance Data Ownership |
-| P2-3 | 40 endpoints orphelins | MODÉRÉE | 1 jour | Phase 4 |
+| P2-3 | 40 endpoints sans consommateur frontend | MODÉRÉE | 1 jour | Backlog audit API |
 | P2-4 | Apple timestamp ×4 | MODÉRÉE | 1 heure | Phase 5 |
 | P2-5 | 29 jobs scheduler | MODÉRÉE | 2 heures | Backlog scheduler |
 | P2-6 | 2 wrappers API | MODÉRÉE | 1 jour | Phase 6 |
 | P2-7 | Versions incohérentes | MODÉRÉE | 3 jours | Phase 6 |
 | P2-8 | 2 cartes différentes | MODÉRÉE | 2 jours | Phase 6 |
-| P3-1 | 42 imports main.py | MINEURE | — | Phase 4 |
-| P3-2 | 13 lazy imports | MINEURE | — | Phase 4 |
+| P3-1 | 42 imports concentrés dans main.py | ✅ RÉSOLU | 0 | Phase 4 — 14/07/2026 |
+| P3-2 | Lazy imports concentrés dans main.py | ✅ RÉSOLU | 0 | Phase 4 — 14/07/2026 |
 | P3-3 | Pas de tests mobile | MINEURE | 30 min | Phase 6 |
 | P3-4 | SW dupliqué | MINEURE | 2 heures | Phase 6 |
 | P3-5 | Dates dupliquées | MINEURE | 1 heure | Phase 6 |
