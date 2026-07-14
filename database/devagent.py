@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import json
 import logging
+import sqlite3
 from datetime import datetime
 from typing import Any, Optional
 
-from database import get_db
+from .core import get_db
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +78,7 @@ CREATE INDEX IF NOT EXISTS idx_dev_deployments_project ON dev_deployments(projec
 """
 
 
-def migrate_devagent_tables(conn) -> None:
+def migrate_devagent_tables(conn: sqlite3.Connection) -> None:
     """Cree les tables DevAgent si absentes (idempotent)."""
     conn.executescript(DEVAGENT_SCHEMA)
 

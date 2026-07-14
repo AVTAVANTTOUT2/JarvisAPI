@@ -6,8 +6,11 @@ import json
 import logging
 import math
 from datetime import datetime, timedelta
+from typing import Any
 
 import config
+
+from .core import get_db
 
 logger = logging.getLogger(__name__)
 
@@ -52,8 +55,6 @@ def add_location(
     created_at: str | None = None,
 ) -> int:
     """Insère un point GPS ; résout le lieu le plus proche."""
-    from database import get_db
-
     resolved = resolve_place(lat, lng)
     place_id = int(resolved["id"]) if resolved else None
     ts = created_at or datetime.now().isoformat(timespec="seconds")
@@ -68,8 +69,6 @@ def add_location(
 
 
 def get_location_history(hours: int = 24) -> list[dict]:
-    from database import get_db
-
     since = (datetime.now() - timedelta(hours=max(1, hours))).isoformat(timespec="seconds")
     with get_db() as conn:
         rows = conn.execute(
@@ -84,8 +83,6 @@ def get_location_history(hours: int = 24) -> list[dict]:
 
 def get_current_location() -> dict | None:
     """Dernier point datant de moins de 10 minutes."""
-    from database import get_db
-
     cutoff = (datetime.now() - timedelta(minutes=10)).isoformat(timespec="seconds")
     with get_db() as conn:
         row = conn.execute(
@@ -107,8 +104,6 @@ def create_place(
     address: str | None = None,
     notes: str | None = None,
 ) -> int:
-    from database import get_db
-
     r = radius if radius is not None else float(config.LOCATION_PLACE_RADIUS or 100)
     with get_db() as conn:
         cur = conn.execute(
@@ -120,24 +115,18 @@ def create_place(
 
 
 def get_all_places() -> list[dict]:
-    from database import get_db
-
     with get_db() as conn:
         rows = conn.execute("SELECT * FROM places ORDER BY name COLLATE NOCASE").fetchall()
         return [dict(r) for r in rows]
 
 
 def get_place(place_id: int) -> dict | None:
-    from database import get_db
-
     with get_db() as conn:
         row = conn.execute("SELECT * FROM places WHERE id = ?", (place_id,)).fetchone()
         return dict(row) if row else None
 
 
 def get_place_by_name(name: str) -> dict | None:
-    from database import get_db
-
     q = f"%{name.strip()}%"
     with get_db() as conn:
         row = conn.execute(
@@ -147,9 +136,7 @@ def get_place_by_name(name: str) -> dict | None:
         return dict(row) if row else None
 
 
-def update_place(place_id: int, **kwargs) -> None:
-    from database import get_db
-
+def update_place(place_id: int, **kwargs: Any) -> None:
     if not kwargs:
         return
     keys = [k for k in kwargs if k in (
@@ -165,8 +152,6 @@ def update_place(place_id: int, **kwargs) -> None:
 
 
 def delete_place(place_id: int) -> bool:
-    from database import get_db
-
     with get_db() as conn:
         conn.execute("UPDATE location_history SET place_id = NULL WHERE place_id = ?", (place_id,))
         conn.execute("DELETE FROM visits WHERE place_id = ?", (place_id,))
@@ -180,8 +165,6 @@ def delete_place(place_id: int) -> bool:
 
 
 def start_visit(place_id: int, arrived_at: datetime | None = None) -> int:
-    from database import get_db
-
     ts = arrived_at or datetime.now()
     dow = ts.weekday()
     ts_s = ts.isoformat(timespec="seconds")
@@ -195,8 +178,6 @@ def start_visit(place_id: int, arrived_at: datetime | None = None) -> int:
 
 
 def end_visit(visit_id: int, ended_at: datetime | None = None) -> dict | None:
-    from database import get_db
-
     now = ended_at or datetime.now()
     with get_db() as conn:
         row = conn.execute("SELECT * FROM visits WHERE id = ?", (visit_id,)).fetchone()
@@ -235,8 +216,6 @@ def end_visit(visit_id: int, ended_at: datetime | None = None) -> dict | None:
 
 
 def get_current_visit() -> dict | None:
-    from database import get_db
-
     with get_db() as conn:
         row = conn.execute(
             """SELECT v.*, p.name AS place_name FROM visits v
@@ -248,8 +227,6 @@ def get_current_visit() -> dict | None:
 
 
 def get_visits_for_place(place_id: int, days: int = 30) -> list[dict]:
-    from database import get_db
-
     since = (datetime.now() - timedelta(days=max(1, days))).strftime("%Y-%m-%d %H:%M:%S")
     with get_db() as conn:
         rows = conn.execute(
@@ -263,8 +240,6 @@ def get_visits_for_place(place_id: int, days: int = 30) -> list[dict]:
 
 
 def get_today_visits() -> list[dict]:
-    from database import get_db
-
     day = datetime.now().strftime("%Y-%m-%d")
     with get_db() as conn:
         rows = conn.execute(
@@ -278,8 +253,6 @@ def get_today_visits() -> list[dict]:
 
 
 def get_visits_by_day(day_of_week: int) -> list[dict]:
-    from database import get_db
-
     with get_db() as conn:
         rows = conn.execute(
             """SELECT v.*, p.name AS place_name FROM visits v
@@ -292,8 +265,6 @@ def get_visits_by_day(day_of_week: int) -> list[dict]:
 
 
 def get_recent_visits(days: int = 7) -> list[dict]:
-    from database import get_db
-
     since = (datetime.now() - timedelta(days=max(1, days))).isoformat(timespec="seconds")
     with get_db() as conn:
         rows = conn.execute(
@@ -324,8 +295,6 @@ def create_trip(
     distance_km: float | None = None,
     route_points: list | None = None,
 ) -> int:
-    from database import get_db
-
     duration_min = max(0.0, (ended_at - started_at).total_seconds() / 60.0)
     speed_kmh = 0.0
     if distance_km is not None and duration_min > 0:
@@ -352,8 +321,6 @@ def create_trip(
 
 
 def get_recent_trips(days: int = 7) -> list[dict]:
-    from database import get_db
-
     since = (datetime.now() - timedelta(days=max(1, days))).isoformat(timespec="seconds")
     with get_db() as conn:
         rows = conn.execute(
@@ -365,8 +332,6 @@ def get_recent_trips(days: int = 7) -> list[dict]:
 
 
 def add_location_pattern(pattern_type: str, description: str, place_id: int | None = None) -> int:
-    from database import get_db
-
     with get_db() as conn:
         cur = conn.execute(
             """INSERT INTO location_patterns (pattern_type, description, place_id)
@@ -377,8 +342,6 @@ def add_location_pattern(pattern_type: str, description: str, place_id: int | No
 
 
 def get_active_location_patterns() -> list[dict]:
-    from database import get_db
-
     with get_db() as conn:
         rows = conn.execute(
             """SELECT * FROM location_patterns WHERE status = 'active'
@@ -388,8 +351,6 @@ def get_active_location_patterns() -> list[dict]:
 
 
 def increment_location_pattern(pattern_id: int) -> None:
-    from database import get_db
-
     with get_db() as conn:
         conn.execute(
             """UPDATE location_patterns SET occurrences = occurrences + 1,
@@ -404,8 +365,6 @@ def visits_summary_last_days(days: int = 30) -> list[dict]:
 
 
 def get_trips_for_today() -> list[dict]:
-    from database import get_db
-
     day = datetime.now().strftime("%Y-%m-%d")
     with get_db() as conn:
         rows = conn.execute(
