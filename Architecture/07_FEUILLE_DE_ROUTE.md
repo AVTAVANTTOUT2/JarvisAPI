@@ -23,7 +23,7 @@ Les travaux sont classés selon l'ordre de priorité suivant :
 - [x] Audit architectural complet
 - [x] Phase 1 : Quick Wins P0 (validée le 14/07/2026)
   - `busy_timeout` SQLite, race WS, curseur ROWID, `pipeline.py`
-- [ ] Phase 2 : Database modulaire (en cours — 12 modules extraits)
+- [x] Phase 2 : Database modulaire (validée le 14/07/2026 — façade 235 lignes, 24 modules)
 
 **Semaine 2 — Découplage**
 - [ ] Phase 3 : Event bus actif (10 événements)

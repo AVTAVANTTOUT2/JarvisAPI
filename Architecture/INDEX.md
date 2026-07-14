@@ -1,7 +1,7 @@
 # Architecture — Source de vérité officielle de JARVIS API
 
 **Date** : 11 juillet 2026
-**Périmètre** : 214 fichiers Python (53 187 lignes), 70 fichiers frontend, 72 tables SQLite après migrations
+**Périmètre** : 224 fichiers Python (53 490 lignes), 73 fichiers source frontend (18 449 lignes), 72 tables SQLite après migrations
 **État** : **Documentation officielle — toute modification du code doit rester cohérente avec ce dossier**
 
 ---
@@ -45,7 +45,7 @@
 | [16_CONTRATS_API.md](./16_CONTRATS_API.md) | Contrats API REST + WebSocket, versionnement |
 | [17_DEFINITION_OF_DONE.md](./17_DEFINITION_OF_DONE.md) | Definition of Done — critères par phase |
 | [18_GOUVERNANCE.md](./18_GOUVERNANCE.md) | Gouvernance — 12 règles d'architecture |
-| [19_VALIDATION_FINALE.md](./19_VALIDATION_FINALE.md) | Score de maturité 4.85/10, risques, recommandations |
+| [19_VALIDATION_FINALE.md](./19_VALIDATION_FINALE.md) | Score de maturité 5.20/10, risques, recommandations |
 | [20_CONTRATS_INTERNES.md](./20_CONTRATS_INTERNES.md) | Contrats internes — interfaces entre services |
 | [21_DEPENDENCY_RULES.md](./21_DEPENDENCY_RULES.md) | Règles de dépendances autorisées et interdites |
 | [22_FITNESS_FUNCTIONS.md](./22_FITNESS_FUNCTIONS.md) | Architecture Fitness Functions — règles CI |
@@ -68,19 +68,19 @@
 ┌─────────────────────────────────────────────────────────┐
 │                     JARVIS API                           │
 ├─────────────────────────────────────────────────────────┤
-│  Backend           │ 214 fichiers Python, 53 187 lignes  │
-│  Frontend desktop  │ 41 fichiers, ~10 000 lignes         │
-│  PWA mobile        │ 32 fichiers, ~5 643 lignes          │
+│  Backend           │ 224 fichiers Python, 53 490 lignes  │
+│  Frontend desktop  │ 41 fichiers, 13 795 lignes          │
+│  PWA mobile        │ 32 fichiers, 4 654 lignes           │
 │  Base de données   │ 72 tables SQLite, mode WAL          │
 │  Routes API        │ 183 endpoints REST                  │
 │  WebSocket         │ 1 endpoint, ~400 lignes de handler  │
 │  Agents LLM        │ 7 agents + orchestrateur            │
 │  Jobs schedulés    │ 29 (APScheduler)                    │
 │  Démons            │ 5 (screen, audio, email, imessage)  │
-│  Tests             │ 534 fonctions de test, 59 fichiers  │
+│  Tests             │ 536 fonctions de test, 59 fichiers  │
 ├─────────────────────────────────────────────────────────┤
 │  God objects       │ main.py (7 194 lignes, 40+ resp.)   │
-│                    │ database/__init__.py (3 284 lignes)  │
+│  Database          │ façade 235 lignes, 24 modules       │
 │  Duplications      │ 2 frontends, 0 composants partagés  │
 │                    │ 25+ lecteurs directs de chat.db      │
 │                    │ 4 conversions Apple timestamp        │
@@ -209,14 +209,14 @@ Chaque phase est **indépendante**, **réversible**, **testée**, et **sans inte
 - [x] Planification (05-07) : migration, tests, roadmap
 - [x] Contrats (16, 20) : API REST/WebSocket + interfaces internes
 - [x] Gouvernance (00, 17-19, 21-27) : 12 règles, DoD, dépendances, fitness, dette, score, revue
-- [x] Score de santé : 4.85/10 → cible 8.5/10 après Phase 6
+- [x] Score de santé : 5.20/10 après Phase 2 → cible 8.5/10 après Phase 6
 - [x] Rapport final — prêt pour le refactoring (27)
 - [ ] Validation par l'utilisateur
-- [x] Début de l'implémentation (Phase 1 — Quick Wins P0 validée le 14/07/2026)
+- [x] Phases 1 et 2 implémentées et validées le 14/07/2026
 
 **Dossier Architecture/ : 35 fichiers Markdown + 3 sous-répertoires — source de vérité officielle du projet**
 
-**Prochaine étape** : finaliser la Phase 2 (Database modulaire — en cours) puis enchaîner Phase 3 (Event bus actif).
+**Prochaine étape** : Phase 3 — Event bus actif.
 
 ---
 

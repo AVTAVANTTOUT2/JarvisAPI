@@ -56,13 +56,13 @@
 
 ### P1-2 — database/__init__.py : 4 169 lignes, ~208 fonctions, 23 domaines
 
-**État** : 🟡 En cours — 3 284 lignes après le troisième lot de Phase 2, 12 modules extraits.
+**État** : ✅ RÉSOLU le 14/07/2026 — façade de 235 lignes, 24 modules d'implémentation et réexports rétrocompatibles.
 
 - **Gravité** : MAJEURE
-- **Fichier** : `database/__init__.py`
-- **Origine** : Le module a commencé comme un simple fichier CRUD. Les features se sont accumulées sans séparation.
-- **Conséquence** : Toute modification du schéma d'une table nécessite de naviguer dans 4 169 lignes. Conflits de merge fréquents.
-- **Correction** : Modules par domaine — 17 fichiers extraits (ADR-009)
+- **Fichier historique** : `database/__init__.py`
+- **Origine historique** : Le module a commencé comme un simple fichier CRUD. Les features se sont accumulées sans séparation.
+- **Conséquence historique** : Toute modification du schéma d'une table nécessitait de naviguer dans 4 169 lignes. Conflits de merge fréquents.
+- **Correction** : 24 modules spécialisés ; `schema.py` et `migrations.py` isolent la structure, `core.py` porte l'initialisation, la façade conserve l'API publique (ADR-009).
 
 ### P1-3 — Deux frontends, zéro réutilisation
 
@@ -201,7 +201,7 @@ Fonctions `formatTime()`, `relativeDate()`, `formatDue()` dupliquées entre les 
 | P0-3 | Race condition WS | ✅ RÉSOLU | 0 | Phase 1 — 11/07/2026 |
 | P0-4 | SQLite busy_timeout | ✅ RÉSOLU | 0 | Phase 1 — 11/07/2026 |
 | P1-1 | main.py monolithe | MAJEURE | 3 jours | Phase 4 |
-| P1-2 | database god object | MAJEURE | 1 jour | Phase 2 |
+| P1-2 | database god object | ✅ RÉSOLU | 0 | Phase 2 — 14/07/2026 |
 | P1-3 | Deux frontends | MAJEURE | 5 jours | Phase 6 |
 | P1-4 | Event bus à usage minimal (1 abonné debug) | MAJEURE | 2 jours | Phase 3 |
 | P1-5 | 25+ lecteurs chat.db | MAJEURE | 3 jours | Phase 5 |

@@ -14,7 +14,7 @@
 | Imports | ❌ 42 top-level | Dont 8 singletons d'agents individuels |
 | Middleware | ✅ Correct | CORS configuré, security_middleware fonctionnel |
 | Lifespan | ⚠️ 5 services lancés | Devrait être délégué à un ServiceManager |
-| Tests | ⚠️ Couverture partielle | 534 fonctions de test (59 fichiers), couverture par route non mesurée |
+| Tests | ⚠️ Couverture partielle | 536 fonctions de test (59 fichiers), couverture par route non mesurée |
 
 ### 1.2 Middlewares
 
@@ -302,7 +302,7 @@
 ### 6.2 Goulots potentiels
 
 1. 42 imports top-level → temps de chargement au démarrage
-2. database/__init__.py 4 169 lignes → compilation lente
+2. `database/__init__.py` réduit à 235 lignes ; plus grand module DB : `schema.py` (650 lignes)
 3. build_full_context() 20+ requêtes séquentielles
 4. APScheduler 29 jobs sans max_instances
 
@@ -324,6 +324,7 @@
 | Fichier | Fns >50 lignes | Fns >100 lignes |
 |---|---|---|
 | main.py | ~15 | ~8 |
-| database/__init__.py | ~10 | ~5 |
+| database/__init__.py | 0 | 0 |
+| database/people.py | 2 | 1 |
 | agents/orchestrator.py | ~3 | ~2 |
 | actions.py | ~5 | ~2 |

@@ -74,7 +74,7 @@ Ces règles sont **non négociables**. Toute violation doit être justifiée par
 
 > **Aucun module ne doit dépasser 1000 lignes.**
 
-- Actuel : `main.py` (7194), `database/__init__.py` (3284, découpage Phase 2 en cours)
+- Actuel : seul `main.py` dépasse 1000 lignes (7194) ; `database/` culmine à 650 lignes et sa façade fait 235 lignes
 - Cible après refactoring : max 500 lignes par fichier
 - Exception : `schema.sql` (déclaratif), fichiers de tests
 - Détection : `wc -l *.py | sort -rn | head -10`

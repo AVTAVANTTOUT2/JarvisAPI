@@ -32,9 +32,19 @@ JarvisAPI/
 │   ├── easter_eggs.py         ← Easter eggs
 │   └── devagent/              ← Développement autonome (interview → code → test)
 │
-├── database/                  ← SQLite (72 tables après migrations)
-│   ├── __init__.py            ← CRUD monolithique en cours de découpage (3284 lignes)
-│   ├── core.py                ← Connexions et transactions SQLite
+├── database/                  ← SQLite (72 tables, 24 modules d'implémentation)
+│   ├── __init__.py            ← Façade rétrocompatible (235 lignes)
+│   ├── core.py                ← Connexions, initialisation et contexte agrégé
+│   ├── schema.py              ← Schéma déclaratif complet
+│   ├── migrations.py          ← Migrations idempotentes
+│   ├── conversations.py      ← Conversations, messages et workflows
+│   ├── episodes.py           ← Épisodes, enregistrements et résumés
+│   ├── people.py             ← Personnes, contexte de vie et index iMessage
+│   ├── patterns.py           ← Humeurs, patterns et briefings
+│   ├── notifications.py      ← Notifications, Web Push et logs LLM
+│   ├── rituals.py            ← Rituels, engagements, présence et journal
+│   ├── devops.py             ← Migrations versionnées, audits et benchmarks
+│   ├── school.py             ← Documents scolaires
 │   ├── settings.py            ← Réglages clé-valeur
 │   ├── tasks.py               ← Domaine tâches
 │   ├── sessions.py            ← Sessions d'authentification
@@ -46,7 +56,6 @@ JarvisAPI/
 │   ├── relationships.py       ← Profils, événements et insights relationnels
 │   ├── stats.py               ← Coûts LLM et activité quotidienne
 │   ├── screen_daemon.py       ← Écran, apps, machines et sessions de travail
-│   ├── schema.sql             ← Schéma complet
 │   ├── location_helpers.py    ← CRUD localisation (déjà extrait)
 │   ├── devagent.py            ← CRUD projets dev (déjà extrait)
 │   └── migrations/            ← Migrations versionnées
@@ -153,7 +162,7 @@ JarvisAPI/
 │
 ├── tv/                         ← Dashboard TV War Room
 ├── prompts/                    ← System prompts (.txt)
-├── tests/                      ← 534 fonctions de test (59 fichiers) pytest
+├── tests/                      ← 536 fonctions de test (59 fichiers) pytest
 ├── data/                       ← jarvis.db, uploads, outputs
 └── Architecture/               ← CE RAPPORT
 ```
@@ -200,7 +209,7 @@ graph TB
 |---|---|---|
 | `config.py` | Tout le monde | OK — feuille, pas de dépendance |
 | `llm.py` | Agents, scripts, main | OK |
-| `database/__init__.py` | Agents, scripts, main, integrations | God object en réduction (3284 lignes, 12 modules extraits) |
+| `database/__init__.py` | Agents, scripts, main, integrations | Façade stable de 235 lignes ; implémentation répartie dans 24 modules |
 | `jarvis/event_bus.py` | Agents, main | Usage minimal : 1 abonné debug, pas encore de consommateurs métiers |
 | `main.py` | supervisor | **Monolithe** — 42 imports, 183 routes |
 | `agents/orchestrator.py` | main | OK |
@@ -303,7 +312,7 @@ graph TB
     end
     
     subgraph "Fonction centrale"
-        CN["create_notification()<br/>database/__init__.py"]
+        CN["create_notification()<br/>database/notifications.py"]
     end
     
     subgraph "Consommateurs"
@@ -577,16 +586,16 @@ RootLayout (layout.tsx)
 
 | Métrique | Valeur |
 |---|---|
-| Fichiers Python | 195 |
-| Lignes Python | 53 187 |
+| Fichiers Python | 224 |
+| Lignes Python | 53 490 |
 | Fichiers frontend | 73 (41 web + 32 pwa) |
-| Lignes frontend | ~15 643 |
-| Tables SQLite | 44 |
+| Lignes frontend | 18 449 |
+| Tables SQLite | 72 après initialisation et migrations |
 | Routes REST | 183 |
-| Tests pytest | 174 |
+| Tests pytest | 536 fonctions déclarées ; 538 cas passants, 1 ignoré |
 | Agents LLM | 7 + orchestrateur |
 | Jobs APScheduler | 29 |
 | Démons | 5 |
-| God objects | 2 (main.py 7194l, db/__init__.py 4169l) |
+| God objects | 1 (`main.py`, 7 194 lignes) |
 | Dépendance circulaire | 0 |
 | Duplications majeures | 8 |

@@ -21,11 +21,11 @@ Le dossier `Architecture/` reflète l'état du code après la clôture de la Pha
 | 7 agents LLM + orchestrateur | 12 fichiers dans agents/ | ✅ Exact (dont 5 utilitaires) |
 | 29 jobs APScheduler | 102 références dans scheduler.py | ✅ Exact |
 | 5 démons | screen, audio, email, imessage, supervisor | ✅ Exact |
-| 214 fichiers Python, 53 187 lignes | Vérifié pendant la Phase 2 | ✅ Actualisé |
-| ~70 fichiers frontend | 39 (web/) + 31 (pwa/) = 70 | ✅ Exact |
+| 224 fichiers Python, 53 490 lignes | Vérifié pendant la Phase 2 | ✅ Actualisé |
+| 73 fichiers source frontend | 41 (`web/src`) + 32 (`pwa/src`) | ✅ Exact |
 | PWA sans LockGate | **Confirmé** — aucun composant auth dans pwa/ | ✅ Documenté comme P0-1 |
 | Event bus « inutilisé » | 1 abonné (`subscribe()`), 18 `emit()` | ⚠️ Corrigé — « usage minimal » |
-| 534 fonctions de test (59 fichiers) | Vérifié statiquement après ajout du test WebSocket Phase 1 | ✅ Actualisé |
+| 536 fonctions de test (59 fichiers) | Vérifié statiquement après ajout des contrats Phase 2 | ✅ Actualisé |
 
 ## 2. Composants cibles restant à implémenter
 
@@ -66,7 +66,7 @@ Tous les diagrammes sont cohérents avec leur contexte (actuel vs cible).
 | Document | Avant | Après |
 |---|---|---|
 | INDEX.md, 01_CARTOGRAPHIE.md, 03_AUDIT_TECHNIQUE.md, 19_VALIDATION_FINALE.md | Anciens comptages `44/45/46` limités au bloc `SCHEMA` | **72 tables réellement créées après migrations** |
-| Plusieurs documents | Comptages historiques (`174`, puis `486/53`, puis `523/55`) | **534 fonctions de test, 59 fichiers après clôture de la Phase 1** |
+| Plusieurs documents | Comptages historiques (`174`, puis `486/53`, puis `534/59`) | **536 fonctions de test, 59 fichiers après clôture de la Phase 2** |
 | Plusieurs documents | « Event bus : 0 abonné » | **« Event bus : usage minimal (1 abonné debug), sera activé en Phase 3 »** |
 | INDEX.md | Comptages historiques variables | **35 fichiers Markdown + 3 sous-répertoires** |
 
@@ -125,7 +125,7 @@ Tous les diagrammes sont cohérents avec leur contexte (actuel vs cible).
 | 03_AUDIT_TECHNIQUE.md | Configuration SQLite, WebSocket et curseurs actualisée |
 | 19_VALIDATION_FINALE.md | Risques Phase 1, CI et métriques actualisés |
 | Documents Phase 1 | Statuts busy timeout, WebSocket, curseurs iMessage et pipeline actualisés au 14/07/2026 |
-| Plan de tests | 7 tests ciblés Phase 1 ; suite Python 3.12 complète : 536 passants, 1 ignoré ; 534 fonctions de test déclarées |
+| Plan de tests | 7 tests ciblés Phase 1, 6 contrats Phase 2 ; suite Python 3.12 complète : 538 passants, 1 ignoré ; 536 fonctions déclarées |
 | diagrams/README.md | Créé — placeholder |
 | audit/README.md | Créé — placeholder |
 
@@ -135,7 +135,7 @@ Tous les diagrammes sont cohérents avec leur contexte (actuel vs cible).
 >
 > Il est cohérent avec le code réel. Les écarts identifiés sont soit des cibles futures documentées comme telles, soit des métriques mineures qui viennent d'être corrigées.
 >
-> **Prochaine action : finaliser la Phase 2 — Database modulaire.**
+> **Prochaine action : Phase 3 — Event bus actif.**
 
 ---
 

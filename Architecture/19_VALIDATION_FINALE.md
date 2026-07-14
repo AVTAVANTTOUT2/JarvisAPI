@@ -1,7 +1,7 @@
 # 19 — Validation Finale
 
 **Date** : 11 juillet 2026
-**Statut** : Synthèse avant implémentation
+**Statut** : Synthèse actualisée après les Phases 1 et 2
 
 ---
 
@@ -9,28 +9,28 @@
 
 | Dimension | Score (/10) | Poids | Pondéré |
 |---|---|---|---|
-| **Séparation des responsabilités** | 3/10 | 20% | 0.6 |
+| **Séparation des responsabilités** | 4/10 | 20% | 0.8 |
 | **Couplage** | 4/10 | 15% | 0.6 |
-| **Cohésion** | 5/10 | 10% | 0.5 |
+| **Cohésion** | 6/10 | 10% | 0.6 |
 | **Testabilité** | 4/10 | 15% | 0.6 |
 | **Documentation** | 7/10 | 10% | 0.7 |
 | **Sécurité** | 7/10 | 15% | 1.05 |
 | **Performance** | 6/10 | 10% | 0.6 |
-| **Évolutivité** | 4/10 | 5% | 0.2 |
-| **TOTAL** | | **100%** | **4.85/10** |
+| **Évolutivité** | 5/10 | 5% | 0.25 |
+| **TOTAL** | | **100%** | **5.20/10** |
 
-**Interprétation** : L'architecture actuelle est à **4.85/10**. L'objectif après refactoring est **8.5/10**.
+**Interprétation** : Après les Phases 1 et 2, l'architecture est à **5.20/10**. L'objectif après refactoring reste **8.5/10**.
 
 ### Justification des scores
 
-- **Séparation (3/10)** : 2 god objects (main.py 7194l, database 3284l), 40+ responsabilités dans main.py, 23 domaines dans database. Score très bas.
+- **Séparation (4/10)** : le god object database est résolu (façade 235l, 24 modules) ; `main.py` reste à 7194 lignes et 40+ responsabilités.
 - **Couplage (4/10)** : cycle main↔daemon supprimé, mais 42 imports dans main.py et 25+ connexions directes à chat.db. Event bus limité à un abonné debug, sans consommateurs métiers.
-- **Cohésion (5/10)** : Les agents sont bien séparés, les intégrations aussi. Mais la database et main.py sont des fourre-tout.
-- **Testabilité (4/10)** : 534 fonctions de test backend déclarées dans 59 fichiers, mais couverture par route non mesurée de façon fiable.
+- **Cohésion (6/10)** : agents, intégrations et persistance sont maintenant séparés par domaine ; `main.py` reste le principal fourre-tout.
+- **Testabilité (4/10)** : 536 fonctions de test backend déclarées dans 59 fichiers, mais couverture par route non mesurée de façon fiable.
 - **Documentation (7/10)** : CLAUDE.md est excellent (1500+ lignes). README complet. Architecture/ vient d'être créé. Manque des diagrammes de séquence.
 - **Sécurité (7/10)** : Auth robuste (scrypt, sessions, anti-brute-force). CSP, CORS, CSRF configurés. Mais PWA sans LockGate, pas de chiffrement au repos, HTTP par défaut.
 - **Performance (6/10)** : SQLite WAL, `busy_timeout = 5000` et batch import. Le cache LLM et le monitoring restent à implémenter.
-- **Évolutivité (4/10)** : Difficile d'ajouter un nouveau connecteur (pas d'interface plugin). Deux frontends à maintenir. Refactoring lourd pour toute nouvelle feature transverse.
+- **Évolutivité (5/10)** : ajouter un domaine de persistance ne nécessite plus de modifier un monolithe ; les connecteurs et deux frontends restent coûteux à faire évoluer.
 
 ## Principaux risques restants
 
@@ -40,7 +40,7 @@
 | 2 | SQLite sans busy_timeout — perte silencieuse d'écriture | Faible | Élevé | ✅ Résolu Phase 1 (`PRAGMA busy_timeout = 5000`, 11/07/2026) |
 | 3 | Race condition WebSocket — crash broadcast | Faible | Moyen | ✅ Résolu Phase 1 (verrou + snapshot défensif, 11/07/2026) |
 | 4 | Messages iMessage traités en double | Moyenne | Faible | ✅ Résolu Phase 1 (curseur unique `imessage_consumer_cursors`, 11/07/2026) |
-| 5 | Conflits de merge sur main.py et database/__init__.py | Élevée | Moyen | Phase 2 + 4 (split) |
+| 5 | Conflits de merge sur main.py et database/__init__.py | Moyenne | Moyen | ✅ Database résolue en Phase 2 ; `main.py` reste planifié en Phase 4 |
 | 6 | Dette technique croissante | Élevée | Élevé | Tout le plan de refactoring |
 | 7 | Couverture frontend limitée (18 tests web, 0 PWA) | Élevée | Moyen | Phase 6 (plan de tests) |
 | 8 | 25+ connexions à chat.db — contention | Faible | Faible | Phase 5 (AppleDataService) |
@@ -80,7 +80,7 @@
 
 ## Prochaine action
 
-**Phase 1 — Quick Wins P0 validée le 14/07/2026. Prochaine action : finaliser la Phase 2 (Database modulaire).**
+**Phases 1 et 2 validées le 14/07/2026. Prochaine action : Phase 3 — Event bus actif.**
 
 ```
 Phase 1 : 1 jour

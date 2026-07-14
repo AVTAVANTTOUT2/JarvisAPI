@@ -71,15 +71,17 @@ Phase 6 → Frontend unifié + SDK auth                   Jour 11-15 [ADR-001, A
 
 ## Phase 2 — Database modulaire (Jour 2)
 
-**État** : 🟡 En cours — 12 modules extraits au 11 juillet 2026 : `core`, `settings`, `tasks`, `sessions`, `push`, `conversation_turns`, `embeddings`, `email`, `facts`, `relationships`, `stats`, `screen_daemon`. `database/__init__.py` est passé de 4 185 à 3 284 lignes, avec réexports rétrocompatibles.
+**État** : ✅ Terminée le 14 juillet 2026 — 24 modules d'implémentation. `database/__init__.py` est passé de 4 185 à 235 lignes et reste une façade de réexports rétrocompatibles.
 
 ### Extraction des modules
 
-17 nouveaux fichiers dans `database/`. `__init__.py` ré-exporte tout (backward compatible).
+24 modules spécialisés dans `database/`. `__init__.py` ré-exporte l'API historique (backward compatible).
 
 | Fichier | Contenu | Lignes estimées |
 |---|---|---|
-| `database/core.py` | `get_db`, `init_db`, `build_full_context`, migrations | ~600 |
+| `database/core.py` | `get_db`, `init_db`, `build_full_context` | 121 |
+| `database/schema.py` | Schéma SQLite déclaratif | 650 |
+| `database/migrations.py` | Migrations idempotentes et orchestration | 621 |
 | `database/settings.py` | `get_setting`, `set_setting` | ~25 |
 | `database/conversations.py` | `save_message`, `create_conversation`, `delete_conversation` | ~200 |
 | `database/people.py` | `upsert_person`, `get_all_people`, `get_people_sorted_by_recent` | ~300 |
@@ -98,6 +100,9 @@ Phase 6 → Frontend unifié + SDK auth                   Jour 11-15 [ADR-001, A
 | `database/rituals.py` | daily_rituals, commitments, dnd | ~150 |
 | `database/devops.py` | security_findings, perf_benchmarks | ~150 |
 | `database/stats.py` | `get_cost_summary`, `get_daily_activity_stats` | ~250 |
+| `database/school.py` | Documents scolaires | 32 |
+| `database/location_helpers.py` | Localisation, lieux, visites et trajets | 420 |
+| `database/devagent.py` | Persistance du DevAgent | 377 |
 
 ### Validation
 
