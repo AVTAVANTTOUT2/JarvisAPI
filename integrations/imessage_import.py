@@ -17,17 +17,22 @@ import hashlib
 import logging
 import sqlite3
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import config
 from database import get_db
+from integrations.apple_data import (
+    DEFAULT_CHAT_DB_PATH,
+    AppleDataService,
+    apple_data,
+    apple_epoch_to_datetime,
+)
 
 logger = logging.getLogger(__name__)
 
-CHAT_DB_PATH = Path.home() / "Library" / "Messages" / "chat.db"
-APPLE_EPOCH = datetime(2001, 1, 1)
+CHAT_DB_PATH = DEFAULT_CHAT_DB_PATH
 
 # Constantes de taille de batch et retry
 DEFAULT_BATCH_SIZE = getattr(config, "IIMPORT_BATCH_SIZE", 5000)
@@ -81,12 +86,8 @@ def _apple_ts_to_iso(ts: int | float | None) -> str | None:
     """Convertit un timestamp Apple (secondes depuis 2001-01-01) en ISO 8601."""
     if ts is None:
         return None
-    try:
-        if abs(ts) > 1e15:
-            ts = ts / 1e9
-        return (APPLE_EPOCH + timedelta(seconds=ts)).isoformat()
-    except (OverflowError, ValueError, OSError):
-        return None
+    converted = apple_epoch_to_datetime(ts, zero_is_none=False)
+    return converted.isoformat() if converted else None
 
 
 def _compute_content_hash(
@@ -121,10 +122,19 @@ class IMessageImporter:
         importer.reset_cursor()                  # reinitialiser le curseur
     """
 
-    def __init__(self, batch_size: int = DEFAULT_BATCH_SIZE):
+    def __init__(
+        self,
+        batch_size: int = DEFAULT_BATCH_SIZE,
+        data_service: AppleDataService | None = None,
+    ) -> None:
         self.batch_size = batch_size
         self._chat_db_conn: sqlite3.Connection | None = None
         self._available: bool | None = None
+        self._apple_data_override = data_service
+
+    def _data_service(self) -> AppleDataService:
+        """Résout le service, tout en conservant le monkeypatch historique du chemin."""
+        return self._apple_data_override or apple_data.with_db_path(CHAT_DB_PATH)
 
     # ── Disponibilite ──────────────────────────────────────────
 
@@ -132,14 +142,13 @@ class IMessageImporter:
         """Verifie l'acces a chat.db en lecture seule."""
         if self._available is not None:
             return self._available
-        if not CHAT_DB_PATH.exists():
-            logger.warning("[imessage_import] chat.db introuvable : %s", CHAT_DB_PATH)
+        service = self._data_service()
+        if not service.db_path.exists():
+            logger.warning("[imessage_import] chat.db introuvable : %s", service.db_path)
             self._available = False
             return False
         try:
-            conn = sqlite3.connect(f"file:{CHAT_DB_PATH}?mode=ro", uri=True, timeout=5.0)
-            conn.execute("SELECT COUNT(*) FROM message LIMIT 1")
-            conn.close()
+            service.count_messages()
             self._available = True
             logger.info("[imessage_import] chat.db accessible en lecture")
         except sqlite3.OperationalError as e:
@@ -153,9 +162,9 @@ class IMessageImporter:
 
     def _open_chat_db(self) -> sqlite3.Connection:
         """Ouvre chat.db en lecture seule."""
-        conn = sqlite3.connect(f"file:{CHAT_DB_PATH}?mode=ro", uri=True, timeout=10.0)
-        conn.row_factory = sqlite3.Row
-        return conn
+        self._close_chat_db()
+        self._chat_db_conn = self._data_service().connect_readonly(timeout=10.0)
+        return self._chat_db_conn
 
     def _close_chat_db(self) -> None:
         if self._chat_db_conn:
@@ -448,12 +457,7 @@ class IMessageImporter:
     # ── Helpers chat.db ────────────────────────────────────────
 
     def _get_max_chat_rowid(self) -> int:
-        conn = self._open_chat_db()
-        try:
-            row = conn.execute("SELECT COALESCE(MAX(ROWID), 0) m FROM message").fetchone()
-            return int(row["m"]) if row else 0
-        finally:
-            conn.close()
+        return self._data_service().get_max_rowid()
 
     # ── Import handles ─────────────────────────────────────────
 
@@ -1062,7 +1066,7 @@ class IMessageImporter:
                 "SELECT COUNT(*) c FROM handle"
             ).fetchone()["c"]
         finally:
-            chat_conn.close()
+            self._close_chat_db()
 
         with get_db() as jarvis_conn:
             report.jarvis_db_messages = jarvis_conn.execute(

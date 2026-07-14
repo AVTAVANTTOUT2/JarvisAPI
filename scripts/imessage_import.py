@@ -20,7 +20,6 @@ import logging
 import os
 import platform
 import shutil
-import sqlite3
 import subprocess
 import sys
 import time
@@ -32,6 +31,7 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from database import init_db
+from integrations.apple_data import apple_data
 from integrations.imessage_import import IMessageImporter, imessage_importer
 
 
@@ -274,20 +274,17 @@ def _doctor_launchagent(report: dict) -> None:
 
 def _doctor_tcc(report: dict) -> None:
     # Lister ce qui a acces au dossier Messages
+    chat_db = apple_data.db_path
     tcc_status = {
         "chat_db_accessible": _test_chat_db_open(),
-        "os_access_read": os.access(
-            str(Path.home() / "Library" / "Messages" / "chat.db"), os.R_OK,
-        ),
-        "os_access_write": os.access(
-            str(Path.home() / "Library" / "Messages" / "chat.db"), os.W_OK,
-        ),
+        "os_access_read": os.access(str(chat_db), os.R_OK),
+        "os_access_write": os.access(str(chat_db), os.W_OK),
     }
 
     # Tenter d'identifier le processus responsable via lsof
     try:
         r = subprocess.run(
-            ["lsof", str(Path.home() / "Library" / "Messages" / "chat.db")],
+            ["lsof", str(chat_db)],
             capture_output=True, text=True, timeout=5,
         )
         if r.returncode == 0:
@@ -314,20 +311,12 @@ def _doctor_tcc(report: dict) -> None:
 
 
 def _test_chat_db_open() -> bool:
-    chat_db = Path.home() / "Library" / "Messages" / "chat.db"
-    if not chat_db.exists():
-        return False
-    try:
-        conn = sqlite3.connect(f"file:{chat_db}?mode=ro", uri=True, timeout=2.0)
-        conn.execute("SELECT COUNT(*) FROM message LIMIT 1")
-        conn.close()
-        return True
-    except (sqlite3.OperationalError, PermissionError, OSError):
-        return False
+    """Teste l'ouverture via AppleDataService, unique propriétaire de chat.db."""
+    return apple_data.is_available()
 
 
 def _doctor_chat_db(report: dict) -> None:
-    chat_db = Path.home() / "Library" / "Messages" / "chat.db"
+    chat_db = apple_data.db_path
     exists = chat_db.exists()
     data = {
         "path": str(chat_db),
@@ -353,7 +342,7 @@ def _doctor_chat_db(report: dict) -> None:
 
 
 def _doctor_concurrent_access(report: dict) -> None:
-    chat_db = str(Path.home() / "Library" / "Messages" / "chat.db")
+    chat_db = str(apple_data.db_path)
     processes = []
     try:
         r = subprocess.run(
@@ -420,43 +409,17 @@ def _doctor_jarvis_running(report: dict) -> None:
 
 
 def _doctor_sqlite_open(report: dict) -> None:
-    chat_db = str(Path.home() / "Library" / "Messages" / "chat.db")
-    success = False
-    error_full = ""
-    error_type = ""
-    attempts = []
-
-    # Tentative 1 : URI mode=ro
-    try:
-        conn = sqlite3.connect(f"file:{chat_db}?mode=ro", uri=True, timeout=2.0)
-        c = conn.execute("SELECT COUNT(*) FROM message").fetchone()
-        count = c[0] if c else 0
-        conn.close()
-        success = True
-        attempts.append({"method": "URI mode=ro", "result": f"SUCCESS ({count} messages)"})
-    except sqlite3.OperationalError as e:
-        error_full = str(e)
-        error_type = type(e).__name__
-        attempts.append({"method": "URI mode=ro", "result": f"FAILED — {e}"})
-    except PermissionError as e:
-        error_full = f"PermissionError(errno={e.errno}): {e}"
-        error_type = "PermissionError"
-        attempts.append({"method": "URI mode=ro", "result": f"FAILED — {e}"})
-    except OSError as e:
-        error_full = f"OSError(errno={e.errno}): {e}"
-        error_type = "OSError"
-        attempts.append({"method": "URI mode=ro", "result": f"FAILED — {e}"})
-
-    # Tentative 2 : path direct
-    if not success:
-        try:
-            conn = sqlite3.connect(chat_db, uri=False, timeout=2.0)
-            conn.execute("SELECT COUNT(*) FROM message LIMIT 1")
-            conn.close()
-            success = True
-            attempts.append({"method": "Direct path", "result": "SUCCESS"})
-        except Exception as e:
-            attempts.append({"method": "Direct path", "result": f"FAILED — {e}"})
+    """Vérifie l'accès SQLite sans contourner AppleDataService."""
+    health = apple_data.health()
+    success = bool(health.get("readable"))
+    error_full = str(health.get("error", ""))
+    error_type = error_full.partition(":")[0] if error_full else ""
+    result = (
+        f"SUCCESS ({health.get('message_count', 0)} messages)"
+        if success
+        else f"FAILED — {error_full or 'lecture impossible'}"
+    )
+    attempts = [{"method": "AppleDataService (URI mode=ro)", "result": result}]
 
     data = {
         "success": success,

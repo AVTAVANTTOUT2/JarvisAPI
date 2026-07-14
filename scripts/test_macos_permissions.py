@@ -13,10 +13,16 @@ Usage :
 from __future__ import annotations
 
 import os
-import sqlite3
 import subprocess
 import sys
 import time
+from pathlib import Path
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from integrations.apple_data import apple_data
 
 BOLD = "\033[1m"
 RESET = "\033[0m"
@@ -131,35 +137,28 @@ def test_calendar() -> bool:
 
 def test_imessage() -> bool:
     section("3. iMessage / chat.db (Full Disk Access)")
-    db_path = os.path.expanduser("~/Library/Messages/chat.db")
+    db_path = apple_data.db_path
 
-    if not os.path.exists(db_path):
+    if not db_path.exists():
         fail("chat.db introuvable", f"Chemin : {db_path}")
         print(f"        Messages.app n'a probablement jamais ete ouvert sur ce Mac.")
         return False
 
-    try:
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=3.0)
-        row = conn.execute("SELECT COUNT(*) FROM message").fetchone()
-        count = row[0] if row else 0
-        conn.close()
+    report = apple_data.health()
+    if report.get("readable"):
+        count = report.get("message_count", 0)
         ok("chat.db", f"{count} messages accessibles en lecture")
         return True
-    except sqlite3.OperationalError as e:
-        err = str(e).lower()
-        if "unable to open" in err or "authorization" in err or "permission" in err:
-            fail("chat.db — ACCES REFUSE", str(e))
-            print(f"        {YELLOW}Reglages Systeme > Confidentialite et securite > Acces complet au disque{RESET}")
-            print(f"        {YELLOW}> Ajoutez Terminal / Cursor / l'app qui lance JARVIS.{RESET}")
-        else:
-            fail(f"OperationalError : {e}")
-        return False
-    except sqlite3.DatabaseError as e:
-        fail(f"DatabaseError : {e}")
-        return False
-    except Exception as e:
-        fail(f"Erreur inattendue : {type(e).__name__}: {e}")
-        return False
+
+    error = str(report.get("error", "lecture impossible"))
+    lowered = error.lower()
+    if "unable to open" in lowered or "authorization" in lowered or "permission" in lowered:
+        fail("chat.db — ACCES REFUSE", error)
+        print(f"        {YELLOW}Reglages Systeme > Confidentialite et securite > Acces complet au disque{RESET}")
+        print(f"        {YELLOW}> Ajoutez Terminal / Cursor / l'app qui lance JARVIS.{RESET}")
+    else:
+        fail("chat.db — lecture impossible", error)
+    return False
 
 
 def test_messages_send() -> bool:

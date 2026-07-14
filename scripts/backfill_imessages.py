@@ -19,6 +19,12 @@ from typing import Any
 # Ajouter le projet au path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from integrations.apple_data import (
+    apple_data,
+    apple_epoch_to_datetime,
+    datetime_to_apple_epoch,
+)
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -27,16 +33,9 @@ logging.basicConfig(
 logger = logging.getLogger("backfill_imessages")
 
 # ── Chemins ──
-CHAT_DB = os.path.expanduser("~/Library/Messages/chat.db")
 JARVIS_DB = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "jarvis.db"
 )
-
-# ── Constantes Apple ──
-# chat.db stocke les dates en "Apple Cocoa Core Data timestamp"
-# = secondes depuis 2001-01-01 00:00:00 UTC (pas Unix epoch)
-APPLE_EPOCH_OFFSET: float = 978307200.0  # différence Unix epoch - Apple epoch
-NANOSECOND_THRESHOLD: float = 1e15  # au-dessus = nanosecondes (macOS 10.13+)
 
 # ── Constantes d'insertion ──
 INSERT_BATCH_SIZE: int = 500
@@ -44,26 +43,15 @@ MAX_TEXT_LENGTH: int = 50000  # cap anti-lignes trop longues
 
 
 def apple_ts_to_datetime(apple_ts: int | float | None) -> datetime | None:
-    """Convertit un timestamp Apple (nanosecondes depuis 2001-01-01) en datetime UTC."""
-    if apple_ts is None:
-        return None
-    try:
-        if apple_ts > NANOSECOND_THRESHOLD:
-            unix_ts: float = float(apple_ts) / 1e9 + APPLE_EPOCH_OFFSET
-        else:
-            unix_ts = float(apple_ts) + APPLE_EPOCH_OFFSET
-        return datetime.fromtimestamp(unix_ts, tz=timezone.utc)
-    except (ValueError, OSError) as exc:
-        logger.warning("Date Apple invalide %s : %s", apple_ts, exc)
-        return None
+    """Compatibilité du backfill délégant la conversion au service central."""
+    converted = apple_epoch_to_datetime(apple_ts, zero_is_none=False)
+    return converted.replace(tzinfo=timezone.utc) if converted else None
 
 
 def apple_ts_from_date(date_str: str) -> int:
     """Convertit 'YYYY-MM-DD' en timestamp Apple nanosecondes."""
     dt = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-    unix_ts = dt.timestamp()
-    apple_ts: float = (unix_ts - APPLE_EPOCH_OFFSET) * 1e9
-    return int(apple_ts)
+    return datetime_to_apple_epoch(dt)
 
 
 def read_chat_db(since_date: str) -> list[dict[str, Any]]:
@@ -72,15 +60,15 @@ def read_chat_db(since_date: str) -> list[dict[str, Any]]:
     Returns:
         Liste de dicts {guid, text, sender, is_from_me, timestamp, service, chat_name, has_attachments}.
     """
-    if not os.path.exists(CHAT_DB):
-        logger.error("chat.db introuvable : %s", CHAT_DB)
+    service = apple_data
+    if not service.db_path.exists():
+        logger.error("chat.db introuvable : %s", service.db_path)
         logger.error("Vérifier Full Disk Access pour Terminal.app")
         sys.exit(1)
 
     since_ts = apple_ts_from_date(since_date)
 
-    conn = sqlite3.connect(f"file:{CHAT_DB}?mode=ro", uri=True)
-    conn.row_factory = sqlite3.Row
+    conn = service.connect_readonly()
 
     query: str = """
     SELECT

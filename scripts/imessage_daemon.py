@@ -41,6 +41,7 @@ if str(ROOT_DIR) not in sys.path:
 
 import config as cfg
 from database import init_db, get_db
+from integrations.apple_data import apple_data
 
 logger = logging.getLogger("imessage_daemon")
 
@@ -272,7 +273,7 @@ class Handler(BaseHTTPRequestHandler):
     def _doctor(self) -> None:
         ok, err = _check_access()
         cur = _get_importer().get_status()
-        chat = Path.home() / "Library" / "Messages" / "chat.db"
+        chat = apple_data.db_path
         with get_db() as conn:
             self._json({
                 "timestamp": datetime.now(timezone.utc).isoformat(),

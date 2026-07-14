@@ -23,6 +23,7 @@ from agents.productivity import productivity_agent
 from agents.school import school_agent
 from database import get_active_device, init_db, register_device, set_active_device
 from integrations import imessage_bridge
+from integrations.apple_data import apple_data
 from jarvis.event_bus import event_bus
 from scripts.email_watcher import email_watcher
 from websocket_registry import broadcast_ws
@@ -81,16 +82,16 @@ async def lifespan(app: FastAPI):
 
     # Diagnostic iMessage : lecture de chat.db (nécessite Full Disk Access pour le terminal / Cursor).
     try:
-        import sqlite3 as _sqlite3
-
-        _chat_db = Path.home() / "Library" / "Messages" / "chat.db"
-        if _chat_db.exists():
-            _conn = _sqlite3.connect(f"file:{_chat_db}?mode=ro", uri=True)
-            _n = _conn.execute("SELECT COUNT(*) FROM message").fetchone()[0]
-            _conn.close()
-            logger.info("[imessage] chat.db accessible — %s messages dans la table message", _n)
+        _health = apple_data.health()
+        if _health.get("readable"):
+            logger.info(
+                "[imessage] chat.db accessible — %s messages dans la table message",
+                _health.get("message_count", 0),
+            )
+        elif _health.get("exists"):
+            logger.error("[imessage] chat.db illisible : %s", _health.get("error", "erreur inconnue"))
         else:
-            logger.warning("[imessage] chat.db absent à %s", _chat_db)
+            logger.warning("[imessage] chat.db absent à %s", apple_data.db_path)
     except Exception as _e:
         logger.error("[imessage] Impossible de lire chat.db : %s", _e)
         logger.error(

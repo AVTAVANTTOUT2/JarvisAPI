@@ -44,4 +44,13 @@ except Exception as e:
     logger.warning(f"[integrations] Contacts.app reader indisponible : {e}")
     contacts_reader = None
 
-__all__ = ["mail_client", "calendar_client", "weather", "imessage_bridge", "computer", "contacts_reader"]
+try:
+    from integrations.apple_data import apple_data
+except Exception as e:
+    logger.warning(f"[integrations] AppleDataService indisponible : {e}")
+    apple_data = None
+
+__all__ = [
+    "mail_client", "calendar_client", "weather", "imessage_bridge", "computer",
+    "contacts_reader", "apple_data",
+]

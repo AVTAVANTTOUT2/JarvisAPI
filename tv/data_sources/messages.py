@@ -9,16 +9,13 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-import os
 from pathlib import Path
 from typing import Any
 
 import config as cfg
+from integrations.apple_data import apple_data, apple_epoch_to_datetime
 
 logger = logging.getLogger(__name__)
-
-IMESSAGE_DB = os.path.expanduser("~/Library/Messages/chat.db")
-
 
 def get_recent_messages() -> list[dict[str, Any]]:
     """Retourne les derniers messages (iMessage + chat JARVIS) fusionnés."""
@@ -60,57 +57,31 @@ def _resolve_handle_name(handle: str) -> str:
 
 def _get_imessages() -> list[dict[str, Any]]:
     """Lit les derniers iMessages reçus depuis chat.db (macOS)."""
-    if not os.path.exists(IMESSAGE_DB):
-        logger.debug("chat.db non accessible à %s", IMESSAGE_DB)
+    if not apple_data.db_path.exists():
+        logger.debug("chat.db non accessible à %s", apple_data.db_path)
         return []
     try:
-        conn = sqlite3.connect(f"file:{IMESSAGE_DB}?mode=ro", uri=True)
-        conn.row_factory = sqlite3.Row
-        cur = conn.execute(
-            """SELECT m.ROWID, m.text, m.date, h.id AS handle_id, m.is_from_me
-               FROM message m
-               LEFT JOIN handle h ON m.handle_id = h.ROWID
-               WHERE m.is_from_me = 0
-                 AND m.text IS NOT NULL
-                 AND m.text != ''
-               ORDER BY m.date DESC
-               LIMIT ?""",
-            (cfg.MAX_IMESSAGES,),
+        rows = apple_data.get_recent_messages(
+            limit=cfg.MAX_IMESSAGES,
+            incoming_only=True,
         )
-        rows = cur.fetchall()
-        conn.close()
     except Exception as exc:
         logger.warning("iMessage DB indisponible: %s", exc)
         return []
 
     results: list[dict[str, Any]] = []
     for row in rows:
-        # Conversion timestamp Apple (secondes depuis 2001-01-01)
-        apple_epoch = 978307200
-        raw_date = row["date"]
-        ts = 0
-        if raw_date:
-            try:
-                if raw_date > 1000000000000:
-                    ts = raw_date / 1_000_000_000 + apple_epoch
-                else:
-                    ts = raw_date + apple_epoch
-            except (ValueError, TypeError):
-                ts = 0
-
-        handle = row["handle_id"] or "Inconnu"
+        date = apple_epoch_to_datetime(row["date"])
+        handle = row["handle"] or "Inconnu"
         display_name = _resolve_handle_name(handle)
         text = (row["text"] or "").strip()[:80]
-
-        from datetime import datetime, timezone
-        ts_str = datetime.fromtimestamp(ts, tz=timezone.utc).isoformat() if ts > 0 else ""
 
         results.append({
             "source": "imessage",
             "handle": handle,
             "display_name": display_name,
             "text": text,
-            "timestamp": ts_str,
+            "timestamp": date.isoformat() if date else "",
         })
 
     return results
