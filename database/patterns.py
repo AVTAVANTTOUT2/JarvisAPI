@@ -5,6 +5,9 @@ from __future__ import annotations
 import json
 from datetime import datetime
 
+from jarvis.event_bus import event_bus
+from jarvis.events import PatternDetected
+
 from .core import get_db
 
 
@@ -14,7 +17,9 @@ def create_pattern(pattern_type: str, description: str) -> int:
             "INSERT INTO patterns (pattern_type, description) VALUES (?, ?)",
             (pattern_type, description),
         )
-        return cur.lastrowid
+        pattern_id = int(cur.lastrowid)
+    event_bus.emit_nowait(PatternDetected(pattern_id, pattern_type, description))
+    return pattern_id
 
 
 def update_pattern(pattern_id: int, occurrences_increment: int = 1) -> None:
@@ -35,8 +40,12 @@ def find_or_create_pattern(description: str, pattern_type: str = "behavioral") -
             (description,),
         ).fetchone()
         if existing:
-            update_pattern(existing["id"])
-            return existing["id"]
+            pattern_id = int(existing["id"])
+            update_pattern(pattern_id)
+            event_bus.emit_nowait(
+                PatternDetected(pattern_id, pattern_type, description)
+            )
+            return pattern_id
         return create_pattern(pattern_type, description)
 
 

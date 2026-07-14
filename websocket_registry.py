@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+from jarvis.event_bus import DOMAIN_EVENT_TYPES, JarvisEvent, event_bus
+
 
 connected_ws: set[Any] = set()
 connected_ws_lock = asyncio.Lock()
@@ -37,3 +39,9 @@ async def broadcast_ws(event: dict[str, Any]) -> None:
     if dead:
         async with connected_ws_lock:
             connected_ws.difference_update(dead)
+
+
+@event_bus.on(DOMAIN_EVENT_TYPES)
+async def broadcast_domain_event(event: JarvisEvent) -> None:
+    """Pousse les mutations de domaine aux clients WebSocket connectés."""
+    await broadcast_ws(event.to_dict())

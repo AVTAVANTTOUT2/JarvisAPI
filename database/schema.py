@@ -174,6 +174,22 @@ CREATE TABLE IF NOT EXISTS notifications (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS event_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id TEXT UNIQUE NOT NULL,
+    event_type TEXT NOT NULL,
+    version INTEGER NOT NULL DEFAULT 1,
+    timestamp REAL NOT NULL,
+    source TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    checksum TEXT NOT NULL,
+    processed_by TEXT,
+    processed_at REAL,
+    error TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_event_log_type ON event_log(event_type);
+CREATE INDEX IF NOT EXISTS idx_event_log_timestamp ON event_log(timestamp);
+
 CREATE TABLE IF NOT EXISTS llm_action_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,

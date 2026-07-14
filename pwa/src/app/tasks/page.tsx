@@ -16,7 +16,6 @@ export default function TasksPage() {
   const tasks = useQuery<TasksResponse>({
     queryKey: ['tasks'],
     queryFn: () => jarvisFetch<TasksResponse>('/api/tasks'),
-    refetchInterval: 30_000,
     retry: 0,
   });
 

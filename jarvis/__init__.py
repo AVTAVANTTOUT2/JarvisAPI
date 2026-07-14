@@ -12,6 +12,10 @@ Deux backends LLM, deux rôles non-interchangeables :
 Le point d'entrée unique est ``JARVISRouter`` (jarvis.router).
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
 from jarvis.exceptions import (
     DataLeakError,
     DeepSeekBackendError,
@@ -19,7 +23,18 @@ from jarvis.exceptions import (
     LocalBackendError,
 )
 from jarvis.models import DataSource, EmailPayload, RouterStats
-from jarvis.router import JARVISRouter
+
+if TYPE_CHECKING:
+    from jarvis.router import JARVISRouter
+
+
+def __getattr__(name: str) -> Any:
+    """Charge le routeur à la demande sans coupler les modules bas niveau aux LLM."""
+    if name == "JARVISRouter":
+        from jarvis.router import JARVISRouter
+
+        return JARVISRouter
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 __all__ = [
     "JARVISRouter",

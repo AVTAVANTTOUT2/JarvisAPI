@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from jarvis.event_bus import event_bus
+from jarvis.events import TaskCreated, TaskUpdated
+
 from .core import get_db
 
 
@@ -42,7 +45,9 @@ def create_task(
                VALUES (?, ?, ?, ?, ?)""",
             (title, description, priority, due_date, category),
         )
-        return int(cursor.lastrowid)
+        task_id = int(cursor.lastrowid)
+    event_bus.emit_nowait(TaskCreated(task_id, title, priority, due_date))
+    return task_id
 
 
 def update_task_status(task_id: int, status: str) -> bool:
@@ -60,7 +65,10 @@ def update_task_status(task_id: int, status: str) -> bool:
                 "UPDATE tasks SET status = ?, completed_at = NULL WHERE id = ?",
                 (status, task_id),
             )
-    return cursor.rowcount > 0
+    updated = cursor.rowcount > 0
+    if updated:
+        event_bus.emit_nowait(TaskUpdated(task_id, {"status": status}))
+    return updated
 
 
 def get_task(task_id: int) -> dict | None:

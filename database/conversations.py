@@ -8,6 +8,9 @@ import sqlite3
 from datetime import datetime
 from typing import Any
 
+from jarvis.event_bus import event_bus
+from jarvis.events import ConversationUpdated, MessageSent
+
 from .core import get_db
 from .migrations import _fts_available, _fts_query
 
@@ -23,7 +26,9 @@ def save_message(conversation_id: int, role: str, content: str,
                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (conversation_id, role, content, agent, model, tokens_in, tokens_out, cost)
         )
-        return cur.lastrowid
+        message_id = int(cur.lastrowid)
+    event_bus.emit_nowait(MessageSent(conversation_id, message_id, role, content))
+    return message_id
 
 
 def create_agentic_workflow(
@@ -80,7 +85,11 @@ def create_conversation(agent: str = None) -> int:
         cur = conn.execute(
             "INSERT INTO conversations (agent) VALUES (?)", (agent,)
         )
-        return cur.lastrowid
+        conversation_id = int(cur.lastrowid)
+    event_bus.emit_nowait(
+        ConversationUpdated(conversation_id, {"created": True, "agent": agent})
+    )
+    return conversation_id
 
 
 def end_conversation(conv_id: int, summary: str = None) -> None:
@@ -129,7 +138,10 @@ def update_conversation(conv_id: int, **kwargs: Any) -> None:
     with get_db() as conn:
         sets = ", ".join(f"{k} = ?" for k in kwargs)
         vals = list(kwargs.values()) + [conv_id]
-        conn.execute(f"UPDATE conversations SET {sets} WHERE id = ?", vals)
+        cursor = conn.execute(f"UPDATE conversations SET {sets} WHERE id = ?", vals)
+        updated = cursor.rowcount > 0
+    if updated:
+        event_bus.emit_nowait(ConversationUpdated(conv_id, dict(kwargs)))
 
 
 def update_conversation_activity(conv_id: int) -> None:

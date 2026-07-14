@@ -101,7 +101,6 @@ export default function DashboardPage() {
   const notifications = useQuery<NotificationsResponse>({
     queryKey: ['notifications'],
     queryFn: () => jarvisFetch<NotificationsResponse>('/api/notifications'),
-    refetchInterval: 30_000,
     retry: 0,
   });
 
@@ -109,7 +108,6 @@ export default function DashboardPage() {
   const tasks = useQuery<TasksResponse>({
     queryKey: ['tasks'],
     queryFn: () => jarvisFetch<TasksResponse>('/api/tasks'),
-    refetchInterval: 60_000,
     retry: 0,
   });
 

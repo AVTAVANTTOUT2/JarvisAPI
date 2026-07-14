@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from jarvis.event_bus import event_bus
+from jarvis.events import FactAdded
+
 from .core import get_db
 
 
@@ -17,7 +20,9 @@ def add_fact(
                VALUES (?, ?, ?, ?)""",
             (category, content, source, confidence),
         )
-        return int(cursor.lastrowid)
+        fact_id = int(cursor.lastrowid)
+    event_bus.emit_nowait(FactAdded(fact_id, category, content, confidence))
+    return fact_id
 
 
 def get_facts(category: str | None = None, current_only: bool = True) -> list[dict]:

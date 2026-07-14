@@ -6,6 +6,9 @@ import json
 import logging
 from typing import Any
 
+from jarvis.event_bus import event_bus
+from jarvis.events import NotificationCreated
+
 from .core import get_db
 from .push import delete_push_subscription, get_all_push_subscriptions
 
@@ -32,7 +35,16 @@ def create_notification(source: str, title: str, content: str = None,
         from . import _dispatch_push_notification as dispatch_push_notification
 
         dispatch_push_notification(title, content, priority)
-    return notif_id
+    event_bus.emit_nowait(
+        NotificationCreated(
+            int(notif_id),
+            notification_source=source,
+            priority=priority,
+            title=title,
+            content=content,
+        )
+    )
+    return int(notif_id)
 
 
 def _dispatch_push_notification(title: str, content: str | None, priority: str) -> None:

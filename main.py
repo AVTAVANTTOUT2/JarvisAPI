@@ -826,6 +826,7 @@ async def lifespan(app: FastAPI):
     """Démarrage : init DB + enregistrement des agents disponibles."""
     logger.info("Démarrage JARVIS…")
     init_db()
+    event_bus.bind_loop(asyncio.get_running_loop())
 
     try:
         from scripts.db_migrations import run_startup_migrations
@@ -1133,6 +1134,8 @@ async def lifespan(app: FastAPI):
         except (asyncio.CancelledError, Exception):
             pass
 
+    await event_bus.wait_until_idle()
+    event_bus.unbind_loop()
     logger.info("Arrêt JARVIS.")
 
 
