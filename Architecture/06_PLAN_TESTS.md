@@ -21,12 +21,12 @@
 
 ## Zones non couvertes (critiques)
 
-### P0 — Aucun test existant
+### P0 — Aucun test existant ← Mis à jour (14/07/2026)
 
 1. Détection mobile (`_is_mobile_device`) — pas de tests
-2. Race condition WebSocket — pas de tests
-3. SQLite `busy_timeout` — pas de test de concurrence
-4. Curseur ROWID unique — pas de test d'intégration iMessage
+2. ~~Race condition WebSocket~~ → test existant : `test_phase1_stability.py::test_broadcast_uses_snapshot_when_connection_set_changes`
+3. ~~SQLite `busy_timeout`~~ → test existant : `test_phase1_stability.py::test_database_connection_configures_busy_timeout`
+4. ~~Curseur ROWID unique~~ → tests existants : `test_imessage_consumer_cursor.py` (2 tests)
 5. PWA LockGate — pas de test de flux auth mobile
 6. Event bus — pas de test d'émission/consommation
 

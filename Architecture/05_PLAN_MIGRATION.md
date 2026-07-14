@@ -23,7 +23,7 @@ Phase 6 → Frontend unifié + SDK auth                   Jour 11-15 [ADR-001, A
 
 | | |
 |---|---|
-| **Fichier** | `database/__init__.py`, fonction `get_connection()` |
+| **Fichier** | `database/core.py`, fonction `get_connection()` |
 | **Changement** | Ajouter `conn.execute("PRAGMA busy_timeout = 5000")` |
 | **Impact** | Aucun. Le mode WAL est déjà actif. |
 | **Test** | `python -m pytest tests/ -q -k "database"` |

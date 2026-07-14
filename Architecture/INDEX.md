@@ -212,11 +212,11 @@ Chaque phase est **indépendante**, **réversible**, **testée**, et **sans inte
 - [x] Score de santé : 4.85/10 → cible 8.5/10 après Phase 6
 - [x] Rapport final — prêt pour le refactoring (27)
 - [ ] Validation par l'utilisateur
-- [ ] Début de l'implémentation (Phase 1)
+- [x] Début de l'implémentation (Phase 1 — Quick Wins P0 validée le 14/07/2026)
 
 **Dossier Architecture/ : 35 fichiers Markdown + 3 sous-répertoires — source de vérité officielle du projet**
 
-**Prochaine étape** : validation de ce dossier, puis lancement de la Phase 1 (Quick Wins P0 — 1 jour).
+**Prochaine étape** : finaliser la Phase 2 (Database modulaire — en cours) puis enchaîner Phase 3 (Event bus actif).
 
 ---
 

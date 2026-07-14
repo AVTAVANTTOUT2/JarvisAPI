@@ -37,9 +37,9 @@
 | # | Risque | Probabilité | Impact | Mitigation |
 |---|---|---|---|---|
 | 1 | PWA sans LockGate — accès non autorisé aux données | Moyenne | Élevé | Phase 6 (SDK auth) |
-| 2 | SQLite sans busy_timeout — perte silencieuse d'écriture | Faible | Élevé | Phase 1 (corrigé en 5 min) |
-| 3 | Race condition WebSocket — crash broadcast | Faible | Moyen | Phase 1 (corrigé en 15 min) |
-| 4 | Messages iMessage traités en double | Moyenne | Faible | Phase 1 (curseur unique) |
+| 2 | SQLite sans busy_timeout — perte silencieuse d'écriture | Faible | Élevé | ✅ Résolu Phase 1 (`PRAGMA busy_timeout = 5000`, 11/07/2026) |
+| 3 | Race condition WebSocket — crash broadcast | Faible | Moyen | ✅ Résolu Phase 1 (verrou + snapshot défensif, 11/07/2026) |
+| 4 | Messages iMessage traités en double | Moyenne | Faible | ✅ Résolu Phase 1 (curseur unique `imessage_consumer_cursors`, 11/07/2026) |
 | 5 | Conflits de merge sur main.py et database/__init__.py | Élevée | Moyen | Phase 2 + 4 (split) |
 | 6 | Dette technique croissante | Élevée | Élevé | Tout le plan de refactoring |
 | 7 | Pas de tests frontend | Élevée | Moyen | Phase 6 (plan de tests) |
@@ -68,7 +68,7 @@
 
 ## Recommandations avant le début du refactoring
 
-1. **Commencer IMMÉDIATEMENT la Phase 1** (Quick Wins P0 — 1 jour). Les 4 corrections sont simples, sans risque, et corrigent des problèmes critiques. Aucune raison d'attendre.
+1. ~~**Commencer IMMÉDIATEMENT la Phase 1** (Quick Wins P0 — 1 jour). Les 4 corrections sont simples, sans risque, et corrigent des problèmes critiques. Aucune raison d'attendre.~~ **FAIT** — Phase 1 validée le 14/07/2026.
 
 2. **Ne pas attendre la fin du refactoring pour bénéficier des améliorations**. Chaque phase est indépendante et apporte de la valeur immédiatement : Phase 2 rend le code plus lisible, Phase 3 rend l'UI réactive, etc.
 
@@ -80,7 +80,7 @@
 
 ## Prochaine action
 
-**Valider ce rapport, puis lancer la Phase 1 — Quick Wins P0.**
+**Phase 1 — Quick Wins P0 validée le 14/07/2026. Prochaine action : finaliser la Phase 2 (Database modulaire).**
 
 ```
 Phase 1 : 1 jour

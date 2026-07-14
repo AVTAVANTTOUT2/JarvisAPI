@@ -35,7 +35,7 @@ Ces 5 composants sont documentés dans `08_ARCHITECTURE_CIBLE.md` comme faisant 
 | `integrations/apple_data.py` | 08_ARCHITECTURE_CIBLE.md, ADR-006 | Phase 5 |
 | `queue_engine.py` | 11_QUEUE_ENGINE.md, ADR-012 | Phase 3 |
 | `ai_service.py` | 14_AI_SERVICE.md, ADR-014 | Phase 3 |
-| `pipeline.py` | 08_ARCHITECTURE_CIBLE.md, ADR-010 | Phase 1 |
+| `pipeline.py` | 08_ARCHITECTURE_CIBLE.md, ADR-010 | ✅ Implémenté (Phase 1, 11/07/2026) |
 | `/health`, `/metrics` | 12_OBSERVABILITE.md | Phase 3 |
 
 **Aucune correction nécessaire** — chaque document précise qu'il s'agit de la cible.

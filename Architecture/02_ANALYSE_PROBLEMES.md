@@ -15,29 +15,32 @@
 - **Conséquence** : Si un téléphone déverrouillé accède à `http://IP:8081/m/`, toutes les données JARVIS (mails, journal, contacts, localisation GPS) sont exposées.
 - **Correction** : SDK d'auth partagé + portage de `LockGate` dans la PWA (ADR-001)
 
-### P0-2 — Trois curseurs ROWID indépendants sur chat.db
+### P0-2 — Trois curseurs ROWID indépendants sur chat.db ✅ RÉSOLU (Phase 1)
 
 - **Gravité** : CRITIQUE
 - **Fichiers** : `integrations/imessage.py`, `scripts/jarvis_daemon.py`, `integrations/imessage_reader.py`
 - **Origine** : Chaque composant a été développé indépendamment, sans coordination. Le bridge a besoin de son propre curseur pour répondre aux iMessages, le daemon pour les notifications vocales, le reader pour le sourcing.
 - **Conséquence** : Un message entrant peut être traité par 2-3 composants différents. La coordination (`daemon.skip if bridge.running`) n'est pas atomique — race condition TOCTOU.
 - **Correction** : Curseur unique dans SQLite (`imessage_sync_cursor`), puis Apple Data Service (ADR-002, ADR-006)
+- **Résolution** : Registre SQLite central `imessage_consumer_cursors` avec 3 consommateurs (`reader.intelligence`, `daemon.notifications`, `bridge.reply:<target>`), offsets monotones et persistants via `integrations/imessage_cursor.py`. Implémenté le 11/07/2026, validé le 14/07/2026.
 
-### P0-3 — Race condition sur le set WebSocket `connected_ws`
+### P0-3 — Race condition sur le set WebSocket `connected_ws` ✅ RÉSOLU (Phase 1)
 
 - **Gravité** : CRITIQUE
 - **Fichier** : `main.py` (`broadcast_ws()`, `websocket_endpoint()`)
 - **Origine** : `connected_ws` est un `set[WebSocket]` modifié pendant l'itération. `broadcast_ws()` itère pendant que `websocket_endpoint()` retire des éléments. Pas de `asyncio.Lock`.
 - **Conséquence** : `RuntimeError: Set changed size during iteration` si un client se déconnecte pendant un broadcast.
 - **Correction** : `asyncio.Lock` + copie défensive du set avant itération (ADR-003)
+- **Résolution** : Registre WebSocket isolé dans `websocket_registry.py`, mutations via `add_websocket()`/`remove_websocket()` protégées par `asyncio.Lock`, snapshot défensif `tuple(connected_ws)` avant itération pour `broadcast_ws()`. Implémenté le 11/07/2026, validé le 14/07/2026.
 
-### P0-4 — SQLite sans `busy_timeout` configuré
+### P0-4 — SQLite sans `busy_timeout` configuré ✅ RÉSOLU (Phase 1)
 
 - **Gravité** : CRITIQUE
-- **Fichier** : `database/__init__.py` (`get_connection()`)
+- **Fichier** : `database/core.py` (`get_connection()`)
 - **Origine** : Les connexions SQLite sont créées sans `busy_timeout`. Si deux écritures concurrentes tentent d'accéder à `jarvis.db` simultanément (ex: scheduler écrit une notification + pipeline écrit un message), l'une échoue avec `SQLITE_BUSY`.
 - **Conséquence** : Écritures silencieusement perdues. Pas de retry.
 - **Correction** : `PRAGMA busy_timeout = 5000` dans `get_connection()` (ADR-004)
+- **Résolution** : `database/core.py::get_connection()` configure `PRAGMA busy_timeout = 5000` sur chaque connexion applicative. Vérifié par test unitaire lisant `PRAGMA busy_timeout`. Implémenté le 11/07/2026, validé le 14/07/2026.
 
 ---
 
