@@ -7,10 +7,10 @@
 ## Vue d'ensemble
 
 ```
-Phase 1 → Quick wins P0 (sécurité + stabilité)        Jour 1     [4 corrections]
-Phase 2 → Database modulaire                           Jour 2     [ADR-009]
-Phase 3 → Pipeline + Event bus                         Jour 3-4   [ADR-010, ADR-005]
-Phase 4 → main.py découpé en routeurs                  Jour 5-7   [ADR-008]
+Phase 1 → Quick wins P0 (fait 14/07)                  Jour 1     [4 corrections]
+Phase 2 → Database modulaire (fait 14/07)              Jour 2     [ADR-009]
+Phase 3 → Pipeline + Event bus (fait 14/07)            Jour 3-4   [ADR-010, ADR-005]
+Phase 4 → main.py découpé en routeurs (fait 14/07)     Jour 5-7   [ADR-008]
 Phase 5 → Apple Data Service                            Jour 8-10  [ADR-006]
 Phase 6 → Frontend unifié + SDK auth                   Jour 11-15 [ADR-001, ADR-007]
 ```
@@ -36,7 +36,7 @@ Phase 6 → Frontend unifié + SDK auth                   Jour 11-15 [ADR-001, A
 
 | | |
 |---|---|
-| **Fichiers** | `websocket_registry.py`, `main.py` (`websocket_endpoint()`) |
+| **Fichiers** | `websocket_registry.py`, `api/ws_handler.py` (`websocket_endpoint()`) |
 | **Changement** | Isoler le registre, ajouter `asyncio.Lock` + copie défensive du set avant itération |
 | **Impact** | Aucun changement d'API. WebSocket continue normalement. |
 | **Test** | `python -m pytest tests/ -q -k "websocket"` |
@@ -64,7 +64,7 @@ Phase 6 → Frontend unifié + SDK auth                   Jour 11-15 [ADR-001, A
 |---|---|
 | **Fichiers créés** | `pipeline.py` (nouveau) |
 | **Fichiers modifiés** | `main.py` configure le contrat ; `jarvis_daemon.py` et `audio_daemon.py` importent uniquement `pipeline.py`. |
-| **Impact** | Les signatures restent compatibles. Les implémentations de 895 lignes seront déplacées progressivement pendant la Phase 4, une fois leurs dépendances extraites. |
+| **Impact** | Les signatures restent compatibles. Les implémentations ont été réparties dans les modules spécialisés de `api/` pendant la Phase 4. |
 | **Test** | Tests de contrat et vérification statique de l'absence d'import de `main` dans les daemons. |
 | **Critère de validation** | Aucun import inverse daemon → main ; délégation explicite des trois points d'entrée. |
 | **Réversibilité** | `git revert` |
@@ -158,27 +158,29 @@ Le journal conserve `processed_by = NULL` tant qu'aucun moteur de rejeu n'existe
 
 ## Phase 4 — Routeurs FastAPI (Jour 5-7)
 
+**État** : ✅ Implémentée et validée le 14/07/2026. La bascule a conservé les 174 opérations HTTP, le WebSocket `/ws` et les 157 chemins OpenAPI. `main.py` contient 175 lignes d'assemblage.
+
 ### Routeurs créés (12)
 
-| Fichier | Routes | Lignes estimées | Risque |
+| Fichier | Domaine principal | Lignes réelles | Risque initial |
 |---|---|---|---|
-| `api/router_auth.py` | `/api/auth/*` (8) | 200 | Bas |
-| `api/router_people.py` | `/api/people/*` (15) | 500 | Moyen |
-| `api/router_conversations.py` | `/api/conversations/*` (12) | 300 | Bas |
-| `api/router_tasks.py` | `/api/tasks/*` (5) | 100 | Bas |
-| `api/router_location.py` | `/api/location/*` (17) | 300 | Bas |
-| `api/router_devices.py` | `/api/devices/*` (7) | 150 | Bas |
-| `api/router_daemon.py` | `/api/audio-daemon/*`, `/api/control/*` (14) | 300 | Moyen |
-| `api/router_devagent.py` | `/api/devagent/*` (8) | 200 | Bas |
-| `api/router_quality.py` | `/api/quality/*`, `/api/migrations/*` (8) | 100 | Bas |
-| `api/router_rituals.py` | `/api/rituals/*`, `/api/dnd/*` (7) | 150 | Bas |
-| `api/router_recordings.py` | `/api/recordings/*`, `/api/memory/search-semantic` (6) | 130 | Bas |
-| `api/router_misc.py` | Status, stats, costs, export, search, etc. (~15) | 300 | Bas |
-| `api/ws_handler.py` | WebSocket (1) | 400 | Élevé |
-| `api/frontend.py` | `_setup_frontend`, `_setup_pwa_frontend`, `_is_mobile_device` | 150 | Bas |
-| `api/middleware.py` | `security_middleware` | 100 | Bas |
+| `api/router_auth.py` | `/api/auth/*` | 146 | Bas |
+| `api/router_people.py` | `/api/people/*` | 325 | Moyen |
+| `api/router_conversations.py` | `/api/conversations/*` | 170 | Bas |
+| `api/router_tasks.py` | `/api/tasks/*` | 83 | Bas |
+| `api/router_location.py` | `/api/location/*`, `/api/places/*` | 238 | Bas |
+| `api/router_devices.py` | `/api/devices/*` | 216 | Bas |
+| `api/router_daemon.py` | `/api/audio-daemon/*`, `/api/control/*` | 171 | Moyen |
+| `api/router_devagent.py` | `/api/devagent/*` | 187 | Bas |
+| `api/router_quality.py` | `/api/quality/*`, `/api/migrations/*` | 100 | Bas |
+| `api/router_rituals.py` | `/api/rituals/*`, `/api/dnd/*` | 79 | Bas |
+| `api/router_recordings.py` | `/api/recordings/*`, recherche sémantique | 97 | Bas |
+| `api/router_misc.py` | Status, stats, costs, export, search, etc. | 447 | Bas |
+| `api/ws_handler.py` | WebSocket (1) | 494 | Élevé |
+| `api/frontend.py` | Montage desktop/PWA et détection mobile | 316 | Bas |
+| `api/middleware.py` | `security_middleware` | 99 | Bas |
 
-### main.py après (~200 lignes)
+### main.py après (175 lignes)
 
 ```python
 from api.router_auth import router as auth_router
@@ -198,9 +200,9 @@ _setup_frontend(app)
 
 | | |
 |---|---|
-| **Méthode** | `python -m pytest tests/ -q` après chaque routeur extrait |
-| **Critère** | Tous les tests passent. `curl` sur chaque endpoint retourne 200. |
-| **Réversibilité** | `git revert` par routeur |
+| **Méthode** | Contrat routes/OpenAPI avant-après, tests d'architecture, suite backend complète, `compileall`, Ruff et `git diff --check` |
+| **Critère** | ✅ 6 tests Phase 4 et suite complète : 548 passants, 1 ignoré. Hash des signatures routes et OpenAPI inchangés. Aucun serveur réel ni campagne `curl` n'a été lancé ; les routes représentatives sont exercées par `TestClient`. |
+| **Réversibilité** | Deux commits de code séparés (contrat puis extraction), réversibles par `git revert` |
 
 ## Phase 5 — Apple Data Service (Jour 8-10)
 

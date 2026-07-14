@@ -1,20 +1,23 @@
 # 03 — Audit Technique
 
-**Date** : 11 juillet 2026
+**Date initiale** : 11 juillet 2026
+**Dernière mise à jour** : 14 juillet 2026
 
 ## 1. Backend — FastAPI
 
-### 1.1 main.py (7 197 lignes)
+### 1.1 Couche API après Phase 4
 
 | Aspect | Évaluation | Note |
 |---|---|---|
-| Taille | ❌ 7 197 lignes | Seuil acceptable : ~500 lignes |
-| Routes | ❌ 183 endpoints | Devraient être répartis en 12 routeurs |
-| Responsabilités | ❌ 40+ | Routeur, WS, pipeline, frontend, auth, middleware |
-| Imports | ❌ 42 top-level | Dont 8 singletons d'agents individuels |
+| Taille | ✅ `main.py` 175 lignes | Tous les modules `api/*.py` restent à 500 lignes ou moins |
+| Routes | ✅ 174 opérations HTTP + 1 WebSocket | Réparties dans exactement 12 `APIRouter`; 157 chemins OpenAPI |
+| Responsabilités | ✅ Assemblage séparé | Routeurs, WS, pipeline, frontend, auth, middleware et lifespan isolés |
+| Imports | ✅ Dépendances distribuées | Aucun module `api/` n'importe `main.py` |
 | Middleware | ✅ Correct | CORS configuré, security_middleware fonctionnel |
-| Lifespan | ⚠️ 5 services lancés | Devrait être délégué à un ServiceManager |
-| Tests | ⚠️ Couverture partielle | 540 fonctions de test (61 fichiers), couverture par route non mesurée |
+| Lifespan | ✅ Extrait | `api/lifespan.py` est monté explicitement sur l'application |
+| Tests | ⚠️ Couverture partielle | 546 fonctions de test (63 fichiers), contrat de routes verrouillé ; couverture globale non mesurée |
+
+L'état initial (7 197 lignes, 40+ responsabilités et 42 imports concentrés) est conservé comme constat historique de l'audit. ADR-008 a été appliqué le 14/07/2026 sans changement de signature HTTP/WebSocket ni de schéma OpenAPI.
 
 ### 1.2 Middlewares
 
@@ -291,7 +294,7 @@
 
 | Opération | Coût estimé | Optimisable ? |
 |---|---|---|
-| Chargement main.py | ~200ms (42 imports) | ✅ Routeurs paresseux |
+| Chargement de la couche API | Non re-mesuré après Phase 4 | Les dépendances sont distribuées par domaine ; benchmark à refaire |
 | build_full_context() | ~50ms (20+ requêtes) | ✅ Cache ou jointure |
 | Chat LLM | 1-3s (DeepSeek) | ⚠️ Externe |
 | Vision Ollama | 500ms-2s (local) | ⚠️ GPU |
@@ -301,7 +304,7 @@
 
 ### 6.2 Goulots potentiels
 
-1. 42 imports top-level → temps de chargement au démarrage
+1. Temps de chargement après découpage non re-mesuré
 2. `database/__init__.py` réduit à 236 lignes ; plus grand module DB : `schema.py` (666 lignes)
 3. build_full_context() 20+ requêtes séquentielles
 4. APScheduler 29 jobs sans max_instances
@@ -312,18 +315,19 @@
 
 | Type | Points | Heures |
 |---|---|---|
-| God objects (2) | 80 | 32h |
+| God objects restants hors API/DB | 40 | 16h |
 | Code dupliqué (8 zones) | 120 | 40h |
 | Tests manquants | 60 | 24h |
 | Documentation obsolète | 20 | 8h |
 | Dead code | 15 | 4h |
-| **Total** | **295** | **~108h** |
+| **Total indicatif après Phase 4** | **255** | **~92h** |
 
 ### 7.2 Complexité
 
 | Fichier | Fns >50 lignes | Fns >100 lignes |
 |---|---|---|
-| main.py | ~15 | ~8 |
+| main.py | 0 | 0 |
+| api/*.py | Non re-mesuré | Non re-mesuré |
 | database/__init__.py | 0 | 0 |
 | database/people.py | 2 | 1 |
 | agents/orchestrator.py | ~3 | ~2 |

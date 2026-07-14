@@ -1,0 +1,447 @@
+"""Agrégation des routes transverses hors routeurs métier dédiés."""
+
+from __future__ import annotations
+
+from fastapi import APIRouter
+
+from api.misc_status import (
+    api_status,
+    api_stats_weekly,
+    api_costs,
+    api_backups_list,
+    api_backups_run,
+    api_backups_restore,
+    api_maintenance_run,
+    api_imessage_import_run,
+    api_imessage_import_status,
+)
+from api.misc_insights import (
+    api_productivity_score,
+    api_mood_signals,
+    api_predictions_messages,
+    api_places_favorites,
+    api_places_missed_opportunities,
+    api_doomscroll,
+    api_procrastination_cost,
+    api_jarvis_journal,
+    api_jarvis_journal_generate,
+    api_day_scores,
+    api_day_score_detail,
+    api_presence,
+    api_self_healing_status,
+    api_self_healing_diagnose,
+    api_stats_compare,
+    api_commitments_list,
+    api_commitments_update,
+    api_commitments_consistency,
+    api_meetings_list,
+    api_memory_get,
+)
+from api.misc_files import (
+    upload,
+    api_outputs_list,
+    api_outputs_download,
+)
+from api.misc_integrations import (
+    api_debug_resolve,
+    api_integrations,
+    events_stream,
+    mission_prompt,
+    api_email_watcher_catchup,
+    api_get_tts_setting,
+    api_set_tts_setting,
+    api_notifications_unread,
+    api_push_vapid_public_key,
+    api_push_subscribe,
+    api_push_unsubscribe,
+    api_logs,
+    api_notifications_all,
+    api_notifications_mark_read,
+    api_notifications_mark_all_read,
+    api_briefing,
+    api_emails,
+    api_mood,
+)
+from api.misc_life import (
+    api_life_profile_get,
+    api_life_profile_create,
+    api_life_profile_update,
+    api_life_profile_delete,
+    api_life_context_list,
+    api_life_context_create,
+    api_life_context_close,
+    api_journal_get,
+    api_journal_post,
+    api_patterns_get,
+)
+from api.misc_relationships import (
+    api_calendar_get,
+    api_calendar_create,
+    api_calendar_test,
+    api_analyze_contact,
+    api_relationship_detail,
+    api_relationship_graph,
+    api_time_machine,
+    api_mac_contacts,
+    api_contacts_sync,
+    api_search,
+    api_export_dump,
+)
+
+router = APIRouter()
+
+router.add_api_route(
+    "/api/status",
+    api_status,
+    methods=["GET"],
+)
+router.add_api_route(
+    "/api/stats/weekly",
+    api_stats_weekly,
+    methods=["GET"],
+)
+router.add_api_route(
+    "/api/costs",
+    api_costs,
+    methods=["GET"],
+)
+router.add_api_route(
+    "/api/backups",
+    api_backups_list,
+    methods=["GET"],
+)
+router.add_api_route(
+    "/api/backups/run",
+    api_backups_run,
+    methods=["POST"],
+)
+router.add_api_route(
+    "/api/backups/{name}/restore",
+    api_backups_restore,
+    methods=["POST"],
+)
+router.add_api_route(
+    "/api/maintenance/run",
+    api_maintenance_run,
+    methods=["POST"],
+)
+router.add_api_route(
+    "/api/imessage-import/run",
+    api_imessage_import_run,
+    methods=["POST"],
+)
+router.add_api_route(
+    "/api/imessage-import/status",
+    api_imessage_import_status,
+    methods=["GET"],
+)
+router.add_api_route(
+    "/api/productivity/score",
+    api_productivity_score,
+    methods=["GET"],
+)
+router.add_api_route(
+    "/api/mood/signals",
+    api_mood_signals,
+    methods=["GET"],
+)
+router.add_api_route(
+    "/api/predictions/messages",
+    api_predictions_messages,
+    methods=["GET"],
+)
+router.add_api_route(
+    "/api/places/favorites",
+    api_places_favorites,
+    methods=["GET"],
+)
+router.add_api_route(
+    "/api/places/missed-opportunities",
+    api_places_missed_opportunities,
+    methods=["GET"],
+)
+router.add_api_route(
+    "/api/doomscroll",
+    api_doomscroll,
+    methods=["GET"],
+)
+router.add_api_route(
+    "/api/procrastination/cost",
+    api_procrastination_cost,
+    methods=["GET"],
+)
+router.add_api_route(
+    "/api/jarvis-journal",
+    api_jarvis_journal,
+    methods=["GET"],
+)
+router.add_api_route(
+    "/api/jarvis-journal/generate",
+    api_jarvis_journal_generate,
+    methods=["POST"],
+)
+router.add_api_route(
+    "/api/day-scores",
+    api_day_scores,
+    methods=["GET"],
+)
+router.add_api_route(
+    "/api/day-scores/{date}",
+    api_day_score_detail,
+    methods=["GET"],
+)
+router.add_api_route(
+    "/api/presence",
+    api_presence,
+    methods=["GET"],
+)
+router.add_api_route(
+    "/api/self-healing/status",
+    api_self_healing_status,
+    methods=["GET"],
+)
+router.add_api_route(
+    "/api/self-healing/diagnose",
+    api_self_healing_diagnose,
+    methods=["POST"],
+)
+router.add_api_route(
+    "/api/stats/compare",
+    api_stats_compare,
+    methods=["GET"],
+)
+router.add_api_route(
+    "/api/commitments",
+    api_commitments_list,
+    methods=["GET"],
+)
+router.add_api_route(
+    "/api/commitments/{commitment_id}",
+    api_commitments_update,
+    methods=["PATCH"],
+)
+router.add_api_route(
+    "/api/commitments/consistency",
+    api_commitments_consistency,
+    methods=["GET"],
+)
+router.add_api_route(
+    "/api/meetings",
+    api_meetings_list,
+    methods=["GET"],
+)
+router.add_api_route(
+    "/api/memory",
+    api_memory_get,
+    methods=["GET"],
+)
+router.add_api_route(
+    "/upload",
+    upload,
+    methods=["POST"],
+)
+router.add_api_route(
+    "/api/outputs",
+    api_outputs_list,
+    methods=["GET"],
+)
+router.add_api_route(
+    "/api/outputs/{filepath:path}",
+    api_outputs_download,
+    methods=["GET"],
+)
+router.add_api_route(
+    "/api/debug/resolve/{name}",
+    api_debug_resolve,
+    methods=["GET"],
+)
+router.add_api_route(
+    "/api/integrations",
+    api_integrations,
+    methods=["GET"],
+)
+router.add_api_route(
+    "/api/events/stream",
+    events_stream,
+    methods=["GET"],
+)
+router.add_api_route(
+    "/api/mission/prompt",
+    mission_prompt,
+    methods=["POST"],
+)
+router.add_api_route(
+    "/api/email-watcher/catchup",
+    api_email_watcher_catchup,
+    methods=["POST"],
+)
+router.add_api_route(
+    "/api/settings/tts",
+    api_get_tts_setting,
+    methods=["GET"],
+)
+router.add_api_route(
+    "/api/settings/tts",
+    api_set_tts_setting,
+    methods=["PATCH"],
+)
+router.add_api_route(
+    "/api/notifications",
+    api_notifications_unread,
+    methods=["GET"],
+)
+router.add_api_route(
+    "/api/push/vapid-public-key",
+    api_push_vapid_public_key,
+    methods=["GET"],
+)
+router.add_api_route(
+    "/api/push/subscribe",
+    api_push_subscribe,
+    methods=["POST"],
+)
+router.add_api_route(
+    "/api/push/unsubscribe",
+    api_push_unsubscribe,
+    methods=["POST"],
+)
+router.add_api_route(
+    "/api/logs",
+    api_logs,
+    methods=["GET"],
+)
+router.add_api_route(
+    "/api/notifications/all",
+    api_notifications_all,
+    methods=["GET"],
+)
+router.add_api_route(
+    "/api/notifications/{notif_id}/read",
+    api_notifications_mark_read,
+    methods=["POST"],
+)
+router.add_api_route(
+    "/api/notifications/read-all",
+    api_notifications_mark_all_read,
+    methods=["POST"],
+)
+router.add_api_route(
+    "/api/briefing",
+    api_briefing,
+    methods=["GET"],
+)
+router.add_api_route(
+    "/api/emails",
+    api_emails,
+    methods=["GET"],
+)
+router.add_api_route(
+    "/api/mood",
+    api_mood,
+    methods=["GET"],
+)
+router.add_api_route(
+    "/api/life-profile",
+    api_life_profile_get,
+    methods=["GET"],
+)
+router.add_api_route(
+    "/api/life-profile",
+    api_life_profile_create,
+    methods=["POST"],
+)
+router.add_api_route(
+    "/api/life-profile/{entry_id}",
+    api_life_profile_update,
+    methods=["PUT"],
+)
+router.add_api_route(
+    "/api/life-profile/{entry_id}",
+    api_life_profile_delete,
+    methods=["DELETE"],
+)
+router.add_api_route(
+    "/api/life-context",
+    api_life_context_list,
+    methods=["GET"],
+)
+router.add_api_route(
+    "/api/life-context",
+    api_life_context_create,
+    methods=["POST"],
+)
+router.add_api_route(
+    "/api/life-context/{context_id}/close",
+    api_life_context_close,
+    methods=["POST"],
+)
+router.add_api_route(
+    "/api/journal",
+    api_journal_get,
+    methods=["GET"],
+)
+router.add_api_route(
+    "/api/journal",
+    api_journal_post,
+    methods=["POST"],
+)
+router.add_api_route(
+    "/api/patterns",
+    api_patterns_get,
+    methods=["GET"],
+)
+router.add_api_route(
+    "/api/calendar",
+    api_calendar_get,
+    methods=["GET"],
+)
+router.add_api_route(
+    "/api/calendar",
+    api_calendar_create,
+    methods=["POST"],
+)
+router.add_api_route(
+    "/api/calendar/test",
+    api_calendar_test,
+    methods=["POST"],
+)
+router.add_api_route(
+    "/api/analyze-contact",
+    api_analyze_contact,
+    methods=["POST"],
+)
+router.add_api_route(
+    "/api/relationship/{name}",
+    api_relationship_detail,
+    methods=["GET"],
+)
+router.add_api_route(
+    "/api/relationship-graph",
+    api_relationship_graph,
+    methods=["GET"],
+)
+router.add_api_route(
+    "/api/time-machine/{date}",
+    api_time_machine,
+    methods=["GET"],
+)
+router.add_api_route(
+    "/api/contacts",
+    api_mac_contacts,
+    methods=["GET"],
+)
+router.add_api_route(
+    "/api/contacts/sync",
+    api_contacts_sync,
+    methods=["POST"],
+)
+router.add_api_route(
+    "/api/search",
+    api_search,
+    methods=["GET"],
+)
+router.add_api_route(
+    "/api/export",
+    api_export_dump,
+    methods=["GET"],
+)

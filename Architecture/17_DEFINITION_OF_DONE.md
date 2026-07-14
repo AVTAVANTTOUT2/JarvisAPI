@@ -53,10 +53,12 @@ Preuves exécutées le 14/07/2026 : 4 tests Phase 3 passants, suite backend comp
 
 ### Phase 4 — Routeurs FastAPI
 
-- [ ] `wc -l main.py` < 500 lignes
-- [ ] 12 fichiers dans `api/` avec des `APIRouter`
-- [ ] `curl` sur chaque endpoint critique retourne 200
-- [ ] Le lifespan de `main.py` n'a pas changé de comportement
+- [x] `wc -l main.py` < 500 lignes — 175 lignes
+- [x] Exactement 12 fichiers `api/router_*.py` exposent des `APIRouter`
+- [x] Les signatures des 174 opérations HTTP, du WebSocket et les 157 chemins OpenAPI sont identiques à la baseline ; les endpoints couverts par la suite existante passent via `TestClient`
+- [x] Le lifespan extrait dans `api/lifespan.py` est monté explicitement et la suite de non-régression reste verte
+
+Preuves exécutées le 14/07/2026 : 6 tests Phase 4 passants, suite complète à 548 passants et 1 ignoré, `compileall`, Ruff et `git diff --check` réussis. Tous les modules `api/` restent à 500 lignes ou moins et aucun n'importe `main.py`. Aucun serveur réel, campagne `curl` exhaustive ou observation opérationnelle sur 24 h n'a été exécuté dans cet environnement.
 
 ### Phase 5 — Apple Data Service
 

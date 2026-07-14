@@ -86,10 +86,15 @@ Aucun module ne doit appeler directement l'API DeepSeek ou Ollama.
 - ❌ `from web.src.components import ...` dans `main.py`
 - ✅ Le backend est agnostique du frontend
 
+### Interdiction #9 — Import inverse de la couche API
+- ❌ `from main import ...` ou `import main` dans `api/`
+- ✅ `main.py` assemble les contrats publics de `api/`; les modules API ne connaissent pas le point d'entrée
+- Vérification actuelle : `tests/test_phase4_architecture.py`
+
 ## Vérification automatique
 
 ```bash
-# Vérifie les règles de dépendances
+# Cible future : vérifie l'ensemble des règles de dépendances
 python scripts/architecture_check.py --check-deps
 
 # Règles vérifiées :
@@ -99,6 +104,8 @@ python scripts/architecture_check.py --check-deps
 # - Pas de cycle (détection statique)
 # - Pas d'import UI dans le backend
 ```
+
+`scripts/architecture_check.py` n'existe pas encore au 14/07/2026. Les règles de taille et l'absence d'import inverse de la Phase 4 sont néanmoins exécutées par pytest ; les autres commandes de cette section décrivent la cible CI.
 
 ## Exceptions documentées
 

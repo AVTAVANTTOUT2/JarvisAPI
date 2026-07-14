@@ -10,7 +10,13 @@
 
 ```
 JarvisAPI/
-├── main.py                    ← Point d'entrée FastAPI (7197 lignes, monolithe)
+├── main.py                    ← Assemblage FastAPI/Uvicorn (175 lignes)
+├── api/                       ← 12 routeurs de domaine + handlers/support API
+│   ├── router_*.py           ← 174 opérations HTTP, 157 chemins OpenAPI
+│   ├── ws_handler.py         ← WebSocket /ws
+│   ├── lifespan.py           ← Cycle de vie des services
+│   ├── middleware.py         ← Sécurité HTTP
+│   └── frontend.py           ← Montage desktop/PWA
 ├── supervisor.py              ← Processus 24/7 (port 9000, sert le frontend)
 ├── config.py                  ← Configuration centralisée (.env → settings)
 ├── llm.py                     ← Client DeepSeek API (chat, stream, classify)
@@ -168,7 +174,7 @@ JarvisAPI/
 │
 ├── tv/                         ← Dashboard TV War Room
 ├── prompts/                    ← System prompts (.txt)
-├── tests/                      ← 540 fonctions de test (61 fichiers) pytest
+├── tests/                      ← 546 fonctions de test (63 fichiers) pytest
 ├── data/                       ← jarvis.db, uploads, outputs
 └── Architecture/               ← CE RAPPORT
 ```
@@ -189,24 +195,26 @@ graph TB
     INTEG["integrations/*<br/>(importent config)"]
     SCRIPTS["scripts/*<br/>(importent config, llm, db, integ)"]
 
-    MAIN["main.py<br/>IMPORTE TOUT<br/>42 imports distincts<br/>daemons découplés via pipeline.py"]
+    MAIN["main.py<br/>ASSEMBLAGE<br/>175 lignes<br/>daemons découplés via pipeline.py"]
+    API["api/<br/>12 routeurs<br/>handlers par responsabilité"]
 
     CONFIG --> LLM
     CONFIG --> DB
     LLM --> AGENTS
     DB --> AGENTS
     EVENT --> AGENTS
-    EVENT --> MAIN
+    EVENT --> API
     EVENT --> DB
 
-    AGENTS --> MAIN
-    ACTIONS --> MAIN
-    INTEG --> MAIN
-    SCRIPTS --> MAIN
+    AGENTS --> API
+    ACTIONS --> API
+    INTEG --> API
+    SCRIPTS --> API
+    API --> MAIN
 
     MAIN -.->|cycle de vie| SCRIPTS
 
-    style MAIN fill:#ff6b6b,color:#fff
+    style MAIN fill:#2ed573,color:#fff
     style DB fill:#ffa502,color:#fff
 ```
 
@@ -215,12 +223,13 @@ graph TB
 | Module | Importé par | Problème |
 |---|---|---|
 | `config.py` | Tout le monde | OK — feuille, pas de dépendance |
-| `llm.py` | Agents, scripts, main | OK |
-| `database/__init__.py` | Agents, scripts, main, integrations | Façade stable de 236 lignes ; implémentation répartie dans 25 modules |
-| `jarvis/event_bus.py` et `jarvis/events.py` | DB, agents, main, daemons | Actif : 10 événements de domaine, 3 consommateurs réels (journal SQLite, WebSocket, TTS) et flux SSE existant |
-| `main.py` | supervisor | **Monolithe** — 42 imports, 183 routes |
-| `agents/orchestrator.py` | main | OK |
-| `scripts/jarvis_daemon.py` | main (cycle de vie), `pipeline.py` (traitement) | Cycle d'import supprimé |
+| `llm.py` | Agents, scripts, API | OK |
+| `database/__init__.py` | Agents, scripts, API, integrations | Façade stable de 236 lignes ; implémentation répartie dans 25 modules |
+| `jarvis/event_bus.py` et `jarvis/events.py` | DB, agents, API, daemons | Actif : 10 événements de domaine, 3 consommateurs réels (journal SQLite, WebSocket, TTS) et flux SSE existant |
+| `api/` | `main.py` | 12 routeurs ; tous les modules restent sous 500 lignes et aucun n'importe `main.py` |
+| `main.py` | supervisor | Assemblage stable de 175 lignes ; monte les routeurs, le WebSocket, le frontend et le lifespan |
+| `agents/orchestrator.py` | API | OK |
+| `scripts/jarvis_daemon.py` | `api/lifespan.py` (cycle de vie), `pipeline.py` (traitement) | Cycle d'import supprimé |
 
 ### Dépendance circulaire — résolue en Phase 1
 
@@ -230,7 +239,7 @@ main.py ──configure──▶ pipeline.py ◀──consume── jarvis_daemo
    └──cycle de vie──▶ daemons
 ```
 
-Les daemons ne dépendent plus de `main.py`. Le contrat échoue explicitement s'il est appelé avant sa configuration, et les implémentations seront déplacées derrière ce contrat pendant la Phase 4.
+Les daemons ne dépendent plus de `main.py`. Le contrat échoue explicitement s'il est appelé avant sa configuration. Depuis la Phase 4, les implémentations de traitement résident dans les modules spécialisés de `api/` et sont enregistrées par `main.py` via le contrat public.
 
 ---
 
@@ -444,7 +453,7 @@ imessage_analysis_cache → curseur d'analyse par contact
 │             │ - Proxy WebSocket vers 8081            │
 │             │ - Health-check + auto-restart          │
 │  Port 8081  │ Backend FastAPI                       │
-│             │ - 183 routes REST                     │
+│             │ - 174 opérations HTTP / 157 chemins  │
 │             │ - WebSocket /ws                       │
 │             │ - Sert /m/ (PWA mobile)               │
 │  Port 5173  │ Vite Dev Server (dev uniquement)      │
@@ -598,16 +607,16 @@ RootLayout (layout.tsx)
 
 | Métrique | Valeur |
 |---|---|
-| Fichiers Python | 228 |
-| Lignes Python | 54 342 |
+| Fichiers Python | 268 |
+| Lignes Python | 55 457 |
 | Fichiers frontend | 74 (41 web + 33 pwa) |
 | Lignes frontend | 18 498 |
 | Tables SQLite | 73 applicatives après initialisation et migrations (`sqlite_sequence` exclue) |
-| Routes REST | 183 |
-| Tests pytest | 540 fonctions déclarées ; 542 cas passants, 1 ignoré |
+| API | 174 opérations HTTP + 1 WebSocket ; 157 chemins OpenAPI |
+| Tests pytest | 546 fonctions déclarées dans 63 fichiers ; 548 cas passants, 1 ignoré |
 | Agents LLM | 7 + orchestrateur |
 | Jobs APScheduler | 29 |
 | Démons | 5 |
-| God objects | 1 (`main.py`, 7 197 lignes) |
+| God objects API/DB | 0 (`main.py` 175 lignes ; tous les modules `api/` ≤ 500 lignes) |
 | Dépendance circulaire | 0 |
 | Duplications majeures | 8 |

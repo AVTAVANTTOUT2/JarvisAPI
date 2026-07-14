@@ -100,15 +100,17 @@
 
 ---
 
-## ADR-008 — main.py monolithe (7 197 lignes)
+## ADR-008 — main.py monolithe (7 197 lignes, état historique)
 
-**Problème** : 183 routes, 40+ responsabilités dans un seul fichier.
+**Problème** : 40+ responsabilités et l'ensemble des routes dans un seul fichier.
 
 **Solutions** :
 - A. Routeurs APIRouter FastAPI par domaine — 12 routeurs. main.py → ~200 lignes.
 - B. Extraction progressive (1 domaine/semaine) — trop lent.
 
 **Recommandation** : Solution A. Extraction mécanique, groupe par groupe. Effort : 3 jours.
+
+**Statut** : Implémenté et validé le 14 juillet 2026. `main.py` est réduit à 175 lignes ; exactement 12 modules `api/router_*.py` exposent des `APIRouter`, tous les modules `api/` restent à 500 lignes ou moins et aucun n'importe `main.py`. Les 174 opérations HTTP, le WebSocket `/ws` et les 157 chemins OpenAPI sont inchangés. Preuves : `tests/test_phase4_route_contract.py`, `tests/test_phase4_architecture.py`, suite complète à 548 passants et 1 ignoré.
 
 ---
 
@@ -131,12 +133,12 @@
 **Problème** : main.py importe daemon, daemon importe _process_message_internal de main.py.
 
 **Solutions** :
-- A. Introduire un contrat `pipeline.py` indépendant. `main.py` enregistre les implémentations actuelles ; les daemons n'importent plus le point d'entrée. Le déplacement physique des implémentations se poursuit pendant la Phase 4.
+- A. Introduire un contrat `pipeline.py` indépendant. `main.py` enregistre les implémentations exposées par les modules spécialisés ; les daemons n'importent plus le point d'entrée.
 - B. Daemon envoie via WebSocket — ajoute latence.
 
 **Décision** : Solution A, implémentée le 11 juillet 2026. Le contrat conserve les signatures publiques et échoue explicitement s'il est utilisé avant configuration. Preuve : `pipeline.py` avec `PipelineHandlers`, `configure_pipeline()`, `PipelineNotConfiguredError`. Tests : `test_pipeline_contract.py` (2 passants). Aucun import de `main` dans `jarvis_daemon.py` ou `audio_daemon.py`. Validée le 14/07/2026.
 
-**Statut** : Implémenté pour le découplage ; déplacement des implémentations planifié en Phase 4.
+**Statut** : Implémenté pour le découplage depuis la Phase 1 ; les implémentations ont été déplacées vers `api/` en Phase 4 sans modifier le contrat public.
 
 ---
 
@@ -151,6 +153,6 @@
 | 005 | Event bus à usage minimal | ✅ 10 événements + 3 consommateurs | Fait | ADR-009 |
 | 006 | 25+ lecteurs chat.db | AppleDataService | 3j | ADR-002 |
 | 007 | Deux frontends | App Next.js unifiée | 5j | ADR-001 |
-| 008 | main.py monolithe | Routeurs par domaine | 3j | ADR-009 |
+| 008 | main.py monolithe | ✅ 12 routeurs par domaine, `main.py` 175 lignes | Fait | ADR-009 |
 | 009 | database god object | Modules par domaine | 1j | Aucun |
 | 010 | Cycle main↔daemon | pipeline.py | 4h | Aucun |

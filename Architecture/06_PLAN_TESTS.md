@@ -3,7 +3,7 @@
 **Date initiale** : 11 juillet 2026
 
 **Dernière validation locale** : 14 juillet 2026
-**Couverture actuelle** : 540 fonctions de test déclarées dans 61 fichiers (backend uniquement). Validation après Phase 3 : 542 cas passés, 1 ignoré et 0 échec avec la commande backend complète.
+**Couverture actuelle** : 546 fonctions de test déclarées dans 63 fichiers (backend uniquement). Validation après Phase 4 : 548 cas passés, 1 ignoré et 0 échec avec la commande backend complète.
 
 ## Stratégie
 
@@ -11,7 +11,7 @@
 
 | Niveau | Outil | Cible | Actuel | Cible |
 |---|---|---|---|---|
-| Unitaires backend | pytest | Fonctions pures, classes | 540 fonctions déclarées | Maintenir et mesurer la couverture |
+| Unitaires backend | pytest | Fonctions pures, classes | 546 fonctions déclarées | Maintenir et mesurer la couverture |
 | Intégration backend | pytest | Routes API, DB | Partiel | 50+ |
 | Unitaires frontend | Vitest | Composants, hooks, stores | 18 tests web, 0 PWA | 100+ |
 | Intégration frontend | Playwright | Flux utilisateur complets | 0 | 30+ |
@@ -25,7 +25,7 @@
 
 ### P0 — Couverture critique actuelle (mise à jour le 14/07/2026)
 
-1. Détection mobile (`_is_mobile_device`) — pas de tests
+1. Détection mobile (`_is_mobile_device`) — couverte indirectement ; contrat API/frontend conservé par la suite complète
 2. Race condition WebSocket — couverte par 2 tests (snapshot stable, I/O hors verrou)
 3. SQLite `busy_timeout` — couvert par lecture réelle du PRAGMA configuré
 4. Registre des curseurs ROWID — couvert par 2 tests (isolation, monotonie, redémarrage)
@@ -38,7 +38,7 @@
 8. Actions (`execute_action`) — tests partiels
 9. Apple Data Service — n'existe pas encore
 10. Offline queue — 2 tests seulement (création tâche)
-11. Routeurs API — pas de tests par route (seulement via WebSocket e2e)
+11. Routeurs API — structure, signatures et schéma OpenAPI verrouillés ; couverture métier par route encore partielle
 
 ## Plan de création de tests
 
@@ -69,14 +69,15 @@ Preuves : 4 tests Phase 3 passants ; suite backend complète à 542 passants et 
 | `tests/test_event_bus_contract.py` | Contrat immuable/versionné, checksum, compatibilité des alias, handlers concurrents, isolation d'erreur et drainage de `emit_nowait()` |
 | `tests/test_event_bus_integration.py` | Les 10 écritures réelles émettent ; journal SQLite idempotent et diffusion WebSocket vérifiés |
 
-### Phase 4 (accompagne Routeurs)
+### Phase 4 — implémentée et validée le 14/07/2026
+
+Preuves : 6 tests ciblés passants ; signatures des 174 opérations HTTP et du WebSocket inchangées ; hash des 157 chemins OpenAPI inchangé ; exactement 12 routeurs ; `main.py` à 175 lignes ; aucun import `api → main`. Suite complète : 548 passants, 1 ignoré ; `compileall`, Ruff et `git diff --check` réussis. Aucun serveur réel n'a été lancé pour une campagne `curl`, donc aucune validation opérationnelle 24 h n'est revendiquée.
 
 | Fichier | Contenu |
 |---|---|
-| `tests/test_router_people.py` | CRUD people + analytics + timeline |
-| `tests/test_router_tasks.py` | CRUD tâches |
-| `tests/test_router_conversations.py` | CRUD conversations |
-| `tests/test_router_location.py` | GPS, places, visites, trips |
+| `tests/test_phase4_route_contract.py` | Snapshot déterministe des signatures de routes et du schéma OpenAPI avant/après extraction |
+| `tests/test_phase4_architecture.py` | 12 `APIRouter`, limites de taille, absence d'import inverse et montage explicite du lifespan |
+| Suite existante | Tests `TestClient`, WebSocket et métiers assurant la non-régression comportementale |
 
 ### Phase 5 (accompagne Apple Data Service)
 
@@ -108,7 +109,7 @@ Preuves : 4 tests Phase 3 passants ; suite backend complète à 542 passants et 
 | Métrique | Actuel | Après Phase 3 | Après Phase 6 |
 |---|---|---|---|
 | Couverture backend (%) | Non mesurée de façon fiable | À mesurer | 90% |
-| Fonctions de test backend déclarées | 540 | 540 | ≥540 |
+| Fonctions de test backend déclarées | 546 | 540 | ≥546 |
 | Tests intégration backend | ~14 | ~14 | 50+ |
 | Tests frontend | 18 web, 0 PWA | 18 web, 0 PWA | 100+ |
 | Tests E2E | 0 | 0 | 30+ |

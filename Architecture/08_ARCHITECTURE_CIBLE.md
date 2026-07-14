@@ -1,7 +1,7 @@
 # 08 — Architecture Cible (Target Architecture)
 
 **Date** : 11 juillet 2026
-**Statut** : Cible après refactoring complet (Phases 1-6)
+**Statut** : Cible après refactoring complet (Phases 1-6) — couche API atteinte en Phase 4 le 14/07/2026
 
 ---
 
@@ -19,7 +19,7 @@ graph TB
     end
 
     subgraph "API Layer"
-        API["FastAPI<br/>Routeurs par domaine<br/>183 endpoints"]
+        API["FastAPI<br/>12 routeurs par domaine<br/>174 opérations HTTP"]
         WS["WebSocket /ws<br/>Streaming + Broadcast"]
         AUTH["Auth Middleware<br/>SDK partagé"]
     end
@@ -100,7 +100,7 @@ graph TB
 
 ## Couche 2 — API Layer
 
-**Routeurs FastAPI par domaine** (12 routeurs, ~200 lignes dans `main.py`) :
+**Routeurs FastAPI par domaine** (implémentés : 12 routeurs, 175 lignes dans `main.py`) :
 
 ```
 api/
@@ -225,9 +225,9 @@ graph TB
     AI["ai_service.py<br/>importe llm, apple"]
 
     PIPELINE["pipeline.py<br/>importe orchestrator, actions"]
-    ROUTERS["api/routers/*.py<br/>importent services, pipeline"]
+    ROUTERS["api/router_*.py<br/>importent services, pipeline"]
 
-    MAIN["main.py<br/>~200 lignes<br/>monte les routeurs"]
+    MAIN["main.py<br/>175 lignes<br/>monte les routeurs"]
 
     CONFIG --> DB
     CONFIG --> LLM_CLIENT
