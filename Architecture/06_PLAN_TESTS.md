@@ -62,7 +62,7 @@ Preuves : 6 tests de contrat dans `test_database_modularization.py`, import éto
 
 ### Phase 3 — implémentée et validée le 14/07/2026
 
-Preuves : 4 tests Phase 3 passants ; suite backend complète à 542 passants et 1 ignoré ; `compileall` et `git diff --check` réussis ; build de production PWA réussi. Le workspace `web/` ne peut pas être relancé localement avec `pnpm` car son `pnpm-workspace.yaml` historique ne déclare pas `packages`; ce défaut de baseline n'a pas été contourné dans la Phase 3 et la CI GitHub doit confirmer le frontend desktop.
+Preuves : 4 tests Phase 3 passants ; suite backend complète à 542 passants et 1 ignoré ; `compileall` et `git diff --check` réussis ; build de production PWA réussi. Le workspace `web/` ne peut pas être relancé localement avec `pnpm` car son `pnpm-workspace.yaml` historique ne déclare pas `packages`; ce défaut de baseline n'a pas été contourné. GitHub Actions sur la PR #12 confirme toutefois le frontend desktop (job vert en 38 s) et le backend (job vert en 1 min 38).
 
 | Fichier | Contenu |
 |---|---|

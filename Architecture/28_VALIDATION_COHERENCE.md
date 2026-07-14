@@ -125,7 +125,7 @@ Tous les diagrammes sont cohérents avec leur contexte (actuel vs cible).
 | 03_AUDIT_TECHNIQUE.md | Contrats, handlers isolés et limites du rejeu documentés |
 | 19_VALIDATION_FINALE.md | Score 5.40, risques et prochaine Phase 4 actualisés |
 | Documents Phase 3 | ADR-005, gouvernance, DoD, dette et roadmap synchronisés au 14/07/2026 |
-| Plan de tests | 7 tests ciblés Phase 1, 6 contrats Phase 2, 4 tests Phase 3 ; suite complète : 542 passants, 1 ignoré ; 540 fonctions déclarées |
+| Plan de tests | 7 tests ciblés Phase 1, 6 contrats Phase 2, 4 tests Phase 3 ; suite complète : 542 passants, 1 ignoré ; 540 fonctions déclarées ; GitHub Actions PR #12 backend/frontend vert |
 | diagrams/README.md | Créé — placeholder |
 | audit/README.md | Créé — placeholder |
 
