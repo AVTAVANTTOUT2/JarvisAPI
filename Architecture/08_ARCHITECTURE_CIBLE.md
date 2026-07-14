@@ -47,7 +47,7 @@ graph TB
     end
 
     subgraph "Storage"
-        SQLITE[(SQLite WAL<br/>jarvis.db<br/>72 tables)]
+        SQLITE[(SQLite WAL<br/>jarvis.db<br/>73 tables applicatives)]
         IDB[(IndexedDB<br/>offline queue<br/>read cache)]
         SW["Service Worker<br/>precache + push<br/>background sync"]
     end
@@ -133,11 +133,13 @@ Input (WS texte, WS audio, REST) → _build_enriched_context → orchestrator.ha
 
 ### Event Bus (`jarvis/event_bus.py`)
 
-Tous les événements système transitent par le bus. Consommateurs :
-- `broadcast_ws` (push WebSocket)
-- `Queue Engine` (traitements lourds)
-- `NotificationService` (création + diffusion)
-- `SearchService` (indexation)
+**Implémenté en Phase 3 pour les 10 mutations de domaine centrales.** Consommateurs actuels :
+- `database/event_log.py` (journal SQLite idempotent)
+- `websocket_registry.py` (push WebSocket)
+- `scripts/audio_daemon.py` (TTS urgent/high)
+- flux SSE existant consommé par `pwa/EventSync.tsx`
+
+Les consommateurs cibles `Queue Engine`, `NotificationService` et `SearchService` restent à ajouter lorsque ces services seront implémentés. Les événements techniques historiques du pipeline restent compatibles avec le même bus.
 
 ### Queue Engine (`queue_engine.py`)
 
@@ -178,7 +180,7 @@ Chaque connecteur externe implémente l'interface `Plugin` (ADR-015).
 
 | Stockage | Technologie | Usage |
 |---|---|---|
-| SQLite (jarvis.db) | WAL mode | Données persistantes (72 tables après migrations) |
+| SQLite (jarvis.db) | WAL mode | Données persistantes (73 tables applicatives après migrations) |
 | IndexedDB | idb v8 | File d'écriture offline + cache lecture |
 | Service Worker | Workbox | Precache app shell, push, background sync |
 
@@ -215,7 +217,7 @@ sequenceDiagram
 graph TB
     CONFIG["config.py<br/>feuille, aucun import"]
     EVENT["event_bus.py<br/>stdlib"]
-    DB["database/<br/>24 modules + façade<br/>accès via core.py"]
+    DB["database/<br/>25 modules + façade<br/>accès via core.py"]
     LLM_CLIENT["llm.py<br/>client DeepSeek"]
 
     SERVICES["domain/*.py<br/>importent db, event"]

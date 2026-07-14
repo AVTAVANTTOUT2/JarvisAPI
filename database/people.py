@@ -7,6 +7,9 @@ import re
 import sqlite3
 from typing import Any
 
+from jarvis.event_bus import event_bus
+from jarvis.events import MemoryUpdated, PersonUpserted
+
 from .core import get_db
 
 
@@ -97,16 +100,31 @@ def upsert_person(name: str, **kwargs: Any) -> int:
     with get_db() as conn:
         existing = conn.execute("SELECT id FROM people WHERE LOWER(name) = LOWER(?)", (name,)).fetchone()
         if existing:
-            sets = ", ".join(f"{k} = ?" for k in kwargs)
-            vals = list(kwargs.values()) + [existing["id"]]
-            conn.execute(f"UPDATE people SET {sets}, last_mentioned = CURRENT_TIMESTAMP WHERE id = ?", vals)
-            return existing["id"]
+            person_id = int(existing["id"])
+            if kwargs:
+                sets = ", ".join(f"{k} = ?" for k in kwargs)
+                vals = list(kwargs.values()) + [person_id]
+                conn.execute(
+                    f"UPDATE people SET {sets}, last_mentioned = CURRENT_TIMESTAMP WHERE id = ?",
+                    vals,
+                )
+            else:
+                conn.execute(
+                    "UPDATE people SET last_mentioned = CURRENT_TIMESTAMP WHERE id = ?",
+                    (person_id,),
+                )
+            created = False
         else:
             cols = ", ".join(["name"] + list(kwargs.keys()))
             placeholders = ", ".join(["?"] * (1 + len(kwargs)))
             vals = [name] + list(kwargs.values())
             cur = conn.execute(f"INSERT INTO people ({cols}) VALUES ({placeholders})", vals)
-            return cur.lastrowid
+            person_id = int(cur.lastrowid)
+            created = True
+    event_bus.emit_nowait(
+        PersonUpserted(person_id, name, {**kwargs, "created": created})
+    )
+    return person_id
 
 
 def update_person_imessage_count(person_id: int, count: int) -> None:
@@ -315,7 +333,9 @@ def add_life_context(context_type: str, description: str,
             (context_type, description, period_start, period_end,
              impact_on_mood, impact_on_productivity),
         )
-        return cur.lastrowid
+        context_id = int(cur.lastrowid)
+    event_bus.emit_nowait(MemoryUpdated(context_id, context_type, description))
+    return context_id
 
 
 def get_active_life_context() -> list:

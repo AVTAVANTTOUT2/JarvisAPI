@@ -1957,3 +1957,15 @@ class AudioDaemon:
 # ── Singleton ─────────────────────────────────────────────────────────────────
 
 audio_daemon = AudioDaemon()
+
+
+@event_bus.on("notification.created")
+async def _speak_priority_notification(event: JarvisEvent) -> None:
+    """Annonce les notifications urgentes quand le daemon audio est actif."""
+    payload = event.payload
+    if not audio_daemon.enabled or payload.get("priority") not in ("urgent", "high"):
+        return
+    title = str(payload.get("title") or "Notification")
+    content = str(payload.get("content") or "").strip()
+    text = f"{title}. {content}" if content else title
+    await audio_daemon._play_tts(text, emotion="alert")

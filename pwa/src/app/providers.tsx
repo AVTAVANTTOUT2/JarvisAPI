@@ -3,6 +3,8 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
 
+import { RealtimeEventSync } from '@/components/realtime/EventSync';
+
 export default function Providers({ children }: { children: ReactNode }) {
   const [queryClient] = useState(
     () =>
@@ -19,6 +21,7 @@ export default function Providers({ children }: { children: ReactNode }) {
 
   return (
     <QueryClientProvider client={queryClient}>
+      <RealtimeEventSync />
       {children}
     </QueryClientProvider>
   );

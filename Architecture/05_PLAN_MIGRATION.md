@@ -71,16 +71,16 @@ Phase 6 → Frontend unifié + SDK auth                   Jour 11-15 [ADR-001, A
 
 ## Phase 2 — Database modulaire (Jour 2)
 
-**État** : ✅ Terminée le 14 juillet 2026 — 24 modules d'implémentation. `database/__init__.py` est passé de 4 185 à 235 lignes et reste une façade de réexports rétrocompatibles.
+**État** : ✅ Terminée le 14 juillet 2026 — 25 modules d'implémentation après l'ajout normal de `event_log.py` en Phase 3. `database/__init__.py` est passé de 4 185 à 236 lignes et reste une façade de réexports rétrocompatibles.
 
 ### Extraction des modules
 
-24 modules spécialisés dans `database/`. `__init__.py` ré-exporte l'API historique (backward compatible).
+25 modules spécialisés dans `database/`. `__init__.py` ré-exporte l'API historique (backward compatible).
 
 | Fichier | Contenu | Lignes estimées |
 |---|---|---|
 | `database/core.py` | `get_db`, `init_db`, `build_full_context` | 121 |
-| `database/schema.py` | Schéma SQLite déclaratif | 650 |
+| `database/schema.py` | Schéma SQLite déclaratif | 666 |
 | `database/migrations.py` | Migrations idempotentes et orchestration | 621 |
 | `database/settings.py` | `get_setting`, `set_setting` | ~25 |
 | `database/conversations.py` | `save_message`, `create_conversation`, `delete_conversation` | ~200 |
@@ -90,6 +90,7 @@ Phase 6 → Frontend unifié + SDK auth                   Jour 11-15 [ADR-001, A
 | `database/tasks.py` | `get_tasks`, `create_task`, `update_task_status`, `delete_task` | ~150 |
 | `database/email.py` | `upsert_email_summary`, `get_recent_email_summaries` | ~150 |
 | `database/notifications.py` | `create_notification`, `get_unread_notifications`, `mark_read` | ~150 |
+| `database/event_log.py` | Journal idempotent et lecture des événements non traités | 86 |
 | `database/facts.py` | `add_fact`, `get_facts`, `get_all_facts_summary` | ~200 |
 | `database/patterns.py` | `save_mood`, `create_pattern`, `find_or_create_pattern` | ~150 |
 | `database/screen_daemon.py` | `save_screen_activity`, `upsert_app_usage`, devices | ~250 |
@@ -114,6 +115,8 @@ Phase 6 → Frontend unifié + SDK auth                   Jour 11-15 [ADR-001, A
 
 ## Phase 3 — Event bus actif (Jour 3-4)
 
+**État** : ✅ Terminée et validée le 14 juillet 2026. Le contrat historique `JarvisEvent(type, agent, data, timestamp)` reste compatible et porte désormais les champs canoniques `event_id`, `event_type`, `version`, `source`, `payload` et `checksum`.
+
 ### 3.1 Événements Phase 1 (10 événements)
 
 ```python
@@ -131,26 +134,27 @@ class FactAdded(JarvisEvent): ...
 
 ### 3.2 Émetteurs (dans database/)
 
-Modifier les fonctions d'écriture pour émettre après chaque mutation importante.
+Les fonctions d'écriture de `tasks`, `notifications`, `conversations`, `episodes`, `facts`, `patterns` et `people` émettent après commit. Les 10 types sont exercés par un test d'intégration commun.
 
 ### 3.3 Consommateurs
 
 | Événement | Consommateur | Action |
 |---|---|---|
-| `NotificationCreated` | `broadcast_ws` | Push WebSocket (remplace le polling 30s) |
-| `NotificationCreated` (urgent/high) | Daemon TTS | Notification vocale |
-| `TaskCreated`, `TaskUpdated` | `broadcast_ws` | Mise à jour temps réel |
-| `ConversationUpdated` | `broadcast_ws` | Sidebar conversations |
-| `MemoryUpdated`, `PersonUpserted`, `EpisodeSaved`, `FactAdded` | `broadcast_ws` | Contexte mémoire |
+| Tous les événements de domaine | `database/event_log.py` | Journal SQLite idempotent par `event_id` |
+| Tous les événements de domaine | `websocket_registry.py` | Push WebSocket sur snapshot défensif |
+| `NotificationCreated` (urgent/high) | `scripts/audio_daemon.py` | Notification vocale si le daemon est actif |
+| Notifications et tâches | `pwa/EventSync.tsx` | Invalidation React Query via SSE, sans polling périodique |
 
 ### Validation
 
 | | |
 |---|---|
-| **Fichier** | `tests/test_event_bus_integration.py` (nouveau) |
-| **Test** | Vérifier que `create_notification()` émet bien un événement et que le handler WS le reçoit |
-| **Critère** | Le polling 30s de l'UI peut être désactivé |
+| **Fichiers** | `tests/test_event_bus_contract.py`, `tests/test_event_bus_integration.py` |
+| **Test** | 4 tests : immutabilité/checksum/version, concurrence et isolation des handlers, drainage de `emit_nowait()`, puis les 10 mutations réelles avec journal + WebSocket |
+| **Critère** | ✅ Polling notifications/tâches supprimé de la PWA ; suite backend complète à 542 passants, 1 ignoré ; build PWA réussi |
 | **Réversibilité** | Ne pas enregistrer les handlers |
+
+Le journal conserve `processed_by = NULL` tant qu'aucun moteur de rejeu n'existe. Les données sont donc disponibles pour un futur rejeu, mais aucun rejeu automatique au redémarrage n'est revendiqué dans cette phase. `Queue Engine`, `AI Service`, `/health` et `/metrics` restent des travaux Q4/futurs hors Phase 3.
 
 ## Phase 4 — Routeurs FastAPI (Jour 5-7)
 

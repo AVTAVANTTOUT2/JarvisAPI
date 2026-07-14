@@ -2,7 +2,7 @@
 
 **Date** : 11 juillet 2026
 **ADR** : ADR-011
-**Statut** : Proposé
+**Statut** : Partiellement appliqué — émissions post-commit activées en Phase 3, propriétaires de services encore à consolider
 
 ---
 
@@ -11,7 +11,7 @@
 Actuellement, plusieurs modules écrivent dans les mêmes tables sans coordination :
 - `upsert_person()` appelé depuis 7 fichiers
 - `add_fact()` appelé depuis 5 fichiers
-- `create_notification()` appelé depuis 19 fichiers
+- `create_notification()` appelé directement depuis 15 fichiers après la Phase 3
 
 Ces écritures concurrentes créent un risque d'incohérence et violent le principe de source unique de vérité.
 
@@ -34,7 +34,7 @@ Chaque donnée du système a **un propriétaire unique**. Seul le propriétaire 
 | **Relationships** | Memory Service | MemoryService | Tous (via API) | scripts/relationship_analyzer.py |
 | **Tâches** | Task Service | TaskService | Tous (via API) | Tout autre module |
 | **Journal** | Journal Service | JournalService | Tous (via API) | Tout autre module |
-| **Notifications** | Notification Service | NotificationService | Tous (via API) | Les 19 émetteurs directs actuels |
+| **Notifications** | Notification Service | NotificationService | Tous (via API) | Les 15 producteurs directs actuels |
 | **Conversations** | Conversation Service | ConversationService | Tous (via API) | Tout autre module |
 | **Messages (chat)** | Conversation Service | ConversationService | Tous (via API) | Tout autre module |
 | **Promesses (commitments)** | Commitment Service | CommitmentService | Tous (via API) | Tout autre module |
@@ -72,7 +72,7 @@ Chaque donnée du système a **un propriétaire unique**. Seul le propriétaire 
 
 ## Exemple : création de notification
 
-**Avant (19 émetteurs directs)** :
+**État transitoire après Phase 3 (15 producteurs directs)** :
 ```python
 # scripts/email_watcher.py
 create_notification(source="email", title="...", priority="high")
@@ -81,7 +81,9 @@ create_notification(source="email", title="...", priority="high")
 create_notification(source="relationship", title="...", priority="medium")
 ```
 
-**Après (Event Bus)** :
+Ces appels persistent d'abord la notification, puis `database/notifications.py` émet `NotificationCreated` après commit. Le journal, le WebSocket, le TTS et la PWA réagissent donc déjà sans couplage direct aux producteurs. La centralisation de la politique reste à faire.
+
+**Cible après introduction de NotificationService** :
 ```python
 # scripts/email_watcher.py
 event_bus.emit(EmailAnalyzed(email_id=..., priority="high", summary="..."))

@@ -36,18 +36,20 @@ La validation opérationnelle sur 24 heures n'est pas reproductible en CI faute 
 
 ### Phase 2 — Database modulaire
 
-- [x] `wc -l database/__init__.py` = 235 lignes (< 500)
+- [x] `wc -l database/__init__.py` = 236 lignes après ajout du réexport `event_log` en Phase 3 (< 500)
 - [x] Aucun import cassé → `python -c "from database import *"` réussit
 - [x] Chaque module extrait a un docstring et des type hints — contrôlé par test statique
-- [x] La couverture de tests n'a pas baissé — 538 passants, 1 ignoré après extraction
+- [x] La couverture de tests n'a pas baissé — 538 passants, 1 ignoré après extraction ; 542 passants, 1 ignoré après Phase 3
 
 ### Phase 3 — Event bus actif
 
-- [ ] 10 types d'événements définis et documentés
-- [ ] `grep "event_bus.emit" --include="*.py" -r` ≥ 5 (fichiers qui émettent)
-- [ ] `grep "event_bus.on" --include="*.py" -r` ≥ 3 (fichiers qui consomment)
-- [ ] Le polling 30s des notifications dans l'UI est remplacé par un push WebSocket
-- [ ] Table `event_log` créée et alimentée
+- [x] 10 types d'événements immuables, versionnés et documentés dans `jarvis/events.py`
+- [x] `rg -l "event_bus\.emit" --glob '*.py' .` → 13 fichiers correspondants, dont 11 émetteurs de production
+- [x] `rg -l "event_bus\.on" --glob '*.py' .` → 3 fichiers consommateurs réels
+- [x] Le polling périodique notifications/tâches de la PWA est remplacé par le flux SSE et les invalidations React Query
+- [x] Table `event_log` créée par `init_db()`, alimentée après commit et idempotente par `event_id`
+
+Preuves exécutées le 14/07/2026 : 4 tests Phase 3 passants, suite backend complète à 542 passants et 1 ignoré, build PWA réussi, `compileall` et `git diff --check` réussis. Le journal rend un futur rejeu possible, mais le rejeu automatique reste hors périmètre. L'observation opérationnelle sur 24 heures n'est pas vérifiable dans l'environnement de test.
 
 ### Phase 4 — Routeurs FastAPI
 

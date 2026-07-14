@@ -104,6 +104,8 @@ class TaskService:
 
 **Responsabilité** : Création, stockage, et diffusion des notifications.
 
+**État transitoire après Phase 3** : `database.notifications.create_notification()` reste l'API de persistance utilisée par 15 producteurs. Elle émet désormais `notification.created` après commit, ce qui découple le journal, le WebSocket, le TTS et la PWA. Le service ci-dessous reste la cible pour centraliser la politique de priorité et d'anti-doublon.
+
 **Interface publique** :
 ```python
 class NotificationService:
@@ -115,7 +117,7 @@ class NotificationService:
 
 **Événements émis** : `notification.created`
 
-**Interdictions** : Aucun autre module ne doit appeler `create_notification()` directement. Tout passe par `NotificationService` ou par l'émission d'un événement.
+**Interdictions cibles** : Aucun nouveau producteur ne doit appeler `create_notification()` directement. Les 15 appels historiques doivent migrer vers `NotificationService` ou vers des événements d'intention dédiés ; `NotificationCreated` demeure un événement de fait émis uniquement après persistance.
 
 ## AIService
 

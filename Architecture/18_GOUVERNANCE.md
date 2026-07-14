@@ -74,7 +74,7 @@ Ces règles sont **non négociables**. Toute violation doit être justifiée par
 
 > **Aucun module ne doit dépasser 1000 lignes.**
 
-- Actuel : seul `main.py` dépasse 1000 lignes (7194) ; `database/` culmine à 650 lignes et sa façade fait 235 lignes
+- Actuel : seul `main.py` dépasse 1000 lignes (7 197) ; `database/` culmine à 666 lignes et sa façade fait 236 lignes
 - Cible après refactoring : max 500 lignes par fichier
 - Exception : `schema.sql` (déclaratif), fichiers de tests
 - Détection : `wc -l *.py | sort -rn | head -10`
@@ -137,7 +137,7 @@ python scripts/architecture_check.py
 # [✓] Règle 1: Aucun accès direct à chat.db hors apple_data
 # [✓] Règle 2: Aucun accès direct à jarvis.db hors database/
 # [✓] Règle 3: Aucune duplication détectée
-# [✗] Règle 8: main.py dépasse 1000 lignes (7194)
+# [✗] Règle 8: main.py dépasse 1000 lignes (7197)
 # [✓] Règle 9: Aucun lazy import détecté
 # ...
 ```

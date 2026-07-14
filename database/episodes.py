@@ -5,6 +5,9 @@ from __future__ import annotations
 import json
 import logging
 
+from jarvis.event_bus import event_bus
+from jarvis.events import EpisodeSaved
+
 from .core import get_db
 
 logger = logging.getLogger(__name__)
@@ -22,7 +25,10 @@ def save_episode(agent: str, content: str, summary: str = None,
     from . import _dispatch_semantic_indexing as dispatch_semantic_indexing
 
     dispatch_semantic_indexing("episode", episode_id, summary or content)
-    return episode_id
+    event_bus.emit_nowait(
+        EpisodeSaved(int(episode_id), summary or content[:160], importance)
+    )
+    return int(episode_id)
 
 
 def _dispatch_semantic_indexing(source_type: str, source_id: int, text: str) -> None:

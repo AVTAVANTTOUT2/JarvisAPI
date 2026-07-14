@@ -13,14 +13,14 @@ Une dette technique est un choix d'implémentation qui sacrifie la qualité long
 
 | ID | Description | Sévérité | Localisation | Estimé (h) | Planifié |
 |---|---|---|---|---|---|
-| TD-001 | God object main.py (7194 lignes) | CRITIQUE | main.py | 24h | Phase 4 |
-| TD-002 | God object database/__init__.py | RÉSOLUE | Façade 235 lignes, 24 modules | 0h | Phase 2 — 14/07/2026 |
+| TD-001 | God object main.py (7 197 lignes) | CRITIQUE | main.py | 24h | Phase 4 |
+| TD-002 | God object database/__init__.py | RÉSOLUE | Façade 236 lignes, 25 modules | 0h | Phase 2 — 14/07/2026 |
 | TD-003 | PWA sans LockGate | CRITIQUE | pwa/ | 16h | Phase 6 |
 | TD-004 | 3 curseurs ROWID indépendants | RÉSOLUE | `imessage_cursor.py` | 0h | Phase 1 — 11/07/2026 |
-| TD-005 | 19 appels directs create_notification() | MAJEURE | 19 fichiers | 8h | Phase 3 |
+| TD-005 | 15 producteurs directs de create_notification() | MAJEURE | 15 fichiers | 8h | Backlog NotificationService |
 | TD-006 | 2 frontends, 0 composants partagés | MAJEURE | web/ + pwa/ | 40h | Phase 6 |
 | TD-007 | 25+ connexions directes chat.db | MAJEURE | 25+ fichiers | 24h | Phase 5 |
-| TD-008 | Event bus sans consommateurs métiers | MAJEURE | jarvis/event_bus.py | 16h | Phase 3 |
+| TD-008 | Event bus sans consommateurs métiers | RÉSOLUE | 10 événements, 3 consommateurs | 0h | Phase 3 — 14/07/2026 |
 | TD-009 | 4 conversions Apple timestamp | MODÉRÉE | 4 fichiers | 1h | Phase 5 |
 | TD-010 | Cycle main↔daemon | RÉSOLUE | `pipeline.py` | 0h | Phase 1 — 11/07/2026 |
 | TD-011 | 42 imports dans main.py | MODÉRÉE | main.py | 24h | Phase 4 |
@@ -35,6 +35,7 @@ Une dette technique est un choix d'implémentation qui sacrifie la qualité long
 | Race condition sur le set WebSocket | Verrou sur les mutations et snapshot avant diffusion | 11/07/2026 |
 | Curseurs ROWID uniquement en mémoire | Registre SQLite central avec offset monotone par consommateur | 11/07/2026 |
 | Cycle d'import `main.py` ↔ daemons | Contrat `pipeline.py` configuré par injection | 11/07/2026 |
+| Event bus sans consommateurs métiers | 10 événements typés, journal SQLite, WebSocket, TTS et PWA SSE | 14/07/2026 |
 
 ## Comment identifier une nouvelle dette
 

@@ -1,6 +1,8 @@
 # 01 — Cartographie Complète
 
-**Date** : 11 juillet 2026
+**Date initiale** : 11 juillet 2026
+
+**Dernière mise à jour** : 14 juillet 2026
 
 ---
 
@@ -8,7 +10,7 @@
 
 ```
 JarvisAPI/
-├── main.py                    ← Point d'entrée FastAPI (7194 lignes, monolithe)
+├── main.py                    ← Point d'entrée FastAPI (7197 lignes, monolithe)
 ├── supervisor.py              ← Processus 24/7 (port 9000, sert le frontend)
 ├── config.py                  ← Configuration centralisée (.env → settings)
 ├── llm.py                     ← Client DeepSeek API (chat, stream, classify)
@@ -16,6 +18,8 @@ JarvisAPI/
 ├── auth.py                    ← Authentification (scrypt, sessions, anti-brute-force)
 ├── push.py                    ← Web Push (VAPID, aes128gcm)
 ├── pipeline.py                ← (créé en Phase 1) Pipeline _process_message
+├── jarvis/events.py           ← 10 événements de domaine typés (Phase 3)
+├── jarvis/event_bus.py        ← Pub/sub, SSE, handlers concurrents et historique
 │
 ├── agents/                    ← 7 agents LLM + orchestrateur
 │   ├── __init__.py            ← BaseAgent + registry (526 lignes)
@@ -32,8 +36,8 @@ JarvisAPI/
 │   ├── easter_eggs.py         ← Easter eggs
 │   └── devagent/              ← Développement autonome (interview → code → test)
 │
-├── database/                  ← SQLite (72 tables, 24 modules d'implémentation)
-│   ├── __init__.py            ← Façade rétrocompatible (235 lignes)
+├── database/                  ← SQLite (73 tables applicatives, 25 modules d'implémentation)
+│   ├── __init__.py            ← Façade rétrocompatible (236 lignes)
 │   ├── core.py                ← Connexions, initialisation et contexte agrégé
 │   ├── schema.py              ← Schéma déclaratif complet
 │   ├── migrations.py          ← Migrations idempotentes
@@ -42,6 +46,7 @@ JarvisAPI/
 │   ├── people.py             ← Personnes, contexte de vie et index iMessage
 │   ├── patterns.py           ← Humeurs, patterns et briefings
 │   ├── notifications.py      ← Notifications, Web Push et logs LLM
+│   ├── event_log.py          ← Consommateur du bus et journal SQLite immuable
 │   ├── rituals.py            ← Rituels, engagements, présence et journal
 │   ├── devops.py             ← Migrations versionnées, audits et benchmarks
 │   ├── school.py             ← Documents scolaires
@@ -124,7 +129,8 @@ JarvisAPI/
 │   └── jarvis_agent.py        ← Agent distant MacBook
 │
 ├── jarvis/                     ← Package Dual-LLM privacy
-│   ├── event_bus.py           ← Event bus (usage minimal : 1 abonné debug)
+│   ├── event_bus.py           ← Bus pub/sub actif, handlers et flux SSE
+│   ├── events.py              ← 10 événements de domaine typés
 │   ├── message_intelligence.py← Intelligence messages
 │   └── ...
 │
@@ -162,7 +168,7 @@ JarvisAPI/
 │
 ├── tv/                         ← Dashboard TV War Room
 ├── prompts/                    ← System prompts (.txt)
-├── tests/                      ← 536 fonctions de test (59 fichiers) pytest
+├── tests/                      ← 540 fonctions de test (61 fichiers) pytest
 ├── data/                       ← jarvis.db, uploads, outputs
 └── Architecture/               ← CE RAPPORT
 ```
@@ -175,8 +181,8 @@ JarvisAPI/
 graph TB
     CONFIG["config.py<br/>(feuille, aucun import)"]
     LLM["llm.py<br/>(importe config)"]
-    DB["database/<br/>(importe config)"]
-    EVENT["jarvis/event_bus.py<br/>(stdlib, aucun import)"]
+    DB["database/<br/>(importe config + événements)"]
+    EVENT["jarvis/event_bus.py + events.py<br/>(contrat Phase 3)"]
 
     AGENTS["agents/*<br/>(importent config, llm, db, event)"]
     ACTIONS["actions.py<br/>(lazy imports uniquement)"]
@@ -191,6 +197,7 @@ graph TB
     DB --> AGENTS
     EVENT --> AGENTS
     EVENT --> MAIN
+    EVENT --> DB
 
     AGENTS --> MAIN
     ACTIONS --> MAIN
@@ -209,8 +216,8 @@ graph TB
 |---|---|---|
 | `config.py` | Tout le monde | OK — feuille, pas de dépendance |
 | `llm.py` | Agents, scripts, main | OK |
-| `database/__init__.py` | Agents, scripts, main, integrations | Façade stable de 235 lignes ; implémentation répartie dans 24 modules |
-| `jarvis/event_bus.py` | Agents, main | Usage minimal : 1 abonné debug, pas encore de consommateurs métiers |
+| `database/__init__.py` | Agents, scripts, main, integrations | Façade stable de 236 lignes ; implémentation répartie dans 25 modules |
+| `jarvis/event_bus.py` et `jarvis/events.py` | DB, agents, main, daemons | Actif : 10 événements de domaine, 3 consommateurs réels (journal SQLite, WebSocket, TTS) et flux SSE existant |
 | `main.py` | supervisor | **Monolithe** — 42 imports, 183 routes |
 | `agents/orchestrator.py` | main | OK |
 | `scripts/jarvis_daemon.py` | main (cycle de vie), `pipeline.py` (traitement) | Cycle d'import supprimé |
@@ -259,6 +266,8 @@ sequenceDiagram
     Pipeline->>DB: save_message(assistant)
     Pipeline->>Memory: memory_agent.maybe_store()
     Memory->>DB: save_episode(), add_fact(), create_pattern()
+    DB-->>Event: émission après commit
+    Event-->>Client: push SSE/WebSocket temps réel
     Pipeline-->>Client: {"type": "response", "content": "..."}
 ```
 
@@ -296,7 +305,7 @@ graph LR
 
 ```mermaid
 graph TB
-    subgraph "Émetteurs (19 fichiers)"
+    subgraph "Producteurs historiques (15 fichiers directs restants)"
         EW["EmailWatcher"]
         LA["LocationAnalyzer"]
         CA["ContactAlerts"]
@@ -316,9 +325,10 @@ graph TB
     end
     
     subgraph "Consommateurs"
-        WS["WebSocket broadcast<br/>(polling 30s UI)"]
-        TTS["Daemon TTS<br/>(notification vocale)"]
-        UI["Panneau notifications UI"]
+        WS["WebSocket broadcast<br/>(temps réel)"]
+        TTS["AudioDaemon TTS<br/>(urgent/high)"]
+        UI["PWA EventSync<br/>(SSE + invalidation React Query)"]
+        LOG["event_log<br/>(audit SQLite)"]
     end
     
     EW --> CN
@@ -335,18 +345,20 @@ graph TB
     JD --> CN
     
     CN --> DB[(SQLite<br/>notifications)]
-    DB --> WS
-    DB --> UI
-    JD --> TTS
+    DB --> EV["NotificationCreated<br/>après commit"]
+    EV --> WS
+    EV --> UI
+    EV --> TTS
+    EV --> LOG
 ```
 
-**Problème** : 19 émetteurs directs, pas d'event bus. Chaque émetteur duplique sa propre logique de priorité et d'anti-doublon.
+**État après Phase 3** : toute notification persistée émet `notification.created`; l'UI reçoit donc la mutation en temps réel, le TTS traite les priorités `urgent/high` et le journal conserve l'événement. Les 15 producteurs qui appellent encore directement `create_notification()` constituent une dette d'orchestration séparée : ils bénéficient du bus au point de persistance, mais leur politique de priorité et d'anti-doublon reste à centraliser.
 
 ---
 
 ## 4. Stockage
 
-### 4.1 SQLite — jarvis.db (72 tables après migrations)
+### 4.1 SQLite — jarvis.db (73 tables applicatives après migrations)
 
 ```mermaid
 erDiagram
@@ -553,12 +565,12 @@ App.tsx
 └── NotificationsPrompt (bannière push)
 ```
 
-### 7.2 pwa/ (PWA mobile — 32 fichiers)
+### 7.2 pwa/ (PWA mobile — 33 fichiers)
 
 ```
 RootLayout (layout.tsx)
 └── ClientLayout (client-layout.tsx)
-    └── Providers (QueryClientProvider)
+    └── Providers (QueryClientProvider + EventSync SSE)
         └── BottomNav
             ├── /dashboard → DashboardPage (379 lignes)
             │   ├── BriefingCard
@@ -586,16 +598,16 @@ RootLayout (layout.tsx)
 
 | Métrique | Valeur |
 |---|---|
-| Fichiers Python | 224 |
-| Lignes Python | 53 490 |
-| Fichiers frontend | 73 (41 web + 32 pwa) |
-| Lignes frontend | 18 449 |
-| Tables SQLite | 72 après initialisation et migrations |
+| Fichiers Python | 228 |
+| Lignes Python | 54 342 |
+| Fichiers frontend | 74 (41 web + 33 pwa) |
+| Lignes frontend | 18 498 |
+| Tables SQLite | 73 applicatives après initialisation et migrations (`sqlite_sequence` exclue) |
 | Routes REST | 183 |
-| Tests pytest | 536 fonctions déclarées ; 538 cas passants, 1 ignoré |
+| Tests pytest | 540 fonctions déclarées ; 542 cas passants, 1 ignoré |
 | Agents LLM | 7 + orchestrateur |
 | Jobs APScheduler | 29 |
 | Démons | 5 |
-| God objects | 1 (`main.py`, 7 194 lignes) |
+| God objects | 1 (`main.py`, 7 197 lignes) |
 | Dépendance circulaire | 0 |
 | Duplications majeures | 8 |

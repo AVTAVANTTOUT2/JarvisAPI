@@ -35,6 +35,8 @@ Les dépendances suivent une hiérarchie stricte de couches. Une couche supérie
 │              Peut dépendre de :              │
 │              - SQLite (uniquement)           │
 │              - config.py                     │
+│              - Event Bus (événement après    │
+│                commit, sans logique métier)  │
 │              NE PEUT PAS dépendre de :       │
 │              - Services, API, Frontend       │
 ├──────────────────────────────────────────────┤
@@ -44,6 +46,8 @@ Les dépendances suivent une hiérarchie stricte de couches. Une couche supérie
 ```
 
 ## Dépendances interdites
+
+**Exception structurelle validée par ADR-005** : un repository peut construire et émettre un événement de fait après un commit réussi. Le bus ne doit jamais déclencher l'écriture avant le commit ni importer un service de domaine dans `database/`.
 
 ### Interdiction #1 — Frontend → SQLite
 Un composant React ne doit jamais accéder directement à SQLite.

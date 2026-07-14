@@ -24,6 +24,19 @@ JARVIS est un assistant personnel multi-agents avec interface vocale + web, tour
 - **Recherche web** : Tavily API ou SearXNG local
 - **Météo** : OpenWeatherMap API
 
+## Event Bus et temps réel — Phase 3
+
+Le bus applicatif est actif et conserve la compatibilité de construction historique `JarvisEvent(type, agent, data, timestamp)`. Le contrat canonique ajoute `event_id`, `event_type`, `version`, `source`, `payload` et un checksum SHA-256 ; les 10 classes typées vivent dans `jarvis/events.py` : notifications, tâches, conversations/messages, personnes/contexte mémoire, épisodes, patterns et faits.
+
+- Les mutations de `database/tasks.py`, `notifications.py`, `conversations.py`, `episodes.py`, `facts.py`, `patterns.py` et `people.py` émettent **après commit**.
+- `database/event_log.py` journalise tous les événements dans la 73e table SQLite, de façon idempotente par `event_id`.
+- `websocket_registry.py` diffuse les événements de domaine aux sockets actives et `scripts/audio_daemon.py` traite les notifications `urgent/high`.
+- `pwa/src/components/realtime/EventSync.tsx` consomme `/api/events/stream` et invalide React Query ; le polling périodique notifications/tâches a été supprimé.
+- Les handlers d'un même événement s'exécutent concurremment ; l'échec de l'un est journalisé sans interrompre les autres.
+- `jarvis/__init__.py` charge `JARVISRouter` à la demande : importer le bus ou la base ne charge aucun backend LLM.
+
+Depuis du code async, utiliser `await event_bus.emit(event)`. Depuis un chemin synchrone ou un thread scheduler, utiliser `event_bus.emit_nowait(event)` ; `main.py` lie le bus à la boucle applicative au démarrage. Ne jamais émettre un événement de fait avant la persistance. `get_unprocessed_events()` prépare un futur rejeu, mais aucun rejeu automatique au redémarrage n'est implémenté à ce stade.
+
 ## Personnalité JARVIS
 
 JARVIS est **UNE seule entité** du point de vue de l'utilisateur. Les agents (`info`, `school`, `productivity`, `coach`, `journal`, `memory`) sont des **rouages internes** invisibles. L'utilisateur ne doit JAMAIS voir le mot "agent" dans une réponse, ni se faire dire "je suis l'agent X".
@@ -165,7 +178,7 @@ JARVIS est accessible **depuis l'iPhone** via iMessage : on parle à JARVIS comm
 SELECT m.ROWID, m.text, m.date, h.id AS handle_id
 FROM message m
 LEFT JOIN handle h ON m.handle_id = h.ROWID
-WHERE m.ROWID > ?         -- last_check_rowid (init = MAX(ROWID) au démarrage)
+WHERE m.ROWID > ?         -- offset SQLite persistant du consommateur
   AND m.is_from_me = 0    -- messages reçus uniquement
   AND m.text IS NOT NULL  -- skip réactions, attachments seuls
   AND m.text != ''        -- skip messages vides
@@ -186,6 +199,8 @@ end tell
 ```
 
 Les réponses longues sont splittées en chunks de 2000 chars. Échappement strict des `\\`, `"` et `\n` dans la string AppleScript.
+
+Les trois consommateurs temps réel (`reader.intelligence`, `daemon.notifications`, `bridge.reply:<target>`) ont chacun un offset monotone dans `imessage_consumer_cursors`; aucun curseur mémoire partagé n'est source de vérité.
 
 ### Permissions macOS requises
 

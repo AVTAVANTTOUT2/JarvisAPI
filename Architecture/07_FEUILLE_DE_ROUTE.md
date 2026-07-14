@@ -23,10 +23,10 @@ Les travaux sont classés selon l'ordre de priorité suivant :
 - [x] Audit architectural complet
 - [x] Phase 1 : Quick Wins P0 (validée le 14/07/2026)
   - `busy_timeout` SQLite, race WS, curseur ROWID, `pipeline.py`
-- [x] Phase 2 : Database modulaire (validée le 14/07/2026 — façade 235 lignes, 24 modules)
+- [x] Phase 2 : Database modulaire (validée le 14/07/2026 — façade 236 lignes, 25 modules après ajout du journal Phase 3)
 
 **Semaine 2 — Découplage**
-- [ ] Phase 3 : Event bus actif (10 événements)
+- [x] Phase 3 : Event bus actif (validée le 14/07/2026 — 10 événements, 3 consommateurs, PWA temps réel)
 - [ ] Phase 4 : Routeurs FastAPI (12 routeurs)
 - [ ] Phase 5 : Apple Data Service (début)
 
@@ -68,13 +68,13 @@ Avant d'ajouter une feature :
 
 | Métrique | État actuel | Cible Q3 2026 | Cible Q4 2026 |
 |---|---|---|---|
-| Problèmes critiques | 4 | 0 | 0 |
-| Problèmes majeurs | 6 | 2 | 0 |
-| God objects (>1000 lignes) | 2 | 0 | 0 |
+| Problèmes critiques | 1 | 0 | 0 |
+| Problèmes majeurs | 3 | 2 | 0 |
+| God objects (>1000 lignes) | 1 | 0 | 0 |
 | Duplications majeures | 8 | 3 | 0 |
 | Couverture tests backend | ~60% | 80% | 90% |
 | Tests frontend | 18 (web offline) | 50+ | 100+ |
 | Applications frontend | 2 | 1.5 (coexistence) | 1 |
 | Connexions directes `chat.db` | 25+ | 10 | 0 |
 | Temps démarrage backend | ~3s | <2s | <1s |
-| UI polling | 30s | Push (event bus) | Push |
+| UI polling notifications/tâches | Push SSE depuis Phase 3 | Push | Push |

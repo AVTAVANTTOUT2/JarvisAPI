@@ -4,17 +4,17 @@
 
 ## 1. Backend — FastAPI
 
-### 1.1 main.py (7 194 lignes)
+### 1.1 main.py (7 197 lignes)
 
 | Aspect | Évaluation | Note |
 |---|---|---|
-| Taille | ❌ 7 194 lignes | Seuil acceptable : ~500 lignes |
+| Taille | ❌ 7 197 lignes | Seuil acceptable : ~500 lignes |
 | Routes | ❌ 183 endpoints | Devraient être répartis en 12 routeurs |
 | Responsabilités | ❌ 40+ | Routeur, WS, pipeline, frontend, auth, middleware |
 | Imports | ❌ 42 top-level | Dont 8 singletons d'agents individuels |
 | Middleware | ✅ Correct | CORS configuré, security_middleware fonctionnel |
 | Lifespan | ⚠️ 5 services lancés | Devrait être délégué à un ServiceManager |
-| Tests | ⚠️ Couverture partielle | 536 fonctions de test (59 fichiers), couverture par route non mesurée |
+| Tests | ⚠️ Couverture partielle | 540 fonctions de test (61 fichiers), couverture par route non mesurée |
 
 ### 1.2 Middlewares
 
@@ -166,7 +166,7 @@
 
 | Métrique | Valeur |
 |---|---|
-| Tables | 72 après initialisation et migrations |
+| Tables | 73 applicatives après initialisation et migrations (`event_log` inclus, `sqlite_sequence` exclue) |
 | Contraintes UNIQUE | ✅ Sur toutes les tables critiques |
 | Clés étrangères | ✅ ON DELETE CASCADE où pertinent |
 | Index | ✅ Colonnes de recherche fréquentes |
@@ -302,7 +302,7 @@
 ### 6.2 Goulots potentiels
 
 1. 42 imports top-level → temps de chargement au démarrage
-2. `database/__init__.py` réduit à 235 lignes ; plus grand module DB : `schema.py` (650 lignes)
+2. `database/__init__.py` réduit à 236 lignes ; plus grand module DB : `schema.py` (666 lignes)
 3. build_full_context() 20+ requêtes séquentielles
 4. APScheduler 29 jobs sans max_instances
 
@@ -328,3 +328,7 @@
 | database/people.py | 2 | 1 |
 | agents/orchestrator.py | ~3 | ~2 |
 | actions.py | ~5 | ~2 |
+
+### 7.3 Event Bus — état après Phase 3
+
+Le bus est actif avec 10 contrats de domaine immuables, un checksum SHA-256 et trois consommateurs réels. Les handlers sont exécutés concurremment et l'échec de l'un n'interrompt pas les autres. Le journal `event_log` rend chaque événement auditable et idempotent par `event_id`; le rejeu automatique reste une capacité future. La PWA invalide les requêtes notifications et tâches via SSE, sans polling périodique sur ces vues.

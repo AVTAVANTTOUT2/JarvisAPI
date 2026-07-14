@@ -1,7 +1,9 @@
 # Architecture — Source de vérité officielle de JARVIS API
 
-**Date** : 11 juillet 2026
-**Périmètre** : 224 fichiers Python (53 490 lignes), 73 fichiers source frontend (18 449 lignes), 72 tables SQLite après migrations
+**Date initiale** : 11 juillet 2026
+
+**Dernière mise à jour** : 14 juillet 2026
+**Périmètre** : 228 fichiers Python (54 342 lignes), 74 fichiers source frontend (18 498 lignes), 73 tables SQLite applicatives après migrations
 **État** : **Documentation officielle — toute modification du code doit rester cohérente avec ce dossier**
 
 ---
@@ -45,7 +47,7 @@
 | [16_CONTRATS_API.md](./16_CONTRATS_API.md) | Contrats API REST + WebSocket, versionnement |
 | [17_DEFINITION_OF_DONE.md](./17_DEFINITION_OF_DONE.md) | Definition of Done — critères par phase |
 | [18_GOUVERNANCE.md](./18_GOUVERNANCE.md) | Gouvernance — 12 règles d'architecture |
-| [19_VALIDATION_FINALE.md](./19_VALIDATION_FINALE.md) | Score de maturité 5.20/10, risques, recommandations |
+| [19_VALIDATION_FINALE.md](./19_VALIDATION_FINALE.md) | Score de maturité 5.40/10, risques, recommandations |
 | [20_CONTRATS_INTERNES.md](./20_CONTRATS_INTERNES.md) | Contrats internes — interfaces entre services |
 | [21_DEPENDENCY_RULES.md](./21_DEPENDENCY_RULES.md) | Règles de dépendances autorisées et interdites |
 | [22_FITNESS_FUNCTIONS.md](./22_FITNESS_FUNCTIONS.md) | Architecture Fitness Functions — règles CI |
@@ -68,19 +70,20 @@
 ┌─────────────────────────────────────────────────────────┐
 │                     JARVIS API                           │
 ├─────────────────────────────────────────────────────────┤
-│  Backend           │ 224 fichiers Python, 53 490 lignes  │
+│  Backend           │ 228 fichiers Python, 54 342 lignes  │
 │  Frontend desktop  │ 41 fichiers, 13 795 lignes          │
-│  PWA mobile        │ 32 fichiers, 4 654 lignes           │
-│  Base de données   │ 72 tables SQLite, mode WAL          │
+│  PWA mobile        │ 33 fichiers, 4 703 lignes           │
+│  Base de données   │ 73 tables applicatives, mode WAL    │
 │  Routes API        │ 183 endpoints REST                  │
 │  WebSocket         │ 1 endpoint, ~400 lignes de handler  │
 │  Agents LLM        │ 7 agents + orchestrateur            │
 │  Jobs schedulés    │ 29 (APScheduler)                    │
 │  Démons            │ 5 (screen, audio, email, imessage)  │
-│  Tests             │ 536 fonctions de test, 59 fichiers  │
+│  Tests             │ 540 fonctions de test, 61 fichiers  │
 ├─────────────────────────────────────────────────────────┤
-│  God objects       │ main.py (7 194 lignes, 40+ resp.)   │
-│  Database          │ façade 235 lignes, 24 modules       │
+│  God objects       │ main.py (7 197 lignes, 40+ resp.)   │
+│  Database          │ façade 236 lignes, 25 modules       │
+│  Event bus         │ 10 événements, 3 consommateurs      │
 │  Duplications      │ 2 frontends, 0 composants partagés  │
 │                    │ 25+ lecteurs directs de chat.db      │
 │                    │ 4 conversions Apple timestamp        │
@@ -106,7 +109,8 @@ graph TB
     end
 
     subgraph "Backend (port 8081)"
-        MAIN["main.py — 7194 lignes<br/>183 routes REST<br/>WebSocket /ws<br/>Pipeline _process_message<br/>40+ responsabilités"]
+        MAIN["main.py — 7197 lignes<br/>183 routes REST<br/>WebSocket /ws<br/>Pipeline _process_message<br/>40+ responsabilités"]
+        BUS["Event Bus actif<br/>10 événements de domaine<br/>SSE + WebSocket + TTS"]
     end
 
     subgraph "Agents"
@@ -115,7 +119,7 @@ graph TB
     end
 
     subgraph "Database"
-        DB[(SQLite WAL<br/>jarvis.db<br/>72 tables)]
+        DB[(SQLite WAL<br/>jarvis.db<br/>73 tables applicatives)]
         CHATDB[(chat.db macOS<br/>READONLY)]
     end
 
@@ -135,6 +139,9 @@ graph TB
     MAIN --> ORCH
     ORCH --> AG
     MAIN --> DB
+    DB --> BUS
+    BUS --> DB
+    BUS --> MAIN
     MAIN --> SCHED
     MAIN --> DAEMON
     MAIN --> EMAILW
@@ -152,13 +159,13 @@ graph TB
 | 2 | 3 curseurs ROWID indépendants sur chat.db | CRITIQUE | Messages traités 2-3 fois | ✅ Résolu — Phase 1 |
 | 3 | Race condition sur le set WebSocket | CRITIQUE | Crash potentiel (`Set changed size during iteration`) | ✅ Résolu — Phase 1 |
 | 4 | SQLite sans `busy_timeout` | CRITIQUE | Écritures silencieusement perdues | ✅ Résolu — Phase 1 |
-| 5 | main.py : 7 194 lignes, 183 routes, 40+ responsabilités | MAJEURE | Impossible à tester, toute modification risquée | 🟡 Planifié — Phase 4 |
+| 5 | main.py : 7 197 lignes, 183 routes, 40+ responsabilités | MAJEURE | Impossible à tester, toute modification risquée | 🟡 Planifié — Phase 4 |
 
 ### Plan de migration — 6 phases, 15 jours
 
 ```
 Semaine 1 │ Phase 1: Quick wins P0 (1j) │ Phase 2: Database modulaire (1j)
-Semaine 2 │ Phase 3: Event bus actif (2j) │ Phase 4: Routeurs FastAPI (3j)
+Semaine 2 │ Phase 3: Event bus actif (2j, fait) │ Phase 4: Routeurs FastAPI (3j)
 Semaine 3 │ Phase 5: Apple Data Service (3j) │ Phase 6: Frontend unifié (5j)
 ```
 
@@ -209,14 +216,14 @@ Chaque phase est **indépendante**, **réversible**, **testée**, et **sans inte
 - [x] Planification (05-07) : migration, tests, roadmap
 - [x] Contrats (16, 20) : API REST/WebSocket + interfaces internes
 - [x] Gouvernance (00, 17-19, 21-27) : 12 règles, DoD, dépendances, fitness, dette, score, revue
-- [x] Score de santé : 5.20/10 après Phase 2 → cible 8.5/10 après Phase 6
+- [x] Score de santé : 5.40/10 après Phase 3 → cible 8.5/10 après Phase 6
 - [x] Rapport final — prêt pour le refactoring (27)
 - [ ] Validation par l'utilisateur
-- [x] Phases 1 et 2 implémentées et validées le 14/07/2026
+- [x] Phases 1, 2 et 3 implémentées et validées le 14/07/2026
 
 **Dossier Architecture/ : 35 fichiers Markdown + 3 sous-répertoires — source de vérité officielle du projet**
 
-**Prochaine étape** : Phase 3 — Event bus actif.
+**Prochaine étape** : Phase 4 — découpage de `main.py` en routeurs FastAPI.
 
 ---
 

@@ -1,7 +1,9 @@
 # 06 — Plan de Tests
 
-**Date** : 11 juillet 2026
-**Couverture actuelle** : 536 fonctions de test déclarées dans 59 fichiers (backend uniquement). Validation Python 3.12 du 14/07/2026 après Phase 2 : 538 cas passés, 1 ignoré et 0 échec avec la commande backend complète.
+**Date initiale** : 11 juillet 2026
+
+**Dernière validation locale** : 14 juillet 2026
+**Couverture actuelle** : 540 fonctions de test déclarées dans 61 fichiers (backend uniquement). Validation après Phase 3 : 542 cas passés, 1 ignoré et 0 échec avec la commande backend complète.
 
 ## Stratégie
 
@@ -9,7 +11,7 @@
 
 | Niveau | Outil | Cible | Actuel | Cible |
 |---|---|---|---|---|
-| Unitaires backend | pytest | Fonctions pures, classes | 536 fonctions déclarées | Maintenir et mesurer la couverture |
+| Unitaires backend | pytest | Fonctions pures, classes | 540 fonctions déclarées | Maintenir et mesurer la couverture |
 | Intégration backend | pytest | Routes API, DB | Partiel | 50+ |
 | Unitaires frontend | Vitest | Composants, hooks, stores | 18 tests web, 0 PWA | 100+ |
 | Intégration frontend | Playwright | Flux utilisateur complets | 0 | 30+ |
@@ -28,7 +30,7 @@
 3. SQLite `busy_timeout` — couvert par lecture réelle du PRAGMA configuré
 4. Registre des curseurs ROWID — couvert par 2 tests (isolation, monotonie, redémarrage)
 5. PWA LockGate — pas de test de flux auth mobile
-6. Event bus — pas de test d'émission/consommation
+6. Event bus — couvert par 4 tests de contrat et d'intégration sur les 10 mutations de domaine
 
 ### P1 — Couverture insuffisante
 
@@ -52,18 +54,20 @@ Preuves exécutées le 14/07/2026 : 7 tests ciblés Phase 1 passants ; suite bac
 
 ### Phase 2 — implémentée et validée le 14/07/2026
 
-Preuves : 6 tests de contrat dans `test_database_modularization.py`, import étoile réussi, façade à 235 lignes, modules documentés et typés, suite complète à 538 passants et 1 ignoré.
+Preuves : 6 tests de contrat dans `test_database_modularization.py`, import étoile réussi, façade désormais à 236 lignes après ajout du journal Phase 3, modules documentés et typés, suite complète à 538 passants et 1 ignoré au point de clôture Phase 2.
 
 | Fichier | Contenu |
 |---|---|
 | `tests/test_database_modularization.py` | Réexports, chemin DB dynamique, CRUD, taille de façade, docstrings/type hints et absence d'import interne de la façade |
 
-### Phase 3 (accompagne Event bus)
+### Phase 3 — implémentée et validée le 14/07/2026
+
+Preuves : 4 tests Phase 3 passants ; suite backend complète à 542 passants et 1 ignoré ; `compileall` et `git diff --check` réussis ; build de production PWA réussi. Le workspace `web/` ne peut pas être relancé localement avec `pnpm` car son `pnpm-workspace.yaml` historique ne déclare pas `packages`; ce défaut de baseline n'a pas été contourné. GitHub Actions sur la PR #12 confirme toutefois le frontend desktop (job vert en 38 s) et le backend (job vert en 1 min 38).
 
 | Fichier | Contenu |
 |---|---|
-| `tests/test_event_bus_integration.py` | Émission → consommation (NotificationCreated, TaskCreated, etc.) |
-| `tests/test_notification_pipeline.py` | `create_notification` → WS broadcast |
+| `tests/test_event_bus_contract.py` | Contrat immuable/versionné, checksum, compatibilité des alias, handlers concurrents, isolation d'erreur et drainage de `emit_nowait()` |
+| `tests/test_event_bus_integration.py` | Les 10 écritures réelles émettent ; journal SQLite idempotent et diffusion WebSocket vérifiés |
 
 ### Phase 4 (accompagne Routeurs)
 
@@ -103,10 +107,10 @@ Preuves : 6 tests de contrat dans `test_database_modularization.py`, import éto
 
 | Métrique | Actuel | Après Phase 3 | Après Phase 6 |
 |---|---|---|---|
-| Couverture backend (%) | ~60% | 75% | 90% |
-| Fonctions de test backend déclarées | 534 | ≥534 | ≥534 |
-| Tests intégration backend | ~10 | 40 | 50+ |
-| Tests frontend | 18 | ≥18 | 100+ |
+| Couverture backend (%) | Non mesurée de façon fiable | À mesurer | 90% |
+| Fonctions de test backend déclarées | 540 | 540 | ≥540 |
+| Tests intégration backend | ~14 | ~14 | 50+ |
+| Tests frontend | 18 web, 0 PWA | 18 web, 0 PWA | 100+ |
 | Tests E2E | 0 | 0 | 30+ |
 | Tests sécurité | ~5 | 5 | 25+ |
 | Tests offline | 2 | 2 | 20+ |
