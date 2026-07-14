@@ -247,7 +247,7 @@ Les adaptations conservent les contrats publics historiques et les chemins `jarv
 
 ## Phase 6 — Frontend unifié + SDK Auth (Jour 11-15)
 
-**État** : ✅ Implémentée et validée localement le 14/07/2026. La validation CI de la branche reste à obtenir avant fusion ; la suite backend complète n'a pas pu être relancée localement car la compilation de PyAudio exige l'en-tête système `portaudio.h`.
+**État** : ✅ Implémentée et validée sur `main` le 14/07/2026. GitHub Actions a validé les tests Python, le fallback Vite et le frontend Next.js unifié sur le commit de merge ; la suite backend complète n'a pas pu être relancée localement car la compilation de PyAudio exige l'en-tête système `portaudio.h`.
 
 ### 6.1 SDK d'auth partagé (Jour 11-12)
 
@@ -290,7 +290,7 @@ FastAPI sert le frontend unifié en priorité. Le build Vite est conservé comme
 
 | | |
 |---|---|
-| **Tests unitaires** | ✅ `cd frontend && pnpm test` — 9 passants |
+| **Tests unitaires** | ✅ `cd frontend && pnpm test` — 10 passants |
 | **Tests E2E** | ✅ Playwright — 3 passants (desktop, mobile authentifié, mobile fail-closed) |
 | **Contrats serveur** | ✅ 4 tests FastAPI : priorité du build unifié, routes statiques, coexistence `/m/`, fallback Vite et wrapper API unique |
 | **Builds** | ✅ Next.js 15 unifié (25 pages), Vite historique et Next.js 14 historique |

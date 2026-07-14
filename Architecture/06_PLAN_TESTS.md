@@ -3,7 +3,7 @@
 **Date initiale** : 11 juillet 2026
 
 **Dernière validation locale** : 14 juillet 2026
-**Couverture actuelle** : 554 fonctions de test backend déclarées dans 68 fichiers, 27 tests Vitest passants (18 historiques + 9 unifiés) et 3 scénarios Playwright Phase 6. La dernière suite backend complète demeure la validation Phase 5 à 555 cas passés et 1 ignoré ; le rejeu local Phase 6 est bloqué avant collecte par l'absence de `portaudio.h` lors de l'installation de PyAudio.
+**Couverture actuelle** : 554 fonctions de test backend déclarées dans 68 fichiers, 28 tests Vitest passants (18 historiques + 10 unifiés) et 3 scénarios Playwright Phase 6. GitHub Actions a validé le commit de merge Phase 6 sur `main` le 14/07/2026 ; le rejeu local complet reste bloqué avant collecte par l'absence de `portaudio.h` lors de l'installation de PyAudio.
 
 ## Stratégie
 
@@ -13,7 +13,7 @@
 |---|---|---|---|---|
 | Unitaires backend | pytest | Fonctions pures, classes | 554 fonctions déclarées | Maintenir et mesurer la couverture |
 | Intégration backend | pytest | Routes API, DB | Partiel | 50+ |
-| Unitaires frontend | Vitest | Composants, hooks, stores | 27 passants : 18 web + 9 frontend unifié | 100+ |
+| Unitaires frontend | Vitest | Composants, hooks, stores | 28 passants : 18 web + 10 frontend unifié | 100+ |
 | Intégration frontend | Playwright | Flux utilisateur complets | 3 passants desktop/mobile | 30+ |
 | Tests offline | Vitest + fake-indexeddb | IndexedDB, SW, sync | Partiel (2) | 20+ |
 | Tests PWA | Lighthouse + manuel | Installation, push, cache | 0 | 15+ |
@@ -87,7 +87,7 @@ Preuves : 7 contrats `test_apple_data.py` (base temporaire, lecture seule, conve
 |---|---|
 | `tests/test_apple_data.py` | Mock `chat.db`, mode read-only, conversion timestamp, conversations, recherche, statistiques, provider Contacts et invariant d'architecture |
 
-### Phase 6 — implémentée et validée localement le 14/07/2026
+### Phase 6 — implémentée et validée sur `main` le 14/07/2026
 
 Preuves : 10 tests Vitest, dont l'arrêt des services privés au verrouillage automatique, typecheck et build Next.js 15 réussis ; 3 scénarios Playwright desktop/mobile ; 4 contrats FastAPI ; 18 tests et build Vite historiques ; build PWA Next.js 14 historique. Le workflow CI exécute désormais le fallback Vite et un job séparé `Frontend unifié (tests + build)`. La suite backend complète n'a pas été contournée artificiellement : l'installation PyAudio s'arrête sur `fatal error: 'portaudio.h' file not found`; les 4 tests Phase 6 autonomes passent avec les dépendances FastAPI minimales.
 
@@ -95,7 +95,7 @@ Preuves : 10 tests Vitest, dont l'arrêt des services privés au verrouillage au
 |---|---|
 | `frontend/src/device.test.ts` | Sélection déterministe des layouts téléphone, tablette et desktop |
 | `frontend/src/auth-client.test.ts` | Contrat auth, erreurs 401 typées, cookie et uploads via le wrapper partagé |
-| `frontend/src/lock-gate.test.tsx` | Fail-closed, contenu privé masqué puis révélé après déverrouillage |
+| `frontend/src/lock-gate.test.tsx` | Fail-closed, contenu privé masqué puis révélé après déverrouillage, cleanup des services privés au soft lock |
 | `frontend/e2e/unified.spec.ts` | Playwright — navigation desktop, dashboard mobile et refus mobile non authentifié |
 | `tests/test_phase6_frontend.py` | Priorité/fallback/coexistence FastAPI et unicité du wrapper réseau |
 
@@ -116,7 +116,7 @@ Preuves : 10 tests Vitest, dont l'arrêt des services privés au verrouillage au
 | Couverture backend (%) | Non mesurée de façon fiable | À mesurer | 90% |
 | Fonctions de test backend déclarées | 546 | 540 | 554 |
 | Tests intégration backend | ~14 | ~14 | 50+ |
-| Tests frontend | 18 web, 0 PWA | 18 web, 0 PWA | 27 passants |
+| Tests frontend | 18 web, 0 PWA | 18 web, 0 PWA | 28 passants |
 | Tests E2E | 0 | 0 | 3 passants |
 | Tests sécurité | ~5 | 5 | 25+ |
 | Tests offline | 2 | 2 | 20+ |

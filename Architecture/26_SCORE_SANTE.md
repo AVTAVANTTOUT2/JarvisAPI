@@ -34,7 +34,7 @@ Score = Σ (dimension_score × poids)
 
 | Dimension | Score | Justification |
 |---|---|---|
-| Couverture | 5 | 554 fonctions backend, 27 Vitest et 3 E2E ; couverture globale non mesurée de façon fiable |
+| Couverture | 5 | 554 fonctions backend, 28 Vitest et 3 E2E ; couverture globale non mesurée de façon fiable |
 | Duplication | 7 | Frontend canonique, auth et client API unifiés ; vues carte/date et fallbacks restent dupliqués |
 | Dette technique | 8 | Toutes les dettes critiques recensées sont remboursées ; NotificationService et retrait des fallbacks restent ouverts |
 | Dépendances | 9 | Cycle main↔daemons supprimé via `pipeline.py` ; aucun import inverse `api → main` |

@@ -1,7 +1,7 @@
 # 27 — Rapport Final : Prêt pour le Refactoring
 
 **Date** : 11 juillet 2026
-**Statut** : Rapport vivant — Phases 1 à 6 implémentées et validées localement
+**Statut** : Rapport vivant — Phases 1 à 6 implémentées et validées sur `main`
 
 ---
 
@@ -81,10 +81,10 @@ Phase 6 → dépend de Phase 1 + Phase 3 + Phase 5
 3. **Phase 3 — Event bus actif** : ✅ validée le 14/07/2026 — 10 événements, 3 consommateurs et PWA temps réel
 4. **Phase 4 — Routeurs FastAPI** : ✅ validée le 14/07/2026 — 12 routeurs, `main.py` 175 lignes et contrat API inchangé
 5. **Phase 5 — Apple Data Service** : ✅ validée le 14/07/2026 — accès `chat.db` et conversion Apple centralisés
-6. **Phase 6 — Frontend unifié + SDK Auth** : ✅ validée localement le 14/07/2026 — Next.js 15 responsive, LockGate et client API partagés, fallbacks réversibles
+6. **Phase 6 — Frontend unifié + SDK Auth** : ✅ validée sur `main` le 14/07/2026 — Next.js 15 responsive, LockGate et client API partagés, fallbacks réversibles
 
 ## Conclusion
 
 **Le dossier Architecture/ est prêt. Il constitue désormais la source de vérité officielle du projet JARVIS. Aucune modification du code ne doit contredire cette documentation.**
 
-**Phases 1 à 6 implémentées et validées localement le 14/07/2026. Prochaine action : confirmer la CI Phase 6, valider les appareils réels puis planifier le retrait des fallbacks.**
+**Phases 1 à 6 implémentées et validées sur `main` le 14/07/2026. Prochaine action : valider les appareils réels, rembourser la dette NotificationService puis planifier le retrait des fallbacks.**

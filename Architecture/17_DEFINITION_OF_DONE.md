@@ -73,12 +73,12 @@ Preuves exécutées le 14/07/2026 : 67 tests ciblés passants, suite backend com
 
 - [x] `frontend/package.json` est le manifeste canonique du frontend unifié ; les manifestes historiques restent uniquement pour les fallbacks réversibles
 - [x] Les vues desktop ET mobile sont réutilisées par le layout responsive et leurs builds réussissent
-- [x] `cd frontend && pnpm test` → 9 passants, 0 échec
+- [x] `cd frontend && pnpm test` → 10 passants, 0 échec
 - [x] Le SDK auth est dans `jarvis_auth/` et importé par le frontend, `web/` et `pwa/`
 - [x] L'ancien frontend (`web/dist/`, `pwa/out/`) coexiste sans erreur
 - [x] Playwright E2E passe sur desktop + mobile (3 scénarios)
 
-Preuves exécutées le 14/07/2026 : typecheck et build Next.js 15 de 25 pages, 10 tests Vitest (dont cleanup des services privés au soft lock), 3 E2E Playwright, 4 contrats FastAPI, 18 tests web historiques et builds des deux fallbacks. Le workflow CI comprend désormais un job dédié au frontend unifié, en plus du fallback Vite. Le Service Worker unifié exclut les API et données privées. La suite backend complète reste à confirmer en CI : l'environnement local ne fournit pas `portaudio.h` à PyAudio. Les appareils physiques, le comportement d'installation natif et l'observation opérationnelle 24 h restent des validations manuelles.
+Preuves exécutées le 14/07/2026 : typecheck et build Next.js 15 de 25 pages, 10 tests Vitest (dont cleanup des services privés au soft lock), 3 E2E Playwright, 4 contrats FastAPI, 18 tests web historiques et builds des deux fallbacks. Le workflow CI comprend désormais un job dédié au frontend unifié, en plus du fallback Vite, et les trois jobs sont passés sur le commit de merge `main`. Le Service Worker unifié exclut les API et données privées. Le rejeu backend complet reste indisponible localement car l'environnement ne fournit pas `portaudio.h` à PyAudio ; les appareils physiques, le comportement d'installation natif et l'observation opérationnelle 24 h restent des validations manuelles.
 
 ## Checklist de code review
 

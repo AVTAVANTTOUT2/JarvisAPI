@@ -15,7 +15,7 @@
 | Imports | ✅ Dépendances distribuées | Aucun module `api/` n'importe `main.py` |
 | Middleware | ✅ Correct | CORS configuré, security_middleware fonctionnel |
 | Lifespan | ✅ Extrait | `api/lifespan.py` est monté explicitement sur l'application |
-| Tests | ⚠️ Couverture partielle | 554 fonctions backend (68 fichiers), 27 Vitest et 3 E2E ; couverture globale non mesurée |
+| Tests | ⚠️ Couverture partielle | 554 fonctions backend (68 fichiers), 28 Vitest et 3 E2E ; couverture globale non mesurée |
 
 L'état initial (7 197 lignes, 40+ responsabilités et 42 imports concentrés) est conservé comme constat historique de l'audit. ADR-008 a été appliqué le 14/07/2026 sans changement de signature HTTP/WebSocket ni de schéma OpenAPI.
 

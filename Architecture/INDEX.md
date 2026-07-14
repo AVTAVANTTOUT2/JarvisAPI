@@ -82,7 +82,7 @@
 │  Jobs schedulés    │ 29 (APScheduler)                    │
 │  Démons            │ 5 (screen, audio, email, imessage)  │
 │  Tests backend     │ 554 fonctions, 68 fichiers          │
-│  Tests frontend    │ 27 Vitest + 3 Playwright            │
+│  Tests frontend    │ 28 Vitest + 3 Playwright            │
 ├─────────────────────────────────────────────────────────┤
 │  Couche API        │ main.py 175 lignes, 12 routeurs     │
 │  Database          │ façade 236 lignes, 25 modules       │
@@ -230,7 +230,7 @@ Chaque phase est **indépendante**, **réversible**, **testée**, et **sans inte
 - [x] Score de santé : 7.20/10 après Phase 6 ; la cible 8.5 exige encore observabilité, stabilité 24 h et couverture mesurée
 - [x] Rapport final — prêt pour le refactoring (27)
 - [ ] Validation par l'utilisateur
-- [x] Phases 1 à 6 implémentées et validées localement le 14/07/2026
+- [x] Phases 1 à 6 implémentées et validées sur `main` le 14/07/2026
 
 **Dossier Architecture/ : 35 fichiers Markdown + 3 sous-répertoires — source de vérité officielle du projet**
 
