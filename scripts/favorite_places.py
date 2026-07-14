@@ -13,6 +13,7 @@ from datetime import datetime
 
 import config
 from database.location_helpers import get_all_places
+from jarvis.notification_service import notification_service
 
 
 def _parse_dt(raw) -> datetime | None:
@@ -66,7 +67,7 @@ def detect_missed_opportunities(now: datetime | None = None) -> list[dict]:
 
 def check_and_notify_weekly() -> list[dict]:
     """Notifie une fois par semaine (ISO) s'il existe des opportunités manquées."""
-    from database import create_notification, get_db
+    from database import get_db
 
     opportunities = detect_missed_opportunities()
     if not opportunities:
@@ -82,7 +83,7 @@ def check_and_notify_weekly() -> list[dict]:
         return opportunities
 
     names = ", ".join(o["name"] for o in opportunities[:5])
-    create_notification(
+    notification_service.create(
         source="pattern", title=title,
         content=f"{len(opportunities)} lieu(x) favoris délaissés : {names}.",
         priority="low",

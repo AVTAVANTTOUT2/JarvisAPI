@@ -26,8 +26,8 @@ import shutil
 from pathlib import Path
 
 from agents.devagent.executor import ExecutionTimeout, git_current_sha, run_isolated, setup_venv
-from database import create_notification
 from database.devagent import record_deployment
+from jarvis.notification_service import notification_service
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +86,7 @@ def deploy_to_staging(
         record_deployment(project_id, commit_sha, "success" if ok else "failed", str(staging), log)
 
         title = "Déploiement staging réussi" if ok else "Déploiement staging échoué"
-        create_notification(
+        notification_service.create(
             source="devagent", title=title,
             content=f"Commit {commit_sha[:8] if commit_sha else '?'} — {staging.name}",
             priority="low" if ok else "medium",

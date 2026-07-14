@@ -21,7 +21,8 @@ from datetime import datetime
 
 import config
 import llm
-from database import create_notification, create_task, save_recording
+from database import create_task, save_recording
+from jarvis.notification_service import notification_service
 
 logger = logging.getLogger(__name__)
 
@@ -157,7 +158,7 @@ async def summarize_meeting(meeting: dict) -> dict:
     content = summary or title
     if tasks_created:
         content += f" — {len(tasks_created)} action(s) créée(s)."
-    create_notification(source="system", title=title, content=content, priority="medium")
+    notification_service.create(source="system", title=title, content=content, priority="medium")
     logger.info("[meeting] %s — %d action(s)", title, len(tasks_created))
     return {"title": title, "summary": summary, "actions": tasks_created}
 

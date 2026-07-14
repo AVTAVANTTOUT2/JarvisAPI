@@ -590,6 +590,16 @@ def _create_voice_debug_table(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_notification_deduplication_index(conn: sqlite3.Connection) -> None:
+    """Ajoute l'index couvrant la recherche anti-doublon des notifications."""
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_notif_dedup
+        ON notifications(source, title, email_id, created_at DESC)
+        """
+    )
+
+
 def run_migrations(conn: sqlite3.Connection) -> None:
     """Applique dans un ordre stable toutes les migrations idempotentes."""
     _migrate_people_ai_description(conn)
@@ -619,3 +629,4 @@ def run_migrations(conn: sqlite3.Connection) -> None:
     _migrate_imessage_import(conn)
     _migrate_conversation_turns(conn)
     _migrate_memory_embeddings(conn)
+    _migrate_notification_deduplication_index(conn)

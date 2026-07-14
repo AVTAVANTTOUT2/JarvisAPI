@@ -22,10 +22,10 @@ import config
 import llm
 from database import (
     add_commitment,
-    create_notification,
     get_db,
     get_overdue_commitments,
 )
+from jarvis.notification_service import notification_service
 
 logger = logging.getLogger(__name__)
 
@@ -129,6 +129,6 @@ def check_overdue_commitments_job() -> dict | None:
         + " ; ".join(lines)
         + ". Votre parole a une date de péremption."
     )
-    create_notification(source="system", title=title, content=content, priority="medium")
+    notification_service.create(source="system", title=title, content=content, priority="medium")
     logger.info("[commitments] %d engagement(s) en souffrance notifiés", len(overdue))
     return {"overdue": len(overdue)}

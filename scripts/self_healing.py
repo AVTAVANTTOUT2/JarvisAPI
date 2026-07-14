@@ -36,7 +36,7 @@ from datetime import datetime
 from pathlib import Path
 
 import config
-from database import create_notification
+from jarvis.notification_service import notification_service
 
 logger = logging.getLogger(__name__)
 
@@ -188,7 +188,7 @@ async def handle_crash_loop(crash_tail: str, root: Path | None = None) -> dict:
         last_commit = state.get("last_patch_commit")
         if last_commit and _minutes_since(state.get("last_patch_at")) < config.SELF_HEALING_REGRESSION_WINDOW_MIN:
             revert = _git(["revert", "--no-edit", last_commit], root)
-            create_notification(
+            notification_service.create(
                 source="system", title="Self-healing annulé — patch inefficace",
                 content=(
                     f"Le correctif automatique {last_commit[:8]} n'a pas résolu la boucle de crash "
@@ -209,7 +209,7 @@ async def handle_crash_loop(crash_tail: str, root: Path | None = None) -> dict:
             return {"ok": False, "reason": "cooldown actif après un échec récent — self-healing en pause"}
 
         diagnosis = await diagnose_crash(crash_tail)
-        create_notification(
+        notification_service.create(
             source="system", title="Diagnostic self-healing",
             content=f"{diagnosis.get('root_cause', 'cause inconnue')} (confiance : {diagnosis.get('confidence', '?')})",
             priority="high",
@@ -221,7 +221,7 @@ async def handle_crash_loop(crash_tail: str, root: Path | None = None) -> dict:
 
         patch_result = _apply_patch(root, diagnosis["file"], diagnosis["fix_content"])
         if not patch_result["ok"]:
-            create_notification(
+            notification_service.create(
                 source="system", title="Self-healing — correctif refusé",
                 content=patch_result["reason"], priority="medium",
             )
@@ -230,7 +230,7 @@ async def handle_crash_loop(crash_tail: str, root: Path | None = None) -> dict:
         state["last_patch_commit"] = patch_result["commit_sha"]
         state["last_patch_at"] = _now_iso()
         _save_state(state)
-        create_notification(
+        notification_service.create(
             source="system", title="Self-healing — correctif appliqué",
             content=f"Correctif appliqué sur {diagnosis['file']} (commit {patch_result['commit_sha'][:8]}). "
                     "Redémarrage en cours ; surveillance de récidive activée.",

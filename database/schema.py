@@ -238,6 +238,7 @@ CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE INDEX IF NOT EXISTS idx_flashcards_review ON school_flashcards(next_review);
 CREATE INDEX IF NOT EXISTS idx_notif_read ON notifications(read);
 CREATE INDEX IF NOT EXISTS idx_notif_created ON notifications(created_at);
+CREATE INDEX IF NOT EXISTS idx_notif_dedup ON notifications(source, title, email_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_email_summaries_gmail ON email_summaries(gmail_id);
 
 -- ═══════════════════════════════════════════════════════════

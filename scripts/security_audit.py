@@ -29,7 +29,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import config
-from database import create_notification, get_security_findings, upsert_security_finding
+from database import get_security_findings, upsert_security_finding
+from jarvis.notification_service import notification_service
 
 logger = logging.getLogger(__name__)
 
@@ -137,7 +138,7 @@ def scan_and_report(root: Path | None = None) -> dict:
 
     if new_high:
         lines = [f"{f.file}:{f.line} ({f.rule})" for f in new_high[:5]]
-        create_notification(
+        notification_service.create(
             source="system",
             title=f"Audit sécurité — {len(new_high)} constat(s) critique(s)",
             content="; ".join(lines),

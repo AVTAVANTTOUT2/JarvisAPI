@@ -33,7 +33,6 @@ import config
 from audio.audio_format import playback_file_extension, prepare_stt_bytes
 from database import (
     create_conversation,
-    create_notification,
     get_all_devices,
     get_all_processed_email_ids,
     get_current_screen_context,
@@ -41,6 +40,7 @@ from database import (
     save_message,
     set_active_device,
 )
+from jarvis.notification_service import notification_service
 from integrations.apple_data import apple_data
 from pipeline import process_message_internal, process_voice_fast
 from scripts.screen_watcher import screen_watcher
@@ -262,7 +262,7 @@ class JarvisDaemon:
                     logger.warning("[daemon] formulation iMessage : %s", e)
 
             try:
-                create_notification(
+                notification_service.create(
                     source="imessage",
                     title=f"Message de {sender}",
                     content=text[:300],
@@ -305,7 +305,7 @@ class JarvisDaemon:
                 await self.tts_queue.put(f"Monsieur, mail de {sender} : {summary}")
 
             try:
-                create_notification(
+                notification_service.create(
                     source="email",
                     title=f"Mail de {sender}",
                     content=subject,

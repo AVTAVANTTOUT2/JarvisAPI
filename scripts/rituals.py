@@ -17,13 +17,13 @@ from datetime import datetime, timedelta
 import config
 import llm
 from database import (
-    create_notification,
     create_task,
     get_daily_ritual,
     get_db,
     get_todays_birthdays,
     set_daily_ritual,
 )
+from jarvis.notification_service import notification_service
 
 logger = logging.getLogger(__name__)
 
@@ -125,7 +125,7 @@ async def daily_roast() -> dict:
             )
 
     set_daily_ritual(_today(), "roast", text)
-    create_notification(source="system", title="Roast du jour", content=text, priority="low")
+    notification_service.create(source="system", title="Roast du jour", content=text, priority="low")
     _speak(text, emotion="amused")
     logger.info("[rituals] roast : %s", text[:80])
     return {"roast": text, "overdue": len(overdue), "pending": len(pending)}
@@ -192,7 +192,7 @@ async def evening_debrief() -> dict:
         )
 
     set_daily_ritual(_today(), "debrief", text)
-    create_notification(source="system", title="Debrief du soir", content=text, priority="low")
+    notification_service.create(source="system", title="Debrief du soir", content=text, priority="low")
     _speak(text, emotion="concerned")
     logger.info("[rituals] debrief généré")
 
@@ -273,7 +273,7 @@ def check_birthdays() -> list[dict]:
             f"{p['name']}{age_txt} fête son anniversaire aujourd'hui, Monsieur. "
             "Un message serait de bon ton."
         )
-        create_notification(source="relationship", title=title, content=content, priority="medium")
+        notification_service.create(source="relationship", title=title, content=content, priority="medium")
         try:
             create_task(
                 title=f"Souhaiter l'anniversaire de {p['name']}",
@@ -343,7 +343,7 @@ def check_coffee_break() -> dict | None:
         f"{int(minutes)} minutes d'écran sans interruption, Monsieur. "
         "Même vos processeurs préférés ont un système de refroidissement. Un café s'impose."
     )
-    create_notification(source="system", title="Pause café", content=text, priority="medium")
+    notification_service.create(source="system", title="Pause café", content=text, priority="medium")
     _speak(text, emotion="serious")
     logger.info("[rituals] pause café — %d min continues", int(minutes))
     return {"continuous_minutes": round(minutes, 1)}
@@ -395,7 +395,7 @@ def check_streaming_binge() -> dict | None:
         f"{hours:.1f} heures de streaming sans interruption, Monsieur. "
         "Je ne juge pas. Je comptabilise."
     )
-    create_notification(source="system", title="Marathon streaming", content=text, priority="low")
+    notification_service.create(source="system", title="Marathon streaming", content=text, priority="low")
     _speak(text, emotion="amused")
     logger.info("[rituals] binge streaming — %.0f min continues", minutes)
     return {"continuous_minutes": round(minutes, 1)}
@@ -455,7 +455,7 @@ def check_late_return(now: datetime | None = None) -> dict | None:
         f"Il est {now.strftime('%H:%M')} et vous n'êtes pas chez vous{where}, Monsieur. "
         "Rentrez. Demain existe, et il commence tôt."
     )
-    create_notification(source="location", title=title, content=text, priority="medium")
+    notification_service.create(source="location", title=title, content=text, priority="medium")
     try:
         from integrations import imessage_bridge
 
@@ -552,7 +552,7 @@ async def weekly_debrief() -> dict:
         )
 
     set_daily_ritual(_today(), "weekly_debrief", text)
-    create_notification(source="system", title="Debrief de la semaine",
+    notification_service.create(source="system", title="Debrief de la semaine",
                         content=text, priority="low")
     _speak(text, emotion="concerned" if score["score"] < 40 else "neutral")
     logger.info("[rituals] debrief hebdo généré (score %d)", score["score"])
@@ -651,7 +651,7 @@ def compute_mood_signal(date: str | None = None) -> dict:
                 "Simple observation, Monsieur, pas un diagnostic : "
                 + ", ".join(labels[f] for f in flags) + "."
             )
-            create_notification(source="system", title=title, content=content, priority="low")
+            notification_service.create(source="system", title=title, content=content, priority="low")
     signal["flags"] = flags
     return signal
 

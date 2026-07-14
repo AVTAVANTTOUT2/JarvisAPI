@@ -1,4 +1,4 @@
-"""Notifications applicatives, Web Push et journal des actions LLM."""
+"""Persistance des notifications, Web Push et journal des actions LLM."""
 
 from __future__ import annotations
 
@@ -6,45 +6,107 @@ import json
 import logging
 from typing import Any
 
-from jarvis.event_bus import event_bus
-from jarvis.events import NotificationCreated
-
 from .core import get_db
 from .push import delete_push_subscription, get_all_push_subscriptions
 
 logger = logging.getLogger(__name__)
 
 
-def create_notification(source: str, title: str, content: str = None,
-                        priority: str = "medium", email_id: str = None) -> int:
-    """Crée une notification. `priority` ∈ {urgent, high, medium, low}.
-
-    Les priorités urgent/high déclenchent aussi un envoi Web Push (best-effort,
-    en arrière-plan — ne bloque jamais et ne fait jamais échouer la création).
-    """
-    if priority not in ("urgent", "high", "medium", "low"):
-        priority = "medium"
+def _insert_notification(
+    source: str,
+    title: str,
+    content: str | None,
+    priority: str,
+    email_id: str | None,
+    deduplication_window_seconds: int | None,
+) -> tuple[int, bool]:
+    """Insère atomiquement une notification et indique si elle est nouvelle."""
     with get_db() as conn:
+        if deduplication_window_seconds is None:
+            cur = conn.execute(
+                """INSERT INTO notifications (source, title, content, priority, email_id)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (source, title, content, priority, email_id),
+            )
+            return int(cur.lastrowid), True
+
+        window_seconds = max(0, int(deduplication_window_seconds))
+        if window_seconds == 0:
+            cur = conn.execute(
+                """INSERT INTO notifications (source, title, content, priority, email_id)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (source, title, content, priority, email_id),
+            )
+            return int(cur.lastrowid), True
+
+        cur = conn.execute(
+            """
+            INSERT INTO notifications (source, title, content, priority, email_id)
+            SELECT ?, ?, ?, ?, ?
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM notifications
+                WHERE source = ?
+                  AND title = ?
+                  AND email_id IS ?
+                  AND created_at >= datetime('now', ?)
+            )
+            """,
+            (
+                source,
+                title,
+                content,
+                priority,
+                email_id,
+                source,
+                title,
+                email_id,
+                f"-{window_seconds} seconds",
+            ),
+        )
+        if conn.execute("SELECT changes()").fetchone()[0] == 1:
+            return int(cur.lastrowid), True
+
+        existing = conn.execute(
+            """
+            SELECT id
+            FROM notifications
+            WHERE source = ?
+              AND title = ?
+              AND email_id IS ?
+              AND created_at >= datetime('now', ?)
+            ORDER BY created_at DESC, id DESC
+            LIMIT 1
+            """,
+            (source, title, email_id, f"-{window_seconds} seconds"),
+        ).fetchone()
+        if existing is not None:
+            return int(existing["id"]), False
+
+        # Défense contre un état SQLite inattendu entre l'INSERT et la lecture.
         cur = conn.execute(
             """INSERT INTO notifications (source, title, content, priority, email_id)
                VALUES (?, ?, ?, ?, ?)""",
             (source, title, content, priority, email_id),
         )
-        notif_id = cur.lastrowid
-    if priority in ("urgent", "high"):
-        from . import _dispatch_push_notification as dispatch_push_notification
+        return int(cur.lastrowid), True
 
-        dispatch_push_notification(title, content, priority)
-    event_bus.emit_nowait(
-        NotificationCreated(
-            int(notif_id),
-            notification_source=source,
-            priority=priority,
-            title=title,
-            content=content,
-        )
-    )
-    return int(notif_id)
+
+def create_notification(
+    source: str,
+    title: str,
+    content: str | None = None,
+    priority: str = "medium",
+    email_id: str | None = None,
+) -> int:
+    """Façade historique : délègue au :class:`NotificationService`.
+
+    L'import local évite que la couche ``database`` dépende du service lors de
+    son initialisation, tout en gardant exactement cette API publique.
+    """
+    from jarvis.notification_service import notification_service
+
+    return notification_service.create(source, title, content, priority, email_id)
 
 
 def _dispatch_push_notification(title: str, content: str | None, priority: str) -> None:
