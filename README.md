@@ -397,7 +397,7 @@ cd frontend && pnpm test && pnpm typecheck && pnpm build  # frontend canonique
 cd frontend && pnpm test:e2e                              # desktop + mobile
 ```
 
-CI GitHub Actions (`.github/workflows/ci.yml`) sur chaque push/PR : import des ~100 modules, pytest complet, typecheck + build du frontend.
+CI GitHub Actions (`.github/workflows/ci.yml`) sur chaque push/PR : import des ~100 modules, pytest complet, tests/typecheck/build Vite et tests/typecheck/build du frontend Next.js unifié.
 
 ## Documentation
 
