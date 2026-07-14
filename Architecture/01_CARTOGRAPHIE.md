@@ -140,18 +140,25 @@ JarvisAPI/
 │   ├── message_intelligence.py← Intelligence messages
 │   └── ...
 │
-├── web/                        ← SPA desktop (React 19 + Vite)
+├── frontend/                   ← Frontend canonique responsive (Next.js 15 + React 19)
+│   ├── src/app/                ← 25 pages statiques, 21 segments métier
+│   ├── src/components/         ← Sélection layout + adaptateur vues mobiles
+│   ├── src/lib/api.ts          ← Point réseau unique desktop/mobile
+│   ├── src/types/              ← Types frontend partagés
+│   └── public/sw.js            ← Cache limité aux assets publics
+│
+├── jarvis_auth/                ← SDK auth partagé
+│   └── src/                    ← AuthClient, useLockGate, LockGate
+│
+├── web/                        ← Source des vues desktop + fallback Vite
 │   ├── src/
 │   │   ├── app/
 │   │   │   ├── App.tsx        ← Routes React Router
 │   │   │   └── components/
-│   │   │       ├── auth/LockGate.tsx        ← Verrouillage PIN
 │   │   │       ├── layout/BigBrotherLayout  ← Layout desktop
 │   │   │       ├── views/                   ← 17 vues (Chat, Dashboard, Voice...)
 │   │   │       └── pwa/                     ← InstallPrompt, NotificationsPrompt
-│   │   ├── services/
-│   │   │   ├── api.ts          ← Client REST (~60 méthodes)
-│   │   │   └── websocket.ts    ← WebSocket singleton
+│   │   ├── services/websocket.ts ← WebSocket singleton
 │   │   ├── lib/
 │   │   │   ├── offline/        ← IndexedDB + file d'écriture
 │   │   │   └── push.ts         ← Abonnement Web Push
@@ -159,13 +166,12 @@ JarvisAPI/
 │   ├── sw.ts                   ← Service Worker Workbox
 │   └── vite.config.ts
 │
-├── pwa/                        ← PWA mobile (Next.js 14)
+├── pwa/                        ← Source des vues mobiles + fallback Next.js 14 sous /m/
 │   ├── src/
 │   │   ├── app/                ← Pages (dashboard, tasks, mails, map, config)
 │   │   ├── components/         ← Composants (BottomNav, TaskList, MapView...)
 │   │   └── lib/
-│   │       ├── api.ts          ← Wrapper fetch minimaliste (52 lignes)
-│   │       ├── geolocation.ts  ← Tracking GPS
+│   │       ├── geolocation.ts  ← Tracking GPS via le client partagé
 │   │       └── briefing-parser.ts ← Parser briefing
 │   ├── public/
 │   │   ├── sw.js               ← Service Worker next-pwa
@@ -174,7 +180,7 @@ JarvisAPI/
 │
 ├── tv/                         ← Dashboard TV War Room
 ├── prompts/                    ← System prompts (.txt)
-├── tests/                      ← 553 fonctions de test (64 fichiers) pytest
+├── tests/                      ← 554 fonctions de test backend (68 fichiers au total)
 ├── data/                       ← jarvis.db, uploads, outputs
 └── Architecture/               ← CE RAPPORT
 ```
@@ -449,13 +455,14 @@ imessage_analysis_cache → curseur d'analyse par contact
 │                    Mac (hôte)                        │
 ├─────────────────────────────────────────────────────┤
 │  Port 9000  │ Supervisor (24/7)                     │
-│             │ - Sert le frontend (web/dist/)         │
+│             │ - Proxy/sert le frontend                │
 │             │ - Proxy WebSocket vers 8081            │
 │             │ - Health-check + auto-restart          │
 │  Port 8081  │ Backend FastAPI                       │
 │             │ - 174 opérations HTTP / 157 chemins  │
 │             │ - WebSocket /ws                       │
-│             │ - Sert /m/ (PWA mobile)               │
+│             │ - Sert frontend/out en priorité       │
+│             │ - Garde web/dist et /m/ en fallback   │
 │  Port 5173  │ Vite Dev Server (dev uniquement)      │
 │  Port 5174  │ TV Dashboard                          │
 │  Port 8193  │ Daemon HTTP iMessage (optionnel)      │
@@ -488,7 +495,7 @@ imessage_analysis_cache → curseur d'analyse par contact
 │     → 428 si pas configuré, 401 si invalide       │
 │                                                   │
 │  4. Auto-lock (côté client)                      │
-│     → LockGate.tsx : inactivité > 5 min           │
+│     → jarvis_auth/LockGate : inactivité > 5 min   │
 │     → POST /api/auth/verify (soft lock)           │
 │                                                   │
 │  5. Cookie                                        │
@@ -500,7 +507,7 @@ imessage_analysis_cache → curseur d'analyse par contact
 └──────────────────────────────────────────────────┘
 ```
 
-**Problème** : La PWA mobile (`/m/`) n'a PAS de LockGate. Le cookie est transmis automatiquement (même origine HTTP), donc si un téléphone déverrouillé accède à `/m/`, toutes les données sont exposées.
+**État Phase 6** : le frontend unifié et la PWA historique utilisent le même `jarvis_auth/LockGate`. Le rendu est fail-closed : aucun contenu privé n'est monté tant que la session n'a pas été confirmée, y compris si le serveur d'auth est inaccessible.
 
 ### 5.3 Permissions macOS requises
 
@@ -547,11 +554,22 @@ pwa/ (mobile) :
 
 ## 7. Frontend — Arbre de composants
 
-### 7.1 web/ (SPA desktop — 41 fichiers)
+### 7.0 frontend/ (application canonique responsive — 14 fichiers source)
+
+```
+RootLayout
+└── UnifiedApp
+    ├── sélection téléphone/viewport → MobileApp
+    │   └── jarvis_auth/LockGate → vues pwa/src
+    └── sélection desktop/tablette → web/src/App
+        └── jarvis_auth/LockGate → vues web/src
+```
+
+### 7.1 web/ (vues desktop + fallback — 38 fichiers source)
 
 ```
 App.tsx
-├── LockGate (auth/LockGate.tsx)
+├── LockGate (`jarvis_auth/LockGate.tsx`)
 │   └── BrowserRouter
 │       └── BigBrotherLayout (sidebar + topbar)
 │           ├── /chat → ChatView (872 lignes, lazy)
@@ -574,13 +592,14 @@ App.tsx
 └── NotificationsPrompt (bannière push)
 ```
 
-### 7.2 pwa/ (PWA mobile — 33 fichiers)
+### 7.2 pwa/ (vues mobiles + fallback — 32 fichiers source)
 
 ```
 RootLayout (layout.tsx)
 └── ClientLayout (client-layout.tsx)
-    └── Providers (QueryClientProvider + EventSync SSE)
-        └── BottomNav
+    └── LockGate (`jarvis_auth/LockGate.tsx`)
+        └── Providers (QueryClientProvider + EventSync SSE)
+            └── BottomNav
             ├── /dashboard → DashboardPage (379 lignes)
             │   ├── BriefingCard
             │   ├── LocationWidget
@@ -607,13 +626,13 @@ RootLayout (layout.tsx)
 
 | Métrique | Valeur |
 |---|---|
-| Fichiers Python | 268 |
-| Lignes Python | 55 457 |
-| Fichiers frontend | 74 (41 web + 33 pwa) |
-| Lignes frontend | 18 498 |
+| Fichiers Python | 271 |
+| Lignes Python | 55 938 |
+| Fichiers source frontend | 88 (38 web + 32 pwa + 14 frontend + 4 jarvis_auth) |
+| Lignes frontend | 18 970 |
 | Tables SQLite | 73 applicatives après initialisation et migrations (`sqlite_sequence` exclue) |
 | API | 174 opérations HTTP + 1 WebSocket ; 157 chemins OpenAPI |
-| Tests pytest | 553 fonctions déclarées dans 64 fichiers ; 555 cas passants, 1 ignoré |
+| Tests backend | 554 fonctions déclarées dans 68 fichiers ; dernière suite complète Phase 5 : 555 cas passants, 1 ignoré |
 | Agents LLM | 7 + orchestrateur |
 | Jobs APScheduler | 29 |
 | Démons | 5 |

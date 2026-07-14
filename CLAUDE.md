@@ -14,7 +14,7 @@ JARVIS est un assistant personnel multi-agents avec interface vocale + web, tour
 ## Stack technique
 
 - **Backend** : Python 3.12 + FastAPI + WebSocket
-- **Frontend** : React 19 + Vite + Tailwind (SPA dans `web/`, build `web/dist/` servi par FastAPI)
+- **Frontend** : Next.js 15 + React 19 + Tailwind v4 (`frontend/out` prioritaire), vues desktop `web/src` et mobile `pwa/src` réutilisées ; anciens builds conservés en fallback
 - **Base de données** : SQLite (fichier local `data/jarvis.db`)
 - **LLM** : DeepSeek API (format OpenAI, `llm.py`) — routing fast/main, mode « tâche lourde » (max_tokens élevé) pour les productions longues
 - **STT** : ElevenLabs Scribe (API cloud, accepte directement WebM/Opus — zéro ffmpeg)
@@ -46,6 +46,17 @@ Depuis du code async, utiliser `await event_bus.emit(event)`. Depuis un chemin s
 - `api/ws_handler.py`, `api/ws_messages.py`, `api/chat_*.py` et `api/voice_*.py` séparent le transport WebSocket, le contexte, les actions et les pipelines texte/vocal.
 - Tous les modules `api/*.py` restent sous 500 lignes et aucun n'importe `main.py`.
 - `tests/test_phase4_route_contract.py` verrouille les signatures des routes et l'empreinte OpenAPI ; `tests/test_phase4_architecture.py` verrouille les frontières structurelles.
+
+## Frontend unifié et SDK Auth — Phase 6
+
+`frontend/` est l'application canonique Next.js 15/React 19. `UnifiedApp` choisit le layout mobile avec User-Agent + viewport, sinon le layout desktop, puis importe directement les vues existantes sans les recopier. L'export statique produit 25 pages et FastAPI le sert avant les fallbacks.
+
+- `jarvis_auth/` est l'unique implémentation de `AuthClient`, `useLockGate()` et `LockGate`. Le rendu est fail-closed et ne monte jamais les enfants privés avant confirmation de session.
+- `frontend/src/lib/api.ts` est l'unique appel direct à `fetch()` dans les trois arbres frontend ; il inclut toujours le cookie, y compris pour uploads, GPS et file hors-ligne.
+- `web/dist` reste le fallback racine si `frontend/out` manque ; `pwa/out` reste accessible sous `/m/` si activé.
+- `frontend/public/sw.js` ne cache que `/_next/static` et `/icons`, jamais `/api`, HTML ou données personnelles.
+- Validation locale du 14/07/2026 : 9 Vitest, typecheck/build Next.js 15, 3 Playwright, 4 contrats FastAPI, 18 tests web et builds des deux fallbacks.
+- Limites : CI backend complète encore à confirmer (PyAudio requiert `portaudio.h` localement), appareils physiques et observation 24 h non vérifiés.
 
 ## Personnalité JARVIS
 
@@ -610,13 +621,15 @@ jarvis/
 │
 ├── web/
 │   ├── src/
-│   │   ├── services/
-│   │   │   ├── api.ts          # api REST (BASE vide, proxy Vite)
-│   │   │   └── websocket.ts     # ws / jarvisWs
+│   │   ├── services/websocket.ts # ws / jarvisWs
 │   │   ├── app/                 # App React, context, vues, pages
 │   │   └── main.tsx
 │   ├── vite.config.ts
 │   └── dist/                    # `pnpm run build`
+│
+├── frontend/                # Next.js 15 responsive, client API/types partagés
+├── jarvis_auth/             # AuthClient + useLockGate + LockGate
+├── pwa/                     # Vues mobiles + fallback statique sous /m/
 │
 ├── prompts/                 # System prompts de chaque agent (fichiers .txt)
 │   ├── persona.txt          # Persona JARVIS commune (injectée dans tous les agents user-facing)
@@ -1251,7 +1264,7 @@ L'orchestrateur reçoit ces clés dans le contexte → JARVIS peut répondre « 
 
 ### Frontend
 
-`web/src/services/api.ts` :
+`frontend/src/lib/api.ts` (client partagé depuis la Phase 6) :
 - `api.getDevices()` → `{devices, active}`
 - `api.activateDevice(id)`
 - `api.getScreenActivity(hours, device?)`, `api.getCurrentScreenContext(device?)`
@@ -1445,7 +1458,7 @@ tous les endpoints `/api/*` (hors `/api/auth/*`) répondent `428`.
 |---|---|
 | `auth.py` | PIN/passphrase (hash `scrypt`, jamais en clair), sessions DB-backed (jeton opaque, seul le hash SHA-256 est stocké), anti-brute-force (verrou global après `AUTH_LOCKOUT_MAX_ATTEMPTS` échecs) |
 | `api/middleware.py` (`security_middleware`) | En-têtes de sécurité (CSP, X-Frame-Options, Referrer-Policy, Permissions-Policy, HSTS si HTTPS) sur toute réponse ; verrou de session sur `/api/*` (allowlist : `/api/auth/*`, ingestion device/localisation qui s'authentifient autrement) ; vérification Origin/Referer sur les requêtes qui modifient l'état (défense en profondeur — SameSite=Strict protège déjà l'essentiel) |
-| `web/src/app/components/auth/LockGate.tsx` | Écran de configuration/déverrouillage + verrouillage automatique client après `AUTO_LOCK_MINUTES` d'inactivité |
+| `jarvis_auth/src/LockGate.tsx` | Écran partagé de configuration/déverrouillage + verrouillage automatique client après `AUTO_LOCK_MINUTES` d'inactivité |
 | `scripts/db_maintenance.py` | Chiffrement optionnel des sauvegardes (Fernet/AES, clé dérivée de `BACKUP_ENCRYPTION_PASSPHRASE`) + `restore_backup()` (déchiffre si besoin, snapshot de sécurité de la base courante avant d'écraser) |
 
 ### Failles corrigées
@@ -1496,9 +1509,8 @@ BACKUP_ENCRYPTION_PASSPHRASE=
   bloquer temporairement l'accès légitime en multipliant les échecs.
 - Pas d'audit externe (pentest réel) — l'audit est un examen de code, pas
   une certification.
-- Écran de verrouillage implémenté côté `web/` (SPA principale) ; `pwa/`
-  (Next.js) n'a pas encore son propre LockGate — à faire dans un lot dédié
-  PWA offline-first.
+- Le défaut historique d'absence de LockGate dans `pwa/` est résolu depuis
+  la Phase 6 par le SDK `jarvis_auth/` partagé et ses tests fail-closed.
 
 ## PWA offline-first — Service Worker, file d'écriture, push (mai 2026)
 
@@ -1603,38 +1615,41 @@ celle visée par « le téléphone devient l'interface principale ».
   hors ligne des listes tâches/notifications) — l'app shell fonctionne hors
   ligne, mais les données déjà chargées ne persistent pas automatiquement
   entre sessions sans réseau pour l'instant.
-- `pwa/` (l'app Next.js séparée) n'a reçu ni le Service Worker ni le
-  LockGate de ce lot — tout le travail a porté sur `web/`, l'interface
-  principale.
+- Limite historique de ce lot désormais partiellement levée : la Phase 6
+  fournit le LockGate partagé et un Service Worker unifié sans cache privé.
+  Les Service Workers des deux fallbacks restent jusqu'à leur retrait.
 - Vérification faite dans un navigateur headless en sandbox (pas de vrai
   téléphone) — conso batterie/CPU réelle et comportement d'installation
   natif à valider sur device physique.
 
-## PWA mobile — détection automatique et redirection (juillet 2026)
+## Frontend responsive et fallback PWA (juillet 2026)
 
-La PWA mobile Next.js (`pwa/`) est désormais servie **depuis le même port**
-que le backend (WEB_PORT) sous le préfixe `/m/`. La détection de terminal
-mobile est automatique — aucun clic, aucune configuration côté client.
+Le frontend canonique Next.js 15 (`frontend/`) est servi **depuis le même
+port** que le backend et choisit automatiquement le layout mobile ou desktop.
+La PWA Next.js 14 historique reste servie sous `/m/` comme rollback.
 
 ### Architecture
 
 ```
 GET / (tous navigateurs)
- ├── Desktop / Tablette → sert web/dist/ (SPA Vite)
- └── Mobile (téléphone) → redirect 302 vers /m/
-     └── /m/ → sert pwa/out/ (PWA Next.js statique, output: 'export')
+ └── frontend/out/ (Next.js 15 statique)
+     ├── téléphone / viewport étroit → vues mobiles
+     └── desktop / tablette → vues desktop
+
+/m/ → pwa/out/ historique
+frontend/out absent → web/dist/ historique
 ```
 
-- La PWA partage la **même origine HTTP** que le backend → le cookie
+- Toutes les interfaces partagent la **même origine HTTP** → le cookie
   `jarvis_session` (SameSite=Strict) est transmis automatiquement.
   Aucune configuration supplémentaire pour l'auth.
 - Les appels API (`/api/*`) atteignent directement FastAPI — pas de proxy
   Next.js nécessaire en production (contrairement au mode dev où les
   rewrites Next.js proxyfient vers le backend).
 
-### Détection mobile
+### Détection mobile historique et responsive
 
-`_is_mobile_device(user_agent: str) -> bool` dans `api/frontend.py` :
+`frontend/src/lib/device.ts` combine viewport et User-Agent. `_is_mobile_device()` dans `api/frontend.py` reste utilisé par le fallback Vite historique :
 
 | Plateforme | Détecté ? |
 |---|---|
@@ -1685,15 +1700,17 @@ bash scripts/build_pwa.sh
 
 | Variable | Défaut | Description |
 |---|---|---|
-| `PWA_ENABLED` | `true` | Active la détection mobile + serving PWA |
+| `FRONTEND_DIST_DIR` | `./frontend/out` | Build canonique Next.js 15 |
+| `PWA_ENABLED` | `true` | Active le fallback PWA sous `/m/` |
 | `PWA_DIR` | `./pwa/out` | Répertoire du build statique PWA |
 | `PWA_URL` | (vide) | URL externe optionnelle (redirection 302). Vide = servie localement sous `/m/` |
 | `WEB_DIST_DIR` | `./web/dist` | Répertoire du build SPA desktop (utilisé comme fallback) |
 
 ### Mode dégradé
 
-- Si `PWA_ENABLED=false` ou `pwa/out/` absent → le comportement desktop
-  normal est conservé (pas de redirection mobile).
+- Si `frontend/out/` est absent → FastAPI sert `web/dist/` et réactive la
+  redirection mobile historique si `pwa/out/` est disponible.
+- Si `PWA_ENABLED=false` ou `pwa/out/` absent → `/m/` n'est pas monté.
 - Si `PWA_URL` est renseigné → redirection HTTP 302 vers cette URL au lieu
   de servir `/m/` localement (utile si la PWA tourne sur un autre port).
 

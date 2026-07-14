@@ -15,17 +15,17 @@ Une dette technique est un choix d'implémentation qui sacrifie la qualité long
 |---|---|---|---|---|---|
 | TD-001 | God object main.py (7 197 lignes) | RÉSOLUE | `main.py` 175 lignes + 12 routeurs | 0h | Phase 4 — 14/07/2026 |
 | TD-002 | God object database/__init__.py | RÉSOLUE | Façade 236 lignes, 25 modules | 0h | Phase 2 — 14/07/2026 |
-| TD-003 | PWA sans LockGate | CRITIQUE | pwa/ | 16h | Phase 6 |
+| TD-003 | PWA sans LockGate | RÉSOLUE | `jarvis_auth/` partagé | 0h | Phase 6 — 14/07/2026 |
 | TD-004 | 3 curseurs ROWID indépendants | RÉSOLUE | `imessage_cursor.py` | 0h | Phase 1 — 11/07/2026 |
 | TD-005 | 15 producteurs directs de create_notification() | MAJEURE | 15 fichiers | 8h | Backlog NotificationService |
-| TD-006 | 2 frontends, 0 composants partagés | MAJEURE | web/ + pwa/ | 40h | Phase 6 |
+| TD-006 | 2 frontends, 0 composants partagés | RÉSOLUE pour le chemin canonique | `frontend/` + sources réutilisées | 0h | Phase 6 — 14/07/2026 |
 | TD-007 | 25+ connexions directes chat.db | RÉSOLUE | `integrations/apple_data.py` + consommateurs migrés | 0h | Phase 5 — 14/07/2026 |
 | TD-008 | Event bus sans consommateurs métiers | RÉSOLUE | 10 événements, 3 consommateurs | 0h | Phase 3 — 14/07/2026 |
 | TD-009 | 4 conversions Apple timestamp | RÉSOLUE | `apple_epoch_to_datetime()` / `datetime_to_apple_epoch()` | 0h | Phase 5 — 14/07/2026 |
 | TD-010 | Cycle main↔daemon | RÉSOLUE | `pipeline.py` | 0h | Phase 1 — 11/07/2026 |
 | TD-011 | 42 imports concentrés dans main.py | RÉSOLUE | Dépendances réparties dans `api/` | 0h | Phase 4 — 14/07/2026 |
-| TD-012 | Service Worker dupliqué | MINEURE | web/ + pwa/ | 2h | Phase 6 |
-| TD-013 | Dates relatives dupliquées | MINEURE | 2 frontends | 1h | Phase 6 |
+| TD-012 | Service Workers des fallbacks conservés | MINEURE | frontend/ + web/ + pwa/ | 2h | Retrait des fallbacks |
+| TD-013 | Dates relatives dupliquées | MINEURE | sources desktop/mobile | 1h | Backlog frontend |
 
 ## Dettes critiques remboursées
 
@@ -39,6 +39,8 @@ Une dette technique est un choix d'implémentation qui sacrifie la qualité long
 | God object API | `main.py` réduit à 175 lignes, 12 routeurs et handlers/support spécialisés sous 500 lignes | 14/07/2026 |
 | Imports concentrés dans `main.py` | Dépendances déplacées avec leur responsabilité, sans import inverse `api → main` | 14/07/2026 |
 | Lecteurs directs de `chat.db` et conversions Apple dupliquées | `AppleDataService` read-only centralisé et garde-fou AST | 14/07/2026 |
+| PWA sans écran de verrouillage | SDK `jarvis_auth/` commun, LockGate fail-closed et tests mobile | 14/07/2026 |
+| Frontends sans réutilisation et wrappers API concurrents | Application Next.js 15 responsive, vues sources réutilisées et unique client réseau authentifié | 14/07/2026 |
 
 ## Comment identifier une nouvelle dette
 

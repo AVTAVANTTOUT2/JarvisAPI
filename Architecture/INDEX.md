@@ -3,7 +3,7 @@
 **Date initiale** : 11 juillet 2026
 
 **Dernière mise à jour** : 14 juillet 2026
-**Périmètre** : 270 fichiers Python (55 753 lignes), 74 fichiers source frontend (18 498 lignes), 73 tables SQLite applicatives après migrations
+**Périmètre** : 271 fichiers Python (55 938 lignes), 88 fichiers source frontend (18 970 lignes), 73 tables SQLite applicatives après migrations
 **État** : **Documentation officielle — toute modification du code doit rester cohérente avec ce dossier**
 
 ---
@@ -47,7 +47,7 @@
 | [16_CONTRATS_API.md](./16_CONTRATS_API.md) | Contrats API REST + WebSocket, versionnement |
 | [17_DEFINITION_OF_DONE.md](./17_DEFINITION_OF_DONE.md) | Definition of Done — critères par phase |
 | [18_GOUVERNANCE.md](./18_GOUVERNANCE.md) | Gouvernance — 12 règles d'architecture |
-| [19_VALIDATION_FINALE.md](./19_VALIDATION_FINALE.md) | Score de maturité 6.70/10, risques, recommandations |
+| [19_VALIDATION_FINALE.md](./19_VALIDATION_FINALE.md) | Score de maturité 7.60/10, risques, recommandations |
 | [20_CONTRATS_INTERNES.md](./20_CONTRATS_INTERNES.md) | Contrats internes — interfaces entre services |
 | [21_DEPENDENCY_RULES.md](./21_DEPENDENCY_RULES.md) | Règles de dépendances autorisées et interdites |
 | [22_FITNESS_FUNCTIONS.md](./22_FITNESS_FUNCTIONS.md) | Architecture Fitness Functions — règles CI |
@@ -70,21 +70,25 @@
 ┌─────────────────────────────────────────────────────────┐
 │                     JARVIS API                           │
 ├─────────────────────────────────────────────────────────┤
-│  Backend           │ 270 fichiers Python, 55 753 lignes  │
-│  Frontend desktop  │ 41 fichiers, 13 795 lignes          │
-│  PWA mobile        │ 33 fichiers, 4 703 lignes           │
+│  Backend           │ 271 fichiers Python, 55 938 lignes  │
+│  Frontend unifié   │ 14 fichiers, 1 016 lignes           │
+│  Vues desktop      │ 38 fichiers, 12 940 lignes          │
+│  Vues mobiles      │ 32 fichiers, 4 641 lignes           │
+│  SDK auth partagé  │ 4 fichiers, 373 lignes              │
 │  Base de données   │ 73 tables applicatives, mode WAL    │
 │  Routes API        │ 174 opérations HTTP, 157 chemins    │
 │  WebSocket         │ 1 endpoint, handler dédié           │
 │  Agents LLM        │ 7 agents + orchestrateur            │
 │  Jobs schedulés    │ 29 (APScheduler)                    │
 │  Démons            │ 5 (screen, audio, email, imessage)  │
-│  Tests             │ 553 fonctions de test, 64 fichiers  │
+│  Tests backend     │ 554 fonctions, 68 fichiers          │
+│  Tests frontend    │ 27 Vitest + 3 Playwright            │
 ├─────────────────────────────────────────────────────────┤
 │  Couche API        │ main.py 175 lignes, 12 routeurs     │
 │  Database          │ façade 236 lignes, 25 modules       │
 │  Event bus         │ 10 événements, 3 consommateurs      │
-│  Duplications      │ 2 frontends, 0 composants partagés  │
+│  Frontend          │ 1 cible canonique + 2 fallbacks     │
+│  Partage           │ auth, client API, types et vues     │
 │                    │ 0 lecteur direct hors AppleDataService│
 │                    │ 1 conversion Apple canonique         │
 │  Problèmes         │ 4 critiques, 6 majeurs,             │
@@ -97,8 +101,8 @@
 ```mermaid
 graph TB
     subgraph "Clients"
-        DESKTOP["Desktop SPA<br/>React 19 + Vite<br/>web/dist/"]
-        MOBILE["PWA Mobile<br/>Next.js 14<br/>pwa/out/"]
+        FRONT["Frontend unifié<br/>Next.js 15 + React 19<br/>frontend/out/"]
+        LEGACY["Fallbacks réversibles<br/>web/dist + pwa/out sous /m/"]
         TV["TV Dashboard<br/>port 5174"]
         IMESSAGE["iPhone<br/>iMessage bridge"]
         AGENT["MacBook Agent<br/>jarvis_agent.py"]
@@ -135,8 +139,8 @@ graph TB
         AUDIOD["AudioDaemon<br/>micro, VAD, wake word"]
     end
 
-    DESKTOP --> SUP
-    MOBILE --> MAIN
+    FRONT --> SUP
+    LEGACY --> MAIN
     TV --> MAIN
     IMESSAGE --> MAIN
     AGENT --> MAIN
@@ -162,7 +166,7 @@ graph TB
 
 | # | Problème | Sévérité initiale | Impact | État |
 |---|---|---|---|---|
-| 1 | PWA sans écran de verrouillage | CRITIQUE | Données exposées si téléphone déverrouillé | 🔴 Ouvert — Phase 6 |
+| 1 | PWA sans écran de verrouillage | CRITIQUE | Données exposées si téléphone déverrouillé | ✅ Résolu — Phase 6 (`jarvis_auth/`) |
 | 2 | 3 curseurs ROWID indépendants sur chat.db | CRITIQUE | Messages traités 2-3 fois | ✅ Résolu — Phase 1 |
 | 3 | Race condition sur le set WebSocket | CRITIQUE | Crash potentiel (`Set changed size during iteration`) | ✅ Résolu — Phase 1 |
 | 4 | SQLite sans `busy_timeout` | CRITIQUE | Écritures silencieusement perdues | ✅ Résolu — Phase 1 |
@@ -173,7 +177,7 @@ graph TB
 ```
 Semaine 1 │ Phase 1: Quick wins P0 (1j) │ Phase 2: Database modulaire (1j)
 Semaine 2 │ Phase 3: Event bus actif (2j, fait) │ Phase 4: Routeurs FastAPI (fait)
-Semaine 3 │ Phase 5: Apple Data Service (fait) │ Phase 6: Frontend unifié (5j)
+Semaine 3 │ Phase 5: Apple Data Service (fait) │ Phase 6: Frontend unifié (fait)
 ```
 
 Chaque phase est **indépendante**, **réversible**, **testée**, et **sans interruption de service**.
@@ -223,14 +227,14 @@ Chaque phase est **indépendante**, **réversible**, **testée**, et **sans inte
 - [x] Planification (05-07) : migration, tests, roadmap
 - [x] Contrats (16, 20) : API REST/WebSocket + interfaces internes
 - [x] Gouvernance (00, 17-19, 21-27) : 12 règles, DoD, dépendances, fitness, dette, score, revue
-- [x] Score de santé : 6.50/10 après Phase 5 → cible 8.5/10 après Phase 6
+- [x] Score de santé : 7.20/10 après Phase 6 ; la cible 8.5 exige encore observabilité, stabilité 24 h et couverture mesurée
 - [x] Rapport final — prêt pour le refactoring (27)
 - [ ] Validation par l'utilisateur
-- [x] Phases 1 à 5 implémentées et validées le 14/07/2026
+- [x] Phases 1 à 6 implémentées et validées localement le 14/07/2026
 
 **Dossier Architecture/ : 35 fichiers Markdown + 3 sous-répertoires — source de vérité officielle du projet**
 
-**Prochaine étape** : Phase 6 — frontend unifié et SDK Auth (LockGate PWA).
+**Prochaine étape** : obtenir la CI verte de la Phase 6, valider sur appareils physiques, puis retirer progressivement les fallbacks historiques.
 
 ---
 

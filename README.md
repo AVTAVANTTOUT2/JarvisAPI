@@ -7,7 +7,17 @@ Assistant personnel autonome, multi-agents, voice-first. Tourne entièrement en 
 → "Bonjour Monsieur. Que puis-je faire pour vous ?"
 ```
 
-## Dernier changelog — 11 juillet 2026
+## Dernier changelog — 14 juillet 2026
+
+### Phase 6 — frontend unifié et SDK auth
+
+- `frontend/` devient l'interface canonique Next.js 15/React 19 : elle choisit automatiquement le layout desktop ou mobile et réutilise les vues existantes.
+- `jarvis_auth/` fournit un unique `AuthClient`, hook `useLockGate()` et composant `LockGate` fail-closed aux interfaces desktop, mobile et unifiée.
+- `frontend/src/lib/api.ts` est l'unique wrapper réseau ; toutes les requêtes et tous les uploads incluent le cookie de session.
+- FastAPI sert `frontend/out` en priorité. `web/dist` reste le fallback racine et l'ancienne PWA reste disponible sous `/m/` pour un rollback sans interruption.
+- Validation locale : 9 Vitest, 3 Playwright, 4 contrats FastAPI, typecheck et trois builds frontend réussis.
+
+### Historique du 11 juillet 2026
 
 ### Fix microphone — HTTP → HTTPS
 - **Gardien `navigator.mediaDevices`** dans `web/src/app/components/views/VoiceView.tsx` :
@@ -43,7 +53,7 @@ bash scripts/generate_certs.sh
 - `config.py` : nouvelles variables `PWA_ENABLED`, `PWA_DIR`, `PWA_URL`, `WEB_DIST_DIR`
 - `main.py` : `_is_mobile_device()`, `_setup_pwa_frontend()`, redirection mobile dans `_setup_frontend()`
 - `pwa/next.config.js` : export statique conditionnel (next-pwa en dev, export en prod)
-- `pwa/src/lib/api.ts` : `credentials: 'include'` pour le partage du cookie d'auth
+- `pwa/src/lib/api.ts` ajoutait alors `credentials: 'include'`; ce fichier historique a été remplacé en Phase 6 par `frontend/src/lib/api.ts`
 
 ### Pull & build — intégration commit distant "Mode écoute : diarization"
 - `git pull origin main` — commit `27d3609` fusionné sans conflit avec les 5 fichiers locaux modifiés
@@ -101,9 +111,9 @@ Trois commits orphelins de `claude/workflow-project-improvements-yknzqs`, jamais
                     │   sert le front, contrôle/relance le backend │
                     └──────────────────┬───────────────────────────┘
                                        │
-   Desktop React/Vite ─┐    ┌──────────▼──────────┐    ┌─ scheduler APScheduler (23 jobs)
-   PWA Next.js (proxy) ─┼──▶ │  Backend FastAPI    │ ◀──┼─ daemon sentinelle (écran, iMessage,
-   TV War Room (5174) ──┘    │  (port 8081)        │    │  mails, calendar, TTS local)
+   Next.js 15 responsive ┐    ┌──────────▼──────────┐    ┌─ scheduler APScheduler (29 jobs)
+   web/pwa fallbacks ─────┼──▶ │  Backend FastAPI    │ ◀──┼─ daemon sentinelle (écran, iMessage,
+   TV War Room (5174) ────┘    │  (port 8081)        │    │  mails, calendar, TTS local)
    iPhone (iMessage) ──────▶ │  WS /ws + REST      │    └─ audio daemon (micro, VAD, wake word,
                              └──────────┬──────────┘       présence, réunions, TTS spéculatif)
                                         │
@@ -118,7 +128,7 @@ Trois commits orphelins de `claude/workflow-project-improvements-yknzqs`, jamais
         mode tâche lourde à max_tokens élevé) · vision locale : Ollama qwen2.5-vl
 ```
 
-**Un seul point d'entrée** : `_process_message()` dans `main.py`. Chat, voix, iMessage, recherche, journal — tout passe par ce pipeline (contexte enrichi → orchestrateur → agent → actions → TTS). Les easter eggs et le raccourci « répète » court-circuitent avant le LLM.
+**Contrat de pipeline unique** : `pipeline.py` expose les points d'entrée publics, configurés par `main.py`; les implémentations vivent dans `api/chat_processing.py` et `api/ws_messages.py`. Chat, voix, iMessage, recherche et journal partagent le même enrichissement/orchestration.
 
 ## Stack
 
@@ -130,8 +140,8 @@ Trois commits orphelins de `claude/workflow-project-improvements-yknzqs`, jamais
 | Base | SQLite (`data/jarvis.db`), WAL, FTS5, sauvegardes `VACUUM INTO` |
 | STT | faster-whisper local d'abord, ElevenLabs Scribe en fallback |
 | TTS | Edge TTS (défaut) · ElevenLabs · macOS `say` · Kokoro — 7 émotions, cache spéculatif |
-| Desktop | React 19 · Vite · Tailwind (`web/`, lazy-loading par vue) |
-| Mobile | PWA Next.js 14 (`pwa/`, export statique servie par FastAPI sous `/m/`) |
+| Frontend canonique | Next.js 15 · React 19 · Tailwind v4 (`frontend/`, responsive desktop/mobile) |
+| Fallbacks | Vite (`web/dist`) · PWA Next.js 14 (`pwa/out` sous `/m/`) |
 | TV | Dashboard War Room FastAPI + JS (`tv/`, port 5174, Philips 55") |
 | Apple | Mail, Calendar, Messages, Contacts via AppleScript — zéro OAuth |
 | Multi-device | Tailscale + `scripts/jarvis_agent.py` (client léger MacBook) |
@@ -148,8 +158,8 @@ pip install -r requirements.txt
 cp .env.example .env
 # Éditer .env — au minimum DEEPSEEK_API_KEY. Tout le reste a des défauts sains.
 
-# 3. Frontend desktop
-cd web && pnpm install && pnpm build && cd ..
+# 3. Frontend unifié
+cd frontend && pnpm install && pnpm build && cd ..
 
 # 4. Lancer
 python main.py            # backend seul → http://127.0.0.1:8080 (WEB_PORT)
@@ -196,54 +206,52 @@ python scripts/imessage_sync_health_check.py               # santé sync iMessag
 curl http://127.0.0.1:8081/api/status                      # état runtime
 ```
 
-## PWA mobile — détection automatique et accès téléphone
+## Frontend unifié et accès téléphone
 
-La PWA mobile est servie **depuis le même port** que le backend (WEB_PORT, défaut 8081) sous le préfixe `/m/`. Cela permet de partager l'authentification sans reconfiguration : le cookie `jarvis_session` est transmis automatiquement (même origine HTTP).
+Le frontend Next.js 15 est servi **depuis le même port** que le backend (WEB_PORT, défaut 8081). Il choisit le layout mobile pour les téléphones/écrans étroits et le layout desktop pour les autres terminaux. Le cookie `jarvis_session` reste même origine.
 
 ### Fonctionnement
 
 ```
 Requête GET / (tous navigateurs)
  │
- ├── Desktop / Tablette → sert web/dist/ (SPA Vite)
- │
- └── Mobile (téléphone) → redirect 302 vers /m/
-     └── /m/ → sert pwa/out/ (PWA Next.js statique)
-          └── /m/dashboard → pwa/out/dashboard.html
-          └── /m/map → pwa/out/map.html
-          └── /m/tasks → pwa/out/tasks.html
-          └── /m/mails → pwa/out/mails.html
-          └── /m/config → pwa/out/config.html
+ └── frontend/out/ (Next.js statique)
+     ├── téléphone / viewport < 768 px → layout mobile
+     └── desktop / tablette → layout desktop
+
+/m/ reste disponible → pwa/out/ historique (rollback)
+frontend/out absent → web/dist/ historique (fallback automatique)
 ```
 
-**Détection mobile** : analyse du User-Agent (regex) — iPhone, iPod, Android.*Mobile, webOS, Windows Phone, Opera Mini, BlackBerry, IEMobile. Les tablettes Android (sans le mot "Mobile" dans l'UA) reçoivent l'interface desktop.
+**Détection mobile** : combinaison User-Agent + largeur de viewport, couverte par tests. Les tablettes Android reçoivent le layout desktop.
 
 ### Build et déploiement
 
 ```bash
-# 1. Build de la PWA (Next.js → export statique dans pwa/out/)
-bash scripts/build_pwa.sh
+# 1. Build canonique (Next.js → export statique dans frontend/out/)
+cd frontend && pnpm install && pnpm build && cd ..
 
 # 2. Démarrer le backend (ou redémarrer s'il tourne déjà)
 python main.py
 
 # 3. Accéder depuis un téléphone (sur le même réseau/Tailscale)
-#    http://TON_IP:8081/          → redirection auto vers /m/
-#    http://TON_IP:8081/m/        → accès direct PWA
+#    http://TON_IP:8081/          → layout mobile automatique
+#    http://TON_IP:8081/m/        → ancienne PWA de rollback
 ```
 
 ### Variables d'env
 
 | Variable | Défaut | Description |
 |---|---|---|
-| `PWA_ENABLED` | `true` | Active la détection mobile et le serving PWA |
+| `FRONTEND_DIST_DIR` | `./frontend/out` | Build statique canonique Next.js 15 |
+| `PWA_ENABLED` | `true` | Active le fallback PWA historique sous `/m/` |
 | `PWA_DIR` | `./pwa/out` | Répertoire du build statique PWA |
 | `PWA_URL` | (vide) | URL externe optionnelle (si PWA sur un autre port/domaine). Vide = servie depuis FastAPI sous `/m/` |
 | `WEB_DIST_DIR` | `./web/dist` | Répertoire du build SPA desktop (fallback) |
 
 ### Auth
 
-La PWA partage la **même origine HTTP** que le backend : le cookie `jarvis_session` (SameSite=Strict) est donc transmis automatiquement. En revanche, la PWA ne possède pas encore son propre `LockGate` : un téléphone disposant déjà d'une session valide accède directement à `/m/`. Ce point de sécurité est suivi comme **P0-1** dans `Architecture/02_ANALYSE_PROBLEMES.md` et sera corrigé par l'ADR-001.
+Toutes les interfaces partagent `jarvis_auth/LockGate`. Tant que `/api/auth/status` n'a pas confirmé une session valide — ou si le serveur est inaccessible — aucun contenu privé n'est rendu. Le wrapper API commun transmet toujours `credentials: 'include'`.
 
 ### Installation sur l'écran d'accueil (iOS/Android)
 
@@ -360,7 +368,8 @@ Surface complète documentée dans [CLAUDE.md](./CLAUDE.md). Les groupes :
 
 ```
 JarvisAPI/
-├── main.py               # FastAPI + WS + routes + pipeline unique _process_message
+├── main.py               # Assemblage FastAPI, lifespan et configuration pipeline
+├── api/                  # 12 routeurs + handlers WebSocket/frontend
 ├── supervisor.py         # process 24/7 port 9000 — sert le front, relance le backend
 ├── config.py             # .env → settings typés
 ├── llm.py                # client DeepSeek (chat, stream, classify, coûts)
@@ -372,8 +381,10 @@ JarvisAPI/
 ├── scripts/              # scheduler, daemons, rituels, watchers, maintenance, présence
 ├── prompts/              # persona + system prompts par agent (.txt)
 ├── jarvis/               # dual-LLM privacy : PII, router, backends MLX/DeepSeek
-├── web/                  # SPA desktop React/Vite  → web/dist servi par FastAPI
-├── pwa/                  # PWA mobile Next.js (proxy)
+├── frontend/             # Next.js 15 responsive → frontend/out prioritaire
+├── jarvis_auth/          # SDK auth et LockGate partagés
+├── web/                  # Vues desktop + fallback Vite
+├── pwa/                  # Vues mobiles + fallback historique sous /m/
 ├── tv/                   # dashboard TV War Room (port 5174)
 └── tests/                # suite pytest backend (voir Architecture/06_PLAN_TESTS.md)
 ```
@@ -382,7 +393,8 @@ JarvisAPI/
 
 ```bash
 python -m pytest tests/ jarvis/tests agents/devagent -q   # suite backend complète
-cd web && pnpm run typecheck && pnpm run build             # front
+cd frontend && pnpm test && pnpm typecheck && pnpm build  # frontend canonique
+cd frontend && pnpm test:e2e                              # desktop + mobile
 ```
 
 CI GitHub Actions (`.github/workflows/ci.yml`) sur chaque push/PR : import des ~100 modules, pytest complet, typecheck + build du frontend.
