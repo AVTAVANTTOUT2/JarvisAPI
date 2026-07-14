@@ -1,7 +1,7 @@
 # 19 — Validation Finale
 
 **Date** : 11 juillet 2026
-**Statut** : Synthèse actualisée après les Phases 1 et 2
+**Statut** : Synthèse actualisée après les Phases 1, 2 et 3
 
 ---
 
@@ -10,27 +10,27 @@
 | Dimension | Score (/10) | Poids | Pondéré |
 |---|---|---|---|
 | **Séparation des responsabilités** | 4/10 | 20% | 0.8 |
-| **Couplage** | 4/10 | 15% | 0.6 |
+| **Couplage** | 5/10 | 15% | 0.75 |
 | **Cohésion** | 6/10 | 10% | 0.6 |
 | **Testabilité** | 4/10 | 15% | 0.6 |
 | **Documentation** | 7/10 | 10% | 0.7 |
 | **Sécurité** | 7/10 | 15% | 1.05 |
 | **Performance** | 6/10 | 10% | 0.6 |
-| **Évolutivité** | 5/10 | 5% | 0.25 |
-| **TOTAL** | | **100%** | **5.20/10** |
+| **Évolutivité** | 6/10 | 5% | 0.30 |
+| **TOTAL** | | **100%** | **5.40/10** |
 
-**Interprétation** : Après les Phases 1 et 2, l'architecture est à **5.20/10**. L'objectif après refactoring reste **8.5/10**.
+**Interprétation** : Après les Phases 1, 2 et 3, l'architecture est à **5.40/10**. L'objectif après refactoring reste **8.5/10**.
 
 ### Justification des scores
 
-- **Séparation (4/10)** : le god object database est résolu (façade 235l, 24 modules) ; `main.py` reste à 7194 lignes et 40+ responsabilités.
-- **Couplage (4/10)** : cycle main↔daemon supprimé, mais 42 imports dans main.py et 25+ connexions directes à chat.db. Event bus limité à un abonné debug, sans consommateurs métiers.
+- **Séparation (4/10)** : le god object database est résolu (façade 236l, 25 modules) ; `main.py` reste à 7 197 lignes et 40+ responsabilités.
+- **Couplage (5/10)** : cycle main↔daemon supprimé et Event Bus actif avec 3 consommateurs réels ; 42 imports dans `main.py`, 25+ connexions directes à `chat.db` et 15 producteurs de notifications directs restent.
 - **Cohésion (6/10)** : agents, intégrations et persistance sont maintenant séparés par domaine ; `main.py` reste le principal fourre-tout.
-- **Testabilité (4/10)** : 536 fonctions de test backend déclarées dans 59 fichiers, mais couverture par route non mesurée de façon fiable.
+- **Testabilité (4/10)** : 540 fonctions de test backend déclarées dans 61 fichiers, dont 4 garanties Phase 3, mais couverture par route non mesurée de façon fiable.
 - **Documentation (7/10)** : CLAUDE.md est excellent (1500+ lignes). README complet. Architecture/ vient d'être créé. Manque des diagrammes de séquence.
 - **Sécurité (7/10)** : Auth robuste (scrypt, sessions, anti-brute-force). CSP, CORS, CSRF configurés. Mais PWA sans LockGate, pas de chiffrement au repos, HTTP par défaut.
 - **Performance (6/10)** : SQLite WAL, `busy_timeout = 5000` et batch import. Le cache LLM et le monitoring restent à implémenter.
-- **Évolutivité (5/10)** : ajouter un domaine de persistance ne nécessite plus de modifier un monolithe ; les connecteurs et deux frontends restent coûteux à faire évoluer.
+- **Évolutivité (6/10)** : ajouter un domaine de persistance ne nécessite plus de modifier un monolithe et les réactions peuvent s'abonner au bus ; les connecteurs et deux frontends restent coûteux à faire évoluer.
 
 ## Principaux risques restants
 
@@ -64,7 +64,7 @@
 | 1 | **Couverture frontend limitée** | 18 tests Vitest couvrent l'offline web ; les composants et la PWA restent à couvrir en Phase 6. |
 | 2 | **CI automatisée — ✅ STABILISÉE le 14/07/2026** | GitHub Actions run #24 : 139 modules importés, 536 tests backend passants, 1 ignoré, frontend Vitest/typecheck/build vert. Le sous-ensemble de dépendances CI doit rester aligné sur les imports applicatifs. |
 | 3 | **Dépendance au cookie jarvis_session pour l'auth PWA** | La Phase 6 créera le SDK auth partagé. En attendant, la PWA partage le cookie (même origine HTTP). |
-| 4 | **Manque de monitoring** | Le `/health` endpoint sera ajouté en Phase 3 (avec l'Event Bus). Pas bloquant pour commencer. |
+| 4 | **Manque de monitoring** | L'Event Bus et son journal sont actifs, mais `/health` et `/metrics` restent planifiés pour Q4. |
 
 ## Recommandations avant le début du refactoring
 
@@ -80,12 +80,12 @@
 
 ## Prochaine action
 
-**Phases 1 et 2 validées le 14/07/2026. Prochaine action : Phase 3 — Event bus actif.**
+**Phases 1, 2 et 3 validées le 14/07/2026. Prochaine action : Phase 4 — routeurs FastAPI.**
 
 ```
-Phase 1 : 1 jour
-├── busy_timeout SQLite (5 min)
-├── Race condition WebSocket (15 min)
-├── Curseur ROWID unique (2 heures)
-└── pipeline.py (4 heures)
+Phase 4 : 3 jours
+├── Extraire les routeurs par domaine
+├── Conserver les contrats HTTP/WebSocket
+├── Réduire main.py à moins de 500 lignes
+└── Valider chaque groupe de routes avant bascule
 ```

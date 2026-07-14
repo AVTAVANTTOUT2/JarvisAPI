@@ -2,7 +2,7 @@
 
 **Date** : 11 juillet 2026
 **ADR** : ADR-005 (complément)
-**Statut** : Proposé
+**Statut** : Implémenté pour les 10 événements de domaine de la Phase 3 — 14 juillet 2026
 
 ---
 
@@ -15,16 +15,25 @@ L'ADR-005 définit l'activation de l'Event Bus. Ce document définit le **contra
 Chaque événement doit implémenter l'interface `JarvisEvent` :
 
 ```python
-@dataclass(frozen=True)  # immuable
+@dataclass(frozen=True)
 class JarvisEvent:
-    event_id: str          # UUID v4
-    event_type: str        # Nom qualifié : "notification.created"
-    version: int           # Version du schéma (commence à 1)
-    timestamp: float       # time.time() UTC
-    source: str            # Module émetteur : "email_watcher"
-    payload: dict          # Données spécifiques à l'événement
-    checksum: str          # SHA256 du payload sérialisé
+    type: str                        # alias historique conservé
+    agent: str | None = None         # alias historique conservé
+    data: Mapping | None = None      # payload historique, protégé en lecture seule
+    timestamp: float = time.time()
+    event_id: str = uuid4()
+    version: int = 1
+    source: str | None = None
+    checksum: str = field(init=False)
+
+    @property
+    def event_type(self) -> str: ... # nom canonique
+
+    @property
+    def payload(self) -> dict: ...   # copie sérialisable du payload
 ```
+
+`to_dict()` expose à la fois les champs canoniques (`event_type`, `payload`) et les alias (`type`, `data`, `agent`) afin de ne pas casser les événements techniques et le flux SSE existants.
 
 ### Règles
 
@@ -33,69 +42,44 @@ class JarvisEvent:
 3. **Idempotence** : Un consommateur peut recevoir le même événement plusieurs fois (at-least-once delivery). Il doit être capable de le détecter via `event_id` et de l'ignorer.
 4. **Traçabilité** : Chaque événement est loggé dans une table `event_log` (SQLite) pour le debugging et le replay.
 
-## Catalogue des événements principaux
+## Catalogue activé en Phase 3
 
 ### Domaine : Messages / Conversations
 
 | Événement | Émetteur | Payload |
 |---|---|---|
-| `message.sent` | Pipeline | `{conversation_id, message_id, role, content_preview}` |
-| `message.received` | iMessage Bridge | `{handle, text, timestamp}` |
-| `conversation.created` | Conversation Service | `{conversation_id, title}` |
-| `conversation.updated` | Conversation Service | `{conversation_id, changes}` |
-| `conversation.deleted` | Conversation Service | `{conversation_id}` |
+| `message.sent` | `database.conversations` | `{conversation_id, message_id, role, content_preview}` |
+| `conversation.updated` | `database.conversations` | `{conversation_id, changes}` |
 
 ### Domaine : People / Relations
 
 | Événement | Émetteur | Payload |
 |---|---|---|
-| `person.upserted` | Memory Service | `{person_id, name, changes}` |
-| `person.renamed` | Memory Service | `{person_id, old_name, new_name}` |
-| `relationship.updated` | Memory Service | `{person_id, profile_changes}` |
-| `relationship.event_added` | Timeline Service | `{person_id, event_type, summary}` |
-| `running_gag.detected` | Memory Service | `{person_id, pattern, occurrences}` |
+| `person.upserted` | `database.people` | `{person_id, name, changes}` |
+| `memory.updated` | `database.people` | `{context_id, type, description}` |
 
 ### Domaine : Tâches
 
 | Événement | Émetteur | Payload |
 |---|---|---|
-| `task.created` | Task Service | `{task_id, title, priority, due_date}` |
-| `task.updated` | Task Service | `{task_id, changes}` |
-| `task.completed` | Task Service | `{task_id, completed_at}` |
-| `task.deleted` | Task Service | `{task_id}` |
+| `task.created` | `database.tasks` | `{task_id, title, priority, due_date}` |
+| `task.updated` | `database.tasks` | `{task_id, changes}` |
 
 ### Domaine : Notifications
 
 | Événement | Émetteur | Payload |
 |---|---|---|
-| `notification.created` | Notification Service | `{notification_id, source, priority, title}` |
-| `notification.read` | Notification Service | `{notification_id}` |
+| `notification.created` | `database.notifications` | `{notification_id, source, priority, title, content}` |
 
 ### Domaine : Mémoire
 
 | Événement | Émetteur | Payload |
 |---|---|---|
-| `memory.fact_added` | Memory Service | `{fact_id, category, content, confidence}` |
-| `memory.pattern_detected` | Memory Service | `{pattern_id, type, description}` |
-| `memory.episode_saved` | Memory Service | `{episode_id, summary, importance}` |
-| `memory.context_changed` | Memory Service | `{context_id, type, description}` |
+| `fact.added` | `database.facts` | `{fact_id, category, content, confidence}` |
+| `pattern.detected` | `database.patterns` | `{pattern_id, type, description}` |
+| `episode.saved` | `database.episodes` | `{episode_id, summary, importance}` |
 
-### Domaine : Apple / iMessage
-
-| Événement | Émetteur | Payload |
-|---|---|---|
-| `imessage.imported` | Apple Data Service | `{batch_size, new_messages, total_messages}` |
-| `imessage.import_progress` | Apple Data Service | `{progress_pct, messages_processed}` |
-| `imessage.sync_completed` | Apple Data Service | `{total_imported, duration_seconds}` |
-
-### Domaine : Système
-
-| Événement | Émetteur | Payload |
-|---|---|---|
-| `system.startup` | main.py | `{version, services_started}` |
-| `system.shutdown` | main.py | `{uptime_seconds, reason}` |
-| `system.error` | Tout module | `{module, error_type, traceback_preview}` |
-| `system.health_check` | Health Service | `{service, status, response_time_ms}` |
+Le catalogue technique historique (`voice.*`, `agent.*`, `tts.*`, `system.*`, etc.) reste accepté pour compatibilité. Les événements futurs liés à AppleDataService, Queue Engine, SearchService ou aux opérations de suppression ne sont pas déclarés comme implémentés tant que leurs producteurs et consommateurs n'existent pas.
 
 ## Cycle de vie d'un événement
 
@@ -141,4 +125,4 @@ CREATE INDEX idx_event_log_type ON event_log(event_type);
 CREATE INDEX idx_event_log_timestamp ON event_log(timestamp);
 ```
 
-Cette table permet le **replay** : en cas de crash, les événements non traités (`processed_by IS NULL`) sont rejoués au redémarrage.
+La Phase 3 écrit chaque événement dans cette table avec `INSERT OR IGNORE`, ce qui rend le journal idempotent par `event_id`. Les lignes `processed_by IS NULL` sont consultables via `get_unprocessed_events()` et fournissent les données nécessaires à un futur rejeu. **Aucun rejeu automatique au redémarrage n'est encore implémenté** ; il relève du futur Queue Engine.

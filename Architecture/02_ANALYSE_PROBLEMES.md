@@ -46,7 +46,7 @@
 
 ## MAJEURS (P1) — Correction prioritaire
 
-### P1-1 — main.py : 7 194 lignes, 183 routes, 40+ responsabilités
+### P1-1 — main.py : 7 197 lignes, 183 routes, 40+ responsabilités
 
 - **Gravité** : MAJEURE
 - **Fichier** : `main.py`
@@ -56,29 +56,31 @@
 
 ### P1-2 — database/__init__.py : 4 169 lignes, ~208 fonctions, 23 domaines
 
-**État** : ✅ RÉSOLU le 14/07/2026 — façade de 235 lignes, 24 modules d'implémentation et réexports rétrocompatibles.
+**État** : ✅ RÉSOLU le 14/07/2026 — façade de 236 lignes, 25 modules d'implémentation et réexports rétrocompatibles après ajout du journal d'événements en Phase 3.
 
 - **Gravité** : MAJEURE
 - **Fichier historique** : `database/__init__.py`
 - **Origine historique** : Le module a commencé comme un simple fichier CRUD. Les features se sont accumulées sans séparation.
 - **Conséquence historique** : Toute modification du schéma d'une table nécessitait de naviguer dans 4 169 lignes. Conflits de merge fréquents.
-- **Correction** : 24 modules spécialisés ; `schema.py` et `migrations.py` isolent la structure, `core.py` porte l'initialisation, la façade conserve l'API publique (ADR-009).
+- **Correction** : 25 modules spécialisés ; `schema.py` et `migrations.py` isolent la structure, `core.py` porte l'initialisation, la façade conserve l'API publique (ADR-009).
 
 ### P1-3 — Deux frontends, zéro réutilisation
 
 - **Gravité** : MAJEURE
-- **Fichiers** : `web/` (41 fichiers), `pwa/` (32 fichiers)
+- **Fichiers** : `web/` (41 fichiers), `pwa/` (33 fichiers)
 - **Origine** : `web/` a été développé en premier (React 19 + Vite). `pwa/` a été ajouté plus tard (Next.js 14) sans plan d'unification.
 - **Conséquence** : Les types `TaskItem`, `NotificationItem`, `Place` sont redéfinis dans chaque front avec des champs différents. Les wrappers API sont distincts. Tout bug corrigé dans un frontend doit être reporté manuellement dans l'autre.
 - **Correction** : App Next.js 15 unifiée responsive (ADR-007)
 
 ### P1-4 — Event bus existant mais sans consommateurs métiers
 
+**État** : ✅ RÉSOLU le 14/07/2026 — 10 événements de domaine typés et 3 consommateurs réels : journal SQLite, diffusion WebSocket et TTS des notifications prioritaires. La PWA consomme le flux SSE pour invalider ses requêtes notifications/tâches sans polling.
+
 - **Gravité** : MAJEURE
-- **Fichiers** : `jarvis/event_bus.py`, 19 émetteurs directs de `create_notification()`
-- **Origine** : L'event bus a été créé comme infrastructure, mais personne n'a migré les appels directs.
-- **Conséquence** : 19 modules appellent directement `create_notification()` avec leur propre logique de priorité et d'anti-doublon. Couplage fort. Pas de réactivité (l'UI doit poller).
-- **Correction** : Émission d'événements depuis les points d'écriture DB (ADR-005)
+- **Fichiers** : `jarvis/event_bus.py`, `jarvis/events.py`, `database/event_log.py`, `websocket_registry.py`, `scripts/audio_daemon.py`
+- **Origine historique** : Le bus existait comme infrastructure, sans handlers métiers enregistrés.
+- **Conséquence historique** : Aucun découplage des réactions et polling nécessaire côté UI.
+- **Correction** : Émission après commit depuis les points d'écriture DB, handlers isolés et concurrents, journal idempotent et synchronisation temps réel (ADR-005).
 
 ### P1-5 — 25+ fichiers ouvrent des connexions directes à chat.db
 
@@ -102,15 +104,17 @@
 
 ## MODÉRÉS (P2) — À corriger dans le mois
 
-### P2-1 — 19 appels directs à create_notification() sans orchestration
+### P2-1 — 15 producteurs appellent encore directement create_notification() sans orchestration
 
 - **Gravité** : MODÉRÉE
-- **Fichiers** : 19 fichiers (scripts/scheduler.py, scripts/email_watcher.py, scripts/jarvis_daemon.py, scripts/rituals.py, scripts/doomscroll_detector.py, scripts/contact_alerts.py, scripts/commitments.py, scripts/location_analyzer.py, scripts/self_healing.py, scripts/security_audit.py, scripts/duplicate_scanner.py, scripts/perf_regression.py, scripts/favorite_places.py, scripts/meeting.py, scripts/db_maintenance.py, scripts/test_coverage_scan.py, agents/devagent/staging.py, database/__init__.py, scripts/screen_watcher.py)
+- **Fichiers** : 15 fichiers consommateurs de l'API publique, vérifiés statiquement après la Phase 3.
 - **Origine** : Chaque script a été développé indépendamment avec sa propre logique de notification.
-- **Conséquence** : Certains scripts gèrent l'anti-doublon (`_notification_recently_sent()`), d'autres non. La priorité est incohérente.
-- **Correction** : Remplacer par `event_bus.emit(NotificationCreated(...))` (ADR-005)
+- **Conséquence** : Certains scripts gèrent l'anti-doublon (`_notification_recently_sent()`), d'autres non. La priorité reste incohérente, même si chaque écriture déclenche désormais le bus en aval.
+- **Correction** : Centraliser la politique dans un futur `NotificationService`; conserver l'émission `NotificationCreated` au point de persistance pour garantir qu'elle suit le commit.
 
 ### P2-2 — Multiples modules écrivent dans les mêmes tables sans coordination
+
+**État** : 🟡 PARTIELLEMENT RÉDUIT en Phase 3 — les 10 mutations centrales publient maintenant un événement après commit, ce qui coordonne les réactions. L'unicité du propriétaire d'écriture reste à imposer aux producteurs.
 
 - **Gravité** : MODÉRÉE
 - **Fichiers** : `agents/memory.py`, `agents/coach.py`, `agents/journal.py`, `audio/continuous_recorder.py`, `scripts/relationship_analyzer.py`, `scripts/location_analyzer.py`
@@ -203,14 +207,14 @@ Fonctions `formatTime()`, `relativeDate()`, `formatDue()` dupliquées entre les 
 | P1-1 | main.py monolithe | MAJEURE | 3 jours | Phase 4 |
 | P1-2 | database god object | ✅ RÉSOLU | 0 | Phase 2 — 14/07/2026 |
 | P1-3 | Deux frontends | MAJEURE | 5 jours | Phase 6 |
-| P1-4 | Event bus à usage minimal (1 abonné debug) | MAJEURE | 2 jours | Phase 3 |
+| P1-4 | Event bus sans consommateurs métiers | ✅ RÉSOLU | 0 | Phase 3 — 14/07/2026 |
 | P1-5 | 25+ lecteurs chat.db | MAJEURE | 3 jours | Phase 5 |
 | P1-6 | Cycle main↔daemon | ✅ RÉSOLU | 0 | Phase 1 — 11/07/2026 |
-| P2-1 | 19 create_notification | MODÉRÉE | 1 jour | Phase 3 |
-| P2-2 | Écritures non coordonnées | MODÉRÉE | 2 jours | Phase 3 |
+| P2-1 | 15 producteurs directs de notification | MODÉRÉE | 1 jour | Backlog `NotificationService` |
+| P2-2 | Écritures non coordonnées | 🟡 PARTIEL | 2 jours | Gouvernance Data Ownership |
 | P2-3 | 40 endpoints orphelins | MODÉRÉE | 1 jour | Phase 4 |
 | P2-4 | Apple timestamp ×4 | MODÉRÉE | 1 heure | Phase 5 |
-| P2-5 | 29 jobs scheduler | MODÉRÉE | 2 heures | Phase 3 |
+| P2-5 | 29 jobs scheduler | MODÉRÉE | 2 heures | Backlog scheduler |
 | P2-6 | 2 wrappers API | MODÉRÉE | 1 jour | Phase 6 |
 | P2-7 | Versions incohérentes | MODÉRÉE | 3 jours | Phase 6 |
 | P2-8 | 2 cartes différentes | MODÉRÉE | 2 jours | Phase 6 |

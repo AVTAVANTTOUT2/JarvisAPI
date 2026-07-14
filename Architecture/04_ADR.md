@@ -69,7 +69,9 @@
 - A. Émission depuis les points d'écriture DB (create_task → event_bus.emit(TaskCreated(...))). Consommateurs (WS, TTS, daemon) s'abonnent.
 - B. Bus externe Redis/NATS — overkill pour mono-utilisateur local.
 
-**Recommandation** : Solution A. Phase 1 : 10 événements (NotificationCreated, TaskCreated, TaskUpdated, ConversationUpdated, MemoryUpdated, PersonUpserted, EpisodeSaved, PatternDetected, FactAdded, MessageSent). Effort : 2 jours.
+**Décision** : Solution A. Les 10 événements sont `NotificationCreated`, `TaskCreated`, `TaskUpdated`, `ConversationUpdated`, `MessageSent`, `MemoryUpdated`, `PersonUpserted`, `EpisodeSaved`, `PatternDetected` et `FactAdded`.
+
+**Statut** : Implémenté et validé le 14 juillet 2026. Preuves : contrats immuables et versionnés dans `jarvis/events.py`, émission après commit depuis 7 modules DB, handlers concurrents et isolés dans `jarvis/event_bus.py`, consommateurs réels dans `database/event_log.py`, `websocket_registry.py` et `scripts/audio_daemon.py`, synchronisation SSE dans `pwa/src/components/realtime/EventSync.tsx`. Le chargement paresseux de `JARVISRouter` dans `jarvis/__init__.py` préserve l'indépendance du bus vis-à-vis des backends IA. Tests : 4 tests Phase 3 couvrent les contrats, l'import isolé, l'isolation d'erreur, les 10 mutations, le journal idempotent, la diffusion WebSocket et le TTS prioritaire ; suite backend à 542 passants, 1 ignoré.
 
 ---
 
@@ -98,7 +100,7 @@
 
 ---
 
-## ADR-008 — main.py monolithe (7 194 lignes)
+## ADR-008 — main.py monolithe (7 197 lignes)
 
 **Problème** : 183 routes, 40+ responsabilités dans un seul fichier.
 
@@ -120,7 +122,7 @@
 
 **Recommandation** : Solution A. Purement mécanique, zéro risque. Effort : 1 jour.
 
-**Statut** : Implémenté et validé le 14 juillet 2026 — 24 modules d'implémentation, façade de 235 lignes, réexports compatibles, imports internes dirigés vers `core.py`. Preuves : 6 tests de contrat Phase 2 et suite backend complète à 538 passants, 1 ignoré.
+**Statut** : Implémenté et validé le 14 juillet 2026 — 25 modules d'implémentation, façade de 236 lignes, réexports compatibles, imports internes dirigés vers `core.py`. Le 25e module, `event_log.py`, a été ajouté normalement en Phase 3 sans remettre en cause le découpage. Preuves : 6 tests de contrat Phase 2 et suite backend complète à 542 passants, 1 ignoré après Phase 3.
 
 ---
 
@@ -146,7 +148,7 @@
 | 002 | 3 curseurs ROWID mémoire | Registre SQLite central, offset par consommateur | 2h | Aucun |
 | 003 | Race WS set | Lock + copie défensive | 15min | Aucun |
 | 004 | SQLite busy | busy_timeout=5000 | 5min | Aucun |
-| 005 | Event bus à usage minimal | Émission depuis DB | 2j | ADR-009 |
+| 005 | Event bus à usage minimal | ✅ 10 événements + 3 consommateurs | Fait | ADR-009 |
 | 006 | 25+ lecteurs chat.db | AppleDataService | 3j | ADR-002 |
 | 007 | Deux frontends | App Next.js unifiée | 5j | ADR-001 |
 | 008 | main.py monolithe | Routeurs par domaine | 3j | ADR-009 |
