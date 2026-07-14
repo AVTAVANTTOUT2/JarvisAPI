@@ -45,3 +45,38 @@ def test_broadcast_uses_snapshot_when_connection_set_changes(monkeypatch):
 
     assert remover.events == [event]
     assert dead not in websocket_registry.connected_ws
+
+
+def test_broadcast_releases_registry_lock_before_network_io(monkeypatch):
+    """Une socket lente ne doit pas bloquer les mutations du registre."""
+    import websocket_registry
+
+    async def scenario():
+        send_started = asyncio.Event()
+        release_send = asyncio.Event()
+
+        class SlowSocket:
+            async def send_json(self, event):
+                send_started.set()
+                await release_send.wait()
+
+        slow = SlowSocket()
+        newcomer = SlowSocket()
+        monkeypatch.setattr(websocket_registry, "connected_ws", {slow})
+        monkeypatch.setattr(websocket_registry, "connected_ws_lock", asyncio.Lock())
+
+        broadcast_task = asyncio.create_task(
+            websocket_registry.broadcast_ws({"type": "phase1-lock-test"})
+        )
+        await asyncio.wait_for(send_started.wait(), timeout=1.0)
+        try:
+            await asyncio.wait_for(
+                websocket_registry.add_websocket(newcomer), timeout=1.0
+            )
+        finally:
+            release_send.set()
+            await broadcast_task
+
+        assert newcomer in websocket_registry.connected_ws
+
+    asyncio.run(scenario())
