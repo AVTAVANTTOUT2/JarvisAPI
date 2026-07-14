@@ -15,7 +15,7 @@ Assistant personnel autonome, multi-agents, voice-first. Tourne entièrement en 
 - `jarvis_auth/` fournit un unique `AuthClient`, hook `useLockGate()` et composant `LockGate` fail-closed aux interfaces desktop, mobile et unifiée.
 - `frontend/src/lib/api.ts` est l'unique wrapper réseau ; toutes les requêtes et tous les uploads incluent le cookie de session.
 - FastAPI sert `frontend/out` en priorité. `web/dist` reste le fallback racine et l'ancienne PWA reste disponible sous `/m/` pour un rollback sans interruption.
-- Validation locale : 9 Vitest, 3 Playwright, 4 contrats FastAPI, typecheck et trois builds frontend réussis.
+- Validation locale : 10 Vitest, 3 Playwright, 4 contrats FastAPI, typecheck et trois builds frontend réussis.
 
 ### Historique du 11 juillet 2026
 

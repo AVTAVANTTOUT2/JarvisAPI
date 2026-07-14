@@ -99,7 +99,7 @@ L'état initial (7 197 lignes, 40+ responsabilités et 42 imports concentrés)
 | API | ✅ Un seul wrapper `frontend/src/lib/api.ts`, cookie inclus sur chaque requête |
 | Auth | ✅ SDK `jarvis_auth/`, LockGate fail-closed partagé |
 | PWA | ✅ Manifest et Service Worker limité aux assets publics du shell |
-| Tests | ✅ 9 Vitest, typecheck/build, 3 Playwright desktop/mobile |
+| Tests | ✅ 10 Vitest, typecheck/build, 3 Playwright desktop/mobile |
 | Déploiement | ✅ `frontend/out` prioritaire ; `web/dist` et `/m/` restent des fallbacks |
 
 ### 2.1 web/ — SPA desktop historique et source des vues

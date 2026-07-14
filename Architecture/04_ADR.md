@@ -16,7 +16,7 @@
 
 **Décision** : Solution A — SDK d'auth partagé.
 
-**Statut** : ✅ Implémenté et validé le 14/07/2026. `jarvis_auth/` fournit `AuthClient`, `useLockGate()` et `LockGate`; `web/`, `pwa/` et le frontend unifié l'importent. Le composant masque tout contenu privé tant que `/api/auth/status` n'a pas confirmé une session et reste fermé si le serveur est inaccessible. Preuves : 9 tests Vitest, dont les contrats d'auth, le fail-closed et l'absence de contenu privé avant déverrouillage, plus 3 scénarios Playwright desktop/mobile.
+**Statut** : ✅ Implémenté et validé le 14/07/2026. `jarvis_auth/` fournit `AuthClient`, `useLockGate()` et `LockGate`; `web/`, `pwa/` et le frontend unifié l'importent. Le composant masque tout contenu privé tant que `/api/auth/status` n'a pas confirmé une session, reste fermé si le serveur est inaccessible et arrête les services privés lors du verrouillage automatique. Preuves : 10 tests Vitest, dont les contrats d'auth, le fail-closed, l'absence de contenu privé avant déverrouillage et le cleanup au soft lock, plus 3 scénarios Playwright desktop/mobile.
 
 ---
 
@@ -102,7 +102,7 @@
 
 **Décision** : Solution A, avec coexistence réversible des builds historiques.
 
-**Statut** : ✅ Implémenté et validé localement le 14/07/2026. `frontend/` porte l'application Next.js 15/React 19 responsive, sélectionne les layouts desktop/mobile sans copier leurs vues, et centralise types et accès réseau dans `frontend/src/lib/api.ts`. FastAPI sert `frontend/out` en priorité, conserve `web/dist` comme fallback et laisse `pwa/out` accessible sous `/m/`. Preuves : build de 25 pages statiques, 9 tests Vitest, 3 E2E Playwright, 4 contrats FastAPI, ainsi que les builds des deux frontends historiques.
+**Statut** : ✅ Implémenté et validé localement le 14/07/2026. `frontend/` porte l'application Next.js 15/React 19 responsive, sélectionne les layouts desktop/mobile sans copier leurs vues, et centralise types et accès réseau dans `frontend/src/lib/api.ts`. FastAPI sert `frontend/out` en priorité, conserve `web/dist` comme fallback et laisse `pwa/out` accessible sous `/m/`. Preuves : build de 25 pages statiques, 10 tests Vitest, 3 E2E Playwright, 4 contrats FastAPI, ainsi que les builds des deux frontends historiques.
 
 ---
 

@@ -28,7 +28,7 @@ Le dossier `Architecture/` reflète l'état du code après l'implémentation de 
 | 554 fonctions de test backend (68 fichiers) | Vérifié statiquement après ajout des 4 contrats Phase 6 | ✅ Actualisé |
 | Couche API modulaire | `main.py` 175 lignes, 12 routeurs, chaque module `api/` ≤ 500 lignes, aucun import `api → main` | ✅ Validé par 6 tests Phase 4 |
 | AppleDataService | ouverture read-only et conversion Apple centralisées ; consommateurs iMessage migrés | ✅ Validé par 6 contrats et garde-fou AST Phase 5 |
-| Frontend unifié | Next.js 15/React 19, 25 pages statiques, wrapper API unique et fallbacks conservés | ✅ 9 Vitest, 3 Playwright, 4 contrats FastAPI et 3 builds |
+| Frontend unifié | Next.js 15/React 19, 25 pages statiques, wrapper API unique et fallbacks conservés | ✅ 10 Vitest, 3 Playwright, 4 contrats FastAPI et 3 builds |
 
 ## 2. Composants cibles restant à implémenter
 
@@ -128,7 +128,7 @@ Tous les diagrammes sont cohérents avec leur contexte (actuel vs cible).
 | 03_AUDIT_TECHNIQUE.md | Monolithe distingué comme historique ; état API actuel audité |
 | 19_VALIDATION_FINALE.md | Score de maturité 7.60, sécurité mobile et couverture frontend actualisés |
 | Documents Phase 6 | ADR-001/007, cartographie, DoD, dette, score et roadmap synchronisés au 14/07/2026 |
-| Plan de tests | 9 Vitest + 3 Playwright + 4 contrats FastAPI Phase 6 ; 554 fonctions backend déclarées dans 68 fichiers ; dernière suite complète Phase 5 à 555 passants, 1 ignoré |
+| Plan de tests | 10 Vitest + 3 Playwright + 4 contrats FastAPI Phase 6 ; 554 fonctions backend déclarées dans 68 fichiers ; dernière suite complète Phase 5 à 555 passants, 1 ignoré |
 | diagrams/README.md | Créé — placeholder |
 | audit/README.md | Créé — placeholder |
 

@@ -89,7 +89,7 @@ Preuves : 7 contrats `test_apple_data.py` (base temporaire, lecture seule, conve
 
 ### Phase 6 — implémentée et validée localement le 14/07/2026
 
-Preuves : 9 tests Vitest, typecheck et build Next.js 15 réussis ; 3 scénarios Playwright desktop/mobile ; 4 contrats FastAPI ; 18 tests et build Vite historiques ; build PWA Next.js 14 historique. Le workflow CI exécute désormais le fallback Vite et un job séparé `Frontend unifié (tests + build)`. La suite backend complète n'a pas été contournée artificiellement : l'installation PyAudio s'arrête sur `fatal error: 'portaudio.h' file not found`; les 4 tests Phase 6 autonomes passent avec les dépendances FastAPI minimales.
+Preuves : 10 tests Vitest, dont l'arrêt des services privés au verrouillage automatique, typecheck et build Next.js 15 réussis ; 3 scénarios Playwright desktop/mobile ; 4 contrats FastAPI ; 18 tests et build Vite historiques ; build PWA Next.js 14 historique. Le workflow CI exécute désormais le fallback Vite et un job séparé `Frontend unifié (tests + build)`. La suite backend complète n'a pas été contournée artificiellement : l'installation PyAudio s'arrête sur `fatal error: 'portaudio.h' file not found`; les 4 tests Phase 6 autonomes passent avec les dépendances FastAPI minimales.
 
 | Fichier | Contenu |
 |---|---|

@@ -55,7 +55,7 @@ Depuis du code async, utiliser `await event_bus.emit(event)`. Depuis un chemin s
 - `frontend/src/lib/api.ts` est l'unique appel direct à `fetch()` dans les trois arbres frontend ; il inclut toujours le cookie, y compris pour uploads, GPS et file hors-ligne.
 - `web/dist` reste le fallback racine si `frontend/out` manque ; `pwa/out` reste accessible sous `/m/` si activé.
 - `frontend/public/sw.js` ne cache que `/_next/static` et `/icons`, jamais `/api`, HTML ou données personnelles.
-- Validation locale du 14/07/2026 : 9 Vitest, typecheck/build Next.js 15, 3 Playwright, 4 contrats FastAPI, 18 tests web et builds des deux fallbacks. GitHub Actions exécute aussi un job dédié au frontend unifié, à côté du build Vite historique.
+- Validation locale du 14/07/2026 : 10 Vitest, typecheck/build Next.js 15, 3 Playwright, 4 contrats FastAPI, 18 tests web et builds des deux fallbacks. Le dixième test vérifie l'arrêt des services privés lors du verrouillage automatique. GitHub Actions exécute aussi un job dédié au frontend unifié, à côté du build Vite historique.
 - Limites : CI backend complète encore à confirmer (PyAudio requiert `portaudio.h` localement), appareils physiques et observation 24 h non vérifiés.
 
 ## Personnalité JARVIS

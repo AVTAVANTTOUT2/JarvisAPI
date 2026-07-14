@@ -87,5 +87,5 @@ Phase 6 : validée localement le 14/07/2026
 ├── Next.js 15 responsive et SDK auth partagé
 ├── wrapper API authentifié unique
 ├── fallback web/dist + pwa/out conservé
-└── 9 Vitest + 3 Playwright + 4 contrats FastAPI passants
+└── 10 Vitest + 3 Playwright + 4 contrats FastAPI passants
 ```
