@@ -1,6 +1,13 @@
 /** Contrats de données partagés par le client API et les vues frontend. */
 
-export type { AuthStatus } from '@jarvis/auth'
+/** Réponse publique de `/api/auth/status`, volontairement découplée du package React. */
+export interface AuthStatus {
+  configured: boolean
+  authenticated: boolean
+  locked_out: boolean
+  lockout_seconds: number
+  auto_lock_minutes: number
+}
 
 export interface AuthSession {
   id: number
