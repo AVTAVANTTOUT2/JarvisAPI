@@ -169,5 +169,3 @@ async def control_service_logs(service: str, lines: int = 50):
         return {"logs": [line for line in recent if line.strip()], "count": len(recent)}
     except Exception as e:
         return {"logs": [], "error": str(e)}
-
-

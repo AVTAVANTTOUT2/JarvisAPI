@@ -38,6 +38,3 @@ def _resume_or_create_conversation(now: float | None = None) -> tuple[int, bool]
             logger.info("[ws] Reprise de la conversation #%s (coupure < %ds)", prev_id, grace)
             return prev_id, True
     return create_conversation(agent="orchestrator"), False
-
-
-

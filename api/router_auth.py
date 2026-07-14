@@ -144,6 +144,3 @@ async def api_auth_revoke_session(session_id: int):
     if not revoke_session_by_id(session_id):
         raise HTTPException(404, "Session introuvable")
     return {"ok": True}
-
-
-

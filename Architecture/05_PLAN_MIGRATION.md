@@ -164,21 +164,21 @@ Le journal conserve `processed_by = NULL` tant qu'aucun moteur de rejeu n'existe
 
 | Fichier | Domaine principal | Lignes réelles | Risque initial |
 |---|---|---|---|
-| `api/router_auth.py` | `/api/auth/*` | 149 | Bas |
-| `api/router_people.py` | `/api/people/*` | 327 | Moyen |
-| `api/router_conversations.py` | `/api/conversations/*` | 173 | Bas |
-| `api/router_tasks.py` | `/api/tasks/*` | 86 | Bas |
-| `api/router_location.py` | `/api/location/*`, `/api/places/*` | 240 | Bas |
-| `api/router_devices.py` | `/api/devices/*` | 219 | Bas |
-| `api/router_daemon.py` | `/api/audio-daemon/*`, `/api/control/*` | 173 | Moyen |
-| `api/router_devagent.py` | `/api/devagent/*` | 190 | Bas |
+| `api/router_auth.py` | `/api/auth/*` | 146 | Bas |
+| `api/router_people.py` | `/api/people/*` | 325 | Moyen |
+| `api/router_conversations.py` | `/api/conversations/*` | 170 | Bas |
+| `api/router_tasks.py` | `/api/tasks/*` | 83 | Bas |
+| `api/router_location.py` | `/api/location/*`, `/api/places/*` | 238 | Bas |
+| `api/router_devices.py` | `/api/devices/*` | 216 | Bas |
+| `api/router_daemon.py` | `/api/audio-daemon/*`, `/api/control/*` | 171 | Moyen |
+| `api/router_devagent.py` | `/api/devagent/*` | 187 | Bas |
 | `api/router_quality.py` | `/api/quality/*`, `/api/migrations/*` | 100 | Bas |
-| `api/router_rituals.py` | `/api/rituals/*`, `/api/dnd/*` | 82 | Bas |
-| `api/router_recordings.py` | `/api/recordings/*`, recherche sémantique | 100 | Bas |
-| `api/router_misc.py` | Status, stats, costs, export, search, etc. | 449 | Bas |
-| `api/ws_handler.py` | WebSocket (1) | 497 | Élevé |
-| `api/frontend.py` | Montage desktop/PWA et détection mobile | 318 | Bas |
-| `api/middleware.py` | `security_middleware` | 101 | Bas |
+| `api/router_rituals.py` | `/api/rituals/*`, `/api/dnd/*` | 79 | Bas |
+| `api/router_recordings.py` | `/api/recordings/*`, recherche sémantique | 97 | Bas |
+| `api/router_misc.py` | Status, stats, costs, export, search, etc. | 447 | Bas |
+| `api/ws_handler.py` | WebSocket (1) | 494 | Élevé |
+| `api/frontend.py` | Montage desktop/PWA et détection mobile | 316 | Bas |
+| `api/middleware.py` | `security_middleware` | 99 | Bas |
 
 ### main.py après (175 lignes)
 

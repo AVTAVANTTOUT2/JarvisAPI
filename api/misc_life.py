@@ -158,5 +158,3 @@ async def api_journal_post(payload: dict):
 
 async def api_patterns_get():
     return {"patterns": get_active_patterns()}
-
-

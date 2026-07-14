@@ -41,7 +41,7 @@ Depuis du code async, utiliser `await event_bus.emit(event)`. Depuis un chemin s
 
 `main.py` est un point d'assemblage de 175 lignes : configuration FastAPI/CORS, montage des 12 `APIRouter`, branchement du WebSocket, configuration de `pipeline.py`, frontend et lancement Uvicorn. Les 174 opérations HTTP et le WebSocket `/ws` conservent leur contrat historique ; l'OpenAPI expose 157 chemins.
 
-- `api/router_*.py` contient exactement 12 routeurs par domaine ; aucun ne dépasse 449 lignes.
+- `api/router_*.py` contient exactement 12 routeurs par domaine ; aucun ne dépasse 447 lignes.
 - `api/lifespan.py`, `api/middleware.py` et `api/frontend.py` portent le cycle de vie, la sécurité HTTP et le serving des frontends.
 - `api/ws_handler.py`, `api/ws_messages.py`, `api/chat_*.py` et `api/voice_*.py` séparent le transport WebSocket, le contexte, les actions et les pipelines texte/vocal.
 - Tous les modules `api/*.py` restent sous 500 lignes et aucun n'importe `main.py`.

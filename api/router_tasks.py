@@ -81,6 +81,3 @@ async def api_tasks_delete_all():
     deleted_count = delete_all_tasks()
     logger.info(f"[tasks] {deleted_count} tâche(s) supprimée(s) — purge totale")
     return {"ok": True, "deleted_count": deleted_count}
-
-
-

@@ -608,7 +608,7 @@ RootLayout (layout.tsx)
 | Métrique | Valeur |
 |---|---|
 | Fichiers Python | 268 |
-| Lignes Python | 55 545 |
+| Lignes Python | 55 457 |
 | Fichiers frontend | 74 (41 web + 33 pwa) |
 | Lignes frontend | 18 498 |
 | Tables SQLite | 73 applicatives après initialisation et migrations (`sqlite_sequence` exclue) |

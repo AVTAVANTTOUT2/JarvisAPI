@@ -492,6 +492,3 @@ async def websocket_endpoint(ws: WebSocket):
                 end_conversation(conversation_id)
             except Exception as e:
                 logger.error(f"Erreur end_conversation : {e}")
-
-
-

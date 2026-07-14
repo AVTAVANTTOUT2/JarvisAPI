@@ -110,5 +110,3 @@ async def _maybe_send_daily_welcome(ws: WebSocket) -> None:
             _mark_welcome_sent()
     except Exception as e:
         logger.exception("welcome message : %s", e)
-
-

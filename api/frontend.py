@@ -314,5 +314,3 @@ def _setup_frontend(app: FastAPI) -> None:
 
 
 # ── WebSocket broadcast (audio daemon → tous les clients) ────────────────────
-
-

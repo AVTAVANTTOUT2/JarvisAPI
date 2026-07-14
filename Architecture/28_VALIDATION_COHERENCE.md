@@ -21,7 +21,7 @@ Le dossier `Architecture/` reflète l'état du code après la clôture de la Pha
 | 7 agents LLM + orchestrateur | 12 fichiers dans agents/ | ✅ Exact (dont 5 utilitaires) |
 | 29 jobs APScheduler | 102 références dans scheduler.py | ✅ Exact |
 | 5 démons | screen, audio, email, imessage, supervisor | ✅ Exact |
-| 268 fichiers Python, 55 545 lignes | Vérifié après la Phase 4 | ✅ Actualisé |
+| 268 fichiers Python, 55 457 lignes | Vérifié après la revue finale de la Phase 4 | ✅ Actualisé |
 | 74 fichiers source frontend | 41 (`web/src`) + 33 (`pwa/src`) | ✅ Exact |
 | PWA sans LockGate | **Confirmé** — aucun composant auth dans pwa/ | ✅ Documenté comme P0-1 |
 | Event bus actif | 10 types de domaine, 11 émetteurs de production, 3 fichiers avec handlers réels | ✅ Validé par 4 tests Phase 3 |

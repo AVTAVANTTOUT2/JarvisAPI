@@ -3,7 +3,7 @@
 **Date initiale** : 11 juillet 2026
 
 **Dernière mise à jour** : 14 juillet 2026
-**Périmètre** : 268 fichiers Python (55 545 lignes), 74 fichiers source frontend (18 498 lignes), 73 tables SQLite applicatives après migrations
+**Périmètre** : 268 fichiers Python (55 457 lignes), 74 fichiers source frontend (18 498 lignes), 73 tables SQLite applicatives après migrations
 **État** : **Documentation officielle — toute modification du code doit rester cohérente avec ce dossier**
 
 ---
@@ -70,7 +70,7 @@
 ┌─────────────────────────────────────────────────────────┐
 │                     JARVIS API                           │
 ├─────────────────────────────────────────────────────────┤
-│  Backend           │ 268 fichiers Python, 55 545 lignes  │
+│  Backend           │ 268 fichiers Python, 55 457 lignes  │
 │  Frontend desktop  │ 41 fichiers, 13 795 lignes          │
 │  PWA mobile        │ 33 fichiers, 4 703 lignes           │
 │  Base de données   │ 73 tables applicatives, mode WAL    │

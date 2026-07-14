@@ -94,6 +94,3 @@ async def _handle_hands_free_blob(
     except Exception as e:
         logger.exception("hands_free pipeline : %s", e)
         await reset_listening()
-
-
-

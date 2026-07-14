@@ -12,5 +12,3 @@ def _audio_daemon_status_payload() -> dict[str, Any]:
         return _ad.get_status()
     except Exception:
         return {"enabled": False, "state": "idle", "error": "indisponible"}
-
-

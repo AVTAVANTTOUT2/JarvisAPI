@@ -185,6 +185,3 @@ async def devagent_pause(project_id: int):
         raise HTTPException(404, "Projet DevAgent introuvable.")
     devagent_db.update_project_status(project_id, "paused")
     return {"status": "paused"}
-
-
-

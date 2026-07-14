@@ -362,6 +362,3 @@ async def lifespan(app: FastAPI):
     await event_bus.wait_until_idle()
     event_bus.unbind_loop()
     logger.info("Arrêt JARVIS.")
-
-
-

@@ -39,6 +39,3 @@ def _schedule_llm_log(
             logger.debug("[llm-log] async failed", exc_info=True)
 
     asyncio.create_task(_runner())
-
-
-

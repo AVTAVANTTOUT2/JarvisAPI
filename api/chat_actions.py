@@ -367,6 +367,3 @@ def _extract_action_from_text(text: str) -> tuple[dict | None, str]:
             pass
 
     return None, text
-
-
-

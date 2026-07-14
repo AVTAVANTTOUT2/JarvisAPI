@@ -214,6 +214,3 @@ async def api_app_usage(days: int = 7, device: str | None = None):
     if days <= 1:
         return {"usage": get_app_usage(device=device), "days": 1}
     return {"usage": get_app_usage_range(days=days, device=device), "days": int(days)}
-
-
-

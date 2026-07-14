@@ -236,5 +236,3 @@ async def api_location_name_current(body: dict[str, Any]):
     except (KeyError, TypeError, ValueError) as e:
         raise HTTPException(400, str(e)) from e
     return {"ok": True, "place_id": pid}
-
-

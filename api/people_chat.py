@@ -198,6 +198,3 @@ async def api_people_ask(name: str, payload: dict[str, Any] = Body(default_facto
     except Exception as e:
         logger.exception("[contact_chat] ERREUR : %s", e)
         return JSONResponse(status_code=500, content={"error": str(e)})
-
-
-

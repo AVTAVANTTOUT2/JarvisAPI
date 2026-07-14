@@ -323,5 +323,3 @@ router.add_api_route(
     api_people_ask,
     methods=["POST"],
 )
-
-

@@ -77,6 +77,3 @@ async def api_dnd_disable():
 
     clear_dnd()
     return get_dnd_status()
-
-
-

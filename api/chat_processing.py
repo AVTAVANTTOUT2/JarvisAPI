@@ -307,5 +307,3 @@ async def _process_message_internal(
             "model": None,
             "cost": 0.0,
         }
-
-

@@ -444,6 +444,3 @@ Date : {horodatage}."""
         "latency_ms": latency_ms,
         "debug_trace": debug_trace,
     }
-
-
-

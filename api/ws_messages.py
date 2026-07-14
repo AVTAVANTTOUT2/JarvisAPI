@@ -452,6 +452,3 @@ async def _process_message(
         except Exception:
             pass
         return {"emotion": "neutral", "response": ""}
-
-
-

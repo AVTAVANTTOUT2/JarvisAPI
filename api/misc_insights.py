@@ -195,4 +195,3 @@ async def api_memory_get():
 
 
 # ── École : documents uploadés + fichiers produits ──────────
-

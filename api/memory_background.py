@@ -17,6 +17,3 @@ async def _run_memory_in_background(conversation_id: int) -> None:
             logger.info(f"[memory bg] conv {conversation_id} → {applied}")
     except Exception as e:
         logger.error(f"[memory bg] conv {conversation_id} : {e}")
-
-
-

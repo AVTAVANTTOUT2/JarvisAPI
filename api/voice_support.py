@@ -168,6 +168,3 @@ def _save_voice_messages(
         update_conversation_activity(conversation_id)
     except Exception as e:
         logger.debug("[voice_fast] save_message : %s", e)
-
-
-

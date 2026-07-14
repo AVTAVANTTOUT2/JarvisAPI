@@ -168,6 +168,3 @@ async def api_conversation_upload(conv_id: int, file: UploadFile):
         "content_length": len(extracted),
         "summary": summary,
     }
-
-
-

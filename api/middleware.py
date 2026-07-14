@@ -97,5 +97,3 @@ async def security_middleware(request: Request, call_next):
     if config.WEB_HTTPS:
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
-
-

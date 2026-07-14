@@ -316,6 +316,3 @@ _SERVICE_LOG_TAGS: dict[str, str] = {
     "ollama": "ollama",
     "tv_dashboard": "tv",
 }
-
-
-

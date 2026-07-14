@@ -202,6 +202,3 @@ Fréquence : {rp.get("interaction_frequency") or "—"}
     text = (res.get("content") or "").strip()
     text = strip_leading_emotion(text)
     return text, res
-
-
-

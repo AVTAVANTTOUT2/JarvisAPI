@@ -95,6 +95,3 @@ async def api_memory_search_semantic(q: str, limit: int = 10, source_type: str |
     except SemanticSearchUnavailable as e:
         raise HTTPException(503, str(e)) from e
     return {"results": results}
-
-
-

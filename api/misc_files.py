@@ -164,5 +164,3 @@ async def api_outputs_download(filepath: str):
         raise HTTPException(404, f"Fichier introuvable : {filepath}")
 
     return FileResponse(target, filename=target.name)
-
-

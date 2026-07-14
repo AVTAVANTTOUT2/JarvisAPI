@@ -304,6 +304,3 @@ async def _build_enriched_context(text: str, conversation_id: int) -> dict:
         status="success",
     )
     return context
-
-
-
