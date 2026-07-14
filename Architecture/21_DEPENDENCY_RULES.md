@@ -98,14 +98,13 @@ Aucun module ne doit appeler directement l'API DeepSeek ou Ollama.
 python scripts/architecture_check.py --check-deps
 
 # Règles vérifiées :
-# - Pas d'import sqlite3 hors database/ et apple_data
-# - Pas d'accès chat.db hors apple_data
+# - Pas d'accès chat.db hors apple_data (vérifié aujourd'hui par tests/test_apple_data.py)
 # - Pas d'appel llm.chat() hors ai_service
 # - Pas de cycle (détection statique)
 # - Pas d'import UI dans le backend
 ```
 
-`scripts/architecture_check.py` n'existe pas encore au 14/07/2026. Les règles de taille et l'absence d'import inverse de la Phase 4 sont néanmoins exécutées par pytest ; les autres commandes de cette section décrivent la cible CI.
+`scripts/architecture_check.py` n'existe pas encore au 14/07/2026. Les règles de taille et l'absence d'import inverse de la Phase 4 sont exécutées par pytest ; la frontière `chat.db` est exécutée par `tests/test_apple_data.py`. Les autres commandes de cette section décrivent la cible CI.
 
 ## Exceptions documentées
 

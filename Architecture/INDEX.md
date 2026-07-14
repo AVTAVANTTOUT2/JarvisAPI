@@ -3,7 +3,7 @@
 **Date initiale** : 11 juillet 2026
 
 **Dernière mise à jour** : 14 juillet 2026
-**Périmètre** : 268 fichiers Python (55 457 lignes), 74 fichiers source frontend (18 498 lignes), 73 tables SQLite applicatives après migrations
+**Périmètre** : 270 fichiers Python (55 753 lignes), 74 fichiers source frontend (18 498 lignes), 73 tables SQLite applicatives après migrations
 **État** : **Documentation officielle — toute modification du code doit rester cohérente avec ce dossier**
 
 ---
@@ -70,7 +70,7 @@
 ┌─────────────────────────────────────────────────────────┐
 │                     JARVIS API                           │
 ├─────────────────────────────────────────────────────────┤
-│  Backend           │ 268 fichiers Python, 55 457 lignes  │
+│  Backend           │ 270 fichiers Python, 55 753 lignes  │
 │  Frontend desktop  │ 41 fichiers, 13 795 lignes          │
 │  PWA mobile        │ 33 fichiers, 4 703 lignes           │
 │  Base de données   │ 73 tables applicatives, mode WAL    │
@@ -79,14 +79,14 @@
 │  Agents LLM        │ 7 agents + orchestrateur            │
 │  Jobs schedulés    │ 29 (APScheduler)                    │
 │  Démons            │ 5 (screen, audio, email, imessage)  │
-│  Tests             │ 546 fonctions de test, 63 fichiers  │
+│  Tests             │ 553 fonctions de test, 64 fichiers  │
 ├─────────────────────────────────────────────────────────┤
 │  Couche API        │ main.py 175 lignes, 12 routeurs     │
 │  Database          │ façade 236 lignes, 25 modules       │
 │  Event bus         │ 10 événements, 3 consommateurs      │
 │  Duplications      │ 2 frontends, 0 composants partagés  │
-│                    │ 25+ lecteurs directs de chat.db      │
-│                    │ 4 conversions Apple timestamp        │
+│                    │ 0 lecteur direct hors AppleDataService│
+│                    │ 1 conversion Apple canonique         │
 │  Problèmes         │ 4 critiques, 6 majeurs,             │
 │                    │ 8 modérés, 5 mineurs                 │
 └─────────────────────────────────────────────────────────┘
@@ -121,6 +121,10 @@ graph TB
 
     subgraph "Database"
         DB[(SQLite WAL<br/>jarvis.db<br/>73 tables applicatives)]
+    end
+
+    subgraph "Données Apple"
+        APPLE["AppleDataService<br/>seul accès applicatif read-only"]
         CHATDB[(chat.db macOS<br/>READONLY)]
     end
 
@@ -148,9 +152,10 @@ graph TB
     API --> DAEMON
     API --> EMAILW
     API --> AUDIOD
-    DAEMON --> CHATDB
-    IMESSAGE --> CHATDB
-    API --> CHATDB
+    MAIN --> APPLE
+    DAEMON --> APPLE
+    APPLE --> CHATDB
+    IMESSAGE -. "Messages.app" .-> CHATDB
 ```
 
 ### Top 5 des problèmes identifiés — état au 14 juillet 2026
@@ -168,7 +173,7 @@ graph TB
 ```
 Semaine 1 │ Phase 1: Quick wins P0 (1j) │ Phase 2: Database modulaire (1j)
 Semaine 2 │ Phase 3: Event bus actif (2j, fait) │ Phase 4: Routeurs FastAPI (fait)
-Semaine 3 │ Phase 5: Apple Data Service (3j) │ Phase 6: Frontend unifié (5j)
+Semaine 3 │ Phase 5: Apple Data Service (fait) │ Phase 6: Frontend unifié (5j)
 ```
 
 Chaque phase est **indépendante**, **réversible**, **testée**, et **sans interruption de service**.
@@ -218,14 +223,14 @@ Chaque phase est **indépendante**, **réversible**, **testée**, et **sans inte
 - [x] Planification (05-07) : migration, tests, roadmap
 - [x] Contrats (16, 20) : API REST/WebSocket + interfaces internes
 - [x] Gouvernance (00, 17-19, 21-27) : 12 règles, DoD, dépendances, fitness, dette, score, revue
-- [x] Score de santé : 6.05/10 après Phase 4 → cible 8.5/10 après Phase 6
+- [x] Score de santé : 6.50/10 après Phase 5 → cible 8.5/10 après Phase 6
 - [x] Rapport final — prêt pour le refactoring (27)
 - [ ] Validation par l'utilisateur
-- [x] Phases 1 à 4 implémentées et validées le 14/07/2026
+- [x] Phases 1 à 5 implémentées et validées le 14/07/2026
 
 **Dossier Architecture/ : 35 fichiers Markdown + 3 sous-répertoires — source de vérité officielle du projet**
 
-**Prochaine étape** : Phase 5 — centralisation des accès Apple dans `AppleDataService`.
+**Prochaine étape** : Phase 6 — frontend unifié et SDK Auth (LockGate PWA).
 
 ---
 

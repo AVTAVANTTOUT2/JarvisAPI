@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import sqlite3
 import struct
 import tempfile
 import time
@@ -31,7 +30,6 @@ from typing import Any
 import httpx
 
 import config
-from pipeline import process_message_internal, process_voice_fast
 from audio.audio_format import playback_file_extension, prepare_stt_bytes
 from database import (
     create_conversation,
@@ -43,6 +41,8 @@ from database import (
     save_message,
     set_active_device,
 )
+from integrations.apple_data import apple_data
+from pipeline import process_message_internal, process_voice_fast
 from scripts.screen_watcher import screen_watcher
 
 logger = logging.getLogger(__name__)
@@ -90,15 +90,8 @@ class JarvisDaemon:
 
         # Initialiser le dernier ROWID iMessage pour ne pas retraiter le backlog
         try:
-            from integrations.imessage_reader import imessage_reader
-
-            if imessage_reader and imessage_reader.is_available():
-                with sqlite3.connect(
-                    f"file:{Path.home() / 'Library/Messages/chat.db'}?mode=ro",
-                    uri=True,
-                ) as db:
-                    row = db.execute("SELECT MAX(ROWID) FROM message").fetchone()
-                    max_rowid = int(row[0] or 0)
+            if apple_data.is_available():
+                max_rowid = apple_data.get_max_rowid()
                 from integrations.imessage_cursor import initialize_consumer_cursor
 
                 start_rowid = initialize_consumer_cursor(
@@ -221,20 +214,7 @@ class JarvisDaemon:
             )
 
             last_rowid = get_consumer_cursor(self.imessage_cursor_name)
-            with sqlite3.connect(
-                f"file:{Path.home() / 'Library/Messages/chat.db'}?mode=ro",
-                uri=True,
-            ) as db:
-                db.row_factory = sqlite3.Row
-                rows = db.execute(
-                    """SELECT m.ROWID, m.text, m.is_from_me, m.date, h.id as handle
-                       FROM message m
-                       LEFT JOIN handle h ON m.handle_id = h.ROWID
-                       WHERE m.ROWID > ? AND m.text IS NOT NULL AND m.text != ''
-                       ORDER BY m.ROWID ASC
-                       LIMIT 10""",
-                    (last_rowid,),
-                ).fetchall()
+            rows = apple_data.get_new_messages(last_rowid, limit=10)
         except Exception as e:
             logger.warning("[daemon] iMessage scan : %s", e)
             return
@@ -242,11 +222,11 @@ class JarvisDaemon:
         if rows:
             advance_consumer_cursor(
                 self.imessage_cursor_name,
-                max(int(row["ROWID"]) for row in rows),
+                max(int(row["rowid"]) for row in rows),
             )
 
         for row in rows:
-            rowid = int(row["ROWID"])
+            rowid = int(row["rowid"])
 
             if rowid in self.known_msg_ids:
                 continue

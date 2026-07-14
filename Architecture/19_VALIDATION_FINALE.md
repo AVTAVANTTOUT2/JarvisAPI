@@ -1,7 +1,7 @@
 # 19 — Validation Finale
 
 **Date** : 11 juillet 2026
-**Statut** : Synthèse actualisée après les Phases 1 à 4
+**Statut** : Synthèse actualisée après les Phases 1 à 5
 
 ---
 
@@ -10,27 +10,27 @@
 | Dimension | Score (/10) | Poids | Pondéré |
 |---|---|---|---|
 | **Séparation des responsabilités** | 7/10 | 20% | 1.4 |
-| **Couplage** | 7/10 | 15% | 1.05 |
+| **Couplage** | 8/10 | 15% | 1.2 |
 | **Cohésion** | 7/10 | 10% | 0.7 |
 | **Testabilité** | 5/10 | 15% | 0.75 |
 | **Documentation** | 8/10 | 10% | 0.8 |
 | **Sécurité** | 7/10 | 15% | 1.05 |
 | **Performance** | 6/10 | 10% | 0.6 |
 | **Évolutivité** | 7/10 | 5% | 0.35 |
-| **TOTAL** | | **100%** | **6.70/10** |
+| **TOTAL** | | **100%** | **6.85/10** |
 
-**Interprétation** : Après les Phases 1 à 4, l'architecture est à **6.70/10**. L'objectif après refactoring reste **8.5/10**.
+**Interprétation** : Après les Phases 1 à 5, l'architecture est à **6.85/10**. L'objectif après refactoring reste **8.5/10**.
 
 ### Justification des scores
 
 - **Séparation (7/10)** : les god objects database et API sont résolus ; `main.py` fait 175 lignes et monte 12 routeurs de domaine.
-- **Couplage (7/10)** : cycle main↔daemon supprimé, Event Bus actif et aucun import `api → main` ; 25+ connexions directes à `chat.db` et 15 producteurs de notifications directs restent.
+- **Couplage (8/10)** : cycle main↔daemon supprimé, Event Bus actif, aucun import `api → main` et accès iMessage à `chat.db` centralisé ; les 15 producteurs directs de notifications restent.
 - **Cohésion (7/10)** : routes, WebSocket, pipeline, frontend, middleware et lifespan sont regroupés par responsabilité dans `api/`.
-- **Testabilité (5/10)** : 546 fonctions de test backend déclarées dans 63 fichiers ; contrat routes/OpenAPI et contraintes structurelles Phase 4 verrouillés, mais couverture globale non mesurée de façon fiable.
-- **Documentation (8/10)** : CLAUDE.md et Architecture/ suivent les quatre phases ; les diagrammes détaillés par flux restent à enrichir.
+- **Testabilité (5/10)** : 553 fonctions de test backend déclarées dans 64 fichiers ; contrats routes/OpenAPI et invariants AppleData verrouillés, mais couverture globale non mesurée de façon fiable.
+- **Documentation (8/10)** : CLAUDE.md et Architecture/ suivent les cinq phases ; les diagrammes détaillés par flux restent à enrichir.
 - **Sécurité (7/10)** : Auth robuste (scrypt, sessions, anti-brute-force). CSP, CORS, CSRF configurés. Mais PWA sans LockGate, pas de chiffrement au repos, HTTP par défaut.
 - **Performance (6/10)** : SQLite WAL, `busy_timeout = 5000` et batch import. Le cache LLM et le monitoring restent à implémenter.
-- **Évolutivité (6/10)** : ajouter un domaine de persistance ne nécessite plus de modifier un monolithe et les réactions peuvent s'abonner au bus ; les connecteurs et deux frontends restent coûteux à faire évoluer.
+- **Évolutivité (7/10)** : ajouter un domaine de persistance ne nécessite plus de modifier un monolithe et les réactions peuvent s'abonner au bus ; les connecteurs et deux frontends restent coûteux à faire évoluer.
 
 ## Principaux risques restants
 
@@ -43,7 +43,7 @@
 | 5 | Conflits de merge sur main.py et database/__init__.py | Faible | Moyen | ✅ Database résolue en Phase 2 et couche API résolue en Phase 4 |
 | 6 | Dette technique croissante | Élevée | Élevé | Tout le plan de refactoring |
 | 7 | Couverture frontend limitée (18 tests web, 0 PWA) | Élevée | Moyen | Phase 6 (plan de tests) |
-| 8 | 25+ connexions à chat.db — contention | Faible | Faible | Phase 5 (AppleDataService) |
+| 8 | 25+ connexions à chat.db — contention | Faible | Faible | ✅ Résolu Phase 5 (ouverture centralisée read-only, 14/07/2026) |
 
 ## Dépendances critiques
 
@@ -80,12 +80,12 @@
 
 ## Prochaine action
 
-**Phases 1 à 4 validées le 14/07/2026. Prochaine action : Phase 5 — Apple Data Service.**
+**Phases 1 à 5 validées le 14/07/2026. Prochaine action : Phase 6 — frontend unifié et LockGate PWA.**
 
 ```
-Phase 5 : 3 jours
-├── Introduire AppleDataService
-├── Centraliser les accès directs à chat.db
-├── Unifier la conversion des timestamps Apple
-└── Migrer les consommateurs avec tests de non-régression
+Phase 5 : terminée le 14/07/2026
+├── AppleDataService read-only introduit
+├── Ouvertures directes à chat.db supprimées hors service
+├── Conversion Apple timestamp unifiée
+└── 67 tests ciblés et 555 tests backend passants
 ```

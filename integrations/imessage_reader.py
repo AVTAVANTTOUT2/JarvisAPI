@@ -1,15 +1,22 @@
-"""Lecteur iMessage — accès READONLY à ~/Library/Messages/chat.db.
+"""Lecteur iMessage compatible, adossé à :mod:`integrations.apple_data`.
 
-Utilisé par le RelationshipAnalyzer pour extraire l'historique des conversations.
-Distinct du bridge iMessage (integrations/imessage.py) qui gère le polling temps réel + envoi.
+Le reader conserve l'API historique utilisée par les analyseurs relationnels
+et les jobs périodiques. Toute lecture SQLite de Messages.app passe désormais
+par ``AppleDataService``.
 """
+
+from __future__ import annotations
 
 import asyncio
 import logging
-import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from .apple_data import (
+    AppleDataService,
+    apple_data,
+    apple_epoch_to_datetime,
+)
 from .imessage_cursor import (
     advance_consumer_cursor,
     initialize_consumer_cursor,
@@ -17,394 +24,161 @@ from .imessage_cursor import (
 
 logger = logging.getLogger(__name__)
 
-# Les dates iMessage sont des secondes depuis 2001-01-01 00:00:00 UTC,
-# MAIS Apple les stocke aussi en nanosecondes dans les versions récentes de macOS.
-APPLE_EPOCH = datetime(2001, 1, 1)
-
-
-def _apple_ts_to_datetime_from_value(val) -> datetime | None:
-    """Interprète une date renvoyée par le reader : chaîne ISO ou timestamp Apple brut."""
-    if val is None:
-        return None
-    if isinstance(val, datetime):
-        return val
-    if isinstance(val, str):
-        try:
-            return datetime.fromisoformat(val.replace("Z", "+00:00")).replace(tzinfo=None)
-        except ValueError:
-            return None
-    try:
-        return _apple_ts_to_datetime(float(val))
-    except (TypeError, ValueError):
-        return None
-
-
-def _apple_ts_to_datetime(ts: int | float | None) -> datetime | None:
-    """Convertit un timestamp Apple (chat.db) en datetime Python."""
-    if ts is None or ts == 0:
-        return None
-    # macOS récent : nanosecondes (valeur > 1e15)
-    if abs(ts) > 1e15:
-        ts = ts / 1e9
-    try:
-        return APPLE_EPOCH + timedelta(seconds=ts)
-    except (OverflowError, ValueError, OSError):
-        return None
+# Alias rétrocompatibles : la conversion n'est implémentée que dans apple_data.py.
+_apple_ts_to_datetime = apple_epoch_to_datetime
+_apple_ts_to_datetime_from_value = apple_epoch_to_datetime
 
 
 class IMessageReader:
-    """Accès READONLY à chat.db pour l'analyse relationnelle."""
+    """API de lecture iMessage historique, sans ouverture directe de ``chat.db``."""
 
-    def __init__(self):
-        self.db_path = Path.home() / "Library" / "Messages" / "chat.db"
+    def __init__(self, data_service: AppleDataService | None = None) -> None:
+        self._apple_data = data_service or apple_data
         self._available: bool | None = None
         self.cursor_name = "reader.intelligence"
 
+    @property
+    def db_path(self) -> Path:
+        """Chemin exposé pour compatibilité et injection dans les tests."""
+        return self._apple_data.db_path
+
+    @db_path.setter
+    def db_path(self, value: str | Path) -> None:
+        self._apple_data = self._apple_data.with_db_path(value)
+        self._available = None
+
     def is_available(self) -> bool:
+        """Vérifie une fois la disponibilité du service Apple local."""
         if self._available is not None:
             return self._available
         logger.info("[imessage_reader] Tentative accès chat.db : %s", self.db_path)
         logger.info("[imessage_reader] Fichier existe : %s", self.db_path.exists())
-        try:
-            if not self.db_path.exists():
-                self._available = False
-                logger.warning("[imessage_reader] chat.db introuvable — chemin : %s", self.db_path)
-                return False
-            conn = sqlite3.connect(f"file:{self.db_path}?mode=ro", uri=True)
-            conn.execute("SELECT COUNT(*) FROM message LIMIT 1")
-            conn.close()
-            self._available = True
+        self._available = self._apple_data.is_available()
+        if self._available:
             logger.info("[iMsgReader] chat.db accessible en lecture")
-        except sqlite3.OperationalError as e:
-            self._available = False
-            err = str(e).lower()
+        else:
             logger.warning(
-                "[iMsgReader] chat.db inaccessible (OperationalError) : %s — %s",
-                e,
-                "Full Disk Access requis pour l’app qui lance JARVIS (Terminal / Cursor)."
-                if "unable to open" in err or "permission" in err or "authorization" in err
-                else "",
+                "[iMsgReader] chat.db inaccessible — Full Disk Access requis "
+                "pour l'app qui lance JARVIS"
             )
-        except Exception as e:
-            logger.warning("[iMsgReader] chat.db inaccessible : %s", e)
-            self._available = False
         return self._available
-
-    def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(f"file:{self.db_path}?mode=ro", uri=True)
-        conn.row_factory = sqlite3.Row
-        return conn
 
     def get_all_contacts(self) -> list[dict]:
         """Contacts uniques avec nombre de messages et dernière date."""
         if not self.is_available():
             return []
         try:
-            conn = self._connect()
-            rows = conn.execute(
-                """
-                SELECT h.id AS handle,
-                       COUNT(m.ROWID) AS msg_count,
-                       MAX(m.date) AS last_date
-                FROM message m
-                JOIN handle h ON m.handle_id = h.ROWID
-                WHERE m.text IS NOT NULL AND LENGTH(TRIM(m.text)) > 0
-                GROUP BY h.id
-                ORDER BY msg_count DESC
-                """
-            ).fetchall()
-            conn.close()
-            result: list[dict] = []
-            for r in rows:
-                dt = _apple_ts_to_datetime(r["last_date"])
-                result.append(
-                    {
-                        "handle": r["handle"],
-                        "msg_count": r["msg_count"],
-                        "last_date": dt.isoformat() if dt else None,
-                    }
-                )
-            return result
-        except Exception as e:
-            logger.error("[imessage_reader] get_all_contacts : %s", e)
+            return self._apple_data.get_contacts()
+        except Exception as exc:
+            logger.error("[imessage_reader] get_all_contacts : %s", exc)
             return []
 
     def get_all_conversation_stats_full(self) -> list[dict]:
-        """Retourne TOUTES les conversations distinctes avec stats et dates corrigées.
-
-        Joint `chat`, `chat_handle_join`, `handle`, `message`.
-        Conversion date Cocoa/macOS:
-          - nanosecondes: (date / 1e9) + 978307200
-          - secondes: date + 978307200
-        """
+        """Retourne toutes les conversations distinctes avec leurs statistiques."""
         if not self.is_available():
             return []
         try:
-            conn = self._connect()
-            rows = conn.execute(
-                """
-                SELECT
-                    h.id AS handle,
-                    COUNT(m.ROWID) AS msg_count,
-                    MIN(m.date) AS first_date_raw,
-                    MAX(m.date) AS last_date_raw,
-                    MAX(m.ROWID) AS last_rowid,
-                    MIN(
-                        CASE
-                            WHEN ABS(m.date) > 1000000000000
-                                THEN (m.date / 1000000000.0) + 978307200
-                            ELSE m.date + 978307200
-                        END
-                    ) AS first_unix_ts,
-                    MAX(
-                        CASE
-                            WHEN ABS(m.date) > 1000000000000
-                                THEN (m.date / 1000000000.0) + 978307200
-                            ELSE m.date + 978307200
-                        END
-                    ) AS last_unix_ts
-                FROM chat c
-                JOIN chat_handle_join chj ON chj.chat_id = c.ROWID
-                JOIN handle h ON h.ROWID = chj.handle_id
-                JOIN message m ON m.handle_id = h.ROWID
-                WHERE h.id IS NOT NULL
-                  AND m.text IS NOT NULL
-                  AND LENGTH(TRIM(m.text)) > 0
-                GROUP BY h.id
-                ORDER BY msg_count DESC
-                """
-            ).fetchall()
-            conn.close()
-            out: list[dict] = []
-            for r in rows:
-                first_dt = _apple_ts_to_datetime(r["first_date_raw"])
-                last_dt = _apple_ts_to_datetime(r["last_date_raw"])
-                out.append(
-                    {
-                        "handle": r["handle"],
-                        "msg_count": int(r["msg_count"] or 0),
-                        "first_message_at": first_dt.isoformat() if first_dt else None,
-                        "last_message_at": last_dt.isoformat() if last_dt else None,
-                        "first_unix_ts": float(r["first_unix_ts"] or 0),
-                        "last_unix_ts": float(r["last_unix_ts"] or 0),
-                        "last_rowid": int(r["last_rowid"] or 0),
-                    }
-                )
-            return out
-        except Exception as e:
-            logger.error("[iMsgReader] get_all_conversation_stats_full : %s", e)
+            return self._apple_data.get_all_conversation_stats()
+        except Exception as exc:
+            logger.error("[iMsgReader] get_all_conversation_stats_full : %s", exc)
             return []
 
-    def get_conversation(self, handle: str, limit: int = 100,
-                         since_rowid: int = 0) -> list[dict]:
-        """Messages d'un contact depuis un ROWID donné (analyse incrémentale)."""
+    def get_conversation(
+        self,
+        handle: str,
+        limit: int = 100,
+        since_rowid: int = 0,
+    ) -> list[dict]:
+        """Messages d'un contact depuis un ROWID donné."""
         if not self.is_available():
             return []
         try:
-            conn = self._connect()
-            rows = conn.execute("""
-                SELECT m.ROWID AS rowid, m.text, m.date, m.is_from_me
-                FROM message m
-                JOIN handle h ON m.handle_id = h.ROWID
-                WHERE h.id = ?
-                  AND m.ROWID > ?
-                  AND m.text IS NOT NULL
-                  AND LENGTH(m.text) > 0
-                ORDER BY m.ROWID ASC
-                LIMIT ?
-            """, (handle, since_rowid, limit)).fetchall()
-            conn.close()
-            result = []
-            for r in rows:
-                dt = _apple_ts_to_datetime(r["date"])
-                result.append({
-                    "rowid": r["rowid"],
-                    "text": r["text"],
-                    "date": dt.isoformat() if dt else None,
-                    "date_short": dt.strftime("%d/%m %H:%M") if dt else "?",
-                    "is_from_me": bool(r["is_from_me"]),
-                })
-            return result
-        except Exception as e:
-            logger.error("[iMsgReader] get_conversation(%s) : %s", handle, e)
+            return self._apple_data.get_conversation(
+                handle,
+                limit=limit,
+                since_rowid=since_rowid,
+            )
+        except Exception as exc:
+            logger.error("[iMsgReader] get_conversation(%s) : %s", handle, exc)
             return []
 
     def get_recent_conversation(self, handle: str, limit: int = 30) -> list[dict]:
-        """Derniers messages avec ce handle (ordre chronologique, du plus ancien au plus récent)."""
+        """Derniers messages avec ce handle, en ordre chronologique."""
         if not self.is_available():
             return []
         try:
-            conn = self._connect()
-            rows = conn.execute(
-                """
-                SELECT m.ROWID AS rowid, m.text, m.date, m.is_from_me
-                FROM message m
-                JOIN handle h ON m.handle_id = h.ROWID
-                WHERE h.id = ?
-                  AND m.text IS NOT NULL
-                  AND LENGTH(m.text) > 0
-                ORDER BY m.ROWID DESC
-                LIMIT ?
-                """,
-                (handle, limit),
-            ).fetchall()
-            conn.close()
-            rows = list(reversed(rows))
-            result = []
-            for r in rows:
-                dt = _apple_ts_to_datetime(r["date"])
-                result.append({
-                    "rowid": r["rowid"],
-                    "text": r["text"],
-                    "date": dt.isoformat() if dt else None,
-                    "date_short": dt.strftime("%d/%m %H:%M") if dt else "?",
-                    "is_from_me": bool(r["is_from_me"]),
-                })
-            return result
-        except Exception as e:
-            logger.error("[iMsgReader] get_recent_conversation(%s) : %s", handle, e)
+            return self._apple_data.get_recent_conversation(handle, limit=limit)
+        except Exception as exc:
+            logger.error("[iMsgReader] get_recent_conversation(%s) : %s", handle, exc)
             return []
 
     def get_conversation_with(self, name_or_handle: str, limit: int = 50) -> list[dict]:
-        """Cherche un handle par motif (id handle ou texte message), puis renvoie le fil."""
+        """Cherche un handle par motif puis renvoie le fil récent."""
         if not self.is_available():
             return []
         try:
-            conn = self._connect()
-            q = f"%{name_or_handle}%"
-            handles = conn.execute(
-                """
-                SELECT DISTINCT h.id
-                FROM handle h
-                LEFT JOIN message m ON m.handle_id = h.ROWID
-                WHERE h.id LIKE ? OR (m.text IS NOT NULL AND m.text LIKE ?)
-                ORDER BY h.id
-                LIMIT 20
-                """,
-                (q, q),
-            ).fetchall()
-            if not handles:
-                conn.close()
-                return []
-            handle = handles[0]["id"]
-            conn.close()
-            out = self.get_recent_conversation(handle, limit=limit)
-            for m in out:
-                m["handle"] = handle
-            return out
-        except Exception as e:
-            logger.error("[iMsgReader] get_conversation_with(%s) : %s", name_or_handle, e)
+            return self._apple_data.get_conversation_with(name_or_handle, limit=limit)
+        except Exception as exc:
+            logger.error("[iMsgReader] get_conversation_with(%s) : %s", name_or_handle, exc)
             return []
 
     def get_conversation_for_period(
-        self, handle: str, days: int = 90, limit: int = 5000
+        self,
+        handle: str,
+        days: int = 90,
+        limit: int = 5000,
     ) -> list[dict]:
-        """Messages dont la date est >= (maintenant − days), ordre chronologique croissant.
-
-        Utilisé par ContactAnalytics (pas de LLM). S’appuie sur `get_recent_conversation`
-        puis filtre par date pour éviter les incohérences de timestamp SQLite Apple.
-        """
+        """Messages récents filtrés par période, avec la forme historique."""
         if not self.is_available():
             return []
-        cap = min(max(limit * 4, 500), 20000)
+        cap = min(max(limit * 4, 500), 20_000)
         raw = self.get_recent_conversation(handle, limit=cap)
         if not raw:
             return []
         cutoff = datetime.now() - timedelta(days=days)
-        out: list[dict] = []
-        for r in raw:
-            dt = _apple_ts_to_datetime_from_value(r.get("date"))
-            if dt is None:
-                continue
-            if dt >= cutoff:
-                out.append(r)
-        out.sort(key=lambda x: _apple_ts_to_datetime_from_value(x.get("date")) or datetime.min)
-        if len(out) > limit:
-            out = out[-limit:]
-        return out
+        result: list[dict] = []
+        for message in raw:
+            date = apple_epoch_to_datetime(message.get("date"))
+            if date is not None and date >= cutoff:
+                result.append(message)
+        result.sort(
+            key=lambda item: apple_epoch_to_datetime(item.get("date")) or datetime.min
+        )
+        return result[-limit:] if len(result) > limit else result
 
     def search_messages(self, query: str, limit: int = 20) -> list[dict]:
-        """Recherche LIKE dans tous les messages."""
+        """Recherche textuelle dans les messages iMessage."""
         if not self.is_available():
             return []
         try:
-            conn = self._connect()
-            rows = conn.execute("""
-                SELECT m.ROWID AS rowid, m.text, m.date, m.is_from_me,
-                       h.id AS handle
-                FROM message m
-                JOIN handle h ON m.handle_id = h.ROWID
-                WHERE m.text LIKE ?
-                  AND m.text IS NOT NULL
-                ORDER BY m.date DESC
-                LIMIT ?
-            """, (f"%{query}%", limit)).fetchall()
-            conn.close()
-            result = []
-            for r in rows:
-                dt = _apple_ts_to_datetime(r["date"])
-                result.append({
-                    "rowid": r["rowid"],
-                    "text": r["text"],
-                    "date": dt.isoformat() if dt else None,
-                    "is_from_me": bool(r["is_from_me"]),
-                    "handle": r["handle"],
-                })
-            return result
-        except Exception as e:
-            logger.error("[iMsgReader] search_messages : %s", e)
+            return self._apple_data.search_messages(query, limit=limit)
+        except Exception as exc:
+            logger.error("[iMsgReader] search_messages : %s", exc)
             return []
 
-    # ── Sourcing : scan périodique en lecture seule ──────────
-
     def scan_new_messages(self) -> int:
-        """Lit chat.db en `mode=ro`, retourne le nombre de nouveaux messages détectés.
-
-        Cette méthode est purement en lecture seule. Elle ne modifie jamais
-        chat.db et n'appelle jamais osascript / Messages.app en écriture.
-        """
+        """Retourne le nombre de nouveaux messages depuis le dernier scan."""
         count, _ = self.scan_new_messages_with_last_id()
         return count
 
     def scan_new_messages_with_last_id(self) -> tuple[int, int]:
-        """Comme scan_new_messages() mais retourne (count, last_rowid).
-
-        Returns:
-            Tuple (nombre_de_nouveaux_messages, dernier_rowid_scanné).
-            (0, 0) si aucun nouveau message ou erreur.
-        """
+        """Retourne ``(nombre de nouveaux messages, dernier ROWID)``."""
         if not self.is_available():
             return 0, 0
         try:
-            conn = sqlite3.connect(
-                f"file:{self.db_path}?mode=ro", uri=True, timeout=5.0
-            )
-            row = conn.execute(
-                "SELECT COALESCE(MAX(ROWID), 0) FROM message"
-            ).fetchone()
-            current_max = int(row[0]) if row else 0
-            conn.close()
-
-            # Au premier scan, initialise au maximum courant pour ne pas
-            # retraiter tout l'historique. Aux scans suivants, récupère
-            # l'offset persistant existant, y compris s'il vaut réellement 0.
+            current_max = self._apple_data.get_max_rowid()
             last_max = initialize_consumer_cursor(self.cursor_name, current_max)
             if current_max <= last_max:
                 return 0, current_max
-
             count = current_max - last_max
             advance_consumer_cursor(self.cursor_name, current_max)
             return count, current_max
-        except sqlite3.Error as e:
-            logger.warning("[imessage_reader] scan_new_messages_with_last_id : %s", e)
+        except Exception as exc:
+            logger.warning("[imessage_reader] scan_new_messages_with_last_id : %s", exc)
             return 0, 0
 
     async def periodic_scan(self, interval: int = 300) -> None:
-        """Boucle de lecture chat.db en lecture seule — jamais d'écriture côté Messages.app.
-
-        Args:
-            interval: secondes entre chaque scan (défaut 300 = 5 minutes)
-        """
+        """Boucle périodique de sourcing iMessage en lecture seule."""
         logger.info("[imessage_reader] Scan périodique démarré (interval=%ds)", interval)
         while True:
             try:
@@ -417,30 +191,21 @@ class IMessageReader:
                             count,
                             last_id,
                         )
-                        # Déclenche l'analyse en tâche séparée (jamais bloquant)
                         asyncio.create_task(
-                            _trigger_message_intelligence(
-                                since_id=last_id - count,
-                            ),
+                            _trigger_message_intelligence(since_id=last_id - count),
                             name="message_intelligence",
                         )
-            except Exception as e:
+            except Exception as exc:
                 logger.error(
-                    "[imessage_reader] ÉCHEC scan — sourcing pourrait être "
-                    "bloqué : %s",
-                    e,
+                    "[imessage_reader] ÉCHEC scan — sourcing pourrait être bloqué : %s",
+                    exc,
                     exc_info=True,
                 )
             await asyncio.sleep(interval)
 
 
-
 async def _trigger_message_intelligence(since_id: int) -> None:
-    """Déclenche l'analyse d'intelligence sur les messages récents.
-
-    Appelée en `asyncio.create_task` (non bloquant) après chaque scan
-    réussi de chat.db. L'import est lazy pour éviter les cycles.
-    """
+    """Déclenche l'analyse asynchrone après un scan réussi."""
     try:
         from jarvis.message_intelligence import analyze_recent_messages
 
@@ -450,10 +215,16 @@ async def _trigger_message_intelligence(since_id: int) -> None:
                 "[imessage_reader] message_intelligence terminé : %s",
                 result.get("status"),
             )
-    except Exception as e:
-        logger.warning(
-            "[imessage_reader] message_intelligence erreur : %s", e
-        )
+    except Exception as exc:
+        logger.warning("[imessage_reader] message_intelligence erreur : %s", exc)
 
 
 imessage_reader = IMessageReader()
+
+
+__all__ = [
+    "IMessageReader",
+    "_apple_ts_to_datetime",
+    "_apple_ts_to_datetime_from_value",
+    "imessage_reader",
+]

@@ -1,7 +1,7 @@
 # 27 — Rapport Final : Prêt pour le Refactoring
 
 **Date** : 11 juillet 2026
-**Statut** : Dernier document avant implémentation
+**Statut** : Rapport vivant — Phases 1 à 5 validées
 
 ---
 
@@ -24,7 +24,7 @@
 **Aucune zone majeure.** Approfondissements possibles dans le futur :
 
 - Diagrammes de séquence détaillés par flux (`diagrams/`)
-- Documentation exhaustive des 546 fonctions de test actuellement déclarées
+- Documentation exhaustive des 553 fonctions de test actuellement déclarées
 - Profilage de performance avant/après benchmarks
 - Plan de reprise après sinistre complet
 
@@ -80,10 +80,10 @@ Phase 6 → dépend de Phase 1 + Phase 3 + Phase 5
 2. **Phase 2 — Database modulaire** : ✅ validée le 14/07/2026 — façade 236 lignes, 25 modules après ajout du journal Phase 3
 3. **Phase 3 — Event bus actif** : ✅ validée le 14/07/2026 — 10 événements, 3 consommateurs et PWA temps réel
 4. **Phase 4 — Routeurs FastAPI** : ✅ validée le 14/07/2026 — 12 routeurs, `main.py` 175 lignes et contrat API inchangé
-5. **Phase 5 — Apple Data Service** (3 jours) : prochaine étape
+5. **Phase 5 — Apple Data Service** : ✅ validée le 14/07/2026 — accès `chat.db` et conversion Apple centralisés
 
 ## Conclusion
 
 **Le dossier Architecture/ est prêt. Il constitue désormais la source de vérité officielle du projet JARVIS. Aucune modification du code ne doit contredire cette documentation.**
 
-**Phases 1 à 4 validées le 14/07/2026. Prochaine action : Phase 5 — Apple Data Service.**
+**Phases 1 à 5 validées le 14/07/2026. Prochaine action : Phase 6 — frontend unifié et SDK Auth.**

@@ -11,10 +11,12 @@ Ces règles sont **non négociables**. Toute violation doit être justifiée par
 
 ### Règle 1 — Accès aux données Apple
 
-> **Aucun accès direct à `chat.db`, Contacts, Calendar, Mail ou Notes en dehors du `AppleDataService`.**
+> **Aucun accès direct à `chat.db` en dehors du `AppleDataService`.**
+
+La Phase 5 applique cette règle à Messages.app uniquement. La centralisation des autres sources natives (Contacts, Calendar, Mail et Notes) reste une cible d'architecture et ne doit pas être présentée comme déjà réalisée.
 
 - Violation : `sqlite3.connect("...chat.db")` dans un fichier autre que `integrations/apple_data.py`
-- Détection : `grep -r "chat.db" --include="*.py" | grep -v apple_data | grep -v test`
+- Détection : `python -m pytest tests/test_apple_data.py -q` (analyse AST des accès exécutables)
 - Sanction : PR refusée
 
 ### Règle 2 — Accès à SQLite
@@ -129,7 +131,7 @@ Avant de merger une PR :
 
 ## Vérification automatique
 
-Le script général `scripts/architecture_check.py` décrit ci-dessous reste une cible : il n'existe pas encore dans le dépôt et ne doit pas être présenté comme exécuté. La Phase 4 matérialise les règles API dans `tests/test_phase4_architecture.py`.
+Le script général `scripts/architecture_check.py` décrit ci-dessous reste une cible : il n'existe pas encore dans le dépôt et ne doit pas être présenté comme exécuté. Les règles API sont matérialisées dans `tests/test_phase4_architecture.py` et la règle `chat.db` dans `tests/test_apple_data.py`.
 
 ```bash
 # Vérifie les règles 1, 2, 3, 8, 9, 11, 12

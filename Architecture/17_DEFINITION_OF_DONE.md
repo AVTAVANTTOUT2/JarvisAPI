@@ -62,10 +62,12 @@ Preuves exécutées le 14/07/2026 : 6 tests Phase 4 passants, suite complète à
 
 ### Phase 5 — Apple Data Service
 
-- [ ] `grep -r "chat.db" --include="*.py" | grep -v apple_data | grep -v test` retourne 0
-- [ ] `apple_epoch_to_datetime()` n'existe que dans `apple_data.py`
-- [ ] Tous les consommateurs migrés (IMessageBridge, JarvisDaemon, RelationshipAnalyzer, etc.)
-- [ ] Tests d'intégration passent avec mock de chat.db
+- [x] `AppleDataService` est l'unique ouverture applicative de `chat.db` (`mode=ro` + `PRAGMA query_only`)
+- [x] `apple_epoch_to_datetime()` n'est définie que dans `integrations/apple_data.py`
+- [x] Les consommateurs iMessage sont migrés directement ou via `IMessageReader` (bridge, daemons, import/backfill, diagnostics, TV et analyseurs relationnels)
+- [x] Tests d'intégration passent avec mock de chat.db et garde-fou AST contre les accès directs
+
+Preuves exécutées le 14/07/2026 : 67 tests ciblés passants, suite backend complète à 555 passants et 1 ignoré, `compileall` et `git diff --check` réussis. La validation Full Disk Access/TCC sur un `chat.db` réel et l'observation opérationnelle 24 h restent manuelles.
 
 ### Phase 6 — Frontend unifié
 

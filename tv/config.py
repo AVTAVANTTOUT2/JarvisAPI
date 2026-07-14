@@ -14,8 +14,6 @@ ROOT_DIR: Final = BASE_DIR.parent
 DB_PATH: Final = str(ROOT_DIR / "data" / "jarvis.db")
 LOGS_DIR: Final = str(ROOT_DIR / "logs")
 FONTS_DIR: Final = str(BASE_DIR / "static" / "assets" / "fonts")
-IMESSAGE_DB: Final = str(Path.home() / "Library" / "Messages" / "chat.db")
-
 # ── Serveur HTTP ─────────────────────────────────────────────
 TV_HOST: Final[str] = os.getenv("TV_HOST", "0.0.0.0")
 TV_PORT: Final[int] = int(os.getenv("TV_PORT", "5174"))

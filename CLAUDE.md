@@ -182,7 +182,7 @@ JARVIS est accessible **depuis l'iPhone** via iMessage : on parle à JARVIS comm
 
 ### Lecture des messages reçus
 
-`~/Library/Messages/chat.db` est une base SQLite mise à jour en temps réel par Messages.app. JARVIS s'y connecte en **READONLY** (`mode=ro` URI) et fait un polling toutes les `IMESSAGE_POLLING_INTERVAL` secondes (défaut 3s) :
+`~/Library/Messages/chat.db` est une base SQLite mise à jour en temps réel par Messages.app. Depuis la Phase 5, seul `integrations/apple_data.py` l'ouvre : `AppleDataService.connect_readonly()` applique l'URI `mode=ro`, `PRAGMA query_only` et la conversion Apple de dates. Le bridge, le reader, les daemons, l'import/backfill, les diagnostics et la TV passent par cette façade ; aucun composant ne doit créer sa propre connexion. Le bridge fait un polling toutes les `IMESSAGE_POLLING_INTERVAL` secondes (défaut 3s) :
 
 ```sql
 SELECT m.ROWID, m.text, m.date, h.id AS handle_id
@@ -831,7 +831,8 @@ L'orchestrateur formate ce dict en texte dense injecté dans `memory_context` du
 
 ### Analyse relationnelle iMessage
 
-- **`integrations/imessage_reader.py`** : lecteur READONLY de `~/Library/Messages/chat.db`. Méthodes : `get_all_contacts()`, `get_conversation(handle, limit, since_rowid)`, `get_recent_conversation`, **`get_conversation_for_period(handle, days, limit)`** (fenêtre glissante pour analytics), `search_messages(query)`.
+- **`integrations/apple_data.py`** : façade read-only unique de `chat.db`, conversion canonique `apple_epoch_to_datetime()` et résolution Contacts injectée.
+- **`integrations/imessage_reader.py`** : façade de compatibilité qui délègue à `AppleDataService`. Méthodes : `get_all_contacts()`, `get_conversation(handle, limit, since_rowid)`, `get_recent_conversation`, **`get_conversation_for_period(handle, days, limit)`** (fenêtre glissante pour analytics), `search_messages(query)`.
 - **`scripts/contact_analytics.py`** : classe **`ContactAnalytics`** — métriques relationnelles **sans LLM** (score proximité, tendance, heatmap sentiment heuristique, sujets par mots, non-répondus, patterns de réponse, etc.). Singleton **`contact_analytics`**.
 - **`scripts/contact_alerts.py`** : **`check_relationship_alerts()`** — silence inhabituel vs fréquence moyenne, dernier message entrant sans réponse > 24 h → **`create_notification`** (source `relationship`) ; anti-doublon titre récent.
 - **`scripts/timeline_generator.py`** : **`generate_timeline(name)`** — historique iMessage découpé par blocs de 50 messages, extraction JSON Haiku des événements marquants.

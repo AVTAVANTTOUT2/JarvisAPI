@@ -16,13 +16,12 @@ numéro ou email iMessage). Les messages des autres contacts sont ignorés.
 import asyncio
 import logging
 import re
-import sqlite3
-from datetime import datetime, timezone
 from pathlib import Path
 
 import config
 
 from ._applescript import escape_applescript_string, run_applescript
+from .apple_data import AppleDataService, apple_data
 from .imessage_cursor import (
     advance_consumer_cursor,
     get_consumer_cursor,
@@ -46,9 +45,13 @@ class IMessageBridge:
         bridge.stop()
     """
 
-    def __init__(self, target_address: str):
+    def __init__(
+        self,
+        target_address: str,
+        data_service: AppleDataService | None = None,
+    ) -> None:
         self.target = (target_address or "").strip()
-        self.db_path = Path.home() / "Library" / "Messages" / "chat.db"
+        self._apple_data = data_service or apple_data
         self.cursor_name = f"bridge.reply:{self.target}"
         self.running: bool = False
         self.processed_rowids: set[int] = set()
@@ -62,6 +65,15 @@ class IMessageBridge:
             f"[iMessage] Init bridge — target={self.target or '(non configuré)'} | "
             f"db={self.db_path}"
         )
+
+    @property
+    def db_path(self) -> Path:
+        """Chemin de la base exposé pour compatibilité."""
+        return self._apple_data.db_path
+
+    @db_path.setter
+    def db_path(self, value: str | Path) -> None:
+        self._apple_data = self._apple_data.with_db_path(value)
 
     def _remember_outgoing(self, text: str) -> None:
         """Garde une trace des N dernières réponses envoyées (anti-écho)."""
@@ -94,12 +106,10 @@ class IMessageBridge:
             )
             return False
         try:
-            conn = sqlite3.connect(f"file:{self.db_path}?mode=ro", uri=True, timeout=2.0)
-            count = conn.execute("SELECT COUNT(*) FROM message").fetchone()[0]
-            conn.close()
+            count = self._apple_data.count_messages()
             logger.info("[iMessage] chat.db accessible (%d messages)", count)
             return True
-        except sqlite3.OperationalError as e:
+        except Exception as e:
             err = str(e).lower()
             if "unable to open" in err or "authorization" in err or "permission" in err:
                 logger.critical(
@@ -109,13 +119,7 @@ class IMessageBridge:
                     e,
                 )
             else:
-                logger.error("[iMessage] OperationalError inattendue : %s", e)
-            return False
-        except sqlite3.DatabaseError as e:
-            logger.error("[iMessage] DatabaseError sur chat.db : %s", e)
-            return False
-        except Exception as e:
-            logger.error("[iMessage] Erreur inattendue acces chat.db : %s (%s)", e, type(e).__name__)
+                logger.error("[iMessage] Erreur accès chat.db : %s", e)
             return False
 
     # ── Lecture chat.db ──────────────────────────────────────
@@ -123,11 +127,8 @@ class IMessageBridge:
     def _max_rowid(self) -> int:
         """Récupère le ROWID max actuel de la table message (pour init)."""
         try:
-            conn = sqlite3.connect(f"file:{self.db_path}?mode=ro", uri=True, timeout=2.0)
-            row = conn.execute("SELECT COALESCE(MAX(ROWID), 0) FROM message").fetchone()
-            conn.close()
-            return int(row[0]) if row else 0
-        except sqlite3.Error as e:
+            return self._apple_data.get_max_rowid()
+        except Exception as e:
             logger.error(f"[iMessage] _max_rowid : {e}")
             return 0
 
@@ -142,37 +143,26 @@ class IMessageBridge:
         """
         last_check_rowid = get_consumer_cursor(self.cursor_name)
         try:
-            conn = sqlite3.connect(f"file:{self.db_path}?mode=ro", uri=True, timeout=2.0)
-            cur = conn.execute(
-                """
-                SELECT m.ROWID, m.text, m.date, m.is_from_me, h.id AS handle_id
-                FROM message m
-                LEFT JOIN handle h ON m.handle_id = h.ROWID
-                WHERE m.ROWID > ?
-                  AND m.is_from_me = 0
-                  AND m.text IS NOT NULL
-                  AND m.text != ''
-                  AND h.id = ?
-                ORDER BY m.ROWID ASC
-                """,
-                (last_check_rowid, self.target),
+            rows = self._apple_data.get_new_messages(
+                last_check_rowid,
+                handle=self.target,
+                incoming_only=True,
             )
-            rows = cur.fetchall()
-            conn.close()
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"[iMessage] _get_new_messages : {e}")
             return []
 
         messages = []
         max_rowid = last_check_rowid
-        for rowid, text, date_int, is_from_me, handle in rows:
+        for row in rows:
+            rowid = int(row["rowid"])
             messages.append({
                 "rowid": rowid,
-                "text": text or "",
-                "date": date_int,
-                "handle": handle,
+                "text": row["text"] or "",
+                "date": row["date"],
+                "handle": row["handle"],
             })
-            max_rowid = max(max_rowid, int(rowid))
+            max_rowid = max(max_rowid, rowid)
 
         if max_rowid > last_check_rowid:
             advance_consumer_cursor(self.cursor_name, max_rowid)

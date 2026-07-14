@@ -17,10 +17,11 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
+from integrations.apple_data import apple_data
+
 
 ROOT = Path(__file__).resolve().parents[1]
 DB_PATH = ROOT / "data" / "jarvis.db"
-CHAT_DB = Path.home() / "Library" / "Messages" / "chat.db"
 BACKEND_LOG = ROOT / "data" / ".jarvis_restart" / "backend.log"
 STATUS_URL = "https://127.0.0.1:8081/api/status"
 
@@ -46,19 +47,8 @@ def check_backend() -> dict:
 
 
 def check_chat_db() -> dict:
-    out: dict = {"path": str(CHAT_DB), "exists": CHAT_DB.exists()}
-    try:
-        conn = sqlite3.connect(f"file:{CHAT_DB}?mode=ro", uri=True)
-        cur = conn.cursor()
-        out["readable"] = True
-        out["max_rowid"] = cur.execute("SELECT COALESCE(MAX(ROWID),0) FROM message").fetchone()[0]
-        out["message_count"] = cur.execute("SELECT COUNT(*) FROM message").fetchone()[0]
-        out["handle_count"] = cur.execute("SELECT COUNT(*) FROM handle").fetchone()[0]
-        conn.close()
-    except Exception as exc:
-        out["readable"] = False
-        out["error"] = f"{type(exc).__name__}: {exc}"
-    return out
+    """Diagnostique chat.db via le point d'accès Apple centralisé."""
+    return apple_data.health()
 
 
 def check_status_api() -> dict:

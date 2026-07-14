@@ -84,13 +84,12 @@
 - **Conséquence historique** : Aucun découplage des réactions et polling nécessaire côté UI.
 - **Correction** : Émission après commit depuis les points d'écriture DB, handlers isolés et concurrents, journal idempotent et synchronisation temps réel (ADR-005).
 
-### P1-5 — 25+ fichiers ouvrent des connexions directes à chat.db
+### P1-5 — 25+ fichiers ouvraient des connexions directes à chat.db ✅ RÉSOLU (Phase 5)
 
 - **Gravité** : MAJEURE
-- **Fichiers** : `integrations/imessage.py`, `scripts/jarvis_daemon.py`, `scripts/relationship_analyzer.py`, `scripts/timeline_generator.py`, `scripts/contact_analytics.py`, `scripts/contact_alerts.py`, `scripts/message_predictor.py`, `scripts/backfill_imessages.py`, `scripts/force_full_mac_sync.py`, modules `api/`, ...
-- **Origine** : Aucune couche d'abstraction n'a été créée pour l'accès à `chat.db`. Chaque développeur a ouvert sa propre connexion.
-- **Conséquence** : 25+ connexions SQLite ouvertes simultanément. 4 implémentations de la conversion Apple timestamp → datetime. Impossible de changer le format de date sans toucher 4 fichiers.
-- **Correction** : AppleDataService unique (ADR-006)
+- **État historique** : chaque lecteur ouvrait sa propre connexion et dupliquait parfois la conversion Apple timestamp.
+- **Résolution** : `integrations/apple_data.py` est l'unique ouverture applicative read-only de `chat.db`; bridge, reader, daemons, import/backfill, diagnostics et TV y délèguent leurs lectures, et les analyseurs relationnels passent par `IMessageReader`.
+- **Preuve** : contrat AST dans `tests/test_apple_data.py`, 67 tests ciblés et suite backend à 555 passants, 1 ignoré le 14/07/2026.
 
 ### P1-6 — Dépendance circulaire main.py ↔ jarvis_daemon.py
 
@@ -132,13 +131,11 @@
 - **Conséquence** : Code potentiellement mort. Maintenance inutile.
 - **Correction** : Audit des endpoints non utilisés, suppression ou documentation
 
-### P2-4 — Conversion Apple timestamp dupliquée 4 fois
+### P2-4 — Conversion Apple timestamp dupliquée 4 fois ✅ RÉSOLU (Phase 5)
 
 - **Gravité** : MODÉRÉE
-- **Fichiers** : `integrations/imessage_reader.py`, `integrations/imessage_import.py`, `scripts/backfill_imessages.py`, `scripts/force_full_mac_sync.py`
-- **Origine** : Chaque développeur a réimplémenté la conversion.
-- **Conséquence** : Constantes légèrement différentes, bugs potentiels.
-- **Correction** : UNE SEULE fonction dans AppleDataService (ADR-006)
+- **État historique** : chaque lecteur réimplémentait la conversion avec des constantes potentiellement divergentes.
+- **Résolution** : `apple_epoch_to_datetime()` et `datetime_to_apple_epoch()` vivent dans `integrations/apple_data.py`; les wrappers historiques délèguent à ces fonctions.
 
 ### P2-5 — 29 jobs APScheduler, possibles chevauchements
 
@@ -210,12 +207,12 @@ Fonctions `formatTime()`, `relativeDate()`, `formatDue()` dupliquées entre les 
 | P1-2 | database god object | ✅ RÉSOLU | 0 | Phase 2 — 14/07/2026 |
 | P1-3 | Deux frontends | MAJEURE | 5 jours | Phase 6 |
 | P1-4 | Event bus sans consommateurs métiers | ✅ RÉSOLU | 0 | Phase 3 — 14/07/2026 |
-| P1-5 | 25+ lecteurs chat.db | MAJEURE | 3 jours | Phase 5 |
+| P1-5 | 25+ lecteurs chat.db | ✅ RÉSOLU | 0 | Phase 5 — 14/07/2026 |
 | P1-6 | Cycle main↔daemon | ✅ RÉSOLU | 0 | Phase 1 — 11/07/2026 |
 | P2-1 | 15 producteurs directs de notification | MODÉRÉE | 1 jour | Backlog `NotificationService` |
 | P2-2 | Écritures non coordonnées | 🟡 PARTIEL | 2 jours | Gouvernance Data Ownership |
 | P2-3 | 40 endpoints sans consommateur frontend | MODÉRÉE | 1 jour | Backlog audit API |
-| P2-4 | Apple timestamp ×4 | MODÉRÉE | 1 heure | Phase 5 |
+| P2-4 | Apple timestamp ×4 | ✅ RÉSOLU | 0 | Phase 5 — 14/07/2026 |
 | P2-5 | 29 jobs scheduler | MODÉRÉE | 2 heures | Backlog scheduler |
 | P2-6 | 2 wrappers API | MODÉRÉE | 1 jour | Phase 6 |
 | P2-7 | Versions incohérentes | MODÉRÉE | 3 jours | Phase 6 |
