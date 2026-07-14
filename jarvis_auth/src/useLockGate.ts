@@ -91,11 +91,20 @@ export function useLockGate(options: UseLockGateOptions = {}): LockGateState {
     return () => clearInterval(timer)
   }, [lockoutSeconds])
 
+  // Les services privés (GPS, resynchronisation offline) ne doivent tourner
+  // que lorsque la session est effectivement visible. Un soft lock conserve le
+  // cookie serveur, mais doit néanmoins exécuter le cleanup du service.
+  const privateServicesEnabled = Boolean(status?.authenticated) && !softLocked && !connectionError
   useEffect(() => {
-    if (!status) return
-    if (status.authenticated) return options.onAuthenticated?.()
-    options.onUnauthenticated?.()
-  }, [options.onAuthenticated, options.onUnauthenticated, status?.authenticated])
+    if (!privateServicesEnabled) return
+    return options.onAuthenticated?.()
+  }, [options.onAuthenticated, privateServicesEnabled])
+
+  // La déconnexion serveur conserve sa sémantique distincte du verrouillage
+  // local : les données offline sont seulement effacées sans session active.
+  useEffect(() => {
+    if (status?.authenticated === false) options.onUnauthenticated?.()
+  }, [options.onUnauthenticated, status?.authenticated])
 
   const setup = useCallback(async (secret: string) => {
     await client.setup(secret)

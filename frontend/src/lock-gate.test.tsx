@@ -1,5 +1,5 @@
 import { fireEvent, screen, waitFor } from '@testing-library/dom'
-import { render } from '@testing-library/react'
+import { act, render } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import { LockGate, type AuthClient, type AuthStatus } from '@jarvis/auth'
@@ -66,5 +66,33 @@ describe('shared LockGate', () => {
     await waitFor(() => expect(screen.getByText('Données privées')).toBeInTheDocument())
     expect(client.unlock).toHaveBeenCalledWith('1234')
     expect(startPrivateServices).toHaveBeenCalledOnce()
+  })
+
+  it('stops private services when the local auto-lock engages', async () => {
+    vi.useFakeTimers()
+    try {
+      const authenticated = { ...lockedStatus, authenticated: true, auto_lock_minutes: 1 }
+      const stopPrivateServices = vi.fn()
+      const startPrivateServices = vi.fn(() => stopPrivateServices)
+      render(
+        <LockGate client={fakeClient([authenticated])} onAuthenticated={startPrivateServices}>
+          <div>Données privées</div>
+        </LockGate>,
+      )
+
+      await act(async () => {
+        await Promise.resolve()
+      })
+      expect(startPrivateServices).toHaveBeenCalledOnce()
+      expect(screen.getByText('Données privées')).toBeInTheDocument()
+
+      await act(async () => {
+        vi.advanceTimersByTime(60_000)
+      })
+      expect(screen.getByText('Application verrouillée')).toBeInTheDocument()
+      expect(stopPrivateServices).toHaveBeenCalledOnce()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
