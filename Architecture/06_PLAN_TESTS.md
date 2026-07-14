@@ -1,7 +1,7 @@
 # 06 — Plan de Tests
 
 **Date** : 11 juillet 2026
-**Couverture actuelle** : 533 fonctions de test déclarées dans 59 fichiers (backend uniquement). La collecte complète doit être exécutée avec la version Python supportée par le projet.
+**Couverture actuelle** : 534 fonctions de test déclarées dans 59 fichiers (backend uniquement). Validation Python 3.12 du 14/07/2026 : 536 cas passés, 1 ignoré et 0 échec avec la commande backend complète.
 
 ## Stratégie
 
@@ -9,9 +9,9 @@
 
 | Niveau | Outil | Cible | Actuel | Cible |
 |---|---|---|---|---|
-| Unitaires backend | pytest | Fonctions pures, classes | 533 fonctions déclarées | Maintenir et mesurer la couverture |
+| Unitaires backend | pytest | Fonctions pures, classes | 534 fonctions déclarées | Maintenir et mesurer la couverture |
 | Intégration backend | pytest | Routes API, DB | Partiel | 50+ |
-| Unitaires frontend | Vitest | Composants, hooks, stores | 0 | 100+ |
+| Unitaires frontend | Vitest | Composants, hooks, stores | 18 tests web, 0 PWA | 100+ |
 | Intégration frontend | Playwright | Flux utilisateur complets | 0 | 30+ |
 | Tests offline | Vitest + fake-indexeddb | IndexedDB, SW, sync | Partiel (2) | 20+ |
 | Tests PWA | Lighthouse + manuel | Installation, push, cache | 0 | 15+ |
@@ -19,14 +19,14 @@
 | Performance | Locust / k6 | Charge API, concurrence | 0 | 10+ |
 | Reprise après panne | pytest | Crash recovery, WAL | 0 | 10+ |
 
-## Zones non couvertes (critiques)
+## Couverture des zones critiques
 
-### P0 — Aucun test existant
+### P0 — Couverture critique actuelle (mise à jour le 14/07/2026)
 
 1. Détection mobile (`_is_mobile_device`) — pas de tests
-2. Race condition WebSocket — pas de tests
-3. SQLite `busy_timeout` — pas de test de concurrence
-4. Curseur ROWID unique — pas de test d'intégration iMessage
+2. Race condition WebSocket — couverte par 2 tests (snapshot stable, I/O hors verrou)
+3. SQLite `busy_timeout` — couvert par lecture réelle du PRAGMA configuré
+4. Registre des curseurs ROWID — couvert par 2 tests (isolation, monotonie, redémarrage)
 5. PWA LockGate — pas de test de flux auth mobile
 6. Event bus — pas de test d'émission/consommation
 
@@ -40,14 +40,15 @@
 
 ## Plan de création de tests
 
-### Phase 1 (accompagne les Quick Wins)
+### Phase 1 — implémentée et validée
+
+Preuves exécutées le 14/07/2026 : 7 tests ciblés Phase 1 passants ; suite backend complète `tests/ jarvis/tests agents/devagent` à 536 passants et 1 ignoré ; GitHub Actions run #24 vert (backend et frontend).
 
 | Fichier | Contenu |
 |---|---|
-| `tests/test_mobile_detection.py` | `_is_mobile_device` avec 20+ User-Agents (iPhone, Android, tablette, desktop) |
-| `tests/test_websocket_race.py` | Simulation déconnexion pendant broadcast |
-| `tests/test_sqlite_busy.py` | Écritures concurrentes avec `busy_timeout` |
-| `tests/test_rowid_cursor.py` | Intégration curseur unique |
+| `tests/test_phase1_stability.py` | `busy_timeout`, snapshot WebSocket, nettoyage des sockets mortes et I/O hors verrou |
+| `tests/test_imessage_consumer_cursor.py` | Isolation, monotonie et persistance des offsets par consommateur |
+| `tests/test_pipeline_contract.py` | Échec explicite avant configuration et délégation des trois handlers |
 
 ### Phase 2 (accompagne Database modulaire)
 
@@ -104,9 +105,9 @@
 | Métrique | Actuel | Après Phase 3 | Après Phase 6 |
 |---|---|---|---|
 | Couverture backend (%) | ~60% | 75% | 90% |
-| Fonctions de test backend déclarées | 533 | ≥533 | ≥533 |
+| Fonctions de test backend déclarées | 534 | ≥534 | ≥534 |
 | Tests intégration backend | ~10 | 40 | 50+ |
-| Tests frontend | 0 | 0 | 100+ |
+| Tests frontend | 18 | ≥18 | 100+ |
 | Tests E2E | 0 | 0 | 30+ |
 | Tests sécurité | ~5 | 5 | 25+ |
 | Tests offline | 2 | 2 | 20+ |

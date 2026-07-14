@@ -21,9 +21,9 @@ Les travaux sont classés selon l'ordre de priorité suivant :
 
 **Semaine 1 — Fondations**
 - [x] Audit architectural complet
-- [ ] Phase 1 : Quick Wins P0
+- [x] Phase 1 : Quick Wins P0 (validée le 14/07/2026)
   - `busy_timeout` SQLite, race WS, curseur ROWID, `pipeline.py`
-- [ ] Phase 2 : Database modulaire (17 modules)
+- [ ] Phase 2 : Database modulaire (en cours — 12 modules extraits)
 
 **Semaine 2 — Découplage**
 - [ ] Phase 3 : Event bus actif (10 événements)
@@ -73,7 +73,7 @@ Avant d'ajouter une feature :
 | God objects (>1000 lignes) | 2 | 0 | 0 |
 | Duplications majeures | 8 | 3 | 0 |
 | Couverture tests backend | ~60% | 80% | 90% |
-| Tests frontend | 0 | 50+ | 100+ |
+| Tests frontend | 18 (web offline) | 50+ | 100+ |
 | Applications frontend | 2 | 1.5 (coexistence) | 1 |
 | Connexions directes `chat.db` | 25+ | 10 | 0 |
 | Temps démarrage backend | ~3s | <2s | <1s |

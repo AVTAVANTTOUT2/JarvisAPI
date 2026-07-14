@@ -35,6 +35,31 @@ def _no_background_db_threads(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr("database._dispatch_push_notification", lambda *a, **k: None, raising=False)
 
 
+@pytest.fixture(autouse=True)
+def _isolate_app_lifespan(monkeypatch: pytest.MonkeyPatch):
+    """Désactive les services permanents pendant les tests d'endpoints.
+
+    Plusieurs ``TestClient`` démarrent et arrêtent l'application dans le même
+    processus. Les singletons APScheduler, daemons et watchers conservent sinon
+    des objets asyncio liés à la boucle du client précédent. Les endpoints ne
+    dépendent pas de ces workers ; leurs tests dédiés les exercent directement.
+    """
+    import config
+    import scripts.scheduler as scheduler_module
+    from scripts.email_watcher import email_watcher
+
+    async def _noop_start() -> None:
+        return None
+
+    monkeypatch.setattr(config, "IMESSAGE_DAEMON_ENABLED", False)
+    monkeypatch.setattr(config, "DAEMON_ENABLED", False)
+    monkeypatch.setattr(config, "AUDIO_DAEMON_ENABLED", False)
+    monkeypatch.setattr(scheduler_module, "start_scheduler", lambda: None)
+    monkeypatch.setattr(scheduler_module, "shutdown_scheduler", lambda: None)
+    monkeypatch.setattr(email_watcher, "start", _noop_start)
+    monkeypatch.setattr(email_watcher, "stop", lambda: None)
+
+
 def authenticate(client):
     """Configure le verrou (si besoin) et déverrouille — le client garde le cookie de session.
 

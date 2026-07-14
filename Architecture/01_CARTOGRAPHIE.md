@@ -153,7 +153,7 @@ JarvisAPI/
 │
 ├── tv/                         ← Dashboard TV War Room
 ├── prompts/                    ← System prompts (.txt)
-├── tests/                      ← 533 fonctions de test (59 fichiers) pytest
+├── tests/                      ← 534 fonctions de test (59 fichiers) pytest
 ├── data/                       ← jarvis.db, uploads, outputs
 └── Architecture/               ← CE RAPPORT
 ```
@@ -174,7 +174,7 @@ graph TB
     INTEG["integrations/*<br/>(importent config)"]
     SCRIPTS["scripts/*<br/>(importent config, llm, db, integ)"]
 
-    MAIN["main.py<br/>IMPORTE TOUT<br/>42 imports distincts<br/>cycle lazy avec jarvis_daemon"]
+    MAIN["main.py<br/>IMPORTE TOUT<br/>42 imports distincts<br/>daemons découplés via pipeline.py"]
 
     CONFIG --> LLM
     CONFIG --> DB
@@ -188,7 +188,7 @@ graph TB
     INTEG --> MAIN
     SCRIPTS --> MAIN
 
-    MAIN -.->|lazy| SCRIPTS
+    MAIN -.->|cycle de vie| SCRIPTS
 
     style MAIN fill:#ff6b6b,color:#fff
     style DB fill:#ffa502,color:#fff
@@ -281,7 +281,7 @@ graph LR
     style READER fill:#ffa502
 ```
 
-**Problème** : 3 curseurs ROWID indépendants (bridge, daemon, reader) sans coordination. Le bridge et le daemon peuvent traiter le même message.
+**Résolu en Phase 1** : bridge, daemon et reader conservent chacun un offset nommé dans le registre SQLite central `imessage_consumer_cursors`. Les offsets sont persistants, monotones et progressent indépendamment sans masquer les messages des autres consommateurs.
 
 ### 3.3 Flux notifications
 

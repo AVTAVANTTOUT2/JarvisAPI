@@ -27,9 +27,9 @@
 - B. AppleDataService unique (plus lourd mais plus propre).
 - C. Coordination par verrou (ne résout pas le fond).
 
-**Décision** : A, implémentée via `imessage_consumer_cursors` et `integrations/imessage_cursor.py`. Les offsets survivent aux redémarrages et ne peuvent jamais reculer. Migration vers B (ADR-006) maintenue pour supprimer ensuite les lectures directes de `chat.db`.
+**Décision** : A, implémentée via `imessage_consumer_cursors` et `integrations/imessage_cursor.py`. Les offsets survivent aux redémarrages et ne peuvent jamais reculer. Validée le 14/07/2026 (3 consommateurs distincts, offsets indépendants, persistants). Migration vers B (ADR-006) maintenue pour supprimer ensuite les lectures directes de `chat.db`.
 
-**Statut** : Implémenté le 11 juillet 2026.
+**Statut** : Implémenté le 11 juillet 2026, validé le 14 juillet 2026. Preuve : `integrations/imessage_cursor.py` + table `imessage_consumer_cursors`, 2 tests dédiés dans `test_imessage_consumer_cursor.py` (7 tests ciblés Phase 1 au total).
 
 ---
 
@@ -43,6 +43,8 @@
 
 **Recommandation** : Solution A — corrige en 15 minutes, zéro risque.
 
+**Statut** : Implémenté le 11 juillet 2026, validé le 14 juillet 2026. Preuve : `websocket_registry.py` avec `asyncio.Lock` + snapshot défensif + nettoyage des sockets mortes. Tests : mutation du set pendant diffusion et ajout concurrent pendant une I/O lente dans `test_phase1_stability.py`.
+
 ---
 
 ## ADR-004 — SQLite sans busy_timeout
@@ -54,6 +56,8 @@
 - B. Pool de connexions avec file d'attente — overkill.
 
 **Recommandation** : Solution A — corrige en 5 minutes, compatible WAL existant.
+
+**Statut** : Implémenté le 11 juillet 2026, validé le 14 juillet 2026. Preuve : `database/core.py::get_connection()` avec `PRAGMA busy_timeout = 5000`. Tests : `test_phase1_stability.py::test_database_connection_configures_busy_timeout` (PRAGMA busy_timeout lit 5000).
 
 ---
 
@@ -128,7 +132,7 @@
 - A. Introduire un contrat `pipeline.py` indépendant. `main.py` enregistre les implémentations actuelles ; les daemons n'importent plus le point d'entrée. Le déplacement physique des implémentations se poursuit pendant la Phase 4.
 - B. Daemon envoie via WebSocket — ajoute latence.
 
-**Décision** : Solution A, implémentée le 11 juillet 2026. Le contrat conserve les signatures publiques et échoue explicitement s'il est utilisé avant configuration.
+**Décision** : Solution A, implémentée le 11 juillet 2026. Le contrat conserve les signatures publiques et échoue explicitement s'il est utilisé avant configuration. Preuve : `pipeline.py` avec `PipelineHandlers`, `configure_pipeline()`, `PipelineNotConfiguredError`. Tests : `test_pipeline_contract.py` (2 passants). Aucun import de `main` dans `jarvis_daemon.py` ou `audio_daemon.py`. Validée le 14/07/2026.
 
 **Statut** : Implémenté pour le découplage ; déplacement des implémentations planifié en Phase 4.
 

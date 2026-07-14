@@ -34,10 +34,10 @@ Score = Σ (dimension_score × poids)
 
 | Dimension | Score | Justification |
 |---|---|---|
-| Couverture | 4 | 533 fonctions de test backend déclarées, 0 frontend, couverture non mesurée de façon fiable |
+| Couverture | 4 | 534 fonctions de test backend déclarées, couverture globale non mesurée de façon fiable |
 | Duplication | 3 | 2 frontends, 8 duplications majeures, 25+ lecteurs chat.db |
 | Dette technique | 3 | 295 points de dette, ~108h de remboursement |
-| Dépendances | 8 | 1 seul cycle (lazy), architecture plutôt propre |
+| Dépendances | 8 | Cycle main↔daemons supprimé via `pipeline.py` ; imports lazy résiduels sans cycle applicatif identifié |
 | Taille modules | 2 | 2 god objects (7194l et 4169l) |
 | Documentation | 9 | CLAUDE.md excellent, Architecture/ complet |
 | Performance | 6 | SQLite WAL OK, mais pas de cache LLM |

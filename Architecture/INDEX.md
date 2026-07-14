@@ -77,7 +77,7 @@
 │  Agents LLM        │ 7 agents + orchestrateur            │
 │  Jobs schedulés    │ 29 (APScheduler)                    │
 │  Démons            │ 5 (screen, audio, email, imessage)  │
-│  Tests             │ 533 fonctions de test, 59 fichiers  │
+│  Tests             │ 534 fonctions de test, 59 fichiers  │
 ├─────────────────────────────────────────────────────────┤
 │  God objects       │ main.py (7 194 lignes, 40+ resp.)   │
 │                    │ database/__init__.py (3 284 lignes)  │
@@ -144,15 +144,15 @@ graph TB
     MAIN --> CHATDB
 ```
 
-### Top 5 des problèmes
+### Top 5 des problèmes identifiés — état au 14 juillet 2026
 
-| # | Problème | Sévérité | Impact |
-|---|---|---|---|
-| 1 | PWA sans écran de verrouillage | CRITIQUE | Données exposées si téléphone déverrouillé |
-| 2 | 3 curseurs ROWID indépendants sur chat.db | CRITIQUE | Messages traités 2-3 fois |
-| 3 | Race condition sur le set WebSocket | CRITIQUE | Crash potentiel (`Set changed size during iteration`) |
-| 4 | SQLite sans `busy_timeout` | CRITIQUE | Écritures silencieusement perdues |
-| 5 | main.py : 7 194 lignes, 183 routes, 40+ responsabilités | MAJEURE | Impossible à tester, toute modification risquée |
+| # | Problème | Sévérité initiale | Impact | État |
+|---|---|---|---|---|
+| 1 | PWA sans écran de verrouillage | CRITIQUE | Données exposées si téléphone déverrouillé | 🔴 Ouvert — Phase 6 |
+| 2 | 3 curseurs ROWID indépendants sur chat.db | CRITIQUE | Messages traités 2-3 fois | ✅ Résolu — Phase 1 |
+| 3 | Race condition sur le set WebSocket | CRITIQUE | Crash potentiel (`Set changed size during iteration`) | ✅ Résolu — Phase 1 |
+| 4 | SQLite sans `busy_timeout` | CRITIQUE | Écritures silencieusement perdues | ✅ Résolu — Phase 1 |
+| 5 | main.py : 7 194 lignes, 183 routes, 40+ responsabilités | MAJEURE | Impossible à tester, toute modification risquée | 🟡 Planifié — Phase 4 |
 
 ### Plan de migration — 6 phases, 15 jours
 
@@ -212,11 +212,11 @@ Chaque phase est **indépendante**, **réversible**, **testée**, et **sans inte
 - [x] Score de santé : 4.85/10 → cible 8.5/10 après Phase 6
 - [x] Rapport final — prêt pour le refactoring (27)
 - [ ] Validation par l'utilisateur
-- [ ] Début de l'implémentation (Phase 1)
+- [x] Début de l'implémentation (Phase 1 — Quick Wins P0 validée le 14/07/2026)
 
 **Dossier Architecture/ : 35 fichiers Markdown + 3 sous-répertoires — source de vérité officielle du projet**
 
-**Prochaine étape** : validation de ce dossier, puis lancement de la Phase 1 (Quick Wins P0 — 1 jour).
+**Prochaine étape** : finaliser la Phase 2 (Database modulaire — en cours) puis enchaîner Phase 3 (Event bus actif).
 
 ---
 

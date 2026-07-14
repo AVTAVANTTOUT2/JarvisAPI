@@ -24,7 +24,7 @@
 **Aucune zone majeure.** Approfondissements possibles dans le futur :
 
 - Diagrammes de séquence détaillés par flux (`diagrams/`)
-- Documentation exhaustive des 533 fonctions de test actuellement déclarées
+- Documentation exhaustive des 534 fonctions de test actuellement déclarées
 - Profilage de performance avant/après benchmarks
 - Plan de reprise après sinistre complet
 
@@ -84,4 +84,4 @@ Phase 6 → dépend de Phase 1 + Phase 3 + Phase 5
 
 **Le dossier Architecture/ est prêt. Il constitue désormais la source de vérité officielle du projet JARVIS. Aucune modification du code ne doit contredire cette documentation.**
 
-**Prochaine action : commencer la Phase 1 — Quick Wins P0.**
+**Phase 1 — Quick Wins P0 validée le 14/07/2026. Prochaine action : poursuivre la Phase 2 — Database modulaire (en cours).**
