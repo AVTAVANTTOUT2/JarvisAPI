@@ -29,7 +29,7 @@
 
 **Décision** : A, implémentée via `imessage_consumer_cursors` et `integrations/imessage_cursor.py`. Les offsets survivent aux redémarrages et ne peuvent jamais reculer. Validée le 14/07/2026 (3 consommateurs distincts, offsets indépendants, persistants). Migration vers B (ADR-006) maintenue pour supprimer ensuite les lectures directes de `chat.db`.
 
-**Statut** : Implémenté le 11 juillet 2026, validé le 14 juillet 2026. Preuve : `integrations/imessage_cursor.py` + table `imessage_consumer_cursors`, tests `test_imessage_consumer_cursor.py` (6 passants).
+**Statut** : Implémenté le 11 juillet 2026, validé le 14 juillet 2026. Preuve : `integrations/imessage_cursor.py` + table `imessage_consumer_cursors`, 2 tests dédiés dans `test_imessage_consumer_cursor.py` (7 tests ciblés Phase 1 au total).
 
 ---
 
@@ -43,7 +43,7 @@
 
 **Recommandation** : Solution A — corrige en 15 minutes, zéro risque.
 
-**Statut** : Implémenté le 11 juillet 2026, validé le 14 juillet 2026. Preuve : `websocket_registry.py` avec `asyncio.Lock` + snapshot défensif + nettoyage des sockets mortes. Tests : `test_phase1_stability.py::test_broadcast_uses_snapshot_when_connection_set_changes`.
+**Statut** : Implémenté le 11 juillet 2026, validé le 14 juillet 2026. Preuve : `websocket_registry.py` avec `asyncio.Lock` + snapshot défensif + nettoyage des sockets mortes. Tests : mutation du set pendant diffusion et ajout concurrent pendant une I/O lente dans `test_phase1_stability.py`.
 
 ---
 

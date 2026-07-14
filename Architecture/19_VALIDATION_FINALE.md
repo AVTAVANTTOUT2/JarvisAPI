@@ -23,13 +23,13 @@
 
 ### Justification des scores
 
-- **Séparation (3/10)** : 2 god objects (main.py 7194l, database 4169l), 40+ responsabilités dans main.py, 23 domaines dans database. Score très bas.
-- **Couplage (4/10)** : 1 dépendance circulaire, 42 imports dans main.py, 25+ connexions directes à chat.db. Event bus limité à un abonné debug, sans consommateurs métiers.
+- **Séparation (3/10)** : 2 god objects (main.py 7194l, database 3284l), 40+ responsabilités dans main.py, 23 domaines dans database. Score très bas.
+- **Couplage (4/10)** : cycle main↔daemon supprimé, mais 42 imports dans main.py et 25+ connexions directes à chat.db. Event bus limité à un abonné debug, sans consommateurs métiers.
 - **Cohésion (5/10)** : Les agents sont bien séparés, les intégrations aussi. Mais la database et main.py sont des fourre-tout.
-- **Testabilité (4/10)** : 533 fonctions de test backend déclarées dans 59 fichiers, mais 0 test frontend et pas de couverture fiable par route.
+- **Testabilité (4/10)** : 534 fonctions de test backend déclarées dans 59 fichiers, mais couverture par route non mesurée de façon fiable.
 - **Documentation (7/10)** : CLAUDE.md est excellent (1500+ lignes). README complet. Architecture/ vient d'être créé. Manque des diagrammes de séquence.
 - **Sécurité (7/10)** : Auth robuste (scrypt, sessions, anti-brute-force). CSP, CORS, CSRF configurés. Mais PWA sans LockGate, pas de chiffrement au repos, HTTP par défaut.
-- **Performance (6/10)** : SQLite WAL, batch import. Mais pas de busy_timeout, pas de cache LLM, pas de monitoring.
+- **Performance (6/10)** : SQLite WAL, `busy_timeout = 5000` et batch import. Le cache LLM et le monitoring restent à implémenter.
 - **Évolutivité (4/10)** : Difficile d'ajouter un nouveau connecteur (pas d'interface plugin). Deux frontends à maintenir. Refactoring lourd pour toute nouvelle feature transverse.
 
 ## Principaux risques restants
@@ -42,7 +42,7 @@
 | 4 | Messages iMessage traités en double | Moyenne | Faible | ✅ Résolu Phase 1 (curseur unique `imessage_consumer_cursors`, 11/07/2026) |
 | 5 | Conflits de merge sur main.py et database/__init__.py | Élevée | Moyen | Phase 2 + 4 (split) |
 | 6 | Dette technique croissante | Élevée | Élevé | Tout le plan de refactoring |
-| 7 | Pas de tests frontend | Élevée | Moyen | Phase 6 (plan de tests) |
+| 7 | Couverture frontend limitée (18 tests web, 0 PWA) | Élevée | Moyen | Phase 6 (plan de tests) |
 | 8 | 25+ connexions à chat.db — contention | Faible | Faible | Phase 5 (AppleDataService) |
 
 ## Dépendances critiques
@@ -61,8 +61,8 @@
 
 | # | Blocage | Résolution |
 |---|---|---|
-| 1 | **Aucun test frontend** | Commencer le refactoring backend d'abord (Phases 1-5 ne touchent pas le frontend). Les tests frontend viennent en Phase 6. |
-| 2 | **Pas de CI/CD automatisée pour les tests** | `python -m pytest tests/ -q` est exécutable manuellement. Ajouter GitHub Actions est hors scope de ce refactoring. |
+| 1 | **Couverture frontend limitée** | 18 tests Vitest couvrent l'offline web ; les composants et la PWA restent à couvrir en Phase 6. |
+| 2 | **CI automatisée à stabiliser** | GitHub Actions exécute les imports, pytest et le frontend sur chaque PR. Le sous-ensemble de dépendances CI doit rester aligné sur les imports applicatifs. |
 | 3 | **Dépendance au cookie jarvis_session pour l'auth PWA** | La Phase 6 créera le SDK auth partagé. En attendant, la PWA partage le cookie (même origine HTTP). |
 | 4 | **Manque de monitoring** | Le `/health` endpoint sera ajouté en Phase 3 (avec l'Event Bus). Pas bloquant pour commencer. |
 

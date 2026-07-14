@@ -27,10 +27,12 @@ Chaque phase doit satisfaire AU MINIMUM :
 ### Phase 1 — Quick Wins P0
 
 - [x] `busy_timeout` configuré → `PRAGMA busy_timeout` retourne 5000 (vérifié par test le 14/07/2026)
-- [x] Race condition WS → snapshot défensif + asyncio.Lock, aucune mutation directe hors registre (vérifié par test le 14/07/2026)
+- [x] Race condition WS → snapshot défensif + asyncio.Lock, mutations sérialisées et I/O réseau hors verrou (vérifié par 2 tests le 14/07/2026)
 - [x] Curseurs ROWID → registre central persistant, offsets monotones nommés, aucun ancien attribut mémoire
 - [x] Cycle main↔daemon → aucun import de `main` dans `jarvis_daemon.py` ou `audio_daemon.py`
 - [x] `pipeline.py` existe, est configuré par `main.py` et consommé par les deux daemons
+
+La validation opérationnelle sur 24 heures n'est pas reproductible en CI faute de logs de production. Elle reste un contrôle de déploiement ; les invariants de code de la Phase 1 sont couverts par 7 tests ciblés déterministes.
 
 ### Phase 2 — Database modulaire
 

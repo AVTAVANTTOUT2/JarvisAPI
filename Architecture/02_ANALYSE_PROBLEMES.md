@@ -21,7 +21,7 @@
 - **Fichiers** : `integrations/imessage.py`, `scripts/jarvis_daemon.py`, `integrations/imessage_reader.py`
 - **Origine** : Chaque composant a été développé indépendamment, sans coordination. Le bridge a besoin de son propre curseur pour répondre aux iMessages, le daemon pour les notifications vocales, le reader pour le sourcing.
 - **Conséquence** : Un message entrant peut être traité par 2-3 composants différents. La coordination (`daemon.skip if bridge.running`) n'est pas atomique — race condition TOCTOU.
-- **Correction** : Curseur unique dans SQLite (`imessage_sync_cursor`), puis Apple Data Service (ADR-002, ADR-006)
+- **Correction** : Registre SQLite central avec un offset monotone par consommateur (`imessage_consumer_cursors`), puis Apple Data Service (ADR-002, ADR-006)
 - **Résolution** : Registre SQLite central `imessage_consumer_cursors` avec 3 consommateurs (`reader.intelligence`, `daemon.notifications`, `bridge.reply:<target>`), offsets monotones et persistants via `integrations/imessage_cursor.py`. Implémenté le 11/07/2026, validé le 14/07/2026.
 
 ### P0-3 — Race condition sur le set WebSocket `connected_ws` ✅ RÉSOLU (Phase 1)
@@ -197,9 +197,9 @@ Fonctions `formatTime()`, `relativeDate()`, `formatDue()` dupliquées entre les 
 | # | Problème | Sévérité | Effort correctif | Phase |
 |---|---|---|---|---|
 | P0-1 | PWA sans LockGate | CRITIQUE | 2 jours | Phase 6 |
-| P0-2 | 3 curseurs ROWID | CRITIQUE | 2 heures | Phase 1 |
-| P0-3 | Race condition WS | CRITIQUE | 15 min | Phase 1 |
-| P0-4 | SQLite busy_timeout | CRITIQUE | 5 min | Phase 1 |
+| P0-2 | 3 curseurs ROWID | ✅ RÉSOLU | 0 | Phase 1 — 11/07/2026 |
+| P0-3 | Race condition WS | ✅ RÉSOLU | 0 | Phase 1 — 11/07/2026 |
+| P0-4 | SQLite busy_timeout | ✅ RÉSOLU | 0 | Phase 1 — 11/07/2026 |
 | P1-1 | main.py monolithe | MAJEURE | 3 jours | Phase 4 |
 | P1-2 | database god object | MAJEURE | 1 jour | Phase 2 |
 | P1-3 | Deux frontends | MAJEURE | 5 jours | Phase 6 |
@@ -210,12 +210,12 @@ Fonctions `formatTime()`, `relativeDate()`, `formatDue()` dupliquées entre les 
 | P2-2 | Écritures non coordonnées | MODÉRÉE | 2 jours | Phase 3 |
 | P2-3 | 40 endpoints orphelins | MODÉRÉE | 1 jour | Phase 4 |
 | P2-4 | Apple timestamp ×4 | MODÉRÉE | 1 heure | Phase 5 |
-| P2-5 | 29 jobs scheduler | MODÉRÉE | 2 heures | Phase 1 |
+| P2-5 | 29 jobs scheduler | MODÉRÉE | 2 heures | Phase 3 |
 | P2-6 | 2 wrappers API | MODÉRÉE | 1 jour | Phase 6 |
 | P2-7 | Versions incohérentes | MODÉRÉE | 3 jours | Phase 6 |
 | P2-8 | 2 cartes différentes | MODÉRÉE | 2 jours | Phase 6 |
 | P3-1 | 42 imports main.py | MINEURE | — | Phase 4 |
-| P3-2 | 13 lazy imports | MINEURE | — | Phase 1 |
-| P3-3 | Pas de tests mobile | MINEURE | 30 min | Phase 1 |
+| P3-2 | 13 lazy imports | MINEURE | — | Phase 4 |
+| P3-3 | Pas de tests mobile | MINEURE | 30 min | Phase 6 |
 | P3-4 | SW dupliqué | MINEURE | 2 heures | Phase 6 |
 | P3-5 | Dates dupliquées | MINEURE | 1 heure | Phase 6 |

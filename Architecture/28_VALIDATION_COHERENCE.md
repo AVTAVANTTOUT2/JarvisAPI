@@ -1,13 +1,14 @@
 # 28 — Validation de Cohérence Finale
 
-**Date** : 11 juillet 2026  
-**Statut** : Rapport de vérification doc vs code
+**Date initiale** : 11 juillet 2026
+**Dernière validation** : 14 juillet 2026
+**Statut** : Rapport de vérification doc vs code — Phase 1 clôturée
 
 ---
 
 ## Résultat : DOCUMENTATION VALIDÉE
 
-Le dossier `Architecture/` reflète fidèlement l'état du code **avec des écarts mineurs corrigés ci-dessous**. 5 composants sont documentés comme **cibles futures** (post-refactoring) — c'est intentionnel et correctement signalé.
+Le dossier `Architecture/` reflète l'état du code après la clôture de la Phase 1. Quatre composants restent des **cibles futures** ; `pipeline.py`, auparavant planifié, est maintenant implémenté.
 
 ---
 
@@ -24,21 +25,20 @@ Le dossier `Architecture/` reflète fidèlement l'état du code **avec des écar
 | ~70 fichiers frontend | 39 (web/) + 31 (pwa/) = 70 | ✅ Exact |
 | PWA sans LockGate | **Confirmé** — aucun composant auth dans pwa/ | ✅ Documenté comme P0-1 |
 | Event bus « inutilisé » | 1 abonné (`subscribe()`), 18 `emit()` | ⚠️ Corrigé — « usage minimal » |
-| 533 fonctions de test (59 fichiers) | Vérifié statiquement pendant la Phase 2 | ✅ Actualisé |
+| 534 fonctions de test (59 fichiers) | Vérifié statiquement après ajout du test WebSocket Phase 1 | ✅ Actualisé |
 
-## 2. Composants cibles (n'existent PAS encore — normal)
+## 2. Composants cibles restant à implémenter
 
-Ces 5 composants sont documentés dans `08_ARCHITECTURE_CIBLE.md` comme faisant partie de l'architecture **cible** (post-refactoring). Leur absence dans le code actuel est **attendue** :
+Ces quatre composants sont documentés comme appartenant à l'architecture cible. Leur absence actuelle est attendue :
 
 | Composant | Documenté dans | Implémenté en |
 |---|---|---|
 | `integrations/apple_data.py` | 08_ARCHITECTURE_CIBLE.md, ADR-006 | Phase 5 |
 | `queue_engine.py` | 11_QUEUE_ENGINE.md, ADR-012 | Phase 3 |
 | `ai_service.py` | 14_AI_SERVICE.md, ADR-014 | Phase 3 |
-| `pipeline.py` | 08_ARCHITECTURE_CIBLE.md, ADR-010 | ✅ Implémenté (Phase 1, 11/07/2026) |
 | `/health`, `/metrics` | 12_OBSERVABILITE.md | Phase 3 |
 
-**Aucune correction nécessaire** — chaque document précise qu'il s'agit de la cible.
+`pipeline.py` est implémenté depuis le 11 juillet 2026 et validé par les tests de contrat de la Phase 1.
 
 ## 3. PWA LockGate — confirmé absent
 
@@ -66,12 +66,12 @@ Tous les diagrammes sont cohérents avec leur contexte (actuel vs cible).
 | Document | Avant | Après |
 |---|---|---|
 | INDEX.md, 01_CARTOGRAPHIE.md, 03_AUDIT_TECHNIQUE.md, 19_VALIDATION_FINALE.md | Anciens comptages `44/45/46` limités au bloc `SCHEMA` | **72 tables réellement créées après migrations** |
-| Plusieurs documents | Comptages historiques (`174`, puis `486/53`, puis `523/55`) | **533 fonctions de test, 59 fichiers pendant la Phase 2** |
+| Plusieurs documents | Comptages historiques (`174`, puis `486/53`, puis `523/55`) | **534 fonctions de test, 59 fichiers après clôture de la Phase 1** |
 | Plusieurs documents | « Event bus : 0 abonné » | **« Event bus : usage minimal (1 abonné debug), sera activé en Phase 3 »** |
 | INDEX.md | Comptages historiques variables | **35 fichiers Markdown + 3 sous-répertoires** |
 
 ### Pas de contradiction sur les composants cibles
-Aucun document ne prétend que `apple_data.py`, `queue_engine.py`, `ai_service.py`, `pipeline.py`, ou `/health` existent déjà. Tous sont clairement identifiés comme « architecture cible » ou « Phase X ».
+`apple_data.py`, `queue_engine.py`, `ai_service.py` et `/health` restent clairement identifiés comme cibles futures. `pipeline.py` est documenté comme composant courant implémenté en Phase 1.
 
 ## 6. Complétude
 
@@ -120,10 +120,12 @@ Aucun document ne prétend que `apple_data.py`, `queue_engine.py`, `ai_service.p
 
 | Document | Correction |
 |---|---|
-| INDEX.md | 44 → 45 tables, métriques de tests actualisées, « 0 abonné » → « usage minimal » |
-| 01_CARTOGRAPHIE.md | 44 → 45 tables, métriques de tests actualisées |
-| 03_AUDIT_TECHNIQUE.md | 44 → 45 tables, métriques de tests actualisées |
-| 19_VALIDATION_FINALE.md | 44 → 45 tables |
+| INDEX.md | Comptage réel de 72 tables, métriques et état des problèmes Phase 1 actualisés |
+| 01_CARTOGRAPHIE.md | Dépendance daemon et registre des curseurs actualisés |
+| 03_AUDIT_TECHNIQUE.md | Configuration SQLite, WebSocket et curseurs actualisée |
+| 19_VALIDATION_FINALE.md | Risques Phase 1, CI et métriques actualisés |
+| Documents Phase 1 | Statuts busy timeout, WebSocket, curseurs iMessage et pipeline actualisés au 14/07/2026 |
+| Plan de tests | 7 tests ciblés Phase 1 et 534 fonctions de test déclarées |
 | diagrams/README.md | Créé — placeholder |
 | audit/README.md | Créé — placeholder |
 
@@ -133,7 +135,7 @@ Aucun document ne prétend que `apple_data.py`, `queue_engine.py`, `ai_service.p
 >
 > Il est cohérent avec le code réel. Les écarts identifiés sont soit des cibles futures documentées comme telles, soit des métriques mineures qui viennent d'être corrigées.
 >
-> **Prochaine action : Phase 1 — Quick Wins P0.**
+> **Prochaine action : finaliser la Phase 2 — Database modulaire.**
 
 ---
 

@@ -73,7 +73,7 @@ Avant d'ajouter une feature :
 | God objects (>1000 lignes) | 2 | 0 | 0 |
 | Duplications majeures | 8 | 3 | 0 |
 | Couverture tests backend | ~60% | 80% | 90% |
-| Tests frontend | 0 | 50+ | 100+ |
+| Tests frontend | 18 (web offline) | 50+ | 100+ |
 | Applications frontend | 2 | 1.5 (coexistence) | 1 |
 | Connexions directes `chat.db` | 25+ | 10 | 0 |
 | Temps démarrage backend | ~3s | <2s | <1s |

@@ -14,7 +14,7 @@
 | Imports | ❌ 42 top-level | Dont 8 singletons d'agents individuels |
 | Middleware | ✅ Correct | CORS configuré, security_middleware fonctionnel |
 | Lifespan | ⚠️ 5 services lancés | Devrait être délégué à un ServiceManager |
-| Tests | ⚠️ Couverture partielle | 533 fonctions de test (59 fichiers), couverture par route non mesurée |
+| Tests | ⚠️ Couverture partielle | 534 fonctions de test (59 fichiers), couverture par route non mesurée |
 
 ### 1.2 Middlewares
 
@@ -59,7 +59,7 @@
 | Reconnexion | ✅ Exponentielle (côté client) |
 | Types de messages | ✅ Texte, binaire (audio), action_confirm |
 | Streaming | ✅ SSE → chunks progressifs |
-| Broadcast | ⚠️ Race condition (set modifié pendant itération) |
+| Broadcast | ✅ Registre verrouillé, snapshot défensif et I/O hors verrou (Phase 1) |
 | Gestion déconnexion | ✅ Nettoyage du set |
 | Reprise session | ✅ Grace period de 3 min après coupure |
 
@@ -68,7 +68,7 @@
 | Worker | Type | Intervalle | Coordination |
 |---|---|---|---|
 | email_watcher | asyncio.create_task | 120s | Cache mémoire |
-| jarvis_daemon | asyncio.create_task | 5-30s | skip if bridge.running (non atomique) |
+| jarvis_daemon | asyncio.create_task | 5-30s | Offset SQLite monotone `daemon.notifications` |
 | audio_daemon | asyncio.create_task | Continu | VAD continu |
 | scheduler | APScheduler | 29 jobs | Pas de max_instances |
 | imessage_daemon | Subprocess | HTTP | Processus séparé |
@@ -100,7 +100,7 @@
 | Auth | ✅ LockGate (PIN, auto-lock, anti-brute-force) |
 | Accessibilité | ⚠️ Non vérifiée |
 | Responsive | ⚠️ Optimisé desktop, pas mobile-first |
-| Tests | ❌ Aucun test frontend |
+| Tests | ⚠️ 18 tests Vitest centrés sur l'offline (2 fichiers) |
 
 ### 2.2 pwa/ — PWA mobile (Next.js 14)
 
@@ -157,7 +157,7 @@
 | Paramètre | Valeur | Évaluation |
 |---|---|---|
 | Mode journal | WAL | ✅ Lectures concurrentes OK |
-| busy_timeout | ❌ Non configuré | CRITIQUE |
+| busy_timeout | ✅ 5000 ms dans `database/core.py` | Validé Phase 1 |
 | Foreign keys | ✅ ON | |
 | FTS5 | ✅ | Recherche plein-texte |
 | Sauvegardes | ✅ VACUUM INTO quotidien | Rotation configurable |
@@ -166,7 +166,7 @@
 
 | Métrique | Valeur |
 |---|---|
-| Tables | 44 |
+| Tables | 72 après initialisation et migrations |
 | Contraintes UNIQUE | ✅ Sur toutes les tables critiques |
 | Clés étrangères | ✅ ON DELETE CASCADE où pertinent |
 | Index | ✅ Colonnes de recherche fréquentes |
@@ -177,7 +177,7 @@
 | Risque | Mitigation |
 |---|---|
 | Corruption WAL | ✅ Sauvegardes quotidiennes |
-| Écritures concurrentes | ❌ Pas de busy_timeout |
+| Écritures concurrentes | ✅ WAL + `busy_timeout = 5000` |
 | Dédoublonnage | ✅ Contraintes UNIQUE multiples |
 | Cohérence référentielle | ✅ Foreign keys activées |
 
@@ -190,7 +190,7 @@
 | Import initial | ✅ Batch 5000, triple déduplication |
 | Sync incrémentale | ✅ Curseur ROWID |
 | Déduplication | ✅ ROWID + GUID + SHA256 |
-| Curseurs parallèles | ❌ 3 indépendants non coordonnés |
+| Curseurs parallèles | ✅ 3 offsets nommés, persistants et monotones dans un registre central |
 | Apple timestamp | ❌ 4 implémentations différentes |
 
 ### 4.2 Contacts
