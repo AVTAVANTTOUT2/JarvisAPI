@@ -2,7 +2,7 @@
 
 **Date** : 11 juillet 2026
 **ADR** : ADR-011
-**Statut** : Partiellement appliqué — émissions post-commit activées en Phase 3, propriétaires de services encore à consolider
+**Statut** : Partiellement appliqué — émissions post-commit actives en Phase 3 ; Notifications consolidées le 14/07/2026
 
 ---
 
@@ -11,7 +11,7 @@
 Actuellement, plusieurs modules écrivent dans les mêmes tables sans coordination :
 - `upsert_person()` appelé depuis 7 fichiers
 - `add_fact()` appelé depuis 5 fichiers
-- `create_notification()` appelé directement depuis 15 fichiers après la Phase 3
+- notifications désormais écrites via `NotificationService`; les autres domaines restent à consolider
 
 Ces écritures concurrentes créent un risque d'incohérence et violent le principe de source unique de vérité.
 
@@ -34,7 +34,7 @@ Chaque donnée du système a **un propriétaire unique**. Seul le propriétaire 
 | **Relationships** | Memory Service | MemoryService | Tous (via API) | scripts/relationship_analyzer.py |
 | **Tâches** | Task Service | TaskService | Tous (via API) | Tout autre module |
 | **Journal** | Journal Service | JournalService | Tous (via API) | Tout autre module |
-| **Notifications** | Notification Service | NotificationService | Tous (via API) | Les 15 producteurs directs actuels |
+| **Notifications** | Notification Service | `NotificationService` | Tous (via API) | Tout accès direct au repository hors du service |
 | **Conversations** | Conversation Service | ConversationService | Tous (via API) | Tout autre module |
 | **Messages (chat)** | Conversation Service | ConversationService | Tous (via API) | Tout autre module |
 | **Promesses (commitments)** | Commitment Service | CommitmentService | Tous (via API) | Tout autre module |
@@ -72,7 +72,7 @@ Chaque donnée du système a **un propriétaire unique**. Seul le propriétaire 
 
 ## Exemple : création de notification
 
-**État transitoire après Phase 3 (15 producteurs directs)** :
+**État historique après Phase 3** :
 ```python
 # scripts/email_watcher.py
 create_notification(source="email", title="...", priority="high")
@@ -81,27 +81,26 @@ create_notification(source="email", title="...", priority="high")
 create_notification(source="relationship", title="...", priority="medium")
 ```
 
-Ces appels persistent d'abord la notification, puis `database/notifications.py` émet `NotificationCreated` après commit. Le journal, le WebSocket, le TTS et la PWA réagissent donc déjà sans couplage direct aux producteurs. La centralisation de la politique reste à faire.
+Ces appels persistaient directement les notifications. Ils sont conservés ici comme contexte historique uniquement.
 
-**Cible après introduction de NotificationService** :
+**État appliqué le 14/07/2026** :
 ```python
 # scripts/email_watcher.py
-event_bus.emit(EmailAnalyzed(email_id=..., priority="high", summary="..."))
+notification_service.create(
+    source="email", title=summary, priority="high", email_id=email_id
+)
 
 # scripts/contact_alerts.py
-event_bus.emit(RelationshipAlert(contact=..., reason="silence", priority="medium"))
+notification_service.create(
+    source="relationship", title=title, content=content, priority="medium"
+)
 
-# notification_service.py (handler enregistré)
-@event_bus.on(EmailAnalyzed)
-async def handle_email(event):
-    notification = self.create_notification(source="email", ...)
-    event_bus.emit(NotificationCreated(notification))
-
-@event_bus.on(RelationshipAlert)
-async def handle_relationship(event):
-    notification = self.create_notification(source="relationship", ...)
-    event_bus.emit(NotificationCreated(notification))
+# jarvis/notification_service.py
+# persiste via database/notifications.py, puis émet NotificationCreated
+# uniquement pour une nouvelle ligne validée.
 ```
+
+`NotificationService` normalise les priorités, déduplique atomiquement les doublons récents par `source`/`title`/`email_id`, déclenche le Web Push best-effort et expose les opérations de lecture/marquage utilisées par l'API. La façade historique `database.create_notification()` délègue au service ; le test statique couvre l'absence d'appel direct dans `agents/` et `scripts/`.
 
 ## Contrôle d'accès
 

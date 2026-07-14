@@ -33,6 +33,7 @@ Les travaux sont classés selon l'ordre de priorité suivant :
 **Semaines 3-4 — Unification**
 - [x] Phase 6 : Frontend unifié + SDK Auth (validée sur `main` le 14/07/2026 — Next.js 15 responsive, LockGate partagé, wrapper API unique, fallbacks conservés)
 - [x] CI de non-régression complète (Python, Vite et Next.js unifié) sur le commit de merge Phase 6
+- [x] NotificationService : 16 producteurs migrés, déduplication atomique, Web Push et contrat de compatibilité validés le 14/07/2026
 - [ ] Validation manuelle sur appareils réels (installation, veille, GPS et ergonomie)
 
 ### Q4 2026 — Améliorations (Septembre-Décembre)

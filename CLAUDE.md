@@ -619,6 +619,9 @@ jarvis/
 │   ├── location_helpers.py  # CRUD localisation (lieux, historique, visites, trajets, patterns)
 │   └── queries.py           # Helpers CRUD (save_message, get_life_profile, etc.)
 │
+├── jarvis/
+│   └── notification_service.py # Politique de notifications : priorité, déduplication, push, événements
+│
 ├── web/
 │   ├── src/
 │   │   ├── services/websocket.ts # ws / jarvisWs
@@ -1566,9 +1569,11 @@ celle visée par « le téléphone devient l'interface principale ».
   complet avec un déchiffreur indépendant dans les tests.
 - Clé VAPID générée une fois, persistée dans `app_settings` (jamais exposée
   côté client — seule la clé publique sert de `applicationServerKey`).
-- `create_notification()` déclenche un envoi push (thread daemon,
+- `notification_service.create()` déclenche un envoi push (thread daemon,
   best-effort, jamais bloquant) pour les priorités `urgent`/`high` ;
-  supprime l'abonnement si le push service répond 404/410 (expiré).
+  supprime l'abonnement si le push service répond 404/410 (expiré). Tous les
+  producteurs applicatifs l'utilisent ; `database.create_notification()` est
+  une façade rétrocompatible qui lui délègue.
 - Frontend : `web/src/lib/push.ts` (`subscribeToPush`), bannière
   `NotificationsPrompt.tsx` (une fois, si permission `default`).
 

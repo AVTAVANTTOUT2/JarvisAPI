@@ -24,7 +24,7 @@
 **Aucune zone majeure.** Approfondissements possibles dans le futur :
 
 - Diagrammes de séquence détaillés par flux (`diagrams/`)
-- Documentation exhaustive des 554 fonctions de test backend actuellement déclarées
+- Documentation exhaustive des 565 tests pytest backend actuellement collectés
 - Profilage de performance avant/après benchmarks
 - Plan de reprise après sinistre complet
 
@@ -87,4 +87,4 @@ Phase 6 → dépend de Phase 1 + Phase 3 + Phase 5
 
 **Le dossier Architecture/ est prêt. Il constitue désormais la source de vérité officielle du projet JARVIS. Aucune modification du code ne doit contredire cette documentation.**
 
-**Phases 1 à 6 implémentées et validées sur `main` le 14/07/2026. Prochaine action : valider les appareils réels, rembourser la dette NotificationService puis planifier le retrait des fallbacks.**
+**Phases 1 à 6 et NotificationService sont implémentés et validés localement le 14/07/2026. Prochaine action : valider les appareils réels puis planifier le retrait des fallbacks.**

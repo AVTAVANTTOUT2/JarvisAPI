@@ -30,13 +30,13 @@ Le score de santé mesure la qualité architecturale du projet sur 10 dimensions
 Score = Σ (dimension_score × poids)
 ```
 
-## Score actuel après Phase 6 : 7.20/10
+## Score actuel après Phase 6 + NotificationService : 7.20/10
 
 | Dimension | Score | Justification |
 |---|---|---|
-| Couverture | 5 | 554 fonctions backend, 28 Vitest et 3 E2E ; couverture globale non mesurée de façon fiable |
+| Couverture | 5 | 565 tests pytest collectés (564 passants, 1 ignoré), 28 Vitest et 3 E2E ; couverture globale non mesurée de façon fiable |
 | Duplication | 7 | Frontend canonique, auth et client API unifiés ; vues carte/date et fallbacks restent dupliqués |
-| Dette technique | 8 | Toutes les dettes critiques recensées sont remboursées ; NotificationService et retrait des fallbacks restent ouverts |
+| Dette technique | 8 | Toutes les dettes critiques recensées sont remboursées ; retrait des fallbacks et dates relatives dupliquées restent ouverts |
 | Dépendances | 9 | Cycle main↔daemons supprimé via `pipeline.py` ; aucun import inverse `api → main` |
 | Taille modules | 9 | `main.py` fait 175 lignes et chaque module `api/` 500 lignes ou moins ; façade database 236 lignes, maximum DB 666 |
 | Documentation | 10 | README, CLAUDE.md et Architecture/ synchronisés avec les preuves des six phases |
@@ -53,7 +53,7 @@ La Phase 6 améliore nettement la sécurité et la duplication, mais ne suffit p
 |---|---|---|
 | Couverture | 8 | Tests frontend (Phase 6) et couverture métier plus complète par route |
 | Duplication | 9 | Retrait des fallbacks et utilitaires UI dupliqués |
-| Dette technique | 9 | NotificationService et dettes frontend résiduelles traités |
+| Dette technique | 9 | Retrait des fallbacks et dettes frontend résiduelles traités |
 | Dépendances | 10 | 0 cycle (Phase 1) |
 | Taille modules | 9 | ✅ Split main.py (Phase 4) et database (Phase 2) atteint |
 | Documentation | 10 | Mise à jour continue |

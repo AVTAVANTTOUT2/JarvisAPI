@@ -80,6 +80,15 @@ Preuves exécutées le 14/07/2026 : 67 tests ciblés passants, suite backend com
 
 Preuves exécutées le 14/07/2026 : typecheck et build Next.js 15 de 25 pages, 10 tests Vitest (dont cleanup des services privés au soft lock), 3 E2E Playwright, 4 contrats FastAPI, 18 tests web historiques et builds des deux fallbacks. Le workflow CI comprend désormais un job dédié au frontend unifié, en plus du fallback Vite, et les trois jobs sont passés sur le commit de merge `main`. Le Service Worker unifié exclut les API et données privées. Le rejeu backend complet reste indisponible localement car l'environnement ne fournit pas `portaudio.h` à PyAudio ; les appareils physiques, le comportement d'installation natif et l'observation opérationnelle 24 h restent des validations manuelles.
 
+### NotificationService — dette post-phases
+
+- [x] Les 16 producteurs applicatifs utilisent `notification_service.create()` ; aucun appel direct à `create_notification()` ne subsiste dans `agents/` et `scripts/`.
+- [x] Priorités normalisées, déduplication atomique par `source`/`title`/`email_id` et index appliqué aux bases existantes.
+- [x] Web Push best-effort et `notification.created` ne sont déclenchés qu'après une nouvelle insertion validée.
+- [x] La façade publique `database.create_notification()` et les routes API restent rétrocompatibles.
+
+Preuves exécutées le 14/07/2026 : 5 contrats `tests/test_notification_service.py`, 15 tests ciblés avec Web Push/Event Bus, puis 565 tests backend collectés en quatre lots (564 passants, 1 ignoré). Rollback : revert des commits `refactor: centralize notification orchestration` et `docs: document notification service`.
+
 ## Checklist de code review
 
 Avant de merger une phase, vérifier :

@@ -1,7 +1,7 @@
 # 19 — Validation Finale
 
 **Date** : 11 juillet 2026
-**Statut** : Synthèse actualisée après les Phases 1 à 6
+**Statut** : Synthèse actualisée après les Phases 1 à 6 et NotificationService
 
 ---
 
@@ -24,9 +24,9 @@
 ### Justification des scores
 
 - **Séparation (8/10)** : les god objects database et API sont résolus ; le SDK auth et le client réseau frontend ont maintenant un propriétaire unique.
-- **Couplage (8/10)** : cycle main↔daemon supprimé, Event Bus actif, aucun import `api → main` et accès iMessage à `chat.db` centralisé ; les 15 producteurs directs de notifications restent.
+- **Couplage (8/10)** : cycle main↔daemon supprimé, Event Bus actif, aucun import `api → main`, accès iMessage à `chat.db` centralisé et notifications orchestrées par `NotificationService` ; les fallbacks frontend et connecteurs historiques restent à retirer progressivement.
 - **Cohésion (8/10)** : routes, pipeline et persistance sont regroupés par responsabilité ; `frontend/` assemble les vues responsive autour de services partagés.
-- **Testabilité (6/10)** : 554 fonctions backend, 28 tests Vitest et 3 E2E ; les contrats frontend critiques sont verrouillés, mais la couverture globale n'est pas mesurée de façon fiable.
+- **Testabilité (6/10)** : 565 tests pytest collectés (564 passants, 1 ignoré), 28 tests Vitest et 3 E2E ; les contrats frontend critiques sont verrouillés, mais la couverture globale n'est pas mesurée de façon fiable.
 - **Documentation (9/10)** : CLAUDE.md, README et Architecture/ suivent les six phases ; les diagrammes détaillés par flux restent à enrichir.
 - **Sécurité (8/10)** : Auth robuste et LockGate fail-closed partagé sur desktop/mobile. Le chiffrement au repos, HTTPS par défaut et un pentest réel restent absents.
 - **Performance (6/10)** : SQLite WAL, `busy_timeout = 5000` et batch import. Le cache LLM et le monitoring restent à implémenter.
@@ -80,7 +80,7 @@
 
 ## Prochaine action
 
-**Phases 1 à 6 implémentées et validées sur `main` le 14/07/2026. Prochaine action : validation sur appareils réels, remboursement de la dette NotificationService et retrait planifié des fallbacks.**
+**Phases 1 à 6 sont implémentées et validées sur `main`; NotificationService est validé localement le 14/07/2026. Prochaine action : validation sur appareils réels et retrait planifié des fallbacks.**
 
 ```
 Phase 6 : validée sur `main` le 14/07/2026

@@ -104,20 +104,23 @@ class TaskService:
 
 **Responsabilité** : Création, stockage, et diffusion des notifications.
 
-**État transitoire après Phase 3** : `database.notifications.create_notification()` reste l'API de persistance utilisée par 15 producteurs. Elle émet désormais `notification.created` après commit, ce qui découple le journal, le WebSocket, le TTS et la PWA. Le service ci-dessous reste la cible pour centraliser la politique de priorité et d'anti-doublon.
+**État implémenté le 14/07/2026** : `jarvis.notification_service.notification_service` est l'API unique des producteurs applicatifs et des routes de notifications. Il normalise les priorités, déduplique atomiquement les doublons récents par `source`/`title`/`email_id`, déclenche le Web Push best-effort pour `urgent`/`high` puis émet `notification.created` après le commit. `database.notifications.create_notification()` reste une façade de compatibilité qui délègue au service.
 
 **Interface publique** :
 ```python
 class NotificationService:
-    def create(source: str, title: str, content: str, priority: str, email_id: str | None) -> int
-    def get_unread(limit: int) -> list[Notification]
-    def mark_read(notification_id: int) -> None
-    def mark_all_read() -> None
+    def create(source: str, title: str, content: str | None = None,
+               priority: str = "medium", email_id: str | None = None,
+               *, deduplication_window_seconds: int | None = 300) -> int
+    def get_unread(limit: int = 50) -> list[Notification]
+    def get_recent(limit: int = 50) -> list[Notification]
+    def mark_read(notification_id: int) -> bool
+    def mark_all_read() -> int
 ```
 
 **Événements émis** : `notification.created`
 
-**Interdictions cibles** : Aucun nouveau producteur ne doit appeler `create_notification()` directement. Les 15 appels historiques doivent migrer vers `NotificationService` ou vers des événements d'intention dédiés ; `NotificationCreated` demeure un événement de fait émis uniquement après persistance.
+**Interdiction active** : aucun producteur applicatif ne doit appeler `create_notification()` directement. `tests/test_notification_service.py` impose cette règle sur `agents/` et `scripts/`; `NotificationCreated` demeure un événement de fait émis uniquement après persistance.
 
 ## AIService
 

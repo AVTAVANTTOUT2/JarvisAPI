@@ -77,7 +77,7 @@ Vérifie :
 - Pas d'import `database/` depuis `web/`
 - Pas d'import `main` depuis `database/`
 - Pas d'appel `llm.chat()` hors `ai_service`
-- Pas d'appel `create_notification()` hors `notification_service`
+- Aucun appel direct à `create_notification()` dans les producteurs `agents/` et `scripts/` ; la façade `database/notifications.py` reste compatible et délègue à `notification_service`
 
 **Action si échec** : PR refusée
 

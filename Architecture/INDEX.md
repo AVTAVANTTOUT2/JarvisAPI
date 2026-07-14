@@ -3,7 +3,7 @@
 **Date initiale** : 11 juillet 2026
 
 **Dernière mise à jour** : 14 juillet 2026
-**Périmètre** : 271 fichiers Python (55 938 lignes), 88 fichiers source frontend (18 970 lignes), 73 tables SQLite applicatives après migrations
+**Périmètre** : 273 fichiers Python (56 261 lignes), 99 fichiers source frontend (18 770 lignes), 73 tables SQLite applicatives après migrations
 **État** : **Documentation officielle — toute modification du code doit rester cohérente avec ce dossier**
 
 ---
@@ -70,7 +70,7 @@
 ┌─────────────────────────────────────────────────────────┐
 │                     JARVIS API                           │
 ├─────────────────────────────────────────────────────────┤
-│  Backend           │ 271 fichiers Python, 55 938 lignes  │
+│  Backend           │ 273 fichiers Python, 56 261 lignes  │
 │  Frontend unifié   │ 14 fichiers, 1 016 lignes           │
 │  Vues desktop      │ 38 fichiers, 12 940 lignes          │
 │  Vues mobiles      │ 32 fichiers, 4 641 lignes           │
@@ -81,7 +81,7 @@
 │  Agents LLM        │ 7 agents + orchestrateur            │
 │  Jobs schedulés    │ 29 (APScheduler)                    │
 │  Démons            │ 5 (screen, audio, email, imessage)  │
-│  Tests backend     │ 554 fonctions, 68 fichiers          │
+│  Tests backend     │ 565 pytest, 66 fichiers             │
 │  Tests frontend    │ 28 Vitest + 3 Playwright            │
 ├─────────────────────────────────────────────────────────┤
 │  Couche API        │ main.py 175 lignes, 12 routeurs     │

@@ -107,13 +107,14 @@
 
 ## MODÉRÉS (P2) — À corriger dans le mois
 
-### P2-1 — 15 producteurs appellent encore directement create_notification() sans orchestration
+### P2-1 — Producteurs directs de notification sans orchestration
 
-- **Gravité** : MODÉRÉE
-- **Fichiers** : 15 fichiers consommateurs de l'API publique, vérifiés statiquement après la Phase 3.
-- **Origine** : Chaque script a été développé indépendamment avec sa propre logique de notification.
-- **Conséquence** : Certains scripts gèrent l'anti-doublon (`_notification_recently_sent()`), d'autres non. La priorité reste incohérente, même si chaque écriture déclenche désormais le bus en aval.
-- **Correction** : Centraliser la politique dans un futur `NotificationService`; conserver l'émission `NotificationCreated` au point de persistance pour garantir qu'elle suit le commit.
+**État** : ✅ Résolu le 14/07/2026 par `jarvis/notification_service.py`.
+
+- **Constat historique** : 15 producteurs étaient recensés après la Phase 3 ; l'inventaire final a migré 16 modules applicatifs.
+- **Origine** : Chaque script avait été développé avec sa propre politique de notification.
+- **Correction appliquée** : tous les producteurs passent désormais par `notification_service.create()`. Le service normalise la priorité, déduplique atomiquement par `source`/`title`/`email_id` pendant cinq minutes, déclenche le Web Push best-effort pour `urgent`/`high` et émet `NotificationCreated` uniquement après le commit.
+- **Compatibilité** : `database.create_notification()` reste une façade publique qui délègue au service ; aucun appel direct ne subsiste dans `agents/` ou `scripts/`, vérifié par `tests/test_notification_service.py`.
 
 ### P2-2 — Multiples modules écrivent dans les mêmes tables sans coordination
 
@@ -213,7 +214,7 @@ Fonctions `formatTime()`, `relativeDate()`, `formatDue()` dupliquées entre les 
 | P1-4 | Event bus sans consommateurs métiers | ✅ RÉSOLU | 0 | Phase 3 — 14/07/2026 |
 | P1-5 | 25+ lecteurs chat.db | ✅ RÉSOLU | 0 | Phase 5 — 14/07/2026 |
 | P1-6 | Cycle main↔daemon | ✅ RÉSOLU | 0 | Phase 1 — 11/07/2026 |
-| P2-1 | 15 producteurs directs de notification | MODÉRÉE | 1 jour | Backlog `NotificationService` |
+| P2-1 | Producteurs directs de notification | ✅ RÉSOLU | 0 | NotificationService — 14/07/2026 |
 | P2-2 | Écritures non coordonnées | 🟡 PARTIEL | 2 jours | Gouvernance Data Ownership |
 | P2-3 | 40 endpoints sans consommateur frontend | MODÉRÉE | 1 jour | Backlog audit API |
 | P2-4 | Apple timestamp ×4 | ✅ RÉSOLU | 0 | Phase 5 — 14/07/2026 |
