@@ -29,8 +29,8 @@ import {
   ArrowUp,
   Loader2,
 } from 'lucide-react';
-import { api } from '@/services/api';
-import { timeAgo } from '@/app/lib/timeFormat';
+import { api } from '@unified/lib/api';
+import { timeAgo } from '@desktop/app/lib/timeFormat';
 
 // ── Types locaux ──────────────────────────────────────────────
 

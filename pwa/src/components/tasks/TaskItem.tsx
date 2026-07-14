@@ -2,7 +2,7 @@
 
 import { Check, Circle, Clock } from 'lucide-react';
 
-import { jarvisFetch } from '@/lib/api';
+import { jarvisFetch } from '@unified/lib/api';
 import type { TaskItemRaw } from './types';
 
 const PRIORITY_COLOR: Record<TaskItemRaw['priority'], string> = {

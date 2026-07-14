@@ -1,7 +1,7 @@
 'use client';
 
-import type { BriefingSection } from '@/lib/briefing-parser';
-import { COLOR_CLASSES, COLOR_HEX, SECTION_CONFIG } from '@/lib/section-icons';
+import type { BriefingSection } from '@mobile/lib/briefing-parser';
+import { COLOR_CLASSES, COLOR_HEX, SECTION_CONFIG } from '@mobile/lib/section-icons';
 
 /** Card visuelle pour une section du briefing matin/soir.
  *

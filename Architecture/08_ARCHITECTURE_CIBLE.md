@@ -1,7 +1,7 @@
 # 08 — Architecture Cible (Target Architecture)
 
 **Date** : 11 juillet 2026
-**Statut** : Cible après refactoring complet (Phases 1-6) — couche API atteinte en Phase 4 le 14/07/2026
+**Statut** : Cible progressive — couches database/API/Apple/frontend atteintes après les Phases 2/4/5/6 ; Queue Engine, AI Service et observabilité restent futurs
 
 ---
 

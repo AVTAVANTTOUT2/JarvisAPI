@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { RefreshCw, TerminalSquare } from 'lucide-react'
-import { api, type LlmActionLog } from '@/services/api'
+import { api, type LlmActionLog } from '@unified/lib/api'
 
 function statusCls(status: string) {
   if (status === 'success') return 'text-green-400 border-green-400/30 bg-green-400/10'

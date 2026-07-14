@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { api, ConversationDocument, ConversationSearchResult, ConversationSummary } from '@/services/api'
-import { ws } from '@/services/websocket'
+import { api, ConversationDocument, ConversationSearchResult, ConversationSummary } from '@unified/lib/api'
+import { ws } from '@desktop/services/websocket'
 import { Paperclip, Plus, Search, Send, X } from 'lucide-react'
 
 // ── Types locaux ────────────────────────────────────────────

@@ -7,8 +7,8 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Search, Zap, MessageSquare, Users, FileText, CheckSquare, Loader2 } from 'lucide-react';
-import { api } from '@/services/api';
-import { ws } from '@/services/websocket';
+import { api } from '@unified/lib/api';
+import { ws } from '@desktop/services/websocket';
 
 interface ConvItem {
   id: number;

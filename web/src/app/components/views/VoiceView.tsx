@@ -10,8 +10,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import { MessageSquare, Mic, MicOff, Settings, Square, Volume2, Headphones } from 'lucide-react'
-import { ws } from '@/services/websocket'
-import { api, type AudioDaemonStatus } from '@/services/api'
+import { ws } from '@desktop/services/websocket'
+import { api, type AudioDaemonStatus } from '@unified/lib/api'
 
 type SessionPhase = 'idle' | 'listening' | 'processing' | 'speaking'
 type MicPermissionState = 'idle' | 'pending' | 'granted' | 'denied'

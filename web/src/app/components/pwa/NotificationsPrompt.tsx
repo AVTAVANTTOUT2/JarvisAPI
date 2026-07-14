@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Bell, X } from 'lucide-react'
-import { isPushSupported, subscribeToPush } from '@/lib/push'
+import { isPushSupported, subscribeToPush } from '@desktop/lib/push'
 
 const DISMISSED_KEY = 'jarvis:notifications-prompt-dismissed'
 

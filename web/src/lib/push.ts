@@ -1,4 +1,4 @@
-import { api } from '@/services/api'
+import { api } from '@unified/lib/api'
 
 function urlBase64ToUint8Array(base64: string): BufferSource {
   const padding = '='.repeat((4 - (base64.length % 4)) % 4)

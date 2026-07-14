@@ -27,7 +27,7 @@ import {
   type ServiceInfo,
   type SupervisorService,
   supervisorWsUrl,
-} from '@/services/api'
+} from '@unified/lib/api'
 
 // ── Constantes ────────────────────────────────────────────────
 

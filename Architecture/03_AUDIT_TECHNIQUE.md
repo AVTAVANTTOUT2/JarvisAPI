@@ -15,7 +15,7 @@
 | Imports | ✅ Dépendances distribuées | Aucun module `api/` n'importe `main.py` |
 | Middleware | ✅ Correct | CORS configuré, security_middleware fonctionnel |
 | Lifespan | ✅ Extrait | `api/lifespan.py` est monté explicitement sur l'application |
-| Tests | ⚠️ Couverture partielle | 553 fonctions de test (64 fichiers), contrats routes et AppleData verrouillés ; couverture globale non mesurée |
+| Tests | ⚠️ Couverture partielle | 554 fonctions backend (68 fichiers), 27 Vitest et 3 E2E ; couverture globale non mesurée |
 
 L'état initial (7 197 lignes, 40+ responsabilités et 42 imports concentrés) est conservé comme constat historique de l'audit. ADR-008 a été appliqué le 14/07/2026 sans changement de signature HTTP/WebSocket ni de schéma OpenAPI.
 
@@ -89,7 +89,20 @@ L'état initial (7 197 lignes, 40+ responsabilités et 42 imports concentrés)
 
 ## 2. Frontend
 
-### 2.1 web/ — SPA desktop (React 19 + Vite)
+### 2.0 frontend/ — application canonique responsive (Next.js 15)
+
+| Aspect | État |
+|---|---|
+| Framework | ✅ Next.js 15.5, React 19, Tailwind v4 |
+| Layout | ✅ Sélection téléphone/desktop déterministe ; 21 segments métier, 25 pages statiques exportées |
+| Réutilisation | ✅ Les vues `web/src` et `pwa/src` sont importées, pas recopiées |
+| API | ✅ Un seul wrapper `frontend/src/lib/api.ts`, cookie inclus sur chaque requête |
+| Auth | ✅ SDK `jarvis_auth/`, LockGate fail-closed partagé |
+| PWA | ✅ Manifest et Service Worker limité aux assets publics du shell |
+| Tests | ✅ 10 Vitest, typecheck/build, 3 Playwright desktop/mobile |
+| Déploiement | ✅ `frontend/out` prioritaire ; `web/dist` et `/m/` restent des fallbacks |
+
+### 2.1 web/ — SPA desktop historique et source des vues
 
 | Aspect | État |
 |---|---|
@@ -97,27 +110,27 @@ L'état initial (7 197 lignes, 40+ responsabilités et 42 imports concentrés)
 | Style | ✅ Tailwind v4 |
 | Router | ✅ react-router-dom v7, lazy-loading |
 | État | ⚠️ useState/useEffect, pas de state manager |
-| API | ✅ api.ts (626 lignes, 60 méthodes typées) |
+| API | ✅ Wrapper partagé `frontend/src/lib/api.ts` |
 | WebSocket | ✅ Singleton, reconnexion exponentielle |
 | Offline | ✅ IndexedDB + file (création tâche uniquement) |
-| Auth | ✅ LockGate (PIN, auto-lock, anti-brute-force) |
+| Auth | ✅ `LockGate` importé depuis `jarvis_auth/` |
 | Accessibilité | ⚠️ Non vérifiée |
 | Responsive | ⚠️ Optimisé desktop, pas mobile-first |
 | Tests | ⚠️ 18 tests Vitest centrés sur l'offline (2 fichiers) |
 
-### 2.2 pwa/ — PWA mobile (Next.js 14)
+### 2.2 pwa/ — fallback mobile historique et source des vues
 
 | Aspect | État |
 |---|---|
 | Framework | ⚠️ Next.js 14.2 (pas 15+) |
 | Style | ⚠️ Tailwind v3.4 (version différente du desktop) |
 | Data fetching | ✅ React Query v5 |
-| API | ⚠️ jarvisFetch (52 lignes, pas de types) |
+| API | ✅ `jarvisFetch` partagé depuis `frontend/src/lib/api.ts` |
 | Offline | ❌ Aucun |
-| Auth | ❌ Aucun LockGate (faille documentée) |
+| Auth | ✅ `LockGate` partagé, fail-closed |
 | Mobile-first | ✅ BottomNav, safe-area, Viewport |
 | Carte | ✅ Leaflet |
-| Tests | ❌ Aucun |
+| Tests | ✅ Couvert via les tests unitaires/E2E du frontend unifié |
 
 ### 2.3 Composants dupliqués
 
@@ -129,7 +142,7 @@ L'état initial (7 197 lignes, 40+ responsabilités et 42 imports concentrés)
 | Dashboard | Cartes + Recharts | Stats 2x2 + BriefingCard | 30% |
 | Carte | SVG custom (~840l) | Leaflet (~308l) | 0% |
 | Types | Inline ou api.ts | Types locaux | 90% |
-| Fetch wrapper | api.ts (626 lignes) | jarvisFetch (52 lignes) | 0% |
+| Fetch wrapper | `frontend/src/lib/api.ts` | le même wrapper | 100% partagé |
 
 ### 2.4 PWA — Service Worker
 

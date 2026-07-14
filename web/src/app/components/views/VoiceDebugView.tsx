@@ -14,8 +14,8 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { RefreshCw, Mic, Bot, Volume2, Clock, ChevronDown, ChevronUp, Bug } from 'lucide-react'
-import { api, type VoiceDebugTrace } from '@/services/api'
-import { ws } from '@/services/websocket'
+import { api, type VoiceDebugTrace } from '@unified/lib/api'
+import { ws } from '@desktop/services/websocket'
 
 // ── Types locaux ─────────────────────────────────────────────────────────────
 

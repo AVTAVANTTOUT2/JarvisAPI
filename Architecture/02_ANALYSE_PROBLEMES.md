@@ -7,13 +7,14 @@
 
 ## CRITIQUES (P0) — Correction immédiate requise
 
-### P0-1 — PWA sans écran de verrouillage
+### P0-1 — PWA sans écran de verrouillage ✅ RÉSOLU (Phase 6)
 
 - **Gravité** : CRITIQUE
 - **Fichiers** : `pwa/` (tout le frontend mobile)
 - **Origine** : La PWA a été conçue comme une app mobile séparée, sans porter le composant `LockGate` existant dans `web/`. Le cookie `jarvis_session` est transmis automatiquement (même origine HTTP), donc l'API est accessible sans re-vérification du PIN.
 - **Conséquence** : Si un téléphone déverrouillé accède à `http://IP:8081/m/`, toutes les données JARVIS (mails, journal, contacts, localisation GPS) sont exposées.
 - **Correction** : SDK d'auth partagé + portage de `LockGate` dans la PWA (ADR-001)
+- **Résolution** : `jarvis_auth/` est importé par le frontend unifié, `web/` et `pwa/`. `LockGate` attend une confirmation authentifiée de `/api/auth/status`, reste fermé en cas d'erreur réseau et ne rend jamais les enfants privés avant déverrouillage. Validé le 14/07/2026 par Vitest et Playwright mobile.
 
 ### P0-2 — Trois curseurs ROWID indépendants sur chat.db ✅ RÉSOLU (Phase 1)
 
@@ -66,13 +67,14 @@
 - **Conséquence historique** : Toute modification du schéma d'une table nécessitait de naviguer dans 4 169 lignes. Conflits de merge fréquents.
 - **Correction** : 25 modules spécialisés ; `schema.py` et `migrations.py` isolent la structure, `core.py` porte l'initialisation, la façade conserve l'API publique (ADR-009).
 
-### P1-3 — Deux frontends, zéro réutilisation
+### P1-3 — Deux frontends, zéro réutilisation ✅ RÉSOLU (Phase 6)
 
 - **Gravité** : MAJEURE
 - **Fichiers** : `web/` (41 fichiers), `pwa/` (33 fichiers)
 - **Origine** : `web/` a été développé en premier (React 19 + Vite). `pwa/` a été ajouté plus tard (Next.js 14) sans plan d'unification.
 - **Conséquence** : Les types `TaskItem`, `NotificationItem`, `Place` sont redéfinis dans chaque front avec des champs différents. Les wrappers API sont distincts. Tout bug corrigé dans un frontend doit être reporté manuellement dans l'autre.
 - **Correction** : App Next.js 15 unifiée responsive (ADR-007)
+- **Résolution** : `frontend/` est la cible canonique Next.js 15/React 19. Elle sélectionne le layout selon le terminal et réutilise directement les vues de `web/src` et `pwa/src`, le SDK auth, les types et le wrapper API central. Les anciens builds restent volontairement exécutables comme fallbacks de rollback, sans être deux chemins de production concurrents.
 
 ### P1-4 — Event bus existant mais sans consommateurs métiers
 
@@ -145,21 +147,23 @@
 - **Conséquence** : Un job qui traîne (ex: debrief 21:45) peut chevaucher le suivant (ex: résumé 22:00). Pas de `max_instances` configuré.
 - **Correction** : Ajouter `max_instances=1` et `misfire_grace_time` à chaque job
 
-### P2-6 — Deux wrappers API frontend incompatibles
+### P2-6 — Deux wrappers API frontend incompatibles ✅ RÉSOLU (Phase 6)
 
 - **Gravité** : MODÉRÉE
-- **Fichiers** : `web/src/services/api.ts` (626 lignes), `pwa/src/lib/api.ts` (52 lignes)
+- **Fichiers historiques** : `web/src/services/api.ts` (626 lignes), `pwa/src/lib/api.ts` (52 lignes), supprimés/déplacés en Phase 6
 - **Origine** : Développement indépendant des deux frontends.
 - **Conséquence** : Toute modification d'un endpoint nécessite deux mises à jour.
 - **Correction** : Unification frontend (ADR-007)
+- **Résolution** : `frontend/src/lib/api.ts` est l'unique point `fetch()` des trois arbres source. Il transmet systématiquement `credentials: 'include'`, y compris pour les uploads, la géolocalisation et le rejeu de la file hors-ligne. Un test d'architecture interdit le retour des deux anciens wrappers.
 
-### P2-7 — Incohérence des versions frontend
+### P2-7 — Incohérence des versions frontend 🟡 RÉDUIT (Phase 6)
 
 - **Gravité** : MODÉRÉE
 - **Fichiers** : `web/package.json`, `pwa/package.json`
 - **Origine** : React 19 dans `web/`, React 18 dans `pwa/`. Tailwind v4 dans `web/`, v3.4 dans `pwa/`.
 - **Conséquence** : Impossible de partager des composants entre les deux frontends.
 - **Correction** : Unification sur React 19 + Tailwind v4 (ADR-007)
+- **État actuel** : le runtime canonique `frontend/` utilise Next.js 15, React 19 et Tailwind v4. Les manifestes Next.js 14/React 18 de `pwa/` sont conservés temporairement uniquement pour le rollback et seront supprimés avec les fallbacks historiques.
 
 ### P2-8 — Deux implémentations de carte totalement différentes
 
@@ -181,9 +185,9 @@
 
 **État** : ✅ Concentration dans `main.py` résolue en Phase 4. Les imports ont été replacés dans les modules responsables ; toute exception lazy résiduelle reste soumise à la règle d'architecture dédiée.
 
-### P3-3 — Pas de tests pour la détection mobile
+### P3-3 — Pas de tests pour la détection mobile ✅ RÉSOLU (Phase 6)
 
-`_is_mobile_device()` n'a pas de tests unitaires.
+`frontend/src/lib/device.test.ts` couvre téléphone, tablette Android et desktop ; les scénarios Playwright vérifient aussi la sélection réelle des layouts desktop/mobile.
 
 ### P3-4 — Service Worker dupliqué
 
@@ -199,13 +203,13 @@ Fonctions `formatTime()`, `relativeDate()`, `formatDue()` dupliquées entre les 
 
 | # | Problème | Sévérité | Effort correctif | Phase |
 |---|---|---|---|---|
-| P0-1 | PWA sans LockGate | CRITIQUE | 2 jours | Phase 6 |
+| P0-1 | PWA sans LockGate | ✅ RÉSOLU | 0 | Phase 6 — 14/07/2026 |
 | P0-2 | 3 curseurs ROWID | ✅ RÉSOLU | 0 | Phase 1 — 11/07/2026 |
 | P0-3 | Race condition WS | ✅ RÉSOLU | 0 | Phase 1 — 11/07/2026 |
 | P0-4 | SQLite busy_timeout | ✅ RÉSOLU | 0 | Phase 1 — 11/07/2026 |
 | P1-1 | main.py monolithe | ✅ RÉSOLU | 0 | Phase 4 — 14/07/2026 |
 | P1-2 | database god object | ✅ RÉSOLU | 0 | Phase 2 — 14/07/2026 |
-| P1-3 | Deux frontends | MAJEURE | 5 jours | Phase 6 |
+| P1-3 | Deux frontends | ✅ RÉSOLU (production) | 0 | Phase 6 — 14/07/2026 |
 | P1-4 | Event bus sans consommateurs métiers | ✅ RÉSOLU | 0 | Phase 3 — 14/07/2026 |
 | P1-5 | 25+ lecteurs chat.db | ✅ RÉSOLU | 0 | Phase 5 — 14/07/2026 |
 | P1-6 | Cycle main↔daemon | ✅ RÉSOLU | 0 | Phase 1 — 11/07/2026 |
@@ -214,11 +218,11 @@ Fonctions `formatTime()`, `relativeDate()`, `formatDue()` dupliquées entre les 
 | P2-3 | 40 endpoints sans consommateur frontend | MODÉRÉE | 1 jour | Backlog audit API |
 | P2-4 | Apple timestamp ×4 | ✅ RÉSOLU | 0 | Phase 5 — 14/07/2026 |
 | P2-5 | 29 jobs scheduler | MODÉRÉE | 2 heures | Backlog scheduler |
-| P2-6 | 2 wrappers API | MODÉRÉE | 1 jour | Phase 6 |
-| P2-7 | Versions incohérentes | MODÉRÉE | 3 jours | Phase 6 |
-| P2-8 | 2 cartes différentes | MODÉRÉE | 2 jours | Phase 6 |
+| P2-6 | 2 wrappers API | ✅ RÉSOLU | 0 | Phase 6 — 14/07/2026 |
+| P2-7 | Versions incohérentes | 🟡 RÉDUIT aux fallbacks | 1 jour | Retrait des fallbacks |
+| P2-8 | 2 cartes différentes | MODÉRÉE | 2 jours | Backlog frontend post-Phase 6 |
 | P3-1 | 42 imports concentrés dans main.py | ✅ RÉSOLU | 0 | Phase 4 — 14/07/2026 |
 | P3-2 | Lazy imports concentrés dans main.py | ✅ RÉSOLU | 0 | Phase 4 — 14/07/2026 |
-| P3-3 | Pas de tests mobile | MINEURE | 30 min | Phase 6 |
-| P3-4 | SW dupliqué | MINEURE | 2 heures | Phase 6 |
-| P3-5 | Dates dupliquées | MINEURE | 1 heure | Phase 6 |
+| P3-3 | Pas de tests mobile | ✅ RÉSOLU | 0 | Phase 6 — 14/07/2026 |
+| P3-4 | SW dupliqué | MINEURE | 2 heures | Retrait des fallbacks |
+| P3-5 | Dates dupliquées | MINEURE | 1 heure | Backlog frontend |

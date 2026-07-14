@@ -64,7 +64,8 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, './src'),
+      '@desktop': path.resolve(__dirname, './src'),
+      '@unified': path.resolve(__dirname, '../frontend/src'),
     },
   },
   build: {
@@ -79,6 +80,7 @@ export default defineConfig({
     },
   },
   server: {
+    fs: { allow: [path.resolve(__dirname, '..')] },
     port: 5173,
     host: '0.0.0.0',
     https: {},

@@ -14,8 +14,8 @@ import {
   CheckCircle,
   AlertCircle,
 } from 'lucide-react';
-import { api } from '@/services/api';
-import { timeAgo, formatDurationSec } from '@/app/lib/timeFormat';
+import { api } from '@unified/lib/api';
+import { timeAgo, formatDurationSec } from '@desktop/app/lib/timeFormat';
 
 // ── Types ────────────────────────────────────────────────────
 

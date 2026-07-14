@@ -14,6 +14,8 @@
  * Tous les appels passent par le proxy Next.js (/api/* -> backend FastAPI).
  */
 
+import { jarvisFetch } from '@unified/lib/api';
+
 const SEND_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes entre deux envois
 const FORCED_SEND_INTERVAL_MS = 2 * SEND_INTERVAL_MS; // envoi force au bout de 10 min
 const MIN_DISTANCE_METERS = 30; // ignorer si deplacement < 30 m
@@ -99,17 +101,10 @@ async function sendPosition(
   state.lastSentTimestamp = now;
 
   try {
-    const res = await fetch('/api/location', {
+    await jarvisFetch('/api/location', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    if (!res.ok) {
-      state.lastError = `HTTP ${res.status}`;
-      state.failedAttempts += 1;
-      console.warn('[geo] POST /api/location returned', res.status);
-      return true;
-    }
     state.lastLat = latitude;
     state.lastLng = longitude;
     state.lastSentSuccess = now;

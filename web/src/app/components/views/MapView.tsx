@@ -9,8 +9,8 @@ import {
   Minus,
   Loader2,
 } from 'lucide-react';
-import { api } from '@/services/api';
-import { timeAgo, formatDurationMin } from '@/app/lib/timeFormat';
+import { api } from '@unified/lib/api';
+import { timeAgo, formatDurationMin } from '@desktop/app/lib/timeFormat';
 
 // ── Types ────────────────────────────────────────────────────
 

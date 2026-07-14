@@ -9,6 +9,8 @@
  *    est servi directement ; il doit avoir ete genere au prealable.
  */
 
+const path = require('path');
+
 const isDev = process.env.NODE_ENV === 'development';
 
 // En dev, on wrap avec next-pwa pour regenerer le SW. En export statique,
@@ -36,6 +38,13 @@ const baseConfig = {
   images: { unoptimized: true },
   reactStrictMode: true,
   trailingSlash: false,
+  transpilePackages: ['@jarvis/auth'],
+
+  webpack(config) {
+    config.resolve.symlinks = false;
+    config.resolve.alias['@unified'] = path.resolve(__dirname, '../frontend/src');
+    return config;
+  },
 
   // ── Proxy API (development uniquement) ──
   ...(isDev && {

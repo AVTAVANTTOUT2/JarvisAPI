@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
-import { ws } from '@/services/websocket';
+import { ws } from '@desktop/services/websocket';
 import { Activity, CalendarDays, ListTodo, MessageSquare, Mic, Settings2, TerminalSquare, Bug } from 'lucide-react';
 
 function navCls({ isActive }: { isActive: boolean }) {

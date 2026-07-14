@@ -14,7 +14,9 @@
 - B. Port direct — copier LockGate.tsx dans pwa/. Rapide mais duplication.
 - C. Middleware Next.js — incompatible avec output: 'export'.
 
-**Recommandation** : Solution A — SDK d'auth partagé. Effort : 2 jours.
+**Décision** : Solution A — SDK d'auth partagé.
+
+**Statut** : ✅ Implémenté et validé le 14/07/2026. `jarvis_auth/` fournit `AuthClient`, `useLockGate()` et `LockGate`; `web/`, `pwa/` et le frontend unifié l'importent. Le composant masque tout contenu privé tant que `/api/auth/status` n'a pas confirmé une session, reste fermé si le serveur est inaccessible et arrête les services privés lors du verrouillage automatique. Preuves : 10 tests Vitest, dont les contrats d'auth, le fail-closed, l'absence de contenu privé avant déverrouillage et le cleanup au soft lock, plus 3 scénarios Playwright desktop/mobile.
 
 ---
 
@@ -98,7 +100,9 @@
 - B. Package @jarvis/shared + deux apps séparées. Moins risqué mais moins propre.
 - C. Abandonner desktop, tout PWA mobile. Trop régressif.
 
-**Recommandation** : Solution A. Coexistence avec l'ancien frontend pendant la migration. Effort : 5 jours.
+**Décision** : Solution A, avec coexistence réversible des builds historiques.
+
+**Statut** : ✅ Implémenté et validé localement le 14/07/2026. `frontend/` porte l'application Next.js 15/React 19 responsive, sélectionne les layouts desktop/mobile sans copier leurs vues, et centralise types et accès réseau dans `frontend/src/lib/api.ts`. FastAPI sert `frontend/out` en priorité, conserve `web/dist` comme fallback et laisse `pwa/out` accessible sous `/m/`. Preuves : build de 25 pages statiques, 10 tests Vitest, 3 E2E Playwright, 4 contrats FastAPI, ainsi que les builds des deux frontends historiques.
 
 ---
 
@@ -148,13 +152,13 @@
 
 | ADR | Problème | Solution | Effort | Prérequis |
 |---|---|---|---|---|
-| 001 | PWA sans LockGate | SDK auth partagé | 2j | Aucun |
+| 001 | PWA sans LockGate | ✅ SDK auth partagé | Fait | Aucun |
 | 002 | 3 curseurs ROWID mémoire | Registre SQLite central, offset par consommateur | 2h | Aucun |
 | 003 | Race WS set | Lock + copie défensive | 15min | Aucun |
 | 004 | SQLite busy | busy_timeout=5000 | 5min | Aucun |
 | 005 | Event bus à usage minimal | ✅ 10 événements + 3 consommateurs | Fait | ADR-009 |
 | 006 | 25+ lecteurs chat.db | AppleDataService | 3j | ADR-002 |
-| 007 | Deux frontends | App Next.js unifiée | 5j | ADR-001 |
+| 007 | Deux frontends | ✅ App Next.js unifiée et fallbacks | Fait | ADR-001 |
 | 008 | main.py monolithe | ✅ 12 routeurs par domaine, `main.py` 175 lignes | Fait | ADR-009 |
 | 009 | database god object | Modules par domaine | 1j | Aucun |
 | 010 | Cycle main↔daemon | pipeline.py | 4h | Aucun |

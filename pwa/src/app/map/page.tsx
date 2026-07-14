@@ -5,9 +5,9 @@ import { useQuery } from '@tanstack/react-query';
 import dynamic from 'next/dynamic';
 import { Map, Loader2 } from 'lucide-react';
 
-import TimelineBar from '@/components/map/TimelineBar';
-import DetailSheet from '@/components/map/DetailSheet';
-import { jarvisFetch } from '@/lib/api';
+import TimelineBar from '@mobile/components/map/TimelineBar';
+import DetailSheet from '@mobile/components/map/DetailSheet';
+import { jarvisFetch } from '@unified/lib/api';
 import type {
   Place,
   LocationPoint,
@@ -17,9 +17,9 @@ import type {
   LocationHistoryResponse,
   VisitsResponse,
   TripsResponse,
-} from '@/lib/map-types';
+} from '@mobile/lib/map-types';
 
-const MapView = dynamic(() => import('@/components/map/MapView'), {
+const MapView = dynamic(() => import('@mobile/components/map/MapView'), {
   ssr: false,
   loading: () => (
     <div className="w-full h-full flex items-center justify-center bg-[#0a0a0f]">

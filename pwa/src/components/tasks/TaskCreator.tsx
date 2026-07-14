@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Plus } from 'lucide-react';
 
-import { jarvisFetch } from '@/lib/api';
+import { jarvisFetch } from '@unified/lib/api';
 import type { TaskItemRaw } from './types';
 
 type Priority = TaskItemRaw['priority'];

@@ -31,8 +31,8 @@ Les travaux sont classés selon l'ordre de priorité suivant :
 - [x] Phase 5 : Apple Data Service (validée le 14/07/2026 — accès `chat.db` centralisé et conversion Apple unique)
 
 **Semaines 3-4 — Unification**
-- [ ] Phase 6 : Frontend unifié + SDK Auth
-- [ ] Tests de non-régression complets
+- [x] Phase 6 : Frontend unifié + SDK Auth (validée localement le 14/07/2026 — Next.js 15 responsive, LockGate partagé, wrapper API unique, fallbacks conservés)
+- [ ] CI de non-régression complète sur la branche Phase 6 et validation manuelle sur appareils réels
 
 ### Q4 2026 — Améliorations (Septembre-Décembre)
 
@@ -67,13 +67,13 @@ Avant d'ajouter une feature :
 
 | Métrique | État actuel | Cible Q3 2026 | Cible Q4 2026 |
 |---|---|---|---|
-| Problèmes critiques | 1 | 0 | 0 |
-| Problèmes majeurs | 2 | 2 | 0 |
+| Problèmes critiques | 0 | 0 | 0 |
+| Problèmes majeurs | 1 | 1 | 0 |
 | God objects API/DB (>1000 lignes) | 0 | 0 | 0 |
 | Duplications majeures | 8 | 3 | 0 |
 | Couverture tests backend | ~60% | 80% | 90% |
-| Tests frontend | 18 (web offline) | 50+ | 100+ |
-| Applications frontend | 2 | 1.5 (coexistence) | 1 |
+| Tests frontend | 27 Vitest + 3 E2E | 50+ | 100+ |
+| Applications frontend | 1 prioritaire + 2 fallbacks de rollback | 1 + fallbacks | 1 |
 | Connexions directes `chat.db` | 0 hors `AppleDataService` | 0 | 0 |
 | Temps démarrage backend | ~3s | <2s | <1s |
 | UI polling notifications/tâches | Push SSE depuis Phase 3 | Push | Push |

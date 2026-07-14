@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@jarvis/auth": "file:../jarvis_auth",
     "@tanstack/react-query": "^5.62.0",
     "@types/leaflet": "^1.9.21",
     "leaflet": "^1.9.4",

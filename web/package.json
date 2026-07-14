@@ -10,6 +10,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@jarvis/auth": "file:../jarvis_auth",
     "date-fns": "^4.1.0",
     "framer-motion": "^12.42.2",
     "idb": "^8.0.3",

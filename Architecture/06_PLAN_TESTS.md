@@ -3,7 +3,7 @@
 **Date initiale** : 11 juillet 2026
 
 **Dernière validation locale** : 14 juillet 2026
-**Couverture actuelle** : 553 fonctions de test déclarées dans 64 fichiers (backend uniquement). Validation après Phase 5 : 555 cas passés, 1 ignoré et 0 échec avec la commande backend complète.
+**Couverture actuelle** : 554 fonctions de test backend déclarées dans 68 fichiers, 27 tests Vitest passants (18 historiques + 9 unifiés) et 3 scénarios Playwright Phase 6. La dernière suite backend complète demeure la validation Phase 5 à 555 cas passés et 1 ignoré ; le rejeu local Phase 6 est bloqué avant collecte par l'absence de `portaudio.h` lors de l'installation de PyAudio.
 
 ## Stratégie
 
@@ -11,10 +11,10 @@
 
 | Niveau | Outil | Cible | Actuel | Cible |
 |---|---|---|---|---|
-| Unitaires backend | pytest | Fonctions pures, classes | 553 fonctions déclarées | Maintenir et mesurer la couverture |
+| Unitaires backend | pytest | Fonctions pures, classes | 554 fonctions déclarées | Maintenir et mesurer la couverture |
 | Intégration backend | pytest | Routes API, DB | Partiel | 50+ |
-| Unitaires frontend | Vitest | Composants, hooks, stores | 18 tests web, 0 PWA | 100+ |
-| Intégration frontend | Playwright | Flux utilisateur complets | 0 | 30+ |
+| Unitaires frontend | Vitest | Composants, hooks, stores | 27 passants : 18 web + 9 frontend unifié | 100+ |
+| Intégration frontend | Playwright | Flux utilisateur complets | 3 passants desktop/mobile | 30+ |
 | Tests offline | Vitest + fake-indexeddb | IndexedDB, SW, sync | Partiel (2) | 20+ |
 | Tests PWA | Lighthouse + manuel | Installation, push, cache | 0 | 15+ |
 | Sécurité | pytest + OWASP ZAP | Auth, injection, CSRF | Partiel | 20+ |
@@ -29,7 +29,7 @@
 2. Race condition WebSocket — couverte par 2 tests (snapshot stable, I/O hors verrou)
 3. SQLite `busy_timeout` — couvert par lecture réelle du PRAGMA configuré
 4. Registre des curseurs ROWID — couvert par 2 tests (isolation, monotonie, redémarrage)
-5. PWA LockGate — pas de test de flux auth mobile
+5. PWA LockGate — ✅ fail-closed, absence de contenu privé et déverrouillage couverts en Vitest + Playwright
 6. Event bus — couvert par 4 tests de contrat et d'intégration sur les 10 mutations de domaine
 
 ### P1 — Couverture insuffisante
@@ -87,14 +87,17 @@ Preuves : 7 contrats `test_apple_data.py` (base temporaire, lecture seule, conve
 |---|---|
 | `tests/test_apple_data.py` | Mock `chat.db`, mode read-only, conversion timestamp, conversations, recherche, statistiques, provider Contacts et invariant d'architecture |
 
-### Phase 6 (accompagne Frontend unifié)
+### Phase 6 — implémentée et validée localement le 14/07/2026
+
+Preuves : 10 tests Vitest, dont l'arrêt des services privés au verrouillage automatique, typecheck et build Next.js 15 réussis ; 3 scénarios Playwright desktop/mobile ; 4 contrats FastAPI ; 18 tests et build Vite historiques ; build PWA Next.js 14 historique. Le workflow CI exécute désormais le fallback Vite et un job séparé `Frontend unifié (tests + build)`. La suite backend complète n'a pas été contournée artificiellement : l'installation PyAudio s'arrête sur `fatal error: 'portaudio.h' file not found`; les 4 tests Phase 6 autonomes passent avec les dépendances FastAPI minimales.
 
 | Fichier | Contenu |
 |---|---|
-| `frontend/src/__tests__/components/` | TaskList, TaskCreator, MailList, MapView |
-| `frontend/src/__tests__/auth/` | LockGate (setup, unlock, auto-lock, logout) |
-| `frontend/src/__tests__/offline/` | IndexedDB queue (création, flush, conflit) |
-| `e2e/` | Playwright — flux complet desktop + mobile |
+| `frontend/src/device.test.ts` | Sélection déterministe des layouts téléphone, tablette et desktop |
+| `frontend/src/auth-client.test.ts` | Contrat auth, erreurs 401 typées, cookie et uploads via le wrapper partagé |
+| `frontend/src/lock-gate.test.tsx` | Fail-closed, contenu privé masqué puis révélé après déverrouillage |
+| `frontend/e2e/unified.spec.ts` | Playwright — navigation desktop, dashboard mobile et refus mobile non authentifié |
+| `tests/test_phase6_frontend.py` | Priorité/fallback/coexistence FastAPI et unicité du wrapper réseau |
 
 ### Tests de sécurité (Phase 6)
 
@@ -111,9 +114,9 @@ Preuves : 7 contrats `test_apple_data.py` (base temporaire, lecture seule, conve
 | Métrique | Actuel | Après Phase 3 | Après Phase 6 |
 |---|---|---|---|
 | Couverture backend (%) | Non mesurée de façon fiable | À mesurer | 90% |
-| Fonctions de test backend déclarées | 546 | 540 | ≥546 |
+| Fonctions de test backend déclarées | 546 | 540 | 554 |
 | Tests intégration backend | ~14 | ~14 | 50+ |
-| Tests frontend | 18 web, 0 PWA | 18 web, 0 PWA | 100+ |
-| Tests E2E | 0 | 0 | 30+ |
+| Tests frontend | 18 web, 0 PWA | 18 web, 0 PWA | 27 passants |
+| Tests E2E | 0 | 0 | 3 passants |
 | Tests sécurité | ~5 | 5 | 25+ |
 | Tests offline | 2 | 2 | 20+ |

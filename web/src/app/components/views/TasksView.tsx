@@ -11,8 +11,8 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { api } from '@/services/api';
-import { enqueueWrite, isNetworkError } from '@/lib/offline/queue';
+import { api } from '@unified/lib/api';
+import { enqueueWrite, isNetworkError } from '@desktop/lib/offline/queue';
 
 // ── Types ────────────────────────────────────────────────────
 

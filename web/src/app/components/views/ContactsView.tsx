@@ -10,9 +10,9 @@ import {
   Pencil,
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { api, ApiError } from '@/services/api';
-import type { ApiPerson, RelationshipProfile } from '@/app/types/jarvis';
-import { formatRelativeTime, formatHoursFromMinutes } from '@/app/lib/timeFormat';
+import { api, ApiError } from '@unified/lib/api';
+import type { ApiPerson, RelationshipProfile } from '@unified/types/jarvis';
+import { formatRelativeTime, formatHoursFromMinutes } from '@desktop/app/lib/timeFormat';
 
 // TODO: série historique depuis API | mock design conservé
 const interactionHistoryMock = [
