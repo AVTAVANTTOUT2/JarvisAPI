@@ -1,7 +1,7 @@
 # 06 — Plan de Tests
 
 **Date** : 11 juillet 2026
-**Couverture actuelle** : 534 fonctions de test déclarées dans 59 fichiers (backend uniquement). Validation Python 3.12 du 14/07/2026 : 536 cas passés, 1 ignoré et 0 échec avec la commande backend complète.
+**Couverture actuelle** : 536 fonctions de test déclarées dans 59 fichiers (backend uniquement). Validation Python 3.12 du 14/07/2026 après Phase 2 : 538 cas passés, 1 ignoré et 0 échec avec la commande backend complète.
 
 ## Stratégie
 
@@ -9,7 +9,7 @@
 
 | Niveau | Outil | Cible | Actuel | Cible |
 |---|---|---|---|---|
-| Unitaires backend | pytest | Fonctions pures, classes | 534 fonctions déclarées | Maintenir et mesurer la couverture |
+| Unitaires backend | pytest | Fonctions pures, classes | 536 fonctions déclarées | Maintenir et mesurer la couverture |
 | Intégration backend | pytest | Routes API, DB | Partiel | 50+ |
 | Unitaires frontend | Vitest | Composants, hooks, stores | 18 tests web, 0 PWA | 100+ |
 | Intégration frontend | Playwright | Flux utilisateur complets | 0 | 30+ |
@@ -50,14 +50,13 @@ Preuves exécutées le 14/07/2026 : 7 tests ciblés Phase 1 passants ; suite bac
 | `tests/test_imessage_consumer_cursor.py` | Isolation, monotonie et persistance des offsets par consommateur |
 | `tests/test_pipeline_contract.py` | Échec explicite avant configuration et délégation des trois handlers |
 
-### Phase 2 (accompagne Database modulaire)
+### Phase 2 — implémentée et validée le 14/07/2026
+
+Preuves : 6 tests de contrat dans `test_database_modularization.py`, import étoile réussi, façade à 235 lignes, modules documentés et typés, suite complète à 538 passants et 1 ignoré.
 
 | Fichier | Contenu |
 |---|---|
-| `tests/test_database_core.py` | `get_db`, `init_db`, `build_full_context` |
-| `tests/test_database_people.py` | `upsert_person`, `get_all_people` |
-| `tests/test_database_tasks.py` | CRUD tâches |
-| `tests/test_database_conversations.py` | CRUD conversations |
+| `tests/test_database_modularization.py` | Réexports, chemin DB dynamique, CRUD, taille de façade, docstrings/type hints et absence d'import interne de la façade |
 
 ### Phase 3 (accompagne Event bus)
 

@@ -785,7 +785,7 @@ Après STT, **le même** `_process_message()` que le texte (`main.py`) : `save_m
 
 ### build_full_context()
 
-Fonction centrale dans `database/__init__.py` qui assemble toutes les données mémoire en un seul appel :
+Fonction centrale dans `database/core.py`, réexportée par `database`, qui assemble toutes les données mémoire en un seul appel :
 
 ```python
 def build_full_context() -> dict:
@@ -938,7 +938,7 @@ Migration idempotente via `_migrate_conversations()` dans `init_db()`.
 
 **`conversation_documents`** (nouvelle) — textes extraits des fichiers uploadés, injectés automatiquement dans le contexte LLM.
 
-### Helpers DB (`database/__init__.py`)
+### Helpers DB (`database/conversations.py`, réexportés par `database`)
 
 `get_conversations`, `get_conversation_detail`, `update_conversation`, `update_conversation_activity`, `delete_conversation`, `search_conversations`, `save_conversation_document`, `get_conversation_documents`.
 
@@ -1106,7 +1106,7 @@ Forcer une synchronisation exhaustive des contacts + conversations iMessage depu
   - `CASE WHEN ABS(m.date) > 1000000000000 THEN (m.date / 1000000000.0) + 978307200 ELSE m.date + 978307200 END`
   - couvre nanosecondes et secondes selon version macOS
 
-- **UPSERT massif DB** (`database/__init__.py`)
+- **UPSERT massif DB** (`database/people.py`, réexporté par `database`)
   - `force_upsert_people_from_mac_sync(records)`
   - met à jour `people.last_mentioned`, `people.imessage_count`
   - upsert `relationship_profiles.handle`
@@ -1170,7 +1170,7 @@ TTS Edge / Kokoro / ElevenLabs → afplay (local) ou file `/api/devices/{id}/tts
 | `devices` | `device_id, device_name, device_type, is_active, is_online, last_heartbeat, ip_tailscale, auth_token` |
 | `work_sessions` | `device, app, started_at, ended_at, duration_min, description` |
 
-Helpers DB (dans `database/__init__.py`) :
+Helpers DB (dans `database/screen_daemon.py`, réexportés par `database`) :
 - Écran : `save_screen_activity`, `get_screen_activity(hours, device)`, `get_current_screen_context(device)` (≤ 5 min)
 - Apps : `upsert_app_usage(device, app, seconds)` (incrémente sur clé unique), `get_app_usage(date, device)`, `get_app_usage_range(days, device)`
 - Devices : `register_device` (génère `auth_token`), `update_device_heartbeat`, `set_active_device`, `get_active_device`, `get_all_devices`, `mark_device_offline`

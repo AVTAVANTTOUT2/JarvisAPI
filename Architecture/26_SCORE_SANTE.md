@@ -15,9 +15,9 @@ Le score de santé mesure la qualité architecturale du projet sur 10 dimensions
 |---|---|---|---|---|
 | **Couverture de tests** | 15% | 4/10 | 8/10 | pytest --cov |
 | **Duplication** | 15% | 3/10 | 9/10 | duplicate_scanner.py |
-| **Dette technique** | 15% | 3/10 | 8/10 | TECH_DEBT.md (dettes × sévérité) |
+| **Dette technique** | 15% | 4/10 | 8/10 | TECH_DEBT.md (dettes × sévérité) |
 | **Dépendances circulaires** | 10% | 8/10 | 10/10 | architecture_check.py |
-| **Taille des modules** | 10% | 2/10 | 9/10 | wc -l (modules >1000l = 0) |
+| **Taille des modules** | 10% | 4/10 | 9/10 | wc -l (modules >1000l = 0) |
 | **Documentation** | 10% | 9/10 | 10/10 | Revue manuelle |
 | **Performances** | 10% | 6/10 | 8/10 | Benchmarks |
 | **Sécurité** | 5% | 7/10 | 9/10 | security_audit.py |
@@ -30,15 +30,15 @@ Le score de santé mesure la qualité architecturale du projet sur 10 dimensions
 Score = Σ (dimension_score × poids)
 ```
 
-## Score actuel : 4.85/10
+## Score actuel après Phase 2 : 5.20/10
 
 | Dimension | Score | Justification |
 |---|---|---|
-| Couverture | 4 | 534 fonctions de test backend déclarées, couverture globale non mesurée de façon fiable |
+| Couverture | 4 | 536 fonctions de test backend déclarées, couverture globale non mesurée de façon fiable |
 | Duplication | 3 | 2 frontends, 8 duplications majeures, 25+ lecteurs chat.db |
-| Dette technique | 3 | 295 points de dette, ~108h de remboursement |
+| Dette technique | 4 | God object database remboursé ; main.py et les frontends concentrent encore la dette majeure |
 | Dépendances | 8 | Cycle main↔daemons supprimé via `pipeline.py` ; imports lazy résiduels sans cycle applicatif identifié |
-| Taille modules | 2 | 2 god objects (7194l et 4169l) |
+| Taille modules | 4 | Un seul module >1000 lignes (`main.py`) ; façade database 235 lignes, maximum DB 650 |
 | Documentation | 9 | CLAUDE.md excellent, Architecture/ complet |
 | Performance | 6 | SQLite WAL OK, mais pas de cache LLM |
 | Sécurité | 7 | Auth robuste, mais PWA sans LockGate |

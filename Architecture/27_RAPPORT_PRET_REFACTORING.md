@@ -24,7 +24,7 @@
 **Aucune zone majeure.** Approfondissements possibles dans le futur :
 
 - Diagrammes de séquence détaillés par flux (`diagrams/`)
-- Documentation exhaustive des 534 fonctions de test actuellement déclarées
+- Documentation exhaustive des 536 fonctions de test actuellement déclarées
 - Profilage de performance avant/après benchmarks
 - Plan de reprise après sinistre complet
 
@@ -76,12 +76,12 @@ Phase 6 → dépend de Phase 1 + Phase 3 + Phase 5
 
 ## Trois premières actions immédiates
 
-1. **Phase 1 — Quick Wins P0** (1 jour) : busy_timeout, race WS, curseur ROWID, pipeline.py → 4 problèmes CRITIQUES résolus
-2. **Phase 2 — Database modulaire** (1 jour) : split 4169 lignes en 17 modules → code navigable
-3. **Phase 3 — Event bus actif** (2 jours) : 10 événements, consommateurs branchés → UI réactive, découplage
+1. **Phase 1 — Quick Wins P0** : ✅ validée le 14/07/2026
+2. **Phase 2 — Database modulaire** : ✅ validée le 14/07/2026 — façade 235 lignes, 24 modules
+3. **Phase 3 — Event bus actif** (2 jours) : prochaine étape — 10 événements, consommateurs branchés
 
 ## Conclusion
 
 **Le dossier Architecture/ est prêt. Il constitue désormais la source de vérité officielle du projet JARVIS. Aucune modification du code ne doit contredire cette documentation.**
 
-**Phase 1 — Quick Wins P0 validée le 14/07/2026. Prochaine action : poursuivre la Phase 2 — Database modulaire (en cours).**
+**Phases 1 et 2 validées le 14/07/2026. Prochaine action : Phase 3 — Event bus actif.**

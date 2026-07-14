@@ -120,7 +120,7 @@
 
 **Recommandation** : Solution A. Purement mécanique, zéro risque. Effort : 1 jour.
 
-**Statut** : En cours — 12 modules extraits avec réexports compatibles au 11 juillet 2026.
+**Statut** : Implémenté et validé le 14 juillet 2026 — 24 modules d'implémentation, façade de 235 lignes, réexports compatibles, imports internes dirigés vers `core.py`. Preuves : 6 tests de contrat Phase 2 et suite backend complète à 538 passants, 1 ignoré.
 
 ---
 

@@ -9,7 +9,7 @@ Jarvis stocke des données structurées variées : conversations, contacts, tâc
 
 ## Décision
 
-SQLite est la seule base de données du projet. Fichier unique : `data/jarvis.db`. 26+ tables. Schéma documenté dans `database/schema.sql`. Accès via `database/__init__.py`.
+SQLite est la seule base de données du projet. Fichier unique : `data/jarvis.db`. 72 tables après initialisation et migrations. Schéma dans `database/schema.py`, migrations dans `database/migrations.py`, connexions dans `database/core.py` et API compatible via `database/__init__.py`.
 
 ## Alternatives considérées
 

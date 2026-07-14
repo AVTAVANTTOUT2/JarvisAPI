@@ -215,7 +215,7 @@ sequenceDiagram
 graph TB
     CONFIG["config.py<br/>feuille, aucun import"]
     EVENT["event_bus.py<br/>stdlib"]
-    DB["database/<br/>17 modules<br/>importent config"]
+    DB["database/<br/>24 modules + façade<br/>accès via core.py"]
     LLM_CLIENT["llm.py<br/>client DeepSeek"]
 
     SERVICES["domain/*.py<br/>importent db, event"]

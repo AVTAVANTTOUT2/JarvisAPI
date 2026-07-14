@@ -36,10 +36,10 @@ La validation opérationnelle sur 24 heures n'est pas reproductible en CI faute 
 
 ### Phase 2 — Database modulaire
 
-- [ ] `wc -l database/__init__.py` < 500 lignes
-- [ ] Aucun import cassé → `python -c "from database import *"` réussit
-- [ ] Chaque module extrait a un docstring et des type hints
-- [ ] La couverture de tests n'a pas baissé
+- [x] `wc -l database/__init__.py` = 235 lignes (< 500)
+- [x] Aucun import cassé → `python -c "from database import *"` réussit
+- [x] Chaque module extrait a un docstring et des type hints — contrôlé par test statique
+- [x] La couverture de tests n'a pas baissé — 538 passants, 1 ignoré après extraction
 
 ### Phase 3 — Event bus actif
 
