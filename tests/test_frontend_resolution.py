@@ -106,3 +106,28 @@ def test_lookup_vite_spa_fallback(tmp_path: Path) -> None:
     res = resolve_desktop_frontend(tmp_path)
     assert lookup_desktop_static_file(res, "chat") is not None
     assert lookup_desktop_static_file(res, "assets/missing.js") is None
+
+
+def test_lookup_rejects_path_traversal(tmp_path: Path) -> None:
+    """Aucune lecture hors de frontend/out (P0 path traversal)."""
+    _make_next(tmp_path)
+    secret = tmp_path / "secret.txt"
+    secret.write_text("LEAK", encoding="utf-8")
+    res = resolve_desktop_frontend(tmp_path)
+    for attempt in (
+        "../secret.txt",
+        "../../secret.txt",
+        "chat/../../secret.txt",
+        "..%2fsecret.txt",
+        "%2e%2e/secret.txt",
+    ):
+        assert lookup_desktop_static_file(res, attempt) is None, attempt
+
+
+def test_lookup_client_subroute_serves_shell(tmp_path: Path) -> None:
+    _make_next(tmp_path)
+    res = resolve_desktop_frontend(tmp_path)
+    nested = lookup_desktop_static_file(res, "chat/thread/42")
+    assert nested is not None
+    assert nested.name == "index.html"
+    assert "next-root" in nested.read_text(encoding="utf-8")

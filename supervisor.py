@@ -656,6 +656,7 @@ async def proxy_to_backend(request: Request, path: str):
 
     wants_sse = "text/event-stream" in request.headers.get("accept", "")
 
+    resp: httpx.Response | None = None
     try:
         proxied = _http.build_request(
             method=request.method, url=url, headers=headers, content=body,
@@ -675,21 +676,29 @@ async def proxy_to_backend(request: Request, path: str):
         media_type = resp.headers.get("content-type", "")
         if "text/event-stream" in media_type:
             # SSE : relayer les chunks au fil de l'eau — ne jamais bufferiser.
+            # Ownership de `resp` transférée au BackgroundTask (pas de double aclose).
             from starlette.background import BackgroundTask
             from starlette.responses import StreamingResponse
 
-            return StreamingResponse(
+            stream_resp = StreamingResponse(
                 resp.aiter_raw(),
                 status_code=resp.status_code,
                 headers=resp_headers,
                 background=BackgroundTask(resp.aclose),
             )
+            resp = None
+            return stream_resp
 
         content = await resp.aread()
+        status_code = resp.status_code
         await resp.aclose()
-        return Response(content=content, status_code=resp.status_code, headers=resp_headers)
+        resp = None
+        return Response(content=content, status_code=status_code, headers=resp_headers)
     except Exception:
         return JSONResponse(status_code=502, content={"error": "Backend inaccessible"})
+    finally:
+        if resp is not None:
+            await resp.aclose()
 
 
 # ── Passthrough WebSocket /ws → backend (chat, voix) ─────────────────────
@@ -737,12 +746,17 @@ async def ws_passthrough(client_ws: WebSocket):
                     else:
                         await client_ws.send_text(payload)
 
-            done, pending = await asyncio.wait(
-                [asyncio.create_task(client_to_backend()), asyncio.create_task(backend_to_client())],
-                return_when=asyncio.FIRST_COMPLETED,
+            tasks = [
+                asyncio.create_task(client_to_backend()),
+                asyncio.create_task(backend_to_client()),
+            ]
+            _done, pending = await asyncio.wait(
+                tasks, return_when=asyncio.FIRST_COMPLETED,
             )
             for task in pending:
                 task.cancel()
+            if pending:
+                await asyncio.gather(*pending, return_exceptions=True)
     except WebSocketDisconnect:
         pass
     except Exception as exc:

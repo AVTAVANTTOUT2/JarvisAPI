@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from core.frontend_resolution import resolve_desktop_frontend
 from core.frontend_static import register_desktop_frontend_routes
+from supervisor import _build_proxy_headers, proxy_to_backend
 
 
 def _make_next(root: Path) -> None:
@@ -143,3 +146,89 @@ def test_real_checkout_integration() -> None:
         assert client.get("/").status_code == 200
     else:
         assert client.get("/").status_code == 503
+
+
+def test_html_and_sw_are_no_cache(tmp_path: Path) -> None:
+    _make_next(tmp_path)
+    out = tmp_path / "frontend" / "out"
+    (out / "sw.js").write_text("// sw", encoding="utf-8")
+    (out / "manifest.webmanifest").write_text("{}", encoding="utf-8")
+    client = TestClient(_app_with_frontend(tmp_path))
+    assert client.get("/").headers.get("cache-control") == "no-cache"
+    assert client.get("/chat").headers.get("cache-control") == "no-cache"
+    assert client.get("/sw.js").headers.get("cache-control") == "no-cache"
+    assert client.get("/manifest.webmanifest").headers.get("cache-control") == "no-cache"
+
+
+def test_proxy_preserves_host_origin_cookie() -> None:
+    """Non-régression VAL-02 : Host/Origin/Cookie transmis au backend."""
+    headers = _build_proxy_headers({
+        "Host": "localhost:9000",
+        "Origin": "http://localhost:9000",
+        "Cookie": "jarvis_session=test-token",
+        "Content-Length": "4",
+        "Connection": "keep-alive",
+        "Transfer-Encoding": "chunked",
+        "Accept": "application/json",
+    })
+    assert headers["Host"] == "localhost:9000"
+    assert headers["Origin"] == "http://localhost:9000"
+    assert headers["Cookie"] == "jarvis_session=test-token"
+    assert "Content-Length" not in headers
+    assert "Connection" not in headers
+    assert "Transfer-Encoding" not in headers
+
+
+def test_proxy_closes_stream_when_read_fails() -> None:
+    """Réponse httpx streamée toujours fermée si aread() échoue (fuite pool)."""
+
+    class FakeReq:
+        method = "GET"
+        headers = {
+            "host": "localhost:9000",
+            "origin": "http://localhost:9000",
+            "cookie": "jarvis_session=x",
+            "accept": "application/json",
+        }
+
+        class url:
+            query = ""
+
+        async def body(self) -> bytes:
+            return b""
+
+    closed = {"n": 0}
+    resp = MagicMock()
+    resp.headers = {"content-type": "application/json"}
+    resp.status_code = 200
+
+    async def _aread() -> bytes:
+        raise RuntimeError("boom-read")
+
+    async def _aclose() -> None:
+        closed["n"] += 1
+
+    resp.aread = _aread
+    resp.aclose = _aclose
+
+    with (
+        patch("supervisor._port_open", return_value=True),
+        patch("supervisor._http") as http,
+    ):
+        http.build_request = MagicMock(return_value=MagicMock(extensions={}))
+        http.send = AsyncMock(return_value=resp)
+        out = asyncio.run(proxy_to_backend(FakeReq(), "tasks"))  # type: ignore[arg-type]
+
+    assert out.status_code == 502
+    assert closed["n"] == 1
+
+
+def test_websockets_connect_accepts_additional_headers() -> None:
+    """Compat websockets 15+ : l'API utilisée par /ws expose additional_headers."""
+    import inspect
+
+    import websockets
+
+    sig = inspect.signature(websockets.connect)
+    assert "additional_headers" in sig.parameters
+    assert websockets.__version__.startswith("15.")
