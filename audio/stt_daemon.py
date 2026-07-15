@@ -22,7 +22,7 @@ STT_ENGINES = frozenset({
 })
 FASTER_WHISPER_SIZES = frozenset({
     "tiny", "tiny.en", "base", "base.en", "small", "small.en",
-    "medium", "medium.en", "large-v3",
+    "medium", "medium.en", "large-v3", "large-v3-turbo",
 })
 
 DEFAULT_INITIAL_PROMPT = (
