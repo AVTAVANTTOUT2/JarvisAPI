@@ -6,10 +6,12 @@ import android.security.keystore.KeyProperties
 import android.util.Base64
 import java.nio.charset.StandardCharsets
 import java.security.KeyStore
+import java.security.Security
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.SecretKeySpec
 
 /** Secrets chiffrés via Android Keystore (AES-GCM, clé non exportable). */
 class JarvisSecureStore(context: Context) {
@@ -52,6 +54,11 @@ class JarvisSecureStore(context: Context) {
     }
 
     private fun key(): SecretKey {
+        if (Security.getProvider(ANDROID_KEYSTORE) == null) {
+            // JVM de test (Robolectric) : AndroidKeyStore n'existe pas. Clé AES
+            // éphémère en mémoire — jamais atteint sur un appareil réel.
+            return testKey ?: SecretKeySpec(ByteArray(32) { it.toByte() }, "AES").also { testKey = it }
+        }
         val store = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
         if (store.containsAlias(ALIAS)) {
             return (store.getEntry(ALIAS, null) as KeyStore.SecretKeyEntry).secretKey
@@ -71,6 +78,7 @@ class JarvisSecureStore(context: Context) {
     }
 
     companion object {
+        @Volatile private var testKey: SecretKey? = null
         private const val PREFS = "jarvis_secure"
         private const val ALIAS = "jarvis_companion_v1"
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"

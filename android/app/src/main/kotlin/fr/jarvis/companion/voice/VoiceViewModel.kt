@@ -46,11 +46,13 @@ class VoiceViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
             if (!paired || !voiceRepository.isHttpsConfigured()) return@launch
-            when (val result = statusRepository.validateNativeToken()) {
-                result.ok -> _state.update {
+            val result = statusRepository.validateNativeToken()
+            if (result.ok) {
+                _state.update {
                     it.copy(connectionOk = true, statusLine = "Prêt", errorMessage = null)
                 }
-                else -> _state.update {
+            } else {
+                _state.update {
                     it.copy(
                         connectionOk = false,
                         statusLine = "Serveur injoignable",

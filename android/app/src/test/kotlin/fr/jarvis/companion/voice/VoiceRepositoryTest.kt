@@ -36,14 +36,21 @@ class VoiceRepositoryTest {
         val serverCertificates = HandshakeCertificates.Builder()
             .heldCertificate(localhostCertificate)
             .build()
+        // Le client doit déclarer le cert du serveur comme ancre de confiance —
+        // un HandshakeCertificates sans addTrustedCertificate a zéro trustAnchor.
+        val clientCertificates = HandshakeCertificates.Builder()
+            .addTrustedCertificate(localhostCertificate.certificate)
+            .build()
         server = MockWebServer()
         server.useHttps(serverCertificates.sslSocketFactory(), false)
-        server.start()
+        // « localhost » peut résoudre en ::1 seul sous Robolectric alors que le
+        // serveur écoute en IPv4 : bind et URL en littéral, aucune résolution DNS.
+        server.start(java.net.InetAddress.getByName("127.0.0.1"), 0)
         httpClient = OkHttpClient.Builder()
-            .sslSocketFactory(serverCertificates.sslSocketFactory(), serverCertificates.trustManager)
+            .sslSocketFactory(clientCertificates.sslSocketFactory(), clientCertificates.trustManager)
             .hostnameVerifier { _, _ -> true }
             .build()
-        JarvisSettings.setServer(context, server.url("/").toString().removeSuffix("/"))
+        JarvisSettings.setServer(context, "https://127.0.0.1:${server.port}")
         JarvisSettings.setNativeToken(context, "test-token-123")
     }
 
