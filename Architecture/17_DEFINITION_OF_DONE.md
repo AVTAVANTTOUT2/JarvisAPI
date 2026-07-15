@@ -89,6 +89,17 @@ Preuves exécutées le 14/07/2026 : typecheck et build Next.js 15 de 25 pages, 1
 
 Preuves exécutées le 14/07/2026 : 5 contrats `tests/test_notification_service.py`, 15 tests ciblés avec Web Push/Event Bus, puis 565 tests backend collectés en quatre lots (564 passants, 1 ignoré). Rollback : revert des commits `refactor: centralize notification orchestration` et `docs: document notification service`.
 
+### Stabilisation audio post-PR #17
+
+- [ ] Chaque moteur configuré distingue disponibilité déclarée et préchargement réussi.
+- [ ] Aucun fournisseur STT cloud ni secret associé dans le code, l'UI ou la configuration.
+- [ ] Les moteurs optionnels absents ne produisent pas d'incident tant qu'ils ne sont pas sélectionnés.
+- [ ] Les chemins poussoir, mains libres, temps réel et daemon partagent le contrat STT local.
+- [ ] Les scénarios permission micro refusée, crash loop et saturation ont un test ou une preuve manuelle.
+- [ ] Une observation de 24 h sur le Mac cible clôt les phases critiques.
+
+Le détail, l'ordre des PR et les rollbacks sont définis dans `30_PLAN_STABILISATION_AUDIO.md`.
+
 ## Checklist de code review
 
 Avant de merger une phase, vérifier :

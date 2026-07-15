@@ -56,6 +56,9 @@
 | [25_REVUE_ARCHITECTURE.md](./25_REVUE_ARCHITECTURE.md) | Checklist de revue d'architecture |
 | [26_SCORE_SANTE.md](./26_SCORE_SANTE.md) | Score de santé — mesure qualité architecture |
 | [27_RAPPORT_PRET_REFACTORING.md](./27_RAPPORT_PRET_REFACTORING.md) | Rapport final : prêt pour le refactoring |
+| [28_VALIDATION_COHERENCE.md](./28_VALIDATION_COHERENCE.md) | Vérification de cohérence entre documentation et code |
+| [29_JARVIS_ANDROID_H24.md](./29_JARVIS_ANDROID_H24.md) | Architecture du compagnon Android permanent |
+| [30_PLAN_STABILISATION_AUDIO.md](./30_PLAN_STABILISATION_AUDIO.md) | Phases de stabilisation audio après la PR #17 |
 | [adr/](./adr/) | ADR individuels — 19 décisions documentées |
 | [diagrams/](./diagrams/) | Diagrammes Mermaid source |
 | [audit/](./audit/) | Rapports d'audit détaillés par domaine |
@@ -260,7 +263,7 @@ flowchart TD
 - ADR : `adr/ADR-XXX-titre-court.md` (numérotation séquentielle à 3 chiffres)
 - Diagrammes : Mermaid inline dans les documents markdown
 - Dates : format ISO 8601 (`YYYY-MM-DD`)
-- Documents d'architecture : numérotés `NN_NOM.md` (00-27)
+- Documents d'architecture : numérotés `NN_NOM.md` (00-30)
 
 ## Responsabilité
 

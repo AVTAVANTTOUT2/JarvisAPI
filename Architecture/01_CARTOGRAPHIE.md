@@ -72,8 +72,8 @@ JarvisAPI/
 │   └── migrations/            ← Migrations versionnées
 │
 ├── audio/                     ← STT + TTS + VAD + enregistrement continu
-│   ├── stt.py                 ← STT (faster-whisper local + ElevenLabs Scribe)
-│   ├── tts.py                 ← TTS (Edge, ElevenLabs, macOS say, Kokoro)
+│   ├── stt_daemon.py          ← STT local (faster-whisper, WhisperKit, whisper.cpp)
+│   ├── tts.py                 ← TTS (Edge, TTSKit, macOS say, Kokoro)
 │   ├── tts_cache.py           ← Cache TTS spéculatif
 │   └── continuous_recorder.py ← Enregistrement long → transcription
 │
