@@ -1,20 +1,17 @@
 /**
  * WebSocket JARVIS — singleton.
  * En dev (Vite) : `ws(s)://<host>/ws` est proxifié vers le backend.
- * Sinon : `VITE_WS_URL` ou, en secours, `hostname:8081` (backend direct).
+ * En prod : même origine que la page — FastAPI (8081) expose /ws nativement
+ * et le supervisor (9000) relaie /ws vers le backend. Aucun port codé en dur.
+ * `VITE_WS_URL` reste un override explicite si besoin.
  */
 export type WsHandler = (data: Record<string, unknown> & { _type?: string }) => void
 
-function resolveWsUrl(): string {
+export function resolveWsUrl(): string {
   const explicit = import.meta.env.VITE_WS_URL as string | undefined
   if (explicit) return explicit
   const p = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  // Proxy Vite : même host que la page
-  if (import.meta.env.DEV) {
-    return `${p}//${window.location.host}/ws`
-  }
-  // Prod sans proxy : backend sur 8081 par défaut (WEB_PORT)
-  return `${p}//${window.location.hostname}:8081/ws`
+  return `${p}//${window.location.host}/ws`
 }
 
 export class WS {

@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
 JARVIS Supervisor — processus permanent qui controle tous les services.
-Port 9000 — toujours actif, sert le frontend, proxy vers le backend.
+Port 9000 — toujours actif, sert le frontend desktop, proxy vers le backend.
 
+Priorité frontend : frontend/out (Next) puis web/dist (Vite fallback).
 Ce processus ne s'arrete JAMAIS depuis l'UI.
 """
 
@@ -25,10 +26,15 @@ import httpx
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 from starlette.requests import Request
 from starlette.responses import Response
+
+from core.frontend_resolution import (
+    log_lines_for_resolution,
+    resolve_desktop_frontend,
+)
+from core.frontend_static import register_desktop_frontend_routes
 
 # ── Configuration ───────────────────────────────────────────────────────
 PROJECT_DIR = Path(__file__).parent.resolve()
@@ -61,6 +67,9 @@ def _backend_http_verify() -> str | bool:
 
 
 BACKEND_URL = _backend_url()
+# Résolution basée sur PROJECT_DIR (fichier), pas sur os.getcwd()
+FRONTEND_RESOLUTION = resolve_desktop_frontend(PROJECT_DIR)
+# Alias historique : pointe vers web/dist si présent, sinon None — ne définit plus la priorité
 DIST_DIR = PROJECT_DIR / "web" / "dist"
 LOGS_DIR = PROJECT_DIR / "data" / "logs"
 LOCK_PATH = "/tmp/jarvis_supervisor.lock"
@@ -483,6 +492,7 @@ async def api_status():
             "backend_restart_count": _backend_restart_count,
             "health_check_interval_s": _health_check_interval,
         },
+        "frontend": FRONTEND_RESOLUTION.to_public_dict(),
         "services": svcs,
     }
 
@@ -610,6 +620,23 @@ async def ws_supervisor(ws: WebSocket):
 # PROXY — /api/* vers le backend (quand actif)
 # ══════════════════════════════════════════════════════════════════════════
 
+def _build_proxy_headers(incoming: dict[str, str]) -> dict[str, str]:
+    """Prépare les en-têtes transmis au backend.
+
+    Le ``Host`` original du navigateur est CONSERVÉ : le middleware backend
+    compare le hostname d'``Origin`` à celui de ``Host`` (anti-CSRF). En le
+    réécrivant vers 127.0.0.1 on casserait toutes les écritures via le
+    proxy ; en le conservant, la vérification reste effective (une origine
+    étrangère ne matchera toujours pas le Host).
+    """
+    headers: dict[str, str] = {}
+    for k, v in incoming.items():
+        if k.lower() in ("content-length", "transfer-encoding", "connection"):
+            continue
+        headers[k] = v
+    return headers
+
+
 @app.api_route("/api/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
 async def proxy_to_backend(request: Request, path: str):
     if not _port_open(BACKEND_PORT):
@@ -621,50 +648,117 @@ async def proxy_to_backend(request: Request, path: str):
     except Exception:
         pass
 
-    headers = {}
-    for k, v in request.headers.items():
-        if k.lower() in ("host", "content-length", "transfer-encoding"):
-            continue
-        headers[k] = v
+    headers = _build_proxy_headers(dict(request.headers))
 
     url = f"{_backend_url()}/api/{path}"
     if request.url.query:
         url += f"?{request.url.query.decode() if isinstance(request.url.query, bytes) else request.url.query}"
 
+    wants_sse = "text/event-stream" in request.headers.get("accept", "")
+
     try:
-        resp = await _http.request(method=request.method, url=url, headers=headers, content=body, follow_redirects=False)
+        proxied = _http.build_request(
+            method=request.method, url=url, headers=headers, content=body,
+        )
+        if wants_sse:
+            # Flux longue durée : pas de read-timeout, sinon coupure toutes les 30 s.
+            proxied.extensions["timeout"] = httpx.Timeout(
+                None, connect=5.0
+            ).as_dict()
+        resp = await _http.send(proxied, stream=True, follow_redirects=False)
         resp_headers = {}
         for k, v in resp.headers.items():
-            if k.lower() in ("transfer-encoding", "content-encoding", "connection"):
+            if k.lower() in ("transfer-encoding", "content-encoding", "connection", "content-length"):
                 continue
             resp_headers[k] = v
-        return Response(content=resp.content, status_code=resp.status_code, headers=resp_headers)
+
+        media_type = resp.headers.get("content-type", "")
+        if "text/event-stream" in media_type:
+            # SSE : relayer les chunks au fil de l'eau — ne jamais bufferiser.
+            from starlette.background import BackgroundTask
+            from starlette.responses import StreamingResponse
+
+            return StreamingResponse(
+                resp.aiter_raw(),
+                status_code=resp.status_code,
+                headers=resp_headers,
+                background=BackgroundTask(resp.aclose),
+            )
+
+        content = await resp.aread()
+        await resp.aclose()
+        return Response(content=content, status_code=resp.status_code, headers=resp_headers)
     except Exception:
         return JSONResponse(status_code=502, content={"error": "Backend inaccessible"})
 
 
+# ── Passthrough WebSocket /ws → backend (chat, voix) ─────────────────────
+# Contrat inchangé : simple relais binaire/texte, aucune inspection.
+
+@app.websocket("/ws")
+async def ws_passthrough(client_ws: WebSocket):
+    import ssl
+
+    import websockets as _wslib
+
+    await client_ws.accept()
+
+    scheme = "wss" if config.WEB_USE_HTTPS else "ws"
+    backend_ws_url = f"{scheme}://127.0.0.1:{BACKEND_PORT}/ws"
+    ssl_ctx: ssl.SSLContext | None = None
+    if config.WEB_USE_HTTPS:
+        ssl_ctx = ssl.create_default_context(cafile=str(CERT_PATH))
+        ssl_ctx.check_hostname = False
+
+    cookie = client_ws.headers.get("cookie", "")
+    extra_headers = {"Cookie": cookie} if cookie else {}
+
+    try:
+        async with _wslib.connect(
+            backend_ws_url,
+            ssl=ssl_ctx,
+            additional_headers=extra_headers,
+            max_size=64 * 1024 * 1024,
+        ) as backend_ws:
+            async def client_to_backend():
+                while True:
+                    msg = await client_ws.receive()
+                    if msg.get("type") == "websocket.disconnect":
+                        break
+                    if msg.get("bytes") is not None:
+                        await backend_ws.send(msg["bytes"])
+                    elif msg.get("text") is not None:
+                        await backend_ws.send(msg["text"])
+
+            async def backend_to_client():
+                async for payload in backend_ws:
+                    if isinstance(payload, bytes):
+                        await client_ws.send_bytes(payload)
+                    else:
+                        await client_ws.send_text(payload)
+
+            done, pending = await asyncio.wait(
+                [asyncio.create_task(client_to_backend()), asyncio.create_task(backend_to_client())],
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            for task in pending:
+                task.cancel()
+    except WebSocketDisconnect:
+        pass
+    except Exception as exc:
+        log.debug("Passthrough /ws termine: %s", exc)
+    finally:
+        try:
+            await client_ws.close()
+        except Exception:
+            pass
+
+
 # ══════════════════════════════════════════════════════════════════════════
-# FRONTEND — servir web/dist/
+# FRONTEND — frontend/out prioritaire, web/dist en fallback
 # ══════════════════════════════════════════════════════════════════════════
 
-if DIST_DIR.exists():
-    assets = DIST_DIR / "assets"
-    if assets.exists():
-        app.mount("/assets", StaticFiles(directory=str(assets)), name="assets")
-
-    @app.get("/{path:path}", response_model=None)
-    async def serve_spa(path: str):
-        f = DIST_DIR / path
-        if f.is_file():
-            return FileResponse(f)
-        idx = DIST_DIR / "index.html"
-        if idx.is_file():
-            return FileResponse(idx)
-        return JSONResponse(status_code=404, content={"error": "Page introuvable"})
-else:
-    @app.get("/")
-    async def no_frontend():
-        return JSONResponse({"message": "Frontend non builde", "hint": "cd web && pnpm run build"})
+register_desktop_frontend_routes(app, FRONTEND_RESOLUTION)
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -771,7 +865,8 @@ async def lifespan(_app: FastAPI):
     # Startup
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
     log.info("Superviseur JARVIS demarre sur port %d", SUPERVISOR_PORT)
-    log.info("Frontend : %s", "web/dist/" if DIST_DIR.exists() else "NON BUILDE")
+    for line in log_lines_for_resolution(FRONTEND_RESOLUTION):
+        log.info("%s", line)
     _log_backend_tls_plan()
     log.info("Backend proxy -> %s", _backend_url())
 

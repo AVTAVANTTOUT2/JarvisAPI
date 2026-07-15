@@ -448,10 +448,17 @@ export const api = {
 
 /** URL WebSocket vers le superviseur (port 9000). */
 export function supervisorWsUrl(): string {
-  const p = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  // En dev (Vite sur 5173) ou en prod (superviseur sert le frontend) — meme hote
-  if (typeof window !== 'undefined') {
-    return `${p}//${window.location.hostname}:9000/ws/supervisor`
+  const p =
+    typeof window !== 'undefined' && window.location.protocol === 'https:'
+      ? 'wss:'
+      : 'ws:'
+  if (typeof window === 'undefined') {
+    return 'ws://127.0.0.1:9000/ws/supervisor'
   }
-  return 'ws://127.0.0.1:9000/ws/supervisor'
+  // Déjà servi par le supervisor → même origine (pas de :9000 forcé).
+  if (window.location.port === '9000') {
+    return `${p}//${window.location.host}/ws/supervisor`
+  }
+  // Page FastAPI (8081) / Vite (5173) → joindre le port dédié du supervisor.
+  return `${p}//${window.location.hostname}:9000/ws/supervisor`
 }

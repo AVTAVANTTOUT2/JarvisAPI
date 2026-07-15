@@ -1,3 +1,8 @@
+|-- SNAPSHOT HISTORIQUE — NE PAS UTILISER COMME SCHÉMA D'EXÉCUTION.
+|-- init_db() exécute database/schema.py + database/migrations.py (+ DevAgent).
+|-- Ce dump comptait ~44 tables applicatives ; le runtime crée 70 persistantes
+|-- (+ jusqu'à 5 objets FTS5 → 75). Voir Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md.
+|--
 CREATE TABLE episodes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     agent TEXT NOT NULL,

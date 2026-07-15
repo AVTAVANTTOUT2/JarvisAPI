@@ -14,15 +14,8 @@ import { api, ApiError } from '@unified/lib/api';
 import type { ApiPerson, RelationshipProfile } from '@unified/types/jarvis';
 import { formatRelativeTime, formatHoursFromMinutes } from '@desktop/app/lib/timeFormat';
 
-// TODO: série historique depuis API | mock design conservé
-const interactionHistoryMock = [
-  { date: 'Jan', messages: 45, calls: 12, photos: 8 },
-  { date: 'Fév', messages: 52, calls: 19, photos: 12 },
-  { date: 'Mar', messages: 38, calls: 8, photos: 5 },
-  { date: 'Avr', messages: 65, calls: 22, photos: 15 },
-  { date: 'Mai', messages: 72, calls: 28, photos: 20 },
-  { date: 'Juin', messages: 58, calls: 15, photos: 10 },
-];
+/** Placeholder vide — ne jamais présenter de série inventée comme données réelles. */
+const INTERACTION_HISTORY_EMPTY: Array<{ date: string; messages: number }> = [];
 
 function initials(name: string) {
   const p = name.trim().split(/\s+/).filter(Boolean);
@@ -200,8 +193,10 @@ export function ContactsView() {
     if (trend?.months && trend.months.length > 0) {
       return trend.months.map((m) => ({ date: m.month || '', messages: m.count || 0 }));
     }
-    return interactionHistoryMock;
+    return INTERACTION_HISTORY_EMPTY;
   }, [analytics]);
+
+  const chartIsPlaceholder = chartData.length === 0;
 
   const onRefreshDescription = async () => {
     if (!selected?.name) return;
@@ -569,24 +564,34 @@ export function ContactsView() {
               <div className="flex items-start justify-between mb-4">
                 <div>
                   <h3 className="mb-1">Historique des Interactions</h3>
-                  <p className="text-sm text-muted-foreground">Messages par mois (3 derniers mois)</p>
+                  <p className="text-sm text-muted-foreground">
+                    {chartIsPlaceholder
+                      ? 'Aucune série mensuelle fournie par l’API analytics'
+                      : 'Messages par mois (données analytics)'}
+                  </p>
                 </div>
               </div>
-              <ResponsiveContainer width="100%" height={200}>
-                <LineChart data={chartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255, 255, 255, 0.05)" />
-                  <XAxis dataKey="date" stroke="#6b7280" fontSize={12} />
-                  <YAxis stroke="#6b7280" fontSize={12} />
-                  <Tooltip
-                    contentStyle={{
-                      background: 'rgba(15, 15, 15, 0.95)',
-                      border: '1px solid rgba(255, 255, 255, 0.1)',
-                      borderRadius: '12px',
-                    }}
-                  />
-                  <Line type="monotone" dataKey="messages" stroke="#ffffff" strokeWidth={2} dot />
-                </LineChart>
-              </ResponsiveContainer>
+              {chartIsPlaceholder ? (
+                <p className="text-sm text-muted-foreground py-10 text-center border border-dashed border-white/10 rounded-lg">
+                  Graphique non disponible — pas de données historiques pour ce contact.
+                </p>
+              ) : (
+                <ResponsiveContainer width="100%" height={200}>
+                  <LineChart data={chartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255, 255, 255, 0.05)" />
+                    <XAxis dataKey="date" stroke="#6b7280" fontSize={12} />
+                    <YAxis stroke="#6b7280" fontSize={12} />
+                    <Tooltip
+                      contentStyle={{
+                        background: 'rgba(15, 15, 15, 0.95)',
+                        border: '1px solid rgba(255, 255, 255, 0.1)',
+                        borderRadius: '12px',
+                      }}
+                    />
+                    <Line type="monotone" dataKey="messages" stroke="#ffffff" strokeWidth={2} dot />
+                  </LineChart>
+                </ResponsiveContainer>
+              )}
             </div>
 
             <div className="glass-panel rounded-xl p-6">

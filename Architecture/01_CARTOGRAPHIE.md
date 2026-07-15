@@ -17,7 +17,7 @@ JarvisAPI/
 │   ├── lifespan.py           ← Cycle de vie des services
 │   ├── middleware.py         ← Sécurité HTTP
 │   └── frontend.py           ← Montage desktop/PWA
-├── supervisor.py              ← Processus 24/7 (port 9000, sert le frontend)
+├── supervisor.py              ← Processus 24/7 (port 9000, frontend/out > web/dist, ADR-019)
 ├── config.py                  ← Configuration centralisée (.env → settings)
 ├── llm.py                     ← Client DeepSeek API (chat, stream, classify)
 ├── actions.py                 ← Exécution des blocs ```action``` (1014 lignes)
@@ -42,7 +42,7 @@ JarvisAPI/
 │   ├── easter_eggs.py         ← Easter eggs
 │   └── devagent/              ← Développement autonome (interview → code → test)
 │
-├── database/                  ← SQLite (73 tables applicatives, 25 modules d'implémentation)
+├── database/                  ← SQLite (70 persistantes, +FTS→75 ; schema.sql dump≈44 ; 25 modules)
 │   ├── __init__.py            ← Façade rétrocompatible (236 lignes)
 │   ├── core.py                ← Connexions, initialisation et contexte agrégé
 │   ├── schema.py              ← Schéma déclaratif complet
@@ -383,7 +383,10 @@ graph TB
 
 ## 4. Stockage
 
-### 4.1 SQLite — jarvis.db (73 tables applicatives après migrations)
+### 4.1 SQLite — jarvis.db (70 persistantes, 75 avec FTS5)
+
+> Comptage vérifié le 15/07/2026 — voir `Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md`.
+> Ne pas utiliser le dump `schema.sql` (44) comme chiffre runtime.
 
 ```mermaid
 erDiagram
@@ -465,7 +468,8 @@ imessage_analysis_cache → curseur d'analyse par contact
 │                    Mac (hôte)                        │
 ├─────────────────────────────────────────────────────┤
 │  Port 9000  │ Supervisor (24/7)                     │
-│             │ - Proxy/sert le frontend                │
+│             │ - Sert frontend/out puis web/dist        │
+│             │   (même priorité que FastAPI, ADR-019)   │
 │             │ - Proxy WebSocket vers 8081            │
 │             │ - Health-check + auto-restart          │
 │  Port 8081  │ Backend FastAPI                       │

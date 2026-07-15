@@ -29,7 +29,10 @@ JARVIS est un assistant personnel multi-agents avec interface vocale + web, tour
 Le bus applicatif est actif et conserve la compatibilité de construction historique `JarvisEvent(type, agent, data, timestamp)`. Le contrat canonique ajoute `event_id`, `event_type`, `version`, `source`, `payload` et un checksum SHA-256 ; les 10 classes typées vivent dans `jarvis/events.py` : notifications, tâches, conversations/messages, personnes/contexte mémoire, épisodes, patterns et faits.
 
 - Les mutations de `database/tasks.py`, `notifications.py`, `conversations.py`, `episodes.py`, `facts.py`, `patterns.py` et `people.py` émettent **après commit**.
-- `database/event_log.py` journalise tous les événements dans la 73e table SQLite, de façon idempotente par `event_id`.
+- `database/event_log.py` journalise tous les événements dans la table SQLite `event_log`
+  (ajoutée au schéma runtime ; le total post-`init_db` est **70 persistantes**, **75** avec FTS —
+  voir `Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md` ; ne pas confondre avec le dump
+  historique `database/schema.sql` ≈ 44 tables).
 - `websocket_registry.py` diffuse les événements de domaine aux sockets actives et `scripts/audio_daemon.py` traite les notifications `urgent/high`.
 - `pwa/src/components/realtime/EventSync.tsx` consomme `/api/events/stream` et invalide React Query ; le polling périodique notifications/tâches a été supprimé.
 - Les handlers d'un même événement s'exécutent concurremment ; l'échec de l'un est journalisé sans interrompre les autres.
@@ -1512,9 +1515,16 @@ BACKUP_ENCRYPTION_PASSPHRASE=
 
 ## PWA offline-first — Service Worker, file d'écriture, push (mai 2026)
 
-`web/` (SPA principale, Vite + React) devient une vraie PWA installable et
-utilisable hors ligne — c'est l'interface qui porte déjà le LockGate, donc
-celle visée par « le téléphone devient l'interface principale ».
+> **État actuel (Phase 6, juil. 2026)** : le frontend **canonique** est `frontend/`
+> (Next.js 15 → `frontend/out`, servi en priorité par FastAPI). `web/` reste le
+> **fallback** Vite (`web/dist`) et la **source** des vues desktop importées par
+> le frontend unifié. La section ci-dessous décrit l’implémentation PWA historique
+> née dans `web/` ; le Service Worker unifié vit dans `frontend/public/sw.js`.
+
+`web/` (SPA Vite + React, **fallback** et source desktop) a reçu une PWA installable
+et utilisable hors ligne — c’était l’interface qui portait déjà le LockGate au moment
+du lot mai 2026. Depuis la Phase 6, le téléphone / desktop partagent `frontend/` via
+layouts responsive, avec `web/` et `pwa/` conservés pour rollback.
 
 ### Service Worker (Workbox, mode injectManifest)
 

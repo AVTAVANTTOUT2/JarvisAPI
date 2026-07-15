@@ -154,7 +154,10 @@ export default function ControlView() {
             if (msg.services) {
               setTopServices(msg.services)
             }
-            if (msg.supervisor_pid && supervisorInfo) {
+            if (msg.supervisor_pid) {
+              // Mise à jour fonctionnelle : ne PAS dépendre de supervisorInfo,
+              // sinon connectWs change d'identité à chaque fetch et l'effet
+              // de montage recrée le WebSocket en boucle (tempête de connexions).
               setSupervisorInfo((prev) =>
                 prev ? { ...prev, pid: msg.supervisor_pid! } : prev,
               )
@@ -168,7 +171,9 @@ export default function ControlView() {
       }
 
       ws.onclose = () => {
-        if (mountedRef.current) {
+        // Ne reconnecter que si CE socket est toujours le socket courant —
+        // un socket remplacé ne doit pas déclencher de reconnexion parallèle.
+        if (mountedRef.current && wsRef.current === ws) {
           setTimeout(connectWs, WS_RECONNECT_MS)
         }
       }
@@ -179,7 +184,7 @@ export default function ControlView() {
     } catch {
       // WebSocket non supporte
     }
-  }, [fetchSubServices, supervisorInfo])
+  }, [fetchSubServices])
 
   // ── Lifecycle ────────────────────────────────────────────
 
