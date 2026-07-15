@@ -17,10 +17,10 @@ def _line_count(path: Path) -> int:
     return len(path.read_text(encoding="utf-8").splitlines())
 
 
-def test_phase4_assembles_exactly_twelve_domain_routers():
+def test_phase4_assembles_exactly_thirteen_domain_routers():
     router_paths = sorted(API_DIR.glob("router_*.py"))
 
-    assert len(router_paths) == 12
+    assert len(router_paths) == 13
     for path in router_paths:
         module = importlib.import_module(f"api.{path.stem}")
         assert isinstance(module.router, APIRouter), path.name
