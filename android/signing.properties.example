@@ -1,0 +1,7 @@
+# Exemple — copier vers android/signing.properties (gitignoré) pour signer release.
+# Ne jamais committer le keystore ni les mots de passe.
+
+storeFile=../keystore/jarvis-companion-release.jks
+storePassword=REMPLACER
+keyAlias=jarvis-companion
+keyPassword=REMPLACER
