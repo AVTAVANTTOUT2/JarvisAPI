@@ -174,7 +174,7 @@ async def api_email_watcher_catchup():
 
 # ── Réglages dynamiques (sans redémarrage) ──────────────────
 
-_VALID_TTS_ENGINES = {"elevenlabs", "edge", "macos", "kokoro"}
+_VALID_TTS_ENGINES = {"edge", "macos", "kokoro", "ttskit"}
 
 
 async def api_get_tts_setting():
@@ -187,7 +187,7 @@ async def api_get_tts_setting():
 async def api_set_tts_setting(body: dict):
     """Change le moteur TTS à la volée (sans redémarrage).
 
-    Payload : ``{"engine": "elevenlabs" | "edge" | "macos"}``
+    Payload : ``{"engine": "edge" | "macos" | "kokoro" | "ttskit"}``
     """
     from database import set_setting as _ss
     from audio.tts import get_tts_by_name
@@ -202,13 +202,14 @@ async def api_set_tts_setting(body: dict):
 
     # Vérifie la disponibilité du moteur demandé
     target = get_tts_by_name(engine)
-    if not getattr(target, "available", False):
+    resolved_engine = getattr(target, "get_backend_name", lambda: "none")()
+    if not getattr(target, "available", False) or resolved_engine != engine:
         from fastapi import HTTPException
         raise HTTPException(
             status_code=422,
             detail=f"Le moteur '{engine}' n'est pas disponible sur ce système. "
-                   f"Vérifiez ELEVENLABS_API_KEY/VOICE_ID (elevenlabs), "
-                   f"edge-tts installé (edge) ou commandes say/afconvert (macos).",
+                   f"Vérifiez edge-tts (edge), les modèles locaux (kokoro/ttskit) "
+                   f"ou les commandes say/afconvert (macos).",
         )
 
     _ss("tts_engine", engine)

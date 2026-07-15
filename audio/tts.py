@@ -1,10 +1,10 @@
-"""Text-to-Speech — ElevenLabs (qualité / latence réseau), Edge TTS (défaut, rapide)
-ou macOS natif (say + afconvert, zéro latence réseau, M4 local).
+"""Text-to-Speech — Edge TTS ou moteurs locaux macOS/Kokoro/TTSKit.
 
 Backends disponibles (``TTS_ENGINE`` dans `.env` ou DB `app_settings`) :
   - ``edge``       — Microsoft Edge Neural (gratuit, faible latence réseau)
-  - ``elevenlabs`` — si ``ELEVENLABS_API_KEY`` + ``ELEVENLABS_VOICE_ID`` sont définis
   - ``macos``      — say + afconvert (macOS natif, zéro réseau, sort en AAC/M4A)
+  - ``kokoro``     — modèle ONNX local
+  - ``ttskit``     — sidecar natif local
 
 API :
     tts.synthesize(text, emotion)        → bytes audio
@@ -32,42 +32,12 @@ VALID_EMOTIONS = frozenset({
     "neutral", "warm", "serious", "concerned", "amused", "urgent", "encouraging"
 })
 
-ELEVENLABS_EMOTION_SETTINGS: dict[str, dict] = {
-    "neutral":     {"stability": 0.45, "similarity_boost": 0.75, "style": 0.15, "use_speaker_boost": True},
-    "warm":        {"stability": 0.40, "similarity_boost": 0.75, "style": 0.40, "use_speaker_boost": True},
-    "serious":     {"stability": 0.70, "similarity_boost": 0.80, "style": 0.10, "use_speaker_boost": True},
-    "concerned":   {"stability": 0.40, "similarity_boost": 0.75, "style": 0.50, "use_speaker_boost": True},
-    "amused":      {"stability": 0.30, "similarity_boost": 0.70, "style": 0.70, "use_speaker_boost": True},
-    "urgent":      {"stability": 0.60, "similarity_boost": 0.80, "style": 0.50, "use_speaker_boost": True},
-    "encouraging": {"stability": 0.40, "similarity_boost": 0.75, "style": 0.50, "use_speaker_boost": True},
-}
-
-
 class TTSEngine:
-    """TTS ElevenLabs (option) ou Edge TTS (défaut)."""
+    """TTS Edge pour les clients réseau ; les moteurs locaux sont séparés."""
 
     def __init__(self) -> None:
         self._backend: str = "none"
         self.available: bool = False
-        pref = (getattr(config, "TTS_ENGINE", "edge") or "edge").lower().strip()
-
-        if pref == "elevenlabs" and getattr(config, "ELEVENLABS_API_KEY", "") and getattr(
-            config, "ELEVENLABS_VOICE_ID", ""
-        ):
-            self._backend = "elevenlabs"
-            self.available = True
-            logger.info(
-                "[TTS] Backend : ElevenLabs eleven_multilingual_v2 (voice_id=%s)",
-                config.ELEVENLABS_VOICE_ID,
-            )
-            return
-
-        if pref == "elevenlabs":
-            logger.warning(
-                "[TTS] TTS_ENGINE=elevenlabs mais ELEVENLABS_API_KEY ou "
-                "ELEVENLABS_VOICE_ID manquant — passage sur Edge TTS."
-            )
-
         try:
             import edge_tts  # noqa: F401
 
@@ -76,8 +46,7 @@ class TTSEngine:
             logger.info("[TTS] Backend : Edge TTS (voix %s)", config.TTS_VOICE)
         except ImportError:
             logger.warning(
-                "[TTS] edge-tts non installé (`pip install edge-tts`). "
-                "Configure ElevenLabs dans .env pour du TTS."
+                "[TTS] edge-tts non installé (`pip install edge-tts`)."
             )
 
     def get_backend_name(self) -> str:
@@ -94,10 +63,7 @@ class TTSEngine:
             data={"engine": self._backend, "text_length": len(text)},
         )))
 
-        if self._backend == "elevenlabs":
-            result = await self._synth_elevenlabs_full(text, emotion)
-        else:
-            result = await self._synth_edge(text)
+        result = await self._synth_edge(text)
 
         asyncio.create_task(event_bus.emit(JarvisEvent(type="tts.done")))
         return result
@@ -108,12 +74,8 @@ class TTSEngine:
         if not self.available or not text or not text.strip():
             return
         emotion = emotion if emotion in VALID_EMOTIONS else "neutral"
-        if self._backend == "elevenlabs":
-            async for chunk in self._synth_elevenlabs_stream(text, emotion):
-                yield chunk
-        else:
-            async for chunk in self._synth_edge_stream(text):
-                yield chunk
+        async for chunk in self._synth_edge_stream(text):
+            yield chunk
 
     async def _synth_edge_stream(self, text: str) -> AsyncGenerator[bytes, None]:
         """Stream Edge TTS chunk par chunk (time-to-first-byte réduit)."""
@@ -129,54 +91,6 @@ class TTSEngine:
                     yield chunk["data"]
         except Exception as e:
             logger.exception("[TTS] Edge stream : %s", e)
-
-    def _elevenlabs_payload(self, text: str, emotion: str) -> dict:
-        settings = ELEVENLABS_EMOTION_SETTINGS.get(
-            emotion, ELEVENLABS_EMOTION_SETTINGS["neutral"]
-        )
-        return {"text": text, "model_id": "eleven_multilingual_v2", "voice_settings": settings}
-
-    def _elevenlabs_headers(self) -> dict:
-        return {"xi-api-key": config.ELEVENLABS_API_KEY, "Content-Type": "application/json"}
-
-    async def _synth_elevenlabs_stream(
-        self, text: str, emotion: str
-    ) -> AsyncGenerator[bytes, None]:
-        try:
-            import httpx
-        except ImportError:
-            logger.error("[TTS] httpx requis pour ElevenLabs")
-            return
-
-        url = f"https://api.elevenlabs.io/v1/text-to-speech/{config.ELEVENLABS_VOICE_ID}/stream"
-        params = {"output_format": "mp3_44100_128"}
-        total = 0
-        try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                async with client.stream(
-                    "POST",
-                    url,
-                    json=self._elevenlabs_payload(text, emotion),
-                    headers=self._elevenlabs_headers(),
-                    params=params,
-                ) as r:
-                    if r.status_code != 200:
-                        body = await r.aread()
-                        logger.error("[TTS] ElevenLabs stream HTTP %d : %s", r.status_code, body[:200])
-                        return
-                    async for chunk in r.aiter_bytes(chunk_size=4096):
-                        if chunk:
-                            total += len(chunk)
-                            yield chunk
-            logger.info("[TTS] ElevenLabs stream OK : %d bytes emotion=%s", total, emotion)
-        except Exception as e:
-            logger.exception("[TTS] ElevenLabs stream : %s", e)
-
-    async def _synth_elevenlabs_full(self, text: str, emotion: str) -> bytes:
-        parts: list[bytes] = []
-        async for chunk in self._synth_elevenlabs_stream(text, emotion):
-            parts.append(chunk)
-        return b"".join(parts)
 
     async def _synth_edge(self, text: str) -> bytes:
         try:
@@ -292,7 +206,7 @@ class KokoroTTSEngine:
         return "kokoro"
 
     def get_fallback(self) -> "MacOSTTSEngine":
-        """Retourne un moteur de secours local uniquement (pas Edge/ElevenLabs)."""
+        """Retourne un moteur de secours local uniquement (pas Edge)."""
         if macos_tts.available:
             logger.warning("[TTS] Kokoro fallback → macOS TTS")
             return macos_tts
@@ -488,7 +402,7 @@ class MacOSTTSEngine:
 
 macos_tts = MacOSTTSEngine()
 
-TTS_ENGINE_NAMES = frozenset({"edge", "elevenlabs", "macos", "kokoro", "ttskit"})
+TTS_ENGINE_NAMES = frozenset({"edge", "macos", "kokoro", "ttskit"})
 
 
 def get_tts_by_name(name: str) -> TTSEngine | MacOSTTSEngine | KokoroTTSEngine:

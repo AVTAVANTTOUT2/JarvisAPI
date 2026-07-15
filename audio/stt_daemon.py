@@ -460,12 +460,14 @@ def create_daemon_stt_backend() -> DaemonSTTBackend:
 
 
 class DaemonSTT:
-    """Façade singleton pour le daemon audio."""
+    """Façade STT locale partagée par le daemon et les clients WebSocket."""
 
     def __init__(self) -> None:
         self._backend = create_daemon_stt_backend()
         self.available = not isinstance(self._backend, DisabledSTT)
         self._preload_attempted = False
+        self.last_raw_text = ""
+        self.last_clean_text = ""
 
     def preload_sync(self) -> bool:
         self._preload_attempted = True
@@ -496,9 +498,75 @@ class DaemonSTT:
             "engine": result.engine,
         }
 
-    async def transcribe(self, pcm_bytes: bytes, language: str = "fr") -> str:
-        meta = await self.transcribe_with_metadata(pcm_bytes, language=language)
-        return (meta or {}).get("text") or ""
+    @staticmethod
+    def _decode_media_bytes(audio_bytes: bytes) -> bytes:
+        """Décode un conteneur audio navigateur en PCM16 mono 16 kHz."""
+        try:
+            from faster_whisper.audio import decode_audio
+            import numpy as np  # type: ignore[import-untyped]
+        except ImportError:
+            logger.error(
+                "[stt_daemon] Décodage média indisponible — installez faster-whisper"
+            )
+            return b""
+
+        try:
+            samples = decode_audio(io.BytesIO(audio_bytes), sampling_rate=16000)
+            if samples is None or len(samples) == 0:
+                return b""
+            pcm = (np.clip(samples, -1.0, 1.0) * 32767.0).astype(np.int16)
+            return pcm.tobytes()
+        except Exception as exc:
+            logger.warning("[stt_daemon] Décodage audio impossible : %s", exc)
+            return b""
+
+    async def transcribe(
+        self,
+        audio_bytes: bytes,
+        language: str = "fr",
+        timeout: float | None = None,
+    ) -> str:
+        """Transcrit du PCM ou un conteneur WebM/Opus, WAV, MP3 ou OGG localement."""
+        if len(audio_bytes) < 1000:
+            return ""
+
+        encoded_magic = (
+            audio_bytes.startswith(b"RIFF"),
+            audio_bytes.startswith(b"\x1a\x45\xdf\xa3"),
+            audio_bytes.startswith(b"ID3"),
+            audio_bytes.startswith(b"OggS"),
+            len(audio_bytes) >= 2
+            and audio_bytes[0] == 0xFF
+            and (audio_bytes[1] & 0xE0) == 0xE0,
+        )
+        pcm_bytes = audio_bytes
+        sample_rate = int(getattr(config, "AUDIO_DAEMON_SAMPLE_RATE", 16000))
+        if any(encoded_magic):
+            loop = asyncio.get_running_loop()
+            pcm_bytes = await loop.run_in_executor(None, self._decode_media_bytes, audio_bytes)
+            sample_rate = 16000
+        if not pcm_bytes:
+            return ""
+
+        operation = self.transcribe_with_metadata(
+            pcm_bytes,
+            sample_rate=sample_rate,
+            language=language,
+        )
+        meta = await asyncio.wait_for(operation, timeout=timeout) if timeout else await operation
+        text = str((meta or {}).get("text") or "").strip()
+        self.last_raw_text = text
+        self.last_clean_text = text
+        return text
+
+    async def transcribe_with_diarization(
+        self,
+        audio_bytes: bytes,
+        language: str = "fr",
+        timeout: float | None = None,
+    ) -> list[dict]:
+        """Retourne vide tant qu'aucun moteur local de diarisation n'est configuré."""
+        return []
 
     def get_backend_name(self) -> str:
         return getattr(self._backend, "name", "disabled")

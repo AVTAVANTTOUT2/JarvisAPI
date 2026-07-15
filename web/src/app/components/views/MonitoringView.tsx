@@ -319,7 +319,7 @@ const FEATURES: FeatureSpec[] = [
     id: 'tts',
     label: 'TTS',
     icon: Volume2,
-    description: 'Synthèse vocale (Edge / ElevenLabs / Kokoro)',
+    description: 'Synthèse vocale (TTSKit / Kokoro / Edge / macOS)',
     test: async () => {
       const setting = (await api.getTTSSetting()) as { engine?: string };
       const status = (await api.getStatus()) as { audio?: { tts_available?: boolean; tts_backend?: string; tts_voice?: string } };
@@ -336,7 +336,7 @@ const FEATURES: FeatureSpec[] = [
     id: 'stt',
     label: 'STT',
     icon: Mic,
-    description: 'Speech-to-text (ElevenLabs Scribe)',
+    description: 'Speech-to-text local multi-moteurs',
     test: async () => {
       const status = (await api.getStatus()) as { audio?: { stt_available?: boolean; stt_engine?: string } };
       return {

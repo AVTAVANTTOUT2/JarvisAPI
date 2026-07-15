@@ -20,10 +20,7 @@ DEEPSEEK_BASE_URL = _get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 DEEPSEEK_FAST_MODEL = _get("DEEPSEEK_FAST_MODEL", "deepseek-v4-flash")
 DEEPSEEK_MAIN_MODEL = _get("DEEPSEEK_MAIN_MODEL", "deepseek-v4-pro")
 
-# ── Audio — ElevenLabs (STT Scribe + TTS) ────────────────────
-ELEVENLABS_API_KEY = _get("ELEVENLABS_API_KEY")
-ELEVENLABS_VOICE_ID = _get("ELEVENLABS_VOICE_ID")
-
+# ── Audio — STT local + TTS Edge/local ───────────────────────
 TTS_ENGINE = _get("TTS_ENGINE", "edge")
 TTS_VOICE = _get("TTS_VOICE", "fr-FR-VivienneMultilingualNeural")
 TTS_MODEL = _get("TTS_MODEL", "qwen3-tts-0.6b")
@@ -46,7 +43,7 @@ LOCATION_PLACE_RADIUS = int(_get("LOCATION_PLACE_RADIUS", "100"))
 
 # Mode écoute continue (enregistrement long → transcription → synthèse)
 RECORDING_MAX_DURATION_MIN = int(_get("RECORDING_MAX_DURATION_MIN", "180"))  # refus au-delà
-RECORDING_CHUNK_SIZE_MB = int(_get("RECORDING_CHUNK_SIZE_MB", "20"))        # taille max par requête Scribe
+RECORDING_CHUNK_SIZE_MB = int(_get("RECORDING_CHUNK_SIZE_MB", "20"))        # taille max par segment local
 RECORDING_SUMMARY_ONLY = _get("RECORDING_SUMMARY_ONLY", "false").lower() == "true"  # n’inclut pas la transcription dans les réponses API/liste
 
 # ── Intégrations ────────────────────────────────────────────
@@ -378,7 +375,7 @@ SEMANTIC_SEARCH_MODEL = _get("SEMANTIC_SEARCH_MODEL", "all-MiniLM-L6-v2")
 # tours de parole ("A", "B"…) au sein d'UN enregistrement. Les labels ne
 # sont cohérents que dans un seul appel STT : l'audio entier (chunks
 # concaténés) est donc envoyé en un seul appel, plafonné à 100 Mo.
-DIARIZATION_ENABLED = _get("DIARIZATION_ENABLED", "true").lower() == "true"
+DIARIZATION_ENABLED = _get("DIARIZATION_ENABLED", "false").lower() == "true"
 
 # ── Authentification / verrouillage app ──────────────────────
 SESSION_COOKIE_NAME = _get("SESSION_COOKIE_NAME", "jarvis_session")

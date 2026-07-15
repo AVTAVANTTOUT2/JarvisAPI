@@ -117,7 +117,7 @@ async def websocket_endpoint(ws: WebSocket):
                 if stt is None or not getattr(stt, "available", False):
                     await ws.send_json({
                         "type": "error",
-                        "message": "STT indisponible (ELEVENLABS_API_KEY manquante).",
+                        "message": "STT local indisponible (moteur ou modèle absent).",
                     })
                     continue
 
@@ -170,7 +170,7 @@ async def websocket_endpoint(ws: WebSocket):
                     if stt is None or not getattr(stt, "available", False):
                         await ws.send_json({
                             "type": "error",
-                            "message": "STT indisponible (ELEVENLABS_API_KEY manquante).",
+                            "message": "STT local indisponible (moteur ou modèle absent).",
                         })
                         continue
                     from audio.continuous_recorder import ContinuousRecording
@@ -275,7 +275,7 @@ async def websocket_endpoint(ws: WebSocket):
                     if stt is None or not getattr(stt, "available", False):
                         await ws.send_json({
                             "type": "error",
-                            "message": "STT indisponible (ELEVENLABS_API_KEY manquante).",
+                            "message": "STT local indisponible (moteur ou modèle absent).",
                         })
                         if conversation_mode:
                             await ws.send_json({"type": "listening"})

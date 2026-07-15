@@ -100,7 +100,7 @@ async def api_status():
         "today": stats,
         "audio": {
             "stt_available": stt is not None and getattr(stt, "available", False),
-            "stt_engine": "elevenlabs_scribe" if (stt and getattr(stt, "available", False)) else "none",
+            "stt_engine": stt.get_backend_name() if (stt and getattr(stt, "available", False)) else "none",
             "tts_available": tts is not None and getattr(tts, "available", False),
             "tts_backend": tts.get_backend_name() if tts else "none",
             "tts_voice": config.TTS_VOICE,

@@ -249,7 +249,7 @@ def _migrate_conversation_turns(conn: sqlite3.Connection) -> None:
 
     `speaker_label` est un identifiant temporaire propre à CET enregistrement
     (« A », « B »…) — il n'est jamais réutilisé d'un enregistrement à l'autre
-    (la diarisation ElevenLabs ne fournit pas d'empreinte vocale persistante).
+    (les labels de diarisation ne constituent pas une empreinte vocale persistante).
     `person_id` est renseigné après coup quand l'utilisateur répond
     « qui était la personne A ? ».
     """

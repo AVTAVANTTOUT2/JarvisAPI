@@ -13,7 +13,7 @@ OGG_MAGIC = b"OggS"
 
 
 def detect_upload_format(audio_bytes: bytes) -> tuple[str, str]:
-    """Retourne ``(filename, mime)`` pour l'upload ElevenLabs Scribe."""
+    """Retourne ``(filename, mime)`` pour identifier un conteneur audio."""
     if len(audio_bytes) >= 4 and audio_bytes[:4] == RIFF_MAGIC:
         return "audio.wav", "audio/wav"
     if len(audio_bytes) >= 4 and audio_bytes[:4] == WEBM_MAGIC:
@@ -53,7 +53,7 @@ def pcm_to_wav(
 
 
 def prepare_stt_bytes(audio_bytes: bytes, sample_rate: int = 16000) -> bytes:
-    """Normalise les bytes pour Scribe : WAV si PCM brut, sinon inchangé."""
+    """Normalise les bytes pour le STT : WAV si PCM brut, sinon inchangé."""
     filename, _mime = detect_upload_format(audio_bytes)
     if filename == "audio.wav" and audio_bytes[:4] != RIFF_MAGIC:
         return pcm_to_wav(audio_bytes, sample_rate=sample_rate)

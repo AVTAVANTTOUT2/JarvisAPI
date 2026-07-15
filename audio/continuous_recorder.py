@@ -1,4 +1,4 @@
-"""Enregistrement continu — accumulation audio → transcription Scribe → Haiku + Sonnet → actions."""
+"""Enregistrement continu — audio → transcription locale → analyse et actions."""
 
 from __future__ import annotations
 
@@ -174,7 +174,7 @@ class ContinuousRecording:
             )
 
         try:
-            from audio.stt import stt
+            from audio import stt
         except ImportError:
             stt = None  # type: ignore[misc, assignment]
 
@@ -279,8 +279,8 @@ class ContinuousRecording:
         d'où un appel unique sur l'audio entier. Plusieurs chunks issus d'un
         même ``MediaRecorder`` sont des fragments d'un seul flux WebM : leur
         concaténation est le fichier complet valide. Si l'audio concaténé
-        n'était pas exploitable (chunks indépendants, flux corrompu), Scribe
-        échoue et on dégrade proprement (0 tour, transcription classique
+        n'était pas exploitable (chunks indépendants, flux corrompu), le moteur
+        local échoue et on dégrade proprement (0 tour, transcription classique
         déjà persistée par ailleurs).
         """
         if not config.DIARIZATION_ENABLED:

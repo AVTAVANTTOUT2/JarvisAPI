@@ -1,4 +1,4 @@
-"""Moteurs TTS locaux pour le daemon audio — aucun Edge/ElevenLabs."""
+"""Moteurs TTS locaux pour le daemon audio — aucun service TTS réseau."""
 
 from __future__ import annotations
 
@@ -94,7 +94,7 @@ ttskit_tts = TTSKitEngine()
 
 
 def get_native_tts_engine(*, exclude: frozenset[str] = frozenset()) -> Any:
-    """Chaîne locale : TTSKit → Kokoro (voix FR) → macOS say. Jamais Edge/ElevenLabs."""
+    """Chaîne locale : TTSKit → Kokoro (voix FR) → macOS say."""
     from audio.tts import kokoro_tts, macos_tts
 
     pref = (getattr(config, "TTS_ENGINE", "ttskit") or "ttskit").lower().strip()

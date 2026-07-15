@@ -17,8 +17,8 @@ JARVIS est un assistant personnel multi-agents avec interface vocale + web, tour
 - **Frontend** : Next.js 15 + React 19 + Tailwind v4 (`frontend/out` prioritaire), vues desktop `web/src` et mobile `pwa/src` réutilisées ; anciens builds conservés en fallback
 - **Base de données** : SQLite (fichier local `data/jarvis.db`)
 - **LLM** : DeepSeek API (format OpenAI, `llm.py`) — routing fast/main, mode « tâche lourde » (max_tokens élevé) pour les productions longues
-- **STT** : ElevenLabs Scribe (API cloud, accepte directement WebM/Opus — zéro ffmpeg)
-- **TTS** : deux backends dans `audio/tts.py` — **Edge TTS** (défaut, faible latence) ou **ElevenLabs** (qualité / émotions, `eleven_multilingual_v2`).
+- **STT** : local multi-moteurs (`faster-whisper`, WhisperKit ou whisper.cpp), sans repli cloud
+- **TTS** : Edge pour le web ; TTSKit, Kokoro ou macOS `say` pour le pipeline local
 - **VAD** : côté client uniquement (Web Audio API `AnalyserNode`)
 - **Embeddings** : `all-MiniLM-L6-v2` via `sentence-transformers` (local, pour RAG)
 - **Recherche web** : Tavily API ou SearXNG local
@@ -481,23 +481,17 @@ CODE_EXECUTOR_MODEL=             # modèle Claude utilisé (défaut: Sonnet)
 
 **`/api/status`** et **`/api/integrations`** exposent `code_executor: { available, engine }`.
 
-## Audio — ElevenLabs unifié (STT + TTS)
+## Audio — pipeline local post-PR #17
 
-Un seul fournisseur pour STT et TTS : **ElevenLabs**. Plus de Whisper, de ffmpeg, de fichiers temporaires, ni de conversion audio.
+Le daemon utilise uniquement des moteurs locaux. `audio/stt_daemon.py` fournit
+une façade commune à faster-whisper, WhisperKit et whisper.cpp. Les blobs WebM,
+WAV, MP3 et OGG du navigateur sont décodés localement avant transcription.
 
-### STT — ElevenLabs Scribe (`audio/stt.py`)
+### TTS — Edge ou moteurs locaux (`audio/tts.py`, `audio/tts_native.py`)
 
-- Accepte directement WebM/Opus du navigateur — zéro conversion, zéro ffmpeg
-- Latence ~0.5s ; blobs < 1000 octets ignorés
-- Coût : inclus dans le forfait ElevenLabs
-- Config : `ELEVENLABS_API_KEY` (sert aussi pour le TTS)
-
-### TTS — Edge ou ElevenLabs (`audio/tts.py`)
-
-Selon `TTS_ENGINE` dans `.env` :
-
-1. **ElevenLabs** — si `TTS_ENGINE=elevenlabs` **et** `ELEVENLABS_API_KEY` + `ELEVENLABS_VOICE_ID` sont définis. API REST `httpx`, émotions via `voice_settings`, modèle `eleven_multilingual_v2`, sortie `mp3_44100_128`.
-2. **Edge TTS** — sinon (défaut `TTS_ENGINE=edge`). Latence réduite ; voix par défaut `fr-FR-VivienneMultilingualNeural` (`config.TTS_VOICE`). Émotions (tag Claude) sans effet sur la voix Edge.
+Selon `TTS_ENGINE` dans `.env` : `edge` pour le client web, ou `ttskit`,
+`kokoro`, `macos` pour les moteurs locaux. La chaîne native ne bascule jamais
+sur un service réseau.
 
 `tts.synthesize(text, emotion="warm")` retourne des bytes MP3. En mode mains libres, `synthesize_stream` envoie des chunks jusqu'à fermeture du flux ; la session WebSocket termine avec `speech_done` pour que le client assemble un fichier MP3 valide avant lecture.
 
@@ -523,9 +517,9 @@ Pipeline vocal complet :
 Micro → MediaRecorder.start() (sans timeslice, un enregistrement par phrase)
 → Fin de parole (silence ≥ VOICE_SILENCE_DURATION_MS)
 → stop() → onstop → Blob WebM complet → WebSocket binaire
-→ ElevenLabs Scribe (transcription directe WebM, zéro conversion)
+→ décodage local du WebM → STT local multi-moteurs
 → Claude Haiku (mode vocal, VOICE_MAX_TOKENS, [VOICE_MODE])
-→ TTS (ElevenLabs ou Edge) → chunks MP3 → WebSocket → playback
+→ TTS (Edge ou moteur local) → WebSocket → playback
 ```
 
 Détails du flux :
@@ -534,7 +528,7 @@ Détails du flux :
 [Serveur] conversation_started (+ silence_duration_ms, min_speech_ms) puis listening
 [Client] Boucle AnalyserNode ; fin de parole → Blob WebM complet → ws.send(blob)
 [Serveur] is_processing=true → ignore tout autre binaire ; processing
-[Serveur] ElevenLabs Scribe → transcript
+[Serveur] STT local → transcript
 [Serveur] **même pipeline que le chat** : `_process_message(..., voice_mode=True, stream=False)` — appelle
           `orchestrator.handle(..., voice_mode=True)` (préfixe LLM `[VOICE_MODE]`, `ctx["voice_mode"]`, historique, mails
           via `append_recent_mails_to_context`, productivité / coach / journal comme le texte) ; blocs `action` exécutés
@@ -546,7 +540,7 @@ Détails du flux :
 
 **Anti-écho** : binaire ignoré tant que `is_speaking` ou `is_processing` ; buffers micro vidés côté client quand JARVIS parle ; `getUserMedia` avec suppression d'écho / bruit / AGC.
 
-**Latence** : `VOICE_MAX_TOKENS` (défaut 500), STT cloud Scribe (~0.5s), Haiku (~300ms), TTS Edge (~200ms).
+**Latence** : `VOICE_MAX_TOKENS` (défaut 500), STT local préchargé, modèle rapide, puis TTS sélectionné.
 
 **UI React** : orbe canvas (4 phases), transcripts, EQ, historique léger (`web/src/app/components/pages/Voice.tsx`).
 
@@ -561,9 +555,9 @@ Flux historique encore possible depuis le composer chat : `conversation_mode` + 
 ### Config
 
 ```bash
-ELEVENLABS_API_KEY=                 # STT Scribe + TTS (même clé)
-ELEVENLABS_VOICE_ID=                # voix TTS ElevenLabs
-TTS_ENGINE=edge                     # edge (défaut) ou elevenlabs
+TTS_ENGINE=edge                     # edge | ttskit | kokoro | macos
+AUDIO_DAEMON_STT_ENGINE=local       # local | whisperkit | whispercpp
+AUDIO_DAEMON_STT_MODEL=small
 TTS_VOICE=fr-FR-VivienneMultilingualNeural
 VOICE_SILENCE_DURATION_MS=1200     # fin de phrase ; page /voice (client)
 VOICE_MIN_SPEECH_MS=400
@@ -599,9 +593,10 @@ jarvis/
 │   └── memory.py            # Mémoire transversale, résumés, patterns
 │
 ├── audio/
-│   ├── stt.py               # STT ElevenLabs Scribe (API cloud, WebM direct)
-│   ├── tts.py               # TTS Edge (défaut) ou ElevenLabs + émotions
-│   └── continuous_recorder.py  # Écoute continue : accumulation → Scribe → Haiku + Sonnet → actions
+│   ├── stt_daemon.py        # STT local multi-moteurs + décodage des médias web
+│   ├── tts.py               # TTS Edge, Kokoro et macOS
+│   ├── tts_native.py        # TTSKit puis replis locaux
+│   └── continuous_recorder.py  # Écoute continue : transcription locale → analyse → actions
 │
 ├── integrations/
 │   ├── mail.py              # Apple Mail (AppleScript, zéro config)
@@ -924,9 +919,9 @@ DEEPSEEK_BASE_URL=https://api.deepseek.com
 DEEPSEEK_FAST_MODEL=deepseek-v4-flash   # classification, triage, extraction
 DEEPSEEK_MAIN_MODEL=deepseek-v4-pro     # rédaction, coaching, raisonnement
 HEAVY_TASK_MAX_TOKENS=8192              # plafond tokens des productions longues
-ELEVENLABS_API_KEY=         # STT Scribe + TTS (même clé)
-ELEVENLABS_VOICE_ID=        # voix TTS ElevenLabs
-TTS_ENGINE=edge             # edge (défaut) ou elevenlabs
+TTS_ENGINE=edge             # edge | ttskit | kokoro | macos
+AUDIO_DAEMON_STT_ENGINE=local
+AUDIO_DAEMON_STT_MODEL=small
 TTS_VOICE=fr-FR-VivienneMultilingualNeural
 WEATHER_API_KEY=...
 WEATHER_CITY=Lille
@@ -1108,7 +1103,7 @@ Créer : `main.py`, `config.py`, `llm.py`, `database/`, `agents/__init__.py`, `a
 Créer : `agents/school.py`, pipeline upload documents (PDF → extraction texte), résumés, fiches de révision, flashcards. RAG avec embeddings sur les docs de cours.
 
 ### Phase 3 — Audio
-Créer : `audio/stt.py` (ElevenLabs Scribe), `audio/tts.py` (Edge TTS / ElevenLabs), intégration WebSocket audio. Objectif : parler au micro → réponse vocale.
+Créer le pipeline STT/TTS et son intégration WebSocket audio. État actuel : façade STT locale multi-moteurs et TTS Edge/local.
 
 ### Phase 4 — Productivité
 Créer : `integrations/mail.py` (Apple Mail via AppleScript), `integrations/calendar_api.py`, `agents/productivity.py`. Briefing matin automatique (cron/launchd).
@@ -1185,7 +1180,7 @@ Le **daemon** est lancé au démarrage de FastAPI (lifespan) via `asyncio.create
        ↓ (analysis["notable"] non vide)
 [3] Claude (Haiku via _process_message_internal)  → tokens réels, voix JARVIS
        ↓
-TTS Edge / Kokoro / ElevenLabs → afplay (local) ou file `/api/devices/{id}/tts` (distant)
+TTS Edge / TTSKit / Kokoro / macOS → lecture locale ou file `/api/devices/{id}/tts` (distant)
 ```
 
 95 % du travail tourne en local (Ollama). Claude API ne reçoit **que des résumés texte** (`activity`, `notable`) — jamais d'images.
@@ -1725,23 +1720,17 @@ bash scripts/build_pwa.sh
 l'utilisateur — `recording_start`/`recording_stop`, jamais d'écoute ambiante
 permanente). Trois briques :
 
-### Diarisation (`audio/stt.py`)
+### Diarisation locale
 
-- `stt.transcribe_with_diarization()` : même appel Scribe avec `diarize=true`,
-  puis `group_words_into_turns()` (fonction pure, testée) regroupe la liste
-  `words` (un `speaker_id` par mot) en tours de parole consécutifs
-  `{speaker_label, text, start_ms, end_ms}`.
-- Les labels (« A », « B »…) sont **temporaires et propres à UN
-  enregistrement** — Scribe distingue des voix dans un flux, il ne fournit
-  aucune empreinte biométrique persistante. Le système ne prétend JAMAIS
-  identifier une personne réelle automatiquement.
+- La diarisation est désactivée par défaut (`DIARIZATION_ENABLED=false`) tant
+  qu'aucun moteur local dédié n'est installé.
+- Les labels futurs (« A », « B »…) resteront temporaires et propres à un seul
+  enregistrement ; aucune identité réelle ne sera déduite automatiquement.
 - `ContinuousRecording._maybe_capture_turns()` : un seul appel STT sur
   l'audio entier (chunks MediaRecorder concaténés = flux WebM complet),
   plafonné à 100 Mo, échec silencieux vers 0 tour (la transcription
-  classique reste persistée par ailleurs). `DIARIZATION_ENABLED=true`.
-- **Non vérifié contre l'API ElevenLabs réelle** (pas de clé en dev) — le
-  parsing dégrade vers un tour unique si la réponse n'a pas la structure
-  `words`/`speaker_id` attendue.
+  classique reste persistée par ailleurs). L'activation attend la Phase 6 du
+  plan `Architecture/30_PLAN_STABILISATION_AUDIO.md`.
 
 ### Attribution des locuteurs (« qui était la personne A ? »)
 

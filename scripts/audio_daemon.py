@@ -1726,7 +1726,7 @@ class AudioDaemon:
         *,
         cancel_event: asyncio.Event | None = None,
     ) -> None:
-        """Joue l'audio via sounddevice (prioritaire) — pas Edge/ElevenLabs."""
+        """Joue l'audio via sounddevice (prioritaire), sans service TTS réseau."""
         if cancel_event and cancel_event.is_set():
             return
 
