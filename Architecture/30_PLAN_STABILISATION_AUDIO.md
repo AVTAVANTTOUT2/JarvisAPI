@@ -7,9 +7,9 @@
 ## Objectif
 
 Traiter l'inventaire des erreurs audio sans réintroduire de fournisseur STT/TTS
-abandonné. Le chemin cible est local pour le daemon : WhisperKit, whisper.cpp ou
-faster-whisper pour le STT ; TTSKit, Kokoro ou `say` pour le TTS. Edge reste le
-moteur réseau du client web tant que sa migration n'est pas décidée.
+abandonné. Le chemin cible est local pour le daemon : **faster-whisper `large-v3-turbo`** (STT) et
+**Kokoro `af_nicole`** (TTS) par défaut. Edge reste disponible via `TTS_ENGINE=edge`.
+WhisperKit, whisper.cpp, TTSKit et `say` restent des moteurs optionnels explicites.
 
 ## Ordre des PR
 

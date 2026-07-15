@@ -45,7 +45,11 @@ jarvis-companion.apk
 
 # ── Modèles ML (gros fichiers locaux) ─────────────────────
 models/
-test_kokoro_output.wav
+# ── Modèles audio locaux (hors Git) ─────────────────────────
+models/kokoro/
+.cache/
+*.onnx
+voices.bin
 
 # ── IDE / OS ────────────────────────────────────────────────
 .DS_Store

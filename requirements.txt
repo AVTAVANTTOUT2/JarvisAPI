@@ -28,6 +28,7 @@ pyaudio>=0.2.14           # micro pour wake word + écoute conversation daemon (
 
 # STT local — faster-whisper (gratuit, zero latence reseau) + playback direct
 faster-whisper>=1.2        # transcription locale via CTranslate2 (Apple Silicon natif)
+kokoro-onnx>=0.4           # TTS local Kokoro (modèles dans models/kokoro/, hors Git)
 sounddevice>=0.5           # playback direct CoreAudio (evite afplay subprocess)
 soundfile>=0.13            # decode audio pour sounddevice (WAV/MP3/M4A)
 
