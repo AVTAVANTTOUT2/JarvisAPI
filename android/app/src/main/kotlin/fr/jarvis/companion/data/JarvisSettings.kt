@@ -18,8 +18,7 @@ object JarvisSettings {
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     fun server(context: Context): String =
-        preferences(context).getString(PREF_SERVER, BuildConfig.DEFAULT_SERVER)
-            ?: BuildConfig.DEFAULT_SERVER
+        preferences(context).getString(PREF_SERVER, BuildConfig.DEFAULT_SERVER)?.trim().orEmpty()
 
     fun setServer(context: Context, url: String) {
         preferences(context).edit().putString(PREF_SERVER, url).apply()
