@@ -8,8 +8,14 @@ export const UNIFIED_ROUTES = [
 
 const PHONE_USER_AGENT = /Android.*Mobile|iPhone|iPod|webOS|Windows Phone|Opera Mini|BlackBerry|IEMobile/i
 
+/** Marqueur ajouté par l'enveloppe Android native JARVIS. */
+export function isJarvisAndroidApp(userAgent: string): boolean {
+  return /JARVIS-Android\//i.test(userAgent)
+}
+
 /** Sélectionne le layout mobile pour un téléphone ou un viewport étroit. */
 export function shouldUseMobileLayout(userAgent: string, viewportWidth: number): boolean {
+  if (isJarvisAndroidApp(userAgent)) return false
   if (/Android(?!.*Mobile)/i.test(userAgent)) return false
   return viewportWidth < 768 || PHONE_USER_AGENT.test(userAgent)
 }

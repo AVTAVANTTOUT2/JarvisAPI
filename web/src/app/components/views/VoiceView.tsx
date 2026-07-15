@@ -62,7 +62,7 @@ export function VoiceView() {
 
   const [sessionError, setSessionError] = useState<string | null>(null)
   const [micPermission, setMicPermission] = useState<MicPermissionState>('idle')
-  const [debugOpen, setDebugOpen] = useState(true)
+  const [debugOpen, setDebugOpen] = useState(false)
   const [debugWsConnected, setDebugWsConnected] = useState(false)
   const [debugLastWsEvent, setDebugLastWsEvent] = useState('—')
   const [debugLastBlobSent, setDebugLastBlobSent] = useState('—')
@@ -766,7 +766,7 @@ export function VoiceView() {
       />
 
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-white/5">
+      <div className="flex items-center justify-between gap-2 px-3 sm:px-6 py-3 sm:py-4 border-b border-white/5">
         <div className="flex items-center gap-3 flex-wrap">
           <NavLink
             to="/chat"
@@ -816,7 +816,7 @@ export function VoiceView() {
       </div>
 
       {/* Audio Daemon control */}
-      <div className="mx-6 mt-3 glass-panel rounded-xl p-4 border border-white/10">
+      <div className="hidden md:block mx-6 mt-3 glass-panel rounded-xl p-4 border border-white/10">
         <div className="flex items-center gap-3 mb-3">
           <Headphones size={14} className="text-muted-foreground" />
           <span className="font-mono text-xs text-muted-foreground tracking-wider uppercase">
@@ -896,13 +896,13 @@ export function VoiceView() {
       </div>
 
       {sessionError && (
-        <div className="mx-6 mt-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs font-mono text-red-200">
+        <div className="mx-3 sm:mx-6 mt-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs font-mono text-red-200">
           {sessionError}
         </div>
       )}
 
       {/* Central orb area */}
-      <div className="flex-1 flex flex-col items-center justify-center gap-8 relative">
+      <div className="flex-1 flex flex-col items-center justify-center gap-4 sm:gap-8 relative min-h-0">
         <VoiceOrb phase={phase} volume={volume} />
 
         <div className="text-center space-y-1">
@@ -931,7 +931,7 @@ export function VoiceView() {
       </div>
 
       {/* Transcript area */}
-      <div className="px-6 pb-4 space-y-3 min-h-[140px]">
+      <div className="px-3 sm:px-6 pb-3 sm:pb-4 space-y-3 min-h-[100px] sm:min-h-[140px] max-h-[30vh] overflow-y-auto">
         {transcript && (
           <div className="bg-white/5 backdrop-blur-md border border-white/10 rounded-xl px-4 py-3">
             <p className="text-xs text-muted-foreground mb-1 font-mono">VOUS</p>
@@ -947,7 +947,7 @@ export function VoiceView() {
       </div>
 
       {/* Action button */}
-      <div className="flex justify-center pb-8 pt-2">
+      <div className="flex justify-center pb-[max(1rem,env(safe-area-inset-bottom))] sm:pb-8 pt-2">
         <button
           type="button"
           onClick={isActive ? stopSession : startSession}
@@ -984,7 +984,7 @@ export function VoiceView() {
       <button
         type="button"
         onClick={() => setDebugOpen((v) => !v)}
-        className="fixed top-4 right-4 z-40 flex items-center gap-2 rounded-xl border border-white/15 bg-black/50 px-3 py-2 text-xs font-mono text-muted-foreground backdrop-blur-md hover:border-white/30 hover:text-foreground"
+        className="hidden md:flex fixed top-4 right-4 z-40 items-center gap-2 rounded-xl border border-white/15 bg-black/50 px-3 py-2 text-xs font-mono text-muted-foreground backdrop-blur-md hover:border-white/30 hover:text-foreground"
         aria-expanded={debugOpen}
         aria-label="Mode diagnostic"
       >

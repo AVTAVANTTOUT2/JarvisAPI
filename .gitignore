@@ -28,6 +28,12 @@ certs/*.p12
 web/node_modules/
 web/dist/
 web/.vite/
+.pnpm-store/
+
+# ── Android ─────────────────────────────────────────────────
+android/.gradle/
+android/local.properties
+android/app/build/
 
 # ── Modèles ML (gros fichiers locaux) ─────────────────────
 models/

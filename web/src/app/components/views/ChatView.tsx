@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, ConversationDocument, ConversationSearchResult, ConversationSummary } from '@unified/lib/api'
 import { ws } from '@desktop/services/websocket'
-import { Paperclip, Plus, Search, Send, X } from 'lucide-react'
+import { Menu, Paperclip, Plus, Search, Send, X } from 'lucide-react'
 
 // ── Types locaux ────────────────────────────────────────────
 
@@ -96,6 +96,7 @@ export function ChatView() {
   const [contextMenuId, setContextMenuId] = useState<number | null>(null)
   const [renamingId, setRenamingId] = useState<number | null>(null)
   const [renameDraft, setRenameDraft] = useState('')
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const userScrolledUp = useRef(false)
@@ -327,6 +328,7 @@ export function ChatView() {
       setAttachedDocs([])
       userScrolledUp.current = false
       ws.send({ type: 'switch_conversation', conversation_id: convId })
+      setMobileSidebarOpen(false)
     } catch (e) {
       console.error('[ChatView] switchConversation', e)
     }
@@ -338,6 +340,7 @@ export function ChatView() {
     setAttachedDocs([])
     setConvDocs([])
     userScrolledUp.current = false
+    setMobileSidebarOpen(false)
   }, [])
 
   // ── Send message ────────────────────────────────────────
@@ -468,7 +471,7 @@ export function ChatView() {
   // ── Sidebar content ─────────────────────────────────────
 
   const sidebarJsx = (
-    <aside className="w-72 shrink-0 border-r border-white/10 flex flex-col bg-black/20 backdrop-blur-sm h-full overflow-hidden">
+    <aside className="w-72 max-w-[88vw] shrink-0 border-r border-white/10 hidden md:flex flex-col bg-black/95 md:bg-black/20 backdrop-blur-sm h-full overflow-hidden">
       {/* New conv button */}
       <div className="p-3 border-b border-white/10">
         <button
@@ -538,10 +541,20 @@ export function ChatView() {
     <div className="flex h-full min-h-0 relative" onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>
       {sidebarJsx}
 
+      {mobileSidebarOpen && (
+        <div className="fixed inset-0 z-50 flex md:hidden" role="dialog" aria-label="Historique des conversations">
+          <button type="button" aria-label="Fermer l'historique" className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setMobileSidebarOpen(false)} />
+          <div className="relative h-full [&>aside]:!flex">{sidebarJsx}</div>
+        </div>
+      )}
+
       {/* Chat area */}
       <div className="flex-1 flex flex-col min-h-0 min-w-0">
         {/* Header */}
         <div className="flex items-center gap-2 px-3 py-2.5 border-b border-white/10 bg-black/10 shrink-0">
+          <button type="button" aria-label="Ouvrir l'historique" onClick={() => setMobileSidebarOpen(true)} className="md:hidden shrink-0 w-9 h-9 rounded-xl border border-white/15 bg-white/5 flex items-center justify-center text-white/70 active:bg-white/15">
+            <Menu size={17} />
+          </button>
           <div className="flex-1 min-w-0 flex items-center gap-2">
             {activeConv ? (
               <ConvTitleEditor conv={activeConv} onSave={async (title) => {
@@ -562,6 +575,9 @@ export function ChatView() {
               </button>
             </div>
           )}
+          <button type="button" aria-label="Nouvelle conversation" onClick={newConversation} className="md:hidden shrink-0 w-9 h-9 rounded-xl border border-white/15 bg-white/5 flex items-center justify-center text-white/70 active:bg-white/15">
+            <Plus size={17} />
+          </button>
         </div>
 
         {/* Messages */}
@@ -592,7 +608,7 @@ export function ChatView() {
         </div>
 
         {/* Composer */}
-        <div className="shrink-0 border-t border-white/10 bg-black/10 px-3 py-2.5">
+        <div className="shrink-0 border-t border-white/10 bg-black/10 px-3 pt-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))]">
           {isDragging && (
             <div className="mb-2 border-2 border-dashed border-white/30 rounded-xl py-3 text-center text-sm text-white/50">
               Deposer un document ici

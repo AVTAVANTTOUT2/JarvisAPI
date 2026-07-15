@@ -25,7 +25,7 @@ export function BigBrotherLayout() {
 
   return (
     <div className="flex h-[100dvh] min-h-0 bg-grid-pattern">
-      <aside className="w-72 shrink-0 border-r border-border glass-panel flex flex-col overflow-hidden">
+      <aside className="w-72 shrink-0 border-r border-border glass-panel hidden md:flex flex-col overflow-hidden">
         <div className="p-4 border-b border-white/10">
           <p className="text-xs font-mono text-muted-foreground">JARVIS</p>
         </div>
@@ -115,7 +115,7 @@ export function BigBrotherLayout() {
           className="shrink-0 z-10 border-b border-white/10 bg-black/40 backdrop-blur-md px-3 py-2"
           aria-label="Navigation rapide"
         >
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-2 overflow-x-auto scrollbar-none whitespace-nowrap">
             <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mr-1 hidden sm:inline">
               Accès
             </span>
@@ -127,11 +127,11 @@ export function BigBrotherLayout() {
               <Mic size={14} />
               Voix
             </NavLink>
-            <NavLink to="/mission" className={topNavCls}>
+            <NavLink to="/mission" className={({ isActive }) => `${topNavCls({ isActive })} hidden sm:inline-flex`}>
               <Activity size={14} />
               Mission Control
             </NavLink>
-            <NavLink to="/calendar" className={topNavCls}>
+            <NavLink to="/calendar" className={({ isActive }) => `${topNavCls({ isActive })} hidden sm:inline-flex`}>
               <CalendarDays size={14} />
               Agenda
             </NavLink>
@@ -142,12 +142,12 @@ export function BigBrotherLayout() {
             <NavLink to="/dashboard" className={topNavCls}>
               Dashboard
             </NavLink>
-            <NavLink to="/contacts" className={topNavCls}>
+            <NavLink to="/contacts" className={({ isActive }) => `${topNavCls({ isActive })} hidden sm:inline-flex`}>
               Contacts
             </NavLink>
           </div>
         </header>
-        <div className="flex-1 min-h-0 overflow-y-auto">
+        <div className="flex-1 min-h-0 overflow-y-auto pb-safe">
           <Outlet />
         </div>
       </main>
