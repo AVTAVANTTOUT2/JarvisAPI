@@ -83,66 +83,62 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 return@launch
             }
 
-            pingBackend { ping ->
-                if (!ping.ok) {
+            val ping = repository.pingAuthStatus()
+            if (!ping.ok) {
+                _state.update {
+                    it.copy(
+                        phase = Phase.Offline,
+                        backendReachable = false,
+                        errorMessage = tlsHint(ping.error),
+                    )
+                }
+                return@launch
+            }
+
+            val token = JarvisSettings.nativeToken(app)
+            if (token.isEmpty()) {
+                _state.update {
+                    it.copy(
+                        phase = Phase.NeedsPairing,
+                        backendReachable = true,
+                        isPaired = false,
+                    )
+                }
+                return@launch
+            }
+
+            val session = repository.validateNativeToken()
+            when {
+                session.ok -> {
+                    initializeFcmIfNeeded()
+                    _state.update {
+                        it.copy(
+                            phase = Phase.Ready,
+                            backendReachable = true,
+                            isPaired = true,
+                            errorMessage = null,
+                        )
+                    }
+                    syncCapabilities()
+                }
+                session.status == 401 -> {
+                    JarvisSettings.clearNativeToken(app)
+                    _state.update {
+                        it.copy(
+                            phase = Phase.NeedsPairing,
+                            isPaired = false,
+                            backendReachable = true,
+                            errorMessage = "Jeton révoqué ou expiré. Réappairez le téléphone.",
+                        )
+                    }
+                }
+                else -> {
                     _state.update {
                         it.copy(
                             phase = Phase.Offline,
                             backendReachable = false,
-                            errorMessage = tlsHint(ping.error),
+                            errorMessage = session.error,
                         )
-                    }
-                    return@pingBackend
-                }
-
-                val token = JarvisSettings.nativeToken(app)
-                if (token.isEmpty()) {
-                    _state.update {
-                        it.copy(
-                            phase = Phase.NeedsPairing,
-                            backendReachable = true,
-                            isPaired = false,
-                        )
-                    }
-                    return@pingBackend
-                }
-
-                repository.validateNativeToken { session ->
-                    viewModelScope.launch {
-                        when {
-                            session.ok -> {
-                                initializeFcmIfNeeded()
-                                _state.update {
-                                    it.copy(
-                                        phase = Phase.Ready,
-                                        backendReachable = true,
-                                        isPaired = true,
-                                        errorMessage = null,
-                                    )
-                                }
-                                syncCapabilities()
-                            }
-                            session.status == 401 -> {
-                                JarvisSettings.clearNativeToken(app)
-                                _state.update {
-                                    it.copy(
-                                        phase = Phase.NeedsPairing,
-                                        isPaired = false,
-                                        backendReachable = true,
-                                        errorMessage = "Jeton révoqué ou expiré. Réappairez le téléphone.",
-                                    )
-                                }
-                            }
-                            else -> {
-                                _state.update {
-                                    it.copy(
-                                        phase = Phase.Offline,
-                                        backendReachable = false,
-                                        errorMessage = session.error,
-                                    )
-                                }
-                            }
-                        }
                     }
                 }
             }
@@ -159,14 +155,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         JarvisSettings.setServer(app, normalized)
         if (changed) {
             JarvisSettings.clearNativeToken(app)
+            repository.invalidateHttpCache()
         }
         refresh()
     }
 
     fun completePairing(code: String, onError: (String) -> Unit) {
-        repository.completePairing(code) { result ->
-            viewModelScope.launch {
-                if (result.ok) {
+        viewModelScope.launch {
+            val result = repository.completePairing(code)
+            when {
+                result.ok -> {
                     val token = result.json.optString("token", "")
                     if (token.isNotEmpty()) {
                         JarvisSettings.setNativeToken(app, token)
@@ -174,9 +172,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     } else {
                         onError("Réponse serveur invalide")
                     }
-                } else {
-                    onError(result.error)
                 }
+                else -> onError(result.error)
             }
         }
     }
@@ -189,13 +186,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setLocationEnabled(enabled: Boolean) {
         JarvisSettings.setLocationEnabled(app, enabled)
         _state.update { it.copy(locationEnabled = enabled) }
-        syncCapabilities()
+        viewModelScope.launch { syncCapabilities() }
     }
 
     fun setWakeWordEnabled(enabled: Boolean) {
         JarvisSettings.setWakeWordEnabled(app, enabled)
         _state.update { it.copy(wakeWordEnabled = enabled) }
-        syncCapabilities()
+        viewModelScope.launch { syncCapabilities() }
     }
 
     fun savePorcupineKey(key: String) {
@@ -203,13 +200,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(hasPorcupineKey = key.isNotEmpty()) }
     }
 
-    private fun syncCapabilities() {
+    private suspend fun syncCapabilities() {
         val current = _state.value
         repository.updateCapabilities(current.locationEnabled, current.wakeWordEnabled)
-    }
-
-    private fun pingBackend(callback: (fr.jarvis.companion.network.JarvisApiResult) -> Unit) {
-        repository.pingAuthStatus(callback)
     }
 
     private fun initializeFcmIfNeeded() {
@@ -217,7 +210,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (FirebaseApp.initializeApp(app) == null) return
         FirebaseMessaging.getInstance().token.addOnSuccessListener { token ->
             if (!token.isNullOrEmpty()) {
-                repository.registerPushToken(token)
+                viewModelScope.launch { repository.registerPushToken(token) }
             }
         }
     }

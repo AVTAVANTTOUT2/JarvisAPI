@@ -20,9 +20,11 @@ Le Companion Android **n'est pas** un client chat/voix. L'interface web JARVIS (
 - PR #18 : chat/voix via WebView (retiré).
 - PR #22 : migration Kotlin/Compose native, tableau de bord services uniquement.
 
-### TLS
+### Stack réseau (v1.0.3)
 
-Confiance à la **CA privée JARVIS** (`res/raw/jarvis_ca.crt`) injectée via `JarvisTls` pour l'hôte serveur configuré. Ce n'est **pas** du certificate pinning strict.
+- **OkHttp** + **Retrofit** + fonctions **suspend** dans `JarvisRepository`
+- **JarvisTls** : confiance CA privée JARVIS (pas de certificate pinning strict)
+- ViewModel et services n'appellent plus `JarvisApi` directement (supprimé)
 
 Rotation : regénérer avec `bash scripts/generate_ssl.sh`, puis `bash scripts/sync_android_ca.sh`, publier une nouvelle version Companion.
 

@@ -14,21 +14,32 @@ import javax.net.ssl.X509TrustManager
  */
 object JarvisTls {
     @Volatile
-    private var sslContext: SSLContext? = null
+    private var cachedSslContext: SSLContext? = null
+
+    @Volatile
+    private var trustManagerCache: X509TrustManager? = null
 
     fun sslContext(context: Context): SSLContext {
-        return sslContext ?: synchronized(this) {
-            sslContext ?: buildContext(context.applicationContext).also { sslContext = it }
+        val tm = serverTrustManager(context)
+        return cachedSslContext ?: synchronized(this) {
+            cachedSslContext ?: SSLContext.getInstance("TLS").apply {
+                init(null, arrayOf(tm), null)
+            }.also { cachedSslContext = it }
         }
     }
 
-    private fun buildContext(appContext: Context): SSLContext {
+    fun serverTrustManager(context: Context): X509TrustManager {
+        return trustManagerCache ?: synchronized(this) {
+            trustManagerCache ?: buildServerTrustManager(context.applicationContext).also {
+                trustManagerCache = it
+            }
+        }
+    }
+
+    private fun buildServerTrustManager(appContext: Context): X509TrustManager {
         val system = defaultTrustManager()
         val jarvis = jarvisTrustManager(appContext)
-        val composite = CompositeTrustManager(system, jarvis)
-        return SSLContext.getInstance("TLS").apply {
-            init(null, arrayOf(composite), null)
-        }
+        return CompositeTrustManager(system, jarvis)
     }
 
     private fun defaultTrustManager(): X509TrustManager {
