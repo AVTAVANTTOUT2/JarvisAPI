@@ -9,8 +9,8 @@ import androidx.lifecycle.viewModelScope
 import com.google.firebase.FirebaseApp
 import com.google.firebase.messaging.FirebaseMessaging
 import fr.jarvis.companion.BuildConfig
+import fr.jarvis.companion.data.JarvisRepository
 import fr.jarvis.companion.data.JarvisSettings
-import fr.jarvis.companion.network.JarvisApi
 import fr.jarvis.companion.network.ServerUrlNormalizer
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -21,6 +21,7 @@ import kotlinx.coroutines.launch
 data class DashboardState(
     val phase: Phase = Phase.Loading,
     val serverUrl: String = "",
+    val serverHint: String = BuildConfig.DEFAULT_SERVER,
     val errorMessage: String? = null,
     val isPaired: Boolean = false,
     val backendReachable: Boolean = false,
@@ -42,7 +43,7 @@ enum class Phase {
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val app = application.applicationContext
-    private val api = JarvisApi(app)
+    private val repository = JarvisRepository(app)
 
     private val _state = MutableStateFlow(DashboardState())
     val state: StateFlow<DashboardState> = _state.asStateFlow()
@@ -67,8 +68,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
 
-            if (!JarvisSettings.hasServerConfigured(app)) {
-                _state.update { it.copy(phase = Phase.NeedsServer) }
+            if (!JarvisSettings.hasServerConfigured(app) || server.isBlank()) {
+                _state.update { it.copy(phase = Phase.NeedsServer, serverHint = BuildConfig.DEFAULT_SERVER) }
                 return@launch
             }
 
@@ -106,7 +107,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     return@pingBackend
                 }
 
-                api.createWebSession { session ->
+                repository.validateNativeToken { session ->
                     viewModelScope.launch {
                         when {
                             session.ok -> {
@@ -163,7 +164,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun completePairing(code: String, onError: (String) -> Unit) {
-        api.completePairing(code) { result ->
+        repository.completePairing(code) { result ->
             viewModelScope.launch {
                 if (result.ok) {
                     val token = result.json.optString("token", "")
@@ -204,11 +205,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun syncCapabilities() {
         val current = _state.value
-        api.updateCapabilities(current.locationEnabled, current.wakeWordEnabled)
+        repository.updateCapabilities(current.locationEnabled, current.wakeWordEnabled)
     }
 
     private fun pingBackend(callback: (fr.jarvis.companion.network.JarvisApiResult) -> Unit) {
-        api.pingAuthStatus(callback)
+        repository.pingAuthStatus(callback)
     }
 
     private fun initializeFcmIfNeeded() {
@@ -216,7 +217,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (FirebaseApp.initializeApp(app) == null) return
         FirebaseMessaging.getInstance().token.addOnSuccessListener { token ->
             if (!token.isNullOrEmpty()) {
-                api.registerPushToken(token)
+                repository.registerPushToken(token)
             }
         }
     }
