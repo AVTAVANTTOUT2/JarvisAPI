@@ -136,14 +136,34 @@ def _session_expiry() -> datetime:
     return datetime.now() + timedelta(days=config.SESSION_INACTIVITY_DAYS)
 
 
-def create_session(user_agent: str = "", ip: str = "") -> tuple[str, datetime]:
+def create_session(
+    user_agent: str = "", ip: str = "", mobile_device_id: str | None = None
+) -> tuple[str, datetime]:
     """Crée une session et retourne (jeton brut — à ne renvoyer qu'une fois, expiration)."""
     from database import create_session_row
 
     token = secrets.token_urlsafe(32)
     expires_at = _session_expiry()
-    create_session_row(hash_token(token), expires_at.isoformat(timespec="seconds"), user_agent, ip)
+    create_session_row(
+        hash_token(token),
+        expires_at.isoformat(timespec="seconds"),
+        user_agent,
+        ip,
+        mobile_device_id,
+    )
     return token, expires_at
+
+
+def verify_mobile_token(token: str | None) -> dict | None:
+    """Valide le jeton natif d'un téléphone et actualise sa dernière activité."""
+    if not token:
+        return None
+    from database import get_mobile_device_by_token_hash, touch_mobile_device
+
+    device = get_mobile_device_by_token_hash(hash_token(token))
+    if device:
+        touch_mobile_device(str(device["device_id"]))
+    return device
 
 
 def verify_session(token: str | None) -> dict | None:

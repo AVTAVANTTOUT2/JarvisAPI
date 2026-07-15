@@ -33,7 +33,9 @@ mkdir -p "$CERTS_DIR"
 # ── Détection automatique de l'IP Tailscale ─────────────────────────────
 TAILSCALE_IP=""
 if command -v tailscale &>/dev/null; then
-  TAILSCALE_IP=$(tailscale ip -4 2>/dev/null || true)
+  TAILSCALE_IP=$(tailscale ip -4 2>/dev/null \
+    | awk '/^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ { print; exit }' \
+    || true)
 fi
 if [[ -z "$TAILSCALE_IP" ]]; then
   # Fallback : lecture des interfaces réseau (Tailscale utilise 100.x.x.x)

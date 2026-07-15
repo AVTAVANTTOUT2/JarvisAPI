@@ -54,6 +54,40 @@ def _migrate_sessions(conn: sqlite3.Connection) -> None:
         )
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash)")
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(sessions)").fetchall()}
+    if "mobile_device_id" not in columns:
+        conn.execute("ALTER TABLE sessions ADD COLUMN mobile_device_id TEXT")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_mobile_device ON sessions(mobile_device_id)")
+
+
+def _migrate_mobile_devices(conn: sqlite3.Connection) -> None:
+    """Téléphones appairés, jetons natifs et codes de pairage éphémères."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS mobile_devices (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_id TEXT UNIQUE NOT NULL,
+            name TEXT NOT NULL,
+            model TEXT,
+            token_hash TEXT UNIQUE,
+            fcm_token TEXT,
+            app_version TEXT,
+            capabilities_json TEXT DEFAULT '{}',
+            paired_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            last_seen_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            revoked INTEGER DEFAULT 0
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_mobile_token_hash ON mobile_devices(token_hash)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_mobile_fcm_token ON mobile_devices(fcm_token)")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS mobile_pairing_codes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            code_hash TEXT UNIQUE NOT NULL,
+            expires_at DATETIME NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            used_at DATETIME
+        )
+    """)
 
 
 def _migrate_push_subscriptions(conn: sqlite3.Connection) -> None:
@@ -625,6 +659,7 @@ def run_migrations(conn: sqlite3.Connection) -> None:
     _migrate_jarvis_journal(conn)
     _migrate_day_scores(conn)
     _migrate_sessions(conn)
+    _migrate_mobile_devices(conn)
     _migrate_push_subscriptions(conn)
     _migrate_imessage_import(conn)
     _migrate_conversation_turns(conn)

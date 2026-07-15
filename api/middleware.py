@@ -24,6 +24,13 @@ def _bypasses_session_gate(method: str, path: str) -> bool:
         return True
     if method == "POST" and path == "/api/devices/register":
         return True
+    if method == "POST" and path in {
+        "/api/mobile/pairing/complete",
+        "/api/mobile/session",
+        "/api/mobile/push-token",
+        "/api/mobile/capabilities",
+    }:
+        return True
     if method == "POST" and _DEVICE_TOKEN_ROUTE_RE.match(path):
         return True
     return False

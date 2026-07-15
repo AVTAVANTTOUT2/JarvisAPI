@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 
 import config
+import auth
 
 router = APIRouter()
 
@@ -45,6 +46,10 @@ def _require_location_token(request: Request) -> None:
     Si `LOCATION_API_TOKEN` n'est pas configuré, l'endpoint reste ouvert
     (rétro-compatibilité) — un avertissement est loggué une fois au démarrage.
     """
+    authorization = request.headers.get("authorization", "")
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() == "bearer" and auth.verify_mobile_token(token.strip()):
+        return
     if not config.LOCATION_API_TOKEN:
         return
     provided = request.headers.get("x-location-token") or request.query_params.get("token")
