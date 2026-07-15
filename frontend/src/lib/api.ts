@@ -108,6 +108,25 @@ export const api = {
   authRevokeSession: (id: number) =>
     request<{ ok: boolean }>(`/api/auth/sessions/${id}/revoke`, { method: 'POST' }),
 
+  startMobilePairing: () =>
+    request<{ code: string; expires_at: string }>('/api/mobile/pairing/start', { method: 'POST' }),
+  getMobileDevices: () =>
+    request<{ devices: Array<{
+      device_id: string
+      name: string
+      model: string
+      app_version: string
+      paired_at: string
+      last_seen_at: string
+      revoked: boolean
+      push_enabled: boolean
+      capabilities: Record<string, boolean>
+    }> }>('/api/mobile/devices'),
+  revokeMobileDevice: (deviceId: string) =>
+    request<{ ok: boolean }>(`/api/mobile/devices/${encodeURIComponent(deviceId)}/revoke`, {
+      method: 'POST',
+    }),
+
   getVapidPublicKey: () => request<{ key: string }>('/api/push/vapid-public-key'),
   subscribePush: (subscription: { endpoint: string; keys: { p256dh: string; auth: string } }) =>
     request<{ ok: boolean }>('/api/push/subscribe', {

@@ -33,7 +33,7 @@ _SPA_SEGMENTS = frozenset({
     "chat", "voice", "tasks", "documents", "memory", "status",
     "dashboard", "contacts", "map", "analytics", "search", "data",
     "conversations", "calendar", "logs", "monitoring",
-    "voice-debug", "control", "mission",
+    "voice-debug", "control", "mission", "mobile",
 })
 
 # Règles de détection mobile — expression régulière compilée pour performance.
