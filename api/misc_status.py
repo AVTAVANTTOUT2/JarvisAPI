@@ -101,9 +101,12 @@ async def api_status():
         "audio": {
             "stt_available": stt is not None and getattr(stt, "available", False),
             "stt_engine": stt.get_backend_name() if (stt and getattr(stt, "available", False)) else "none",
+            "stt_model": getattr(config, "STT_MODEL", config.DEFAULT_STT_MODEL),
+            "tts_engine_configured": getattr(config, "TTS_ENGINE", config.DEFAULT_TTS_ENGINE),
             "tts_available": tts is not None and getattr(tts, "available", False),
             "tts_backend": tts.get_backend_name() if tts else "none",
-            "tts_voice": config.TTS_VOICE,
+            "tts_voice": config.KOKORO_VOICE if config.TTS_ENGINE == "kokoro" else config.TTS_VOICE,
+            "kokoro_lang": config.KOKORO_LANG,
         },
         "voice_conversation": {
             "silence_duration_ms": getattr(config, "VOICE_SILENCE_DURATION_MS", 1200),

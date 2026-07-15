@@ -8,11 +8,10 @@ from collections.abc import AsyncGenerator
 from typing import Any
 
 import config
+from audio.engine_config import SETUP_SCRIPT
 from jarvis.event_bus import JarvisEvent, event_bus
 
 logger = logging.getLogger(__name__)
-
-FRENCH_KOKORO_VOICE = "ff_siwis"
 
 
 class TTSKitEngine:
@@ -94,25 +93,31 @@ ttskit_tts = TTSKitEngine()
 
 
 def get_native_tts_engine(*, exclude: frozenset[str] = frozenset()) -> Any:
-    """Chaîne locale : TTSKit → Kokoro (voix FR) → macOS say."""
+    """Chaîne locale : moteur configuré → Kokoro → macOS → TTSKit."""
     from audio.tts import kokoro_tts, macos_tts
 
-    pref = (getattr(config, "TTS_ENGINE", "ttskit") or "ttskit").lower().strip()
-    if pref == "ttskit" and "ttskit" not in exclude and ttskit_tts.preload_sync():
-        return ttskit_tts
+    pref = (
+        getattr(config, "TTS_ENGINE", config.DEFAULT_TTS_ENGINE) or config.DEFAULT_TTS_ENGINE
+    ).lower().strip()
     if pref == "kokoro" and "kokoro" not in exclude and kokoro_tts.available:
         return kokoro_tts
+    if pref == "ttskit" and "ttskit" not in exclude and ttskit_tts.preload_sync():
+        return ttskit_tts
     if pref == "macos" and "macos" not in exclude and macos_tts.available:
         return macos_tts
-    # Repli local uniquement
-    if "ttskit" not in exclude and ttskit_tts.available:
-        return ttskit_tts
+    if pref == "kokoro" and "kokoro" not in exclude:
+        logger.warning("[TTS native] Kokoro indisponible — repli local (voir %s)", SETUP_SCRIPT)
     if "kokoro" not in exclude and kokoro_tts.available:
-        logger.info("[TTS native] Repli Kokoro (voix %s)", FRENCH_KOKORO_VOICE)
+        logger.info(
+            "[TTS native] Repli Kokoro (voix %s)",
+            getattr(config, "KOKORO_VOICE", config.DEFAULT_KOKORO_VOICE),
+        )
         return kokoro_tts
     if "macos" not in exclude and macos_tts.available:
         logger.info("[TTS native] Repli macOS say")
         return macos_tts
+    if "ttskit" not in exclude and ttskit_tts.preload_sync():
+        return ttskit_tts
     logger.error("[TTS native] Aucun moteur local disponible")
     return None
 
@@ -129,7 +134,6 @@ def native_tts_sample_rate(engine: Any) -> int:
 
 
 __all__ = [
-    "FRENCH_KOKORO_VOICE",
     "TTSKitEngine",
     "get_native_tts_engine",
     "native_tts_sample_rate",

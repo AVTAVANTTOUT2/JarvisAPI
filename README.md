@@ -265,7 +265,7 @@ Tout vit dans `.env` — [.env.example](./.env.example) documente chaque variabl
 | Bloc | Variables clés |
 |---|---|
 | LLM | `DEEPSEEK_API_KEY` (obligatoire), `DEEPSEEK_FAST_MODEL`, `DEEPSEEK_MAIN_MODEL`, `HEAVY_TASK_MAX_TOKENS` |
-| Audio | `TTS_ENGINE` (edge/ttskit/macos/kokoro), `AUDIO_DAEMON_STT_ENGINE`, `AUDIO_DAEMON_ENABLED`, `WAKE_WORD_ENABLED` |
+| Audio | `TTS_ENGINE` (kokoro/edge/ttskit/macos, défaut **kokoro**), `STT_ENGINE` / `STT_MODEL` (défaut **faster-whisper** / **large-v3-turbo**), `AUDIO_DAEMON_*`, `KOKORO_VOICE`, `WAKE_WORD_ENABLED` |
 | iMessage | `IMESSAGE_TARGET` (ton numéro — vide = bridge off), `IMESSAGE_SEND_ENABLED`, `IMESSAGE_PREFIX` |
 | Import iMessage | `IIMPORT_BATCH_SIZE` (5000), `IIMPORT_MAX_RETRIES` (3), `IIMPORT_SYNC_INTERVAL` (300) |
 | Sentinelle | `DAEMON_ENABLED`, `SCREEN_WATCHER_*`, `OLLAMA_URL`, `EMAIL_CHECK_INTERVAL` |
@@ -341,6 +341,28 @@ Garanties : idempotence (relancer N fois = meme resultat), incremental (curseur 
 | 23:15 | Signal d'humeur comportemental |
 | dim 20:00 / 21:00 | Résumé hebdo mémoire / debrief hebdo vocal |
 | 03:00 | Analyse relationnelle iMessage incrémentale |
+
+## Audio local (défaut 2026)
+
+Par défaut, JARVIS fonctionne **sans cloud audio** :
+
+| Composant | Défaut | Taille approx. | Cache / fichiers |
+|---|---|---:|---|
+| STT | faster-whisper `large-v3-turbo` | ~1,5 Go | `~/.cache/faster-whisper/` |
+| STT repli | faster-whisper `large-v3` | ~3 Go | idem |
+| TTS | Kokoro `af_nicole` + `fr-fr` | ~350 Mo | `models/kokoro/` |
+
+La voix `af_nicole` est une voix anglaise US ; `KOKORO_LANG=fr-fr` oriente la phonétique vers le français, sans garantie d'accent natif.
+
+Première installation :
+
+```bash
+pip install -r requirements.txt
+bash scripts/setup_local_audio.sh          # vérifie présence des modèles
+bash scripts/setup_local_audio.sh --download  # télécharge Whisper (consentement explicite)
+```
+
+Moteurs alternatifs (configuration explicite uniquement) : `TTS_ENGINE=edge|macos|ttskit`, `STT_ENGINE=whisperkit|whispercpp`.
 
 ## API
 

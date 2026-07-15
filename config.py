@@ -31,14 +31,51 @@ DEEPSEEK_BASE_URL = _normalize_deepseek_base_url(
 DEEPSEEK_FAST_MODEL = _get("DEEPSEEK_FAST_MODEL", "deepseek-v4-flash")
 DEEPSEEK_MAIN_MODEL = _get("DEEPSEEK_MAIN_MODEL", "deepseek-v4-pro")
 
-# ── Audio — STT local + TTS Edge/local ───────────────────────
-TTS_ENGINE = _get("TTS_ENGINE", "edge")
+# ── Audio — STT local (faster-whisper) + TTS local (Kokoro) ──
+DEFAULT_STT_ENGINE = "faster-whisper"
+DEFAULT_STT_MODEL = "large-v3-turbo"
+DEFAULT_STT_FALLBACK_MODEL = "large-v3"
+DEFAULT_STT_LANGUAGE = "fr"
+DEFAULT_STT_DEVICE = "auto"
+DEFAULT_STT_COMPUTE_TYPE = "auto"
+DEFAULT_TTS_ENGINE = "kokoro"
+DEFAULT_KOKORO_VOICE = "af_nicole"
+DEFAULT_KOKORO_LANG = "fr-fr"
+
+
+def _normalize_stt_engine(engine: str) -> str:
+    value = (engine or "").strip().lower()
+    if value == "local":
+        return DEFAULT_STT_ENGINE
+    return value
+
+
+STT_ENGINE = _normalize_stt_engine(
+    _get("STT_ENGINE") or _get("AUDIO_DAEMON_STT_ENGINE") or DEFAULT_STT_ENGINE
+)
+STT_MODEL = (_get("STT_MODEL") or _get("AUDIO_DAEMON_STT_MODEL") or DEFAULT_STT_MODEL).strip()
+STT_FALLBACK_MODEL = (
+    _get("STT_FALLBACK_MODEL")
+    or _get("AUDIO_DAEMON_STT_FALLBACK_MODEL")
+    or DEFAULT_STT_FALLBACK_MODEL
+).strip()
+STT_LANGUAGE = _get("STT_LANGUAGE") or _get("LANGUAGE") or DEFAULT_STT_LANGUAGE
+STT_DEVICE = _get("STT_DEVICE", DEFAULT_STT_DEVICE)
+STT_COMPUTE_TYPE = _get("STT_COMPUTE_TYPE", DEFAULT_STT_COMPUTE_TYPE)
+STT_ALLOW_MODEL_DOWNLOAD = (
+    _get("STT_ALLOW_MODEL_DOWNLOAD", _get("AUDIO_DAEMON_ALLOW_MODEL_DOWNLOAD", "false"))
+    .lower()
+    == "true"
+)
+
+TTS_ENGINE = (_get("TTS_ENGINE") or DEFAULT_TTS_ENGINE).lower()
 TTS_VOICE = _get("TTS_VOICE", "fr-FR-VivienneMultilingualNeural")
 TTS_MODEL = _get("TTS_MODEL", "qwen3-tts-0.6b")
 TTS_LANGUAGE = _get("TTS_LANGUAGE", "fr")
 TTS_MODEL_PATH = _get("TTS_MODEL_PATH", "")  # chemin local optionnel pour TTSKit
-KOKORO_VOICE = _get("KOKORO_VOICE", "ff_siwis")
-KOKORO_LANG = _get("KOKORO_LANG", "fr-fr")
+KOKORO_VOICE = _get("KOKORO_VOICE", DEFAULT_KOKORO_VOICE)
+KOKORO_LANG = _get("KOKORO_LANG", DEFAULT_KOKORO_LANG)
+MACOS_TTS_VOICE = _get("MACOS_TTS_VOICE", "Thomas")
 AUDIO_DAEMON_HALF_DUPLEX = _get("AUDIO_DAEMON_HALF_DUPLEX", "true").lower() == "true"
 AUDIO_DAEMON_PRE_ROLL_MS = int(_get("AUDIO_DAEMON_PRE_ROLL_MS", "300"))
 WAKE_WORD = _get("WAKE_WORD", "jarvis")
@@ -203,15 +240,13 @@ AUDIO_DAEMON_MAX_UTTERANCE_S = int(_get("AUDIO_DAEMON_MAX_UTTERANCE_S", "30"))
 AUDIO_DAEMON_CONVERSATION_TIMEOUT = float(_get("AUDIO_DAEMON_CONVERSATION_TIMEOUT", "30.0"))
 AUDIO_DAEMON_INPUT_DEVICE = _get("AUDIO_DAEMON_INPUT_DEVICE", "")  # vide = auto Blue Snowball sinon defaut systeme
 AUDIO_DAEMON_WAKE_SOUND = _get("AUDIO_DAEMON_WAKE_SOUND", "true").lower() == "true"
-AUDIO_DAEMON_STT_ENGINE = _get("AUDIO_DAEMON_STT_ENGINE", "local").strip().lower()
-AUDIO_DAEMON_STT_MODEL = _get("AUDIO_DAEMON_STT_MODEL", "small")
-AUDIO_DAEMON_STT_FALLBACK_MODEL = _get("AUDIO_DAEMON_STT_FALLBACK_MODEL", "small")
+AUDIO_DAEMON_STT_ENGINE = STT_ENGINE
+AUDIO_DAEMON_STT_MODEL = STT_MODEL
+AUDIO_DAEMON_STT_FALLBACK_MODEL = STT_FALLBACK_MODEL
 AUDIO_DAEMON_WHISPERCPP_MODEL_PATH = _get(
     "AUDIO_DAEMON_WHISPERCPP_MODEL_PATH", str(Path.home() / "models" / "ggml-large-v3.bin")
 )
-AUDIO_DAEMON_ALLOW_MODEL_DOWNLOAD = _get(
-    "AUDIO_DAEMON_ALLOW_MODEL_DOWNLOAD", "false"
-).lower() == "true"
+AUDIO_DAEMON_ALLOW_MODEL_DOWNLOAD = STT_ALLOW_MODEL_DOWNLOAD
 
 # ── VAD (Voice Activity Detection) ────────────────────────────
 SILERO_VAD_THRESHOLD = float(_get("SILERO_VAD_THRESHOLD", "0.42"))  # hysteresis ON
