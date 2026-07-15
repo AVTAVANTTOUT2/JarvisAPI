@@ -13,6 +13,13 @@ from pathlib import Path
 from typing import Any
 
 import config
+from audio.engine_config import (
+    FASTER_WHISPER_CACHE,
+    FASTER_WHISPER_MODELS,
+    is_valid_faster_whisper_model,
+    model_missing_message,
+    normalize_stt_engine,
+)
 from audio.resample import resample_pcm16_mono
 
 logger = logging.getLogger(__name__)
@@ -20,10 +27,7 @@ logger = logging.getLogger(__name__)
 STT_ENGINES = frozenset({
     "whisperkit", "whispercpp", "local", "faster-whisper", "none", "disabled",
 })
-FASTER_WHISPER_SIZES = frozenset({
-    "tiny", "tiny.en", "base", "base.en", "small", "small.en",
-    "medium", "medium.en", "large-v3",
-})
+FASTER_WHISPER_SIZES = FASTER_WHISPER_MODELS
 
 DEFAULT_INITIAL_PROMPT = (
     "JARVIS, DeepSeek, Messages, Mail, Calendar, Safari, Terminal, "
@@ -110,22 +114,31 @@ class FasterWhisperBackend(DaemonSTTBackend):
 
         cpu_count = os.cpu_count() or 4
         num_workers = max(1, min(cpu_count // 2, 4))
+        device = str(getattr(config, "STT_DEVICE", "auto") or "auto")
+        compute_type = str(getattr(config, "STT_COMPUTE_TYPE", "auto") or "auto")
+        allow_download = bool(getattr(config, "STT_ALLOW_MODEL_DOWNLOAD", False))
         try:
             self._model = WhisperModel(
                 self._model_size,
-                device="auto",
-                compute_type="auto",
+                device=device,
+                compute_type=compute_type,
                 num_workers=num_workers,
-                download_root=str(Path.home() / ".cache" / "faster-whisper"),
-                local_files_only=not bool(
-                    getattr(config, "AUDIO_DAEMON_ALLOW_MODEL_DOWNLOAD", False)
-                ),
+                download_root=str(FASTER_WHISPER_CACHE),
+                local_files_only=not allow_download,
             )
             self._loaded = True
-            logger.info("[stt_daemon] faster-whisper prêt (%s)", self._model_size)
+            logger.info(
+                "[stt_daemon] faster-whisper prêt (%s, device=%s, compute=%s)",
+                self._model_size,
+                device,
+                compute_type,
+            )
             return True
         except Exception as e:
             self._load_failed = True
+            err_text = str(e).lower()
+            if "local_files_only" in err_text or "not found" in err_text or "unable to open" in err_text:
+                logger.error("[stt_daemon] %s", model_missing_message(self._model_size))
             logger.exception("[stt_daemon] Chargement faster-whisper : %s", e)
             return False
 
@@ -411,15 +424,48 @@ def _pcm_to_float32_ndarray(pcm_bytes: bytes, sample_rate: int) -> Any:
     return arr
 
 
-def create_daemon_stt_backend() -> DaemonSTTBackend:
-    engine = (getattr(config, "AUDIO_DAEMON_STT_ENGINE", "") or "").strip().lower()
-    model = (getattr(config, "AUDIO_DAEMON_STT_MODEL", "") or "").strip()
+def _resolve_faster_whisper_model(explicit: str) -> str:
+    model = (explicit or "").strip()
+    if is_valid_faster_whisper_model(model):
+        return model
+    return getattr(config, "STT_MODEL", config.DEFAULT_STT_MODEL) or config.DEFAULT_STT_MODEL
 
-    if engine in ("none", "disabled", ""):
+
+def _build_faster_whisper_fallback_chain(
+    primary_model: str,
+    fallback_model: str,
+) -> FallbackSTTBackend:
+    primary = _resolve_faster_whisper_model(primary_model)
+    fallback = _resolve_faster_whisper_model(fallback_model)
+    whispercpp_model = str(
+        getattr(
+            config,
+            "AUDIO_DAEMON_WHISPERCPP_MODEL_PATH",
+            Path.home() / "models" / "ggml-large-v3.bin",
+        )
+    )
+    backends: list[DaemonSTTBackend] = [FasterWhisperBackend(primary)]
+    if fallback != primary:
+        backends.append(FasterWhisperBackend(fallback))
+    backends.extend([
+        WhisperKitBackend("large-v3-v20240930_626MB"),
+        WhisperCppBackend(whispercpp_model),
+    ])
+    return FallbackSTTBackend(backends)
+
+
+def create_daemon_stt_backend() -> DaemonSTTBackend:
+    engine = normalize_stt_engine(
+        getattr(config, "STT_ENGINE", "") or getattr(config, "AUDIO_DAEMON_STT_ENGINE", "")
+    )
+    model = (getattr(config, "STT_MODEL", "") or getattr(config, "AUDIO_DAEMON_STT_MODEL", "") or "").strip()
+
+    if engine in ("none", "disabled"):
         return DisabledSTT()
     if engine == "whisperkit":
         fallback_model = str(
-            getattr(config, "AUDIO_DAEMON_STT_FALLBACK_MODEL", "small") or "small"
+            getattr(config, "STT_FALLBACK_MODEL", config.DEFAULT_STT_FALLBACK_MODEL)
+            or config.DEFAULT_STT_FALLBACK_MODEL
         )
         whispercpp_model = str(
             getattr(
@@ -431,13 +477,12 @@ def create_daemon_stt_backend() -> DaemonSTTBackend:
         return FallbackSTTBackend([
             WhisperKitBackend(model or "large-v3-v20240930_626MB"),
             WhisperCppBackend(whispercpp_model),
-            FasterWhisperBackend(
-                fallback_model if fallback_model in FASTER_WHISPER_SIZES else "small"
-            ),
+            FasterWhisperBackend(_resolve_faster_whisper_model(fallback_model)),
         ])
     if engine == "whispercpp":
         fallback_model = str(
-            getattr(config, "AUDIO_DAEMON_STT_FALLBACK_MODEL", "small") or "small"
+            getattr(config, "STT_FALLBACK_MODEL", config.DEFAULT_STT_FALLBACK_MODEL)
+            or config.DEFAULT_STT_FALLBACK_MODEL
         )
         return FallbackSTTBackend([
             WhisperCppBackend(
@@ -448,13 +493,14 @@ def create_daemon_stt_backend() -> DaemonSTTBackend:
                     Path.home() / "models" / "ggml-large-v3.bin",
                 ))
             ),
-            FasterWhisperBackend(
-                fallback_model if fallback_model in FASTER_WHISPER_SIZES else "small"
-            ),
+            FasterWhisperBackend(_resolve_faster_whisper_model(fallback_model)),
         ])
-    if engine in ("local", "faster-whisper"):
-        size = model if model in FASTER_WHISPER_SIZES or model.startswith("large") else "small"
-        return FasterWhisperBackend(size)
+    if engine in ("local", "faster-whisper", config.DEFAULT_STT_ENGINE):
+        fallback_model = str(
+            getattr(config, "STT_FALLBACK_MODEL", config.DEFAULT_STT_FALLBACK_MODEL)
+            or config.DEFAULT_STT_FALLBACK_MODEL
+        )
+        return _build_faster_whisper_fallback_chain(model, fallback_model)
     logger.error("[stt_daemon] Moteur STT inconnu %r — désactivé", engine)
     return DisabledSTT()
 
