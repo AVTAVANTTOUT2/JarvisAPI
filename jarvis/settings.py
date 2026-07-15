@@ -10,7 +10,10 @@ from __future__ import annotations
 
 import os
 
+from env_loader import load_jarvis_env
 from jarvis.exceptions import DeepSeekBackendError
+
+load_jarvis_env()
 
 # ── Backend local MLX-LM ─────────────────────────────────────
 LOCAL_MODEL: str = os.environ.get(
@@ -50,7 +53,7 @@ def require_deepseek_api_key() -> str:
     if not api_key:
         raise DeepSeekBackendError(
             "DEEPSEEK_API_KEY absente de l'environnement. "
-            "Définis-la dans ~/.zshrc : export DEEPSEEK_API_KEY=\"sk-...\" "
+            "Définis-la dans .env : DEEPSEEK_API_KEY=\"sk-...\" "
             "(jamais en dur dans le code source)."
         )
     return api_key
