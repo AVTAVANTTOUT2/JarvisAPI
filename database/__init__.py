@@ -180,6 +180,19 @@ from .push import (
     get_all_push_subscriptions,
     upsert_push_subscription,
 )
+from .mobile import (
+    clear_mobile_push_token,
+    consume_mobile_pairing_code,
+    create_mobile_pairing_code,
+    get_active_mobile_push_tokens,
+    get_mobile_device_by_token_hash,
+    list_mobile_devices,
+    revoke_mobile_device,
+    touch_mobile_device,
+    update_mobile_capabilities,
+    update_mobile_push_token,
+    upsert_mobile_device,
+)
 from .conversation_turns import (
     assign_speaker_to_person,
     get_conversation_turns,

@@ -6,13 +6,17 @@ from .core import get_db
 
 
 def create_session_row(
-    token_hash: str, expires_at: str, user_agent: str = "", ip: str = ""
+    token_hash: str,
+    expires_at: str,
+    user_agent: str = "",
+    ip: str = "",
+    mobile_device_id: str | None = None,
 ) -> int:
     with get_db() as conn:
         cursor = conn.execute(
-            """INSERT INTO sessions (token_hash, expires_at, user_agent, ip)
-               VALUES (?, ?, ?, ?)""",
-            (token_hash, expires_at, user_agent, ip),
+            """INSERT INTO sessions (token_hash, expires_at, user_agent, ip, mobile_device_id)
+               VALUES (?, ?, ?, ?, ?)""",
+            (token_hash, expires_at, user_agent, ip, mobile_device_id),
         )
         return int(cursor.lastrowid)
 
@@ -66,7 +70,7 @@ def revoke_all_sessions(except_token_hash: str | None = None) -> None:
 def list_active_sessions() -> list[dict]:
     with get_db() as conn:
         rows = conn.execute(
-            """SELECT id, created_at, expires_at, last_seen_at, user_agent, ip
+            """SELECT id, created_at, expires_at, last_seen_at, user_agent, ip, mobile_device_id
                FROM sessions
                WHERE revoked = 0 AND datetime(expires_at) > datetime('now')
                ORDER BY last_seen_at DESC"""
