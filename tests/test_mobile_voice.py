@@ -149,7 +149,8 @@ def test_voice_turn_rejects_stt_prompt_echo(mock_get_tts, mock_llm, mock_stt, tm
 @patch("api.mobile_voice_service.stt_local")
 @patch("api.mobile_voice_service._process_message_internal", new_callable=AsyncMock)
 @patch("api.mobile_voice_service.get_tts_by_name")
-def test_voice_turn_happy_path(mock_get_tts, mock_llm, mock_stt, mock_resolve_tts, tmp_db):
+def test_voice_turn_happy_path(mock_get_tts, mock_llm, mock_stt, mock_resolve_tts, tmp_db, monkeypatch):
+    monkeypatch.setattr("config.TTS_VOICE", "fr-FR-HenriNeural")
     mock_stt.available = True
     mock_stt.preload_sync.return_value = True
     mock_stt.transcribe = AsyncMock(return_value="quel temps fait-il")
@@ -180,7 +181,7 @@ def test_voice_turn_happy_path(mock_get_tts, mock_llm, mock_stt, mock_resolve_tt
     assert body["device_id"] == "happy-voice"
     assert body["stt_engine"] == "faster-whisper"
     assert body["tts_engine"] == "edge"
-    assert body.get("tts_voice") == "fr-FR-HenriNeural" or "Henri" in (body.get("tts_voice") or "")
+    assert body.get("tts_voice") == "fr-FR-HenriNeural"
     assert body["conversation_id"] > 0
     mock_stt.transcribe.assert_awaited_once()
     mock_llm.assert_awaited_once_with("quel temps fait-il", body["conversation_id"], voice_mode=True)
