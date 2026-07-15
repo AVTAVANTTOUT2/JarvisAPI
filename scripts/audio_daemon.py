@@ -507,7 +507,10 @@ class AudioDaemon:
 
         # Pre-charger le modele STT local
         try:
+            from audio.engine_config import log_audio_startup_config
             from audio.stt_local import stt_local as _stt_local
+
+            log_audio_startup_config()
             logger.info(
                 "[audio_daemon] Pre-chargement STT local (%s) ...",
                 _stt_local.get_backend_name(),
@@ -1368,7 +1371,7 @@ class AudioDaemon:
                 logger.debug("[audio_daemon] stop stream avant TTS: %s", e)
 
         _t_tts_start = _time.time()
-        tts_engine_name = str(getattr(config, "TTS_ENGINE", "ttskit"))
+        tts_engine_name = str(getattr(config, "TTS_ENGINE", config.DEFAULT_TTS_ENGINE))
         try:
             engine = get_native_tts_engine()
             if engine is not None:

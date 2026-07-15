@@ -180,7 +180,7 @@ _VALID_TTS_ENGINES = {"edge", "macos", "kokoro", "ttskit"}
 async def api_get_tts_setting():
     """Retourne le moteur TTS actif (DB ou fallback .env)."""
     from database import get_setting as _gs
-    engine = _gs("tts_engine", getattr(config, "TTS_ENGINE", "edge") or "edge")
+    engine = _gs("tts_engine", getattr(config, "TTS_ENGINE", config.DEFAULT_TTS_ENGINE) or config.DEFAULT_TTS_ENGINE)
     return {"engine": engine}
 
 

@@ -149,10 +149,8 @@ class KokoroTTSEngine:
     VOICES_PATH = Path(__file__).resolve().parent.parent / "models" / "kokoro" / "voices.bin"
 
     def __init__(self) -> None:
-        from audio.tts_native import FRENCH_KOKORO_VOICE
-
-        self._voice = getattr(config, "KOKORO_VOICE", FRENCH_KOKORO_VOICE)
-        self._lang = getattr(config, "KOKORO_LANG", "fr-fr")
+        self._voice = getattr(config, "KOKORO_VOICE", config.DEFAULT_KOKORO_VOICE)
+        self._lang = getattr(config, "KOKORO_LANG", config.DEFAULT_KOKORO_LANG)
         self._kokoro: object | None = None
         self._load_failed = False
         self.available = self.MODEL_PATH.exists() and self.VOICES_PATH.exists()

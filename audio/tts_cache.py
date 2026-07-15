@@ -84,7 +84,12 @@ class SpeculativeTTS:
 
     @staticmethod
     def _current_sig() -> str:
-        return f"{getattr(config, 'TTS_ENGINE', 'edge')}:{getattr(config, 'TTS_VOICE', '')}"
+        engine = getattr(config, "TTS_ENGINE", config.DEFAULT_TTS_ENGINE)
+        if engine == "edge":
+            return f"{engine}:{getattr(config, 'TTS_VOICE', '')}"
+        if engine == "macos":
+            return f"{engine}:{getattr(config, 'MACOS_TTS_VOICE', 'Thomas')}"
+        return f"{engine}:{getattr(config, 'KOKORO_VOICE', config.DEFAULT_KOKORO_VOICE)}"
 
     def _check_sig(self) -> None:
         sig = self._current_sig()
@@ -125,7 +130,7 @@ class SpeculativeTTS:
         try:
             from audio.tts import get_tts_by_name
 
-            engine = get_tts_by_name(getattr(config, "TTS_ENGINE", "edge") or "edge")
+            engine = get_tts_by_name(getattr(config, "TTS_ENGINE", config.DEFAULT_TTS_ENGINE) or config.DEFAULT_TTS_ENGINE)
         except Exception as e:
             logger.debug("[tts_cache] warmup : moteur TTS indisponible (%s)", e)
             return 0
