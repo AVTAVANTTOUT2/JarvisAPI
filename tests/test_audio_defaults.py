@@ -95,6 +95,16 @@ def test_alternate_tts_engines_selectable():
     assert macos.get_backend_name() == "macos"
 
 
+def test_get_tts_kokoro_never_silently_returns_edge(monkeypatch):
+    """Demander kokoro ne doit jamais basculer sur le singleton Edge."""
+    from audio.tts import kokoro_tts
+
+    monkeypatch.setattr(kokoro_tts, "available", False)
+    engine = get_tts_by_name("kokoro")
+    assert engine is kokoro_tts
+    assert engine.get_backend_name() == "kokoro"
+
+
 def test_no_forbidden_defaults_in_canonical_sources():
     offenders: list[str] = []
     for path in SCAN_PATHS:

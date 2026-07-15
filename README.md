@@ -363,6 +363,24 @@ bash scripts/setup_local_audio.sh --download  # télécharge Whisper (consenteme
 ```
 
 Moteurs alternatifs (configuration explicite uniquement) : `TTS_ENGINE=edge|macos|ttskit`, `STT_ENGINE=whisperkit|whispercpp`.
+Demander `TTS_ENGINE=kokoro` ne bascule **jamais** silencieusement vers Edge (repli local `macos`/`say` uniquement).
+
+## Companion Android
+
+Application native Kotlin (`android/`) — pairage HTTPS, GPS, FCM, wake word, conversation vocale push-to-talk.
+
+| Version | versionCode | Tag |
+|---|---:|---|
+| **1.0.4** (courante) | 6 | `companion-v1.0.4` |
+
+- Guide : [`android/README.md`](./android/README.md)
+- Architecture : [`android/docs/ARCHITECTURE.md`](./android/docs/ARCHITECTURE.md)
+- Voix : [`android/docs/VOICE.md`](./android/docs/VOICE.md)
+- Checklist release : [`RELEASE_CHECKLIST.md`](./RELEASE_CHECKLIST.md)
+
+```bash
+cd android && ./gradlew assembleDebug testDebugUnitTest lintDebug
+```
 
 ## API
 

@@ -1,8 +1,8 @@
 # Périmètre du Companion Android (décision d'architecture)
 
-## Cas A retenu — services mobiles uniquement
+## Cas retenu — services mobiles + voix native
 
-Le Companion Android **n'est pas** un client chat/voix. L'interface web JARVIS (`frontend/`, `/chat`, `/voice`) reste le canal conversationnel.
+Le Companion Android est un client **natif Kotlin/Compose** (pas de WebView). L'interface web JARVIS reste disponible pour le chat texte et les écrans riches ; la voix courte sur téléphone passe par le Companion.
 
 ### Responsabilités du Companion
 
@@ -13,21 +13,25 @@ Le Companion Android **n'est pas** un client chat/voix. L'interface web JARVIS (
 | Wake word Porcupine (local) | Inclus |
 | Notifications FCM | Inclus (si `google-services.json`) |
 | Capacités device (`/api/mobile/capabilities`) | Inclus |
-| Chat / voix | **Hors scope** — utiliser le navigateur ou la PWA |
+| Conversation vocale push-to-talk | Inclus — `POST /api/mobile/voice/turn` |
+| Chat texte multi-agents riche | Hors scope app — utiliser `frontend/` / PWA |
 
 ### Historique
 
 - PR #18 : chat/voix via WebView (retiré).
-- PR #22 : migration Kotlin/Compose native, tableau de bord services uniquement.
+- PR #22 : migration Kotlin/Compose native, tableau de bord services.
+- PR #26 : conversation vocale native (micro → Mac STT/LLM/TTS → lecture).
+- PR #27 / #28 : CI Android + extraction `SecretKeyProvider`.
 
-### Stack réseau (v1.0.3)
+### Stack réseau (v1.0.4)
 
 - **OkHttp** + **Retrofit** + fonctions **suspend** dans `JarvisRepository`
 - **JarvisTls** : confiance CA privée JARVIS (pas de certificate pinning strict)
 - ViewModel et services n'appellent plus `JarvisApi` directement (supprimé)
+- Voix : détail dans [`VOICE.md`](./VOICE.md)
 
-Rotation : regénérer avec `bash scripts/generate_ssl.sh`, puis `bash scripts/sync_android_ca.sh`, publier une nouvelle version Companion.
+Rotation TLS : régénérer avec `bash scripts/generate_ssl.sh`, puis `bash scripts/sync_android_ca.sh`, publier une nouvelle version Companion.
 
 ### Release
 
-Voir `android/README.md` et `android/signing.properties.example`.
+Voir `android/README.md`, `android/signing.properties.example` et `RELEASE_CHECKLIST.md` (racine du dépôt).
