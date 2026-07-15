@@ -60,6 +60,9 @@ async def _process_message(
             logger.warning("[_process_message] _build_enriched_context : %s", e)
             extra_context = {}
 
+        # Pipeline WS = source de vérité pour la persistance assistant
+        extra_context["__defer_persist"] = True
+
         if "documents_context" in extra_context:
             content = extra_context.pop("documents_context") + "\n\n" + content
 

@@ -85,8 +85,12 @@ class JournalAgent(BaseAgent):
         )
         raw = result.get("response", "")
         extracted = self._process_journal_data(raw)
-        display = finalize_assistant_display_text(raw)
-        result["response"] = display
+        # Conserver ```action``` pour le pipeline (comme school) ; le JSON journal
+        # est déjà consommé par _process_journal_data.
+        response_for_pipeline = re.sub(
+            r"```json\s*\n?.*?```", "", raw, flags=re.DOTALL | re.IGNORECASE
+        ).strip() or finalize_assistant_display_text(raw)
+        result["response"] = response_for_pipeline
         if extracted:
             result["extracted"] = extracted
         return result

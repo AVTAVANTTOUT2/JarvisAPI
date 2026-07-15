@@ -54,8 +54,13 @@ class SchoolAgent(BaseAgent):
             saved_path = self._save_school_file(raw)
             if saved_path:
                 result["saved_file"] = str(saved_path)
+            # Retirer uniquement le bloc save — garder ```action``` pour le pipeline
+            raw = re.sub(r"```save\s*\n?.*?```", "", raw, flags=re.DOTALL | re.IGNORECASE).strip()
 
-        result["response"] = finalize_assistant_display_text(raw)
+        # Ne PAS passer par finalize_assistant_display_text ici :
+        # ça stripait les blocs ```action``` et empêchait open_app / terminal
+        # d'être exécutés (Android vocal → school par mauvaise classification).
+        result["response"] = raw
         return result
 
     async def handle_stream(self, user_message: str, conversation_id: int = None,
@@ -77,6 +82,9 @@ class SchoolAgent(BaseAgent):
             yield {"type": "chunk", "content": display_text[i:i + STREAM_CHUNK_SIZE]}
             await asyncio.sleep(0.01)
 
+        # Contenu streamé = affichage ; le pipeline WS réextrait depuis les chunks
+        # bruts uniquement en mode stream orchestrateur. Ici on expose aussi le
+        # texte brut (avec action) pour les consommateurs qui lisent « response ».
         yield {
             "type": "done",
             "agent": self.name,
@@ -85,6 +93,7 @@ class SchoolAgent(BaseAgent):
             "tokens_out": result.get("tokens_out", 0),
             "cost": result.get("cost", 0.0),
             "content": display_text,
+            "raw_response": raw,
         }
 
         if "```save" in raw:

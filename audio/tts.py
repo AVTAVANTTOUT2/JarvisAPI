@@ -403,6 +403,38 @@ macos_tts = MacOSTTSEngine()
 TTS_ENGINE_NAMES = frozenset({"edge", "macos", "kokoro", "ttskit"})
 
 
+def resolve_tts_engine_name() -> str:
+    """Source de vérité TTS : DB ``tts_engine`` puis ``config.TTS_ENGINE``.
+
+    Évite qu'un vieux ``TTS_ENGINE=kokoro`` dans l'environnement du process
+    ou un réglage UI ``macos`` ignore le choix Edge / Henri du ``.env.config``.
+    """
+    try:
+        from database import get_setting
+
+        db_engine = (get_setting("tts_engine", "") or "").strip().lower()
+    except Exception:
+        db_engine = ""
+    if db_engine in TTS_ENGINE_NAMES:
+        return db_engine
+    configured = (getattr(config, "TTS_ENGINE", "") or config.DEFAULT_TTS_ENGINE).strip().lower()
+    if configured in TTS_ENGINE_NAMES:
+        return configured
+    return config.DEFAULT_TTS_ENGINE
+
+
+def resolve_tts_voice(engine_name: str | None = None) -> str:
+    """Voix annoncée / utilisée selon le moteur (Henri Edge, Thomas macOS, …)."""
+    name = (engine_name or resolve_tts_engine_name()).strip().lower()
+    if name == "edge":
+        return getattr(config, "TTS_VOICE", "fr-FR-HenriNeural") or "fr-FR-HenriNeural"
+    if name == "macos":
+        return getattr(config, "MACOS_TTS_VOICE", "Thomas") or "Thomas"
+    if name == "kokoro":
+        return getattr(config, "KOKORO_VOICE", config.DEFAULT_KOKORO_VOICE) or config.DEFAULT_KOKORO_VOICE
+    return getattr(config, "TTS_VOICE", "") or ""
+
+
 def get_tts_by_name(name: str) -> TTSEngine | MacOSTTSEngine | KokoroTTSEngine:
     """Retourne le singleton correspondant au nom de moteur.
 

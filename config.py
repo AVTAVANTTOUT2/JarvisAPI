@@ -69,7 +69,7 @@ STT_ALLOW_MODEL_DOWNLOAD = (
 )
 
 TTS_ENGINE = (_get("TTS_ENGINE") or DEFAULT_TTS_ENGINE).lower()
-TTS_VOICE = _get("TTS_VOICE", "fr-FR-VivienneMultilingualNeural")
+TTS_VOICE = _get("TTS_VOICE", "fr-FR-HenriNeural")
 TTS_MODEL = _get("TTS_MODEL", "qwen3-tts-0.6b")
 TTS_LANGUAGE = _get("TTS_LANGUAGE", "fr")
 TTS_MODEL_PATH = _get("TTS_MODEL_PATH", "")  # chemin local optionnel pour TTSKit

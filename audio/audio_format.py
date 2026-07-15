@@ -10,6 +10,32 @@ WEBM_MAGIC = b"\x1a\x45\xdf\xa3"
 RIFF_MAGIC = b"RIFF"
 ID3_MAGIC = b"ID3"
 OGG_MAGIC = b"OggS"
+FTYP_MAGIC = b"ftyp"
+
+
+def is_mpeg4_container(audio_bytes: bytes) -> bool:
+    """True pour M4A/MP4 (AAC Android, ``say``/afconvert) — magic ``ftyp`` à l'offset 4."""
+    return len(audio_bytes) >= 8 and audio_bytes[4:8] == FTYP_MAGIC
+
+
+def is_encoded_audio_container(audio_bytes: bytes) -> bool:
+    """True si les octets sont un conteneur compressé (pas du PCM brut)."""
+    if len(audio_bytes) < 2:
+        return False
+    if audio_bytes.startswith(RIFF_MAGIC):
+        return True
+    if audio_bytes.startswith(WEBM_MAGIC):
+        return True
+    if audio_bytes.startswith(ID3_MAGIC):
+        return True
+    if audio_bytes.startswith(OGG_MAGIC):
+        return True
+    if is_mpeg4_container(audio_bytes):
+        return True
+    # MPEG frame sync (MP3 sans ID3)
+    if audio_bytes[0] == 0xFF and (audio_bytes[1] & 0xE0) == 0xE0:
+        return True
+    return False
 
 
 def detect_upload_format(audio_bytes: bytes) -> tuple[str, str]:
@@ -24,6 +50,8 @@ def detect_upload_format(audio_bytes: bytes) -> tuple[str, str]:
         return "audio.mp3", "audio/mpeg"
     if len(audio_bytes) >= 4 and audio_bytes[:4] == OGG_MAGIC:
         return "audio.ogg", "audio/ogg"
+    if is_mpeg4_container(audio_bytes):
+        return "audio.m4a", "audio/mp4"
     # PCM brut 16-bit mono (pas de header) — typique wake word jarvis_daemon
     if len(audio_bytes) >= 2 and len(audio_bytes) % 2 == 0:
         try:

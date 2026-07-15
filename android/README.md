@@ -1,4 +1,4 @@
-# JARVIS Android 1.0.4 — compagnon natif Kotlin
+# JARVIS Android 1.2.0 — compagnon natif Kotlin
 
 Application **100 % native Kotlin** (Jetpack Compose) qui relie le téléphone au JARVIS du Mac via HTTPS.
 
@@ -38,7 +38,7 @@ Par défaut (aucune clé cloud audio) :
 | Rôle | Moteur | Modèle / voix |
 |---|---|---|
 | STT | faster-whisper | `large-v3-turbo` |
-| TTS | Kokoro | `af_nicole` → **WAV** |
+| TTS | Edge Henri (FR) / macOS Thomas | WAV/MP3/M4A |
 
 Pas de repli Edge ni fournisseur cloud audio retiré lorsque `TTS_ENGINE=kokoro`. Voir `docs/VOICE.md` et `native_audio/README.md`.
 
@@ -64,7 +64,7 @@ apksigner verify --verbose --print-certs app/build/outputs/apk/debug/app-debug.a
 shasum -a 256 app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Version courante : **versionName 1.0.4** / **versionCode 6**.
+Version courante : **versionName 1.2.0** / **versionCode 7**.
 
 ## Firebase (optionnel)
 

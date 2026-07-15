@@ -34,12 +34,17 @@ SECRET_ENV_KEYS: frozenset[str] = frozenset(
 
 
 def load_jarvis_env(*, force: bool = False) -> None:
-    """Charge ``.env.config`` puis ``.env`` (idempotent)."""
+    """Charge ``.env.config`` puis ``.env`` (idempotent).
+
+    ``override=True`` sur ``.env.config`` : le fichier gagne sur un vieux
+    ``TTS_ENGINE=kokoro`` hérité du shell / LaunchAgent (sinon Edge Henri
+    reste ignoré et Kokoro EN parle encore).
+    """
     global _ENV_LOADED
     if _ENV_LOADED and not force:
         return
     if CONFIG_ENV_FILE.is_file():
-        load_dotenv(CONFIG_ENV_FILE)
+        load_dotenv(CONFIG_ENV_FILE, override=True)
     if SECRETS_ENV_FILE.is_file():
         load_dotenv(SECRETS_ENV_FILE, override=True)
     _ENV_LOADED = True
