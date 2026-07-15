@@ -396,6 +396,39 @@ class MacOSTTSEngine:
         if data:
             yield data
 
+    async def synthesize_native(self, text: str, emotion: str = "neutral") -> bytes:
+        """Produit un WAV PCM pour la sortie locale sounddevice/CoreAudio.
+
+        Le chemin web historique conserve le M4A. Sur les versions récentes
+        de macOS, l'encodeur AAC d'afconvert peut être absent alors que la
+        conversion PCM WAVE reste disponible.
+        """
+        if not self.available or not (text and text.strip()):
+            return b""
+        with tempfile.TemporaryDirectory(prefix="jarvis_tts_native_") as tmpdir:
+            aiff_path = os.path.join(tmpdir, "out.aiff")
+            wav_path = os.path.join(tmpdir, "out.wav")
+            try:
+                say_proc = await asyncio.create_subprocess_exec(
+                    "say", "-v", self._voice, "-o", aiff_path, text,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                )
+                if await say_proc.wait() != 0 or not os.path.exists(aiff_path):
+                    return b""
+
+                afc_proc = await asyncio.create_subprocess_exec(
+                    "afconvert", "-f", "WAVE", "-d", "LEI16", aiff_path, wav_path,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                )
+                if await afc_proc.wait() != 0 or not os.path.exists(wav_path):
+                    return b""
+                return Path(wav_path).read_bytes()
+            except Exception as e:
+                logger.exception("[TTS] macOS natif erreur : %s", e)
+                return b""
+
     async def _synth_macos(self, text: str) -> bytes:
         with tempfile.TemporaryDirectory(prefix="jarvis_tts_") as tmpdir:
             aiff_path = os.path.join(tmpdir, "out.aiff")

@@ -93,6 +93,7 @@ class ScreenWatcher:
         self.on_notable = None  # async (notable_text: str, context: dict) -> None
         self.on_idle = None     # async (idle_minutes: int) -> None
         self._vision_deferred_logged: float = 0.0
+        self._vision_task: asyncio.Task[dict | None] | None = None
 
     @staticmethod
     def _is_voice_busy() -> bool:
@@ -133,6 +134,13 @@ class ScreenWatcher:
 
     def stop(self) -> None:
         self.running = False
+        self.defer_for_voice()
+
+    def defer_for_voice(self) -> None:
+        """Annule uniquement l'analyse vision active pour libérer les ressources."""
+        task = self._vision_task
+        if task is not None and not task.done():
+            task.cancel()
 
     # ── Tick principal ──────────────────────────────────────────────────────
 
@@ -190,7 +198,17 @@ class ScreenWatcher:
                     self._vision_deferred_logged = now
                     logger.info("[screen] Analyse vision différée — STT/TTS prioritaires")
                 return
-            analysis = await self._analyze_with_ollama(cropped, current_app, window_info)
+            self._vision_task = asyncio.create_task(
+                self._analyze_with_ollama(cropped, current_app, window_info),
+                name="screen_vision",
+            )
+            try:
+                analysis = await self._vision_task
+            except asyncio.CancelledError:
+                logger.info("[screen] Analyse vision annulée — priorité voix")
+                return
+            finally:
+                self._vision_task = None
             if analysis:
                 save_screen_activity(
                     device=self.device,
@@ -507,10 +525,10 @@ class ScreenWatcher:
                         "prompt": prompt,
                         "images": [img_b64],
                         "stream": False,
+                        "keep_alive": "30s",
                         "options": {
                             "temperature": 0.1,
                             "num_predict": 100,
-                            "keep_alive": "30s",
                         },
                     },
                 )

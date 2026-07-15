@@ -187,8 +187,15 @@ AUDIO_DAEMON_MAX_UTTERANCE_S = int(_get("AUDIO_DAEMON_MAX_UTTERANCE_S", "30"))
 AUDIO_DAEMON_CONVERSATION_TIMEOUT = float(_get("AUDIO_DAEMON_CONVERSATION_TIMEOUT", "30.0"))
 AUDIO_DAEMON_INPUT_DEVICE = _get("AUDIO_DAEMON_INPUT_DEVICE", "")  # vide = auto Blue Snowball sinon defaut systeme
 AUDIO_DAEMON_WAKE_SOUND = _get("AUDIO_DAEMON_WAKE_SOUND", "true").lower() == "true"
-AUDIO_DAEMON_STT_ENGINE = _get("AUDIO_DAEMON_STT_ENGINE", "whisperkit").strip().lower()
-AUDIO_DAEMON_STT_MODEL = _get("AUDIO_DAEMON_STT_MODEL", "large-v3-v20240930_626MB")
+AUDIO_DAEMON_STT_ENGINE = _get("AUDIO_DAEMON_STT_ENGINE", "local").strip().lower()
+AUDIO_DAEMON_STT_MODEL = _get("AUDIO_DAEMON_STT_MODEL", "small")
+AUDIO_DAEMON_STT_FALLBACK_MODEL = _get("AUDIO_DAEMON_STT_FALLBACK_MODEL", "small")
+AUDIO_DAEMON_WHISPERCPP_MODEL_PATH = _get(
+    "AUDIO_DAEMON_WHISPERCPP_MODEL_PATH", str(Path.home() / "models" / "ggml-large-v3.bin")
+)
+AUDIO_DAEMON_ALLOW_MODEL_DOWNLOAD = _get(
+    "AUDIO_DAEMON_ALLOW_MODEL_DOWNLOAD", "false"
+).lower() == "true"
 
 # ── VAD (Voice Activity Detection) ────────────────────────────
 SILERO_VAD_THRESHOLD = float(_get("SILERO_VAD_THRESHOLD", "0.42"))  # hysteresis ON

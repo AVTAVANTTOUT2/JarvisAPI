@@ -422,8 +422,9 @@ class AudioDaemon:
                 # (pa.terminate() segfault sur Apple Silicon si le thread tient encore le stream)
                 self._running = False
                 await asyncio.sleep(0.3)  # laisse le thread pyaudio sortir de stream.read()
-                await voice_queue.stop()
+                await voice_queue.cancel_current()
                 voice_queue.set_mic_capture_active(False)
+                voice_queue.set_user_conversation_active(False)
                 self._cleanup()
 
                 # Backoff exponentiel avec cap + délai veille
@@ -477,16 +478,47 @@ class AudioDaemon:
         self._audio_queue = asyncio.Queue(maxsize=300)
         self._utterance_queue = asyncio.Queue(maxsize=3)
 
-        # Architecture 3 boucles :
-        #   _vad_loop_safe : VAD + wake word + interruption — jamais bloqué
-        #   _process_loop_safe : STT + LLM + TTS — peut bloquer 2-5s sans impacter le VAD
-        #   _mic_watchdog : détection déconnexion micro — restart si silencieux > 60s
         loop = asyncio.get_running_loop()
+
+        # TTS natif : pré-chargement au boot (jamais pendant une conversation)
+        try:
+            engine = get_native_tts_engine()
+            if engine is not None:
+                preload = getattr(engine, "preload_sync", None) or getattr(
+                    engine, "_ensure_loaded", None,
+                )
+                if callable(preload):
+                    await loop.run_in_executor(None, preload)
+        except Exception as e:
+            logger.debug("[audio_daemon] preload TTS natif : %s", e)
+
+        await voice_queue.start(self._play_tts_native, self._stop_current_tts)
+        voice_queue.set_mic_capture_active(True)
+
+        # Pre-charger le modele STT local
+        try:
+            from audio.stt_local import stt_local as _stt_local
+            logger.info(
+                "[audio_daemon] Pre-chargement STT local (%s) ...",
+                _stt_local.get_backend_name(),
+            )
+            loop_local = asyncio.get_running_loop()
+            available = await loop_local.run_in_executor(None, _stt_local.preload_sync)
+            if available:
+                logger.info("[audio_daemon] Modele STT local pret")
+            else:
+                logger.error("[audio_daemon] Aucun moteur STT local préchargé")
+        except Exception as e:
+            logger.debug("[audio_daemon] pre-chargement STT local: %s", e)
+
+        # Architecture 3 boucles, lancées uniquement quand les moteurs sont prêts :
+        #   _vad_loop_safe : VAD + wake word + interruption — jamais bloqué
+        #   _process_loop_safe : STT + LLM + TTS — peut bloquer sans impacter le VAD
+        #   _mic_watchdog : détection déconnexion micro — restart si silencieux > 60s
         self._vad_task = asyncio.create_task(self._vad_loop_safe(), name="audio_daemon_vad")
         self._process_task = asyncio.create_task(self._process_loop_safe(), name="audio_daemon_process")
         self._watchdog_task = asyncio.create_task(self._mic_watchdog(), name="audio_daemon_watchdog")
 
-        # Wake word : détection volume sur le flux principal (pas de 2e micro Porcupine)
         if self.wake_word_enabled and not self.continuous_mode:
             logger.info("[audio_daemon] Wake word actif — détection volume sur flux unique")
 
@@ -494,33 +526,6 @@ class AudioDaemon:
         logger.info("[audio_daemon] Actif — state=%s wake_word=%s", self.state, self.wake_word_enabled)
         await self._broadcast_state()
         asyncio.create_task(event_bus.emit(JarvisEvent(type="voice.listening")))
-
-        # TTS natif : pré-chargement au boot (jamais pendant une conversation)
-        try:
-            engine = get_native_tts_engine()
-            if engine is not None:
-                preload = getattr(engine, "preload_sync", None)
-                if callable(preload):
-                    preload()
-        except Exception as e:
-            logger.debug("[audio_daemon] preload TTS natif : %s", e)
-
-        await voice_queue.start(self._play_tts_native)
-        voice_queue.set_mic_capture_active(True)
-
-        # Pre-charger le modele STT local
-        try:
-            from audio.stt_local import stt_local as _stt_local
-            if _stt_local.available and not getattr(_stt_local._backend, "_loaded", False):
-                logger.info(
-                    "[audio_daemon] Pre-chargement STT local (%s) ...",
-                    _stt_local.get_backend_name(),
-                )
-                loop_local = asyncio.get_running_loop()
-                await loop_local.run_in_executor(None, _stt_local.preload_sync)
-                logger.info("[audio_daemon] Modele STT local pret")
-        except Exception as e:
-            logger.debug("[audio_daemon] pre-chargement STT local: %s", e)
 
         # Attendre que l'une des tâches se termine (= crash)
         done, pending = await asyncio.wait(
@@ -641,7 +646,9 @@ class AudioDaemon:
                     pass
                 setattr(self, task_attr, None)
 
-        await voice_queue.stop()
+        await voice_queue.cancel_current()
+        if not getattr(config, "DAEMON_ENABLED", True):
+            await voice_queue.stop()
         voice_queue.set_mic_capture_active(False)
         voice_queue.set_user_conversation_active(False)
 
@@ -1105,6 +1112,22 @@ class AudioDaemon:
     # ── Traitement d'une utterance ────────────────────────────────────────────
 
     async def _process_single_utterance(self, pcm_bytes: bytes, stt_available: bool) -> None:
+        """Garantit la libération du verrou conversation, même sur erreur/retour anticipé."""
+        voice_queue.set_user_conversation_active(True)
+        try:
+            from scripts.screen_watcher import screen_watcher
+
+            screen_watcher.defer_for_voice()
+        except Exception as e:
+            logger.debug("[audio_daemon] report analyse écran : %s", e)
+        try:
+            await self._process_single_utterance_active(pcm_bytes, stt_available)
+        finally:
+            voice_queue.set_user_conversation_active(False)
+
+    async def _process_single_utterance_active(
+        self, pcm_bytes: bytes, stt_available: bool,
+    ) -> None:
         """Traitement complet d'une phrase : STT → _process_voice_fast → TTS → playback + purge post-TTS.
 
         Utilise le pipeline vocal rapide (_process_voice_fast) qui bypass l'orchestrateur
@@ -1122,8 +1145,6 @@ class AudioDaemon:
 
         self.state = "processing"
         await self._broadcast_state()
-
-        voice_queue.set_user_conversation_active(True)
 
         # 1. STT local uniquement (PCM natif, pas de cloud)
         text = ""
@@ -1604,12 +1625,17 @@ class AudioDaemon:
         text: str,
         emotion: str = "neutral",
         *,
-        priority: VoicePriority = VoicePriority.USER_RESPONSE,
+        priority: VoicePriority | None = None,
         wait: bool = False,
     ) -> None:
         """Enfile une synthèse vocale locale (TTSKit → Kokoro → macOS)."""
         if not text or not text.strip():
             return
+        if priority is None:
+            priority = {
+                "urgent": VoicePriority.CRITICAL,
+                "alert": VoicePriority.IMPORTANT,
+            }.get(emotion, VoicePriority.USER_RESPONSE)
         await voice_queue.enqueue(
             text,
             emotion=emotion,
@@ -1665,9 +1691,17 @@ class AudioDaemon:
                 await native_audio_output.play_stream_from_async(_pcm_stream(), sample_rate=sr)
                 if collected:
                     _last_tts.store(text, emotion, b"".join(collected))
-                return
+                    return
+                logger.warning("[audio_daemon] TTSKit vide — repli local")
+                engine = get_native_tts_engine(exclude=frozenset({"ttskit"}))
+                if engine is None:
+                    return
 
-            audio_bytes = await engine.synthesize(text, emotion=emotion)
+            native_synth = getattr(engine, "synthesize_native", None)
+            if callable(native_synth):
+                audio_bytes = await native_synth(text, emotion=emotion)
+            else:
+                audio_bytes = await engine.synthesize(text, emotion=emotion)
             if audio_bytes:
                 _last_tts.store(text, emotion, audio_bytes)
                 await self._play_audio_local(audio_bytes, cancel_event=cancel_event)
@@ -1676,6 +1710,15 @@ class AudioDaemon:
         finally:
             self._tts_playing_event.clear()
             self._last_tts_end = time.time()
+
+    def _stop_current_tts(self) -> None:
+        """Interrompt immédiatement la sortie active (priorité critique/barge-in)."""
+        native_audio_output.stop()
+        if self._tts_proc and self._tts_proc.returncode is None:
+            try:
+                self._tts_proc.kill()
+            except Exception:
+                pass
 
     async def _play_audio_local(
         self,
@@ -1688,8 +1731,10 @@ class AudioDaemon:
             return
 
         if native_audio_output.available:
-            await native_audio_output.play_bytes(audio_bytes)
-            return
+            played = await native_audio_output.play_bytes(audio_bytes)
+            if played:
+                return
+            logger.debug("[audio_daemon] Décodage natif impossible — repli afplay")
 
         # Fallback minimal si sounddevice absent
         tmp_path: str | None = None
@@ -1847,11 +1892,17 @@ audio_daemon = AudioDaemon()
 
 @event_bus.on("notification.created")
 async def _speak_priority_notification(event: JarvisEvent) -> None:
-    """Annonce les notifications urgentes quand le daemon audio est actif."""
+    """Annonce les notifications prioritaires dès que le lecteur central tourne."""
     payload = event.payload
-    if not audio_daemon.enabled or payload.get("priority") not in ("urgent", "high"):
+    if payload.get("priority") not in ("urgent", "high"):
+        return
+    if not audio_daemon.enabled and not voice_queue.running:
         return
     title = str(payload.get("title") or "Notification")
     content = str(payload.get("content") or "").strip()
     text = f"{title}. {content}" if content else title
-    await audio_daemon._play_tts(text, emotion="alert")
+    is_urgent = payload.get("priority") == "urgent"
+    await audio_daemon._play_tts(
+        text,
+        emotion="urgent" if is_urgent else "alert",
+    )

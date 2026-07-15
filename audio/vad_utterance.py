@@ -101,9 +101,11 @@ class VadUtteranceCollector:
             self.has_speech = True
             self.speech_active = True
             self.frames = list(self.pre_speech_ring)
-            self.speech_chunks = len(self.frames)
+            # Le pré-roll est majoritairement silencieux : seule la frame qui
+            # vient de franchir le seuil compte comme parole effective.
+            self.speech_chunks = 1
             self.silent_chunks = 0
-            self.total_chunks = self.speech_chunks
+            self.total_chunks = len(self.frames)
             return None
 
         self.frames.append(chunk)
@@ -119,7 +121,13 @@ class VadUtteranceCollector:
         flush_force = self.total_chunks >= self.max_chunks
         end_detected = self.silent_chunks >= self.silence_chunks_threshold
 
-        if flush_force or (end_detected and self.speech_chunks >= self.min_speech_chunks):
+        if end_detected and self.speech_chunks < self.min_speech_chunks:
+            # Impulsion trop courte : bruit/claquement, on la jette au lieu de
+            # conserver jusqu'au timeout maximal.
+            self.reset()
+            return None
+
+        if flush_force or end_detected:
             audio = b"".join(self.frames)
             self.reset()
             return audio if audio else None

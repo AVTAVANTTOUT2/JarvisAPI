@@ -57,18 +57,22 @@ class NativeAudioOutput:
             with self._lock:
                 self._playing = True
             try:
-                data, samplerate = self._sf.read(io.BytesIO(audio_bytes))
+                try:
+                    data, samplerate = self._sf.read(io.BytesIO(audio_bytes))
+                except Exception as exc:
+                    logger.debug("[audio_output] format non décodable par soundfile : %s", exc)
+                    return False
                 if self._stop_flag.is_set():
-                    return
+                    return False
                 self._sd.play(data, samplerate)
                 if blocking:
                     self._sd.wait()
+                return not self._stop_flag.is_set()
             finally:
                 with self._lock:
                     self._playing = False
 
-        await loop.run_in_executor(None, _play)
-        return not self._stop_flag.is_set()
+        return bool(await loop.run_in_executor(None, _play))
 
     async def play_pcm16_stream(
         self,
@@ -126,14 +130,27 @@ class NativeAudioOutput:
         loop = asyncio.get_running_loop()
 
         async def _producer() -> None:
+            def _put(item: bytes | None) -> bool:
+                while not self._stop_flag.is_set():
+                    try:
+                        pcm_queue.put(item, timeout=0.25)
+                        return True
+                    except thread_queue.Full:
+                        continue
+                return False
+
             try:
                 async for chunk in stream:
                     if self._stop_flag.is_set():
                         break
                     if chunk:
-                        await loop.run_in_executor(None, pcm_queue.put, chunk)
+                        if not await loop.run_in_executor(None, _put, chunk):
+                            break
             finally:
-                await loop.run_in_executor(None, pcm_queue.put, None)
+                try:
+                    pcm_queue.put_nowait(None)
+                except thread_queue.Full:
+                    pass
 
         def _consumer() -> None:
             import numpy as np  # type: ignore[import-untyped]
@@ -146,7 +163,12 @@ class NativeAudioOutput:
                 )
                 out.start()
                 while not self._stop_flag.is_set():
-                    item = pcm_queue.get(timeout=120)
+                    try:
+                        item = pcm_queue.get(timeout=0.25)
+                    except thread_queue.Empty:
+                        if producer.done():
+                            break
+                        continue
                     if item is None:
                         break
                     arr = np.frombuffer(item, dtype=np.int16)

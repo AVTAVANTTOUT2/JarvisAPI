@@ -92,11 +92,14 @@ class FasterWhisperBackend(DaemonSTTBackend):
         self._model_size = model_size
         self._model: Any = None
         self._loaded = False
+        self._load_failed = False
         self._load_lock = asyncio.Lock()
 
     def preload_sync(self) -> bool:
         if self._loaded:
             return True
+        if self._load_failed:
+            return False
         try:
             from faster_whisper import WhisperModel
         except ImportError:
@@ -114,11 +117,15 @@ class FasterWhisperBackend(DaemonSTTBackend):
                 compute_type="auto",
                 num_workers=num_workers,
                 download_root=str(Path.home() / ".cache" / "faster-whisper"),
+                local_files_only=not bool(
+                    getattr(config, "AUDIO_DAEMON_ALLOW_MODEL_DOWNLOAD", False)
+                ),
             )
             self._loaded = True
             logger.info("[stt_daemon] faster-whisper prêt (%s)", self._model_size)
             return True
         except Exception as e:
+            self._load_failed = True
             logger.exception("[stt_daemon] Chargement faster-whisper : %s", e)
             return False
 
@@ -333,6 +340,58 @@ class WhisperCppBackend(DaemonSTTBackend):
             Path(wav_path).unlink(missing_ok=True)
 
 
+class FallbackSTTBackend(DaemonSTTBackend):
+    """Chaîne locale ordonnée, sans aucun repli réseau."""
+
+    name = "local-fallback"
+
+    def __init__(self, backends: list[DaemonSTTBackend]) -> None:
+        self._backends = backends
+        self._active_index: int | None = None
+
+    @property
+    def active_backend(self) -> DaemonSTTBackend | None:
+        if self._active_index is None:
+            return None
+        return self._backends[self._active_index]
+
+    def preload_sync(self) -> bool:
+        if self.active_backend is not None:
+            return True
+        for index, backend in enumerate(self._backends):
+            if backend.preload_sync():
+                self._active_index = index
+                self.name = backend.name
+                logger.info("[stt_daemon] Moteur local actif : %s", backend.name)
+                return True
+        logger.error("[stt_daemon] Aucun moteur STT local disponible")
+        return False
+
+    async def transcribe_pcm(
+        self,
+        pcm_bytes: bytes,
+        *,
+        sample_rate: int,
+        language: str = "fr",
+    ) -> TranscriptionResult | None:
+        if not self.preload_sync() or self._active_index is None:
+            return None
+
+        for index in range(self._active_index, len(self._backends)):
+            backend = self._backends[index]
+            if index != self._active_index and not backend.preload_sync():
+                continue
+            result = await backend.transcribe_pcm(
+                pcm_bytes, sample_rate=sample_rate, language=language,
+            )
+            if result is not None:
+                self._active_index = index
+                self.name = backend.name
+                return result
+            logger.warning("[stt_daemon] %s a échoué — essai du repli local", backend.name)
+        return None
+
+
 def _pcm16_to_wav(pcm_bytes: bytes, sample_rate: int) -> bytes:
     buf = io.BytesIO()
     with wave.open(buf, "w") as wf:
@@ -359,9 +418,40 @@ def create_daemon_stt_backend() -> DaemonSTTBackend:
     if engine in ("none", "disabled", ""):
         return DisabledSTT()
     if engine == "whisperkit":
-        return WhisperKitBackend(model or "large-v3-v20240930_626MB")
+        fallback_model = str(
+            getattr(config, "AUDIO_DAEMON_STT_FALLBACK_MODEL", "small") or "small"
+        )
+        whispercpp_model = str(
+            getattr(
+                config,
+                "AUDIO_DAEMON_WHISPERCPP_MODEL_PATH",
+                Path.home() / "models" / "ggml-large-v3.bin",
+            )
+        )
+        return FallbackSTTBackend([
+            WhisperKitBackend(model or "large-v3-v20240930_626MB"),
+            WhisperCppBackend(whispercpp_model),
+            FasterWhisperBackend(
+                fallback_model if fallback_model in FASTER_WHISPER_SIZES else "small"
+            ),
+        ])
     if engine == "whispercpp":
-        return WhisperCppBackend(model or str(Path.home() / "models" / "ggml-large-v3.bin"))
+        fallback_model = str(
+            getattr(config, "AUDIO_DAEMON_STT_FALLBACK_MODEL", "small") or "small"
+        )
+        return FallbackSTTBackend([
+            WhisperCppBackend(
+                model
+                or str(getattr(
+                    config,
+                    "AUDIO_DAEMON_WHISPERCPP_MODEL_PATH",
+                    Path.home() / "models" / "ggml-large-v3.bin",
+                ))
+            ),
+            FasterWhisperBackend(
+                fallback_model if fallback_model in FASTER_WHISPER_SIZES else "small"
+            ),
+        ])
     if engine in ("local", "faster-whisper"):
         size = model if model in FASTER_WHISPER_SIZES or model.startswith("large") else "small"
         return FasterWhisperBackend(size)
@@ -375,9 +465,12 @@ class DaemonSTT:
     def __init__(self) -> None:
         self._backend = create_daemon_stt_backend()
         self.available = not isinstance(self._backend, DisabledSTT)
+        self._preload_attempted = False
 
     def preload_sync(self) -> bool:
-        return self._backend.preload_sync()
+        self._preload_attempted = True
+        self.available = self._backend.preload_sync()
+        return self.available
 
     async def transcribe_with_metadata(
         self,
@@ -386,6 +479,11 @@ class DaemonSTT:
         sample_rate: int | None = None,
         language: str = "fr",
     ) -> dict | None:
+        if not self._preload_attempted:
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, self.preload_sync)
+        if not self.available:
+            return None
         sr = sample_rate or int(getattr(config, "AUDIO_DAEMON_SAMPLE_RATE", 16000))
         result = await self._backend.transcribe_pcm(pcm_bytes, sample_rate=sr, language=language)
         if result is None:
@@ -414,6 +512,7 @@ stt_local = stt_daemon
 __all__ = [
     "DaemonSTT",
     "DaemonSTTBackend",
+    "FallbackSTTBackend",
     "TranscriptionResult",
     "create_daemon_stt_backend",
     "stt_daemon",

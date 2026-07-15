@@ -55,9 +55,10 @@ class JarvisDaemon:
         self.conversation_id: int | None = None
 
         # File d'attente des messages à prononcer
-        self.tts_queue: asyncio.Queue[str] = asyncio.Queue()
+        self.tts_queue: asyncio.Queue[Any] = asyncio.Queue()
         self.last_tts_time: float = 0.0
         self.tts_cooldown = int(getattr(config, "DAEMON_TTS_COOLDOWN", 30))
+        self._delayed_voice_tasks: set[asyncio.Task[Any]] = set()
 
         # iMessage tracking
         self.imessage_cursor_name = "daemon.notifications"
@@ -83,6 +84,11 @@ class JarvisDaemon:
         """Lance toutes les boucles du daemon en parallèle."""
         self.running = True
         logger.info("[daemon] démarrage en mode %s", self.mode)
+
+        # Le lecteur vocal existe même si la capture micro est désactivée.
+        # audio_daemon reste l'unique implémentation de lecture, sans ouvrir
+        # PyAudio tant que AUDIO_DAEMON_ENABLED=false.
+        await self._ensure_voice_output()
 
         # Initialiser le dernier ROWID iMessage pour ne pas retraiter le backlog
         try:
@@ -124,9 +130,26 @@ class JarvisDaemon:
             for t in tasks:
                 t.cancel()
             raise
+        finally:
+            for task in self._delayed_voice_tasks:
+                task.cancel()
+            self._delayed_voice_tasks.clear()
+            await voice_queue.stop()
+
+    async def _ensure_voice_output(self) -> None:
+        """Démarre le lecteur central sans ouvrir le microphone."""
+        from scripts.audio_daemon import audio_daemon
+
+        await voice_queue.start(
+            audio_daemon._play_tts_native,
+            audio_daemon._stop_current_tts,
+        )
 
     def stop(self) -> None:
         self.running = False
+        for task in self._delayed_voice_tasks:
+            task.cancel()
+        self._delayed_voice_tasks.clear()
         try:
             self.screen_watcher.stop()
         except Exception:
@@ -154,18 +177,16 @@ class JarvisDaemon:
 
         text = (result or {}).get("text") or ""
         if text and "NULL" not in text.upper():
-            await voice_queue.enqueue(
-                text,
-                emotion="neutral",
-                priority=VoicePriority.BACKGROUND,
-            )
+            await self.tts_queue.put((text, "neutral", "background"))
 
     async def _on_idle(self, idle_minutes: int) -> None:
         """Utilisateur inactif depuis longtemps."""
-        await voice_queue.enqueue(
-            f"Monsieur, vous semblez inactif depuis {int(idle_minutes)} minutes. Tout va bien ?",
-            emotion="concerned",
-            priority=VoicePriority.BACKGROUND,
+        await self.tts_queue.put(
+            (
+                f"Monsieur, vous semblez inactif depuis {int(idle_minutes)} minutes. Tout va bien ?",
+                "concerned",
+                "background",
+            )
         )
 
     # ── Boucle Notifications ──────────────────────────────────────────────────
@@ -441,7 +462,7 @@ class JarvisDaemon:
                 logger.info("[daemon] heures calmes — TTS ignoré : %s", str(text)[:50])
                 continue
 
-            if self.mode == "veille":
+            if self.mode == "veille" and priority != VoicePriority.CRITICAL:
                 now = time.time()
                 elapsed = now - self.last_tts_time
                 if elapsed < self.tts_cooldown:
@@ -451,11 +472,31 @@ class JarvisDaemon:
                         wait_s,
                         str(text)[:50],
                     )
-                    await asyncio.sleep(wait_s)
-                self.last_tts_time = time.time()
+                    self.last_tts_time = now + wait_s
+                    task = asyncio.create_task(
+                        self._enqueue_voice_after(
+                            wait_s, str(text), str(emotion), priority,
+                        ),
+                        name="daemon_voice_delayed",
+                    )
+                    self._delayed_voice_tasks.add(task)
+                    task.add_done_callback(self._delayed_voice_tasks.discard)
+                    continue
+                self.last_tts_time = now
 
             logger.info("[daemon] File vocale (%s) : %s", priority.name, str(text)[:80])
             await voice_queue.enqueue(str(text), emotion=str(emotion), priority=priority)
+
+    async def _enqueue_voice_after(
+        self,
+        delay: float,
+        text: str,
+        emotion: str,
+        priority: VoicePriority,
+    ) -> None:
+        await asyncio.sleep(max(0.0, delay))
+        if self.running:
+            await voice_queue.enqueue(text, emotion=emotion, priority=priority)
 
     # ── Wake Word ─────────────────────────────────────────────────────────────
 

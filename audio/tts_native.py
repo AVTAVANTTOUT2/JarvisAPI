@@ -3,11 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-import io
 import logging
-import struct
 from collections.abc import AsyncGenerator
-from pathlib import Path
 from typing import Any
 
 import config
@@ -24,36 +21,24 @@ class TTSKitEngine:
     SAMPLE_RATE = 24000
 
     def __init__(self) -> None:
-        self._model: Any = None
-        self._load_failed = False
         self._model_name = getattr(config, "TTS_MODEL", "qwen3-tts-0.6b")
         self._language = getattr(config, "TTS_LANGUAGE", "fr")
+        self._model_path = str(getattr(config, "TTS_MODEL_PATH", "") or "")
         self.available = False
 
     def preload_sync(self) -> bool:
-        if self._model is not None:
-            return True
-        if self._load_failed:
-            return False
         try:
-            # Interface volontairement optionnelle — le package peut ne pas exister.
-            from ttskit import TTSKit  # type: ignore[import-not-found]
+            from native_audio.ttskit_bridge import is_ttskit_available
 
-            model_path = Path(getattr(config, "TTS_MODEL_PATH", "") or "").expanduser()
-            if model_path.is_dir():
-                self._model = TTSKit(model_path=str(model_path), language=self._language)
-            else:
-                self._model = TTSKit(model=self._model_name, language=self._language)
-            self.available = True
-            logger.info("[TTS] TTSKit chargé (%s, lang=%s)", self._model_name, self._language)
-            return True
-        except ImportError:
-            logger.warning("[TTS] TTSKit absent — pip install ttskit (optionnel)")
+            self.available = is_ttskit_available()
         except Exception as e:
-            logger.warning("[TTS] TTSKit indisponible : %s", e)
-        self._load_failed = True
-        self.available = False
-        return False
+            logger.debug("[TTS] Vérification sidecar TTSKit : %s", e)
+            self.available = False
+        if self.available:
+            logger.info("[TTS] Sidecar TTSKit prêt (%s, lang=%s)", self._model_name, self._language)
+        else:
+            logger.warning("[TTS] Sidecar TTSKit absent — voir native_audio/README.md")
+        return self.available
 
     def get_backend_name(self) -> str:
         return "ttskit"
@@ -67,32 +52,22 @@ class TTSKitEngine:
     ) -> AsyncGenerator[bytes, None]:
         if not text.strip():
             return
-        if not self.preload_sync() or self._model is None:
+        if not self.preload_sync():
             return
 
         asyncio.create_task(event_bus.emit(JarvisEvent(
             type="tts.start", data={"engine": "ttskit", "text_length": len(text)},
         )))
 
-        loop = asyncio.get_running_loop()
-
-        def _stream_pcm() -> list[bytes]:
-            out: list[bytes] = []
-            stream_fn = getattr(self._model, "synthesize_stream", None)
-            if callable(stream_fn):
-                for chunk in stream_fn(text, language=self._language):
-                    pcm = _to_pcm16_bytes(chunk)
-                    if pcm:
-                        out.append(pcm)
-            else:
-                full = self._model.synthesize(text, language=self._language)
-                pcm = _to_pcm16_bytes(full)
-                if pcm:
-                    out.append(pcm)
-            return out
-
         try:
-            for chunk in await loop.run_in_executor(None, _stream_pcm):
+            from native_audio.ttskit_bridge import stream_pcm16
+
+            async for chunk in stream_pcm16(
+                text,
+                model=self._model_name,
+                language=self._language,
+                model_path=self._model_path,
+            ):
                 yield chunk
         finally:
             asyncio.create_task(event_bus.emit(JarvisEvent(type="tts.done")))
@@ -118,24 +93,24 @@ def _to_pcm16_bytes(chunk: Any) -> bytes:
 ttskit_tts = TTSKitEngine()
 
 
-def get_native_tts_engine() -> Any:
+def get_native_tts_engine(*, exclude: frozenset[str] = frozenset()) -> Any:
     """Chaîne locale : TTSKit → Kokoro (voix FR) → macOS say. Jamais Edge/ElevenLabs."""
     from audio.tts import kokoro_tts, macos_tts
 
     pref = (getattr(config, "TTS_ENGINE", "ttskit") or "ttskit").lower().strip()
-    if pref == "ttskit" and ttskit_tts.preload_sync():
+    if pref == "ttskit" and "ttskit" not in exclude and ttskit_tts.preload_sync():
         return ttskit_tts
-    if pref == "kokoro" and kokoro_tts.available:
+    if pref == "kokoro" and "kokoro" not in exclude and kokoro_tts.available:
         return kokoro_tts
-    if pref == "macos" and macos_tts.available:
+    if pref == "macos" and "macos" not in exclude and macos_tts.available:
         return macos_tts
     # Repli local uniquement
-    if ttskit_tts.available:
+    if "ttskit" not in exclude and ttskit_tts.available:
         return ttskit_tts
-    if kokoro_tts.available:
+    if "kokoro" not in exclude and kokoro_tts.available:
         logger.info("[TTS native] Repli Kokoro (voix %s)", FRENCH_KOKORO_VOICE)
         return kokoro_tts
-    if macos_tts.available:
+    if "macos" not in exclude and macos_tts.available:
         logger.info("[TTS native] Repli macOS say")
         return macos_tts
     logger.error("[TTS native] Aucun moteur local disponible")
