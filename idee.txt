@@ -15,7 +15,7 @@ Si tu utilises llama.cpp ou Ollama, c'est bien, mais pour exploiter le M4 à 100
 Cherche MLX Server ou LM Studio (qui intègre des optimisations Apple Silicon). MLX permet des vitesses de génération de tokens souvent 2x à 3x supérieures aux frameworks standards sur Mac.
 
 3. Remplacer les API Cloud (Vocal & Image)
-Dans ton projet JARVIS, tu paies (ou utilises des quotas) pour ElevenLabs et Claude. Ton Mac peut faire tout ça en local, gratuitement et sans latence réseau :
+Dans ton projet JARVIS, tu paies (ou utilises des quotas) pour ancien fournisseur audio cloud et Claude. Ton Mac peut faire tout ça en local, gratuitement et sans latence réseau :
 
 STT (Transcription) : Fais tourner Whisper v3 Large ou Faster-Whisper. Sur un M4, la transcription d'une minute d'audio prendra environ 1 seconde.
 

@@ -138,8 +138,8 @@ Trois commits orphelins de `claude/workflow-project-improvements-yknzqs`, jamais
 | LLM | DeepSeek API (format OpenAI, httpx, retry/backoff, pool partagé) |
 | Vision locale | Ollama `qwen2.5-vl:7b` (écran) + `qwen2.5:7b` (triage) — 0 token API |
 | Base | SQLite (`data/jarvis.db`), WAL, FTS5, sauvegardes `VACUUM INTO` |
-| STT | faster-whisper local d'abord, ElevenLabs Scribe en fallback |
-| TTS | Edge TTS (défaut) · ElevenLabs · macOS `say` · Kokoro — 7 émotions, cache spéculatif |
+| STT | faster-whisper local · WhisperKit · whisper.cpp — aucun repli cloud |
+| TTS | Edge TTS (web) · TTSKit · macOS `say` · Kokoro — 7 émotions, cache spéculatif |
 | Frontend canonique | Next.js 15 · React 19 · Tailwind v4 (`frontend/`, responsive desktop/mobile) |
 | Fallbacks | Vite (`web/dist`) · PWA Next.js 14 (`pwa/out` sous `/m/`) |
 | TV | Dashboard War Room FastAPI + JS (`tv/`, port 5174, Philips 55") |
@@ -265,7 +265,7 @@ Tout vit dans `.env` — [.env.example](./.env.example) documente chaque variabl
 | Bloc | Variables clés |
 |---|---|
 | LLM | `DEEPSEEK_API_KEY` (obligatoire), `DEEPSEEK_FAST_MODEL`, `DEEPSEEK_MAIN_MODEL`, `HEAVY_TASK_MAX_TOKENS` |
-| Audio | `TTS_ENGINE` (edge/elevenlabs/macos/kokoro), `ELEVENLABS_API_KEY`, `AUDIO_DAEMON_ENABLED`, `WAKE_WORD_ENABLED` |
+| Audio | `TTS_ENGINE` (edge/ttskit/macos/kokoro), `AUDIO_DAEMON_STT_ENGINE`, `AUDIO_DAEMON_ENABLED`, `WAKE_WORD_ENABLED` |
 | iMessage | `IMESSAGE_TARGET` (ton numéro — vide = bridge off), `IMESSAGE_SEND_ENABLED`, `IMESSAGE_PREFIX` |
 | Import iMessage | `IIMPORT_BATCH_SIZE` (5000), `IIMPORT_MAX_RETRIES` (3), `IIMPORT_SYNC_INTERVAL` (300) |
 | Sentinelle | `DAEMON_ENABLED`, `SCREEN_WATCHER_*`, `OLLAMA_URL`, `EMAIL_CHECK_INTERVAL` |

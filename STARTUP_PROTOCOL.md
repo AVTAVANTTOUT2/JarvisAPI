@@ -200,7 +200,7 @@ Cause classique: URL en `http` alors que le backend tourne en `https`.
 ## Cas 3 - Voix KO
 
 1. Verifier permission micro.
-2. Verifier `ELEVENLABS_API_KEY` et `TTS_ENGINE`.
+2. Vérifier `AUDIO_DAEMON_STT_ENGINE`, le modèle local et `TTS_ENGINE`.
 3. Relancer et refaire un test vocal court.
 
 ## Cas 4 - Daemon KO

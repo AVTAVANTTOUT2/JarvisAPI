@@ -53,7 +53,7 @@
 | **Ollama** | Local (optionnel) | Vision locale désactivée, fallback texte |
 | **chat.db (macOS)** | Local | iMessage bridge/sourcing inopérant |
 | **SQLite (jarvis.db)** | Local | **CRITIQUE** — toutes les données inaccessibles |
-| **ElevenLabs API** | Externe (cloud) | STT/TTS dégradé (fallback: faster-whisper local + Edge TTS) |
+| **Moteurs STT locaux** | Local | Transcription indisponible si aucun modèle n'est installé |
 | **OpenWeatherMap** | Externe (cloud) | Météo indisponible (non critique) |
 | **Tavily** | Externe (cloud) | Recherche web indisponible (non critique) |
 
