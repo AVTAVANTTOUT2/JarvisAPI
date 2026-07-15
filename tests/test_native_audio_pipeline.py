@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import struct
+import threading
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -312,6 +313,42 @@ async def test_audio_daemon_stop_preserves_notification_output() -> None:
     assert voice_queue._consumer_task is not None
     assert not voice_queue._consumer_task.done()
     await voice_queue.stop()
+
+
+@pytest.mark.asyncio
+async def test_audio_daemon_stop_joins_input_thread_before_restart() -> None:
+    """Un second start ne doit jamais réarmer le thread micro précédent."""
+    from scripts.audio_daemon import AudioDaemon
+
+    daemon = AudioDaemon()
+    daemon.enabled = True
+    daemon._running = True
+    daemon._stop_event = asyncio.Event()
+    daemon._interrupt_event = asyncio.Event()
+    daemon._input_stop_event = threading.Event()
+    old_stop_event = daemon._input_stop_event
+    exited = asyncio.Event()
+
+    async def _old_input_thread() -> None:
+        while not old_stop_event.is_set():
+            await asyncio.sleep(0)
+        exited.set()
+
+    daemon._input_future = asyncio.create_task(_old_input_thread())
+
+    with patch("scripts.audio_daemon.config.DAEMON_ENABLED", True):
+        await daemon.stop()
+
+    assert old_stop_event.is_set()
+    assert exited.is_set()
+    assert daemon._input_future is None
+
+    # Le nouveau cycle reçoit un autre jeton : remettre _running à True ne
+    # peut plus ressusciter l'ancien lecteur.
+    daemon._input_stop_event = threading.Event()
+    daemon._running = True
+    assert daemon._input_stop_event is not old_stop_event
+    assert old_stop_event.is_set()
 
 
 def test_short_noise_does_not_satisfy_min_speech_with_pre_roll() -> None:
