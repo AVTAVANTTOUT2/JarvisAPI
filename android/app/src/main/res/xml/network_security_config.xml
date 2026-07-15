@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- CA système par défaut (FCM, Picovoice). La CA privée JARVIS est injectée
+     côté application via JarvisTls pour l'hôte serveur configuré uniquement. -->
 <network-security-config>
     <base-config cleartextTrafficPermitted="false">
         <trust-anchors>
             <certificates src="system" />
-            <certificates src="@raw/jarvis_ca" />
         </trust-anchors>
     </base-config>
 </network-security-config>
