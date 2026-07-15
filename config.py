@@ -103,6 +103,10 @@ WEB_HOST = _get("WEB_HOST", "0.0.0.0")
 # Utile pour le proxy server-side du PWA (Next.js refuse les certs self-signed).
 # Pour l'accès direct iPhone via Tailscale → mettre WEB_HTTPS=true + certs/cert.pem.
 WEB_HTTPS = _get("WEB_HTTPS", "false").lower() == "true"
+SSL_CERT_PATH = BASE_DIR / "certs" / "cert.pem"
+SSL_KEY_PATH = BASE_DIR / "certs" / "key.pem"
+WEB_SSL_AVAILABLE = SSL_CERT_PATH.is_file() and SSL_KEY_PATH.is_file()
+WEB_USE_HTTPS = WEB_HTTPS and WEB_SSL_AVAILABLE
 
 # Firebase Cloud Messaging — notifications Android, même application fermée.
 FCM_SERVICE_ACCOUNT_FILE = _get("FCM_SERVICE_ACCOUNT_FILE", "")
