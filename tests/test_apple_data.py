@@ -161,10 +161,15 @@ def test_chat_db_opening_and_timestamp_conversion_stay_centralized():
     """Empêche le retour des lecteurs SQLite directs de Messages.app."""
     conversion_definitions: list[Path] = []
 
+    skipped_parts = {"tests", ".git", "venv", ".venv", "node_modules", ".claude", "models", "data"}
     for path in PROJECT_ROOT.rglob("*.py"):
-        if "tests" in path.parts or ".git" in path.parts:
+        if skipped_parts & set(path.parts):
             continue
-        source = path.read_text(encoding="utf-8")
+        try:
+            source = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            # Fichier non-UTF8 (dépendance embarquée, artefact binaire) : hors périmètre.
+            continue
         tree = ast.parse(source, filename=str(path))
 
         for node in ast.walk(tree):
