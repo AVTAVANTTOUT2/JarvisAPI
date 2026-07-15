@@ -2,6 +2,8 @@ package fr.jarvis.companion.voice
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import fr.jarvis.companion.data.FakeSecretKeyProvider
+import fr.jarvis.companion.data.JarvisSecureStore
 import fr.jarvis.companion.data.JarvisSettings
 import fr.jarvis.companion.network.ServerUrlNormalizer
 import okhttp3.OkHttpClient
@@ -30,6 +32,7 @@ class VoiceRepositoryTest {
     @Before
     fun setUp() {
         context = ApplicationProvider.getApplicationContext()
+        JarvisSecureStore.defaultKeyProvider = FakeSecretKeyProvider()
         val localhostCertificate = HeldCertificate.Builder()
             .addSubjectAlternativeName("localhost")
             .build()
