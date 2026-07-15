@@ -37,6 +37,7 @@ from api.router_daemon import router as daemon_router
 from api.router_devagent import router as devagent_router
 from api.router_devices import router as devices_router
 from api.router_location import router as location_router
+from api.router_mobile_voice import router as mobile_voice_router
 from api.router_misc import router as misc_router
 from api.router_people import router as people_router
 from api.router_quality import router as quality_router
@@ -108,6 +109,7 @@ app.include_router(daemon_router)
 app.include_router(devagent_router)
 app.include_router(devices_router)
 app.include_router(location_router)
+app.include_router(mobile_voice_router)
 app.include_router(misc_router)
 app.include_router(people_router)
 app.include_router(quality_router)
@@ -138,25 +140,39 @@ def main():
       - `WEB_HTTPS=true` dans .env
       - ET les fichiers `certs/cert.pem` + `certs/key.pem` existent.
 
-    Sinon → HTTP. Ce mode est requis pour que le proxy server-side du PWA
-    (Next.js rewrites) puisse joindre le backend sans erreur SSL self-signed.
+    Si WEB_HTTPS=true sans certificats valides, le processus s'arrête avec
+    une erreur explicite (aucun repli HTTP silencieux).
     """
+    import sys
     from pathlib import Path as _Path
 
     _base = _Path(__file__).resolve().parent
-    _cert = _base / "certs" / "cert.pem"
-    _key  = _base / "certs" / "key.pem"
-    _ssl  = config.WEB_HTTPS and _cert.exists() and _key.exists()
+    _cert = config.SSL_CERT_PATH
+    _key = config.SSL_KEY_PATH
+    _ssl = config.WEB_USE_HTTPS
+
+    if config.WEB_HTTPS and not config.WEB_SSL_AVAILABLE:
+        logger.error(
+            "[uvicorn] WEB_HTTPS=true mais certificats introuvables — "
+            "attendu : %s et %s (lancez bash scripts/generate_ssl.sh)",
+            _cert,
+            _key,
+        )
+        sys.exit(1)
 
     _proto = "https" if _ssl else "http"
-    if config.WEB_HTTPS and not _ssl:
-        logger.warning("[uvicorn] WEB_HTTPS=true mais certs/cert.pem ou certs/key.pem manquants — fallback HTTP")
     logger.info(
-        "[uvicorn] %s://0.0.0.0:%d%s",
+        "[uvicorn] protocole=%s bind=%s:%d cert=%s key=%s",
         _proto,
+        config.WEB_HOST,
         config.WEB_PORT,
-        " (SSL activé)" if _ssl else " (HTTP — accès local + proxy PWA)",
+        _cert if _ssl else "(n/a)",
+        _key if _ssl else "(n/a)",
     )
+    if not config.WEB_HTTPS:
+        logger.info(
+            "[uvicorn] WEB_HTTPS=false — mode HTTP (proxy PWA / dev local)",
+        )
 
     _kwargs: dict = dict(
         host=config.WEB_HOST,
@@ -166,7 +182,7 @@ def main():
     )
     if _ssl:
         _kwargs["ssl_certfile"] = str(_cert)
-        _kwargs["ssl_keyfile"]  = str(_key)
+        _kwargs["ssl_keyfile"] = str(_key)
 
     uvicorn.run("main:app", **_kwargs)
 

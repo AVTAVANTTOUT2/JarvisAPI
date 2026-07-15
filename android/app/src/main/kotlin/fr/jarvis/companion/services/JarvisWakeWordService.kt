@@ -11,6 +11,7 @@ import ai.picovoice.porcupine.Porcupine
 import ai.picovoice.porcupine.PorcupineManager
 import fr.jarvis.companion.data.JarvisSettings
 import fr.jarvis.companion.notifications.JarvisNotifications
+import fr.jarvis.companion.voice.VoiceActivity
 
 /** Détection locale du mot « JARVIS » — aucun audio réseau. */
 class JarvisWakeWordService : Service() {
@@ -66,11 +67,15 @@ class JarvisWakeWordService : Service() {
     }
 
     private fun onWakeWord() {
+        val intent = Intent(this, VoiceActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        startActivity(intent)
         JarvisNotifications.show(
             this,
             JarvisNotifications.URGENT,
             "JARVIS vous écoute, Monsieur",
-            "Ouvrez l'application pour vérifier l'état du compagnon",
+            "Conversation vocale ouverte — maintenez le micro pour parler",
         )
     }
 

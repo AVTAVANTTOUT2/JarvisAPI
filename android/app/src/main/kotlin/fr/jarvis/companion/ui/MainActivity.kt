@@ -48,6 +48,7 @@ import fr.jarvis.companion.notifications.JarvisNotifications
 import fr.jarvis.companion.services.JarvisLocationService
 import fr.jarvis.companion.services.JarvisWakeWordService
 import fr.jarvis.companion.ui.theme.JarvisTheme
+import fr.jarvis.companion.voice.VoiceActivity
 
 /** Interface native du compagnon JARVIS — aucun WebView. */
 class MainActivity : ComponentActivity() {
@@ -118,12 +119,16 @@ class MainActivity : ComponentActivity() {
                         onLocationToggle = { enabled -> toggleLocation(enabled) },
                         onWakeToggle = { enabled -> toggleWakeWord(enabled) },
                         onPorcupineKey = { showPorcupineDialog = true },
+                        onOpenVoice = {
+                            startActivity(Intent(this@MainActivity, VoiceActivity::class.java))
+                        },
                     )
                 }
 
                 if (showServerDialog) {
                     ServerDialog(
-                        initial = state.serverUrl,
+                        initial = state.serverUrl.ifBlank { state.serverHint },
+                        hint = state.serverHint,
                         onDismiss = { showServerDialog = false },
                         onSave = { url ->
                             viewModel.saveServer(
@@ -279,6 +284,7 @@ private fun CompanionScreen(
     onLocationToggle: (Boolean) -> Unit,
     onWakeToggle: (Boolean) -> Unit,
     onPorcupineKey: () -> Unit,
+    onOpenVoice: () -> Unit,
 ) {
     Column(
         modifier = modifier
@@ -288,7 +294,7 @@ private fun CompanionScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Text("JARVIS Companion", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-        Text("Compagnon natif — GPS, wake word et notifications push", style = MaterialTheme.typography.bodyMedium)
+        Text("Compagnon natif — GPS, wake word, conversation vocale et notifications push", style = MaterialTheme.typography.bodyMedium)
 
         when (state.phase) {
             Phase.Loading -> {
@@ -337,6 +343,13 @@ private fun CompanionScreen(
             enabled = state.isPaired,
             onCheckedChange = onWakeToggle,
         )
+        Button(
+            onClick = onOpenVoice,
+            enabled = state.isPaired && state.phase == Phase.Ready,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Conversation vocale")
+        }
         TextButton(onClick = onPorcupineKey, enabled = state.isPaired) {
             Text("Configurer la clé Picovoice")
         }
@@ -408,6 +421,7 @@ private fun FeatureToggle(
 @Composable
 private fun ServerDialog(
     initial: String,
+    hint: String,
     onDismiss: () -> Unit,
     onSave: (String) -> Unit,
 ) {
@@ -418,7 +432,10 @@ private fun ServerDialog(
         title = { Text("Connexion à JARVIS") },
         text = {
             Column {
-                Text("Adresse HTTPS du Mac. Certificat JARVIS intégré — émulateur : 10.0.2.2:8081")
+                Text(
+                    "Adresse HTTPS du Mac. Émulateur : ${hint.ifBlank { "saisie manuelle" }}. " +
+                        "Certificat CA JARVIS intégré (pas de HTTP).",
+                )
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
                     value = url,

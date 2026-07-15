@@ -33,6 +33,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity
+            android:name=".voice.VoiceActivity"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
+            android:exported="false"
+            android:label="Conversation JARVIS" />
         <service
             android:name=".services.JarvisMessagingService"
             android:exported="false">

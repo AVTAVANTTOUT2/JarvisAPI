@@ -140,6 +140,10 @@ WEB_HOST = _get("WEB_HOST", "0.0.0.0")
 # Utile pour le proxy server-side du PWA (Next.js refuse les certs self-signed).
 # Pour l'accès direct iPhone via Tailscale → mettre WEB_HTTPS=true + certs/cert.pem.
 WEB_HTTPS = _get("WEB_HTTPS", "false").lower() == "true"
+SSL_CERT_PATH = BASE_DIR / "certs" / "cert.pem"
+SSL_KEY_PATH = BASE_DIR / "certs" / "key.pem"
+WEB_SSL_AVAILABLE = SSL_CERT_PATH.is_file() and SSL_KEY_PATH.is_file()
+WEB_USE_HTTPS = WEB_HTTPS and WEB_SSL_AVAILABLE
 
 # Firebase Cloud Messaging — notifications Android, même application fermée.
 FCM_SERVICE_ACCOUNT_FILE = _get("FCM_SERVICE_ACCOUNT_FILE", "")
@@ -467,3 +471,11 @@ AGENT_MODELS = {
     "journal": DEEPSEEK_MAIN_MODEL,
     "memory": DEEPSEEK_FAST_MODEL,
 }
+
+# ── Conversation vocale Android (push-to-talk) ─────────────────
+MOBILE_VOICE_MAX_BYTES = int(_get("MOBILE_VOICE_MAX_BYTES", str(5 * 1024 * 1024)))
+MOBILE_VOICE_MIN_BYTES = int(_get("MOBILE_VOICE_MIN_BYTES", "1000"))
+MOBILE_VOICE_MAX_DURATION_SEC = int(_get("MOBILE_VOICE_MAX_DURATION_SEC", "60"))
+MOBILE_VOICE_STT_TIMEOUT_SEC = float(_get("MOBILE_VOICE_STT_TIMEOUT_SEC", "120"))
+MOBILE_VOICE_LLM_TIMEOUT_SEC = float(_get("MOBILE_VOICE_LLM_TIMEOUT_SEC", "90"))
+MOBILE_VOICE_TTS_TIMEOUT_SEC = float(_get("MOBILE_VOICE_TTS_TIMEOUT_SEC", "60"))

@@ -11,13 +11,19 @@ import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
+import fr.jarvis.companion.data.JarvisRepository
 import fr.jarvis.companion.data.JarvisSettings
-import fr.jarvis.companion.network.JarvisApi
 import fr.jarvis.companion.notifications.JarvisNotifications
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 /** Présence GPS économe via service de premier plan. */
 class JarvisLocationService : Service(), LocationListener {
     private var locationManager: LocationManager? = null
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val repository by lazy { JarvisRepository(this) }
 
     override fun onCreate() {
         super.onCreate()
@@ -79,14 +85,16 @@ class JarvisLocationService : Service(), LocationListener {
     }
 
     override fun onLocationChanged(location: Location) {
-        JarvisApi(this).postLocation(
-            location.latitude,
-            location.longitude,
-            location.altitude,
-            location.accuracy,
-            location.speed,
-            location.time,
-        )
+        scope.launch {
+            repository.postLocation(
+                location.latitude,
+                location.longitude,
+                location.altitude,
+                location.accuracy,
+                location.speed,
+                location.time,
+            )
+        }
     }
 
     @Deprecated("Deprecated in API")

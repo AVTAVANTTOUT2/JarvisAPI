@@ -10,6 +10,7 @@ object JarvisSettings {
     const val PREF_SERVER = "server_url"
     const val PREF_LOCATION = "background_location"
     const val PREF_WAKE = "wake_word"
+    const val PREF_VOICE_CONVERSATION = "voice_conversation_id"
 
     private const val SECRET_NATIVE_TOKEN = "native_token"
     private const val SECRET_PORCUPINE_KEY = "porcupine_access_key"
@@ -18,8 +19,7 @@ object JarvisSettings {
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     fun server(context: Context): String =
-        preferences(context).getString(PREF_SERVER, BuildConfig.DEFAULT_SERVER)
-            ?: BuildConfig.DEFAULT_SERVER
+        preferences(context).getString(PREF_SERVER, BuildConfig.DEFAULT_SERVER)?.trim().orEmpty()
 
     fun setServer(context: Context, url: String) {
         preferences(context).edit().putString(PREF_SERVER, url).apply()

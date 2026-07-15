@@ -22,8 +22,8 @@ android {
         applicationId "fr.jarvis.companion"
         minSdk 28
         targetSdk 36
-        versionCode 4
-        versionName "1.0.2"
+        versionCode 6
+        versionName "1.0.4"
         buildConfigField "boolean", "FIREBASE_CONFIGURED", file("google-services.json").exists().toString()
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -47,9 +47,11 @@ android {
             minifyEnabled true
             shrinkResources true
             debuggable false
-            buildConfigField "String", "DEFAULT_SERVER", "\"https://100.123.50.38:8081\""
+            buildConfigField "String", "DEFAULT_SERVER", "\"\""
             if (signingPropertiesFile.exists()) {
                 signingConfig signingConfigs.release
+            } else {
+                println "WARNING: android/signing.properties absent — assembleRelease produit un APK non signé (non distribuable)."
             }
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
         }
@@ -85,7 +87,11 @@ dependencies {
     implementation "androidx.fragment:fragment-ktx:1.8.5"
     implementation "androidx.lifecycle:lifecycle-runtime-compose:2.8.7"
     implementation "androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7"
-    implementation "androidx.security:security-crypto:1.1.0-alpha06"
+
+    implementation "com.squareup.okhttp3:okhttp:4.12.0"
+    implementation "com.squareup.retrofit2:retrofit:2.11.0"
+    implementation "com.squareup.retrofit2:converter-gson:2.11.0"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0"
 
     implementation platform("com.google.firebase:firebase-bom:34.15.0")
     implementation "com.google.firebase:firebase-messaging"
@@ -93,6 +99,10 @@ dependencies {
 
     testImplementation "junit:junit:4.13.2"
     testImplementation "org.json:json:20240303"
+    testImplementation "com.squareup.okhttp3:mockwebserver:4.12.0"
+    testImplementation "com.squareup.okhttp3:okhttp-tls:4.12.0"
+    testImplementation "org.robolectric:robolectric:4.12.2"
+    testImplementation "androidx.test:core:1.6.1"
     testImplementation "org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0"
 
     androidTestImplementation platform("androidx.compose:compose-bom:2024.10.01")

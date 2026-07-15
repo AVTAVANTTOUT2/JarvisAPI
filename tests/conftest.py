@@ -54,6 +54,9 @@ def _isolate_app_lifespan(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(config, "IMESSAGE_DAEMON_ENABLED", False)
     monkeypatch.setattr(config, "DAEMON_ENABLED", False)
     monkeypatch.setattr(config, "AUDIO_DAEMON_ENABLED", False)
+    # Les cookies de session sont marqués Secure quand WEB_HTTPS=true ; le
+    # TestClient parle en http://testserver et n'envoie pas ces cookies.
+    monkeypatch.setattr(config, "WEB_HTTPS", False)
     monkeypatch.setattr(scheduler_module, "start_scheduler", lambda: None)
     monkeypatch.setattr(scheduler_module, "shutdown_scheduler", lambda: None)
     monkeypatch.setattr(email_watcher, "start", _noop_start)
