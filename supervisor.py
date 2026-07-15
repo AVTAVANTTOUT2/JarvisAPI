@@ -33,9 +33,34 @@ from starlette.responses import Response
 # ── Configuration ───────────────────────────────────────────────────────
 PROJECT_DIR = Path(__file__).parent.resolve()
 VENV_PYTHON = str(PROJECT_DIR / "venv" / "bin" / "python")
+
+from env_loader import load_jarvis_env
+
+load_jarvis_env()
+import config
+
 SUPERVISOR_PORT = int(os.getenv("SUPERVISOR_PORT", "9000"))
-BACKEND_PORT = int(os.getenv("WEB_PORT", "8081"))
-BACKEND_URL = f"http://127.0.0.1:{BACKEND_PORT}"
+BACKEND_PORT = config.WEB_PORT
+CERT_PATH = config.SSL_CERT_PATH
+KEY_PATH = config.SSL_KEY_PATH
+
+
+def _backend_scheme() -> str:
+    return "https" if config.WEB_USE_HTTPS else "http"
+
+
+def _backend_url() -> str:
+    return f"{_backend_scheme()}://127.0.0.1:{BACKEND_PORT}"
+
+
+def _backend_http_verify() -> str | bool:
+    """Vérifie TLS du backend local — CA auto-signée JARVIS, pas de TrustAll."""
+    if config.WEB_USE_HTTPS:
+        return str(CERT_PATH)
+    return True
+
+
+BACKEND_URL = _backend_url()
 DIST_DIR = PROJECT_DIR / "web" / "dist"
 LOGS_DIR = PROJECT_DIR / "data" / "logs"
 LOCK_PATH = "/tmp/jarvis_supervisor.lock"
@@ -86,6 +111,7 @@ _health_check_interval: int = int(os.getenv("SUPERVISOR_HEALTH_CHECK_S", "10"))
 _http = httpx.AsyncClient(
     timeout=httpx.Timeout(30.0, connect=5.0),
     limits=httpx.Limits(max_keepalive_connections=5, max_connections=20),
+    verify=_backend_http_verify(),
 )
 
 # ── Lock file — empeche deux supervisors de tourner en meme temps ───────
@@ -250,9 +276,73 @@ async def _svc_status(svc: dict) -> dict:
 # CONTROLE SERVICES
 # ══════════════════════════════════════════════════════════════════════════
 
+def _log_backend_tls_plan() -> None:
+    """Affiche le protocole réellement attendu pour le backend JARVIS."""
+    if config.WEB_HTTPS and not config.WEB_SSL_AVAILABLE:
+        log.error(
+            "WEB_HTTPS=true mais certificats introuvables — cert=%s key=%s "
+            "(bash scripts/generate_ssl.sh). Le backend ne sera pas démarré en HTTP.",
+            CERT_PATH,
+            KEY_PATH,
+        )
+        return
+    log.info(
+        "Backend TLS planifié : %s://127.0.0.1:%d | WEB_HTTPS=%s | cert=%s | key=%s",
+        _backend_scheme(),
+        BACKEND_PORT,
+        config.WEB_HTTPS,
+        CERT_PATH if config.WEB_SSL_AVAILABLE else "(absent)",
+        KEY_PATH if config.WEB_SSL_AVAILABLE else "(absent)",
+    )
+
+
+def _backend_responds_https() -> bool:
+    if not config.WEB_USE_HTTPS:
+        return False
+    try:
+        with httpx.Client(verify=str(CERT_PATH), timeout=2.0) as client:
+            resp = client.get(f"https://127.0.0.1:{BACKEND_PORT}/api/auth/status")
+            return resp.status_code < 500
+    except Exception:
+        return False
+
+
+def _backend_responds_http() -> bool:
+    try:
+        with httpx.Client(timeout=2.0) as client:
+            resp = client.get(f"http://127.0.0.1:{BACKEND_PORT}/api/auth/status")
+            return resp.status_code < 500
+    except Exception:
+        return False
+
+
+def _backend_protocol_mismatch() -> bool:
+    """True si WEB_HTTPS est demandé mais seul HTTP répond sur le port."""
+    if not config.WEB_USE_HTTPS or not _port_open(BACKEND_PORT):
+        return False
+    if _backend_responds_https():
+        return False
+    return _backend_responds_http()
+
+
 def _start_sync(sid: str) -> dict:
     if sid == "backend":
-        if _port_open(BACKEND_PORT):
+        if config.WEB_HTTPS and not config.WEB_SSL_AVAILABLE:
+            return {
+                "ok": False,
+                "error": (
+                    "WEB_HTTPS=true mais certificats manquants — "
+                    f"attendu {CERT_PATH} et {KEY_PATH}"
+                ),
+            }
+        if _backend_protocol_mismatch():
+            log.warning(
+                "Backend orphelin en HTTP sur port %d alors que WEB_HTTPS=true — redémarrage",
+                BACKEND_PORT,
+            )
+            _force_kill_port(BACKEND_PORT)
+            time.sleep(1)
+        elif _port_open(BACKEND_PORT):
             managed_proc = _managed.get("backend")
             if managed_proc is not None and managed_proc.poll() is None:
                 return {"ok": True, "message": "Backend deja actif"}
@@ -271,15 +361,23 @@ def _start_sync(sid: str) -> dict:
             # Port libre mais on nettoie par precaution
             _kill_port(BACKEND_PORT)
         (LOGS_DIR / "backend.log").parent.mkdir(parents=True, exist_ok=True)
+        backend_env = {**os.environ, "PYTHONUNBUFFERED": "1"}
+        if config.WEB_HTTPS:
+            backend_env["WEB_HTTPS"] = "true"
         proc = subprocess.Popen(
             [VENV_PYTHON, "main.py"],
             cwd=str(PROJECT_DIR),
             stdout=open(str(LOGS_DIR / "backend.log"), "a"),
             stderr=subprocess.STDOUT,
-            env={**os.environ, "PYTHONUNBUFFERED": "1"},
+            env=backend_env,
         )
         _managed["backend"] = proc
-        log.info("Backend demarre (PID %d)", proc.pid)
+        log.info(
+            "Backend demarre (PID %d) — %s://0.0.0.0:%d",
+            proc.pid,
+            _backend_scheme(),
+            BACKEND_PORT,
+        )
         return {"ok": True, "message": f"Backend demarre (PID {proc.pid})"}
 
     if sid == "tv_dashboard":
@@ -529,7 +627,7 @@ async def proxy_to_backend(request: Request, path: str):
             continue
         headers[k] = v
 
-    url = f"{BACKEND_URL}/api/{path}"
+    url = f"{_backend_url()}/api/{path}"
     if request.url.query:
         url += f"?{request.url.query.decode() if isinstance(request.url.query, bytes) else request.url.query}"
 
@@ -674,7 +772,8 @@ async def lifespan(_app: FastAPI):
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
     log.info("Superviseur JARVIS demarre sur port %d", SUPERVISOR_PORT)
     log.info("Frontend : %s", "web/dist/" if DIST_DIR.exists() else "NON BUILDE")
-    log.info("Backend proxy -> %s", BACKEND_URL)
+    _log_backend_tls_plan()
+    log.info("Backend proxy -> %s", _backend_url())
 
     # ── Caffeinate : empeche la veille macOS (configurable) ──
     if os.getenv("JARVIS_CAFFEINATE", "false").lower() == "true":
