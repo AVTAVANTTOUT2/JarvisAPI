@@ -110,7 +110,7 @@ def create_notification(
 
 
 def _dispatch_push_notification(title: str, content: str | None, priority: str) -> None:
-    """Envoi Web Push à tous les abonnements connus — en arrière-plan, jamais bloquant."""
+    """Envoi Web Push + FCM Android — en arrière-plan, jamais bloquant."""
     import threading
 
     def _send():
@@ -127,6 +127,14 @@ def _dispatch_push_notification(title: str, content: str | None, priority: str) 
                 )
                 if not ok and status in (404, 410):
                     delete_push_subscription(sub["endpoint"])
+
+            from database.mobile import clear_mobile_push_token, get_active_mobile_push_tokens
+            from integrations.fcm import send_fcm_notification
+
+            for token in get_active_mobile_push_tokens():
+                ok, status = send_fcm_notification(token, title, content, priority)
+                if not ok and status in (404, 410):
+                    clear_mobile_push_token(token)
         except Exception:
             logger.debug("[push] dispatch échoué (best-effort)", exc_info=True)
 

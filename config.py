@@ -96,6 +96,10 @@ WEB_HOST = _get("WEB_HOST", "0.0.0.0")
 # Pour l'accès direct iPhone via Tailscale → mettre WEB_HTTPS=true + certs/cert.pem.
 WEB_HTTPS = _get("WEB_HTTPS", "false").lower() == "true"
 
+# Firebase Cloud Messaging — notifications Android, même application fermée.
+FCM_SERVICE_ACCOUNT_FILE = _get("FCM_SERVICE_ACCOUNT_FILE", "")
+FCM_PROJECT_ID = _get("FCM_PROJECT_ID", "")
+
 # ── Contrôle ordinateur local (macOS) ────────────────────────
 COMPUTER_ACCESS = _get("COMPUTER_ACCESS", "true")
 COMPUTER_SHELL = _get("COMPUTER_SHELL", "/bin/zsh")
