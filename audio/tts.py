@@ -235,7 +235,9 @@ class KokoroTTSEngine:
     VOICES_PATH = Path(__file__).resolve().parent.parent / "models" / "kokoro" / "voices.bin"
 
     def __init__(self) -> None:
-        self._voice = getattr(config, "KOKORO_VOICE", "af_nicole")
+        from audio.tts_native import FRENCH_KOKORO_VOICE
+
+        self._voice = getattr(config, "KOKORO_VOICE", FRENCH_KOKORO_VOICE)
         self._lang = getattr(config, "KOKORO_LANG", "fr-fr")
         self._kokoro: object | None = None
         self._load_failed = False
@@ -289,13 +291,13 @@ class KokoroTTSEngine:
     def get_backend_name(self) -> str:
         return "kokoro"
 
-    def get_fallback(self) -> "TTSEngine | MacOSTTSEngine":
-        """Retourne un moteur de secours si Kokoro est inopérant."""
+    def get_fallback(self) -> "MacOSTTSEngine":
+        """Retourne un moteur de secours local uniquement (pas Edge/ElevenLabs)."""
         if macos_tts.available:
             logger.warning("[TTS] Kokoro fallback → macOS TTS")
             return macos_tts
-        logger.warning("[TTS] Kokoro fallback → Edge TTS")
-        return tts
+        logger.error("[TTS] Kokoro fallback indisponible — aucun TTS local")
+        return macos_tts
 
     async def synthesize(self, text: str, emotion: str = "neutral") -> bytes:
         if not text or not text.strip():
@@ -394,6 +396,39 @@ class MacOSTTSEngine:
         if data:
             yield data
 
+    async def synthesize_native(self, text: str, emotion: str = "neutral") -> bytes:
+        """Produit un WAV PCM pour la sortie locale sounddevice/CoreAudio.
+
+        Le chemin web historique conserve le M4A. Sur les versions récentes
+        de macOS, l'encodeur AAC d'afconvert peut être absent alors que la
+        conversion PCM WAVE reste disponible.
+        """
+        if not self.available or not (text and text.strip()):
+            return b""
+        with tempfile.TemporaryDirectory(prefix="jarvis_tts_native_") as tmpdir:
+            aiff_path = os.path.join(tmpdir, "out.aiff")
+            wav_path = os.path.join(tmpdir, "out.wav")
+            try:
+                say_proc = await asyncio.create_subprocess_exec(
+                    "say", "-v", self._voice, "-o", aiff_path, text,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                )
+                if await say_proc.wait() != 0 or not os.path.exists(aiff_path):
+                    return b""
+
+                afc_proc = await asyncio.create_subprocess_exec(
+                    "afconvert", "-f", "WAVE", "-d", "LEI16", aiff_path, wav_path,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                )
+                if await afc_proc.wait() != 0 or not os.path.exists(wav_path):
+                    return b""
+                return Path(wav_path).read_bytes()
+            except Exception as e:
+                logger.exception("[TTS] macOS natif erreur : %s", e)
+                return b""
+
     async def _synth_macos(self, text: str) -> bytes:
         with tempfile.TemporaryDirectory(prefix="jarvis_tts_") as tmpdir:
             aiff_path = os.path.join(tmpdir, "out.aiff")
@@ -453,14 +488,20 @@ class MacOSTTSEngine:
 
 macos_tts = MacOSTTSEngine()
 
-TTS_ENGINE_NAMES = frozenset({"edge", "elevenlabs", "macos", "kokoro"})
+TTS_ENGINE_NAMES = frozenset({"edge", "elevenlabs", "macos", "kokoro", "ttskit"})
 
 
 def get_tts_by_name(name: str) -> TTSEngine | MacOSTTSEngine | KokoroTTSEngine:
     """Retourne le singleton correspondant au nom de moteur.
 
     Fallback sur `tts` (Edge par défaut) si le nom est inconnu ou non disponible.
+    Pour le pipeline natif macOS, utiliser ``audio.tts_native.get_native_tts_engine``.
     """
+    if name == "ttskit":
+        from audio.tts_native import ttskit_tts
+
+        if ttskit_tts.preload_sync():
+            return ttskit_tts  # type: ignore[return-value]
     if name == "kokoro" and kokoro_tts.available:
         return kokoro_tts
     if name == "macos" and macos_tts.available:

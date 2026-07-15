@@ -92,6 +92,17 @@ class ScreenWatcher:
         # Callbacks asynchrones définis par le daemon
         self.on_notable = None  # async (notable_text: str, context: dict) -> None
         self.on_idle = None     # async (idle_minutes: int) -> None
+        self._vision_deferred_logged: float = 0.0
+        self._vision_task: asyncio.Task[dict | None] | None = None
+
+    @staticmethod
+    def _is_voice_busy() -> bool:
+        try:
+            from audio.voice_queue import voice_queue
+
+            return voice_queue.voice_busy or voice_queue.user_conversation_active
+        except Exception:
+            return False
 
     # ── Contrôle ────────────────────────────────────────────────────────────
 
@@ -123,6 +134,13 @@ class ScreenWatcher:
 
     def stop(self) -> None:
         self.running = False
+        self.defer_for_voice()
+
+    def defer_for_voice(self) -> None:
+        """Annule uniquement l'analyse vision active pour libérer les ressources."""
+        task = self._vision_task
+        if task is not None and not task.done():
+            task.cancel()
 
     # ── Tick principal ──────────────────────────────────────────────────────
 
@@ -172,9 +190,25 @@ class ScreenWatcher:
         self.idle_seconds = 0
         self.idle_alerted = False
 
-        # 8. Analyse Ollama si changement significatif
+        # 8. Analyse Ollama si changement significatif (différée pendant conversation vocale)
         if change_pct >= self.analysis_threshold:
-            analysis = await self._analyze_with_ollama(cropped, current_app, window_info)
+            if self._is_voice_busy():
+                now = time.time()
+                if now - self._vision_deferred_logged > 30:
+                    self._vision_deferred_logged = now
+                    logger.info("[screen] Analyse vision différée — STT/TTS prioritaires")
+                return
+            self._vision_task = asyncio.create_task(
+                self._analyze_with_ollama(cropped, current_app, window_info),
+                name="screen_vision",
+            )
+            try:
+                analysis = await self._vision_task
+            except asyncio.CancelledError:
+                logger.info("[screen] Analyse vision annulée — priorité voix")
+                return
+            finally:
+                self._vision_task = None
             if analysis:
                 save_screen_activity(
                     device=self.device,
@@ -428,6 +462,9 @@ class ScreenWatcher:
         Returns:
             Dict JSON parsé ou None si échec.
         """
+        if self._is_voice_busy():
+            return None
+
         # Cooldown : vérifier si on peut réessayer
         if not self._ollama_available:
             if time.time() < self._ollama_next_retry:
@@ -488,7 +525,11 @@ class ScreenWatcher:
                         "prompt": prompt,
                         "images": [img_b64],
                         "stream": False,
-                        "options": {"temperature": 0.1, "num_predict": 100},
+                        "keep_alive": "30s",
+                        "options": {
+                            "temperature": 0.1,
+                            "num_predict": 100,
+                        },
                     },
                 )
                 response.raise_for_status()

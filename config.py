@@ -26,8 +26,13 @@ ELEVENLABS_VOICE_ID = _get("ELEVENLABS_VOICE_ID")
 
 TTS_ENGINE = _get("TTS_ENGINE", "edge")
 TTS_VOICE = _get("TTS_VOICE", "fr-FR-VivienneMultilingualNeural")
-KOKORO_VOICE = _get("KOKORO_VOICE", "af_nicole")
+TTS_MODEL = _get("TTS_MODEL", "qwen3-tts-0.6b")
+TTS_LANGUAGE = _get("TTS_LANGUAGE", "fr")
+TTS_MODEL_PATH = _get("TTS_MODEL_PATH", "")  # chemin local optionnel pour TTSKit
+KOKORO_VOICE = _get("KOKORO_VOICE", "ff_siwis")
 KOKORO_LANG = _get("KOKORO_LANG", "fr-fr")
+AUDIO_DAEMON_HALF_DUPLEX = _get("AUDIO_DAEMON_HALF_DUPLEX", "true").lower() == "true"
+AUDIO_DAEMON_PRE_ROLL_MS = int(_get("AUDIO_DAEMON_PRE_ROLL_MS", "300"))
 WAKE_WORD = _get("WAKE_WORD", "jarvis")
 
 # Mode conversation mains libres (client : détection silence ; valeurs envoyées dans le status HTTP)
@@ -140,16 +145,16 @@ EMAIL_CHECK_INTERVAL = float(_get("EMAIL_CHECK_INTERVAL", "120"))
 # notifications proactives, wake word, TTS local.
 DAEMON_ENABLED = _get("DAEMON_ENABLED", "true").lower() == "true"
 SCREEN_WATCHER_ENABLED = _get("SCREEN_WATCHER_ENABLED", "true").lower() == "true"
-SCREEN_WATCHER_INTERVAL = int(_get("SCREEN_WATCHER_INTERVAL", "30"))      # secondes (↑ 12→30 : allege RAM)
+SCREEN_WATCHER_INTERVAL = int(_get("SCREEN_WATCHER_INTERVAL", "15"))      # secondes
 SCREEN_CHANGE_THRESHOLD = float(_get("SCREEN_CHANGE_THRESHOLD", "5"))     # % minimum
-SCREEN_ANALYSIS_THRESHOLD = float(_get("SCREEN_ANALYSIS_THRESHOLD", "40"))  # % pour LLM (↑ 15→40 : filtre anti-RAM-kill)
+SCREEN_ANALYSIS_THRESHOLD = float(_get("SCREEN_ANALYSIS_THRESHOLD", "30"))  # % pour LLM vision
 SCREEN_RESIZE_WIDTH = int(_get("SCREEN_RESIZE_WIDTH", "1280"))
 SCREEN_RESIZE_HEIGHT = int(_get("SCREEN_RESIZE_HEIGHT", "800"))
 SCREEN_RESIZE: tuple[int, int] = (SCREEN_RESIZE_WIDTH, SCREEN_RESIZE_HEIGHT)
-SCREEN_MAX_ANALYSIS_WIDTH = int(_get("SCREEN_MAX_ANALYSIS_WIDTH", "640"))
-SCREEN_JPEG_QUALITY = int(_get("SCREEN_JPEG_QUALITY", "50"))
-SCREEN_VISION_MODEL = _get("SCREEN_VISION_MODEL", "qwen2.5vl:7b")
-SCREEN_OLLAMA_MIN_INTERVAL_S = float(_get("SCREEN_OLLAMA_MIN_INTERVAL_S", "120"))  # delai min entre 2 analyses vision
+SCREEN_MAX_ANALYSIS_WIDTH = int(_get("SCREEN_MAX_ANALYSIS_WIDTH", "768"))
+SCREEN_JPEG_QUALITY = int(_get("SCREEN_JPEG_QUALITY", "55"))
+SCREEN_VISION_MODEL = _get("SCREEN_VISION_MODEL", "qwen3-vl:4b")
+SCREEN_OLLAMA_MIN_INTERVAL_S = float(_get("SCREEN_OLLAMA_MIN_INTERVAL_S", "60"))  # delai min entre 2 analyses vision
 TRIAGE_MODEL = _get("TRIAGE_MODEL", "qwen2.5:7b")
 OLLAMA_URL = _get("OLLAMA_URL", "http://localhost:11434")
 
@@ -162,7 +167,7 @@ WAKE_WORD_ENABLED = _get("WAKE_WORD_ENABLED", "false").lower() == "true"
 PORCUPINE_ACCESS_KEY = _get("PORCUPINE_ACCESS_KEY", "")
 
 # Anti-spam vocal en mode veille : minimum N secondes entre deux notifs voix
-DAEMON_TTS_COOLDOWN = int(_get("DAEMON_TTS_COOLDOWN", "30"))
+DAEMON_TTS_COOLDOWN = int(_get("DAEMON_TTS_COOLDOWN", "15"))
 
 # Phrases de fin de conversation vocale (union audio_daemon + jarvis_daemon)
 END_PHRASES: tuple[str, ...] = (
@@ -176,17 +181,25 @@ END_PHRASES: tuple[str, ...] = (
 AUDIO_DAEMON_ENABLED = _get("AUDIO_DAEMON_ENABLED", "false").lower() == "true"
 AUDIO_DAEMON_SAMPLE_RATE = int(_get("AUDIO_DAEMON_SAMPLE_RATE", "16000"))
 AUDIO_DAEMON_SPEECH_THRESHOLD = float(_get("AUDIO_DAEMON_SPEECH_THRESHOLD", "0.02"))
-AUDIO_DAEMON_SILENCE_MS = int(_get("AUDIO_DAEMON_SILENCE_MS", "1200"))
-AUDIO_DAEMON_MIN_SPEECH_MS = int(_get("AUDIO_DAEMON_MIN_SPEECH_MS", "600"))
-AUDIO_DAEMON_MAX_UTTERANCE_S = int(_get("AUDIO_DAEMON_MAX_UTTERANCE_S", "15"))
-AUDIO_DAEMON_CONVERSATION_TIMEOUT = float(_get("AUDIO_DAEMON_CONVERSATION_TIMEOUT", "15.0"))
+AUDIO_DAEMON_SILENCE_MS = int(_get("AUDIO_DAEMON_SILENCE_MS", "450"))
+AUDIO_DAEMON_MIN_SPEECH_MS = int(_get("AUDIO_DAEMON_MIN_SPEECH_MS", "200"))
+AUDIO_DAEMON_MAX_UTTERANCE_S = int(_get("AUDIO_DAEMON_MAX_UTTERANCE_S", "30"))
+AUDIO_DAEMON_CONVERSATION_TIMEOUT = float(_get("AUDIO_DAEMON_CONVERSATION_TIMEOUT", "30.0"))
 AUDIO_DAEMON_INPUT_DEVICE = _get("AUDIO_DAEMON_INPUT_DEVICE", "")  # vide = auto Blue Snowball sinon defaut systeme
 AUDIO_DAEMON_WAKE_SOUND = _get("AUDIO_DAEMON_WAKE_SOUND", "true").lower() == "true"
-AUDIO_DAEMON_STT_ENGINE = _get("AUDIO_DAEMON_STT_ENGINE", "").strip().lower()  # "local" pour faster-whisper, "" = ElevenLabs Scribe
-AUDIO_DAEMON_STT_MODEL = _get("AUDIO_DAEMON_STT_MODEL", "small")  # small (244Mo, bon FR) | base (142Mo) | tiny (75Mo)
+AUDIO_DAEMON_STT_ENGINE = _get("AUDIO_DAEMON_STT_ENGINE", "local").strip().lower()
+AUDIO_DAEMON_STT_MODEL = _get("AUDIO_DAEMON_STT_MODEL", "small")
+AUDIO_DAEMON_STT_FALLBACK_MODEL = _get("AUDIO_DAEMON_STT_FALLBACK_MODEL", "small")
+AUDIO_DAEMON_WHISPERCPP_MODEL_PATH = _get(
+    "AUDIO_DAEMON_WHISPERCPP_MODEL_PATH", str(Path.home() / "models" / "ggml-large-v3.bin")
+)
+AUDIO_DAEMON_ALLOW_MODEL_DOWNLOAD = _get(
+    "AUDIO_DAEMON_ALLOW_MODEL_DOWNLOAD", "false"
+).lower() == "true"
 
 # ── VAD (Voice Activity Detection) ────────────────────────────
-SILERO_VAD_THRESHOLD = float(_get("SILERO_VAD_THRESHOLD", "0.5"))  # 0.3=tres sensible, 0.5=defaut, 0.7=strict
+SILERO_VAD_THRESHOLD = float(_get("SILERO_VAD_THRESHOLD", "0.42"))  # hysteresis ON
+SILERO_VAD_THRESHOLD_OFF = float(_get("SILERO_VAD_THRESHOLD_OFF", "0.28"))
 
 # ── Mode autonome /loop (DeepSeek sans limite configurable) ──
 LOOP_UNLIMITED = _get("LOOP_UNLIMITED", "true").lower() == "true"
@@ -279,7 +292,7 @@ LATE_RETURN_ENABLED = _get("LATE_RETURN_ENABLED", "true").lower() == "true"
 LATE_RETURN_HOUR = int(_get("LATE_RETURN_HOUR", "23"))         # à partir de cette heure
 
 # ── Voix : rejeu, session persistante, TTS spéculatif ─────────
-SPECULATIVE_TTS_ENABLED = _get("SPECULATIVE_TTS_ENABLED", "true").lower() == "true"
+SPECULATIVE_TTS_ENABLED = _get("SPECULATIVE_TTS_ENABLED", "false").lower() == "true"
 VOICE_SESSION_GRACE_S = int(_get("VOICE_SESSION_GRACE_S", "180"))  # reprise après coupure courte
 
 # ── Auto-résumé de réunions (micro daemon audio) ──────────────
