@@ -16,8 +16,8 @@ import java.util.concurrent.Executors
 import javax.net.ssl.HttpsURLConnection
 
 /**
- * Client HTTPS natif.
- * La confiance TLS repose sur [network_security_config] (CA JARVIS + système).
+ * Client HTTPS natif vers le serveur JARVIS.
+ * Confiance TLS : CA privée JARVIS pour l'hôte configuré (voir [JarvisTls]), CA système ailleurs.
  */
 class JarvisApi(context: Context) {
     private val appContext = context.applicationContext
@@ -33,7 +33,7 @@ class JarvisApi(context: Context) {
         post("/api/mobile/pairing/complete", body, bearer = "", callback)
     }
 
-    fun createWebSession(callback: (JarvisApiResult) -> Unit) {
+    fun validateNativeToken(callback: (JarvisApiResult) -> Unit) {
         post("/api/mobile/session", JSONObject(), JarvisSettings.nativeToken(appContext), callback)
     }
 
@@ -102,6 +102,15 @@ class JarvisApi(context: Context) {
         return try {
             val url = URL(JarvisSettings.server(appContext) + path)
             connection = (url.openConnection() as HttpURLConnection).apply {
+                if (this is HttpsURLConnection &&
+                    ServerUrlNormalizer.isJarvisHost(
+                        JarvisSettings.server(appContext),
+                        url.host,
+                    )
+                ) {
+                    val ctx = JarvisTls.sslContext(appContext)
+                    sslSocketFactory = ctx.socketFactory
+                }
                 requestMethod = method
                 connectTimeout = CONNECT_TIMEOUT_MS
                 readTimeout = READ_TIMEOUT_MS
