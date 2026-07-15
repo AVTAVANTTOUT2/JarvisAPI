@@ -123,7 +123,8 @@ class MainActivity : ComponentActivity() {
 
                 if (showServerDialog) {
                     ServerDialog(
-                        initial = state.serverUrl,
+                        initial = state.serverUrl.ifBlank { state.serverHint },
+                        hint = state.serverHint,
                         onDismiss = { showServerDialog = false },
                         onSave = { url ->
                             viewModel.saveServer(
@@ -408,6 +409,7 @@ private fun FeatureToggle(
 @Composable
 private fun ServerDialog(
     initial: String,
+    hint: String,
     onDismiss: () -> Unit,
     onSave: (String) -> Unit,
 ) {
@@ -418,7 +420,10 @@ private fun ServerDialog(
         title = { Text("Connexion à JARVIS") },
         text = {
             Column {
-                Text("Adresse HTTPS du Mac. Certificat JARVIS intégré — émulateur : 10.0.2.2:8081")
+                Text(
+                    "Adresse HTTPS du Mac. Émulateur : ${hint.ifBlank { "saisie manuelle" }}. " +
+                        "Certificat CA JARVIS intégré (pas de HTTP).",
+                )
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
                     value = url,

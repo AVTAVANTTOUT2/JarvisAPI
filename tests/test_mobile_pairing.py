@@ -49,6 +49,18 @@ def _pair(client, device_id: str = "s24-test") -> str:
     return complete.json()["token"]
 
 
+def test_pairing_start_requires_authenticated_session(tmp_db):
+    """Régression : cookie Secure (WEB_HTTPS) ne doit pas casser le TestClient."""
+    import config
+
+    assert config.WEB_HTTPS is False
+    with _client() as client:
+        authenticate(client)
+        start = client.post("/api/mobile/pairing/start")
+    assert start.status_code == 200
+    assert len(start.json()["code"]) == 6
+
+
 def test_pairing_code_is_one_time_and_token_is_hashed(tmp_db):
     import auth
     from database import get_db

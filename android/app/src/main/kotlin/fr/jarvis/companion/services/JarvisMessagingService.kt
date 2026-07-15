@@ -2,15 +2,22 @@ package fr.jarvis.companion.services
 
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
+import fr.jarvis.companion.data.JarvisRepository
 import fr.jarvis.companion.data.JarvisSettings
-import fr.jarvis.companion.network.JarvisApi
 import fr.jarvis.companion.notifications.JarvisNotifications
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 /** Réception FCM native lorsque l'application est fermée. */
 class JarvisMessagingService : FirebaseMessagingService() {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val repository by lazy { JarvisRepository(this) }
+
     override fun onNewToken(token: String) {
         if (JarvisSettings.nativeToken(this).isNotEmpty()) {
-            JarvisApi(this).registerPushToken(token)
+            scope.launch { repository.registerPushToken(token) }
         }
     }
 
