@@ -48,6 +48,7 @@ import fr.jarvis.companion.notifications.JarvisNotifications
 import fr.jarvis.companion.services.JarvisLocationService
 import fr.jarvis.companion.services.JarvisWakeWordService
 import fr.jarvis.companion.ui.theme.JarvisTheme
+import fr.jarvis.companion.voice.VoiceActivity
 
 /** Interface native du compagnon JARVIS — aucun WebView. */
 class MainActivity : ComponentActivity() {
@@ -118,6 +119,9 @@ class MainActivity : ComponentActivity() {
                         onLocationToggle = { enabled -> toggleLocation(enabled) },
                         onWakeToggle = { enabled -> toggleWakeWord(enabled) },
                         onPorcupineKey = { showPorcupineDialog = true },
+                        onOpenVoice = {
+                            startActivity(Intent(this@MainActivity, VoiceActivity::class.java))
+                        },
                     )
                 }
 
@@ -280,6 +284,7 @@ private fun CompanionScreen(
     onLocationToggle: (Boolean) -> Unit,
     onWakeToggle: (Boolean) -> Unit,
     onPorcupineKey: () -> Unit,
+    onOpenVoice: () -> Unit,
 ) {
     Column(
         modifier = modifier
@@ -289,7 +294,7 @@ private fun CompanionScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Text("JARVIS Companion", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-        Text("Compagnon natif — GPS, wake word et notifications push", style = MaterialTheme.typography.bodyMedium)
+        Text("Compagnon natif — GPS, wake word, conversation vocale et notifications push", style = MaterialTheme.typography.bodyMedium)
 
         when (state.phase) {
             Phase.Loading -> {
@@ -338,6 +343,13 @@ private fun CompanionScreen(
             enabled = state.isPaired,
             onCheckedChange = onWakeToggle,
         )
+        Button(
+            onClick = onOpenVoice,
+            enabled = state.isPaired && state.phase == Phase.Ready,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Conversation vocale")
+        }
         TextButton(onClick = onPorcupineKey, enabled = state.isPaired) {
             Text("Configurer la clé Picovoice")
         }

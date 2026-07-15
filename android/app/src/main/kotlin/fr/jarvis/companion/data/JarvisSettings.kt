@@ -10,6 +10,7 @@ object JarvisSettings {
     const val PREF_SERVER = "server_url"
     const val PREF_LOCATION = "background_location"
     const val PREF_WAKE = "wake_word"
+    const val PREF_VOICE_CONVERSATION = "voice_conversation_id"
 
     private const val SECRET_NATIVE_TOKEN = "native_token"
     private const val SECRET_PORCUPINE_KEY = "porcupine_access_key"
