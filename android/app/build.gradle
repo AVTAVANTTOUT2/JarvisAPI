@@ -1,4 +1,8 @@
-plugins { id "com.android.application" }
+plugins {
+    id "com.android.application"
+    id "org.jetbrains.kotlin.android"
+    id "org.jetbrains.kotlin.plugin.compose"
+}
 
 if (file("google-services.json").exists()) {
     apply plugin: "com.google.gms.google-services"
@@ -13,14 +17,17 @@ if (signingPropertiesFile.exists()) {
 android {
     namespace "fr.jarvis.companion"
     compileSdk 36
+
     defaultConfig {
         applicationId "fr.jarvis.companion"
         minSdk 28
         targetSdk 36
-        versionCode 3
-        versionName "1.0.1"
+        versionCode 4
+        versionName "1.0.2"
         buildConfigField "boolean", "FIREBASE_CONFIGURED", file("google-services.json").exists().toString()
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
+
     signingConfigs {
         release {
             if (signingPropertiesFile.exists()) {
@@ -31,25 +38,65 @@ android {
             }
         }
     }
+
     buildTypes {
+        debug {
+            buildConfigField "String", "DEFAULT_SERVER", "\"https://10.0.2.2:8081\""
+        }
         release {
-            minifyEnabled false
+            minifyEnabled true
+            shrinkResources true
             debuggable false
+            buildConfigField "String", "DEFAULT_SERVER", "\"https://100.123.50.38:8081\""
             if (signingPropertiesFile.exists()) {
                 signingConfig signingConfigs.release
             }
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
         }
     }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
-    buildFeatures { buildConfig true }
+
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+
+    buildFeatures {
+        buildConfig true
+        compose true
+    }
+
+    packaging {
+        resources {
+            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+    }
 }
 
 dependencies {
+    implementation platform("androidx.compose:compose-bom:2024.10.01")
+    implementation "androidx.compose.ui:ui"
+    implementation "androidx.compose.ui:ui-tooling-preview"
+    implementation "androidx.compose.material3:material3"
+    implementation "androidx.activity:activity-compose:1.9.3"
+    implementation "androidx.fragment:fragment-ktx:1.8.5"
+    implementation "androidx.lifecycle:lifecycle-runtime-compose:2.8.7"
+    implementation "androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7"
+    implementation "androidx.security:security-crypto:1.1.0-alpha06"
+
     implementation platform("com.google.firebase:firebase-bom:34.15.0")
     implementation "com.google.firebase:firebase-messaging"
     implementation "ai.picovoice:porcupine-android:4.0.2"
+
+    testImplementation "junit:junit:4.13.2"
+    testImplementation "org.json:json:20240303"
+    testImplementation "org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0"
+
+    androidTestImplementation platform("androidx.compose:compose-bom:2024.10.01")
+    androidTestImplementation "androidx.test.ext:junit:1.2.1"
+    androidTestImplementation "androidx.test:runner:1.6.2"
+    androidTestImplementation "androidx.compose.ui:ui-test-junit4"
 }

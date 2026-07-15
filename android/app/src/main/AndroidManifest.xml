@@ -24,7 +24,7 @@
         android:theme="@style/Theme.Jarvis"
         android:usesCleartextTraffic="false">
         <activity
-            android:name=".MainActivity"
+            android:name=".ui.MainActivity"
             android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
             android:exported="true"
             android:launchMode="singleTask">
@@ -34,22 +34,22 @@
             </intent-filter>
         </activity>
         <service
-            android:name=".JarvisMessagingService"
+            android:name=".services.JarvisMessagingService"
             android:exported="false">
             <intent-filter>
                 <action android:name="com.google.firebase.MESSAGING_EVENT" />
             </intent-filter>
         </service>
         <service
-            android:name=".JarvisLocationService"
+            android:name=".services.JarvisLocationService"
             android:exported="false"
             android:foregroundServiceType="location" />
         <service
-            android:name=".JarvisWakeWordService"
+            android:name=".services.JarvisWakeWordService"
             android:exported="false"
             android:foregroundServiceType="microphone" />
         <receiver
-            android:name=".JarvisBootReceiver"
+            android:name=".receivers.JarvisBootReceiver"
             android:enabled="true"
             android:exported="true">
             <intent-filter>

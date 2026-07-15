@@ -1,85 +1,46 @@
-# JARVIS Android 1.0 — Galaxy S24
+# JARVIS Android 1.0.2 — compagnon natif Kotlin
 
-Application native privée qui relie le téléphone au JARVIS du Mac via Tailscale HTTPS.
+Application **100 % native Kotlin** (Jetpack Compose) qui relie le téléphone au JARVIS du Mac via HTTPS.
+
+> **Pas de WebView** : l'interface est un tableau de bord natif (appairage, GPS, wake word, statut FCM).
 
 ## Fonctions
 
-- pairage natif par code à six chiffres, sans conserver le PIN JARVIS sur le téléphone ;
-- jeton natif chiffré par Android Keystore et cookie web recréé automatiquement ;
-- notifications FCM lorsque l'interface ou l'application est fermée ;
-- présence GPS en arrière-plan par service de premier plan économe ;
-- détection locale du mot « JARVIS » avec Porcupine ;
-- certificat JARVIS intégré : toute autre chaîne HTTPS est refusée ;
-- révocation du téléphone et de toutes ses sessions depuis l'interface web ;
-- build release signé pour installation privée.
+- pairage natif par code à six chiffres ;
+- jeton natif chiffré (Android Keystore) ;
+- notifications FCM si `google-services.json` est présent ;
+- présence GPS en arrière-plan (service de premier plan) ;
+- détection locale du mot « JARVIS » (Porcupine) ;
+- certificat JARVIS intégré (`res/raw/jarvis_ca.crt`) — pas de contournement TLS ;
+- révocation depuis l'interface web JARVIS.
 
-## Configuration Firebase obligatoire pour le push réel
+## HTTPS côté Mac (obligatoire)
 
-1. Créer une application Android Firebase avec l'identifiant `fr.jarvis.companion`.
-2. Placer son fichier public `google-services.json` dans `android/app/google-services.json`.
-3. Télécharger un compte de service Firebase Admin dans
-   `credentials/firebase-service-account.json`.
-4. Ajouter dans `.env` :
-
-```dotenv
-FCM_SERVICE_ACCOUNT_FILE=./credentials/firebase-service-account.json
-FCM_PROJECT_ID=identifiant-du-projet
-```
-
-Ces deux fichiers sont ignorés par Git. Sans eux, le même APK reste utilisable mais
-le build indique `FIREBASE_CONFIGURED=false` et n'enregistre aucun jeton FCM.
-
-## Certificat HTTPS
-
-Le certificat public actuel est intégré dans
-`app/src/main/res/raw/jarvis_ca.crt`. Il correspond à `certs/cert.pem` :
-
-```text
-SHA-256 6E:88:09:46:58:B2:92:88:BA:9E:30:3F:44:90:3A:19:
-        E0:42:31:C1:A0:E3:99:0C:DB:E2:C6:B7:D8:B6:E8:4C
-SAN     100.123.50.38, 127.0.0.1, localhost
-Expire  17 octobre 2028
-```
-
-Quand le certificat change, remplacer aussi la ressource Android et reconstruire
-l'APK. L'application ne propose jamais de contourner une erreur TLS.
-
-## Build release privé
-
-Le fichier local ignoré `android/signing.properties` doit contenir :
-
-```properties
-storeFile=release.keystore
-storePassword=mot-de-passe-fort
-keyAlias=jarvis-release
-keyPassword=mot-de-passe-fort
-```
-
-Puis créer la clé une seule fois et la sauvegarder hors du Mac :
+L'app refuse le HTTP. **Ne pas utiliser de pont TLS temporaire.**
 
 ```bash
-keytool -genkeypair -v \
-  -keystore android/release.keystore \
-  -alias jarvis-release -keyalg RSA -keysize 4096 -validity 10000
+# Certificats + sync CA Android
+bash scripts/generate_ssl.sh
+bash scripts/sync_android_ca.sh
 
-cd android
-JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" \
-  ./gradlew clean assembleRelease
+# Démarrer JARVIS en HTTPS natif
+bash scripts/android_dev_https.sh
 ```
 
-APK : `app/build/outputs/apk/release/app-release.apk`.
+Émulateur Android : adresse par défaut `https://10.0.2.2:8081` (debug).  
+Téléphone physique (Tailscale) : `https://100.123.50.38:8081` (release).
 
-## Premier pairage
+## Build
 
-1. Démarrer JARVIS avec HTTPS sur le Mac et connecter Mac + S24 à Tailscale.
-2. Dans l'interface web : `Téléphone` puis `Générer un code`.
-3. Ouvrir l'APK, conserver `https://100.123.50.38:8081` et saisir le code.
-4. Dans les réglages natifs JARVIS, activer GPS H24 puis sélectionner
-   `Toujours autoriser` dans les réglages Android.
-5. Pour le mot-clé, créer une AccessKey sur Picovoice Console et la coller dans
-   les réglages natifs. La clé est chiffrée par Android Keystore et l'audio reste local.
+```bash
+cd android
+JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" \
+  ./gradlew clean assembleDebug test
+cp app/build/outputs/apk/debug/app-debug.apk ../jarvis-companion.apk
+```
 
-Sur Samsung, régler également `Batterie > Limites utilisation arrière-plan` afin
-que JARVIS ne soit pas placé dans les applications en veille profonde. Android exige
-une ouverture visible de l'application après un redémarrage avant de réactiver le
-micro ; JARVIS affiche alors une notification de réactivation. Le GPS reprend seul.
+Release signée : voir `signing.properties` (gitignoré).
+
+## Firebase (optionnel)
+
+Sans `android/app/google-services.json`, le build définit `FIREBASE_CONFIGURED=false` et l'UI l'indique clairement.
