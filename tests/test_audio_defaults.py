@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import re
+import sys
 from pathlib import Path
+
+import pytest
 
 import config
 from audio.engine_config import FASTER_WHISPER_MODELS, is_valid_faster_whisper_model
@@ -84,6 +87,7 @@ def test_local_alias_maps_to_faster_whisper(monkeypatch):
     assert isinstance(backend._backends[0], FasterWhisperBackend)
 
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="moteur macos (say) indisponible hors darwin")
 def test_alternate_tts_engines_selectable():
     edge = get_tts_by_name("edge")
     macos = get_tts_by_name("macos")

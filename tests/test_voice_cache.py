@@ -77,12 +77,30 @@ async def test_speculative_invalidated_on_voice_change(monkeypatch):
     from audio.tts_cache import SpeculativeTTS
 
     monkeypatch.setattr("config.SPECULATIVE_TTS_ENABLED", True)
+    # La signature du cache est par moteur : TTS_VOICE n'invalide que pour edge.
+    monkeypatch.setattr("config.TTS_ENGINE", "edge")
     monkeypatch.setattr("config.TTS_VOICE", "voix-A")
     spec = SpeculativeTTS()
     await spec.put("Bien, Monsieur.", "neutral", _FakeEngine())
     assert spec.get("Bien, Monsieur.") is not None
 
     monkeypatch.setattr("config.TTS_VOICE", "voix-B")
+    assert spec.get("Bien, Monsieur.") is None
+    assert spec.stats()["entries"] == 0
+
+
+@pytest.mark.asyncio
+async def test_speculative_invalidated_on_kokoro_voice_change(monkeypatch):
+    from audio.tts_cache import SpeculativeTTS
+
+    monkeypatch.setattr("config.SPECULATIVE_TTS_ENABLED", True)
+    monkeypatch.setattr("config.TTS_ENGINE", "kokoro")
+    monkeypatch.setattr("config.KOKORO_VOICE", "af_nicole")
+    spec = SpeculativeTTS()
+    await spec.put("Bien, Monsieur.", "neutral", _FakeEngine())
+    assert spec.get("Bien, Monsieur.") is not None
+
+    monkeypatch.setattr("config.KOKORO_VOICE", "af_bella")
     assert spec.get("Bien, Monsieur.") is None
     assert spec.stats()["entries"] == 0
 
