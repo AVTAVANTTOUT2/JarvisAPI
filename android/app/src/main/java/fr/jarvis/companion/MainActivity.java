@@ -195,7 +195,7 @@ public final class MainActivity extends Activity {
         input.setPadding(dp(18), dp(12), dp(18), dp(12));
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("Appairer ce Galaxy")
-                .setMessage("Dans JARVIS sur le Mac : Réglages > Téléphone > Générer un code. Saisis ici les six chiffres.")
+                .setMessage("Ouvre l'interface web JARVIS (navigateur, sur le Mac), onglet « Téléphone » du menu principal, puis « Générer un code ». Saisis ici les six chiffres affichés.")
                 .setView(input)
                 .setCancelable(cancelable)
                 .setNegativeButton(cancelable ? "Annuler" : "Adresse du serveur", (d, which) -> {
