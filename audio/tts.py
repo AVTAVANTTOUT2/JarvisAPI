@@ -406,16 +406,22 @@ TTS_ENGINE_NAMES = frozenset({"edge", "macos", "kokoro", "ttskit"})
 def get_tts_by_name(name: str) -> TTSEngine | MacOSTTSEngine | KokoroTTSEngine:
     """Retourne le singleton correspondant au nom de moteur.
 
-    Fallback sur `tts` (Edge par défaut) si le nom est inconnu ou non disponible.
+    - ``kokoro`` : toujours le moteur Kokoro (repli interne local → macOS ``say``, jamais Edge).
+    - ``macos`` / ``edge`` / ``ttskit`` : moteur demandé explicitement.
+    - nom inconnu : Edge uniquement pour compatibilité des appels historiques explicites.
+
     Pour le pipeline natif macOS, utiliser ``audio.tts_native.get_native_tts_engine``.
     """
-    if name == "ttskit":
+    normalized = (name or "").strip().lower()
+    if normalized == "ttskit":
         from audio.tts_native import ttskit_tts
 
         if ttskit_tts.preload_sync():
             return ttskit_tts  # type: ignore[return-value]
-    if name == "kokoro" and kokoro_tts.available:
+    if normalized == "kokoro":
         return kokoro_tts
-    if name == "macos" and macos_tts.available:
+    if normalized == "macos":
         return macos_tts
+    if normalized == "edge":
+        return tts
     return tts

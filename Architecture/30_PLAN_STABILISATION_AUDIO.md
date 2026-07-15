@@ -8,7 +8,8 @@
 
 Traiter l'inventaire des erreurs audio sans réintroduire de fournisseur STT/TTS
 abandonné. Le chemin cible est local pour le daemon : **faster-whisper `large-v3-turbo`** (STT) et
-**Kokoro `af_nicole`** (TTS) par défaut. Edge reste disponible via `TTS_ENGINE=edge`.
+**Kokoro `af_nicole`** (TTS) par défaut. Edge reste disponible **uniquement** via
+`TTS_ENGINE=edge` (choix explicite) — jamais comme repli silencieux de Kokoro.
 WhisperKit, whisper.cpp, TTSKit et `say` restent des moteurs optionnels explicites.
 
 ## Ordre des PR

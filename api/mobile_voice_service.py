@@ -145,8 +145,11 @@ async def process_mobile_voice_turn(
         response_text = str(llm_result.get("text") or "").strip()
         emotion = str(llm_result.get("emotion") or "neutral")
 
-        tts_engine_name = (getattr(config, "TTS_ENGINE", "") or "edge").strip().lower()
+        tts_engine_name = (
+            getattr(config, "TTS_ENGINE", "") or config.DEFAULT_TTS_ENGINE
+        ).strip().lower()
         tts_engine = get_tts_by_name(tts_engine_name)
+
         audio_mime = tts_audio_mime(getattr(tts_engine, "get_backend_name", lambda: tts_engine_name)())
         audio_bytes_out = b""
         tts_error: str | None = None
