@@ -22,7 +22,7 @@ const VOLUME_THRESHOLD = 0.015
 const INTERRUPT_THRESHOLD = 0.035
 const INTERRUPT_DURATION_MS = 300
 const MAX_UTTERANCE_MS = 7000
-const TTS_ENGINES = ['kokoro', 'edge', 'elevenlabs', 'macos'] as const
+const TTS_ENGINES = ['ttskit', 'kokoro', 'edge', 'macos'] as const
 
 function getAudioContextCtor(): (typeof AudioContext) | null {
   const w = window as typeof window & { webkitAudioContext?: typeof AudioContext }
@@ -803,7 +803,7 @@ export function VoiceView() {
           >
             {TTS_ENGINES.map((e) => (
               <option key={e} value={e} className="bg-neutral-900 text-white">
-                {e === 'kokoro' ? 'Kokoro (Local)' : e === 'elevenlabs' ? 'ElevenLabs' : e === 'macos' ? 'Apple (Mac)' : 'Edge'}
+                {e === 'ttskit' ? 'TTSKit (Local)' : e === 'kokoro' ? 'Kokoro (Local)' : e === 'macos' ? 'Apple (Mac)' : 'Edge'}
               </option>
             ))}
           </select>

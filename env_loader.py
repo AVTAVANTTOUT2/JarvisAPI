@@ -24,7 +24,6 @@ _ENV_LOADED = False
 SECRET_ENV_KEYS: frozenset[str] = frozenset(
     {
         "DEEPSEEK_API_KEY",
-        "ELEVENLABS_API_KEY",
         "WEATHER_API_KEY",
         "TAVILY_API_KEY",
         "PORCUPINE_ACCESS_KEY",

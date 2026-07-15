@@ -98,7 +98,7 @@ def test_single_word_command_accepted() -> None:
 
 
 def test_native_play_tts_does_not_call_edge() -> None:
-    """_play_tts_native ne doit jamais invoquer Edge/ElevenLabs."""
+    """_play_tts_native ne doit jamais invoquer un service TTS réseau."""
     from scripts.audio_daemon import AudioDaemon
 
     daemon = AudioDaemon()

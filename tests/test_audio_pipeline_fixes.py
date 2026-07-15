@@ -84,11 +84,10 @@ def test_tts_audio_mime_engines() -> None:
 def test_audio_daemon_empty_stt_branch_no_nameerror() -> None:
     """Simule la branche « aucun STT » sans NameError."""
     local_available = False
-    scribe_available = False
     text = ""
     # Ancien code levait NameError sur local_stt_available
     if not text:
-        if not local_available and not scribe_available:
+        if not local_available:
             logged = True
         else:
             logged = False

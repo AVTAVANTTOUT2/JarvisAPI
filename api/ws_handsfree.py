@@ -36,7 +36,7 @@ async def _handle_hands_free_blob(
         await ws.send_json({"type": "processing"})
 
         if stt is None or not getattr(stt, "available", False):
-            await ws.send_json({"type": "error", "message": "STT indisponible (ELEVENLABS_API_KEY manquante)."})
+            await ws.send_json({"type": "error", "message": "STT local indisponible (moteur ou modèle absent)."})
             await reset_listening()
             return
 

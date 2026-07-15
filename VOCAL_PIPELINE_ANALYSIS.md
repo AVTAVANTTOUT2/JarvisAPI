@@ -1,5 +1,9 @@
-# Analyse du pipeline vocal JARVIS
+# Analyse du pipeline vocal JARVIS — instantané historique
 _Généré le 29 juin 2026 à 23:28 — analyse statique du code_
+
+> Ce document décrit le pipeline antérieur à la PR #17. Il explique les
+> décisions passées mais n'est plus la source de vérité. Voir
+> `Architecture/30_PLAN_STABILISATION_AUDIO.md` pour l'état actuel.
 
 ## Diagramme de flux
 
@@ -60,9 +64,9 @@ _Généré le 29 juin 2026 à 23:28 — analyse statique du code_
 ┌──────────────────────────────┐
 │ ÉTAPE 6 — STT                │  audio_daemon.py:912-949
 │                               │
-│  Priorité 1: ElevenLabs Scribe│  audio/stt.py:31-84
+│  Priorité 1: ancien fournisseur audio cloud ancien STT cloud│  audio/stt.py:31-84
 │    POST /v1/speech-to-text    │
-│    scribe_v2, audio/webm MIME │
+│    legacy_stt_v2, audio/webm MIME │
 │    ~300ms latence cloud        │
 │  Priorité 2: faster-whisper   │  audio/stt_local.py:60+
 │    local, tiny 75 Mo           │
@@ -258,21 +262,21 @@ _Généré le 29 juin 2026 à 23:28 — analyse statique du code_
 ### Sélection du moteur
 
 - **Fichier** : `scripts/audio_daemon.py` lignes 912-949
-- **Priorité 1** : ElevenLabs Scribe (cloud) — import `audio.stt.stt`, vérifie `stt.available` (lignes 917-931)
-- **Priorité 2 (fallback)** : faster-whisper (local) — si ElevenLabs échoue ou pas de texte retourné (lignes 934-949)
+- **Priorité 1** : ancien fournisseur audio cloud ancien STT cloud (cloud) — import `audio.stt.stt`, vérifie `stt.available` (lignes 917-931)
+- **Priorité 2 (fallback)** : faster-whisper (local) — si ancien fournisseur audio cloud échoue ou pas de texte retourné (lignes 934-949)
 - **Priorité 3** : pas de texte → skip silencieux (ligne 959-964)
 
-### ElevenLabs Scribe (défaut)
+### ancien fournisseur audio cloud ancien STT cloud (défaut)
 
 - **Fichier** : `audio/stt.py` lignes 1-87
-- **Disponibilité** : `ELEVENLABS_API_KEY` définie dans `.env` → `stt.available = True` (ligne 23)
+- **Disponibilité** : `LEGACY_STT_API_KEY` définie dans `.env` → `stt.available = True` (ligne 23)
 - **Format accepté** : WebM, Opus, MP3, WAV, OGG… (ligne 4). Le MIME envoyé est `audio/webm` (ligne 47) — bien que les bytes soient du WAV.
-- **Appel API** : `POST https://api.elevenlabs.io/v1/speech-to-text` (ligne 45)
-- **Modèle** : `scribe_v2` (ligne 49)
+- **Appel API** : `POST https://api.retired-audio-provider.invalid/v1/speech-to-text` (ligne 45)
+- **Modèle** : `legacy_stt_v2` (ligne 49)
 - **Options** : `tag_audio_events: false` (ligne 52) — évite les sorties "(musique)", "(rire)"
 - **Timeout** : 30.0s (ligne 41, défaut)
 - **Nettoyage** : regex `_AUDIO_EVENT_TAG_RE` supprime les éventuels tags restants (ligne 62)
-- **Coût** : inclus dans le forfait ElevenLabs (0 token API Claude/DeepSeek)
+- **Coût** : inclus dans le forfait ancien fournisseur audio cloud (0 token API Claude/DeepSeek)
 - **Latence typique** : ~300-500ms (cloud)
 
 ### faster-whisper (fallback local)
@@ -288,7 +292,7 @@ _Généré le 29 juin 2026 à 23:28 — analyse statique du code_
 
 - **Fichier** : `scripts/audio_daemon.py` lignes 959-979
 - **Filtres** (dans l'ordre) :
-  1. **STT indisponible** : si ni Scribe ni faster-whisper → skip (lignes 960-964)
+  1. **STT indisponible** : si ni ancien STT cloud ni faster-whisper → skip (lignes 960-964)
   2. **Résidu d'écho** : transcription < 10 chars ET moins de 2s depuis le dernier TTS → ignoré (lignes 967-972)
   3. **Transcription trop courte** : < 3 chars → ignoré (lignes 974-978)
 - **Broadcast transcript** : `await self._broadcast_state({"transcript": text})` (ligne 983)
@@ -445,7 +449,7 @@ _Généré le 29 juin 2026 à 23:28 — analyse statique du code_
 | Capture micro (1 chunk) | 30ms | `CHUNK_MS = 30` |
 | VAD → fin phrase | 0-1500ms | silence 1.5s après parole |
 | PCM → WAV | <1ms | encapsulation header |
-| STT ElevenLabs Scribe | ~300-500ms | cloud (API HTTP) |
+| STT ancien fournisseur audio cloud ancien STT cloud | ~300-500ms | cloud (API HTTP) |
 | STT faster-whisper tiny | ~50-100ms | local ONNX |
 | LLM pass 1 (DeepSeek flash) | ~500-800ms | API HTTP, 300 tokens max |
 | Action (si applicable) | variable | dépend de l'action |
@@ -464,8 +468,8 @@ _Généré le 29 juin 2026 à 23:28 — analyse statique du code_
 | Point | Risque | Protection | Fichier:ligne |
 |-------|--------|-----------|---------------|
 | Queue audio pleine | Perte de frames | `maxsize=300` + drain intelligent à 100 frames | audio_daemon.py:565-583 |
-| STT ElevenLabs timeout | Pas de transcription | Timeout 30s, fallback faster-whisper | stt.py:41, audio_daemon.py:934-949 |
-| STT ElevenLabs erreur HTTP | Pas de transcription | try/except, fallback local | audio_daemon.py:930-931 |
+| STT ancien fournisseur audio cloud timeout | Pas de transcription | Timeout 30s, fallback faster-whisper | stt.py:41, audio_daemon.py:934-949 |
+| STT ancien fournisseur audio cloud erreur HTTP | Pas de transcription | try/except, fallback local | audio_daemon.py:930-931 |
 | LLM pass 1 échoue | Pas de réponse | try/except → message d'erreur générique | main.py:3720-3728 |
 | LLM pass 2 échoue | Réponse vide après action | `_fallback_action_response()` | main.py:3821-3827 |
 | Action JSON invalide | Exception JSONDecodeError | try/except → `{"ok": False}` | main.py:3767-3769 |
@@ -491,7 +495,7 @@ _Généré le 29 juin 2026 à 23:28 — analyse statique du code_
 | `VOICE_MAX_TOKENS` | `500` | `.env:39`, `config.py:36` |
 | `TTS_ENGINE` | `edge` | `.env:29`, `config.py:27` |
 | `TTS_VOICE` | `fr-FR-HenriNeural` | `.env:32`, `config.py:28` |
-| `ELEVENLABS_API_KEY` | `sk_...` | `.env:27` |
+| `LEGACY_STT_API_KEY` | `sk_...` | `.env:27` |
 | `AUDIO_DAEMON_ENABLED` | `true` | `.env:88` |
 | `AUDIO_DAEMON_SPEECH_THRESHOLD` | `0.02` | `.env:89` |
 | `AUDIO_DAEMON_SILENCE_MS` | `1500` | `.env:90` |
@@ -526,8 +530,8 @@ bytes (b"".join(frames) — utterance PCM complète)
 bytes (wav_bytes = _pcm_to_wav(pcm) — encapsulation WAV)
   │ [io.BytesIO + wave] — audio_daemon.py:913, 1367-1375
   ▼
-bytes (wav → ElevenLabs Scribe POST /v1/speech-to-text)
-  │ [scribe_v2, audio/webm MIME] — stt.py:44-54
+bytes (wav → ancien fournisseur audio cloud ancien STT cloud POST /v1/speech-to-text)
+  │ [legacy_stt_v2, audio/webm MIME] — stt.py:44-54
   │ ou fallback: wav → faster-whisper local — stt_local.py:60+
   ▼
 str (transcription) — ex: "quel temps fait-il ?"
@@ -578,13 +582,13 @@ Purge + reprise micro
    → OUI. `_pcm_to_wav(pcm_bytes)` (lignes 1367-1375), appelée ligne 913. `io.BytesIO()` + `wave` — pas de ré-encodage, juste un header WAV prepended.
 
 6. **Quel STT est utilisé par défaut ?**
-   → **ElevenLabs Scribe** (cloud). `audio/stt.py:31-84`. `scribe_v2`, appelé ligne 927 dans `_process_single_utterance`.
+   → **ancien fournisseur audio cloud ancien STT cloud** (cloud). `audio/stt.py:31-84`. `legacy_stt_v2`, appelé ligne 927 dans `_process_single_utterance`.
 
 7. **Comment le choix STT est-il fait ?**
-   → Priorité 1 : `audio.stt.stt.available` (si `ELEVENLABS_API_KEY` définie). Priorité 2 : `audio.stt_local.stt_local.available` (si `AUDIO_DAEMON_STT_ENGINE=local`). `audio_daemon.py:917-949`
+   → Priorité 1 : `audio.stt.stt.available` (si `LEGACY_STT_API_KEY` définie). Priorité 2 : `audio.stt_local.stt_local.available` (si `AUDIO_DAEMON_STT_ENGINE=local`). `audio_daemon.py:917-949`
 
 8. **Le STT reçoit-il du WAV, du PCM brut, du WebM ?**
-   → Le STT reçoit du **WAV** (issu de `_pcm_to_wav`). Le MIME envoyé à ElevenLabs est `audio/webm` (ligne 47) — mais le contenu est du WAV.
+   → Le STT reçoit du **WAV** (issu de `_pcm_to_wav`). Le MIME envoyé à ancien fournisseur audio cloud est `audio/webm` (ligne 47) — mais le contenu est du WAV.
 
 9. **`_process_voice_fast` est-il bien appelé (et pas `_process_message_internal`) ?**
    → OUI. Ligne 1012 : `result = await _process_voice_fast(text, self._conv_id)`. C'est bien le pipeline rapide, pas `_process_message_internal`. `audio_daemon.py:1011-1012`

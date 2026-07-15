@@ -104,7 +104,7 @@ python scripts/migrate_devagent.py
 |-----|---------|------------|
 | P0 | `audio_daemon.py` | `local_stt_available` → `local_available` (NameError) |
 | P0 | `audio/audio_format.py` + `stt.py` | MIME dynamique WebM/WAV/PCM + client httpx réutilisé |
-| P0 | `jarvis_daemon.py` | `prepare_stt_bytes()` avant Scribe (PCM → WAV) |
+| P0 | `jarvis_daemon.py` | `prepare_stt_bytes()` avant ancien STT cloud (PCM → WAV) |
 | P1 | `jarvis_daemon.py` | Playback format-aware (`.wav`/`.mp3`/`.m4a`) |
 | P1 | `jarvis_daemon.py` | Wake word → `_process_voice_fast` (plus de double TTS) |
 | P1 | `jarvis_daemon.py` | Cooldown TTS : `sleep` au lieu de jeter le message |
@@ -154,7 +154,7 @@ python scripts/migrate_devagent.py
 
 **Bugs P0/P1 identifiés** :
 - `audio_daemon.py:972` — `NameError` (`local_stt_available` au lieu de `local_available`)
-- `jarvis_daemon.py:545` — PCM brut envoyé à Scribe sans encapsulation WAV (contrairement à `audio_daemon._pcm_to_wav`)
+- `jarvis_daemon.py:545` — PCM brut envoyé à ancien STT cloud sans encapsulation WAV (contrairement à `audio_daemon._pcm_to_wav`)
 - `jarvis_daemon.py:439` — playback TTS forcé en `.mp3` (macOS/Kokoro = M4A/WAV)
 - `jarvis_daemon.py:587-591` — double TTS (texte + `action_result.message`)
 - `jarvis_daemon.py:417-421` — cooldown TTS en veille **supprime** les messages (pas de file différée)
@@ -508,7 +508,7 @@ JARVIS: exécute immédiatement l'action proposée → résultat → synthèse
 **Latence cible** :
 ```
 t=0.0s  Fin de phrase (VAD)
-t=0.5s  STT Scribe                   ~500ms
+t=0.5s  STT ancien STT cloud                   ~500ms
 t=1.3s  DeepSeek flash direct        ~800ms
 t=1.6s  TTS Edge                     ~300ms
 t=1.9s  Playback
@@ -942,36 +942,36 @@ Refonte complète du ton et de l'identité de JARVIS pour qu'il parle comme **le
 
 **Résultat** : l'utilisateur parle à JARVIS. Toujours JARVIS. Le routing multi-agents reste intact côté code, mais devient transparent côté UX.
 
-## Audio — ElevenLabs unifié
+## Audio — ancien fournisseur audio cloud unifié
 
-Un seul fournisseur pour STT et TTS : **ElevenLabs**. Plus de Whisper, de ffmpeg, de fichiers temporaires, ni de conversion audio.
+Un seul fournisseur pour STT et TTS : **ancien fournisseur audio cloud**. Plus de Whisper, de ffmpeg, de fichiers temporaires, ni de conversion audio.
 
-### STT — ElevenLabs Scribe (API cloud)
+### STT — ancien fournisseur audio cloud ancien STT cloud (API cloud)
 
 - Accepte directement le **WebM/Opus** du navigateur — zéro conversion, zéro ffmpeg.
 - Latence ~0.5s ; blobs < 1000 octets ignorés (bruit).
-- Coût : inclus dans le forfait ElevenLabs.
-- Configuration : `ELEVENLABS_API_KEY` dans `.env` (sert aussi pour le TTS).
+- Coût : inclus dans le forfait ancien fournisseur audio cloud.
+- Configuration : `LEGACY_STT_API_KEY` dans `.env` (sert aussi pour le TTS).
 
 ### TTS — deux backends (Edge par défaut)
 
 | Backend | Quand | Qualité / latence |
 |---------|--------|-------------------|
 | **Edge TTS** (`TTS_ENGINE=edge`, défaut) | Aucune clé requise ; Microsoft neural | Très faible latence (~200 ms réseau), voix `fr-FR-VivienneMultilingualNeural` par défaut |
-| **ElevenLabs** (`TTS_ENGINE=elevenlabs`) | `ELEVENLABS_API_KEY` + `ELEVENLABS_VOICE_ID` | Meilleure nuance + émotions ; plus de latence (~1–2 s) ; modèle `eleven_multilingual_v2`, sortie `mp3_44100_128` |
+| **ancien fournisseur audio cloud** (`TTS_ENGINE=legacy-audio-cloud`) | `LEGACY_STT_API_KEY` + `LEGACY_TTS_VOICE_ID` | Meilleure nuance + émotions ; plus de latence (~1–2 s) ; modèle `eleven_multilingual_v2`, sortie `mp3_44100_128` |
 
-**ElevenLabs setup** :
-1. Créer un compte sur [elevenlabs.io](https://elevenlabs.io) (plan gratuit ou payant).
+**ancien fournisseur audio cloud setup** :
+1. Créer un compte sur [retired-audio-provider.invalid](https://retired-audio-provider.invalid) (plan gratuit ou payant).
 2. Choisir une voix française → copier le voice ID.
-3. `.env` : `TTS_ENGINE=elevenlabs`, `ELEVENLABS_API_KEY=...`, `ELEVENLABS_VOICE_ID=...`.
+3. `.env` : `TTS_ENGINE=legacy-audio-cloud`, `LEGACY_STT_API_KEY=...`, `LEGACY_TTS_VOICE_ID=...`.
 
-**Streaming TTS** : avec ElevenLabs, les chunks MP3 arrivent au client en temps réel. Edge envoie généralement un seul bloc MP3.
+**Streaming TTS** : avec ancien fournisseur audio cloud, les chunks MP3 arrivent au client en temps réel. Edge envoie généralement un seul bloc MP3.
 
 ### Système d'émotions (7 tags)
 
 JARVIS commence chaque réponse par un tag `[emotion]` analysé par le système :
 
-| Tag | Réglages ElevenLabs (stabilité / similarité / style) typiques |
+| Tag | Réglages ancien fournisseur audio cloud (stabilité / similarité / style) typiques |
 |-----|----------------------------------------------------------------|
 | `neutral` | 0.45 / 0.75 / 0.15 + `use_speaker_boost` |
 | `warm` | plus de `style` (~0.40) |
@@ -1003,9 +1003,9 @@ Quand l'utilisateur demande explicitement une action, JARVIS peut inclure un blo
 
 ### Optimisations de latence
 
-- **STT cloud** : ElevenLabs Scribe, ~0.5s de latence, pas de modèle local à charger.
+- **STT cloud** : ancien fournisseur audio cloud ancien STT cloud, ~0.5s de latence, pas de modèle local à charger.
 - **Max tokens vocal** : `VOICE_MAX_TOKENS` (défaut **500**) via `orchestrator.handle(..., voice_mode=True)` depuis `_process_message()` — même enrichissement que le chat texte (historique, mails, agents).
-- **TTS streaming** : le serveur envoie les chunks MP3 (ElevenLabs) en séquence dans le même tour WebSocket ; le client accumule jusqu'à l'événement `speech_done`, puis rejoue un blob MP3 complet (sans MediaSource ; fiabilité navigateur maximale).
+- **TTS streaming** : le serveur envoie les chunks MP3 (ancien fournisseur audio cloud) en séquence dans le même tour WebSocket ; le client accumule jusqu'à l'événement `speech_done`, puis rejoue un blob MP3 complet (sans MediaSource ; fiabilité navigateur maximale).
 - **Parallélisme UX** : dès réception du JSON `transcript`, l'UI affiche ce que vous avez dit pendant que le LLM et le TTS tournent côté serveur.
 
 ### Page `/voice` — conversation mains libres (un clic)
@@ -1019,14 +1019,14 @@ Micro → MediaRecorder.start() (sans timeslice, un enregistrement par phrase)
 → Fin de parole détectée (silence ≥ VOICE_SILENCE_DURATION_MS, parole ≥ VOICE_MIN_SPEECH_MS)
 → stop() → onstop callback → Blob WebM complet (header + données)
 → WebSocket binaire (blobs > 2000 octets)
-→ ElevenLabs Scribe (transcription directe du WebM, zéro conversion)
+→ ancien fournisseur audio cloud ancien STT cloud (transcription directe du WebM, zéro conversion)
 → Claude Haiku (mode vocal, 200 tokens max) → réponse courte
-→ TTS (ElevenLabs ou Edge) → audio MP3 → WebSocket binaire → playback
+→ TTS (ancien fournisseur audio cloud ou Edge) → audio MP3 → WebSocket binaire → playback
 ```
 
 1. `conversation_start` → serveur répond `conversation_started` puis `listening` (timings envoyés depuis `config`).
 2. Fin de parole → `stop()` du `MediaRecorder` ; **`onstop`** assemble le Blob WebM complet (un `MediaRecorder` neuf par phrase = header WebM toujours présent). Envoi en binaire.
-3. Serveur met `is_processing`, envoie `processing`, transcrit (ElevenLabs Scribe, pas de ffmpeg), puis **`_process_message(..., voice_mode=True)`** (identique au chat — orchestrateur, actions, mails), renvoie `transcript`, `response`, puis éventuellement `action_result`.
+3. Serveur met `is_processing`, envoie `processing`, transcrit (ancien fournisseur audio cloud ancien STT cloud, pas de ffmpeg), puis **`_process_message(..., voice_mode=True)`** (identique au chat — orchestrateur, actions, mails), renvoie `transcript`, `response`, puis éventuellement `action_result`.
 4. Réponse courte + TTS → `speaking` + flux de bytes audio + `speech_done`.
 5. Le client joue l'audio, puis envoie `done_playing` → serveur répond `listening` (boucle).
 
@@ -1038,7 +1038,7 @@ Micro → MediaRecorder.start() (sans timeslice, un enregistrement par phrase)
 
 #### Écoute continue (enregistrement long, JARVIS silencieux)
 
-Sur `/voice`, la carte **Écoute continue** (ambre) enregistre le micro sans réponse intermédiaire : `MediaRecorder.start(5000)`, envoi binaire au fil de l’eau, WebSocket `recording_start` / `recording_stop`. Pipeline : Scribe (un appel par chunk média) → Haiku + `continuous_extractor.txt` (découpe ~12k caractères) → Sonnet + `continuous_synthesizer.txt` → tâches, calendrier Apple, `user_facts`, `people`, épisode `recording`, notification bureau. Config : `RECORDING_MAX_DURATION_MIN`, `RECORDING_CHUNK_SIZE_MB`, `RECORDING_SUMMARY_ONLY`. Table SQLite `recordings` ; `GET /api/recordings`, `GET /api/recordings/{id}` ; section **Documents > ENREGISTREMENTS**.
+Sur `/voice`, la carte **Écoute continue** (ambre) enregistre le micro sans réponse intermédiaire : `MediaRecorder.start(5000)`, envoi binaire au fil de l’eau, WebSocket `recording_start` / `recording_stop`. Pipeline : ancien STT cloud (un appel par chunk média) → Haiku + `continuous_extractor.txt` (découpe ~12k caractères) → Sonnet + `continuous_synthesizer.txt` → tâches, calendrier Apple, `user_facts`, `people`, épisode `recording`, notification bureau. Config : `RECORDING_MAX_DURATION_MIN`, `RECORDING_CHUNK_SIZE_MB`, `RECORDING_SUMMARY_ONLY`. Table SQLite `recordings` ; `GET /api/recordings`, `GET /api/recordings/{id}` ; section **Documents > ENREGISTREMENTS**.
 
 #### Vocal & mails — derniers réglages (mai 2026)
 
@@ -1177,9 +1177,9 @@ python main.py
 
 **Backend — STT + TTS**
 
-- **`audio/stt.py`** — `STT` : ElevenLabs Scribe (API cloud). `transcribe(audio_bytes, language="fr")` via `httpx`. Accepte directement le WebM/Opus du navigateur — pas de conversion, pas de ffmpeg.
+- **`audio/stt.py`** — `STT` : ancien fournisseur audio cloud ancien STT cloud (API cloud). `transcribe(audio_bytes, language="fr")` via `httpx`. Accepte directement le WebM/Opus du navigateur — pas de conversion, pas de ffmpeg.
 - **`audio/tts.py`** — `TTSEngine` : 2 backends :
-  1. **ElevenLabs** — API REST via `httpx`, émotions via `voice_settings` (stability/style). Config : `ELEVENLABS_API_KEY` + `ELEVENLABS_VOICE_ID`.
+  1. **ancien fournisseur audio cloud** — API REST via `httpx`, émotions via `voice_settings` (stability/style). Config : `LEGACY_STT_API_KEY` + `LEGACY_TTS_VOICE_ID`.
   2. **Edge TTS** (gratuit, défaut) — voix `fr-FR-VivienneMultilingualNeural`.
 - **`audio/__init__.py`** — réexporte `stt`, `tts`.
 
@@ -1191,7 +1191,7 @@ JARVIS adapte sa voix au contexte émotionnel de chaque réponse.
 
 1. **`prompts/persona.txt`** : chaque réponse commence par un tag `[emotion]` sur la 1ère ligne (ex: `[warm]`, `[serious]`, `[amused]`). Ce tag n'est PAS affiché à l'utilisateur.
 2. **`agents/__init__.py`** : `BaseAgent._extract_emotion(response)` parse le tag, retourne `(emotion, texte_sans_tag)`. Intégré dans `_call_claude()` et `_call_gemini()`.
-3. **`audio/tts.py`** : `tts.synthesize(text, emotion="warm")` adapte les paramètres voix (ElevenLabs: stability/style ; Edge: ignoré).
+3. **`audio/tts.py`** : `tts.synthesize(text, emotion="warm")` adapte les paramètres voix (ancien fournisseur audio cloud: stability/style ; Edge: ignoré).
 
 Tags disponibles : `neutral`, `warm`, `serious`, `concerned`, `amused`, `urgent`, `encouraging`.
 
@@ -1200,14 +1200,14 @@ Tags disponibles : `neutral`, `warm`, `serious`, `concerned`, `amused`, `urgent`
 Un bouton « Mode conversation » à côté du micro dans l'onglet Chat. **La page dédiée `/voice`** est le flux principal. Quand ce mode legacy est activé :
 - Le micro écoute en continu
 - Détection de silence côté client → envoi automatique
-- Le serveur transcrit (Scribe) → traite → TTS avec émotion → renvoie l'audio
+- Le serveur transcrit (ancien STT cloud) → traite → TTS avec émotion → renvoie l'audio
 - **Anti-écho** : le client stoppe le micro quand JARVIS parle, reprend à la fin (`done_playing` → `listening`)
 
 **Config** (`.env.example`) :
 ```bash
-ELEVENLABS_API_KEY=                   # STT + TTS
-ELEVENLABS_VOICE_ID=                  # voix TTS ElevenLabs
-TTS_ENGINE=edge                       # "elevenlabs" ou "edge"
+LEGACY_STT_API_KEY=                   # STT + TTS
+LEGACY_TTS_VOICE_ID=                  # voix TTS ancien fournisseur audio cloud
+TTS_ENGINE=edge                       # "legacy-audio-cloud" ou "edge"
 ```
 
 ### ✅ Phase 4 — Productivité (terminée)
@@ -1747,7 +1747,7 @@ Persistance : messages + cost trackés en SQLite
 - **DB** : SQLite (fichier `data/jarvis.db`)
 - **LLM** : Claude API (Haiku / Sonnet / Opus) + Gemini CLI (subprocess, gratuit)
 - **Frontend** : HTML + CSS + JS vanilla (pas de framework, MediaRecorder API pour le micro)
-- **Audio** : ElevenLabs Scribe (STT cloud) + TTS ElevenLabs ou Edge TTS (défaut) ; VAD côté client (Web Audio API)
+- **Audio** : ancien fournisseur audio cloud ancien STT cloud (STT cloud) + TTS ancien fournisseur audio cloud ou Edge TTS (défaut) ; VAD côté client (Web Audio API)
 - **PDF** : `pymupdf` (`fitz`) pour l'extraction texte
 - **Productivité** : Apple Mail + Apple Calendar (AppleScript) + OpenWeatherMap (`httpx`)
 - **Embeddings (à venir)** : `all-MiniLM-L6-v2` local pour le RAG des cours
@@ -2085,7 +2085,7 @@ Mode mains libres complet. Pipeline : micro → VAD local → MediaRecorder (Web
 
 **UI :**
 - Orbe animée Canvas qui réagit au volume du micro (couleurs : **cyan** = écoute, **ambre** = JARVIS parle, **violet** = réflexion, **gris** = inactif)
-- Sélecteur TTS en haut à droite (dropdown glassmorphism) : Edge / ElevenLabs / Apple (Mac) — connecté aux endpoints `GET /api/settings/tts` et `PATCH /api/settings/tts`
+- Sélecteur TTS en haut à droite (dropdown glassmorphism) : Edge / ancien fournisseur audio cloud / Apple (Mac) — connecté aux endpoints `GET /api/settings/tts` et `PATCH /api/settings/tts`
 - Zone de transcription en bas (dernier transcript utilisateur + réponse JARVIS en streaming progressif)
 - Bouton central "Démarrer la conversation" / "Arrêter" (style terminal)
 
@@ -2480,7 +2480,7 @@ afconvert -f m4af -d aac /tmp/jarvis.aiff /tmp/jarvis.m4a
 
 Fonction utilitaire `get_tts_by_name(name)` — retourne le bon singleton :
 - `"macos"` → `MacOSTTSEngine`
-- `"edge"` / `"elevenlabs"` → `TTSEngine` (singleton existant)
+- `"edge"` / `"legacy-audio-cloud"` → `TTSEngine` (singleton existant)
 
 #### `database/__init__.py` — table `app_settings`
 
@@ -2500,7 +2500,7 @@ Helpers :
 | Route | Méthode | Description |
 |---|---|---|
 | `/api/settings/tts` | GET | Retourne `{"engine": "edge"}` (DB ou fallback `.env`) |
-| `/api/settings/tts` | PATCH | `{"engine": "macos"|"elevenlabs"|"edge"}` — change à la volée |
+| `/api/settings/tts` | PATCH | `{"engine": "macos"|"legacy-audio-cloud"|"edge"}` — change à la volée |
 
 `_send_tts_streaming` lit `get_setting("tts_engine")` à chaque appel → pas de cache, changement instantané.
 
@@ -2508,7 +2508,7 @@ Helpers :
 
 Section "Moteur Vocal" avec un **Segmented Control** glassmorphism (3 boutons) :
 
-- **ElevenLabs** — Cloud · Haute qualité
+- **ancien fournisseur audio cloud** — Cloud · Haute qualité
 - **Apple M4** — Local · Zéro latence réseau
 - **Edge** — Cloud · Gratuit
 
@@ -2699,7 +2699,7 @@ curl -L -o models/kokoro/voices.bin \
 ### Soir (20:35) — STT voix : compréhension FR améliorée
 
 Correctif ciblé sur `audio/stt.py` pour éviter les transcriptions parasites type `(musique)` / `(rire)` :
-- passage de `scribe_v1` à `scribe_v2`
+- passage de `legacy_stt_v1` à `legacy_stt_v2`
 - envoi de `tag_audio_events=false`
 - nettoyage regex d'un tag audio résiduel en début de phrase
 
@@ -2816,7 +2816,7 @@ Désactivé par défaut (`WAKE_WORD_ENABLED=false`). Activation :
 2. `pip install pvporcupine pyaudio`.
 3. `.env` : `WAKE_WORD_ENABLED=true` + `PORCUPINE_ACCESS_KEY=...`.
 
-À la détection : daemon bascule en mode `conversation` → `tts.synthesize("Oui Monsieur, je vous écoute.")` → boucle micro VAD pyaudio → STT ElevenLabs → orchestrateur (`_process_message_internal` avec `voice_mode=True`) → TTS. Termine sur silence > 15 s ou phrases du genre "merci jarvis", "c'est tout jarvis".
+À la détection : daemon bascule en mode `conversation` → `tts.synthesize("Oui Monsieur, je vous écoute.")` → boucle micro VAD pyaudio → STT ancien fournisseur audio cloud → orchestrateur (`_process_message_internal` avec `voice_mode=True`) → TTS. Termine sur silence > 15 s ou phrases du genre "merci jarvis", "c'est tout jarvis".
 
 ### Endpoints API ajoutés
 
@@ -3842,7 +3842,7 @@ macOS say + afconvert (AAC/M4A) → afplay
 
 ```bash
 AUDIO_DAEMON_ENABLED=true              # active le daemon au boot
-AUDIO_DAEMON_STT_ENGINE=local          # "local" = faster-whisper, "" = ElevenLabs Scribe
+AUDIO_DAEMON_STT_ENGINE=local          # "local" = faster-whisper, "" = ancien fournisseur audio cloud ancien STT cloud
 AUDIO_DAEMON_STT_MODEL=small           # small (244Mo, bon FR) | base (142Mo) | tiny (75Mo)
 SILERO_VAD_THRESHOLD=0.5              # seuil parole 0.0-1.0 (0.3=sensible, 0.5=defaut, 0.7=strict)
 AUDIO_DAEMON_SPEECH_THRESHOLD=0.02     # RMS seuil de parole (fallback si Silero indisponible)
@@ -3942,7 +3942,7 @@ Le daemon audio (micro Mac) et la page `/voice` (micro navigateur) utilisent des
 
 | Fix | Fichier | Changement |
 |---|---|---|
-| #1 | `audio/stt.py` | MIME `audio/webm` → `audio/wav` (Scribe ElevenLabs) |
+| #1 | `audio/stt.py` | MIME `audio/webm` → `audio/wav` (ancien STT cloud ancien fournisseur audio cloud) |
 | #2 | `main.py` | `max_tokens=300/200` hardcodes → `config.VOICE_MAX_TOKENS` dynamique |
 | #3 | `main.py` | `VOICE_PERSONA` condense (~50 tokens) injecte dans le system prompt vocal |
 | #4 | `actions.py` | `_action_open_app` accepte `app_name\|name\|app\|application` |
@@ -3975,7 +3975,7 @@ Le daemon audio (micro Mac) et la page `/voice` (micro navigateur) utilisent des
 
 | # | Fichier | Probleme |
 |---|---|---|
-| 1 | `.env` | **Cles API exposees en clair** (DeepSeek, ElevenLabs, Weather, Tavily, telephone perso). Rotation immediate necessaire. |
+| 1 | `.env` | **Cles API exposees en clair** (DeepSeek, ancien fournisseur audio cloud, Weather, Tavily, telephone perso). Rotation immediate necessaire. |
 | 2 | `agents/productivity.py:129` | `asyncio.sleep(0, result=[])` — API invalide, plante le fallback |
 | 3 | `agents/memory.py:437` | `except Exception: pass` — erreurs JSON avalees silencieusement |
 | 4 | `agents/memory.py:320` | N+1 query : `get_all_people()` appelee dans une boucle for |

@@ -191,7 +191,7 @@ function OverviewCard({
 
 const TTS_OPTIONS: { id: string; label: string; sub: string }[] = [
   { id: 'kokoro',     label: 'Kokoro',     sub: 'Local · ONNX · Zéro réseau' },
-  { id: 'elevenlabs', label: 'ElevenLabs', sub: 'Cloud · Haute qualité' },
+  { id: 'ttskit',     label: 'TTSKit',     sub: 'Local · Natif · Streaming' },
   { id: 'macos',      label: 'Apple M4',   sub: 'Local · Zéro latence réseau' },
   { id: 'edge',       label: 'Edge',       sub: 'Cloud · Gratuit' },
 ];
@@ -322,7 +322,7 @@ export function DataView() {
     { id: 'weather', label: 'Météo (OpenWeatherMap)', icon: Cloud, active: integrations.weather ?? false },
     { id: 'imessage', label: 'iMessage Bridge', icon: Smartphone, active: integrations.imessage ?? false },
     { id: 'email_watcher', label: 'Email Watcher', icon: Bell, active: integrations.email_watcher ?? false },
-    { id: 'stt', label: 'STT (ElevenLabs Scribe)', icon: Mic, active: status.audio?.stt_available ?? false },
+    { id: 'stt', label: 'STT local', icon: Mic, active: status.audio?.stt_available ?? false },
     { id: 'tts', label: 'TTS (' + (status.audio?.tts_backend || 'Edge') + ')', icon: Volume2, active: status.audio?.tts_available ?? false },
     { id: 'computer', label: 'Contrôle Mac', icon: Monitor, active: (integrations.computer as { available?: boolean })?.available ?? false },
   ];
