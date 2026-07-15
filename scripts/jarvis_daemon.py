@@ -20,29 +20,25 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import struct
-import tempfile
 import time
 from datetime import datetime
-from pathlib import Path
 from typing import Any
 
 import httpx
 
 import config
-from audio.audio_format import playback_file_extension, prepare_stt_bytes
+from audio.voice_queue import VoicePriority, priority_from_string, voice_queue
 from database import (
     create_conversation,
     get_all_devices,
     get_all_processed_email_ids,
     get_current_screen_context,
     mark_device_offline,
-    save_message,
     set_active_device,
 )
 from jarvis.notification_service import notification_service
 from integrations.apple_data import apple_data
-from pipeline import process_message_internal, process_voice_fast
+from pipeline import process_message_internal
 from scripts.screen_watcher import screen_watcher
 
 logger = logging.getLogger(__name__)
@@ -158,12 +154,18 @@ class JarvisDaemon:
 
         text = (result or {}).get("text") or ""
         if text and "NULL" not in text.upper():
-            await self.tts_queue.put(text)
+            await voice_queue.enqueue(
+                text,
+                emotion="neutral",
+                priority=VoicePriority.BACKGROUND,
+            )
 
     async def _on_idle(self, idle_minutes: int) -> None:
         """Utilisateur inactif depuis longtemps."""
-        await self.tts_queue.put(
-            f"Monsieur, vous semblez inactif depuis {int(idle_minutes)} minutes. Tout va bien ?"
+        await voice_queue.enqueue(
+            f"Monsieur, vous semblez inactif depuis {int(idle_minutes)} minutes. Tout va bien ?",
+            emotion="concerned",
+            priority=VoicePriority.BACKGROUND,
         )
 
     # ── Boucle Notifications ──────────────────────────────────────────────────
@@ -401,20 +403,21 @@ class JarvisDaemon:
     # ── Boucle TTS ────────────────────────────────────────────────────────────
 
     async def _tts_loop(self) -> None:
-        """Consomme la file d'attente de messages à prononcer."""
+        """Relaie la file interne vers la file vocale centrale (audio_daemon joue)."""
         while self.running:
             try:
                 item = await asyncio.wait_for(self.tts_queue.get(), timeout=1.0)
             except asyncio.TimeoutError:
                 continue
 
-            # La file accepte un str, un tuple (texte, émotion) ou
-            # (texte, émotion, priorité). priorité "urgent" = seul son
-            # autorisé pendant le mode « silence total sauf feu ».
-            emotion, priority = "neutral", "normal"
+            emotion, priority = "neutral", VoicePriority.BACKGROUND
             if isinstance(item, tuple):
                 if len(item) >= 3:
-                    text, emotion, priority = item[0], item[1], item[2]
+                    text, emotion, priority_raw = item[0], item[1], item[2]
+                    if str(priority_raw).lower() in ("urgent", "critical"):
+                        priority = VoicePriority.CRITICAL
+                    else:
+                        priority = priority_from_string(str(priority_raw))
                 elif len(item) == 2:
                     text, emotion = item
                 else:
@@ -425,18 +428,15 @@ class JarvisDaemon:
             if not text or not str(text).strip():
                 continue
 
-            # Silence total sauf feu : seul l'urgent passe.
             try:
                 from database import is_dnd_active
 
-                if priority != "urgent" and is_dnd_active():
+                if priority != VoicePriority.CRITICAL and is_dnd_active():
                     logger.info("[daemon] DND actif — TTS ignoré : %s", str(text)[:50])
                     continue
             except Exception:
                 pass
 
-            # Heures calmes : JARVIS ne parle pas la nuit en mode veille.
-            # Les notifications restent en base ; seule la voix est coupée.
             if self.mode == "veille" and config.is_quiet_hours():
                 logger.info("[daemon] heures calmes — TTS ignoré : %s", str(text)[:50])
                 continue
@@ -449,228 +449,41 @@ class JarvisDaemon:
                     logger.info(
                         "[daemon] TTS cooldown — report %.0fs : %s",
                         wait_s,
-                        text[:50],
+                        str(text)[:50],
                     )
                     await asyncio.sleep(wait_s)
                 self.last_tts_time = time.time()
 
-            try:
-                from audio.tts import tts as _tts
-
-                if _tts:
-                    logger.info("[daemon] TTS (%s) : %s", emotion, str(text)[:80])
-                    audio_bytes = await _tts.synthesize(text, emotion=emotion)
-                    if audio_bytes:
-                        await self._play_audio_local(audio_bytes)
-            except Exception as e:
-                logger.warning("[daemon] TTS erreur : %s", e)
-
-    async def _play_audio_local(self, audio_bytes: bytes) -> None:
-        """Joue l'audio localement (MP3, WAV, M4A) via afplay."""
-        tmp_path: str | None = None
-        ext = playback_file_extension(audio_bytes)
-        try:
-            with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
-                tmp.write(audio_bytes)
-                tmp_path = tmp.name
-
-            proc = await asyncio.create_subprocess_exec(
-                "afplay", tmp_path,
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL,
-            )
-            try:
-                await asyncio.wait_for(proc.wait(), timeout=30.0)
-            except asyncio.TimeoutError:
-                logger.warning("[daemon] afplay timeout (30s) — kill")
-                proc.kill()
-                await proc.wait()
-        except Exception as e:
-            logger.warning("[daemon] playback erreur : %s", e)
-        finally:
-            if tmp_path:
-                try:
-                    Path(tmp_path).unlink(missing_ok=True)
-                except Exception:
-                    pass
+            logger.info("[daemon] File vocale (%s) : %s", priority.name, str(text)[:80])
+            await voice_queue.enqueue(str(text), emotion=str(emotion), priority=priority)
 
     # ── Wake Word ─────────────────────────────────────────────────────────────
 
     async def _wake_word_loop(self) -> None:
-        """Écoute en permanence le mot 'Jarvis' via Porcupine.
-
-        Tourne dans un thread (pyaudio est bloquant), avec une queue async pour
-        signaler la détection à l'event loop principal.
-        """
-        access_key = str(getattr(config, "PORCUPINE_ACCESS_KEY", "") or "")
-        if not access_key:
-            logger.warning("[daemon] PORCUPINE_ACCESS_KEY non configuré — wake word désactivé")
+        """Wake word désactivé ici — le micro est détenu par audio_daemon uniquement."""
+        if not self.wake_word_enabled:
             return
-
-        try:
-            import pvporcupine  # type: ignore[import-not-found]
-            import pyaudio  # type: ignore[import-not-found]
-        except ImportError:
-            logger.warning("[daemon] pvporcupine / pyaudio non installés — wake word désactivé")
-            return
-
-        loop = asyncio.get_running_loop()
-        wake_queue: asyncio.Queue[bool] = asyncio.Queue()
-
-        def _blocking_loop() -> None:
-            try:
-                self.porcupine = pvporcupine.create(access_key=access_key, keywords=["jarvis"])
-                pa = pyaudio.PyAudio()
-                stream = pa.open(
-                    rate=self.porcupine.sample_rate,
-                    channels=1,
-                    format=pyaudio.paInt16,
-                    input=True,
-                    frames_per_buffer=self.porcupine.frame_length,
-                )
-                logger.info("[daemon] wake word 'Jarvis' en écoute")
-                while self.running:
-                    try:
-                        pcm = stream.read(self.porcupine.frame_length, exception_on_overflow=False)
-                        pcm_unpacked = struct.unpack_from("h" * self.porcupine.frame_length, pcm)
-                        if self.porcupine.process(pcm_unpacked) >= 0:
-                            asyncio.run_coroutine_threadsafe(wake_queue.put(True), loop)
-                    except Exception as e:
-                        logger.debug("[daemon] wake read : %s", e)
-                stream.stop_stream()
-                stream.close()
-                pa.terminate()
-                self.porcupine.delete()
-            except Exception as e:
-                logger.exception("[daemon] wake word boucle bloquante : %s", e)
-
-        # Démarre le thread bloquant en arrière-plan
-        await loop.run_in_executor(None, lambda: None)  # warm-up
-        thread_future = loop.run_in_executor(None, _blocking_loop)
-
+        logger.warning(
+            "[daemon] Wake word Porcupine désactivé dans jarvis_daemon "
+            "(utilisez audio_daemon ou WAKE_WORD_ENABLED=false)"
+        )
         while self.running:
-            try:
-                detected = await asyncio.wait_for(wake_queue.get(), timeout=1.0)
-            except asyncio.TimeoutError:
-                continue
-            if detected and self.mode == "veille":
-                logger.info("[daemon] wake word détecté !")
-                await self._start_conversation()
-
-        try:
-            thread_future.cancel()
-        except Exception:
-            pass
+            await asyncio.sleep(3600)
 
     async def _start_conversation(self) -> None:
-        """Bascule en mode conversation après wake word."""
-        self.mode = "conversation"
-        self.conversation_active = True
-        self.conversation_id = create_conversation(agent="daemon_voice")
-        await self.tts_queue.put("Oui Monsieur, je vous écoute.")
-
-        try:
-            while self.conversation_active and self.running:
-                audio_bytes = await self._listen_with_vad(timeout=15)
-                if not audio_bytes:
-                    await self.tts_queue.put("Bien Monsieur. Je reste en veille.")
-                    break
-
-                from audio.stt import stt as _stt
-
-                if not _stt:
-                    break
-                stt_payload = prepare_stt_bytes(audio_bytes, sample_rate=16000)
-                try:
-                    text = await _stt.transcribe(stt_payload)
-                except Exception as e:
-                    logger.warning("[daemon] STT échoué : %s", e)
-                    text = ""
-
-                if not text or len(text.strip()) < 3:
-                    continue
-
-                logger.info("[daemon] entendu : %s", text)
-                lower = text.lower()
-                if any(p in lower for p in config.END_PHRASES):
-                    await self.tts_queue.put(
-                        "Bien Monsieur, je reste en veille si vous avez besoin."
-                    )
-                    break
-
-                try:
-                    result = await process_voice_fast(text, self.conversation_id)
-                except Exception as e:
-                    logger.exception("[daemon] _process_voice_fast : %s", e)
-                    await self.tts_queue.put("Désolé Monsieur, une erreur est survenue.")
-                    break
-
-                response_text = (result or {}).get("text") or ""
-                if response_text.strip():
-                    await self.tts_queue.put(response_text.strip())
-
-        except Exception as e:
-            logger.exception("[daemon] erreur conversation : %s", e)
-            await self.tts_queue.put("Désolé Monsieur, une erreur est survenue.")
-
-        self.mode = "veille"
-        self.conversation_active = False
-        self.conversation_id = None
+        """Conversation vocale — déléguée à audio_daemon (micro unique)."""
+        logger.warning(
+            "[daemon] _start_conversation désactivé — utilisez audio_daemon "
+            "(WAKE_WORD_ENABLED=false = mode continu sans 2e capture micro)"
+        )
 
     async def _listen_with_vad(self, timeout: int = 15) -> bytes | None:
-        """Capture micro avec VAD volume basique. Retourne bytes ou None.
-
-        L'enregistrement tourne dans un thread pyaudio (bloquant).
-        Retourne du PCM 16 kHz mono ; encapsulé en WAV avant STT.
-        """
-        try:
-            import pyaudio  # type: ignore[import-not-found]
-        except ImportError:
-            logger.warning("[daemon] pyaudio non installé — listen impossible")
-            return None
-
-        loop = asyncio.get_running_loop()
-
-        def _blocking() -> bytes | None:
-            try:
-                rate = 16000
-                chunk = 1024
-                silence_limit_s = 1.5
-                pa = pyaudio.PyAudio()
-                stream = pa.open(
-                    rate=rate, channels=1, format=pyaudio.paInt16,
-                    input=True, frames_per_buffer=chunk,
-                )
-                frames: list[bytes] = []
-                silent_chunks = 0
-                has_speech = False
-                max_chunks = int(timeout * rate / chunk)
-                silence_chunks_limit = int(silence_limit_s * rate / chunk)
-
-                for _ in range(max_chunks):
-                    if not self.running or not self.conversation_active:
-                        break
-                    data = stream.read(chunk, exception_on_overflow=False)
-                    frames.append(data)
-                    samples = struct.unpack(f"{chunk}h", data)
-                    volume = max(abs(s) for s in samples)
-                    if volume > 500:
-                        has_speech = True
-                        silent_chunks = 0
-                    else:
-                        silent_chunks += 1
-                    if has_speech and silent_chunks >= silence_chunks_limit:
-                        break
-
-                stream.stop_stream()
-                stream.close()
-                pa.terminate()
-                return b"".join(frames) if has_speech else None
-            except Exception as e:
-                logger.warning("[daemon] listen erreur : %s", e)
-                return None
-
-        return await loop.run_in_executor(None, _blocking)
+        """Capture micro désactivée — audio_daemon détient le micro exclusivement."""
+        logger.warning(
+            "[daemon] _listen_with_vad ignoré (timeout=%ss) — micro détenu par audio_daemon",
+            timeout,
+        )
+        return None
 
     # ── Health check devices ──────────────────────────────────────────────────
 

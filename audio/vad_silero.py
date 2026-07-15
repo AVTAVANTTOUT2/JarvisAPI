@@ -227,8 +227,16 @@ class SileroVAD:
 
 # ── Singleton ─────────────────────────────────────────────────────────────────
 
-_DEFAULT_INPUT_SR = int(os.getenv("AUDIO_DAEMON_SAMPLE_RATE", "16000"))
-silero_vad = SileroVAD(
-    threshold=float(os.getenv("SILERO_VAD_THRESHOLD", "0.5")),
-    input_sr=_DEFAULT_INPUT_SR,
-)
+def _build_silero_vad() -> SileroVAD:
+    try:
+        import config as _cfg
+
+        input_sr = int(getattr(_cfg, "AUDIO_DAEMON_SAMPLE_RATE", 16000))
+        threshold = float(getattr(_cfg, "SILERO_VAD_THRESHOLD", 0.42))
+    except Exception:
+        input_sr = int(os.getenv("AUDIO_DAEMON_SAMPLE_RATE", "16000"))
+        threshold = float(os.getenv("SILERO_VAD_THRESHOLD", "0.42"))
+    return SileroVAD(threshold=threshold, input_sr=input_sr)
+
+
+silero_vad = _build_silero_vad()

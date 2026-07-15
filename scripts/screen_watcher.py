@@ -92,6 +92,16 @@ class ScreenWatcher:
         # Callbacks asynchrones définis par le daemon
         self.on_notable = None  # async (notable_text: str, context: dict) -> None
         self.on_idle = None     # async (idle_minutes: int) -> None
+        self._vision_deferred_logged: float = 0.0
+
+    @staticmethod
+    def _is_voice_busy() -> bool:
+        try:
+            from audio.voice_queue import voice_queue
+
+            return voice_queue.voice_busy or voice_queue.user_conversation_active
+        except Exception:
+            return False
 
     # ── Contrôle ────────────────────────────────────────────────────────────
 
@@ -172,8 +182,14 @@ class ScreenWatcher:
         self.idle_seconds = 0
         self.idle_alerted = False
 
-        # 8. Analyse Ollama si changement significatif
+        # 8. Analyse Ollama si changement significatif (différée pendant conversation vocale)
         if change_pct >= self.analysis_threshold:
+            if self._is_voice_busy():
+                now = time.time()
+                if now - self._vision_deferred_logged > 30:
+                    self._vision_deferred_logged = now
+                    logger.info("[screen] Analyse vision différée — STT/TTS prioritaires")
+                return
             analysis = await self._analyze_with_ollama(cropped, current_app, window_info)
             if analysis:
                 save_screen_activity(
@@ -428,6 +444,9 @@ class ScreenWatcher:
         Returns:
             Dict JSON parsé ou None si échec.
         """
+        if self._is_voice_busy():
+            return None
+
         # Cooldown : vérifier si on peut réessayer
         if not self._ollama_available:
             if time.time() < self._ollama_next_retry:
@@ -488,7 +507,11 @@ class ScreenWatcher:
                         "prompt": prompt,
                         "images": [img_b64],
                         "stream": False,
-                        "options": {"temperature": 0.1, "num_predict": 100},
+                        "options": {
+                            "temperature": 0.1,
+                            "num_predict": 100,
+                            "keep_alive": "30s",
+                        },
                     },
                 )
                 response.raise_for_status()
