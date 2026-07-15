@@ -48,7 +48,7 @@ async def test_database_mutations_emit_log_and_push_all_phase3_events(
             if not row[0].startswith("sqlite_")
         }
     assert "event_log" in table_names
-    assert len(table_names) == 73
+    assert len(table_names) == 75
 
     queue = event_bus.subscribe()
     socket = _FakeWebSocket()

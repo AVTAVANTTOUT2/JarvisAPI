@@ -1,22 +1,33 @@
-"""Configuration centralisée JARVIS — charge .env et expose les settings."""
+"""Configuration centralisée JARVIS — charge .env.config + .env."""
 
 import os
 import socket
 from pathlib import Path
-from dotenv import load_dotenv
 
-# Charge .env depuis la racine du projet
+from env_loader import load_jarvis_env
+
+# Charge d'abord la configuration, puis les secrets qui peuvent la surcharger.
 BASE_DIR = Path(__file__).resolve().parent
-load_dotenv(BASE_DIR / ".env")
+load_jarvis_env()
 
 
 def _get(key: str, default: str = "") -> str:
     return os.getenv(key, default)
 
 
+def _normalize_deepseek_base_url(url: str) -> str:
+    """Retourne l'origine API ; llm.py ajoute déjà /v1/chat/completions."""
+    base = (url or "https://api.deepseek.com").strip().rstrip("/")
+    if base.endswith("/v1"):
+        return base[:-3]
+    return base
+
+
 # ── DeepSeek API ──────────────────────────────────────────────
 DEEPSEEK_API_KEY = _get("DEEPSEEK_API_KEY", "")
-DEEPSEEK_BASE_URL = _get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+DEEPSEEK_BASE_URL = _normalize_deepseek_base_url(
+    _get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+)
 DEEPSEEK_FAST_MODEL = _get("DEEPSEEK_FAST_MODEL", "deepseek-v4-flash")
 DEEPSEEK_MAIN_MODEL = _get("DEEPSEEK_MAIN_MODEL", "deepseek-v4-pro")
 
