@@ -117,3 +117,24 @@ jobs:
 
       - name: Tests, typecheck et build Next.js
         run: pnpm test && pnpm typecheck && pnpm build
+
+  android:
+    name: Android (assemble + tests + lint)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # Le build fonctionne sans google-services.json (plugin conditionnel)
+      # et sans signing.properties (debug uniquement en CI).
+      - name: Compiler, tester et linter
+        run: ./gradlew assembleDebug testDebugUnitTest lintDebug --no-daemon
