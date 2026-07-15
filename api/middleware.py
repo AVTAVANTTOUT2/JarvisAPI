@@ -36,7 +36,9 @@ _SECURITY_HEADERS = {
     "Permissions-Policy": "geolocation=(self), microphone=(self), camera=(), payment=(), usb=()",
     "Content-Security-Policy": (
         "default-src 'self'; "
-        "script-src 'self'; "
+        # Next.js export statique : bootstrap RSC/hydratation via <script> inline
+        # dans index.html — script-src 'self' seul bloque le montage React (page noire).
+        "script-src 'self' 'unsafe-inline'; "
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
         "font-src 'self' data: https://fonts.gstatic.com; "
         "img-src 'self' data: blob: https://*.tile.openstreetmap.org; "

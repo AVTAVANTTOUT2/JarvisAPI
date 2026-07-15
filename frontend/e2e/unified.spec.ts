@@ -54,3 +54,34 @@ test('@mobile never reveals private content without an authenticated session', a
   await expect(page.getByText('Application verrouillée')).toBeVisible()
   await expect(page.getByRole('heading', { name: /Elias/ })).toHaveCount(0)
 })
+
+test('@static-csp shows initial PIN setup after static export with security headers', async ({ page }) => {
+  const consoleErrors: string[] = []
+  page.on('console', (msg) => {
+    if (msg.type() === 'error') consoleErrors.push(msg.text())
+  })
+
+  await page.route('**/api/**', async (route) => {
+    const pathname = new URL(route.request().url()).pathname
+    if (pathname === '/api/auth/status') {
+      await route.fulfill({
+        json: {
+          configured: false,
+          authenticated: false,
+          locked_out: false,
+          lockout_seconds: 0,
+          auto_lock_minutes: 5,
+        },
+      })
+      return
+    }
+    await route.fulfill({ status: 428, json: { error: 'setup_required' } })
+  })
+
+  await page.goto('/')
+
+  await expect(page.getByTestId('lock-gate')).toBeVisible()
+  await expect(page.getByText('Définissez votre code de déverrouillage')).toBeVisible()
+  await expect(page.getByPlaceholder('Nouveau code (4+ caractères)')).toBeVisible()
+  expect(consoleErrors.some((line) => line.includes('Connection closed'))).toBe(false)
+})
