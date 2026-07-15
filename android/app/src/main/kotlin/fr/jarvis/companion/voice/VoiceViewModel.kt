@@ -63,6 +63,15 @@ class VoiceViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** Tap 1 = démarrer, tap 2 = envoyer (évite de relâcher trop tôt en maintien). */
+    fun toggleRecording() {
+        when (_state.value.phase) {
+            VoicePhase.Idle, VoicePhase.Error -> startRecording()
+            VoicePhase.Recording -> stopRecordingAndSend()
+            else -> Unit
+        }
+    }
+
     fun startRecording() {
         if (_state.value.phase != VoicePhase.Idle && _state.value.phase != VoicePhase.Error) return
         if (!_state.value.isPaired) {
@@ -75,7 +84,7 @@ class VoiceViewModel(application: Application) : AndroidViewModel(application) {
                 it.copy(
                     phase = VoicePhase.Recording,
                     errorMessage = null,
-                    statusLine = "Écoute…",
+                    statusLine = "Écoute… tapez STOP pour envoyer",
                 )
             }
         }.onFailure { err ->
@@ -106,7 +115,7 @@ class VoiceViewModel(application: Application) : AndroidViewModel(application) {
             _state.update {
                 it.copy(
                     phase = VoicePhase.Error,
-                    errorMessage = "Enregistrement trop court",
+                    errorMessage = "Enregistrement trop court — reparlez un peu plus longtemps",
                     statusLine = "Erreur",
                 )
             }

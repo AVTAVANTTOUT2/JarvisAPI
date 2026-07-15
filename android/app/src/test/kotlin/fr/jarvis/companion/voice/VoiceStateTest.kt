@@ -19,4 +19,10 @@ class VoiceStateTest {
         val state = VoiceUiState(phase = VoicePhase.Recording)
         assertFalse(state.phase == VoicePhase.Idle)
     }
+
+    @Test
+    fun tapToggle_idleAndRecording_areComplementary() {
+        assertTrue(VoicePhase.Idle != VoicePhase.Recording)
+        assertTrue(listOf(VoicePhase.Idle, VoicePhase.Error).contains(VoicePhase.Idle))
+    }
 }

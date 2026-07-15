@@ -79,7 +79,9 @@ async def _send_tts_streaming(ws: WebSocket, text: str, emotion: str) -> None:
 
     from audio.tts_cache import last_tts, speculative_tts
 
-    engine_name = _get_setting("tts_engine", getattr(config, "TTS_ENGINE", config.DEFAULT_TTS_ENGINE) or config.DEFAULT_TTS_ENGINE)
+    engine_name = (
+        __import__("audio.tts", fromlist=["resolve_tts_engine_name"]).resolve_tts_engine_name()
+    )
     active_engine = get_tts_by_name(engine_name)
 
     audio_mime = tts_audio_mime(engine_name)

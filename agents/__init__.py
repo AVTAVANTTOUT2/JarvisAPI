@@ -8,7 +8,6 @@ from pathlib import Path
 
 import config
 import llm
-from agents.display_text import strip_assistant_code_fences
 from database import save_episode, save_message
 from jarvis.event_bus import JarvisEvent, event_bus
 
@@ -231,14 +230,30 @@ class BaseAgent(ABC):
         ))
 
         emotion, clean_text = self._extract_emotion(result["content"])
+        # Les blocs ```action``` doivent rester dans ``response`` pour que le
+        # pipeline unifié (WS / REST / Android) les extrait et les exécute.
+        # Ne retirer ici que json/save éventuels — jamais les fences action.
         if strip_fences:
-            clean_text = strip_assistant_code_fences(clean_text, include_save=False)
+            from agents.display_text import strip_non_action_fences
 
-        if conversation_id and persist:
-            save_message(conversation_id, "assistant", clean_text,
-                         agent=self.name, model=result["model"],
-                         tokens_in=result["tokens_in"], tokens_out=result["tokens_out"],
-                         cost=result["cost"])
+            clean_text = strip_non_action_fences(clean_text)
+
+        # Persistance finale = pipeline (display clean). Ici on évite le double
+        # save quand le contexte demande de différer (chat / mobile_voice).
+        defer_persist = bool((context or {}).get("__defer_persist"))
+        if conversation_id and persist and not defer_persist:
+            from agents.display_text import finalize_assistant_display_text
+
+            save_message(
+                conversation_id,
+                "assistant",
+                finalize_assistant_display_text(clean_text),
+                agent=self.name,
+                model=result["model"],
+                tokens_in=result["tokens_in"],
+                tokens_out=result["tokens_out"],
+                cost=result["cost"],
+            )
 
         return {
             "response": clean_text,

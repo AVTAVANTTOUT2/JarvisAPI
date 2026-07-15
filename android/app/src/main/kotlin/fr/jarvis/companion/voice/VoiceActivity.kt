@@ -8,8 +8,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
-import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,6 +22,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -36,7 +35,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -44,7 +42,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import fr.jarvis.companion.ui.theme.JarvisTheme
 
-/** Conversation vocale native push-to-talk — aucune WebView. */
+/** Conversation vocale native — tap pour parler / tap pour envoyer (aucune WebView). */
 class VoiceActivity : ComponentActivity() {
     private val viewModel: VoiceViewModel by viewModels()
 
@@ -68,8 +66,7 @@ class VoiceActivity : ComponentActivity() {
                         modifier = Modifier.padding(padding),
                         state = state,
                         onRefresh = viewModel::refreshConnection,
-                        onMicDown = { ensureMicThen { viewModel.startRecording() } },
-                        onMicUp = { viewModel.stopRecordingAndSend() },
+                        onMicTap = { ensureMicThen { viewModel.toggleRecording() } },
                         onMicCancel = viewModel::cancelRecording,
                         onStopPlayback = viewModel::stopPlayback,
                     )
@@ -92,13 +89,14 @@ private fun VoiceScreen(
     modifier: Modifier = Modifier,
     state: VoiceUiState,
     onRefresh: () -> Unit,
-    onMicDown: () -> Unit,
-    onMicUp: () -> Unit,
+    onMicTap: () -> Unit,
     onMicCancel: () -> Unit,
     onStopPlayback: () -> Unit,
 ) {
     val view = LocalView.current
-    val busy = state.phase != VoicePhase.Idle && state.phase != VoicePhase.Error && state.phase != VoicePhase.Recording
+    val busy = state.phase != VoicePhase.Idle &&
+        state.phase != VoicePhase.Error &&
+        state.phase != VoicePhase.Recording
 
     Column(
         modifier = modifier
@@ -137,47 +135,43 @@ private fun VoiceScreen(
             }
         }
 
-        Spacer(Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
         Box(
             modifier = Modifier.fillMaxWidth(),
             contentAlignment = Alignment.Center,
         ) {
             val micEnabled = state.isPaired && state.connectionOk && !busy
-            Box(
+            Button(
+                onClick = {
+                    view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                    onMicTap()
+                },
+                enabled = micEnabled,
                 modifier = Modifier
-                    .size(88.dp)
-                    .background(
-                        when (state.phase) {
-                            VoicePhase.Recording -> MaterialTheme.colorScheme.error
-                            else -> MaterialTheme.colorScheme.primary
-                        },
-                        CircleShape,
-                    )
-                    .semantics { contentDescription = "Bouton microphone push-to-talk" }
-                    .pointerInput(micEnabled) {
-                        if (!micEnabled) return@pointerInput
-                        detectTapGestures(
-                            onPress = {
-                                view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                                onMicDown()
-                                tryAwaitRelease()
-                                view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                                onMicUp()
-                            },
-                        )
+                    .size(96.dp)
+                    .semantics { contentDescription = "Bouton microphone tap pour parler" },
+                shape = CircleShape,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = when (state.phase) {
+                        VoicePhase.Recording -> MaterialTheme.colorScheme.error
+                        else -> MaterialTheme.colorScheme.primary
                     },
-                contentAlignment = Alignment.Center,
+                ),
             ) {
                 Text(
-                    if (state.phase == VoicePhase.Recording) "REC" else "MIC",
+                    if (state.phase == VoicePhase.Recording) "STOP" else "MIC",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                 )
             }
         }
         Text(
-            if (state.phase == VoicePhase.Recording) "Relâchez pour envoyer" else "Maintenez pour parler",
+            if (state.phase == VoicePhase.Recording) {
+                "Parlez — tapez à nouveau pour envoyer"
+            } else {
+                "Tapez pour parler"
+            },
             modifier = Modifier.align(Alignment.CenterHorizontally),
             style = MaterialTheme.typography.bodySmall,
         )
@@ -203,7 +197,7 @@ private fun TurnCard(label: String, text: String) {
     ) {
         Column(Modifier.padding(14.dp)) {
             Text(label, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
-            Spacer(Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(4.dp))
             Text(text, style = MaterialTheme.typography.bodyLarge)
         }
     }

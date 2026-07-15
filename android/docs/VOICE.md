@@ -9,7 +9,7 @@ Microphone Android (AAC/M4A mono 16 kHz)
   → POST /api/mobile/voice/turn (HTTPS, Bearer token natif)
   → STT local Mac (faster-whisper, modèle configuré)
   → pipeline JARVIS (_process_message_internal, voice_mode=true)
-  → TTS local Mac (Kokoro par défaut si TTS_ENGINE=kokoro)
+  → TTS Mac (Edge Henri FR par défaut ; macOS Thomas en local ; Kokoro = EN only)
   → JSON { transcript, response_text, audio_base64 }
   → lecture MediaPlayer sur le téléphone
 ```
@@ -19,11 +19,18 @@ Microphone Android (AAC/M4A mono 16 kHz)
 ```env
 AUDIO_DAEMON_STT_ENGINE=faster-whisper
 AUDIO_DAEMON_STT_MODEL=large-v3-turbo
-TTS_ENGINE=kokoro
-KOKORO_VOICE=af_nicole
-KOKORO_LANG=fr-fr
+TTS_ENGINE=edge
+TTS_VOICE=fr-FR-HenriNeural
 WEB_HTTPS=true
 ```
+
+> **Voix FR** : le modèle Kokoro installé (`v0.19`) n’a que des voix EN (`af_nicole`).
+> Pour du français natif, utiliser `TTS_ENGINE=edge` (Henri) ou `macos` (Thomas).
+
+## Interaction Android
+
+- **Tap** sur le micro pour démarrer, **tap** à nouveau pour envoyer (pas besoin de maintenir).
+- Bouton Annuler pendant l’enregistrement.
 
 Limites (surchargeables) :
 

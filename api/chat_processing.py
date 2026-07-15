@@ -155,6 +155,8 @@ async def _process_message_internal(
 
         if voice_mode:
             context["voice_mode"] = True
+        # Le pipeline enregistre le message assistant final (après actions).
+        context["__defer_persist"] = True
 
         if "documents_context" in context:
             text = context.pop("documents_context") + "\n\n" + text

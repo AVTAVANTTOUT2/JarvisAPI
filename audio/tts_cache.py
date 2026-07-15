@@ -130,7 +130,9 @@ class SpeculativeTTS:
         try:
             from audio.tts import get_tts_by_name
 
-            engine = get_tts_by_name(getattr(config, "TTS_ENGINE", config.DEFAULT_TTS_ENGINE) or config.DEFAULT_TTS_ENGINE)
+            engine = get_tts_by_name(
+                __import__("audio.tts", fromlist=["resolve_tts_engine_name"]).resolve_tts_engine_name()
+            )
         except Exception as e:
             logger.debug("[tts_cache] warmup : moteur TTS indisponible (%s)", e)
             return 0

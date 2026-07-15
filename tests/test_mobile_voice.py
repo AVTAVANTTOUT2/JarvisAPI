@@ -127,7 +127,29 @@ def test_voice_turn_rejects_oversized_payload(tmp_db, monkeypatch):
 @patch("api.mobile_voice_service.stt_local")
 @patch("api.mobile_voice_service._process_message_internal", new_callable=AsyncMock)
 @patch("api.mobile_voice_service.get_tts_by_name")
-def test_voice_turn_happy_path(mock_get_tts, mock_llm, mock_stt, tmp_db):
+def test_voice_turn_rejects_stt_prompt_echo(mock_get_tts, mock_llm, mock_stt, tmp_db):
+    """Whisper qui recopie le prompt (liste d'apps) ne doit pas atteindre le LLM."""
+    mock_stt.available = True
+    mock_stt.transcribe = AsyncMock(
+        return_value="JARVIS, DeepSeek, Messages, Mail, Calendar, Visual Studio Code, Blue Snowball"
+    )
+    mock_get_tts.return_value = AsyncMock()
+
+    with _client() as client:
+        authenticate(client)
+        token = _pair(client, "echo-voice")
+        resp = _post_turn(client, token, _make_wav())
+
+    assert resp.status_code == 400
+    assert "entendu" in resp.json()["detail"].lower() or "bien" in resp.json()["detail"].lower()
+    mock_llm.assert_not_awaited()
+
+
+@patch("api.mobile_voice_service.resolve_tts_engine_name", return_value="edge")
+@patch("api.mobile_voice_service.stt_local")
+@patch("api.mobile_voice_service._process_message_internal", new_callable=AsyncMock)
+@patch("api.mobile_voice_service.get_tts_by_name")
+def test_voice_turn_happy_path(mock_get_tts, mock_llm, mock_stt, mock_resolve_tts, tmp_db):
     mock_stt.available = True
     mock_stt.preload_sync.return_value = True
     mock_stt.transcribe = AsyncMock(return_value="quel temps fait-il")
@@ -139,8 +161,9 @@ def test_voice_turn_happy_path(mock_get_tts, mock_llm, mock_stt, tmp_db):
         "cost": 0.001,
     }
     tts = AsyncMock()
-    tts.synthesize = AsyncMock(return_value=b"RIFFfake")
-    tts.get_backend_name = lambda: "kokoro"
+    tts.available = True
+    tts.synthesize = AsyncMock(return_value=b"\xff\xf3fake")
+    tts.get_backend_name = lambda: "edge"
     mock_get_tts.return_value = tts
 
     wav = _make_wav()
@@ -156,7 +179,8 @@ def test_voice_turn_happy_path(mock_get_tts, mock_llm, mock_stt, tmp_db):
     assert body["source"] == "android_voice"
     assert body["device_id"] == "happy-voice"
     assert body["stt_engine"] == "faster-whisper"
-    assert body["tts_engine"] == "kokoro"
+    assert body["tts_engine"] == "edge"
+    assert body.get("tts_voice") == "fr-FR-HenriNeural" or "Henri" in (body.get("tts_voice") or "")
     assert body["conversation_id"] > 0
     mock_stt.transcribe.assert_awaited_once()
     mock_llm.assert_awaited_once_with("quel temps fait-il", body["conversation_id"], voice_mode=True)

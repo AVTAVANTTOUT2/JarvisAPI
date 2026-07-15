@@ -9,9 +9,9 @@ from typing import Any
 
 import config
 from api.chat_processing import _process_message_internal
-from audio.audio_format import tts_audio_mime
-from audio.stt_daemon import stt_local
-from audio.tts import get_tts_by_name
+from audio.audio_format import detect_upload_format, is_encoded_audio_container, tts_audio_mime
+from audio.stt_daemon import is_stt_prompt_echo, stt_local
+from audio.tts import get_tts_by_name, resolve_tts_engine_name, resolve_tts_voice
 from database import create_conversation, get_conversation_detail, touch_mobile_device
 
 logger = logging.getLogger("jarvis.mobile_voice")
@@ -36,19 +36,10 @@ def _device_lock(device_id: str) -> asyncio.Lock:
 
 
 def _detect_container(audio_bytes: bytes) -> tuple[str, str]:
-    if len(audio_bytes) >= 8 and audio_bytes[4:8] == b"ftyp":
-        return "audio.m4a", "audio/mp4"
-    if len(audio_bytes) >= 4 and audio_bytes[:4] == b"RIFF":
-        return "audio.wav", "audio/wav"
-    if len(audio_bytes) >= 4 and audio_bytes[:4] == b"\x1a\x45\xdf\xa3":
-        return "audio.webm", "audio/webm"
-    if len(audio_bytes) >= 3 and audio_bytes[:3] == b"ID3":
-        return "audio.mp3", "audio/mpeg"
-    if len(audio_bytes) >= 2 and audio_bytes[0] == 0xFF and (audio_bytes[1] & 0xE0) == 0xE0:
-        return "audio.mp3", "audio/mpeg"
-    if len(audio_bytes) >= 4 and audio_bytes[:4] == b"OggS":
-        return "audio.ogg", "audio/ogg"
-    return "", ""
+    """Accepte uniquement les vrais conteneurs (M4A/WAV/WebM/MP3/OGG), pas le fallback PCM."""
+    if not is_encoded_audio_container(audio_bytes):
+        return "", ""
+    return detect_upload_format(audio_bytes)
 
 
 def _validate_audio_payload(audio_bytes: bytes) -> tuple[str, str]:
@@ -126,12 +117,24 @@ async def process_mobile_voice_turn(
         transcript = (transcript or "").strip()
         if not transcript:
             raise MobileVoiceError("Aucune parole détectée dans l'enregistrement", 400)
+        if is_stt_prompt_echo(transcript):
+            logger.warning(
+                "[mobile_voice] STT prompt-echo rejeté device=%s transcript=%r",
+                device_id,
+                transcript[:120],
+            )
+            raise MobileVoiceError(
+                "Je n'ai pas bien entendu, Monsieur. Réessayez en maintenant le micro "
+                "un peu plus longtemps.",
+                400,
+            )
 
         logger.info(
-            "[mobile_voice] device=%s conv=%s transcript_len=%d",
+            "[mobile_voice] device=%s conv=%s transcript_len=%d transcript=%r",
             device_id,
             conv_id,
             len(transcript),
+            transcript[:160],
         )
 
         try:
@@ -145,12 +148,16 @@ async def process_mobile_voice_turn(
         response_text = str(llm_result.get("text") or "").strip()
         emotion = str(llm_result.get("emotion") or "neutral")
 
-        tts_engine_name = (
-            getattr(config, "TTS_ENGINE", "") or config.DEFAULT_TTS_ENGINE
-        ).strip().lower()
+        tts_engine_name = resolve_tts_engine_name()
         tts_engine = get_tts_by_name(tts_engine_name)
+        backend = getattr(tts_engine, "get_backend_name", lambda: tts_engine_name)()
+        if tts_engine_name == "edge" and not getattr(tts_engine, "available", False):
+            raise MobileVoiceError(
+                "TTS Edge indisponible — pip install edge-tts (voix française Henri)",
+                503,
+            )
 
-        audio_mime = tts_audio_mime(getattr(tts_engine, "get_backend_name", lambda: tts_engine_name)())
+        audio_mime = tts_audio_mime(backend)
         audio_bytes_out = b""
         tts_error: str | None = None
 
@@ -178,8 +185,8 @@ async def process_mobile_voice_turn(
             "audio_url": None,
             "stt_engine": _stt_engine_label(),
             "stt_model": _stt_model_label(),
-            "tts_engine": getattr(tts_engine, "get_backend_name", lambda: tts_engine_name)(),
-            "tts_voice": getattr(config, "KOKORO_VOICE", "") if tts_engine_name == "kokoro" else None,
+            "tts_engine": backend,
+            "tts_voice": resolve_tts_voice(tts_engine_name),
             "source": "android_voice",
             "device_id": device_id,
             "agent": llm_result.get("agent"),

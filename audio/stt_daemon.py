@@ -29,10 +29,17 @@ STT_ENGINES = frozenset({
 })
 FASTER_WHISPER_SIZES = FASTER_WHISPER_MODELS
 
+# Phrase FR courte — JAMAIS une liste d'apps : Whisper republie le prompt
+# sur du silence / audio illisible (bug Android M4A non décodé + bruit).
 DEFAULT_INITIAL_PROMPT = (
-    "JARVIS, DeepSeek, Messages, Mail, Calendar, Safari, Terminal, "
-    "Visual Studio Code, Blue Snowball"
+    "Bonjour Monsieur. Conversation en français avec JARVIS."
 )
+
+# Tokens du prompt (hors mots courants) — détecte l'écho Whisper
+_PROMPT_ECHO_STOPWORDS = frozenset({
+    "bonjour", "monsieur", "conversation", "en", "français", "francais",
+    "avec", "le", "la", "les", "un", "une", "des", "de", "du", "et", "a",
+})
 
 
 @dataclass
@@ -52,9 +59,66 @@ def build_initial_prompt() -> str:
     else:
         terms = [str(t).strip() for t in extra if str(t).strip()]
     base = DEFAULT_INITIAL_PROMPT
-    if terms:
-        base = f"{base}, " + ", ".join(terms[:40])
+    # Clés propres uniquement (pas de liste d'apps UI) — max 8 pour limiter l'écho
+    safe = [
+        t for t in terms[:8]
+        if t and t.lower() not in _PROMPT_ECHO_STOPWORDS
+    ]
+    if safe:
+        base = f"{base} Vocabulaire : {', '.join(safe)}."
     return base
+
+
+def _tokenize_stt_text(text: str) -> set[str]:
+    import re
+
+    return {
+        tok
+        for tok in re.findall(r"[a-z0-9àâäéèêëïîôùûüç'-]+", (text or "").lower())
+        if tok and tok not in _PROMPT_ECHO_STOPWORDS and len(tok) > 1
+    }
+
+
+def is_stt_prompt_echo(transcript: str, prompt: str | None = None) -> bool:
+    """True si Whisper a rétamé le ``initial_prompt`` au lieu d'entendre la parole.
+
+    Cas typique : audio M4A non décodé, silence, ou bruit non vocal — le modèle
+    recopie la liste de termes du prompt (ex. noms d'apps).
+    """
+    clean = (transcript or "").strip()
+    if not clean:
+        return True
+
+    # Salutations / commandes courtes — jamais un écho de prompt
+    norm = clean.lower().strip(".,!?;:… ")
+    if norm in {
+        "bonjour", "salut", "oui", "non", "merci", "jarvis", "stop",
+        "ok", "d'accord", "hello", "hey",
+    }:
+        return False
+
+    prompt_text = prompt if prompt is not None else build_initial_prompt()
+    t_tokens = _tokenize_stt_text(clean)
+    p_tokens = _tokenize_stt_text(prompt_text)
+
+    # Ancien prompt liste-d'apps (régression connue) — rejet immédiat
+    legacy_apps = {
+        "messages", "mail", "calendar", "safari", "terminal",
+        "visual", "studio", "code", "blue", "snowball", "deepseek",
+    }
+    if len(t_tokens & legacy_apps) >= 3:
+        return True
+
+    if not t_tokens:
+        # Uniquement des stopwords (ex. "en français") → pas assez pour juger
+        return False
+
+    if not p_tokens:
+        return False
+
+    overlap = len(t_tokens & p_tokens) / len(t_tokens)
+    # ≥70 % des mots du transcript viennent du prompt, et peu de contenu réel
+    return overlap >= 0.7 and len(t_tokens - p_tokens) <= 2
 
 
 class DaemonSTTBackend(ABC):
@@ -163,7 +227,8 @@ class FasterWhisperBackend(DaemonSTTBackend):
                     _pcm_to_float32_ndarray(pcm_16k, 16000),
                     language=language if language != "auto" else None,
                     beam_size=5,
-                    vad_filter=False,
+                    vad_filter=True,
+                    condition_on_previous_text=False,
                     initial_prompt=prompt,
                 )
                 segments_list = list(segments_iter)
@@ -188,7 +253,8 @@ class FasterWhisperBackend(DaemonSTTBackend):
                         path,
                         language=language if language != "auto" else None,
                         beam_size=5,
-                        vad_filter=False,
+                        vad_filter=True,
+                        condition_on_previous_text=False,
                         initial_prompt=prompt,
                     )
                     segments_list = list(segments_iter)
@@ -576,18 +642,13 @@ class DaemonSTT:
         if len(audio_bytes) < 1000:
             return ""
 
-        encoded_magic = (
-            audio_bytes.startswith(b"RIFF"),
-            audio_bytes.startswith(b"\x1a\x45\xdf\xa3"),
-            audio_bytes.startswith(b"ID3"),
-            audio_bytes.startswith(b"OggS"),
-            len(audio_bytes) >= 2
-            and audio_bytes[0] == 0xFF
-            and (audio_bytes[1] & 0xE0) == 0xE0,
-        )
+        from audio.audio_format import is_encoded_audio_container
+
         pcm_bytes = audio_bytes
         sample_rate = int(getattr(config, "AUDIO_DAEMON_SAMPLE_RATE", 16000))
-        if any(encoded_magic):
+        # Android Companion envoie AAC/M4A (ftyp @ offset 4) — sans décodage,
+        # Whisper traite des octets compressés comme du PCM et hallucine le prompt.
+        if is_encoded_audio_container(audio_bytes):
             loop = asyncio.get_running_loop()
             pcm_bytes = await loop.run_in_executor(None, self._decode_media_bytes, audio_bytes)
             sample_rate = 16000

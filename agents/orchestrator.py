@@ -224,6 +224,14 @@ PRODUCTIVITY_PATTERNS = [
     "organiser ma journee", "organiser ma journée",
 ]
 
+# Contrôle Mac / apps — avant SCHOOL/LLM pour éviter open_app stripé par school/journal
+# Sans espace final : _match_any exige une frontière de mot (sinon « ouvre » + « Roblox » échoue).
+COMPUTER_PATTERNS = [
+    "ouvre", "ouvrir", "lance", "lancer", "ferme", "fermer",
+    "open app", "open -a", "sur mon mac", "sur le mac",
+    "quitte",
+]
+
 INFO_PATTERNS = [
     "météo", "meteo", "quel temps", "quelle heure",
     "définition", "definition", "c'est quoi", "combien de",
@@ -287,6 +295,9 @@ async def classify_category(message: str) -> str:
         return _resolve("COACH", "keyword")
     if _match_any(message, JOURNAL_PATTERNS):
         return _resolve("JOURNAL", "keyword")
+    # Ouvrir/lancer une app Mac → PRODUCTIVITY (persona open_app), avant SCHOOL/LLM
+    if _match_any(message, COMPUTER_PATTERNS):
+        return _resolve("PRODUCTIVITY", "keyword")
     if _match_any(message, SCHOOL_PATTERNS):
         return _resolve("SCHOOL", "keyword")
     if _match_any(message, PRODUCTIVITY_PATTERNS):
@@ -372,6 +383,8 @@ class OrchestratorAgent(BaseAgent):
             heuristic = "COACH"
         elif _match_any(msg_lower, JOURNAL_PATTERNS):
             heuristic = "JOURNAL"
+        elif _match_any(msg_lower, COMPUTER_PATTERNS):
+            heuristic = "PRODUCTIVITY"
         elif _match_any(msg_lower, SCHOOL_PATTERNS):
             heuristic = "SCHOOL"
         elif _match_any(msg_lower, PRODUCTIVITY_PATTERNS):

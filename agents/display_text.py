@@ -66,6 +66,15 @@ def strip_assistant_code_fences(
     return t.strip()
 
 
+def strip_non_action_fences(text: str) -> str:
+    """Retire ```json``` / ```save``` mais conserve ```action``` pour le pipeline."""
+    if not text:
+        return text
+    t = _RE_JSON.sub("", text)
+    t = _RE_SAVE.sub("", t)
+    return t.strip()
+
+
 def sanitize_streaming_display(text: str) -> str:
     """Texte affichable pendant le streaming (masque blocs complets et partiels)."""
     if not text:

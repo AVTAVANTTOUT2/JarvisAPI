@@ -213,6 +213,8 @@ async def api_set_tts_setting(body: dict):
         )
 
     _ss("tts_engine", engine)
+    # Aligne config runtime pour le process courant (mobile_voice / cache)
+    config.TTS_ENGINE = engine
     logger.info("[TTS] Moteur changé → %s", engine)
     return {"engine": engine, "ok": True}
 
