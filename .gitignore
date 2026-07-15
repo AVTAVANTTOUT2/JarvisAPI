@@ -40,6 +40,8 @@ android/app/google-services.json
 android/release.keystore
 android/signing.properties
 credentials/firebase-*.json
+jarvis-companion.apk
+*.aab
 
 # ── Modèles ML (gros fichiers locaux) ─────────────────────
 models/
