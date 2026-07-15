@@ -285,6 +285,8 @@ class AudioDaemon:
         "_stop_event",
         "_interrupt_event",
         "_loop",
+        "_input_future",
+        "_input_stop_event",
         "_tts_proc",
         "_no_frame_count",
         "_audio_buffer",
@@ -327,6 +329,8 @@ class AudioDaemon:
         self._stop_event: asyncio.Event | None = None
         self._interrupt_event: asyncio.Event | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._input_future: asyncio.Future[Any] | None = None
+        self._input_stop_event: threading.Event | None = None
         self._tts_proc: asyncio.subprocess.Process | None = None
         self._no_frame_count: int = 0
         self._audio_buffer: bytearray = bytearray()
@@ -421,7 +425,8 @@ class AudioDaemon:
                 # Signal au thread pyaudio de s'arrêter AVANT _cleanup()
                 # (pa.terminate() segfault sur Apple Silicon si le thread tient encore le stream)
                 self._running = False
-                await asyncio.sleep(0.3)  # laisse le thread pyaudio sortir de stream.read()
+                self._signal_input_stop()
+                await self._wait_for_input_thread()
                 await voice_queue.cancel_current()
                 voice_queue.set_mic_capture_active(False)
                 voice_queue.set_user_conversation_active(False)
@@ -473,6 +478,11 @@ class AudioDaemon:
         self._mic_mute_logged = False
         self._last_frame_time: float = 0.0
         self._sleep_detected: bool = False
+        # Jeton propre à CE cycle. Ne jamais utiliser seulement ``_running``
+        # dans le thread : un redémarrage rapide remet _running à True avant
+        # que l'ancien stream ait quitté sa boucle et conserve alors le micro.
+        self._input_stop_event = threading.Event()
+        self._input_future = None
 
         self._pa = pyaudio.PyAudio()
         self._audio_queue = asyncio.Queue(maxsize=300)
@@ -557,6 +567,7 @@ class AudioDaemon:
             self._tts_proc = None
 
         self._tts_playing_event.clear()
+        self._signal_input_stop()
 
         # Annuler les tâches async
         for task_attr in ("_vad_task", "_process_task", "_watchdog_task"):
@@ -581,12 +592,16 @@ class AudioDaemon:
                 pass
             self._stream = None
 
-        # Terminer PyAudio — avec prudence extrême.
-        # pa.terminate() segfault sur Apple Silicon si le thread pyaudio tient
-        # encore le stream. On skip terminate() et on laisse le GC nettoyer.
-        # Le prochain _run() crée un nouveau PyAudio() propre.
+        # Le thread d'entrée est joint avant cet appel. PortAudio peut donc être
+        # terminé sans garder l'ancien périphérique CoreAudio captif.
         if self._pa:
+            pa = self._pa
             self._pa = None
+            try:
+                pa.terminate()
+            except Exception as e:
+                logger.debug("[audio_daemon] terminate PyAudio : %s", e)
+        self._input_stop_event = None
 
         # Vider les queues
         for queue_attr in ("_audio_queue", "_utterance_queue"):
@@ -629,6 +644,7 @@ class AudioDaemon:
             self._stop_event.set()
         if self._interrupt_event:
             self._interrupt_event.set()
+        self._signal_input_stop()
 
         # Annule le thread wake word
         if self._wake_thread_future:
@@ -645,6 +661,11 @@ class AudioDaemon:
                 except (asyncio.CancelledError, asyncio.TimeoutError, Exception):
                     pass
                 setattr(self, task_attr, None)
+
+        # Le callback PortAudio vit dans un executor indépendant des tâches
+        # asyncio. Il doit être réellement terminé avant qu'un nouveau start()
+        # puisse ouvrir le même périphérique USB.
+        await self._wait_for_input_thread()
 
         await voice_queue.cancel_current()
         if not getattr(config, "DAEMON_ENABLED", True):
@@ -743,7 +764,9 @@ class AudioDaemon:
         audio_queue = self._audio_queue
         utterance_queue = self._utterance_queue
         interrupt_event = self._interrupt_event
+        input_stop_event = self._input_stop_event
         assert interrupt_event is not None
+        assert input_stop_event is not None
 
         # ── Lance le thread pyaudio ──
         def _blocking_input() -> None:
@@ -766,7 +789,7 @@ class AudioDaemon:
                 silent_since = 0
                 PERM_CHECK_CHUNKS = int(3000 / CHUNK_MS)
 
-                while self._running:
+                while not input_stop_event.is_set():
                     try:
                         data = stream.read(CHUNK_SAMPLES, exception_on_overflow=False)
                     except OSError as e:
@@ -860,7 +883,7 @@ class AudioDaemon:
                 self.state = "error"
                 loop.call_soon_threadsafe(self._schedule_state_broadcast, "error")
 
-        loop.run_in_executor(None, _blocking_input)
+        self._input_future = loop.run_in_executor(None, _blocking_input)
 
         # ── Paramètres VAD (config stricte, sans paliers codés en dur) ──
         speech_threshold = getattr(config, "AUDIO_DAEMON_SPEECH_THRESHOLD", 0.02)
@@ -1829,6 +1852,7 @@ class AudioDaemon:
 
     def _cleanup_audio(self) -> None:
         """Libere proprement les ressources audio."""
+        self._signal_input_stop()
         self._cancel_wake_thread()
         # Tuer le processus TTS si actif
         if self._tts_proc and self._tts_proc.returncode is None:
@@ -1847,12 +1871,45 @@ class AudioDaemon:
                 pass
             self._stream = None
         if self._pa:
+            pa = self._pa
             self._pa = None
+            try:
+                pa.terminate()
+            except Exception as e:
+                logger.debug("[audio_daemon] terminate PyAudio : %s", e)
+        self._input_stop_event = None
         # Annuler les tâches async si encore actives (filet de sécurité)
         for task_attr in ("_vad_task", "_process_task", "_watchdog_task"):
             task: asyncio.Task[Any] | None = getattr(self, task_attr, None)
             if task and not task.done():
                 task.cancel()
+
+    def _signal_input_stop(self) -> None:
+        """Arrête le cycle micro courant sans pouvoir être réarmé par start()."""
+        if self._input_stop_event is not None:
+            self._input_stop_event.set()
+
+    async def _wait_for_input_thread(self, timeout: float = 5.0) -> None:
+        """Joint le lecteur PortAudio avant toute réouverture du périphérique."""
+        future = self._input_future
+        if future is None:
+            return
+        try:
+            if not future.done():
+                await asyncio.wait_for(asyncio.shield(future), timeout=timeout)
+            else:
+                future.result()
+        except asyncio.TimeoutError:
+            logger.error(
+                "[audio_daemon] Thread micro bloqué après %.1fs — fermeture forcée",
+                timeout,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.debug("[audio_daemon] fin thread micro : %s", e)
+        finally:
+            self._input_future = None
 
     # ── Broadcast WebSocket ───────────────────────────────────────────────────
 

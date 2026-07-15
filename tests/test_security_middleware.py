@@ -140,8 +140,22 @@ def test_security_headers_present_on_every_response(tmp_db):
     assert r.headers.get("x-content-type-options") == "nosniff"
     assert r.headers.get("x-frame-options") == "DENY"
     assert r.headers.get("referrer-policy") == "no-referrer"
-    assert "default-src 'self'" in r.headers.get("content-security-policy", "")
+    csp = r.headers.get("content-security-policy", "")
+    assert "default-src 'self'" in csp
+    assert "script-src 'self' 'unsafe-inline'" in csp
     assert "geolocation=(self)" in r.headers.get("permissions-policy", "")
+
+
+def test_root_spa_includes_next_inline_bootstrap_and_csp_allows_it(tmp_db):
+    """Régression page noire : sans 'unsafe-inline', les scripts RSC inline ne s'exécutent pas."""
+    with _client() as client:
+        r = client.get("/")
+    if r.status_code != 200:
+        pytest.skip("frontend/out absent dans ce checkout")
+    html = r.text
+    assert "self.__next_f" in html
+    assert "jarvis-loading" in html
+    assert "script-src 'self' 'unsafe-inline'" in r.headers.get("content-security-policy", "")
 
 
 # ── Flux /api/auth/* complet ────────────────────────────────────

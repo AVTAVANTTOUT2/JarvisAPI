@@ -10,8 +10,10 @@ build/
 
 # ── Environnement ───────────────────────────────────────────
 .env
+.env.config
 .env.local
 .env.*.local
+.env.bak
 
 # ── Données locales ─────────────────────────────────────────
 data/
