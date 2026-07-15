@@ -40,7 +40,7 @@ Par défaut (aucune clé cloud audio) :
 | STT | faster-whisper | `large-v3-turbo` |
 | TTS | Kokoro | `af_nicole` → **WAV** |
 
-Pas de repli Edge ni ElevenLabs lorsque `TTS_ENGINE=kokoro`. Voir `docs/VOICE.md` et `native_audio/README.md`.
+Pas de repli Edge ni fournisseur cloud audio retiré lorsque `TTS_ENGINE=kokoro`. Voir `docs/VOICE.md` et `native_audio/README.md`.
 
 ## Build
 

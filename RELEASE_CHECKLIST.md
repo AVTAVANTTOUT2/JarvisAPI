@@ -52,7 +52,7 @@ Ne cocher une case que lorsque la preuve existe (commande, log, SHA, capture).
 - [ ] Voix : `af_nicole`
 - [ ] Sortie TTS = **WAV** (`RIFF…`)
 - [ ] Aucun fallback Edge pour `TTS_ENGINE=kokoro`
-- [ ] Aucun fallback ElevenLabs / cloud audio
+- [ ] Aucun fallback vers un fournisseur cloud audio retiré
 - [ ] Preuve jointe (chemin fichier / log / timestamp) :
 
 ```text
