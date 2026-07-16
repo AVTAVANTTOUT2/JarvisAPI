@@ -1,8 +1,12 @@
 # Périmètre du Companion Android (décision d'architecture)
 
-## Cas retenu — services mobiles + voix native
+> **Évolution 2026-07-16** — branche `feature/android-production-app` : transformation vers client mobile production (navigation, offline Room, briefing, etc.).  
+> État factuel 1.2.0 : [`PRODUCTION_GAP_ANALYSIS.md`](./PRODUCTION_GAP_ANALYSIS.md).  
+> Contrats API : [`API_CONTRACTS_PRODUCTION.md`](./API_CONTRACTS_PRODUCTION.md).
 
-Le Companion Android est un client **natif Kotlin/Compose** (pas de WebView). L'interface web JARVIS reste disponible pour le chat texte et les écrans riches ; la voix courte sur téléphone passe par le Companion.
+## Cas retenu — services mobiles + voix native (baseline 1.2.0)
+
+Le Companion Android est un client **natif Kotlin/Compose** (pas de WebView). En 1.2.0, l'interface web JARVIS reste le canal principal pour le chat texte et les écrans riches ; la voix courte sur téléphone passe par le Companion. La Vague 1+ étend ce périmètre sans WebView.
 
 ### Responsabilités du Companion
 

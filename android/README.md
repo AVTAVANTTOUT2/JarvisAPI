@@ -46,9 +46,18 @@ Pas de repli Edge ni fournisseur cloud audio retiré lorsque `TTS_ENGINE=kokoro`
 
 ```bash
 cd android
-JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" \
-  ./gradlew clean assembleDebug testDebugUnitTest lintDebug
+# JDK 17+ requis (AGP 8.7). Exemples :
+# export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
+# export JAVA_HOME="/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home"
+./gradlew clean assembleDebug testDebugUnitTest lintDebug
 ```
+
+Documentation production :
+
+- [`docs/PRODUCTION_GAP_ANALYSIS.md`](docs/PRODUCTION_GAP_ANALYSIS.md) — audit code 1.2.0
+- [`docs/API_CONTRACTS_PRODUCTION.md`](docs/API_CONTRACTS_PRODUCTION.md) — contrats FastAPI
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — périmètre
+- [`docs/VOICE.md`](docs/VOICE.md) — voix PTT
 
 | Artefact | Usage |
 |---|---|
