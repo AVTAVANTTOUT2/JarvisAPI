@@ -21,10 +21,13 @@ logger = logging.getLogger("jarvis")
 # Matchées uniquement sur des énoncés courts pour éviter les faux positifs.
 _VOICE_CONTROL_MAX_LEN = 30
 _VOICE_CONTROL_COMMANDS: tuple[tuple[tuple[str, ...], str], ...] = (
-    (("arrete", "arrête", "stop", "tais-toi", "tais toi", "chut", "silence", "stoppe"),
+    (("arrete", "arrête", "stop", "tais-toi", "tais toi", "chut", "silence", "stoppe",
+      "plus court", "coupe"),
      "Bien, Monsieur."),
     (("annule", "annule tout", "laisse tomber", "oublie", "oublie ca", "oublie ça"),
      "C'est annulé, Monsieur."),
+    (("continue", "poursuis", "vas-y continue"),
+     "Je continue, Monsieur."),
     (("merci ca suffit", "merci ça suffit", "c'est tout", "c'est bon merci", "ca suffit", "ça suffit"),
      "À votre service, Monsieur."),
 )

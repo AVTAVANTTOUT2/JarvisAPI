@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+from typing import Any
 
 from fastapi import WebSocket
 
@@ -67,16 +69,24 @@ async def _maybe_title_conversation(conv_id: int) -> None:
         logger.debug("[conv] _maybe_title_conversation : %s", e)
 
 
-async def _send_tts_streaming(ws: WebSocket, text: str, emotion: str) -> None:
+async def _send_tts_streaming(
+    ws: WebSocket,
+    text: str,
+    emotion: str,
+    *,
+    turn_id: str | None = None,
+    cancel_event: Any | None = None,
+) -> str:
     """Envoie `speaking`, chunks audio, puis `speech_done` (boucle cliente).
 
-    Le moteur TTS est lu dynamiquement depuis `app_settings.tts_engine` à chaque
-    appel — pas besoin de redémarrer le serveur pour changer de backend.
+    Annulable via ``cancel_event`` (asyncio.Event) : dès qu'il est set, on
+    arrête d'envoyer des chunks et on signale ``speech_cancelled`` pour que
+    le client jette l'audio du ``turn_id`` courant.
+
+    Retourne ``"completed"`` | ``"cancelled"`` | ``"skipped"``.
     """
     from audio.tts import get_tts_by_name
     from audio.audio_format import tts_audio_mime
-    from database import get_setting as _get_setting
-
     from audio.tts_cache import last_tts, speculative_tts
 
     engine_name = (
@@ -85,36 +95,63 @@ async def _send_tts_streaming(ws: WebSocket, text: str, emotion: str) -> None:
     active_engine = get_tts_by_name(engine_name)
 
     audio_mime = tts_audio_mime(engine_name)
-    await ws.send_json({"type": "speaking", "emotion": emotion, "audio_mime": audio_mime})
+    payload: dict[str, Any] = {"type": "speaking", "emotion": emotion, "audio_mime": audio_mime}
+    if turn_id:
+        payload["turn_id"] = turn_id
+    await ws.send_json(payload)
+
+    def _cancelled() -> bool:
+        return bool(cancel_event is not None and cancel_event.is_set())
+
+    if _cancelled():
+        await ws.send_json({"type": "speech_cancelled", "turn_id": turn_id})
+        return "cancelled"
+
     if not (text and text.strip()) or active_engine is None or not getattr(active_engine, "available", False):
-        await ws.send_json({"type": "speech_done"})
-        return
+        await ws.send_json({"type": "speech_done", "turn_id": turn_id})
+        return "skipped"
 
     # TTS spéculatif : la réponse correspond à un audio déjà pré-généré
     cached = speculative_tts.get(text, emotion)
     if cached:
+        if _cancelled():
+            await ws.send_json({"type": "speech_cancelled", "turn_id": turn_id})
+            return "cancelled"
         try:
             await ws.send_bytes(cached)
             last_tts.store(text, emotion, cached, audio_mime)
         except Exception as e:
             logger.error("[TTS] envoi cache spéculatif : %s", e)
         finally:
-            await ws.send_json({"type": "speech_done"})
-        return
+            if _cancelled():
+                await ws.send_json({"type": "speech_cancelled", "turn_id": turn_id})
+                return "cancelled"
+            await ws.send_json({"type": "speech_done", "turn_id": turn_id})
+        return "completed"
 
     collected: list[bytes] = []
     try:
         async for chunk in active_engine.synthesize_stream(text, emotion=emotion):
+            if _cancelled():
+                await ws.send_json({"type": "speech_cancelled", "turn_id": turn_id})
+                return "cancelled"
             if chunk:
                 collected.append(chunk)
                 await ws.send_bytes(chunk)
+    except asyncio.CancelledError:
+        await ws.send_json({"type": "speech_cancelled", "turn_id": turn_id})
+        raise
     except Exception as e:
         logger.error("[TTS] Erreur streaming (%s) : %s", engine_name, e)
     finally:
-        if collected:
-            # « répète » rejouera exactement cet audio, sans re-génération
+        if collected and not _cancelled():
             last_tts.store(text, emotion, b"".join(collected), audio_mime)
-        await ws.send_json({"type": "speech_done"})
+
+    if _cancelled():
+        await ws.send_json({"type": "speech_cancelled", "turn_id": turn_id})
+        return "cancelled"
+    await ws.send_json({"type": "speech_done", "turn_id": turn_id})
+    return "completed"
 
 
 async def _build_enriched_context(text: str, conversation_id: int) -> dict:
