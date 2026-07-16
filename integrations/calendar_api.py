@@ -88,8 +88,13 @@ class AppleCalendarClient:
 
         Wrapper compatible avec l'API historique du module (dict avec
         keys `ok`, `reason`, `returncode`, `stdout`, `stderr`).
+
+        Si Calendar vole le focus (comportement macOS fréquent), on le rend
+        invisible pour rendre le premier plan précédent — critique en jeu / focus.
         """
+        front_before = self._frontmost_process_name()
         result = run_applescript(script, timeout=timeout)
+        self._restore_focus_if_calendar_stole(front_before)
         return {
             "ok": result.ok,
             "reason": result.reason,
@@ -98,12 +103,105 @@ class AppleCalendarClient:
             "stderr": result.stderr,
         }
 
+    @staticmethod
+    def _frontmost_process_name() -> str | None:
+        """Nom du process au premier plan (System Events — n'active rien)."""
+        probe = run_applescript(
+            'tell application "System Events" to get name of first '
+            "application process whose frontmost is true",
+            timeout=2.0,
+        )
+        name = (probe.stdout or "").strip() if probe.ok else ""
+        return name or None
+
+    def _restore_focus_if_calendar_stole(self, front_before: str | None) -> None:
+        """Si Calendar a pris le focus, le cacher pour rendre l'app précédente."""
+        if front_before and front_before.lower() in {"calendar", "calendrier"}:
+            return
+        front_after = self._frontmost_process_name()
+        if not front_after or front_after.lower() not in {"calendar", "calendrier"}:
+            return
+        # Masquer Calendar → macOS rend en général le process précédent frontmost.
+        hide = run_applescript(
+            'tell application "System Events" to set visible of process '
+            f'"{escape_applescript_string(front_after)}" to false',
+            timeout=2.0,
+        )
+        if hide.ok:
+            logger.debug("[Calendar] Focus restauré (Calendar avait volé le premier plan)")
+            return
+        # Repli : réactiver explicitement l'app d'avant
+        if front_before:
+            run_applescript(
+                f'tell application "{escape_applescript_string(front_before)}" to activate',
+                timeout=2.0,
+            )
+            logger.debug("[Calendar] Focus forcé vers %s", front_before)
+
     async def _run_applescript_async(self, script: str, timeout: float = OSASCRIPT_TIMEOUT) -> str | None:
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, lambda: self._run_applescript(script, timeout=timeout))
 
+    @staticmethod
+    def _calendar_process_running() -> bool:
+        """True si Calendar.app tourne déjà (sans Apple Event — n'active pas l'app)."""
+        try:
+            res = subprocess.run(
+                ["pgrep", "-x", "Calendar"],
+                capture_output=True,
+                timeout=2.0,
+            )
+            return res.returncode == 0
+        except Exception:
+            return False
+
+    def _open_calendar_background(self) -> dict:
+        """Lance Calendar sans le ramener au premier plan (`open -gj`)."""
+        try:
+            open_res = subprocess.run(
+                ["open", "-gj", "-b", CALENDAR_APP_ID],
+                capture_output=True,
+                text=True,
+                timeout=2.5,
+            )
+            if open_res.returncode != 0:
+                return {
+                    "ok": False,
+                    "reason": "open_failed",
+                    "returncode": open_res.returncode,
+                    "stderr": (open_res.stderr or "").strip(),
+                    "stdout": (open_res.stdout or "").strip(),
+                }
+            return {"ok": True, "reason": "open_gj"}
+        except Exception as e:
+            return {
+                "ok": False,
+                "reason": "open_exception",
+                "stderr": f"{type(e).__name__}: {e}",
+            }
+
     def _launch_calendar(self) -> dict:
-        """Force le lancement en arrière-plan de Calendar.app avant les requêtes."""
+        """Assure que Calendar.app tourne en arrière-plan — jamais `activate` / focus."""
+        # Déjà en cours : ne rien faire (évite tout Apple Event / open inutile).
+        if self._calendar_process_running():
+            return {"ok": True, "reason": "already_running"}
+
+        # Préférer open -gj : ne vole pas le focus (contrairement à un tell qui lance).
+        open_diag = self._open_calendar_background()
+        if open_diag.get("ok"):
+            # Laisser le process démarrer, puis confirmer via launch (sans activate).
+            time.sleep(0.4)
+            if self._calendar_process_running():
+                return open_diag
+            launch_diag = self._run_applescript_detailed(
+                f'tell application id "{CALENDAR_APP_ID}" to launch',
+                timeout=OSASCRIPT_LAUNCH_TIMEOUT,
+            )
+            if launch_diag.get("ok"):
+                return launch_diag
+            return {**open_diag, "launch_followup": launch_diag}
+
+        # Dernier recours AppleScript launch (ne devrait pas activer).
         diag = self._run_applescript_detailed(
             f'tell application id "{CALENDAR_APP_ID}" to launch',
             timeout=OSASCRIPT_LAUNCH_TIMEOUT,
@@ -111,36 +209,9 @@ class AppleCalendarClient:
         if diag.get("ok"):
             return diag
 
-        # Fallback pragmatique : certains contextes retournent -600 sur "launch".
         stderr = (diag.get("stderr") or "").strip()
         if "-600" in stderr or "L’application n’est pas ouverte" in stderr or "Application isn’t running" in stderr:
-            try:
-                open_res = subprocess.run(
-                    ["open", "-gj", "-b", CALENDAR_APP_ID],
-                    capture_output=True,
-                    text=True,
-                    timeout=2.5,
-                )
-                if open_res.returncode != 0:
-                    return {
-                        **diag,
-                        "reason": "open_failed",
-                        "open_returncode": open_res.returncode,
-                        "open_stderr": (open_res.stderr or "").strip(),
-                        "open_stdout": (open_res.stdout or "").strip(),
-                    }
-            except Exception as e:
-                return {
-                    **diag,
-                    "reason": "open_exception",
-                    "open_exception": f"{type(e).__name__}: {e}",
-                }
-
-            # Retenter un launch AppleScript très court après open.
-            return self._run_applescript_detailed(
-                f'tell application id "{CALENDAR_APP_ID}" to launch',
-                timeout=3.0,
-            )
+            return self._open_calendar_background()
 
         return diag
 
