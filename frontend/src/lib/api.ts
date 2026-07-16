@@ -440,7 +440,7 @@ export const api = {
     '/api/supervisor/sub-services',
   ),
   subServiceAction: (id: string, action: 'start' | 'stop' | 'restart') =>
-    request<{ ok: boolean; message?: string; error?: string }>(
+    request<{ ok: boolean; message?: string; error?: string; status?: string }>(
       `/api/supervisor/sub/${encodeURIComponent(id)}/${encodeURIComponent(action)}`,
       { method: 'POST' },
     ),

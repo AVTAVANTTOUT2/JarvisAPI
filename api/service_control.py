@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import subprocess
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+logger = logging.getLogger(__name__)
 
 
 # ── Service Control ──────────────────────────────────────────
@@ -26,7 +28,7 @@ _service_tasks: dict[str, asyncio.Task] = {}
 
 
 def _get_all_services_status() -> list[dict[str, object]]:
-    """Retourne l'état de chaque service (interne + externe)."""
+    """Retourne l'état de chaque service (interne + Ollama enrichi)."""
     services: list[dict[str, object]] = []
 
     # ── Audio Daemon ──
@@ -74,20 +76,24 @@ def _get_all_services_status() -> list[dict[str, object]]:
     except Exception:
         services.append({"id": "jarvis_daemon", "name": "JARVIS Daemon", "running": False, "can_control": True, "category": "core", "description": "Sentinelle permanente"})
 
-    # ── Screen Watcher ──
+    # ── Screen Watcher (état propre, jamais dérivé du daemon) ──
     try:
         from scripts.screen_watcher import screen_watcher as _sw
-        running = getattr(_sw, '_running', False) or getattr(_sw, 'running', False)
+        payload = _sw.status_payload()
+        services.append(payload)
+    except Exception as exc:
+        logger.debug("screen_watcher status: %s", exc)
         services.append({
             "id": "screen_watcher",
             "name": "Screen Watcher",
-            "description": "Analyse ecran Ollama vision",
-            "category": "monitoring",
-            "running": running,
+            "running": False,
+            "status": "error",
+            "state": "error",
             "can_control": True,
+            "category": "monitoring",
+            "description": "Analyse ecran Ollama vision",
+            "detail": str(exc),
         })
-    except Exception:
-        services.append({"id": "screen_watcher", "name": "Screen Watcher", "running": False, "can_control": True, "category": "monitoring", "description": "Analyse ecran Ollama"})
 
     # ── Scheduler ──
     try:
@@ -120,25 +126,43 @@ def _get_all_services_status() -> list[dict[str, object]]:
     except Exception:
         services.append({"id": "relationship_analyzer", "name": "Relationship Analyzer", "running": False, "can_control": True, "category": "analysis", "description": "Analyse iMessage"})
 
-    # ── Processus externes (lecture seule — check via subprocess) ──
-
-    # Ollama
-    import subprocess as _sp
+    # ── Ollama (health HTTP réel) ──
     try:
-        r = _sp.run(["pgrep", "-f", "ollama"], capture_output=True, timeout=3)
-        ollama_running = r.returncode == 0
-    except Exception:
-        ollama_running = False
-    services.append({
-        "id": "ollama",
-        "name": "Ollama",
-        "description": "LLM local (qwen2.5-vl, triage)",
-        "category": "external",
-        "running": ollama_running,
-        "can_control": True,
-    })
+        from integrations.ollama_control import check_ollama_health
 
-    # TV Dashboard (port 5174)
+        health = check_ollama_health()
+        services.append({
+            "id": "ollama",
+            "name": "Ollama",
+            "description": "LLM local (vision + triage)",
+            "category": "external",
+            "running": bool(health.get("healthy")),
+            "status": health.get("status"),
+            "state": health.get("status"),
+            "healthy": bool(health.get("healthy")),
+            "port": health.get("port"),
+            "latency_ms": health.get("latency_ms"),
+            "models": health.get("models"),
+            "vision_model": health.get("vision_model"),
+            "vision_model_resolved": health.get("vision_model_resolved"),
+            "vision_model_available": health.get("vision_model_available"),
+            "error": health.get("error"),
+            "can_control": True,
+        })
+    except Exception as exc:
+        services.append({
+            "id": "ollama",
+            "name": "Ollama",
+            "description": "LLM local (vision + triage)",
+            "category": "external",
+            "running": False,
+            "status": "error",
+            "healthy": False,
+            "can_control": True,
+            "error": str(exc),
+        })
+
+    # ── TV Dashboard (port 5174) ──
     import socket as _sock
     tv_running = False
     try:
@@ -155,28 +179,12 @@ def _get_all_services_status() -> list[dict[str, object]]:
         "can_control": True,
     })
 
-    # Vite Dev Server (port 5173)
-    vite_running = False
-    try:
-        with _sock.create_connection(("127.0.0.1", 5173), timeout=1):
-            vite_running = True
-    except Exception:
-        pass
-    services.append({
-        "id": "vite_dev",
-        "name": "Vite Dev Server",
-        "description": "Frontend dev (port 5173)",
-        "category": "external",
-        "running": vite_running,
-        "can_control": False,
-    })
-
     return services
 
 
 async def _start_service(service: str) -> dict[str, object]:
     """Demarre un service par son id."""
-    svc = service.strip().lower()
+    svc = service.strip().lower().replace("-", "_")
 
     if svc == "audio_daemon":
         from scripts.audio_daemon import audio_daemon as _ad
@@ -201,16 +209,12 @@ async def _start_service(service: str) -> dict[str, object]:
 
     if svc == "screen_watcher":
         from scripts.screen_watcher import screen_watcher as _sw
-        if getattr(_sw, "running", False):
-            return {"ok": True, "message": "Deja actif"}
-        try:
-            from scripts.jarvis_daemon import daemon as _jd
-            if getattr(_jd, "running", False):
-                return {"ok": True, "message": "Deja actif via jarvis_daemon"}
-        except Exception:
-            pass
-        _service_tasks["screen_watcher"] = asyncio.create_task(_sw.start(), name="screen_watcher_ctrl")
-        return {"ok": True, "message": "Screen watcher demarre"}
+        result = await _sw.ensure_started(require_ollama=True, autostart=False)
+        if result.get("ok"):
+            task = _sw._loop_task
+            if task is not None:
+                _service_tasks["screen_watcher"] = task
+        return result
 
     if svc == "scheduler":
         from scripts.scheduler import start_scheduler as _start_sched
@@ -225,8 +229,11 @@ async def _start_service(service: str) -> dict[str, object]:
         return {"ok": True, "message": "Analyzer lance"}
 
     if svc == "ollama":
-        subprocess.Popen(["ollama", "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        return {"ok": True, "message": "Ollama lance"}
+        from integrations.ollama_control import start_ollama
+
+        # Start Ollama seul — ne redémarre PAS Screen Watcher
+        result = await asyncio.to_thread(start_ollama)
+        return result
 
     if svc == "tv_dashboard":
         tv_dir = BASE_DIR / "tv"
@@ -242,7 +249,7 @@ async def _start_service(service: str) -> dict[str, object]:
 
 async def _stop_service(service: str) -> dict[str, object]:
     """Arrete un service par son id."""
-    svc = service.strip().lower()
+    svc = service.strip().lower().replace("-", "_")
 
     if svc == "audio_daemon":
         from scripts.audio_daemon import audio_daemon as _ad
@@ -270,11 +277,9 @@ async def _stop_service(service: str) -> dict[str, object]:
 
     if svc == "screen_watcher":
         from scripts.screen_watcher import screen_watcher as _sw
-        _sw.stop()
-        task = _service_tasks.pop("screen_watcher", None)
-        if task and not task.done():
-            task.cancel()
-        return {"ok": True, "message": "Screen watcher arrete"}
+        result = await _sw.stop_async(reason="manual")
+        _service_tasks.pop("screen_watcher", None)
+        return result
 
     if svc == "scheduler":
         from scripts.scheduler import shutdown_scheduler as _stop_sched
@@ -288,8 +293,22 @@ async def _stop_service(service: str) -> dict[str, object]:
         return {"ok": True, "message": "Analyzer arrete"}
 
     if svc == "ollama":
-        subprocess.run(["pkill", "-f", "ollama"], capture_output=True)
-        return {"ok": True, "message": "Ollama arrete"}
+        # Stop SW d'abord, puis Ollama
+        from scripts.screen_watcher import screen_watcher as _sw
+        from integrations.ollama_control import stop_ollama
+
+        logger.info("[control] Ollama stop requested → stop Screen Watcher first")
+        sw_result = await _sw.stop_async(reason="Ollama is stopping")
+        _service_tasks.pop("screen_watcher", None)
+        ollama_result = await asyncio.to_thread(stop_ollama)
+        return {
+            **ollama_result,
+            "screen_watcher": sw_result,
+            "message": (
+                ollama_result.get("message", "Ollama arrêté")
+                + " — Screen Watcher arrêté"
+            ),
+        }
 
     if svc == "tv_dashboard":
         result = subprocess.run(
@@ -302,6 +321,33 @@ async def _stop_service(service: str) -> dict[str, object]:
                 subprocess.run(["kill", "-TERM", pid], capture_output=True)
         return {"ok": True, "message": "TV dashboard arrete"}
 
+    return {"ok": False, "error": f"Service inconnu : {service}"}
+
+
+async def get_service_detail(service: str) -> dict[str, object]:
+    """Détail enrichi pour un service (ollama / screen_watcher)."""
+    svc = service.strip().lower().replace("-", "_")
+    if svc == "ollama":
+        from integrations.ollama_control import check_ollama_health
+
+        health = await asyncio.to_thread(check_ollama_health)
+        return {"ok": True, **health}
+    if svc == "screen_watcher":
+        from scripts.screen_watcher import screen_watcher as _sw
+        from integrations.ollama_control import check_ollama_health
+
+        health = await asyncio.to_thread(check_ollama_health)
+        payload = _sw.status_payload()
+        return {
+            "ok": True,
+            **payload,
+            "ollama": "healthy" if health.get("healthy") else "unhealthy",
+            "ollama_detail": health,
+        }
+    # Fallback liste
+    for item in _get_all_services_status():
+        if item.get("id") == svc:
+            return {"ok": True, **item}
     return {"ok": False, "error": f"Service inconnu : {service}"}
 
 

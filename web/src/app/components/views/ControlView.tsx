@@ -211,6 +211,12 @@ export default function ControlView() {
 
   const handleTopAction = useCallback(
     async (serviceId: string, action: 'start' | 'stop' | 'restart') => {
+      if (serviceId === 'ollama' && action === 'stop') {
+        const ok = window.confirm(
+          'Arrêter Ollama arrêtera également Screen Watcher.',
+        )
+        if (!ok) return
+      }
       setActionLoading((prev) => ({ ...prev, [serviceId]: true }))
       try {
         if (action === 'start') await api.supervisorStart(serviceId)
@@ -230,7 +236,28 @@ export default function ControlView() {
     async (serviceId: string, action: 'start' | 'stop' | 'restart') => {
       setActionLoading((prev) => ({ ...prev, [serviceId]: true }))
       try {
-        await api.subServiceAction(serviceId, action)
+        const result = await api.subServiceAction(serviceId, action)
+        if (
+          serviceId === 'screen_watcher' &&
+          action === 'start' &&
+          result &&
+          result.ok === false
+        ) {
+          const msg = result.error || result.message || 'Echec demarrage'
+          if (/ollama/i.test(msg)) {
+            const startOllama = window.confirm(
+              `${msg}\n\nDémarrer Ollama maintenant ?`,
+            )
+            if (startOllama) {
+              await api.supervisorStart('ollama')
+              await fetchAll()
+              setActionLoading((prev) => ({ ...prev, [serviceId]: false }))
+              return
+            }
+          } else {
+            window.alert(msg)
+          }
+        }
         await fetchSubServices()
       } catch (e) {
         console.error(`[ControlView] Echec ${action} ${serviceId}`, e)
@@ -238,7 +265,7 @@ export default function ControlView() {
         setActionLoading((prev) => ({ ...prev, [serviceId]: false }))
       }
     },
-    [fetchSubServices],
+    [fetchAll, fetchSubServices],
   )
 
   const handleGlobal = useCallback(
@@ -302,9 +329,13 @@ export default function ControlView() {
   }, [topServices])
 
   const subGrouped = useMemo(() => {
+    // Ollama / TV sont pilotés au niveau supervisor — éviter le doublon
+    const filtered = subServices.filter(
+      (s) => s.id !== 'ollama' && s.id !== 'tv_dashboard' && s.id !== 'vite_dev',
+    )
     const result: { category: string; services: ServiceInfo[] }[] = []
     for (const cat of SUB_CATEGORY_ORDER) {
-      const items = subServices.filter((s) => s.category === cat)
+      const items = filtered.filter((s) => s.category === cat)
       if (items.length > 0) result.push({ category: cat, services: items })
     }
     return result
@@ -637,6 +668,36 @@ function TopServiceCard({
             )}
           </p>
 
+          {service.id === 'ollama' && (
+            <div className="mt-2 space-y-1 text-[10px] font-mono text-white/45">
+              <div>
+                API:{' '}
+                <span className={service.healthy ? 'text-emerald-400' : 'text-amber-400'}>
+                  {service.healthy ? 'healthy' : service.status || 'down'}
+                </span>
+                {service.latency_ms != null && (
+                  <span className="text-white/25"> · {service.latency_ms}ms</span>
+                )}
+              </div>
+              <div>
+                Vision:{' '}
+                {service.vision_model_resolved || service.vision_model || '—'}
+                {service.vision_model_available === false && (
+                  <span className="text-amber-400"> (absent)</span>
+                )}
+              </div>
+              {service.models && service.models.length > 0 && (
+                <div className="text-white/30 truncate">
+                  Modeles: {service.models.map((m) => m.name).slice(0, 4).join(', ')}
+                  {service.models.length > 4 ? '…' : ''}
+                </div>
+              )}
+              {service.error && (
+                <div className="text-amber-400/80 leading-snug">{service.error}</div>
+              )}
+            </div>
+          )}
+
           {/* Boutons d'action */}
           <div className="flex items-center gap-1.5 mt-3 flex-wrap">
             {service.can_control ? (
@@ -720,9 +781,13 @@ function SubServiceCard({
   const isRunning = service.running
 
   const stateLabel = useMemo(() => {
+    const status = service.status || service.state
+    if (service.id === 'screen_watcher' && status) {
+      return status.toUpperCase()
+    }
     if (!isRunning) return 'INACTIF'
-    if (service.state && service.state !== 'listening' && service.state !== 'idle') {
-      return service.state.toUpperCase()
+    if (status && status !== 'listening' && status !== 'idle') {
+      return status.toUpperCase()
     }
     if (service.id === 'audio_daemon' && service.state) {
       const labels: Record<string, string> = {
@@ -734,7 +799,17 @@ function SubServiceCard({
       return labels[service.state] || service.state.toUpperCase()
     }
     return 'ACTIF'
-  }, [isRunning, service.state, service.id])
+  }, [isRunning, service.state, service.status, service.id])
+
+  const screenBlocked = service.id === 'screen_watcher' && service.status === 'blocked_ollama'
+  const screenCanStart =
+    service.id !== 'screen_watcher'
+      ? !isRunning
+      : !isRunning &&
+        !screenBlocked &&
+        service.status !== 'starting' &&
+        service.status !== 'disabled' &&
+        service.status !== 'stopping'
 
   return (
     <div
@@ -774,11 +849,42 @@ function SubServiceCard({
             {service.description}
           </p>
 
+          {service.id === 'screen_watcher' && (
+            <div className="mt-1.5 space-y-0.5 text-[9px] font-mono text-white/40">
+              <div>
+                Autostart: {service.autostart ? 'oui' : 'non'}
+                {service.vision_model ? ` · ${service.vision_model}` : ''}
+              </div>
+              {service.last_heartbeat && (
+                <div className="text-white/30">Heartbeat: {service.last_heartbeat}</div>
+              )}
+              {service.last_capture_at && (
+                <div className="text-white/30">Capture: {service.last_capture_at}</div>
+              )}
+              {service.last_analysis_at && (
+                <div className="text-white/30">Analyse: {service.last_analysis_at}</div>
+              )}
+              {(service.error_count ?? 0) > 0 && (
+                <div className="text-amber-400/80">Erreurs: {service.error_count}</div>
+              )}
+              {(screenBlocked || service.detail) && (
+                <div className="text-amber-400/90">
+                  {service.detail || 'Ollama indisponible'}
+                </div>
+              )}
+              {!isRunning && service.status === 'stopped' && (
+                <div className="text-white/25">
+                  Arrete — demarrage manuel requis si Ollama vient d&apos;etre relance
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Boutons */}
           <div className="flex items-center gap-1 mt-2.5 flex-wrap">
             {service.can_control ? (
               <>
-                {!isRunning ? (
+                {screenCanStart && !isRunning ? (
                   <ActionButton
                     color="emerald"
                     icon={Play}
@@ -787,7 +893,8 @@ function SubServiceCard({
                     loading={actionLoading}
                     compact
                   />
-                ) : (
+                ) : null}
+                {isRunning ? (
                   <>
                     <ActionButton
                       color="red"
@@ -806,6 +913,20 @@ function SubServiceCard({
                       compact
                     />
                   </>
+                ) : null}
+                {screenBlocked && (
+                  <ActionButton
+                    color="emerald"
+                    icon={Play}
+                    label="Start Ollama"
+                    onClick={() => {
+                      void api.supervisorStart('ollama').then(() => {
+                        /* parent refresh via WS / poll */
+                      })
+                    }}
+                    loading={actionLoading}
+                    compact
+                  />
                 )}
               </>
             ) : (
