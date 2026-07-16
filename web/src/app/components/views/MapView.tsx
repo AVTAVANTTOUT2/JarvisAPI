@@ -3,7 +3,6 @@ import {
   Layers,
   Navigation,
   MapPin,
-  TrendingUp,
   X,
   Plus,
   Minus,
@@ -13,6 +12,8 @@ import { api } from '@unified/lib/api';
 import {
   getLocationDisplayStatus,
   mapLocationHistory,
+  mapLocationPoint,
+  resolveDisplayLocationPoint,
   type LocationPoint,
 } from '@unified/lib/locationDisplay';
 import { timeAgo, formatDurationMin } from '@desktop/app/lib/timeFormat';
@@ -63,6 +64,7 @@ interface LocationStatus {
   current_location?: LocationPoint | null;
   current_visit?: { place_name?: string } | null;
   place_name?: string | null;
+  points_24h?: number;
 }
 
 interface GeoCoordinate {
@@ -247,14 +249,16 @@ export function MapView() {
   const sortedByVisit = [...places].sort((a, b) => (b.visit_count ?? 0) - (a.visit_count ?? 0));
   const weekGroups = groupVisitsByDay(weekVisits);
   const maxWeekCount = Math.max(1, ...weekGroups.map((g) => g.count));
-  const latestPoint = historyPoints[historyPoints.length - 1];
+  const statusPoint = mapLocationPoint(locationStatus?.current_location ?? null) ?? undefined;
+  const latestPoint = resolveDisplayLocationPoint(historyPoints, statusPoint);
   const locationDisplay = getLocationDisplayStatus(latestPoint);
   const mapCoordinates: GeoCoordinate[] = [
     ...places,
     ...historyPoints,
-    ...(locationStatus?.current_location ? [locationStatus.current_location] : []),
+    ...(latestPoint ? [latestPoint] : []),
   ];
   const hasLocationData = mapCoordinates.length > 0;
+  const historyCount = Math.max(historyPoints.length, locationStatus?.points_24h ?? 0);
 
   // Trajets uniques (from → to)
   type TripKey = string;
@@ -461,9 +465,9 @@ export function MapView() {
           );
         })}
 
-        {/* Couche 6 — Position actuelle */}
-        {locationStatus?.current_location && (() => {
-          const loc = locationStatus.current_location!;
+        {/* Couche 6 — Dernière position connue (historique ou status) */}
+        {latestPoint && (() => {
+          const loc = latestPoint;
           const { x, y } = projectToSVG(loc.latitude, loc.longitude, mapCoordinates, w, h);
           return (
             <g>
@@ -524,8 +528,15 @@ export function MapView() {
             </button>
           </div>
 
-          {/* Stats rapides */}
+          {/* Stats rapides — points GPS ≠ lieux nommés */}
           <div className="grid grid-cols-2 gap-2">
+            <div className="glass-panel rounded-xl p-3 border border-white/10">
+              <div className="flex items-center gap-2 mb-1">
+                <Navigation className="w-3.5 h-3.5 text-muted-foreground" />
+                <span className="font-mono text-xs text-muted-foreground">Points GPS</span>
+              </div>
+              <p className="text-xl font-bold">{historyCount}</p>
+            </div>
             <div className="glass-panel rounded-xl p-3 border border-white/10">
               <div className="flex items-center gap-2 mb-1">
                 <MapPin className="w-3.5 h-3.5 text-muted-foreground" />
@@ -533,14 +544,12 @@ export function MapView() {
               </div>
               <p className="text-xl font-bold">{places.length}</p>
             </div>
-            <div className="glass-panel rounded-xl p-3 border border-white/10">
-              <div className="flex items-center gap-2 mb-1">
-                <TrendingUp className="w-3.5 h-3.5 text-muted-foreground" />
-                <span className="font-mono text-xs text-muted-foreground">Aujourd'hui</span>
-              </div>
-              <p className="text-xl font-bold">{todayVisits.length}</p>
-            </div>
           </div>
+          {historyCount > 0 && places.length === 0 && (
+            <p className="font-mono text-[10px] text-muted-foreground leading-relaxed">
+              Historique téléphone reçu — aucun lieu nommé pour l’instant.
+            </p>
+          )}
 
           {/* Activité hebdomadaire */}
           <div className="glass-panel rounded-xl p-4 border border-white/10">
@@ -822,8 +831,8 @@ export function MapView() {
             </div>
           )}
 
-          {/* Bouton "Nommer cet endroit" */}
-          {locationStatus?.current_location && !locationStatus?.current_visit && (
+          {/* Bouton "Nommer cet endroit" — nécessite une position affichable */}
+          {latestPoint && !locationStatus?.current_visit && (
             <button
               onClick={() => void handleNameCurrent()}
               className="absolute bottom-4 left-1/2 -translate-x-1/2 px-4 py-2 rounded-xl bg-white/10 border border-white/20 hover:bg-white/15 text-sm transition-colors backdrop-blur-sm flex items-center gap-2"

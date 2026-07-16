@@ -137,15 +137,28 @@ def get_location_history(hours: int = 24) -> list[dict]:
         return [dict(r) for r in rows]
 
 
-def get_current_location() -> dict | None:
-    """Dernier point datant de moins de 10 minutes."""
-    cutoff = (datetime.now() - timedelta(minutes=10)).isoformat(timespec="seconds")
+def get_last_known_location() -> dict | None:
+    """Dernier point GPS connu, quel que soit son âge (affichage frontend)."""
+    with get_db() as conn:
+        row = conn.execute(
+            """SELECT lh.*, p.name AS place_name FROM location_history lh
+               LEFT JOIN places p ON p.id = lh.place_id
+               ORDER BY lh.created_at DESC, lh.id DESC LIMIT 1""",
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def get_current_location(max_age_minutes: int = 10) -> dict | None:
+    """Dernier point datant de moins de ``max_age_minutes`` (name_place / actions)."""
+    cutoff = (datetime.now() - timedelta(minutes=max(1, max_age_minutes))).isoformat(
+        timespec="seconds"
+    )
     with get_db() as conn:
         row = conn.execute(
             """SELECT lh.*, p.name AS place_name FROM location_history lh
                LEFT JOIN places p ON p.id = lh.place_id
                WHERE lh.created_at >= ?
-               ORDER BY lh.created_at DESC LIMIT 1""",
+               ORDER BY lh.created_at DESC, lh.id DESC LIMIT 1""",
             (cutoff,),
         ).fetchone()
         return dict(row) if row else None

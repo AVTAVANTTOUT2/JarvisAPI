@@ -199,3 +199,54 @@ def test_location_history_endpoint_exposes_android_point_when_tracking_disabled(
     assert point["accuracy"] == pytest.approx(12.0)
     assert point["source"] == "android_background"
     assert point["created_at"] == captured_at
+
+
+def test_location_status_returns_last_known_even_when_stale_and_tracking_disabled(
+    tmp_db,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Le frontend ne doit pas voir current_location=null si l'historique a un point >10 min."""
+    from database import get_db
+    from tests.conftest import authenticate
+
+    monkeypatch.setattr("config.LOCATION_TRACKING", False)
+    stale_at = (datetime.now() - timedelta(minutes=25)).isoformat(timespec="seconds")
+    with get_db() as conn:
+        conn.execute(
+            """INSERT INTO location_history
+               (latitude, longitude, accuracy, source, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (50.63, 3.06, 12.0, "android_background", stale_at),
+        )
+
+    with _client() as client:
+        authenticate(client)
+        response = client.get("/api/location/status")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["tracking_enabled"] is False
+    assert body["points_24h"] >= 1
+    cur = body["current_location"]
+    assert cur is not None
+    assert cur["source"] == "android_background"
+    assert cur["created_at"] == stale_at
+    assert cur["latitude"] == pytest.approx(50.63)
+    assert cur["longitude"] == pytest.approx(3.06)
+
+
+def test_get_current_location_still_requires_recent_point_for_name_place(tmp_db):
+    from database.location_helpers import get_current_location, get_last_known_location
+    from database import get_db
+
+    stale_at = (datetime.now() - timedelta(minutes=25)).isoformat(timespec="seconds")
+    with get_db() as conn:
+        conn.execute(
+            """INSERT INTO location_history
+               (latitude, longitude, accuracy, source, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (50.63, 3.06, 12.0, "android_background", stale_at),
+        )
+
+    assert get_last_known_location() is not None
+    assert get_current_location() is None
