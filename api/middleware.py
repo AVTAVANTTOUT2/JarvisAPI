@@ -12,6 +12,43 @@ import config
 
 
 _DEVICE_TOKEN_ROUTE_RE = re.compile(r"^/api/devices/[^/]+/(heartbeat|screen)$")
+_CONVERSATION_DETAIL_RE = re.compile(r"^/api/conversations/\d+$")
+
+# Lectures métier autorisées avec jeton mobile Bearer (Vague 1).
+# Les mutations (POST/PATCH/DELETE) hors bypass restent sur cookie session.
+_MOBILE_BEARER_GET_EXACT = frozenset(
+    {
+        "/api/briefing",
+        "/api/notifications",
+        "/api/notifications/all",
+        "/api/tasks",
+        "/api/calendar",
+        "/api/conversations",
+        "/api/conversations/search",
+        "/api/visits/today",
+        "/api/location/status",
+    }
+)
+
+
+def _mobile_bearer_allows(method: str, path: str) -> bool:
+    """True si un Bearer mobile valide peut ouvrir cette route (lecture Vague 1)."""
+    if method != "GET":
+        return False
+    if path in _MOBILE_BEARER_GET_EXACT:
+        return True
+    if _CONVERSATION_DETAIL_RE.match(path):
+        return True
+    return False
+
+
+def _extract_bearer_token(request: Request) -> str | None:
+    header = request.headers.get("authorization") or ""
+    if not header.lower().startswith("bearer "):
+        return None
+    token = header[7:].strip()
+    return token or None
+
 
 # Routes qui ne passent PAS par le verrou de session navigateur — soit parce
 # qu'elles servent à s'authentifier, soit parce qu'elles sont appelées par un
@@ -77,10 +114,16 @@ async def security_middleware(request: Request, call_next):
 
         token = request.cookies.get(config.SESSION_COOKIE_NAME)
         session = auth.verify_session(token)
+        mobile_device = None
         if not session:
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
+            bearer = _extract_bearer_token(request)
+            if bearer and _mobile_bearer_allows(method, path):
+                mobile_device = auth.verify_mobile_token(bearer)
+            if not mobile_device:
+                return JSONResponse({"error": "unauthorized"}, status_code=401)
+            request.state.mobile_device = mobile_device
 
-        if method in ("POST", "PUT", "PATCH", "DELETE"):
+        if method in ("POST", "PUT", "PATCH", "DELETE") and session:
             # Défense en profondeur : le cookie de session est SameSite=Strict,
             # ce qui bloque déjà le CSRF cross-site dans tout navigateur moderne.
             # Quand un navigateur fournit Origin/Referer (quasi systématique en
@@ -91,6 +134,8 @@ async def security_middleware(request: Request, call_next):
             # l'Origin du navigateur garde le port du dev server. Les clients
             # sans Origin/Referer (scripts, curl) ne sont pas bloqués — pour
             # eux, SameSite=Strict est déjà la protection effective.
+            # Bearer mobile Vague 1 n'ouvre pas les mutations métier : CSRF
+            # cookie-only reste inchangé.
             origin = request.headers.get("origin") or request.headers.get("referer")
             host = request.headers.get("host", "")
             if origin and host:
