@@ -1,19 +1,26 @@
-# JARVIS Android 1.2.0 — compagnon natif Kotlin
+# JARVIS Android 1.2.0 — fondation production (Vague 1)
 
 Application **100 % native Kotlin** (Jetpack Compose) qui relie le téléphone au JARVIS du Mac via HTTPS.
 
-> **Pas de WebView** — périmètre : appairage, GPS, wake word, FCM, statut, **conversation vocale push-to-talk**. Voir `docs/ARCHITECTURE.md` et `docs/VOICE.md`.
+> **Pas de WebView.** Vague 1 ajoute navigation, onboarding, Room/Sync, Accueil briefing. Voir `docs/ARCHITECTURE.md`, `docs/PRODUCTION_GAP_ANALYSIS.md`, `docs/OFFLINE_SYNC.md`, `docs/VOICE.md`.
 
 ## Fonctions
 
-- pairage natif par code à six chiffres ;
+- pairage natif par code à six chiffres + onboarding multi-étapes ;
 - jeton natif chiffré (Android Keystore) ;
+- navigation BottomBar (Accueil, Chat placeholder, Voix, Agenda placeholder, Plus) ;
+- Accueil : briefing / tâches / agenda / notifs via cache Room (Bearer) ;
+- sync périodique WorkManager ;
 - notifications FCM si `google-services.json` est présent ;
 - présence GPS en arrière-plan (service de premier plan) ;
 - détection locale du mot « JARVIS » (Porcupine) ;
 - conversation vocale native (`POST /api/mobile/voice/turn`) — STT/TTS sur le Mac ;
-- confiance CA privée JARVIS (`JarvisTls` + `res/raw/jarvis_ca.crt`) — **pas** de certificate pinning strict ;
-- révocation depuis l'interface web JARVIS.
+- diagnostics (rapport sans secrets) ;
+- confiance CA privée JARVIS — **pas** de certificate pinning strict.
+
+## Hors Vague 1 (prochaines vagues)
+
+Chat texte streaming, conversation vocale continue, file GPS offline branchée, UI tâches/agenda complète, version `2.0.0`.
 
 ## HTTPS côté Mac (obligatoire)
 
@@ -46,9 +53,18 @@ Pas de repli Edge ni fournisseur cloud audio retiré lorsque `TTS_ENGINE=kokoro`
 
 ```bash
 cd android
-JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" \
-  ./gradlew clean assembleDebug testDebugUnitTest lintDebug
+# JDK 17+ requis (AGP 8.7). Exemples :
+# export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
+# export JAVA_HOME="/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home"
+./gradlew clean assembleDebug testDebugUnitTest lintDebug
 ```
+
+Documentation production :
+
+- [`docs/PRODUCTION_GAP_ANALYSIS.md`](docs/PRODUCTION_GAP_ANALYSIS.md) — audit code 1.2.0
+- [`docs/API_CONTRACTS_PRODUCTION.md`](docs/API_CONTRACTS_PRODUCTION.md) — contrats FastAPI
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — périmètre
+- [`docs/VOICE.md`](docs/VOICE.md) — voix PTT
 
 | Artefact | Usage |
 |---|---|

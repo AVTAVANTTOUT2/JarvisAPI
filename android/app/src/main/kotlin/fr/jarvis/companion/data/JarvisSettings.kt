@@ -11,6 +11,7 @@ object JarvisSettings {
     const val PREF_LOCATION = "background_location"
     const val PREF_WAKE = "wake_word"
     const val PREF_VOICE_CONVERSATION = "voice_conversation_id"
+    const val PREF_ONBOARDING_COMPLETE = "onboarding_complete"
 
     private const val SECRET_NATIVE_TOKEN = "native_token"
     private const val SECRET_PORCUPINE_KEY = "porcupine_access_key"
@@ -66,5 +67,12 @@ object JarvisSettings {
 
     fun setWakeWordEnabled(context: Context, enabled: Boolean) {
         preferences(context).edit().putBoolean(PREF_WAKE, enabled).apply()
+    }
+
+    fun isOnboardingComplete(context: Context): Boolean =
+        preferences(context).getBoolean(PREF_ONBOARDING_COMPLETE, false)
+
+    fun setOnboardingComplete(context: Context, complete: Boolean) {
+        preferences(context).edit().putBoolean(PREF_ONBOARDING_COMPLETE, complete).apply()
     }
 }
