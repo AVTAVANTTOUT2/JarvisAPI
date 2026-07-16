@@ -101,6 +101,24 @@ def test_batch_empty_ok(tmp_db):
     assert body["rejected"] == []
 
 
+def test_batch_persists_history_when_tracking_disabled(tmp_db, monkeypatch):
+    """LOCATION_TRACKING=false doit quand même écrire location_history."""
+    monkeypatch.setattr("config.LOCATION_TRACKING", False)
+    from database.location_helpers import count_location_history
+
+    with _client() as client:
+        authenticate(client)
+        token = _pair(client, "s24-notrack")
+        r = client.post(
+            "/api/location/batch",
+            json={"points": [_point("pt-notrack1")]},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert r.status_code == 200
+    assert r.json()["accepted"] == ["pt-notrack1"]
+    assert count_location_history() == 1
+
+
 def test_batch_valid_and_idempotent_retry(tmp_db):
     from database.location_helpers import count_location_history
 

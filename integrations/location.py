@@ -65,24 +65,9 @@ class LocationManager:
         if ts is None:
             ts = datetime.now()
 
-        if not getattr(config, "LOCATION_TRACKING", True):
-            return {
-                "place": None,
-                "place_id": None,
-                "arrived": False,
-                "departed": False,
-                "visit_id": None,
-                "skipped": True,
-                "location_history_id": None,
-            }
-
-        self._sync_from_db()
-
-        resolved = resolve_place(latitude, longitude)
-        new_pid = int(resolved["id"]) if resolved else None
-        old_pid = self.current_place_id
-
         created_iso = ts.isoformat(timespec="seconds")
+        # Toujours persister le point brut (companion Android / Shortcuts).
+        # LOCATION_TRACKING=false désactive seulement les transitions lieux/visites.
         location_history_id = add_location(
             latitude,
             longitude,
@@ -93,6 +78,29 @@ class LocationManager:
             source=source or "app",
             created_at=created_iso,
         )
+
+        if not getattr(config, "LOCATION_TRACKING", True):
+            self.last_location = {
+                "latitude": latitude,
+                "longitude": longitude,
+                "at": created_iso,
+                "place_id": None,
+            }
+            return {
+                "place": None,
+                "place_id": None,
+                "arrived": False,
+                "departed": False,
+                "visit_id": None,
+                "skipped": True,
+                "location_history_id": location_history_id,
+            }
+
+        self._sync_from_db()
+
+        resolved = resolve_place(latitude, longitude)
+        new_pid = int(resolved["id"]) if resolved else None
+        old_pid = self.current_place_id
 
         arrived = False
         departed = False

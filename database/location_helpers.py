@@ -78,6 +78,28 @@ def count_location_history() -> int:
         return int(row["c"] if row else 0)
 
 
+def get_mobile_location_diagnostics(device_id: str) -> dict[str, Any]:
+    """Statistiques GPS reçues pour un appareil mobile (24 h glissantes)."""
+    since = (datetime.now() - timedelta(hours=24)).isoformat(timespec="seconds")
+    with get_db() as conn:
+        count_row = conn.execute(
+            """SELECT COUNT(*) AS c FROM location_point_dedup
+               WHERE device_id = ? AND datetime(created_at) >= datetime(?)""",
+            (device_id, since),
+        ).fetchone()
+        last_row = conn.execute(
+            """SELECT created_at FROM location_point_dedup
+               WHERE device_id = ?
+               ORDER BY datetime(created_at) DESC LIMIT 1""",
+            (device_id,),
+        ).fetchone()
+    return {
+        "device_id": device_id,
+        "points_received_24h": int(count_row["c"] if count_row else 0),
+        "last_point_received_at": str(last_row["created_at"]) if last_row else None,
+    }
+
+
 def add_location(
     lat: float,
     lng: float,

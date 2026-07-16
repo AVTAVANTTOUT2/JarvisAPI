@@ -10,6 +10,7 @@ import fr.jarvis.companion.network.JarvisApiResult
 import fr.jarvis.companion.network.JarvisHttpClient
 import fr.jarvis.companion.network.LocationBatchRequest
 import fr.jarvis.companion.network.LocationBatchResult
+import fr.jarvis.companion.network.LocationDiagnosticsResult
 import fr.jarvis.companion.network.LocationRequest
 import fr.jarvis.companion.network.MobileChatConfirmRequest
 import fr.jarvis.companion.network.MobileChatRequest
@@ -129,6 +130,46 @@ class JarvisRepository(context: Context) {
                 }
             }.getOrElse {
                 LocationBatchResult(
+                    ok = false,
+                    status = 0,
+                    error = it.message ?: "erreur réseau",
+                )
+            }
+        }
+
+    suspend fun getLocationDiagnostics(): LocationDiagnosticsResult =
+        withContext(Dispatchers.IO) {
+            if (JarvisSettings.nativeToken(appContext).isBlank()) {
+                return@withContext LocationDiagnosticsResult(
+                    ok = false,
+                    status = 0,
+                    unauthorized = true,
+                    error = "Jeton absent",
+                )
+            }
+            runCatching {
+                val response = api().getLocationDiagnostics(bearer())
+                val status = response.code()
+                if (status == 401) {
+                    return@runCatching LocationDiagnosticsResult(
+                        ok = false,
+                        status = status,
+                        unauthorized = true,
+                        error = response.errorBody()?.string()?.ifBlank { "Non autorisé" } ?: "Non autorisé",
+                    )
+                }
+                val body = response.body()
+                if (response.isSuccessful && body != null) {
+                    LocationDiagnosticsResult(ok = true, status = status, body = body)
+                } else {
+                    LocationDiagnosticsResult(
+                        ok = false,
+                        status = status,
+                        error = response.errorBody()?.string()?.ifBlank { "HTTP $status" } ?: "HTTP $status",
+                    )
+                }
+            }.getOrElse {
+                LocationDiagnosticsResult(
                     ok = false,
                     status = 0,
                     error = it.message ?: "erreur réseau",

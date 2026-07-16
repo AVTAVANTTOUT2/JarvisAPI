@@ -7,6 +7,11 @@ import kotlinx.coroutines.flow.Flow
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 
+data class EnqueueResult(
+    val rowId: Long,
+    val clientPointId: String,
+)
+
 class PendingLocationStore(
     private val database: JarvisDatabase,
 ) {
@@ -22,10 +27,11 @@ class PendingLocationStore(
         syncState: String = PendingLocationSyncState.PENDING,
         errorCode: String? = null,
         errorMessage: String? = null,
-    ): Long {
+    ): EnqueueResult {
         val now = System.currentTimeMillis()
+        val clientPointId = UUID.randomUUID().toString()
         val entity = PendingLocationEntity(
-            clientPointId = UUID.randomUUID().toString(),
+            clientPointId = clientPointId,
             latitude = location.latitude,
             longitude = location.longitude,
             altitude = location.altitude,
@@ -39,7 +45,8 @@ class PendingLocationStore(
             lastErrorCode = errorCode,
             lastErrorMessage = errorMessage,
         )
-        return dao.insert(entity)
+        val rowId = dao.insert(entity)
+        return EnqueueResult(rowId = rowId, clientPointId = clientPointId)
     }
 
     suspend fun getRecentForDedup(limit: Int = LocationConstants.DEDUP_COMPARE_LIMIT): List<PendingLocationEntity> =
@@ -73,7 +80,9 @@ class PendingLocationStore(
         if (eligible.isEmpty()) return emptyList()
         val ids = eligible.map { it.id }
         dao.reserveBatch(ids, batchId, PendingLocationSyncState.SENDING, now)
-        return eligible.map { it.copy(syncState = PendingLocationSyncState.SENDING, batchId = batchId, lastAttemptAt = now) }
+        return eligible.map {
+            it.copy(syncState = PendingLocationSyncState.SENDING, batchId = batchId, lastAttemptAt = now)
+        }
     }
 
     suspend fun deleteSynced(ids: List<Long>) {

@@ -46,13 +46,14 @@ class LocationValidatorTest {
     }
 
     @Test
-    fun rejectsPoorAccuracy() {
-        val result = validator.validate(
+    fun rejectsPoorAccuracy_strict100m() {
+        val strict = LocationValidator(LocationValidator.strictConfig())
+        val result = strict.validate(
             CapturedLocation(
                 latitude = 50.0,
                 longitude = 3.0,
                 altitude = null,
-                accuracy = 200f,
+                accuracy = 120f,
                 speed = null,
                 bearing = null,
                 provider = "gps",
@@ -64,7 +65,25 @@ class LocationValidatorTest {
     }
 
     @Test
-    fun rejectsStalePoint() {
+    fun liveAllows120m() {
+        val result = validator.validate(
+            CapturedLocation(
+                latitude = 50.0,
+                longitude = 3.0,
+                altitude = null,
+                accuracy = 120f,
+                speed = null,
+                bearing = null,
+                provider = "gps",
+                capturedAt = now,
+            ),
+            now = now,
+        )
+        assertTrue(result.valid)
+    }
+
+    @Test
+    fun rejectsStalePoint_at6min() {
         val result = validator.validate(
             CapturedLocation(
                 latitude = 50.0,
@@ -74,7 +93,7 @@ class LocationValidatorTest {
                 speed = null,
                 bearing = null,
                 provider = "gps",
-                capturedAt = now - 5 * 60_000L,
+                capturedAt = now - 6 * 60_000L,
             ),
             now = now,
         )

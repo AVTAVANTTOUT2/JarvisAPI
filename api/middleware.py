@@ -27,6 +27,7 @@ _MOBILE_BEARER_GET_EXACT = frozenset(
         "/api/conversations/search",
         "/api/visits/today",
         "/api/location/status",
+        "/api/mobile/location/diagnostics",
     }
 )
 

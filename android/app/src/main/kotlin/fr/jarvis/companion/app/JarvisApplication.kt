@@ -5,6 +5,7 @@ import android.os.Build
 import fr.jarvis.companion.core.sync.ChatSyncWorker
 import fr.jarvis.companion.core.sync.LocationSyncWorker
 import fr.jarvis.companion.core.sync.SyncWorker
+import fr.jarvis.companion.data.JarvisSettings
 
 class JarvisApplication : Application() {
     lateinit var container: AppContainer
@@ -12,7 +13,9 @@ class JarvisApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        JarvisSettings.migrateOnboardingIfPaired(this)
         container = AppContainer(this)
+        container.adaptiveLocationPolicy.setCadenceMode(JarvisSettings.locationCadence(this))
         container.connectivityObserver.start()
         if (!isRobolectricUnitTest()) {
             SyncWorker.schedule(this)

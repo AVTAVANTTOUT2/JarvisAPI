@@ -1,8 +1,8 @@
 package fr.jarvis.companion.core.location
 
 data class LocationValidationConfig(
-    val maxAccuracyMeters: Float = 100f,
-    val maxAgeMs: Long = 3 * 60 * 1000L,
+    val maxAccuracyMeters: Float = LocationConstants.LIVE_MAX_ACCURACY_METERS,
+    val maxAgeMs: Long = 5 * 60 * 1000L,
     val maxFutureSkewMs: Long = 60_000L,
     val maxSpeedMps: Float = 90f,
 )
@@ -41,7 +41,13 @@ class LocationValidator(
     }
 
     companion object {
+        fun forCadence(cadence: CaptureCadenceMode): LocationValidationConfig =
+            LocationValidationConfig(maxAccuracyMeters = cadence.maxAccuracyMeters())
+
         fun economyConfig(): LocationValidationConfig =
-            LocationValidationConfig(maxAccuracyMeters = 150f)
+            LocationValidationConfig(maxAccuracyMeters = LocationConstants.ECONOMY_MAX_ACCURACY_METERS)
+
+        fun strictConfig(): LocationValidationConfig =
+            LocationValidationConfig(maxAccuracyMeters = 100f)
     }
 }

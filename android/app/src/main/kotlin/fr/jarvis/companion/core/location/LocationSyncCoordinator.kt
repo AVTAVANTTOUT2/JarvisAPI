@@ -28,6 +28,11 @@ class LocationSyncCoordinator(
     private val syncMetadataDao: fr.jarvis.companion.core.database.SyncMetadataDao,
 ) {
     fun requestSync(context: Context) {
+        requestImmediateSync(context)
+    }
+
+    fun requestImmediateSync(context: Context) {
+        LocationRuntimeDiagnostics.onSyncRequested()
         LocationSyncWorker.enqueueNow(context)
     }
 
@@ -64,6 +69,7 @@ class LocationSyncCoordinator(
             return LocationSyncOutcome()
         }
 
+        LocationRuntimeDiagnostics.onBatchReserved(batch.size)
         appendTimeline("Batch créé", now)
 
         val request = LocationBatchRequest(
@@ -84,6 +90,7 @@ class LocationSyncCoordinator(
                 retryCount = batch.firstOrNull()?.retryCount?.plus(1) ?: 1,
             )
             store.clearBatch(batchId)
+            LocationRuntimeDiagnostics.onBatchResponse(0, 0, batch.size, result.status)
             return LocationSyncOutcome(unauthorized = true, error = result.error)
         }
 
@@ -102,6 +109,7 @@ class LocationSyncCoordinator(
                 retryCount = retryCount,
             )
             store.clearBatch(batchId)
+            LocationRuntimeDiagnostics.onBatchResponse(0, 0, batch.size, result.status)
             return LocationSyncOutcome(error = result.error)
         }
 
@@ -150,6 +158,13 @@ class LocationSyncCoordinator(
         store.clearBatch(batchId)
 
         val syncedCount = toDelete.size
+        LocationRuntimeDiagnostics.onBatchResponse(
+            accepted = result.accepted.size,
+            duplicates = result.duplicates.size,
+            rejected = toReject.size,
+            httpStatus = result.status,
+        )
+
         if (syncedCount > 0) {
             val syncAt = System.currentTimeMillis()
             syncMetadataDao.upsert(
@@ -184,8 +199,6 @@ class LocationSyncCoordinator(
 
     private suspend fun appendTimeline(label: String, at: Long) {
         val key = LocationConstants.META_LAST_TIMELINE_JSON
-        val existing = syncMetadataDao.observe(key)
-        // Read current value synchronously via direct query workaround
         val currentJson = readTimelineJson()
         val array = try {
             JSONArray(currentJson ?: "[]")
@@ -223,8 +236,4 @@ class LocationSyncCoordinator(
         captured_at = capturedAt,
         source = "android_background",
     )
-
-    companion object {
-        private const val TAG = "LocationSyncCoordinator"
-    }
 }

@@ -58,7 +58,7 @@ class LocationSyncWorker(
                 .build()
             WorkManager.getInstance(appContext).enqueueUniqueWork(
                 "${WORK_NAME}-now",
-                ExistingWorkPolicy.KEEP,
+                ExistingWorkPolicy.REPLACE,
                 oneShot,
             )
         }

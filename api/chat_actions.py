@@ -315,6 +315,11 @@ def _format_action_result_for_followup(action: dict, action_result: dict) -> str
         lines = [f"- De: {e.get('from', '?')} | {e.get('subject', '?')}" for e in emails[:10]]
         return "Mails non lus :\n" + "\n".join(lines)
     if t == "name_place":
+        if not action_result.get("ok"):
+            return action_result.get("message") or (
+                "Je n'ai pas encore reçu votre position, Monsieur. "
+                "Activez ou resynchronisez la localisation du téléphone."
+            )
         return action_result.get("message") or "Lieu enregistré."
     return str(action_result)[:8000]
 

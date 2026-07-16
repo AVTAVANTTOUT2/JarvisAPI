@@ -4,11 +4,13 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.provider.Settings
 import fr.jarvis.companion.BuildConfig
+import fr.jarvis.companion.core.location.CaptureCadenceMode
 
 object JarvisSettings {
     const val PREFS = "jarvis_android"
     const val PREF_SERVER = "server_url"
     const val PREF_LOCATION = "background_location"
+    const val PREF_LOCATION_CADENCE = "location_cadence"
     const val PREF_WAKE = "wake_word"
     const val PREF_VOICE_CONVERSATION = "voice_conversation_id"
     const val PREF_ONBOARDING_COMPLETE = "onboarding_complete"
@@ -62,6 +64,13 @@ object JarvisSettings {
         preferences(context).edit().putBoolean(PREF_LOCATION, enabled).apply()
     }
 
+    fun locationCadence(context: Context): CaptureCadenceMode =
+        CaptureCadenceMode.fromPrefs(preferences(context).getString(PREF_LOCATION_CADENCE, null))
+
+    fun setLocationCadence(context: Context, mode: CaptureCadenceMode) {
+        preferences(context).edit().putString(PREF_LOCATION_CADENCE, mode.name).apply()
+    }
+
     fun isWakeWordEnabled(context: Context): Boolean =
         preferences(context).getBoolean(PREF_WAKE, false)
 
@@ -74,5 +83,14 @@ object JarvisSettings {
 
     fun setOnboardingComplete(context: Context, complete: Boolean) {
         preferences(context).edit().putBoolean(PREF_ONBOARDING_COMPLETE, complete).apply()
+    }
+
+    /**
+     * Appairage antérieur sans flag onboarding — évite de bloquer les utilisateurs déjà pairés.
+     */
+    fun migrateOnboardingIfPaired(context: Context) {
+        if (!isOnboardingComplete(context) && nativeToken(context).isNotEmpty()) {
+            setOnboardingComplete(context, true)
+        }
     }
 }
