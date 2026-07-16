@@ -28,11 +28,13 @@
 **Formulation canonique (à réutiliser partout) :**
 
 ```text
-Le projet crée 71 tables persistantes après init_db() + migrations,
-plus jusqu'à 5 objets FTS5 (messages_fts + 4 auxiliaires) lorsque FTS5 est
-disponible, soit 76 tables physiques sur une base neuve avec configuration
-par défaut. Le dump database/schema.sql (44 tables applicatives) est un
-snapshot historique, pas le schéma d'exécution.
+Le projet crée 73 tables persistantes après init_db() + migrations
+(Vague 2B : location_point_dedup + mobile_chat_dedup ; délégation Cursor :
+cursor_delegation_jobs), plus jusqu'à 5 objets FTS5 (messages_fts + 4
+auxiliaires) lorsque FTS5 est disponible, soit 78 tables physiques sur une
+base neuve avec configuration par défaut. Le dump database/schema.sql
+(44 tables applicatives) est un snapshot historique, pas le schéma
+d'exécution.
 
 Le frontend canonique est frontend/ (Next.js 15 → frontend/out), servi en
 priorité par FastAPI (port 8081) **et** par le supervisor (port 9000).

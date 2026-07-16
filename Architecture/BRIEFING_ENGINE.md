@@ -1,15 +1,70 @@
-# BRIEFING_ENGINE
+# Moteur de briefings
 
-## Politique LLM (2026)
+Dernière mise à jour : 2026-07-16
 
-- **DeepSeek Flash** = interaction vocale rapide, triage, formulation courte
-- **DeepSeek Main** = raisonnement lourd non technique, prompts Cursor, briefings complets
-- **Cursor CLI** (`agent --print`) = exécution technique (worktree isolé, jamais main)
-- **Ollama** = Screen Watcher uniquement (vision)
+## Rôle
 
-Voir aussi : `jarvis/cognitive/`, `integrations/cursor_delegation.py`, `prompts/cursor/`.
+Produire des briefings structurés (matin, soir, delta, work_only, voice_only) à partir des données déjà en base et des intégrations Apple — priorisation explicite, version vocale courte séparée du texte complet.
 
-## Implémentation
+## Fichiers clés
 
-Document généré dans le cadre de `feat/jarvis-cognitive-voice-cursor-autonomy`.
-Les détails opérationnels vivent dans le code et les tests `tests/test_cognitive_routing.py`.
+| Fichier | Rôle |
+|---------|------|
+| `agents/briefing_engine.py` | Collecte, priorisation, dédup, LLM synthèse |
+| `agents/productivity.py` | `morning_briefing` / evening délèguent au moteur |
+| `api/voice_cognitive.py` | Variantes vocales + filtres |
+| `api/router_cognitive.py` | `POST /api/briefings/generate` |
+
+## Modèle de données
+
+- `BriefingItem` — titre, détail, `priority` ∈ {critique, aujourd_hui, surveiller, information}, source, freshness, actions
+- `StructuredBriefing` — `kind`, `items`, `full_text`, `voice_text`, `unavailable`
+
+Déduplication par `dedupe_key` (source + titre).
+
+## Kinds supportés
+
+| Kind | Contenu |
+|------|---------|
+| `morning` | Agenda, mails pré-analysés, tâches, notifs, commitments |
+| `evening` | Bilan journée + reste à faire |
+| `delta` | Différence vs snapshot matin (persisté côté moteur) |
+| `work_only` | Filtre travail / école |
+| `voice_only` | Synthèse ultra-courte pour TTS |
+| filtres urgents | Via détection variante vocale |
+
+## Flux
+
+```
+generate_briefing(kind, filters...)
+  → collecte déterministe (DB + résumés email + calendar si dispo)
+  → priorisation + dédup
+  → DeepSeek Main pour full_text (si besoin)
+  → voice_text court (Flash ou troncature contrôlée)
+  → StructuredBriefing
+```
+
+Productivité historique : `morning_briefing()` / evening appellent le moteur au lieu de dupliquer la logique.
+
+## Endpoint
+
+`POST /api/briefings/generate` — body `{ "kind": "morning"|"evening"|"delta"|..., "filters": {...} }`
+
+Voix : motifs « briefing », « version courte », « seulement les urgences », « qu’est-ce qui a changé ».
+
+## Config
+
+Utilise les modèles globaux :
+
+```bash
+MAIN_REASONING_MODEL=    # synthèse complète
+VOICE_REASONING_MODEL=   # formulation courte
+```
+
+Pas de flag dédié au-delà des intégrations Mail/Calendar existantes.
+
+## Limites connues
+
+- Si Mail.app / Calendar.app indisponibles, les sources apparaissent dans `unavailable` plutôt que d’inventer du contenu.
+- Le snapshot matin pour `delta` dépend d’un briefing matin déjà généré le même jour.
+- Les commitments viennent de la table/API commitments existante ; absence = section omise.

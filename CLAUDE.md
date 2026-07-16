@@ -30,7 +30,7 @@ Le bus applicatif est actif et conserve la compatibilité de construction histor
 
 - Les mutations de `database/tasks.py`, `notifications.py`, `conversations.py`, `episodes.py`, `facts.py`, `patterns.py` et `people.py` émettent **après commit**.
 - `database/event_log.py` journalise tous les événements dans la table SQLite `event_log`
- (ajoutée au schéma runtime ; le total post-`init_db` est **71 persistantes**, **76** avec FTS —
+ (ajoutée au schéma runtime ; le total post-`init_db` est **73 persistantes**, **78** avec FTS —
  voir `Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md` ; ne pas confondre avec le dump
  historique `database/schema.sql` ≈ 44 tables).
 - `websocket_registry.py` diffuse les événements de domaine aux sockets actives et `scripts/audio_daemon.py` traite les notifications `urgent/high`.
@@ -144,6 +144,35 @@ Le mapping agent → modèle vit dans `config.AGENT_MODELS` (surchargez via `.en
 | Mémoire | `DEEPSEEK_FAST_MODEL` | Résumés, détection patterns |
 
 **Ordre du system prompt inchangé** : `[LIFE_PROFILE]` + `[MEMORY_CONTEXT]` d'abord, puis `[AGENT_INSTRUCTIONS]`. DeepSeek gère le prompt caching automatiquement côté serveur (pas de `cache_control` explicite — le cache hit est lu dans `usage.prompt_cache_hit_tokens`).
+
+## Routage cognitif — Flash / Main / Cursor / Ollama (2026)
+
+Politique LLM canonique (voir `Architecture/LLM_POLICY.md`) :
+
+```text
+DeepSeek Flash = interaction vocale rapide + conversation + triage
+DeepSeek Main  = raisonnement lourd + composition des prompts Cursor + briefings
+Cursor CLI     = exécution technique (code, git, CI, migrations) en worktree isolé
+Ollama         = Screen Watcher uniquement (vision locale)
+```
+
+- Routeur unique : `jarvis/cognitive/router.py` (règles déterministes avant tout
+ LLM) — partagé par la voix (`api/voice_cognitive.py`), le chat WS/REST
+ (`api/chat_cognitive.py`), `/loop` et l'API `/api/cognitive/route`.
+- Garde-fou Ollama : `jarvis/cognitive/ollama_guard.py` — allowlist runtime
+ (`scripts/screen_watcher.py`, `integrations/ollama_control.py`) + scan statique
+ verrouillé par `tests/test_cognitive_routing.py` (`offenders == []`).
+- Délégation Cursor : `integrations/cursor_delegation.py` — jobs persistants
+ (`cursor_delegation_jobs`), branche `jarvis/cursor/<job_id>` + worktree
+ `.jarvis/worktrees/`, jamais main, reprise au restart, PR via `gh`.
+ Templates versionnés dans `prompts/cursor/*.md`.
+- Auto-réparation (`scripts/self_healing.py`) et auto-amélioration
+ (`scripts/self_improvement.py`, job scheduler dim 06:00) délèguent à Cursor en
+ mode `SELF_MODIFICATION_MODE=pr_only`.
+- Briefings : `agents/briefing_engine.py` (morning / evening / delta, version
+ vocale 30-60 s, dédup, priorités critique / aujourd'hui / surveiller / info).
+- Latences vocales p50/p95 : `GET /api/voice/metrics` (table `voice_debug_log`).
+- UI : vue `/cognitive` (Intelligence, Délégations, Vocal, Autonomie).
 
 ## Routing des tâches — standard vs tâche lourde
 
