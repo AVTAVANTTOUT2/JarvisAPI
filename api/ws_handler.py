@@ -49,12 +49,22 @@ async def websocket_endpoint(ws: WebSocket):
         await ws.close(code=4428)
         return
     session = auth.verify_session(ws.cookies.get(config.SESSION_COOKIE_NAME))
+    mobile_device = None
     if not session:
+        # Companion Android : Authorization Bearer au handshake (jamais en query).
+        authorization = ws.headers.get("authorization") or ""
+        scheme, _, token = authorization.partition(" ")
+        if scheme.lower() == "bearer" and token.strip():
+            mobile_device = auth.verify_mobile_token(token.strip())
+    if not session and not mobile_device:
         await ws.close(code=4401)
         return
 
     await ws.accept()
-    logger.info("WS client connecté")
+    if mobile_device:
+        logger.info("WS mobile connecté device=%s", mobile_device.get("device_id"))
+    else:
+        logger.info("WS client connecté")
     await add_websocket(ws)
 
     conversation_id = None

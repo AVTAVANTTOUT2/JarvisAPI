@@ -38,6 +38,7 @@ from api.router_devagent import router as devagent_router
 from api.router_devices import router as devices_router
 from api.router_location import router as location_router
 from api.router_mobile_voice import router as mobile_voice_router
+from api.router_mobile_chat import router as mobile_chat_router
 from api.router_misc import router as misc_router
 from api.router_people import router as people_router
 from api.router_quality import router as quality_router
@@ -110,6 +111,7 @@ app.include_router(devagent_router)
 app.include_router(devices_router)
 app.include_router(location_router)
 app.include_router(mobile_voice_router)
+app.include_router(mobile_chat_router)
 app.include_router(misc_router)
 app.include_router(people_router)
 app.include_router(quality_router)
