@@ -78,7 +78,10 @@ class TasksViewModel(
     private fun applyFilter(tasks: List<CachedTaskEntity>, f: TaskFilter): List<CachedTaskEntity> =
         when (f) {
             TaskFilter.ALL -> tasks
-            TaskFilter.HIGH -> tasks.filter { it.priority.equals("high", ignoreCase = true) }
+            TaskFilter.HIGH -> tasks.filter {
+                it.priority.equals("high", ignoreCase = true) ||
+                    it.priority.equals("urgent", ignoreCase = true)
+            }
             TaskFilter.OVERDUE -> tasks.filter { isOverdue(it.dueDate) }
         }
 

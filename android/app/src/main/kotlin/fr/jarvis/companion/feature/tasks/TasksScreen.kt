@@ -103,6 +103,9 @@ fun TasksScreen(
                 )
             } else {
                 LazyColumn(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(JarvisSpacing.sm),
                     contentPadding = PaddingValues(bottom = JarvisSpacing.xxl),
                 ) {

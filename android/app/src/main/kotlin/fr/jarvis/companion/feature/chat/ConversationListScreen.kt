@@ -139,6 +139,9 @@ fun ConversationListScreen(
                     )
                 } else {
                     LazyColumn(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(JarvisSpacing.sm),
                         contentPadding = PaddingValues(bottom = 88.dp),
                     ) {
