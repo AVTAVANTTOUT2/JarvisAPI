@@ -49,8 +49,9 @@ async def test_database_mutations_emit_log_and_push_all_phase3_events(
         }
     assert "event_log" in table_names
     assert "location_point_dedup" in table_names
-    # 71 persistantes + 5 FTS = 76 physiques (Vague 2B)
-    assert len(table_names) == 76
+    assert "mobile_chat_dedup" in table_names
+    # 72 persistantes + 5 FTS = 77 physiques (Vague 2B + chat)
+    assert len(table_names) == 77
 
     queue = event_bus.subscribe()
     socket = _FakeWebSocket()

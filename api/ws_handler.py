@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 
 from fastapi import WebSocket, WebSocketDisconnect
 
@@ -19,7 +20,11 @@ from api.memory_background import _run_memory_in_background
 from api.welcome import _maybe_send_daily_welcome
 from api.ws_handsfree import _handle_hands_free_blob
 from api.ws_messages import _process_message
-from api.ws_session import _resume_or_create_conversation, _ws_last_session
+from api.ws_session import (
+    _resume_or_create_conversation,
+    _ws_last_session,
+    resolve_websocket_auth,
+)
 from database import create_conversation, end_conversation, get_conversation_detail, get_conversation_history, get_last_conversation_summary, save_message
 from websocket_registry import add_websocket, remove_websocket
 
@@ -32,30 +37,11 @@ logger = logging.getLogger("jarvis")
 
 
 async def websocket_endpoint(ws: WebSocket):
-    """Chat temps réel + mode conversation vocale continue.
-
-    Accepte côté client :
-    - JSON texte : `{type: "text"|"action_confirm"|"conversation_mode"|"done_playing", ...}`
-    - Bytes bruts : audio enregistré au micro (webm/opus)
-
-    Renvoie côté serveur :
-    - Events streaming JSON (classification, chunk, done, saved_file, error)
-    - `transcript` après STT
-    - `speaking` avant envoi audio TTS (le client arrête le micro)
-    - `listening` quand JARVIS a fini de parler (le client reprend le micro)
-    - Bytes MP3 pour la réponse TTS
-    """
+    """Chat temps réel : JSON texte, audio binaire, streaming, TTS."""
     if not auth.is_configured():
         await ws.close(code=4428)
         return
-    session = auth.verify_session(ws.cookies.get(config.SESSION_COOKIE_NAME))
-    mobile_device = None
-    if not session:
-        # Companion Android : Authorization Bearer au handshake (jamais en query).
-        authorization = ws.headers.get("authorization") or ""
-        scheme, _, token = authorization.partition(" ")
-        if scheme.lower() == "bearer" and token.strip():
-            mobile_device = auth.verify_mobile_token(token.strip())
+    session, mobile_device = resolve_websocket_auth(ws)
     if not session and not mobile_device:
         await ws.close(code=4401)
         return
@@ -68,11 +54,11 @@ async def websocket_endpoint(ws: WebSocket):
     await add_websocket(ws)
 
     conversation_id = None
-    conversation_mode = False  # ancien flux (conversation_audio + fragments)
-    is_speaking = False       # chat / poussoir
+    conversation_mode = False
+    is_speaking = False
     conv_audio_buffer: list[bytes] = []
-    conv_session: dict | None = None   # mains libres (conversation_start)
-    active_recording = None  # audio.continuous_recorder.ContinuousRecording | None
+    conv_session: dict | None = None
+    active_recording = None
 
     try:
         conversation_id, resumed = _resume_or_create_conversation()
@@ -481,10 +467,8 @@ async def websocket_endpoint(ws: WebSocket):
         await remove_websocket(ws)
         # Fenêtre de grâce : une reconnexion rapide reprendra cette conversation.
         if conversation_id:
-            import time as _time
-
             _ws_last_session["conversation_id"] = conversation_id
-            _ws_last_session["closed_at"] = _time.time()
+            _ws_last_session["closed_at"] = time.time()
         if conv_session:
             try:
                 end_conversation(conv_session["conversation_id"])
