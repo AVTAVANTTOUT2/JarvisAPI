@@ -292,27 +292,26 @@ Auth session ; bootstrap 30 derniers événements ; types domaine (`notification
 
 ---
 
-## 10. Extension Bearer prévue (Vague 1) — contrat à implémenter
+## 10. Extension Bearer — **implémentée (Vague 1)**
 
-**Scope initial (lecture) :**
+**Comportement (`api/middleware.py`) :**
 
-- `GET /api/briefing`
-- `GET /api/notifications`, `GET /api/notifications/all`
-- `GET /api/tasks`
-- `GET /api/calendar`
-- `GET /api/conversations`, `GET /api/conversations/{id}`, `GET /api/conversations/search`
-- `GET /api/location/status`, `GET /api/visits/today` (si utiles au dashboard)
+1. Cookie session valide → OK (inchangé).
+2. Sinon `Authorization: Bearer` validé via `auth.verify_mobile_token` **et** route dans la whitelist GET → OK (`request.state.mobile_device`).
+3. Sinon `401` / `428`.
 
-**Comportement :**
+**Whitelist GET :**
 
-1. Si cookie session valide → inchangé.
-2. Sinon si `Authorization: Bearer` valide via `auth.verify_mobile_token` → autoriser.
-3. Sinon `401` / `428` comme aujourd’hui.
-4. Mutations (`POST`/`PATCH`/`DELETE`) : Vague 1 peut les ouvrir séparément avec la même règle **après** tests ; CSRF Origin ne bloque pas les clients sans Origin.
+- `/api/briefing`
+- `/api/notifications`, `/api/notifications/all`
+- `/api/tasks`
+- `/api/calendar`
+- `/api/conversations`, `/api/conversations/search`, `/api/conversations/{id}`
+- `/api/visits/today`, `/api/location/status`
 
-**Tests obligatoires :** pytest couvrant Bearer OK / Bearer révoqué / sans auth / cookie encore OK.
+**Mutations** (`POST`/`PATCH`/`DELETE` métier) : **non** ouvertes au Bearer en Vague 1.
 
-**Non buts Vague 1 :** WebSocket Bearer, endpoints fictifs, mock data Android.
+**Tests :** `tests/test_mobile_bearer_routes.py` (6 cas).
 
 ---
 
