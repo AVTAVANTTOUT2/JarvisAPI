@@ -6,11 +6,12 @@ import hashlib
 import json
 
 
-EXPECTED_ROUTE_COUNT = 188
-EXPECTED_ROUTE_SIGNATURE = "feaed13fb278ab47c5f32780253f8903fc697fe8e8d00d06e815b2e7b174d9c7"
-EXPECTED_OPENAPI_PATH_COUNT = 170
-# Vague 2 chat + Vague 2B location batch + diagnostics mobile + control service detail.
-EXPECTED_OPENAPI_SIGNATURE = "335e4d1d64acb0131d125b00fbd20a58bd338d7cf4afea461291809e23096cdf"
+EXPECTED_ROUTE_COUNT = 204
+EXPECTED_ROUTE_SIGNATURE = "173b9b57ab8f58af0f7eaf629990ec226c6c39efa00aa97c5c769f6d29d761c0"
+EXPECTED_OPENAPI_PATH_COUNT = 185
+# Vague 2 chat + Vague 2B location batch + diagnostics mobile + control service
+# detail + routage cognitif (cursor jobs, briefings, voice metrics, autonomy).
+EXPECTED_OPENAPI_SIGNATURE = "9a9cbaa31afcf1513032169e9454a7bf237a1abd7312361b5b5c4982cda2be8b"
 
 
 def _digest(value: object) -> str:

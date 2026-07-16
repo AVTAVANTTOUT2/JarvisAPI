@@ -54,6 +54,27 @@ def _isolate_app_lifespan(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(config, "IMESSAGE_DAEMON_ENABLED", False)
     monkeypatch.setattr(config, "DAEMON_ENABLED", False)
     monkeypatch.setattr(config, "AUDIO_DAEMON_ENABLED", False)
+    # Sur un Mac de dev, le lifespan lance aussi le scan iMessage réel et des
+    # osascript Contacts.app (90s de timeout chacun) : le shutdown du
+    # TestClient attend ces threads → suites locales qui pendent. On les
+    # neutralise ici ; la CI Linux n'est pas affectée (osascript absent).
+    monkeypatch.setattr(config, "IMESSAGE_SOURCING_ENABLED", False)
+    monkeypatch.setattr(config, "CURSOR_DELEGATION_ENABLED", False)
+    try:
+        from integrations.contacts import contacts_reader
+
+        monkeypatch.setattr(contacts_reader, "build_cache", lambda: None)
+    except Exception:
+        pass
+    try:
+        import scripts.sync_contacts as sync_contacts_module
+
+        async def _noop_sync(*_a, **_k):
+            return None
+
+        monkeypatch.setattr(sync_contacts_module, "sync_people_names", _noop_sync)
+    except Exception:
+        pass
     # Les cookies de session sont marqués Secure quand WEB_HTTPS=true ; le
     # TestClient parle en http://testserver et n'envoie pas ces cookies.
     monkeypatch.setattr(config, "WEB_HTTPS", False)

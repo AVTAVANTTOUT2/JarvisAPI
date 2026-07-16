@@ -27,7 +27,10 @@ def test_voice_simple_routes_to_flash():
     assert intent.domain in ("info", "general", "productivity")
 
 
-def test_voice_tech_routes_to_cursor_with_ack():
+def test_voice_tech_routes_to_cursor_with_ack(monkeypatch):
+    import config
+
+    monkeypatch.setattr(config, "CURSOR_DELEGATION_ENABLED", True)
     intent = route_request(
         "Corrige le bug de connexion Android dans le projet",
         interaction_mode="voice",
@@ -49,12 +52,29 @@ def test_voice_strategy_ack_then_main():
     assert intent.prompt_model
 
 
-def test_text_code_routes_to_cursor():
+def test_text_code_routes_to_cursor(monkeypatch):
+    import config
+
+    monkeypatch.setattr(config, "CURSOR_DELEGATION_ENABLED", True)
     intent = route_request(
         "Crée la migration SQL et applique-la dans mon projet",
         interaction_mode="chat",
     )
     assert intent.execution_type == "cursor"
+
+
+def test_tech_without_cursor_falls_back_to_honest_answer(monkeypatch):
+    """Cursor indisponible → réponse conseil Main, jamais de fausse promesse."""
+    import config
+
+    monkeypatch.setattr(config, "CURSOR_DELEGATION_ENABLED", False)
+    intent = route_request(
+        "Corrige le bug de connexion Android dans le projet",
+        interaction_mode="chat",
+    )
+    assert intent.execution_type == "answer"
+    assert intent.domain == "dev"
+    assert "indisponible" in intent.reason
 
 
 def test_tech_explain_stays_on_deepseek():
@@ -127,28 +147,60 @@ def test_ollama_allowlist_contains_screen_watcher():
 
 
 def test_ollama_reasoning_consumers_contract():
-    """Ollama reasoning consumers = screen_watcher uniquement (via client)."""
+    """CONTRAT STRICT : zéro consommateur de raisonnement Ollama hors allowlist.
+
+    Résultat attendu : `Ollama reasoning consumers = screen_watcher uniquement`
+    (screen_watcher passe par integrations/ollama_client qui est de la
+    plomberie ; tout autre fichier listé ici est une régression).
+    """
     root = Path(__file__).resolve().parents[1]
     offenders = ollama_reasoning_consumers(root)
-    # Aucun agent / api / orchestrator ne doit appeler /api/generate Ollama
-    for path in offenders:
-        assert "agents/" not in path
-        assert "api/" not in path or "router_devices" in path  # devices may call SW helper
-        assert "orchestrator" not in path
-        assert "email_watcher" not in path
-        assert "jarvis_daemon" not in path
-        assert "briefing" not in path
-        assert "autonomous_loop" not in path
+    assert offenders == [], (
+        "Nouveaux chemins de raisonnement local détectés — Ollama est réservé "
+        f"au Screen Watcher : {offenders}"
+    )
 
 
-def test_ollama_guard_blocks_foreign_caller(monkeypatch):
+def test_ollama_guard_blocks_foreign_caller():
     import inspect
 
-    fake_frame = type("F", (), {})()
-    # Simulate stack with only this test file
     frames = inspect.stack()
     with pytest.raises(OllamaPolicyError):
         assert_ollama_caller_allowed(frames)
+
+
+def test_ollama_guard_blocks_real_http_entrypoint():
+    """Le VRAI point d'entrée HTTP refuse un appelant hors allowlist.
+
+    Régression du bug historique : la pile commençait dans ollama_guard
+    (module autorisé) → tout appel via ollama_http_request passait.
+    """
+    import asyncio
+
+    from jarvis.cognitive.ollama_guard import ollama_http_request
+
+    with pytest.raises(OllamaPolicyError):
+        asyncio.run(ollama_http_request("GET", "http://localhost:11434/api/tags"))
+
+
+def test_ollama_guard_allows_screen_watcher_style_caller(tmp_path):
+    """Un frame screen_watcher.py dans la pile → autorisé."""
+    import subprocess
+    import sys
+
+    script = tmp_path / "screen_watcher.py"
+    script.write_text(
+        "import sys\n"
+        f"sys.path.insert(0, {str(Path(__file__).resolve().parents[1])!r})\n"
+        "from jarvis.cognitive.ollama_guard import assert_ollama_caller_allowed\n"
+        "print(assert_ollama_caller_allowed())\n",
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        [sys.executable, str(script)], capture_output=True, text=True, timeout=30
+    )
+    assert result.returncode == 0, result.stderr
+    assert "screen_watcher" in result.stdout
 
 
 def test_contact_fold_accents():
