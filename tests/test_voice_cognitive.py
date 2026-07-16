@@ -74,12 +74,17 @@ def test_simple_voice_question_continues_to_flash(tmp_db):
 
 
 def test_voice_tech_delegates_and_acks(tmp_db, monkeypatch):
-    """Demande technique vocale → ack immédiat + job Cursor enfilé."""
+    """Demande technique vocale → proposition (pas d'auto-start) + invite « lance »."""
     import config
 
     monkeypatch.setattr(config, "CURSOR_DELEGATION_ENABLED", True)
 
-    fake_job = {"job_id": "job-test-123", "prompt_template": "bug_fix", "template_version": "2.0.0"}
+    fake_job = {
+        "job_id": "job-test-123",
+        "prompt_template": "bug_fix",
+        "template_version": "2.0.0",
+        "status": "awaiting_confirmation",
+    }
     enqueue_mock = AsyncMock(return_value=fake_job)
 
     with patch("integrations.cursor_delegation.cursor_delegation") as svc:
@@ -91,11 +96,13 @@ def test_voice_tech_delegates_and_acks(tmp_db, monkeypatch):
         )
 
     assert result is not None and not result.get("__continue__")
-    assert "Monsieur" in result["text"]  # ack naturel court
-    assert result["action"]["type"] == "cursor_delegate"
+    assert "lance" in result["text"].lower()
+    assert result["action"]["type"] == "cursor_propose"
     assert result["action"]["job_id"] == "job-test-123"
     enqueue_mock.assert_awaited_once()
-    # L'ack vocal ne lit jamais un log ou un diff — il reste court
+    kwargs = enqueue_mock.await_args.kwargs
+    assert kwargs.get("auto_start") is False
+    assert kwargs.get("require_confirmation") is True
     assert len(result["text"]) < 250
 
 
@@ -116,6 +123,7 @@ def test_voice_tech_cursor_failure_honest_message(tmp_db, monkeypatch):
 
     assert result is not None and not result.get("__continue__")
     assert "je ne peux pas" in result["text"].lower()
+    assert "cursor" in result["text"].lower()
     assert result["action"] is None
 
 

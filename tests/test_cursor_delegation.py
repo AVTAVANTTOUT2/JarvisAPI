@@ -113,13 +113,24 @@ def delegation_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 def _enqueue_and_run(service: CursorDelegationService, repo: Path, **kwargs):
     async def _run():
+        # Tests unitaires : contournent la confirmation (chemin loop/scheduler).
         job = await service.enqueue(
             title=kwargs.get("title", "Test job"),
             user_request=kwargs.get("user_request", "corrige app.py"),
             repository=str(repo),
             auto_start=False,
-            **{k: v for k, v in kwargs.items() if k not in ("title", "user_request")},
+            require_confirmation=False,
+            **{
+                k: v
+                for k, v in kwargs.items()
+                if k not in ("title", "user_request", "require_confirmation", "auto_start")
+            },
         )
+        # queued → run explicite
+        from database.cursor_jobs import update_cursor_job
+
+        if job["status"] == "awaiting_confirmation":
+            update_cursor_job(job["job_id"], status="queued")
         return await service.run_job(job["job_id"])
 
     return asyncio.run(_run())
@@ -144,7 +155,15 @@ def test_build_command_includes_output_format_and_workspace():
     assert "--print" in cmd
     assert "--output-format" in cmd and "text" in cmd
     assert "--workspace" in cmd and "/x/y" in cmd
+    assert "--force" not in cmd  # fail-closed par défaut
+    assert "--trust" not in cmd  # trust off tant que non demandé
     assert cmd[-1] == "le prompt"
+
+    cmd_trust = build_agent_command(
+        info, "le prompt", workspace="/wt/job", force=False, trust=True
+    )
+    assert "--trust" in cmd_trust
+    assert "--force" not in cmd_trust
 
 
 # ── Tests E2E service ────────────────────────────────────────
@@ -269,7 +288,11 @@ def test_cancel_kills_running_process(delegation_env, monkeypatch):
 
     async def _run():
         job = await service.enqueue(
-            title="long", user_request="long", repository=str(repo), auto_start=False,
+            title="long",
+            user_request="long",
+            repository=str(repo),
+            auto_start=False,
+            require_confirmation=False,
         )
         job_id = job["job_id"]
         task = asyncio.create_task(service.run_job(job_id))

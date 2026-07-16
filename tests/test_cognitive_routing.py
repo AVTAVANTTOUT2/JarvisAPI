@@ -183,8 +183,8 @@ def test_ollama_guard_blocks_real_http_entrypoint():
         asyncio.run(ollama_http_request("GET", "http://localhost:11434/api/tags"))
 
 
-def test_ollama_guard_allows_screen_watcher_style_caller(tmp_path):
-    """Un frame screen_watcher.py dans la pile → autorisé."""
+def test_ollama_guard_rejects_homonym_outside_repo(tmp_path):
+    """Un fichier homonyme hors dépôt (endswith) ne doit PAS autoriser l'appel."""
     import subprocess
     import sys
 
@@ -192,15 +192,20 @@ def test_ollama_guard_allows_screen_watcher_style_caller(tmp_path):
     script.write_text(
         "import sys\n"
         f"sys.path.insert(0, {str(Path(__file__).resolve().parents[1])!r})\n"
-        "from jarvis.cognitive.ollama_guard import assert_ollama_caller_allowed\n"
-        "print(assert_ollama_caller_allowed())\n",
+        "from jarvis.cognitive.ollama_guard import assert_ollama_caller_allowed, OllamaPolicyError\n"
+        "try:\n"
+        "    print(assert_ollama_caller_allowed())\n"
+        "    sys.exit(0)\n"
+        "except OllamaPolicyError as e:\n"
+        "    print('BLOCKED', e)\n"
+        "    sys.exit(2)\n",
         encoding="utf-8",
     )
     result = subprocess.run(
         [sys.executable, str(script)], capture_output=True, text=True, timeout=30
     )
-    assert result.returncode == 0, result.stderr
-    assert "screen_watcher" in result.stdout
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "BLOCKED" in result.stdout
 
 
 def test_contact_fold_accents():
