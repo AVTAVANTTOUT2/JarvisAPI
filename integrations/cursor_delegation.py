@@ -173,6 +173,12 @@ class CursorDelegationService:
             raise CursorDelegationError(f"Dépôt git invalide: {repo}")
 
         job_id = self._new_job_id()
+        # Branche source au moment de l'enqueue = base des PR draft.
+        head_ref = self._git(["rev-parse", "--abbrev-ref", "HEAD"], repo)
+        base_branch = (head_ref.stdout or "").strip() or "main"
+        if base_branch.startswith("jarvis/cursor/"):
+            base_branch = "main"
+
         composed = await compose_cursor_prompt(
             user_request=user_request,
             template_id=template_id,
@@ -181,6 +187,9 @@ class CursorDelegationService:
             context_files=context_files,
             use_main_model=True,
         )
+
+        routing_meta = dict(routing or {})
+        routing_meta["base_branch"] = base_branch
 
         record = create_cursor_job(
             {
@@ -201,7 +210,7 @@ class CursorDelegationService:
                 "allow_pr": bool(getattr(config, "CURSOR_ALLOW_PR", True)),
                 "allow_merge": bool(getattr(config, "CURSOR_ALLOW_MERGE", False)),
                 "interaction_mode": interaction_mode,
-                "routing": routing or {},
+                "routing": routing_meta,
             }
         )
 
@@ -422,9 +431,20 @@ class CursorDelegationService:
         if push.returncode != 0:
             logger.warning("[cursor] push %s échoué : %s", job_id, (push.stderr or "")[:200])
             return None
+        routing = job.get("routing") or {}
+        if isinstance(routing, str):
+            try:
+                import json as _json
+
+                routing = _json.loads(routing)
+            except Exception:
+                routing = {}
+        base_branch = str(routing.get("base_branch") or "main").strip() or "main"
         pr = subprocess.run(
             [
                 "gh", "pr", "create",
+                "--draft",
+                "--base", base_branch,
                 "--title", job["title"][:80],
                 "--body", f"Job Cursor `{job_id}`\n\n{str(parsed.get('body', ''))[:3000]}",
                 "--head", live_branch,
