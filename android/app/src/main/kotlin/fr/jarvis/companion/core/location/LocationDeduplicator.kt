@@ -31,6 +31,7 @@ class LocationDeduplicator(
     fun shouldKeep(
         candidate: CapturedLocation,
         recent: List<PendingLocationEntity>,
+        heartbeatIntervalMs: Long = LocationConstants.HEARTBEAT_INTERVAL_MS,
     ): Boolean {
         val comparisons = buildComparisons(candidate, recent)
         if (comparisons.isEmpty()) return true
@@ -44,8 +45,12 @@ class LocationDeduplicator(
             )
             val deltaT = abs(candidate.capturedAt - other.capturedAt)
 
+            if (deltaT >= heartbeatIntervalMs) {
+                continue
+            }
+
             val accuracyBetter = candidate.accuracy <= other.accuracy * 0.7f
-            if (distance >= 25.0 || deltaT >= 60_000L || accuracyBetter) {
+            if (distance >= 25.0 || accuracyBetter) {
                 continue
             }
 

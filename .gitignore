@@ -60,3 +60,4 @@ voices.bin
 *.bak
 resume_conversations_*.md
 logs/
+.worktrees/

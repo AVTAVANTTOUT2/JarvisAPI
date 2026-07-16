@@ -32,6 +32,8 @@ class LocationSyncWorker(
 
     companion object {
         const val WORK_NAME = "jarvis-location-sync"
+        // REPLACE : KEEP bloquait le sync live si un one-shot précédent était encore en attente.
+        internal val IMMEDIATE_WORK_POLICY: ExistingWorkPolicy = ExistingWorkPolicy.REPLACE
 
         fun schedule(context: Context) {
             val appContext = context.applicationContext
@@ -58,7 +60,7 @@ class LocationSyncWorker(
                 .build()
             WorkManager.getInstance(appContext).enqueueUniqueWork(
                 "${WORK_NAME}-now",
-                ExistingWorkPolicy.KEEP,
+                IMMEDIATE_WORK_POLICY,
                 oneShot,
             )
         }

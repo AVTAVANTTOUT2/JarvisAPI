@@ -14,6 +14,8 @@ from database.location_helpers import (
     get_all_places,
     get_current_location,
     get_current_visit,
+    get_last_known_location,
+    get_location_history,
     get_place,
     get_today_visits,
     get_trips_for_today,
@@ -65,24 +67,9 @@ class LocationManager:
         if ts is None:
             ts = datetime.now()
 
-        if not getattr(config, "LOCATION_TRACKING", True):
-            return {
-                "place": None,
-                "place_id": None,
-                "arrived": False,
-                "departed": False,
-                "visit_id": None,
-                "skipped": True,
-                "location_history_id": None,
-            }
-
-        self._sync_from_db()
-
-        resolved = resolve_place(latitude, longitude)
-        new_pid = int(resolved["id"]) if resolved else None
-        old_pid = self.current_place_id
-
         created_iso = ts.isoformat(timespec="seconds")
+        # Toujours persister le point brut (companion Android / Shortcuts).
+        # LOCATION_TRACKING=false désactive seulement les transitions lieux/visites.
         location_history_id = add_location(
             latitude,
             longitude,
@@ -93,6 +80,29 @@ class LocationManager:
             source=source or "app",
             created_at=created_iso,
         )
+
+        if not getattr(config, "LOCATION_TRACKING", True):
+            self.last_location = {
+                "latitude": latitude,
+                "longitude": longitude,
+                "at": created_iso,
+                "place_id": None,
+            }
+            return {
+                "place": None,
+                "place_id": None,
+                "arrived": False,
+                "departed": False,
+                "visit_id": None,
+                "skipped": True,
+                "location_history_id": location_history_id,
+            }
+
+        self._sync_from_db()
+
+        resolved = resolve_place(latitude, longitude)
+        new_pid = int(resolved["id"]) if resolved else None
+        old_pid = self.current_place_id
 
         arrived = False
         departed = False
@@ -187,8 +197,14 @@ class LocationManager:
         }
 
     async def get_status(self) -> dict[str, Any]:
-        """Position récente, lieu nommé, visite en cours et durée."""
-        loc = get_current_location()
+        """Dernière position connue (tout âge), visite en cours et durée.
+
+        ``current_location`` reste peuplé même si le point a plus de 10 minutes
+        ou si ``LOCATION_TRACKING`` est false — le frontend calcule la fraîcheur
+        via ``created_at``. ``get_current_location()`` (fenêtre courte) reste
+        réservé à ``name_place`` / actions.
+        """
+        loc = get_last_known_location()
         visit = get_current_visit()
         since_min = None
         if visit and visit.get("arrived_at"):
@@ -197,12 +213,14 @@ class LocationManager:
                 since_min = round((datetime.now() - at).total_seconds() / 60.0, 1)
             except ValueError:
                 since_min = None
+        recent_points = get_location_history(hours=24)
         return {
             "tracking_enabled": bool(getattr(config, "LOCATION_TRACKING", True)),
             "default_radius_m": int(getattr(config, "LOCATION_PLACE_RADIUS", 100)),
             "current_location": loc,
             "current_visit": visit,
             "minutes_at_place": since_min,
+            "points_24h": len(recent_points),
             "state": {
                 "current_place_id": self.current_place_id,
                 "current_visit_id": self.current_visit_id,

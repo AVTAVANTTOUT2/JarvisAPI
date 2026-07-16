@@ -499,12 +499,33 @@ async def _action_name_place(action: dict) -> dict:
 
     cur = get_current_location()
     if not cur:
-        return {"ok": False, "message": "Aucune position GPS connue. Activez le tracking GPS d'abord."}
+        return {
+            "ok": False,
+            "message": (
+                "Impossible de nommer ce lieu : aucune position récente n'a été "
+                "reçue du téléphone."
+            ),
+            "code": "NO_RECENT_LOCATION",
+        }
+
+    try:
+        lat = float(cur["latitude"])
+        lng = float(cur["longitude"])
+    except (KeyError, TypeError, ValueError):
+        return {
+            "ok": False,
+            "message": (
+                "Impossible de nommer ce lieu : aucune position récente n'a été "
+                "reçue du téléphone."
+            ),
+            "code": "NO_RECENT_LOCATION",
+        }
+
     pid = create_place(
         name=name,
         category=category,
-        lat=float(cur["latitude"]),
-        lng=float(cur["longitude"]),
+        lat=lat,
+        lng=lng,
         radius=float(action["radius"]) if action.get("radius") is not None else None,
     )
     logger.info("[action] Lieu nommé id=%s name=%s", pid, name)

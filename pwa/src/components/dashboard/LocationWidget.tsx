@@ -5,6 +5,13 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { MapPin, Navigation, RefreshCw, Tag, X } from 'lucide-react';
 
 import { jarvisFetch } from '@unified/lib/api';
+import {
+  getLocationDisplayStatus,
+  mapLocationHistory,
+  mapLocationPoint,
+  resolveDisplayLocationPoint,
+  type LocationPoint,
+} from '@unified/lib/locationDisplay';
 import { isSecureContextForGeo, sendCurrentPosition } from '@mobile/lib/geolocation';
 
 // ─────────────────────────────────────────────────────────────
@@ -14,16 +21,8 @@ import { isSecureContextForGeo, sendCurrentPosition } from '@mobile/lib/geolocat
 interface LocationStatus {
   tracking_enabled?: boolean;
   default_radius_m?: number;
-  current_location?: {
-    id: number;
-    latitude: number;
-    longitude: number;
-    accuracy?: number | null;
-    source?: string | null;
-    place_id?: number | null;
-    place_name?: string | null;
-    created_at: string;
-  } | null;
+  points_24h?: number;
+  current_location?: LocationPoint | null;
   current_visit?: {
     id: number;
     place_id: number;
@@ -50,6 +49,15 @@ interface VisitsResponse {
 // Helpers
 // ─────────────────────────────────────────────────────────────
 
+function formatDuration(minutes: number | null | undefined): string {
+  if (minutes == null || Number.isNaN(minutes)) return 'en cours';
+  const m = Math.round(minutes);
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60);
+  const rest = m % 60;
+  return rest > 0 ? `${h}h${String(rest).padStart(2, '0')}` : `${h}h`;
+}
+
 function formatTime(iso: string | null | undefined): string {
   if (!iso) return '';
   try {
@@ -59,15 +67,6 @@ function formatTime(iso: string | null | undefined): string {
   } catch {
     return '';
   }
-}
-
-function formatDuration(minutes: number | null | undefined): string {
-  if (minutes == null || Number.isNaN(minutes)) return 'en cours';
-  const m = Math.round(minutes);
-  if (m < 60) return `${m} min`;
-  const h = Math.floor(m / 60);
-  const rest = m % 60;
-  return rest > 0 ? `${h}h${String(rest).padStart(2, '0')}` : `${h}h`;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -88,6 +87,13 @@ export function LocationWidget() {
     retry: 0,
   });
 
+  const history = useQuery({
+    queryKey: ['location-history-widget'],
+    queryFn: () => jarvisFetch<unknown>('/api/location/history?hours=24'),
+    refetchInterval: 60_000,
+    retry: 0,
+  });
+
   const visits = useQuery<VisitsResponse>({
     queryKey: ['visits-today'],
     queryFn: () => jarvisFetch<VisitsResponse>('/api/visits/today'),
@@ -96,21 +102,25 @@ export function LocationWidget() {
   });
 
   const loc = location.data;
+  const historyPoints = mapLocationHistory(history.data);
+  const statusPoint = mapLocationPoint(loc?.current_location ?? null);
+  const displayPoint = resolveDisplayLocationPoint(historyPoints, statusPoint);
+  const display = getLocationDisplayStatus(displayPoint);
   const visitList = visits.data?.visits ?? [];
   const currentPlace =
     loc?.current_visit?.place_name ||
-    loc?.current_location?.place_name ||
+    displayPoint?.place_name ||
     null;
-  const lastUpdate = formatTime(loc?.current_location?.created_at ?? null);
   const minutesHere = loc?.minutes_at_place;
   const trackingActive = !!loc?.tracking_enabled;
-  const hasCoords = !!loc?.current_location;
+  const hasCoords = !!displayPoint;
+  const points24h = Math.max(historyPoints.length, loc?.points_24h ?? 0);
 
   async function handleRefresh() {
     setRefreshing(true);
     try {
       await sendCurrentPosition();
-      await location.refetch();
+      await Promise.all([location.refetch(), history.refetch()]);
     } finally {
       setRefreshing(false);
     }
@@ -127,8 +137,11 @@ export function LocationWidget() {
       });
       setNewName('');
       setNaming(false);
-      qc.invalidateQueries({ queryKey: ['location-status'] });
-      qc.invalidateQueries({ queryKey: ['places'] });
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ['location-status'] }),
+        qc.invalidateQueries({ queryKey: ['location-history-widget'] }),
+        qc.invalidateQueries({ queryKey: ['places'] }),
+      ]);
     } catch (err) {
       console.warn('[LocationWidget] name-current failed:', err);
     } finally {
@@ -136,8 +149,7 @@ export function LocationWidget() {
     }
   }
 
-  // Etat d'erreur / indisponible
-  if (location.isError) {
+  if (location.isError && history.isError) {
     return (
       <div className="rounded-[20px] bg-[rgba(255,69,58,0.06)] border border-[rgba(255,69,58,0.18)] p-4">
         <div className="flex items-center gap-2.5">
@@ -145,7 +157,7 @@ export function LocationWidget() {
             <MapPin size={16} className="text-[#FF453A]" />
           </div>
           <div>
-            <div className="text-[13px] font-semibold text-[#FF453A]">Localisation indisponible</div>
+            <div className="text-[13px] font-semibold text-[#FF453A]">Serveur de localisation indisponible</div>
             <div className="text-[11px] text-[#FF453A]/70">Backend injoignable</div>
           </div>
         </div>
@@ -153,7 +165,6 @@ export function LocationWidget() {
     );
   }
 
-  // Contexte non securise (HTTP non-localhost) — Safari bloque la geolocation
   if (!isSecureContextForGeo()) {
     return (
       <div className="rounded-[20px] bg-[rgba(255,214,10,0.06)] border border-[rgba(255,214,10,0.18)] p-4">
@@ -175,7 +186,7 @@ export function LocationWidget() {
     );
   }
 
-  if (location.isLoading) {
+  if (location.isLoading && history.isLoading) {
     return (
       <div className="rounded-[20px] bg-[rgba(255,255,255,0.035)] border border-[rgba(255,255,255,0.07)] p-4">
         <div className="flex items-center gap-2.5">
@@ -189,9 +200,15 @@ export function LocationWidget() {
     );
   }
 
+  const titleColor =
+    display.freshness === 'recent'
+      ? 'text-[#30D158]'
+      : display.freshness === 'stale'
+        ? 'text-[#FFD60A]'
+        : 'text-[#888]';
+
   return (
     <div className="rounded-[20px] bg-[rgba(255,255,255,0.035)] border border-[rgba(255,255,255,0.07)] p-4 space-y-3">
-      {/* Header */}
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2.5 min-w-0 flex-1">
           <div className="w-8 h-8 rounded-lg bg-[rgba(74,158,255,0.12)] flex items-center justify-center flex-shrink-0">
@@ -199,17 +216,28 @@ export function LocationWidget() {
           </div>
           <div className="min-w-0 flex-1">
             <div className="text-[14px] font-semibold text-white truncate">
-              {currentPlace || (hasCoords ? 'Position non nommee' : 'Position inconnue')}
+              {currentPlace || (hasCoords ? 'Position non nommee' : 'Aucune inconnue')}
             </div>
-            <div className="text-[11px] text-[#555] flex items-center gap-2">
-              {lastUpdate && <span className="tabular-nums">Maj {lastUpdate}</span>}
-              {minutesHere != null && currentPlace && (
-                <>
-                  <span className="text-[#333]">•</span>
-                  <span className="tabular-nums">{formatDuration(minutesHere)} ici</span>
-                </>
-              )}
+            <div className={`text-[11px] ${titleColor}`}>
+              {display.label}
             </div>
+            {hasCoords && (
+              <div className="text-[10px] text-[#555] mt-0.5">
+                {points24h} point{points24h > 1 ? 's' : ''} / 24 h
+                {displayPoint?.created_at && (
+                  <>
+                    {' '}
+                    · reçue {formatTime(displayPoint.created_at)}
+                  </>
+                )}
+                {minutesHere != null && currentPlace && (
+                  <>
+                    {' '}
+                    · {formatDuration(minutesHere)} ici
+                  </>
+                )}
+              </div>
+            )}
           </div>
         </div>
         <button
@@ -223,14 +251,12 @@ export function LocationWidget() {
         </button>
       </div>
 
-      {/* Avertissement tracking off */}
       {!trackingActive && (
         <div className="text-[11px] text-[#FFD60A] bg-[rgba(255,214,10,0.06)] border border-[rgba(255,214,10,0.15)] rounded-lg px-2.5 py-1.5">
-          Tracking desactive cote backend. Active LOCATION_TRACKING dans .env.
+          Enrichissement des lieux désactivé — l’historique GPS reste visible.
         </div>
       )}
 
-      {/* Nommer cet endroit */}
       {hasCoords && !currentPlace && (
         <div>
           {!naming ? (
@@ -286,7 +312,6 @@ export function LocationWidget() {
         </div>
       )}
 
-      {/* Visites du jour */}
       {visitList.length > 0 && (
         <div className="space-y-1.5 pt-3 border-t border-[rgba(255,255,255,0.04)]">
           <div className="text-[10px] font-bold tracking-[0.15em] uppercase text-[#555] mb-1">

@@ -78,6 +78,28 @@ def count_location_history() -> int:
         return int(row["c"] if row else 0)
 
 
+def get_mobile_location_diagnostics(device_id: str) -> dict[str, Any]:
+    """Statistiques GPS reçues pour un appareil mobile (24 h glissantes)."""
+    since = (datetime.now() - timedelta(hours=24)).isoformat(timespec="seconds")
+    with get_db() as conn:
+        count_row = conn.execute(
+            """SELECT COUNT(*) AS c FROM location_point_dedup
+               WHERE device_id = ? AND datetime(created_at) >= datetime(?)""",
+            (device_id, since),
+        ).fetchone()
+        last_row = conn.execute(
+            """SELECT created_at FROM location_point_dedup
+               WHERE device_id = ?
+               ORDER BY datetime(created_at) DESC LIMIT 1""",
+            (device_id,),
+        ).fetchone()
+    return {
+        "device_id": device_id,
+        "points_received_24h": int(count_row["c"] if count_row else 0),
+        "last_point_received_at": str(last_row["created_at"]) if last_row else None,
+    }
+
+
 def add_location(
     lat: float,
     lng: float,
@@ -115,15 +137,28 @@ def get_location_history(hours: int = 24) -> list[dict]:
         return [dict(r) for r in rows]
 
 
-def get_current_location() -> dict | None:
-    """Dernier point datant de moins de 10 minutes."""
-    cutoff = (datetime.now() - timedelta(minutes=10)).isoformat(timespec="seconds")
+def get_last_known_location() -> dict | None:
+    """Dernier point GPS connu, quel que soit son âge (affichage frontend)."""
+    with get_db() as conn:
+        row = conn.execute(
+            """SELECT lh.*, p.name AS place_name FROM location_history lh
+               LEFT JOIN places p ON p.id = lh.place_id
+               ORDER BY lh.created_at DESC, lh.id DESC LIMIT 1""",
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def get_current_location(max_age_minutes: int = 10) -> dict | None:
+    """Dernier point datant de moins de ``max_age_minutes`` (name_place / actions)."""
+    cutoff = (datetime.now() - timedelta(minutes=max(1, max_age_minutes))).isoformat(
+        timespec="seconds"
+    )
     with get_db() as conn:
         row = conn.execute(
             """SELECT lh.*, p.name AS place_name FROM location_history lh
                LEFT JOIN places p ON p.id = lh.place_id
                WHERE lh.created_at >= ?
-               ORDER BY lh.created_at DESC LIMIT 1""",
+               ORDER BY lh.created_at DESC, lh.id DESC LIMIT 1""",
             (cutoff,),
         ).fetchone()
         return dict(row) if row else None

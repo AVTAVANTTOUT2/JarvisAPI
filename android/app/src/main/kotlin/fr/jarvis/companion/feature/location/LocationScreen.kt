@@ -5,6 +5,8 @@ import android.net.Uri
 import android.provider.Settings
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -13,6 +15,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
@@ -24,13 +27,16 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import fr.jarvis.companion.app.appContainer
+import fr.jarvis.companion.core.location.CaptureCadenceMode
 import fr.jarvis.companion.core.ui.components.JarvisCard
 import fr.jarvis.companion.core.ui.components.NetworkStatusBadge
 import fr.jarvis.companion.core.ui.components.SectionHeader
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun LocationScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
@@ -74,18 +80,69 @@ fun LocationScreen(modifier: Modifier = Modifier) {
                     "arrière-plan ${if (state.backgroundPermission) "accordé" else "refusé"}",
                 style = MaterialTheme.typography.bodySmall,
             )
-            Text("Mode fréquence : ${state.frequencyMode}", style = MaterialTheme.typography.bodyMedium)
+            Text(
+                state.userStatus,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+            )
             NetworkStatusBadge(state = state.connectivity)
         }
 
-        JarvisCard(title = "État") {
+        JarvisCard(title = "Cadence de capture") {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                CaptureCadenceMode.entries.forEach { mode ->
+                    FilterChip(
+                        selected = state.cadenceMode == mode,
+                        onClick = { viewModel.setCadence(mode) },
+                        label = { Text(mode.labelFr()) },
+                    )
+                }
+            }
+        }
+
+        JarvisCard(title = "Chaîne runtime") {
+            val rc = state.runtimeCounters
+            Text("Service : ${if (rc.serviceRunning) "actif" else "arrêté"}")
+            Text("Moteur : ${if (rc.engineStarted) "démarré" else "arrêté"}")
+            Text("GPS système : ${if (rc.gpsEnabled) "on" else "off"} — Réseau : ${if (rc.networkEnabled) "on" else "off"}")
+            Text("Callbacks : ${formatTs(rc.callbacks)}")
+            Text("Acceptés : ${formatTs(rc.accepted)} — Rejetés : ${formatTs(rc.rejected)}")
+            Text("Insérés localement : ${formatTs(rc.inserted)}")
+            Text("Dernier HTTP sync : ${rc.lastHttpStatus} (${rc.lastBatchAccepted} acceptés)")
+        }
+
+        JarvisCard(title = "État file") {
             Text("En attente : ${state.pendingCount}")
+            Text("Envoi : ${state.sendingCount}")
             Text("Échecs permanents : ${state.failedCount}")
             Text("Invalides : ${state.invalidCount}")
             Text("Dernière capture : ${state.lastCaptureTime ?: "—"} ${state.lastCaptureAccuracy ?: ""}")
             Text("Dernière sync : ${state.lastSyncRelative}")
             if (state.lastSyncAbsolute != null) {
                 Text("(${state.lastSyncAbsolute})", style = MaterialTheme.typography.bodySmall)
+            }
+        }
+
+        JarvisCard(title = "Diagnostics serveur") {
+            val diag = state.serverDiagnostics
+            if (diag == null) {
+                Text("Appuyez sur « Vérifier serveur » pour interroger JARVIS.")
+            } else if (diag.error != null) {
+                Text("Erreur : ${diag.error}")
+            } else {
+                Text("Appareil : ${diag.deviceId ?: "—"}")
+                Text("Points reçus (24 h) : ${diag.pointsReceived24h ?: 0}")
+                Text("Dernier point serveur : ${diag.lastPointReceivedAt ?: "—"}")
+            }
+            OutlinedButton(
+                onClick = { viewModel.fetchServerDiagnostics() },
+                enabled = !state.isFetchingServerDiag,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(if (state.isFetchingServerDiag) "Interrogation…" else "Vérifier serveur")
             }
         }
 
@@ -159,3 +216,9 @@ fun LocationScreen(modifier: Modifier = Modifier) {
         )
     }
 }
+
+private fun formatTs(epochMs: Long): String =
+    if (epochMs <= 0L) "—" else {
+        val ageSec = ((System.currentTimeMillis() - epochMs) / 1000L).coerceAtLeast(0)
+        "il y a ${ageSec}s"
+    }

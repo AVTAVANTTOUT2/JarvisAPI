@@ -221,10 +221,20 @@ async def api_location_batch(body: dict[str, Any], request: Request):
             continue
 
         history_id = result.get("location_history_id")
+        if history_id is None:
+            logger.error(
+                "Batch point %s accepté sans location_history_id — rejet",
+                client_point_id,
+            )
+            rejected.append(
+                {"client_point_id": client_point_id, "reason": "processing_error"}
+            )
+            continue
+
         save_location_point_dedup(
             device_id,
             client_point_id,
-            int(history_id) if history_id is not None else None,
+            int(history_id),
         )
         accepted.append(client_point_id)
 
@@ -233,6 +243,15 @@ async def api_location_batch(body: dict[str, Any], request: Request):
         "duplicates": duplicates,
         "rejected": rejected,
     }
+
+
+@router.get("/api/mobile/location/diagnostics")
+async def api_mobile_location_diagnostics(request: Request):
+    """Diagnostics GPS côté serveur pour l'appareil mobile authentifié."""
+    device = _require_mobile_bearer_device(request)
+    from database.location_helpers import get_mobile_location_diagnostics
+
+    return get_mobile_location_diagnostics(str(device["device_id"]))
 
 
 @router.get("/api/places")

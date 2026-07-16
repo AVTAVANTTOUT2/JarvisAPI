@@ -76,6 +76,18 @@ class PendingLocationDaoTest {
     }
 
     @Test
+    fun reclaimAllSending_returnsOrphansToPending() = runBlocking {
+        val dao = database.pendingLocationDao()
+        val now = System.currentTimeMillis()
+        val id = dao.insert(sampleEntity(clientPointId = "orphan"))
+        dao.reserveBatch(listOf(id), "dead-batch", PendingLocationSyncState.SENDING, now)
+        assertEquals(1, dao.countByState(PendingLocationSyncState.SENDING))
+        dao.reclaimAllSending()
+        assertEquals(0, dao.countByState(PendingLocationSyncState.SENDING))
+        assertEquals(1, dao.countByState(PendingLocationSyncState.PENDING))
+    }
+
+    @Test
     fun syncLock_acquireAndRelease() = runBlocking {
         val lockDao = database.locationSyncLockDao()
         val now = System.currentTimeMillis()

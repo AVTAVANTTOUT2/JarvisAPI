@@ -143,6 +143,18 @@ interface PendingLocationDao {
         sendingState: String = PendingLocationSyncState.SENDING,
     )
 
+    @Query(
+        """
+        UPDATE pending_locations
+        SET syncState = :pendingState, batchId = NULL, lastAttemptAt = NULL
+        WHERE syncState = :sendingState
+        """,
+    )
+    suspend fun reclaimAllSending(
+        pendingState: String = PendingLocationSyncState.PENDING,
+        sendingState: String = PendingLocationSyncState.SENDING,
+    )
+
     @Query("DELETE FROM pending_locations WHERE id IN (:ids)")
     suspend fun applySyncedDelete(ids: List<Long>)
 

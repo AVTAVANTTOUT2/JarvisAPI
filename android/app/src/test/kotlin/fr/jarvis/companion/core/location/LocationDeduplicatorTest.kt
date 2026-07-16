@@ -47,6 +47,30 @@ class LocationDeduplicatorTest {
     }
 
     @Test
+    fun shouldKeep_heartbeatAt60s() {
+        val recent = listOf(
+            entity(lat = 50.0, lng = 3.0, accuracy = 20f, capturedAt = 1_000L),
+        )
+        val candidate = CapturedLocation(
+            latitude = 50.00001,
+            longitude = 3.00001,
+            altitude = null,
+            accuracy = 21f,
+            speed = null,
+            bearing = null,
+            provider = "gps",
+            capturedAt = 61_000L,
+        )
+        assertTrue(
+            deduplicator.shouldKeep(
+                candidate,
+                recent,
+                heartbeatIntervalMs = LocationConstants.HEARTBEAT_INTERVAL_MS,
+            ),
+        )
+    }
+
+    @Test
     fun shouldKeep_whenAccuracyMuchBetter() {
         val recent = listOf(
             entity(lat = 50.0, lng = 3.0, accuracy = 40f, capturedAt = 1_000L),

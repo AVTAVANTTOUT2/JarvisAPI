@@ -3,14 +3,16 @@ package fr.jarvis.companion.feature.location
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.location.LocationManager
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import fr.jarvis.companion.app.AppContainer
 import fr.jarvis.companion.core.connectivity.ConnectivityState
 import fr.jarvis.companion.core.database.PendingLocationSyncState
-import fr.jarvis.companion.core.location.AdaptiveLocationMode
+import fr.jarvis.companion.core.location.CaptureCadenceMode
 import fr.jarvis.companion.core.location.LocationConstants
+import fr.jarvis.companion.core.location.LocationRuntimeDiagnostics
 import fr.jarvis.companion.core.sync.LocationSyncWorker
 import fr.jarvis.companion.data.JarvisSettings
 import fr.jarvis.companion.services.JarvisLocationService
@@ -33,21 +35,46 @@ data class TimelineEntry(
     val label: String,
 )
 
+data class RuntimeChainCounters(
+    val callbacks: Long = 0L,
+    val accepted: Long = 0L,
+    val rejected: Long = 0L,
+    val inserted: Long = 0L,
+    val lastHttpStatus: Int = 0,
+    val lastBatchAccepted: Int = 0,
+    val engineStarted: Boolean = false,
+    val gpsEnabled: Boolean = false,
+    val networkEnabled: Boolean = false,
+    val serviceRunning: Boolean = false,
+)
+
+data class ServerDiagnostics(
+    val deviceId: String? = null,
+    val pointsReceived24h: Int? = null,
+    val lastPointReceivedAt: String? = null,
+    val error: String? = null,
+)
+
 data class LocationUiState(
     val collectionEnabled: Boolean = false,
     val finePermission: Boolean = false,
     val backgroundPermission: Boolean = false,
     val pendingCount: Int = 0,
+    val sendingCount: Int = 0,
     val failedCount: Int = 0,
     val invalidCount: Int = 0,
+    val userStatus: String = "Inactif",
+    val cadenceMode: CaptureCadenceMode = CaptureCadenceMode.LIVE,
     val lastCaptureAccuracy: String? = null,
     val lastCaptureTime: String? = null,
     val lastSyncRelative: String = "jamais",
     val lastSyncAbsolute: String? = null,
-    val frequencyMode: String = "Déplacement",
     val connectivity: ConnectivityState = ConnectivityState.Offline,
     val timeline: List<TimelineEntry> = emptyList(),
+    val runtimeCounters: RuntimeChainCounters = RuntimeChainCounters(),
+    val serverDiagnostics: ServerDiagnostics? = null,
     val isSyncing: Boolean = false,
+    val isFetchingServerDiag: Boolean = false,
     val message: String? = null,
     val showClearPendingConfirm: Boolean = false,
 )
@@ -67,21 +94,27 @@ class LocationViewModel(
         combine(
             dao.observeCountByState(PendingLocationSyncState.PENDING),
             dao.observeCountByState(PendingLocationSyncState.FAILED_RETRYABLE),
+            dao.observeCountByState(PendingLocationSyncState.SENDING),
+        ) { pending: Int, retryable: Int, sending: Int ->
+            Triple(pending, retryable, sending)
+        },
+        combine(
             dao.observeCountByState(PendingLocationSyncState.FAILED_PERMANENT),
             dao.observeCountByState(PendingLocationSyncState.INVALID),
             container.connectivityObserver.state,
-        ) { pending, retryable, failed, invalid, conn ->
-            Quint(pending, retryable, failed, invalid, conn)
+        ) { failed: Int, invalid: Int, conn: ConnectivityState ->
+            Triple(failed, invalid, conn)
         },
         metaDao.observe(LocationConstants.META_LAST_SYNC_AT),
         metaDao.observe(LocationConstants.META_LAST_TIMELINE_JSON),
-    ) { quint, lastSync, timelineMeta ->
+    ) { pendingTriple, failedTriple, lastSync, timelineMeta ->
         LocationDataSlice(
-            pending = quint.a,
-            retryable = quint.b,
-            failed = quint.c,
-            invalid = quint.d,
-            connectivity = quint.e,
+            pending = pendingTriple.first,
+            retryable = pendingTriple.second,
+            sending = pendingTriple.third,
+            failed = failedTriple.first,
+            invalid = failedTriple.second,
+            connectivity = failedTriple.third,
             lastSyncAt = lastSync?.lastSuccessAtMillis,
             timelineJson = timelineMeta?.lastError,
         )
@@ -90,27 +123,35 @@ class LocationViewModel(
     init {
         viewModelScope.launch {
             countsFlow.collect { slice ->
-                val modeLabel = when (container.adaptiveLocationPolicy.currentMode()) {
-                    AdaptiveLocationMode.MOVING -> "Déplacement"
-                    AdaptiveLocationMode.STATIONARY -> "Immobile"
-                    AdaptiveLocationMode.LOW_BATTERY -> "Batterie faible"
-                }
                 val lastEngine = container.locationEngine.lastKnown()
+                val providersDisabled = areProvidersDisabled()
+                val unauthorized = JarvisSettings.nativeToken(appContext).isEmpty()
+                val userStatus = LocationRuntimeDiagnostics.buildUserStatus(
+                    collectionEnabled = JarvisSettings.isLocationEnabled(appContext),
+                    finePermission = hasFinePermission(),
+                    pendingCount = slice.pending + slice.retryable,
+                    sendingCount = slice.sending,
+                    unauthorized = unauthorized,
+                    providersDisabled = providersDisabled,
+                )
                 _uiState.update { current ->
                     current.copy(
                         collectionEnabled = JarvisSettings.isLocationEnabled(appContext),
                         finePermission = hasFinePermission(),
                         backgroundPermission = hasBackgroundPermission(),
                         pendingCount = slice.pending + slice.retryable,
+                        sendingCount = slice.sending,
                         failedCount = slice.failed,
                         invalidCount = slice.invalid,
+                        userStatus = userStatus,
+                        cadenceMode = JarvisSettings.locationCadence(appContext),
                         lastCaptureAccuracy = lastEngine?.accuracy?.let { "± ${it.toInt()} m" },
                         lastCaptureTime = lastEngine?.capturedAt?.let { formatTime(it) },
                         lastSyncRelative = formatRelative(slice.lastSyncAt),
                         lastSyncAbsolute = slice.lastSyncAt?.let { formatTime(it) },
-                        frequencyMode = modeLabel,
                         connectivity = slice.connectivity,
                         timeline = parseTimeline(slice.timelineJson),
+                        runtimeCounters = buildRuntimeCounters(),
                     )
                 }
             }
@@ -133,6 +174,17 @@ class LocationViewModel(
         _uiState.update { it.copy(collectionEnabled = enabled) }
     }
 
+    fun setCadence(mode: CaptureCadenceMode) {
+        JarvisSettings.setLocationCadence(appContext, mode)
+        container.adaptiveLocationPolicy.setCadenceMode(mode)
+        _uiState.update { it.copy(cadenceMode = mode, message = "Cadence : ${mode.labelFr()}") }
+        if (JarvisSettings.isLocationEnabled(appContext)) {
+            appContext.startForegroundService(
+                android.content.Intent(appContext, JarvisLocationService::class.java),
+            )
+        }
+    }
+
     fun syncNow() {
         viewModelScope.launch {
             _uiState.update { it.copy(isSyncing = true, message = null) }
@@ -148,6 +200,33 @@ class LocationViewModel(
                         outcome.unauthorized -> "Session expirée"
                         outcome.error != null -> outcome.error
                         else -> "Rien à synchroniser"
+                    },
+                    runtimeCounters = buildRuntimeCounters(),
+                )
+            }
+        }
+    }
+
+    fun fetchServerDiagnostics() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isFetchingServerDiag = true, message = null) }
+            val result = container.repository.getLocationDiagnostics()
+            _uiState.update {
+                it.copy(
+                    isFetchingServerDiag = false,
+                    serverDiagnostics = if (result.ok && result.body != null) {
+                        ServerDiagnostics(
+                            deviceId = result.body.device_id,
+                            pointsReceived24h = result.body.points_received_24h,
+                            lastPointReceivedAt = result.body.last_point_received_at,
+                        )
+                    } else {
+                        ServerDiagnostics(error = result.error.ifBlank { "HTTP ${result.status}" })
+                    },
+                    message = if (result.ok) {
+                        "Diagnostics serveur récupérés"
+                    } else {
+                        result.error.ifBlank { "Échec diagnostics serveur" }
                     },
                 )
             }
@@ -174,6 +253,26 @@ class LocationViewModel(
             store.clearInvalid()
             _uiState.update { it.copy(message = "Points invalides supprimés") }
         }
+    }
+
+    private fun buildRuntimeCounters(): RuntimeChainCounters = RuntimeChainCounters(
+        callbacks = LocationRuntimeDiagnostics.lastCallbackAt.get(),
+        accepted = LocationRuntimeDiagnostics.lastAcceptedAt.get(),
+        rejected = LocationRuntimeDiagnostics.lastRejectedAt.get(),
+        inserted = LocationRuntimeDiagnostics.lastInsertAt.get(),
+        lastHttpStatus = LocationRuntimeDiagnostics.lastHttpStatus.get(),
+        lastBatchAccepted = LocationRuntimeDiagnostics.lastBatchAccepted.get(),
+        engineStarted = LocationRuntimeDiagnostics.engineStarted.get(),
+        gpsEnabled = LocationRuntimeDiagnostics.gpsProviderEnabled.get(),
+        networkEnabled = LocationRuntimeDiagnostics.networkProviderEnabled.get(),
+        serviceRunning = LocationRuntimeDiagnostics.serviceRunning.get(),
+    )
+
+    private fun areProvidersDisabled(): Boolean {
+        if (!hasFinePermission()) return false
+        val manager = appContext.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        return !manager.isProviderEnabled(LocationManager.GPS_PROVIDER) &&
+            !manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
     }
 
     private fun hasFinePermission(): Boolean =
@@ -222,17 +321,10 @@ class LocationViewModel(
     }
 }
 
-private data class Quint<A, B, C, D, E>(
-    val a: A,
-    val b: B,
-    val c: C,
-    val d: D,
-    val e: E,
-)
-
 private data class LocationDataSlice(
     val pending: Int = 0,
     val retryable: Int = 0,
+    val sending: Int = 0,
     val failed: Int = 0,
     val invalid: Int = 0,
     val connectivity: ConnectivityState = ConnectivityState.Offline,

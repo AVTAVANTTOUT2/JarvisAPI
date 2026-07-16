@@ -47,6 +47,11 @@ interface JarvisApiService {
         @Body body: LocationBatchRequest,
     ): Response<LocationBatchResponse>
 
+    @GET("api/mobile/location/diagnostics")
+    suspend fun getLocationDiagnostics(
+        @Header("Authorization") authorization: String,
+    ): Response<LocationDiagnosticsResponse>
+
     @GET("api/briefing")
     suspend fun getBriefing(
         @Header("Authorization") authorization: String,
@@ -190,6 +195,20 @@ data class LocationBatchResult(
     val accepted: List<String> = emptyList(),
     val duplicates: List<String> = emptyList(),
     val rejected: List<LocationBatchRejected> = emptyList(),
+    val unauthorized: Boolean = false,
+    val error: String = "",
+)
+
+data class LocationDiagnosticsResponse(
+    val device_id: String = "",
+    val points_received_24h: Int = 0,
+    val last_point_received_at: String? = null,
+)
+
+data class LocationDiagnosticsResult(
+    val ok: Boolean,
+    val status: Int,
+    val body: LocationDiagnosticsResponse? = null,
     val unauthorized: Boolean = false,
     val error: String = "",
 )
