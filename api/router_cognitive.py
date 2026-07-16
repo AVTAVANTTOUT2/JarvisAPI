@@ -28,9 +28,10 @@ class CursorEnqueueRequest(BaseModel):
 
 
 class BriefingRequest(BaseModel):
-    kind: str = "morning"
+    kind: str = "morning"  # morning | evening | delta
     voice_only: bool = False
     filter_priority: str | None = None
+    work_only: bool = False
 
 
 @router.post("/cognitive/route")
@@ -160,8 +161,17 @@ async def briefing_generate(body: BriefingRequest) -> dict[str, Any]:
         kind=body.kind,
         voice_only=body.voice_only,
         filter_priority=body.filter_priority,  # type: ignore[arg-type]
+        work_only=body.work_only,
     )
     return {"ok": True, "briefing": briefing.to_dict()}
+
+
+@router.get("/voice/metrics")
+async def voice_metrics(days: int = Query(7, ge=1, le=90)) -> dict[str, Any]:
+    """P50 / p95 par étape du pipeline vocal (STT, LLM, TTS, total)."""
+    from database import get_voice_latency_metrics
+
+    return {"ok": True, **get_voice_latency_metrics(days)}
 
 
 @router.get("/contacts/resolve")
@@ -169,6 +179,20 @@ async def contacts_resolve(q: str = Query(..., min_length=1, max_length=200)) ->
     from integrations.contact_resolver import resolve_contact_query
 
     return {"ok": True, **resolve_contact_query(q)}
+
+
+@router.get("/improvements/proposals")
+async def improvement_proposals(limit: int = Query(20, ge=1, le=100)) -> dict[str, Any]:
+    from scripts.self_improvement import list_proposals
+
+    return {"ok": True, "proposals": list_proposals(limit)}
+
+
+@router.post("/improvements/run")
+async def improvement_run(auto_delegate: bool = False) -> dict[str, Any]:
+    from scripts.self_improvement import propose_improvements
+
+    return await propose_improvements(auto_delegate=auto_delegate)
 
 
 @router.get("/autonomy/settings")

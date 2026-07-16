@@ -18,8 +18,6 @@ OLLAMA_ALLOWED_MODULES: frozenset[str] = frozenset(
     {
         "scripts/screen_watcher.py",
         "integrations/ollama_control.py",
-        "integrations/ollama_client.py",
-        "jarvis/cognitive/ollama_guard.py",
     }
 )
 
@@ -28,9 +26,21 @@ _ALLOWED_MODULE_NAMES: frozenset[str] = frozenset(
     {
         "scripts.screen_watcher",
         "integrations.ollama_control",
-        "integrations.ollama_client",
-        "jarvis.cognitive.ollama_guard",
     }
+)
+
+# Modules « plomberie » : ils relaient l'appel mais ne comptent pas comme
+# consommateur. On les SAUTE dans la pile au lieu de les autoriser — sinon
+# le premier frame (ce fichier) autoriserait n'importe quel appelant.
+_PLUMBING_MODULE_NAMES: frozenset[str] = frozenset(
+    {
+        "jarvis.cognitive.ollama_guard",
+        "integrations.ollama_client",
+    }
+)
+_PLUMBING_FILE_SUFFIXES: tuple[str, ...] = (
+    "jarvis/cognitive/ollama_guard.py",
+    "integrations/ollama_client.py",
 )
 
 
@@ -48,14 +58,47 @@ def _normalize_path(path: str) -> str:
     return Path(p).name
 
 
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _is_plumbing_frame(frame: inspect.FrameInfo) -> bool:
+    mod = frame.frame.f_globals.get("__name__", "") or ""
+    if mod in _PLUMBING_MODULE_NAMES:
+        return True
+    filename = (frame.filename or "").replace("\\", "/")
+    return filename.endswith(_PLUMBING_FILE_SUFFIXES)
+
+
+def _is_repo_frame(filename: str) -> bool:
+    """Frame appartenant au code applicatif du dépôt (hors venv/site-packages)."""
+    f = (filename or "").replace("\\", "/")
+    if not f:
+        return False
+    if "/site-packages/" in f or "/venv/" in f or "/lib/python" in f:
+        return False
+    try:
+        Path(f).resolve().relative_to(_REPO_ROOT)
+        return True
+    except (ValueError, OSError):
+        return False
+
+
 def assert_ollama_caller_allowed(stack: list[inspect.FrameInfo] | None = None) -> str:
-    """Vérifie que l'appelant est dans l'allowlist. Retourne le module autorisé."""
+    """Vérifie que le PREMIER appelant applicatif est dans l'allowlist.
+
+    Les frames de plomberie (ce module, ``integrations/ollama_client``) sont
+    sautés : le verdict porte sur le premier frame extérieur. Sans cela,
+    l'appel partirait toujours de ``ollama_guard`` lui-même et tout le monde
+    serait autorisé.
+    """
     frames = stack if stack is not None else inspect.stack()[1:]
     for frame in frames:
+        if _is_plumbing_frame(frame):
+            continue
         mod = frame.frame.f_globals.get("__name__", "") or ""
+        filename = frame.filename or ""
         if mod in _ALLOWED_MODULE_NAMES:
             return mod
-        filename = frame.filename or ""
         rel = _normalize_path(filename)
         if rel in OLLAMA_ALLOWED_MODULES:
             return rel
@@ -64,6 +107,10 @@ def assert_ollama_caller_allowed(stack: list[inspect.FrameInfo] | None = None) -
             return "scripts/screen_watcher.py"
         if filename.endswith("ollama_control.py"):
             return "integrations/ollama_control.py"
+        if _is_repo_frame(filename):
+            # Premier frame applicatif du dépôt hors allowlist → refus.
+            break
+        # Frames techniques (asyncio, httpx, stdlib) : on continue de remonter.
     callers = [
         f"{f.filename}:{f.lineno}:{f.function}" for f in frames[:8]
     ]
@@ -79,29 +126,27 @@ def ollama_reasoning_consumers(repo_root: Path | None = None) -> list[str]:
     Retourne les chemins relatifs (posix) qui contiennent un appel HTTP
     vers Ollama hors allowlist — utilisé par les tests de contrat.
     """
-    root = repo_root or Path(__file__).resolve().parents[2]
+    root = (repo_root or Path(__file__).resolve().parents[2]).resolve()
     offenders: list[str] = []
-    patterns = (
-        "/api/generate",
-        "/api/chat",
-        "OLLAMA_URL",
-        "ollama_url",
-        "11434",
-    )
+    # Seuls les endpoints de GÉNÉRATION comptent comme raisonnement local.
+    # /api/tags, /api/pull, /api/ps = gestion de modèles (autorisée partout).
+    generation_markers = ("/api/generate", "/api/chat\"", "/api/chat'")
     skip_dirs = {
         ".git", "venv", "node_modules", ".worktrees", "frontend", "web", "pwa",
         "android", "data", "__pycache__", ".jarvis", "Architecture", "docs",
-        "tv",
+        "tv", "native_audio", "artifacts",
     }
     for path in root.rglob("*.py"):
-        parts = set(path.parts)
-        if parts & skip_dirs:
-            continue
         try:
             rel = path.relative_to(root).as_posix()
         except ValueError:
             continue
-        if rel in OLLAMA_ALLOWED_MODULES:
+        # Exclusions calculées sur le chemin RELATIF au dépôt — un dépôt qui
+        # vit lui-même sous un dossier .worktrees ne doit pas tout exclure.
+        rel_parts = set(Path(rel).parts)
+        if rel_parts & skip_dirs:
+            continue
+        if rel in OLLAMA_ALLOWED_MODULES or rel in _PLUMBING_FILE_SUFFIXES:
             continue
         if rel.startswith("tests/") or rel.startswith("jarvis/tests/"):
             continue
@@ -109,29 +154,25 @@ def ollama_reasoning_consumers(repo_root: Path | None = None) -> list[str]:
             text = path.read_text(encoding="utf-8", errors="ignore")
         except OSError:
             continue
-        # Heuristique : appel HTTP réel vers Ollama, pas une simple mention config
+        mentions_ollama = "ollama" in text.lower() or "11434" in text
+        if not mentions_ollama:
+            continue
+        has_generation = any(m in text for m in generation_markers) or (
+            "ollama_generate(" in text
+        )
         has_http = any(
             x in text
             for x in (
                 'f"{ollama_url}/api/',
                 "f'{ollama_url}/api/",
-                "/api/generate",
-                "/api/chat",
                 "client.post(",
                 "httpx.",
                 "requests.",
                 "aiohttp",
+                "ollama_generate(",
             )
         )
-        mentions_ollama = any(p in text for p in patterns) and (
-            "ollama" in text.lower() or "11434" in text
-        )
-        if has_http and mentions_ollama and "/api/" in text:
-            # Exclure les fichiers qui ne font que lire la config / health sans generate
-            if "check_ollama_health" in text and "/api/generate" not in text and "/api/chat" not in text:
-                continue
-            if "ollama_control" in rel:
-                continue
+        if has_generation and has_http:
             offenders.append(rel)
     return sorted(set(offenders))
 

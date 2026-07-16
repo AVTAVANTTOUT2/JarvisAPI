@@ -84,6 +84,34 @@ async def _process_message_internal(
                 voice_mode=voice_mode,
             )
 
+        # ── Routage cognitif : tâche technique → délégation Cursor ──
+        try:
+            from api.chat_cognitive import maybe_delegate_chat_to_cursor, route_chat_text
+
+            intent = route_chat_text(original_text, voice_mode=voice_mode)
+            if intent.execution_type == "cursor":
+                # NB : la persistance du message user appartient à l'appelant
+                # REST (même contrat que le reste de _process_message_internal).
+                delegated = await maybe_delegate_chat_to_cursor(
+                    original_text,
+                    conversation_id,
+                    intent=intent,
+                    interaction_mode="voice" if voice_mode else "chat",
+                )
+                if delegated and delegated.get("handled"):
+                    return {
+                        "text": delegated["text"],
+                        "emotion": delegated.get("emotion", "neutral"),
+                        "action": {"type": "cursor_delegate", "job_id": delegated.get("job_id")},
+                        "action_result": {"ok": True, "job_id": delegated.get("job_id")},
+                        "agent": "cognitive",
+                        "model": "router",
+                        "cost": 0.0,
+                        "routing": delegated.get("routing"),
+                    }
+        except Exception as e:
+            logger.debug("[_process_message_internal] routage cognitif : %s", e)
+
         # Confirmation « oui / vas-y » sur une action en attente (REST)
         pending_action = _pop_pending_action_if_confirmed(original_text, conversation_id)
         if pending_action is not None:

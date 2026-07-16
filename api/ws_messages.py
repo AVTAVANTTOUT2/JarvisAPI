@@ -144,6 +144,37 @@ async def _process_message(
                 await _send_tts_streaming(ws, egg_text, egg_emotion)
             return {"emotion": egg_emotion, "response": egg_text}
 
+        # ── Routage cognitif : tâche technique → délégation Cursor ──
+        try:
+            from api.chat_cognitive import maybe_delegate_chat_to_cursor, route_chat_text
+
+            intent = route_chat_text(original_text, voice_mode=voice_mode)
+            await ws.send_json({"type": "routing", "routing": intent.to_diagnostic()})
+            if intent.execution_type == "cursor":
+                delegated = await maybe_delegate_chat_to_cursor(
+                    original_text,
+                    conversation_id,
+                    intent=intent,
+                    interaction_mode="voice" if voice_mode else "chat",
+                )
+                if delegated and delegated.get("handled"):
+                    await ws.send_json({
+                        "type": "response",
+                        "agent": "cognitive",
+                        "content": delegated["text"],
+                        "emotion": delegated.get("emotion", "neutral"),
+                        "model": "router",
+                        "tokens_in": 0, "tokens_out": 0, "cost": 0.0,
+                        "cursor_job_id": delegated.get("job_id"),
+                    })
+                    if send_tts:
+                        await _send_tts_streaming(ws, delegated["text"], "neutral")
+                    return {"emotion": "neutral", "response": delegated["text"]}
+                # Délégation impossible → le pipeline classique continue et
+                # l'orchestrateur répond en conseil (pas de fausse promesse).
+        except Exception as e:
+            logger.debug("[_process_message] routage cognitif : %s", e)
+
         # ── Vérifier si l'utilisateur confirme une proposition en attente ──
         pending_action = (
             dict(chat_actions._pending_proposal["action"])

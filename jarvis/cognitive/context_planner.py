@@ -10,6 +10,16 @@ from jarvis.cognitive.models import TaskIntent
 
 logger = logging.getLogger(__name__)
 
+# Budget total (caractères) du contexte conditionnel injecté, par profil.
+BUDGET_LIMITS = {
+    "minimal": 1500,
+    "contact": 2000,
+    "tool": 2500,
+    "standard": 5000,
+    "briefing": 8000,
+    "dev": 3500,
+}
+
 
 @dataclass
 class ContextSlice:
@@ -29,6 +39,9 @@ class PlannedContext:
     slices: list[ContextSlice] = field(default_factory=list)
     budget: str = "minimal"
     diagnostics: list[dict[str, Any]] = field(default_factory=list)
+
+    def char_budget(self) -> int:
+        return BUDGET_LIMITS.get(self.budget, BUDGET_LIMITS["standard"])
 
     def as_prompt_block(self, max_chars: int = 6000) -> str:
         parts: list[str] = []
@@ -59,14 +72,7 @@ class PlannedContext:
 class ContextPlanner:
     """Sélectionne les sources selon l'intent (budget + pertinence)."""
 
-    BUDGET_LIMITS = {
-        "minimal": 1500,
-        "contact": 2000,
-        "tool": 2500,
-        "standard": 5000,
-        "briefing": 8000,
-        "dev": 3500,
-    }
+    BUDGET_LIMITS = BUDGET_LIMITS  # rétrocompatibilité attribut de classe
 
     def plan(self, intent: TaskIntent, available: dict[str, Any] | None = None) -> PlannedContext:
         available = available or {}
@@ -133,6 +139,31 @@ class ContextPlanner:
                 add("MEMORY", available["memory_hits"], "memory", 0.8, "souvenirs pertinents")
             if available.get("screen_context"):
                 add("SCREEN", available["screen_context"], "screen", 0.4, "contexte écran récent")
+
+        # Fallback : toute source déjà collectée (mots-clés) non couverte par le
+        # domaine reste tracée + budgétée, avec une pertinence plus faible.
+        _fallback_keys = {
+            "calendar": ("CALENDAR", "calendar"),
+            "tasks": ("TASKS", "tasks"),
+            "emails": ("EMAILS", "mail"),
+            "weather": ("WEATHER", "weather"),
+            "location": ("LOCATION", "location"),
+            "memory_hits": ("MEMORY", "memory"),
+            "screen_context": ("SCREEN", "screen"),
+        }
+        existing = {s.key for s in planned.slices}
+        for avail_key, (slice_key, source) in _fallback_keys.items():
+            if slice_key in existing:
+                continue
+            if available.get(avail_key):
+                add(
+                    slice_key,
+                    available[avail_key],
+                    source,
+                    0.3,
+                    "mots-clés détectés dans la demande (hors domaine principal)",
+                    sensitive=slice_key == "LOCATION",
+                )
 
         planned.diagnostics = planned.to_diagnostic()
         return planned

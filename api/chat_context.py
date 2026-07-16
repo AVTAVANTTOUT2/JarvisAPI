@@ -299,10 +299,60 @@ async def _build_enriched_context(text: str, conversation_id: int) -> dict:
         except Exception:
             pass
 
+    # ── ContextPlanner : budget + traçabilité (« pourquoi cette donnée ? ») ──
+    try:
+        from jarvis.cognitive import plan_context, route_request
+
+        intent = route_request(text, interaction_mode="chat")
+        planner_input = {
+            "calendar": context.get("calendar_context"),
+            "tasks": context.get("tasks_context"),
+            "emails": context.get("emails_context"),
+            "weather": context.get("weather_context"),
+            "location": context.get("location_context"),
+            "memory_hits": context.get("recent_conversations"),
+            "screen_context": context.get("screen_context"),
+        }
+        planned = plan_context(intent, planner_input)
+        # Budget réel : tronque les tranches conditionnelles selon l'intent.
+        slice_to_ctx_key = {
+            "CALENDAR": "calendar_context",
+            "TASKS": "tasks_context",
+            "EMAILS": "emails_context",
+            "WEATHER": "weather_context",
+            "LOCATION": "location_context",
+            "MEMORY": "recent_conversations",
+            "SCREEN": "screen_context",
+        }
+        budget = planned.char_budget()
+        used = 0
+        for s in sorted(planned.slices, key=lambda x: -x.relevance):
+            ctx_key = slice_to_ctx_key.get(s.key)
+            if not ctx_key or ctx_key not in context:
+                continue
+            remaining = max(0, budget - used)
+            value = str(context[ctx_key])
+            if len(value) > remaining:
+                if remaining < 200:
+                    context.pop(ctx_key, None)
+                    continue
+                context[ctx_key] = value[:remaining]
+            used += len(str(context.get(ctx_key, "")))
+        context["__routing"] = intent.to_diagnostic()
+        context["__context_trace"] = planned.to_diagnostic()
+    except Exception as e:
+        logger.debug("[ctx] context planner : %s", e)
+
     _schedule_llm_log(
         agent="system",
         action_type="context_enrichment",
-        payload={"conversation_id": conversation_id, "keys": sorted(list(context.keys())), "key_count": len(context)},
+        payload={
+            "conversation_id": conversation_id,
+            "keys": sorted(k for k in context.keys() if not k.startswith("__")),
+            "key_count": len(context),
+            "routing": context.get("__routing"),
+            "context_trace": context.get("__context_trace"),
+        },
         status="success",
     )
     return context
