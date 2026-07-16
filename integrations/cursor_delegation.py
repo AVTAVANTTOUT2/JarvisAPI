@@ -14,10 +14,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import re
 import shutil
 import signal
 import subprocess
+import tempfile
 import threading
 import uuid
 from datetime import datetime
@@ -34,26 +34,30 @@ from database.cursor_jobs import (
     update_cursor_job,
 )
 from integrations.cursor_cli import build_agent_command, inspect_cursor_cli
+from integrations.cursor_env import build_cursor_safe_env
 from integrations.cursor_prompt_composer import compose_cursor_prompt, parse_cursor_result
+from integrations.cursor_required_tests import parse_and_run_required_tests
+from jarvis.security.redaction import (
+    diagnostic_cursor_job_view,
+    public_cursor_job_view,
+    redact_sensitive_mapping,
+    redact_sensitive_text,
+)
 
 logger = logging.getLogger(__name__)
 
 PROTECTED_BRANCHES = frozenset({"main", "master"})
 
-# Motifs de secrets à masquer avant tout envoi à Cursor.
-_SECRET_PATTERNS = (
-    re.compile(r"((?:API_KEY|SECRET|TOKEN|PASSWORD|PASSPHRASE)\s*=\s*)\S+", re.I),
-    re.compile(r"\bsk-[A-Za-z0-9_\-]{8,}"),
-    re.compile(r"\bBearer\s+[A-Za-z0-9._\-]{12,}"),
+# Statuts avant démarrage effectif (confirmation requise).
+PENDING_CONFIRM_STATUSES = frozenset({"proposal", "awaiting_confirmation"})
+TERMINAL_STATUSES = frozenset(
+    {"completed", "pr_opened", "cancelled", "rolled_back", "failed"}
 )
 
 
 def _redact_secrets(text: str) -> str:
-    out = text
-    out = _SECRET_PATTERNS[0].sub(r"\1***REDACTED***", out)
-    out = _SECRET_PATTERNS[1].sub("sk-***REDACTED***", out)
-    out = _SECRET_PATTERNS[2].sub("Bearer ***REDACTED***", out)
-    return out
+    """Compat : délègue au service central de redaction."""
+    return redact_sensitive_text(text)
 
 
 class CursorDelegationError(RuntimeError):
@@ -145,12 +149,13 @@ class CursorDelegationService:
         template_id: str = "feature_implementation",
         repository: str | None = None,
         acceptance_criteria: list[str] | None = None,
-        required_tests: list[str] | None = None,
+        required_tests: list[Any] | None = None,
         context_files: list[str] | None = None,
         risk_level: str = "medium",
         interaction_mode: str = "chat",
         routing: dict[str, Any] | None = None,
-        auto_start: bool = True,
+        auto_start: bool = False,
+        require_confirmation: bool = True,
     ) -> dict[str, Any]:
         if not getattr(config, "CURSOR_DELEGATION_ENABLED", True):
             raise CursorDelegationError("CURSOR_DELEGATION_ENABLED=false")
@@ -179,8 +184,11 @@ class CursorDelegationService:
         if base_branch.startswith("jarvis/cursor/"):
             base_branch = "main"
 
+        # Redacter AVANT composition LLM et AVANT persistence.
+        safe_request = redact_sensitive_text(user_request)
+
         composed = await compose_cursor_prompt(
-            user_request=user_request,
+            user_request=safe_request,
             template_id=template_id,
             acceptance_criteria=acceptance_criteria,
             required_tests=required_tests,
@@ -190,33 +198,79 @@ class CursorDelegationService:
 
         routing_meta = dict(routing or {})
         routing_meta["base_branch"] = base_branch
+        routing_meta["requires_confirmation"] = bool(require_confirmation)
+
+        # Chat/voix : proposition en attente si confirmation requise.
+        # Auto-start uniquement si confirmation désactivée ET auto_start=True
+        # (loop / self-repair / scheduler autorisés).
+        if require_confirmation:
+            initial_status = "awaiting_confirmation"
+            will_start = False
+        else:
+            initial_status = "queued"
+            will_start = bool(auto_start)
 
         record = create_cursor_job(
             {
                 "job_id": job_id,
-                "title": title[:200],
-                "user_request": user_request,
-                "status": "queued",
+                "title": redact_sensitive_text(title[:200]),
+                "user_request": safe_request,
+                "status": initial_status,
                 "repository": str(repo),
                 "working_directory": str(repo),
                 "prompt_template": composed["template_id"],
                 "template_version": composed["template_version"],
-                "prompt_sent": _redact_secrets(composed["prompt"]),
+                "prompt_sent": redact_sensitive_text(composed["prompt"]),
                 "acceptance_criteria": acceptance_criteria or [],
                 "required_tests": required_tests or [],
                 "risk_level": risk_level,
                 "allow_commit": bool(getattr(config, "CURSOR_ALLOW_COMMIT", True)),
-                "allow_push": bool(getattr(config, "CURSOR_ALLOW_PUSH", True)),
-                "allow_pr": bool(getattr(config, "CURSOR_ALLOW_PR", True)),
+                "allow_push": bool(getattr(config, "CURSOR_ALLOW_PUSH", False)),
+                "allow_pr": bool(getattr(config, "CURSOR_ALLOW_PR", False)),
                 "allow_merge": bool(getattr(config, "CURSOR_ALLOW_MERGE", False)),
                 "interaction_mode": interaction_mode,
                 "routing": routing_meta,
             }
         )
 
-        if auto_start:
+        if will_start:
             asyncio.create_task(self.run_job(job_id), name=f"cursor-{job_id}")
         return record
+
+    async def confirm(self, job_id: str) -> dict[str, Any]:
+        """Confirmation explicite → queued + démarrage. Idempotent si déjà lancé."""
+        job = get_cursor_job(job_id)
+        if not job:
+            raise CursorDelegationError(f"Job {job_id} introuvable")
+        status = job.get("status")
+        if status in TERMINAL_STATUSES:
+            return job
+        if status not in PENDING_CONFIRM_STATUSES and status != "queued":
+            # Déjà en cours
+            return job
+        if status in PENDING_CONFIRM_STATUSES:
+            update_cursor_job(job_id, status="queued")
+        # Évite double démarrage concurrent
+        if status == "queued" and job_id in self._procs:
+            return get_cursor_job(job_id) or job
+        asyncio.create_task(self.run_job(job_id), name=f"cursor-{job_id}")
+        return get_cursor_job(job_id) or job
+
+    def confirm_latest_pending(
+        self, *, interaction_mode: str | None = None
+    ) -> dict[str, Any] | None:
+        """Confirme le job en attente le plus récent (voix « vas-y » / « lance »)."""
+        pending = list_jobs_by_statuses(tuple(PENDING_CONFIRM_STATUSES))
+        if interaction_mode:
+            pending = [
+                j for j in pending if j.get("interaction_mode") == interaction_mode
+            ]
+        if not pending:
+            return None
+        # list_jobs_by_statuses trié desc created_at
+        latest = pending[0]
+        # confirm est async — wrapper sync pour appels voice
+        return latest
 
     async def run_job(self, job_id: str) -> dict[str, Any]:
         return await asyncio.to_thread(self._run_job_sync, job_id)
@@ -229,7 +283,18 @@ class CursorDelegationService:
         self, cmd: list[str], wt_path: Path, timeout: int, job_id: str
     ) -> tuple[int, str]:
         """Lance le CLI dans son propre process group, collecte stdout+stderr."""
-        env = {**os.environ, "NO_OPEN_BROWSER": "1"}
+        isolated_home = Path(
+            tempfile.mkdtemp(prefix=f"jarvis-cursor-{job_id}-home-")
+        )
+        env = build_cursor_safe_env(isolated_home=isolated_home)
+        # Log sans secrets : pas d'env, pas de prompt
+        logger.info(
+            "[cursor] spawn %s cwd=%s argv0-5=%s env_keys=%s",
+            job_id,
+            wt_path,
+            cmd[:5],
+            sorted(env.keys()),
+        )
         proc = subprocess.Popen(
             cmd,
             cwd=str(wt_path),
@@ -243,13 +308,18 @@ class CursorDelegationService:
             self._procs[job_id] = proc
         try:
             out, _ = proc.communicate(timeout=timeout)
-            return proc.returncode, out or ""
+            # Cap sortie pour éviter DoS mémoire / SQLite
+            raw = out or ""
+            if len(raw) > 200_000:
+                raw = raw[-200_000:]
+            return proc.returncode, redact_sensitive_text(raw)
         except subprocess.TimeoutExpired:
             self._kill_proc(proc)
             raise
         finally:
             with self._procs_lock:
                 self._procs.pop(job_id, None)
+            shutil.rmtree(isolated_home, ignore_errors=True)
 
     @staticmethod
     def _kill_proc(proc: subprocess.Popen[str]) -> None:
@@ -269,64 +339,77 @@ class CursorDelegationService:
         job = get_cursor_job(job_id)
         if not job:
             raise CursorDelegationError(f"Job {job_id} introuvable")
-        if job["status"] in ("completed", "pr_opened", "cancelled", "rolled_back", "failed"):
+        if job["status"] in TERMINAL_STATUSES:
             return job
+        if job["status"] in PENDING_CONFIRM_STATUSES:
+            # Ne jamais démarrer sans confirmation explicite.
+            raise CursorDelegationError(
+                f"Job {job_id} en attente de confirmation (status={job['status']})"
+            )
 
         repo = Path(job["repository"] or config.BASE_DIR)
         update_cursor_job(job_id, status="preparing", started_at=datetime.now().isoformat(timespec="seconds"))
 
         try:
             wt_path, branch = self._prepare_worktree(job_id, repo)
+            # Trust uniquement sur ce worktree résolu (jamais HOME / main / /)
+            wt_resolved = wt_path.resolve()
             update_cursor_job(
                 job_id,
                 status="running",
-                worktree_path=str(wt_path),
+                worktree_path=str(wt_resolved),
                 branch_name=branch,
             )
 
             info = inspect_cursor_cli(getattr(config, "CURSOR_CLI_PATH", "") or None)
-            prompt = _redact_secrets(job.get("prompt_sent") or job["user_request"])
+            prompt = redact_sensitive_text(job.get("prompt_sent") or job["user_request"])
 
             cmd = build_agent_command(
                 info,
                 prompt,
-                workspace=str(wt_path),
-                force=True,
-                trust=True,
+                workspace=str(wt_resolved),
+                force=False,
+                trust=True,  # limité au --workspace worktree ci-dessus
             )
             timeout = int(getattr(config, "CURSOR_DEFAULT_TIMEOUT_SEC", 1800))
-            logger.info("[cursor] run %s cmd=%s timeout=%s", job_id, cmd[:6], timeout)
+            logger.info("[cursor] run %s cmd_prefix=%s timeout=%s", job_id, cmd[:5], timeout)
 
-            returncode, raw = self._spawn_cursor(cmd, wt_path, timeout, job_id)
+            returncode, raw = self._spawn_cursor(cmd, wt_resolved, timeout, job_id)
+            raw = redact_sensitive_text(raw)
 
             # Le job a pu être annulé pendant l'exécution
             current = get_cursor_job(job_id)
             if current and current.get("status") == "cancelled":
                 return current
 
-            parsed = parse_cursor_result(raw)
+            parsed = redact_sensitive_mapping(parse_cursor_result(raw))
             if returncode != 0:
-                # Exit non nul = échec CLI, quel que soit le contenu du rapport
                 update_cursor_job(
                     job_id,
                     status="failed",
                     raw_output=raw[-200_000:],
                     structured_result={**parsed, "cli_returncode": returncode},
-                    error_message=f"Cursor CLI exit={returncode}",
+                    error_message=redact_sensitive_text(f"Cursor CLI exit={returncode}"),
                     finished_at=datetime.now().isoformat(timespec="seconds"),
                 )
                 self._notify(job_id, "failed", parsed.get("verdict", "BLOCKED"), None, job["title"])
                 return get_cursor_job(job_id)  # type: ignore[return-value]
 
-            update_cursor_job(job_id, status="testing", raw_output=raw[-200_000:], structured_result=parsed)
+            update_cursor_job(
+                job_id,
+                status="testing",
+                raw_output=raw[-200_000:],
+                structured_result=parsed,
+            )
 
-            test_ok, test_log = self._run_required_tests(job, wt_path, timeout)
+            test_ok, test_log = self._run_required_tests(job, wt_resolved, timeout)
+            test_log = redact_sensitive_text(test_log)
 
-            sha = self._git(["rev-parse", "HEAD"], wt_path)
+            sha = self._git(["rev-parse", "HEAD"], wt_resolved)
             commit_sha = (sha.stdout or "").strip() if sha.returncode == 0 else None
 
             # Interdiction absolue de commit sur main du repo principal
-            branch_check = self._git(["rev-parse", "--abbrev-ref", "HEAD"], wt_path)
+            branch_check = self._git(["rev-parse", "--abbrev-ref", "HEAD"], wt_resolved)
             live_branch = (branch_check.stdout or "").strip()
             if live_branch in PROTECTED_BRANCHES:
                 update_cursor_job(
@@ -343,7 +426,7 @@ class CursorDelegationService:
 
             if job.get("allow_pr") and verdict == "COMPLETED" and test_ok:
                 update_cursor_job(job_id, status="reviewing")
-                pr_url = self._maybe_open_pr(job, job_id, wt_path, live_branch, parsed)
+                pr_url = self._maybe_open_pr(job, job_id, wt_resolved, live_branch, parsed)
                 if pr_url:
                     final_status = "pr_opened"
 
@@ -361,8 +444,8 @@ class CursorDelegationService:
                     "test_ok": test_ok,
                     "test_log": test_log[-5000:],
                 },
-                error_message=None if final_status != "failed" else (
-                    parsed.get("error") or "tests échoués ou verdict BLOCKED"
+                error_message=None if final_status != "failed" else redact_sensitive_text(
+                    str(parsed.get("error") or "tests échoués ou verdict BLOCKED")
                 ),
                 finished_at=datetime.now().isoformat(timespec="seconds"),
                 raw_output=raw[-200_000:],
@@ -384,7 +467,7 @@ class CursorDelegationService:
             update_cursor_job(
                 job_id,
                 status="failed",
-                error_message=str(exc)[:1000],
+                error_message=redact_sensitive_text(str(exc))[:1000],
                 finished_at=datetime.now().isoformat(timespec="seconds"),
             )
             return get_cursor_job(job_id)  # type: ignore[return-value]
@@ -392,30 +475,14 @@ class CursorDelegationService:
     def _run_required_tests(
         self, job: dict[str, Any], wt_path: Path, timeout: int
     ) -> tuple[bool, str]:
-        test_ok = True
-        test_log = ""
+        """Exécute les tests requis sans shell — argv structurés only."""
         req_tests = job.get("required_tests") or []
-        if not isinstance(req_tests, list):
-            return True, ""
-        for tcmd in req_tests[:3]:
-            if not isinstance(tcmd, str) or not tcmd.strip():
-                continue
-            # Allowlist minimale : pytest / npm test / pnpm test
-            if not re.match(r"^(pytest|npm test|pnpm test|python -m pytest)", tcmd.strip()):
-                test_log += f"skip commande non allowlistée: {tcmd}\n"
-                continue
-            tr = subprocess.run(
-                tcmd,
-                shell=True,
-                cwd=str(wt_path),
-                capture_output=True,
-                text=True,
-                timeout=min(timeout, 900),
-            )
-            test_log += tr.stdout + tr.stderr
-            if tr.returncode != 0:
-                test_ok = False
-        return test_ok, test_log
+        ok, log = parse_and_run_required_tests(
+            req_tests if isinstance(req_tests, list) else [],
+            worktree=wt_path,
+            timeout=min(timeout, 900),
+        )
+        return ok, redact_sensitive_text(log)
 
     def _maybe_open_pr(
         self,
@@ -445,14 +512,18 @@ class CursorDelegationService:
                 "gh", "pr", "create",
                 "--draft",
                 "--base", base_branch,
-                "--title", job["title"][:80],
-                "--body", f"Job Cursor `{job_id}`\n\n{str(parsed.get('body', ''))[:3000]}",
+                "--title", redact_sensitive_text(job["title"][:80]),
+                "--body", redact_sensitive_text(
+                    f"Job Cursor `{job_id}`\n\n{str(parsed.get('body', ''))[:3000]}"
+                ),
                 "--head", live_branch,
             ],
             cwd=str(wt_path),
             capture_output=True,
             text=True,
             timeout=60,
+            env=build_cursor_safe_env(),
+            shell=False,
         )
         if pr.returncode == 0:
             lines = (pr.stdout or "").strip().splitlines()
@@ -521,7 +592,8 @@ class CursorDelegationService:
     def resume_pending_jobs(self) -> dict[str, int]:
         """Reprise après restart backend.
 
-        - ``queued`` → relancés (le prompt est déjà composé et persisté) ;
+        - ``queued`` → relancés (déjà confirmés) ;
+        - ``awaiting_confirmation`` / ``proposal`` → laissés en attente ;
         - ``preparing``/``running``/``testing``/``reviewing`` → marqués
           ``failed`` (le process est mort avec l'ancien backend ; un retry
           explicite reste possible via l'API).
@@ -542,6 +614,7 @@ class CursorDelegationService:
                     self.run_job(job["job_id"]), name=f"cursor-resume-{job['job_id']}"
                 )
                 requeued += 1
+            # awaiting_confirmation / proposal : ne PAS auto-démarrer
         except Exception as exc:
             logger.warning("[cursor] resume_pending_jobs : %s", exc)
         if requeued or orphaned:
@@ -553,11 +626,25 @@ class CursorDelegationService:
 
     # ── Lecture ──────────────────────────────────────────────
 
-    def list_jobs(self, limit: int = 50, status: str | None = None) -> list[dict[str, Any]]:
-        return list_cursor_jobs(limit=limit, status=status)
+    def list_jobs(
+        self, limit: int = 50, status: str | None = None, *, public: bool = True
+    ) -> list[dict[str, Any]]:
+        jobs = list_cursor_jobs(limit=limit, status=status)
+        if public:
+            return [public_cursor_job_view(j) or {} for j in jobs]
+        return [diagnostic_cursor_job_view(j) or {} for j in jobs]
 
-    def get_job(self, job_id: str) -> dict[str, Any] | None:
-        return get_cursor_job(job_id)
+    def get_job(
+        self, job_id: str, *, public: bool = True, diagnostic: bool = False
+    ) -> dict[str, Any] | None:
+        job = get_cursor_job(job_id)
+        if not job:
+            return None
+        if diagnostic:
+            return diagnostic_cursor_job_view(job)
+        if public:
+            return public_cursor_job_view(job)
+        return redact_sensitive_mapping(job)
 
 
 cursor_delegation = CursorDelegationService()
