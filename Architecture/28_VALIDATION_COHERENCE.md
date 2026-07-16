@@ -17,7 +17,7 @@ Le dossier `Architecture/` reflète l'état du code après l'implémentation de 
 | Affirmation dans Architecture/ | Réalité code | Statut |
 |---|---|---|
 | 174 opérations HTTP + 1 WebSocket, 157 chemins OpenAPI | Inventaire FastAPI et snapshot déterministe avant/après Phase 4 | ✅ Contrat inchangé |
-| 73 tables applicatives après `init_db()` | Vérifié sur une base temporaire initialisée, hors table interne `sqlite_sequence` | ✅ Inclut `event_log` ajouté en Phase 3 |
+| 70 persistantes / 75 avec FTS5 après `init_db()` | Vérifié 15/07/2026 (`tools/audit_architecture_truth.py`, test temp DB) ; hors `sqlite_*` | ✅ Remplace l’ancien chiffre « 73 » ; dump `schema.sql` = 44 (non exécuté) |
 | 7 agents LLM + orchestrateur | 12 fichiers dans agents/ | ✅ Exact (dont 5 utilitaires) |
 | 29 jobs APScheduler | 102 références dans scheduler.py | ✅ Exact |
 | 5 démons | screen, audio, email, imessage, supervisor | ✅ Exact |
@@ -68,7 +68,7 @@ Tous les diagrammes sont cohérents avec leur contexte (actuel vs cible).
 
 | Document | Avant | Après |
 |---|---|---|
-| INDEX.md, 01_CARTOGRAPHIE.md, 03_AUDIT_TECHNIQUE.md, 19_VALIDATION_FINALE.md | Anciens comptages `44/45/46/72` | **73 tables applicatives créées après migrations Phase 3** |
+| INDEX.md, 01_CARTOGRAPHIE.md, ADR-017, README | Anciens comptages `44/45/46/72/73` | **70 persistantes / 75 avec FTS** — source : `32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md` |
 | Plusieurs documents | Comptages historiques (`174`, puis `486/53`, `536/59`, `540/61`) | **565 tests pytest, 66 fichiers, 564 passants et 1 ignoré après NotificationService** |
 | Plusieurs documents | « Event bus : 0 abonné » puis « usage minimal » | **Bus actif : 10 événements de domaine, 3 consommateurs réels** |
 | INDEX.md | Comptages historiques variables | **35 fichiers Markdown + 3 sous-répertoires** |

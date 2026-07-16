@@ -3,7 +3,10 @@
 **Date initiale** : 11 juillet 2026
 
 **Dernière mise à jour** : 14 juillet 2026
-**Périmètre** : 273 fichiers Python (56 261 lignes), 99 fichiers source frontend (18 770 lignes), 73 tables SQLite applicatives après migrations
+**Périmètre** : 273 fichiers Python (56 261 lignes), 99 fichiers source frontend (18 770 lignes),
+**70 tables SQLite persistantes** après `init_db()` (+ jusqu’à **5 objets FTS5** → **75** physiques ;
+le dump `schema.sql` historique compte **44** tables applicatives —
+voir [32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md](./32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md))
 **État** : **Documentation officielle — toute modification du code doit rester cohérente avec ce dossier**
 
 ---
@@ -59,7 +62,8 @@
 | [28_VALIDATION_COHERENCE.md](./28_VALIDATION_COHERENCE.md) | Vérification de cohérence entre documentation et code |
 | [29_JARVIS_ANDROID_H24.md](./29_JARVIS_ANDROID_H24.md) | Architecture du compagnon Android permanent |
 | [30_PLAN_STABILISATION_AUDIO.md](./30_PLAN_STABILISATION_AUDIO.md) | Phases de stabilisation audio après la PR #17 |
-| [adr/](./adr/) | ADR individuels — 19 décisions documentées |
+| [32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md](./32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md) | **Source de vérité** frontends + comptages SQLite (audit 15/07/2026) |
+| [adr/](./adr/) | ADR individuels — dont ADR-019 (priorité frontend supervisor) |
 | [diagrams/](./diagrams/) | Diagrammes Mermaid source |
 | [audit/](./audit/) | Rapports d'audit détaillés par domaine |
 
@@ -78,7 +82,7 @@
 │  Vues desktop      │ 38 fichiers, 12 940 lignes          │
 │  Vues mobiles      │ 32 fichiers, 4 641 lignes           │
 │  SDK auth partagé  │ 4 fichiers, 373 lignes              │
-│  Base de données   │ 73 tables applicatives, mode WAL    │
+│  Base de données   │ 70 persistantes (+FTS→75), mode WAL │
 │  Routes API        │ 174 opérations HTTP, 157 chemins    │
 │  WebSocket         │ 1 endpoint, handler dédié           │
 │  Agents LLM        │ 7 agents + orchestrateur            │
@@ -112,11 +116,11 @@ graph TB
     end
 
     subgraph "Supervisor (port 9000)"
-        SUP["Supervisor 24/7<br/>sert le frontend<br/>proxy WS<br/>auto-restart backend"]
+        SUP["Supervisor 24/7<br/>frontend/out puis web/dist<br/>proxy WS<br/>auto-restart backend"]
     end
 
     subgraph "Backend (port 8081)"
-        MAIN["main.py — 175 lignes<br/>assemblage FastAPI<br/>12 routeurs de domaine<br/>WebSocket /ws"]
+        MAIN["main.py — 175 lignes<br/>assemblage FastAPI<br/>12 routeurs de domaine<br/>WebSocket /ws<br/>sert frontend/out en priorité"]
         API["api/<br/>174 opérations HTTP<br/>157 chemins OpenAPI<br/>handlers et support"]
         BUS["Event Bus actif<br/>10 événements de domaine<br/>SSE + WebSocket + TTS"]
     end
@@ -127,7 +131,7 @@ graph TB
     end
 
     subgraph "Database"
-        DB[(SQLite WAL<br/>jarvis.db<br/>73 tables applicatives)]
+        DB[(SQLite WAL<br/>jarvis.db<br/>70 persistantes<br/>+ FTS → 75)]
     end
 
     subgraph "Données Apple"
@@ -237,7 +241,7 @@ Chaque phase est **indépendante**, **réversible**, **testée**, et **sans inte
 
 **Dossier Architecture/ : 35 fichiers Markdown + 3 sous-répertoires — source de vérité officielle du projet**
 
-**Prochaine étape** : obtenir la CI verte de la Phase 6, valider sur appareils physiques, puis retirer progressivement les fallbacks historiques.
+**Prochaine étape** : valider sur appareils physiques, aligner éventuellement le supervisor (9000) sur `frontend/out`, puis retirer progressivement les fallbacks historiques.
 
 ---
 

@@ -1,0 +1,404 @@
+{
+  "auth": {
+    "setup_screen": {
+      "gate_visible": true,
+      "private_flash": false,
+      "api_calls_initial": 1,
+      "api_calls_growth_3s": 0,
+      "console_errors": [],
+      "statut": "PASS"
+    },
+    "setup_short_pin_rejected": {
+      "statut": "PASS"
+    },
+    "setup_creates_session": {
+      "gate_gone": true,
+      "configured": true,
+      "authenticated": true,
+      "statut": "PASS"
+    },
+    "wrong_secret": {
+      "locked_screen_first": true,
+      "unlock_http": 401,
+      "still_locked": true,
+      "user_message": true,
+      "secret_in_console": false,
+      "statut": "PASS"
+    },
+    "unlock": {
+      "gate_gone": true,
+      "refresh_keeps_session": true,
+      "api_tasks_status": 200,
+      "statut": "PASS"
+    },
+    "logout": {
+      "logout_http": 200,
+      "locked_after_refresh": true,
+      "api_after_logout": 401,
+      "back_button_locked": true,
+      "statut": "PASS",
+      "retest": {
+        "file": "frontend/retest_back.cjs",
+        "screenshot": "artifacts/validation_screenshots/complement/auth_E_back_button_retest.png",
+        "note": "Premier FAIL = goBack sans historique utile. Retest avec /dashboard dans l’historique : LockGate sur back, pas de flash privé.",
+        "statut": "PASS"
+      }
+    },
+    "session_revoked": {
+      "revoke_ok": true,
+      "api_after_revoke": 401,
+      "lockgate_after_reload": true,
+      "blank_screen": false,
+      "statut": "PASS"
+    }
+  },
+  "chat": {
+    "sidebar_shows_test_conv": true,
+    "rename_transport": "ui",
+    "rename": {
+      "persisted_after_refresh": true,
+      "empty_title_http": 200,
+      "title_after_empty": "",
+      "long_title_stored_len": 300,
+      "statut": "PASS"
+    },
+    "pin": {
+      "pin_http": 200,
+      "pinned_flag": true,
+      "pinned_group_ui": true,
+      "no_duplicate": true,
+      "unpin_http": 200,
+      "unpinned_flag": true,
+      "statut": "PASS"
+    },
+    "switch": {
+      "conv_b_content": true,
+      "conv_a_content": true,
+      "no_mixing": true,
+      "statut": "PASS",
+      "retest": {
+        "file": "frontend/retest_switch.cjs",
+        "screenshot": "artifacts/validation_screenshots/complement/chat_switch_retest.png",
+        "note": "Premier FAIL = sélecteur matchant la sidebar (snippets). Retest panneau messages (min-h-0+px-3+py-4) : PASS. API détail cohérente.",
+        "after_b": {
+          "has_beta": true,
+          "has_alpha": false
+        },
+        "after_a": {
+          "has_alpha": true,
+          "has_beta": false
+        },
+        "statut": "PASS"
+      }
+    },
+    "archive": {
+      "archive_http": 200,
+      "removed_from_sidebar": true,
+      "absent_active_api": true,
+      "present_archived_api": true,
+      "statut": "PASS"
+    },
+    "delete": {
+      "delete_http": 200,
+      "gone_from_sidebar": true,
+      "detail_after_delete_http": 404,
+      "statut": "PASS"
+    },
+    "error_backend_patch_unknown": {
+      "http": 200,
+      "statut": "DOCUMENTED",
+      "note": "PATCH id inexistant → 200 {ok:true} (pas 404). Handoff CUR-02."
+    },
+    "cleanup": {
+      "conv_b_delete_http": 200
+    },
+    "console_errors": [
+      "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    ],
+    "bad_status": []
+  },
+  "responsive": {
+    "768": {
+      "/chat": {
+        "hscroll": false,
+        "clipped_interactive": 0,
+        "body_empty": false,
+        "scrollWidth": 768,
+        "clientWidth": 768,
+        "screenshot": "responsive_768_chat.png",
+        "statut": "PASS"
+      },
+      "/dashboard": {
+        "hscroll": false,
+        "clipped_interactive": 0,
+        "body_empty": false,
+        "scrollWidth": 768,
+        "clientWidth": 768,
+        "screenshot": "responsive_768_dashboard.png",
+        "statut": "PASS"
+      },
+      "/tasks": {
+        "hscroll": false,
+        "clipped_interactive": 0,
+        "body_empty": false,
+        "scrollWidth": 768,
+        "clientWidth": 768,
+        "screenshot": "responsive_768_tasks.png",
+        "statut": "PASS"
+      },
+      "/contacts": {
+        "hscroll": false,
+        "clipped_interactive": 3,
+        "body_empty": false,
+        "scrollWidth": 768,
+        "clientWidth": 768,
+        "screenshot": "responsive_768_contacts.png",
+        "statut": "PASS"
+      },
+      "/mission": {
+        "hscroll": false,
+        "clipped_interactive": 0,
+        "body_empty": false,
+        "scrollWidth": 768,
+        "clientWidth": 768,
+        "screenshot": "responsive_768_mission.png",
+        "statut": "PASS"
+      },
+      "/control": {
+        "hscroll": false,
+        "clipped_interactive": 0,
+        "body_empty": false,
+        "scrollWidth": 768,
+        "clientWidth": 768,
+        "screenshot": "responsive_768_control.png",
+        "statut": "PASS"
+      }
+    },
+    "1024": {
+      "/chat": {
+        "hscroll": false,
+        "clipped_interactive": 1,
+        "body_empty": false,
+        "scrollWidth": 1024,
+        "clientWidth": 1024,
+        "screenshot": "responsive_1024_chat.png",
+        "statut": "PASS"
+      },
+      "/dashboard": {
+        "hscroll": false,
+        "clipped_interactive": 1,
+        "body_empty": false,
+        "scrollWidth": 1024,
+        "clientWidth": 1024,
+        "screenshot": "responsive_1024_dashboard.png",
+        "statut": "PASS"
+      },
+      "/tasks": {
+        "hscroll": false,
+        "clipped_interactive": 1,
+        "body_empty": false,
+        "scrollWidth": 1024,
+        "clientWidth": 1024,
+        "screenshot": "responsive_1024_tasks.png",
+        "statut": "PASS"
+      },
+      "/contacts": {
+        "hscroll": false,
+        "clipped_interactive": 1,
+        "body_empty": false,
+        "scrollWidth": 1024,
+        "clientWidth": 1024,
+        "screenshot": "responsive_1024_contacts.png",
+        "statut": "PASS"
+      },
+      "/mission": {
+        "hscroll": false,
+        "clipped_interactive": 1,
+        "body_empty": false,
+        "scrollWidth": 1024,
+        "clientWidth": 1024,
+        "screenshot": "responsive_1024_mission.png",
+        "statut": "PASS"
+      },
+      "/control": {
+        "hscroll": false,
+        "clipped_interactive": 1,
+        "body_empty": false,
+        "scrollWidth": 1024,
+        "clientWidth": 1024,
+        "screenshot": "responsive_1024_control.png",
+        "statut": "PASS"
+      }
+    }
+  },
+  "routes": {
+    "/calendar": {
+      "http_200": true,
+      "body_len": 458,
+      "console_errors": [],
+      "bad_status": [],
+      "wrong_origin_calls": [],
+      "screenshot": "route_calendar.png",
+      "statut": "PASS"
+    },
+    "/map": {
+      "http_200": true,
+      "body_len": 679,
+      "console_errors": [],
+      "bad_status": [],
+      "wrong_origin_calls": [],
+      "screenshot": "route_map.png",
+      "statut": "PASS"
+    },
+    "/documents": {
+      "http_200": true,
+      "body_len": 816,
+      "console_errors": [],
+      "bad_status": [],
+      "wrong_origin_calls": [],
+      "screenshot": "route_documents.png",
+      "statut": "PASS"
+    },
+    "/analytics": {
+      "http_200": true,
+      "body_len": 3074,
+      "console_errors": [],
+      "bad_status": [],
+      "wrong_origin_calls": [],
+      "screenshot": "route_analytics.png",
+      "statut": "PASS"
+    },
+    "/search": {
+      "http_200": true,
+      "body_len": 1576,
+      "console_errors": [],
+      "bad_status": [],
+      "wrong_origin_calls": [],
+      "screenshot": "route_search.png",
+      "statut": "PASS"
+    },
+    "/data": {
+      "http_200": true,
+      "body_len": 3253,
+      "console_errors": [],
+      "bad_status": [],
+      "wrong_origin_calls": [],
+      "screenshot": "route_data.png",
+      "statut": "PASS"
+    },
+    "/logs": {
+      "http_200": true,
+      "body_len": 2289,
+      "console_errors": [],
+      "bad_status": [],
+      "wrong_origin_calls": [],
+      "screenshot": "route_logs.png",
+      "statut": "PASS"
+    },
+    "/voice": {
+      "http_200": true,
+      "body_len": 501,
+      "console_errors": [],
+      "bad_status": [],
+      "wrong_origin_calls": [],
+      "screenshot": "route_voice.png",
+      "statut": "PASS"
+    },
+    "/voice-debug": {
+      "http_200": true,
+      "body_len": 3657,
+      "console_errors": [],
+      "bad_status": [],
+      "wrong_origin_calls": [],
+      "screenshot": "route_voice-debug.png",
+      "statut": "PASS"
+    },
+    "/monitoring": {
+      "http_200": true,
+      "body_len": 2038,
+      "console_errors": [],
+      "bad_status": [],
+      "wrong_origin_calls": [],
+      "screenshot": "route_monitoring.png",
+      "statut": "PASS"
+    },
+    "/mobile": {
+      "http_200": true,
+      "body_len": 815,
+      "console_errors": [],
+      "bad_status": [],
+      "wrong_origin_calls": [],
+      "screenshot": "route_mobile.png",
+      "statut": "PASS"
+    },
+    "/control": {
+      "http_200": true,
+      "body_len": 687,
+      "console_errors": [],
+      "bad_status": [],
+      "wrong_origin_calls": [],
+      "screenshot": "route_control.png",
+      "statut": "PASS"
+    }
+  },
+  "issues": [
+    {
+      "id": "CVAL-PATCH",
+      "severity": "P3",
+      "route": "/api/conversations/{id}",
+      "detail": "PATCH conversation inconnue retourne 200 au lieu de 404 — CUR-02"
+    }
+  ],
+  "summary": {
+    "auth": {
+      "setup_screen": "PASS",
+      "setup_short_pin_rejected": "PASS",
+      "setup_creates_session": "PASS",
+      "wrong_secret": "PASS",
+      "unlock": "PASS",
+      "logout": "PASS",
+      "session_revoked": "PASS"
+    },
+    "chat_mutations": {
+      "rename": "PASS",
+      "pin": "PASS",
+      "switch": "PASS",
+      "archive": "PASS",
+      "delete": "PASS"
+    },
+    "responsive": {
+      "768": {
+        "/chat": "PASS",
+        "/dashboard": "PASS",
+        "/tasks": "PASS",
+        "/contacts": "PASS",
+        "/mission": "PASS",
+        "/control": "PASS"
+      },
+      "1024": {
+        "/chat": "PASS",
+        "/dashboard": "PASS",
+        "/tasks": "PASS",
+        "/contacts": "PASS",
+        "/mission": "PASS",
+        "/control": "PASS"
+      }
+    },
+    "routes": {
+      "/calendar": "PASS",
+      "/map": "PASS",
+      "/documents": "PASS",
+      "/analytics": "PASS",
+      "/search": "PASS",
+      "/data": "PASS",
+      "/logs": "PASS",
+      "/voice": "PASS",
+      "/voice-debug": "PASS",
+      "/monitoring": "PASS",
+      "/mobile": "PASS",
+      "/control": "PASS"
+    },
+    "completed_at": "2026-07-16T01:30:00+02:00",
+    "verdict_complement": "PASS"
+  }
+}

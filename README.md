@@ -97,7 +97,7 @@ Trois commits orphelins de `claude/workflow-project-improvements-yknzqs`, jamais
 ## Ce que JARVIS fait
 
 - **Converse** — chat web avec conversations persistantes, page vocale mains libres, bridge iMessage (on lui parle depuis l'iPhone comme à un contact), wake word « Jarvis » optionnel.
-- **Se souvient** — mémoire à deux étages : extraction structurée (faits, personnes, événements, patterns, running gags) par le modèle rapide, raisonnement sur données denses par le modèle principal. 26+ tables SQLite, recherche plein-texte FTS5.
+- **Se souvient** — mémoire à deux étages : extraction structurée (faits, personnes, événements, patterns, running gags) par le modèle rapide, raisonnement sur données denses par le modèle principal. SQLite : **70 tables persistantes** après `init_db()` (+ jusqu’à **5 objets FTS5** → **75** physiques si FTS disponible). Le dump `database/schema.sql` (44 tables) est un snapshot historique, pas le schéma d’exécution. Détail : `Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md`.
 - **Surveille** — emails (Mail.app, analyse LLM, silence sur le non-important, drapeau rouge sur l'urgent), écran (Ollama vision local, 0 token API), position GPS (lieux, visites, trajets), relations iMessage (analytics sans LLM + analyse quotidienne), présence au bureau par le son.
 - **Agit** — tâches, calendrier, envoi d'emails et d'iMessages, terminal sécurisé, exécution de code multi-étapes, mode autonome `/loop`, DevAgent (interview → spec → boucle plan/code/test/fix/commit dans un projet isolé).
 - **Rythme la journée** — briefing matin, roast des tâches non faites (18:30), debrief du soir (21:45), citation ironique (07:00), debrief hebdo vocal (dimanche 21:00), anniversaires, pause café, alerte binge streaming, retour tardif, signal d'humeur comportemental (zéro diagnostic).
@@ -108,22 +108,23 @@ Trois commits orphelins de `claude/workflow-project-improvements-yknzqs`, jamais
 ```
                     ┌──────────────────────────────────────────────┐
                     │        Supervisor (port 9000, 24/7)          │
-                    │   sert le front, contrôle/relance le backend │
+                    │   sert frontend/out (puis web/dist fallback),│
+                    │   contrôle/relance le backend                │
                     └──────────────────┬───────────────────────────┘
                                        │
-   Next.js 15 responsive ┐    ┌──────────▼──────────┐    ┌─ scheduler APScheduler (29 jobs)
-   web/pwa fallbacks ─────┼──▶ │  Backend FastAPI    │ ◀──┼─ daemon sentinelle (écran, iMessage,
-   TV War Room (5174) ────┘    │  (port 8081)        │    │  mails, calendar, TTS local)
-   iPhone (iMessage) ──────▶ │  WS /ws + REST      │    └─ audio daemon (micro, VAD, wake word,
-                             └──────────┬──────────┘       présence, réunions, TTS spéculatif)
-                                        │
-                    ┌───────────────────┼───────────────────┐
-              ┌─────▼─────┐      ┌──────▼──────┐      ┌─────▼─────┐
-              │Orchestrator│ ───▶ │ 6 agents    │      │  SQLite   │
-              │(classif.)  │      │ info school │      │ jarvis.db │
-              └────────────┘      │ produc coach│      │ 72 tables │
-                                  │ journal mem.│      └───────────┘
-                                  └─────────────┘
+   Next.js 15 (frontend/out) ┐ ┌──────▼──────────┐    ┌─ scheduler APScheduler (29 jobs)
+   web/dist + pwa /m/ fallback┼─▶│ Backend FastAPI │◀──┼─ daemon sentinelle (écran, iMessage,
+   TV War Room (5174) ────────┘ │ (port 8081)     │   │  mails, calendar, TTS local)
+   iPhone (iMessage) ──────────▶│ WS /ws + REST   │   └─ audio daemon (micro, VAD, wake word,
+                                └────────┬────────┘      présence, réunions, TTS spéculatif)
+                                         │
+                    ┌────────────────────┼────────────────────┐
+              ┌─────▼─────┐      ┌───────▼──────┐      ┌──────▼──────┐
+              │Orchestrator│ ───▶ │ 6 agents     │      │   SQLite    │
+              │(classif.)  │      │ info school  │      │ jarvis.db   │
+              └────────────┘      │ produc coach │      │ 70 + FTS→75 │
+                                  │ journal mem. │      └─────────────┘
+                                  └──────────────┘
         LLM : DeepSeek API (fast = classification/triage, main = raisonnement,
         mode tâche lourde à max_tokens élevé) · vision locale : Ollama qwen2.5-vl
 ```
@@ -410,7 +411,8 @@ Surface complète documentée dans [CLAUDE.md](./CLAUDE.md). Les groupes :
 JarvisAPI/
 ├── main.py               # Assemblage FastAPI, lifespan et configuration pipeline
 ├── api/                  # 12 routeurs + handlers WebSocket/frontend
-├── supervisor.py         # process 24/7 port 9000 — sert le front, relance le backend
+├── supervisor.py         # process 24/7 port 9000 — frontend/out > web/dist, relance le backend
+├── core/                 # résolution frontend partagée (supervisor + FastAPI)
 ├── config.py             # .env → settings typés
 ├── llm.py                # client DeepSeek (chat, stream, classify, coûts)
 ├── actions.py            # exécution des blocs ```action``` des réponses
@@ -419,13 +421,16 @@ JarvisAPI/
 ├── database/             # schéma, migrations idempotentes, helpers, FTS
 ├── integrations/         # Mail, Calendar, iMessage, Contacts, météo, GPS, computer
 ├── scripts/              # scheduler, daemons, rituels, watchers, maintenance, présence
+├── tools/                # audits non destructifs (ex. architecture_truth)
 ├── prompts/              # persona + system prompts par agent (.txt)
 ├── jarvis/               # dual-LLM privacy : PII, router, backends MLX/DeepSeek
 ├── frontend/             # Next.js 15 responsive → frontend/out prioritaire
 ├── jarvis_auth/          # SDK auth et LockGate partagés
-├── web/                  # Vues desktop + fallback Vite
+├── web/                  # Vues desktop + fallback Vite (web/dist)
 ├── pwa/                  # Vues mobiles + fallback historique sous /m/
 ├── tv/                   # dashboard TV War Room (port 5174)
+├── Architecture/         # source de vérité doc — voir 32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md
+├── front_tv/             # HTML bundlé orphelin (non servi)
 └── tests/                # suite pytest backend (voir Architecture/06_PLAN_TESTS.md)
 ```
 

@@ -9,7 +9,14 @@ Jarvis stocke des données structurées variées : conversations, contacts, tâc
 
 ## Décision
 
-SQLite est la seule base de données du projet. Fichier unique : `data/jarvis.db`. 73 tables applicatives après initialisation et migrations (`sqlite_sequence` exclue), dont le journal `event_log` de la Phase 3. Schéma dans `database/schema.py`, migrations dans `database/migrations.py`, connexions dans `database/core.py` et API compatible via `database/__init__.py`.
+SQLite est la seule base de données du projet. Fichier unique : `data/jarvis.db`.
+Après `init_db()` + migrations : **70 tables persistantes** ; avec FTS5 disponible :
+**75** entrées `sqlite_master` (hors `sqlite_*`), dont le journal `event_log` de la Phase 3
+et jusqu’à 5 objets FTS (`messages_fts` + auxiliaires). Le dump `database/schema.sql`
+(~44 tables) n’est pas exécuté au runtime — voir
+`Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md`. Schéma dans `database/schema.py`,
+migrations dans `database/migrations.py`, connexions dans `database/core.py` et API
+compatible via `database/__init__.py`.
 
 ## Alternatives considérées
 

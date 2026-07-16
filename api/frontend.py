@@ -13,6 +13,11 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 import config
+from core.frontend_resolution import (
+    is_usable_next_build,
+    is_usable_vite_build,
+    resolve_desktop_frontend_roots,
+)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 logger = logging.getLogger("jarvis")
@@ -186,15 +191,15 @@ def _setup_unified_frontend(app: FastAPI) -> bool:
     L'ancien build Vite reste le fallback de :func:`_setup_frontend` et la
     PWA historique reste accessible sous ``/m/``. Le frontend unifié est
     volontairement servi à la racine : il choisit son layout côté client.
+    Critère de validité partagé avec le supervisor : :func:`is_usable_next_build`.
     """
-    index_file = FRONTEND_DIST / "index.html"
-    if not index_file.is_file():
+    if not is_usable_next_build(FRONTEND_DIST):
+        if FRONTEND_DIST.exists() and not (FRONTEND_DIST / "_next" / "static").is_dir():
+            logger.warning("Frontend unifié: _next/static absent — build incomplet")
         return False
 
+    index_file = FRONTEND_DIST / "index.html"
     next_static = FRONTEND_DIST / "_next" / "static"
-    if not next_static.is_dir():
-        logger.warning("Frontend unifié: _next/static absent — build incomplet")
-        return False
 
     app.mount(
         "/_next/static",
@@ -276,12 +281,22 @@ def _setup_frontend(app: FastAPI) -> None:
     if config.PWA_ENABLED:
         pwa_available = _setup_pwa_frontend(app)
 
-    # ── Frontend responsive unifié (prioritaire) ────────────────
-    if _setup_unified_frontend(app):
+    # ── Frontend responsive unifié (prioritaire) / Vite fallback ─
+    # Même priorité que le supervisor (core.frontend_resolution).
+    desktop = resolve_desktop_frontend_roots(
+        FRONTEND_DIST,
+        WEB_DIST,
+        canonical_label="frontend/out",
+        fallback_label="web/dist",
+    )
+    if desktop.kind == "next_canonical" and _setup_unified_frontend(app):
         return
 
     index_file = WEB_DIST / "index.html"
-    if index_file.is_file():
+    if desktop.kind == "vite_fallback" and is_usable_vite_build(WEB_DIST):
+        logger.info(
+            "Canonical frontend missing: frontend/out — Using legacy Vite fallback: web/dist"
+        )
         assets_dir = WEB_DIST / "assets"
         if assets_dir.is_dir():
             app.mount("/assets", StaticFiles(directory=assets_dir), name="vite_assets")
