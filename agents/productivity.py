@@ -252,7 +252,19 @@ class ProductivityAgent(BaseAgent):
         return briefing
 
     async def evening_summary(self) -> str:
-        """Génère le résumé du soir basé sur les messages/actions de la journée."""
+        """Génère le résumé du soir (moteur structuré, fallback historique)."""
+        try:
+            from agents.briefing_engine import generate_structured_briefing
+
+            structured = await generate_structured_briefing(kind="evening")
+            logger.info(
+                "[productivity] Evening summary structuré (%d items)",
+                len(structured.items),
+            )
+            return structured.full_text
+        except Exception as exc:
+            logger.error("[productivity] evening briefing_engine fallback : %s", exc)
+
         today = datetime.now().strftime("%Y-%m-%d")
         messages_today = get_daily_messages(today)
         tasks = get_tasks()

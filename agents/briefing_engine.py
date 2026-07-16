@@ -221,9 +221,78 @@ async def collect_briefing_sources() -> tuple[list[BriefingItem], list[dict[str,
     except Exception as exc:
         unavailable.append({"source": "cursor", "reason": str(exc)})
 
+    # Engagements pris (commitments) — rappel des promesses non tenues
+    try:
+        from database import get_commitments
+
+        commitments = get_commitments(status="open", limit=5)
+        raw["commitments"] = commitments
+        for c in commitments:
+            items.append(
+                BriefingItem(
+                    id=f"commit-{c.get('id')}",
+                    title=str(c.get("content") or "")[:120],
+                    detail=f"Engagement pris{' — ' + str(c.get('due_hint')) if c.get('due_hint') else ''}",
+                    priority="surveiller",
+                    source="commitments",
+                    freshness="db",
+                    dedupe_key=f"commit:{c.get('id')}",
+                )
+            )
+    except Exception as exc:
+        unavailable.append({"source": "commitments", "reason": str(exc)})
+
     items = _dedupe(items)
     items.sort(key=lambda i: (_prio_rank(i.priority), i.title))
     return items, unavailable, raw
+
+
+_WORK_SOURCES = frozenset({"tasks", "email", "cursor", "calendar", "commitments"})
+
+_ITEMS_SNAPSHOT_KEY = "briefing_items_snapshot"
+
+
+def _save_items_snapshot(items: list[BriefingItem]) -> None:
+    """Mémorise les clés du briefing du matin pour le delta « depuis ce matin »."""
+    try:
+        import json
+
+        from database import set_setting
+
+        payload = {
+            "date": datetime.now().strftime("%Y-%m-%d"),
+            "keys": [i.dedupe_key or f"{i.source}:{i.title.lower()}" for i in items],
+        }
+        set_setting(_ITEMS_SNAPSHOT_KEY, json.dumps(payload, ensure_ascii=False))
+    except Exception as exc:
+        logger.debug("[briefing] snapshot skip: %s", exc)
+
+
+def _load_items_snapshot() -> set[str]:
+    try:
+        import json
+
+        from database import get_setting
+
+        raw = get_setting(_ITEMS_SNAPSHOT_KEY)
+        if not raw:
+            return set()
+        payload = json.loads(raw)
+        if payload.get("date") != datetime.now().strftime("%Y-%m-%d"):
+            return set()
+        return set(payload.get("keys") or [])
+    except Exception:
+        return set()
+
+
+def _evening_prompt(structure: str) -> str:
+    return (
+        f"Résumé du soir. Structure collectée :\n{structure}\n\n"
+        "Rédige le bilan du soir (écran), 8-15 lignes max. Distingue clairement : "
+        "terminé / reporté / bloqué / nouveau / décisions prises / engagements / "
+        "travaux Cursor / à préparer pour demain. N'invente rien : si une "
+        "catégorie est vide, ne la mentionne pas."
+    )
 
 
 async def generate_structured_briefing(
@@ -231,10 +300,27 @@ async def generate_structured_briefing(
     *,
     voice_only: bool = False,
     filter_priority: Priority | None = None,
+    work_only: bool = False,
 ) -> StructuredBriefing:
+    """Briefing structuré : morning / evening / delta (depuis ce matin).
+
+    ``voice_only=True`` : saute la rédaction écran (DeepSeek Main) et produit
+    directement la version vocale depuis la structure — 1 seul appel LLM,
+    latence réduite pour les demandes vocales « version courte ».
+    """
     items, unavailable, raw = await collect_briefing_sources()
     if filter_priority:
         items = [i for i in items if i.priority == filter_priority]
+    if work_only:
+        items = [i for i in items if i.source in _WORK_SOURCES]
+
+    if kind == "delta":
+        seen_keys = _load_items_snapshot()
+        if seen_keys:
+            items = [
+                i for i in items
+                if (i.dedupe_key or f"{i.source}:{i.title.lower()}") not in seen_keys
+            ]
 
     # Limiter le briefing principal
     top = items[:12]
@@ -247,7 +333,12 @@ async def generate_structured_briefing(
         for i in group:
             bullet_lines.append(f"- [{i.source}] {i.title} — {i.detail} (fraîcheur: {i.freshness})")
 
-    structure = "\n".join(bullet_lines) if bullet_lines else "(aucune donnée disponible)"
+    if bullet_lines:
+        structure = "\n".join(bullet_lines)
+    elif kind == "delta":
+        structure = "(rien de nouveau depuis ce matin)"
+    else:
+        structure = "(aucune donnée disponible)"
 
     system = (
         "Tu es JARVIS. Produis un briefing utile à la décision, en français, "
@@ -255,48 +346,59 @@ async def generate_structured_briefing(
         "Classe mentalement : critique / à faire aujourd'hui / à surveiller / information. "
         "Ne répète pas le même élément. Données d'abord."
     )
-    user_msg = (
-        f"Briefing {kind}. Structure collectée :\n{structure}\n\n"
-        "Rédige le briefing complet (écran), 8-15 lignes max."
-    )
+    if kind == "evening":
+        user_msg = _evening_prompt(structure)
+    elif kind == "delta":
+        user_msg = (
+            f"Changements depuis ce matin :\n{structure}\n\n"
+            "Rédige un point de situation court (5-8 lignes) : uniquement ce qui "
+            "est NOUVEAU ou a changé. Si rien n'a changé, dis-le en une phrase."
+        )
+    else:
+        user_msg = (
+            f"Briefing {kind}. Structure collectée :\n{structure}\n\n"
+            "Rédige le briefing complet (écran), 8-15 lignes max. Réponds à la "
+            "question : qu'est-ce qui mérite réellement l'attention aujourd'hui ?"
+        )
 
     full_text = structure
-    try:
-        result = await llm.chat(
-            messages=[{"role": "user", "content": user_msg}],
-            model=config.DEEPSEEK_MAIN_MODEL,
-            system=system,
-            max_tokens=1200,
-            temperature=0.4,
-        )
-        full_text = finalize_assistant_display_text(result.get("content") or structure)
-    except Exception as exc:
-        logger.error("[briefing] génération Main échouée : %s", exc)
-        unavailable.append({"source": "deepseek_main", "reason": str(exc)})
+    if not voice_only:
+        try:
+            result = await llm.chat(
+                messages=[{"role": "user", "content": user_msg}],
+                model=config.DEEPSEEK_MAIN_MODEL,
+                system=system,
+                max_tokens=1200,
+                temperature=0.4,
+            )
+            full_text = finalize_assistant_display_text(result.get("content") or structure)
+        except Exception as exc:
+            logger.error("[briefing] génération Main échouée : %s", exc)
+            unavailable.append({"source": "deepseek_main", "reason": str(exc)})
 
     voice_text = ""
-    if not voice_only or True:
-        try:
-            v = await llm.chat(
-                messages=[
-                    {
-                        "role": "user",
-                        "content": (
-                            "Transforme ce briefing en version vocale de 30 à 60 secondes max "
-                            "(5-8 phrases). Données d'abord, ton JARVIS.\n\n"
-                            f"{full_text}"
-                        ),
-                    }
-                ],
-                model=config.DEEPSEEK_FAST_MODEL,
-                system="Tu es JARVIS à l'oral. Concision absolue. Pas de markdown.",
-                max_tokens=280,
-                temperature=0.3,
-            )
-            voice_text = finalize_assistant_display_text(v.get("content") or "")
-        except Exception as exc:
-            logger.error("[briefing] version vocale échouée : %s", exc)
-            voice_text = full_text[:400]
+    try:
+        voice_source = structure if voice_only else full_text
+        v = await llm.chat(
+            messages=[
+                {
+                    "role": "user",
+                    "content": (
+                        "Transforme ce briefing en version vocale de 30 à 60 secondes max "
+                        "(5-8 phrases). Données d'abord, ton JARVIS.\n\n"
+                        f"{voice_source}"
+                    ),
+                }
+            ],
+            model=config.DEEPSEEK_FAST_MODEL,
+            system="Tu es JARVIS à l'oral. Concision absolue. Pas de markdown.",
+            max_tokens=280,
+            temperature=0.3,
+        )
+        voice_text = finalize_assistant_display_text(v.get("content") or "")
+    except Exception as exc:
+        logger.error("[briefing] version vocale échouée : %s", exc)
+        voice_text = full_text[:400]
 
     # Persistance best-effort
     try:
@@ -305,6 +407,7 @@ async def generate_structured_briefing(
         today = datetime.now().strftime("%Y-%m-%d")
         if kind == "morning":
             save_daily_briefing(today, morning=full_text)
+            _save_items_snapshot(items)
         elif kind == "evening":
             save_daily_briefing(today, evening=full_text)
     except Exception as exc:
