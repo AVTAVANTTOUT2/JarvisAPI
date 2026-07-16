@@ -10,6 +10,11 @@ import {
   Loader2,
 } from 'lucide-react';
 import { api } from '@unified/lib/api';
+import {
+  getLocationDisplayStatus,
+  mapLocationHistory,
+  type LocationPoint,
+} from '@unified/lib/locationDisplay';
 import { timeAgo, formatDurationMin } from '@desktop/app/lib/timeFormat';
 
 // ── Types ────────────────────────────────────────────────────
@@ -54,9 +59,15 @@ interface Pattern {
 }
 
 interface LocationStatus {
-  current_location?: { latitude: number; longitude: number } | null;
+  tracking_enabled?: boolean;
+  current_location?: LocationPoint | null;
   current_visit?: { place_name?: string } | null;
   place_name?: string | null;
+}
+
+interface GeoCoordinate {
+  latitude: number;
+  longitude: number;
 }
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -121,13 +132,14 @@ function groupVisitsByDay(visits: Visit[]): { day: string; count: number; totalM
 function projectToSVG(
   lat: number,
   lng: number,
-  allPlaces: Place[],
+  coordinates: GeoCoordinate[],
   width: number,
   height: number,
 ): { x: number; y: number } {
+  if (coordinates.length <= 1) return { x: width / 2, y: height / 2 };
   const padding = 0.12;
-  const lats = allPlaces.map((p) => p.latitude);
-  const lngs = allPlaces.map((p) => p.longitude);
+  const lats = coordinates.map((p) => p.latitude);
+  const lngs = coordinates.map((p) => p.longitude);
   const minLat = Math.min(...lats);
   const maxLat = Math.max(...lats);
   const minLng = Math.min(...lngs);
@@ -151,7 +163,9 @@ export function MapView() {
   const [trips, setTrips] = useState<Trip[]>([]);
   const [patterns, setPatterns] = useState<Pattern[]>([]);
   const [locationStatus, setLocationStatus] = useState<LocationStatus | null>(null);
+  const [historyPoints, setHistoryPoints] = useState<LocationPoint[]>([]);
   const [loading, setLoading] = useState(true);
+  const [locationUnavailable, setLocationUnavailable] = useState(false);
 
   const [selectedPlace, setSelectedPlace] = useState<Place | null>(null);
   const [hoveredPlace, setHoveredPlace] = useState<Place | null>(null);
@@ -171,13 +185,14 @@ export function MapView() {
 
   const loadAll = useCallback(async () => {
     try {
-      const [p, tv, wv, tr, pat, loc] = await Promise.all([
+      const [p, tv, wv, tr, pat, loc, history] = await Promise.all([
         api.getPlaces() as Promise<{ places: Place[] }>,
         api.getTodayVisits() as Promise<{ visits: Visit[] }>,
         api.getVisits(7) as Promise<{ visits: Visit[] }>,
         api.getTrips(30) as Promise<{ trips: Trip[] }>,
         api.getLocationPatterns() as Promise<{ patterns: Pattern[] }>,
         api.getLocationStatus() as Promise<LocationStatus>,
+        api.getLocationHistory(24) as Promise<unknown>,
       ]);
       setPlaces(p.places ?? []);
       setTodayVisits(tv.visits ?? []);
@@ -185,8 +200,11 @@ export function MapView() {
       setTrips(tr.trips ?? []);
       setPatterns(pat.patterns ?? []);
       setLocationStatus(loc);
+      setHistoryPoints(mapLocationHistory(history));
+      setLocationUnavailable(false);
     } catch (e) {
       console.error('[MapView] loadAll:', e);
+      setLocationUnavailable(true);
     } finally {
       setLoading(false);
     }
@@ -196,11 +214,18 @@ export function MapView() {
     void loadAll();
   }, [loadAll]);
 
-  // Poll position toutes les 30s
+  // Rafraîchissement Live sans polling agressif.
   useEffect(() => {
     const iv = setInterval(() => {
-      api.getLocationStatus().then((l) => setLocationStatus(l as LocationStatus)).catch(() => {});
-    }, 30_000);
+      Promise.all([
+        api.getLocationStatus() as Promise<LocationStatus>,
+        api.getLocationHistory(24) as Promise<unknown>,
+      ]).then(([status, history]) => {
+        setLocationStatus(status);
+        setHistoryPoints(mapLocationHistory(history));
+        setLocationUnavailable(false);
+      }).catch(() => setLocationUnavailable(true));
+    }, 60_000);
     return () => clearInterval(iv);
   }, []);
 
@@ -222,6 +247,14 @@ export function MapView() {
   const sortedByVisit = [...places].sort((a, b) => (b.visit_count ?? 0) - (a.visit_count ?? 0));
   const weekGroups = groupVisitsByDay(weekVisits);
   const maxWeekCount = Math.max(1, ...weekGroups.map((g) => g.count));
+  const latestPoint = historyPoints[historyPoints.length - 1];
+  const locationDisplay = getLocationDisplayStatus(latestPoint);
+  const mapCoordinates: GeoCoordinate[] = [
+    ...places,
+    ...historyPoints,
+    ...(locationStatus?.current_location ? [locationStatus.current_location] : []),
+  ];
+  const hasLocationData = mapCoordinates.length > 0;
 
   // Trajets uniques (from → to)
   type TripKey = string;
@@ -299,14 +332,15 @@ export function MapView() {
   const { w, h } = svgSize;
 
   function renderMap() {
-    if (places.length === 0) return null;
+    // Historique GPS brut (Android) doit s'afficher même sans lieux nommés.
+    if (!hasLocationData) return null;
 
     return (
       <g transform={`scale(${zoomLevel}) translate(${(w * (1 - zoomLevel)) / (2 * zoomLevel)}, ${(h * (1 - zoomLevel)) / (2 * zoomLevel)})`}>
         {/* Couche 2 — Heatmap */}
         {showHeatmap &&
           places.map((place) => {
-            const { x, y } = projectToSVG(place.latitude, place.longitude, places, w, h);
+            const { x, y } = projectToSVG(place.latitude, place.longitude, mapCoordinates, w, h);
             const vc = place.visit_count ?? 0;
             const baseR = 20 + vc * 2;
             const opacity = 0.04 + (vc / maxVisitCount) * 0.14;
@@ -402,10 +436,35 @@ export function MapView() {
           );
         })}
 
-        {/* Couche 5 — Position actuelle */}
+        {/* Couche 5 — Historique brut reçu des téléphones */}
+        {historyPoints.slice(-200).map((point) => {
+          const { x, y } = projectToSVG(
+            point.latitude,
+            point.longitude,
+            mapCoordinates,
+            w,
+            h,
+          );
+          const isLatest = point.id === latestPoint?.id;
+          return (
+            <g key={`location-${point.id}`}>
+              {isLatest && <circle cx={x} cy={y} r={18} fill="rgba(59,130,246,0.12)" />}
+              <circle
+                cx={x}
+                cy={y}
+                r={isLatest ? 6 : 2.5}
+                fill={isLatest ? 'rgba(59,130,246,0.95)' : 'rgba(148,163,184,0.55)'}
+                stroke={isLatest ? 'white' : 'none'}
+                strokeWidth={isLatest ? 1.5 : 0}
+              />
+            </g>
+          );
+        })}
+
+        {/* Couche 6 — Position actuelle */}
         {locationStatus?.current_location && (() => {
           const loc = locationStatus.current_location!;
-          const { x, y } = projectToSVG(loc.latitude, loc.longitude, places, w, h);
+          const { x, y } = projectToSVG(loc.latitude, loc.longitude, mapCoordinates, w, h);
           return (
             <g>
               <circle cx={x} cy={y} r={20} fill="rgba(59,130,246,0.1)" />
@@ -593,7 +652,20 @@ export function MapView() {
         <div className="shrink-0 flex items-center justify-between px-5 py-3 border-b border-white/10 glass-panel">
           <div>
             <h2 className="text-sm font-semibold">Carte Interactive</h2>
-            <p className="font-mono text-xs text-muted-foreground">Visualisation géospatiale</p>
+            <p className={`font-mono text-xs ${
+              locationUnavailable
+                ? 'text-red-400'
+                : locationDisplay.freshness === 'recent'
+                  ? 'text-emerald-400'
+                  : 'text-muted-foreground'
+            }`}>
+              {locationUnavailable ? 'Serveur de localisation indisponible' : locationDisplay.label}
+            </p>
+            {locationStatus?.tracking_enabled === false && (
+              <p className="font-mono text-[10px] text-amber-400">
+                Enrichissement des lieux désactivé — historique brut visible
+              </p>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -649,19 +721,20 @@ export function MapView() {
             </defs>
             <rect width="100%" height="100%" fill="url(#grid)" />
 
-            {places.length > 0 ? (
+            {hasLocationData ? (
               renderMap()
             ) : null}
           </svg>
 
           {/* État vide */}
-          {places.length === 0 && !loading && (
+          {!hasLocationData && !loading && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 text-center px-8">
               <MapPin className="w-12 h-12 text-white/20" />
               <div>
                 <p className="text-sm text-muted-foreground max-w-xs">
-                  Aucun lieu enregistré. Utilise l'app iOS ou dis à JARVIS
-                  "appelle cet endroit la maison" pour commencer.
+                  {locationUnavailable
+                    ? 'Serveur de localisation indisponible.'
+                    : 'Aucune position reçue depuis le téléphone.'}
                 </p>
               </div>
               <button

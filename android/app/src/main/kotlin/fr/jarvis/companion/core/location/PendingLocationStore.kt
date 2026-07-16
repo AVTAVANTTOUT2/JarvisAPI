@@ -61,6 +61,14 @@ class PendingLocationStore(
         dao.reclaimStaleSending(cutoff)
     }
 
+    /**
+     * Reprend tous les points `SENDING` orphelins.
+     * À n'appeler que lorsque le verrou sync est détenu (aucun autre worker actif).
+     */
+    suspend fun reclaimOrphanedSending() {
+        dao.reclaimAllSending()
+    }
+
     suspend fun tryAcquireLock(workerId: String, now: Long = System.currentTimeMillis()): Boolean {
         lockDao.clearExpired(now)
         val expiresAt = now + LocationConstants.LOCK_TTL_MS

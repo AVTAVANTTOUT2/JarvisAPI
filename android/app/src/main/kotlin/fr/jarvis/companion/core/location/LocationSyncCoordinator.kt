@@ -49,6 +49,7 @@ class LocationSyncCoordinator(
         store.purgeRetention()
 
         val now = System.currentTimeMillis()
+        // Filet hors verrou (lots abandonnés depuis assez longtemps).
         store.reclaimStaleSending(now)
 
         if (!store.tryAcquireLock(workerId, now)) {
@@ -56,6 +57,8 @@ class LocationSyncCoordinator(
         }
 
         return try {
+            // Verrou exclusif : tout SENDING restant est orphelin (crash / force-stop / reboot).
+            store.reclaimOrphanedSending()
             doSync(workerId, now)
         } finally {
             store.releaseLock(workerId)

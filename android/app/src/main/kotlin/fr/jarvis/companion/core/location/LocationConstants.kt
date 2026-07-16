@@ -2,9 +2,14 @@ package fr.jarvis.companion.core.location
 
 object LocationConstants {
     const val MAX_BATCH_SIZE = 50
-    const val LOCK_TTL_MS = 5 * 60 * 1000L
-    const val SENDING_RECLAIM_MS = 10 * 60 * 1000L
-    const val RETRY_BASE_MS = 30_000L
+    /** TTL du verrou sync : assez long pour un batch HTTP, assez court après force-stop/reboot. */
+    const val LOCK_TTL_MS = 90_000L
+    /**
+     * Filet de sécurité si un lot `SENDING` survit hors verrou.
+     * Avec lock exclusif, [PendingLocationStore.reclaimOrphanedSending] reprend tout de suite.
+     */
+    const val SENDING_RECLAIM_MS = 90_000L
+    const val RETRY_BASE_MS = 15_000L
     const val RETRY_MAX_MS = 3_600_000L
     const val DEDUP_COMPARE_LIMIT = 5
     const val SYNC_FINGERPRINT_RING_SIZE = 5

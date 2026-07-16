@@ -8,6 +8,7 @@ import { Map, Loader2 } from 'lucide-react';
 import TimelineBar from '@mobile/components/map/TimelineBar';
 import DetailSheet from '@mobile/components/map/DetailSheet';
 import { jarvisFetch } from '@unified/lib/api';
+import { getLocationDisplayStatus } from '@unified/lib/locationDisplay';
 import type {
   Place,
   LocationPoint,
@@ -67,6 +68,7 @@ export default function MapPage() {
     queryKey: ['location-history', selectedDate],
     queryFn: () => jarvisFetch<LocationHistoryResponse>('/api/location/history?hours=48'),
     staleTime: 60_000,
+    refetchInterval: 60_000,
     retry: 1,
   });
 
@@ -88,6 +90,8 @@ export default function MapPage() {
   const historyPoints = history.data?.points ?? [];
   const visitList = visits.data?.visits ?? [];
   const tripList = trips.data?.trips ?? [];
+  const latestPoint = historyPoints[historyPoints.length - 1];
+  const locationDisplay = getLocationDisplayStatus(latestPoint);
 
   const filteredPoints = useMemo(() => {
     if (!selectedDate) return historyPoints;
@@ -147,6 +151,15 @@ export default function MapPage() {
               {visitList.filter((v) => selectedDate && isoDate(new Date(v.arrived_at)) === selectedDate).length} visites
               {' '}&middot;{' '}
               {filteredTrips.length} trajet{filteredTrips.length > 1 ? 's' : ''}
+            </p>
+            <p className={`text-[11px] mt-0.5 ${
+              history.isError
+                ? 'text-[#FF453A]'
+                : locationDisplay.freshness === 'recent'
+                  ? 'text-[#30D158]'
+                  : 'text-[#777]'
+            }`}>
+              {history.isError ? 'Serveur de localisation indisponible' : locationDisplay.label}
             </p>
           </div>
           <div className="flex items-center gap-2 text-[11px] text-[#666] bg-[rgba(255,255,255,0.04)] rounded-full px-3 py-1.5">

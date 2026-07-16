@@ -158,3 +158,44 @@ def test_mobile_location_diagnostics(tmp_db):
         assert d["points_received_24h"] >= 1
         assert d["last_point_received_at"] is not None
         assert d["device_id"] == "s24-diag"
+
+
+def test_location_history_endpoint_returns_empty_points(tmp_db):
+    from tests.conftest import authenticate
+
+    with _client() as client:
+        authenticate(client)
+        response = client.get("/api/location/history?hours=24")
+
+    assert response.status_code == 200
+    assert response.json() == {"points": []}
+
+
+def test_location_history_endpoint_exposes_android_point_when_tracking_disabled(
+    tmp_db,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from database import get_db
+    from tests.conftest import authenticate
+
+    monkeypatch.setattr("config.LOCATION_TRACKING", False)
+    captured_at = datetime.now().isoformat(timespec="seconds")
+    with get_db() as conn:
+        conn.execute(
+            """INSERT INTO location_history
+               (latitude, longitude, accuracy, source, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (50.63, 3.06, 12.0, "android_background", captured_at),
+        )
+
+    with _client() as client:
+        authenticate(client)
+        response = client.get("/api/location/history?hours=24")
+
+    assert response.status_code == 200
+    point = response.json()["points"][0]
+    assert point["latitude"] == pytest.approx(50.63)
+    assert point["longitude"] == pytest.approx(3.06)
+    assert point["accuracy"] == pytest.approx(12.0)
+    assert point["source"] == "android_background"
+    assert point["created_at"] == captured_at
