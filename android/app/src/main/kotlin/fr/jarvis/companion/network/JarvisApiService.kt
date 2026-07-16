@@ -37,6 +37,37 @@ interface JarvisApiService {
         @Header("Authorization") authorization: String,
         @Body body: LocationRequest,
     ): Response<JsonObject>
+
+    @GET("api/briefing")
+    suspend fun getBriefing(
+        @Header("Authorization") authorization: String,
+        @retrofit2.http.Query("kind") kind: String,
+    ): Response<JsonObject>
+
+    @GET("api/tasks")
+    suspend fun getTasks(
+        @Header("Authorization") authorization: String,
+        @retrofit2.http.Query("status") status: String = "all",
+    ): Response<JsonObject>
+
+    @GET("api/calendar")
+    suspend fun getCalendar(
+        @Header("Authorization") authorization: String,
+        @retrofit2.http.Query("start") start: String,
+        @retrofit2.http.Query("end") end: String,
+    ): Response<JsonObject>
+
+    @GET("api/notifications")
+    suspend fun getNotifications(
+        @Header("Authorization") authorization: String,
+    ): Response<JsonObject>
+
+    @GET("api/conversations")
+    suspend fun getConversations(
+        @Header("Authorization") authorization: String,
+        @retrofit2.http.Query("archived") archived: Boolean = false,
+        @retrofit2.http.Query("limit") limit: Int = 20,
+    ): Response<JsonObject>
 }
 
 data class EmptyBody(val noop: Boolean = true)

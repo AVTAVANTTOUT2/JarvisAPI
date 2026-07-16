@@ -84,6 +84,31 @@ class JarvisRepository(context: Context) {
             .getOrElse { JarvisApiResult.failure(it.message ?: "erreur réseau") }
     }
 
+    suspend fun getBriefing(kind: String): JarvisApiResult = withContext(Dispatchers.IO) {
+        runCatching { toResult(api().getBriefing(bearer(), kind)) }
+            .getOrElse { JarvisApiResult.failure(it.message ?: "erreur réseau") }
+    }
+
+    suspend fun getTasks(status: String = "all"): JarvisApiResult = withContext(Dispatchers.IO) {
+        runCatching { toResult(api().getTasks(bearer(), status)) }
+            .getOrElse { JarvisApiResult.failure(it.message ?: "erreur réseau") }
+    }
+
+    suspend fun getCalendar(start: String, end: String): JarvisApiResult = withContext(Dispatchers.IO) {
+        runCatching { toResult(api().getCalendar(bearer(), start, end)) }
+            .getOrElse { JarvisApiResult.failure(it.message ?: "erreur réseau") }
+    }
+
+    suspend fun getNotifications(): JarvisApiResult = withContext(Dispatchers.IO) {
+        runCatching { toResult(api().getNotifications(bearer())) }
+            .getOrElse { JarvisApiResult.failure(it.message ?: "erreur réseau") }
+    }
+
+    suspend fun getConversations(limit: Int = 20): JarvisApiResult = withContext(Dispatchers.IO) {
+        runCatching { toResult(api().getConversations(bearer(), limit = limit)) }
+            .getOrElse { JarvisApiResult.failure(it.message ?: "erreur réseau") }
+    }
+
     fun invalidateHttpCache() = http.invalidateCache()
 
     private fun toResult(response: Response<JsonObject>): JarvisApiResult {

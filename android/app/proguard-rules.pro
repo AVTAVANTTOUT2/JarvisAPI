@@ -9,3 +9,8 @@
 # Porcupine native
 -keep class ai.picovoice.** { *; }
 -dontwarn ai.picovoice.**
+
+# Room entities and DAOs
+-keep class fr.jarvis.companion.core.database.** { *; }
+-keep @androidx.room.Entity class * { *; }
+-keep @androidx.room.Dao interface * { *; }
