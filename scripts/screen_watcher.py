@@ -716,23 +716,17 @@ class ScreenWatcher:
                 '{"app": "Finder", "activity": "navigation fichiers", "mood": "browsing", "notable": null}'
             )
 
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.post(
-                    f"{self.ollama_url}/api/generate",
-                    json={
-                        "model": self.ollama_model,
-                        "prompt": prompt,
-                        "images": [img_b64],
-                        "stream": False,
-                        "keep_alive": "30s",
-                        "options": {
-                            "temperature": 0.1,
-                            "num_predict": 100,
-                        },
-                    },
-                )
-                response.raise_for_status()
-                result = response.json()
+            from integrations.ollama_client import ollama_generate
+
+            result = await ollama_generate(
+                self.ollama_url,
+                model=self.ollama_model,
+                prompt=prompt,
+                images=[img_b64],
+                keep_alive="30s",
+                options={"temperature": 0.1, "num_predict": 100},
+                timeout=30.0,
+            )
 
             # Succès → reset le compteur d'échecs + timestamp anti-RAM-kill
             self._ollama_failures = 0

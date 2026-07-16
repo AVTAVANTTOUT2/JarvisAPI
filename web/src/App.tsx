@@ -22,6 +22,7 @@ const DataView = lazy(() => import('@desktop/app/components/views/DataView').the
 const LogsView = lazy(() => import('@desktop/app/components/views/LogsView').then(m => ({ default: m.LogsView })));
 const VoiceView = lazy(() => import('@desktop/app/components/views/VoiceView').then(m => ({ default: m.VoiceView })));
 const MonitoringView = lazy(() => import('@desktop/app/components/views/MonitoringView').then(m => ({ default: m.MonitoringView })));
+const CognitiveView = lazy(() => import('@desktop/app/components/views/CognitiveView'));
 const ControlView = lazy(() => import('@desktop/app/components/views/ControlView'));
 const TasksView = lazy(() => import('@desktop/app/components/views/TasksView'));
 const VoiceDebugView = lazy(() => import('@desktop/app/components/views/VoiceDebugView'));
@@ -66,6 +67,7 @@ export default function App() {
             <Route path="logs" element={<S><LogsView /></S>} />
             <Route path="voice" element={<S><VoiceView /></S>} />
             <Route path="monitoring" element={<S><MonitoringView /></S>} />
+            <Route path="cognitive" element={<S><CognitiveView /></S>} />
             <Route path="control" element={<S><ControlView /></S>} />
             <Route path="tasks" element={<S><TasksView /></S>} />
             <Route path="voice-debug" element={<S><VoiceDebugView /></S>} />

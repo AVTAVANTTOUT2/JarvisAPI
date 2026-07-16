@@ -216,6 +216,43 @@ async def run_autonomous_loop(
             [], workflow_id, "failed", 0, 0, 0.0, synthesis,
         )
 
+    # ── Routage cognitif : tâches techniques → Cursor (préféré à Open Interpreter)
+    try:
+        from jarvis.cognitive import route_request
+
+        intent = route_request(str(user_message), interaction_mode="loop")
+        if intent.execution_type == "cursor" and getattr(config, "CURSOR_DELEGATION_ENABLED", True):
+            from integrations.cursor_delegation import cursor_delegation
+
+            await _emit(on_event, "loop_progress", {
+                "message": "Délégation technique à Cursor CLI (worktree isolé).",
+                "routing": intent.to_diagnostic(),
+            })
+            job = await cursor_delegation.enqueue(
+                title=str(user_message)[:120],
+                user_request=str(user_message),
+                template_id=intent.template_id or "feature_implementation",
+                interaction_mode="loop",
+                routing=intent.to_diagnostic(),
+                auto_start=True,
+            )
+            synthesis = (
+                f"Tâche technique déléguée à Cursor — job `{job.get('job_id')}`. "
+                "Suivi via /api/cursor/jobs."
+            )
+            await _emit(on_event, "loop_done", {
+                "status": "completed",
+                "steps": 1,
+                "synthesis": synthesis,
+                "cursor_job_id": job.get("job_id"),
+            })
+            return _finalize_loop(
+                [{"step": 1, "result": {"ok": True, "job": job}}],
+                workflow_id, "completed", 0, 0, 0.0, synthesis,
+            )
+    except Exception as exc:
+        logger.warning("[loop] délégation Cursor skip: %s", exc)
+
     results: list[dict] = []
     total_output_chars = 0
     total_llm_calls = 0

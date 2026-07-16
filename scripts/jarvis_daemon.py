@@ -360,17 +360,14 @@ class JarvisDaemon:
             except Exception as e:
                 logger.debug("[daemon] create_notification mail : %s", e)
 
-    # ── Triage LOCAL via Ollama ───────────────────────────────────────────────
+    # ── Triage via DeepSeek Flash (jamais Ollama — réservé au Screen Watcher) ─
 
     async def _local_triage(self, event_description: str) -> bool:
-        """Décide localement si l'événement mérite d'interrompre l'utilisateur.
+        """Décide si l'événement mérite d'interrompre l'utilisateur.
 
-        Ollama qwen2.5:7b — réponse ~500 ms, coût Claude API = 0 token.
-        En cas d'échec on renvoie False (silence > faux positifs).
+        Utilise DeepSeek Flash (politique LLM 2026). En cas d'échec → False
+        (silence > faux positifs). Ne passe jamais par Ollama.
         """
-        triage_model = str(getattr(config, "TRIAGE_MODEL", "qwen2.5:7b"))
-        ollama_url = str(getattr(config, "OLLAMA_URL", "http://localhost:11434"))
-
         prompt = (
             "L'utilisateur travaille. Cet événement vient d'arriver :\n"
             f"{event_description}\n\n"
@@ -382,20 +379,19 @@ class JarvisDaemon:
         )
 
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.post(
-                    f"{ollama_url}/api/generate",
-                    json={
-                        "model": triage_model,
-                        "prompt": prompt,
-                        "stream": False,
-                        "options": {"temperature": 0.0, "num_predict": 5},
-                    },
-                )
-                result = (response.json().get("response") or "").strip().upper()
-                return "OUI" in result
+            import llm
+
+            response = await llm.chat(
+                messages=[{"role": "user", "content": prompt}],
+                model=getattr(config, "TRIAGE_MODEL", None) or config.DEEPSEEK_FAST_MODEL,
+                system="Réponds uniquement OUI ou NON.",
+                max_tokens=5,
+                temperature=0.0,
+            )
+            result = (response.get("content") or "").strip().upper()
+            return "OUI" in result
         except Exception as e:
-            logger.warning("[daemon] triage local échoué : %s", e)
+            logger.warning("[daemon] triage DeepSeek échoué : %s", e)
             return False
 
     # ── Rappels Calendar ──────────────────────────────────────────────────────

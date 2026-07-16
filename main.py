@@ -45,6 +45,7 @@ from api.router_quality import router as quality_router
 from api.router_recordings import router as recordings_router
 from api.router_rituals import router as rituals_router
 from api.router_tasks import router as tasks_router
+from api.router_cognitive import router as cognitive_router
 from api.voice_processing import _process_voice_fast
 from api.ws_handler import websocket_endpoint
 from api.ws_session import (
@@ -118,6 +119,7 @@ app.include_router(quality_router)
 app.include_router(recordings_router)
 app.include_router(rituals_router)
 app.include_router(tasks_router)
+app.include_router(cognitive_router)
 app.websocket("/ws")(websocket_endpoint)
 
 # ── Routes HTTP ─────────────────────────────────────────────

@@ -19,48 +19,16 @@ logger = logging.getLogger("jarvis")
 
 
 async def _process_voice_fast(text: str, conversation_id: int) -> dict:
-    """Pipeline vocal ultra-rapide — 2 passes si action necessaire, avec tracing debug.
-
-    Pass 1 : DeepSeek flash decide quoi faire (reponse directe OU bloc action).
-    Pass 2 : si action -> execute -> DeepSeek reformule le resultat en reponse vocale.
-
-    La reponse textuelle n'est generee qu'APRES l'execution de l'action,
-    garantissant que le TTS vocalise l'information demandee (pas un "je reviens").
-
-    Args:
-        text: Transcription de la phrase prononcee.
-        conversation_id: ID de la conversation daemon audio.
-
-    Returns:
-        dict avec cles: text, emotion, cost, action, latency_ms, debug_trace.
-    """
+    """Pipeline vocal ultra-rapide — routage cognitif + Flash + actions/Cursor."""
     import time as _time
-    from datetime import datetime as _datetime
-    _t0 = _time.time()
+    from api.voice_cognitive import maybe_handle_cognitive_voice
 
-    # ── Trace de debug ────────────────────────────────────────────────────────
-    debug_trace: dict[str, Any] = {
-        "timestamp": _datetime.now().strftime("%H:%M:%S"),
-        "input_text": text,
-        "system_prompt": "",
-        "messages_sent": [],
-        "raw_response": "",
-        "response_clean": "",
-        "emotion": "",
-        "action_detected": None,
-        "action_result": None,
-        "pass2_prompt": None,
-        "pass2_response": None,
-        "latency_llm_pass1_ms": 0,
-        "latency_llm_pass2_ms": 0,
-        "latency_tts_ms": 0,
-        "latency_total_ms": 0,
-        "model": "",
-        "tokens_in": 0,
-        "tokens_out": 0,
-        "cost": 0.0,
-        "error": None,
-    }
+    _t0 = _time.time()
+    early = await maybe_handle_cognitive_voice(text, conversation_id, t0=_t0)
+    if early and not early.get("__continue__"):
+        return early
+    debug_trace = (early or {}).get("debug_trace") or {}
+    intent = (early or {}).get("intent")
 
     # ── 0. Persona condensee pour le vocal (~50 tokens) ────────────────────────
     VOICE_PERSONA = (
@@ -141,6 +109,11 @@ RÈGLES SUPPLEMENTAIRES :
 
 
     # ── Capture debug ─────────────────────────────────────────────────────────
+    if not debug_trace:
+        from api.voice_cognitive import build_voice_debug_trace
+        from jarvis.cognitive import route_request
+        intent = intent or route_request(text, interaction_mode="voice")
+        debug_trace = build_voice_debug_trace(text, intent, 0)
     debug_trace["system_prompt"] = system
     debug_trace["messages_sent"] = [{"role": m["role"], "content": m["content"][:200]} for m in history]
     debug_trace["model"] = getattr(config, "DEEPSEEK_FAST_MODEL", "deepseek-chat")
