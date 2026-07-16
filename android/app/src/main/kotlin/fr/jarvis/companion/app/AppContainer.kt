@@ -11,11 +11,15 @@ import fr.jarvis.companion.core.location.LocationSyncCoordinator
 import fr.jarvis.companion.core.location.LocationValidator
 import fr.jarvis.companion.core.location.PendingLocationStore
 import fr.jarvis.companion.core.location.SyncFingerprintCache
+import fr.jarvis.companion.core.network.JarvisChatWebSocket
 import fr.jarvis.companion.core.sync.SyncManager
 import fr.jarvis.companion.data.JarvisRepository
+import fr.jarvis.companion.data.chat.ChatRepository
+import fr.jarvis.companion.data.chat.ChatSyncRepository
+import fr.jarvis.companion.data.chat.ConversationRepository
 
 class AppContainer(context: Context) {
-    private val appContext = context.applicationContext
+    val appContext: Context = context.applicationContext
 
     val database: JarvisDatabase = JarvisDatabase.getInstance(appContext)
     val repository: JarvisRepository = JarvisRepository(appContext)
@@ -39,6 +43,32 @@ class AppContainer(context: Context) {
         repository = repository,
         deduplicator = locationDeduplicator,
         syncMetadataDao = database.syncMetadataDao(),
+    )
+
+    val chatWebSocket: JarvisChatWebSocket = JarvisChatWebSocket(appContext)
+
+    val conversationRepository: ConversationRepository = ConversationRepository(
+        conversationDao = database.chatConversationDao(),
+        pendingOpDao = database.pendingChatOperationDao(),
+        repository = repository,
+    )
+
+    val chatRepository: ChatRepository = ChatRepository(
+        messageDao = database.chatMessageDao(),
+        conversationDao = database.chatConversationDao(),
+        draftDao = database.chatDraftDao(),
+        pendingOpDao = database.pendingChatOperationDao(),
+        repository = repository,
+        webSocket = chatWebSocket,
+    )
+
+    val chatSyncRepository: ChatSyncRepository = ChatSyncRepository(
+        pendingOpDao = database.pendingChatOperationDao(),
+        conversationDao = database.chatConversationDao(),
+        messageDao = database.chatMessageDao(),
+        conversationRepository = conversationRepository,
+        chatRepository = chatRepository,
+        repository = repository,
     )
 }
 

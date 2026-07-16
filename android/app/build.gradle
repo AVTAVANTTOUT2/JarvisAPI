@@ -23,8 +23,8 @@ android {
         applicationId "fr.jarvis.companion"
         minSdk 28
         targetSdk 36
-        versionCode 7
-        versionName "1.2.0"
+        versionCode 8
+        versionName "2.0.0-alpha02"
         buildConfigField "boolean", "FIREBASE_CONFIGURED", file("google-services.json").exists().toString()
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }

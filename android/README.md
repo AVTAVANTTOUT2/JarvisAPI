@@ -1,16 +1,17 @@
-# JARVIS Android 1.2.0 — fondation production (Vague 1)
+# JARVIS Android 2.0.0-alpha02 — chat texte natif (Vague 2)
 
 Application **100 % native Kotlin** (Jetpack Compose) qui relie le téléphone au JARVIS du Mac via HTTPS.
 
-> **Pas de WebView.** Vague 1 ajoute navigation, onboarding, Room/Sync, Accueil briefing. Voir `docs/ARCHITECTURE.md`, `docs/PRODUCTION_GAP_ANALYSIS.md`, `docs/OFFLINE_SYNC.md`, `docs/VOICE.md`.
+> **Pas de WebView.** Vague 2 ajoute le chat texte complet (Room v2, WebSocket streaming, fallback HTTP, offline queue). Voir `docs/CHAT.md`, `docs/ARCHITECTURE.md`, `docs/OFFLINE_SYNC.md`, `docs/VOICE.md`.
 
 ## Fonctions
 
 - pairage natif par code à six chiffres + onboarding multi-étapes ;
 - jeton natif chiffré (Android Keystore) ;
-- navigation BottomBar (Accueil, Chat placeholder, Voix, Agenda placeholder, Plus) ;
+- navigation BottomBar (Accueil, Chat, Voix, Agenda, Plus) ;
+- **Chat texte** : conversations persistantes, streaming WS, fallback `POST /api/mobile/chat`, file offline ;
 - Accueil : briefing / tâches / agenda / notifs via cache Room (Bearer) ;
-- sync périodique WorkManager ;
+- sync périodique WorkManager (accueil + chat) ;
 - notifications FCM si `google-services.json` est présent ;
 - présence GPS en arrière-plan (service de premier plan) ;
 - détection locale du mot « JARVIS » (Porcupine) ;
@@ -18,11 +19,11 @@ Application **100 % native Kotlin** (Jetpack Compose) qui relie le téléphone a
 - diagnostics (rapport sans secrets) ;
 - confiance CA privée JARVIS — **pas** de certificate pinning strict.
 
-## Hors Vague 1 (prochaines vagues)
+## Hors Vague 2 (prochaines vagues)
 
-Chat texte streaming, conversation vocale continue, UI tâches/agenda complète, version `2.0.0`.
+Conversation vocale continue, UI tâches/agenda complète, version `2.0.0`.
 
-**Vague 2B (branche `feature/android-offline-location`)** : file GPS Room + batch Bearer + écran Localisation. Voir `docs/LOCATION.md`.
+**Vague 2B** : file GPS Room + batch Bearer + écran Localisation. Voir `docs/LOCATION.md`.
 
 ## HTTPS côté Mac (obligatoire)
 
@@ -82,7 +83,7 @@ apksigner verify --verbose --print-certs app/build/outputs/apk/debug/app-debug.a
 shasum -a 256 app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Version courante : **versionName 1.2.0** / **versionCode 7**.
+Version courante : **versionName 2.0.0-alpha02** / **versionCode 8**.
 
 ## Firebase (optionnel)
 

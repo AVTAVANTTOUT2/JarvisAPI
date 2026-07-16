@@ -5,11 +5,15 @@ import android.os.Build
 import com.google.gson.JsonObject
 import fr.jarvis.companion.BuildConfig
 import fr.jarvis.companion.network.CapabilitiesRequest
+import fr.jarvis.companion.network.ConversationPatchRequest
 import fr.jarvis.companion.network.JarvisApiResult
 import fr.jarvis.companion.network.JarvisHttpClient
 import fr.jarvis.companion.network.LocationBatchRequest
 import fr.jarvis.companion.network.LocationBatchResult
 import fr.jarvis.companion.network.LocationRequest
+import fr.jarvis.companion.network.MobileChatConfirmRequest
+import fr.jarvis.companion.network.MobileChatRequest
+import fr.jarvis.companion.network.MobileCreateConversationRequest
 import fr.jarvis.companion.network.PairingCompleteRequest
 import fr.jarvis.companion.network.PushTokenRequest
 import kotlinx.coroutines.Dispatchers
@@ -152,10 +156,69 @@ class JarvisRepository(context: Context) {
             .getOrElse { JarvisApiResult.failure(it.message ?: "erreur réseau") }
     }
 
-    suspend fun getConversations(limit: Int = 20): JarvisApiResult = withContext(Dispatchers.IO) {
-        runCatching { toResult(api().getConversations(bearer(), limit = limit)) }
+    suspend fun getConversations(limit: Int = 50, archived: Boolean = false): JarvisApiResult =
+        withContext(Dispatchers.IO) {
+            runCatching { toResult(api().getConversations(bearer(), archived = archived, limit = limit)) }
+                .getOrElse { JarvisApiResult.failure(it.message ?: "erreur réseau") }
+        }
+
+    suspend fun getConversationDetail(id: Long): JarvisApiResult = withContext(Dispatchers.IO) {
+        runCatching { toResult(api().getConversationDetail(bearer(), id)) }
             .getOrElse { JarvisApiResult.failure(it.message ?: "erreur réseau") }
     }
+
+    suspend fun patchConversation(id: Long, title: String? = null, pinned: Boolean? = null, archived: Boolean? = null): JarvisApiResult =
+        withContext(Dispatchers.IO) {
+            val body = ConversationPatchRequest(title = title, pinned = pinned, archived = archived)
+            runCatching { toResult(api().patchConversation(bearer(), id, body)) }
+                .getOrElse { JarvisApiResult.failure(it.message ?: "erreur réseau") }
+        }
+
+    suspend fun deleteConversation(id: Long): JarvisApiResult = withContext(Dispatchers.IO) {
+        runCatching { toResult(api().deleteConversation(bearer(), id)) }
+            .getOrElse { JarvisApiResult.failure(it.message ?: "erreur réseau") }
+    }
+
+    suspend fun pinConversation(id: Long): JarvisApiResult = withContext(Dispatchers.IO) {
+        runCatching { toResult(api().pinConversation(bearer(), id)) }
+            .getOrElse { JarvisApiResult.failure(it.message ?: "erreur réseau") }
+    }
+
+    suspend fun archiveConversation(id: Long): JarvisApiResult = withContext(Dispatchers.IO) {
+        runCatching { toResult(api().archiveConversation(bearer(), id)) }
+            .getOrElse { JarvisApiResult.failure(it.message ?: "erreur réseau") }
+    }
+
+    suspend fun createMobileConversation(title: String? = null): JarvisApiResult = withContext(Dispatchers.IO) {
+        runCatching {
+            toResult(api().createMobileConversation(bearer(), MobileCreateConversationRequest(title = title)))
+        }.getOrElse { JarvisApiResult.failure(it.message ?: "erreur réseau") }
+    }
+
+    suspend fun sendMobileChat(
+        content: String,
+        conversationId: Long? = null,
+        clientMessageId: String? = null,
+    ): JarvisApiResult = withContext(Dispatchers.IO) {
+        val body = MobileChatRequest(
+            content = content,
+            conversation_id = conversationId,
+            client_message_id = clientMessageId,
+        )
+        runCatching { toResult(api().sendMobileChat(bearer(), body)) }
+            .getOrElse { JarvisApiResult.failure(it.message ?: "erreur réseau") }
+    }
+
+    suspend fun confirmMobileChat(conversationId: Long, confirmed: Boolean): JarvisApiResult =
+        withContext(Dispatchers.IO) {
+            val body = MobileChatConfirmRequest(conversation_id = conversationId, confirmed = confirmed)
+            runCatching { toResult(api().confirmMobileChat(bearer(), body)) }
+                .getOrElse { JarvisApiResult.failure(it.message ?: "erreur réseau") }
+        }
+
+    fun bearerToken(): String = JarvisSettings.nativeToken(appContext)
+
+    fun serverBaseUrl(): String = JarvisSettings.server(appContext)
 
     fun invalidateHttpCache() = http.invalidateCache()
 

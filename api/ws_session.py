@@ -5,6 +5,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from fastapi import WebSocket
+
+import auth
 import config
 from database import create_conversation
 from websocket_registry import connected_ws
@@ -13,6 +16,25 @@ logger = logging.getLogger("jarvis")
 
 
 _ws_last_session: dict[str, Any] = {"conversation_id": None, "closed_at": 0.0, "ws": None}
+
+
+def resolve_websocket_auth(ws: WebSocket) -> tuple[Any, dict | None]:
+    """Résout la session cookie ou le Bearer mobile Companion (jamais en query).
+
+    Returns:
+        (session, mobile_device) — au moins un des deux est non-None si l'appelant
+        laisse passer la connexion. Les deux peuvent être None si non authentifié.
+    """
+    session = auth.verify_session(ws.cookies.get(config.SESSION_COOKIE_NAME))
+    if session:
+        return session, None
+    authorization = ws.headers.get("authorization") or ""
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() == "bearer" and token.strip():
+        mobile_device = auth.verify_mobile_token(token.strip())
+        if mobile_device:
+            return None, mobile_device
+    return None, None
 
 
 def _resume_or_create_conversation(now: float | None = None) -> tuple[int, bool]:
