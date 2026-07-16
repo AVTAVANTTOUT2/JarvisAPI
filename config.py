@@ -223,6 +223,10 @@ PORCUPINE_ACCESS_KEY = _get("PORCUPINE_ACCESS_KEY", "")
 # Anti-spam vocal en mode veille : minimum N secondes entre deux notifs voix
 DAEMON_TTS_COOLDOWN = int(_get("DAEMON_TTS_COOLDOWN", "15"))
 
+# Rappels Calendar via AppleScript en arrière-plan (désactivé par défaut) :
+# poller Calendar.app vole le focus / casse le plein écran sur macOS.
+CALENDAR_REMINDER_ENABLED = _get("CALENDAR_REMINDER_ENABLED", "false").lower() == "true"
+
 # Phrases de fin de conversation vocale (union audio_daemon + jarvis_daemon)
 END_PHRASES: tuple[str, ...] = (
     "merci jarvis", "c'est bon jarvis", "c'est tout jarvis",

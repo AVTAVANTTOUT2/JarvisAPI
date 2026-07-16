@@ -113,17 +113,10 @@ async def lifespan(app: FastAPI):
     Path(config.SCHOOL_OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
     Path(config.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
 
-    # Calendar.app : réveil arrière-plan uniquement (-g/-j) pour éviter les -600
-    # AppleScript SANS voler le focus (open -a Calendar ramenait Calendrier au 1er plan).
-    try:
-        subprocess.Popen(
-            ["open", "-gj", "-b", "com.apple.iCal"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        logger.info("[startup] Calendar.app lancé en arrière-plan (sans focus)")
-    except Exception as e:
-        logger.warning("[startup] Impossible de lancer Calendar.app en arrière-plan : %s", e)
+    # Ne PAS ouvrir Calendar.app au démarrage : `open -a` (et même certaines
+    # interactions AppleScript) volent le focus / cassent le plein écran.
+    # Calendar sera contacté à la demande uniquement (actions user / API).
+    logger.info("[startup] Calendar.app : pas de lancement préventif (anti-focus)")
 
     # ── Daemon iMessage ──
     _imessage_daemon_process = None

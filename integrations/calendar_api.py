@@ -181,39 +181,24 @@ class AppleCalendarClient:
             }
 
     def _launch_calendar(self) -> dict:
-        """Assure que Calendar.app tourne en arrière-plan — jamais `activate` / focus."""
-        # Déjà en cours : ne rien faire (évite tout Apple Event / open inutile).
+        """Ne lance JAMAIS Calendar (open/launch volent le focus / plein écran).
+
+        Retourne ok seulement si le process tourne déjà. L'utilisateur (ou une
+        action explicite create_event) doit ouvrir Calendar si besoin.
+        """
         if self._calendar_process_running():
             return {"ok": True, "reason": "already_running"}
+        return {
+            "ok": False,
+            "reason": "not_running",
+            "stderr": "Calendar.app non lancé (lancement auto désactivé anti-focus)",
+        }
 
-        # Préférer open -gj : ne vole pas le focus (contrairement à un tell qui lance).
-        open_diag = self._open_calendar_background()
-        if open_diag.get("ok"):
-            # Laisser le process démarrer, puis confirmer via launch (sans activate).
-            time.sleep(0.4)
-            if self._calendar_process_running():
-                return open_diag
-            launch_diag = self._run_applescript_detailed(
-                f'tell application id "{CALENDAR_APP_ID}" to launch',
-                timeout=OSASCRIPT_LAUNCH_TIMEOUT,
-            )
-            if launch_diag.get("ok"):
-                return launch_diag
-            return {**open_diag, "launch_followup": launch_diag}
-
-        # Dernier recours AppleScript launch (ne devrait pas activer).
-        diag = self._run_applescript_detailed(
-            f'tell application id "{CALENDAR_APP_ID}" to launch',
-            timeout=OSASCRIPT_LAUNCH_TIMEOUT,
-        )
-        if diag.get("ok"):
-            return diag
-
-        stderr = (diag.get("stderr") or "").strip()
-        if "-600" in stderr or "L’application n’est pas ouverte" in stderr or "Application isn’t running" in stderr:
-            return self._open_calendar_background()
-
-        return diag
+    def _ensure_calendar_for_write(self) -> dict:
+        """Lancement arrière-plan uniquement pour une écriture explicite (create_event)."""
+        if self._calendar_process_running():
+            return {"ok": True, "reason": "already_running"}
+        return self._open_calendar_background()
 
     def get_status(self) -> dict:
         """Statut structuré (pour /api/integrations)."""
@@ -612,6 +597,11 @@ set seconds of {var_name} to 0"""
         location: str = "",
         notes: str = "",
     ) -> dict:
+        # Écriture explicite : seul chemin autorisé à réveiller Calendar (arrière-plan).
+        ensure = self._ensure_calendar_for_write()
+        if ensure.get("ok"):
+            self._available = None  # forcer un re-probe après éventuel open -gj
+            time.sleep(0.5)
         if not self.is_available():
             return {"ok": False, "message": "Calendar.app indisponible"}
 

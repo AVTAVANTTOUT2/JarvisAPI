@@ -117,9 +117,16 @@ class JarvisDaemon:
             asyncio.create_task(self._tts_loop(), name="daemon_tts"),
             asyncio.create_task(self._notification_loop(), name="daemon_notif"),
             asyncio.create_task(self.screen_watcher.start(), name="daemon_screen"),
-            asyncio.create_task(self._calendar_reminder_loop(), name="daemon_calendar"),
             asyncio.create_task(self._device_health_loop(), name="daemon_health"),
         ]
+        # Polling Calendar AppleScript = vol de focus / casse plein écran.
+        # Opt-in via CALENDAR_REMINDER_ENABLED (défaut false).
+        if getattr(config, "CALENDAR_REMINDER_ENABLED", False):
+            tasks.append(
+                asyncio.create_task(self._calendar_reminder_loop(), name="daemon_calendar")
+            )
+        else:
+            logger.info("[daemon] rappels Calendar désactivés (CALENDAR_REMINDER_ENABLED=false)")
         if self.wake_word_enabled:
             tasks.append(asyncio.create_task(self._wake_word_loop(), name="daemon_wake"))
 
