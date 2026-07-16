@@ -2,6 +2,7 @@ package fr.jarvis.companion.app
 
 import android.app.Application
 import android.os.Build
+import fr.jarvis.companion.core.sync.LocationSyncWorker
 import fr.jarvis.companion.core.sync.SyncWorker
 
 class JarvisApplication : Application() {
@@ -14,6 +15,7 @@ class JarvisApplication : Application() {
         container.connectivityObserver.start()
         if (!isRobolectricUnitTest()) {
             SyncWorker.schedule(this)
+            LocationSyncWorker.schedule(this)
         }
     }
 

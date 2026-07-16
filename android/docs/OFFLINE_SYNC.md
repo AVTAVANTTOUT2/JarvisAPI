@@ -13,9 +13,10 @@ L’UI lit **Room** en premier. Le réseau met à jour Room via `SyncManager.ref
 | `cached_event` | Fenêtre agenda synchronisée |
 | `cached_notification` | Notifications JARVIS |
 | `sync_metadata` | Horodatage / dernière erreur par clé |
-| `pending_location` | **Stub** prêt pour la file GPS (non branché sur le service en Vague 1) |
+| `pending_locations` | File GPS offline-first (Vague 2B) — états PENDING/SENDING/SYNCED/FAILED_*/INVALID |
+| `location_sync_lock` | Verrou mono-worker pour sync batch |
 
-Migrations destructives interdites (`fallbackToDestructiveMigration` absent).
+Migrations destructives interdites (`fallbackToDestructiveMigration` absent). Migration `MIGRATION_1_2` recrée `pending_locations` sans perte de données v1.
 
 ## SyncManager
 
@@ -29,7 +30,16 @@ Fichier : `core/sync/SyncManager.kt`
 
 ## WorkManager
 
-`SyncWorker` — travail périodique unique ~30 min, contrainte `NetworkType.CONNECTED`, déclenché aussi au démarrage (`JarvisApplication`).
+- `SyncWorker` — travail périodique unique ~30 min (Accueil).
+- `LocationSyncWorker` — GPS batch ~15 min + one-shot après insert (`jarvis-location-sync`).
+
+## GPS offline (Vague 2B)
+
+1. `JarvisLocationService` : capture → validation → Room → `LocationSyncWorker.enqueueNow()`
+2. Jamais d'appel réseau dans le callback GPS.
+3. `LocationSyncCoordinator` : lock → batch 50 → `POST /api/location/batch` Bearer.
+4. Purge immédiate des points `accepted` / `duplicates`.
+5. Voir `docs/LOCATION.md` pour seuils et états.
 
 ## ConnectivityObserver
 
@@ -37,11 +47,11 @@ Fichier : `core/sync/SyncManager.kt`
 
 Ne confond pas « Wi‑Fi OK » et « Mac JARVIS joignable ».
 
-## Hors Vague 1
+## Hors Vague 1 / 2B GPS
 
-- File GPS offline réelle + batch
 - Pending chat / tasks / calendar mutations
-- Idempotence `client_*_id`
 - WebSocket
 
-Voir plan global : `docs/superpowers/plans/2026-07-16-android-production-wave1.md`.
+GPS offline-first + batch : livré Vague 2B — voir `docs/LOCATION.md`.
+
+Voir plan Vague 1 : `docs/superpowers/plans/2026-07-16-android-production-wave1.md`.

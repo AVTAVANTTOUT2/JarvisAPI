@@ -180,7 +180,7 @@ Chaque connecteur externe implémente l'interface `Plugin` (ADR-015).
 
 | Stockage | Technologie | Usage |
 |---|---|---|
-| SQLite (jarvis.db) | WAL mode | Données persistantes (70 tables persistantes, 75 avec FTS5 — voir doc 32) |
+| SQLite (jarvis.db) | WAL mode | Données persistantes (71 tables persistantes, 76 avec FTS5 — voir doc 32) |
 | IndexedDB | idb v8 | File d'écriture offline + cache lecture |
 | Service Worker | Workbox | Precache app shell, push, background sync |
 

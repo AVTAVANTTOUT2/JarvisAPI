@@ -36,6 +36,7 @@ import fr.jarvis.companion.feature.home.HomeScreen
 import fr.jarvis.companion.feature.home.HomeViewModel
 import fr.jarvis.companion.feature.home.HomeViewModelFactory
 import fr.jarvis.companion.feature.more.MoreScreen
+import fr.jarvis.companion.feature.location.LocationScreen
 import fr.jarvis.companion.feature.placeholder.PlaceholderScreen
 import fr.jarvis.companion.feature.repair.RepairScreen
 import fr.jarvis.companion.feature.settings.SettingsScreen
@@ -148,10 +149,7 @@ fun JarvisNavHost(
                     )
                 }
                 composable(JarvisDestination.LOCATION) {
-                    PlaceholderScreen(
-                        title = "Localisation",
-                        description = "Activez le GPS dans Réglages. Les positions en attente sont visibles dans Diagnostics.",
-                    )
+                    LocationScreen()
                 }
                 composable(JarvisDestination.NOTIFICATIONS) {
                     PlaceholderScreen(

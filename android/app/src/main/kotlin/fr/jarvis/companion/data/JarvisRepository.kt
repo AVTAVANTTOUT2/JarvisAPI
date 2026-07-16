@@ -7,6 +7,8 @@ import fr.jarvis.companion.BuildConfig
 import fr.jarvis.companion.network.CapabilitiesRequest
 import fr.jarvis.companion.network.JarvisApiResult
 import fr.jarvis.companion.network.JarvisHttpClient
+import fr.jarvis.companion.network.LocationBatchRequest
+import fr.jarvis.companion.network.LocationBatchResult
 import fr.jarvis.companion.network.LocationRequest
 import fr.jarvis.companion.network.PairingCompleteRequest
 import fr.jarvis.companion.network.PushTokenRequest
@@ -83,6 +85,52 @@ class JarvisRepository(context: Context) {
         runCatching { toResult(api().postLocation(bearer(), body)) }
             .getOrElse { JarvisApiResult.failure(it.message ?: "erreur réseau") }
     }
+
+    suspend fun postLocationBatch(request: LocationBatchRequest): LocationBatchResult =
+        withContext(Dispatchers.IO) {
+            if (JarvisSettings.nativeToken(appContext).isBlank()) {
+                return@withContext LocationBatchResult(
+                    ok = false,
+                    status = 0,
+                    unauthorized = true,
+                    error = "Jeton absent",
+                )
+            }
+            runCatching {
+                val response = api().postLocationBatch(bearer(), request)
+                val status = response.code()
+                if (status == 401) {
+                    return@runCatching LocationBatchResult(
+                        ok = false,
+                        status = status,
+                        unauthorized = true,
+                        error = response.errorBody()?.string()?.ifBlank { "Non autorisé" } ?: "Non autorisé",
+                    )
+                }
+                val body = response.body()
+                if (response.isSuccessful && body != null) {
+                    LocationBatchResult(
+                        ok = true,
+                        status = status,
+                        accepted = body.accepted,
+                        duplicates = body.duplicates,
+                        rejected = body.rejected,
+                    )
+                } else {
+                    LocationBatchResult(
+                        ok = false,
+                        status = status,
+                        error = response.errorBody()?.string()?.ifBlank { "HTTP $status" } ?: "HTTP $status",
+                    )
+                }
+            }.getOrElse {
+                LocationBatchResult(
+                    ok = false,
+                    status = 0,
+                    error = it.message ?: "erreur réseau",
+                )
+            }
+        }
 
     suspend fun getBriefing(kind: String): JarvisApiResult = withContext(Dispatchers.IO) {
         runCatching { toResult(api().getBriefing(bearer(), kind)) }

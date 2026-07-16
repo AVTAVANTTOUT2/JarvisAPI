@@ -634,6 +634,25 @@ def _migrate_notification_deduplication_index(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_location_point_dedup(conn: sqlite3.Connection) -> None:
+    """Idempotence batch GPS mobile : (device_id, client_point_id) unique."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS location_point_dedup (
+            device_id TEXT NOT NULL,
+            client_point_id TEXT NOT NULL,
+            location_history_id INTEGER,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (device_id, client_point_id)
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_location_point_dedup_created "
+        "ON location_point_dedup(created_at)"
+    )
+
+
 def run_migrations(conn: sqlite3.Connection) -> None:
     """Applique dans un ordre stable toutes les migrations idempotentes."""
     _migrate_people_ai_description(conn)
@@ -665,3 +684,4 @@ def run_migrations(conn: sqlite3.Connection) -> None:
     _migrate_conversation_turns(conn)
     _migrate_memory_embeddings(conn)
     _migrate_notification_deduplication_index(conn)
+    _migrate_location_point_dedup(conn)

@@ -14,10 +14,10 @@
 
 | Question | Réponse vérifiée |
 |---|---|
-| Combien de tables après `init_db()` (défaut, FTS5 disponible) ? | **75** entrées `sqlite_master` de type `table` (hors `sqlite_*`) |
-| Combien hors objets FTS5 ? | **70** tables persistantes |
+| Combien de tables après `init_db()` (défaut, FTS5 disponible) ? | **76** entrées `sqlite_master` de type `table` (hors `sqlite_*`) |
+| Combien hors objets FTS5 ? | **71** tables persistantes |
 | D'où vient « **44** » ? | Dump statique `database/schema.sql` (44 tables applicatives + `sqlite_sequence`) — **non exécuté** par `init_db()` |
-| D'où vient « **73** » ? | Inventaire Architecture (juil. 2026) légèrement en retard sur le code actuel (75 avec FTS) |
+| D'où vient « **73** » ? | Inventaire Architecture (juil. 2026) légèrement en retard sur le code actuel (76 avec FTS) |
 | Frontend canonique (FastAPI 8081) ? | **`frontend/`** — Next.js **15.5.20**, React **19.2.7** (lockfile), export → `frontend/out/` |
 | Fallback racine FastAPI ? | **`web/dist/`** — Vite **6.4.2** + React **19.2.5** |
 | PWA historique ? | **`pwa/`** — Next.js **14.2.29**, React **18.3.1**, servie sous **`/m/`** si build présent |
@@ -28,9 +28,9 @@
 **Formulation canonique (à réutiliser partout) :**
 
 ```text
-Le projet crée 70 tables persistantes après init_db() + migrations,
+Le projet crée 71 tables persistantes après init_db() + migrations,
 plus jusqu'à 5 objets FTS5 (messages_fts + 4 auxiliaires) lorsque FTS5 est
-disponible, soit 75 tables physiques sur une base neuve avec configuration
+disponible, soit 76 tables physiques sur une base neuve avec configuration
 par défaut. Le dump database/schema.sql (44 tables applicatives) est un
 snapshot historique, pas le schéma d'exécution.
 
@@ -202,18 +202,19 @@ init_db()  [database/core.py]
 | F | Tables de tests (fixtures pytest) | **0** dans la base applicative |
 | — | Dump `schema.sql` (snapshot) | **44** applicatives + `sqlite_sequence` |
 | — | `schema.py` seul | **47** |
-| — | Persistantes post-`init_db` (hors FTS) | **70** |
-| — | Physiques post-`init_db` défaut (FTS ON) | **75** |
-| — | Référencées / créées par le code d’init | **70 + condition FTS** |
+| — | Persistantes post-`init_db` (hors FTS) | **71** |
+| — | Physiques post-`init_db` défaut (FTS ON) | **76** |
+| — | Référencées / créées par le code d’init | **71 + condition FTS** |
 
-### Réconciliation 44 vs 73 vs 75
+### Réconciliation 44 vs 73 vs 76
 
 | Affirmation | Origine | Verdict |
 |---|---|---|
 | 44 | Contenu de `database/schema.sql` | Vrai pour ce fichier ; **faux** pour le runtime |
 | 72 | Diagramme README | Obsolete |
-| 73 | Architecture juil. 2026 | Approximatif ; **dépassé** par le runtime actuel (75) |
-| 75 | `tests/test_event_bus_integration.py` + audit temp DB 15/07/2026 | **Exact** si FTS5 disponible |
+| 73 | Architecture juil. 2026 | Approximatif ; **dépassé** par le runtime actuel (76) |
+| 75 | Audit 15/07/2026 (pré-Vague 2B) | Dépassé ; +1 `location_point_dedup` |
+| 76 | `tests/test_event_bus_integration.py` + Vague 2B | **Exact** si FTS5 disponible |
 
 ---
 
@@ -273,6 +274,7 @@ Statuts : `active` | `technique` | `miroir` | `conditionnelle` | `devagent`
 | Table | Création | Statut |
 |---|---|---|
 | `places`, `location_history`, `visits`, `trips`, `location_patterns` | schema.py | active |
+| `location_point_dedup` | migrations.py | technique (idempotence batch GPS Vague 2B) |
 
 ### Audio / présence
 
@@ -311,7 +313,7 @@ Statuts : `active` | `technique` | `miroir` | `conditionnelle` | `devagent`
 | `README.md` L100 | « 26+ tables » | non | Corriger → formulation multi-comptage |
 | `README.md` L124 | « 72 tables » | non | Idem |
 | `README.md` / supervisor | « sert le front » sans préciser `web/dist` | ambiguë | Clarifier |
-| `Architecture/*` « 73 tables » | inventaire juil. 2026 | **partiellement** (écart de 2 vs 75 FTS) | Pointer vers ce document |
+| `Architecture/*` « 73 tables » | inventaire juil. 2026 | **partiellement** (écart vs 76 FTS) | Pointer vers ce document |
 | `CLAUDE.md` L32 | « 73e table » = event_log | narratif historique | Nuancer |
 | `CLAUDE.md` § PWA L1515 | « web/ SPA principale » | non (Phase 6) | Corriger |
 | `database/schema.sql` | dump 44 tables | vrai dump, faux runtime | Annoter en tête (recommandé) |
@@ -321,7 +323,7 @@ Statuts : `active` | `technique` | `miroir` | `conditionnelle` | `devagent`
 
 ## 8. Recommandation
 
-1. **Citer toujours** les comptages A/B/C/D + total 70 / 75 — jamais un seul chiffre nu.
+1. **Citer toujours** les comptages A/B/C/D + total 71 / 76 — jamais un seul chiffre nu.
 2. **Frontend** : phrase canonique du §1.
 3. **Ne pas** supprimer `web/`, `pwa/`, `front_tv/` ni fusionner TV dans FastAPI sans plan dédié.
 4. **Alignement supervisor / FastAPI** : réalisé le 16/07/2026 (ADR-019,
@@ -332,10 +334,10 @@ Statuts : `active` | `technique` | `miroir` | `conditionnelle` | `devagent`
 | # | Cause | Preuve |
 |---|---|---|
 | 1 | Documentation obsolète (README 26+/72) | `README.md` L100, L124 |
-| 2 | Changement non documenté (tables migrations/FTS/DevAgent) | `migrations.py`, `devagent.py`, test `len==75` |
+| 2 | Changement non documenté (tables migrations/FTS/DevAgent) | `migrations.py`, `devagent.py`, test `len==76` |
 | 3 | Plusieurs générations frontend encore actives | `api/frontend.py` unifié + Vite + `/m/` |
 | 4 | Fallback historique volontaire | commentaires Phase 6 + tests `test_phase6_frontend.py` |
-| 5 | Tables conditionnelles / techniques comptées différemment | FTS5 + 73 vs 75 |
+| 5 | Tables conditionnelles / techniques comptées différemment | FTS5 + 73 vs 76 |
 | 6 | Snapshot `schema.sql` ≠ schéma runtime | `core.py` importe `SCHEMA` depuis `schema.py` |
 | 7 | Supervisor ≠ FastAPI pour le front | `supervisor.py` `DIST_DIR = web/dist` |
 | 8 | Build PWA absent du checkout | `pwa/out` manquant le jour de l’audit |

@@ -197,8 +197,9 @@ def test_real_repo_smoke_counts_stable() -> None:
     tables = audit.analyze_tables(ROOT)
     assert tables["counts"]["schema_sql_applicatives"] == 44
     assert tables["counts"]["schema_py"] == 47
-    assert tables["counts"]["persistantes_post_init"] == 70
-    assert tables["counts"]["physiques_max_default_fts_on"] == 75
+    # Vague 2B : +1 table `location_point_dedup` (idempotence batch GPS)
+    assert tables["counts"]["persistantes_post_init"] == 71
+    assert tables["counts"]["physiques_max_default_fts_on"] == 76
     assert tables["init_pipeline"]["does_not_execute_schema_sql"] is True
 
     resolution = audit.analyze_frontend_resolution(ROOT)

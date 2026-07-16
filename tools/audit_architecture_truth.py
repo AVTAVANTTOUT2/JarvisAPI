@@ -393,8 +393,10 @@ def analyze_tables(root: Path) -> dict[str, Any]:
         "explanations": {
             "44": "Nombre de tables applicatives dans database/schema.sql (dump), hors sqlite_sequence.",
             "73": "Inventaire Architecture juillet 2026, légèrement en retard sur le runtime actuel.",
-            "75": "len(sqlite_master tables) après init_db() avec FTS5 (70 persistantes + 5 FTS).",
-            "70": "Tables persistantes créées par schema.py + migrations + DevAgent, hors objets FTS.",
+            "76": "len(sqlite_master tables) après init_db() avec FTS5 (71 persistantes + 5 FTS).",
+            "75": "Ancien total physiques (pré-Vague 2B) ; remplacé par 76.",
+            "71": "Tables persistantes créées par schema.py + migrations + DevAgent, hors objets FTS.",
+            "70": "Ancien total persistantes (pré-Vague 2B / location_point_dedup).",
         },
     }
 

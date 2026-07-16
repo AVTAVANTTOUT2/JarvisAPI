@@ -42,7 +42,7 @@ JarvisAPI/
 │   ├── easter_eggs.py         ← Easter eggs
 │   └── devagent/              ← Développement autonome (interview → code → test)
 │
-├── database/                  ← SQLite (70 persistantes, +FTS→75 ; schema.sql dump≈44 ; 25 modules)
+├── database/                  ← SQLite (71 persistantes, +FTS→76 ; schema.sql dump≈44 ; 25 modules)
 │   ├── __init__.py            ← Façade rétrocompatible (236 lignes)
 │   ├── core.py                ← Connexions, initialisation et contexte agrégé
 │   ├── schema.py              ← Schéma déclaratif complet
@@ -383,7 +383,7 @@ graph TB
 
 ## 4. Stockage
 
-### 4.1 SQLite — jarvis.db (70 persistantes, 75 avec FTS5)
+### 4.1 SQLite — jarvis.db (71 persistantes, 76 avec FTS5)
 
 > Comptage vérifié le 15/07/2026 — voir `Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md`.
 > Ne pas utiliser le dump `schema.sql` (44) comme chiffre runtime.

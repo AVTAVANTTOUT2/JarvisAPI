@@ -30,9 +30,9 @@ Le bus applicatif est actif et conserve la compatibilité de construction histor
 
 - Les mutations de `database/tasks.py`, `notifications.py`, `conversations.py`, `episodes.py`, `facts.py`, `patterns.py` et `people.py` émettent **après commit**.
 - `database/event_log.py` journalise tous les événements dans la table SQLite `event_log`
-  (ajoutée au schéma runtime ; le total post-`init_db` est **70 persistantes**, **75** avec FTS —
-  voir `Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md` ; ne pas confondre avec le dump
-  historique `database/schema.sql` ≈ 44 tables).
+ (ajoutée au schéma runtime ; le total post-`init_db` est **71 persistantes**, **76** avec FTS —
+ voir `Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md` ; ne pas confondre avec le dump
+ historique `database/schema.sql` ≈ 44 tables).
 - `websocket_registry.py` diffuse les événements de domaine aux sockets actives et `scripts/audio_daemon.py` traite les notifications `urgent/high`.
 - `pwa/src/components/realtime/EventSync.tsx` consomme `/api/events/stream` et invalide React Query ; le polling périodique notifications/tâches a été supprimé.
 - Les handlers d'un même événement s'exécutent concurremment ; l'échec de l'un est journalisé sans interrompre les autres.

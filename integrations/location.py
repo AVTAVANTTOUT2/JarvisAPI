@@ -73,6 +73,7 @@ class LocationManager:
                 "departed": False,
                 "visit_id": None,
                 "skipped": True,
+                "location_history_id": None,
             }
 
         self._sync_from_db()
@@ -82,7 +83,7 @@ class LocationManager:
         old_pid = self.current_place_id
 
         created_iso = ts.isoformat(timespec="seconds")
-        add_location(
+        location_history_id = add_location(
             latitude,
             longitude,
             altitude=altitude,
@@ -113,6 +114,7 @@ class LocationManager:
                 "arrived": False,
                 "departed": False,
                 "visit_id": visit_out,
+                "location_history_id": location_history_id,
             }
 
         # Transition : lieu changé (incluant entrée/sortie d'un périmètre nommé)
@@ -181,6 +183,7 @@ class LocationManager:
             "arrived": arrived,
             "departed": departed,
             "visit_id": self.current_visit_id,
+            "location_history_id": location_history_id,
         }
 
     async def get_status(self) -> dict[str, Any]:
