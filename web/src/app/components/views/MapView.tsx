@@ -529,11 +529,11 @@ export function MapView() {
           </div>
 
           {/* Stats rapides — points GPS ≠ lieux nommés */}
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-3 gap-2">
             <div className="glass-panel rounded-xl p-3 border border-white/10">
               <div className="flex items-center gap-2 mb-1">
                 <Navigation className="w-3.5 h-3.5 text-muted-foreground" />
-                <span className="font-mono text-xs text-muted-foreground">Points GPS</span>
+                <span className="font-mono text-xs text-muted-foreground">Points</span>
               </div>
               <p className="text-xl font-bold">{historyCount}</p>
             </div>
@@ -543,6 +543,13 @@ export function MapView() {
                 <span className="font-mono text-xs text-muted-foreground">Lieux</span>
               </div>
               <p className="text-xl font-bold">{places.length}</p>
+            </div>
+            <div className="glass-panel rounded-xl p-3 border border-white/10">
+              <div className="flex items-center gap-2 mb-1">
+                <Layers className="w-3.5 h-3.5 text-muted-foreground" />
+                <span className="font-mono text-xs text-muted-foreground">Visites</span>
+              </div>
+              <p className="text-xl font-bold">{todayVisits.length}</p>
             </div>
           </div>
           {historyCount > 0 && places.length === 0 && (
