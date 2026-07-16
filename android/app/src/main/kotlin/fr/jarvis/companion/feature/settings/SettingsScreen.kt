@@ -12,7 +12,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -26,10 +25,14 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import fr.jarvis.companion.BuildConfig
 import fr.jarvis.companion.app.appContainer
+import fr.jarvis.companion.core.ui.components.ErrorCallout
+import fr.jarvis.companion.core.ui.components.JarvisFutureAction
+import fr.jarvis.companion.core.ui.components.JarvisPrimaryButton
+import fr.jarvis.companion.core.ui.components.JarvisStatusBadge
 import fr.jarvis.companion.core.ui.components.JarvisCard
+import fr.jarvis.companion.core.ui.components.StatusTone
 import fr.jarvis.companion.core.ui.components.SectionHeader
 import fr.jarvis.companion.data.JarvisSettings
-import fr.jarvis.companion.network.ServerUrlNormalizer
 
 @Composable
 fun SettingsScreen(
@@ -43,8 +46,12 @@ fun SettingsScreen(
 ) {
     val context = LocalContext.current
     var serverUrl by remember { mutableStateOf(JarvisSettings.server(context)) }
-    var serverError by remember { mutableStateOf<String?>(null) }
+    var serverFeedback by remember { mutableStateOf<String?>(null) }
+    var serverErrorMessage by remember { mutableStateOf<String?>(null) }
     var porcupineKey by remember { mutableStateOf("") }
+    var keyErrorMessage by remember { mutableStateOf<String?>(null) }
+    var voiceFeedback by remember { mutableStateOf<String?>(null) }
+    val futureOptions = remember { buildFutureSettingsOptions() }
 
     Column(
         modifier = modifier
@@ -53,46 +60,49 @@ fun SettingsScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        SectionHeader("Réglages", "Connexion et services")
+        SectionHeader("Réglages", "Connexion, sécurité et services locaux")
 
         JarvisCard(title = "Connexion") {
             OutlinedTextField(
                 value = serverUrl,
-                onValueChange = { serverUrl = it; serverError = null },
+                onValueChange = {
+                    serverUrl = it
+                    serverErrorMessage = null
+                    serverFeedback = null
+                },
                 label = { Text("Serveur HTTPS") },
-                isError = serverError != null,
-                supportingText = serverError?.let { { Text(it) } },
+                isError = serverErrorMessage != null,
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
-            TextButton(
+            serverErrorMessage?.let { ErrorCallout(it) }
+            serverFeedback?.let { JarvisStatusBadge(it, tone = StatusTone.Info) }
+            JarvisPrimaryButton(
+                text = "Enregistrer le serveur",
                 onClick = {
-                    val normalized = ServerUrlNormalizer.normalize(serverUrl)
-                    if (normalized == null) {
-                        serverError = "Adresse invalide"
+                    val saveResult = evaluateServerSave(
+                        rawInput = serverUrl,
+                        currentServer = JarvisSettings.server(context),
+                    )
+                    if (saveResult.errorMessage != null) {
+                        serverErrorMessage = saveResult.errorMessage
+                        serverFeedback = null
                     } else {
-                        val changed = normalized != JarvisSettings.server(context)
+                        val normalized = saveResult.normalizedServerUrl ?: return@JarvisPrimaryButton
                         JarvisSettings.setServer(context, normalized)
-                        if (changed) {
+                        if (saveResult.shouldRevokeLocalToken) {
                             JarvisSettings.clearNativeToken(context)
                             context.appContainer().repository.invalidateHttpCache()
                         }
-                        serverError = null
+                        serverErrorMessage = null
+                        serverFeedback = saveResult.successMessage
                     }
                 },
-            ) { Text("Enregistrer le serveur") }
+                modifier = Modifier.fillMaxWidth(),
+            )
             Text(
                 "Appareil : ${JarvisSettings.deviceId(context)}",
                 style = MaterialTheme.typography.bodySmall,
-            )
-        }
-
-        JarvisCard(title = "Localisation") {
-            SettingsToggle(
-                title = "Présence GPS",
-                subtitle = "Service de premier plan vers le Mac",
-                checked = locationEnabled,
-                onCheckedChange = onLocationToggle,
             )
         }
 
@@ -105,23 +115,50 @@ fun SettingsScreen(
             )
             OutlinedTextField(
                 value = porcupineKey,
-                onValueChange = { porcupineKey = it },
+                onValueChange = {
+                    porcupineKey = it
+                    keyErrorMessage = null
+                    voiceFeedback = null
+                },
                 label = { Text("Clé Picovoice") },
                 visualTransformation = PasswordVisualTransformation(),
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
-            TextButton(
+            keyErrorMessage?.let { ErrorCallout(it) }
+            voiceFeedback?.let { JarvisStatusBadge(it, tone = StatusTone.Info) }
+            JarvisPrimaryButton(
+                text = "Enregistrer la clé",
                 onClick = {
-                    if (porcupineKey.isNotBlank()) {
-                        onPorcupineKeySave(porcupineKey.trim())
+                    val sanitized = sanitizePorcupineKey(porcupineKey)
+                    if (sanitized != null) {
+                        onPorcupineKeySave(sanitized)
                         porcupineKey = ""
+                        voiceFeedback = "Clé enregistrée."
+                        keyErrorMessage = null
+                    } else {
+                        keyErrorMessage = "Clé Picovoice vide"
+                        voiceFeedback = null
                     }
                 },
-            ) { Text("Enregistrer la clé") }
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
 
-        JarvisCard(title = "Notifications push") {
+        JarvisCard(title = "Localisation") {
+            SettingsToggle(
+                title = "Présence GPS",
+                subtitle = "Service de premier plan vers le Mac",
+                checked = locationEnabled,
+                onCheckedChange = onLocationToggle,
+            )
+            Text(
+                "La logique permission/service reste inchangée et pilotée par MainActivity.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+
+        JarvisCard(title = "Notifications") {
             Text(
                 if (BuildConfig.FIREBASE_CONFIGURED) {
                     "Firebase configuré — jetons enregistrés après appairage."
@@ -129,6 +166,45 @@ fun SettingsScreen(
                     "Non configuré dans ce build (google-services.json absent)."
                 },
                 style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+
+        JarvisCard(title = "Données") {
+            Text(
+                "Serveur actuel : ${JarvisSettings.server(context)}",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Text(
+                "Token local : ${if (JarvisSettings.nativeToken(context).isBlank()) "absent" else "présent"}",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Text(
+                "Aucune synchronisation de données mockées : cache et stockage sécurisé natifs uniquement.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+
+        JarvisCard(title = "Sécurité & apparence") {
+            Text(
+                "Thème sombre JARVIS et verrouillage côté serveur conservés.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            futureOptions.forEach { option ->
+                JarvisFutureAction(
+                    title = option.title,
+                    description = option.description,
+                )
+            }
+        }
+
+        JarvisCard(title = "À propos") {
+            Text(
+                "JARVIS Companion ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Text(
+                "Companion Android natif, sans WebView.",
+                style = MaterialTheme.typography.bodySmall,
             )
         }
     }

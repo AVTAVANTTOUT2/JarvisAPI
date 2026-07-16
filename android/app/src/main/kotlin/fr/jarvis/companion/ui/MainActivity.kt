@@ -14,6 +14,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import fr.jarvis.companion.core.ui.components.JarvisBackground
 import fr.jarvis.companion.data.JarvisSettings
 import fr.jarvis.companion.feature.onboarding.OnboardingScreen
 import fr.jarvis.companion.navigation.JarvisNavCallbacks
@@ -76,12 +77,14 @@ class MainActivity : ComponentActivity() {
                 }
 
                 if (showOnboarding) {
-                    OnboardingScreen(
-                        onComplete = {
-                            showOnboarding = false
-                            resumePersistentFeatures()
-                        },
-                    )
+                    JarvisBackground {
+                        OnboardingScreen(
+                            onComplete = {
+                                showOnboarding = false
+                                resumePersistentFeatures()
+                            },
+                        )
+                    }
                 } else {
                     JarvisNavHost(
                         callbacks = JarvisNavCallbacks(
