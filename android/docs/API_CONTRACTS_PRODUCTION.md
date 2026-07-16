@@ -173,7 +173,30 @@ Auth cookie/session (ou Bearer après extension Vague 1). Feature `LOCATION_TRAC
 
 ## 5. Chat / Conversations
 
-Toutes les routes actuelles : **auth session cookie** (à ouvrir au Bearer Vague 1 en lecture).
+### Chat Android natif (Vague 2)
+
+| Transport | Endpoint / type | Auth | Payload | Réponse | Idempotence | Preuve |
+|-----------|-----------------|------|---------|---------|-------------|--------|
+| HTTP | `POST /api/mobile/conversations` | Bearer | `{title?}` | `{conversation_id, title, agent}` | — | `api/router_mobile_chat.py` |
+| HTTP | `POST /api/mobile/chat` | Bearer | `{content, conversation_id?, client_message_id?}` | `{response_text, emotion, action?, needs_confirmation, idempotent_replay}` | `client_message_id` + device UNIQUE | `mobile_chat_dedup` |
+| HTTP | `POST /api/mobile/chat/confirm` | Bearer | `{conversation_id, confirmed}` | résultat action | — | même fichier |
+| HTTP | `GET /api/conversations` | Bearer GET | query archived/limit | liste | — | Vague 1 |
+| HTTP | `GET /api/conversations/{id}` | Bearer GET | — | messages | — | Vague 1 |
+| HTTP | `PATCH /api/conversations/{id}` | Bearer Vague 2 | title/pinned/archived | `{ok}` | — | middleware whitelist |
+| HTTP | `DELETE /api/conversations/{id}` | Bearer Vague 2 | — | `{ok}` | — | middleware |
+| HTTP | `POST .../pin`, `.../archive` | Bearer Vague 2 | — | `{ok}` | — | middleware |
+| WS | `/ws` | Cookie **ou** `Authorization: Bearer` handshake | `text`, `chunk`/`done` | streaming | — | `api/ws_handler.py` |
+
+**Règles :**
+
+- Token **jamais** en query string.
+- Fallback HTTP `/api/mobile/chat` = réponse complète non streamée (offline / WS down).
+- Streaming = WebSocket uniquement.
+- Mutations admin (`/api/mobile/devices`, quality, etc.) **non** ouvertes au Bearer.
+
+### Routes REST conversations (historique)
+
+Toutes les routes actuelles : **auth session cookie** (Bearer lecture Vague 1 ; mutations conversation Vague 2).
 
 | Method | Path | Body / Query | Réponse |
 |--------|------|--------------|---------|

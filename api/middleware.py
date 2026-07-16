@@ -13,9 +13,9 @@ import config
 
 _DEVICE_TOKEN_ROUTE_RE = re.compile(r"^/api/devices/[^/]+/(heartbeat|screen)$")
 _CONVERSATION_DETAIL_RE = re.compile(r"^/api/conversations/\d+$")
+_CONVERSATION_ACTION_RE = re.compile(r"^/api/conversations/\d+/(archive|pin)$")
 
 # Lectures métier autorisées avec jeton mobile Bearer (Vague 1).
-# Les mutations (POST/PATCH/DELETE) hors bypass restent sur cookie session.
 _MOBILE_BEARER_GET_EXACT = frozenset(
     {
         "/api/briefing",
@@ -30,15 +30,25 @@ _MOBILE_BEARER_GET_EXACT = frozenset(
     }
 )
 
+# Mutations conversation (Vague 2 chat) — whitelist stricte, pas d'admin.
+_MOBILE_BEARER_MUTATION_METHODS = frozenset({"PATCH", "DELETE", "POST"})
+
 
 def _mobile_bearer_allows(method: str, path: str) -> bool:
-    """True si un Bearer mobile valide peut ouvrir cette route (lecture Vague 1)."""
-    if method != "GET":
+    """True si un Bearer mobile valide peut ouvrir cette route."""
+    if method == "GET":
+        if path in _MOBILE_BEARER_GET_EXACT:
+            return True
+        if _CONVERSATION_DETAIL_RE.match(path):
+            return True
         return False
-    if path in _MOBILE_BEARER_GET_EXACT:
-        return True
-    if _CONVERSATION_DETAIL_RE.match(path):
-        return True
+
+    # Vague 2 : mutations conversations uniquement
+    if method in _MOBILE_BEARER_MUTATION_METHODS:
+        if method in ("PATCH", "DELETE") and _CONVERSATION_DETAIL_RE.match(path):
+            return True
+        if method == "POST" and _CONVERSATION_ACTION_RE.match(path):
+            return True
     return False
 
 
@@ -67,6 +77,9 @@ def _bypasses_session_gate(method: str, path: str) -> bool:
         "/api/mobile/push-token",
         "/api/mobile/capabilities",
         "/api/mobile/voice/turn",
+        "/api/mobile/conversations",
+        "/api/mobile/chat",
+        "/api/mobile/chat/confirm",
     }:
         return True
     if method == "POST" and _DEVICE_TOKEN_ROUTE_RE.match(path):
@@ -134,8 +147,7 @@ async def security_middleware(request: Request, call_next):
             # l'Origin du navigateur garde le port du dev server. Les clients
             # sans Origin/Referer (scripts, curl) ne sont pas bloqués — pour
             # eux, SameSite=Strict est déjà la protection effective.
-            # Bearer mobile Vague 1 n'ouvre pas les mutations métier : CSRF
-            # cookie-only reste inchangé.
+            # Bearer mobile : CSRF cookie-only — pas de check Origin.
             origin = request.headers.get("origin") or request.headers.get("referer")
             host = request.headers.get("host", "")
             if origin and host:

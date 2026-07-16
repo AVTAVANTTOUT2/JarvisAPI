@@ -634,6 +634,26 @@ def _migrate_notification_deduplication_index(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_mobile_chat_dedup(conn: sqlite3.Connection) -> None:
+    """Idempotence des messages chat Android (device + client_message_id)."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS mobile_chat_dedup (
+            device_id TEXT NOT NULL,
+            client_message_id TEXT NOT NULL,
+            conversation_id INTEGER NOT NULL,
+            response_json TEXT NOT NULL,
+            created_at TEXT DEFAULT (datetime('now')),
+            PRIMARY KEY (device_id, client_message_id)
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_mobile_chat_dedup_created "
+        "ON mobile_chat_dedup(created_at)"
+    )
+
+
 def run_migrations(conn: sqlite3.Connection) -> None:
     """Applique dans un ordre stable toutes les migrations idempotentes."""
     _migrate_people_ai_description(conn)
@@ -665,3 +685,4 @@ def run_migrations(conn: sqlite3.Connection) -> None:
     _migrate_conversation_turns(conn)
     _migrate_memory_embeddings(conn)
     _migrate_notification_deduplication_index(conn)
+    _migrate_mobile_chat_dedup(conn)

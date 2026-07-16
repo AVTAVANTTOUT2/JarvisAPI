@@ -130,3 +130,36 @@ def revoke_mobile_device(device_id: str) -> bool:
             (device_id,),
         )
     return cursor.rowcount == 1
+
+
+def get_mobile_chat_dedup(device_id: str, client_message_id: str) -> dict | None:
+    """Retourne la réponse JSON mise en cache pour un client_message_id, ou None."""
+    with get_db() as conn:
+        row = conn.execute(
+            """SELECT response_json FROM mobile_chat_dedup
+               WHERE device_id = ? AND client_message_id = ?""",
+            (device_id, client_message_id),
+        ).fetchone()
+    if not row:
+        return None
+    try:
+        return json.loads(row["response_json"])
+    except (TypeError, json.JSONDecodeError):
+        return None
+
+
+def save_mobile_chat_dedup(
+    device_id: str,
+    client_message_id: str,
+    conversation_id: int,
+    response: dict,
+) -> None:
+    """Enregistre la réponse pour rejeu idempotent (INSERT OR IGNORE)."""
+    payload = json.dumps(response, ensure_ascii=False, default=str)
+    with get_db() as conn:
+        conn.execute(
+            """INSERT OR IGNORE INTO mobile_chat_dedup
+               (device_id, client_message_id, conversation_id, response_json)
+               VALUES (?, ?, ?, ?)""",
+            (device_id, client_message_id, conversation_id, payload),
+        )
