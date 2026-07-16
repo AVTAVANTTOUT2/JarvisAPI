@@ -29,6 +29,10 @@ Le dépôt fournit `native_audio/ttskit_synthesize` : sidecar Python qui exécut
 **Qwen3-TTS-12Hz-0.6B-CustomVoice** via `mlx-audio` dans `JARVIS_VENV`
 (défaut `~/mlx-env`). Aucun cloud, streaming PCM16 24 kHz sur stdout.
 
+`is_ttskit_available()` exige que `$JARVIS_VENV/bin/python` soit exécutable
+lorsque ce lanceur repo est utilisé (évite un faux positif sans venv MLX).
+Un binaire `jarvis-ttskit` dans le PATH reste considéré autonome.
+
 ### Setup (une fois)
 
 ```bash
@@ -51,13 +55,15 @@ TTS_SPEAKER=Ryan          # CustomVoice : Ryan | Aiden | Vivian | …
 
 ```
 ttskit_synthesize --model qwen3-tts-0.6b --language fr \
-  --format pcm_s16le --sample-rate 24000 --text "Bonjour Monsieur."
+  --format pcm_s16le --sample-rate 24000 --speaker Ryan \
+  --text "Bonjour Monsieur."
 ```
 
 Alias `--model qwen3-tts-0.6b` →
 `mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-6bit`.
-Pas d'`instruct` émotionnel (voix stable). Logs sur stderr ; le processus est
-interrompu si la lecture est annulée.
+`--speaker` (ou `TTS_SPEAKER`) sélectionne la voix CustomVoice ; pas d'`instruct`
+émotionnel (voix stable). Logs sur stderr ; le processus est interrompu si la
+lecture est annulée.
 
 Alternative : placez un autre binaire `ttskit_synthesize` ici, ou
 `jarvis-ttskit` dans le PATH (même contrat).

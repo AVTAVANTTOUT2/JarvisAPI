@@ -23,6 +23,7 @@ class TTSKitEngine:
         self._model_name = getattr(config, "TTS_MODEL", "qwen3-tts-0.6b")
         self._language = getattr(config, "TTS_LANGUAGE", "fr")
         self._model_path = str(getattr(config, "TTS_MODEL_PATH", "") or "")
+        self._speaker = str(getattr(config, "TTS_SPEAKER", "Ryan") or "Ryan")
         self.available = False
 
     def preload_sync(self) -> bool:
@@ -34,9 +35,17 @@ class TTSKitEngine:
             logger.debug("[TTS] Vérification sidecar TTSKit : %s", e)
             self.available = False
         if self.available:
-            logger.info("[TTS] Sidecar TTSKit prêt (%s, lang=%s)", self._model_name, self._language)
+            logger.info(
+                "[TTS] Sidecar TTSKit prêt (%s, lang=%s, speaker=%s)",
+                self._model_name,
+                self._language,
+                self._speaker,
+            )
         else:
-            logger.warning("[TTS] Sidecar TTSKit absent — voir native_audio/README.md")
+            logger.warning(
+                "[TTS] Sidecar TTSKit indisponible — JARVIS_VENV/mlx-audio "
+                "ou binaire jarvis-ttskit requis (voir native_audio/README.md)",
+            )
         return self.available
 
     def get_backend_name(self) -> str:
@@ -66,6 +75,7 @@ class TTSKitEngine:
                 model=self._model_name,
                 language=self._language,
                 model_path=self._model_path,
+                speaker=self._speaker,
             ):
                 yield chunk
         finally:
