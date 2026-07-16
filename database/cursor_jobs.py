@@ -178,6 +178,21 @@ def list_cursor_jobs(limit: int = 50, status: str | None = None) -> list[dict[st
     return [_row_to_dict(r) for r in rows]
 
 
+def list_jobs_by_statuses(statuses: tuple[str, ...]) -> list[dict[str, Any]]:
+    """Jobs dans un des statuts donnés (reprise après restart)."""
+    ensure_cursor_jobs_table()
+    if not statuses:
+        return []
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM cursor_delegation_jobs "
+            f"WHERE status IN ({','.join('?' * len(statuses))}) "
+            "ORDER BY created_at ASC",
+            statuses,
+        ).fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
 def count_active_cursor_jobs() -> int:
     ensure_cursor_jobs_table()
     active = ("queued", "preparing", "running", "testing", "reviewing")
@@ -198,4 +213,7 @@ def _row_to_dict(row: Any) -> dict[str, Any]:
                 d[key] = json.loads(raw)
             except json.JSONDecodeError:
                 pass
+    # Alias lisible pour l'API / UI (la colonne reste routing_json)
+    if "routing_json" in d:
+        d["routing"] = d.get("routing_json")
     return d

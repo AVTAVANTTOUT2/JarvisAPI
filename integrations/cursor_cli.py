@@ -130,17 +130,25 @@ def build_agent_command(
     force: bool = True,
     trust: bool = True,
 ) -> list[str]:
-    """Construit la commande agent headless selon les flags réellement supportés."""
+    """Construit la commande agent headless selon les flags réellement supportés.
+
+    Refuse de construire une commande interactive : sans ``--print`` le CLI
+    attendrait une entrée utilisateur et pendrait jusqu'au timeout.
+    """
     if not info.path:
         raise RuntimeError("Cursor CLI path manquant")
+    if not info.supports_print:
+        raise RuntimeError(
+            "Cursor CLI sans mode headless (--print) — délégation refusée "
+            f"(version détectée: {info.version or 'inconnue'})"
+        )
     basename = Path(info.path).name
     if basename == "cursor":
         cmd = [info.path, "agent"]
     else:
         cmd = [info.path]
 
-    if info.supports_print:
-        cmd.append("--print")
+    cmd.extend(["--print", "--output-format", "text"])
     if force and info.supports_force:
         cmd.append("--force")
     if trust and info.supports_trust:

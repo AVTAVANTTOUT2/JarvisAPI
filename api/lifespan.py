@@ -303,6 +303,17 @@ async def lifespan(app: FastAPI):
 
     logger.info(f"JARVIS prêt → http://localhost:{config.WEB_PORT}")
 
+    # ── Délégation Cursor : reprise des jobs persistants après restart ──
+    if getattr(config, "CURSOR_DELEGATION_ENABLED", True):
+        try:
+            from integrations.cursor_delegation import cursor_delegation
+
+            resumed = cursor_delegation.resume_pending_jobs()
+            if resumed.get("requeued") or resumed.get("orphaned"):
+                logger.info("[startup] jobs Cursor : %s", resumed)
+        except Exception as e:
+            logger.warning("[startup] reprise jobs Cursor : %s", e)
+
     from scripts.scheduler import start_scheduler
 
     start_scheduler()
