@@ -13,7 +13,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# Modules autorisés à appeler l'API Ollama (chemins relatifs au dépôt, style posix).
+# Modules autorisés (chemins relatifs posix) — documentation / scan statique.
 OLLAMA_ALLOWED_MODULES: frozenset[str] = frozenset(
     {
         "scripts/screen_watcher.py",
@@ -21,7 +21,8 @@ OLLAMA_ALLOWED_MODULES: frozenset[str] = frozenset(
     }
 )
 
-# Alias de noms de modules Python (import path) tolérés.
+# Alias de noms de modules Python (import path) tolérés UNIQUEMENT si le
+# fichier résolu correspond aussi à l'allowlist canonique ci-dessous.
 _ALLOWED_MODULE_NAMES: frozenset[str] = frozenset(
     {
         "scripts.screen_watcher",
@@ -38,9 +39,11 @@ _PLUMBING_MODULE_NAMES: frozenset[str] = frozenset(
         "integrations.ollama_client",
     }
 )
-_PLUMBING_FILE_SUFFIXES: tuple[str, ...] = (
-    "jarvis/cognitive/ollama_guard.py",
-    "integrations/ollama_client.py",
+_PLUMBING_REL_PATHS: frozenset[str] = frozenset(
+    {
+        "jarvis/cognitive/ollama_guard.py",
+        "integrations/ollama_client.py",
+    }
 )
 
 
@@ -48,25 +51,45 @@ class OllamaPolicyError(RuntimeError):
     """Appel Ollama depuis un module non autorisé."""
 
 
-def _normalize_path(path: str) -> str:
-    p = path.replace("\\", "/")
-    markers = ("/scripts/", "/integrations/", "/jarvis/", "/agents/", "/api/")
-    for marker in markers:
-        idx = p.find(marker)
-        if idx >= 0:
-            return p[idx + 1 :]  # drop leading slash from marker match → scripts/...
-    return Path(p).name
-
-
 _REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _allowed_caller_paths() -> frozenset[Path]:
+    """Chemins canoniques absolus des seuls appelants Ollama autorisés."""
+    return frozenset(
+        {
+            (_REPO_ROOT / "scripts" / "screen_watcher.py").resolve(),
+            (_REPO_ROOT / "integrations" / "ollama_control.py").resolve(),
+        }
+    )
+
+
+def _plumbing_caller_paths() -> frozenset[Path]:
+    return frozenset(
+        {
+            (_REPO_ROOT / "jarvis" / "cognitive" / "ollama_guard.py").resolve(),
+            (_REPO_ROOT / "integrations" / "ollama_client.py").resolve(),
+        }
+    )
+
+
+def _resolve_frame_path(filename: str) -> Path | None:
+    if not filename:
+        return None
+    try:
+        return Path(filename).resolve()
+    except (OSError, RuntimeError, ValueError):
+        return None
 
 
 def _is_plumbing_frame(frame: inspect.FrameInfo) -> bool:
     mod = frame.frame.f_globals.get("__name__", "") or ""
     if mod in _PLUMBING_MODULE_NAMES:
         return True
-    filename = (frame.filename or "").replace("\\", "/")
-    return filename.endswith(_PLUMBING_FILE_SUFFIXES)
+    resolved = _resolve_frame_path(frame.filename or "")
+    if resolved is None:
+        return False
+    return resolved in _plumbing_caller_paths()
 
 
 def _is_repo_frame(filename: str) -> bool:
@@ -76,37 +99,38 @@ def _is_repo_frame(filename: str) -> bool:
         return False
     if "/site-packages/" in f or "/venv/" in f or "/lib/python" in f:
         return False
+    resolved = _resolve_frame_path(f)
+    if resolved is None:
+        return False
     try:
-        Path(f).resolve().relative_to(_REPO_ROOT)
+        resolved.relative_to(_REPO_ROOT)
         return True
-    except (ValueError, OSError):
+    except ValueError:
         return False
 
 
 def assert_ollama_caller_allowed(stack: list[inspect.FrameInfo] | None = None) -> str:
-    """Vérifie que le PREMIER appelant applicatif est dans l'allowlist.
+    """Vérifie que le PREMIER appelant applicatif est dans l'allowlist canonique.
 
-    Les frames de plomberie (ce module, ``integrations/ollama_client``) sont
-    sautés : le verdict porte sur le premier frame extérieur. Sans cela,
-    l'appel partirait toujours de ``ollama_guard`` lui-même et tout le monde
-    serait autorisé.
+    Comparaison par ``Path.resolve()`` exacte — un fichier homonyme hors
+    dépôt (ex. ``/tmp/malicious/screen_watcher.py``) est refusé.
     """
+    allowed = _allowed_caller_paths()
     frames = stack if stack is not None else inspect.stack()[1:]
     for frame in frames:
         if _is_plumbing_frame(frame):
             continue
         mod = frame.frame.f_globals.get("__name__", "") or ""
         filename = frame.filename or ""
-        if mod in _ALLOWED_MODULE_NAMES:
+        resolved = _resolve_frame_path(filename)
+        if resolved is not None and resolved in allowed:
+            try:
+                return resolved.relative_to(_REPO_ROOT).as_posix()
+            except ValueError:
+                return str(resolved)
+        # Module name seul ne suffit PAS — le fichier doit aussi matcher.
+        if mod in _ALLOWED_MODULE_NAMES and resolved is not None and resolved in allowed:
             return mod
-        rel = _normalize_path(filename)
-        if rel in OLLAMA_ALLOWED_MODULES:
-            return rel
-        # screen_watcher peut être importé comme module top-level selon le path
-        if filename.endswith("screen_watcher.py"):
-            return "scripts/screen_watcher.py"
-        if filename.endswith("ollama_control.py"):
-            return "integrations/ollama_control.py"
         if _is_repo_frame(filename):
             # Premier frame applicatif du dépôt hors allowlist → refus.
             break
@@ -146,7 +170,7 @@ def ollama_reasoning_consumers(repo_root: Path | None = None) -> list[str]:
         rel_parts = set(Path(rel).parts)
         if rel_parts & skip_dirs:
             continue
-        if rel in OLLAMA_ALLOWED_MODULES or rel in _PLUMBING_FILE_SUFFIXES:
+        if rel in OLLAMA_ALLOWED_MODULES or rel in _PLUMBING_REL_PATHS:
             continue
         if rel.startswith("tests/") or rel.startswith("jarvis/tests/"):
             continue
@@ -177,6 +201,35 @@ def ollama_reasoning_consumers(repo_root: Path | None = None) -> list[str]:
     return sorted(set(offenders))
 
 
+def _assert_ollama_url_allowed(url: str) -> None:
+    """Restreint host/scheme à config.OLLAMA_URL (pas de proxy arbitraire)."""
+    from urllib.parse import urlparse
+
+    import config
+
+    allowed = urlparse(getattr(config, "OLLAMA_URL", "http://localhost:11434") or "")
+    target = urlparse(url)
+    if target.scheme not in ("http", "https"):
+        raise OllamaPolicyError(f"schéma Ollama interdit: {target.scheme}")
+    if (target.hostname or "").lower() not in {
+        (allowed.hostname or "localhost").lower(),
+        "127.0.0.1",
+        "localhost",
+    }:
+        raise OllamaPolicyError(f"hôte Ollama hors allowlist: {target.hostname}")
+    path = target.path or ""
+    allowed_paths = (
+        "/api/generate",
+        "/api/tags",
+        "/api/ps",
+        "/api/pull",
+        "/api/show",
+        "/api/chat",
+    )
+    if not any(path == p or path.startswith(p + "/") for p in allowed_paths):
+        raise OllamaPolicyError(f"endpoint Ollama hors allowlist: {path}")
+
+
 async def ollama_http_request(
     method: str,
     url: str,
@@ -186,6 +239,7 @@ async def ollama_http_request(
 ) -> Any:
     """Unique porte d'entrée HTTP Ollama — enforce allowlist puis httpx."""
     caller = assert_ollama_caller_allowed()
+    _assert_ollama_url_allowed(url)
     logger.debug("[ollama_guard] allow %s → %s %s", caller, method, url)
     import httpx
 
