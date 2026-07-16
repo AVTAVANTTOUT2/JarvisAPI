@@ -65,6 +65,16 @@ def _extract_bearer_token(request: Request) -> str | None:
 # qu'elles servent à s'authentifier, soit parce qu'elles sont appelées par un
 # autre mécanisme (jeton device, jeton localisation) par un client qui n'est
 # pas un navigateur avec cookie de session.
+def _supervisor_local_control(request: Request, path: str) -> bool:
+    """Appels internes supervisor → backend (localhost + header dédié)."""
+    client = request.client.host if request.client else ""
+    if client not in ("127.0.0.1", "::1"):
+        return False
+    if request.headers.get("x-jarvis-supervisor") != "1":
+        return False
+    return path.startswith("/api/control/")
+
+
 def _bypasses_session_gate(method: str, path: str) -> bool:
     if path.startswith("/api/auth/"):
         return True
@@ -122,7 +132,12 @@ async def security_middleware(request: Request, call_next):
     path = request.url.path
     method = request.method
 
-    if method != "OPTIONS" and path.startswith("/api/") and not _bypasses_session_gate(method, path):
+    if (
+        method != "OPTIONS"
+        and path.startswith("/api/")
+        and not _bypasses_session_gate(method, path)
+        and not _supervisor_local_control(request, path)
+    ):
         if not auth.is_configured():
             return JSONResponse({"error": "setup_required"}, status_code=428)
 

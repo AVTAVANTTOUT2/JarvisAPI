@@ -207,10 +207,19 @@ SCREEN_RESIZE_HEIGHT = int(_get("SCREEN_RESIZE_HEIGHT", "800"))
 SCREEN_RESIZE: tuple[int, int] = (SCREEN_RESIZE_WIDTH, SCREEN_RESIZE_HEIGHT)
 SCREEN_MAX_ANALYSIS_WIDTH = int(_get("SCREEN_MAX_ANALYSIS_WIDTH", "768"))
 SCREEN_JPEG_QUALITY = int(_get("SCREEN_JPEG_QUALITY", "55"))
-SCREEN_VISION_MODEL = _get("SCREEN_VISION_MODEL", "qwen3-vl:4b")
+SCREEN_VISION_MODEL = _get(
+    "SCREEN_VISION_MODEL",
+    _get("SCREEN_WATCHER_VISION_MODEL", "qwen3-vl:4b"),
+)
 SCREEN_OLLAMA_MIN_INTERVAL_S = float(_get("SCREEN_OLLAMA_MIN_INTERVAL_S", "60"))  # delai min entre 2 analyses vision
 TRIAGE_MODEL = _get("TRIAGE_MODEL", "qwen2.5:7b")
-OLLAMA_URL = _get("OLLAMA_URL", "http://localhost:11434")
+OLLAMA_URL = _get("OLLAMA_URL", _get("SCREEN_WATCHER_OLLAMA_URL", "http://127.0.0.1:11434"))
+OLLAMA_AUTOSTART = _get("OLLAMA_AUTOSTART", "true").lower() == "true"
+# Alias : démarrer SW au boot complet (même sémantique que SCREEN_WATCHER_ENABLED)
+SCREEN_WATCHER_AUTOSTART = _get(
+    "SCREEN_WATCHER_AUTOSTART",
+    "true" if SCREEN_WATCHER_ENABLED else "false",
+).lower() == "true"
 
 # Identité de la machine — sert pour register_device + screen_watcher
 DEVICE_ID = _get("DEVICE_ID", socket.gethostname())

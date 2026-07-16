@@ -17,6 +17,7 @@ from api.service_control import (
     _get_all_services_status,
     _start_service,
     _stop_service,
+    get_service_detail,
 )
 from database import get_voice_debug_logs
 from websocket_registry import broadcast_ws
@@ -86,6 +87,12 @@ async def control_list_services():
     return {"services": _get_all_services_status()}
 
 
+@router.get("/api/control/{service}/detail")
+async def control_service_detail(service: str):
+    """Detail enrichi (health Ollama, heartbeat Screen Watcher, …)."""
+    return await get_service_detail(service)
+
+
 @router.post("/api/control/{service}/start")
 async def control_start_service(service: str):
     """Demarre un service specifique."""
@@ -103,9 +110,16 @@ async def control_stop_service(service: str):
 @router.post("/api/control/{service}/restart")
 async def control_restart_service(service: str):
     """Redemarre un service (stop + start)."""
+    svc = service.strip().lower().replace("-", "_")
+    # Restart Ollama : SW s'arrête avec Ollama, pas de relance auto SW
     await _stop_service(service)
     await asyncio.sleep(1.0)
     result = await _start_service(service)
+    if svc == "ollama":
+        result = {
+            **result,
+            "screen_watcher_note": "Screen Watcher arrêté — démarrage manuel requis",
+        }
     return result
 
 

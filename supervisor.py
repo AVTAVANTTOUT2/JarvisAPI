@@ -269,16 +269,55 @@ SERVICES = [
 
 async def _svc_status(svc: dict) -> dict:
     sid, port = svc["id"], svc["port"]
+    if sid == "ollama":
+        from integrations.ollama_control import check_ollama_health
+
+        health = await asyncio.to_thread(check_ollama_health)
+        return {
+            **svc,
+            "running": bool(health.get("healthy")),
+            "status": health.get("status"),
+            "healthy": bool(health.get("healthy")),
+            "latency_ms": health.get("latency_ms"),
+            "models": health.get("models"),
+            "vision_model": health.get("vision_model"),
+            "vision_model_resolved": health.get("vision_model_resolved"),
+            "vision_model_available": health.get("vision_model_available"),
+            "error": health.get("error"),
+            "port": health.get("port") or port,
+        }
+
     running = _managed_alive(sid) or _port_open(port)
     result = {**svc, "running": running}
     if sid == "backend" and running:
         try:
-            resp = await _http.get(f"{BACKEND_URL}/api/control/services", timeout=5)
+            resp = await _http.get(
+                f"{BACKEND_URL}/api/control/services",
+                timeout=5,
+                headers={"X-Jarvis-Supervisor": "1"},
+            )
             if resp.status_code == 200:
                 result["sub_services"] = resp.json().get("services", [])
         except Exception:
             pass
     return result
+
+
+async def _stop_screen_watcher_via_backend() -> dict:
+    """Arrête Screen Watcher via l'API backend avant un stop Ollama."""
+    if not _port_open(BACKEND_PORT):
+        return {"ok": True, "message": "Backend arrete — Screen Watcher hors process"}
+    try:
+        log.info("Screen Watcher stop requested because Ollama is stopping")
+        resp = await _http.post(
+            f"{BACKEND_URL}/api/control/screen_watcher/stop",
+            timeout=20,
+            headers={"X-Jarvis-Supervisor": "1"},
+        )
+        return resp.json() if resp.status_code < 500 else {"ok": False, "error": resp.text}
+    except Exception as exc:
+        log.warning("Echec stop Screen Watcher avant Ollama : %s", exc)
+        return {"ok": False, "error": str(exc)}
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -405,12 +444,16 @@ def _start_sync(sid: str) -> dict:
         return {"ok": True, "message": f"TV dashboard demarre (PID {proc.pid})"}
 
     if sid == "ollama":
-        if _port_open(11434):
-            return {"ok": True, "message": "Ollama deja actif"}
-        proc = subprocess.Popen(["ollama", "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        _managed["ollama"] = proc
-        log.info("Ollama demarre (PID %d)", proc.pid)
-        return {"ok": True, "message": f"Ollama demarre (PID {proc.pid})"}
+        from integrations.ollama_control import start_ollama
+
+        log.info("Ollama start requested")
+        result = start_ollama()
+        if result.get("pid"):
+            # Conservé pour _managed_alive — process peut être hors Popen si déjà up
+            _managed["ollama"] = None
+        if result.get("ok"):
+            log.info("Ollama healthy")
+        return result
 
     if sid == "vite_dev":
         if _port_open(5173):
@@ -455,13 +498,12 @@ def _stop_sync(sid: str) -> dict:
         return {"ok": True, "message": "TV dashboard arrete"}
 
     if sid == "ollama":
-        proc = _managed.get("ollama")
-        if proc and proc.poll() is None:
-            proc.terminate()
+        from integrations.ollama_control import stop_ollama
+
+        log.info("Ollama stop requested")
         _managed["ollama"] = None
-        subprocess.run(["pkill", "-f", "ollama"], capture_output=True)
-        log.info("Ollama arrete")
-        return {"ok": True, "message": "Ollama arrete"}
+        result = stop_ollama()
+        return result
 
     if sid == "vite_dev":
         proc = _managed.get("vite_dev")
@@ -506,16 +548,29 @@ async def api_start(sid: str):
 
 @app.post("/api/supervisor/{sid}/stop")
 async def api_stop(sid: str):
+    sw_result = None
+    if sid == "ollama":
+        sw_result = await _stop_screen_watcher_via_backend()
     result = await asyncio.to_thread(_stop_sync, sid)
+    if sw_result is not None:
+        result = {**result, "screen_watcher": sw_result}
     await _broadcast({"type": "service_update", "service": sid, "action": "stop", **result})
     return result
 
 
 @app.post("/api/supervisor/{sid}/restart")
 async def api_restart(sid: str):
+    # Restart Ollama seul : SW arrêté avec Ollama, NON relancé automatiquement
+    if sid == "ollama":
+        await _stop_screen_watcher_via_backend()
     await asyncio.to_thread(_stop_sync, sid)
     await asyncio.sleep(2)
     result = await asyncio.to_thread(_start_sync, sid)
+    if sid == "ollama":
+        result = {
+            **result,
+            "screen_watcher_note": "Screen Watcher arrêté — démarrage manuel requis",
+        }
     await _broadcast({"type": "service_update", "service": sid, "action": "restart", **result})
     return result
 
@@ -523,8 +578,11 @@ async def api_restart(sid: str):
 @app.post("/api/supervisor/start-all")
 async def api_start_all():
     results = {}
-    for sid in ["backend", "tv_dashboard", "ollama"]:
+    # Ollama d'abord (health), puis backend (autostart SW via daemon)
+    for sid in ["ollama", "tv_dashboard", "backend"]:
         results[sid] = await asyncio.to_thread(_start_sync, sid)
+        if sid == "ollama":
+            await asyncio.sleep(1)
         if sid == "backend":
             await asyncio.sleep(3)
     await _broadcast({"type": "bulk_update", "action": "start-all", "results": results})
@@ -534,6 +592,7 @@ async def api_start_all():
 @app.post("/api/supervisor/stop-all")
 async def api_stop_all():
     results = {}
+    await _stop_screen_watcher_via_backend()
     for sid in ["tv_dashboard", "ollama", "vite_dev", "backend"]:
         results[sid] = await asyncio.to_thread(_stop_sync, sid)
     await _broadcast({"type": "bulk_update", "action": "stop-all", "results": results})
@@ -542,12 +601,15 @@ async def api_stop_all():
 
 @app.post("/api/supervisor/restart-all")
 async def api_restart_all():
+    await _stop_screen_watcher_via_backend()
     for sid in ["tv_dashboard", "ollama", "vite_dev", "backend"]:
         await asyncio.to_thread(_stop_sync, sid)
     await asyncio.sleep(2)
     results = {}
-    for sid in ["backend", "tv_dashboard", "ollama"]:
+    for sid in ["ollama", "tv_dashboard", "backend"]:
         results[sid] = await asyncio.to_thread(_start_sync, sid)
+        if sid == "ollama":
+            await asyncio.sleep(1)
         if sid == "backend":
             await asyncio.sleep(3)
     await _broadcast({"type": "bulk_update", "action": "restart-all", "results": results})
@@ -568,27 +630,82 @@ async def api_logs(sid: str, lines: int = 50):
 # ── Sous-services ────────────────────────────────────────────────────────
 
 @app.get("/api/supervisor/sub-services")
-async def api_sub_services():
+async def api_sub_services(request: Request):
     if not _port_open(BACKEND_PORT):
         return {"available": False, "services": [], "message": "Backend arrete"}
     try:
-        resp = await _http.get(f"{BACKEND_URL}/api/control/services")
+        headers = {"X-Jarvis-Supervisor": "1"}
+        cookie = request.headers.get("cookie")
+        if cookie:
+            headers["cookie"] = cookie
+        resp = await _http.get(f"{BACKEND_URL}/api/control/services", headers=headers)
         return {"available": True, **resp.json()}
     except Exception as exc:
         return {"available": False, "services": [], "error": str(exc)}
 
 
 @app.post("/api/supervisor/sub/{sid}/{action}")
-async def api_sub_action(sid: str, action: str):
+async def api_sub_action(sid: str, action: str, request: Request):
     if not _port_open(BACKEND_PORT):
         return {"ok": False, "error": "Backend arrete"}
     if action not in ("start", "stop", "restart"):
         return {"ok": False, "error": f"Action invalide : {action}"}
     try:
-        resp = await _http.post(f"{BACKEND_URL}/api/control/{sid}/{action}", timeout=15)
+        headers = {"X-Jarvis-Supervisor": "1"}
+        cookie = request.headers.get("cookie")
+        if cookie:
+            headers["cookie"] = cookie
+        resp = await _http.post(
+            f"{BACKEND_URL}/api/control/{sid}/{action}",
+            timeout=30,
+            headers=headers,
+        )
         return resp.json()
     except Exception as exc:
         return {"ok": False, "error": str(exc)}
+
+
+@app.get("/api/supervisor/services/ollama")
+async def api_ollama_detail():
+    from integrations.ollama_control import check_ollama_health
+
+    health = await asyncio.to_thread(check_ollama_health)
+    return {"ok": True, **health}
+
+
+@app.post("/api/supervisor/services/ollama/{action}")
+async def api_ollama_action(action: str):
+    if action not in ("start", "stop", "restart"):
+        return {"ok": False, "error": f"Action invalide : {action}"}
+    if action == "start":
+        return await api_start("ollama")
+    if action == "stop":
+        return await api_stop("ollama")
+    return await api_restart("ollama")
+
+
+@app.get("/api/supervisor/services/screen-watcher")
+async def api_screen_watcher_detail(request: Request):
+    if not _port_open(BACKEND_PORT):
+        return {"ok": False, "status": "stopped", "error": "Backend arrete"}
+    headers = {"X-Jarvis-Supervisor": "1"}
+    cookie = request.headers.get("cookie")
+    if cookie:
+        headers["cookie"] = cookie
+    try:
+        resp = await _http.get(
+            f"{BACKEND_URL}/api/control/screen_watcher/detail",
+            headers=headers,
+            timeout=10,
+        )
+        return resp.json()
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+@app.post("/api/supervisor/services/screen-watcher/{action}")
+async def api_screen_watcher_action(action: str, request: Request):
+    return await api_sub_action("screen_watcher", action, request)
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -895,6 +1012,20 @@ async def lifespan(_app: FastAPI):
             log.info("Caffeinate actif — veille systeme desactivee (affichage, idle, disque, sleep)")
         except Exception as e:
             log.warning("Caffeinate indisponible : %s", e)
+
+    # Ollama d'abord (health) pour que le Screen Watcher puisse s'autostarter
+    ollama_autostart = getattr(config, "OLLAMA_AUTOSTART", True)
+    if os.getenv("OLLAMA_AUTOSTART", "true" if ollama_autostart else "false").lower() == "true":
+        try:
+            log.info("Auto-start Ollama...")
+            ollama_result = _start_sync("ollama")
+            if not ollama_result.get("ok") and not ollama_result.get("healthy"):
+                log.warning(
+                    "Ollama non healthy au boot — JARVIS continue sans Screen Watcher (%s)",
+                    ollama_result.get("error") or ollama_result.get("message"),
+                )
+        except Exception as exc:
+            log.warning("Auto-start Ollama échoué : %s — suite sans vision", exc)
 
     if os.getenv("SUPERVISOR_AUTO_START_BACKEND", "true").lower() == "true":
         if not _port_open(BACKEND_PORT):

@@ -116,7 +116,7 @@ class JarvisDaemon:
         tasks = [
             asyncio.create_task(self._tts_loop(), name="daemon_tts"),
             asyncio.create_task(self._notification_loop(), name="daemon_notif"),
-            asyncio.create_task(self.screen_watcher.start(), name="daemon_screen"),
+            asyncio.create_task(self._screen_watcher_autostart(), name="daemon_screen"),
             asyncio.create_task(self._calendar_reminder_loop(), name="daemon_calendar"),
             asyncio.create_task(self._device_health_loop(), name="daemon_health"),
         ]
@@ -154,6 +154,29 @@ class JarvisDaemon:
             self.screen_watcher.stop()
         except Exception:
             pass
+
+    async def _screen_watcher_autostart(self) -> None:
+        """Autostart Screen Watcher au boot — ne bloque pas le daemon si Ollama est KO."""
+        try:
+            result = await self.screen_watcher.ensure_started(
+                require_ollama=True,
+                autostart=True,
+            )
+            if not result.get("ok"):
+                logger.warning(
+                    "[daemon] Screen Watcher non démarré au boot : %s (%s)",
+                    result.get("status"),
+                    result.get("message"),
+                )
+                return
+            task = self.screen_watcher._loop_task
+            if task is not None:
+                await task
+        except asyncio.CancelledError:
+            await self.screen_watcher.stop_async(reason="daemon_stop")
+            raise
+        except Exception as exc:
+            logger.warning("[daemon] Screen Watcher autostart erreur : %s", exc)
 
     # ── Callbacks Screen Watcher ──────────────────────────────────────────────
 

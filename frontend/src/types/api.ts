@@ -52,7 +52,27 @@ export interface ServiceInfo {
   category: string
   running: boolean
   state?: string
+  status?: string
   can_control: boolean
+  healthy?: boolean
+  port?: number
+  latency_ms?: number | null
+  models?: Array<{
+    name: string
+    size?: number
+    parameter_size?: string
+    family?: string
+  }>
+  vision_model?: string
+  vision_model_resolved?: string | null
+  vision_model_available?: boolean
+  error?: string | null
+  autostart?: boolean
+  last_heartbeat?: string | null
+  last_capture_at?: string | null
+  last_analysis_at?: string | null
+  error_count?: number
+  detail?: string | null
 }
 
 export interface ConversationSummary {
@@ -176,6 +196,14 @@ export interface SupervisorService {
   port: number
   running: boolean
   can_control: boolean
+  status?: string
+  healthy?: boolean
+  latency_ms?: number | null
+  models?: ServiceInfo['models']
+  vision_model?: string
+  vision_model_resolved?: string | null
+  vision_model_available?: boolean
+  error?: string | null
   sub_services?: ServiceInfo[]
 }
 

@@ -48,10 +48,25 @@ _JPEG_QUALITY_FROM_CONFIG = getattr(config, "SCREEN_JPEG_QUALITY", None)
 JPEG_QUALITY: int = int(_JPEG_QUALITY_FROM_CONFIG) if _JPEG_QUALITY_FROM_CONFIG is not None else 70
 
 
+# États explicites exposés à Control / API
+SCREEN_WATCHER_STATES = frozenset({
+    "stopped",
+    "starting",
+    "running",
+    "stopping",
+    "error",
+    "blocked_ollama",
+    "disabled",
+})
+
+
 class ScreenWatcher:
     def __init__(self) -> None:
         self.enabled = bool(getattr(config, "SCREEN_WATCHER_ENABLED", True))
-        self.interval = int(getattr(config, "SCREEN_WATCHER_INTERVAL", 12))
+        self.interval = int(
+            getattr(config, "SCREEN_WATCHER_INTERVAL", None)
+            or getattr(config, "SCREEN_WATCHER_INTERVAL_SECONDS", 12)
+        )
         self.change_threshold = float(getattr(config, "SCREEN_CHANGE_THRESHOLD", 5))
         self.analysis_threshold = float(getattr(config, "SCREEN_ANALYSIS_THRESHOLD", 15))
         self.ollama_model = str(getattr(config, "SCREEN_VISION_MODEL", "qwen2.5vl:7b"))
@@ -88,12 +103,26 @@ class ScreenWatcher:
         self.idle_seconds: int = 0
         self.idle_alerted: bool = False
         self.running: bool = False
+        self._status: str = "disabled" if not self.enabled else "stopped"
+        self._status_detail: str | None = None
+        self._loop_task: asyncio.Task[None] | None = None
+        self._start_lock = asyncio.Lock()
+        self.last_heartbeat: float | None = None
+        self.last_capture_at: float | None = None
+        self.last_analysis_at: float | None = None
+        self.error_count: int = 0
 
         # Callbacks asynchrones définis par le daemon
         self.on_notable = None  # async (notable_text: str, context: dict) -> None
         self.on_idle = None     # async (idle_minutes: int) -> None
         self._vision_deferred_logged: float = 0.0
         self._vision_task: asyncio.Task[dict | None] | None = None
+
+    @property
+    def status(self) -> str:
+        if not self.enabled and self._status != "running":
+            return "disabled"
+        return self._status
 
     @staticmethod
     def _is_voice_busy() -> bool:
@@ -104,11 +133,135 @@ class ScreenWatcher:
         except Exception:
             return False
 
+    def status_payload(self) -> dict:
+        """État détaillé pour Control / API (jamais dérivé du daemon seul)."""
+        from datetime import datetime, timezone
+
+        def _iso(ts: float | None) -> str | None:
+            if ts is None:
+                return None
+            return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+
+        return {
+            "service": "screen_watcher",
+            "id": "screen_watcher",
+            "name": "Screen Watcher",
+            "description": "Analyse ecran Ollama vision",
+            "category": "monitoring",
+            "status": self.status,
+            "state": self.status,
+            "running": self.status == "running",
+            "can_control": True,
+            "autostart": bool(self.enabled),
+            "last_heartbeat": _iso(self.last_heartbeat),
+            "last_capture_at": _iso(self.last_capture_at),
+            "last_analysis_at": _iso(self.last_analysis_at),
+            "vision_model": self.ollama_model,
+            "error_count": self.error_count,
+            "detail": self._status_detail,
+            "task_running": bool(self._loop_task and not self._loop_task.done()),
+        }
+
+    def refresh_config_enabled(self) -> None:
+        """Recharge SCREEN_WATCHER_ENABLED sans écraser un arrêt manuel."""
+        self.enabled = bool(getattr(config, "SCREEN_WATCHER_ENABLED", True))
+        if not self.enabled and self._status not in ("running", "starting", "stopping"):
+            self._status = "disabled"
+
     # ── Contrôle ────────────────────────────────────────────────────────────
+
+    async def ensure_started(self, *, require_ollama: bool = True, autostart: bool = False) -> dict:
+        """Démarre la boucle si possible. Ne modifie pas SCREEN_WATCHER_ENABLED."""
+        async with self._start_lock:
+            self.refresh_config_enabled()
+            if not self.enabled:
+                self._status = "disabled"
+                self._status_detail = "SCREEN_WATCHER_ENABLED=false"
+                logger.info("[screen] blocked: disabled by config")
+                return {
+                    "ok": False,
+                    "service": "screen_watcher",
+                    "status": "disabled",
+                    "message": "Screen Watcher désactivé (SCREEN_WATCHER_ENABLED=false)",
+                }
+
+            if self.running and self._loop_task and not self._loop_task.done():
+                return {
+                    "ok": True,
+                    "service": "screen_watcher",
+                    "status": "running",
+                    "message": "Déjà actif",
+                    **self.status_payload(),
+                }
+
+            if require_ollama:
+                from integrations.ollama_control import check_ollama_health
+
+                health = await asyncio.to_thread(check_ollama_health)
+                if not health.get("healthy"):
+                    self._status = "blocked_ollama"
+                    self._status_detail = "Ollama unavailable"
+                    logger.info("[screen] blocked: Ollama unavailable")
+                    return {
+                        "ok": False,
+                        "service": "screen_watcher",
+                        "status": "blocked_ollama",
+                        "message": "Impossible de démarrer Screen Watcher : Ollama est arrêté.",
+                        "ollama": health,
+                    }
+                if not health.get("vision_model_available"):
+                    self._status = "blocked_ollama"
+                    self._status_detail = health.get("error") or "vision model missing"
+                    logger.info("[screen] blocked: vision model missing")
+                    return {
+                        "ok": False,
+                        "service": "screen_watcher",
+                        "status": "blocked_ollama",
+                        "message": health.get("error")
+                        or "Ollama fonctionne, mais aucun modèle vision configuré n'est disponible.",
+                        "ollama": health,
+                    }
+                resolved = health.get("vision_model_resolved")
+                if resolved:
+                    self.ollama_model = str(resolved)
+
+            self._status = "starting"
+            self._status_detail = "autostart" if autostart else "manual"
+            self._loop_task = asyncio.create_task(self.start(), name="screen_watcher_loop")
+            # Preuve de readiness : heartbeat sous 2s
+            deadline = time.time() + 5.0
+            while time.time() < deadline:
+                if self.running and self.last_heartbeat:
+                    break
+                if self._loop_task.done():
+                    break
+                await asyncio.sleep(0.05)
+
+            if self.running:
+                logger.info("[screen] started (%s)", self._status_detail)
+                return {
+                    "ok": True,
+                    "service": "screen_watcher",
+                    "status": "running",
+                    "message": "Screen Watcher démarré",
+                    "ollama": "healthy" if require_ollama else "skipped",
+                    "vision_model": self.ollama_model,
+                    **{k: v for k, v in self.status_payload().items() if k not in ("service", "status")},
+                }
+
+            self._status = self._status if self._status in SCREEN_WATCHER_STATES else "error"
+            return {
+                "ok": False,
+                "service": "screen_watcher",
+                "status": self.status,
+                "message": self._status_detail or "Échec démarrage Screen Watcher",
+                **self.status_payload(),
+            }
 
     async def start(self) -> None:
         """Boucle principale du screen watcher."""
         if not self.enabled:
+            self._status = "disabled"
             logger.info("[screen] désactivé (SCREEN_WATCHER_ENABLED=false)")
             return
 
@@ -117,6 +270,8 @@ class ScreenWatcher:
             return
 
         self.running = True
+        self._status = "running"
+        self.last_heartbeat = time.time()
         logger.info(
             "[screen] démarré — interval=%ss, seuils=%s%%/%s%%, max_width=%spx",
             self.interval, self.change_threshold, self.analysis_threshold, self.max_analysis_width,
@@ -125,15 +280,54 @@ class ScreenWatcher:
         # Détection unique de la résolution logique de l'écran (scale factor retina)
         await self._detect_screen_point_dimensions()
 
-        while self.running:
+        try:
+            while self.running:
+                self.last_heartbeat = time.time()
+                try:
+                    await self._tick()
+                except Exception as e:
+                    self.error_count += 1
+                    self._status = "error"
+                    self._status_detail = str(e)
+                    logger.exception("[screen] erreur tick : %s", e)
+                await asyncio.sleep(self.interval)
+        finally:
+            self.running = False
+            if self._status not in ("disabled", "blocked_ollama"):
+                self._status = "stopped"
+            self.last_image = None
+            logger.info("[screen] stopped")
+
+    async def stop_async(self, *, reason: str | None = None) -> dict:
+        """Arrêt propre de la boucle (ne touche pas SCREEN_WATCHER_ENABLED)."""
+        logger.info("[screen] stop requested%s", f" ({reason})" if reason else "")
+        self._status = "stopping"
+        self._status_detail = reason
+        self.running = False
+        self.defer_for_voice()
+        task = self._loop_task
+        if task is not None and not task.done():
+            task.cancel()
             try:
-                await self._tick()
-            except Exception as e:
-                logger.exception("[screen] erreur tick : %s", e)
-            await asyncio.sleep(self.interval)
+                await asyncio.wait_for(task, timeout=5.0)
+            except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+                pass
+        self._loop_task = None
+        self.running = False
+        self._status = "disabled" if not self.enabled else "stopped"
+        return {
+            "ok": True,
+            "service": "screen_watcher",
+            "status": self.status,
+            "message": "Screen Watcher arrêté",
+            **self.status_payload(),
+        }
 
     def stop(self) -> None:
+        """Arrêt synchrone (compat daemon) — lance le flag, annule la vision."""
         self.running = False
+        if self._status not in ("disabled",):
+            self._status = "stopping"
         self.defer_for_voice()
 
     def defer_for_voice(self) -> None:
@@ -146,10 +340,14 @@ class ScreenWatcher:
 
     async def _tick(self) -> None:
         """Un cycle de capture + crop + analyse."""
+        if self._status == "error":
+            self._status = "running"
+
         # 1. Capture écran complet (sans resize)
         img, tmp_path = await self._capture()
         if img is None:
             return
+        self.last_capture_at = time.time()
 
         # 2. Fenêtre active (app + bounds)
         window_info = await self._get_active_window_info()
@@ -210,6 +408,7 @@ class ScreenWatcher:
             finally:
                 self._vision_task = None
             if analysis:
+                self.last_analysis_at = time.time()
                 save_screen_activity(
                     device=self.device,
                     app=analysis.get("app") or current_app,
