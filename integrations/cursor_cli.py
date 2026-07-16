@@ -45,12 +45,15 @@ class CursorCliInfo:
 
 
 def _run(cmd: list[str], timeout: float = 15.0) -> subprocess.CompletedProcess[str]:
+    # Inspection CLI : PATH minimal suffit ; pas de dump complet d'os.environ.
+    from integrations.cursor_env import build_cursor_safe_env
+
     return subprocess.run(
         cmd,
         capture_output=True,
         text=True,
         timeout=timeout,
-        env={**os.environ, "NO_OPEN_BROWSER": "1"},
+        env=build_cursor_safe_env(),
     )
 
 
@@ -127,13 +130,17 @@ def build_agent_command(
     prompt: str,
     *,
     workspace: str,
-    force: bool = True,
-    trust: bool = True,
+    force: bool = False,
+    trust: bool = False,
 ) -> list[str]:
     """Construit la commande agent headless selon les flags réellement supportés.
 
     Refuse de construire une commande interactive : sans ``--print`` le CLI
     attendrait une entrée utilisateur et pendrait jusqu'au timeout.
+
+    ``force`` est désactivé par défaut (mode restrictif). ``trust`` n'est
+    ajouté que si demandé ET que ``--workspace`` pointe vers un worktree
+    isolé (jamais $HOME / dépôt principal / /).
     """
     if not info.path:
         raise RuntimeError("Cursor CLI path manquant")
@@ -149,11 +156,13 @@ def build_agent_command(
         cmd = [info.path]
 
     cmd.extend(["--print", "--output-format", "text"])
+    # force/yolo : jamais par défaut ; uniquement si appelant explicite
     if force and info.supports_force:
         cmd.append("--force")
-    if trust and info.supports_trust:
-        cmd.append("--trust")
     if info.supports_workspace:
         cmd.extend(["--workspace", workspace])
+    # trust uniquement sur le workspace worktree fourni (pas global)
+    if trust and info.supports_trust and info.supports_workspace and workspace:
+        cmd.append("--trust")
     cmd.append(prompt)
     return cmd
