@@ -82,7 +82,7 @@ def _validate_point_time(pt: datetime | None) -> str | None:
     # Futur incohérent (> 5 min)
     if (pt - now).total_seconds() > 300:
         return "invalid_timestamp"
-    # Trop ancien (> 7 jours) — hors file Android typique
+    # Trop ancien (> 30 jours) — aligné sur rétention file Android (spec Vague 2B)
     if (now - pt).total_seconds() > 30 * 24 * 3600:
         return "invalid_timestamp"
     return None

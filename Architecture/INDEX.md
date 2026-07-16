@@ -82,7 +82,7 @@ voir [32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md](./32_FRONTEND_DATABASE_SOURCE_OF_
 │  Vues desktop      │ 38 fichiers, 12 940 lignes          │
 │  Vues mobiles      │ 32 fichiers, 4 641 lignes           │
 │  SDK auth partagé  │ 4 fichiers, 373 lignes              │
-│  Base de données   │ 70 persistantes (+FTS→75), mode WAL │
+│  Base de données   │ 71 persistantes (+FTS→76), mode WAL │
 │  Routes API        │ 174 opérations HTTP, 157 chemins    │
 │  WebSocket         │ 1 endpoint, handler dédié           │
 │  Agents LLM        │ 7 agents + orchestrateur            │
@@ -131,7 +131,7 @@ graph TB
     end
 
     subgraph "Database"
-        DB[(SQLite WAL<br/>jarvis.db<br/>70 persistantes<br/>+ FTS → 75)]
+        DB[(SQLite WAL<br/>jarvis.db<br/>71 persistantes<br/>+ FTS → 76)]
     end
 
     subgraph "Données Apple"

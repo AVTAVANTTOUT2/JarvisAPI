@@ -244,7 +244,7 @@ Fermer uniquement 4 zones, sans élargir le scope métier.
 
 Formulation opérationnelle à retenir :
 
-> Le projet a **70 tables persistantes** (75 avec FTS). Le frontend canonique est **`frontend/`** (Next 15 → `frontend/out`), servi en priorité par FastAPI **et** le supervisor `:9000`. Ce frontend est **réellement utilisable** via le supervisor après correction des défauts de routage/proxy/WS. Auth LockGate validée sur instance isolée. Il reste des bugs backend P3 (CUR-01, CUR-02) et des limites d’environnement (micro, données GPS).
+> Le projet a **71 tables persistantes** (76 avec FTS). Le frontend canonique est **`frontend/`** (Next 15 → `frontend/out`), servi en priorité par FastAPI **et** le supervisor `:9000`. Ce frontend est **réellement utilisable** via le supervisor après correction des défauts de routage/proxy/WS. Auth LockGate validée sur instance isolée. Il reste des bugs backend P3 (CUR-01, CUR-02) et des limites d’environnement (micro, données GPS).
 
 **Verdict machine consolidé** : `VALIDATED_WITH_LIMITATIONS`
 
