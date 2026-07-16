@@ -14,6 +14,10 @@ import androidx.room.RoomDatabase
         SyncMetadataEntity::class,
         PendingLocationEntity::class,
         LocationSyncLockEntity::class,
+        ChatConversationEntity::class,
+        ChatMessageEntity::class,
+        PendingChatOperationEntity::class,
+        ChatDraftEntity::class,
     ],
     version = 2,
     exportSchema = false,
@@ -26,6 +30,10 @@ abstract class JarvisDatabase : RoomDatabase() {
     abstract fun syncMetadataDao(): SyncMetadataDao
     abstract fun pendingLocationDao(): PendingLocationDao
     abstract fun locationSyncLockDao(): LocationSyncLockDao
+    abstract fun chatConversationDao(): ChatConversationDao
+    abstract fun chatMessageDao(): ChatMessageDao
+    abstract fun pendingChatOperationDao(): PendingChatOperationDao
+    abstract fun chatDraftDao(): ChatDraftDao
 
     companion object {
         private const val DB_NAME = "jarvis_companion.db"

@@ -4,6 +4,9 @@ object JarvisDestination {
     const val ONBOARDING = "onboarding"
     const val HOME = "home"
     const val CHAT = "chat"
+    const val CHAT_DETAIL = "chat/{localId}"
+
+    fun chatDetail(localId: Long) = "chat/$localId"
     const val VOICE = "voice"
     const val CALENDAR = "calendar"
     const val MORE = "more"

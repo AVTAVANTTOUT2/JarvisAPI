@@ -24,9 +24,18 @@ class VoiceViewModel(application: Application) : AndroidViewModel(application) {
     val state: StateFlow<VoiceUiState> = _state.asStateFlow()
 
     private var activeFile: File? = null
+    private var chatConversationLocalId: Long? = null
 
     init {
         refreshConnection()
+    }
+
+    fun initFromIntent(conversationServerId: Long?, conversationLocalId: Long?) {
+        chatConversationLocalId = conversationLocalId
+        if (conversationServerId != null) {
+            _state.update { it.copy(conversationId = conversationServerId) }
+            persistConversationId(conversationServerId)
+        }
     }
 
     fun refreshConnection() {
@@ -174,6 +183,7 @@ class VoiceViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
         persistConversationId(body.conversationId)
+        refreshChatMessages(body.conversationId)
         val audio = body.audioBase64
         if (!audio.isNullOrBlank()) {
             playResponse(audio, body.audioMimeType)
@@ -213,6 +223,19 @@ class VoiceViewModel(application: Application) : AndroidViewModel(application) {
             .getLong(JarvisSettings.PREF_VOICE_CONVERSATION, -1L)
         if (id > 0) {
             _state.update { it.copy(conversationId = id) }
+        }
+    }
+
+    private fun refreshChatMessages(conversationServerId: Long) {
+        val app = getApplication<Application>()
+        val localId = chatConversationLocalId
+        if (localId != null && localId > 0) {
+            viewModelScope.launch(Dispatchers.IO) {
+                runCatching {
+                    val container = (app as fr.jarvis.companion.app.JarvisApplication).container
+                    container.chatRepository.refreshMessages(localId)
+                }
+            }
         }
     }
 

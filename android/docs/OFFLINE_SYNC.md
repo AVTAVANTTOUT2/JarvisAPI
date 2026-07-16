@@ -1,10 +1,12 @@
-# Offline sync — Vague 1
+# Offline sync — Vague 1 + Chat (Vague 2) + GPS (Vague 2B)
 
 ## Principe
 
-L’UI lit **Room** en premier. Le réseau met à jour Room via `SyncManager.refreshHome()`.
+L'UI lit **Room** en premier. Le réseau met à jour Room via `SyncManager.refreshHome()` (accueil) et les repositories chat (conversations/messages).
 
-## Entités Room (schema v1)
+## Entités Room
+
+### Schema v1 (accueil)
 
 | Table | Rôle |
 |-------|------|
@@ -16,22 +18,53 @@ L’UI lit **Room** en premier. Le réseau met à jour Room via `SyncManager.ref
 | `pending_locations` | File GPS offline-first (Vague 2B) — états PENDING/SENDING/SYNCED/FAILED_*/INVALID |
 | `location_sync_lock` | Verrou mono-worker pour sync batch |
 
-Migrations destructives interdites (`fallbackToDestructiveMigration` absent). Migration `MIGRATION_1_2` recrée `pending_locations` sans perte de données v1.
+### Schema v2 (chat + GPS) — `MIGRATION_1_2`
 
-## SyncManager
+| Table | Rôle |
+|-------|------|
+| `chat_conversations` | Conversations locales + `serverId`, pin/archive |
+| `chat_messages` | Messages avec `deliveryState`, `clientRequestId` unique |
+| `pending_chat_operations` | File offline ordonnée par conversation |
+| `chat_drafts` | Brouillons composer |
+
+Migrations destructives interdites (`fallbackToDestructiveMigration` absent). Migration `MIGRATION_1_2` recrée `pending_locations` sans perte de données v1 et ajoute les tables chat.
+
+## SyncManager (accueil)
 
 Fichier : `core/sync/SyncManager.kt`
 
 1. Vérifie serveur + token natif
-2. GET Bearer : briefing, tasks, calendar (fenêtre jour), notifications
+2. GET Bearer : briefing, tasks, calendar (fenêtre jour), notifications, conversations (métadonnées)
 3. Upsert Room par domaine
-4. Erreurs isolées → `partialErrors` (un widget peut échouer sans tout casser)
-5. HTTP 401 → `unauthorized=true` + `ConnectivityObserver.Unauthorized`
+4. Erreurs isolées → `partialErrors`
+5. HTTP 401 → `unauthorized=true`
+
+## ChatSyncWorker (chat)
+
+Fichier : `core/sync/ChatSyncWorker.kt`
+
+Types d'opérations (`PendingChatOpType`) :
+
+| Type | Endpoint |
+|------|----------|
+| `CREATE_CONVERSATION` | `POST /api/mobile/conversations` |
+| `SEND_MESSAGE` | `POST /api/mobile/chat` (+ `client_message_id`) |
+| `RENAME` | `PATCH /api/conversations/{id}` |
+| `PIN` / `UNPIN` | `POST /api/conversations/{id}/pin` |
+| `ARCHIVE` | `POST /api/conversations/{id}/archive` |
+| `DELETE` | `DELETE /api/conversations/{id}` |
+
+Idempotence : `client_message_id` 8–64 caractères alphanum/`_`/`-`, unique par message Room.
+
+Streaming temps réel : `JarvisChatWebSocket` (prioritaire si connecté).
 
 ## WorkManager
 
-- `SyncWorker` — travail périodique unique ~30 min (Accueil).
-- `LocationSyncWorker` — GPS batch ~15 min + one-shot après insert (`jarvis-location-sync`).
+| Worker | Intervalle | Rôle |
+|--------|------------|------|
+| `SyncWorker` | ~30 min | Accueil |
+| `LocationSyncWorker` | ~15 min | GPS batch + one-shot après insert (`jarvis-location-sync`) |
+| `ChatSyncWorker` | ~15 min | File chat + refresh conversations |
 
 ## GPS offline (Vague 2B)
 
@@ -47,11 +80,4 @@ Fichier : `core/sync/SyncManager.kt`
 
 Ne confond pas « Wi‑Fi OK » et « Mac JARVIS joignable ».
 
-## Hors Vague 1 / 2B GPS
-
-- Pending chat / tasks / calendar mutations
-- WebSocket
-
-GPS offline-first + batch : livré Vague 2B — voir `docs/LOCATION.md`.
-
-Voir plan Vague 1 : `docs/superpowers/plans/2026-07-16-android-production-wave1.md`.
+Voir aussi : `docs/CHAT.md`, `docs/LOCATION.md`.
