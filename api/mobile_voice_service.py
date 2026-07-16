@@ -1,14 +1,15 @@
-"""Pipeline push-to-talk Android : STT local, JARVIS, TTS local."""
+"""Pipeline push-to-talk Android : STT local, JARVIS (voix rapide Flash), TTS local."""
 
 from __future__ import annotations
 
 import asyncio
 import base64
 import logging
+import time
 from typing import Any
 
 import config
-from api.chat_processing import _process_message_internal
+from api.voice_processing import _process_voice_fast
 from audio.audio_format import detect_upload_format, is_encoded_audio_container, tts_audio_mime
 from audio.stt_daemon import is_stt_prompt_echo, stt_local
 from audio.tts import get_tts_by_name, resolve_tts_engine_name, resolve_tts_voice
@@ -106,6 +107,7 @@ async def process_mobile_voice_turn(
 
         conv_id = _resolve_conversation_id(conversation_id)
 
+        _t_stt = time.time()
         try:
             transcript = await asyncio.wait_for(
                 stt_local.transcribe(audio_bytes, language=config.LANGUAGE or "fr"),
@@ -113,6 +115,7 @@ async def process_mobile_voice_turn(
             )
         except asyncio.TimeoutError as exc:
             raise MobileVoiceError("Transcription expirée", 504) from exc
+        stt_ms = round((time.time() - _t_stt) * 1000)
 
         transcript = (transcript or "").strip()
         if not transcript:
@@ -137,9 +140,11 @@ async def process_mobile_voice_turn(
             transcript[:160],
         )
 
+        # Pipeline vocal unifié : même chemin Flash que la voix desktop
+        # (routage cognitif, ack immédiat, actions, délégation Cursor).
         try:
             llm_result = await asyncio.wait_for(
-                _process_message_internal(transcript, conv_id, voice_mode=True),
+                _process_voice_fast(transcript, conv_id, stt_ms=stt_ms),
                 timeout=config.MOBILE_VOICE_LLM_TIMEOUT_SEC,
             )
         except asyncio.TimeoutError as exc:
@@ -162,11 +167,25 @@ async def process_mobile_voice_turn(
         tts_error: str | None = None
 
         if response_text:
+            _t_tts = time.time()
             try:
                 audio_bytes_out = await asyncio.wait_for(
                     tts_engine.synthesize(response_text, emotion=emotion),
                     timeout=config.MOBILE_VOICE_TTS_TIMEOUT_SEC,
                 )
+                trace_id = llm_result.get("trace_id")
+                if trace_id:
+                    try:
+                        from database import update_voice_debug_latency
+
+                        tts_ms = round((time.time() - _t_tts) * 1000)
+                        update_voice_debug_latency(
+                            int(trace_id),
+                            tts_ms=tts_ms,
+                            total_ms=int(llm_result.get("latency_ms") or 0) + tts_ms,
+                        )
+                    except Exception as exc:
+                        logger.debug("[mobile_voice] update tts latency : %s", exc)
             except asyncio.TimeoutError:
                 tts_error = "Synthèse vocale expirée"
                 logger.warning("[mobile_voice] TTS timeout device=%s", device_id)
@@ -189,7 +208,7 @@ async def process_mobile_voice_turn(
             "tts_voice": resolve_tts_voice(tts_engine_name),
             "source": "android_voice",
             "device_id": device_id,
-            "agent": llm_result.get("agent"),
+            "agent": "voice",
             "emotion": emotion,
         }
         if tts_error:

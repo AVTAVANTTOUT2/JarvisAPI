@@ -17,14 +17,51 @@ from database import _save_voice_debug_trace, get_conversation_history, get_curr
 
 logger = logging.getLogger("jarvis")
 
+# ── Commandes de contrôle vocal (barge-in) — zéro LLM, réponse instantanée ──
+# Matchées uniquement sur des énoncés courts pour éviter les faux positifs.
+_VOICE_CONTROL_MAX_LEN = 30
+_VOICE_CONTROL_COMMANDS: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("arrete", "arrête", "stop", "tais-toi", "tais toi", "chut", "silence", "stoppe"),
+     "Bien, Monsieur."),
+    (("annule", "annule tout", "laisse tomber", "oublie", "oublie ca", "oublie ça"),
+     "C'est annulé, Monsieur."),
+    (("merci ca suffit", "merci ça suffit", "c'est tout", "c'est bon merci", "ca suffit", "ça suffit"),
+     "À votre service, Monsieur."),
+)
 
-async def _process_voice_fast(text: str, conversation_id: int) -> dict:
+
+def _match_voice_control(text: str) -> str | None:
+    """Commande de contrôle barge-in ? Retourne la réponse fixe ou None."""
+    t = (text or "").strip().lower().rstrip(".!?, ")
+    if not t or len(t) > _VOICE_CONTROL_MAX_LEN:
+        return None
+    for keywords, response in _VOICE_CONTROL_COMMANDS:
+        if t in keywords:
+            return response
+    return None
+
+
+async def _process_voice_fast(text: str, conversation_id: int, *, stt_ms: int = 0) -> dict:
     """Pipeline vocal ultra-rapide — routage cognitif + Flash + actions/Cursor."""
     import time as _time
     from api.voice_cognitive import maybe_handle_cognitive_voice
 
     _t0 = _time.time()
-    early = await maybe_handle_cognitive_voice(text, conversation_id, t0=_t0)
+
+    # ── Contrôle barge-in déterministe (« arrête », « annule »…) ──
+    control = _match_voice_control(text)
+    if control is not None:
+        _save_voice_messages(conversation_id, text, control, 0.0)
+        return {
+            "text": control,
+            "emotion": "neutral",
+            "cost": 0.0,
+            "action": None,
+            "latency_ms": round((_time.time() - _t0) * 1000),
+            "debug_trace": {"input_text": text, "response_clean": control, "model": "control"},
+        }
+
+    early = await maybe_handle_cognitive_voice(text, conversation_id, t0=_t0, stt_ms=stt_ms)
     if early and not early.get("__continue__"):
         return early
     debug_trace = (early or {}).get("debug_trace") or {}
@@ -114,6 +151,7 @@ RÈGLES SUPPLEMENTAIRES :
         from jarvis.cognitive import route_request
         intent = intent or route_request(text, interaction_mode="voice")
         debug_trace = build_voice_debug_trace(text, intent, 0)
+    debug_trace["latency_stt_ms"] = int(stt_ms or 0)
     debug_trace["system_prompt"] = system
     debug_trace["messages_sent"] = [{"role": m["role"], "content": m["content"][:200]} for m in history]
     debug_trace["model"] = getattr(config, "DEEPSEEK_FAST_MODEL", "deepseek-chat")
@@ -144,7 +182,7 @@ RÈGLES SUPPLEMENTAIRES :
         debug_trace["latency_llm_pass1_ms"] = round((_time.time() - _t_llm1) * 1000)
         debug_trace["latency_total_ms"] = round((_time.time() - _t0) * 1000)
         asyncio.create_task(_broadcast_voice_debug(debug_trace))
-        _save_voice_debug_trace(debug_trace)
+        trace_id = _save_voice_debug_trace(debug_trace)
         return {
             "text": "Desole Monsieur, un probleme technique.",
             "emotion": "concerned",
@@ -152,6 +190,7 @@ RÈGLES SUPPLEMENTAIRES :
             "action": None,
             "latency_ms": debug_trace["latency_total_ms"],
             "debug_trace": debug_trace,
+            "trace_id": trace_id,
         }
 
     # ── 5. Extraire l'emotion (tag [emotion] en debut de reponse) ─────────────
@@ -186,7 +225,7 @@ RÈGLES SUPPLEMENTAIRES :
 
         _save_voice_messages(conversation_id, text, response_text, total_cost)
         asyncio.create_task(_broadcast_voice_debug(debug_trace))
-        _save_voice_debug_trace(debug_trace)
+        trace_id = _save_voice_debug_trace(debug_trace)
 
         latency_ms = debug_trace["latency_total_ms"]
         logger.info(
@@ -200,6 +239,7 @@ RÈGLES SUPPLEMENTAIRES :
             "action": None,
             "latency_ms": latency_ms,
             "debug_trace": debug_trace,
+            "trace_id": trace_id,
         }
 
     # ── 7. Action detectee -> parser de maniere robuste ──────────────────────
@@ -401,7 +441,7 @@ Date : {horodatage}."""
 
     _save_voice_messages(conversation_id, text, response_text, total_cost)
     asyncio.create_task(_broadcast_voice_debug(debug_trace))
-    _save_voice_debug_trace(debug_trace)
+    trace_id = _save_voice_debug_trace(debug_trace)
 
     latency_ms = debug_trace["latency_total_ms"]
     logger.info(
@@ -416,4 +456,5 @@ Date : {horodatage}."""
         "action": action_result,
         "latency_ms": latency_ms,
         "debug_trace": debug_trace,
+        "trace_id": trace_id,
     }

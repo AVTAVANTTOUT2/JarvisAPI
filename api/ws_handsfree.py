@@ -33,6 +33,8 @@ async def _handle_hands_free_blob(
             await ws.send_json({"type": "listening"})
 
     try:
+        import time as _time
+
         await ws.send_json({"type": "processing"})
 
         if stt is None or not getattr(stt, "available", False):
@@ -44,6 +46,7 @@ async def _handle_hands_free_blob(
             await reset_listening()
             return
 
+        _t_stt = _time.time()
         try:
             text = await stt.transcribe(audio_bytes, language=config.LANGUAGE)
         except Exception as e:
@@ -51,6 +54,7 @@ async def _handle_hands_free_blob(
             await ws.send_json({"type": "error", "message": f"Transcription : {type(e).__name__}"})
             await reset_listening()
             return
+        stt_ms = round((_time.time() - _t_stt) * 1000)
 
         await ws.send_json({
             "type": "voice_debug",
@@ -69,7 +73,7 @@ async def _handle_hands_free_blob(
         conv_session["is_speaking"] = True
 
         try:
-            result = await _process_voice_fast(text, cid)
+            result = await _process_voice_fast(text, cid, stt_ms=stt_ms)
             display_text = finalize_assistant_display_text(result.get("text", ""))
             emotion = result.get("emotion", "neutral") or "neutral"
             await ws.send_json({
@@ -83,7 +87,22 @@ async def _handle_hands_free_blob(
                 "cost": float(result.get("cost") or 0.0),
                 "emotion": emotion,
             })
+            _t_tts = _time.time()
             await _send_tts_streaming(ws, display_text, emotion)
+            # Complète la trace persistée avec la latence TTS réelle
+            trace_id = result.get("trace_id")
+            if trace_id:
+                try:
+                    from database import update_voice_debug_latency
+
+                    tts_ms = round((_time.time() - _t_tts) * 1000)
+                    update_voice_debug_latency(
+                        int(trace_id),
+                        tts_ms=tts_ms,
+                        total_ms=int(result.get("latency_ms") or 0) + tts_ms,
+                    )
+                except Exception as e:
+                    logger.debug("[hands_free] update tts latency : %s", e)
         except Exception as e:
             logger.exception("traitement message mains libres : %s", e)
             await ws.send_json({"type": "error", "message": f"Erreur agent : {type(e).__name__}"})
