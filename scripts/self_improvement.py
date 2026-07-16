@@ -76,10 +76,55 @@ def collect_evidence() -> list[dict[str, Any]]:
         from database.core import get_db
 
         with get_db() as conn:
-            # Contacts : recherches fréquentes sans résolution (si table logs absente → skip)
-            pass
-    except Exception:
-        pass
+            # Actions LLM en échec répété (llm_action_logs) — preuve d'un outil
+            # cassé ou d'un prompt qui produit des actions invalides.
+            rows = conn.execute(
+                """
+                SELECT action_type, COUNT(*) AS n
+                FROM llm_action_logs
+                WHERE status = 'error'
+                  AND created_at > datetime('now', '-7 days')
+                GROUP BY action_type
+                HAVING n >= 5
+                ORDER BY n DESC
+                LIMIT 3
+                """
+            ).fetchall()
+            for row in rows:
+                evidence.append({
+                    "type": "action_failures",
+                    "action_type": str(row["action_type"]),
+                    "count": int(row["n"]),
+                    "impact": f"Action `{row['action_type']}` en échec {row['n']} fois sur 7 jours",
+                    "risk": "medium",
+                    "template_id": "bug_fix",
+                })
+    except Exception as exc:
+        logger.debug("[self_improvement] action evidence: %s", exc)
+
+    try:
+        from database.core import get_db
+
+        with get_db() as conn:
+            # Réponses vocales vides / erreurs pipeline — preuve de fragilité voix
+            row = conn.execute(
+                """
+                SELECT COUNT(*) AS n
+                FROM voice_debug_log
+                WHERE created_at > datetime('now', '-7 days')
+                  AND (response_clean = '' OR response_clean LIKE 'Desole%probleme technique%')
+                """
+            ).fetchone()
+            if row and int(row["n"] or 0) >= 5:
+                evidence.append({
+                    "type": "voice_empty_responses",
+                    "count": int(row["n"]),
+                    "impact": f"{row['n']} tours vocaux sans réponse exploitable sur 7 jours",
+                    "risk": "medium",
+                    "template_id": "voice_pipeline",
+                })
+    except Exception as exc:
+        logger.debug("[self_improvement] voice empty evidence: %s", exc)
 
     return evidence
 
