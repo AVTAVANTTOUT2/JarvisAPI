@@ -54,6 +54,13 @@ class VoiceRecorder(private val context: Context) {
         outputFile = null
     }
 
+    /** Niveau micro normalisé 0..1 basé sur maxAmplitude MediaRecorder. */
+    fun normalizedAmplitude(): Float {
+        if (!recording.get()) return 0f
+        val raw = runCatching { recorder?.maxAmplitude ?: 0 }.getOrDefault(0)
+        return (raw.toFloat() / MAX_AMPLITUDE).coerceIn(0f, 1f)
+    }
+
     private fun stopInternal(deleteFile: Boolean) {
         recording.set(false)
         recorder?.runCatching {
@@ -70,5 +77,6 @@ class VoiceRecorder(private val context: Context) {
     companion object {
         private const val SAMPLE_RATE_HZ = 16_000
         private const val BIT_RATE = 64_000
+        private const val MAX_AMPLITUDE = 32767f
     }
 }

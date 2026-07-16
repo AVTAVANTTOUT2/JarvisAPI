@@ -1,20 +1,25 @@
 package fr.jarvis.companion.feature.chat
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.Chat
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Archive
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.outlined.Archive
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.PushPin
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -24,10 +29,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -37,14 +42,23 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import fr.jarvis.companion.core.connectivity.ConnectivityState
 import fr.jarvis.companion.core.database.ChatConversationEntity
+import fr.jarvis.companion.core.database.ConversationSyncState
 import fr.jarvis.companion.core.ui.components.ErrorCallout
-import fr.jarvis.companion.core.ui.components.NetworkStatusBadge
+import fr.jarvis.companion.core.ui.components.JarvisEmptyState
+import fr.jarvis.companion.core.ui.components.JarvisGlassCard
+import fr.jarvis.companion.core.ui.components.JarvisMonogram
+import fr.jarvis.companion.core.ui.components.JarvisOfflineBanner
+import fr.jarvis.companion.core.ui.components.JarvisSectionLabel
 import fr.jarvis.companion.core.ui.components.SectionHeader
+import fr.jarvis.companion.core.ui.format.JarvisTimeFormat
+import fr.jarvis.companion.ui.theme.JarvisColors
+import fr.jarvis.companion.ui.theme.JarvisSpacing
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -57,11 +71,13 @@ fun ConversationListScreen(
 
     Scaffold(
         modifier = modifier,
-        topBar = {
-            TopAppBar(title = { Text("Conversations") })
-        },
+        containerColor = Color.Transparent,
         floatingActionButton = {
-            FloatingActionButton(onClick = { viewModel.createConversation(onOpenChat) }) {
+            FloatingActionButton(
+                onClick = { viewModel.createConversation(onOpenChat) },
+                containerColor = JarvisColors.Cyan,
+                contentColor = JarvisColors.Bg,
+            ) {
                 Icon(Icons.Default.Add, contentDescription = "Nouvelle conversation")
             }
         },
@@ -76,36 +92,65 @@ fun ConversationListScreen(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                    .padding(horizontal = JarvisSpacing.lg),
+                verticalArrangement = Arrangement.spacedBy(JarvisSpacing.md),
             ) {
-                NetworkStatusBadge(
-                    state = state.connectivity,
-                    cachedHint = state.connectivity == ConnectivityState.Offline,
+                SectionHeader(
+                    "Conversations",
+                    modifier = Modifier.padding(top = JarvisSpacing.lg),
                 )
+
+                if (state.connectivity == ConnectivityState.Offline) {
+                    JarvisOfflineBanner(
+                        text = "Hors ligne — les messages partiront à la reconnexion",
+                    )
+                }
+
                 OutlinedTextField(
                     value = state.searchQuery,
                     onValueChange = viewModel::setSearchQuery,
                     modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("Rechercher…") },
+                    placeholder = {
+                        Text("Rechercher…", color = JarvisColors.TextTertiary)
+                    },
+                    leadingIcon = {
+                        Icon(
+                            Icons.Outlined.Search,
+                            contentDescription = null,
+                            tint = JarvisColors.TextTertiary,
+                        )
+                    },
                     singleLine = true,
+                    shape = MaterialTheme.shapes.small,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = JarvisColors.Cyan.copy(alpha = 0.5f),
+                        unfocusedBorderColor = JarvisColors.Hairline,
+                        focusedContainerColor = JarvisColors.GlassBottom,
+                        unfocusedContainerColor = JarvisColors.GlassBottom,
+                    ),
                 )
                 state.error?.let { ErrorCallout(it) }
 
                 if (state.groups.isEmpty() && !state.isRefreshing) {
-                    Text(
-                        "Aucune conversation. Appuyez sur + pour commencer.",
-                        modifier = Modifier.padding(24.dp),
-                        style = MaterialTheme.typography.bodyLarge,
+                    JarvisEmptyState(
+                        icon = Icons.AutoMirrored.Outlined.Chat,
+                        title = "Aucune conversation",
+                        description = "Appuyez sur + pour écrire à JARVIS, ou utilisez la voix.",
                     )
                 } else {
-                    LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    LazyColumn(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(JarvisSpacing.sm),
+                        contentPadding = PaddingValues(bottom = 88.dp),
+                    ) {
                         state.groups.forEach { group ->
                             item(key = "header-${group.label}") {
-                                SectionHeader(title = group.label, modifier = Modifier.padding(top = 8.dp))
+                                JarvisSectionLabel(group.label)
                             }
                             items(group.items, key = { it.localId }) { conv ->
-                                ConversationRow(
+                                ConversationCard(
                                     conversation = conv,
                                     onClick = { onOpenChat(conv.localId) },
                                     onRename = { viewModel.startRename(conv) },
@@ -128,7 +173,7 @@ fun ConversationListScreen(
             text = { Text("Cette action est irréversible sur le serveur.") },
             confirmButton = {
                 TextButton(onClick = { viewModel.confirmDelete(localId) }) {
-                    Text("Supprimer")
+                    Text("Supprimer", color = JarvisColors.Red)
                 }
             },
             dismissButton = {
@@ -162,7 +207,7 @@ fun ConversationListScreen(
 }
 
 @Composable
-private fun ConversationRow(
+private fun ConversationCard(
     conversation: ChatConversationEntity,
     onClick: () -> Unit,
     onRename: () -> Unit,
@@ -172,55 +217,103 @@ private fun ConversationRow(
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
 
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
+    JarvisGlassCard(
+        onClick = onClick,
+        contentPadding = PaddingValues(
+            start = JarvisSpacing.md,
+            end = JarvisSpacing.xs,
+            top = JarvisSpacing.md,
+            bottom = JarvisSpacing.md,
+        ),
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                conversation.title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            conversation.lastMessagePreview?.let { preview ->
-                Text(
-                    preview,
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(JarvisSpacing.md),
+        ) {
+            JarvisMonogram(conversation.title.ifBlank { "J" })
+            Column(Modifier.weight(1f)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    if (conversation.isPinned) {
+                        Icon(
+                            Icons.Outlined.PushPin,
+                            contentDescription = "Épinglée",
+                            tint = JarvisColors.Purple,
+                            modifier = Modifier.size(13.dp),
+                        )
+                    }
+                    Text(
+                        conversation.title.ifBlank { "Nouvelle conversation" },
+                        style = MaterialTheme.typography.titleSmall,
+                        color = JarvisColors.TextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    Text(
+                        JarvisTimeFormat.relativeFromNow(
+                            conversation.lastMessageAtMillis ?: conversation.createdAtMillis,
+                        ),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = JarvisColors.TextTertiary,
+                    )
+                }
+                conversation.lastMessagePreview?.let { preview ->
+                    Text(
+                        preview,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = JarvisColors.TextSecondary,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                if (conversation.syncState == ConversationSyncState.PENDING_CREATE ||
+                    conversation.pendingDeletion
+                ) {
+                    Text(
+                        if (conversation.pendingDeletion) "Suppression en attente"
+                        else "Synchronisation en attente",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = JarvisColors.Amber,
+                    )
+                }
+            }
+            IconButton(onClick = { menuExpanded = true }) {
+                Icon(
+                    Icons.Outlined.MoreVert,
+                    contentDescription = "Options de la conversation",
+                    tint = JarvisColors.TextSecondary,
                 )
             }
-        }
-        IconButton(onClick = { menuExpanded = true }) {
-            Text("…")
-        }
-        DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
-            DropdownMenuItem(
-                text = { Text("Renommer") },
-                onClick = { menuExpanded = false; onRename() },
-                leadingIcon = { Icon(Icons.Default.Edit, null) },
-            )
-            DropdownMenuItem(
-                text = { Text(if (conversation.isPinned) "Désépingler" else "Épingler") },
-                onClick = { menuExpanded = false; onPin() },
-                leadingIcon = { Icon(Icons.Default.PushPin, null) },
-            )
-            DropdownMenuItem(
-                text = { Text("Archiver") },
-                onClick = { menuExpanded = false; onArchive() },
-                leadingIcon = { Icon(Icons.Default.Archive, null) },
-            )
-            DropdownMenuItem(
-                text = { Text("Supprimer") },
-                onClick = { menuExpanded = false; onDelete() },
-                leadingIcon = { Icon(Icons.Default.Delete, null) },
-            )
+            DropdownMenu(
+                expanded = menuExpanded,
+                onDismissRequest = { menuExpanded = false },
+            ) {
+                DropdownMenuItem(
+                    text = { Text("Renommer") },
+                    onClick = { menuExpanded = false; onRename() },
+                    leadingIcon = { Icon(Icons.Outlined.Edit, null) },
+                )
+                DropdownMenuItem(
+                    text = { Text(if (conversation.isPinned) "Désépingler" else "Épingler") },
+                    onClick = { menuExpanded = false; onPin() },
+                    leadingIcon = { Icon(Icons.Outlined.PushPin, null) },
+                )
+                DropdownMenuItem(
+                    text = { Text("Archiver") },
+                    onClick = { menuExpanded = false; onArchive() },
+                    leadingIcon = { Icon(Icons.Outlined.Archive, null) },
+                )
+                DropdownMenuItem(
+                    text = { Text("Supprimer", color = JarvisColors.Red) },
+                    onClick = { menuExpanded = false; onDelete() },
+                    leadingIcon = {
+                        Icon(Icons.Outlined.Delete, null, tint = JarvisColors.Red)
+                    },
+                )
+            }
         }
     }
 }

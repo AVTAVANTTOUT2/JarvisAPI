@@ -77,6 +77,7 @@ data class LocationUiState(
     val isFetchingServerDiag: Boolean = false,
     val message: String? = null,
     val showClearPendingConfirm: Boolean = false,
+    val showClearInvalidConfirm: Boolean = false,
 )
 
 class LocationViewModel(
@@ -197,7 +198,7 @@ class LocationViewModel(
                         outcome.syncedCount > 0 -> "${outcome.syncedCount} point(s) synchronisé(s)"
                         outcome.lockNotAcquired -> "Synchronisation déjà en cours"
                         outcome.skippedNoToken -> "Jeton absent — réappairage requis"
-                        outcome.unauthorized -> "Session expirée"
+                        outcome.unauthorized -> "Session expirée — jeton révoqué"
                         outcome.error != null -> outcome.error
                         else -> "Rien à synchroniser"
                     },
@@ -241,6 +242,14 @@ class LocationViewModel(
         _uiState.update { it.copy(showClearPendingConfirm = false) }
     }
 
+    fun requestClearInvalidConfirm() {
+        _uiState.update { it.copy(showClearInvalidConfirm = true) }
+    }
+
+    fun dismissClearInvalidConfirm() {
+        _uiState.update { it.copy(showClearInvalidConfirm = false) }
+    }
+
     fun clearPending() {
         viewModelScope.launch {
             store.cancelAllPending()
@@ -251,7 +260,12 @@ class LocationViewModel(
     fun clearInvalid() {
         viewModelScope.launch {
             store.clearInvalid()
-            _uiState.update { it.copy(message = "Points invalides supprimés") }
+            _uiState.update {
+                it.copy(
+                    showClearInvalidConfirm = false,
+                    message = "Points invalides supprimés",
+                )
+            }
         }
     }
 
@@ -312,7 +326,7 @@ class LocationViewModel(
                     val obj = array.getJSONObject(i)
                     val at = obj.optLong("at")
                     val label = obj.optString("label")
-                    add(TimelineEntry(formatTime(at), label))
+                    add(TimelineEntry(formatTime(at), sanitizeTimelineLabel(label)))
                 }
             }.reversed()
         } catch (_: Exception) {

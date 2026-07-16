@@ -6,10 +6,13 @@ import androidx.lifecycle.viewModelScope
 import fr.jarvis.companion.data.JarvisSettings
 import fr.jarvis.companion.data.JarvisRepository
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -25,6 +28,8 @@ class VoiceViewModel(application: Application) : AndroidViewModel(application) {
 
     private var activeFile: File? = null
     private var chatConversationLocalId: Long? = null
+    private var amplitudeJob: Job? = null
+    private var recordingStartedAtMs: Long = 0L
 
     init {
         refreshConnection()
@@ -84,52 +89,79 @@ class VoiceViewModel(application: Application) : AndroidViewModel(application) {
     fun startRecording() {
         if (_state.value.phase != VoicePhase.Idle && _state.value.phase != VoicePhase.Error) return
         if (!_state.value.isPaired) {
-            _state.update { it.copy(phase = VoicePhase.Error, errorMessage = "Appairage requis") }
+            _state.update {
+                it.copy(
+                    phase = VoicePhase.Error,
+                    errorMessage = "Appairage requis",
+                    amplitude = 0f,
+                )
+            }
             return
         }
         runCatching {
             activeFile = recorder.start()
+            recordingStartedAtMs = System.currentTimeMillis()
             _state.update {
                 it.copy(
                     phase = VoicePhase.Recording,
                     errorMessage = null,
                     statusLine = "Écoute… tapez STOP pour envoyer",
+                    amplitude = 0f,
+                    recordingElapsedMs = 0L,
                 )
             }
+            startAmplitudeTracking()
         }.onFailure { err ->
+            stopAmplitudeTracking(resetAmplitude = true)
+            recordingStartedAtMs = 0L
             _state.update {
                 it.copy(
                     phase = VoicePhase.Error,
                     errorMessage = err.message ?: "Microphone indisponible",
                     statusLine = "Erreur",
+                    recordingElapsedMs = 0L,
                 )
             }
         }
     }
 
     fun cancelRecording() {
+        stopAmplitudeTracking(resetAmplitude = true)
         recorder.cancel()
         activeFile?.delete()
         activeFile = null
-        _state.update { it.copy(phase = VoicePhase.Idle, statusLine = "Prêt") }
+        recordingStartedAtMs = 0L
+        _state.update {
+            it.copy(
+                phase = VoicePhase.Idle,
+                statusLine = "Prêt",
+                amplitude = 0f,
+                recordingElapsedMs = 0L,
+            )
+        }
     }
 
     fun stopRecordingAndSend() {
         if (_state.value.phase != VoicePhase.Recording) return
+        stopAmplitudeTracking(resetAmplitude = true)
         val file = recorder.stop() ?: activeFile
         activeFile = null
         if (file == null || !file.exists() || file.length() < MIN_FILE_BYTES) {
             file?.delete()
             recorder.cancel()
+            recordingStartedAtMs = 0L
             _state.update {
                 it.copy(
                     phase = VoicePhase.Error,
                     errorMessage = "Enregistrement trop court — reparlez un peu plus longtemps",
                     statusLine = "Erreur",
+                    amplitude = 0f,
+                    recordingElapsedMs = 0L,
                 )
             }
             return
         }
+        recordingStartedAtMs = 0L
         viewModelScope.launch { submitTurn(file) }
     }
 
@@ -141,6 +173,7 @@ class VoiceViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     override fun onCleared() {
+        stopAmplitudeTracking(resetAmplitude = false)
         recorder.cancel()
         player.stop()
         activeFile?.delete()
@@ -148,7 +181,15 @@ class VoiceViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun submitTurn(file: File) {
-        _state.update { it.copy(phase = VoicePhase.Sending, statusLine = "Envoi…", errorMessage = null) }
+        _state.update {
+            it.copy(
+                phase = VoicePhase.Sending,
+                statusLine = "Envoi…",
+                errorMessage = null,
+                amplitude = 0f,
+                recordingElapsedMs = 0L,
+            )
+        }
         val convId = _state.value.conversationId
         val result = withContext(Dispatchers.IO) {
             voiceRepository.sendVoiceTurn(file, convId)
@@ -180,6 +221,7 @@ class VoiceViewModel(application: Application) : AndroidViewModel(application) {
                 phase = VoicePhase.Processing,
                 statusLine = "Réponse reçue",
                 errorMessage = body.ttsError,
+                amplitude = 0f,
             )
         }
         persistConversationId(body.conversationId)
@@ -188,7 +230,7 @@ class VoiceViewModel(application: Application) : AndroidViewModel(application) {
         if (!audio.isNullOrBlank()) {
             playResponse(audio, body.audioMimeType)
         } else {
-            _state.update { it.copy(phase = VoicePhase.Idle, statusLine = "Prêt") }
+            _state.update { it.copy(phase = VoicePhase.Idle, statusLine = "Prêt", amplitude = 0f) }
         }
     }
 
@@ -198,7 +240,7 @@ class VoiceViewModel(application: Application) : AndroidViewModel(application) {
             base64 = base64,
             mimeType = mime,
             onComplete = {
-                _state.update { it.copy(phase = VoicePhase.Idle, statusLine = "Prêt") }
+                _state.update { it.copy(phase = VoicePhase.Idle, statusLine = "Prêt", amplitude = 0f) }
             },
             onError = { message ->
                 _state.update {
@@ -206,10 +248,41 @@ class VoiceViewModel(application: Application) : AndroidViewModel(application) {
                         phase = VoicePhase.Idle,
                         statusLine = "Prêt",
                         errorMessage = message,
+                        amplitude = 0f,
                     )
                 }
             },
         )
+    }
+
+    private fun startAmplitudeTracking() {
+        stopAmplitudeTracking(resetAmplitude = false)
+        amplitudeJob = viewModelScope.launch {
+            while (isActive && recorder.isRecording) {
+                val amplitude = recorder.normalizedAmplitude()
+                val elapsed = if (recordingStartedAtMs > 0L) {
+                    System.currentTimeMillis() - recordingStartedAtMs
+                } else {
+                    0L
+                }
+                _state.update { current ->
+                    if (current.phase == VoicePhase.Recording) {
+                        current.copy(amplitude = amplitude, recordingElapsedMs = elapsed)
+                    } else {
+                        current
+                    }
+                }
+                delay(70L)
+            }
+        }
+    }
+
+    private fun stopAmplitudeTracking(resetAmplitude: Boolean) {
+        amplitudeJob?.cancel()
+        amplitudeJob = null
+        if (resetAmplitude) {
+            _state.update { it.copy(amplitude = 0f, recordingElapsedMs = 0L) }
+        }
     }
 
     private fun persistConversationId(id: Long) {
