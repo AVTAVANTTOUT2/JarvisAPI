@@ -4,6 +4,7 @@ export const UNIFIED_ROUTES = [
   'chat', 'voice', 'tasks', 'documents', 'memory', 'status', 'dashboard',
   'contacts', 'map', 'analytics', 'search', 'data', 'conversations', 'calendar',
   'logs', 'monitoring', 'voice-debug', 'control', 'mission', 'mobile', 'mails', 'config',
+  'cognitive',
 ] as const
 
 const PHONE_USER_AGENT = /Android.*Mobile|iPhone|iPod|webOS|Windows Phone|Opera Mini|BlackBerry|IEMobile/i
