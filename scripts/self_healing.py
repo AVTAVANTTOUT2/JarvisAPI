@@ -225,9 +225,11 @@ async def handle_crash_loop(crash_tail: str, root: Path | None = None) -> dict:
             try:
                 from integrations.cursor_delegation import cursor_delegation
 
+                from jarvis.security.redaction import redact_sensitive_text
+
                 job = await cursor_delegation.enqueue(
                     title="Self-repair: crash loop",
-                    user_request=(
+                    user_request=redact_sensitive_text(
                         "Auto-réparation JARVIS après crash loop.\n"
                         f"Diagnostic: {diagnosis.get('root_cause')}\n"
                         f"Fichier suspect: {diagnosis.get('file')}\n"
@@ -239,6 +241,7 @@ async def handle_crash_loop(crash_tail: str, root: Path | None = None) -> dict:
                     risk_level="high",
                     interaction_mode="scheduled",
                     auto_start=True,
+                    require_confirmation=False,  # job scheduler autorisé
                 )
                 notification_service.create(
                     source="system",
@@ -254,6 +257,13 @@ async def handle_crash_loop(crash_tail: str, root: Path | None = None) -> dict:
                 }
             except Exception as exc:
                 logger.warning("[self-healing] délégation Cursor échouée : %s", exc)
+                # pr_only : jamais de patch direct en fallback
+                return {
+                    "ok": False,
+                    "action": "cursor_failed_pr_only",
+                    "error": str(exc)[:300],
+                    "diagnosis": diagnosis,
+                }
 
         if not config.SELF_HEALING_AUTO_APPLY or not diagnosis.get("file") or not diagnosis.get("fix_content"):
             return {"ok": True, "action": "diagnosed_only", "diagnosis": diagnosis}

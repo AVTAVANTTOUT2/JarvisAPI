@@ -114,8 +114,8 @@ class CapabilityRegistry:
                 action_type="where_am_i",
             ),
             "cursor.delegate": Capability(
-                "cursor.delegate", cursor_on, "medium", False, "cursor",
-                "Déléguer une tâche technique à Cursor CLI (worktree isolé)",
+                "cursor.delegate", cursor_on, "medium", True, "cursor",
+                "Déléguer une tâche technique à Cursor CLI (worktree isolé, confirmation requise)",
             ),
             "code_executor": Capability(
                 "code_executor", code_exec and not cursor_on, "high", True, "system",

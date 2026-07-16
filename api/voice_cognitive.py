@@ -117,10 +117,32 @@ async def maybe_handle_cognitive_voice(
     debug_trace = build_voice_debug_trace(text, intent, routing_ms)
     debug_trace["latency_stt_ms"] = int(stt_ms or 0)
 
-    # ── Tâche technique → délégation Cursor + ack immédiat ──
+    # ── Confirmation vocale d'une délégation en attente (« lance », « vas-y ») ──
+    from api.chat_cognitive import is_cursor_confirmation_phrase
+
+    if is_cursor_confirmation_phrase(text):
+        try:
+            from integrations.cursor_delegation import cursor_delegation
+            from database.cursor_jobs import list_jobs_by_statuses
+
+            pending = list_jobs_by_statuses(("awaiting_confirmation", "proposal"))
+            voice_pending = [j for j in pending if j.get("interaction_mode") in ("voice", "android", "chat")]
+            target = (voice_pending or pending)[-1] if (voice_pending or pending) else None
+            if target:
+                job = await cursor_delegation.confirm(target["job_id"])
+                ack = "C'est parti, Monsieur. Cursor démarre sur la branche isolée."
+                debug_trace["cursor_job_id"] = job.get("job_id")
+                return _finalize_voice_reply(
+                    debug_trace, conversation_id, text, ack, intent, t0,
+                    action={"type": "cursor_confirm", "job_id": job.get("job_id")},
+                )
+        except Exception as exc:
+            logger.warning("[voice_fast] confirm Cursor : %s", exc)
+
+    # ── Tâche technique → proposition Cursor (pas d'auto-start) ──
     if intent.execution_type == "cursor":
-        ack = intent.voice_ack or (
-            "Je m'en occupe, Monsieur. Je délègue à Cursor et je vous rends compte."
+        ack = (
+            "J'ai préparé la délégation à Cursor. Dites « lance » pour démarrer."
         )
         job_id = None
         try:
@@ -132,18 +154,20 @@ async def maybe_handle_cognitive_voice(
                 template_id=intent.template_id or "feature_implementation",
                 interaction_mode="voice",
                 routing=intent.to_diagnostic(),
-                auto_start=True,
+                auto_start=False,
+                require_confirmation=True,
             )
             job_id = job.get("job_id")
             debug_trace["cursor_job_id"] = job_id
+            debug_trace["awaiting_confirmation"] = True
         except Exception as exc:
             logger.error("[voice_fast] delegation Cursor : %s", exc)
-            ack = f"Je ne peux pas lancer Cursor d'ici, Monsieur. Raison : {str(exc)[:120]}"
+            ack = f"Je ne peux pas préparer Cursor d'ici, Monsieur. Raison : {str(exc)[:120]}"
             debug_trace["error"] = str(exc)
 
         return _finalize_voice_reply(
             debug_trace, conversation_id, text, ack, intent, t0,
-            action={"type": "cursor_delegate", "job_id": job_id} if job_id else None,
+            action={"type": "cursor_propose", "job_id": job_id} if job_id else None,
         )
 
     # ── Briefing à la demande (matin / soir / delta / urgences / courte) ──

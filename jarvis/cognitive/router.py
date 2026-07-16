@@ -85,15 +85,13 @@ _BRIEFING_PATTERNS = (
 )
 
 _VOICE_ACK_CURSOR = (
-    "Je m'en occupe, Monsieur. Je confie l'analyse et la correction à Cursor "
-    "et je vous rends compte dès que les tests sont terminés."
+    "J'ai préparé la délégation à Cursor. Dites « lance » pour démarrer."
 )
 _VOICE_ACK_HEAVY = (
     "Très bien, Monsieur. J'analyse l'ensemble et je vous prépare une réponse structurée."
 )
 _VOICE_ACK_FEATURE = (
-    "Très bien, Monsieur. Je prépare le cahier des charges et je délègue "
-    "l'implémentation à Cursor."
+    "J'ai préparé le cahier des charges pour Cursor. Dites « lance » pour démarrer."
 )
 
 
@@ -219,7 +217,7 @@ class CognitiveRouter:
                     prompt_model=_MAIN(),
                     reason="modification de code / tâche technique demandée",
                     risk_level="medium",
-                    requires_confirmation=False,
+                    requires_confirmation=True,
                     expected_duration="minutes",
                     template_id=template,
                     context_budget="dev",
@@ -314,11 +312,14 @@ class CognitiveRouter:
                 model=_FAST(),
             )
             if label == "CURSOR":
+                # Le LLM propose seulement — confirmation toujours requise.
                 intent.execution_type = "cursor"
                 intent.domain = "dev"
                 intent.prompt_model = _MAIN()
                 intent.template_id = _detect_template(_fold(text))
-                intent.reason = "classification LLM → Cursor"
+                intent.requires_confirmation = True
+                intent.risk_level = "medium"
+                intent.reason = "classification LLM → proposition Cursor (confirmation requise)"
                 if interaction_mode in ("voice", "android"):
                     intent.voice_ack = _VOICE_ACK_CURSOR
             elif label == "HEAVY":

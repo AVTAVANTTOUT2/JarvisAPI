@@ -3,32 +3,50 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+import re
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["cognitive"])
 
+_TEMPLATE_ID_RE = re.compile(r"^[a-z0-9_:-]{1,80}$")
+
 
 class RouteRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=8000)
-    interaction_mode: str = "chat"
+    interaction_mode: Literal["chat", "voice", "android", "loop"] = "chat"
+
+
+class RequiredTestSpec(BaseModel):
+    executable: str = Field(..., min_length=1, max_length=64)
+    args: list[str] = Field(default_factory=list, max_length=32)
+    cwd: str | None = Field(default=None, max_length=200)
+    timeout_seconds: int = Field(default=900, ge=1, le=900)
 
 
 class CursorEnqueueRequest(BaseModel):
     title: str = Field(..., min_length=1, max_length=200)
     user_request: str = Field(..., min_length=1, max_length=20000)
     template_id: str = "feature_implementation"
-    risk_level: str = "medium"
-    auto_start: bool = True
-    acceptance_criteria: list[str] = Field(default_factory=list)
-    required_tests: list[str] = Field(default_factory=list)
+    risk_level: Literal["low", "medium", "high"] = "medium"
+    auto_start: bool = False
+    require_confirmation: bool = True
+    acceptance_criteria: list[str] = Field(default_factory=list, max_length=20)
+    required_tests: list[str | RequiredTestSpec] = Field(default_factory=list, max_length=3)
+
+    @field_validator("template_id")
+    @classmethod
+    def _validate_template(cls, value: str) -> str:
+        if not _TEMPLATE_ID_RE.match(value or ""):
+            raise ValueError("template_id invalide")
+        return value
 
 
 class BriefingRequest(BaseModel):
-    kind: str = "morning"  # morning | evening | delta
+    kind: Literal["morning", "evening", "delta"] = "morning"
     voice_only: bool = False
     filter_priority: str | None = None
     work_only: bool = False
@@ -71,24 +89,45 @@ async def llm_policy() -> dict[str, Any]:
 async def cursor_status() -> dict[str, Any]:
     from integrations.cursor_delegation import cursor_delegation
 
-    return {"ok": True, "cli": cursor_delegation.cli_status()}
+    cli = cursor_delegation.cli_status()
+    # Ne pas exposer help_text brut ni chemins sensibles
+    safe = {
+        "available": cli.get("available"),
+        "authenticated": cli.get("authenticated"),
+        "version": cli.get("version"),
+        "supports_print": cli.get("supports_print"),
+        "supports_workspace": cli.get("supports_workspace"),
+        "supports_force": cli.get("supports_force"),
+        "supports_trust": cli.get("supports_trust"),
+        "error": cli.get("error"),
+    }
+    return {"ok": True, "cli": safe}
 
 
 @router.get("/cursor/jobs")
 async def cursor_jobs(
     limit: int = Query(50, ge=1, le=200),
     status: str | None = None,
+    diagnostic: bool = Query(False, description="Vue diagnostic (toujours redacted)"),
 ) -> dict[str, Any]:
     from integrations.cursor_delegation import cursor_delegation
 
-    return {"ok": True, "jobs": cursor_delegation.list_jobs(limit=limit, status=status)}
+    return {
+        "ok": True,
+        "jobs": cursor_delegation.list_jobs(
+            limit=limit, status=status, public=not diagnostic
+        ),
+    }
 
 
 @router.get("/cursor/jobs/{job_id}")
-async def cursor_job_detail(job_id: str) -> dict[str, Any]:
+async def cursor_job_detail(
+    job_id: str,
+    diagnostic: bool = Query(False),
+) -> dict[str, Any]:
     from integrations.cursor_delegation import cursor_delegation
 
-    job = cursor_delegation.get_job(job_id)
+    job = cursor_delegation.get_job(job_id, public=not diagnostic, diagnostic=diagnostic)
     if not job:
         raise HTTPException(404, f"Job {job_id} introuvable")
     return {"ok": True, "job": job}
@@ -98,8 +137,20 @@ async def cursor_job_detail(job_id: str) -> dict[str, Any]:
 async def cursor_enqueue(body: CursorEnqueueRequest) -> dict[str, Any]:
     from integrations.cursor_delegation import CursorDelegationError, cursor_delegation
     from jarvis.cognitive import route_request
+    from jarvis.security.redaction import public_cursor_job_view
 
     intent = route_request(body.user_request, interaction_mode="chat")
+    # Normalise required_tests en dicts structurés
+    specs: list[Any] = []
+    for item in body.required_tests:
+        if isinstance(item, RequiredTestSpec):
+            specs.append(item.model_dump())
+        else:
+            specs.append(item)
+
+    # Chat API : confirmation obligatoire sauf demande explicite ET mode autonome
+    require_confirmation = body.require_confirmation
+    auto_start = body.auto_start and not require_confirmation
     try:
         job = await cursor_delegation.enqueue(
             title=body.title,
@@ -107,40 +158,61 @@ async def cursor_enqueue(body: CursorEnqueueRequest) -> dict[str, Any]:
             template_id=body.template_id or intent.template_id or "feature_implementation",
             risk_level=body.risk_level,
             acceptance_criteria=body.acceptance_criteria or None,
-            required_tests=body.required_tests or None,
+            required_tests=specs or None,
             routing=intent.to_diagnostic(),
-            auto_start=body.auto_start,
+            auto_start=auto_start,
+            require_confirmation=require_confirmation,
         )
     except CursorDelegationError as exc:
         raise HTTPException(409, str(exc)) from exc
-    return {"ok": True, "job": job}
+    return {"ok": True, "job": public_cursor_job_view(job)}
+
+
+@router.post("/cursor/jobs/{job_id}/confirm")
+async def cursor_confirm(job_id: str) -> dict[str, Any]:
+    """Confirmation explicite — démarre le job en awaiting_confirmation."""
+    from integrations.cursor_delegation import CursorDelegationError, cursor_delegation
+    from jarvis.security.redaction import public_cursor_job_view
+
+    try:
+        job = await cursor_delegation.confirm(job_id)
+    except CursorDelegationError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    if not job:
+        raise HTTPException(404, f"Job {job_id} introuvable")
+    return {"ok": True, "job": public_cursor_job_view(job)}
 
 
 @router.post("/cursor/jobs/{job_id}/cancel")
 async def cursor_cancel(job_id: str) -> dict[str, Any]:
     from integrations.cursor_delegation import cursor_delegation
+    from jarvis.security.redaction import public_cursor_job_view
 
     job = cursor_delegation.cancel(job_id)
     if not job:
         raise HTTPException(404, f"Job {job_id} introuvable")
-    return {"ok": True, "job": job}
+    return {"ok": True, "job": public_cursor_job_view(job)}
 
 
 @router.post("/cursor/jobs/{job_id}/rollback")
 async def cursor_rollback(job_id: str) -> dict[str, Any]:
     from integrations.cursor_delegation import cursor_delegation
+    from jarvis.security.redaction import public_cursor_job_view
 
     job = cursor_delegation.rollback(job_id)
     if not job:
         raise HTTPException(404, f"Job {job_id} introuvable")
-    return {"ok": True, "job": job}
+    return {"ok": True, "job": public_cursor_job_view(job)}
 
 
 @router.post("/cursor/jobs/{job_id}/retry")
 async def cursor_retry(job_id: str) -> dict[str, Any]:
     from integrations.cursor_delegation import cursor_delegation
+    from jarvis.security.redaction import public_cursor_job_view
+    from database.cursor_jobs import get_cursor_job
 
-    old = cursor_delegation.get_job(job_id)
+    # Lecture brute DB (redacted ensuite) — la vue publique n'a pas user_request
+    old = get_cursor_job(job_id)
     if not old:
         raise HTTPException(404, f"Job {job_id} introuvable")
     job = await cursor_delegation.enqueue(
@@ -148,9 +220,10 @@ async def cursor_retry(job_id: str) -> dict[str, Any]:
         user_request=old["user_request"],
         template_id=old.get("prompt_template") or "feature_implementation",
         risk_level=old.get("risk_level") or "medium",
-        auto_start=True,
+        auto_start=False,
+        require_confirmation=True,
     )
-    return {"ok": True, "job": job}
+    return {"ok": True, "job": public_cursor_job_view(job)}
 
 
 @router.post("/briefings/generate")
@@ -202,11 +275,11 @@ async def autonomy_settings() -> dict[str, Any]:
     return {
         "ok": True,
         "settings": {
-            "self_repair_enabled": bool(getattr(config, "SELF_REPAIR_ENABLED", True)),
-            "self_improvement_enabled": bool(getattr(config, "SELF_IMPROVEMENT_ENABLED", True)),
+            "self_repair_enabled": bool(getattr(config, "SELF_REPAIR_ENABLED", False)),
+            "self_improvement_enabled": bool(getattr(config, "SELF_IMPROVEMENT_ENABLED", False)),
             "self_modification_mode": getattr(config, "SELF_MODIFICATION_MODE", "pr_only"),
             "cursor_delegation_enabled": bool(getattr(config, "CURSOR_DELEGATION_ENABLED", True)),
-            "cursor_allow_pr": bool(getattr(config, "CURSOR_ALLOW_PR", True)),
+            "cursor_allow_pr": bool(getattr(config, "CURSOR_ALLOW_PR", False)),
             "cursor_allow_merge": bool(getattr(config, "CURSOR_ALLOW_MERGE", False)),
             "cursor_max_concurrent_jobs": int(getattr(config, "CURSOR_MAX_CONCURRENT_JOBS", 2)),
         },

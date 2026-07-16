@@ -29,6 +29,19 @@ type VoiceMetrics = { samples: number; days: number; stages: Record<string, Stag
 type RoutingDecision = Record<string, unknown>;
 
 const ACTIVE_STATUSES = new Set(['queued', 'preparing', 'running', 'testing', 'reviewing']);
+const PENDING_CONFIRM_STATUSES = new Set(['awaiting_confirmation', 'proposal']);
+
+function safeGithubPrUrl(url: string | undefined): string | null {
+  if (!url) return null;
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'https:') return null;
+    if (u.hostname !== 'github.com' && u.hostname !== 'www.github.com') return null;
+    return u.toString();
+  } catch {
+    return null;
+  }
+}
 
 function StatusBadge({ status }: { status: string }) {
   const color =
@@ -85,7 +98,7 @@ export default function CognitiveView() {
   }, [load]);
 
   const jobAction = useCallback(
-    async (jobId: string, action: 'cancel' | 'retry' | 'rollback') => {
+    async (jobId: string, action: 'cancel' | 'retry' | 'rollback' | 'confirm') => {
       try {
         await jarvisFetch(`/api/cursor/jobs/${jobId}/${action}`, { method: 'POST' });
         await load();
@@ -249,17 +262,26 @@ export default function CognitiveView() {
               </div>
               {job.error_message && <div className="text-xs text-red-300">{job.error_message}</div>}
               <div className="flex flex-wrap items-center gap-2 pt-1">
-                {job.pr_url && (
+                {safeGithubPrUrl(job.pr_url) && (
                   <a
                     className="text-xs px-2 py-1 border border-emerald-500/40 text-emerald-300 rounded"
-                    href={job.pr_url}
+                    href={safeGithubPrUrl(job.pr_url)!}
                     target="_blank"
                     rel="noreferrer"
                   >
                     Ouvrir la PR
                   </a>
                 )}
-                {ACTIVE_STATUSES.has(job.status) && (
+                {PENDING_CONFIRM_STATUSES.has(job.status) && (
+                  <button
+                    type="button"
+                    onClick={() => void jobAction(job.job_id, 'confirm')}
+                    className="text-xs px-2 py-1 border border-emerald-500/40 text-emerald-300 rounded"
+                  >
+                    Confirmer / lancer
+                  </button>
+                )}
+                {(ACTIVE_STATUSES.has(job.status) || PENDING_CONFIRM_STATUSES.has(job.status)) && (
                   <button
                     type="button"
                     onClick={() => void jobAction(job.job_id, 'cancel')}

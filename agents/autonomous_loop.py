@@ -228,6 +228,7 @@ async def run_autonomous_loop(
                 "message": "Délégation technique à Cursor CLI (worktree isolé).",
                 "routing": intent.to_diagnostic(),
             })
+            # /loop est un mode autonome explicite → auto-start autorisé.
             job = await cursor_delegation.enqueue(
                 title=str(user_message)[:120],
                 user_request=str(user_message),
@@ -235,6 +236,7 @@ async def run_autonomous_loop(
                 interaction_mode="loop",
                 routing=intent.to_diagnostic(),
                 auto_start=True,
+                require_confirmation=False,
             )
             synthesis = (
                 f"Tâche technique déléguée à Cursor — job `{job.get('job_id')}`. "

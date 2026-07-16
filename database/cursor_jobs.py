@@ -13,6 +13,8 @@ logger = logging.getLogger(__name__)
 
 VALID_STATUSES = frozenset(
     {
+        "proposal",
+        "awaiting_confirmation",
         "queued",
         "preparing",
         "running",
@@ -125,6 +127,17 @@ def update_cursor_job(job_id: str, **fields: Any) -> dict[str, Any] | None:
         return get_cursor_job(job_id)
     if "status" in fields and fields["status"] not in VALID_STATUSES:
         raise ValueError(f"statut Cursor invalide: {fields['status']}")
+    # Redaction avant persistance
+    try:
+        from jarvis.security.redaction import redact_sensitive_mapping, redact_sensitive_text
+
+        for key in ("prompt_sent", "raw_output", "error_message"):
+            if key in fields and isinstance(fields[key], str):
+                fields[key] = redact_sensitive_text(fields[key])
+        if "structured_result" in fields and not isinstance(fields["structured_result"], str):
+            fields["structured_result"] = redact_sensitive_mapping(fields["structured_result"])
+    except Exception:
+        pass
     allowed = {
         "status", "worktree_path", "branch_name", "prompt_sent", "raw_output",
         "structured_result", "template_version", "prompt_template",
@@ -195,7 +208,17 @@ def list_jobs_by_statuses(statuses: tuple[str, ...]) -> list[dict[str, Any]]:
 
 def count_active_cursor_jobs() -> int:
     ensure_cursor_jobs_table()
-    active = ("queued", "preparing", "running", "testing", "reviewing")
+    # Inclut les jobs en attente de confirmation (comptent pour la concurrence UX)
+    # mais seuls queued/preparing/running/… consomment réellement le CLI.
+    active = (
+        "awaiting_confirmation",
+        "proposal",
+        "queued",
+        "preparing",
+        "running",
+        "testing",
+        "reviewing",
+    )
     with get_db() as conn:
         row = conn.execute(
             f"SELECT COUNT(*) AS c FROM cursor_delegation_jobs WHERE status IN ({','.join('?'*len(active))})",
