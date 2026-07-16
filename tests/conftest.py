@@ -54,12 +54,15 @@ def _isolate_app_lifespan(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(config, "IMESSAGE_DAEMON_ENABLED", False)
     monkeypatch.setattr(config, "DAEMON_ENABLED", False)
     monkeypatch.setattr(config, "AUDIO_DAEMON_ENABLED", False)
-    # Sur un Mac de dev, le lifespan lance aussi le scan iMessage réel et des
-    # osascript Contacts.app (90s de timeout chacun) : le shutdown du
-    # TestClient attend ces threads → suites locales qui pendent. On les
-    # neutralise ici ; la CI Linux n'est pas affectée (osascript absent).
-    monkeypatch.setattr(config, "IMESSAGE_SOURCING_ENABLED", False)
+    # Ne pas écraser IMESSAGE_SOURCING_ENABLED : les tests de contrat vérifient
+    # le défaut config=True. On coupe le scan réel via is_available() ci-dessous.
     monkeypatch.setattr(config, "CURSOR_DELEGATION_ENABLED", False)
+    try:
+        from integrations.imessage_reader import imessage_reader
+
+        monkeypatch.setattr(imessage_reader, "is_available", lambda: False)
+    except Exception:
+        pass
     try:
         from integrations.contacts import contacts_reader
 

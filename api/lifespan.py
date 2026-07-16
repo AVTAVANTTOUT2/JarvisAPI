@@ -146,16 +146,23 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning("[startup] Echec lancement daemon iMessage: %s", e)
 
-    # ── Diagnostic iMessage ──
-    try:
-        from integrations.imessage_daemon_client import daemon_client
-        health = daemon_client.health()
-        if health.ok and health.data.get("ok"):
-            logger.info("[imessage] Daemon OK — %s msg dans jarvis.db", health.data.get("messages_in_db", "?"))
-        else:
-            logger.warning("[imessage] Daemon: chat.db inaccessible — %s", health.data.get("error", health.error))
-    except Exception:
-        pass
+    # ── Diagnostic iMessage (uniquement si le daemon est censé tourner) ──
+    if config.IMESSAGE_DAEMON_ENABLED:
+        try:
+            from integrations.imessage_daemon_client import daemon_client
+            health = daemon_client.health()
+            if health.ok and health.data.get("ok"):
+                logger.info(
+                    "[imessage] Daemon OK — %s msg dans jarvis.db",
+                    health.data.get("messages_in_db", "?"),
+                )
+            else:
+                logger.warning(
+                    "[imessage] Daemon: chat.db inaccessible — %s",
+                    health.data.get("error", health.error),
+                )
+        except Exception:
+            pass
 
     if not config.DEEPSEEK_API_KEY:
         logger.warning("⚠️  DEEPSEEK_API_KEY manquant — copie .env.example en .env et ajoute ta clé")

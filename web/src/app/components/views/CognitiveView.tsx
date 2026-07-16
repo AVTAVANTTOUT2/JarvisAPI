@@ -7,6 +7,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { Activity, Bot, GitBranch, Mic, RefreshCw, Shield } from 'lucide-react';
+import { jarvisFetch } from '@unified/lib/api';
 
 type Job = {
   job_id: string;
@@ -28,12 +29,6 @@ type VoiceMetrics = { samples: number; days: number; stages: Record<string, Stag
 type RoutingDecision = Record<string, unknown>;
 
 const ACTIVE_STATUSES = new Set(['queued', 'preparing', 'running', 'testing', 'reviewing']);
-
-async function api<T>(url: string, init?: RequestInit): Promise<T> {
-  const r = await fetch(url, { credentials: 'include', ...init });
-  if (!r.ok) throw new Error(`${url} → HTTP ${r.status}`);
-  return r.json() as Promise<T>;
-}
 
 function StatusBadge({ status }: { status: string }) {
   const color =
@@ -65,11 +60,11 @@ export default function CognitiveView() {
     setError(null);
     try {
       const [j, p, c, v, a] = await Promise.all([
-        api<{ jobs: Job[] }>('/api/cursor/jobs?limit=30'),
-        api<{ policy: Record<string, unknown> }>('/api/cognitive/llm-policy'),
-        api<{ capabilities: unknown[] }>('/api/cognitive/capabilities'),
-        api<VoiceMetrics>('/api/voice/metrics?days=7').catch(() => null),
-        api<{ settings: Record<string, unknown> }>('/api/autonomy/settings').catch(() => null),
+        jarvisFetch<{ jobs: Job[] }>('/api/cursor/jobs?limit=30'),
+        jarvisFetch<{ policy: Record<string, unknown> }>('/api/cognitive/llm-policy'),
+        jarvisFetch<{ capabilities: unknown[] }>('/api/cognitive/capabilities'),
+        jarvisFetch<VoiceMetrics>('/api/voice/metrics?days=7').catch(() => null),
+        jarvisFetch<{ settings: Record<string, unknown> }>('/api/autonomy/settings').catch(() => null),
       ]);
       setJobs(j.jobs || []);
       setPolicy(p.policy || null);
@@ -92,7 +87,7 @@ export default function CognitiveView() {
   const jobAction = useCallback(
     async (jobId: string, action: 'cancel' | 'retry' | 'rollback') => {
       try {
-        await api(`/api/cursor/jobs/${jobId}/${action}`, { method: 'POST' });
+        await jarvisFetch(`/api/cursor/jobs/${jobId}/${action}`, { method: 'POST' });
         await load();
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
@@ -104,9 +99,8 @@ export default function CognitiveView() {
   const testRoute = useCallback(async () => {
     if (!routeText.trim()) return;
     try {
-      const r = await api<{ routing: RoutingDecision }>('/api/cognitive/route', {
+      const r = await jarvisFetch<{ routing: RoutingDecision }>('/api/cognitive/route', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: routeText, interaction_mode: 'chat' }),
       });
       setRouteResult(r.routing);
@@ -123,7 +117,7 @@ export default function CognitiveView() {
     }
     setExpandedJob(jobId);
     try {
-      const r = await api<{ job: Job }>(`/api/cursor/jobs/${jobId}`);
+      const r = await jarvisFetch<{ job: Job }>(`/api/cursor/jobs/${jobId}`);
       setJobDetail(r.job);
     } catch {
       setJobDetail(null);
