@@ -20,7 +20,9 @@ Application **100 % native Kotlin** (Jetpack Compose) qui relie le téléphone a
 
 ## Hors Vague 1 (prochaines vagues)
 
-Chat texte streaming, conversation vocale continue, file GPS offline branchée, UI tâches/agenda complète, version `2.0.0`.
+Chat texte streaming, conversation vocale continue, UI tâches/agenda complète, version `2.0.0`.
+
+**Vague 2B (branche `feature/android-offline-location`)** : file GPS Room + batch Bearer + écran Localisation. Voir `docs/LOCATION.md`.
 
 ## HTTPS côté Mac (obligatoire)
 

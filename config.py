@@ -88,6 +88,7 @@ VOICE_MAX_TOKENS = int(_get("VOICE_MAX_TOKENS", "500"))
 # Localisation (GPS / lieux nommés)
 LOCATION_TRACKING = _get("LOCATION_TRACKING", "true").lower() == "true"
 LOCATION_PLACE_RADIUS = int(_get("LOCATION_PLACE_RADIUS", "100"))
+LOCATION_BATCH_MAX_POINTS = int(_get("LOCATION_BATCH_MAX_POINTS", "50"))
 
 # Mode écoute continue (enregistrement long → transcription → synthèse)
 RECORDING_MAX_DURATION_MIN = int(_get("RECORDING_MAX_DURATION_MIN", "180"))  # refus au-delà

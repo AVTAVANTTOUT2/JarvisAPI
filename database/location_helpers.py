@@ -44,6 +44,40 @@ def resolve_place(lat: float, lng: float) -> dict | None:
     return best
 
 
+def get_location_point_dedup(device_id: str, client_point_id: str) -> dict | None:
+    """Retourne l'entrée d'idempotence GPS si elle existe."""
+    with get_db() as conn:
+        row = conn.execute(
+            """SELECT device_id, client_point_id, location_history_id, created_at
+               FROM location_point_dedup
+               WHERE device_id = ? AND client_point_id = ?""",
+            (device_id, client_point_id),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def save_location_point_dedup(
+    device_id: str,
+    client_point_id: str,
+    location_history_id: int | None,
+) -> None:
+    """Enregistre un point client comme déjà traité (INSERT OR IGNORE)."""
+    with get_db() as conn:
+        conn.execute(
+            """INSERT OR IGNORE INTO location_point_dedup
+               (device_id, client_point_id, location_history_id)
+               VALUES (?, ?, ?)""",
+            (device_id, client_point_id, location_history_id),
+        )
+
+
+def count_location_history() -> int:
+    """Nombre total de lignes dans location_history (tests / diagnostics)."""
+    with get_db() as conn:
+        row = conn.execute("SELECT COUNT(*) AS c FROM location_history").fetchone()
+        return int(row["c"] if row else 0)
+
+
 def add_location(
     lat: float,
     lng: float,

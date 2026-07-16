@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import fr.jarvis.companion.R
+import fr.jarvis.companion.services.JarvisLocationService
 import fr.jarvis.companion.ui.MainActivity
 
 object JarvisNotifications {
@@ -15,6 +16,8 @@ object JarvisNotifications {
     const val URGENT = "jarvis_urgent"
     const val PRESENCE = "jarvis_presence"
     const val WAKE = "jarvis_wake_word"
+
+    private const val LOCATION_NOTIFICATION_ID = 4101
 
     fun createChannels(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -35,6 +38,37 @@ object JarvisNotifications {
 
     fun foreground(context: Context, channel: String, title: String, body: String): Notification =
         builder(context, channel, title, body, openApp = true).setOngoing(true).build()
+
+    fun locationForeground(context: Context, pendingCount: Int): Notification {
+        val body = if (pendingCount > 0) {
+            "Localisation active · $pendingCount en attente"
+        } else {
+            "Localisation active"
+        }
+        val stopIntent = Intent(context, JarvisLocationService::class.java).apply {
+            action = JarvisLocationService.ACTION_STOP
+        }
+        val syncIntent = Intent(context, JarvisLocationService::class.java).apply {
+            action = JarvisLocationService.ACTION_SYNC
+        }
+        val stopPending = PendingIntent.getService(
+            context,
+            11,
+            stopIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val syncPending = PendingIntent.getService(
+            context,
+            12,
+            syncIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        return builder(context, PRESENCE, "JARVIS localisation", body, openApp = true)
+            .setOngoing(true)
+            .addAction(Notification.Action.Builder(null, "Arrêter", stopPending).build())
+            .addAction(Notification.Action.Builder(null, "Synchroniser", syncPending).build())
+            .build()
+    }
 
     fun show(context: Context, channel: String, title: String, body: String) {
         val manager = context.getSystemService(NotificationManager::class.java) ?: return

@@ -25,10 +25,13 @@ import fr.jarvis.companion.BuildConfig
 import fr.jarvis.companion.app.appContainer
 import fr.jarvis.companion.core.connectivity.ConnectivityState
 import fr.jarvis.companion.core.database.PendingLocationSyncState
+import fr.jarvis.companion.core.location.LocationConstants
 import fr.jarvis.companion.core.ui.components.JarvisCard
 import fr.jarvis.companion.core.ui.components.SectionHeader
 import fr.jarvis.companion.data.JarvisSettings
+import kotlinx.coroutines.runBlocking
 import java.net.URI
+import java.util.concurrent.TimeUnit
 
 @Composable
 fun DiagnosticsScreen(modifier: Modifier = Modifier) {
@@ -40,9 +43,21 @@ fun DiagnosticsScreen(modifier: Modifier = Modifier) {
     val pendingCount by container.database.pendingLocationDao()
         .observeCountByState(PendingLocationSyncState.PENDING)
         .collectAsState(initial = 0)
+    val retryableCount by container.database.pendingLocationDao()
+        .observeCountByState(PendingLocationSyncState.FAILED_RETRYABLE)
+        .collectAsState(initial = 0)
+    val invalidCount by container.database.pendingLocationDao()
+        .observeCountByState(PendingLocationSyncState.INVALID)
+        .collectAsState(initial = 0)
 
-    val report = remember(connectivity, syncMeta, pendingCount) {
-        buildReport(context, connectivity, syncMeta, pendingCount)
+    val locationExtras = remember(pendingCount, retryableCount, invalidCount, syncMeta) {
+        runBlocking {
+            buildLocationDiagnostics(context, container, pendingCount, retryableCount, invalidCount, syncMeta)
+        }
+    }
+
+    val report = remember(connectivity, syncMeta, pendingCount, retryableCount, locationExtras) {
+        buildReport(context, connectivity, syncMeta, pendingCount + retryableCount, locationExtras)
     }
 
     Column(
@@ -52,7 +67,7 @@ fun DiagnosticsScreen(modifier: Modifier = Modifier) {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        SectionHeader("Diagnostics", "Sans secrets")
+        SectionHeader("Diagnostics", "Sans secrets ni coordonnées")
 
         JarvisCard(title = "Application") {
             DiagnosticLine("Version", BuildConfig.VERSION_NAME)
@@ -78,7 +93,13 @@ fun DiagnosticsScreen(modifier: Modifier = Modifier) {
                     )
                 }
             }
-            DiagnosticLine("Positions en attente", pendingCount.toString())
+            DiagnosticLine("Positions en attente", (pendingCount + retryableCount).toString())
+        }
+
+        JarvisCard(title = "Localisation GPS") {
+            locationExtras.forEach { (label, value) ->
+                DiagnosticLine(label, value)
+            }
         }
 
         Button(
@@ -112,11 +133,67 @@ private fun maskServerHost(serverUrl: String): String {
     }
 }
 
+private suspend fun buildLocationDiagnostics(
+    context: Context,
+    container: fr.jarvis.companion.app.AppContainer,
+    pending: Int,
+    retryable: Int,
+    invalid: Int,
+    syncMeta: List<fr.jarvis.companion.core.database.SyncMetadataEntity>,
+): List<Pair<String, String>> {
+    val store = container.pendingLocationStore
+    val lock = container.database.locationSyncLockDao().getLock()
+    val oldest = store.getOldestPendingCapturedAt()
+    val lastSync = syncMeta.find { it.key == LocationConstants.META_LAST_SYNC_AT }?.lastSuccessAtMillis
+    val lastBatch = syncMeta.find { it.key == LocationConstants.META_LAST_BATCH_SIZE }?.lastSuccessAtMillis
+    val lastHttp = syncMeta.find { it.key == LocationConstants.META_LAST_HTTP_STATUS }?.lastSuccessAtMillis
+    val totalRoom = container.database.pendingLocationDao().countAll()
+
+    return listOf(
+        "Service GPS" to if (JarvisSettings.isLocationEnabled(context)) "actif" else "inactif",
+        "Pending" to (pending + retryable).toString(),
+        "Invalides" to invalid.toString(),
+        "Plus ancien pending" to (oldest?.let { formatRelative(it) } ?: "—"),
+        "Taille Room GPS" to totalRoom.toString(),
+        "Dernier lot" to (lastBatch?.toString() ?: "—"),
+        "Dernier HTTP batch" to (lastHttp?.toString() ?: "—"),
+        "Dernière sync" to formatRelativeFromNow(lastSync),
+        "Verrou sync" to (if (lock?.lockedBy != null) "occupé" else "libre"),
+        "Worker" to fr.jarvis.companion.core.sync.LocationSyncWorker.WORK_NAME,
+        "Backend reachable" to container.connectivityObserver.state.value.let {
+            if (it == ConnectivityState.ServerReachable) "oui" else "non"
+        },
+    )
+}
+
+private fun formatRelative(epochMs: Long): String {
+    val diff = System.currentTimeMillis() - epochMs
+    val days = TimeUnit.MILLISECONDS.toDays(diff)
+    return when {
+        days > 0 -> "il y a $days j"
+        else -> {
+            val hours = TimeUnit.MILLISECONDS.toHours(diff)
+            if (hours > 0) "il y a $hours h" else "récent"
+        }
+    }
+}
+
+private fun formatRelativeFromNow(at: Long?): String {
+    if (at == null) return "jamais"
+    val minutes = TimeUnit.MILLISECONDS.toMinutes(System.currentTimeMillis() - at).coerceAtLeast(0)
+    return when {
+        minutes < 1 -> "à l'instant"
+        minutes < 60 -> "il y a $minutes min"
+        else -> "il y a ${minutes / 60} h"
+    }
+}
+
 private fun buildReport(
     context: Context,
     connectivity: ConnectivityState,
     syncMeta: List<fr.jarvis.companion.core.database.SyncMetadataEntity>,
     pendingCount: Int,
+    locationExtras: List<Pair<String, String>>,
 ): String = buildString {
     appendLine("JARVIS Companion Diagnostics")
     appendLine("version=${BuildConfig.VERSION_NAME} code=${BuildConfig.VERSION_CODE}")
@@ -126,6 +203,7 @@ private fun buildReport(
     appendLine("connectivity=${connectivity.name}")
     appendLine("onboarding=${JarvisSettings.isOnboardingComplete(context)}")
     appendLine("pending_locations=$pendingCount")
+    locationExtras.forEach { (k, v) -> appendLine("location.$k=$v") }
     syncMeta.forEach { meta ->
         appendLine("sync.${meta.key}=${meta.lastError ?: meta.lastSuccessAtMillis}")
     }

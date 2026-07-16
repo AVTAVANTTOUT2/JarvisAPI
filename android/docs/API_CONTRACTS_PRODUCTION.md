@@ -135,18 +135,21 @@ Mutations web : contrôle CSRF Origin/Referer hostname si présent (`403 csrf_ch
 | Body | `{ latitude, longitude, altitude?, accuracy?, speed?, heading?, source?, timestamp? }` |
 | Réponse 200 | `{ place, place_id, arrived, departed, visit_id }` ou `{ skipped: true }` si tracking off |
 | Erreurs | `400` coords ; `401` |
-| Offline attendu | Client doit stocker puis renvoyer (Android 1.2.0 : envoi immédiat) |
-| Android | **Implémenté** (unitaire) |
+| Offline attendu | Client stocke en Room puis batch (Vague 2B) |
+| Android | **Implémenté** (chemin unitaire conservé ; file offline prioritaire) |
 
 ### `POST /api/location/batch`
 
 | Champ | Valeur |
 |-------|--------|
-| Auth | Identique |
-| Body | `{ "points": [ ... ] }` |
-| Réponse | `{ "processed": N, "results": [...] }` — points invalides ignorés |
-| Idempotence | Pas d’ID client aujourd’hui — **ordre chronologique recommandé** ; dédup côté client |
-| Android | **Non câblé** (cible Vague localisation offline) |
+| Auth | **Bearer mobile obligatoire** (device actif, non révoqué) |
+| Body | `{ "points": [ { client_point_id, latitude, longitude, altitude?, accuracy?, speed?, bearing?, provider?, captured_at?, source? } ] }` |
+| Limite | `LOCATION_BATCH_MAX_POINTS` (défaut **50**) → `400` si dépassé |
+| Réponse 200 | `{ "accepted": [...], "duplicates": [...], "rejected": [{ client_point_id, reason }] }` |
+| Idempotence | UNIQUE `(device_id, client_point_id)` via table `location_point_dedup` |
+| Erreurs | `401` sans Bearer ; `400` lot trop grand / body invalide |
+| Offline attendu | Android stocke en Room puis drain via `LocationSyncWorker` |
+| Android | **Implémenté** (Vague 2B) |
 
 ### Lectures (`GET /api/location/*`, places, visits, trips)
 

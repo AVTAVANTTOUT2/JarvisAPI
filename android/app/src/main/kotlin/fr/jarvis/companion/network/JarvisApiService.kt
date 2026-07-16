@@ -38,6 +38,12 @@ interface JarvisApiService {
         @Body body: LocationRequest,
     ): Response<JsonObject>
 
+    @POST("api/location/batch")
+    suspend fun postLocationBatch(
+        @Header("Authorization") authorization: String,
+        @Body body: LocationBatchRequest,
+    ): Response<LocationBatchResponse>
+
     @GET("api/briefing")
     suspend fun getBriefing(
         @Header("Authorization") authorization: String,
@@ -96,4 +102,42 @@ data class LocationRequest(
     val speed: Float,
     val timestamp: Long,
     val source: String = "android_background",
+)
+
+data class LocationBatchRequest(
+    val points: List<LocationBatchPoint>,
+)
+
+data class LocationBatchPoint(
+    val client_point_id: String,
+    val latitude: Double,
+    val longitude: Double,
+    val altitude: Double? = null,
+    val accuracy: Float,
+    val speed: Float? = null,
+    val bearing: Float? = null,
+    val provider: String? = null,
+    val captured_at: Long,
+    val source: String = "android_background",
+)
+
+data class LocationBatchResponse(
+    val accepted: List<String> = emptyList(),
+    val duplicates: List<String> = emptyList(),
+    val rejected: List<LocationBatchRejected> = emptyList(),
+)
+
+data class LocationBatchRejected(
+    val client_point_id: String,
+    val reason: String,
+)
+
+data class LocationBatchResult(
+    val ok: Boolean,
+    val status: Int,
+    val accepted: List<String> = emptyList(),
+    val duplicates: List<String> = emptyList(),
+    val rejected: List<LocationBatchRejected> = emptyList(),
+    val unauthorized: Boolean = false,
+    val error: String = "",
 )
