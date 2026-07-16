@@ -1,0 +1,11 @@
+#!/bin/bash
+# Lanceur sidecar TTSKit — exécute ttskit_mlx.py sous JARVIS_VENV (mlx-audio).
+set -euo pipefail
+DIR="$(cd "$(dirname "$0")" && pwd)"
+VENV="${JARVIS_VENV:-$HOME/mlx-env}"
+PYTHON="${VENV}/bin/python"
+if [[ ! -x "$PYTHON" ]]; then
+  echo "[ttskit] Python MLX introuvable: $PYTHON (installez mlx-audio dans JARVIS_VENV)" >&2
+  exit 127
+fi
+exec "$PYTHON" "$DIR/ttskit_mlx.py" "$@"
