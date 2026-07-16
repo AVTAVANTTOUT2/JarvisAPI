@@ -25,16 +25,25 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import fr.jarvis.companion.app.appContainer
 import fr.jarvis.companion.data.JarvisSettings
+import fr.jarvis.companion.feature.chat.ChatScreen
+import fr.jarvis.companion.feature.chat.ChatViewModel
+import fr.jarvis.companion.feature.chat.ChatViewModelFactory
+import fr.jarvis.companion.feature.chat.ConversationListScreen
+import fr.jarvis.companion.feature.chat.ConversationListViewModel
+import fr.jarvis.companion.feature.chat.ConversationListViewModelFactory
 import fr.jarvis.companion.feature.diagnostics.DiagnosticsScreen
 import fr.jarvis.companion.feature.home.HomeScreen
 import fr.jarvis.companion.feature.home.HomeViewModel
 import fr.jarvis.companion.feature.home.HomeViewModelFactory
+import fr.jarvis.companion.feature.more.MoreScreen
 import fr.jarvis.companion.feature.more.MoreScreen
 import fr.jarvis.companion.feature.placeholder.PlaceholderScreen
 import fr.jarvis.companion.feature.repair.RepairScreen
@@ -123,9 +132,27 @@ fun JarvisNavHost(
                     HomeScreen(viewModel = homeViewModel)
                 }
                 composable(JarvisDestination.CHAT) {
-                    PlaceholderScreen(
-                        title = "Chat",
-                        description = "Le chat texte arrive dans une prochaine vague. Utilisez la conversation vocale pour l'instant.",
+                    val listViewModel: ConversationListViewModel = viewModel(
+                        factory = ConversationListViewModelFactory(container),
+                    )
+                    ConversationListScreen(
+                        viewModel = listViewModel,
+                        onOpenChat = { localId ->
+                            navController.navigate(JarvisDestination.chatDetail(localId))
+                        },
+                    )
+                }
+                composable(
+                    route = JarvisDestination.CHAT_DETAIL,
+                    arguments = listOf(navArgument("localId") { type = NavType.LongType }),
+                ) { backStack ->
+                    val localId = backStack.arguments?.getLong("localId") ?: return@composable
+                    val chatViewModel: ChatViewModel = viewModel(
+                        factory = ChatViewModelFactory(container, localId),
+                    )
+                    ChatScreen(
+                        viewModel = chatViewModel,
+                        onBack = { navController.popBackStack() },
                     )
                 }
                 composable(JarvisDestination.CALENDAR) {

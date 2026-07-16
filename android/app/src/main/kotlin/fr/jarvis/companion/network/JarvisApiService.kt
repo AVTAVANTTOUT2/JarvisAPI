@@ -3,9 +3,12 @@ package fr.jarvis.companion.network
 import com.google.gson.JsonObject
 import retrofit2.Response
 import retrofit2.http.Body
+import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.Header
+import retrofit2.http.PATCH
 import retrofit2.http.POST
+import retrofit2.http.Path
 
 interface JarvisApiService {
     @GET("api/auth/status")
@@ -66,7 +69,56 @@ interface JarvisApiService {
     suspend fun getConversations(
         @Header("Authorization") authorization: String,
         @retrofit2.http.Query("archived") archived: Boolean = false,
-        @retrofit2.http.Query("limit") limit: Int = 20,
+        @retrofit2.http.Query("limit") limit: Int = 50,
+    ): Response<JsonObject>
+
+    @GET("api/conversations/{id}")
+    suspend fun getConversationDetail(
+        @Header("Authorization") authorization: String,
+        @Path("id") id: Long,
+    ): Response<JsonObject>
+
+    @PATCH("api/conversations/{id}")
+    suspend fun patchConversation(
+        @Header("Authorization") authorization: String,
+        @Path("id") id: Long,
+        @Body body: ConversationPatchRequest,
+    ): Response<JsonObject>
+
+    @DELETE("api/conversations/{id}")
+    suspend fun deleteConversation(
+        @Header("Authorization") authorization: String,
+        @Path("id") id: Long,
+    ): Response<JsonObject>
+
+    @POST("api/conversations/{id}/pin")
+    suspend fun pinConversation(
+        @Header("Authorization") authorization: String,
+        @Path("id") id: Long,
+    ): Response<JsonObject>
+
+    @POST("api/conversations/{id}/archive")
+    suspend fun archiveConversation(
+        @Header("Authorization") authorization: String,
+        @Path("id") id: Long,
+    ): Response<JsonObject>
+
+    @POST("api/mobile/conversations")
+    suspend fun createMobileConversation(
+        @Header("Authorization") authorization: String,
+        @Body body: MobileCreateConversationRequest = MobileCreateConversationRequest(),
+    ): Response<JsonObject>
+
+    @POST("api/mobile/chat")
+    suspend fun sendMobileChat(
+        @Header("Authorization") authorization: String,
+        @Body body: MobileChatRequest,
+    ): Response<JsonObject>
+
+    @POST("api/mobile/chat/confirm")
+    suspend fun confirmMobileChat(
+        @Header("Authorization") authorization: String,
+        @Body body: MobileChatConfirmRequest,
     ): Response<JsonObject>
 }
 
@@ -96,4 +148,25 @@ data class LocationRequest(
     val speed: Float,
     val timestamp: Long,
     val source: String = "android_background",
+)
+
+data class ConversationPatchRequest(
+    val title: String? = null,
+    val pinned: Boolean? = null,
+    val archived: Boolean? = null,
+)
+
+data class MobileCreateConversationRequest(
+    val title: String? = null,
+)
+
+data class MobileChatRequest(
+    val content: String,
+    val conversation_id: Long? = null,
+    val client_message_id: String? = null,
+)
+
+data class MobileChatConfirmRequest(
+    val conversation_id: Long,
+    val confirmed: Boolean,
 )

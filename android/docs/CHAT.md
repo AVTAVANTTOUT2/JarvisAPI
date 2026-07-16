@@ -1,47 +1,66 @@
-# Chat texte natif Android (Vague 2)
+# Chat texte natif — Vague 2
 
-## Objectif
+## Vue d'ensemble
 
-Remplacer le placeholder Chat par une interface Compose production : conversations, historique Room, streaming WebSocket, file offline, mutations.
+Le chat Android 2.0.0-alpha02 remplace le placeholder par une expérience native complète :
+
+- liste des conversations (Room + sync GET Bearer)
+- écran de chat avec streaming WebSocket
+- fallback HTTP `POST /api/mobile/chat` (idempotent via `client_message_id`)
+- file d'opérations offline (`pending_chat_operations`)
+- intégration voix via `VoiceActivity` + `conversation_id`
 
 ## Architecture
 
 ```
-UI (ConversationList / ChatScreen)
-  → ViewModels
-    → ConversationRepository / ChatRepository (Flow Room)
-      → JarvisChatWebSocket (streaming, Bearer handshake)
-      → POST /api/mobile/chat (fallback non-stream + idempotence)
-      → ChatSyncWorker (pending ops)
+UI (Compose)
+  ConversationListScreen / ChatScreen
+       ↓
+  ViewModels
+       ↓
+  ConversationRepository / ChatRepository
+       ↓
+  Room v2 + JarvisChatWebSocket + JarvisRepository (Retrofit)
+       ↓
+  FastAPI : GET/POST/PATCH conversations, POST /api/mobile/chat, WS /ws
 ```
 
-## Transports
+## Room v2
 
-| Cas | Transport |
-|-----|-----------|
-| En ligne + streaming | `WS /ws` + header `Authorization: Bearer` |
-| Offline / WS down | File Room → `POST /api/mobile/chat` avec `client_message_id` |
-| Mutations rename/pin/archive/delete | REST Bearer sur `/api/conversations/...` |
+| Table | Rôle |
+|-------|------|
+| `chat_conversations` | Miroir local + état sync |
+| `chat_messages` | Messages user/assistant, `deliveryState`, `clientRequestId` unique |
+| `pending_chat_operations` | File CREATE/SEND/RENAME/PIN/ARCHIVE/DELETE |
+| `chat_drafts` | Brouillon composer par conversation |
 
-**Jamais** de token en query string.
+Migration non destructive : `MIGRATION_1_2` via `DatabaseMigrations.kt`.
 
-## Idempotence
+## WebSocket (`JarvisChatWebSocket`)
 
-UUID `client_message_id` côté Android. Table serveur `mobile_chat_dedup(device_id, client_message_id)`.
+- Handshake `Authorization: Bearer` (jamais en query)
+- Messages sortants : `text`, `new_conversation`, `switch_conversation`, `action_confirm`
+- Messages entrants : `connected`, `chunk`, `done`, `response`, `error`, `conversation_switched`, `action_pending`
+- Reconnexion exponentielle + jitter, arrêt sur 401
 
-## Room (schema v2)
+## Envoi message
 
-- `chat_conversations`
-- `chat_messages` (`deliveryState`, `clientRequestId`, `isStreaming`)
-- `pending_chat_operations`
-- `chat_drafts`
+1. Insert Room (`LOCAL_PENDING` → `SENDING` si WS connecté)
+2. Si WS OK : streaming `chunk`/`done` avec flush Room ~150 ms
+3. Sinon : `QUEUED` + `PendingChatOperationEntity` (`SEND_MESSAGE`)
+4. `ChatSyncWorker` rejoue via `POST /api/mobile/chat`
 
-Migration 1→2 non destructive.
+## Sync
 
-## Voix PTT
+- `ChatSyncWorker` : périodique 15 min + `runOnce` après mutations
+- `ConversationRepository.refreshFromServer()` : GET `/api/conversations`
+- Ordre des ops respecté par `conversationLocalId` + `createdAtMillis`
 
-Le micro du composer ouvre `VoiceActivity` avec `conversation_id` serveur. L’historique texte est rafraîchi après le tour.
+## UI
 
-## Hors scope Vague 2
+- **Liste** : groupes Épinglées / Aujourd'hui / Hier / 7j / Plus anciennes, recherche, FAB, menu contextuel
+- **Chat** : LazyColumn, indicateur streaming, composer multiline, micro → voix, bannière offline, dialog `action_pending`
 
-Voix continue, agenda/tâches UI, GPS offline, release 2.0.0 stable.
+## Version
+
+`versionName 2.0.0-alpha02` / `versionCode 8`

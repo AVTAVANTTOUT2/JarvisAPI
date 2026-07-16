@@ -44,6 +44,11 @@ import fr.jarvis.companion.ui.theme.JarvisTheme
 
 /** Conversation vocale native — tap pour parler / tap pour envoyer (aucune WebView). */
 class VoiceActivity : ComponentActivity() {
+    companion object {
+        const val EXTRA_CONVERSATION_ID = "conversation_id"
+        const val EXTRA_CONVERSATION_LOCAL_ID = "conversation_local_id"
+    }
+
     private val viewModel: VoiceViewModel by viewModels()
 
     private val micPermission = registerForActivityResult(
@@ -56,6 +61,9 @@ class VoiceActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val intentConvId = intent.getLongExtra(EXTRA_CONVERSATION_ID, -1L).takeIf { it > 0 }
+        val intentLocalId = intent.getLongExtra(EXTRA_CONVERSATION_LOCAL_ID, -1L).takeIf { it > 0 }
+        viewModel.initFromIntent(intentConvId, intentLocalId)
         viewModel.restoreConversationId()
         viewModel.refreshConnection()
         setContent {
