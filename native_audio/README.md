@@ -23,16 +23,47 @@ Et imprimer sur stdout un JSON :
 Python (`native_audio/whisperkit_bridge.py`) supervise l'appel ; aucun téléchargement
 de modèle n'est déclenché automatiquement par JARVIS.
 
-## TTSKit
+## TTSKit (Qwen3-TTS MLX)
 
-Placez un binaire exécutable `ttskit_synthesize` dans ce dossier, ou installez
-`jarvis-ttskit` dans le PATH. Le sidecar reçoit le texte et doit écrire sur
-stdout du PCM signé 16 bits, mono, 24 kHz au fil de sa génération :
+Le dépôt fournit `native_audio/ttskit_synthesize` : sidecar Python qui exécute
+**Qwen3-TTS-12Hz-0.6B-CustomVoice** via `mlx-audio` dans `JARVIS_VENV`
+(défaut `~/mlx-env`). Aucun cloud, streaming PCM16 24 kHz sur stdout.
+
+`is_ttskit_available()` exige que `$JARVIS_VENV/bin/python` soit exécutable
+lorsque ce lanceur repo est utilisé (évite un faux positif sans venv MLX).
+Un binaire `jarvis-ttskit` dans le PATH reste considéré autonome.
+
+### Setup (une fois)
+
+```bash
+source ~/mlx-env/bin/activate   # ou $JARVIS_VENV
+pip install -U 'mlx-audio>=0.3.0'
+# Premier appel : télécharge le modèle HF (~cache Hugging Face)
+```
+
+### Config (`.env.config`)
+
+```bash
+TTS_ENGINE=ttskit
+TTS_MODEL=qwen3-tts-0.6b
+TTS_LANGUAGE=fr
+TTS_SPEAKER=Ryan          # CustomVoice : Ryan | Aiden | Vivian | …
+# TTS_MODEL_PATH=         # optionnel : chemin local du modèle déjà téléchargé
+```
+
+### Contrat CLI
 
 ```
 ttskit_synthesize --model qwen3-tts-0.6b --language fr \
-  --format pcm_s16le --sample-rate 24000 --text "Bonjour Monsieur."
+  --format pcm_s16le --sample-rate 24000 --speaker Ryan \
+  --text "Bonjour Monsieur."
 ```
 
-Les logs éventuels vont sur stderr. Le processus est interrompu si la lecture
-est annulée.
+Alias `--model qwen3-tts-0.6b` →
+`mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-6bit`.
+`--speaker` (ou `TTS_SPEAKER`) sélectionne la voix CustomVoice ; pas d'`instruct`
+émotionnel (voix stable). Logs sur stderr ; le processus est interrompu si la
+lecture est annulée.
+
+Alternative : placez un autre binaire `ttskit_synthesize` ici, ou
+`jarvis-ttskit` dans le PATH (même contrat).
