@@ -18,7 +18,14 @@ from database import _save_voice_debug_trace, get_conversation_history, get_curr
 logger = logging.getLogger("jarvis")
 
 # ── Commandes de contrôle vocal (barge-in) — zéro LLM, réponse instantanée ──
-# Matchées uniquement sur des énoncés courts pour éviter les faux positifs.
+#
+# Politique produit (Option A — commande uniquement) :
+# - Pendant la lecture TTS, seuls les énoncés courts (≤30 car.) correspondant
+#   exactement à une commande de contrôle interrompent la synthèse.
+# - Exemples reconnus : « arrête », « stop », « annule », « silence », « continue ».
+# - Toute autre parole pendant le TTS est ignorée (pas de barge-in libre).
+# - Hors TTS, les mêmes commandes sont traitées en priorité avant le LLM.
+# - Annulation explicite côté client : message WebSocket ``voice_cancel``.
 _VOICE_CONTROL_MAX_LEN = 30
 _VOICE_CONTROL_COMMANDS: tuple[tuple[tuple[str, ...], str], ...] = (
     (("arrete", "arrête", "stop", "tais-toi", "tais toi", "chut", "silence", "stoppe",

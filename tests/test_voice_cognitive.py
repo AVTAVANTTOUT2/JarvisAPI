@@ -48,6 +48,59 @@ def test_voice_control_not_matched_in_sentences():
     assert _match_voice_control("") is None
 
 
+@pytest.mark.asyncio
+async def test_barge_in_blob_cancels_on_stop_command(monkeypatch):
+    """Option A : commande courte pendant TTS → annulation."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from api.ws_handsfree import _handle_barge_in_blob
+
+    cancel_mock = AsyncMock()
+    monkeypatch.setattr("api.ws_handsfree.cancel_current_voice_turn", cancel_mock)
+
+    stt_mock = MagicMock()
+    stt_mock.available = True
+    stt_mock.transcribe = AsyncMock(return_value="stop")
+    monkeypatch.setattr("api.ws_handsfree.stt", stt_mock)
+    monkeypatch.setattr(
+        "api.ws_handsfree._send_tts_streaming",
+        AsyncMock(return_value="completed"),
+    )
+
+    sent: list[dict] = []
+
+    class FakeWs:
+        async def send_json(self, data):
+            sent.append(data)
+
+    conv = {"is_speaking": True, "turn_id": "turn-old"}
+    handled = await _handle_barge_in_blob(FakeWs(), b"x" * 1000, conv)  # type: ignore[arg-type]
+    assert handled is True
+    cancel_mock.assert_awaited_once()
+    assert any(m.get("type") == "transcript" for m in sent)
+
+
+@pytest.mark.asyncio
+async def test_barge_in_blob_ignores_non_command_during_tts(monkeypatch):
+    """Option A : parole libre pendant TTS → ignorée, pas d'annulation."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from api.ws_handsfree import _handle_barge_in_blob
+
+    cancel_mock = AsyncMock()
+    monkeypatch.setattr("api.ws_handsfree.cancel_current_voice_turn", cancel_mock)
+
+    stt_mock = MagicMock()
+    stt_mock.available = True
+    stt_mock.transcribe = AsyncMock(return_value="Quel temps fait-il demain ?")
+    monkeypatch.setattr("api.ws_handsfree.stt", stt_mock)
+
+    conv = {"is_speaking": True}
+    handled = await _handle_barge_in_blob(MagicMock(), b"x" * 1000, conv)
+    assert handled is False
+    cancel_mock.assert_not_awaited()
+
+
 # ── Variantes de briefing vocal ──────────────────────────────
 
 

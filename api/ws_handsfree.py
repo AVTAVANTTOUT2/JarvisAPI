@@ -58,6 +58,10 @@ async def _handle_barge_in_blob(
 ) -> bool:
     """Pendant is_speaking : STT court → commande contrôle → cancel TTS.
 
+    Politique Option A (commande uniquement) : seules les commandes courtes
+    reconnues par ``_match_voice_control`` interrompent le TTS ; toute autre
+    parole est ignorée pour éviter les faux positifs et les tours parallèles.
+
     Retourne True si le barge-in a été traité (commande reconnue).
     """
     if stt is None or not getattr(stt, "available", False):
