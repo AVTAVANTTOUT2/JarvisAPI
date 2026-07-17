@@ -113,8 +113,11 @@ def get_duplicate_findings(status: str = "open", limit: int = 100) -> list[dict]
         return [dict(r) for r in rows]
 
 
-def _save_voice_debug_trace(trace: dict[str, Any]) -> None:
+def _save_voice_debug_trace(trace: dict[str, Any]) -> int | None:
     """Sauvegarde une trace de debug vocal en DB (fire-and-forget, silencieux).
+
+    Retourne l'id de la ligne insérée (pour compléter la latence TTS après
+    lecture) ou None en cas d'échec.
 
     Args:
         trace: dict contenant les champs du debug trace (input_text, system_prompt,
@@ -125,7 +128,7 @@ def _save_voice_debug_trace(trace: dict[str, Any]) -> None:
 
     try:
         with get_db() as conn:
-            conn.execute(
+            cur = conn.execute(
                 """INSERT INTO voice_debug_log
                    (input_text, system_prompt, messages_json, raw_response, response_clean,
                     emotion, action_json, model, tokens_in, tokens_out, cost,
@@ -154,8 +157,83 @@ def _save_voice_debug_trace(trace: dict[str, Any]) -> None:
                     int(trace.get("audio_duration_ms", 0)),
                 ),
             )
+            return int(cur.lastrowid) if cur.lastrowid else None
+    except Exception:
+        return None
+
+
+def update_voice_debug_latency(
+    trace_id: int,
+    *,
+    tts_ms: int | None = None,
+    stt_ms: int | None = None,
+    total_ms: int | None = None,
+) -> None:
+    """Complète les latences d'une trace vocale après lecture TTS (silencieux)."""
+    sets: list[str] = []
+    vals: list[Any] = []
+    if tts_ms is not None:
+        sets.append("latency_tts_ms = ?")
+        vals.append(int(tts_ms))
+    if stt_ms is not None:
+        sets.append("latency_stt_ms = ?")
+        vals.append(int(stt_ms))
+    if total_ms is not None:
+        sets.append("latency_total_ms = ?")
+        vals.append(int(total_ms))
+    if not sets:
+        return
+    vals.append(int(trace_id))
+    try:
+        with get_db() as conn:
+            conn.execute(
+                f"UPDATE voice_debug_log SET {', '.join(sets)} WHERE id = ?", vals
+            )
     except Exception:
         pass
+
+
+def get_voice_latency_metrics(days: int = 7) -> dict[str, Any]:
+    """P50 / p95 par étape du pipeline vocal sur ``days`` jours.
+
+    Calcul en Python (SQLite n'a pas de percentile natif) — volumes personnels,
+    quelques milliers de lignes max.
+    """
+    def _pct(values: list[int], q: float) -> int:
+        if not values:
+            return 0
+        s = sorted(values)
+        idx = min(len(s) - 1, max(0, round(q * (len(s) - 1))))
+        return int(s[idx])
+
+    days = max(1, min(int(days), 90))
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT latency_stt_ms, latency_llm1_ms, latency_llm2_ms,
+                      latency_tts_ms, latency_total_ms
+               FROM voice_debug_log
+               WHERE created_at >= datetime('now', 'localtime', ?)""",
+            (f"-{days} days",),
+        ).fetchall()
+    stages = {
+        "stt": [r["latency_stt_ms"] for r in rows if r["latency_stt_ms"]],
+        "llm_pass1": [r["latency_llm1_ms"] for r in rows if r["latency_llm1_ms"]],
+        "llm_pass2": [r["latency_llm2_ms"] for r in rows if r["latency_llm2_ms"]],
+        "tts": [r["latency_tts_ms"] for r in rows if r["latency_tts_ms"]],
+        "total": [r["latency_total_ms"] for r in rows if r["latency_total_ms"]],
+    }
+    return {
+        "days": days,
+        "samples": len(rows),
+        "stages": {
+            name: {
+                "p50_ms": _pct(vals, 0.50),
+                "p95_ms": _pct(vals, 0.95),
+                "count": len(vals),
+            }
+            for name, vals in stages.items()
+        },
+    }
 
 
 def get_voice_debug_logs(limit: int = 50) -> list[dict[str, Any]]:

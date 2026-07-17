@@ -54,6 +54,30 @@ def _isolate_app_lifespan(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(config, "IMESSAGE_DAEMON_ENABLED", False)
     monkeypatch.setattr(config, "DAEMON_ENABLED", False)
     monkeypatch.setattr(config, "AUDIO_DAEMON_ENABLED", False)
+    # Ne pas écraser IMESSAGE_SOURCING_ENABLED : les tests de contrat vérifient
+    # le défaut config=True. On coupe le scan réel via is_available() ci-dessous.
+    monkeypatch.setattr(config, "CURSOR_DELEGATION_ENABLED", False)
+    try:
+        from integrations.imessage_reader import imessage_reader
+
+        monkeypatch.setattr(imessage_reader, "is_available", lambda: False)
+    except Exception:
+        pass
+    try:
+        from integrations.contacts import contacts_reader
+
+        monkeypatch.setattr(contacts_reader, "build_cache", lambda: None)
+    except Exception:
+        pass
+    try:
+        import scripts.sync_contacts as sync_contacts_module
+
+        async def _noop_sync(*_a, **_k):
+            return None
+
+        monkeypatch.setattr(sync_contacts_module, "sync_people_names", _noop_sync)
+    except Exception:
+        pass
     # Les cookies de session sont marqués Secure quand WEB_HTTPS=true ; le
     # TestClient parle en http://testserver et n'envoie pas ces cookies.
     monkeypatch.setattr(config, "WEB_HTTPS", False)

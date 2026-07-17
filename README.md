@@ -453,3 +453,16 @@ CI GitHub Actions (`.github/workflows/ci.yml`) sur chaque push/PR : import des ~
 | [STARTUP_PROTOCOL.md](./STARTUP_PROTOCOL.md) | Démarrage propre, permissions macOS, reprise après coupure |
 | [VOCAL_PIPELINE_ANALYSIS.md](./VOCAL_PIPELINE_ANALYSIS.md) | Pipeline vocal micro → haut-parleur, latences, points de défaillance |
 | [CHANGELOG_HISTORIQUE.md](./CHANGELOG_HISTORIQUE.md) | Archive des changelogs détaillés (ancien README) |
+
+## Routage cognitif (2026)
+
+| Couche | Usage |
+|--------|--------|
+| DeepSeek Flash | Voix, triage, formulation courte |
+| DeepSeek Main | Raisonnement lourd, prompts Cursor, briefings |
+| Cursor CLI (`agent --print`) | Code / technique en worktree isolé |
+| Ollama | Screen Watcher uniquement |
+
+API : `/api/cognitive/*`, `/api/cursor/*`, `/api/briefings/generate`, UI `/cognitive`.
+Docs : `Architecture/LLM_POLICY.md`, `Architecture/CURSOR_DELEGATION.md`.
+

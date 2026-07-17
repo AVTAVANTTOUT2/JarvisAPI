@@ -516,29 +516,33 @@ async def test_screen_ollama_keep_alive_is_top_level() -> None:
     from scripts.screen_watcher import ScreenWatcher
 
     watcher = ScreenWatcher()
-    response = MagicMock()
-    response.raise_for_status.return_value = None
-    response.json.return_value = {
-        "response": '{"app":"Safari","activity":"test","mood":"focused","notable":null}'
-    }
-    client = AsyncMock()
-    client.post.return_value = response
-    context = AsyncMock()
-    context.__aenter__.return_value = client
-    context.__aexit__.return_value = None
+    watcher._last_ollama_call = 0
+    watcher._ollama_available = True
+
+    async def _fake_generate(base_url, **kwargs):
+        assert kwargs.get("keep_alive") == "30s"
+        opts = kwargs.get("options") or {}
+        assert "keep_alive" not in opts
+        return {
+            "response": '{"app":"Safari","activity":"test","mood":"focused","notable":null}'
+        }
 
     with (
         patch.object(ScreenWatcher, "_is_voice_busy", return_value=False),
-        patch("scripts.screen_watcher.httpx.AsyncClient", return_value=context),
+        patch(
+            "integrations.ollama_client.ollama_generate",
+            new=AsyncMock(side_effect=_fake_generate),
+        ) as mock_gen,
     ):
         result = await watcher._analyze_with_ollama(
             Image.new("RGB", (64, 64)), "Safari", {},
         )
 
     assert result is not None
-    payload = client.post.await_args.kwargs["json"]
-    assert payload["keep_alive"] == "30s"
-    assert "keep_alive" not in payload["options"]
+    assert result["app"] == "Safari"
+    mock_gen.assert_awaited_once()
+    assert mock_gen.await_args.kwargs["keep_alive"] == "30s"
+    assert "keep_alive" not in (mock_gen.await_args.kwargs.get("options") or {})
 
 
 @pytest.mark.asyncio

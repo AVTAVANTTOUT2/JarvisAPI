@@ -209,25 +209,29 @@ class ProductivityAgent(BaseAgent):
     # ── Briefings quotidiens ────────────────────────────────
 
     async def morning_briefing(self) -> str:
-        """Génère le briefing du matin et le sauvegarde dans daily_briefings.
+        """Génère le briefing du matin (moteur structuré + version vocale)."""
+        try:
+            from agents.briefing_engine import generate_structured_briefing
 
-        Utilise les résumés d'emails déjà analysés par `email_watcher` (économise
-        une analyse Haiku par mail à chaque briefing) + les notifications
-        urgentes en attente + les tâches auto-créées par le watcher.
-        """
+            structured = await generate_structured_briefing(kind="morning")
+            logger.info(
+                "[productivity] Morning briefing structuré (%d items)",
+                len(structured.items),
+            )
+            return structured.full_text
+        except Exception as exc:
+            logger.error("[productivity] briefing_engine fallback : %s", exc)
+
         ctx = await self._collect_pro_context(use_email_summaries=True)
         ctx["user_name"] = config.USER_NAME
-
-        # On ajoute explicitement les notifications dans le user message pour
-        # que Sonnet en parle dans le briefing s'il y a des urgences.
         notif_count = len(ctx.get("notifications") or [])
         urgent_count = sum(
             1 for n in (ctx.get("notifications") or [])
             if (n.get("priority") or "").lower() == "urgent"
         )
-        prefix = f"Génère le briefing du matin."
+        prefix = "Génère le briefing du matin."
         if urgent_count:
-            prefix += f"\n\n⚠️ {urgent_count} notification(s) URGENTE(s) en attente — mentionne-les en premier."
+            prefix += f"\n\n{urgent_count} notification(s) URGENTE(s) en attente — mentionne-les en premier."
         elif notif_count:
             prefix += f"\n\n{notif_count} notification(s) en attente."
 
@@ -240,18 +244,27 @@ class ProductivityAgent(BaseAgent):
             temperature=0.5,
         )
         briefing = finalize_assistant_display_text(result["content"])
-
         try:
             today = datetime.now().strftime("%Y-%m-%d")
             save_daily_briefing(today, morning=briefing)
         except Exception as e:
             logger.error(f"[productivity] save briefing : {e}")
-
-        logger.info(f"[productivity] Morning briefing généré ({result['tokens_out']} tokens)")
         return briefing
 
     async def evening_summary(self) -> str:
-        """Génère le résumé du soir basé sur les messages/actions de la journée."""
+        """Génère le résumé du soir (moteur structuré, fallback historique)."""
+        try:
+            from agents.briefing_engine import generate_structured_briefing
+
+            structured = await generate_structured_briefing(kind="evening")
+            logger.info(
+                "[productivity] Evening summary structuré (%d items)",
+                len(structured.items),
+            )
+            return structured.full_text
+        except Exception as exc:
+            logger.error("[productivity] evening briefing_engine fallback : %s", exc)
+
         today = datetime.now().strftime("%Y-%m-%d")
         messages_today = get_daily_messages(today)
         tasks = get_tasks()

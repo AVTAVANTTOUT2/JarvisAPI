@@ -18,7 +18,7 @@ from api.chat_actions import ACTIONS_WITH_FOLLOWUP, _format_action_result_for_fo
 from api.llm_logging import _schedule_llm_log
 from api.memory_background import _run_memory_in_background
 from api.welcome import _maybe_send_daily_welcome
-from api.ws_handsfree import _handle_hands_free_blob
+from api.ws_handsfree import _handle_hands_free_blob, handle_voice_cancel_message
 from api.ws_messages import _process_message
 from api.ws_session import (
     _resume_or_create_conversation,
@@ -93,13 +93,14 @@ async def websocket_endpoint(ws: WebSocket):
                     active_recording.add_chunk(audio_bytes)
                     continue
 
-                # Mains libres : un blob WebM complet par utterance (VAD navigateur)
+                # Mains libres : barge-in autorisé si is_speaking ; ignore si processing seul
                 if conv_session and conv_session.get("active"):
-                    if conv_session.get("is_speaking") or conv_session.get("is_processing"):
+                    if conv_session.get("is_processing") and not conv_session.get("is_speaking"):
                         continue
                     await _handle_hands_free_blob(ws, audio_bytes, conv_session)
                     continue
 
+                # PTT : pendant TTS, attendre le JSON voice_cancel (pas de blob)
                 if is_speaking:
                     continue
 
@@ -243,6 +244,11 @@ async def websocket_endpoint(ws: WebSocket):
                         logger.info("[WS] Mode conversation (legacy) activé")
                     else:
                         logger.info("[WS] Mode conversation (legacy) désactivé")
+                    continue
+
+                if msg_type == "voice_cancel":
+                    await handle_voice_cancel_message(ws, conv_session)
+                    is_speaking = False
                     continue
 
                 if msg_type == "done_playing":

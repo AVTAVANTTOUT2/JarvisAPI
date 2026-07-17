@@ -664,4 +664,43 @@ CREATE TABLE IF NOT EXISTS imessage_consumer_cursors (
     last_apple_rowid INTEGER NOT NULL DEFAULT 0,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+-- ═══════════════════════════════════════════════════════════
+-- DÉLÉGATION CURSOR CLI (jobs persistants)
+-- ═══════════════════════════════════════════════════════════
+
+CREATE TABLE IF NOT EXISTS cursor_delegation_jobs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id TEXT NOT NULL UNIQUE,
+    title TEXT NOT NULL,
+    user_request TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'queued',
+    repository TEXT,
+    working_directory TEXT,
+    worktree_path TEXT,
+    branch_name TEXT,
+    prompt_template TEXT,
+    template_version TEXT,
+    prompt_sent TEXT,
+    raw_output TEXT,
+    structured_result TEXT,
+    acceptance_criteria TEXT,
+    required_tests TEXT,
+    risk_level TEXT DEFAULT 'medium',
+    allow_commit INTEGER DEFAULT 1,
+    allow_push INTEGER DEFAULT 1,
+    allow_pr INTEGER DEFAULT 1,
+    allow_merge INTEGER DEFAULT 0,
+    commit_sha TEXT,
+    pr_url TEXT,
+    error_message TEXT,
+    interaction_mode TEXT,
+    routing_json TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    started_at DATETIME,
+    finished_at DATETIME
+);
+CREATE INDEX IF NOT EXISTS idx_cursor_jobs_status ON cursor_delegation_jobs(status);
+CREATE INDEX IF NOT EXISTS idx_cursor_jobs_created ON cursor_delegation_jobs(created_at);
 """

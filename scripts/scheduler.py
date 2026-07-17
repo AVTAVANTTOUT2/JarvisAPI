@@ -283,6 +283,24 @@ async def _missed_opportunities_job():
         logger.exception("[scheduler] missed_opportunities : %s", e)
 
 
+async def _self_improvement_job():
+    """Auto-amélioration : collecte de preuves → proposition → PR Cursor (pr_only)."""
+    try:
+        from scripts.self_improvement import propose_improvements
+
+        auto = (
+            getattr(config, "SELF_MODIFICATION_MODE", "pr_only") in ("pr_only", "auto_merge_low_risk")
+            and getattr(config, "CURSOR_DELEGATION_ENABLED", True)
+        )
+        result = await propose_improvements(auto_delegate=auto)
+        n = len(result.get("proposals") or [])
+        if n:
+            logger.info("[scheduler] self_improvement : %d proposition(s), %d job(s)",
+                        n, len(result.get("jobs") or []))
+    except Exception as e:
+        logger.exception("[scheduler] self_improvement : %s", e)
+
+
 async def _presence_tick_job():
     """Contrôle de départ : ferme la session après le timeout de silence."""
     try:
@@ -528,6 +546,19 @@ def setup_scheduler() -> None:
         _missed_opportunities_job, CronTrigger(day_of_week="sun", hour=19, minute=0),
         id="missed_opportunities", replace_existing=True,
     )
+    # Auto-amélioration : propositions basées sur preuves (PR only, jamais de
+    # merge auto). SELF_IMPROVEMENT_SCHEDULE=weekly → dim 06:00 ; daily → 06:00.
+    if getattr(config, "SELF_IMPROVEMENT_ENABLED", True):
+        _si_schedule = str(getattr(config, "SELF_IMPROVEMENT_SCHEDULE", "weekly")).lower()
+        _si_trigger = (
+            CronTrigger(hour=6, minute=0)
+            if _si_schedule == "daily"
+            else CronTrigger(day_of_week="sun", hour=6, minute=0)
+        )
+        scheduler.add_job(
+            _self_improvement_job, _si_trigger,
+            id="self_improvement", replace_existing=True,
+        )
 
     logger.info(
         "[scheduler] 29 jobs enregistrés (briefing %02d:%02d, résumé soir %02d:%02d, "

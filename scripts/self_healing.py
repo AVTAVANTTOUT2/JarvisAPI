@@ -216,6 +216,55 @@ async def handle_crash_loop(crash_tail: str, root: Path | None = None) -> dict:
         )
         logger.warning("[self-healing] diagnostic : %s", diagnosis.get("root_cause"))
 
+        # Mode préféré 2026 : délégation Cursor (PR only) — jamais de mutation directe de main
+        if (
+            getattr(config, "SELF_REPAIR_ENABLED", True)
+            and getattr(config, "CURSOR_DELEGATION_ENABLED", True)
+            and getattr(config, "SELF_MODIFICATION_MODE", "pr_only") == "pr_only"
+        ):
+            try:
+                from integrations.cursor_delegation import cursor_delegation
+
+                from jarvis.security.redaction import redact_sensitive_text
+
+                job = await cursor_delegation.enqueue(
+                    title="Self-repair: crash loop",
+                    user_request=redact_sensitive_text(
+                        "Auto-réparation JARVIS après crash loop.\n"
+                        f"Diagnostic: {diagnosis.get('root_cause')}\n"
+                        f"Fichier suspect: {diagnosis.get('file')}\n"
+                        f"Log tail:\n{crash_tail[-3000:]}\n"
+                        "Reproduire, corriger, tester, ouvrir une PR. "
+                        "Ne jamais modifier main directement."
+                    ),
+                    template_id="self_repair",
+                    risk_level="high",
+                    interaction_mode="scheduled",
+                    auto_start=True,
+                    require_confirmation=False,  # job scheduler autorisé
+                )
+                notification_service.create(
+                    source="system",
+                    title="Self-repair délégué à Cursor",
+                    content=f"Job {job.get('job_id')} — mode pr_only",
+                    priority="high",
+                )
+                return {
+                    "ok": True,
+                    "action": "cursor_delegated",
+                    "job_id": job.get("job_id"),
+                    "diagnosis": diagnosis,
+                }
+            except Exception as exc:
+                logger.warning("[self-healing] délégation Cursor échouée : %s", exc)
+                # pr_only : jamais de patch direct en fallback
+                return {
+                    "ok": False,
+                    "action": "cursor_failed_pr_only",
+                    "error": str(exc)[:300],
+                    "diagnosis": diagnosis,
+                }
+
         if not config.SELF_HEALING_AUTO_APPLY or not diagnosis.get("file") or not diagnosis.get("fix_content"):
             return {"ok": True, "action": "diagnosed_only", "diagnosis": diagnosis}
 

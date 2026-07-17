@@ -30,6 +30,9 @@ DEEPSEEK_BASE_URL = _normalize_deepseek_base_url(
 )
 DEEPSEEK_FAST_MODEL = _get("DEEPSEEK_FAST_MODEL", "deepseek-v4-flash")
 DEEPSEEK_MAIN_MODEL = _get("DEEPSEEK_MAIN_MODEL", "deepseek-v4-pro")
+# Alias cognitifs (évite les doublons sémantiques tout en restant surchargeables)
+VOICE_REASONING_MODEL = _get("VOICE_REASONING_MODEL", "") or DEEPSEEK_FAST_MODEL
+MAIN_REASONING_MODEL = _get("MAIN_REASONING_MODEL", "") or DEEPSEEK_MAIN_MODEL
 
 # ── Audio — STT local (faster-whisper) + TTS local (Kokoro) ──
 DEFAULT_STT_ENGINE = "faster-whisper"
@@ -213,9 +216,11 @@ SCREEN_VISION_MODEL = _get(
     _get("SCREEN_WATCHER_VISION_MODEL", "qwen3-vl:4b"),
 )
 SCREEN_OLLAMA_MIN_INTERVAL_S = float(_get("SCREEN_OLLAMA_MIN_INTERVAL_S", "60"))  # delai min entre 2 analyses vision
-TRIAGE_MODEL = _get("TRIAGE_MODEL", "qwen2.5:7b")
+TRIAGE_MODEL = _get("TRIAGE_MODEL", "") or DEEPSEEK_FAST_MODEL  # triage daemon = DeepSeek Flash
 OLLAMA_URL = _get("OLLAMA_URL", _get("SCREEN_WATCHER_OLLAMA_URL", "http://127.0.0.1:11434"))
 OLLAMA_AUTOSTART = _get("OLLAMA_AUTOSTART", "true").lower() == "true"
+# Raisonnement local via Ollama : TOUJOURS false hors Screen Watcher
+OLLAMA_REASONING_ENABLED = _get("OLLAMA_REASONING_ENABLED", "false").lower() == "true"
 # Alias : démarrer SW au boot complet (même sémantique que SCREEN_WATCHER_ENABLED)
 SCREEN_WATCHER_AUTOSTART = _get(
     "SCREEN_WATCHER_AUTOSTART",
@@ -402,6 +407,24 @@ SELF_HEALING_AUTO_APPLY = _get("SELF_HEALING_AUTO_APPLY", "false").lower() == "t
 SELF_HEALING_CRASH_THRESHOLD = int(_get("SELF_HEALING_CRASH_THRESHOLD", "3"))
 SELF_HEALING_REGRESSION_WINDOW_MIN = int(_get("SELF_HEALING_REGRESSION_WINDOW_MIN", "15"))
 SELF_HEALING_COOLDOWN_MIN = int(_get("SELF_HEALING_COOLDOWN_MIN", "60"))
+
+# ── Autonomie cognitive (Cursor / auto-réparation / auto-amélioration) ──
+CURSOR_DELEGATION_ENABLED = _get("CURSOR_DELEGATION_ENABLED", "true").lower() == "true"
+CURSOR_CLI_PATH = _get("CURSOR_CLI_PATH", "")  # vide = auto-detect agent / cursor-agent
+CURSOR_DEFAULT_TIMEOUT_SEC = int(_get("CURSOR_DEFAULT_TIMEOUT_SEC", "1800"))
+CURSOR_MAX_CONCURRENT_JOBS = int(_get("CURSOR_MAX_CONCURRENT_JOBS", "2"))
+CURSOR_WORKTREE_ROOT = _get("CURSOR_WORKTREE_ROOT", ".jarvis/worktrees")
+CURSOR_ALLOW_COMMIT = _get("CURSOR_ALLOW_COMMIT", "true").lower() == "true"
+# Fail-closed : push/PR off par défaut — opt-in explicite dans .env
+CURSOR_ALLOW_PUSH = _get("CURSOR_ALLOW_PUSH", "false").lower() == "true"
+CURSOR_ALLOW_PR = _get("CURSOR_ALLOW_PR", "false").lower() == "true"
+CURSOR_ALLOW_MERGE = _get("CURSOR_ALLOW_MERGE", "false").lower() == "true"
+
+# Fail-closed : autonomie off par défaut
+SELF_REPAIR_ENABLED = _get("SELF_REPAIR_ENABLED", "false").lower() == "true"
+SELF_IMPROVEMENT_ENABLED = _get("SELF_IMPROVEMENT_ENABLED", "false").lower() == "true"
+SELF_MODIFICATION_MODE = _get("SELF_MODIFICATION_MODE", "pr_only")  # pr_only | auto_merge_low_risk
+SELF_IMPROVEMENT_SCHEDULE = _get("SELF_IMPROVEMENT_SCHEDULE", "weekly")
 
 # ── Prédiction du prochain message ───────────────────────────
 MESSAGE_PREDICTION_LOOKBACK_DAYS = int(_get("MESSAGE_PREDICTION_LOOKBACK_DAYS", "60"))

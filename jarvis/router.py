@@ -51,20 +51,18 @@ class JARVISRouter:
             boundary=self.boundary, stats=self.stats
         )
 
-    # ── Chat Elias → LOCAL uniquement ────────────────────────
+    # ── Chat Elias → DeepSeek après anonymisation (politique 2026) ──
 
     async def chat(self, prompt: str, system: Optional[str] = None) -> str:
-        """Traite un message d'Elias. TOUJOURS local, JAMAIS DeepSeek."""
-        backend = self.local
-        # Garde-fou explicite : ce chemin ne doit jamais toucher DeepSeek.
-        assert backend is not self.deepseek, (
-            "Violation de routage : chat() ne doit jamais utiliser DeepSeek."
+        """Traite un message sensible via DeepSeek après anonymisation PII.
+
+        Plus aucun LLM local de raisonnement (MLX/Ollama) sur ce chemin —
+        Ollama reste réservé au Screen Watcher.
+        """
+        return await self._deepseek_anonymized(
+            text=prompt,
+            instruction=system or _CHAT_SYSTEM_DEFAULT,
         )
-        result = await backend.generate(
-            prompt=prompt, system=system or _CHAT_SYSTEM_DEFAULT
-        )
-        self.stats.local_calls += 1
-        return result
 
     # ── Email → DeepSeek après anonymisation ─────────────────
 
@@ -113,19 +111,11 @@ class JARVISRouter:
     # ── Résumé → routage selon la source ─────────────────────
 
     async def summarize(self, text: str, source: DataSource) -> str:
-        """Résume ``text`` : LOCAL si source MESSAGES, sinon DeepSeek anonymisé."""
+        """Résume ``text`` via DeepSeek après anonymisation (toutes sources)."""
         if not isinstance(source, DataSource):
             raise TypeError(f"summarize() : source invalide {source!r}")
         if not isinstance(text, str) or not text.strip():
             raise ValueError("summarize() : texte vide.")
-
-        if source is DataSource.MESSAGES:
-            result = await self.local.generate(
-                prompt=f"Résume ce contenu de façon concise :\n\n{text}",
-                system=_CHAT_SYSTEM_DEFAULT,
-            )
-            self.stats.local_calls += 1
-            return result
 
         return await self._deepseek_anonymized(
             text=text,
