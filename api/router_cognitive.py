@@ -6,13 +6,15 @@ import logging
 import re
 from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Path, Query
 from pydantic import BaseModel, Field, field_validator
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["cognitive"])
 
 _TEMPLATE_ID_RE = re.compile(r"^[a-z0-9_:-]{1,80}$")
+_JOB_ID_RE = re.compile(r"^job-[0-9]{8}-[0-9]{6}-[a-f0-9]{6}$")
+_SHELL_META_RE = re.compile(r"""[;|&`$<>]|\$\(|&&|\|\||>>|<<|\n|\r|\x00""")
 
 
 class RouteRequest(BaseModel):
@@ -26,6 +28,21 @@ class RequiredTestSpec(BaseModel):
     cwd: str | None = Field(default=None, max_length=200)
     timeout_seconds: int = Field(default=900, ge=1, le=900)
 
+    @field_validator("executable", "cwd")
+    @classmethod
+    def _no_shell_meta_str(cls, value: str | None) -> str | None:
+        if value and _SHELL_META_RE.search(value):
+            raise ValueError("métacaractères shell interdits")
+        return value
+
+    @field_validator("args")
+    @classmethod
+    def _no_shell_meta_args(cls, value: list[str]) -> list[str]:
+        for arg in value:
+            if _SHELL_META_RE.search(arg):
+                raise ValueError(f"argument interdit: {arg}")
+        return value
+
 
 class CursorEnqueueRequest(BaseModel):
     title: str = Field(..., min_length=1, max_length=200)
@@ -35,6 +52,15 @@ class CursorEnqueueRequest(BaseModel):
     auto_start: bool = False
     require_confirmation: bool = True
     acceptance_criteria: list[str] = Field(default_factory=list, max_length=20)
+
+    @field_validator("acceptance_criteria")
+    @classmethod
+    def _criteria_item_len(cls, value: list[str]) -> list[str]:
+        for item in value:
+            if len(item) > 500:
+                raise ValueError("critère d'acceptation trop long (max 500)")
+        return value
+
     required_tests: list[str | RequiredTestSpec] = Field(default_factory=list, max_length=3)
 
     @field_validator("template_id")
@@ -48,8 +74,14 @@ class CursorEnqueueRequest(BaseModel):
 class BriefingRequest(BaseModel):
     kind: Literal["morning", "evening", "delta"] = "morning"
     voice_only: bool = False
-    filter_priority: str | None = None
+    filter_priority: Literal["low", "medium", "high", "urgent", "critique"] | None = None
     work_only: bool = False
+
+
+def _validate_job_id(job_id: str) -> str:
+    if not _JOB_ID_RE.match(job_id):
+        raise HTTPException(400, "job_id invalide")
+    return job_id
 
 
 @router.post("/cognitive/route")
@@ -110,7 +142,11 @@ async def cursor_jobs(
     status: str | None = None,
     diagnostic: bool = Query(False, description="Vue diagnostic (toujours redacted)"),
 ) -> dict[str, Any]:
+    from database.cursor_jobs import VALID_STATUSES
     from integrations.cursor_delegation import cursor_delegation
+
+    if status is not None and status not in VALID_STATUSES:
+        raise HTTPException(400, f"statut invalide: {status}")
 
     return {
         "ok": True,
@@ -122,11 +158,12 @@ async def cursor_jobs(
 
 @router.get("/cursor/jobs/{job_id}")
 async def cursor_job_detail(
-    job_id: str,
+    job_id: str = Path(..., min_length=10, max_length=64),
     diagnostic: bool = Query(False),
 ) -> dict[str, Any]:
     from integrations.cursor_delegation import cursor_delegation
 
+    _validate_job_id(job_id)
     job = cursor_delegation.get_job(job_id, public=not diagnostic, diagnostic=diagnostic)
     if not job:
         raise HTTPException(404, f"Job {job_id} introuvable")
@@ -169,11 +206,12 @@ async def cursor_enqueue(body: CursorEnqueueRequest) -> dict[str, Any]:
 
 
 @router.post("/cursor/jobs/{job_id}/confirm")
-async def cursor_confirm(job_id: str) -> dict[str, Any]:
+async def cursor_confirm(job_id: str = Path(..., min_length=10, max_length=64)) -> dict[str, Any]:
     """Confirmation explicite — démarre le job en awaiting_confirmation."""
     from integrations.cursor_delegation import CursorDelegationError, cursor_delegation
     from jarvis.security.redaction import public_cursor_job_view
 
+    _validate_job_id(job_id)
     try:
         job = await cursor_delegation.confirm(job_id)
     except CursorDelegationError as exc:
@@ -184,10 +222,11 @@ async def cursor_confirm(job_id: str) -> dict[str, Any]:
 
 
 @router.post("/cursor/jobs/{job_id}/cancel")
-async def cursor_cancel(job_id: str) -> dict[str, Any]:
+async def cursor_cancel(job_id: str = Path(..., min_length=10, max_length=64)) -> dict[str, Any]:
     from integrations.cursor_delegation import cursor_delegation
     from jarvis.security.redaction import public_cursor_job_view
 
+    _validate_job_id(job_id)
     job = cursor_delegation.cancel(job_id)
     if not job:
         raise HTTPException(404, f"Job {job_id} introuvable")
@@ -195,10 +234,11 @@ async def cursor_cancel(job_id: str) -> dict[str, Any]:
 
 
 @router.post("/cursor/jobs/{job_id}/rollback")
-async def cursor_rollback(job_id: str) -> dict[str, Any]:
+async def cursor_rollback(job_id: str = Path(..., min_length=10, max_length=64)) -> dict[str, Any]:
     from integrations.cursor_delegation import cursor_delegation
     from jarvis.security.redaction import public_cursor_job_view
 
+    _validate_job_id(job_id)
     job = cursor_delegation.rollback(job_id)
     if not job:
         raise HTTPException(404, f"Job {job_id} introuvable")
@@ -206,11 +246,12 @@ async def cursor_rollback(job_id: str) -> dict[str, Any]:
 
 
 @router.post("/cursor/jobs/{job_id}/retry")
-async def cursor_retry(job_id: str) -> dict[str, Any]:
+async def cursor_retry(job_id: str = Path(..., min_length=10, max_length=64)) -> dict[str, Any]:
     from integrations.cursor_delegation import cursor_delegation
     from jarvis.security.redaction import public_cursor_job_view
     from database.cursor_jobs import get_cursor_job
 
+    _validate_job_id(job_id)
     # Lecture brute DB (redacted ensuite) — la vue publique n'a pas user_request
     old = get_cursor_job(job_id)
     if not old:
