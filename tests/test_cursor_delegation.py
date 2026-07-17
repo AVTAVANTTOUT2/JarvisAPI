@@ -250,6 +250,50 @@ def test_enqueue_refused_when_cli_missing(delegation_env, monkeypatch):
         asyncio.run(service.enqueue(title="x", user_request="y", repository=str(repo)))
 
 
+def test_enqueue_refused_when_concurrent_limit_reached(delegation_env, monkeypatch):
+    """TOCTOU : le slot est réservé atomiquement à l'INSERT, pas au count préalable."""
+    service, repo = delegation_env["service"], delegation_env["repo"]
+    from database.cursor_jobs import create_cursor_job
+
+    monkeypatch.setattr(config, "CURSOR_MAX_CONCURRENT_JOBS", 1)
+    create_cursor_job({
+        "job_id": "job-slot-taken",
+        "title": "occupé",
+        "user_request": "x",
+        "status": "awaiting_confirmation",
+        "repository": str(repo),
+    })
+    with pytest.raises(CursorDelegationError, match="Limite de jobs"):
+        asyncio.run(service.enqueue(title="y", user_request="z", repository=str(repo)))
+
+
+def test_create_cursor_job_within_capacity_atomic(tmp_path, monkeypatch):
+    from database import init_db
+    from database.cursor_jobs import (
+        ACTIVE_SLOT_STATUSES,
+        create_cursor_job_within_capacity,
+        count_active_cursor_jobs,
+    )
+
+    db_path = tmp_path / "atomic.db"
+    monkeypatch.setattr("config.DB_PATH", str(db_path))
+    monkeypatch.setattr("database.DB_PATH", db_path)
+    init_db()
+
+    base = {
+        "title": "t",
+        "user_request": "r",
+        "status": "awaiting_confirmation",
+        "repository": str(tmp_path),
+    }
+    first = create_cursor_job_within_capacity({**base, "job_id": "job-a"}, max_concurrent=1)
+    second = create_cursor_job_within_capacity({**base, "job_id": "job-b"}, max_concurrent=1)
+    assert first is not None
+    assert second is None
+    assert count_active_cursor_jobs() == 1
+    assert ACTIVE_SLOT_STATUSES  # constante exportée pour doc
+
+
 def test_jobs_persist_and_resume_after_restart(delegation_env):
     """Les jobs queued sont relancés, les running orphelins marqués failed."""
     service, repo = delegation_env["service"], delegation_env["repo"]

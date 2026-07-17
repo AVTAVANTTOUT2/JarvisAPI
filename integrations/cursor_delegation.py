@@ -26,8 +26,7 @@ from typing import Any
 
 import config
 from database.cursor_jobs import (
-    count_active_cursor_jobs,
-    create_cursor_job,
+    create_cursor_job_within_capacity,
     get_cursor_job,
     list_cursor_jobs,
     list_jobs_by_statuses,
@@ -161,10 +160,6 @@ class CursorDelegationService:
             raise CursorDelegationError("CURSOR_DELEGATION_ENABLED=false")
 
         max_concurrent = int(getattr(config, "CURSOR_MAX_CONCURRENT_JOBS", 2))
-        if count_active_cursor_jobs() >= max_concurrent:
-            raise CursorDelegationError(
-                f"Limite de jobs Cursor atteinte ({max_concurrent})"
-            )
 
         cli = self.refresh_cli()
         if not cli.get("available"):
@@ -210,7 +205,7 @@ class CursorDelegationService:
             initial_status = "queued"
             will_start = bool(auto_start)
 
-        record = create_cursor_job(
+        record = create_cursor_job_within_capacity(
             {
                 "job_id": job_id,
                 "title": redact_sensitive_text(title[:200]),
@@ -230,8 +225,13 @@ class CursorDelegationService:
                 "allow_merge": bool(getattr(config, "CURSOR_ALLOW_MERGE", False)),
                 "interaction_mode": interaction_mode,
                 "routing": routing_meta,
-            }
+            },
+            max_concurrent,
         )
+        if record is None:
+            raise CursorDelegationError(
+                f"Limite de jobs Cursor atteinte ({max_concurrent})"
+            )
 
         if will_start:
             asyncio.create_task(self.run_job(job_id), name=f"cursor-{job_id}")

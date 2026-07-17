@@ -29,6 +29,17 @@ VALID_STATUSES = frozenset(
     }
 )
 
+# Statuts qui consomment un slot de concurrence (enqueue + exécution).
+ACTIVE_SLOT_STATUSES: tuple[str, ...] = (
+    "awaiting_confirmation",
+    "proposal",
+    "queued",
+    "preparing",
+    "running",
+    "testing",
+    "reviewing",
+)
+
 
 def ensure_cursor_jobs_table() -> None:
     """Migration idempotente — appelée depuis init_db / premier usage."""
@@ -78,47 +89,79 @@ def ensure_cursor_jobs_table() -> None:
         conn.commit()
 
 
+def _insert_cursor_job_row(conn: Any, record: dict[str, Any], now: str) -> None:
+    conn.execute(
+        """
+        INSERT INTO cursor_delegation_jobs (
+            job_id, title, user_request, status, repository, working_directory,
+            worktree_path, branch_name, prompt_template, template_version,
+            prompt_sent, acceptance_criteria, required_tests, risk_level,
+            allow_commit, allow_push, allow_pr, allow_merge,
+            interaction_mode, routing_json, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            record["job_id"],
+            record["title"],
+            record["user_request"],
+            record.get("status", "queued"),
+            record.get("repository"),
+            record.get("working_directory"),
+            record.get("worktree_path"),
+            record.get("branch_name"),
+            record.get("prompt_template"),
+            record.get("template_version"),
+            record.get("prompt_sent"),
+            json.dumps(record.get("acceptance_criteria") or [], ensure_ascii=False),
+            json.dumps(record.get("required_tests") or [], ensure_ascii=False),
+            record.get("risk_level", "medium"),
+            1 if record.get("allow_commit", True) else 0,
+            1 if record.get("allow_push", True) else 0,
+            1 if record.get("allow_pr", True) else 0,
+            1 if record.get("allow_merge", False) else 0,
+            record.get("interaction_mode"),
+            json.dumps(record.get("routing") or {}, ensure_ascii=False),
+            now,
+            now,
+        ),
+    )
+
+
 def create_cursor_job(record: dict[str, Any]) -> dict[str, Any]:
     ensure_cursor_jobs_table()
     now = datetime.now().isoformat(timespec="seconds")
     with get_db() as conn:
-        conn.execute(
-            """
-            INSERT INTO cursor_delegation_jobs (
-                job_id, title, user_request, status, repository, working_directory,
-                worktree_path, branch_name, prompt_template, template_version,
-                prompt_sent, acceptance_criteria, required_tests, risk_level,
-                allow_commit, allow_push, allow_pr, allow_merge,
-                interaction_mode, routing_json, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                record["job_id"],
-                record["title"],
-                record["user_request"],
-                record.get("status", "queued"),
-                record.get("repository"),
-                record.get("working_directory"),
-                record.get("worktree_path"),
-                record.get("branch_name"),
-                record.get("prompt_template"),
-                record.get("template_version"),
-                record.get("prompt_sent"),
-                json.dumps(record.get("acceptance_criteria") or [], ensure_ascii=False),
-                json.dumps(record.get("required_tests") or [], ensure_ascii=False),
-                record.get("risk_level", "medium"),
-                1 if record.get("allow_commit", True) else 0,
-                1 if record.get("allow_push", True) else 0,
-                1 if record.get("allow_pr", True) else 0,
-                1 if record.get("allow_merge", False) else 0,
-                record.get("interaction_mode"),
-                json.dumps(record.get("routing") or {}, ensure_ascii=False),
-                now,
-                now,
-            ),
-        )
+        _insert_cursor_job_row(conn, record, now)
         conn.commit()
     return get_cursor_job(record["job_id"])  # type: ignore[return-value]
+
+
+def create_cursor_job_within_capacity(
+    record: dict[str, Any],
+    max_concurrent: int,
+) -> dict[str, Any] | None:
+    """Insère un job seulement si le nombre de slots actifs est sous la limite.
+
+    Transaction SQLite ``BEGIN IMMEDIATE`` : le comptage et l'INSERT sont
+    atomiques — élimine la course count_active() → create().
+    """
+    ensure_cursor_jobs_table()
+    limit = max(1, int(max_concurrent))
+    now = datetime.now().isoformat(timespec="seconds")
+    placeholders = ",".join("?" * len(ACTIVE_SLOT_STATUSES))
+    with get_db() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            f"SELECT COUNT(*) AS c FROM cursor_delegation_jobs "
+            f"WHERE status IN ({placeholders})",
+            ACTIVE_SLOT_STATUSES,
+        ).fetchone()
+        if int(row["c"] if row else 0) >= limit:
+            conn.rollback()
+            return None
+        _insert_cursor_job_row(conn, record, now)
+        conn.commit()
+    return get_cursor_job(record["job_id"])
 
 
 def update_cursor_job(job_id: str, **fields: Any) -> dict[str, Any] | None:
@@ -208,21 +251,11 @@ def list_jobs_by_statuses(statuses: tuple[str, ...]) -> list[dict[str, Any]]:
 
 def count_active_cursor_jobs() -> int:
     ensure_cursor_jobs_table()
-    # Inclut les jobs en attente de confirmation (comptent pour la concurrence UX)
-    # mais seuls queued/preparing/running/… consomment réellement le CLI.
-    active = (
-        "awaiting_confirmation",
-        "proposal",
-        "queued",
-        "preparing",
-        "running",
-        "testing",
-        "reviewing",
-    )
     with get_db() as conn:
         row = conn.execute(
-            f"SELECT COUNT(*) AS c FROM cursor_delegation_jobs WHERE status IN ({','.join('?'*len(active))})",
-            active,
+            f"SELECT COUNT(*) AS c FROM cursor_delegation_jobs "
+            f"WHERE status IN ({','.join('?' * len(ACTIVE_SLOT_STATUSES))})",
+            ACTIVE_SLOT_STATUSES,
         ).fetchone()
     return int(row["c"] if row else 0)
 
