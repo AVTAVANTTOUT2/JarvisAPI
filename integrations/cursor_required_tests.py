@@ -235,22 +235,27 @@ def parse_and_run_required_tests(
     timeout: int,
     max_tests: int = 3,
 ) -> tuple[bool, str]:
-    """Parse + exécute jusqu'à ``max_tests`` specs. Retourne (ok, log)."""
+    """Parse + exécute jusqu'à ``max_tests`` specs. Retourne (ok, log).
+
+    Fail-closed : toute spec invalide ou rejetée fait échouer ``test_ok``.
+    Une liste vide signifie « aucun test requis » → ``ok=True``.
+    """
     if not isinstance(specs, list):
+        return False, "required_tests doit être une liste\n"
+    if not specs:
         return True, ""
+
     test_ok = True
     test_log = ""
+    ran_any = False
     for spec in specs[:max_tests]:
         try:
             rt = parse_required_test(spec, worktree=worktree)
         except RequiredTestError as exc:
-            test_log += f"skip/reject: {exc}\n"
-            # Rejet = pas d'exécution ; on n'échoue pas le job pour une
-            # spec malveillante (elle est simplement ignorée), sauf si
-            # c'était la seule spec attendue — on marque quand même ok=True
-            # pour ne pas punir un refus de sécurité. Les specs valides
-            # doivent elles passer.
+            test_log += f"reject: {exc}\n"
+            test_ok = False
             continue
+        ran_any = True
         try:
             result = run_required_test(rt, worktree=worktree, timeout=timeout)
         except (OSError, subprocess.TimeoutExpired) as exc:
@@ -260,4 +265,7 @@ def parse_and_run_required_tests(
         test_log += (result.stdout or "") + (result.stderr or "")
         if result.returncode != 0:
             test_ok = False
+    if not ran_any:
+        test_ok = False
+        test_log += "aucune spec de test valide n'a pu être exécutée\n"
     return test_ok, test_log

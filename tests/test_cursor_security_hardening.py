@@ -18,6 +18,7 @@ import config  # noqa: E402
 from integrations.cursor_env import build_cursor_safe_env  # noqa: E402
 from integrations.cursor_required_tests import (  # noqa: E402
     RequiredTestError,
+    parse_and_run_required_tests,
     parse_required_test,
     run_required_test,
 )
@@ -86,6 +87,33 @@ def test_required_tests_rejects_path_escape(worktree: Path):
             {"executable": "pytest", "args": ["../../etc/passwd"]},
             worktree=worktree,
         )
+
+
+def test_parse_and_run_required_tests_fail_closed_on_rejected_spec(worktree: Path):
+    """Une spec rejetée ne doit jamais produire test_ok=True."""
+    ok, log = parse_and_run_required_tests(
+        ["pytest; rm -rf /"],
+        worktree=worktree,
+        timeout=30,
+    )
+    assert ok is False
+    assert "reject:" in log
+
+
+def test_parse_and_run_required_tests_fail_closed_on_non_list(worktree: Path):
+    ok, log = parse_and_run_required_tests(
+        "pytest tests/",  # type: ignore[arg-type]
+        worktree=worktree,
+        timeout=30,
+    )
+    assert ok is False
+    assert "liste" in log
+
+
+def test_parse_and_run_required_tests_empty_list_ok(worktree: Path):
+    ok, log = parse_and_run_required_tests([], worktree=worktree, timeout=30)
+    assert ok is True
+    assert log == ""
 
 
 # ── 2. Confirmation obligatoire ──────────────────────────────
