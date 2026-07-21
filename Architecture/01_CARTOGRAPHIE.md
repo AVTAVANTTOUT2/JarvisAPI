@@ -2,7 +2,7 @@
 
 **Date initiale** : 11 juillet 2026
 
-**Dernière mise à jour** : 14 juillet 2026
+**Dernière mise à jour** : 21 juillet 2026
 
 ---
 
@@ -590,7 +590,7 @@ App.tsx
 │           ├── /dashboard → Dashboard (524 lignes, lazy)
 │           ├── /tasks → TasksView (527 lignes, lazy)
 │           ├── /contacts → ContactsView (lazy)
-│           ├── /map → MapView (~840 lignes, SVG custom)
+│           ├── /map → MapView (MapLibre + OpenFreeMap Dark ; CartographyMap)
 │           ├── /calendar → CalendarView (lazy)
 │           ├── /search → SearchView (lazy)
 │           ├── /voice → VoiceView (orbe canvas, EQ)
@@ -627,12 +627,68 @@ RootLayout (layout.tsx)
             │   ├── MailFilterPills
             │   └── MailList → MailItem
             ├── /map → MapPage
-            │   ├── MapView (Leaflet, 308 lignes)
+            │   ├── MapView (Leaflet + CARTO dark — coexistence volontaire)
             │   ├── TimelineBar
             │   └── DetailSheet
             └── /config → ConfigPage
                 └── LocationConfig
 ```
+
+---
+
+## 7.3 Cartographie — MapLibre / OpenFreeMap (desktop)
+
+La page desktop **Cartographie** (`/map`, label nav « Cartographie ») utilise **MapLibre GL JS**
+avec le style public **OpenFreeMap Dark** :
+
+```text
+https://tiles.openfreemap.org/styles/dark
+```
+
+| Élément | Détail |
+|---|---|
+| Composant carte | `web/src/app/components/map/CartographyMap.tsx` |
+| Transformations GeoJSON | `web/src/app/lib/cartographyGeojson.ts` |
+| Config style | `web/src/app/lib/mapStyle.ts` |
+| Variable d'environnement | `VITE_MAP_STYLE_URL` (défaut OpenFreeMap Dark) |
+| Dépendance | `maplibre-gl` (web + frontend) — **pas** de clé API |
+| PWA mobile | **Leaflet conservé** (`pwa/src/components/map/MapView.tsx`) — pas migré dans cette PR |
+
+### Attribution
+
+L'attribution OpenStreetMap / OpenFreeMap reste **toujours visible** (contrôle MapLibre
+`attributionControl` + `customAttribution`). Ne jamais la désactiver.
+
+### Changer le style
+
+```bash
+# .env / .env.config
+VITE_MAP_STYLE_URL=https://tiles.openfreemap.org/styles/dark
+# ou style auto-hébergé :
+# VITE_MAP_STYLE_URL=https://votre-domaine/styles/dark.json
+```
+
+Le service public OpenFreeMap peut être remplacé à tout moment par un style ou des tuiles
+auto-hébergés. Limites du fournisseur public : disponibilité communautaire, pas de SLA,
+usage raisonnable uniquement (pas de scraping massif).
+
+### Préparation PMTiles (future)
+
+`resolveMapStyleUrl()` et `isPmtilesStyleUrl()` acceptent déjà des URLs
+`pmtiles:///maps/europe.pmtiles`. L'enregistrement du protocole MapLibre + la dépendance
+`pmtiles` sont **volontairement reportés** : aucun fichier PMTiles Europe n'est versionné
+dans le dépôt. Prochaine étape : servir un archive local, enregistrer le protocole, pointer
+`VITE_MAP_STYLE_URL` vers un style JSON local.
+
+### Endpoints consommés (inchangés, auth session)
+
+`GET /api/places`, `GET /api/location/history`, `GET /api/visits`, `GET /api/trips`,
+`GET /api/location/status`, `GET /api/location/patterns` — aucune nouvelle route publique.
+
+### Comportement si les tuiles sont indisponibles
+
+La carte affiche un état d'erreur non bloquant (« Fond de carte indisponible ») ; les données
+GPS / lieux restent chargées côté API. Aucune coordonnée n'est envoyée à un service analytics.
 
 ---
 
