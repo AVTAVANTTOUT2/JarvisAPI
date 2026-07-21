@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Layers,
   Navigation,
   MapPin,
   X,
   Plus,
-  Minus,
   Loader2,
+  Crosshair,
+  LocateFixed,
 } from 'lucide-react';
 import { api } from '@unified/lib/api';
 import {
@@ -17,22 +18,23 @@ import {
   type LocationPoint,
 } from '@unified/lib/locationDisplay';
 import { timeAgo, formatDurationMin } from '@desktop/app/lib/timeFormat';
+import {
+  filterPointsByLocalDate,
+  filterTripsByLocalDate,
+  localDateKey,
+  type CartographyPlace,
+  type CartographyTrip,
+} from '@desktop/app/lib/cartographyGeojson';
+import type { CartographySelection } from '@desktop/app/components/map/CartographyMap';
+
+// MapLibre touche window/WebGL — chargement différé (SSR Next via DesktopApp ssr:false).
+const CartographyMap = lazy(() =>
+  import('@desktop/app/components/map/CartographyMap').then((m) => ({ default: m.CartographyMap })),
+);
 
 // ── Types ────────────────────────────────────────────────────
 
-interface Place {
-  id: number;
-  name: string;
-  category: string;
-  latitude: number;
-  longitude: number;
-  radius_meters?: number;
-  visit_count?: number;
-  avg_duration_min?: number;
-  last_visit?: string;
-  address?: string;
-  notes?: string;
-}
+interface Place extends CartographyPlace {}
 
 interface Visit {
   place_id?: number;
@@ -42,14 +44,7 @@ interface Visit {
   duration_min?: number;
 }
 
-interface Trip {
-  from_place?: string;
-  to_place?: string;
-  distance_km?: number;
-  duration_min?: number;
-  transport_mode?: string;
-  started_at?: string;
-}
+interface Trip extends CartographyTrip {}
 
 interface Pattern {
   pattern_type?: string;
@@ -67,20 +62,14 @@ interface LocationStatus {
   points_24h?: number;
 }
 
-interface GeoCoordinate {
-  latitude: number;
-  longitude: number;
-}
-
 // ── Helpers ──────────────────────────────────────────────────
-
 
 function categoryEmoji(cat: string): string {
   const map: Record<string, string> = {
     home: '🏠', work: '💼', school: '📚', gym: '💪',
     restaurant: '🍽️', shop: '🛍️', friend: '👤', family: '👨‍👩‍👧',
     medical: '🏥', transport: '🚆', leisure: '🎮', other: '📍',
-    social: '🎉', health: '🏥',
+    social: '🎉', health: '🏥', sport: '💪', commerce: '🛍️',
   };
   return map[cat] ?? '📍';
 }
@@ -91,24 +80,6 @@ function patternIcon(type: string): string {
     anomaly: '⚠️', habit: '🕐',
   };
   return map[type] ?? '📌';
-}
-
-function markerColor(category: string): string {
-  switch (category) {
-    case 'home': return 'rgba(255,255,255,1)';
-    case 'work':
-    case 'school': return 'rgba(255,255,255,0.9)';
-    case 'gym':
-    case 'health':
-    case 'medical': return 'rgba(200,200,200,0.85)';
-    case 'restaurant':
-    case 'shop':
-    case 'social':
-    case 'friend':
-    case 'family': return 'rgba(170,170,170,0.85)';
-    case 'leisure': return 'rgba(150,150,150,0.85)';
-    default: return 'rgba(120,120,120,0.85)';
-  }
 }
 
 function intensityDot(count: number): string {
@@ -129,36 +100,42 @@ function groupVisitsByDay(visits: Visit[]): { day: string; count: number; totalM
   return groups;
 }
 
-// ── SVG projection ───────────────────────────────────────────
+function todayLocalKey(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${mo}-${day}`;
+}
 
-function projectToSVG(
-  lat: number,
-  lng: number,
-  coordinates: GeoCoordinate[],
-  width: number,
-  height: number,
-): { x: number; y: number } {
-  if (coordinates.length <= 1) return { x: width / 2, y: height / 2 };
-  const padding = 0.12;
-  const lats = coordinates.map((p) => p.latitude);
-  const lngs = coordinates.map((p) => p.longitude);
-  const minLat = Math.min(...lats);
-  const maxLat = Math.max(...lats);
-  const minLng = Math.min(...lngs);
-  const maxLng = Math.max(...lngs);
-  const latRange = maxLat - minLat || 0.01;
-  const lngRange = maxLng - minLng || 0.01;
-  const x = padding * width + ((lng - minLng) / lngRange) * width * (1 - 2 * padding);
-  const y = padding * height + ((maxLat - lat) / latRange) * height * (1 - 2 * padding);
-  return { x, y };
+function formatAccuracy(meters: number | null | undefined): string | null {
+  if (meters == null || !Number.isFinite(meters)) return null;
+  if (meters < 1000) return `±${Math.round(meters)} m`;
+  return `±${(meters / 1000).toFixed(1)} km`;
+}
+
+function mapApiTrip(raw: Record<string, unknown>): Trip {
+  return {
+    id: Number(raw.id) || 0,
+    from_place_id: raw.from_place_id == null ? null : Number(raw.from_place_id),
+    to_place_id: raw.to_place_id == null ? null : Number(raw.to_place_id),
+    from_place: typeof raw.from_place === 'string' ? raw.from_place : undefined,
+    to_place: typeof raw.to_place === 'string' ? raw.to_place : undefined,
+    started_at: typeof raw.started_at === 'string' ? raw.started_at : undefined,
+    ended_at: typeof raw.ended_at === 'string' ? raw.ended_at : undefined,
+    duration_min: raw.duration_min == null ? undefined : Number(raw.duration_min),
+    distance_km: raw.distance_km == null ? null : Number(raw.distance_km),
+    transport_mode: typeof raw.transport_mode === 'string' ? raw.transport_mode : null,
+    route_points:
+      typeof raw.route_points === 'string' || Array.isArray(raw.route_points)
+        ? (raw.route_points as Trip['route_points'])
+        : null,
+  };
 }
 
 // ── Composant principal ──────────────────────────────────────
 
 export function MapView() {
-  const svgRef = useRef<SVGSVGElement>(null);
-  const [svgSize, setSvgSize] = useState({ w: 800, h: 600 });
-
   const [places, setPlaces] = useState<Place[]>([]);
   const [todayVisits, setTodayVisits] = useState<Visit[]>([]);
   const [weekVisits, setWeekVisits] = useState<Visit[]>([]);
@@ -170,12 +147,17 @@ export function MapView() {
   const [locationUnavailable, setLocationUnavailable] = useState(false);
 
   const [selectedPlace, setSelectedPlace] = useState<Place | null>(null);
-  const [hoveredPlace, setHoveredPlace] = useState<Place | null>(null);
-  const [showHeatmap, setShowHeatmap] = useState(true);
-  const [showRoutes, setShowRoutes] = useState(true);
-  const [zoomLevel, setZoomLevel] = useState(1);
+  const [selectedPoint, setSelectedPoint] = useState<LocationPoint | null>(null);
+  const [selectedTrip, setSelectedTrip] = useState<Trip | null>(null);
 
-  // Form "ajouter lieu"
+  const [showPlaces, setShowPlaces] = useState(true);
+  const [showRoutes, setShowRoutes] = useState(true);
+  const [showGps, setShowGps] = useState(true);
+  const [selectedDate, setSelectedDate] = useState<string>('');
+  const [fitToken, setFitToken] = useState(0);
+  const [recenterToken, setRecenterToken] = useState(0);
+  const [mapTileError, setMapTileError] = useState<string | null>(null);
+
   const [showAddForm, setShowAddForm] = useState(false);
   const [addName, setAddName] = useState('');
   const [addCategory, setAddCategory] = useState('other');
@@ -183,15 +165,13 @@ export function MapView() {
   const [addLng, setAddLng] = useState('');
   const [addSaving, setAddSaving] = useState(false);
 
-  // ── Chargement des données ────────────────────────────────
-
   const loadAll = useCallback(async () => {
     try {
       const [p, tv, wv, tr, pat, loc, history] = await Promise.all([
         api.getPlaces() as Promise<{ places: Place[] }>,
         api.getTodayVisits() as Promise<{ visits: Visit[] }>,
         api.getVisits(7) as Promise<{ visits: Visit[] }>,
-        api.getTrips(30) as Promise<{ trips: Trip[] }>,
+        api.getTrips(30) as Promise<{ trips: Record<string, unknown>[] }>,
         api.getLocationPatterns() as Promise<{ patterns: Pattern[] }>,
         api.getLocationStatus() as Promise<LocationStatus>,
         api.getLocationHistory(24) as Promise<unknown>,
@@ -199,7 +179,7 @@ export function MapView() {
       setPlaces(p.places ?? []);
       setTodayVisits(tv.visits ?? []);
       setWeekVisits(wv.visits ?? []);
-      setTrips(tr.trips ?? []);
+      setTrips((tr.trips ?? []).map((row) => mapApiTrip(row)));
       setPatterns(pat.patterns ?? []);
       setLocationStatus(loc);
       setHistoryPoints(mapLocationHistory(history));
@@ -216,7 +196,7 @@ export function MapView() {
     void loadAll();
   }, [loadAll]);
 
-  // Rafraîchissement Live sans polling agressif.
+  // Rafraîchissement existant (60 s) — pas de polling supplémentaire.
   useEffect(() => {
     const iv = setInterval(() => {
       Promise.all([
@@ -231,50 +211,64 @@ export function MapView() {
     return () => clearInterval(iv);
   }, []);
 
-  // Mesure du SVG
-  useEffect(() => {
-    const el = svgRef.current?.parentElement;
-    if (!el) return;
-    const obs = new ResizeObserver(() => {
-      setSvgSize({ w: el.clientWidth, h: el.clientHeight });
-    });
-    obs.observe(el);
-    setSvgSize({ w: el.clientWidth, h: el.clientHeight });
-    return () => obs.disconnect();
-  }, []);
-
-  // ── Données dérivées ──────────────────────────────────────
-
-  const maxVisitCount = Math.max(1, ...places.map((p) => p.visit_count ?? 0));
-  const sortedByVisit = [...places].sort((a, b) => (b.visit_count ?? 0) - (a.visit_count ?? 0));
-  const weekGroups = groupVisitsByDay(weekVisits);
-  const maxWeekCount = Math.max(1, ...weekGroups.map((g) => g.count));
   const statusPoint = mapLocationPoint(locationStatus?.current_location ?? null) ?? undefined;
   const latestPoint = resolveDisplayLocationPoint(historyPoints, statusPoint);
   const locationDisplay = getLocationDisplayStatus(latestPoint);
-  const mapCoordinates: GeoCoordinate[] = [
-    ...places,
-    ...historyPoints,
-    ...(latestPoint ? [latestPoint] : []),
-  ];
-  const hasLocationData = mapCoordinates.length > 0;
+
+  const dateFilter = selectedDate.trim() || null;
+  const filteredPoints = useMemo(
+    () => filterPointsByLocalDate(historyPoints, dateFilter),
+    [historyPoints, dateFilter],
+  );
+  const filteredTrips = useMemo(
+    () => filterTripsByLocalDate(trips, dateFilter),
+    [trips, dateFilter],
+  );
+
+  const hasLocationData =
+    places.length > 0
+    || filteredPoints.length > 0
+    || filteredTrips.length > 0
+    || Boolean(latestPoint);
+
   const historyCount = Math.max(historyPoints.length, locationStatus?.points_24h ?? 0);
+  const sortedByVisit = [...places].sort((a, b) => (b.visit_count ?? 0) - (a.visit_count ?? 0));
+  const weekGroups = groupVisitsByDay(weekVisits);
+  const maxWeekCount = Math.max(1, ...weekGroups.map((g) => g.count));
 
-  // Trajets uniques (from → to)
-  type TripKey = string;
-  const tripMap = new Map<TripKey, { from: string; to: string; count: number }>();
-  trips.forEach((t) => {
-    if (!t.from_place || !t.to_place) return;
-    const key = [t.from_place, t.to_place].sort().join('|||');
-    const existing = tripMap.get(key);
-    if (existing) existing.count++;
-    else tripMap.set(key, { from: t.from_place, to: t.to_place, count: 1 });
-  });
+  const placeNameById = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const p of places) m.set(p.id, p.name);
+    return m;
+  }, [places]);
 
-  // Trouver les coordonnées des lieux pour les trajets
-  const placeByName = new Map(places.map((p) => [p.name, p]));
+  function clearSelections(): void {
+    setSelectedPlace(null);
+    setSelectedPoint(null);
+    setSelectedTrip(null);
+  }
 
-  // ── Actions ───────────────────────────────────────────────
+  function handleMapSelect(selection: CartographySelection): void {
+    if (!selection) {
+      clearSelections();
+      return;
+    }
+    if (selection.kind === 'place') {
+      setSelectedPlace(selection.place);
+      setSelectedPoint(null);
+      setSelectedTrip(null);
+      return;
+    }
+    if (selection.kind === 'gps') {
+      setSelectedPoint(selection.point);
+      setSelectedPlace(null);
+      setSelectedTrip(null);
+      return;
+    }
+    setSelectedTrip(selection.trip);
+    setSelectedPlace(null);
+    setSelectedPoint(null);
+  }
 
   async function handleRename(place: Place) {
     const next = window.prompt('Nouveau nom :', place.name);
@@ -331,204 +325,84 @@ export function MapView() {
     }
   }
 
-  // ── Carte SVG ─────────────────────────────────────────────
-
-  const { w, h } = svgSize;
-
-  function renderMap() {
-    // Historique GPS brut (Android) doit s'afficher même sans lieux nommés.
-    if (!hasLocationData) return null;
-
-    return (
-      <g transform={`scale(${zoomLevel}) translate(${(w * (1 - zoomLevel)) / (2 * zoomLevel)}, ${(h * (1 - zoomLevel)) / (2 * zoomLevel)})`}>
-        {/* Couche 2 — Heatmap */}
-        {showHeatmap &&
-          places.map((place) => {
-            const { x, y } = projectToSVG(place.latitude, place.longitude, mapCoordinates, w, h);
-            const vc = place.visit_count ?? 0;
-            const baseR = 20 + vc * 2;
-            const opacity = 0.04 + (vc / maxVisitCount) * 0.14;
-            return (
-              <g key={`heat-${place.id}`}>
-                <circle cx={x} cy={y} r={baseR * 1.5} fill="white" opacity={opacity * 0.4} />
-                <circle cx={x} cy={y} r={baseR} fill="white" opacity={opacity} />
-              </g>
-            );
-          })}
-
-        {/* Couche 3 — Routes */}
-        {showRoutes &&
-          Array.from(tripMap.values()).map(({ from, to, count }) => {
-            const pFrom = placeByName.get(from);
-            const pTo = placeByName.get(to);
-            if (!pFrom || !pTo) return null;
-            const a = projectToSVG(pFrom.latitude, pFrom.longitude, places, w, h);
-            const b = projectToSVG(pTo.latitude, pTo.longitude, places, w, h);
-            const isActive =
-              selectedPlace?.name === from || selectedPlace?.name === to;
-            const strokeW = Math.min(3, 0.5 + count * 0.4);
-            return (
-              <line
-                key={`route-${from}-${to}`}
-                x1={a.x} y1={a.y}
-                x2={b.x} y2={b.y}
-                stroke="white"
-                strokeWidth={strokeW}
-                strokeOpacity={isActive ? 0.7 : 0.2}
-                strokeDasharray="8 4"
-                className="route-dash"
-              />
-            );
-          })}
-
-        {/* Couche 4 — Marqueurs */}
-        {places.map((place) => {
-          const { x, y } = projectToSVG(place.latitude, place.longitude, places, w, h);
-          const isSelected = selectedPlace?.id === place.id;
-          const isHovered = hoveredPlace?.id === place.id;
-          const color = markerColor(place.category);
-          const r = isSelected ? 12 : isHovered ? 11 : 8;
-          return (
-            <g
-              key={`marker-${place.id}`}
-              style={{ cursor: 'pointer' }}
-              onClick={() => setSelectedPlace(place)}
-              onMouseEnter={() => setHoveredPlace(place)}
-              onMouseLeave={() => setHoveredPlace(null)}
-            >
-              {/* Glow */}
-              <circle
-                cx={x} cy={y}
-                r={isHovered || isSelected ? 28 : 18}
-                fill="white"
-                opacity={isSelected ? 0.12 : isHovered ? 0.08 : 0.04}
-              />
-              {/* Anneaux pulsants si sélectionné */}
-              {isSelected && (
-                <>
-                  <circle cx={x} cy={y} r={18} fill="none" stroke="white" strokeWidth={1} opacity={0.3} className="ping-ring" />
-                  <circle cx={x} cy={y} r={24} fill="none" stroke="white" strokeWidth={0.5} opacity={0.15} className="ping-ring-2" />
-                </>
-              )}
-              {/* Cercle principal */}
-              <circle cx={x} cy={y} r={r} fill={color} />
-              {/* Point central */}
-              <circle cx={x} cy={y} r={3} fill="black" opacity={0.6} />
-              {/* Label hover/selected */}
-              {(isHovered || isSelected) && (
-                <g>
-                  <rect
-                    x={x + 14} y={y - 14}
-                    width={Math.min(place.name.length * 7.5 + 16, 180)} height={24}
-                    rx={4}
-                    fill="rgba(0,0,0,0.85)"
-                    stroke="rgba(255,255,255,0.2)"
-                    strokeWidth={0.5}
-                  />
-                  <text
-                    x={x + 22} y={y + 2}
-                    fill="white"
-                    fontSize={11}
-                    fontFamily="'JetBrains Mono', monospace"
-                    dominantBaseline="middle"
-                  >
-                    {place.name.slice(0, 20)}
-                  </text>
-                </g>
-              )}
-            </g>
-          );
-        })}
-
-        {/* Couche 5 — Historique brut reçu des téléphones */}
-        {historyPoints.slice(-200).map((point) => {
-          const { x, y } = projectToSVG(
-            point.latitude,
-            point.longitude,
-            mapCoordinates,
-            w,
-            h,
-          );
-          const isLatest = point.id === latestPoint?.id;
-          return (
-            <g key={`location-${point.id}`}>
-              {isLatest && <circle cx={x} cy={y} r={18} fill="rgba(59,130,246,0.12)" />}
-              <circle
-                cx={x}
-                cy={y}
-                r={isLatest ? 6 : 2.5}
-                fill={isLatest ? 'rgba(59,130,246,0.95)' : 'rgba(148,163,184,0.55)'}
-                stroke={isLatest ? 'white' : 'none'}
-                strokeWidth={isLatest ? 1.5 : 0}
-              />
-            </g>
-          );
-        })}
-
-        {/* Couche 6 — Dernière position connue (historique ou status) */}
-        {latestPoint && (() => {
-          const loc = latestPoint;
-          const { x, y } = projectToSVG(loc.latitude, loc.longitude, mapCoordinates, w, h);
-          return (
-            <g>
-              <circle cx={x} cy={y} r={20} fill="rgba(59,130,246,0.1)" />
-              <circle cx={x} cy={y} r={8} fill="rgba(59,130,246,0.9)" />
-              <circle cx={x} cy={y} r={3} fill="white" />
-              <rect x={x + 12} y={y - 12} width={90} height={22} rx={4} fill="rgba(0,0,0,0.85)" stroke="rgba(59,130,246,0.4)" strokeWidth={1} />
-              <text x={x + 20} y={y + 1} fill="white" fontSize={10} fontFamily="'JetBrains Mono', monospace" dominantBaseline="middle">
-                Vous êtes ici
-              </text>
-            </g>
-          );
-        })()}
-      </g>
-    );
-  }
-
-  // ── Rendu ─────────────────────────────────────────────────
-
   if (loading) {
     return (
-      <div className="flex-1 flex items-center justify-center">
+      <div className="flex-1 flex items-center justify-center" data-testid="cartography-page-loading">
         <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
       </div>
     );
   }
 
   return (
-    <div className="flex flex-1 min-h-0 h-full">
-      {/* ── Sidebar gauche ── */}
-      <aside className="w-80 shrink-0 border-r border-border glass-panel overflow-y-auto flex flex-col">
-        {/* Header */}
+    <div className="flex flex-1 min-h-0 h-full map-layout">
+      <aside className="w-80 shrink-0 border-r border-border glass-panel overflow-y-auto flex flex-col map-sidebar">
         <div className="p-5 border-b border-white/10">
           <h1 className="text-sm font-bold tracking-widest uppercase">Cartographie</h1>
           <p className="font-mono text-xs text-muted-foreground mt-0.5">Surveillance des déplacements</p>
         </div>
 
         <div className="p-4 space-y-5 flex-1">
-          {/* Contrôles toggle */}
-          <div className="flex gap-2">
+          <div className="space-y-2">
+            <label className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground" htmlFor="cartography-date">
+              Date
+            </label>
+            <div className="flex gap-2">
+              <input
+                id="cartography-date"
+                type="date"
+                value={selectedDate}
+                max={todayLocalKey()}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                className="flex-1 h-9 px-3 rounded-xl bg-white/5 border border-white/10 text-xs font-mono focus:outline-none focus:border-white/30"
+              />
+              {selectedDate && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedDate('')}
+                  className="h-9 px-3 rounded-xl bg-white/5 border border-white/10 text-xs text-muted-foreground hover:bg-white/10"
+                >
+                  Tout
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2">
             <button
-              onClick={() => setShowHeatmap((v) => !v)}
-              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs transition-all border ${
-                showHeatmap ? 'bg-white text-black border-white' : 'bg-white/5 text-muted-foreground border-white/10 hover:bg-white/10'
+              type="button"
+              onClick={() => setShowPlaces((v) => !v)}
+              className={`flex flex-col items-center justify-center gap-1 px-2 py-2 rounded-xl text-[10px] transition-all border ${
+                showPlaces ? 'bg-white text-black border-white' : 'bg-white/5 text-muted-foreground border-white/10 hover:bg-white/10'
               }`}
+              aria-pressed={showPlaces}
             >
-              <Layers className="w-3.5 h-3.5" />
-              Heatmap
+              <MapPin className="w-3.5 h-3.5" />
+              Lieux
             </button>
             <button
+              type="button"
               onClick={() => setShowRoutes((v) => !v)}
-              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs transition-all border ${
+              className={`flex flex-col items-center justify-center gap-1 px-2 py-2 rounded-xl text-[10px] transition-all border ${
                 showRoutes ? 'bg-white text-black border-white' : 'bg-white/5 text-muted-foreground border-white/10 hover:bg-white/10'
               }`}
+              aria-pressed={showRoutes}
             >
               <Navigation className="w-3.5 h-3.5" />
-              Routes
+              Trajets
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowGps((v) => !v)}
+              className={`flex flex-col items-center justify-center gap-1 px-2 py-2 rounded-xl text-[10px] transition-all border ${
+                showGps ? 'bg-white text-black border-white' : 'bg-white/5 text-muted-foreground border-white/10 hover:bg-white/10'
+              }`}
+              aria-pressed={showGps}
+            >
+              <Layers className="w-3.5 h-3.5" />
+              GPS
             </button>
           </div>
 
-          {/* Stats rapides — points GPS ≠ lieux nommés */}
           <div className="grid grid-cols-3 gap-2">
             <div className="glass-panel rounded-xl p-3 border border-white/10">
               <div className="flex items-center gap-2 mb-1">
@@ -552,13 +426,13 @@ export function MapView() {
               <p className="text-xl font-bold">{todayVisits.length}</p>
             </div>
           </div>
+
           {historyCount > 0 && places.length === 0 && (
             <p className="font-mono text-[10px] text-muted-foreground leading-relaxed">
               Historique téléphone reçu — aucun lieu nommé pour l’instant.
             </p>
           )}
 
-          {/* Activité hebdomadaire */}
           <div className="glass-panel rounded-xl p-4 border border-white/10">
             <h3 className="font-mono text-xs text-muted-foreground uppercase tracking-wider mb-3">
               Activité 7 jours
@@ -574,7 +448,6 @@ export function MapView() {
                     />
                   </div>
                   <span className="font-mono text-xs text-muted-foreground w-4 text-right">{g.count}</span>
-                  {/* Tooltip */}
                   {g.count > 0 && (
                     <div className="absolute left-10 -top-8 hidden group-hover:block z-10 bg-black/90 border border-white/10 rounded-lg px-2 py-1 text-xs font-mono whitespace-nowrap pointer-events-none">
                       {g.count} visite{g.count > 1 ? 's' : ''} · {formatDurationMin(g.totalMin)}
@@ -585,7 +458,6 @@ export function MapView() {
             </div>
           </div>
 
-          {/* Lieux fréquents */}
           <div>
             <h3 className="font-mono text-xs text-muted-foreground uppercase tracking-wider mb-2">
               Lieux fréquents
@@ -597,7 +469,12 @@ export function MapView() {
                 {sortedByVisit.slice(0, 8).map((place) => (
                   <button
                     key={place.id}
-                    onClick={() => setSelectedPlace(place)}
+                    type="button"
+                    onClick={() => {
+                      setSelectedPlace(place);
+                      setSelectedPoint(null);
+                      setSelectedTrip(null);
+                    }}
                     className={`w-full text-left p-2.5 rounded-xl transition-all border ${
                       selectedPlace?.id === place.id
                         ? 'bg-white/10 border-white/30'
@@ -624,7 +501,7 @@ export function MapView() {
                           )}
                         </div>
                         <p className="font-mono text-xs text-muted-foreground/60 mt-0.5">
-                          {timeAgo(place.last_visit)}
+                          {timeAgo(place.last_visit ?? undefined)}
                         </p>
                       </div>
                     </div>
@@ -634,7 +511,6 @@ export function MapView() {
             )}
           </div>
 
-          {/* Patterns */}
           <div>
             <h3 className="font-mono text-xs text-muted-foreground uppercase tracking-wider mb-2">
               Patterns détectés
@@ -662,11 +538,9 @@ export function MapView() {
         </div>
       </aside>
 
-      {/* ── Zone carte ── */}
       <div className="flex-1 flex flex-col min-w-0 relative">
-        {/* Header carte */}
-        <div className="shrink-0 flex items-center justify-between px-5 py-3 border-b border-white/10 glass-panel">
-          <div>
+        <div className="shrink-0 flex items-center justify-between px-5 py-3 border-b border-white/10 glass-panel gap-3 flex-wrap">
+          <div className="min-w-0">
             <h2 className="text-sm font-semibold">Carte Interactive</h2>
             <p className={`font-mono text-xs ${
               locationUnavailable
@@ -676,84 +550,85 @@ export function MapView() {
                   : 'text-muted-foreground'
             }`}>
               {locationUnavailable ? 'Serveur de localisation indisponible' : locationDisplay.label}
+              {latestPoint?.accuracy != null && Number.isFinite(latestPoint.accuracy) && (
+                <span className="text-muted-foreground"> · {formatAccuracy(latestPoint.accuracy)}</span>
+              )}
             </p>
             {locationStatus?.tracking_enabled === false && (
               <p className="font-mono text-[10px] text-amber-400">
                 Enrichissement des lieux désactivé — historique brut visible
               </p>
             )}
+            {mapTileError && (
+              <p className="font-mono text-[10px] text-amber-400">
+                Tuiles OpenFreeMap indisponibles — données locales affichables dès rétablissement
+              </p>
+            )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             <button
-              onClick={() => setZoomLevel((z) => Math.min(3, +(z + 0.2).toFixed(1)))}
-              className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 flex items-center justify-center transition-colors"
-              aria-label="Zoom +"
+              type="button"
+              onClick={() => setFitToken((n) => n + 1)}
+              className="h-8 px-3 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 flex items-center gap-1.5 transition-colors font-mono text-xs"
+              aria-label="Ajuster la vue aux données"
             >
-              <Plus className="w-4 h-4" />
+              <LocateFixed className="w-3.5 h-3.5" />
+              Ajuster
             </button>
-            <span className="font-mono text-xs text-muted-foreground w-10 text-center">
-              {Math.round(zoomLevel * 100)}%
-            </span>
             <button
-              onClick={() => setZoomLevel((z) => Math.max(0.4, +(z - 0.2).toFixed(1)))}
-              className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 flex items-center justify-center transition-colors"
-              aria-label="Zoom -"
+              type="button"
+              onClick={() => setRecenterToken((n) => n + 1)}
+              disabled={!latestPoint}
+              className="h-8 px-3 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 disabled:opacity-40 flex items-center gap-1.5 transition-colors font-mono text-xs"
+              aria-label="Recentrer sur la dernière position"
             >
-              <Minus className="w-4 h-4" />
+              <Crosshair className="w-3.5 h-3.5" />
+              Recentrer
             </button>
           </div>
         </div>
 
-        {/* SVG + overlays */}
         <div className="flex-1 relative overflow-hidden bg-black" style={{ minHeight: 0 }}>
-          {/* Grille de fond */}
-          <svg
-            ref={svgRef}
-            width="100%"
-            height="100%"
-            className="absolute inset-0"
-            style={{ display: 'block' }}
-          >
-            <defs>
-              <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-                <path d="M 40 0 L 0 0 0 40" fill="none" stroke="white" strokeWidth="0.5" opacity="0.03" />
-              </pattern>
-              <style>{`
-                @keyframes ping-ring {
-                  0% { r: 18; opacity: 0.3; }
-                  100% { r: 32; opacity: 0; }
-                }
-                @keyframes ping-ring-2 {
-                  0% { r: 24; opacity: 0.15; }
-                  100% { r: 40; opacity: 0; }
-                }
-                @keyframes route-dash {
-                  to { stroke-dashoffset: -24; }
-                }
-                .ping-ring { animation: ping-ring 1.8s ease-out infinite; }
-                .ping-ring-2 { animation: ping-ring-2 1.8s ease-out infinite 0.6s; }
-                .route-dash { animation: route-dash 2s linear infinite; }
-              `}</style>
-            </defs>
-            <rect width="100%" height="100%" fill="url(#grid)" />
-
-            {hasLocationData ? (
-              renderMap()
-            ) : null}
-          </svg>
-
-          {/* État vide */}
-          {!hasLocationData && !loading && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 text-center px-8">
+          {hasLocationData ? (
+            <Suspense
+              fallback={(
+                <div className="absolute inset-0 flex items-center justify-center" data-testid="cartography-map-suspense">
+                  <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+                </div>
+              )}
+            >
+              <CartographyMap
+                places={places}
+                historyPoints={filteredPoints}
+                trips={filteredTrips}
+                latestPointId={latestPoint?.id ?? null}
+                showPlaces={showPlaces}
+                showGps={showGps}
+                showTrips={showRoutes}
+                selectedPlaceId={selectedPlace?.id ?? null}
+                fitToken={fitToken}
+                recenterToken={recenterToken}
+                onSelect={handleMapSelect}
+                onErrorChange={setMapTileError}
+              />
+            </Suspense>
+          ) : (
+            <div
+              className="absolute inset-0 flex flex-col items-center justify-center gap-4 text-center px-8"
+              data-testid="cartography-empty"
+            >
               <MapPin className="w-12 h-12 text-white/20" />
               <div>
                 <p className="text-sm text-muted-foreground max-w-xs">
                   {locationUnavailable
                     ? 'Serveur de localisation indisponible.'
-                    : 'Aucune position reçue depuis le téléphone.'}
+                    : selectedDate
+                      ? `Aucune donnée pour le ${selectedDate}.`
+                      : 'Aucune position reçue depuis le téléphone.'}
                 </p>
               </div>
               <button
+                type="button"
                 onClick={() => setShowAddForm(true)}
                 className="px-4 py-2 rounded-xl bg-white/5 border border-white/20 hover:bg-white/10 text-sm transition-colors flex items-center gap-2"
               >
@@ -763,9 +638,8 @@ export function MapView() {
             </div>
           )}
 
-          {/* Panel info lieu (coin supérieur droit) */}
           {selectedPlace && (
-            <div className="absolute top-4 right-4 w-72 glass-panel rounded-2xl border border-white/20 p-4 shadow-2xl">
+            <div className="absolute top-4 right-4 w-72 max-h-[min(70vh,28rem)] overflow-y-auto glass-panel rounded-2xl border border-white/20 p-4 shadow-2xl map-info-panel z-20">
               <div className="flex items-start justify-between mb-3">
                 <div className="flex items-center gap-2">
                   <div className="w-10 h-10 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center text-lg">
@@ -777,14 +651,14 @@ export function MapView() {
                   </div>
                 </div>
                 <button
+                  type="button"
                   onClick={() => setSelectedPlace(null)}
                   className="w-7 h-7 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center transition-colors shrink-0"
+                  aria-label="Fermer"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
               </div>
-
-              {/* Stats */}
               <div className="grid grid-cols-2 gap-2 mb-3">
                 <div className="p-2 rounded-lg bg-white/5 border border-white/8">
                   <p className="font-mono text-xs text-muted-foreground">Visites</p>
@@ -795,8 +669,6 @@ export function MapView() {
                   <p className="font-bold text-base">{formatDurationMin(selectedPlace.avg_duration_min ?? 0)}</p>
                 </div>
               </div>
-
-              {/* Détails */}
               <div className="space-y-1 mb-3 text-xs">
                 <div className="flex justify-between">
                   <span className="text-muted-foreground font-mono">Catégorie</span>
@@ -804,7 +676,7 @@ export function MapView() {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground font-mono">Dernière visite</span>
-                  <span className="font-mono">{timeAgo(selectedPlace.last_visit)}</span>
+                  <span className="font-mono">{timeAgo(selectedPlace.last_visit ?? undefined)}</span>
                 </div>
                 {selectedPlace.address && (
                   <div className="flex justify-between gap-2">
@@ -819,16 +691,16 @@ export function MapView() {
                   </span>
                 </div>
               </div>
-
-              {/* Actions */}
               <div className="flex gap-2">
                 <button
+                  type="button"
                   onClick={() => void handleRename(selectedPlace)}
                   className="flex-1 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 text-xs transition-colors"
                 >
                   Renommer
                 </button>
                 <button
+                  type="button"
                   onClick={() => void handleDelete(selectedPlace)}
                   className="flex-1 px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/20 hover:bg-red-500/20 text-xs text-red-400 transition-colors"
                 >
@@ -838,22 +710,126 @@ export function MapView() {
             </div>
           )}
 
-          {/* Bouton "Nommer cet endroit" — nécessite une position affichable */}
+          {selectedPoint && !selectedPlace && (
+            <div className="absolute top-4 right-4 w-72 glass-panel rounded-2xl border border-white/20 p-4 shadow-2xl map-info-panel z-20">
+              <div className="flex items-start justify-between mb-3">
+                <div>
+                  <p className="font-semibold text-sm">Point GPS</p>
+                  <p className="font-mono text-xs text-muted-foreground">
+                    {selectedPoint.created_at}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedPoint(null)}
+                  className="w-7 h-7 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center"
+                  aria-label="Fermer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <div className="space-y-1 text-xs font-mono">
+                <div className="flex justify-between gap-2">
+                  <span className="text-muted-foreground">Coords</span>
+                  <span>{selectedPoint.latitude.toFixed(5)}, {selectedPoint.longitude.toFixed(5)}</span>
+                </div>
+                {formatAccuracy(selectedPoint.accuracy) && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Précision</span>
+                    <span>{formatAccuracy(selectedPoint.accuracy)}</span>
+                  </div>
+                )}
+                {selectedPoint.place_name && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Lieu</span>
+                    <span>{selectedPoint.place_name}</span>
+                  </div>
+                )}
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Jour</span>
+                  <span>{localDateKey(selectedPoint.created_at) ?? '—'}</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {selectedTrip && !selectedPlace && !selectedPoint && (
+            <div className="absolute top-4 right-4 w-72 glass-panel rounded-2xl border border-white/20 p-4 shadow-2xl map-info-panel z-20">
+              <div className="flex items-start justify-between mb-3">
+                <div>
+                  <p className="font-semibold text-sm">Trajet</p>
+                  <p className="font-mono text-xs text-muted-foreground capitalize">
+                    {selectedTrip.transport_mode ?? 'inconnu'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedTrip(null)}
+                  className="w-7 h-7 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center"
+                  aria-label="Fermer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <div className="space-y-1 text-xs font-mono">
+                <div className="flex justify-between gap-2">
+                  <span className="text-muted-foreground">De</span>
+                  <span className="truncate text-right">
+                    {selectedTrip.from_place
+                      ?? (selectedTrip.from_place_id != null
+                        ? placeNameById.get(selectedTrip.from_place_id)
+                        : null)
+                      ?? '—'}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-muted-foreground">Vers</span>
+                  <span className="truncate text-right">
+                    {selectedTrip.to_place
+                      ?? (selectedTrip.to_place_id != null
+                        ? placeNameById.get(selectedTrip.to_place_id)
+                        : null)
+                      ?? '—'}
+                  </span>
+                </div>
+                {selectedTrip.distance_km != null && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Distance</span>
+                    <span>{selectedTrip.distance_km.toFixed(1)} km</span>
+                  </div>
+                )}
+                {selectedTrip.duration_min != null && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Durée</span>
+                    <span>{formatDurationMin(selectedTrip.duration_min)}</span>
+                  </div>
+                )}
+                {selectedTrip.started_at && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Début</span>
+                    <span className="truncate">{selectedTrip.started_at}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {latestPoint && !locationStatus?.current_visit && (
             <button
+              type="button"
               onClick={() => void handleNameCurrent()}
-              className="absolute bottom-4 left-1/2 -translate-x-1/2 px-4 py-2 rounded-xl bg-white/10 border border-white/20 hover:bg-white/15 text-sm transition-colors backdrop-blur-sm flex items-center gap-2"
+              className="absolute bottom-4 left-1/2 -translate-x-1/2 px-4 py-2 rounded-xl bg-white/10 border border-white/20 hover:bg-white/15 text-sm transition-colors backdrop-blur-sm flex items-center gap-2 z-20"
             >
               <MapPin className="w-4 h-4" />
               Nommer cet endroit
             </button>
           )}
 
-          {/* Bouton ajouter (si places > 0) */}
           {places.length > 0 && (
             <button
+              type="button"
               onClick={() => setShowAddForm((v) => !v)}
-              className="absolute bottom-4 right-4 w-10 h-10 rounded-xl bg-white/10 border border-white/20 hover:bg-white/15 flex items-center justify-center transition-colors backdrop-blur-sm"
+              className="absolute bottom-4 right-4 w-10 h-10 rounded-xl bg-white/10 border border-white/20 hover:bg-white/15 flex items-center justify-center transition-colors backdrop-blur-sm z-20"
               aria-label="Ajouter un lieu"
               title="Ajouter un lieu"
             >
@@ -862,12 +838,11 @@ export function MapView() {
           )}
         </div>
 
-        {/* Formulaire ajout lieu (slide-down en bas) */}
         {showAddForm && (
           <div className="shrink-0 border-t border-white/10 glass-panel p-4">
             <div className="flex items-center justify-between mb-3">
               <h4 className="font-mono text-xs uppercase tracking-wider">Ajouter un lieu</h4>
-              <button onClick={() => setShowAddForm(false)} className="text-muted-foreground hover:text-white">
+              <button type="button" onClick={() => setShowAddForm(false)} className="text-muted-foreground hover:text-white">
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -902,6 +877,7 @@ export function MapView() {
                 />
               </div>
               <button
+                type="button"
                 onClick={() => void handleAddPlace()}
                 disabled={addSaving || !addName.trim() || !addLat || !addLng}
                 className="col-span-2 h-9 rounded-xl bg-white text-black text-sm font-medium hover:bg-white/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
@@ -914,13 +890,19 @@ export function MapView() {
         )}
       </div>
 
-      {/* CSS responsive */}
       <style>{`
         @media (max-width: 720px) {
-          /* Layout vertical sous 720px */
           .map-layout { flex-direction: column !important; }
           .map-sidebar { width: 100% !important; max-height: 40vh; border-right: none !important; border-bottom: 1px solid rgba(255,255,255,0.1); }
           .map-info-panel { top: auto !important; right: 0.5rem !important; bottom: 0.5rem !important; left: 0.5rem !important; width: auto !important; }
+        }
+        .maplibre-ctrl-attrib {
+          font-size: 10px;
+          background: rgba(0,0,0,0.55) !important;
+          color: rgba(255,255,255,0.75) !important;
+        }
+        .maplibre-ctrl-attrib a {
+          color: rgba(255,255,255,0.9) !important;
         }
       `}</style>
     </div>
