@@ -20,6 +20,10 @@ const config = {
       'import.meta.env.DEV': JSON.stringify(false),
       'import.meta.env.VITE_API_URL': JSON.stringify(''),
       'import.meta.env.VITE_WS_URL': JSON.stringify(''),
+      // Fond de carte MapLibre (OpenFreeMap Dark par défaut — voir web/src/app/lib/mapStyle.ts)
+      'import.meta.env.VITE_MAP_STYLE_URL': JSON.stringify(
+        process.env.VITE_MAP_STYLE_URL || 'https://tiles.openfreemap.org/styles/dark',
+      ),
     }));
     return webpackConfig;
   },
