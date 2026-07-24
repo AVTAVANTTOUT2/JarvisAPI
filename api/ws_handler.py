@@ -11,6 +11,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 import auth
 import config
+import api.chat_actions as chat_actions
 from actions import execute_action
 from agents.display_text import finalize_assistant_display_text
 from agents.orchestrator import orchestrator
@@ -34,7 +35,6 @@ except ImportError:
     stt = None
 
 logger = logging.getLogger("jarvis")
-
 
 async def websocket_endpoint(ws: WebSocket):
     """Chat temps réel : JSON texte, audio binaire, streaming, TTS."""
@@ -380,6 +380,11 @@ async def websocket_endpoint(ws: WebSocket):
                                 logger.error("save followup action_confirm : %s", e)
                         except Exception as e:
                             logger.exception("[action_confirm] followup : %s", e)
+                    continue
+
+                if msg_type == "action_cancel":
+                    chat_actions._cancel_pending_proposal(conversation_id, msg.get("action"))
+                    await ws.send_json({"type": "action_cancelled"})
                     continue
 
                 if msg_type == "new_conversation":

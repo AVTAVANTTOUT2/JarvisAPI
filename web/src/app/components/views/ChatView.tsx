@@ -447,7 +447,8 @@ export function ChatView() {
     })
   }, [])
 
-  const cancelPendingAction = useCallback(() => {
+  const cancelPendingAction = useCallback((action: Record<string, unknown>) => {
+    ws.send({ type: 'action_cancel', action })
     setMessages(prev => {
       const updated = [...prev]
       const idx = updated.map((m, i) => ({ m, i })).reverse().find(x => x.m.role === 'assistant')?.i
@@ -756,7 +757,7 @@ function MessageBubble({ message, streaming, onConfirmAction, onCancelAction }: 
   message: UIMessage
   streaming?: boolean
   onConfirmAction?: (action: Record<string, unknown>) => void
-  onCancelAction?: () => void
+  onCancelAction?: (action: Record<string, unknown>) => void
 }) {
   const isUser = message.role === 'user'
   const isSystem = message.role === 'system'
@@ -784,7 +785,7 @@ function MessageBubble({ message, streaming, onConfirmAction, onCancelAction }: 
             result={message.actionResult}
             pendingAction={message.pendingAction}
             onConfirm={(action) => onConfirmAction?.(action)}
-            onCancel={() => onCancelAction?.()}
+            onCancel={() => message.pendingAction && onCancelAction?.(message.pendingAction)}
           />
         )}
         {message.savedFile && (
@@ -838,11 +839,39 @@ function ActionBadge({
     search_conversations: `${result?.count || 0} resultat(s) trouve(s)`,
   }
   const cmd = pendingAction?.command as string | undefined
+  const shellPlan = pendingAction?.shell_plan as Record<string, unknown> | undefined
+  const plannedCommands = Array.isArray(shellPlan?.commands)
+    ? (shellPlan.commands as Array<Record<string, unknown>>)
+        .map(item => String(item.command || ''))
+        .filter(Boolean)
+    : []
+  const workspace = typeof shellPlan?.workspace === 'string' ? shellPlan.workspace : ''
+  const impact = shellPlan?.impact_analysis as Record<string, unknown> | undefined
   return (
     <div className="bg-white/5 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white/50 font-mono space-y-1.5">
       <div>{labels[type] || type}</div>
-      {needsConfirm && cmd && (
+      {needsConfirm && plannedCommands.length > 0 ? (
+        <ol className="list-decimal pl-5 space-y-1 text-white/55">
+          {plannedCommands.map((plannedCommand, index) => (
+            <li key={`${index}-${plannedCommand}`} className="break-all">
+              {plannedCommand}
+            </li>
+          ))}
+        </ol>
+      ) : needsConfirm && cmd ? (
         <div className="text-white/40 break-all">{cmd}</div>
+      ) : null}
+      {needsConfirm && Boolean(workspace) && (
+        <div className="text-white/35 break-all">
+          Workspace isole : {workspace}
+        </div>
+      )}
+      {needsConfirm && impact !== undefined && (
+        <div className="text-amber-200/60">
+          Impact {String(impact.max_risk || 'inconnu')} ·{' '}
+          {String(impact.workspace_write_commands || 0)} ecriture(s) limitee(s) au workspace ·
+          reseau et processus systeme interdits
+        </div>
       )}
       {needsConfirm && pendingAction && onConfirm && onCancel && (
         <div className="flex gap-2 pt-0.5">

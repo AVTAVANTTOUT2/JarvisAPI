@@ -54,10 +54,16 @@ AGENTIC_ACTION_TYPES = frozenset({"terminal"})
 
 
 def _is_agentic_action(action: dict) -> bool:
-    """Boucle agentique uniquement pour terminal + complex:true (pas un simple ls/grep)."""
+    """Une boucle terminal ne démarre qu'après un plan serveur confirmé.
+
+    La première passe doit rester dans le pipeline simple afin de construire
+    et afficher la liste complète des commandes sans rien exécuter.
+    """
     return (
         action.get("type") in AGENTIC_ACTION_TYPES
         and action.get("complex") is True
+        and action.get("confirmed") is True
+        and bool(action.get("shell_plan_id"))
     )
 
 
@@ -87,6 +93,9 @@ async def _run_loop_mode_ws(
         context,
         on_event=_on_event,
     )
+    pending_action = loop_result.get("pending_action")
+    if isinstance(pending_action, dict):
+        _maybe_store_pending_proposal(pending_action, conversation_id)
 
     synthesis = loop_result.get("synthesis") or "Boucle terminée."
     emotion = "neutral"
@@ -136,6 +145,9 @@ async def _run_loop_mode_internal(
         context["voice_mode"] = True
 
     loop_result = await run_autonomous_loop(task, conversation_id, context)
+    pending_action = loop_result.get("pending_action")
+    if isinstance(pending_action, dict):
+        _maybe_store_pending_proposal(pending_action, conversation_id)
     synthesis = loop_result.get("synthesis") or "Boucle terminée."
     display_text = finalize_assistant_display_text(synthesis)
 
@@ -180,6 +192,31 @@ def _should_defer_action(display_text: str, action: dict) -> bool:
     return any(marker in text for marker in _PROPOSAL_MARKERS)
 
 
+def _cancel_pending_proposal(
+    conversation_id: int,
+    action: dict | None = None,
+) -> bool:
+    """Annule la proposition de la conversation et révoque son plan shell."""
+    global _pending_proposal
+
+    stored_action: dict = {}
+    if (
+        _pending_proposal
+        and _pending_proposal.get("conversation_id") == conversation_id
+    ):
+        stored_action = _pending_proposal.get("action") or {}
+        _pending_proposal = None
+
+    candidate = action if isinstance(action, dict) else stored_action
+    plan_id = str(candidate.get("shell_plan_id") or "")
+    revoked = False
+    if plan_id:
+        from integrations.shell_safety import revoke_shell_plan
+
+        revoked = revoke_shell_plan(plan_id)
+    return bool(stored_action) or revoked
+
+
 def _pop_pending_action_if_confirmed(text: str, conversation_id: int) -> dict | None:
     """Retire et retourne l'action pending si l'utilisateur confirme (« oui », « vas-y »…)."""
     global _pending_proposal
@@ -188,7 +225,6 @@ def _pop_pending_action_if_confirmed(text: str, conversation_id: int) -> dict | 
         return None
 
     if _pending_proposal.get("conversation_id") != conversation_id:
-        _pending_proposal = None
         return None
 
     text_lower = text.strip().lower()
@@ -207,7 +243,7 @@ def _pop_pending_action_if_confirmed(text: str, conversation_id: int) -> dict | 
     if not is_confirmation:
         if _pending_proposal:
             logger.info("[pending] Proposition annulée (user a dit autre chose)")
-        _pending_proposal = None
+        _cancel_pending_proposal(conversation_id)
         return None
 
     action = {**_pending_proposal["action"], "confirmed": True}

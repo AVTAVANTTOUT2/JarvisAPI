@@ -66,13 +66,16 @@ def _effective_limit(config_value: int, hard_max: int) -> int | None:
 
 
 def _prepare_action_for_loop(action: dict) -> dict:
-    """Auto-confirme les actions qui nécessitent une validation en mode autonome."""
+    """Prépare une action autonome sans pré-confirmer le terminal."""
     prepared = dict(action)
-    prepared["confirmed"] = True
-    if prepared.get("type") == "terminal" and prepared.get("complex") is not False:
-        # Tâches complexes par défaut en mode loop
+    if prepared.get("type") == "terminal":
+        # Même /loop ne peut pas contourner un plan shell confirmé par l'humain.
+        prepared.pop("confirmed", None)
+        prepared["execution_origin"] = "autonomous_loop"
         if "complex" not in prepared:
             prepared["complex"] = True
+    else:
+        prepared["confirmed"] = True
     return prepared
 
 
@@ -370,6 +373,28 @@ async def run_autonomous_loop(
             "status": "done" if result.get("ok") else "failed",
         })
 
+        if result.get("needs_confirmation"):
+            synthesis = (
+                "La boucle est en pause : le plan shell doit être confirmé "
+                "explicitement avant toute exécution."
+            )
+            await _emit(on_event, "loop_done", {
+                "status": "awaiting_confirmation",
+                "steps": step + 1,
+                "synthesis": synthesis,
+            })
+            finalized = _finalize_loop(
+                results,
+                workflow_id,
+                "awaiting_confirmation",
+                total_output_chars,
+                total_llm_calls,
+                total_cost,
+                synthesis,
+            )
+            finalized["pending_action"] = current_action
+            return finalized
+
         if result.get("ok"):
             consecutive_failures = 0
         else:
@@ -492,10 +517,17 @@ def _finalize_loop(
         try:
             from database import update_agentic_workflow
 
+            # Le schéma historique ne connaît que running/completed/failed/partial.
+            # L'état public plus précis reste ``awaiting_confirmation``.
+            persisted_status = (
+                "partial"
+                if final_status == "awaiting_confirmation"
+                else final_status
+            )
             update_agentic_workflow(
                 workflow_id,
                 steps_json=json.dumps(results, ensure_ascii=False, default=str),
-                status=final_status,
+                status=persisted_status,
                 final_synthesis=synthesis,
                 total_steps=step_count,
                 total_output_chars=total_output_chars,
