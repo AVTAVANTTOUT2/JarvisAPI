@@ -13,6 +13,7 @@ import {
   Loader2,
   CheckCircle,
   AlertCircle,
+  ShieldCheck,
 } from 'lucide-react';
 import { api } from '@unified/lib/api';
 import { timeAgo, formatDurationSec } from '@desktop/app/lib/timeFormat';
@@ -272,6 +273,15 @@ export function DocumentsView() {
 
       {/* ── Zone d'upload ── */}
       <div>
+        <div className="mb-3 flex items-start gap-2 rounded-xl border border-emerald-400/15 bg-emerald-400/5 px-3 py-2.5">
+          <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300/80" />
+          <div>
+            <p className="text-xs font-medium text-emerald-100/80">Import scolaire strictement local</p>
+            <p className="mt-0.5 font-mono text-[11px] leading-relaxed text-emerald-100/50">
+              Lors de cet import, le fichier est stocké et extrait sur ce Mac ; cette fonction n’envoie aucun contenu au cloud.
+            </p>
+          </div>
+        </div>
         <div
           onDragOver={onDragOver}
           onDragLeave={onDragLeave}
@@ -288,7 +298,7 @@ export function DocumentsView() {
             type="file"
             hidden
             multiple
-            accept=".pdf,.txt,.md,.png,.jpg,.jpeg,.csv,.json,.py,.js,.ts"
+            accept=".pdf,.txt,.md,.png,.jpg,.jpeg,.webp"
             onChange={(e) => e.target.files && void handleUpload(e.target.files)}
           />
           {uploading ? (

@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { api, ConversationDocument, ConversationSearchResult, ConversationSummary } from '@unified/lib/api'
+import {
+  api,
+  ApiError,
+  ConversationDocument,
+  ConversationSearchResult,
+  ConversationSummary,
+  ConversationUploadResult,
+  DocumentPrivacyPolicy,
+} from '@unified/lib/api'
 import { ws } from '@desktop/services/websocket'
-import { Menu, Paperclip, Plus, Search, Send, X } from 'lucide-react'
+import { Cloud, Menu, Paperclip, Plus, Search, Send, ShieldCheck, X } from 'lucide-react'
 
 // ── Types locaux ────────────────────────────────────────────
 
@@ -23,6 +31,7 @@ interface AttachedDoc {
   summary?: string | null
   content_length?: number
   file_type?: string
+  processing_mode?: ConversationUploadResult['processing_mode']
 }
 
 // ── Helpers date ────────────────────────────────────────────
@@ -97,6 +106,9 @@ export function ChatView() {
   const [renamingId, setRenamingId] = useState<number | null>(null)
   const [renameDraft, setRenameDraft] = useState('')
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
+  const [documentPrivacy, setDocumentPrivacy] = useState<DocumentPrivacyPolicy | null>(null)
+  const [cloudConsent, setCloudConsent] = useState(false)
+  const [privacySaving, setPrivacySaving] = useState(false)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const userScrolledUp = useRef(false)
@@ -115,6 +127,12 @@ export function ChatView() {
   useEffect(() => {
     scrollToBottom()
   }, [messages, streamingContent, scrollToBottom])
+
+  useEffect(() => {
+    api.getDocumentPrivacy()
+      .then(setDocumentPrivacy)
+      .catch((error) => console.error('[ChatView] document privacy', error))
+  }, [])
 
   // ── Chargement conversations ────────────────────────────
 
@@ -404,14 +422,57 @@ export function ChatView() {
   const uploadFiles = async (files: FileList) => {
     if (!activeConvId) return
     setUploadingDoc(true)
-    for (const file of Array.from(files)) {
-      try {
-        const result = await api.uploadToConversation(activeConvId, file) as { doc_id?: number; summary?: string; content_length?: number; file_type?: string }
-        setAttachedDocs(prev => [...prev, { name: file.name, doc_id: result.doc_id, summary: result.summary, content_length: result.content_length, file_type: result.file_type }])
-        setMessages(prev => [...prev, { role: 'system', content: `Document analyse : ${file.name}${result.summary ? ' — ' + result.summary : ''}` }])
-      } catch { setMessages(prev => [...prev, { role: 'system', content: `Erreur upload : ${file.name}`, isError: true }]) }
+    const consentForBatch = cloudConsent && documentPrivacy?.strict_local === false
+    try {
+      for (const file of Array.from(files)) {
+        try {
+          const result = await api.uploadToConversation(activeConvId, file, consentForBatch)
+          setAttachedDocs(prev => [...prev, {
+            name: file.name,
+            doc_id: result.doc_id,
+            summary: result.summary,
+            content_length: result.content_length,
+            file_type: result.file_type,
+            processing_mode: result.processing_mode,
+          }])
+          const privacyLabel = result.data_left_device
+            ? `Cloud anonymisé · ${result.pii_entities_masked} PII masquée(s)`
+            : 'Traitement local · aucune donnée envoyée'
+          setMessages(prev => [...prev, {
+            role: 'system',
+            content: `Document analysé : ${file.name} [${privacyLabel}]${result.summary ? ' — ' + result.summary : ''}`,
+          }])
+        } catch (error) {
+          let detail = ''
+          if (error instanceof ApiError && error.body) {
+            try { detail = JSON.parse(error.body).detail || '' } catch { detail = '' }
+          }
+          setMessages(prev => [...prev, {
+            role: 'system',
+            content: `Erreur upload : ${file.name}${detail ? ` — ${detail}` : ''}`,
+            isError: true,
+          }])
+        }
+      }
+    } finally {
+      // Le consentement est volontairement ponctuel : jamais mémorisé entre lots.
+      setCloudConsent(false)
+      setUploadingDoc(false)
     }
-    setUploadingDoc(false)
+  }
+
+  const toggleStrictLocal = async () => {
+    const current = documentPrivacy?.strict_local ?? true
+    setPrivacySaving(true)
+    try {
+      const updated = await api.setDocumentStrictLocal(!current)
+      setDocumentPrivacy(updated)
+      if (updated.strict_local) setCloudConsent(false)
+    } catch (error) {
+      console.error('[ChatView] update document privacy', error)
+    } finally {
+      setPrivacySaving(false)
+    }
   }
 
   // ── Rename ──────────────────────────────────────────────
@@ -616,6 +677,43 @@ export function ChatView() {
             </div>
           )}
 
+          <div className="mb-2 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-xs">
+            <div className="flex items-center gap-2">
+              <ShieldCheck size={14} className="shrink-0 text-emerald-300/80" />
+              <span className="flex-1 text-white/55">
+                {documentPrivacy?.strict_local !== false
+                  ? 'Documents : stockage, extraction et résumé sur ce Mac. Aucune donnée ne sort.'
+                  : `Documents locaux par défaut. Cloud optionnel : ${documentPrivacy.cloud_provider}, ${documentPrivacy.cloud_max_chars.toLocaleString('fr-FR')} caractères max, PII masquées.`}
+              </span>
+              <label className="flex items-center gap-1.5 text-white/65 whitespace-nowrap cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={documentPrivacy?.strict_local ?? true}
+                  disabled={!documentPrivacy || privacySaving}
+                  onChange={() => void toggleStrictLocal()}
+                  className="accent-emerald-400"
+                />
+                Strict local
+              </label>
+            </div>
+            {documentPrivacy?.strict_local === false && (
+              <label className="mt-2 flex items-start gap-2 rounded-lg border border-sky-400/15 bg-sky-400/5 px-2.5 py-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={cloudConsent}
+                  onChange={(event) => setCloudConsent(event.target.checked)}
+                  className="mt-0.5 accent-sky-400"
+                />
+                <Cloud size={13} className="mt-0.5 shrink-0 text-sky-300/80" />
+                <span className="text-sky-100/65">
+                  J’autorise explicitement l’envoi anonymisé du prochain lot à DeepSeek pour son résumé
+                  et les questions de cette conversation.
+                  Ce consentement sera réinitialisé après l’upload.
+                </span>
+              </label>
+            )}
+          </div>
+
           {attachedDocs.length > 0 && (
             <div className="mb-2 flex flex-wrap gap-1.5">
               {attachedDocs.map((doc, i) => (
@@ -634,7 +732,9 @@ export function ChatView() {
           {convDocs.length > 0 && attachedDocs.length === 0 && (
             <div className="mb-2 flex flex-wrap gap-1">
               {convDocs.map(doc => (
-                <span key={doc.id} className="bg-white/5 rounded px-2 py-0.5 text-xs text-white/30 font-mono">{doc.original_name}</span>
+                <span key={doc.id} className="bg-white/5 rounded px-2 py-0.5 text-xs text-white/30 font-mono">
+                  {doc.original_name} · {doc.cloud_consent ? 'CLOUD MASQUÉ' : 'LOCAL'}
+                </span>
               ))}
             </div>
           )}

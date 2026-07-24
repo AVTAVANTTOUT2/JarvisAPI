@@ -24,6 +24,48 @@ export type * from '@unified/types/api'
 
 export const BASE = ''
 
+export interface DocumentPrivacyPolicy {
+  mode: 'strict_local' | 'hybrid'
+  strict_local: boolean
+  cloud_provider: string
+  cloud_summary_available: boolean
+  explicit_consent_required: boolean
+  cloud_max_chars: number
+  pii_protection: string
+  features: {
+    school_upload: {
+      storage: string
+      extraction: string
+      summary: string
+      data_leaving_device: string
+    }
+    conversation_document: {
+      storage: string
+      extraction: string
+      default_summary: string
+      cloud_summary: string
+      cloud_chat_context: string
+      data_leaving_device: string
+    }
+  }
+}
+
+export interface ConversationUploadResult {
+  ok: boolean
+  doc_id?: number
+  filename: string
+  file_type: string
+  size: number
+  content_length: number
+  summary?: string | null
+  processing_mode: 'local' | 'cloud_anonymized' | 'local_fallback'
+  cloud_consent: boolean
+  cloud_request_attempted: boolean
+  data_left_device: boolean
+  pii_entities_masked: number
+  cloud_payload_chars: number
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -341,10 +383,18 @@ export const api = {
     request<{ results: ConversationSearchResult[]; count: number }>(
       `/api/conversations/search?q=${encodeURIComponent(q)}`,
     ),
-  uploadToConversation: async (convId: number, file: File) => {
+  getDocumentPrivacy: () =>
+    request<DocumentPrivacyPolicy>('/api/privacy/documents'),
+  setDocumentStrictLocal: (strictLocal: boolean) =>
+    request<DocumentPrivacyPolicy & { ok: boolean }>('/api/privacy/documents', {
+      method: 'PUT',
+      body: JSON.stringify({ strict_local: strictLocal }),
+    }),
+  uploadToConversation: async (convId: number, file: File, cloudConsent = false) => {
     const form = new FormData()
     form.append('file', file)
-    return request(`/api/conversations/${convId}/upload`, {
+    form.append('cloud_consent', String(cloudConsent))
+    return request<ConversationUploadResult>(`/api/conversations/${convId}/upload`, {
       method: 'POST',
       body: form,
     })

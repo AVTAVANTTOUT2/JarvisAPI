@@ -603,6 +603,19 @@ def _migrate_conversations(conn: sqlite3.Connection) -> None:
             pass
 
 
+def _migrate_conversation_document_consent(conn: sqlite3.Connection) -> None:
+    """Les documents historiques restent exclus du cloud par défaut."""
+    columns = {
+        row[1]
+        for row in conn.execute("PRAGMA table_info(conversation_documents)").fetchall()
+    }
+    if "cloud_consent" not in columns:
+        conn.execute(
+            "ALTER TABLE conversation_documents "
+            "ADD COLUMN cloud_consent BOOLEAN NOT NULL DEFAULT 0"
+        )
+
+
 def _migrate_email_summaries(conn: sqlite3.Connection) -> None:
     """Ajoute les colonnes de pré-traitement aux email_summaries (idempotent).
 
@@ -735,6 +748,7 @@ def run_migrations(conn: sqlite3.Connection) -> None:
     _migrate_people_imessage_count(conn)
     _migrate_people_timeline_cache(conn)
     _migrate_conversations(conn)
+    _migrate_conversation_document_consent(conn)
     _migrate_app_settings(conn)
     _migrate_email_summaries(conn)
     _migrate_message_insights(conn)

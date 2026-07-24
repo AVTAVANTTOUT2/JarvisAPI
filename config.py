@@ -137,6 +137,10 @@ UPLOAD_QUOTA_BYTES = int(_get("UPLOAD_QUOTA_BYTES", str(1024 * 1024 * 1024)))
 # La grâce évite qu'une maintenance concurrente ne purge un fichier avant son
 # enregistrement DB ; les fragments échoués plus anciens sont aussi collectés.
 UPLOAD_ORPHAN_GRACE_SECONDS = int(_get("UPLOAD_ORPHAN_GRACE_SECONDS", "86400"))
+# Les documents restent locaux par défaut. Hors mode strict, chaque upload doit
+# encore fournir un consentement explicite avant tout résumé DeepSeek.
+DOCUMENT_STRICT_LOCAL = _get("DOCUMENT_STRICT_LOCAL", "true").lower() == "true"
+DOCUMENT_CLOUD_MAX_CHARS = int(_get("DOCUMENT_CLOUD_MAX_CHARS", "5000"))
 SCHOOL_OUTPUT_DIR = _get("SCHOOL_OUTPUT_DIR", "./data/outputs/school")
 DEV_PROJECTS_ROOT = _get("DEV_PROJECTS_ROOT", str(BASE_DIR / "dev_projects"))
 DEVAGENT_EXEC_TIMEOUT = int(_get("DEVAGENT_EXEC_TIMEOUT", "120"))

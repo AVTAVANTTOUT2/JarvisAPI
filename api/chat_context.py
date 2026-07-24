@@ -24,6 +24,9 @@ from database import (
     update_conversation,
 )
 from integrations import calendar_client, mail_client, weather
+from jarvis.document_privacy import document_strict_local_enabled
+from jarvis.pii.anonymizer import PIIAnonymizer
+from jarvis.pii.boundary import DataBoundary
 
 logger = logging.getLogger("jarvis")
 
@@ -166,21 +169,43 @@ async def _build_enriched_context(text: str, conversation_id: int) -> dict:
     lower = text.lower()
 
     # ─── CONTEXTE PERMANENT ───────────────────────────────────────────────────
-    # Documents attachés à la conversation
+    # Documents attachés : jamais de contenu brut vers l'orchestrateur cloud.
+    # Le consentement est propre à chaque upload et le mode strict local reste
+    # prioritaire même pour un document précédemment autorisé.
     try:
         conv_docs = get_conversation_documents(conversation_id)
-        if conv_docs:
-            docs_parts = [
-                f"[DOCUMENT: {d['original_name']}]\n{str(d.get('extracted_text') or '')[:3000]}"
-                for d in conv_docs
-                if d.get("extracted_text")
-            ]
-            if docs_parts:
-                context["documents_context"] = (
-                    "[DOCUMENTS ATTACHÉS]\n" + "\n\n".join(docs_parts)
-                )
+        eligible_docs = [
+            doc
+            for doc in conv_docs
+            if doc.get("extracted_text") and bool(doc.get("cloud_consent"))
+        ]
+        if eligible_docs and not document_strict_local_enabled():
+            limit = max(1, int(config.DOCUMENT_CLOUD_MAX_CHARS))
+            docs_parts: list[str] = []
+            remaining = limit
+            for doc in eligible_docs:
+                prefix = f"[DOCUMENT_{doc['id']}]\n"
+                available = max(0, remaining - len(prefix))
+                if available <= 0:
+                    break
+                fragment = str(doc.get("extracted_text") or "")[:available]
+                docs_parts.append(prefix + fragment)
+                remaining -= len(prefix) + len(fragment)
+
+            raw_context = "\n\n".join(docs_parts)[:limit]
+            if raw_context:
+                anonymizer = PIIAnonymizer()
+                anonymized = anonymizer.anonymize(raw_context)
+                try:
+                    DataBoundary().check(anonymized.anonymized_text)
+                    context["documents_context"] = (
+                        "[DOCUMENTS ATTACHÉS — DONNÉES PII MASQUÉES]\n"
+                        + anonymized.anonymized_text
+                    )
+                finally:
+                    anonymized.mapping.clear()
     except Exception as e:
-        logger.debug("[ctx] conv_docs : %s", e)
+        logger.warning("[ctx] document cloud bloqué par la frontière de données : %s", e)
 
     # ─── CONTEXTE CONDITIONNEL ────────────────────────────────────────────────
 

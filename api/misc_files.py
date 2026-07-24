@@ -99,6 +99,8 @@ async def upload(file: UploadFile):
         "content_length": len(text),
         "doc_type": doc_type,
         "doc_id": doc_id,
+        "processing_mode": "local",
+        "data_left_device": False,
     }
 
 
