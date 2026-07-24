@@ -216,6 +216,7 @@ def run_maintenance() -> dict:
         ("screen_activity", config.RETENTION_SCREEN_DAYS),
         ("location_history", config.RETENTION_LOCATION_DAYS),
         ("llm_action_logs", config.RETENTION_LLM_LOGS_DAYS),
+        ("dev_loop_log", config.RETENTION_LLM_LOGS_DAYS),
     ]
     referenced_uploads: set[str] = set()
     with get_db() as conn:

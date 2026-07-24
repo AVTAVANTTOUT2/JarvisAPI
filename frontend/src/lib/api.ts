@@ -198,6 +198,12 @@ export const api = {
     const q = sp.toString()
     return request<{ logs: LlmActionLog[]; count: number }>(`/api/logs${q ? `?${q}` : ''}`)
   },
+  clearLogs: () =>
+    request<{
+      ok: boolean
+      deleted_count: number
+      deleted: { llm_action_logs: number; dev_loop_log: number }
+    }>('/api/logs', { method: 'DELETE' }),
 
   getNotifications: () => request<{ notifications?: NotificationItem[] }>('/api/notifications'),
   markRead: (id: number) => request(`/api/notifications/${id}/read`, { method: 'POST' }),
