@@ -38,11 +38,9 @@ export function isPmtilesStyleUrl(styleUrl: string): boolean {
 
 function readViteMapStyleEnv(): string | undefined {
   try {
-    // Vite / Next DefinePlugin injectent import.meta.env.VITE_MAP_STYLE_URL.
-    const meta = import.meta as ImportMeta & {
-      env?: { VITE_MAP_STYLE_URL?: string };
-    };
-    return meta.env?.VITE_MAP_STYLE_URL;
+    // Garder l'accès direct : Vite le résout nativement et le DefinePlugin
+    // Next remplace exactement cette expression lors du build statique.
+    return import.meta.env.VITE_MAP_STYLE_URL;
   } catch {
     return undefined;
   }

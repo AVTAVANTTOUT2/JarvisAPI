@@ -15,7 +15,7 @@ Assistant personnel autonome, multi-agents, voice-first. Tourne entièrement en 
 - `jarvis_auth/` fournit un unique `AuthClient`, hook `useLockGate()` et composant `LockGate` fail-closed aux interfaces desktop, mobile et unifiée.
 - `frontend/src/lib/api.ts` est l'unique wrapper réseau ; toutes les requêtes et tous les uploads incluent le cookie de session.
 - FastAPI sert `frontend/out` en priorité. `web/dist` reste le fallback racine et l'ancienne PWA reste disponible sous `/m/` pour un rollback sans interruption.
-- Validation locale : 10 Vitest, 3 Playwright, 4 contrats FastAPI, typecheck et trois builds frontend réussis.
+- Validation actuelle (24 juillet 2026) : 13 Vitest, 5 scénarios Playwright, 4 contrats FastAPI, typecheck et trois builds frontend réussis.
 
 ### Historique du 11 juillet 2026
 
@@ -502,7 +502,7 @@ cd frontend && pnpm test && pnpm typecheck && pnpm build  # frontend canonique
 cd frontend && pnpm test:e2e                              # desktop + mobile
 ```
 
-CI GitHub Actions (`.github/workflows/ci.yml`) sur chaque push/PR : import des ~100 modules, pytest complet, tests/typecheck/build Vite et tests/typecheck/build du frontend Next.js unifié.
+CI GitHub Actions (`.github/workflows/ci.yml`) sur chaque push/PR : import des ~100 modules, pytest complet, tests/typecheck/build Vite, puis tests/typecheck/build et 5 scénarios Playwright du frontend Next.js unifié.
 
 ## Documentation
 

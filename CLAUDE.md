@@ -58,7 +58,7 @@ Depuis du code async, utiliser `await event_bus.emit(event)`. Depuis un chemin s
 - `frontend/src/lib/api.ts` est l'unique appel direct à `fetch()` dans les trois arbres frontend ; il inclut toujours le cookie, y compris pour uploads, GPS et file hors-ligne.
 - `web/dist` reste le fallback racine si `frontend/out` manque ; `pwa/out` reste accessible sous `/m/` si activé.
 - `frontend/public/sw.js` ne cache que `/_next/static` et `/icons`, jamais `/api`, HTML ou données personnelles.
-- Validation locale du 14/07/2026 : 10 Vitest, typecheck/build Next.js 15, 3 Playwright, 4 contrats FastAPI, 18 tests web et builds des deux fallbacks. Le dixième test vérifie l'arrêt des services privés lors du verrouillage automatique. GitHub Actions exécute aussi un job dédié au frontend unifié, à côté du build Vite historique.
+- Validation actuelle au 24/07/2026 : 13 Vitest, typecheck/build Next.js 15, 5 scénarios Playwright, 4 contrats FastAPI, 49 tests web et builds des deux fallbacks. La suite vérifie notamment l'arrêt des services privés lors du verrouillage automatique et le chargement de MapLibre sous la CSP de production. GitHub Actions exécute aussi ces scénarios navigateur dans le job dédié au frontend unifié, à côté du build Vite historique.
 - Limites : la CI backend complète est verte sur `main`; le rejeu local reste bloqué par l'absence de `portaudio.h` pour PyAudio. Les appareils physiques et l'observation 24 h ne sont pas vérifiés.
 
 ## Personnalité JARVIS
@@ -1507,7 +1507,8 @@ tous les endpoints `/api/*` (hors `/api/auth/*`) répondent `428`.
 | Fichier | Rôle |
 |---|---|
 | `auth.py` | PIN/passphrase (hash `scrypt`, jamais en clair), sessions DB-backed (jeton opaque, seul le hash SHA-256 est stocké), anti-brute-force (verrou global après `AUTH_LOCKOUT_MAX_ATTEMPTS` échecs) |
-| `api/middleware.py` (`security_middleware`) | En-têtes de sécurité (CSP, X-Frame-Options, Referrer-Policy, Permissions-Policy, HSTS si HTTPS) sur toute réponse ; verrou de session sur `/api/*` (routes auth publiques exactes, ingestion device/localisation qui s'authentifient autrement) ; vérification Origin/Referer sur les requêtes qui modifient l'état (défense en profondeur — SameSite=Strict protège déjà l'essentiel) |
+| `security_headers.py` | Source unique des en-têtes statiques et de la CSP partagée par FastAPI et le serveur E2E ; OpenFreeMap limité à son origine exacte et worker MapLibre limité à `blob:` |
+| `api/middleware.py` (`security_middleware`) | Application des en-têtes de sécurité, verrou de session sur `/api/*` (routes auth publiques exactes, ingestion device/localisation qui s'authentifient autrement) ; vérification Origin/Referer sur les requêtes qui modifient l'état (défense en profondeur — SameSite=Strict protège déjà l'essentiel) |
 | `jarvis_auth/src/LockGate.tsx` | Écran partagé de configuration/déverrouillage + verrouillage automatique client après `AUTO_LOCK_MINUTES` d'inactivité |
 | `scripts/db_maintenance.py` | Chiffrement optionnel des sauvegardes (Fernet/AES, clé dérivée de `BACKUP_ENCRYPTION_PASSPHRASE`) + `restore_backup()` (déchiffre si besoin, snapshot de sécurité de la base courante avant d'écraser) |
 
@@ -1518,8 +1519,9 @@ tous les endpoints `/api/*` (hors `/api/auth/*`) répondent `428`.
 3. **`/api/location*` (Shortcuts iOS) et lecture de l'historique GPS** ouverts sans contrôle — l'ingestion unitaire exige désormais `LOCATION_API_TOKEN` (en-tête `X-Location-Token`) ou un Bearer mobile, applique une limite par client et valide uniformément les coordonnées ; les endpoints consultés depuis le navigateur passent par le verrou de session standard.
 4. **Commandes shell LLM exécutées avant confirmation** — chaque action terminal devient désormais un plan opaque à usage unique, affiché intégralement avec analyse d'impact, limité par une allowlist et exécuté sans shell dans un workspace isolé uniquement après confirmation.
 5. **Aucun en-tête de sécurité** sur les réponses FastAPI (CSP, X-Frame-Options absents) — ajoutés globalement.
-6. **Aucune restauration de sauvegarde possible** — `restore_backup()` + `POST /api/backups/{name}/restore` ajoutés (protection contre le path traversal, snapshot de sécurité automatique).
-7. **Sauvegardes en clair sur disque** — chiffrement Fernet optionnel (`BACKUP_ENCRYPTION_ENABLED`).
+6. **Carte MapLibre bloquée par la CSP et chunk Next invalide** — l'origine exacte OpenFreeMap et le worker `blob:` sont autorisés sur leurs seules directives, `import.meta` est remplacé au build Next, et Playwright vérifie `/map` sous la CSP de production.
+7. **Aucune restauration de sauvegarde possible** — `restore_backup()` + `POST /api/backups/{name}/restore` ajoutés (protection contre le path traversal, snapshot de sécurité automatique).
+8. **Sauvegardes en clair sur disque** — chiffrement Fernet optionnel (`BACKUP_ENCRYPTION_ENABLED`).
 
 ### Endpoints
 

@@ -1,5 +1,36 @@
 import { expect, test, type Page } from '@playwright/test'
 
+function emptyApiResponse(pathname: string): object {
+  if (pathname === '/api/tasks') return { tasks: [] }
+  if (pathname.startsWith('/api/notifications')) return { notifications: [] }
+  if (pathname === '/api/calendar') return { events: [] }
+  if (pathname === '/api/briefing') return { kind: 'morning', content: '' }
+  if (pathname === '/api/places') return { places: [] }
+  if (pathname.startsWith('/api/visits')) return { visits: [] }
+  if (pathname === '/api/trips') return { trips: [] }
+  if (pathname === '/api/location/patterns') return { patterns: [] }
+  if (pathname === '/api/location/status') {
+    return {
+      tracking_enabled: true,
+      current_location: null,
+      points_24h: 1,
+    }
+  }
+  if (pathname === '/api/location/history') {
+    return {
+      points: [{
+        id: 1,
+        latitude: 48.8566,
+        longitude: 2.3522,
+        accuracy: 8,
+        source: 'e2e',
+        created_at: new Date().toISOString(),
+      }],
+    }
+  }
+  return {}
+}
+
 async function mockApi(page: Page, authenticated: boolean) {
   await page.route('**/api/events/stream', (route) => route.abort())
   await page.route('**/api/**', async (route) => {
@@ -16,16 +47,7 @@ async function mockApi(page: Page, authenticated: boolean) {
       })
       return
     }
-    const response = pathname === '/api/tasks'
-      ? { tasks: [] }
-      : pathname.startsWith('/api/notifications')
-        ? { notifications: [] }
-        : pathname === '/api/calendar'
-          ? { events: [] }
-          : pathname === '/api/briefing'
-            ? { kind: 'morning', content: '' }
-            : {}
-    await route.fulfill({ json: response })
+    await route.fulfill({ json: emptyApiResponse(pathname) })
   })
 }
 
@@ -84,4 +106,84 @@ test('@static-csp shows initial PIN setup after static export with security head
   await expect(page.getByText('Définissez votre code de déverrouillage')).toBeVisible()
   await expect(page.getByPlaceholder('Nouveau code (4+ caractères)')).toBeVisible()
   expect(consoleErrors.some((line) => line.includes('Connection closed'))).toBe(false)
+})
+
+test('@static-csp loads MapLibre workers and OpenFreeMap resources without CSP violations', async ({ page }) => {
+  const openFreeMapRequests: string[] = []
+  const consoleCspErrors: string[] = []
+
+  await page.addInitScript(() => {
+    const target = window as typeof window & {
+      __jarvisCspViolations?: Array<{ directive: string; blockedUri: string }>
+    }
+    target.__jarvisCspViolations = []
+    document.addEventListener('securitypolicyviolation', (event) => {
+      target.__jarvisCspViolations?.push({
+        directive: event.effectiveDirective,
+        blockedUri: event.blockedURI,
+      })
+    })
+  })
+  page.on('console', (message) => {
+    if (
+      message.type() === 'error'
+      && /content security policy|violates the following directive/i.test(message.text())
+    ) {
+      consoleCspErrors.push(message.text())
+    }
+  })
+
+  await mockApi(page, true)
+  await page.route('https://tiles.openfreemap.org/**', async (route) => {
+    const url = route.request().url()
+    openFreeMapRequests.push(url)
+    if (url.endsWith('/styles/dark')) {
+      await route.fulfill({
+        contentType: 'application/json',
+        json: {
+          version: 8,
+          sources: {
+            openfreemap_csp_test: {
+              type: 'raster',
+              tileSize: 512,
+              tiles: ['https://tiles.openfreemap.org/csp-test/{z}/{x}/{y}.png'],
+            },
+          },
+          layers: [{
+            id: 'openfreemap-csp-test',
+            type: 'raster',
+            source: 'openfreemap_csp_test',
+          }],
+        },
+      })
+      return
+    }
+    if (url.includes('/csp-test/')) {
+      await route.fulfill({
+        contentType: 'image/png',
+        path: `${process.cwd()}/public/icons/icon-512.png`,
+      })
+      return
+    }
+    await route.abort()
+  })
+
+  await page.goto('/map')
+
+  await expect(page.getByText('Carte Interactive')).toBeVisible()
+  await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible()
+  await expect.poll(
+    () => openFreeMapRequests.some((url) => url.includes('/csp-test/')),
+    { timeout: 15_000 },
+  ).toBe(true)
+
+  const violations = await page.evaluate(() => {
+    const target = window as typeof window & {
+      __jarvisCspViolations?: Array<{ directive: string; blockedUri: string }>
+    }
+    return target.__jarvisCspViolations ?? []
+  })
+  expect(violations).toEqual([])
+  expect(consoleCspErrors).toEqual([])
+  await expect(page.getByText(/Tuiles OpenFreeMap indisponibles/)).toHaveCount(0)
 })

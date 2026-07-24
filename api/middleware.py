@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 
 import auth
 import config
+from security_headers import SECURITY_HEADERS
 
 
 _DEVICE_TOKEN_POST_ROUTE_RE = re.compile(r"^/api/devices/[^/]+/(heartbeat|screen)$")
@@ -115,27 +116,7 @@ def _bypasses_session_gate(method: str, path: str) -> bool:
     return False
 
 
-_SECURITY_HEADERS = {
-    "X-Content-Type-Options": "nosniff",
-    "X-Frame-Options": "DENY",
-    "Referrer-Policy": "no-referrer",
-    "Permissions-Policy": "geolocation=(self), microphone=(self), camera=(), payment=(), usb=()",
-    "Content-Security-Policy": (
-        "default-src 'self'; "
-        # Next.js export statique : bootstrap RSC/hydratation via <script> inline
-        # dans index.html — script-src 'self' seul bloque le montage React (page noire).
-        "script-src 'self' 'unsafe-inline'; "
-        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-        "font-src 'self' data: https://fonts.gstatic.com; "
-        "img-src 'self' data: blob: https://*.tile.openstreetmap.org; "
-        "media-src 'self' blob:; "
-        "connect-src 'self' ws: wss:; "
-        "worker-src 'self'; "
-        "frame-ancestors 'none'; "
-        "base-uri 'self'; "
-        "form-action 'self'"
-    ),
-}
+_SECURITY_HEADERS = SECURITY_HEADERS
 
 
 async def security_middleware(request: Request, call_next):

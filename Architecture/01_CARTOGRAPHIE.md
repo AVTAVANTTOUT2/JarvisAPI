@@ -672,6 +672,32 @@ Le service public OpenFreeMap peut être remplacé à tout moment par un style o
 auto-hébergés. Limites du fournisseur public : disponibilité communautaire, pas de SLA,
 usage raisonnable uniquement (pas de scraping massif).
 
+### Content Security Policy
+
+La politique canonique se trouve dans `security_headers.py` et est partagée
+par FastAPI et le serveur statique Playwright. Le style Dark actuellement
+servi référence une seule origine externe pour le style, le TileJSON, les
+tuiles, sprites et glyphes :
+
+```text
+https://tiles.openfreemap.org
+```
+
+Cette origine est autorisée uniquement dans `connect-src` et `img-src`.
+MapLibre utilise par ailleurs un Web Worker créé depuis une URL `blob:` :
+`worker-src 'self' blob:` et le fallback `child-src blob:` sont donc présents,
+sans autoriser globalement `https:` ni `*`.
+
+Un style externe configuré via `VITE_MAP_STYLE_URL` doit rester sur cette
+origine, ou être servi depuis l'origine JARVIS. Pour un nouveau fournisseur
+externe, mettre à jour explicitement `security_headers.py` et le test de
+contrat CSP ; ne pas élargir la directive à toutes les origines HTTPS.
+
+Le scénario Playwright `@static-csp loads MapLibre workers...` ouvre `/map`
+dans un vrai navigateur avec les en-têtes de production, vérifie le chargement
+du worker et d'une tuile sur l'origine OpenFreeMap, et échoue au moindre
+événement `securitypolicyviolation`.
+
 ### Préparation PMTiles (future)
 
 `resolveMapStyleUrl()` et `isPmtilesStyleUrl()` acceptent déjà des URLs
