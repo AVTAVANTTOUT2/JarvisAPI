@@ -63,7 +63,7 @@ voir [32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md](./32_FRONTEND_DATABASE_SOURCE_OF_
 | [29_JARVIS_ANDROID_H24.md](./29_JARVIS_ANDROID_H24.md) | Architecture du compagnon Android permanent |
 | [30_PLAN_STABILISATION_AUDIO.md](./30_PLAN_STABILISATION_AUDIO.md) | Phases de stabilisation audio après la PR #17 |
 | [32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md](./32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md) | **Source de vérité** frontends + comptages SQLite (audit 15/07/2026) |
-| [adr/](./adr/) | ADR individuels — dont ADR-019 (priorité frontend supervisor) |
+| [adr/](./adr/) | ADR individuels — ADR-016 à ADR-022 |
 | [diagrams/](./diagrams/) | Diagrammes Mermaid source |
 | [audit/](./audit/) | Rapports d'audit détaillés par domaine |
 
@@ -198,7 +198,7 @@ Chaque phase est **indépendante**, **réversible**, **testée**, et **sans inte
 - [02_ANALYSE_PROBLEMES.md](./02_ANALYSE_PROBLEMES.md) — 23 problèmes classés
 - [03_AUDIT_TECHNIQUE.md](./03_AUDIT_TECHNIQUE.md) — audit backend, frontend, DB, sécurité
 
-**Décisions (04, 09-15 + adr/)** : 19 ADR documentés
+**Décisions (04, 09-15 + adr/)** : 22 ADR documentés
 - [04_ADR.md](./04_ADR.md) — 10 ADR core (résumé)
 - [09_DATA_OWNERSHIP.md](./09_DATA_OWNERSHIP.md) — ADR-011 propriétaires de données
 - [10_GOUVERNANCE_EVENTS.md](./10_GOUVERNANCE_EVENTS.md) — ADR-005-bis contrats événements
@@ -210,6 +210,10 @@ Chaque phase est **indépendante**, **réversible**, **testée**, et **sans inte
 - [adr/ADR-016](./adr/ADR-016-applescript-integration-apple.md) — AppleScript comme unique intégration Apple
 - [adr/ADR-017](./adr/ADR-017-sqlite-base-unique.md) — SQLite comme base de données unique
 - [adr/ADR-018](./adr/ADR-018-dual-llm-router.md) — Architecture dual-LLM (local + cloud)
+- [adr/ADR-019](./adr/ADR-019-SUPERVISOR-FRONTEND-PRIORITY.md) — Priorité frontend supervisor
+- [adr/ADR-020](./adr/ADR-020-android-offline-first-bearer.md) — Fondation Android offline-first
+- [adr/ADR-021](./adr/ADR-021-android-offline-location-batch.md) — Synchronisation des positions Android
+- [adr/ADR-022](./adr/ADR-022-DATA-AT-REST.md) — Protection des données au repos
 
 **Planification (05-07)** : Exécution
 - [05_PLAN_MIGRATION.md](./05_PLAN_MIGRATION.md) — 6 phases, 15 jours
@@ -229,7 +233,7 @@ Chaque phase est **indépendante**, **réversible**, **testée**, et **sans inte
 
 - [x] 00_VISION.md — vision long terme et principes non négociables
 - [x] Audit complet — 01-03 (cartographie, 23 problèmes, audit technique)
-- [x] 19 ADR (04, 09-15, 24, adr/ADR-016—018)
+- [x] 22 ADR (04, 09-15, 24, adr/ADR-016—022)
 - [x] Architecture cible documentée (08)
 - [x] Planification (05-07) : migration, tests, roadmap
 - [x] Contrats (16, 20) : API REST/WebSocket + interfaces internes

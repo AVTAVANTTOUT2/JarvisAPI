@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import stat
 from pathlib import Path
 
 import pytest
@@ -64,6 +65,9 @@ def test_conversation_upload_normalizes_name_uses_uuid_and_deletes_file(upload_e
         stored_path = Path(row["file_path"])
         assert stored_path.read_bytes() == b"contenu local"
         assert stored_path.parent == upload_root / "conversations" / str(conversation_id)
+        assert stat.S_IMODE(stored_path.stat().st_mode) == 0o600
+        assert stat.S_IMODE(stored_path.parent.stat().st_mode) == 0o700
+        assert stat.S_IMODE(upload_root.stat().st_mode) == 0o700
         assert re.fullmatch(r"[0-9a-f]{32}\.txt", row["filename"])
         assert row["original_name"] == "notes privées.txt"
 
@@ -109,6 +113,7 @@ def test_upload_reader_is_consumed_in_bounded_chunks(upload_env):
     )
 
     assert stored.path.read_bytes() == b"abcdef"
+    assert stat.S_IMODE(stored.path.stat().st_mode) == 0o600
     assert upload.read_sizes == [CHUNK_SIZE, CHUNK_SIZE, CHUNK_SIZE]
 
 
@@ -254,6 +259,27 @@ def test_maintenance_purges_old_orphans_and_preserves_db_references(upload_env):
     assert report["upload_orphans"]["removed"] == 1
     assert referenced.exists()
     assert not orphan.exists()
+
+
+def test_existing_upload_tree_permissions_are_hardened(upload_env):
+    from jarvis.uploads import harden_upload_tree_permissions
+
+    _, upload_root = upload_env
+    nested = upload_root / "legacy" / "documents"
+    nested.mkdir(parents=True)
+    legacy = nested / "sensible.txt"
+    legacy.write_text("secret", encoding="utf-8")
+    upload_root.chmod(0o755)
+    (upload_root / "legacy").chmod(0o755)
+    nested.chmod(0o755)
+    legacy.chmod(0o644)
+
+    harden_upload_tree_permissions()
+
+    assert stat.S_IMODE(upload_root.stat().st_mode) == 0o700
+    assert stat.S_IMODE((upload_root / "legacy").stat().st_mode) == 0o700
+    assert stat.S_IMODE(nested.stat().st_mode) == 0o700
+    assert stat.S_IMODE(legacy.stat().st_mode) == 0o600
 
 
 def test_managed_deletion_refuses_paths_outside_upload_root(upload_env, tmp_path):

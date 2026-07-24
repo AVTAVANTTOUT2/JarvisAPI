@@ -532,9 +532,13 @@ LOCATION_RATE_LIMIT_WINDOW_SECONDS = int(
     _get("LOCATION_RATE_LIMIT_WINDOW_SECONDS", "60")
 )
 
-# ── Chiffrement des sauvegardes (optionnel) ──────────────────
-BACKUP_ENCRYPTION_ENABLED = _get("BACKUP_ENCRYPTION_ENABLED", "false").lower() == "true"
+# ── Chiffrement des sauvegardes (activé par défaut) ──────────
+BACKUP_ENCRYPTION_ENABLED = _get("BACKUP_ENCRYPTION_ENABLED", "true").lower() == "true"
 BACKUP_ENCRYPTION_PASSPHRASE = _get("BACKUP_ENCRYPTION_PASSPHRASE", "")
+BACKUP_ENCRYPTION_KEY_FILE = _get(
+    "BACKUP_ENCRYPTION_KEY_FILE",
+    "./data/.backup_encryption.key",
+)
 
 # ── PWA mobile — redirection automatique détection mobile ──────
 # Active la détection mobile et la redirection vers l'interface PWA optimisée.

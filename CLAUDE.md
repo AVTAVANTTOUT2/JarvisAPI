@@ -796,7 +796,7 @@ doivent jamais appliquer directement `DATE(created_at)` avec une date locale :
 - `GET /api/status` → stats d'utilisation, agents actifs, coûts
 - `GET /api/stats/weekly?days=7` → série d'activité quotidienne (messages, tours utilisateur, vocal, tokens, coût) + variations jour/jour + totaux ; un tour est un message `user`
 - `GET /api/costs` → dépenses LLM (jour / 7j / mois, par modèle) + budget configuré
-- `GET /api/backups`, `POST /api/backups/run` → sauvegardes SQLite (VACUUM INTO, rotation `BACKUP_KEEP`, job 04:15)
+- `GET /api/backups`, `POST /api/backups/run` → sauvegardes SQLite chiffrées par défaut (VACUUM INTO, rotation `BACKUP_KEEP`, job 04:15)
 - `POST /api/maintenance/run` → purge de rétention (screen/location/logs/notifs lues) + optimisation FTS/WAL (job dim 04:45)
 - `GET /api/rituals/today`, `POST /api/rituals/{roast|debrief|quote}/run` → rituels quotidiens (table `daily_rituals`, jobs 18:30 / 21:45 / 07:00)
 - `GET /api/productivity/score` → score hebdo déterministe 0-100 (50 + 8×faites − 12×en retard) ; widget TV `/api/rituals` côté serveur TV
@@ -1516,7 +1516,8 @@ tous les endpoints `/api/*` (hors `/api/auth/*`) répondent `428`.
 | `security_headers.py` | Source unique des en-têtes statiques et de la CSP partagée par FastAPI et le serveur E2E ; OpenFreeMap limité à son origine exacte et worker MapLibre limité à `blob:` |
 | `api/middleware.py` (`security_middleware`) | Application des en-têtes de sécurité à toutes les réponses, y compris les sorties anticipées 401/403/428 ; verrou de session sur `/api/*` (routes auth publiques exactes, ingestion device/localisation qui s'authentifient autrement) ; mutations par cookie protégées par origine exacte et jeton `X-CSRF-Token` lié à la session |
 | `jarvis_auth/src/LockGate.tsx` | Écran partagé de configuration/déverrouillage + verrouillage automatique client après `AUTO_LOCK_MINUTES` d'inactivité |
-| `scripts/db_maintenance.py` | Chiffrement optionnel des sauvegardes (Fernet/AES, clé dérivée de `BACKUP_ENCRYPTION_PASSPHRASE`) + `restore_backup()` (déchiffre si besoin, snapshot de sécurité de la base courante avant d'écraser) |
+| `core/file_security.py` | Permissions communes : dossiers sensibles 0700, DB/sidecars/backups/uploads/clés 0600, écritures privées sans passage par 0644 |
+| `scripts/db_maintenance.py` | Backups chiffrés par défaut (enveloppe Fernet V2, PBKDF2 salé, clé locale 0600 ou passphrase) + restauration avec contrôle d'intégrité et snapshot de sécurité |
 
 ### Failles corrigées
 
@@ -1530,7 +1531,7 @@ tous les endpoints `/api/*` (hors `/api/auth/*`) répondent `428`.
 8. **Les statistiques du jour mélangeaient UTC et heure locale** — toutes les fenêtres messages/coûts sont calculées dans `TIMEZONE` puis converties en bornes UTC ; les changements d'heure sont testés et un tour est défini comme un message utilisateur.
 9. **Des mutations CRUD renvoyaient un faux succès sur une cible absente** — conversations, lieux et activation d'appareils propagent désormais `rowcount` et répondent 404 ; un contrat transversal verrouille aussi tâches, notifications, profil, engagements et sessions.
 10. **Aucune restauration de sauvegarde possible** — `restore_backup()` + `POST /api/backups/{name}/restore` ajoutés (protection contre le path traversal, snapshot de sécurité automatique).
-11. **Sauvegardes en clair sur disque** — chiffrement Fernet optionnel (`BACKUP_ENCRYPTION_ENABLED`).
+11. **Sauvegardes en clair sur disque et permissions trop larges** — chiffrement Fernet V2 activé par défaut et fail-closed ; DB/sidecars/backups/uploads/clés sont forcés en 0600 et leurs dossiers en 0700.
 12. **CSRF accepté depuis un autre port du même hostname** — schéma+hôte+port doivent désormais correspondre exactement, toute exception de proxy est déclarée dans `CSRF_ALLOWED_ORIGINS`, et chaque mutation par cookie exige un jeton synchronisé lié à la session.
 13. **HTTP autorisé sur le réseau avec un simple token applicatif** — HTTP est limité au loopback ; tout bind réseau exige désormais TLS direct et un opt-in explicite. Le mode reverse proxy TLS reste loopback et active quand même cookie `Secure` + HSTS.
 
@@ -1581,7 +1582,8 @@ LLM_SHELL_WORKSPACE=./data/llm_shell_workspace
 LLM_SHELL_MAX_COMMANDS=8
 LLM_SHELL_MAX_TIMEOUT=120
 LLM_SHELL_PLAN_TTL_SECONDS=600
-BACKUP_ENCRYPTION_ENABLED=false
+BACKUP_ENCRYPTION_ENABLED=true
+BACKUP_ENCRYPTION_KEY_FILE=./data/.backup_encryption.key
 BACKUP_ENCRYPTION_PASSPHRASE=
 ```
 
