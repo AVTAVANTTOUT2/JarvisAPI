@@ -526,6 +526,9 @@ CI GitHub Actions (`.github/workflows/ci.yml`) sur chaque push/PR : installation
 réelle de `requirements.txt`, `pip check` et imports des dépendances lourdes,
 import des modules applicatifs, pytest complet, tests/typecheck/build Vite,
 puis tests/typecheck/build et 5 scénarios Playwright du frontend Next.js unifié.
+Un runner `macos-14` installe aussi la pile réelle et valide `osascript`,
+Mail/Calendar/Contacts/Messages simulés, les LaunchAgents, `say`, CoreAudio,
+iMessage en lecture seule, la capture et le pipeline audio natif.
 
 ## Documentation
 

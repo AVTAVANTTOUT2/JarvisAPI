@@ -10,7 +10,7 @@ WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 def _production_job() -> str:
     workflow = WORKFLOW.read_text(encoding="utf-8")
     start = workflow.index("  production_dependencies:")
-    end = workflow.index("\n  backend:", start)
+    end = workflow.index("\n  macos_smoke:", start)
     return workflow[start:end]
 
 

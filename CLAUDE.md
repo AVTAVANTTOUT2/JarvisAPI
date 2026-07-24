@@ -59,7 +59,7 @@ Depuis du code async, utiliser `await event_bus.emit(event)`. Depuis un chemin s
 - `web/dist` reste le fallback racine si `frontend/out` manque ; `pwa/out` reste accessible sous `/m/` si activé.
 - `frontend/public/sw.js` ne cache que `/_next/static` et `/icons`, jamais `/api`, HTML ou données personnelles.
 - Validation actuelle au 24/07/2026 : 13 Vitest, typecheck/build Next.js 15, 5 scénarios Playwright, 4 contrats FastAPI, 49 tests web et builds des deux fallbacks. La suite vérifie notamment l'arrêt des services privés lors du verrouillage automatique et le chargement de MapLibre sous la CSP de production. GitHub Actions exécute aussi ces scénarios navigateur dans le job dédié au frontend unifié, à côté du build Vite historique.
-- La CI possède un job séparé d'installation de production : bibliothèques système audio, `pip install -r requirements.txt`, `pip check`, puis imports de fumée de Torch, PyAudio, Open Interpreter, spaCy, Kokoro et faster-whisper. Les appareils physiques et l'observation 24 h ne sont pas vérifiés.
+- La CI possède un job séparé d'installation de production : bibliothèques système audio, `pip install -r requirements.txt`, `pip check`, puis imports de fumée de Torch, PyAudio, Open Interpreter, spaCy, Kokoro et faster-whisper. Un job `macos-14` rejoue en plus les contrats Apple simulés et les smoke tests natifs (`osascript`, dictionnaires Mail/Calendar/Contacts/Messages, plist launchd, `say`, CoreAudio, iMessage, capture et audio). Les appareils physiques et l'observation 24 h ne sont pas vérifiés.
 
 ## Personnalité JARVIS
 
