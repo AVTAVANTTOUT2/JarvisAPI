@@ -6,11 +6,10 @@ import logging
 from pathlib import Path
 
 import fitz
-from fastapi import APIRouter, Body, HTTPException, UploadFile
+from fastapi import APIRouter, Body, Form, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
-import config
-import llm
 from database import (
     delete_conversation,
     get_conversation_detail,
@@ -19,6 +18,13 @@ from database import (
     save_school_document,
     search_conversations,
     update_conversation,
+)
+from jarvis.document_privacy import (
+    DocumentCloudBlocked,
+    ensure_cloud_summary_allowed,
+    get_document_privacy_policy,
+    set_document_strict_local,
+    summarize_document,
 )
 from jarvis.uploads import (
     CONVERSATION_EXTENSIONS,
@@ -31,7 +37,24 @@ router = APIRouter()
 logger = logging.getLogger("jarvis")
 
 
+class DocumentPrivacyUpdate(BaseModel):
+    strict_local: bool
+
+
 # ── Conversations enrichies ──────────────────────────────────
+
+
+@router.get("/api/privacy/documents")
+async def api_document_privacy_get():
+    """Décrit les traitements locaux/cloud appliqués aux documents."""
+    return get_document_privacy_policy()
+
+
+@router.put("/api/privacy/documents")
+async def api_document_privacy_update(body: DocumentPrivacyUpdate):
+    """Active ou désactive la possibilité de consentir à un résumé cloud."""
+    set_document_strict_local(body.strict_local)
+    return {"ok": True, **get_document_privacy_policy()}
 
 
 @router.get("/api/conversations/search")
@@ -99,11 +122,19 @@ async def api_conversation_pin(conv_id: int):
 
 
 @router.post("/api/conversations/{conv_id}/upload")
-async def api_conversation_upload(conv_id: int, file: UploadFile):
+async def api_conversation_upload(
+    conv_id: int,
+    file: UploadFile,
+    cloud_consent: bool = Form(False),
+):
     """Upload et analyse un document dans le contexte d'une conversation."""
     conv = get_conversation_detail(conv_id)
     if not conv:
         raise HTTPException(404, "Conversation non trouvée")
+    try:
+        ensure_cloud_summary_allowed(cloud_consent)
+    except DocumentCloudBlocked as exc:
+        raise HTTPException(409, str(exc)) from exc
 
     try:
         stored = await store_upload(
@@ -125,19 +156,14 @@ async def api_conversation_upload(conv_id: int, file: UploadFile):
         else:
             extracted = stored.path.read_text(encoding="utf-8")
 
-        summary = None
-        if len(extracted) > 500:
-            try:
-                res = await llm.chat(
-                    messages=[{"role": "user", "content": extracted[:5000]}],
-                    model=config.DEEPSEEK_FAST_MODEL,
-                    system="Résume ce document en 2-3 phrases. Sois factuel.",
-                    max_tokens=150,
-                    use_cache=False,
-                )
-                summary = (res.get("content") or "").strip()
-            except Exception as e:
-                logger.warning("[conv upload] résumé : %s", e)
+        try:
+            summary_result = await summarize_document(
+                extracted,
+                cloud_consent=cloud_consent,
+            )
+        except DocumentCloudBlocked as exc:
+            raise HTTPException(409, str(exc)) from exc
+        summary = summary_result.summary
 
         try:
             doc_id = save_conversation_document(
@@ -149,6 +175,7 @@ async def api_conversation_upload(conv_id: int, file: UploadFile):
                 stored.size,
                 extracted or None,
                 summary,
+                cloud_consent=cloud_consent,
             )
         except Exception as exc:
             logger.exception("[conv upload] enregistrement DB impossible")
@@ -184,5 +211,5 @@ async def api_conversation_upload(conv_id: int, file: UploadFile):
         "file_type": stored.extension.lstrip("."),
         "size": stored.size,
         "content_length": len(extracted),
-        "summary": summary,
+        **summary_result.as_dict(),
     }

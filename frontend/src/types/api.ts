@@ -108,6 +108,7 @@ export interface ConversationDocument {
   file_type: string
   file_size: number
   summary: string | null
+  cloud_consent: boolean
   created_at: string
 }
 

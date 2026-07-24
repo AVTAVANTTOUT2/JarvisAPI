@@ -124,10 +124,15 @@ def get_conversation_detail(conv_id: int) -> dict | None:
         result = dict(row)
         result["messages"] = get_conversation_history(conv_id, limit=200)
         docs = conn.execute(
-            "SELECT id, original_name, file_type, file_size, summary, created_at FROM conversation_documents WHERE conversation_id = ?",
+            """SELECT id, original_name, file_type, file_size, summary,
+                      cloud_consent, created_at
+               FROM conversation_documents WHERE conversation_id = ?""",
             (conv_id,)
         ).fetchall()
-        result["documents"] = [dict(d) for d in docs]
+        result["documents"] = [
+            {**dict(d), "cloud_consent": bool(d["cloud_consent"])}
+            for d in docs
+        ]
         return result
 
 
@@ -259,14 +264,19 @@ def save_conversation_document(
     file_size: int,
     extracted_text: str | None = None,
     summary: str | None = None,
+    cloud_consent: bool = False,
 ) -> int:
     """Enregistre un document attaché à une conversation."""
     with get_db() as conn:
         cur = conn.execute("""
             INSERT INTO conversation_documents
-                (conversation_id, filename, original_name, file_path, file_type, file_size, extracted_text, summary)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (conv_id, filename, original_name, file_path, file_type, file_size, extracted_text, summary))
+                (conversation_id, filename, original_name, file_path, file_type,
+                 file_size, extracted_text, summary, cloud_consent)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            conv_id, filename, original_name, file_path, file_type, file_size,
+            extracted_text, summary, 1 if cloud_consent else 0,
+        ))
         return cur.lastrowid
 
 

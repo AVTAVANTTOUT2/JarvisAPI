@@ -433,6 +433,7 @@ CREATE TABLE IF NOT EXISTS conversation_documents (
     file_size INTEGER,
     extracted_text TEXT,
     summary TEXT,
+    cloud_consent BOOLEAN NOT NULL DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_convdocs_conv ON conversation_documents(conversation_id);
