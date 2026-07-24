@@ -288,16 +288,65 @@ def test_logout_requires_csrf_token_and_preserves_session_on_rejection(tmp_db):
 
 # ── En-têtes de sécurité ────────────────────────────────────────
 
-def test_security_headers_present_on_every_response(tmp_db):
-    with _client() as client:
-        r = client.get("/api/auth/status")
-    assert r.headers.get("x-content-type-options") == "nosniff"
-    assert r.headers.get("x-frame-options") == "DENY"
-    assert r.headers.get("referrer-policy") == "no-referrer"
-    csp = r.headers.get("content-security-policy", "")
+
+def _assert_security_headers(response):
+    assert response.headers.get("x-content-type-options") == "nosniff"
+    assert response.headers.get("x-frame-options") == "DENY"
+    assert response.headers.get("referrer-policy") == "no-referrer"
+    csp = response.headers.get("content-security-policy", "")
     assert "default-src 'self'" in csp
     assert "script-src 'self' 'unsafe-inline'" in csp
-    assert "geolocation=(self)" in r.headers.get("permissions-policy", "")
+    assert "geolocation=(self)" in response.headers.get("permissions-policy", "")
+
+
+def test_security_headers_present_on_public_response(tmp_db):
+    with _client() as client:
+        r = client.get("/api/auth/status")
+    assert r.status_code == 200
+    _assert_security_headers(r)
+
+
+def test_security_headers_present_on_setup_required_response(tmp_db):
+    with _client() as client:
+        r = client.get("/api/jarvis-journal")
+    assert r.status_code == 428
+    _assert_security_headers(r)
+
+
+def test_security_headers_present_on_unauthorized_response(tmp_db):
+    import auth
+
+    auth.setup_secret(TEST_AUTH_SECRET)
+    with _client() as client:
+        r = client.get("/api/jarvis-journal")
+    assert r.status_code == 401
+    _assert_security_headers(r)
+
+
+def test_security_headers_present_on_csrf_rejection(tmp_db):
+    with _client() as client:
+        authenticate(client)
+        del client.headers["X-CSRF-Token"]
+        r = client.post(
+            "/api/life-context",
+            json={"context_type": "test", "description": "x"},
+            headers={"Origin": "http://testserver"},
+        )
+    assert r.status_code == 403
+    _assert_security_headers(r)
+
+
+def test_hsts_present_on_early_response_when_https_enabled(tmp_db, monkeypatch):
+    import auth
+
+    monkeypatch.setattr("config.WEB_HTTPS", True)
+    auth.setup_secret(TEST_AUTH_SECRET)
+    with _client() as client:
+        r = client.get("/api/jarvis-journal")
+    assert r.status_code == 401
+    assert r.headers.get("strict-transport-security") == (
+        "max-age=31536000; includeSubDomains"
+    )
 
 
 def test_root_spa_includes_next_inline_bootstrap_and_csp_allows_it(tmp_db):
