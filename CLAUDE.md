@@ -1528,8 +1528,9 @@ tous les endpoints `/api/*` (hors `/api/auth/*`) répondent `428`.
 6. **Carte MapLibre bloquée par la CSP et chunk Next invalide** — l'origine exacte OpenFreeMap et le worker `blob:` sont autorisés sur leurs seules directives, `import.meta` est remplacé au build Next, et Playwright vérifie `/map` sous la CSP de production.
 7. **Les conversations longues perdaient leurs messages récents** — `get_conversation_history()` sélectionne maintenant la fenêtre la plus récente en ordre descendant, avec l'identifiant comme départage déterministe, puis la restitue en ordre chronologique.
 8. **Les statistiques du jour mélangeaient UTC et heure locale** — toutes les fenêtres messages/coûts sont calculées dans `TIMEZONE` puis converties en bornes UTC ; les changements d'heure sont testés et un tour est défini comme un message utilisateur.
-9. **Aucune restauration de sauvegarde possible** — `restore_backup()` + `POST /api/backups/{name}/restore` ajoutés (protection contre le path traversal, snapshot de sécurité automatique).
-10. **Sauvegardes en clair sur disque** — chiffrement Fernet optionnel (`BACKUP_ENCRYPTION_ENABLED`).
+9. **Des mutations CRUD renvoyaient un faux succès sur une cible absente** — conversations, lieux et activation d'appareils propagent désormais `rowcount` et répondent 404 ; un contrat transversal verrouille aussi tâches, notifications, profil, engagements et sessions.
+10. **Aucune restauration de sauvegarde possible** — `restore_backup()` + `POST /api/backups/{name}/restore` ajoutés (protection contre le path traversal, snapshot de sécurité automatique).
+11. **Sauvegardes en clair sur disque** — chiffrement Fernet optionnel (`BACKUP_ENCRYPTION_ENABLED`).
 
 ### Endpoints
 

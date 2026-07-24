@@ -14,6 +14,19 @@ from .core import get_db
 
 logger = logging.getLogger(__name__)
 
+PLACE_MUTABLE_FIELDS = frozenset({
+    "name",
+    "category",
+    "latitude",
+    "longitude",
+    "radius_meters",
+    "address",
+    "notes",
+    "visit_count",
+    "avg_duration_min",
+    "last_visit",
+})
+
 
 def haversine(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     """Distance en mètres entre deux points GPS."""
@@ -205,19 +218,17 @@ def get_place_by_name(name: str) -> dict | None:
         return dict(row) if row else None
 
 
-def update_place(place_id: int, **kwargs: Any) -> None:
+def update_place(place_id: int, **kwargs: Any) -> bool:
     if not kwargs:
-        return
-    keys = [k for k in kwargs if k in (
-        "name", "category", "latitude", "longitude", "radius_meters", "address", "notes",
-        "visit_count", "avg_duration_min", "last_visit",
-    )]
+        return False
+    keys = [key for key in kwargs if key in PLACE_MUTABLE_FIELDS]
     if not keys:
-        return
+        return False
     sets = ", ".join(f"{k} = ?" for k in keys)
     vals = [kwargs[k] for k in keys] + [place_id]
     with get_db() as conn:
-        conn.execute(f"UPDATE places SET {sets} WHERE id = ?", vals)
+        cursor = conn.execute(f"UPDATE places SET {sets} WHERE id = ?", vals)
+        return cursor.rowcount > 0
 
 
 def delete_place(place_id: int) -> bool:

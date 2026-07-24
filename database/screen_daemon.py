@@ -305,12 +305,23 @@ def update_device_heartbeat(device_id: str) -> None:
         )
 
 
-def set_active_device(device_id: str) -> None:
+def set_active_device(device_id: str) -> bool:
+    """Active un appareil enrôlé sans modifier l'état si la cible est absente."""
     with get_db() as conn:
+        target = conn.execute(
+            """SELECT 1 FROM devices
+               WHERE device_id = ? AND COALESCE(revoked, 0) = 0""",
+            (device_id,),
+        ).fetchone()
+        if not target:
+            return False
         conn.execute("UPDATE devices SET is_active = 0")
-        conn.execute(
-            "UPDATE devices SET is_active = 1 WHERE device_id = ?", (device_id,)
+        cursor = conn.execute(
+            """UPDATE devices SET is_active = 1
+               WHERE device_id = ? AND COALESCE(revoked, 0) = 0""",
+            (device_id,),
         )
+        return cursor.rowcount == 1
 
 
 def get_active_device() -> dict | None:

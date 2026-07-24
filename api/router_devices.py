@@ -248,7 +248,8 @@ async def api_device_tts(device_id: str, request: Request):
 @router.post("/api/devices/{device_id}/activate")
 async def api_activate_device(device_id: str):
     """Action utilisateur (dashboard navigateur) — protégée par la session, pas par le jeton device."""
-    set_active_device(device_id)
+    if not set_active_device(device_id):
+        raise HTTPException(404, "Device introuvable ou révoqué")
     return {"ok": True, "active": device_id}
 
 

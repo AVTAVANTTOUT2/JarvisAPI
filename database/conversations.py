@@ -131,10 +131,10 @@ def get_conversation_detail(conv_id: int) -> dict | None:
         return result
 
 
-def update_conversation(conv_id: int, **kwargs: Any) -> None:
-    """Met à jour un ou plusieurs champs de la conversation."""
+def update_conversation(conv_id: int, **kwargs: Any) -> bool:
+    """Met à jour une conversation et indique si elle existe."""
     if not kwargs:
-        return
+        return False
     with get_db() as conn:
         sets = ", ".join(f"{k} = ?" for k in kwargs)
         vals = list(kwargs.values()) + [conv_id]
@@ -142,6 +142,7 @@ def update_conversation(conv_id: int, **kwargs: Any) -> None:
         updated = cursor.rowcount > 0
     if updated:
         event_bus.emit_nowait(ConversationUpdated(conv_id, dict(kwargs)))
+    return updated
 
 
 def update_conversation_activity(conv_id: int) -> None:
@@ -155,12 +156,18 @@ def update_conversation_activity(conv_id: int) -> None:
         """, (conv_id, conv_id))
 
 
-def delete_conversation(conv_id: int) -> None:
-    """Supprime une conversation et tous ses messages + documents."""
+def delete_conversation(conv_id: int) -> bool:
+    """Supprime une conversation existante avec ses messages et documents."""
     with get_db() as conn:
+        exists = conn.execute(
+            "SELECT 1 FROM conversations WHERE id = ?", (conv_id,)
+        ).fetchone()
+        if not exists:
+            return False
         conn.execute("DELETE FROM messages WHERE conversation_id = ?", (conv_id,))
         conn.execute("DELETE FROM conversation_documents WHERE conversation_id = ?", (conv_id,))
-        conn.execute("DELETE FROM conversations WHERE id = ?", (conv_id,))
+        cursor = conn.execute("DELETE FROM conversations WHERE id = ?", (conv_id,))
+        return cursor.rowcount > 0
 
 
 def search_conversations(query: str, limit: int = 20) -> list[dict]:

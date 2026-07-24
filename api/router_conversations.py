@@ -60,21 +60,24 @@ async def api_conversation_update(conv_id: int, body: dict = Body(default_factor
     fields = {k: v for k, v in body.items() if k in allowed}
     if not fields:
         raise HTTPException(400, "Aucun champ modifiable fourni")
-    update_conversation(conv_id, **fields)
+    if not update_conversation(conv_id, **fields):
+        raise HTTPException(404, "Conversation non trouvée")
     return {"ok": True}
 
 
 @router.delete("/api/conversations/{conv_id}")
 async def api_conversation_delete(conv_id: int):
     """Supprime une conversation et tous ses messages."""
-    delete_conversation(conv_id)
+    if not delete_conversation(conv_id):
+        raise HTTPException(404, "Conversation non trouvée")
     return {"ok": True}
 
 
 @router.post("/api/conversations/{conv_id}/archive")
 async def api_conversation_archive(conv_id: int):
     """Archive une conversation."""
-    update_conversation(conv_id, archived=True)
+    if not update_conversation(conv_id, archived=True):
+        raise HTTPException(404, "Conversation non trouvée")
     return {"ok": True}
 
 
