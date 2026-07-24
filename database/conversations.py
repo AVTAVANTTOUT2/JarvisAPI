@@ -157,17 +157,41 @@ def update_conversation_activity(conv_id: int) -> None:
 
 
 def delete_conversation(conv_id: int) -> bool:
-    """Supprime une conversation existante avec ses messages et documents."""
+    """Supprime une conversation, ses références DB et ses fichiers gérés."""
+    document_paths: list[str] = []
     with get_db() as conn:
         exists = conn.execute(
             "SELECT 1 FROM conversations WHERE id = ?", (conv_id,)
         ).fetchone()
         if not exists:
             return False
+        document_paths = [
+            str(row["file_path"])
+            for row in conn.execute(
+                "SELECT file_path FROM conversation_documents WHERE conversation_id = ?",
+                (conv_id,),
+            ).fetchall()
+            if row["file_path"]
+        ]
         conn.execute("DELETE FROM messages WHERE conversation_id = ?", (conv_id,))
+        if document_paths:
+            placeholders = ", ".join("?" for _ in document_paths)
+            # Un PDF de conversation peut aussi avoir été indexé comme document
+            # scolaire ; sa référence doit disparaître avec le fichier partagé.
+            conn.execute(
+                f"DELETE FROM school_documents WHERE file_path IN ({placeholders})",
+                document_paths,
+            )
         conn.execute("DELETE FROM conversation_documents WHERE conversation_id = ?", (conv_id,))
         cursor = conn.execute("DELETE FROM conversations WHERE id = ?", (conv_id,))
-        return cursor.rowcount > 0
+        deleted = cursor.rowcount > 0
+
+    if deleted:
+        from jarvis.uploads import remove_managed_upload
+
+        for file_path in document_paths:
+            remove_managed_upload(file_path)
+    return deleted
 
 
 def search_conversations(query: str, limit: int = 20) -> list[dict]:

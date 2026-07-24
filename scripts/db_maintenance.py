@@ -6,8 +6,9 @@ Trois responsabilités, appelées par le scheduler et exposées en REST :
   chiffrement optionnel (``BACKUP_ENCRYPTION_ENABLED``).
 - ``restore_backup()``: restauration (déchiffre si besoin) — prend d'abord
   un snapshot de sécurité de la base courante avant d'écraser quoi que ce soit.
-- ``run_maintenance()``: purge des tables volumineuses selon la rétention
-  configurée, optimisation FTS, checkpoint WAL, ``PRAGMA optimize``.
+- ``run_maintenance()``: purge des tables volumineuses et des uploads orphelins
+  selon la rétention configurée, optimisation FTS, checkpoint WAL,
+  ``PRAGMA optimize``.
 - ``check_llm_budget()``: alerte (table ``notifications``) quand la dépense
   LLM du mois franchit ``LLM_BUDGET_ALERT_PCT`` % puis 100 % du budget —
   une seule notification par seuil et par mois.
@@ -203,7 +204,7 @@ def list_backups() -> list[dict]:
 # ═══════════════════════════════════════════════════════════
 
 def run_maintenance() -> dict:
-    """Purge les tables volumineuses, optimise l'index FTS et le fichier WAL.
+    """Purge les tables/fichiers volumineux, optimise l'index FTS et le WAL.
 
     La rétention vient de la config (0 = conserver indéfiniment). Les
     notifications ne sont purgées que si elles sont **lues**. ``created_at``
@@ -216,6 +217,7 @@ def run_maintenance() -> dict:
         ("location_history", config.RETENTION_LOCATION_DAYS),
         ("llm_action_logs", config.RETENTION_LLM_LOGS_DAYS),
     ]
+    referenced_uploads: set[str] = set()
     with get_db() as conn:
         for table, days in rules:
             if days <= 0:
@@ -235,6 +237,17 @@ def run_maintenance() -> dict:
             conn.execute("INSERT INTO messages_fts(messages_fts) VALUES ('optimize')")
         except sqlite3.OperationalError:
             pass  # FTS5 absent — le fallback LIKE est déjà en place
+        for table in ("conversation_documents", "school_documents"):
+            referenced_uploads.update(
+                str(row["file_path"])
+                for row in conn.execute(
+                    f"SELECT file_path FROM {table} WHERE file_path IS NOT NULL AND file_path != ''"
+                ).fetchall()
+            )
+
+    from jarvis.uploads import purge_orphan_uploads
+
+    upload_orphans = purge_orphan_uploads(referenced_uploads)
 
     # Hors transaction : compacte le WAL et rafraîchit les stats du planner.
     conn2 = get_connection()
@@ -247,9 +260,14 @@ def run_maintenance() -> dict:
     report = {
         "ok": True,
         "purged": purged,
+        "upload_orphans": upload_orphans,
         "db_size_bytes": Path(config.DB_PATH).stat().st_size if Path(config.DB_PATH).exists() else 0,
     }
-    logger.info("[maintenance] purge : %s", purged or "rien à purger")
+    logger.info(
+        "[maintenance] purge DB : %s ; uploads orphelins : %s",
+        purged or "rien à purger",
+        upload_orphans,
+    )
     return report
 
 

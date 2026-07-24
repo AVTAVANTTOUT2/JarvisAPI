@@ -20,6 +20,12 @@ from database import (
     search_conversations,
     update_conversation,
 )
+from jarvis.uploads import (
+    CONVERSATION_EXTENSIONS,
+    UploadRejected,
+    remove_managed_upload,
+    store_upload,
+)
 
 router = APIRouter()
 logger = logging.getLogger("jarvis")
@@ -95,79 +101,88 @@ async def api_conversation_pin(conv_id: int):
 @router.post("/api/conversations/{conv_id}/upload")
 async def api_conversation_upload(conv_id: int, file: UploadFile):
     """Upload et analyse un document dans le contexte d'une conversation."""
-    import time as _time
-
     conv = get_conversation_detail(conv_id)
     if not conv:
         raise HTTPException(404, "Conversation non trouvée")
 
-    upload_dir = Path(config.UPLOAD_DIR) / "conversations" / str(conv_id)
-    upload_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        stored = await store_upload(
+            file,
+            namespace=f"conversations/{conv_id}",
+            allowed_extensions=CONVERSATION_EXTENSIONS,
+        )
+    except UploadRejected as exc:
+        raise HTTPException(exc.status_code, exc.detail) from exc
 
-    filename = f"{int(_time.time())}_{file.filename}"
-    filepath = upload_dir / filename
-    content_bytes = await file.read()
-    filepath.write_bytes(content_bytes)
+    committed = False
+    try:
+        if stored.extension == ".pdf":
+            try:
+                with fitz.open(str(stored.path)) as doc:
+                    extracted = "\n".join(page.get_text() for page in doc)
+            except Exception as exc:
+                raise HTTPException(415, "Document PDF illisible") from exc
+        else:
+            extracted = stored.path.read_text(encoding="utf-8")
 
-    ext = Path(file.filename or "").suffix.lower()
-    extracted = ""
+        summary = None
+        if len(extracted) > 500:
+            try:
+                res = await llm.chat(
+                    messages=[{"role": "user", "content": extracted[:5000]}],
+                    model=config.DEEPSEEK_FAST_MODEL,
+                    system="Résume ce document en 2-3 phrases. Sois factuel.",
+                    max_tokens=150,
+                    use_cache=False,
+                )
+                summary = (res.get("content") or "").strip()
+            except Exception as e:
+                logger.warning("[conv upload] résumé : %s", e)
 
-    if ext == ".pdf":
         try:
-            doc = fitz.open(str(filepath))
-            extracted = "\n".join(page.get_text() for page in doc)
-            doc.close()
-        except Exception as e:
-            logger.warning("[conv upload] PDF extraction : %s", e)
-    elif ext in (".txt", ".md", ".csv", ".json", ".py", ".js", ".ts", ".html", ".css"):
-        try:
-            extracted = filepath.read_text(encoding="utf-8", errors="replace")
-        except Exception as e:
-            logger.warning("[conv upload] text read : %s", e)
-
-    summary = None
-    if len(extracted) > 500:
-        try:
-            res = await llm.chat(
-                messages=[{"role": "user", "content": extracted[:5000]}],
-                model=config.DEEPSEEK_FAST_MODEL,
-                system="Résume ce document en 2-3 phrases. Sois factuel.",
-                max_tokens=150,
-                use_cache=False,
+            doc_id = save_conversation_document(
+                conv_id,
+                stored.stored_name,
+                stored.original_name,
+                str(stored.path),
+                stored.extension.lstrip("."),
+                stored.size,
+                extracted or None,
+                summary,
             )
-            summary = (res.get("content") or "").strip()
-        except Exception as e:
-            logger.warning("[conv upload] résumé Haiku : %s", e)
+        except Exception as exc:
+            logger.exception("[conv upload] enregistrement DB impossible")
+            raise HTTPException(500, "Enregistrement du document impossible") from exc
+        committed = True
+    except BaseException:
+        if not committed:
+            remove_managed_upload(stored.path)
+        raise
 
-    doc_id = save_conversation_document(
-        conv_id,
-        filename,
-        file.filename or filename,
-        str(filepath),
-        ext.lstrip(".") or "bin",
-        len(content_bytes),
-        extracted or None,
-        summary,
-    )
-
-    if ext == ".pdf" and extracted:
+    if stored.extension == ".pdf" and extracted:
         try:
             save_school_document(
-                title=Path(file.filename or filename).stem,
+                title=Path(stored.original_name).stem,
                 content=extracted,
                 doc_type="cours",
-                file_path=str(filepath),
+                file_path=str(stored.path),
             )
         except Exception as e:
             logger.debug("[conv upload] school_doc : %s", e)
 
-    logger.info("[conv upload] doc #%d dans conv #%d (%s, %d bytes)", doc_id, conv_id, file.filename, len(content_bytes))
+    logger.info(
+        "[conv upload] doc #%d dans conv #%d (%s, %d bytes)",
+        doc_id,
+        conv_id,
+        stored.original_name,
+        stored.size,
+    )
     return {
         "ok": True,
         "doc_id": doc_id,
-        "filename": file.filename,
-        "file_type": ext.lstrip("."),
-        "size": len(content_bytes),
+        "filename": stored.original_name,
+        "file_type": stored.extension.lstrip("."),
+        "size": stored.size,
         "content_length": len(extracted),
         "summary": summary,
     }
