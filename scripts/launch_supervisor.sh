@@ -60,15 +60,17 @@ export SUPERVISOR_AUTO_START_BACKEND="true"
 if [[ "${1:-}" == "--no-backend" ]]; then
     export SUPERVISOR_AUTO_START_BACKEND="false"
 fi
+JARVIS_WEB_SCHEME="$(venv/bin/python -c 'import config; print("https" if config.WEB_USE_HTTPS else "http")')"
+JARVIS_WS_SCHEME="$( [[ "${JARVIS_WEB_SCHEME}" == "https" ]] && echo "wss" || echo "ws" )"
 
 # ── Banner ─────────────────────────────────────────────────
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  JARVIS Supervisor"
 echo "  Projet   : ${PROJECT_DIR}"
 echo "  Port     : ${SUPERVISOR_PORT}"
-echo "  Frontend : http://localhost:${SUPERVISOR_PORT}"
-echo "  API      : http://localhost:${SUPERVISOR_PORT}/api/supervisor/status"
-echo "  WS       : ws://localhost:${SUPERVISOR_PORT}/ws/supervisor"
+echo "  Frontend : ${JARVIS_WEB_SCHEME}://localhost:${SUPERVISOR_PORT}"
+echo "  API      : ${JARVIS_WEB_SCHEME}://localhost:${SUPERVISOR_PORT}/api/supervisor/status"
+echo "  WS       : ${JARVIS_WS_SCHEME}://localhost:${SUPERVISOR_PORT}/ws/supervisor"
 echo "  Backend  : $( [[ "${SUPERVISOR_AUTO_START_BACKEND}" == "true" ]] && echo 'auto-start' || echo 'manuel' )"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""

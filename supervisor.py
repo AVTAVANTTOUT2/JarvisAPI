@@ -35,6 +35,7 @@ from core.frontend_resolution import (
     resolve_desktop_frontend,
 )
 from core.frontend_static import register_desktop_frontend_routes
+from core.network_security import validate_network_bind
 
 # ── Configuration ───────────────────────────────────────────────────────
 PROJECT_DIR = Path(__file__).parent.resolve()
@@ -421,9 +422,10 @@ def _start_sync(sid: str) -> dict:
         )
         _managed["backend"] = proc
         log.info(
-            "Backend demarre (PID %d) — %s://0.0.0.0:%d",
+            "Backend demarre (PID %d) — %s://%s:%d",
             proc.pid,
             _backend_scheme(),
+            config.WEB_HOST,
             BACKEND_PORT,
         )
         return {"ok": True, "message": f"Backend demarre (PID {proc.pid})"}
@@ -1084,5 +1086,30 @@ app.router.lifespan_context = lifespan
 # ══════════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
+    try:
+        validate_network_bind(
+            host=config.WEB_HOST,
+            allow_network_bind=config.WEB_ALLOW_NETWORK_BIND,
+            https_enabled=config.WEB_HTTPS,
+            location_token=config.LOCATION_API_TOKEN,
+        )
+    except RuntimeError as exc:
+        log.error("%s", exc)
+        sys.exit(1)
+    if config.WEB_HTTPS and not config.WEB_SSL_AVAILABLE:
+        log.error(
+            "WEB_HTTPS=true mais certificats introuvables — attendu : %s et %s",
+            CERT_PATH,
+            KEY_PATH,
+        )
+        sys.exit(1)
     _acquire_singleton_lock()
-    uvicorn.run(app, host="0.0.0.0", port=SUPERVISOR_PORT, log_level="warning")
+    _uvicorn_kwargs: dict[str, Any] = {
+        "host": config.WEB_HOST,
+        "port": SUPERVISOR_PORT,
+        "log_level": "warning",
+    }
+    if config.WEB_USE_HTTPS:
+        _uvicorn_kwargs["ssl_certfile"] = str(CERT_PATH)
+        _uvicorn_kwargs["ssl_keyfile"] = str(KEY_PATH)
+    uvicorn.run(app, **_uvicorn_kwargs)

@@ -335,11 +335,12 @@ def test_activate_device_requires_session_not_device_token(tmp_db):
 
 # ── Jeton localisation partagé (Shortcuts iOS) ─────────────────
 
-def test_location_post_open_when_token_unset(tmp_db, monkeypatch):
+def test_location_post_closed_when_token_unset(tmp_db, monkeypatch):
     monkeypatch.setattr("config.LOCATION_API_TOKEN", "")
     with _client() as client:
         r = client.post("/api/location", json={"latitude": 50.6, "longitude": 3.0})
-    assert r.status_code != 401
+    assert r.status_code == 503
+    assert "non configurée" in r.json()["detail"]
 
 
 def test_location_post_requires_token_when_configured(tmp_db, monkeypatch):
@@ -353,7 +354,71 @@ def test_location_post_requires_token_when_configured(tmp_db, monkeypatch):
             json={"latitude": 50.6, "longitude": 3.0},
             headers={"X-Location-Token": "shared-secret-token"},
         )
-        assert ok.status_code != 401
+        assert ok.status_code == 200
+
+
+def test_location_query_token_is_rejected_to_avoid_secret_leaks(tmp_db, monkeypatch):
+    monkeypatch.setattr("config.LOCATION_API_TOKEN", "shared-secret-token")
+    with _client() as client:
+        r = client.post(
+            "/api/location?token=shared-secret-token",
+            json={"latitude": 50.6, "longitude": 3.0},
+        )
+    assert r.status_code == 401
+
+
+@pytest.mark.parametrize(
+    ("latitude", "longitude"),
+    [
+        (91, 3),
+        (50, 181),
+        ("nan", 3),
+        (50, "inf"),
+    ],
+)
+def test_location_post_rejects_invalid_coordinates(
+    tmp_db,
+    monkeypatch,
+    latitude,
+    longitude,
+):
+    monkeypatch.setattr("config.LOCATION_API_TOKEN", "shared-secret-token")
+    with _client() as client:
+        r = client.post(
+            "/api/location",
+            json={"latitude": latitude, "longitude": longitude},
+            headers={"X-Location-Token": "shared-secret-token"},
+        )
+    assert r.status_code == 400
+    assert r.json()["detail"] == "invalid_coordinates"
+
+
+def test_location_ingestion_is_rate_limited_before_auth(tmp_db, monkeypatch):
+    from api import router_location
+
+    monkeypatch.setattr("config.LOCATION_API_TOKEN", "shared-secret-token")
+    monkeypatch.setattr("config.LOCATION_RATE_LIMIT_REQUESTS", 2)
+    monkeypatch.setattr("config.LOCATION_RATE_LIMIT_WINDOW_SECONDS", 60)
+    with router_location._location_rate_limit_lock:
+        router_location._location_rate_limit_buckets.clear()
+
+    try:
+        with _client() as client:
+            for _ in range(2):
+                denied = client.post(
+                    "/api/location",
+                    json={"latitude": 50.6, "longitude": 3.0},
+                )
+                assert denied.status_code == 401
+            limited = client.post(
+                "/api/location",
+                json={"latitude": 50.6, "longitude": 3.0},
+            )
+        assert limited.status_code == 429
+        assert int(limited.headers["retry-after"]) >= 1
+    finally:
+        with router_location._location_rate_limit_lock:
+            router_location._location_rate_limit_buckets.clear()
 
 
 # ── WebSocket ────────────────────────────────────────────────────

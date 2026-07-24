@@ -33,7 +33,8 @@ Assistant personnel autonome, multi-agents, voice-first. Tourne entièrement en 
 Pour activer le micro depuis un iPhone en acces distant :
 ```bash
 bash scripts/generate_certs.sh
-# puis WEB_HTTPS=true dans .env, redemarrer main.py
+# puis WEB_HOST=0.0.0.0, WEB_ALLOW_NETWORK_BIND=true et WEB_HTTPS=true
+# dans .env avant de redemarrer main.py
 ```
 
 ### Architecture Review — audit complet
@@ -182,8 +183,10 @@ Le microphone du navigateur (`getUserMedia`) est une **API de contexte securise*
 # 1. Generer un certificat auto-signe (inclut automatiquement les IPs Tailscale detectees)
 bash scripts/generate_certs.sh
 
-# 2. Activer HTTPS dans .env
+# 2. Autoriser explicitement l'écoute réseau et activer HTTPS dans .env
 #    Ajouter ou modifier :
+#      WEB_HOST=0.0.0.0
+#      WEB_ALLOW_NETWORK_BIND=true
 #      WEB_HTTPS=true
 
 # 3. Redemarrer JARVIS
@@ -195,9 +198,25 @@ python main.py
 #    → Accepter l'avertissement "Certificat non valide" (c'est normal, il est auto-signe)
 ```
 
-Le script `generate_certs.sh` cree `certs/cert.pem` et `certs/key.pem`, lus automatiquement par `main.py` quand `WEB_HTTPS=true`. Les certificats sont deja dans `.gitignore` (cles privees = jamais commitees).
+Le script `generate_certs.sh` cree `certs/cert.pem` et `certs/key.pem`, lus
+automatiquement par `main.py` et `supervisor.py` quand `WEB_HTTPS=true`. Les
+certificats sont deja dans `.gitignore` (cles privees = jamais commitees).
 
 **Pas besoin de HTTPS si tu accedes en local** (`http://localhost:8081`) — le micro fonctionne directement sur localhost. Le HTTPS n'est necessaire que pour l'acces distant (IP Tailscale, reseau local, etc.).
+
+Par défaut, le backend et le superviseur écoutent uniquement sur
+`127.0.0.1`. Une adresse réseau (`0.0.0.0`, IP LAN ou nom d'hôte) est refusée
+sans `WEB_ALLOW_NETWORK_BIND=true`. Une fois cet opt-in activé, JARVIS refuse
+encore de démarrer si ni `WEB_HTTPS` ni `LOCATION_API_TOKEN` n'est configuré.
+
+### Ingestion GPS depuis Shortcuts
+
+`POST /api/location` est fermé tant que `LOCATION_API_TOKEN` est vide. Génère
+un secret aléatoire, place-le dans `.env`, puis envoie-le uniquement dans
+l'en-tête `X-Location-Token` du raccourci (jamais dans l'URL). Les applications
+mobiles pairées peuvent utiliser leur Bearer mobile. L'ingestion est limitée
+par client avec `LOCATION_RATE_LIMIT_REQUESTS` sur
+`LOCATION_RATE_LIMIT_WINDOW_SECONDS`.
 
 ### Pairer un Mac distant
 
