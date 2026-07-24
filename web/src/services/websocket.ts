@@ -37,29 +37,39 @@ export class WS {
   }
 
   connect() {
-    if (this.ws?.readyState === WebSocket.OPEN) return
+    if (
+      this.ws?.readyState === WebSocket.OPEN
+      || this.ws?.readyState === WebSocket.CONNECTING
+    ) return
     this.shouldReconnect = true
     this._open()
   }
 
   private _open() {
     this.clearReconnectTimer()
+    let socket: WebSocket
     try {
-      this.ws = new WebSocket(resolveWsUrl())
+      socket = new WebSocket(resolveWsUrl())
+      this.ws = socket
     } catch (e) {
       console.error('[WS] connect', e)
       this.scheduleReconnect()
       return
     }
-    this.ws.binaryType = 'blob'
+    socket.binaryType = 'blob'
 
-    this.ws.onopen = () => {
+    socket.onopen = () => {
+      if (this.ws !== socket) {
+        socket.close()
+        return
+      }
       this._connected = true
       this.reconnectDelay = 1000
       this.emit('connection', { connected: true })
     }
 
-    this.ws.onmessage = (e) => {
+    socket.onmessage = (e) => {
+      if (this.ws !== socket) return
       if (e.data instanceof Blob) {
         this.binaryHandler?.(e.data)
         return
@@ -76,14 +86,15 @@ export class WS {
       }
     }
 
-    this.ws.onclose = () => {
+    socket.onclose = () => {
+      if (this.ws !== socket) return
       this._connected = false
       this.ws = null
       this.emit('connection', { connected: false })
       if (this.shouldReconnect) this.scheduleReconnect()
     }
 
-    this.ws.onerror = () => this.ws?.close()
+    socket.onerror = () => socket.close()
   }
 
   private clearReconnectTimer() {
@@ -154,9 +165,10 @@ export class WS {
   disconnect() {
     this.shouldReconnect = false
     this.clearReconnectTimer()
-    this.ws?.close()
+    const socket = this.ws
     this.ws = null
     this._connected = false
+    socket?.close()
   }
 }
 

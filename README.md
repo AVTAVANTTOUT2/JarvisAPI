@@ -15,7 +15,7 @@ Assistant personnel autonome, multi-agents, voice-first. Tourne entièrement en 
 - `jarvis_auth/` fournit un unique `AuthClient`, hook `useLockGate()` et composant `LockGate` fail-closed aux interfaces desktop, mobile et unifiée.
 - `frontend/src/lib/api.ts` est l'unique wrapper réseau ; toutes les requêtes et tous les uploads incluent le cookie de session.
 - FastAPI sert `frontend/out` en priorité. `web/dist` reste le fallback racine et l'ancienne PWA reste disponible sous `/m/` pour un rollback sans interruption.
-- Validation actuelle (24 juillet 2026) : 13 Vitest, 5 scénarios Playwright, 4 contrats FastAPI, typecheck et trois builds frontend réussis.
+- Validation actuelle (24 juillet 2026) : 18 Vitest, 9 scénarios Playwright, 4 contrats FastAPI, typecheck et trois builds frontend réussis.
 
 ### Historique du 11 juillet 2026
 
@@ -519,13 +519,13 @@ JarvisAPI/
 python -m pip install -r requirements.txt                 # dépendances de production
 python -m pytest tests/ jarvis/tests agents/devagent -q   # suite backend complète
 cd frontend && pnpm test && pnpm typecheck && pnpm build  # frontend canonique
-cd frontend && pnpm test:e2e                              # desktop + mobile
+cd frontend && pnpm test:e2e                              # desktop + mobile + CSP statique
 ```
 
 CI GitHub Actions (`.github/workflows/ci.yml`) sur chaque push/PR : installation
 réelle de `requirements.txt`, `pip check` et imports des dépendances lourdes,
 import des modules applicatifs, pytest complet, tests/typecheck/build Vite,
-puis tests/typecheck/build et 5 scénarios Playwright du frontend Next.js unifié.
+puis tests/typecheck/build et 9 scénarios Playwright du frontend Next.js unifié.
 Un runner `macos-14` installe aussi la pile réelle et valide `osascript`,
 Mail/Calendar/Contacts/Messages simulés, les LaunchAgents, `say`, CoreAudio,
 iMessage en lecture seule, la capture et le pipeline audio natif.
