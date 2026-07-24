@@ -70,6 +70,7 @@ async function mockApi(page: Page, authenticated: boolean) {
         json: {
           configured: true,
           authenticated,
+          csrf_token: authenticated ? 'e2e-csrf-token' : null,
           locked_out: false,
           lockout_seconds: 0,
           lockout_scope: null,
@@ -126,6 +127,7 @@ test('@static-csp shows initial PIN setup after static export with security head
         json: {
           configured: false,
           authenticated: false,
+          csrf_token: null,
           locked_out: false,
           lockout_seconds: 0,
           lockout_scope: null,

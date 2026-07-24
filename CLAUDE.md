@@ -1514,7 +1514,7 @@ tous les endpoints `/api/*` (hors `/api/auth/*`) répondent `428`.
 |---|---|
 | `auth.py` | PIN 6 chiffres/passphrase 10 caractères (hash `scrypt`, jamais en clair), sessions DB-backed (jeton opaque, seul le hash SHA-256 est stocké), délai progressif et verrou par client haché, plafond global secondaire |
 | `security_headers.py` | Source unique des en-têtes statiques et de la CSP partagée par FastAPI et le serveur E2E ; OpenFreeMap limité à son origine exacte et worker MapLibre limité à `blob:` |
-| `api/middleware.py` (`security_middleware`) | Application des en-têtes de sécurité, verrou de session sur `/api/*` (routes auth publiques exactes, ingestion device/localisation qui s'authentifient autrement) ; vérification Origin/Referer sur les requêtes qui modifient l'état (défense en profondeur — SameSite=Strict protège déjà l'essentiel) |
+| `api/middleware.py` (`security_middleware`) | Application des en-têtes de sécurité, verrou de session sur `/api/*` (routes auth publiques exactes, ingestion device/localisation qui s'authentifient autrement) ; mutations par cookie protégées par origine exacte et jeton `X-CSRF-Token` lié à la session |
 | `jarvis_auth/src/LockGate.tsx` | Écran partagé de configuration/déverrouillage + verrouillage automatique client après `AUTO_LOCK_MINUTES` d'inactivité |
 | `scripts/db_maintenance.py` | Chiffrement optionnel des sauvegardes (Fernet/AES, clé dérivée de `BACKUP_ENCRYPTION_PASSPHRASE`) + `restore_backup()` (déchiffre si besoin, snapshot de sécurité de la base courante avant d'écraser) |
 
@@ -1531,12 +1531,13 @@ tous les endpoints `/api/*` (hors `/api/auth/*`) répondent `428`.
 9. **Des mutations CRUD renvoyaient un faux succès sur une cible absente** — conversations, lieux et activation d'appareils propagent désormais `rowcount` et répondent 404 ; un contrat transversal verrouille aussi tâches, notifications, profil, engagements et sessions.
 10. **Aucune restauration de sauvegarde possible** — `restore_backup()` + `POST /api/backups/{name}/restore` ajoutés (protection contre le path traversal, snapshot de sécurité automatique).
 11. **Sauvegardes en clair sur disque** — chiffrement Fernet optionnel (`BACKUP_ENCRYPTION_ENABLED`).
+12. **CSRF accepté depuis un autre port du même hostname** — schéma+hôte+port doivent désormais correspondre exactement, toute exception de proxy est déclarée dans `CSRF_ALLOWED_ORIGINS`, et chaque mutation par cookie exige un jeton synchronisé lié à la session.
 
 ### Endpoints
 
 | Route | Méthode | Description |
 |---|---|---|
-| `/api/auth/status` | GET | `{configured, authenticated, locked_out, lockout_seconds, lockout_scope, local_recovery_available, auto_lock_minutes}` |
+| `/api/auth/status` | GET | État auth + `csrf_token` si la session est valide (`Cache-Control: no-store`) |
 | `/api/auth/setup` | POST | `{secret}` — une seule fois, ouvre une session |
 | `/api/auth/unlock` | POST | `{secret}` — ouvre une session (soumis au verrou anti-brute-force) |
 | `/api/auth/local-unlock` | POST | Récupération avec secret depuis la boucle locale uniquement, avec en-tête `X-Jarvis-Local-Recovery: 1` |
@@ -1568,6 +1569,7 @@ DEVICE_PAIRING_LOCKOUT_MINUTES=15
 WEB_HTTPS=false                  # true → cookie Secure + HSTS
 WEB_HOST=127.0.0.1               # boucle locale par défaut
 WEB_ALLOW_NETWORK_BIND=false     # opt-in obligatoire pour une adresse réseau
+CSRF_ALLOWED_ORIGINS=            # vide en prod ; origines exactes du proxy dev si nécessaire
 LOCATION_API_TOKEN=              # vide = /api/location refuse les Shortcuts
 LOCATION_RATE_LIMIT_REQUESTS=120
 LOCATION_RATE_LIMIT_WINDOW_SECONDS=60

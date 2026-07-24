@@ -99,4 +99,7 @@ def authenticate(client):
         auth.setup_secret(TEST_AUTH_SECRET)
     r = client.post("/api/auth/unlock", json={"secret": TEST_AUTH_SECRET})
     assert r.status_code == 200, r.text
+    csrf_token = r.json().get("csrf_token")
+    assert csrf_token
+    client.headers["X-CSRF-Token"] = csrf_token
     return client

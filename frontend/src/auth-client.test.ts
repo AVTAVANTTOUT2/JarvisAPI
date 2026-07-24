@@ -1,16 +1,23 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { AuthClient, AuthError } from '@jarvis/auth'
+import { AuthClient, AuthError, getCsrfToken, setCsrfToken } from '@jarvis/auth'
 import { api } from '@unified/lib/api'
+
+afterEach(() => {
+  setCsrfToken(null)
+  vi.unstubAllGlobals()
+})
 
 describe('AuthClient', () => {
   it('uses same-origin credentials for the complete auth contract', async () => {
-    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }))
+    const fetchImpl = vi.fn(async () =>
+      new Response(JSON.stringify({ ok: true, csrf_token: 'csrf-from-session' }), { status: 200 }),
+    )
     const client = new AuthClient({ fetchImpl })
 
-    await client.setup('1234')
-    await client.unlock('1234')
-    await client.verify('1234')
+    await client.setup('123456')
+    await client.unlock('123456')
+    await client.verify('123456')
     await client.logout()
 
     const calls = fetchImpl.mock.calls as unknown as Array<[RequestInfo | URL, RequestInit?]>
@@ -20,6 +27,9 @@ describe('AuthClient', () => {
     for (const [, init] of fetchImpl.mock.calls) {
       expect(init?.credentials).toBe('include')
     }
+    expect(new Headers(calls[1][1]?.headers).get('X-CSRF-Token')).toBe('csrf-from-session')
+    expect(new Headers(calls[3][1]?.headers).get('X-CSRF-Token')).toBe('csrf-from-session')
+    expect(getCsrfToken()).toBeNull()
   })
 
   it('raises a typed error and reports an expired session', async () => {
@@ -38,14 +48,15 @@ describe('shared API client', () => {
   it('keeps authenticated uploads on the common network wrapper', async () => {
     const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }))
     vi.stubGlobal('fetch', fetchImpl)
+    setCsrfToken('csrf-upload')
 
     await api.uploadFile(new File(['content'], 'note.txt'))
 
     const [, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit]
     expect(init.credentials).toBe('include')
     expect(init.body).toBeInstanceOf(FormData)
-    expect(init.headers).not.toHaveProperty('Content-Type')
-    vi.unstubAllGlobals()
+    expect(new Headers(init.headers).has('Content-Type')).toBe(false)
+    expect(new Headers(init.headers).get('X-CSRF-Token')).toBe('csrf-upload')
   })
 
   it('sends document cloud consent as an explicit per-upload form field', async () => {
@@ -55,6 +66,7 @@ describe('shared API client', () => {
       data_left_device: true,
     }), { status: 200 }))
     vi.stubGlobal('fetch', fetchImpl)
+    setCsrfToken('csrf-document')
 
     await api.uploadToConversation(42, new File(['private'], 'note.txt'), true)
 
@@ -64,7 +76,7 @@ describe('shared API client', () => {
     expect(form.get('cloud_consent')).toBe('true')
     expect((form.get('file') as File).name).toBe('note.txt')
     expect(init.credentials).toBe('include')
-    vi.unstubAllGlobals()
+    expect(new Headers(init.headers).get('X-CSRF-Token')).toBe('csrf-document')
   })
 
   it('keeps strict-local configuration separate from per-upload consent', async () => {
@@ -77,6 +89,7 @@ describe('shared API client', () => {
       }), { status: 200 }),
     )
     vi.stubGlobal('fetch', fetchImpl)
+    setCsrfToken('csrf-settings')
 
     await api.getDocumentPrivacy()
     await api.setDocumentStrictLocal(false)
@@ -86,6 +99,6 @@ describe('shared API client', () => {
     expect(calls[1][0]).toBe('/api/privacy/documents')
     expect(calls[1][1].method).toBe('PUT')
     expect(calls[1][1].body).toBe(JSON.stringify({ strict_local: false }))
-    vi.unstubAllGlobals()
+    expect(new Headers(calls[1][1].headers).get('X-CSRF-Token')).toBe('csrf-settings')
   })
 })

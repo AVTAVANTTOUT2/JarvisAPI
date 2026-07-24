@@ -334,6 +334,19 @@ def test_create_and_verify_session(tmp_db):
     assert row is not None
 
 
+def test_csrf_token_is_bound_to_session_without_exposing_it(tmp_db):
+    import auth
+
+    first_session, _ = auth.create_session()
+    second_session, _ = auth.create_session()
+    csrf_token = auth.csrf_token_for_session(first_session)
+
+    assert first_session not in csrf_token
+    assert auth.verify_csrf_token(first_session, csrf_token) is True
+    assert auth.verify_csrf_token(second_session, csrf_token) is False
+    assert auth.verify_csrf_token(first_session, None) is False
+
+
 def test_verify_session_rejects_unknown_token(tmp_db):
     import auth
 

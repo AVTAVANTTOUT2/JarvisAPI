@@ -2,6 +2,7 @@
  * Service REST central — BASE vide : même origine (FastAPI prod) ou proxy Vite (/api → backend).
  */
 import type { ApiPerson, NotificationItem } from '@unified/types/jarvis'
+import { authClient, getCsrfToken } from '@jarvis/auth'
 import type {
   AppUsageRow,
   AudioDaemonStatus,
@@ -84,11 +85,14 @@ export const API_BASE = ''
 export function jarvisRawFetch(path: string, options?: RequestInit): Promise<Response> {
   const root = API_BASE.replace(/\/$/, '')
   const p = path.startsWith('/') ? path : `/${path}`
-  const headers: HeadersInit = {
-    ...(options?.body && !(options.body instanceof FormData)
-      ? { 'Content-Type': 'application/json' }
-      : {}),
-    ...options?.headers,
+  const headers = new Headers(options?.headers)
+  if (options?.body && !(options.body instanceof FormData) && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json')
+  }
+  const method = (options?.method ?? 'GET').toUpperCase()
+  const csrfToken = getCsrfToken()
+  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method) && csrfToken) {
+    headers.set('X-CSRF-Token', csrfToken)
   }
   return fetch(`${root}${p}`, { ...options, credentials: 'include', headers })
 }
@@ -133,14 +137,11 @@ export async function jarvisFetch<T = unknown>(
 export const api = {
   getStatus: () => request('/api/status'),
 
-  getAuthStatus: () => request<AuthStatus>('/api/auth/status'),
-  authSetup: (secret: string) =>
-    request<{ ok: boolean }>('/api/auth/setup', { method: 'POST', body: JSON.stringify({ secret }) }),
-  authUnlock: (secret: string) =>
-    request<{ ok: boolean }>('/api/auth/unlock', { method: 'POST', body: JSON.stringify({ secret }) }),
-  authVerify: (secret: string) =>
-    request<{ ok: boolean }>('/api/auth/verify', { method: 'POST', body: JSON.stringify({ secret }) }),
-  authLogout: () => request<{ ok: boolean }>('/api/auth/logout', { method: 'POST' }),
+  getAuthStatus: (): Promise<AuthStatus> => authClient.status(),
+  authSetup: (secret: string) => authClient.setup(secret),
+  authUnlock: (secret: string) => authClient.unlock(secret),
+  authVerify: (secret: string) => authClient.verify(secret),
+  authLogout: () => authClient.logout(),
   authChangeSecret: (current: string, next: string) =>
     request<{ ok: boolean }>('/api/auth/change-secret', {
       method: 'POST',

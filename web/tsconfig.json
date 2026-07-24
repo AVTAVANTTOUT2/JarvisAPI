@@ -15,6 +15,7 @@
     "noFallthroughCasesInSwitch": true,
     "baseUrl": ".",
     "paths": {
+      "@jarvis/auth": ["./node_modules/@jarvis/auth/src/index.ts"],
       "@desktop/*": ["./src/*"],
       "@unified/*": ["../frontend/src/*"]
     }

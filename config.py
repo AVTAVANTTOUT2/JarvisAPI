@@ -157,6 +157,10 @@ WEB_ALLOW_NETWORK_BIND = _get("WEB_ALLOW_NETWORK_BIND", "false").lower() == "tru
 # Utile pour le proxy server-side du PWA (Next.js refuse les certs self-signed).
 # Pour l'accès direct iPhone via Tailscale → mettre WEB_HTTPS=true + certs/cert.pem.
 WEB_HTTPS = _get("WEB_HTTPS", "false").lower() == "true"
+# Origines supplémentaires exactes autorisées pour les mutations par cookie.
+# Vide en production : la même origine schéma+hôte+port reste toujours admise.
+# Le proxy Vite doit être ajouté explicitement (ex. https://localhost:5173).
+CSRF_ALLOWED_ORIGINS = _get("CSRF_ALLOWED_ORIGINS", "")
 SSL_CERT_PATH = BASE_DIR / "certs" / "cert.pem"
 SSL_KEY_PATH = BASE_DIR / "certs" / "key.pem"
 WEB_SSL_AVAILABLE = SSL_CERT_PATH.is_file() and SSL_KEY_PATH.is_file()

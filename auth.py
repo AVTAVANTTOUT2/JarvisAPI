@@ -477,6 +477,18 @@ def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
+def csrf_token_for_session(token: str) -> str:
+    """Jeton CSRF non réversible lié au jeton de session httpOnly."""
+    return hashlib.sha256(f"jarvis-csrf:{token}".encode("utf-8")).hexdigest()
+
+
+def verify_csrf_token(session_token: str | None, csrf_token: str | None) -> bool:
+    if not session_token or not csrf_token:
+        return False
+    expected = csrf_token_for_session(session_token)
+    return hmac.compare_digest(expected, csrf_token)
+
+
 def _session_expiry() -> datetime:
     return datetime.now() + timedelta(days=config.SESSION_INACTIVITY_DAYS)
 

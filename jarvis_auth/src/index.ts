@@ -1,4 +1,4 @@
-export { AuthClient, AuthError, authClient } from './client'
+export { AuthClient, AuthError, authClient, getCsrfToken, setCsrfToken } from './client'
 export type { AuthClientOptions, AuthStatus } from './client'
 export { LockGate } from './LockGate'
 export type { LockGateProps } from './LockGate'

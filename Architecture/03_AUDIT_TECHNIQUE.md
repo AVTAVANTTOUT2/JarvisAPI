@@ -262,7 +262,7 @@ L'état initial (7 197 lignes, 40+ responsabilités et 42 imports concentrés)
 |---|---|
 | SQL injection | ✅ Paramètres liés |
 | XSS | ✅ CSP + React échappement |
-| CSRF | ✅ SameSite=Strict + Origin/Referer |
+| CSRF | ✅ SameSite=Strict + jeton lié à la session + origine exacte schéma/hôte/port |
 | Path traversal | ✅ Validation uploads |
 | Command injection | ✅ Whitelist computer.py |
 
