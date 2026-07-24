@@ -15,6 +15,20 @@ _DEVICE_TOKEN_ROUTE_RE = re.compile(r"^/api/devices/[^/]+/(heartbeat|screen)$")
 _CONVERSATION_DETAIL_RE = re.compile(r"^/api/conversations/\d+$")
 _CONVERSATION_ACTION_RE = re.compile(r"^/api/conversations/\d+/(archive|pin)$")
 
+# Seules les routes nécessaires pour configurer, ouvrir ou fermer une session
+# navigateur sont publiques. Toute nouvelle route sous /api/auth/ reste privée
+# par défaut afin d'éviter qu'une route d'administration soit exposée par
+# inadvertance.
+_PUBLIC_AUTH_ROUTES = frozenset(
+    {
+        ("GET", "/api/auth/status"),
+        ("POST", "/api/auth/setup"),
+        ("POST", "/api/auth/unlock"),
+        ("POST", "/api/auth/verify"),
+        ("POST", "/api/auth/logout"),
+    }
+)
+
 # Lectures métier autorisées avec jeton mobile Bearer (Vague 1).
 _MOBILE_BEARER_GET_EXACT = frozenset(
     {
@@ -76,7 +90,7 @@ def _supervisor_local_control(request: Request, path: str) -> bool:
 
 
 def _bypasses_session_gate(method: str, path: str) -> bool:
-    if path.startswith("/api/auth/"):
+    if (method, path) in _PUBLIC_AUTH_ROUTES:
         return True
     if method == "POST" and path in ("/api/location", "/api/location/batch"):
         return True
@@ -151,6 +165,8 @@ async def security_middleware(request: Request, call_next):
             if not mobile_device:
                 return JSONResponse({"error": "unauthorized"}, status_code=401)
             request.state.mobile_device = mobile_device
+        else:
+            request.state.session = session
 
         if method in ("POST", "PUT", "PATCH", "DELETE") and session:
             # Défense en profondeur : le cookie de session est SameSite=Strict,

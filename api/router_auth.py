@@ -33,6 +33,18 @@ def _client_ip(request: Request) -> str:
     return request.client.host if request.client else ""
 
 
+def _require_browser_session(request: Request) -> dict:
+    """Défense locale pour les routes d'administration d'authentification."""
+    session = getattr(request.state, "session", None)
+    if session:
+        return session
+    token = request.cookies.get(config.SESSION_COOKIE_NAME)
+    session = auth.verify_session(token)
+    if not session:
+        raise HTTPException(401, "Session requise")
+    return session
+
+
 def _set_session_cookie(response: Response, token: str, expires_at: datetime) -> None:
     max_age = max(1, int((expires_at - datetime.now()).total_seconds()))
     response.set_cookie(
@@ -119,6 +131,11 @@ async def api_auth_logout(request: Request, response: Response):
 
 @router.post("/api/auth/change-secret")
 async def api_auth_change_secret(body: dict, request: Request):
+    _require_browser_session(request)
+    locked_out, seconds = auth.is_locked_out()
+    if locked_out:
+        raise HTTPException(429, f"Trop de tentatives — réessayez dans {seconds}s")
+
     current = (body.get("current") or "").strip()
     new = (body.get("new") or "").strip()
     try:
@@ -138,6 +155,7 @@ async def api_auth_change_secret(body: dict, request: Request):
 
 @router.get("/api/auth/sessions")
 async def api_auth_sessions(request: Request):
+    _require_browser_session(request)
     from database import list_active_sessions
 
     current_token = request.cookies.get(config.SESSION_COOKIE_NAME)
@@ -155,7 +173,8 @@ async def api_auth_sessions(request: Request):
 
 
 @router.post("/api/auth/sessions/{session_id}/revoke")
-async def api_auth_revoke_session(session_id: int):
+async def api_auth_revoke_session(session_id: int, request: Request):
+    _require_browser_session(request)
     from database import revoke_session_by_id
 
     if not revoke_session_by_id(session_id):

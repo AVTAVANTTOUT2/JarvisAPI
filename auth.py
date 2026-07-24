@@ -69,8 +69,8 @@ def setup_secret(secret: str) -> None:
 
 
 def change_secret(current: str, new: str) -> bool:
-    """Change le secret si `current` est correct. Ne touche pas au verrou anti-brute-force."""
-    if not is_configured() or not _verify_secret(current, get_setting(_SETTING_SECRET_HASH, "")):
+    """Change le secret si ``current`` est correct, avec le verrou anti-bruteforce."""
+    if not verify_only(current):
         return False
     if not new or len(new) < 4:
         raise ValueError("Le nouveau secret doit contenir au moins 4 caractères.")
