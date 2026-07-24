@@ -6,11 +6,12 @@ import logging
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from .migrations import run_migrations
 from .schema import SCHEMA
+from .time_buckets import local_datetime, utc_bounds_for_local_dates
 
 logger = logging.getLogger(__name__)
 
@@ -107,15 +108,21 @@ def count_memory_stats() -> dict:
         }
 
 
-def get_usage_stats() -> dict:
+def get_usage_stats(*, now: datetime | None = None) -> dict:
+    local_now = local_datetime(now)
+    start_utc, end_utc = utc_bounds_for_local_dates(
+        local_now.date(),
+        local_now.date() + timedelta(days=1),
+    )
     with get_db() as conn:
-        today = datetime.now().strftime("%Y-%m-%d")
         row = conn.execute(
             """SELECT COUNT(*) as msg_count,
+                      COALESCE(SUM(CASE WHEN role = 'user' THEN 1 ELSE 0 END), 0) as turn_count,
                       COALESCE(SUM(tokens_in), 0) as total_in,
                       COALESCE(SUM(tokens_out), 0) as total_out,
                       COALESCE(SUM(cost), 0) as total_cost
-               FROM messages WHERE DATE(created_at) = ?""",
-            (today,)
+               FROM messages
+               WHERE created_at >= ? AND created_at < ?""",
+            (start_utc, end_utc),
         ).fetchone()
         return dict(row)

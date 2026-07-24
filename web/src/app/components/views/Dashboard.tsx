@@ -27,9 +27,18 @@ interface StatCardProps {
   changeType?: 'up' | 'down';
   icon: ElementType;
   delay?: number;
+  period?: string;
 }
 
-function StatCard({ title, value, change, changeType, icon: Icon, delay = 0 }: StatCardProps) {
+function StatCard({
+  title,
+  value,
+  change,
+  changeType,
+  icon: Icon,
+  delay = 0,
+  period = 'État actuel',
+}: StatCardProps) {
   const [isHovered, setIsHovered] = useState(false);
   
   return (
@@ -64,7 +73,7 @@ function StatCard({ title, value, change, changeType, icon: Icon, delay = 0 }: S
       </div>
       <div className="mt-4 pt-4 border-t border-white/5 flex items-center gap-2 text-xs text-muted-foreground">
         <Eye className="w-3 h-3" />
-        <span>Dernières 24h</span>
+        <span>{period}</span>
       </div>
     </div>
   );
@@ -98,8 +107,7 @@ export function Dashboard() {
   const [hoveredContact, setHoveredContact] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [msgCount, setMsgCount] = useState(0);
-  const [tokensIn, setTokensIn] = useState(0);
-  const [tokensOut, setTokensOut] = useState(0);
+  const [turnCount, setTurnCount] = useState(0);
   const [peopleCount, setPeopleCount] = useState(0);
   const [placesCount, setPlacesCount] = useState(0);
   const [topPeople, setTopPeople] = useState<ApiPerson[]>([]);
@@ -117,7 +125,7 @@ export function Dashboard() {
     setLoading(true);
     try {
       const [st, peopleR, placesR, notifR, weeklyR, devR, daemonR] = await Promise.all([
-        api.getStatus() as Promise<{ today?: { msg_count?: number; total_in?: number; total_out?: number } }>,
+        api.getStatus() as Promise<{ today?: { msg_count?: number; turn_count?: number; total_in?: number; total_out?: number } }>,
         api.getPeople(),
         api.getPlaces() as Promise<{ places?: unknown[] }>,
         api.getNotifications(),
@@ -134,8 +142,7 @@ export function Dashboard() {
       setDaemon(daemonR);
       const t = st.today;
       setMsgCount(t?.msg_count ?? 0);
-      setTokensIn(t?.total_in ?? 0);
-      setTokensOut(t?.total_out ?? 0);
+      setTurnCount(t?.turn_count ?? 0);
       const plist = peopleR.people ?? [];
       setPeopleCount(plist.length);
       setPlacesCount((placesR.places ?? []).length);
@@ -167,14 +174,13 @@ export function Dashboard() {
     return () => window.clearInterval(id);
   }, [load]);
 
-  const interactions = tokensIn + tokensOut;
   const messageData = (weekly?.days ?? []).map(d => ({
     name: frDayLabel(d.date),
     messages: d.msg_count,
     calls: d.voice_count,
   }));
   const messagesChange = pctLabel(weekly?.change.messages_pct);
-  const interactionsChange = pctLabel(weekly?.change.interactions_pct);
+  const turnsChange = pctLabel(weekly?.change.turns_pct);
   const radarScorePct =
     activityRadar.length > 0
       ? Math.round(
@@ -199,6 +205,7 @@ export function Dashboard() {
           changeType={(weekly?.change.messages_pct ?? 0) >= 0 ? 'up' : 'down'}
           icon={MessageSquare}
           delay={0}
+          period="Aujourd'hui"
         />
         <StatCard
           title="Contacts Actifs"
@@ -213,12 +220,13 @@ export function Dashboard() {
           delay={200}
         />
         <StatCard
-          title="Interactions"
-          value={loading ? '…' : interactions.toLocaleString()}
-          change={interactionsChange}
-          changeType={(weekly?.change.interactions_pct ?? 0) >= 0 ? 'up' : 'down'}
+          title="Tours utilisateur"
+          value={loading ? '…' : turnCount.toLocaleString()}
+          change={turnsChange}
+          changeType={(weekly?.change.turns_pct ?? 0) >= 0 ? 'up' : 'down'}
           icon={Activity}
           delay={300}
+          period="Aujourd'hui"
         />
       </div>
 

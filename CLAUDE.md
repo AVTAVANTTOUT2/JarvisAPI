@@ -748,6 +748,12 @@ Le fichier `database/schema.sql` contient toutes les tables. Les voici regroupé
 - `life_context` : id, period_start, period_end, context_type, description, impact_on_mood, impact_on_productivity, active → contexte de vie temporel
 - `imessage_analysis_cache` : id, handle (UNIQUE), last_analyzed_rowid, last_analyzed_at, total_messages_analyzed → curseur d'analyse incrémentale par contact
 
+Les horodatages SQLite créés par `CURRENT_TIMESTAMP`, notamment
+`messages.created_at`, sont stockés en UTC. Les agrégations calendaires ne
+doivent jamais appliquer directement `DATE(created_at)` avec une date locale :
+`database/time_buckets.py` convertit les bornes de chaque journée définie par
+`TIMEZONE` en UTC, y compris les journées de 23 ou 25 heures.
+
 ## Conventions de code
 
 ### Python
@@ -788,7 +794,7 @@ Le fichier `database/schema.sql` contient toutes les tables. Les voici regroupé
 - `GET /api/memory` → life profile + people
 - `POST /api/memory` → modifier le life profile
 - `GET /api/status` → stats d'utilisation, agents actifs, coûts
-- `GET /api/stats/weekly?days=7` → série d'activité quotidienne (messages, vocal, tokens, coût) + variations jour/jour + totaux
+- `GET /api/stats/weekly?days=7` → série d'activité quotidienne (messages, tours utilisateur, vocal, tokens, coût) + variations jour/jour + totaux ; un tour est un message `user`
 - `GET /api/costs` → dépenses LLM (jour / 7j / mois, par modèle) + budget configuré
 - `GET /api/backups`, `POST /api/backups/run` → sauvegardes SQLite (VACUUM INTO, rotation `BACKUP_KEEP`, job 04:15)
 - `POST /api/maintenance/run` → purge de rétention (screen/location/logs/notifs lues) + optimisation FTS/WAL (job dim 04:45)
@@ -1521,8 +1527,9 @@ tous les endpoints `/api/*` (hors `/api/auth/*`) répondent `428`.
 5. **Aucun en-tête de sécurité** sur les réponses FastAPI (CSP, X-Frame-Options absents) — ajoutés globalement.
 6. **Carte MapLibre bloquée par la CSP et chunk Next invalide** — l'origine exacte OpenFreeMap et le worker `blob:` sont autorisés sur leurs seules directives, `import.meta` est remplacé au build Next, et Playwright vérifie `/map` sous la CSP de production.
 7. **Les conversations longues perdaient leurs messages récents** — `get_conversation_history()` sélectionne maintenant la fenêtre la plus récente en ordre descendant, avec l'identifiant comme départage déterministe, puis la restitue en ordre chronologique.
-8. **Aucune restauration de sauvegarde possible** — `restore_backup()` + `POST /api/backups/{name}/restore` ajoutés (protection contre le path traversal, snapshot de sécurité automatique).
-9. **Sauvegardes en clair sur disque** — chiffrement Fernet optionnel (`BACKUP_ENCRYPTION_ENABLED`).
+8. **Les statistiques du jour mélangeaient UTC et heure locale** — toutes les fenêtres messages/coûts sont calculées dans `TIMEZONE` puis converties en bornes UTC ; les changements d'heure sont testés et un tour est défini comme un message utilisateur.
+9. **Aucune restauration de sauvegarde possible** — `restore_backup()` + `POST /api/backups/{name}/restore` ajoutés (protection contre le path traversal, snapshot de sécurité automatique).
+10. **Sauvegardes en clair sur disque** — chiffrement Fernet optionnel (`BACKUP_ENCRYPTION_ENABLED`).
 
 ### Endpoints
 

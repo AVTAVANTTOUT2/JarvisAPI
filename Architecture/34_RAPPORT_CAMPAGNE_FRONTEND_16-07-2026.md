@@ -105,7 +105,7 @@ Valider réellement (navigateur / HTTP) le frontend canonique derrière le super
 | VAL-05 | P1 | HTML sans `no-cache` | **Corrigé** — `core/frontend_static.py` |
 | VAL-08 | P3 | Mock graphique contacts | **Corrigé** — état vide |
 | VAL-10 | P2 | `supervisorWsUrl` forçait `:9000` | **Corrigé** — same-origin si déjà 9000 |
-| VAL-09 | P3 | Dashboard stats 24 h à 0 | **Ouvert** → handoff **CUR-01** |
+| VAL-09 | P3 | Dashboard stats 24 h à 0 | **Corrigé le 24/07/2026** — bornes `TIMEZONE` converties en UTC, tests heure d'été/hiver |
 | VAL-06/07 | P3 | favicon / carte GPS | Ouverts / cosmétique |
 
 ### Parcours M3
