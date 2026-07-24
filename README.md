@@ -25,16 +25,18 @@ Assistant personnel autonome, multi-agents, voice-first. Tourne entièrement en 
   L'API `getUserMedia` est une API de « contexte securise » — indisponible sur
   HTTP sauf `localhost`. L'erreur `Cannot read properties of undefined (reading 'getUserMedia')`
   est remplacee par une explication claire avec les solutions.
-- **`scripts/generate_certs.sh`** : nouveau script de generation de certificat
-  auto-signe avec SANs (localhost, hostname, IPs Tailscale detectees automatiquement).
-- **`.env.example`** : documentation enrichie de `WEB_HTTPS`.
+- **`scripts/install_tailscale_cert.sh`** : installe un certificat Tailscale
+  valide pour le mode TLS direct, sans CA auto-signée à déployer sur les appareils.
+- **`.env.example`** : documente TLS direct et terminaison TLS par reverse proxy.
 - **Installation** : section dediee au microphone/HTTPS dans le README.
 
 Pour activer le micro depuis un iPhone en acces distant :
 ```bash
-bash scripts/generate_certs.sh
-# puis WEB_HOST=0.0.0.0, WEB_ALLOW_NETWORK_BIND=true et WEB_HTTPS=true
-# dans .env avant de redemarrer main.py
+# Backend HTTP strictement local, HTTPS public géré par Tailscale Serve :
+# WEB_HOST=127.0.0.1
+# WEB_HTTPS=false
+# WEB_HTTPS_BEHIND_PROXY=true
+tailscale serve --bg http://127.0.0.1:8080
 ```
 
 ### Architecture Review — audit complet
@@ -173,41 +175,51 @@ python scripts/jarvis_launchd.py install   # démarrage auto au boot macOS
 
 **Permissions macOS** (Reglages > Confidentialite) : Acces complet au disque (chat.db iMessage), Automation (Messages, Mail, Calendar, Contacts, System Events), Microphone (daemon audio), Enregistrement de l'ecran (screen watcher). Check-list complete : [STARTUP_PROTOCOL.md](./STARTUP_PROTOCOL.md).
 
-### HTTPS et microphone (acces distant iPhone / navigateur externe)
+### HTTPS et microphone (accès distant iPhone / navigateur externe)
 
 Le microphone du navigateur (`getUserMedia`) est une **API de contexte securise** — indisponible sur une connexion HTTP simple, sauf sur `localhost`. Si tu accedes a JARVIS depuis un iPhone ou un autre appareil via Tailscale (ex. `http://100.123.50.38:8081`), le micro sera bloque.
 
-**Solution : activer HTTPS avec un certificat auto-signe.**
+Par défaut, le backend et le superviseur écoutent uniquement sur
+`127.0.0.1`. JARVIS refuse toujours un bind réseau en HTTP, même si un token
+GPS ou mobile est configuré.
+
+**Option recommandée — Tailscale Serve termine TLS :**
 
 ```bash
-# 1. Generer un certificat auto-signe (inclut automatiquement les IPs Tailscale detectees)
-bash scripts/generate_certs.sh
+# .env.config
+WEB_HOST=127.0.0.1
+WEB_ALLOW_NETWORK_BIND=false
+WEB_HTTPS=false
+WEB_HTTPS_BEHIND_PROXY=true
 
-# 2. Autoriser explicitement l'écoute réseau et activer HTTPS dans .env
-#    Ajouter ou modifier :
-#      WEB_HOST=0.0.0.0
-#      WEB_ALLOW_NETWORK_BIND=true
-#      WEB_HTTPS=true
-
-# 3. Redemarrer JARVIS
 python main.py
-# → demarre en https://0.0.0.0:8081
-
-# 4. Acceder depuis l'iPhone (ou autre navigateur distant) :
-#    https://100.123.50.38:8081
-#    → Accepter l'avertissement "Certificat non valide" (c'est normal, il est auto-signe)
+# Remplacer 8080 si WEB_PORT diffère.
+tailscale serve --bg http://127.0.0.1:8080
+tailscale serve status
 ```
 
-Le script `generate_certs.sh` cree `certs/cert.pem` et `certs/key.pem`, lus
-automatiquement par `main.py` et `supervisor.py` quand `WEB_HTTPS=true`. Les
-certificats sont deja dans `.gitignore` (cles privees = jamais commitees).
+Le navigateur utilise l’URL HTTPS indiquée par `tailscale serve status`.
+`WEB_HTTPS_BEHIND_PROXY=true` marque le cookie de session `Secure` et ajoute
+HSTS, tandis que le port Uvicorn reste inaccessible hors du Mac. Caddy ou nginx
+peuvent jouer le même rôle à condition de ne relayer que vers le bind loopback.
 
-**Pas besoin de HTTPS si tu accedes en local** (`http://localhost:8081`) — le micro fonctionne directement sur localhost. Le HTTPS n'est necessaire que pour l'acces distant (IP Tailscale, reseau local, etc.).
+**Option TLS direct — certificat Tailscale :**
 
-Par défaut, le backend et le superviseur écoutent uniquement sur
-`127.0.0.1`. Une adresse réseau (`0.0.0.0`, IP LAN ou nom d'hôte) est refusée
-sans `WEB_ALLOW_NETWORK_BIND=true`. Une fois cet opt-in activé, JARVIS refuse
-encore de démarrer si ni `WEB_HTTPS` ni `LOCATION_API_TOKEN` n'est configuré.
+```bash
+bash scripts/install_tailscale_cert.sh
+
+# .env.config
+WEB_HOST=0.0.0.0
+WEB_ALLOW_NETWORK_BIND=true
+WEB_HTTPS=true
+WEB_HTTPS_BEHIND_PROXY=false
+WEB_SSL_CERT_PATH=certs/cert.pem
+WEB_SSL_KEY_PATH=certs/key.pem
+```
+
+Accède alors à JARVIS avec le nom MagicDNS couvert par le certificat, jamais
+avec une URL HTTP. L’accès purement local peut rester en
+`http://localhost:WEB_PORT`.
 
 ### Ingestion GPS depuis Shortcuts
 

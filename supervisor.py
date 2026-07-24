@@ -1091,7 +1091,7 @@ if __name__ == "__main__":
             host=config.WEB_HOST,
             allow_network_bind=config.WEB_ALLOW_NETWORK_BIND,
             https_enabled=config.WEB_HTTPS,
-            location_token=config.LOCATION_API_TOKEN,
+            https_behind_proxy=config.WEB_HTTPS_BEHIND_PROXY,
         )
     except RuntimeError as exc:
         log.error("%s", exc)

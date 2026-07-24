@@ -237,6 +237,30 @@ def test_supervisor_preserved_host_matches_exact_origin(tmp_db):
     assert r.status_code == 200
 
 
+def test_reverse_proxy_uses_public_https_scheme_for_csrf(monkeypatch):
+    from starlette.requests import Request
+
+    from api.middleware import _csrf_origin_allowed
+
+    monkeypatch.setattr("config.WEB_HTTPS_BEHIND_PROXY", True)
+    request = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "scheme": "http",
+            "path": "/api/life-context",
+            "headers": [
+                (b"host", b"jarvis.example.ts.net"),
+                (b"origin", b"https://jarvis.example.ts.net"),
+            ],
+            "client": ("127.0.0.1", 54321),
+            "server": ("127.0.0.1", 8080),
+        }
+    )
+
+    assert _csrf_origin_allowed(request) is True
+
+
 def test_post_without_origin_header_allowed(tmp_db):
     """Un client non navigateur peut omettre Origin, mais garde le jeton CSRF."""
     with _client() as client:
@@ -347,6 +371,18 @@ def test_hsts_present_on_early_response_when_https_enabled(tmp_db, monkeypatch):
     assert r.headers.get("strict-transport-security") == (
         "max-age=31536000; includeSubDomains"
     )
+
+
+def test_proxy_https_sets_hsts_and_secure_session_cookie(tmp_db, monkeypatch):
+    monkeypatch.setattr("config.WEB_HTTPS", False)
+    monkeypatch.setattr("config.WEB_HTTPS_BEHIND_PROXY", True)
+    with _client() as client:
+        r = client.post("/api/auth/setup", json={"secret": TEST_AUTH_SECRET})
+    assert r.status_code == 200
+    assert r.headers.get("strict-transport-security") == (
+        "max-age=31536000; includeSubDomains"
+    )
+    assert "secure" in r.headers["set-cookie"].lower()
 
 
 def test_root_spa_includes_next_inline_bootstrap_and_csp_allows_it(tmp_db):

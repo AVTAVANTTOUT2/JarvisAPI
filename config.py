@@ -15,6 +15,12 @@ def _get(key: str, default: str = "") -> str:
     return os.getenv(key, default)
 
 
+def _config_path(key: str, default: str) -> Path:
+    """Résout un chemin de configuration relativement au dépôt."""
+    value = Path(os.path.expanduser(_get(key, default) or default))
+    return value if value.is_absolute() else BASE_DIR / value
+
+
 def _normalize_deepseek_base_url(url: str) -> str:
     """Retourne l'origine API ; llm.py ajoute déjà /v1/chat/completions."""
     base = (url or "https://api.deepseek.com").strip().rstrip("/")
@@ -153,16 +159,20 @@ WEB_PORT = int(_get("WEB_PORT", "8080"))
 # protections supplémentaires vérifiées au démarrage.
 WEB_HOST = _get("WEB_HOST", "127.0.0.1")
 WEB_ALLOW_NETWORK_BIND = _get("WEB_ALLOW_NETWORK_BIND", "false").lower() == "true"
-# HTTPS optionnel : si false, ignore les certs et démarre en HTTP.
-# Utile pour le proxy server-side du PWA (Next.js refuse les certs self-signed).
-# Pour l'accès direct iPhone via Tailscale → mettre WEB_HTTPS=true + certs/cert.pem.
+# TLS direct Uvicorn. Toute écoute non loopback l'exige.
 WEB_HTTPS = _get("WEB_HTTPS", "false").lower() == "true"
+# Reverse proxy TLS de confiance (Tailscale Serve, Caddy, nginx) devant un
+# backend HTTP strictement loopback. Active cookie Secure + HSTS sans charger
+# de certificat dans Uvicorn.
+WEB_HTTPS_BEHIND_PROXY = (
+    _get("WEB_HTTPS_BEHIND_PROXY", "false").lower() == "true"
+)
 # Origines supplémentaires exactes autorisées pour les mutations par cookie.
 # Vide en production : la même origine schéma+hôte+port reste toujours admise.
 # Le proxy Vite doit être ajouté explicitement (ex. https://localhost:5173).
 CSRF_ALLOWED_ORIGINS = _get("CSRF_ALLOWED_ORIGINS", "")
-SSL_CERT_PATH = BASE_DIR / "certs" / "cert.pem"
-SSL_KEY_PATH = BASE_DIR / "certs" / "key.pem"
+SSL_CERT_PATH = _config_path("WEB_SSL_CERT_PATH", "certs/cert.pem")
+SSL_KEY_PATH = _config_path("WEB_SSL_KEY_PATH", "certs/key.pem")
 WEB_SSL_AVAILABLE = SSL_CERT_PATH.is_file() and SSL_KEY_PATH.is_file()
 WEB_USE_HTTPS = WEB_HTTPS and WEB_SSL_AVAILABLE
 

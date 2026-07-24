@@ -83,7 +83,7 @@ def _set_session_cookie(response: Response, token: str, expires_at: datetime) ->
         value=token,
         max_age=max_age,
         httponly=True,
-        secure=config.WEB_HTTPS,
+        secure=config.WEB_HTTPS or config.WEB_HTTPS_BEHIND_PROXY,
         samesite="strict",
         path="/",
     )
