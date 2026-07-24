@@ -254,10 +254,14 @@ def get_conversation_history(conv_id: int, limit: int = 50) -> list:
     with get_db() as conn:
         rows = conn.execute(
             """SELECT role, content, agent, created_at
-               FROM messages
-               WHERE conversation_id = ?
-               ORDER BY created_at ASC
-               LIMIT ?""",
+               FROM (
+                   SELECT id, role, content, agent, created_at
+                   FROM messages
+                   WHERE conversation_id = ?
+                   ORDER BY created_at DESC, id DESC
+                   LIMIT ?
+               ) AS recent_messages
+               ORDER BY created_at ASC, id ASC""",
             (conv_id, limit),
         ).fetchall()
         return [dict(r) for r in rows]
