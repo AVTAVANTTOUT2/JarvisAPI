@@ -33,7 +33,7 @@ CREATE_TABLE_RE = re.compile(
 
 DOC_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("tables_26_plus", re.compile(r"26\+\s*tables", re.I)),
-    ("tables_44", re.compile(r"\b44\s+tables?\b", re.I)),
+    ("tables_schema_dump", re.compile(r"\b(?:44|46)\s+tables?\b", re.I)),
     ("tables_72", re.compile(r"\b72\s+tables?\b", re.I)),
     ("tables_73", re.compile(r"\b73\s+tables?\b|\b73e\s+table\b", re.I)),
     ("nextjs_14_as_primary", re.compile(r"frontend\s+canonique[^\n]{0,40}Next\.js\s*14", re.I)),
@@ -358,6 +358,8 @@ def analyze_tables(root: Path) -> dict[str, Any]:
             "screen_activity",
             "app_usage",
             "devices",
+            "device_pairing_codes",
+            "device_pairing_attempts",
             "work_sessions",
             "agentic_workflows",
         }
@@ -391,12 +393,22 @@ def analyze_tables(root: Path) -> dict[str, Any]:
             "technique": tech,
         },
         "explanations": {
-            "44": "Nombre de tables applicatives dans database/schema.sql (dump), hors sqlite_sequence.",
-            "73": "Inventaire Architecture juillet 2026, légèrement en retard sur le runtime actuel.",
-            "76": "len(sqlite_master tables) après init_db() avec FTS5 (71 persistantes + 5 FTS).",
-            "75": "Ancien total physiques (pré-Vague 2B) ; remplacé par 76.",
-            "71": "Tables persistantes créées par schema.py + migrations + DevAgent, hors objets FTS.",
-            "70": "Ancien total persistantes (pré-Vague 2B / location_point_dedup).",
+            "schema_sql": (
+                f"{len(t_sql)} tables applicatives dans database/schema.sql "
+                "(dump non exécuté), hors sqlite_sequence."
+            ),
+            "persistantes": (
+                f"{len(persistantes)} tables créées par schema.py + migrations "
+                "+ DevAgent, hors objets FTS."
+            ),
+            "physiques_fts": (
+                f"{len(persistantes) + (5 if fts_declared else 0)} entrées sqlite_master "
+                "avec les cinq objets FTS5 disponibles."
+            ),
+            "historique": (
+                "Les totaux 44, 70, 71, 72, 73, 75, 76 et 78 décrivent "
+                "des snapshots antérieurs, pas le runtime courant."
+            ),
         },
     }
 
@@ -417,10 +429,20 @@ def scan_doc_contradictions(root: Path, tables: dict[str, Any]) -> list[dict[str
                 line_no = text.count("\n", 0, match.start()) + 1
                 severity = "warning"
                 note = match.group(0)
-                if kind == "tables_44" and schema_sql_count == 44:
-                    # Mention historique acceptable si contextualisée
-                    severity = "info"
-                    note = f"{match.group(0)} — cohérent avec schema.sql={schema_sql_count} si contextualisé"
+                if kind == "tables_schema_dump":
+                    mentioned = int(re.search(r"\d+", match.group(0)).group())
+                    if mentioned == schema_sql_count:
+                        severity = "info"
+                        note = (
+                            f"{match.group(0)} — cohérent avec "
+                            f"schema.sql={schema_sql_count} si contextualisé"
+                        )
+                    else:
+                        severity = "warning"
+                        note = (
+                            f"{match.group(0)} — dump schema.sql actuel="
+                            f"{schema_sql_count}"
+                        )
                 if kind in {"tables_72", "tables_26_plus"}:
                     severity = "error"
                     note = (
@@ -462,7 +484,9 @@ def build_report(root: Path) -> dict[str, Any]:
     contradictions = scan_doc_contradictions(root, tables)
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "repo_root": str(root),
+        # Le rapport est versionné : garder une racine stable, indépendante du
+        # checkout local, du worktree ou du runner CI.
+        "repo_root": ".",
         "canonical_formulation": {
             "database": (
                 f"Le projet crée {tables['counts']['persistantes_post_init']} tables persistantes "

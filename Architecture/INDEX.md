@@ -4,8 +4,8 @@
 
 **Dernière mise à jour** : 14 juillet 2026
 **Périmètre** : 273 fichiers Python (56 261 lignes), 99 fichiers source frontend (18 770 lignes),
-**70 tables SQLite persistantes** après `init_db()` (+ jusqu’à **5 objets FTS5** → **75** physiques ;
-le dump `schema.sql` historique compte **44** tables applicatives —
+**75 tables SQLite persistantes** après `init_db()` (+ jusqu’à **5 objets FTS5** → **80** physiques ;
+le dump `schema.sql` historique compte **46** tables applicatives —
 voir [32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md](./32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md))
 **État** : **Documentation officielle — toute modification du code doit rester cohérente avec ce dossier**
 
@@ -82,7 +82,7 @@ voir [32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md](./32_FRONTEND_DATABASE_SOURCE_OF_
 │  Vues desktop      │ 38 fichiers, 12 940 lignes          │
 │  Vues mobiles      │ 32 fichiers, 4 641 lignes           │
 │  SDK auth partagé  │ 4 fichiers, 373 lignes              │
-│  Base de données   │ 71 persistantes (+FTS→76), mode WAL │
+│  Base de données   │ 75 persistantes (+FTS→80), mode WAL │
 │  Routes API        │ 174 opérations HTTP, 157 chemins    │
 │  WebSocket         │ 1 endpoint, handler dédié           │
 │  Agents LLM        │ 7 agents + orchestrateur            │
@@ -131,7 +131,7 @@ graph TB
     end
 
     subgraph "Database"
-        DB[(SQLite WAL<br/>jarvis.db<br/>71 persistantes<br/>+ FTS → 76)]
+        DB[(SQLite WAL<br/>jarvis.db<br/>75 persistantes<br/>+ FTS → 80)]
     end
 
     subgraph "Données Apple"

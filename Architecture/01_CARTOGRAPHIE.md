@@ -12,7 +12,7 @@
 JarvisAPI/
 ├── main.py                    ← Assemblage FastAPI/Uvicorn (175 lignes)
 ├── api/                       ← 12 routeurs de domaine + handlers/support API
-│   ├── router_*.py           ← 174 opérations HTTP, 157 chemins OpenAPI
+│   ├── router_*.py           ← 207 opérations HTTP, 189 chemins OpenAPI
 │   ├── ws_handler.py         ← WebSocket /ws
 │   ├── lifespan.py           ← Cycle de vie des services
 │   ├── middleware.py         ← Sécurité HTTP
@@ -42,7 +42,7 @@ JarvisAPI/
 │   ├── easter_eggs.py         ← Easter eggs
 │   └── devagent/              ← Développement autonome (interview → code → test)
 │
-├── database/                  ← SQLite (71 persistantes, +FTS→76 ; schema.sql dump≈44 ; 25 modules)
+├── database/                  ← SQLite (75 persistantes, +FTS→80 ; schema.sql dump≈46 ; 25 modules)
 │   ├── __init__.py            ← Façade rétrocompatible (236 lignes)
 │   ├── core.py                ← Connexions, initialisation et contexte agrégé
 │   ├── schema.py              ← Schéma déclaratif complet
@@ -383,10 +383,10 @@ graph TB
 
 ## 4. Stockage
 
-### 4.1 SQLite — jarvis.db (71 persistantes, 76 avec FTS5)
+### 4.1 SQLite — jarvis.db (75 persistantes, 80 avec FTS5)
 
 > Comptage vérifié le 15/07/2026 — voir `Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md`.
-> Ne pas utiliser le dump `schema.sql` (44) comme chiffre runtime.
+> Ne pas utiliser le dump `schema.sql` (46) comme chiffre runtime.
 
 ```mermaid
 erDiagram
@@ -700,7 +700,7 @@ GPS / lieux restent chargées côté API. Aucune coordonnée n'est envoyée à u
 | Lignes Python | 56 261 |
 | Fichiers source frontend | 99 (38 web + 38 pwa + 19 frontend + 4 jarvis_auth) |
 | Lignes frontend | 18 770 |
-| Tables SQLite | 73 applicatives après initialisation et migrations (`sqlite_sequence` exclue) |
+| Tables SQLite | 75 applicatives après initialisation et migrations (`sqlite_sequence` exclue) |
 | API | 174 opérations HTTP + 1 WebSocket ; 157 chemins OpenAPI |
 | Tests backend | 565 tests pytest collectés dans 66 fichiers ; 564 passants, 1 ignoré le 14/07/2026 |
 | Agents LLM | 7 + orchestrateur |

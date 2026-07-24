@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-07-15T22:08:53.036802+00:00",
-  "repo_root": "/Users/zeldris/JARVIS",
+  "generated_at": "2026-07-24T11:28:29.890552+00:00",
+  "repo_root": ".",
   "canonical_formulation": {
-    "database": "Le projet crée 70 tables persistantes après init_db() + migrations, plus jusqu'à 5 objets FTS5, soit 75 tables physiques lorsque FTS5 est disponible.",
+    "database": "Le projet crée 75 tables persistantes après init_db() + migrations, plus jusqu'à 5 objets FTS5, soit 80 tables physiques lorsque FTS5 est disponible.",
     "frontends": "Le frontend canonique est frontend/ (Next.js 15 → frontend/out). web/dist reste le fallback actif. pwa/out est la PWA historique sous /m/. tv/ (5174) est réservé à la TV. FastAPI (8081) et le supervisor (9000) servent frontend/out en priorité, puis web/dist en fallback (core.frontend_resolution)."
   },
   "frontends": [
@@ -33,7 +33,7 @@
         "test:e2e": "playwright test"
       },
       "output_dir": "frontend/out",
-      "output_present": true,
+      "output_present": false,
       "has_service_worker": true,
       "has_manifest": true,
       "status": "actif_canonique_fastapi",
@@ -65,7 +65,7 @@
         "test": "vitest run"
       },
       "output_dir": "web/dist",
-      "output_present": true,
+      "output_present": false,
       "has_service_worker": true,
       "has_manifest": false,
       "status": "fallback_actif",
@@ -173,8 +173,8 @@
       "VITE_DEV_PORT": 5173
     },
     "build_presence": {
-      "frontend/out": true,
-      "web/dist": true,
+      "frontend/out": false,
+      "web/dist": false,
       "pwa/out": false
     }
   },
@@ -185,16 +185,16 @@
       "does_not_execute_schema_sql": true
     },
     "counts": {
-      "schema_py": 47,
-      "schema_sql_applicatives": 44,
-      "migrations_unique_excluding_schema_and_fts": 17,
+      "schema_py": 50,
+      "schema_sql_applicatives": 46,
+      "migrations_unique_excluding_schema_and_fts": 19,
       "devagent": 6,
-      "persistantes_post_init": 70,
+      "persistantes_post_init": 75,
       "fts_objects_if_available": 5,
-      "physiques_max_default_fts_on": 75,
+      "physiques_max_default_fts_on": 80,
       "imessage_mirror": 9,
-      "technique_estime": 17,
-      "metier_estime": 38
+      "technique_estime": 19,
+      "metier_estime": 41
     },
     "lists": {
       "schema_py": [
@@ -204,7 +204,10 @@
         "conversation_documents",
         "conversations",
         "cross_insights",
+        "cursor_delegation_jobs",
         "daily_briefings",
+        "device_pairing_attempts",
+        "device_pairing_codes",
         "devices",
         "email_summaries",
         "episodes",
@@ -254,6 +257,8 @@
         "conversations",
         "cross_insights",
         "daily_briefings",
+        "device_pairing_attempts",
+        "device_pairing_codes",
         "devices",
         "email_summaries",
         "episodes",
@@ -299,8 +304,10 @@
         "day_scores",
         "duplicate_findings",
         "jarvis_journal",
+        "location_point_dedup",
         "memory_embeddings",
         "message_insights",
+        "mobile_chat_dedup",
         "mobile_devices",
         "mobile_pairing_codes",
         "mood_signals",
@@ -328,6 +335,7 @@
         "conversation_turns",
         "conversations",
         "cross_insights",
+        "cursor_delegation_jobs",
         "daily_briefings",
         "daily_rituals",
         "day_scores",
@@ -337,6 +345,8 @@
         "dev_loop_state",
         "dev_projects",
         "dev_spec",
+        "device_pairing_attempts",
+        "device_pairing_codes",
         "devices",
         "duplicate_findings",
         "email_summaries",
@@ -358,9 +368,11 @@
         "llm_action_logs",
         "location_history",
         "location_patterns",
+        "location_point_dedup",
         "memory_embeddings",
         "message_insights",
         "messages",
+        "mobile_chat_dedup",
         "mobile_devices",
         "mobile_pairing_codes",
         "mood_log",
@@ -406,6 +418,8 @@
         "agentic_workflows",
         "app_settings",
         "app_usage",
+        "device_pairing_attempts",
+        "device_pairing_codes",
         "devices",
         "duplicate_findings",
         "event_log",
@@ -423,36 +437,36 @@
       ]
     },
     "explanations": {
-      "44": "Nombre de tables applicatives dans database/schema.sql (dump), hors sqlite_sequence.",
-      "73": "Inventaire Architecture juillet 2026, légèrement en retard sur le runtime actuel.",
-      "75": "len(sqlite_master tables) après init_db() avec FTS5 (70 persistantes + 5 FTS).",
-      "70": "Tables persistantes créées par schema.py + migrations + DevAgent, hors objets FTS."
+      "schema_sql": "46 tables applicatives dans database/schema.sql (dump non exécuté), hors sqlite_sequence.",
+      "persistantes": "75 tables créées par schema.py + migrations + DevAgent, hors objets FTS.",
+      "physiques_fts": "80 entrées sqlite_master avec les cinq objets FTS5 disponibles.",
+      "historique": "Les totaux 44, 70, 71, 72, 73, 75, 76 et 78 décrivent des snapshots antérieurs, pas le runtime courant."
     }
   },
   "documentation_findings": [
     {
       "file": "README.md",
       "line": 100,
-      "kind": "tables_44",
+      "kind": "tables_schema_dump",
       "severity": "info",
-      "excerpt": "44 tables",
-      "note": "44 tables — cohérent avec schema.sql=44 si contextualisé"
+      "excerpt": "46 tables",
+      "note": "46 tables — cohérent avec schema.sql=46 si contextualisé"
     },
     {
       "file": "CLAUDE.md",
       "line": 35,
-      "kind": "tables_44",
+      "kind": "tables_schema_dump",
       "severity": "info",
-      "excerpt": "44 tables",
-      "note": "44 tables — cohérent avec schema.sql=44 si contextualisé"
+      "excerpt": "46 tables",
+      "note": "46 tables — cohérent avec schema.sql=46 si contextualisé"
     },
     {
       "file": "Architecture/adr/ADR-017-sqlite-base-unique.md",
       "line": 16,
-      "kind": "tables_44",
+      "kind": "tables_schema_dump",
       "severity": "info",
-      "excerpt": "44 tables",
-      "note": "44 tables — cohérent avec schema.sql=44 si contextualisé"
+      "excerpt": "46 tables",
+      "note": "46 tables — cohérent avec schema.sql=46 si contextualisé"
     }
   ],
   "source_of_truth_doc": "Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md"

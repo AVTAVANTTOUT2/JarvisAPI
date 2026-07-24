@@ -30,9 +30,9 @@ Le bus applicatif est actif et conserve la compatibilité de construction histor
 
 - Les mutations de `database/tasks.py`, `notifications.py`, `conversations.py`, `episodes.py`, `facts.py`, `patterns.py` et `people.py` émettent **après commit**.
 - `database/event_log.py` journalise tous les événements dans la table SQLite `event_log`
- (ajoutée au schéma runtime ; le total post-`init_db` est **73 persistantes**, **78** avec FTS —
+ (ajoutée au schéma runtime ; le total post-`init_db` est **75 persistantes**, **80** avec FTS —
  voir `Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md` ; ne pas confondre avec le dump
- historique `database/schema.sql` ≈ 44 tables).
+ historique `database/schema.sql` ≈ 46 tables).
 - `websocket_registry.py` diffuse les événements de domaine aux sockets actives et `scripts/audio_daemon.py` traite les notifications `urgent/high`.
 - `pwa/src/components/realtime/EventSync.tsx` consomme `/api/events/stream` et invalide React Query ; le polling périodique notifications/tâches a été supprimé.
 - Les handlers d'un même événement s'exécutent concurremment ; l'échec de l'un est journalisé sans interrompre les autres.
@@ -42,7 +42,7 @@ Depuis du code async, utiliser `await event_bus.emit(event)`. Depuis un chemin s
 
 ## Couche API — Phase 4
 
-`main.py` est un point d'assemblage de 175 lignes : configuration FastAPI/CORS, montage des 12 `APIRouter`, branchement du WebSocket, configuration de `pipeline.py`, frontend et lancement Uvicorn. Les 174 opérations HTTP et le WebSocket `/ws` conservent leur contrat historique ; l'OpenAPI expose 157 chemins.
+`main.py` est un point d'assemblage : configuration FastAPI/CORS, montage des 12 `APIRouter`, branchement du WebSocket, configuration de `pipeline.py`, frontend et lancement Uvicorn. Les 207 opérations HTTP et le WebSocket `/ws` sont verrouillés par empreinte ; l'OpenAPI expose 189 chemins.
 
 - `api/router_*.py` contient exactement 12 routeurs par domaine ; aucun ne dépasse 447 lignes.
 - `api/lifespan.py`, `api/middleware.py` et `api/frontend.py` portent le cycle de vie, la sécurité HTTP et le serving des frontends.
