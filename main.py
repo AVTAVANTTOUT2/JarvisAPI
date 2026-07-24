@@ -52,6 +52,8 @@ from api.ws_session import (
     _resume_or_create_conversation as _resume_or_create_conversation,
     _ws_last_session as _ws_last_session,
 )
+from core.network_security import validate_network_bind
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -154,6 +156,17 @@ def main():
     _cert = config.SSL_CERT_PATH
     _key = config.SSL_KEY_PATH
     _ssl = config.WEB_USE_HTTPS
+
+    try:
+        validate_network_bind(
+            host=config.WEB_HOST,
+            allow_network_bind=config.WEB_ALLOW_NETWORK_BIND,
+            https_enabled=config.WEB_HTTPS,
+            location_token=config.LOCATION_API_TOKEN,
+        )
+    except RuntimeError as exc:
+        logger.error("[uvicorn] %s", exc)
+        sys.exit(1)
 
     if config.WEB_HTTPS and not config.WEB_SSL_AVAILABLE:
         logger.error(

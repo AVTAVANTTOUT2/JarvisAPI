@@ -10,8 +10,10 @@ import { existsSync } from 'fs'
 const BACKEND_HTTPS = existsSync(path.resolve(__dirname, '../certs/cert.pem'))
 const BACKEND_ORIGIN = BACKEND_HTTPS ? 'https://localhost:8081' : 'http://localhost:8081'
 
-// Supervisor (port 9000) — toujours HTTP
-const SUPERVISOR_ORIGIN = 'http://127.0.0.1:9000'
+// Le supervisor suit le même mode TLS que le backend.
+const SUPERVISOR_ORIGIN = BACKEND_HTTPS
+  ? 'https://127.0.0.1:9000'
+  : 'http://127.0.0.1:9000'
 
 function figmaAssetResolver() {
   return {

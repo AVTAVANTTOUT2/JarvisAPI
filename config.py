@@ -138,9 +138,11 @@ LANGUAGE = _get("LANGUAGE", "fr")
 TIMEZONE = _get("TIMEZONE", "Europe/Paris")
 USER_NAME = _get("USER_NAME", "Nolann")
 WEB_PORT = int(_get("WEB_PORT", "8080"))
-# "0.0.0.0" = toutes les interfaces IPv4. "127.0.0.1" = machine locale uniquement.
-# "::" = IPv6 seul sur certains OS (peut casser http://127.0.0.1:PORT) — à n’utiliser que si tu sais pourquoi.
-WEB_HOST = _get("WEB_HOST", "0.0.0.0")
+# Sécurité par défaut : l'UI et l'API ne sont accessibles que depuis ce Mac.
+# Toute adresse non loopback exige WEB_ALLOW_NETWORK_BIND=true et des
+# protections supplémentaires vérifiées au démarrage.
+WEB_HOST = _get("WEB_HOST", "127.0.0.1")
+WEB_ALLOW_NETWORK_BIND = _get("WEB_ALLOW_NETWORK_BIND", "false").lower() == "true"
 # HTTPS optionnel : si false, ignore les certs et démarre en HTTP.
 # Utile pour le proxy server-side du PWA (Next.js refuse les certs self-signed).
 # Pour l'accès direct iPhone via Tailscale → mettre WEB_HTTPS=true + certs/cert.pem.
@@ -478,9 +480,12 @@ DEVICE_PAIRING_ATTEMPT_WINDOW_MINUTES = int(
 DEVICE_PAIRING_LOCKOUT_MINUTES = int(_get("DEVICE_PAIRING_LOCKOUT_MINUTES", "15"))
 
 # ── Jetons pour intégrations non-navigateur ──────────────────
-# Vide = endpoint non protégé (rétro-compatible mais déconseillé — un avertissement
-# est loggué au démarrage). À définir dès que l'app quitte un LAN totalement fermé.
+# Requis par POST /api/location sauf si un Bearer mobile valide est fourni.
 LOCATION_API_TOKEN = _get("LOCATION_API_TOKEN", "")
+LOCATION_RATE_LIMIT_REQUESTS = int(_get("LOCATION_RATE_LIMIT_REQUESTS", "120"))
+LOCATION_RATE_LIMIT_WINDOW_SECONDS = int(
+    _get("LOCATION_RATE_LIMIT_WINDOW_SECONDS", "60")
+)
 
 # ── Chiffrement des sauvegardes (optionnel) ──────────────────
 BACKUP_ENCRYPTION_ENABLED = _get("BACKUP_ENCRYPTION_ENABLED", "false").lower() == "true"

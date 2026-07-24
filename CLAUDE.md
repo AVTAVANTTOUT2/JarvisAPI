@@ -1501,7 +1501,7 @@ tous les endpoints `/api/*` (hors `/api/auth/*`) répondent `428`.
 
 1. **Aucune authentification** → verrou PIN/passphrase + sessions, fail-closed tant que non configuré.
 2. **Jetons device récupérables et stockés en clair** — remplacés par un pairage à usage unique limité par IP, stockage SHA-256, `X-Device-Token` uniforme pour heartbeat/screen/TTS, rotation et révocation admin.
-3. **`/api/location*` (Shortcuts iOS) et lecture de l'historique GPS** ouverts sans contrôle — jeton partagé optionnel (`LOCATION_API_TOKEN`) pour l'ingestion ; les endpoints de lecture/écriture consultés depuis le navigateur passent désormais par le verrou de session standard.
+3. **`/api/location*` (Shortcuts iOS) et lecture de l'historique GPS** ouverts sans contrôle — l'ingestion unitaire exige désormais `LOCATION_API_TOKEN` (en-tête `X-Location-Token`) ou un Bearer mobile, applique une limite par client et valide uniformément les coordonnées ; les endpoints consultés depuis le navigateur passent par le verrou de session standard.
 4. **Aucun en-tête de sécurité** sur les réponses FastAPI (CSP, X-Frame-Options absents) — ajoutés globalement.
 5. **Aucune restauration de sauvegarde possible** — `restore_backup()` + `POST /api/backups/{name}/restore` ajoutés (protection contre le path traversal, snapshot de sécurité automatique).
 6. **Sauvegardes en clair sur disque** — chiffrement Fernet optionnel (`BACKUP_ENCRYPTION_ENABLED`).
@@ -1534,7 +1534,11 @@ DEVICE_PAIRING_MAX_ATTEMPTS=5
 DEVICE_PAIRING_ATTEMPT_WINDOW_MINUTES=10
 DEVICE_PAIRING_LOCKOUT_MINUTES=15
 WEB_HTTPS=false                  # true → cookie Secure + HSTS
-LOCATION_API_TOKEN=              # vide = /api/location reste ouvert (Shortcuts)
+WEB_HOST=127.0.0.1               # boucle locale par défaut
+WEB_ALLOW_NETWORK_BIND=false     # opt-in obligatoire pour une adresse réseau
+LOCATION_API_TOKEN=              # vide = /api/location refuse les Shortcuts
+LOCATION_RATE_LIMIT_REQUESTS=120
+LOCATION_RATE_LIMIT_WINDOW_SECONDS=60
 BACKUP_ENCRYPTION_ENABLED=false
 BACKUP_ENCRYPTION_PASSPHRASE=
 ```
