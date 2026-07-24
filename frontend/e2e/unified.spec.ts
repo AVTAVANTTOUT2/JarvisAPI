@@ -5,6 +5,36 @@ function emptyApiResponse(pathname: string): object {
   if (pathname.startsWith('/api/notifications')) return { notifications: [] }
   if (pathname === '/api/calendar') return { events: [] }
   if (pathname === '/api/briefing') return { kind: 'morning', content: '' }
+  if (pathname === '/api/status') {
+    return {
+      today: {
+        msg_count: 12,
+        turn_count: 5,
+        total_in: 999,
+        total_out: 1001,
+      },
+    }
+  }
+  if (pathname === '/api/stats/weekly') {
+    return {
+      days: [],
+      change: {
+        messages_pct: null,
+        voice_pct: null,
+        turns_pct: 25,
+        interactions_pct: 25,
+        cost_pct: null,
+      },
+      totals: {
+        msg_count: 12,
+        voice_count: 0,
+        turn_count: 5,
+        tokens_in: 999,
+        tokens_out: 1001,
+        cost: 0,
+      },
+    }
+  }
   if (pathname === '/api/places') return { places: [] }
   if (pathname.startsWith('/api/visits')) return { visits: [] }
   if (pathname === '/api/trips') return { trips: [] }
@@ -58,6 +88,10 @@ test('@desktop serves the complete navigation behind the shared auth gate', asyn
   await expect(page.getByText('Conversation', { exact: true })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Mission Control' }).first()).toBeVisible()
   await expect(page.getByTestId('lock-gate')).toHaveCount(0)
+
+  await page.goto('/dashboard')
+  const turns = page.getByText('Tours utilisateur').locator('..')
+  await expect(turns.getByText('5', { exact: true })).toBeVisible()
 })
 
 test('@mobile selects the responsive dashboard', async ({ page }) => {

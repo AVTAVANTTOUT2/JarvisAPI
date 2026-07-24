@@ -135,10 +135,11 @@ async def api_status():
 
 
 async def api_stats_weekly(days: int = 7):
-    """Série d'activité quotidienne (messages, échanges vocaux, tokens, coût).
+    """Série d'activité quotidienne (messages, tours utilisateur, vocal, coût).
 
     Retourne aussi la variation jour/jour (dernier jour vs avant-dernier) pour
-    les cartes de tendance du dashboard. `days` borné à [2, 90].
+    les cartes de tendance du dashboard. Un tour correspond à un message
+    utilisateur ; `days` est borné à [2, 90].
     """
     days = max(2, min(days, 90))
     try:
@@ -153,18 +154,19 @@ async def api_stats_weekly(days: int = 7):
         return round((cur - prev) / prev * 100, 1)
 
     last, prev = daily[-1], daily[-2]
+    turns_pct = _pct(last["turn_count"], prev["turn_count"])
     change = {
         "messages_pct": _pct(last["msg_count"], prev["msg_count"]),
         "voice_pct": _pct(last["voice_count"], prev["voice_count"]),
-        "interactions_pct": _pct(
-            last["tokens_in"] + last["tokens_out"],
-            prev["tokens_in"] + prev["tokens_out"],
-        ),
+        "turns_pct": turns_pct,
+        # Alias de transition pour les clients antérieurs au contrat explicite.
+        "interactions_pct": turns_pct,
         "cost_pct": _pct(last["cost"], prev["cost"]),
     }
     totals = {
         "msg_count": sum(d["msg_count"] for d in daily),
         "voice_count": sum(d["voice_count"] for d in daily),
+        "turn_count": sum(d["turn_count"] for d in daily),
         "tokens_in": sum(d["tokens_in"] for d in daily),
         "tokens_out": sum(d["tokens_out"] for d in daily),
         "cost": round(sum(d["cost"] for d in daily), 6),

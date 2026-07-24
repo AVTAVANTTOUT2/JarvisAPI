@@ -23,6 +23,8 @@ export interface DailyActivity {
   date: string
   msg_count: number
   voice_count: number
+  /** Un tour correspond à un message utilisateur. */
+  turn_count: number
   tokens_in: number
   tokens_out: number
   cost: number
@@ -33,12 +35,15 @@ export interface WeeklyStats {
   change: {
     messages_pct: number | null
     voice_pct: number | null
+    turns_pct: number | null
+    /** Alias de compatibilité de turns_pct. */
     interactions_pct: number | null
     cost_pct: number | null
   }
   totals: {
     msg_count: number
     voice_count: number
+    turn_count: number
     tokens_in: number
     tokens_out: number
     cost: number

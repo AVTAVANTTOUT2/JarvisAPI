@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -242,7 +242,7 @@ def test_maintenance_zero_days_keeps_everything(tmp_db, monkeypatch):
 # ── Coûts / budget ───────────────────────────────────────────
 
 def _insert_cost(conn, cost: float, model: str = "deepseek-v4-pro", created_at: str | None = None):
-    created_at = created_at or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    created_at = created_at or datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     conn.execute(
         """INSERT INTO messages (conversation_id, role, content, model, tokens_in, tokens_out, cost, created_at)
            VALUES (1, 'assistant', 'x', ?, 100, 50, ?, ?)""",
