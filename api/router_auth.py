@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 import json
 import secrets
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, HTTPException, Request, Response
 
@@ -31,6 +32,36 @@ def _require_mobile_device(request: Request) -> dict:
 
 def _client_ip(request: Request) -> str:
     return request.client.host if request.client else ""
+
+
+def _auth_client_key(request: Request, channel: str = "web") -> str:
+    return auth.client_rate_key(_client_ip(request), channel=channel)
+
+
+def _raise_if_rate_limited(
+    client_key: str,
+    *,
+    include_global: bool = True,
+) -> None:
+    status = auth.rate_limit_status(client_key, include_global=include_global)
+    if not status.blocked:
+        return
+    scope = "globalement" if status.scope == "global" else "pour ce client"
+    raise HTTPException(
+        429,
+        f"Trop de tentatives {scope} — réessayez dans {status.retry_after}s",
+        headers={"Retry-After": str(status.retry_after)},
+    )
+
+
+def _is_loopback(request: Request) -> bool:
+    if _client_ip(request) not in {"127.0.0.1", "::1"}:
+        return False
+    try:
+        hostname = urlsplit(f"//{request.headers.get('host', '')}").hostname
+    except ValueError:
+        return False
+    return hostname in {"localhost", "127.0.0.1", "::1"}
 
 
 def _require_browser_session(request: Request) -> dict:
@@ -62,13 +93,15 @@ def _set_session_cookie(response: Response, token: str, expires_at: datetime) ->
 async def api_auth_status(request: Request):
     """État du verrou : configuré ?, session active ?, verrouillage en cours ?"""
     configured = auth.is_configured()
-    locked_out, lockout_seconds = auth.is_locked_out()
+    rate_status = auth.rate_limit_status(_auth_client_key(request))
     session = auth.verify_session(request.cookies.get(config.SESSION_COOKIE_NAME)) if configured else None
     return {
         "configured": configured,
         "authenticated": session is not None,
-        "locked_out": locked_out,
-        "lockout_seconds": lockout_seconds,
+        "locked_out": rate_status.blocked,
+        "lockout_seconds": rate_status.retry_after,
+        "lockout_scope": rate_status.scope,
+        "local_recovery_available": _is_loopback(request),
         "auto_lock_minutes": config.AUTO_LOCK_MINUTES,
     }
 
@@ -95,12 +128,11 @@ async def api_auth_unlock(body: dict, request: Request, response: Response):
     """Déverrouille l'app et ouvre une session (cookie httpOnly)."""
     if not auth.is_configured():
         raise HTTPException(428, "Aucun secret configuré — appelez /api/auth/setup")
-    locked_out, seconds = auth.is_locked_out()
-    if locked_out:
-        raise HTTPException(429, f"Trop de tentatives — réessayez dans {seconds}s")
+    client_key = _auth_client_key(request)
+    _raise_if_rate_limited(client_key)
 
     secret = (body.get("secret") or "").strip()
-    if not auth.verify_only(secret):
+    if not auth.verify_only(secret, client_key=client_key, channel="web"):
         raise HTTPException(401, "Secret incorrect")
 
     token, expires_at = auth.create_session(
@@ -111,13 +143,39 @@ async def api_auth_unlock(body: dict, request: Request, response: Response):
 
 
 @router.post("/api/auth/verify")
-async def api_auth_verify(body: dict):
+async def api_auth_verify(body: dict, request: Request):
     """Ré-authentification de l'écran de verrouillage — ne touche pas à la session existante."""
-    locked_out, seconds = auth.is_locked_out()
-    if locked_out:
-        raise HTTPException(429, f"Trop de tentatives — réessayez dans {seconds}s")
+    client_key = _auth_client_key(request)
+    _raise_if_rate_limited(client_key)
     secret = (body.get("secret") or "").strip()
-    return {"ok": auth.verify_only(secret)}
+    return {"ok": auth.verify_only(secret, client_key=client_key, channel="web")}
+
+
+@router.post("/api/auth/local-unlock")
+async def api_auth_local_unlock(body: dict, request: Request, response: Response):
+    """Récupère l'accès depuis la machine JARVIS, sans contourner le secret."""
+    if not _is_loopback(request):
+        raise HTTPException(403, "Récupération autorisée uniquement depuis la machine locale")
+    if request.headers.get("x-jarvis-local-recovery") != "1":
+        raise HTTPException(403, "Confirmation locale de récupération requise")
+    if not auth.is_configured():
+        raise HTTPException(428, "Aucun secret configuré — appelez /api/auth/setup")
+
+    client_key = _auth_client_key(request, channel="recovery")
+    # Le canal de récupération ignore le plafond global, mais conserve son
+    # propre délai progressif et son verrou client.
+    _raise_if_rate_limited(client_key, include_global=False)
+    secret = (body.get("secret") or "").strip()
+    if not auth.verify_recovery_secret(secret):
+        auth.record_failed_attempt(client_key, channel="recovery")
+        raise HTTPException(401, "Secret incorrect")
+
+    auth.clear_all_rate_limits()
+    token, expires_at = auth.create_session(
+        user_agent=request.headers.get("user-agent", ""), ip=_client_ip(request)
+    )
+    _set_session_cookie(response, token, expires_at)
+    return {"ok": True, "recovered": True}
 
 
 @router.post("/api/auth/logout")
@@ -132,14 +190,13 @@ async def api_auth_logout(request: Request, response: Response):
 @router.post("/api/auth/change-secret")
 async def api_auth_change_secret(body: dict, request: Request):
     _require_browser_session(request)
-    locked_out, seconds = auth.is_locked_out()
-    if locked_out:
-        raise HTTPException(429, f"Trop de tentatives — réessayez dans {seconds}s")
+    client_key = _auth_client_key(request)
+    _raise_if_rate_limited(client_key)
 
     current = (body.get("current") or "").strip()
     new = (body.get("new") or "").strip()
     try:
-        ok = auth.change_secret(current, new)
+        ok = auth.change_secret(current, new, client_key=client_key)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     if not ok:

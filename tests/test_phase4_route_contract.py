@@ -6,13 +6,13 @@ import hashlib
 import json
 
 
-EXPECTED_ROUTE_COUNT = 211
-EXPECTED_ROUTE_SIGNATURE = "7ffef4cbcf5c1afc77d99a01dcd37109a012c4ec10446959563bea4e849bde3d"
-EXPECTED_OPENAPI_PATH_COUNT = 190
+EXPECTED_ROUTE_COUNT = 212
+EXPECTED_ROUTE_SIGNATURE = "02ddef34f492c2257de3b8f29aa58a1f97ffc0f0056aba53d989278601d50f98"
+EXPECTED_OPENAPI_PATH_COUNT = 191
 # Empreinte stable : chemins + méthodes uniquement (indépendante de la version
 # FastAPI/Pydantic qui fait varier les composants du schéma complet).
 EXPECTED_OPENAPI_PATHS_SIGNATURE = (
-    "a8722c4dae67106c585f4f9c9e1e00c10e9344cfb44e25926ca939210fa438b6"
+    "f650728a0810a7592c7d7266f7132c3bc70ab8474ac16637906d512eed9ae4d1"
 )
 
 

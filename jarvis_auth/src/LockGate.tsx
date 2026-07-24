@@ -30,6 +30,11 @@ const styles: Record<string, CSSProperties> = {
     border: 0, borderRadius: 10, padding: '12px 14px', background: '#f4f4f5',
     color: '#09090b', fontWeight: 700, fontSize: 14, cursor: 'pointer',
   },
+  secondaryButton: {
+    border: '1px solid rgba(255,255,255,.2)', borderRadius: 10, padding: '12px 14px',
+    background: 'transparent', color: '#f4f4f5', fontWeight: 700, fontSize: 14,
+    cursor: 'pointer',
+  },
   error: { color: '#f87171', fontSize: 13, margin: 0 },
   warning: { color: '#fbbf24', fontSize: 13, margin: 0 },
 }
@@ -46,12 +51,17 @@ export function LockGate({ children, title = 'JARVIS', ...options }: LockGatePro
 
   const mode = gate.status?.configured ? 'unlock' : 'setup'
   const lockedOut = gate.lockoutSeconds > 0
+  const localRecovery = Boolean(gate.status?.local_recovery_available)
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setError('')
-    if (secret.length < 4) {
-      setError('4 caractères minimum.')
+    if (!secret) {
+      setError('Le secret est requis.')
+      return
+    }
+    if (mode === 'setup' && ((/^\d+$/.test(secret) && secret.length < 6) || (!/^\d+$/.test(secret) && secret.length < 10))) {
+      setError('Utilisez un PIN de 6 chiffres ou une passphrase de 10 caractères.')
       return
     }
     if (mode === 'setup' && secret !== confirmation) {
@@ -71,6 +81,28 @@ export function LockGate({ children, title = 'JARVIS', ...options }: LockGatePro
         setError('Secret incorrect.')
       } else {
         setError('Échec de la configuration.')
+      }
+      await gate.refresh()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function recoverLocally() {
+    setError('')
+    if (!secret) {
+      setError('Le secret est requis.')
+      return
+    }
+    setBusy(true)
+    try {
+      await gate.localUnlock(secret)
+      setSecret('')
+    } catch (caught) {
+      if (caught instanceof AuthError && caught.status === 429) {
+        setError('Récupération temporairement bloquée — réessayez plus tard.')
+      } else {
+        setError('Secret incorrect ou récupération locale indisponible.')
       }
       await gate.refresh()
     } finally {
@@ -105,8 +137,8 @@ export function LockGate({ children, title = 'JARVIS', ...options }: LockGatePro
               autoFocus
               value={secret}
               onChange={(event) => setSecret(event.target.value)}
-              placeholder={mode === 'setup' ? 'Nouveau code (4+ caractères)' : 'Code de déverrouillage'}
-              disabled={busy || lockedOut}
+              placeholder={mode === 'setup' ? 'PIN 6 chiffres ou passphrase 10+ caractères' : 'Code de déverrouillage'}
+              disabled={busy || (lockedOut && !localRecovery)}
               aria-label={mode === 'setup' ? 'Nouveau code' : 'Code de déverrouillage'}
             />
             {mode === 'setup' && (
@@ -121,14 +153,24 @@ export function LockGate({ children, title = 'JARVIS', ...options }: LockGatePro
                 aria-label="Confirmation du code"
               />
             )}
-            {lockedOut ? (
-              <p style={styles.warning}>Verrouillé — réessayez dans {gate.lockoutSeconds}s.</p>
-            ) : error ? (
+            {error ? (
               <p style={styles.error}>{error}</p>
+            ) : lockedOut ? (
+              <p style={styles.warning}>Verrouillé — réessayez dans {gate.lockoutSeconds}s.</p>
             ) : null}
             <button type="submit" style={styles.button} disabled={busy || lockedOut}>
               {busy ? 'Vérification…' : mode === 'setup' ? 'Configurer' : 'Déverrouiller'}
             </button>
+            {lockedOut && localRecovery ? (
+              <button
+                type="button"
+                style={styles.secondaryButton}
+                disabled={busy}
+                onClick={() => void recoverLocally()}
+              >
+                Récupérer depuis ce Mac
+              </button>
+            ) : null}
           </form>
         ) : null}
       </section>

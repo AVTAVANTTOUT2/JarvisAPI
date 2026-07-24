@@ -200,8 +200,8 @@ def test_real_repo_smoke_counts_stable() -> None:
     # location_point_dedup, mobile_chat_dedup, cursor_delegation_jobs,
     # device_pairing_codes et device_pairing_attempts.
     assert tables["counts"]["schema_py"] == 50
-    assert tables["counts"]["persistantes_post_init"] == 75
-    assert tables["counts"]["physiques_max_default_fts_on"] == 80
+    assert tables["counts"]["persistantes_post_init"] == 76
+    assert tables["counts"]["physiques_max_default_fts_on"] == 81
     assert tables["init_pipeline"]["does_not_execute_schema_sql"] is True
 
     resolution = audit.analyze_frontend_resolution(ROOT)

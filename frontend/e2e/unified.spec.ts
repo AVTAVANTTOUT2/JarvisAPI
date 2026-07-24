@@ -72,6 +72,8 @@ async function mockApi(page: Page, authenticated: boolean) {
           authenticated,
           locked_out: false,
           lockout_seconds: 0,
+          lockout_scope: null,
+          local_recovery_available: false,
           auto_lock_minutes: 5,
         },
       })
@@ -126,6 +128,8 @@ test('@static-csp shows initial PIN setup after static export with security head
           authenticated: false,
           locked_out: false,
           lockout_seconds: 0,
+          lockout_scope: null,
+          local_recovery_available: false,
           auto_lock_minutes: 5,
         },
       })
@@ -138,7 +142,9 @@ test('@static-csp shows initial PIN setup after static export with security head
 
   await expect(page.getByTestId('lock-gate')).toBeVisible()
   await expect(page.getByText('Définissez votre code de déverrouillage')).toBeVisible()
-  await expect(page.getByPlaceholder('Nouveau code (4+ caractères)')).toBeVisible()
+  await expect(
+    page.getByPlaceholder('PIN 6 chiffres ou passphrase 10+ caractères'),
+  ).toBeVisible()
   expect(consoleErrors.some((line) => line.includes('Connection closed'))).toBe(false)
 })
 

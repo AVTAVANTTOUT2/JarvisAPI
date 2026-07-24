@@ -18,6 +18,8 @@ def tmp_db(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     db_path = tmp_path / "test_jarvis.db"
     monkeypatch.setattr("config.DB_PATH", str(db_path))
     monkeypatch.setattr("database.DB_PATH", db_path)
+    monkeypatch.setattr("config.AUTH_PROGRESSIVE_DELAY_SECONDS", 0)
+    monkeypatch.setattr("config.AUTH_GLOBAL_MAX_ATTEMPTS", 50)
     from database import init_db
 
     init_db()
@@ -80,6 +82,47 @@ def test_auth_routes_bypass_session_gate_even_unconfigured(tmp_db):
         r = client.get("/api/auth/status")
     assert r.status_code == 200
     assert r.json()["configured"] is False
+
+
+def test_local_recovery_route_rejects_remote_clients(tmp_db):
+    import auth
+
+    auth.setup_secret(TEST_AUTH_SECRET)
+    with _client() as client:
+        r = client.post(
+            "/api/auth/local-unlock",
+            json={"secret": TEST_AUTH_SECRET},
+            headers={"X-Jarvis-Local-Recovery": "1"},
+        )
+    assert r.status_code == 403
+
+
+def test_local_recovery_rejects_loopback_proxy_with_remote_host():
+    from starlette.requests import Request
+
+    from api.router_auth import _is_loopback
+
+    proxied = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/api/auth/local-unlock",
+            "headers": [(b"host", b"jarvis.example")],
+            "client": ("127.0.0.1", 54321),
+        }
+    )
+    local = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/api/auth/local-unlock",
+            "headers": [(b"host", b"localhost:8000")],
+            "client": ("127.0.0.1", 54321),
+        }
+    )
+
+    assert _is_loopback(proxied) is False
+    assert _is_loopback(local) is True
 
 
 @pytest.mark.parametrize(
@@ -231,6 +274,64 @@ def test_unlock_lockout_after_repeated_failures(tmp_db, monkeypatch):
 
         r = client.post("/api/auth/unlock", json={"secret": "correct-secret"})
         assert r.status_code == 429
+        assert int(r.headers["Retry-After"]) > 0
+
+
+def test_unlock_enforces_progressive_delay(tmp_db, monkeypatch):
+    monkeypatch.setattr("config.AUTH_LOCKOUT_MAX_ATTEMPTS", 5)
+    monkeypatch.setattr("config.AUTH_PROGRESSIVE_DELAY_SECONDS", 2)
+    with _client() as client:
+        client.post("/api/auth/setup", json={"secret": "correct-secret"})
+        client.post("/api/auth/logout")
+
+        first = client.post("/api/auth/unlock", json={"secret": "wrong"})
+        assert first.status_code == 401
+
+        immediate_retry = client.post(
+            "/api/auth/unlock",
+            json={"secret": "correct-secret"},
+        )
+        assert immediate_retry.status_code == 429
+        assert int(immediate_retry.headers["Retry-After"]) > 0
+
+
+def test_loopback_recovery_clears_global_lock_and_opens_session(tmp_db, monkeypatch):
+    import auth
+    import api.router_auth as router_auth
+
+    monkeypatch.setattr("config.AUTH_LOCKOUT_MAX_ATTEMPTS", 100)
+    monkeypatch.setattr("config.AUTH_GLOBAL_MAX_ATTEMPTS", 2)
+    monkeypatch.setattr(router_auth, "_is_loopback", lambda _request: True)
+    auth.setup_secret(TEST_AUTH_SECRET)
+    auth.record_failed_attempt(
+        auth.client_rate_key("203.0.113.1", channel="web"),
+        channel="web",
+    )
+    auth.record_failed_attempt(
+        auth.client_rate_key("203.0.113.2", channel="web"),
+        channel="web",
+    )
+    assert auth.rate_limit_status(
+        auth.client_rate_key("127.0.0.1", channel="web")
+    ).scope == "global"
+
+    with _client() as client:
+        status = client.get("/api/auth/status").json()
+        assert status["local_recovery_available"] is True
+        assert status["locked_out"] is True
+
+        recovered = client.post(
+            "/api/auth/local-unlock",
+            json={"secret": TEST_AUTH_SECRET},
+            headers={"X-Jarvis-Local-Recovery": "1"},
+        )
+        assert recovered.status_code == 200
+        assert recovered.json()["recovered"] is True
+        assert client.get("/api/jarvis-journal").status_code == 200
+
+    assert auth.rate_limit_status(
+        auth.client_rate_key("127.0.0.1", channel="web")
+    ).blocked is False
 
 
 def test_change_secret_uses_unlock_lockout(tmp_db, monkeypatch):

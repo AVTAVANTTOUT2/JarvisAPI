@@ -9,6 +9,8 @@ const lockedStatus: AuthStatus = {
   authenticated: false,
   locked_out: false,
   lockout_seconds: 0,
+  lockout_scope: null,
+  local_recovery_available: false,
   auto_lock_minutes: 5,
 }
 
@@ -17,6 +19,7 @@ function fakeClient(statuses: AuthStatus[]): AuthClient {
     status: vi.fn(async () => statuses.shift() ?? lockedStatus),
     setup: vi.fn(async () => ({ ok: true })),
     unlock: vi.fn(async () => ({ ok: true })),
+    localUnlock: vi.fn(async () => ({ ok: true, recovered: true })),
     verify: vi.fn(async () => ({ ok: true })),
     logout: vi.fn(async () => ({ ok: true })),
   } as unknown as AuthClient
@@ -66,6 +69,53 @@ describe('shared LockGate', () => {
     await waitFor(() => expect(screen.getByText('Données privées')).toBeInTheDocument())
     expect(client.unlock).toHaveBeenCalledWith('1234')
     expect(startPrivateServices).toHaveBeenCalledOnce()
+  })
+
+  it('requires a six-digit PIN or a ten-character passphrase during setup', async () => {
+    const client = fakeClient([{ ...lockedStatus, configured: false }])
+    render(
+      <LockGate client={client}>
+        <div>Données privées</div>
+      </LockGate>,
+    )
+
+    fireEvent.change(await screen.findByLabelText('Nouveau code'), { target: { value: '1234' } })
+    fireEvent.change(screen.getByLabelText('Confirmation du code'), { target: { value: '1234' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Configurer' }))
+
+    expect(
+      await screen.findByText('Utilisez un PIN de 6 chiffres ou une passphrase de 10 caractères.'),
+    ).toBeInTheDocument()
+    expect(client.setup).not.toHaveBeenCalled()
+  })
+
+  it('offers recovery only when the server confirms a local client', async () => {
+    const lockedLocally = {
+      ...lockedStatus,
+      locked_out: true,
+      lockout_seconds: 60,
+      lockout_scope: 'global' as const,
+      local_recovery_available: true,
+    }
+    const authenticated = {
+      ...lockedStatus,
+      authenticated: true,
+      local_recovery_available: true,
+    }
+    const client = fakeClient([lockedLocally, authenticated])
+    render(
+      <LockGate client={client}>
+        <div>Données privées</div>
+      </LockGate>,
+    )
+
+    fireEvent.change(await screen.findByLabelText('Code de déverrouillage'), {
+      target: { value: 'correct-secret' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Récupérer depuis ce Mac' }))
+
+    await waitFor(() => expect(screen.getByText('Données privées')).toBeInTheDocument())
+    expect(client.localUnlock).toHaveBeenCalledWith('correct-secret')
   })
 
   it('stops private services when the local auto-lock engages', async () => {

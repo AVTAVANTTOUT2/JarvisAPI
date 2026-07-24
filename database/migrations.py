@@ -59,6 +59,27 @@ def _migrate_sessions(conn: sqlite3.Connection) -> None:
     if "mobile_device_id" not in columns:
         conn.execute("ALTER TABLE sessions ADD COLUMN mobile_device_id TEXT")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_mobile_device ON sessions(mobile_device_id)")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS auth_rate_limits (
+            client_key TEXT PRIMARY KEY,
+            failed_attempts INTEGER NOT NULL DEFAULT 0,
+            window_started_at TEXT NOT NULL,
+            blocked_until TEXT,
+            updated_at TEXT NOT NULL
+        )
+    """)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_auth_rate_limits_updated "
+        "ON auth_rate_limits(updated_at)"
+    )
+    # L'ancien compteur global permettait à un client distant de verrouiller
+    # tout JARVIS. Les clés sont retirées après création du stockage par client.
+    conn.execute(
+        """
+        DELETE FROM app_settings
+        WHERE key IN ('auth_failed_attempts', 'auth_lockout_until')
+        """
+    )
 
 
 def _migrate_mobile_devices(conn: sqlite3.Connection) -> None:

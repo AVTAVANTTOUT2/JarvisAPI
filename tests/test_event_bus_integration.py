@@ -50,8 +50,8 @@ async def test_database_mutations_emit_log_and_push_all_phase3_events(
     assert "event_log" in table_names
     assert "location_point_dedup" in table_names
     assert "mobile_chat_dedup" in table_names
-    # 75 persistantes + 5 FTS = 80 physiques (pairage desktop sécurisé inclus).
-    assert len(table_names) == 80
+    # 76 persistantes + 5 FTS = 81 physiques (limiteur auth par client inclus).
+    assert len(table_names) == 81
     assert "cursor_delegation_jobs" in table_names
     assert "device_pairing_codes" in table_names
     assert "device_pairing_attempts" in table_names
