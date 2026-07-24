@@ -35,7 +35,7 @@ export default defineConfig({
       timeout: 120_000,
     },
     {
-      command: 'python3.12 e2e/serve-static-csp.py 3107',
+      command: 'python3 e2e/serve-static-csp.py 3107',
       url: 'http://127.0.0.1:3107',
       reuseExistingServer: false,
       timeout: 30_000,

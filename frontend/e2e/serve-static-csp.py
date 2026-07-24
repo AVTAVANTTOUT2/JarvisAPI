@@ -11,19 +11,9 @@ ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "frontend" / "out"
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 3107
 
-CSP = (
-    "default-src 'self'; "
-    "script-src 'self' 'unsafe-inline'; "
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-    "font-src 'self' data: https://fonts.gstatic.com; "
-    "img-src 'self' data: blob: https://*.tile.openstreetmap.org; "
-    "media-src 'self' blob:; "
-    "connect-src 'self' ws: wss:; "
-    "worker-src 'self'; "
-    "frame-ancestors 'none'; "
-    "base-uri 'self'; "
-    "form-action 'self'"
-)
+sys.path.insert(0, str(ROOT))
+
+from security_headers import CONTENT_SECURITY_POLICY  # noqa: E402
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -31,7 +21,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         super().__init__(*args, directory=str(OUT), **kwargs)
 
     def end_headers(self) -> None:
-        self.send_header("Content-Security-Policy", CSP)
+        self.send_header("Content-Security-Policy", CONTENT_SECURITY_POLICY)
         self.send_header("X-Content-Type-Options", "nosniff")
         super().end_headers()
 

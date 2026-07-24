@@ -115,8 +115,11 @@ jobs:
           pnpm --dir ../web install --frozen-lockfile
           pnpm install --frozen-lockfile
 
+      - name: Installer Chrome pour les tests navigateur
+        run: pnpm exec playwright install --with-deps chrome
+
       - name: Tests, typecheck et build Next.js
-        run: pnpm test && pnpm typecheck && pnpm build
+        run: pnpm test && pnpm typecheck && pnpm build && pnpm test:e2e
 
   android:
     name: Android (assemble + tests + lint)
