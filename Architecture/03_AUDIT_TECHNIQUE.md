@@ -252,8 +252,8 @@ L'état initial (7 197 lignes, 40+ responsabilités et 42 imports concentrés)
 |---|---|
 | Fail-closed | ✅ 428 tant que pas configuré |
 | Middleware global | ✅ Sur /api/* |
-| Bypass list | ✅ /api/auth/*, /api/location, /api/devices/* |
-| Device token | ✅ X-Device-Token vérifié |
+| Bypass list | ✅ Routes auth exactes + ingestion location/device dédiée |
+| Device token | ✅ X-Device-Token hashé, pairage unique, rotation/révocation |
 | Location token | ✅ LOCATION_API_TOKEN optionnel |
 
 ### 5.3 Injection

@@ -97,7 +97,7 @@ Trois commits orphelins de `claude/workflow-project-improvements-yknzqs`, jamais
 ## Ce que JARVIS fait
 
 - **Converse** — chat web avec conversations persistantes, page vocale mains libres, bridge iMessage (on lui parle depuis l'iPhone comme à un contact), wake word « Jarvis » optionnel.
-- **Se souvient** — mémoire à deux étages : extraction structurée (faits, personnes, événements, patterns, running gags) par le modèle rapide, raisonnement sur données denses par le modèle principal. SQLite : **70 tables persistantes** après `init_db()` (+ jusqu’à **5 objets FTS5** → **75** physiques si FTS disponible). Le dump `database/schema.sql` (44 tables) est un snapshot historique, pas le schéma d’exécution. Détail : `Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md`.
+- **Se souvient** — mémoire à deux étages : extraction structurée (faits, personnes, événements, patterns, running gags) par le modèle rapide, raisonnement sur données denses par le modèle principal. SQLite : **75 tables persistantes** après `init_db()` (+ jusqu’à **5 objets FTS5** → **80** physiques si FTS disponible). Le dump `database/schema.sql` (46 tables) est un snapshot historique, pas le schéma d’exécution. Détail : `Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md`.
 - **Surveille** — emails (Mail.app, analyse LLM, silence sur le non-important, drapeau rouge sur l'urgent), écran (Ollama vision local, 0 token API), position GPS (lieux, visites, trajets), relations iMessage (analytics sans LLM + analyse quotidienne), présence au bureau par le son.
 - **Agit** — tâches, calendrier, envoi d'emails et d'iMessages, terminal sécurisé, exécution de code multi-étapes, mode autonome `/loop`, DevAgent (interview → spec → boucle plan/code/test/fix/commit dans un projet isolé).
 - **Rythme la journée** — briefing matin, roast des tâches non faites (18:30), debrief du soir (21:45), citation ironique (07:00), debrief hebdo vocal (dimanche 21:00), anniversaires, pause café, alerte binge streaming, retour tardif, signal d'humeur comportemental (zéro diagnostic).
@@ -122,7 +122,7 @@ Trois commits orphelins de `claude/workflow-project-improvements-yknzqs`, jamais
               ┌─────▼─────┐      ┌───────▼──────┐      ┌──────▼──────┐
               │Orchestrator│ ───▶ │ 6 agents     │      │   SQLite    │
               │(classif.)  │      │ info school  │      │ jarvis.db   │
-              └────────────┘      │ produc coach │      │ 70 + FTS→75 │
+              └────────────┘      │ produc coach │      │ 75 + FTS→80 │
                                   │ journal mem. │      └─────────────┘
                                   └──────────────┘
         LLM : DeepSeek API (fast = classification/triage, main = raisonnement,
@@ -198,6 +198,32 @@ python main.py
 Le script `generate_certs.sh` cree `certs/cert.pem` et `certs/key.pem`, lus automatiquement par `main.py` quand `WEB_HTTPS=true`. Les certificats sont deja dans `.gitignore` (cles privees = jamais commitees).
 
 **Pas besoin de HTTPS si tu accedes en local** (`http://localhost:8081`) — le micro fonctionne directement sur localhost. Le HTTPS n'est necessaire que pour l'acces distant (IP Tailscale, reseau local, etc.).
+
+### Pairer un Mac distant
+
+Depuis la console du navigateur déjà déverrouillé, génère un code à usage
+unique (10 minutes) :
+
+```js
+await fetch('/api/devices/pairing/start', {method: 'POST'}).then(r => r.json())
+```
+
+Sur le Mac distant, utilise le code une seule fois :
+
+```bash
+pip install -r requirements-agent.txt
+python scripts/jarvis_agent.py \
+  --server https://100.123.50.38:8081 \
+  --pairing-code 123456
+```
+
+L'agent stocke ensuite son jeton en permissions `0600` dans
+`~/Library/Application Support/JARVIS/device_tokens/` et utilise
+`X-Device-Token` pour le heartbeat, les captures et le TTS. Un identifiant déjà
+pairé ne renvoie jamais son ancien jeton : utilise
+`POST /api/devices/{device_id}/token/rotate` depuis une session admin, puis
+relance une fois l'agent avec `--token NOUVEAU_JETON`. La révocation immédiate
+est disponible via `POST /api/devices/{device_id}/revoke`.
 
 **Vérifier que tout est sain** :
 
@@ -465,4 +491,3 @@ CI GitHub Actions (`.github/workflows/ci.yml`) sur chaque push/PR : import des ~
 
 API : `/api/cognitive/*`, `/api/cursor/*`, `/api/briefings/generate`, UI `/cognitive`.
 Docs : `Architecture/LLM_POLICY.md`, `Architecture/CURSOR_DELEGATION.md`.
-

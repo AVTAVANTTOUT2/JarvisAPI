@@ -31,6 +31,24 @@ def _client():
     return TestClient(main.app)
 
 
+def _pair_remote_device(client, device_id: str = "mac-test") -> str:
+    authenticate(client)
+    start = client.post("/api/devices/pairing/start")
+    assert start.status_code == 200
+    code = start.json()["code"]
+    client.cookies.clear()
+    response = client.post(
+        "/api/devices/register",
+        json={
+            "device_id": device_id,
+            "device_name": "Mac Test",
+            "pairing_code": code,
+        },
+    )
+    assert response.status_code == 200
+    return response.json()["token"]
+
+
 # ── Verrou de session sur /api/* ──────────────────────────────
 
 def test_protected_route_returns_428_when_not_configured(tmp_db):
@@ -276,12 +294,7 @@ def test_revoke_unknown_session_404(tmp_db):
 
 def test_device_register_then_heartbeat_requires_token(tmp_db):
     with _client() as client:
-        reg = client.post(
-            "/api/devices/register",
-            json={"device_id": "mac-test", "device_name": "Mac Test"},
-        )
-        assert reg.status_code == 200
-        token = reg.json()["token"]
+        token = _pair_remote_device(client)
 
         no_token = client.post("/api/devices/mac-test/heartbeat")
         assert no_token.status_code == 401
@@ -311,9 +324,7 @@ def test_activate_device_requires_session_not_device_token(tmp_db):
 
     auth.setup_secret(TEST_AUTH_SECRET)
     with _client() as client:
-        client.post(
-            "/api/devices/register", json={"device_id": "mac-test", "device_name": "Mac"}
-        )
+        token = _pair_remote_device(client)
         no_auth = client.post("/api/devices/mac-test/activate")
         assert no_auth.status_code == 401
 

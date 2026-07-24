@@ -234,6 +234,8 @@ from .relationships import (
 )
 from .stats import get_cost_summary, get_daily_activity_stats
 from .screen_daemon import (
+    consume_device_pairing_code,
+    create_device_pairing_code,
     end_work_session,
     get_active_device,
     get_all_devices,
@@ -244,7 +246,10 @@ from .screen_daemon import (
     get_screen_activity,
     get_work_sessions,
     mark_device_offline,
-    register_device,
+    register_local_device,
+    register_remote_device,
+    revoke_device,
+    rotate_device_token,
     save_screen_activity,
     set_active_device,
     start_work_session,

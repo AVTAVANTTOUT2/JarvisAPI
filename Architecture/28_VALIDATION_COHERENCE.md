@@ -16,8 +16,8 @@ Le dossier `Architecture/` reflète l'état du code après l'implémentation de 
 
 | Affirmation dans Architecture/ | Réalité code | Statut |
 |---|---|---|
-| 174 opérations HTTP + 1 WebSocket, 157 chemins OpenAPI | Inventaire FastAPI et snapshot déterministe avant/après Phase 4 | ✅ Contrat inchangé |
-| 71 persistantes / 76 avec FTS5 après `init_db()` | Vérifié 16/07/2026 (`tools/audit_architecture_truth.py`, Vague 2B `location_point_dedup`) ; hors `sqlite_*` | ✅ Remplace 70/75 ; dump `schema.sql` = 44 (non exécuté) |
+| 207 opérations HTTP + 1 WebSocket, 189 chemins OpenAPI | Inventaire FastAPI et snapshot déterministe, pairage device inclus | ✅ Contrat actualisé |
+| 75 persistantes / 80 avec FTS5 après `init_db()` | Vérifié 24/07/2026 (`tools/audit_architecture_truth.py`, pairage desktop sécurisé inclus) ; hors `sqlite_*` | ✅ Source actuelle ; dump `schema.sql` = 46 (non exécuté) |
 | 7 agents LLM + orchestrateur | 12 fichiers dans agents/ | ✅ Exact (dont 5 utilitaires) |
 | 29 jobs APScheduler | 102 références dans scheduler.py | ✅ Exact |
 | 5 démons | screen, audio, email, imessage, supervisor | ✅ Exact |
@@ -68,7 +68,7 @@ Tous les diagrammes sont cohérents avec leur contexte (actuel vs cible).
 
 | Document | Avant | Après |
 |---|---|---|
-| INDEX.md, 01_CARTOGRAPHIE.md, ADR-017, README | Anciens comptages `44/45/46/72/73` | **71 persistantes / 76 avec FTS** — source : `32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md` |
+| INDEX.md, 01_CARTOGRAPHIE.md, ADR-017, README | Anciens comptages `44/45/46/70/71/72/73` | **75 persistantes / 80 avec FTS** — source : `32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md` |
 | Plusieurs documents | Comptages historiques (`174`, puis `486/53`, `536/59`, `540/61`) | **565 tests pytest, 66 fichiers, 564 passants et 1 ignoré après NotificationService** |
 | Plusieurs documents | « Event bus : 0 abonné » puis « usage minimal » | **Bus actif : 10 événements de domaine, 3 consommateurs réels** |
 | INDEX.md | Comptages historiques variables | **35 fichiers Markdown + 3 sous-répertoires** |

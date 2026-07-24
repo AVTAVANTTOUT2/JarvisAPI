@@ -50,9 +50,11 @@ async def test_database_mutations_emit_log_and_push_all_phase3_events(
     assert "event_log" in table_names
     assert "location_point_dedup" in table_names
     assert "mobile_chat_dedup" in table_names
-    # 73 persistantes + 5 FTS = 78 physiques (Vague 2B + chat + cursor_delegation_jobs)
-    assert len(table_names) == 78
+    # 75 persistantes + 5 FTS = 80 physiques (pairage desktop sécurisé inclus).
+    assert len(table_names) == 80
     assert "cursor_delegation_jobs" in table_names
+    assert "device_pairing_codes" in table_names
+    assert "device_pairing_attempts" in table_names
 
     queue = event_bus.subscribe()
     socket = _FakeWebSocket()

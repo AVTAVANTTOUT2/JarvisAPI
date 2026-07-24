@@ -21,7 +21,7 @@ from agents.journal import journal_agent
 from agents.memory import memory_agent
 from agents.productivity import productivity_agent
 from agents.school import school_agent
-from database import get_active_device, init_db, register_device, set_active_device
+from database import get_active_device, init_db, register_local_device, set_active_device
 from integrations import imessage_bridge
 from integrations.apple_data import apple_data
 from jarvis.event_bus import event_bus
@@ -239,7 +239,7 @@ async def lifespan(app: FastAPI):
     daemon_task = None
     try:
         local_device_id = config.DEVICE_ID or "mac_mini"
-        register_device(
+        register_local_device(
             device_id=local_device_id,
             device_name=config.DEVICE_NAME or f"Mac Mini ({local_device_id})",
             device_type="desktop",
@@ -248,7 +248,7 @@ async def lifespan(app: FastAPI):
             set_active_device(local_device_id)
         logger.info("[startup] machine locale enregistrée : %s", local_device_id)
     except Exception as e:
-        logger.warning("[startup] register_device locale : %s", e)
+        logger.warning("[startup] register_local_device : %s", e)
 
     # Daemon JARVIS — sentinelle permanente (screen watcher, notif proactives, wake word)
     if getattr(config, "DAEMON_ENABLED", True):

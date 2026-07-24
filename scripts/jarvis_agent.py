@@ -14,7 +14,10 @@ sur le Mac Mini. Cet agent ne fait QUE :
 
 Usage :
   pip install -r requirements-agent.txt
-  python jarvis_agent.py --server http://100.123.50.38:8081 --token MON_TOKEN
+  python jarvis_agent.py --server http://100.123.50.38:8081 --pairing-code 123456
+
+Le jeton reçu au premier pairage est stocké en permissions 0600. Les
+démarrages suivants ne nécessitent plus de secret sur la ligne de commande.
 """
 
 from __future__ import annotations
@@ -23,6 +26,7 @@ import argparse
 import base64
 import hashlib
 import io
+import os
 import subprocess
 import tempfile
 import threading
@@ -34,9 +38,16 @@ from PIL import Image
 
 
 class JarvisAgent:
-    def __init__(self, server_url: str, auth_token: str, device_id: str | None = None) -> None:
+    def __init__(
+        self,
+        server_url: str,
+        auth_token: str | None = None,
+        device_id: str | None = None,
+        *,
+        pairing_code: str | None = None,
+        token_file: Path | None = None,
+    ) -> None:
         self.server = server_url.rstrip("/")
-        self.token = auth_token
         try:
             default_id = (
                 subprocess.check_output(["scutil", "--get", "LocalHostName"])
@@ -55,7 +66,15 @@ class JarvisAgent:
         except Exception:
             self.device_name = self.device_id
 
-        self.headers = {"Authorization": f"Bearer {self.token}"}
+        token_filename = hashlib.sha256(self.device_id.encode("utf-8")).hexdigest()[:16] + ".token"
+        self.token_file = token_file or (
+            Path.home() / "Library" / "Application Support" / "JARVIS" / "device_tokens" / token_filename
+        )
+        self.pairing_code = (pairing_code or "").strip() or None
+        self._token_from_cli = bool((auth_token or "").strip())
+        self.token = (auth_token or "").strip() or self._load_token()
+        self.headers: dict[str, str] = {}
+        self._refresh_headers()
         self.last_hash: str | None = None
         self.last_image: Image.Image | None = None
         self.running = False
@@ -66,8 +85,18 @@ class JarvisAgent:
     # ── Cycle de vie ──────────────────────────────────────────────────────────
 
     def start(self) -> None:
+        if not self.token:
+            if not self.pairing_code:
+                raise RuntimeError(
+                    "Aucun jeton enregistré. Générez un code dans JARVIS puis relancez avec --pairing-code."
+                )
+            self._register(self.pairing_code)
+        else:
+            self._verify_credentials()
+            if self._token_from_cli:
+                self._save_token(self.token)
+
         self.running = True
-        self._register()
 
         threads = [
             threading.Thread(target=self._heartbeat_loop, daemon=True),
@@ -87,21 +116,78 @@ class JarvisAgent:
 
     # ── Enregistrement ────────────────────────────────────────────────────────
 
-    def _register(self) -> None:
+    def _load_token(self) -> str:
         try:
-            r = requests.post(
+            token = self.token_file.read_text(encoding="utf-8").strip()
+            if token:
+                os.chmod(self.token_file, 0o600)
+            return token
+        except FileNotFoundError:
+            return ""
+        except OSError as exc:
+            raise RuntimeError(f"Lecture du jeton impossible : {exc}") from exc
+
+    def _save_token(self, token: str) -> None:
+        try:
+            self.token_file.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
+            os.chmod(self.token_file.parent, 0o700)
+            fd = os.open(
+                self.token_file,
+                os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
+                0o600,
+            )
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(token)
+                handle.write("\n")
+            os.chmod(self.token_file, 0o600)
+        except OSError as exc:
+            raise RuntimeError(f"Persistance du jeton impossible : {exc}") from exc
+
+    def _refresh_headers(self) -> None:
+        self.headers = {"X-Device-Token": self.token} if self.token else {}
+
+    def _register(self, pairing_code: str) -> None:
+        try:
+            response = requests.post(
                 f"{self.server}/api/devices/register",
                 json={
                     "device_id": self.device_id,
                     "device_name": self.device_name,
                     "device_type": "laptop",
+                    "pairing_code": pairing_code,
                 },
-                headers=self.headers,
                 timeout=10,
             )
-            print(f"[agent] enregistré : {r.json()}")
-        except Exception as e:
-            print(f"[agent] erreur enregistrement : {e}")
+            response.raise_for_status()
+            token = str(response.json().get("token") or "").strip()
+            if not token:
+                raise RuntimeError("Le serveur n'a pas émis de jeton")
+            self.token = token
+            self._refresh_headers()
+            self._save_token(token)
+            self.pairing_code = None
+            print("[agent] pairage terminé et jeton enregistré localement")
+        except requests.RequestException as exc:
+            detail = ""
+            if exc.response is not None:
+                try:
+                    detail = f" — {exc.response.json().get('detail', '')}"
+                except (TypeError, ValueError):
+                    detail = ""
+            raise RuntimeError(f"Pairage refusé{detail}") from exc
+
+    def _verify_credentials(self) -> None:
+        try:
+            response = requests.post(
+                f"{self.server}/api/devices/{self.device_id}/heartbeat",
+                headers=self.headers,
+                timeout=5,
+            )
+            response.raise_for_status()
+        except requests.RequestException as exc:
+            raise RuntimeError(
+                "Jeton device invalide ou révoqué. Effectuez une rotation depuis JARVIS."
+            ) from exc
 
     # ── Heartbeat ─────────────────────────────────────────────────────────────
 
@@ -257,15 +343,32 @@ def main() -> None:
         required=True,
         help="URL du serveur JARVIS (ex: http://100.123.50.38:8081)",
     )
-    parser.add_argument("--token", required=True, help="Token d'authentification")
+    credentials = parser.add_mutually_exclusive_group()
+    credentials.add_argument("--token", help="Jeton existant ou nouvellement tourné")
+    credentials.add_argument(
+        "--pairing-code",
+        help="Code à six chiffres généré depuis une session JARVIS privée",
+    )
     parser.add_argument(
         "--device-id",
         default=None,
         help="ID de la machine (défaut : LocalHostName)",
     )
+    parser.add_argument(
+        "--token-file",
+        type=Path,
+        default=None,
+        help="Chemin de stockage 0600 du jeton (défaut : Application Support/JARVIS)",
+    )
     args = parser.parse_args()
 
-    agent = JarvisAgent(args.server, args.token, args.device_id)
+    agent = JarvisAgent(
+        args.server,
+        args.token,
+        args.device_id,
+        pairing_code=args.pairing_code,
+        token_file=args.token_file,
+    )
     agent.start()
 
 
