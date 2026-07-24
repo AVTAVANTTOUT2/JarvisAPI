@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from urllib.parse import urlsplit
 
-from fastapi import Request
+from fastapi import Request, Response
 from fastapi.responses import JSONResponse
 
 import auth
@@ -162,14 +162,8 @@ def _bypasses_session_gate(method: str, path: str) -> bool:
 _SECURITY_HEADERS = SECURITY_HEADERS
 
 
-async def security_middleware(request: Request, call_next):
-    """En-têtes de sécurité sur toutes les réponses + verrou de session sur `/api/*`.
-
-    Les routes listées par `_bypasses_session_gate` s'authentifient par un
-    autre mécanisme (jeton device, jeton localisation) et ne sont pas
-    concernées par le cookie de session — les autres routes `/api/*` exigent
-    une session valide (fail-closed tant qu'aucun secret n'est configuré).
-    """
+async def _dispatch_with_session_gate(request: Request, call_next) -> Response:
+    """Applique le verrou de session puis délègue à la route demandée."""
     path = request.url.path
     method = request.method
 
@@ -204,9 +198,29 @@ async def security_middleware(request: Request, call_next):
             if not auth.verify_csrf_token(token, csrf_token) or not _csrf_origin_allowed(request):
                 return JSONResponse({"error": "csrf_check_failed"}, status_code=403)
 
-    response = await call_next(request)
+    return await call_next(request)
+
+
+def _apply_security_headers(response: Response) -> Response:
+    """Ajoute la politique HTTP commune, y compris aux erreurs anticipées."""
     for key, value in _SECURITY_HEADERS.items():
         response.headers[key] = value
     if config.WEB_HTTPS:
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
+
+
+async def security_middleware(request: Request, call_next):
+    """En-têtes de sécurité sur toutes les réponses + verrou de session sur `/api/*`.
+
+    Les routes listées par `_bypasses_session_gate` s'authentifient par un
+    autre mécanisme (jeton device, jeton localisation) et ne sont pas
+    concernées par le cookie de session — les autres routes `/api/*` exigent
+    une session valide (fail-closed tant qu'aucun secret n'est configuré).
+
+    Le bloc d'en-têtes reste volontairement extérieur au verrou : ses réponses
+    anticipées 401, 403 et 428 reçoivent ainsi exactement la même politique que
+    les réponses produites par les routeurs.
+    """
+    response = await _dispatch_with_session_gate(request, call_next)
+    return _apply_security_headers(response)

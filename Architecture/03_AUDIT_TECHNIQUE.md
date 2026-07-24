@@ -24,7 +24,7 @@ L'état initial (7 197 lignes, 40+ responsabilités et 42 imports concentrés)
 | Middleware | État | Détail |
 |---|---|---|
 | CORS | ✅ OK | Origins configurées, méthodes * |
-| Security | ✅ OK | CSP, X-Frame-Options, Referrer-Policy |
+| Security | ✅ OK | CSP, X-Frame-Options, Referrer-Policy et HSTS conditionnel, y compris sur 401/403/428 anticipés |
 | Session | ✅ OK | Fail-closed, 428 si non configuré |
 | Origin/Referer | ✅ OK | Vérification sur POST/PUT/PATCH/DELETE |
 
