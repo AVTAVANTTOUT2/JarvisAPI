@@ -1520,8 +1520,9 @@ tous les endpoints `/api/*` (hors `/api/auth/*`) répondent `428`.
 4. **Commandes shell LLM exécutées avant confirmation** — chaque action terminal devient désormais un plan opaque à usage unique, affiché intégralement avec analyse d'impact, limité par une allowlist et exécuté sans shell dans un workspace isolé uniquement après confirmation.
 5. **Aucun en-tête de sécurité** sur les réponses FastAPI (CSP, X-Frame-Options absents) — ajoutés globalement.
 6. **Carte MapLibre bloquée par la CSP et chunk Next invalide** — l'origine exacte OpenFreeMap et le worker `blob:` sont autorisés sur leurs seules directives, `import.meta` est remplacé au build Next, et Playwright vérifie `/map` sous la CSP de production.
-7. **Aucune restauration de sauvegarde possible** — `restore_backup()` + `POST /api/backups/{name}/restore` ajoutés (protection contre le path traversal, snapshot de sécurité automatique).
-8. **Sauvegardes en clair sur disque** — chiffrement Fernet optionnel (`BACKUP_ENCRYPTION_ENABLED`).
+7. **Les conversations longues perdaient leurs messages récents** — `get_conversation_history()` sélectionne maintenant la fenêtre la plus récente en ordre descendant, avec l'identifiant comme départage déterministe, puis la restitue en ordre chronologique.
+8. **Aucune restauration de sauvegarde possible** — `restore_backup()` + `POST /api/backups/{name}/restore` ajoutés (protection contre le path traversal, snapshot de sécurité automatique).
+9. **Sauvegardes en clair sur disque** — chiffrement Fernet optionnel (`BACKUP_ENCRYPTION_ENABLED`).
 
 ### Endpoints
 
