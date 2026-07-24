@@ -8,6 +8,9 @@ import sqlite3
 from datetime import datetime
 from typing import Any, Optional
 
+import config
+from jarvis.log_privacy import redact_action_log_payload, sanitize_log_label
+
 from .core import get_db
 
 logger = logging.getLogger(__name__)
@@ -270,13 +273,19 @@ def log_iteration(
     content: str,
     success: bool,
 ) -> int:
+    safe_phase = sanitize_log_label(phase)
+    safe_content = redact_action_log_payload(content, f"devagent_{safe_phase}")
     with get_db() as conn:
+        conn.execute(
+            "DELETE FROM dev_loop_log WHERE created_at < datetime('now', ?)",
+            (f"-{config.RETENTION_LLM_LOGS_DAYS} days",),
+        )
         cur = conn.execute(
             """
             INSERT INTO dev_loop_log (project_id, iteration, phase, content, success)
             VALUES (?, ?, ?, ?, ?)
             """,
-            (project_id, iteration, phase, content, 1 if success else 0),
+            (project_id, iteration, safe_phase, safe_content, 1 if success else 0),
         )
         return int(cur.lastrowid)
 
@@ -288,6 +297,10 @@ def get_dev_loop_logs(
     """Retourne les logs de boucle DevAgent au format compatible /api/logs."""
     lim = max(1, min(int(limit), 1000))
     with get_db() as conn:
+        conn.execute(
+            "DELETE FROM dev_loop_log WHERE created_at < datetime('now', ?)",
+            (f"-{config.RETENTION_LLM_LOGS_DAYS} days",),
+        )
         if project_id is not None:
             rows = conn.execute(
                 """

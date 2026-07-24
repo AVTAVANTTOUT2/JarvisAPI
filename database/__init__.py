@@ -103,6 +103,7 @@ from .school import (
 )
 
 from .notifications import (
+    clear_llm_logs,
     create_notification,
     get_llm_logs,
     get_recent_notifications,

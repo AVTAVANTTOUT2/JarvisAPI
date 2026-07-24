@@ -17,6 +17,7 @@ from api.daemon_support import _audio_daemon_status_payload
 from api.misc_status import _code_executor_status_payload, _computer_status_payload
 from api.people_support import _decode_person_path, _resolve_handle_with_contacts
 from database import (
+    clear_llm_logs,
     get_llm_logs,
     get_person,
 )
@@ -264,13 +265,23 @@ async def api_push_unsubscribe(body: dict):
 
 
 async def api_logs(type: str | None = None, limit: int = 100):
-    """Logs systeme des actions LLM (recent -> ancien). Inclut DevAgent si pas de filtre."""
+    """Logs d'actions rédigés (récent -> ancien). Inclut DevAgent sans filtre."""
     try:
         logs = get_llm_logs(limit=limit, action_type=type)
         return {"logs": logs, "count": len(logs)}
     except Exception as e:
         logger.error("Erreur get_llm_logs : %s", e)
         return {"logs": [], "count": 0}
+
+
+async def api_logs_clear():
+    """Efface explicitement tous les journaux affichés dans l'écran Logs."""
+    deleted = clear_llm_logs()
+    return {
+        "ok": True,
+        "deleted": deleted,
+        "deleted_count": sum(deleted.values()),
+    }
 
 
 # ── DevAgent autonome (interview -> spec -> boucle dev isolee) ─────────────

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { RefreshCw, TerminalSquare } from 'lucide-react'
+import { RefreshCw, ShieldCheck, TerminalSquare, Trash2 } from 'lucide-react'
 import { api, type LlmActionLog } from '@unified/lib/api'
 
 function statusCls(status: string) {
@@ -29,6 +29,7 @@ function isToday(v?: string | null): boolean {
 export function LogsView() {
   const [logs, setLogs] = useState<LlmActionLog[]>([])
   const [loading, setLoading] = useState(true)
+  const [clearing, setClearing] = useState(false)
   const [typeFilter, setTypeFilter] = useState('')
   const [limit, setLimit] = useState(200)
 
@@ -46,6 +47,17 @@ export function LogsView() {
     void load()
   }, [load])
 
+  const clearLogs = useCallback(async () => {
+    if (!window.confirm('Effacer définitivement tous les journaux d’actions ?')) return
+    setClearing(true)
+    try {
+      await api.clearLogs()
+      setLogs([])
+    } finally {
+      setClearing(false)
+    }
+  }, [])
+
   const actionTypes = useMemo(() => {
     const s = new Set<string>()
     for (const l of logs) if (l.action_type) s.add(l.action_type)
@@ -60,7 +72,7 @@ export function LogsView() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl tracking-wide">SYSTEM LOGS</h1>
-          <p className="text-sm text-muted-foreground font-mono">Trace exhaustive des actions LLM</p>
+          <p className="text-sm text-muted-foreground font-mono">Métadonnées de diagnostic protégées</p>
         </div>
         <div className="flex items-center gap-2">
           <div className="glass-panel rounded-xl px-3 py-2 border border-white/10">
@@ -71,6 +83,17 @@ export function LogsView() {
             <p className="text-xs text-muted-foreground font-mono">ERREURS</p>
             <p className="text-lg font-mono text-red-400">{errorCount}</p>
           </div>
+        </div>
+      </div>
+
+      <div className="glass-panel rounded-2xl border border-emerald-400/20 bg-emerald-400/5 p-3 flex items-start gap-3">
+        <ShieldCheck size={18} className="mt-0.5 shrink-0 text-emerald-400" />
+        <div>
+          <p className="text-sm font-mono text-emerald-300">CONFIDENTIALITÉ ACTIVE</p>
+          <p className="text-xs text-muted-foreground">
+            Contenus, presse-papiers, commandes, jetons, PII et chemins locaux sont masqués avant stockage.
+            Conservation automatique&nbsp;: 7 jours par défaut, 30 jours maximum.
+          </p>
         </div>
       </div>
 
@@ -97,8 +120,17 @@ export function LogsView() {
           <option value={500}>500</option>
         </select>
         <button
-          className="ml-auto inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-white/15 hover:bg-white/5 text-sm font-mono"
+          className="ml-auto inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-red-400/30 text-red-300 hover:bg-red-400/10 text-sm font-mono disabled:opacity-50"
+          onClick={() => void clearLogs()}
+          disabled={clearing}
+        >
+          <Trash2 size={14} />
+          {clearing ? 'Effacement…' : 'Tout effacer'}
+        </button>
+        <button
+          className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-white/15 hover:bg-white/5 text-sm font-mono"
           onClick={() => void load()}
+          disabled={loading}
         >
           <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
           Rafraîchir
@@ -152,4 +184,3 @@ export function LogsView() {
     </div>
   )
 }
-

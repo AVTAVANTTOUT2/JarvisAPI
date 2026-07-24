@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-import json
 import logging
+import sqlite3
 from typing import Any
+
+import config
+from jarvis.log_privacy import redact_action_log_payload, sanitize_log_label
 
 from .core import get_db
 from .push import delete_push_subscription, get_all_push_subscriptions
@@ -190,19 +193,46 @@ def log_llm_action(
     status: str,
     execution_time_ms: int | None = None,
 ) -> int:
-    """Persiste un log d'action LLM."""
+    """Persiste un log d'action LLM après rédaction centralisée."""
     if status not in ("success", "error", "pending"):
         status = "pending"
-    payload_text = payload if isinstance(payload, str) else json.dumps(payload, ensure_ascii=False)
+    safe_agent = sanitize_log_label(agent)
+    safe_action_type = sanitize_log_label(action_type)
+    payload_text = redact_action_log_payload(payload, safe_action_type)
     with get_db() as conn:
+        conn.execute(
+            "DELETE FROM llm_action_logs WHERE created_at < datetime('now', ?)",
+            (f"-{config.RETENTION_LLM_LOGS_DAYS} days",),
+        )
         cur = conn.execute(
             """
             INSERT INTO llm_action_logs (agent, action_type, payload, status, execution_time_ms)
             VALUES (?, ?, ?, ?, ?)
             """,
-            (agent, action_type, payload_text, status, execution_time_ms),
+            (
+                safe_agent,
+                safe_action_type,
+                payload_text,
+                status,
+                execution_time_ms,
+            ),
         )
-        return cur.lastrowid
+        return int(cur.lastrowid)
+
+
+def clear_llm_logs() -> dict[str, int]:
+    """Efface les journaux visibles dans l'écran Logs."""
+    deleted = {"llm_action_logs": 0, "dev_loop_log": 0}
+    with get_db() as conn:
+        cur = conn.execute("DELETE FROM llm_action_logs")
+        deleted["llm_action_logs"] = max(0, int(cur.rowcount))
+        try:
+            cur = conn.execute("DELETE FROM dev_loop_log")
+            deleted["dev_loop_log"] = max(0, int(cur.rowcount))
+        except sqlite3.OperationalError:
+            # La table DevAgent est optionnelle dans les anciennes bases.
+            logger.debug("Table dev_loop_log absente pendant l'effacement", exc_info=True)
+    return deleted
 
 
 def get_llm_logs(limit: int = 100, action_type: str | None = None) -> list[dict]:
@@ -227,6 +257,10 @@ def get_llm_logs(limit: int = 100, action_type: str | None = None) -> list[dict]
         return logs[:lim]
 
     with get_db() as conn:
+        conn.execute(
+            "DELETE FROM llm_action_logs WHERE created_at < datetime('now', ?)",
+            (f"-{config.RETENTION_LLM_LOGS_DAYS} days",),
+        )
         if action_type:
             rows = conn.execute(
                 """

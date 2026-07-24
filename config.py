@@ -304,11 +304,16 @@ BACKUP_ENABLED = _get("BACKUP_ENABLED", "true").lower() == "true"
 BACKUP_DIR = _get("BACKUP_DIR", "./data/backups")
 BACKUP_KEEP = int(_get("BACKUP_KEEP", "7"))            # nb de sauvegardes conservées
 
-# Rétention des tables volumineuses (jours). 0 = conserver indéfiniment.
+# Rétention des tables volumineuses (jours). 0 = conserver indéfiniment, sauf
+# pour les journaux d'actions : leur fenêtre est volontairement bornée.
 RETENTION_SCREEN_DAYS = int(_get("RETENTION_SCREEN_DAYS", "30"))
 RETENTION_LOCATION_DAYS = int(_get("RETENTION_LOCATION_DAYS", "90"))
 RETENTION_NOTIF_READ_DAYS = int(_get("RETENTION_NOTIF_READ_DAYS", "60"))
-RETENTION_LLM_LOGS_DAYS = int(_get("RETENTION_LLM_LOGS_DAYS", "90"))
+RETENTION_LLM_LOGS_DAYS = max(1, min(int(_get("RETENTION_LLM_LOGS_DAYS", "7")), 30))
+ACTION_LOG_MAX_PAYLOAD_CHARS = max(
+    256,
+    min(int(_get("ACTION_LOG_MAX_PAYLOAD_CHARS", "2048")), 16_384),
+)
 
 # Budget LLM mensuel en dollars. 0 = pas d'alerte.
 LLM_BUDGET_MONTHLY = float(_get("LLM_BUDGET_MONTHLY", "20"))

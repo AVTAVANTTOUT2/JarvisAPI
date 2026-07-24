@@ -661,6 +661,28 @@ def _migrate_devagent(conn: sqlite3.Connection) -> None:
     migrate_devagent_tables(conn)
 
 
+def _migrate_private_action_logs(conn: sqlite3.Connection) -> None:
+    """Supprime une fois les anciens logs non rédigés.
+
+    Les lignes historiques ont été écrites avant l'existence de la frontière
+    de confidentialité ; elles ne peuvent pas être nettoyées de façon fiable
+    a posteriori. Une purge unique est plus sûre qu'une pseudo-rédaction.
+    """
+    migration_key = "action_log_privacy_v1"
+    applied = conn.execute(
+        "SELECT 1 FROM app_settings WHERE key = ?",
+        (migration_key,),
+    ).fetchone()
+    if applied:
+        return
+    conn.execute("DELETE FROM llm_action_logs")
+    conn.execute("DELETE FROM dev_loop_log")
+    conn.execute(
+        "INSERT INTO app_settings (key, value) VALUES (?, 'applied')",
+        (migration_key,),
+    )
+
+
 def _create_voice_debug_table(conn: sqlite3.Connection) -> None:
     """Crée la table voice_debug_log si elle n'existe pas (idempotent)."""
     conn.execute("""
@@ -753,6 +775,7 @@ def run_migrations(conn: sqlite3.Connection) -> None:
     _migrate_email_summaries(conn)
     _migrate_message_insights(conn)
     _migrate_devagent(conn)
+    _migrate_private_action_logs(conn)
     _create_voice_debug_table(conn)
     _migrate_messages_fts(conn)
     _migrate_daily_rituals(conn)

@@ -55,6 +55,7 @@ from api.misc_integrations import (
     api_push_subscribe,
     api_push_unsubscribe,
     api_logs,
+    api_logs_clear,
     api_notifications_all,
     api_notifications_mark_read,
     api_notifications_mark_all_read,
@@ -309,6 +310,11 @@ router.add_api_route(
     "/api/logs",
     api_logs,
     methods=["GET"],
+)
+router.add_api_route(
+    "/api/logs",
+    api_logs_clear,
+    methods=["DELETE"],
 )
 router.add_api_route(
     "/api/notifications/all",
