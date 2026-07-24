@@ -11,7 +11,8 @@ import auth
 import config
 
 
-_DEVICE_TOKEN_ROUTE_RE = re.compile(r"^/api/devices/[^/]+/(heartbeat|screen)$")
+_DEVICE_TOKEN_POST_ROUTE_RE = re.compile(r"^/api/devices/[^/]+/(heartbeat|screen)$")
+_DEVICE_TOKEN_GET_ROUTE_RE = re.compile(r"^/api/devices/[^/]+/tts$")
 _CONVERSATION_DETAIL_RE = re.compile(r"^/api/conversations/\d+$")
 _CONVERSATION_ACTION_RE = re.compile(r"^/api/conversations/\d+/(archive|pin)$")
 
@@ -107,7 +108,9 @@ def _bypasses_session_gate(method: str, path: str) -> bool:
         "/api/mobile/chat/confirm",
     }:
         return True
-    if method == "POST" and _DEVICE_TOKEN_ROUTE_RE.match(path):
+    if method == "POST" and _DEVICE_TOKEN_POST_ROUTE_RE.match(path):
+        return True
+    if method == "GET" and _DEVICE_TOKEN_GET_ROUTE_RE.match(path):
         return True
     return False
 

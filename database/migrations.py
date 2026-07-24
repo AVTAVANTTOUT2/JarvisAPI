@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import sqlite3
 
@@ -86,6 +87,61 @@ def _migrate_mobile_devices(conn: sqlite3.Connection) -> None:
             expires_at DATETIME NOT NULL,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             used_at DATETIME
+        )
+    """)
+
+
+def _migrate_remote_devices(conn: sqlite3.Connection) -> None:
+    """Jetons hashés et pairage éphémère des ordinateurs distants."""
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(devices)").fetchall()}
+    if "token_hash" not in columns:
+        conn.execute("ALTER TABLE devices ADD COLUMN token_hash TEXT")
+    if "revoked" not in columns:
+        conn.execute("ALTER TABLE devices ADD COLUMN revoked INTEGER DEFAULT 0")
+    if "paired_at" not in columns:
+        conn.execute("ALTER TABLE devices ADD COLUMN paired_at DATETIME")
+    if "token_rotated_at" not in columns:
+        conn.execute("ALTER TABLE devices ADD COLUMN token_rotated_at DATETIME")
+
+    # Migration compatible avec les agents déjà installés : le jeton brut que
+    # possède l'agent reste valable, mais sa copie en base est remplacée par
+    # son empreinte SHA-256 puis effacée.
+    if "auth_token" in columns:
+        rows = conn.execute(
+            """SELECT id, auth_token FROM devices
+               WHERE auth_token IS NOT NULL AND auth_token != ''
+                 AND token_hash IS NULL"""
+        ).fetchall()
+        for row in rows:
+            token_hash = hashlib.sha256(str(row[1]).encode("utf-8")).hexdigest()
+            conn.execute(
+                """UPDATE devices
+                   SET token_hash = ?, auth_token = NULL,
+                       paired_at = COALESCE(paired_at, created_at)
+                   WHERE id = ?""",
+                (token_hash, row[0]),
+            )
+        conn.execute("UPDATE devices SET auth_token = NULL WHERE auth_token IS NOT NULL")
+
+    conn.execute(
+        """CREATE UNIQUE INDEX IF NOT EXISTS idx_devices_token_hash
+           ON devices(token_hash) WHERE token_hash IS NOT NULL"""
+    )
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS device_pairing_codes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            code_hash TEXT UNIQUE NOT NULL,
+            expires_at DATETIME NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            used_at DATETIME
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS device_pairing_attempts (
+            client_key TEXT PRIMARY KEY,
+            failed_attempts INTEGER NOT NULL DEFAULT 0,
+            window_started_at DATETIME NOT NULL,
+            blocked_until DATETIME
         )
     """)
 
@@ -699,6 +755,7 @@ def run_migrations(conn: sqlite3.Connection) -> None:
     _migrate_day_scores(conn)
     _migrate_sessions(conn)
     _migrate_mobile_devices(conn)
+    _migrate_remote_devices(conn)
     _migrate_push_subscriptions(conn)
     _migrate_imessage_import(conn)
     _migrate_conversation_turns(conn)

@@ -1221,7 +1221,7 @@ TTS Edge / TTSKit / Kokoro / macOS → lecture locale ou file `/api/devices/{id}
 
 - **Mac Mini = serveur** : tourne JARVIS + daemon + Ollama (`qwen2.5-vl:7b` + `qwen2.5:7b`).
 - **MacBook Pro / autre Mac = client léger** : `scripts/jarvis_agent.py` (script autonome, dépendances minimales `requests` + `Pillow`). Capture l'écran, envoie au serveur via Tailscale, joue le TTS reçu via `/api/devices/{id}/tts`.
-- Connexion via Tailscale (`http://100.x.x.x:WEB_PORT`) avec `auth_token` généré au premier `register_device`.
+- Connexion via Tailscale/HTTPS avec code de pairage à usage unique. Le jeton brut est rendu une seule fois à l'agent, persisté en `0600`, et seul son hash SHA-256 est conservé côté serveur.
 
 ### Modules
 
@@ -1237,13 +1237,15 @@ TTS Edge / TTSKit / Kokoro / macOS → lecture locale ou file `/api/devices/{id}
 |---|---|
 | `screen_activity` | `device, app, activity, mood, notable, screenshot_hash, change_pct, created_at` |
 | `app_usage` | `device, app, date, duration_seconds, session_count` (UNIQUE sur `device, app, date`) |
-| `devices` | `device_id, device_name, device_type, is_active, is_online, last_heartbeat, ip_tailscale, auth_token` |
+| `devices` | `device_id, device_name, device_type, is_active, is_online, last_heartbeat, ip_tailscale, token_hash, revoked, paired_at, token_rotated_at` |
+| `device_pairing_codes` | `code_hash, expires_at, used_at` (codes à usage unique) |
+| `device_pairing_attempts` | `client_key, failed_attempts, window_started_at, blocked_until` |
 | `work_sessions` | `device, app, started_at, ended_at, duration_min, description` |
 
 Helpers DB (dans `database/screen_daemon.py`, réexportés par `database`) :
 - Écran : `save_screen_activity`, `get_screen_activity(hours, device)`, `get_current_screen_context(device)` (≤ 5 min)
 - Apps : `upsert_app_usage(device, app, seconds)` (incrémente sur clé unique), `get_app_usage(date, device)`, `get_app_usage_range(days, device)`
-- Devices : `register_device` (génère `auth_token`), `update_device_heartbeat`, `set_active_device`, `get_active_device`, `get_all_devices`, `mark_device_offline`
+- Devices : `register_local_device`, `register_remote_device` (hash uniquement), `rotate_device_token`, `revoke_device`, `update_device_heartbeat`, `set_active_device`, `get_active_device`, `get_all_devices`, `mark_device_offline`
 - Sessions : `start_work_session`, `end_work_session`, `get_work_sessions(days)`
 
 ### Triage local (Ollama qwen2.5:7b)
@@ -1271,10 +1273,13 @@ Désactivé par défaut (`WAKE_WORD_ENABLED=false`). Activation : compte Picovoi
 
 | Route | Méthode | Description |
 |---|---|---|
-| `/api/devices/register` | POST | `{device_id, device_name, device_type, ip_tailscale?}` → `{token}` |
+| `/api/devices/pairing/start` | POST | Session admin → code à six chiffres valable 10 minutes |
+| `/api/devices/register` | POST | `{pairing_code, device_id, device_name, device_type, ip_tailscale?}` → jeton rendu une seule fois |
 | `/api/devices/{id}/heartbeat` | POST | Maintien en ligne (toutes les 30 s côté agent) |
 | `/api/devices/{id}/screen` | POST | Reçoit screenshot base64 → analyse Ollama → save_screen_activity → notif TTS éventuelle |
 | `/api/devices/{id}/tts` | GET | Polling : retourne un MP3 base64 à jouer sur le device distant |
+| `/api/devices/{id}/token/rotate` | POST | Session admin → invalide l'ancien jeton et rend le nouveau une fois |
+| `/api/devices/{id}/revoke` | POST | Session admin → révoque le jeton et vide la file TTS |
 | `/api/devices/{id}/activate` | POST | Marque cette machine comme `is_active=1` (les autres à 0) |
 | `/api/devices` | GET | `{devices, active}` |
 | `/api/screen-activity` | GET | `?hours=24&device=...` |
@@ -1344,11 +1349,12 @@ DAEMON_TTS_COOLDOWN=30           # secondes anti-spam vocal en mode veille
 python3 -m venv venv-agent && source venv-agent/bin/activate
 pip install -r requirements-agent.txt   # juste requests + Pillow
 
-# Récupérer le token via curl ou via /api/devices/register
-python scripts/jarvis_agent.py --server http://100.123.50.38:8081 --token abc123...
+# Générer un code via POST /api/devices/pairing/start depuis une session web privée
+python scripts/jarvis_agent.py --server https://100.123.50.38:8081 --pairing-code 123456
 ```
 
-L'agent enregistre automatiquement la machine, envoie un heartbeat toutes les 30 s, capture l'écran toutes les 12 s, et joue les TTS reçus via `afplay`.
+L'agent persiste le jeton en `0600`, envoie un heartbeat toutes les 30 s,
+capture l'écran toutes les 12 s, et joue les TTS reçus via `afplay`.
 
 ## TV Browser MCP Bridge — Contrôle navigateur TV via CDP
 
@@ -1487,14 +1493,14 @@ tous les endpoints `/api/*` (hors `/api/auth/*`) répondent `428`.
 | Fichier | Rôle |
 |---|---|
 | `auth.py` | PIN/passphrase (hash `scrypt`, jamais en clair), sessions DB-backed (jeton opaque, seul le hash SHA-256 est stocké), anti-brute-force (verrou global après `AUTH_LOCKOUT_MAX_ATTEMPTS` échecs) |
-| `api/middleware.py` (`security_middleware`) | En-têtes de sécurité (CSP, X-Frame-Options, Referrer-Policy, Permissions-Policy, HSTS si HTTPS) sur toute réponse ; verrou de session sur `/api/*` (allowlist : `/api/auth/*`, ingestion device/localisation qui s'authentifient autrement) ; vérification Origin/Referer sur les requêtes qui modifient l'état (défense en profondeur — SameSite=Strict protège déjà l'essentiel) |
+| `api/middleware.py` (`security_middleware`) | En-têtes de sécurité (CSP, X-Frame-Options, Referrer-Policy, Permissions-Policy, HSTS si HTTPS) sur toute réponse ; verrou de session sur `/api/*` (routes auth publiques exactes, ingestion device/localisation qui s'authentifient autrement) ; vérification Origin/Referer sur les requêtes qui modifient l'état (défense en profondeur — SameSite=Strict protège déjà l'essentiel) |
 | `jarvis_auth/src/LockGate.tsx` | Écran partagé de configuration/déverrouillage + verrouillage automatique client après `AUTO_LOCK_MINUTES` d'inactivité |
 | `scripts/db_maintenance.py` | Chiffrement optionnel des sauvegardes (Fernet/AES, clé dérivée de `BACKUP_ENCRYPTION_PASSPHRASE`) + `restore_backup()` (déchiffre si besoin, snapshot de sécurité de la base courante avant d'écraser) |
 
 ### Failles corrigées
 
 1. **Aucune authentification** → verrou PIN/passphrase + sessions, fail-closed tant que non configuré.
-2. **Jetons device jamais vérifiés** — `register_device` générait un `auth_token` mais `heartbeat`/`screen` ne le vérifiaient jamais (n'importe qui pouvait usurper un device_id). Corrigé : `X-Device-Token` obligatoire, comparaison `hmac.compare_digest`.
+2. **Jetons device récupérables et stockés en clair** — remplacés par un pairage à usage unique limité par IP, stockage SHA-256, `X-Device-Token` uniforme pour heartbeat/screen/TTS, rotation et révocation admin.
 3. **`/api/location*` (Shortcuts iOS) et lecture de l'historique GPS** ouverts sans contrôle — jeton partagé optionnel (`LOCATION_API_TOKEN`) pour l'ingestion ; les endpoints de lecture/écriture consultés depuis le navigateur passent désormais par le verrou de session standard.
 4. **Aucun en-tête de sécurité** sur les réponses FastAPI (CSP, X-Frame-Options absents) — ajoutés globalement.
 5. **Aucune restauration de sauvegarde possible** — `restore_backup()` + `POST /api/backups/{name}/restore` ajoutés (protection contre le path traversal, snapshot de sécurité automatique).
@@ -1523,17 +1529,20 @@ SESSION_INACTIVITY_DAYS=14
 AUTH_LOCKOUT_MAX_ATTEMPTS=5
 AUTH_LOCKOUT_MINUTES=15
 AUTO_LOCK_MINUTES=5
+DEVICE_PAIRING_TTL_MINUTES=10
+DEVICE_PAIRING_MAX_ATTEMPTS=5
+DEVICE_PAIRING_ATTEMPT_WINDOW_MINUTES=10
+DEVICE_PAIRING_LOCKOUT_MINUTES=15
 WEB_HTTPS=false                  # true → cookie Secure + HSTS
 LOCATION_API_TOKEN=              # vide = /api/location reste ouvert (Shortcuts)
 BACKUP_ENCRYPTION_ENABLED=false
 BACKUP_ENCRYPTION_PASSPHRASE=
 ```
 
-### Limites assumées (documentées, pas corrigées dans ce lot)
+### Limites assumées
 
-- `POST /api/devices/register` reste sans authentification (un nouveau
-  device s'auto-enregistre) — protégé uniquement par le périmètre réseau
-  privé (Tailscale/LAN), comme `/api/location` sans jeton configuré.
+- Les codes de pairage desktop utilisent six chiffres et restent donc soumis
+  à une fenêtre courte, un usage unique et un verrou par IP.
 - Le verrou anti-brute-force est **global** (mono-utilisateur), pas par IP —
   cohérent avec un usage personnel, mais un attaquant sur le réseau peut
   bloquer temporairement l'accès légitime en multipliant les échecs.

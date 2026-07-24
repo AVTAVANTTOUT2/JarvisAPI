@@ -385,10 +385,26 @@ CREATE TABLE devices (
     last_heartbeat DATETIME,
     last_screen_at DATETIME,
     ip_tailscale TEXT,
-    auth_token TEXT,
+    token_hash TEXT,
+    revoked INTEGER DEFAULT 0,
+    paired_at DATETIME,
+    token_rotated_at DATETIME,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 CREATE UNIQUE INDEX idx_devices_id ON devices(device_id);
+CREATE TABLE device_pairing_codes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    code_hash TEXT UNIQUE NOT NULL,
+    expires_at DATETIME NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    used_at DATETIME
+);
+CREATE TABLE device_pairing_attempts (
+    client_key TEXT PRIMARY KEY,
+    failed_attempts INTEGER NOT NULL DEFAULT 0,
+    window_started_at DATETIME NOT NULL,
+    blocked_until DATETIME
+);
 CREATE TABLE work_sessions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     device TEXT,

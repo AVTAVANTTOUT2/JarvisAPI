@@ -227,7 +227,7 @@ SCREEN_WATCHER_AUTOSTART = _get(
     "true" if SCREEN_WATCHER_ENABLED else "false",
 ).lower() == "true"
 
-# Identité de la machine — sert pour register_device + screen_watcher
+# Identité de la machine — sert pour register_local_device + screen_watcher
 DEVICE_ID = _get("DEVICE_ID", socket.gethostname())
 DEVICE_NAME = _get("DEVICE_NAME", "Mac Mini")
 
@@ -468,6 +468,14 @@ SESSION_INACTIVITY_DAYS = int(_get("SESSION_INACTIVITY_DAYS", "14"))  # ré-émi
 AUTH_LOCKOUT_MAX_ATTEMPTS = int(_get("AUTH_LOCKOUT_MAX_ATTEMPTS", "5"))
 AUTH_LOCKOUT_MINUTES = int(_get("AUTH_LOCKOUT_MINUTES", "15"))
 AUTO_LOCK_MINUTES = int(_get("AUTO_LOCK_MINUTES", "5"))  # verrouillage écran côté client après inactivité
+
+# ── Pairage des agents desktop distants ──────────────────────
+DEVICE_PAIRING_TTL_MINUTES = int(_get("DEVICE_PAIRING_TTL_MINUTES", "10"))
+DEVICE_PAIRING_MAX_ATTEMPTS = int(_get("DEVICE_PAIRING_MAX_ATTEMPTS", "5"))
+DEVICE_PAIRING_ATTEMPT_WINDOW_MINUTES = int(
+    _get("DEVICE_PAIRING_ATTEMPT_WINDOW_MINUTES", "10")
+)
+DEVICE_PAIRING_LOCKOUT_MINUTES = int(_get("DEVICE_PAIRING_LOCKOUT_MINUTES", "15"))
 
 # ── Jetons pour intégrations non-navigateur ──────────────────
 # Vide = endpoint non protégé (rétro-compatible mais déconseillé — un avertissement

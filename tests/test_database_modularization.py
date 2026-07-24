@@ -51,7 +51,8 @@ def test_phase2_reexports_keep_historical_api():
     assert database.upsert_relationship_profile is relationships.upsert_relationship_profile
     assert database.get_cost_summary is stats.get_cost_summary
     assert database.save_screen_activity is screen_daemon.save_screen_activity
-    assert database.register_device is screen_daemon.register_device
+    assert database.register_local_device is screen_daemon.register_local_device
+    assert database.register_remote_device is screen_daemon.register_remote_device
     assert database.save_message is conversations.save_message
     assert database.save_episode is episodes.save_episode
     assert database.get_person is people.get_person
@@ -158,8 +159,7 @@ def test_screen_daemon_domain_preserves_crud_behavior(tmp_path, monkeypatch):
     monkeypatch.setattr(database, "DB_PATH", tmp_path / "screen.db")
     database.init_db()
 
-    token = database.register_device("mac-mini", "Mac mini")
-    assert token
+    database.register_local_device("mac-mini", "Mac mini")
     database.set_active_device("mac-mini")
     assert database.get_active_device()["device_id"] == "mac-mini"
 
