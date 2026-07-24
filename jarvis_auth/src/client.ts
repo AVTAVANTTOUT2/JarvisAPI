@@ -3,6 +3,8 @@ export interface AuthStatus {
   authenticated: boolean
   locked_out: boolean
   lockout_seconds: number
+  lockout_scope: 'client' | 'global' | null
+  local_recovery_available: boolean
   auto_lock_minutes: number
 }
 
@@ -77,6 +79,14 @@ export class AuthClient {
   unlock(secret: string): Promise<{ ok: boolean }> {
     return this.request('/api/auth/unlock', {
       method: 'POST',
+      body: JSON.stringify({ secret }),
+    })
+  }
+
+  localUnlock(secret: string): Promise<{ ok: boolean; recovered: boolean }> {
+    return this.request('/api/auth/local-unlock', {
+      method: 'POST',
+      headers: { 'X-Jarvis-Local-Recovery': '1' },
       body: JSON.stringify({ secret }),
     })
   }

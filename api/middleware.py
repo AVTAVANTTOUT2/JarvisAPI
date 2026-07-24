@@ -26,6 +26,7 @@ _PUBLIC_AUTH_ROUTES = frozenset(
         ("GET", "/api/auth/status"),
         ("POST", "/api/auth/setup"),
         ("POST", "/api/auth/unlock"),
+        ("POST", "/api/auth/local-unlock"),
         ("POST", "/api/auth/verify"),
         ("POST", "/api/auth/logout"),
     }

@@ -19,6 +19,7 @@ export interface LockGateState {
   refresh: () => Promise<void>
   setup: (secret: string) => Promise<void>
   unlock: (secret: string) => Promise<void>
+  localUnlock: (secret: string) => Promise<void>
   logout: () => Promise<void>
 }
 
@@ -123,6 +124,13 @@ export function useLockGate(options: UseLockGateOptions = {}): LockGateState {
     await refresh()
   }, [client, refresh, softLocked, status?.authenticated])
 
+  const localUnlock = useCallback(async (secret: string) => {
+    await client.localUnlock(secret)
+    setSoftLocked(false)
+    lastActivityAt.current = Date.now()
+    await refresh()
+  }, [client, refresh])
+
   const logout = useCallback(async () => {
     await client.logout()
     setSoftLocked(false)
@@ -138,6 +146,7 @@ export function useLockGate(options: UseLockGateOptions = {}): LockGateState {
     refresh,
     setup,
     unlock,
+    localUnlock,
     logout,
   }
 }

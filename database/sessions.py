@@ -84,3 +84,31 @@ def purge_expired_sessions() -> int:
             "DELETE FROM sessions WHERE revoked = 1 OR datetime(expires_at) <= datetime('now')"
         )
     return cursor.rowcount
+
+
+def get_auth_rate_limit(client_key: str) -> dict | None:
+    with get_db() as conn:
+        row = conn.execute(
+            """
+            SELECT client_key, failed_attempts, window_started_at,
+                   blocked_until, updated_at
+            FROM auth_rate_limits
+            WHERE client_key = ?
+            """,
+            (client_key,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def clear_auth_rate_limit(client_key: str) -> None:
+    with get_db() as conn:
+        conn.execute(
+            "DELETE FROM auth_rate_limits WHERE client_key = ?",
+            (client_key,),
+        )
+
+
+def clear_all_auth_rate_limits() -> int:
+    with get_db() as conn:
+        cursor = conn.execute("DELETE FROM auth_rate_limits")
+    return max(0, int(cursor.rowcount))

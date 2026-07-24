@@ -493,6 +493,13 @@ SESSION_MAX_AGE_DAYS = int(_get("SESSION_MAX_AGE_DAYS", "30"))       # expiratio
 SESSION_INACTIVITY_DAYS = int(_get("SESSION_INACTIVITY_DAYS", "14"))  # ré-émise à chaque requête active
 AUTH_LOCKOUT_MAX_ATTEMPTS = int(_get("AUTH_LOCKOUT_MAX_ATTEMPTS", "5"))
 AUTH_LOCKOUT_MINUTES = int(_get("AUTH_LOCKOUT_MINUTES", "15"))
+AUTH_RATE_WINDOW_MINUTES = int(_get("AUTH_RATE_WINDOW_MINUTES", "15"))
+AUTH_PROGRESSIVE_DELAY_SECONDS = int(_get("AUTH_PROGRESSIVE_DELAY_SECONDS", "1"))
+AUTH_PROGRESSIVE_DELAY_MAX_SECONDS = int(
+    _get("AUTH_PROGRESSIVE_DELAY_MAX_SECONDS", "30")
+)
+AUTH_GLOBAL_MAX_ATTEMPTS = int(_get("AUTH_GLOBAL_MAX_ATTEMPTS", "50"))
+AUTH_GLOBAL_LOCKOUT_MINUTES = int(_get("AUTH_GLOBAL_LOCKOUT_MINUTES", "5"))
 AUTO_LOCK_MINUTES = int(_get("AUTO_LOCK_MINUTES", "5"))  # verrouillage écran côté client après inactivité
 
 # ── Pairage des agents desktop distants ──────────────────────

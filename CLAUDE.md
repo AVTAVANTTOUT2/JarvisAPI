@@ -30,7 +30,7 @@ Le bus applicatif est actif et conserve la compatibilité de construction histor
 
 - Les mutations de `database/tasks.py`, `notifications.py`, `conversations.py`, `episodes.py`, `facts.py`, `patterns.py` et `people.py` émettent **après commit**.
 - `database/event_log.py` journalise tous les événements dans la table SQLite `event_log`
- (ajoutée au schéma runtime ; le total post-`init_db` est **75 persistantes**, **80** avec FTS —
+ (ajoutée au schéma runtime ; le total post-`init_db` est **76 persistantes**, **81** avec FTS —
  voir `Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md` ; ne pas confondre avec le dump
  historique `database/schema.sql` ≈ 46 tables).
 - `websocket_registry.py` diffuse les événements de domaine aux sockets actives et `scripts/audio_daemon.py` traite les notifications `urgent/high`.
@@ -1512,7 +1512,7 @@ tous les endpoints `/api/*` (hors `/api/auth/*`) répondent `428`.
 
 | Fichier | Rôle |
 |---|---|
-| `auth.py` | PIN/passphrase (hash `scrypt`, jamais en clair), sessions DB-backed (jeton opaque, seul le hash SHA-256 est stocké), anti-brute-force (verrou global après `AUTH_LOCKOUT_MAX_ATTEMPTS` échecs) |
+| `auth.py` | PIN 6 chiffres/passphrase 10 caractères (hash `scrypt`, jamais en clair), sessions DB-backed (jeton opaque, seul le hash SHA-256 est stocké), délai progressif et verrou par client haché, plafond global secondaire |
 | `security_headers.py` | Source unique des en-têtes statiques et de la CSP partagée par FastAPI et le serveur E2E ; OpenFreeMap limité à son origine exacte et worker MapLibre limité à `blob:` |
 | `api/middleware.py` (`security_middleware`) | Application des en-têtes de sécurité, verrou de session sur `/api/*` (routes auth publiques exactes, ingestion device/localisation qui s'authentifient autrement) ; vérification Origin/Referer sur les requêtes qui modifient l'état (défense en profondeur — SameSite=Strict protège déjà l'essentiel) |
 | `jarvis_auth/src/LockGate.tsx` | Écran partagé de configuration/déverrouillage + verrouillage automatique client après `AUTO_LOCK_MINUTES` d'inactivité |
@@ -1536,9 +1536,10 @@ tous les endpoints `/api/*` (hors `/api/auth/*`) répondent `428`.
 
 | Route | Méthode | Description |
 |---|---|---|
-| `/api/auth/status` | GET | `{configured, authenticated, locked_out, lockout_seconds, auto_lock_minutes}` |
+| `/api/auth/status` | GET | `{configured, authenticated, locked_out, lockout_seconds, lockout_scope, local_recovery_available, auto_lock_minutes}` |
 | `/api/auth/setup` | POST | `{secret}` — une seule fois, ouvre une session |
 | `/api/auth/unlock` | POST | `{secret}` — ouvre une session (soumis au verrou anti-brute-force) |
+| `/api/auth/local-unlock` | POST | Récupération avec secret depuis la boucle locale uniquement, avec en-tête `X-Jarvis-Local-Recovery: 1` |
 | `/api/auth/verify` | POST | `{secret}` — ré-authentification écran verrouillé (ne touche pas à la session) |
 | `/api/auth/logout` | POST | Révoque la session courante |
 | `/api/auth/change-secret` | POST | `{current, new}` — révoque toutes les autres sessions |
@@ -1554,6 +1555,11 @@ SESSION_MAX_AGE_DAYS=30
 SESSION_INACTIVITY_DAYS=14
 AUTH_LOCKOUT_MAX_ATTEMPTS=5
 AUTH_LOCKOUT_MINUTES=15
+AUTH_RATE_WINDOW_MINUTES=15
+AUTH_PROGRESSIVE_DELAY_SECONDS=1
+AUTH_PROGRESSIVE_DELAY_MAX_SECONDS=30
+AUTH_GLOBAL_MAX_ATTEMPTS=50
+AUTH_GLOBAL_LOCKOUT_MINUTES=5
 AUTO_LOCK_MINUTES=5
 DEVICE_PAIRING_TTL_MINUTES=10
 DEVICE_PAIRING_MAX_ATTEMPTS=5
