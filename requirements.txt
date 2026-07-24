@@ -19,6 +19,9 @@ apscheduler==3.10.*
 pymupdf==1.25.*
 
 # Code execution engine
+# Open Interpreter 0.4 importe encore pkg_resources (retiré de setuptools 82).
+# La borne basse reste compatible avec Torch 2.13.
+setuptools>=77.0.3,<82
 open-interpreter==0.4.*
 
 # Daemon JARVIS — screen watcher + wake word
@@ -37,7 +40,9 @@ torch>=2.0                 # backend Silero VAD via torch.hub (~2 Go, CPU only)
 torchaudio>=2.0            # compagnon torch
 
 # Dual-LLM (jarvis/ package) — anonymisation PII + backend DeepSeek
-spacy==3.7.*             # NER PII (modèle : python -m spacy download fr_core_news_sm)
+# spaCy 3.8/Thinc 8.3 accepte NumPy 2, requis par kokoro-onnx >= 0.4.
+numpy>=2.0.2,<3
+spacy==3.8.*             # NER PII (modèle : python -m spacy download fr_core_news_sm)
 
 # TV control — Google Cast fallback (reveil TV Philips deep standby)
 catt>=0.12

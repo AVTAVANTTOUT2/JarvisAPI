@@ -516,12 +516,16 @@ JarvisAPI/
 ## Tests et CI
 
 ```bash
+python -m pip install -r requirements.txt                 # dépendances de production
 python -m pytest tests/ jarvis/tests agents/devagent -q   # suite backend complète
 cd frontend && pnpm test && pnpm typecheck && pnpm build  # frontend canonique
 cd frontend && pnpm test:e2e                              # desktop + mobile
 ```
 
-CI GitHub Actions (`.github/workflows/ci.yml`) sur chaque push/PR : import des ~100 modules, pytest complet, tests/typecheck/build Vite, puis tests/typecheck/build et 5 scénarios Playwright du frontend Next.js unifié.
+CI GitHub Actions (`.github/workflows/ci.yml`) sur chaque push/PR : installation
+réelle de `requirements.txt`, `pip check` et imports des dépendances lourdes,
+import des modules applicatifs, pytest complet, tests/typecheck/build Vite,
+puis tests/typecheck/build et 5 scénarios Playwright du frontend Next.js unifié.
 
 ## Documentation
 
