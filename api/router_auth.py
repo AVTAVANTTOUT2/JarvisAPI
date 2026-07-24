@@ -90,14 +90,21 @@ def _set_session_cookie(response: Response, token: str, expires_at: datetime) ->
 
 
 @router.get("/api/auth/status")
-async def api_auth_status(request: Request):
+async def api_auth_status(request: Request, response: Response):
     """État du verrou : configuré ?, session active ?, verrouillage en cours ?"""
+    response.headers["Cache-Control"] = "no-store"
     configured = auth.is_configured()
     rate_status = auth.rate_limit_status(_auth_client_key(request))
-    session = auth.verify_session(request.cookies.get(config.SESSION_COOKIE_NAME)) if configured else None
+    session_token = request.cookies.get(config.SESSION_COOKIE_NAME)
+    session = auth.verify_session(session_token) if configured else None
     return {
         "configured": configured,
         "authenticated": session is not None,
+        "csrf_token": (
+            auth.csrf_token_for_session(session_token)
+            if session is not None and session_token
+            else None
+        ),
         "locked_out": rate_status.blocked,
         "lockout_seconds": rate_status.retry_after,
         "lockout_scope": rate_status.scope,
@@ -120,7 +127,7 @@ async def api_auth_setup(body: dict, request: Request, response: Response):
         user_agent=request.headers.get("user-agent", ""), ip=_client_ip(request)
     )
     _set_session_cookie(response, token, expires_at)
-    return {"ok": True}
+    return {"ok": True, "csrf_token": auth.csrf_token_for_session(token)}
 
 
 @router.post("/api/auth/unlock")
@@ -139,7 +146,7 @@ async def api_auth_unlock(body: dict, request: Request, response: Response):
         user_agent=request.headers.get("user-agent", ""), ip=_client_ip(request)
     )
     _set_session_cookie(response, token, expires_at)
-    return {"ok": True}
+    return {"ok": True, "csrf_token": auth.csrf_token_for_session(token)}
 
 
 @router.post("/api/auth/verify")
@@ -175,7 +182,11 @@ async def api_auth_local_unlock(body: dict, request: Request, response: Response
         user_agent=request.headers.get("user-agent", ""), ip=_client_ip(request)
     )
     _set_session_cookie(response, token, expires_at)
-    return {"ok": True, "recovered": True}
+    return {
+        "ok": True,
+        "recovered": True,
+        "csrf_token": auth.csrf_token_for_session(token),
+    }
 
 
 @router.post("/api/auth/logout")
@@ -294,7 +305,11 @@ async def api_mobile_session(request: Request, response: Response):
         mobile_device_id=str(device["device_id"]),
     )
     _set_session_cookie(response, token, expires_at)
-    return {"ok": True, "device_id": device["device_id"]}
+    return {
+        "ok": True,
+        "device_id": device["device_id"],
+        "csrf_token": auth.csrf_token_for_session(token),
+    }
 
 
 @router.post("/api/mobile/push-token")

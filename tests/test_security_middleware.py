@@ -20,6 +20,7 @@ def tmp_db(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     monkeypatch.setattr("database.DB_PATH", db_path)
     monkeypatch.setattr("config.AUTH_PROGRESSIVE_DELAY_SECONDS", 0)
     monkeypatch.setattr("config.AUTH_GLOBAL_MAX_ATTEMPTS", 50)
+    monkeypatch.setattr("config.CSRF_ALLOWED_ORIGINS", "")
     from database import init_db
 
     init_db()
@@ -82,6 +83,7 @@ def test_auth_routes_bypass_session_gate_even_unconfigured(tmp_db):
         r = client.get("/api/auth/status")
     assert r.status_code == 200
     assert r.json()["configured"] is False
+    assert r.json()["csrf_token"] is None
 
 
 def test_local_recovery_route_rejects_remote_clients(tmp_db):
@@ -135,6 +137,7 @@ def test_local_recovery_rejects_loopback_proxy_with_remote_host():
         ),
         ("GET", "/api/auth/sessions", None),
         ("POST", "/api/auth/sessions/1/revoke", None),
+        ("POST", "/api/auth/logout", None),
     ],
 )
 def test_sensitive_auth_routes_require_session(tmp_db, method, path, body):
@@ -182,8 +185,23 @@ def test_post_with_origin_containing_host_as_substring_rejected(tmp_db):
     assert r.status_code == 403
 
 
-def test_post_with_same_hostname_different_port_allowed(tmp_db):
-    """Proxy dev Vite : Host réécrit vers le port backend, Origin garde le port du dev server."""
+def test_post_with_same_hostname_different_port_rejected(tmp_db):
+    with _client() as client:
+        authenticate(client)
+        r = client.post(
+            "/api/life-context",
+            json={"context_type": "test", "description": "x"},
+            headers={"Origin": "http://testserver:5173"},
+        )
+    assert r.status_code == 403
+    assert r.json()["error"] == "csrf_check_failed"
+
+
+def test_explicit_dev_proxy_origin_allowed(tmp_db, monkeypatch):
+    monkeypatch.setattr(
+        "config.CSRF_ALLOWED_ORIGINS",
+        "https://localhost:5173, https://testserver:5173",
+    )
     with _client() as client:
         authenticate(client)
         r = client.post(
@@ -205,14 +223,67 @@ def test_post_with_matching_origin_allowed(tmp_db):
     assert r.status_code == 200
 
 
+def test_supervisor_preserved_host_matches_exact_origin(tmp_db):
+    with _client() as client:
+        authenticate(client)
+        r = client.post(
+            "/api/life-context",
+            json={"context_type": "test", "description": "x"},
+            headers={
+                "Host": "localhost:9000",
+                "Origin": "http://localhost:9000",
+            },
+        )
+    assert r.status_code == 200
+
+
 def test_post_without_origin_header_allowed(tmp_db):
-    """Clients non-navigateur (scripts, TestClient) n'envoient pas Origin — protégés par SameSite."""
+    """Un client non navigateur peut omettre Origin, mais garde le jeton CSRF."""
     with _client() as client:
         authenticate(client)
         r = client.post(
             "/api/life-context", json={"context_type": "test", "description": "x"}
         )
     assert r.status_code == 200
+
+
+def test_post_without_csrf_token_rejected_even_same_origin(tmp_db):
+    with _client() as client:
+        authenticate(client)
+        del client.headers["X-CSRF-Token"]
+        r = client.post(
+            "/api/life-context",
+            json={"context_type": "test", "description": "x"},
+            headers={"Origin": "http://testserver"},
+        )
+    assert r.status_code == 403
+    assert r.json()["error"] == "csrf_check_failed"
+
+
+def test_post_with_invalid_csrf_token_rejected(tmp_db):
+    with _client() as client:
+        authenticate(client)
+        r = client.post(
+            "/api/life-context",
+            json={"context_type": "test", "description": "x"},
+            headers={
+                "Origin": "http://testserver",
+                "X-CSRF-Token": "invalid-token",
+            },
+        )
+    assert r.status_code == 403
+
+
+def test_logout_requires_csrf_token_and_preserves_session_on_rejection(tmp_db):
+    with _client() as client:
+        authenticate(client)
+        del client.headers["X-CSRF-Token"]
+        rejected = client.post(
+            "/api/auth/logout",
+            headers={"Origin": "http://testserver"},
+        )
+        assert rejected.status_code == 403
+        assert client.get("/api/auth/status").json()["authenticated"] is True
 
 
 # ── En-têtes de sécurité ────────────────────────────────────────
@@ -247,14 +318,19 @@ def test_setup_then_unlock_then_logout_flow(tmp_db):
     with _client() as client:
         r = client.post("/api/auth/setup", json={"secret": "first-secret"})
         assert r.status_code == 200
+        client.headers["X-CSRF-Token"] = r.json()["csrf_token"]
 
         r2 = client.post("/api/auth/setup", json={"secret": "again"})
         assert r2.status_code == 409
 
         status = client.get("/api/auth/status").json()
         assert status["authenticated"] is True
+        assert status["csrf_token"] == r.json()["csrf_token"]
+        assert status["csrf_token"] != client.cookies.get("jarvis_session")
+        assert client.get("/api/auth/status").headers["Cache-Control"] == "no-store"
 
-        client.post("/api/auth/logout")
+        logout = client.post("/api/auth/logout")
+        assert logout.status_code == 200
         status2 = client.get("/api/auth/status").json()
         assert status2["authenticated"] is False
 
@@ -265,8 +341,9 @@ def test_setup_then_unlock_then_logout_flow(tmp_db):
 def test_unlock_lockout_after_repeated_failures(tmp_db, monkeypatch):
     monkeypatch.setattr("config.AUTH_LOCKOUT_MAX_ATTEMPTS", 3)
     with _client() as client:
-        client.post("/api/auth/setup", json={"secret": "correct-secret"})
-        client.post("/api/auth/logout")
+        setup = client.post("/api/auth/setup", json={"secret": "correct-secret"})
+        client.headers["X-CSRF-Token"] = setup.json()["csrf_token"]
+        assert client.post("/api/auth/logout").status_code == 200
 
         for _ in range(3):
             r = client.post("/api/auth/unlock", json={"secret": "wrong"})
@@ -281,8 +358,9 @@ def test_unlock_enforces_progressive_delay(tmp_db, monkeypatch):
     monkeypatch.setattr("config.AUTH_LOCKOUT_MAX_ATTEMPTS", 5)
     monkeypatch.setattr("config.AUTH_PROGRESSIVE_DELAY_SECONDS", 2)
     with _client() as client:
-        client.post("/api/auth/setup", json={"secret": "correct-secret"})
-        client.post("/api/auth/logout")
+        setup = client.post("/api/auth/setup", json={"secret": "correct-secret"})
+        client.headers["X-CSRF-Token"] = setup.json()["csrf_token"]
+        assert client.post("/api/auth/logout").status_code == 200
 
         first = client.post("/api/auth/unlock", json={"secret": "wrong"})
         assert first.status_code == 401

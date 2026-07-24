@@ -4,6 +4,7 @@
 export interface AuthStatus {
   configured: boolean
   authenticated: boolean
+  csrf_token: string | null
   locked_out: boolean
   lockout_seconds: number
   lockout_scope: 'client' | 'global' | null

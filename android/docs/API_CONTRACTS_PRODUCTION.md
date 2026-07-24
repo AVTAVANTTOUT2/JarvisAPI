@@ -40,7 +40,7 @@ Bypass actuels (Bearer géré dans le handler, pas le cookie) :
 
 **Décision Vague 1 :** étendre le middleware pour accepter un Bearer mobile valide **en plus** du cookie sur un ensemble whitelist de routes métier (lecture d’abord). Voir section 10.
 
-Mutations web : contrôle CSRF Origin/Referer hostname si présent (`403 csrf_check_failed`). Clients sans Origin (Bearer mobile) ne sont pas bloqués par ce check.
+Mutations web par cookie : `X-CSRF-Token` lié à la session obligatoire et contrôle exact de l’Origin/Referer (schéma+hôte+port, ou `CSRF_ALLOWED_ORIGINS`). Les mutations Bearer mobiles n’utilisent pas le cookie et ne passent donc pas par ce contrôle CSRF.
 
 ---
 
@@ -372,6 +372,7 @@ MOBILE_VOICE_STT_TIMEOUT_SEC=120
 MOBILE_VOICE_LLM_TIMEOUT_SEC=90
 MOBILE_VOICE_TTS_TIMEOUT_SEC=60
 WEB_HTTPS=true
+CSRF_ALLOWED_ORIGINS=
 ```
 
 ---

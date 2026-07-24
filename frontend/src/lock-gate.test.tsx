@@ -7,6 +7,7 @@ import { LockGate, type AuthClient, type AuthStatus } from '@jarvis/auth'
 const lockedStatus: AuthStatus = {
   configured: true,
   authenticated: false,
+  csrf_token: null,
   locked_out: false,
   lockout_seconds: 0,
   lockout_scope: null,

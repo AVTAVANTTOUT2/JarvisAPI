@@ -1,11 +1,26 @@
 export interface AuthStatus {
   configured: boolean
   authenticated: boolean
+  csrf_token: string | null
   locked_out: boolean
   lockout_seconds: number
   lockout_scope: 'client' | 'global' | null
   local_recovery_available: boolean
   auto_lock_minutes: number
+}
+
+let activeCsrfToken: string | null = null
+
+export function setCsrfToken(token: string | null | undefined): void {
+  activeCsrfToken = token || null
+}
+
+export function getCsrfToken(): string | null {
+  return activeCsrfToken
+}
+
+function isUnsafeMethod(method?: string): boolean {
+  return ['POST', 'PUT', 'PATCH', 'DELETE'].includes((method ?? 'GET').toUpperCase())
 }
 
 export interface AuthClientOptions {
@@ -45,13 +60,15 @@ export class AuthClient {
   }
 
   private async request<T>(path: string, init?: RequestInit): Promise<T> {
+    const headers = new Headers(init?.headers)
+    if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
+    if (isUnsafeMethod(init?.method) && activeCsrfToken && !headers.has('X-CSRF-Token')) {
+      headers.set('X-CSRF-Token', activeCsrfToken)
+    }
     const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
       ...init,
       credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-        ...init?.headers,
-      },
+      headers,
     })
 
     if (!response.ok) {
@@ -62,28 +79,33 @@ export class AuthClient {
       throw new AuthError(`Auth request failed (${response.status})`, response.status, body)
     }
 
-    return (await response.json()) as T
+    const data = (await response.json()) as T & { csrf_token?: string | null }
+    if (path === '/api/auth/status' || typeof data.csrf_token === 'string') {
+      setCsrfToken(data.csrf_token)
+    }
+    if (path === '/api/auth/logout') setCsrfToken(null)
+    return data
   }
 
   status(): Promise<AuthStatus> {
     return this.request<AuthStatus>('/api/auth/status')
   }
 
-  setup(secret: string): Promise<{ ok: boolean }> {
+  setup(secret: string): Promise<{ ok: boolean; csrf_token: string }> {
     return this.request('/api/auth/setup', {
       method: 'POST',
       body: JSON.stringify({ secret }),
     })
   }
 
-  unlock(secret: string): Promise<{ ok: boolean }> {
+  unlock(secret: string): Promise<{ ok: boolean; csrf_token: string }> {
     return this.request('/api/auth/unlock', {
       method: 'POST',
       body: JSON.stringify({ secret }),
     })
   }
 
-  localUnlock(secret: string): Promise<{ ok: boolean; recovered: boolean }> {
+  localUnlock(secret: string): Promise<{ ok: boolean; recovered: boolean; csrf_token: string }> {
     return this.request('/api/auth/local-unlock', {
       method: 'POST',
       headers: { 'X-Jarvis-Local-Recovery': '1' },

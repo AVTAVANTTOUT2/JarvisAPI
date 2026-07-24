@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from urllib.parse import urlsplit
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
@@ -28,9 +29,10 @@ _PUBLIC_AUTH_ROUTES = frozenset(
         ("POST", "/api/auth/unlock"),
         ("POST", "/api/auth/local-unlock"),
         ("POST", "/api/auth/verify"),
-        ("POST", "/api/auth/logout"),
     }
 )
+
+_UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
 # Lectures métier autorisées avec jeton mobile Bearer (Vague 1).
 _MOBILE_BEARER_GET_EXACT = frozenset(
@@ -76,6 +78,46 @@ def _extract_bearer_token(request: Request) -> str | None:
         return None
     token = header[7:].strip()
     return token or None
+
+
+def _canonical_origin(value: str) -> tuple[str, str, int] | None:
+    """Normalise une origine en schéma, hostname et port effectif."""
+    try:
+        parsed = urlsplit(value.strip())
+        scheme = parsed.scheme.lower()
+        hostname = (parsed.hostname or "").lower().rstrip(".")
+        if scheme not in {"http", "https"} or not hostname:
+            return None
+        port = parsed.port
+    except ValueError:
+        return None
+    if port is None:
+        port = 443 if scheme == "https" else 80
+    return scheme, hostname, port
+
+
+def _csrf_origin_allowed(request: Request) -> bool:
+    """Même origine exacte, ou exception de proxy explicitement configurée."""
+    source = request.headers.get("origin") or request.headers.get("referer")
+    # Les clients non navigateur peuvent omettre Origin/Referer, mais doivent
+    # quand même présenter le jeton synchronisé.
+    if not source:
+        return True
+    candidate = _canonical_origin(source)
+    if candidate is None:
+        return False
+
+    host = request.headers.get("host", "")
+    effective = _canonical_origin(f"{request.url.scheme}://{host}") if host else None
+    if effective is not None and candidate == effective:
+        return True
+
+    configured = {
+        origin
+        for raw in config.CSRF_ALLOWED_ORIGINS.split(",")
+        if (origin := _canonical_origin(raw))
+    }
+    return candidate in configured
 
 
 # Routes qui ne passent PAS par le verrou de session navigateur — soit parce
@@ -153,27 +195,14 @@ async def security_middleware(request: Request, call_next):
         else:
             request.state.session = session
 
-        if method in ("POST", "PUT", "PATCH", "DELETE") and session:
-            # Défense en profondeur : le cookie de session est SameSite=Strict,
-            # ce qui bloque déjà le CSRF cross-site dans tout navigateur moderne.
-            # Quand un navigateur fournit Origin/Referer (quasi systématique en
-            # fetch/XHR), on vérifie en plus que son HOSTNAME (parsé, pas une
-            # sous-chaîne — « victim:8080.evil.com » contiendrait « victim:8080 »)
-            # correspond à celui du Host demandé. Comparaison sans port : le
-            # proxy Vite en dev réécrit Host vers le port backend alors que
-            # l'Origin du navigateur garde le port du dev server. Les clients
-            # sans Origin/Referer (scripts, curl) ne sont pas bloqués — pour
-            # eux, SameSite=Strict est déjà la protection effective.
-            # Bearer mobile : CSRF cookie-only — pas de check Origin.
-            origin = request.headers.get("origin") or request.headers.get("referer")
-            host = request.headers.get("host", "")
-            if origin and host:
-                from urllib.parse import urlsplit
-
-                origin_hostname = urlsplit(origin).hostname or ""
-                host_hostname = host.rsplit(":", 1)[0] if ":" in host and not host.startswith("[") else host
-                if origin_hostname and origin_hostname != host_hostname:
-                    return JSONResponse({"error": "csrf_check_failed"}, status_code=403)
+        if method in _UNSAFE_METHODS and session:
+            # SameSite protège le cross-site ; le jeton synchronisé protège en
+            # plus contre une application malveillante sur le même hostname.
+            # L'origine, lorsqu'elle est fournie, doit correspondre exactement
+            # (schéma + hôte + port) ou figurer dans la liste dev explicite.
+            csrf_token = request.headers.get("x-csrf-token")
+            if not auth.verify_csrf_token(token, csrf_token) or not _csrf_origin_allowed(request):
+                return JSONResponse({"error": "csrf_check_failed"}, status_code=403)
 
     response = await call_next(request)
     for key, value in _SECURITY_HEADERS.items():

@@ -312,7 +312,7 @@ python main.py
 
 ### Auth
 
-Toutes les interfaces partagent `jarvis_auth/LockGate`. Tant que `/api/auth/status` n'a pas confirmé une session valide — ou si le serveur est inaccessible — aucun contenu privé n'est rendu. Le wrapper API commun transmet toujours `credentials: 'include'`.
+Toutes les interfaces partagent `jarvis_auth/LockGate`. Tant que `/api/auth/status` n'a pas confirmé une session valide — ou si le serveur est inaccessible — aucun contenu privé n'est rendu. Le wrapper API commun transmet `credentials: 'include'` et ajoute aux mutations le jeton `X-CSRF-Token` lié à la session. Les origines sont comparées exactement (schéma, hôte et port) ; les seules exceptions de proxy sont déclarées dans `CSRF_ALLOWED_ORIGINS`.
 
 ### Installation sur l'écran d'accueil (iOS/Android)
 
