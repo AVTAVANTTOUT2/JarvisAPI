@@ -6,6 +6,55 @@ on:
   pull_request:
 
 jobs:
+  production_dependencies:
+    name: Production dependencies (pip install)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Installer les bibliothèques système audio
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes portaudio19-dev libsndfile1
+
+      - name: Installer toutes les dépendances de production
+        run: python -m pip install -r requirements.txt
+
+      - name: Vérifier la cohérence et les imports de production
+        run: |
+          python -m pip check
+          python - <<'EOF'
+          import importlib
+
+          modules = [
+              "catt",
+              "cryptography",
+              "edge_tts",
+              "faster_whisper",
+              "fitz",
+              "interpreter",
+              "kokoro_onnx",
+              "pyaudio",
+              "pvporcupine",
+              "sentence_transformers",
+              "sounddevice",
+              "soundfile",
+              "spacy",
+              "torch",
+              "torchaudio",
+          ]
+          for module in modules:
+              importlib.import_module(module)
+          print(f"{len(modules)} dépendances de production importées")
+          EOF
+
   backend:
     name: Tests Python (pytest)
     runs-on: ubuntu-latest

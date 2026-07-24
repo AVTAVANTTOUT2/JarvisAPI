@@ -62,7 +62,7 @@
 | # | Blocage | Résolution |
 |---|---|---|
 | 1 | **Couverture frontend partielle** | 28 Vitest et 3 E2E couvrent auth, layout, offline et flux principaux ; toutes les vues ne disposent pas encore d'un test métier dédié. |
-| 2 | **CI automatisée — ✅ STABILISÉE le 14/07/2026** | GitHub Actions run #24 : 139 modules importés, 536 tests backend passants, 1 ignoré, frontend Vitest/typecheck/build vert. Le sous-ensemble de dépendances CI doit rester aligné sur les imports applicatifs. |
+| 2 | **CI automatisée — ✅ installation de production contrôlée** | Un job dédié exécute `pip install -r requirements.txt`, `pip check` et les imports des dépendances lourdes ; les jobs séparés valident ensuite les modules applicatifs, pytest et les frontends. |
 | 3 | **Validation appareils réels** | Le SDK partagé utilise le cookie même origine et le LockGate fail-closed ; installation, reprise après veille et ergonomie restent à vérifier sur iOS/Android physiques. |
 | 4 | **Manque de monitoring** | L'Event Bus et son journal sont actifs, mais `/health` et `/metrics` restent planifiés pour Q4. |
 
