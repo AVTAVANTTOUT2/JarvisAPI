@@ -17,13 +17,31 @@ def test_network_hosts_are_not_loopback(host: str):
     assert is_loopback_host(host) is False
 
 
-def test_local_http_bind_is_allowed_without_token():
+def test_local_http_bind_is_allowed():
     validate_network_bind(
         host="127.0.0.1",
         allow_network_bind=False,
         https_enabled=False,
-        location_token="",
     )
+
+
+def test_local_reverse_proxy_tls_mode_is_allowed():
+    validate_network_bind(
+        host="127.0.0.1",
+        allow_network_bind=False,
+        https_enabled=False,
+        https_behind_proxy=True,
+    )
+
+
+def test_direct_and_proxy_tls_modes_are_mutually_exclusive():
+    with pytest.raises(RuntimeError, match="mutuellement exclusifs"):
+        validate_network_bind(
+            host="127.0.0.1",
+            allow_network_bind=False,
+            https_enabled=True,
+            https_behind_proxy=True,
+        )
 
 
 def test_network_bind_requires_explicit_opt_in():
@@ -32,31 +50,31 @@ def test_network_bind_requires_explicit_opt_in():
             host="0.0.0.0",
             allow_network_bind=False,
             https_enabled=True,
-            location_token="location-secret",
         )
 
 
-def test_network_bind_refuses_unprotected_http():
-    with pytest.raises(RuntimeError, match="WEB_HTTPS"):
+def test_network_bind_refuses_http_unconditionally():
+    with pytest.raises(RuntimeError, match="écoute HTTP refusée"):
         validate_network_bind(
             host="0.0.0.0",
             allow_network_bind=True,
             https_enabled=False,
-            location_token="",
         )
 
 
-@pytest.mark.parametrize(
-    ("https_enabled", "location_token"),
-    [(True, ""), (False, "location-secret")],
-)
-def test_network_bind_accepts_explicit_protected_configuration(
-    https_enabled: bool,
-    location_token: str,
-):
+def test_network_bind_refuses_proxy_mode_on_network_interface():
+    with pytest.raises(RuntimeError, match="WEB_HOST loopback"):
+        validate_network_bind(
+            host="0.0.0.0",
+            allow_network_bind=True,
+            https_enabled=False,
+            https_behind_proxy=True,
+        )
+
+
+def test_network_bind_accepts_explicit_direct_https():
     validate_network_bind(
         host="0.0.0.0",
         allow_network_bind=True,
-        https_enabled=https_enabled,
-        location_token=location_token,
+        https_enabled=True,
     )

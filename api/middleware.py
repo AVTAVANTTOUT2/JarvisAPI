@@ -108,7 +108,8 @@ def _csrf_origin_allowed(request: Request) -> bool:
         return False
 
     host = request.headers.get("host", "")
-    effective = _canonical_origin(f"{request.url.scheme}://{host}") if host else None
+    public_scheme = "https" if config.WEB_HTTPS_BEHIND_PROXY else request.url.scheme
+    effective = _canonical_origin(f"{public_scheme}://{host}") if host else None
     if effective is not None and candidate == effective:
         return True
 
@@ -205,7 +206,7 @@ def _apply_security_headers(response: Response) -> Response:
     """Ajoute la politique HTTP commune, y compris aux erreurs anticipées."""
     for key, value in _SECURITY_HEADERS.items():
         response.headers[key] = value
-    if config.WEB_HTTPS:
+    if config.WEB_HTTPS or config.WEB_HTTPS_BEHIND_PROXY:
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
 

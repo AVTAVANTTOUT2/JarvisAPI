@@ -22,7 +22,12 @@ AUDIO_DAEMON_STT_MODEL=large-v3-turbo
 TTS_ENGINE=edge
 TTS_VOICE=fr-FR-HenriNeural
 WEB_HTTPS=true
+WEB_HTTPS_BEHIND_PROXY=false
 ```
+
+Pour Tailscale Serve/Caddy/nginx, conserver `WEB_HOST=127.0.0.1`,
+mettre `WEB_HTTPS=false` et `WEB_HTTPS_BEHIND_PROXY=true`. Le transport
+Android reste HTTPS ; seul le relais local proxy → Uvicorn utilise HTTP.
 
 > **Voix FR** : le modèle Kokoro installé (`v0.19`) n’a que des voix EN (`af_nicole`).
 > Pour du français natif, utiliser `TTS_ENGINE=edge` (Henri) ou `macos` (Thomas).

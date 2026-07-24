@@ -142,12 +142,15 @@ _setup_frontend(app)
 def main():
     """Lance Uvicorn.
 
-    HTTPS activé uniquement si :
+    TLS direct activé uniquement si :
       - `WEB_HTTPS=true` dans .env
-      - ET les fichiers `certs/cert.pem` + `certs/key.pem` existent.
+      - ET les chemins `WEB_SSL_CERT_PATH` + `WEB_SSL_KEY_PATH` existent.
 
     Si WEB_HTTPS=true sans certificats valides, le processus s'arrête avec
     une erreur explicite (aucun repli HTTP silencieux).
+
+    Un reverse proxy TLS utilise `WEB_HTTPS_BEHIND_PROXY=true` avec un
+    `WEB_HOST` loopback ; Uvicorn reste alors en HTTP uniquement sur ce Mac.
     """
     import sys
     from pathlib import Path as _Path
@@ -162,7 +165,7 @@ def main():
             host=config.WEB_HOST,
             allow_network_bind=config.WEB_ALLOW_NETWORK_BIND,
             https_enabled=config.WEB_HTTPS,
-            location_token=config.LOCATION_API_TOKEN,
+            https_behind_proxy=config.WEB_HTTPS_BEHIND_PROXY,
         )
     except RuntimeError as exc:
         logger.error("[uvicorn] %s", exc)
@@ -186,9 +189,14 @@ def main():
         _cert if _ssl else "(n/a)",
         _key if _ssl else "(n/a)",
     )
-    if not config.WEB_HTTPS:
+    if config.WEB_HTTPS_BEHIND_PROXY:
         logger.info(
-            "[uvicorn] WEB_HTTPS=false — mode HTTP (proxy PWA / dev local)",
+            "[uvicorn] HTTP loopback derrière reverse proxy TLS — "
+            "cookie Secure et HSTS activés",
+        )
+    elif not config.WEB_HTTPS:
+        logger.info(
+            "[uvicorn] mode HTTP local — WEB_HOST doit rester loopback",
         )
 
     _kwargs: dict = dict(

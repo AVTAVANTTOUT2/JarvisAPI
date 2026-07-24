@@ -241,7 +241,7 @@ L'état initial (7 197 lignes, 40+ responsabilités et 42 imports concentrés)
 | Sessions | ✅ Jeton opaque (token_urlsafe 32) |
 | Stockage session | ✅ Hash SHA-256 uniquement |
 | Cookie | ✅ HttpOnly, SameSite=Strict |
-| Secure (HTTPS) | ⚠️ Conditionnel (WEB_HTTPS) |
+| Secure (HTTPS) | ✅ HTTP limité au loopback ; cookie Secure en TLS direct ou reverse proxy |
 | Anti-brute-force | ✅ 5 tentatives / 15 min |
 | Expiration | ✅ 30j absolue, 14j inactivité |
 | Révocation | ✅ Logout + change-secret |
@@ -270,9 +270,9 @@ L'état initial (7 197 lignes, 40+ responsabilités et 42 imports concentrés)
 
 | Service | Port | Exposition |
 |---|---|---|
-| Supervisor | 9000 | Tailscale/LAN |
-| Backend | 8081 | Tailscale/LAN |
-| PWA mobile | 8081/m/ | Tailscale/LAN |
+| Supervisor | 9000 | Loopback par défaut ; TLS direct ou reverse proxy pour Tailscale/LAN |
+| Backend | 8081 | Loopback par défaut ; bind réseau refusé sans TLS direct |
+| PWA mobile | 8081/m/ | Même origine HTTPS que le backend ou le reverse proxy |
 | TV Dashboard | 5174 | LAN uniquement |
 | Ollama | 11434 | Localhost |
 | Daemon iMessage | 8193 | Localhost |

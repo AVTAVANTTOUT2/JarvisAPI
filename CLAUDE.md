@@ -1532,6 +1532,7 @@ tous les endpoints `/api/*` (hors `/api/auth/*`) répondent `428`.
 10. **Aucune restauration de sauvegarde possible** — `restore_backup()` + `POST /api/backups/{name}/restore` ajoutés (protection contre le path traversal, snapshot de sécurité automatique).
 11. **Sauvegardes en clair sur disque** — chiffrement Fernet optionnel (`BACKUP_ENCRYPTION_ENABLED`).
 12. **CSRF accepté depuis un autre port du même hostname** — schéma+hôte+port doivent désormais correspondre exactement, toute exception de proxy est déclarée dans `CSRF_ALLOWED_ORIGINS`, et chaque mutation par cookie exige un jeton synchronisé lié à la session.
+13. **HTTP autorisé sur le réseau avec un simple token applicatif** — HTTP est limité au loopback ; tout bind réseau exige désormais TLS direct et un opt-in explicite. Le mode reverse proxy TLS reste loopback et active quand même cookie `Secure` + HSTS.
 
 ### Endpoints
 
@@ -1566,7 +1567,10 @@ DEVICE_PAIRING_TTL_MINUTES=10
 DEVICE_PAIRING_MAX_ATTEMPTS=5
 DEVICE_PAIRING_ATTEMPT_WINDOW_MINUTES=10
 DEVICE_PAIRING_LOCKOUT_MINUTES=15
-WEB_HTTPS=false                  # true → cookie Secure + HSTS
+WEB_HTTPS=false                  # TLS direct Uvicorn ; requis pour un bind réseau
+WEB_HTTPS_BEHIND_PROXY=false     # Tailscale Serve/Caddy/nginx ; WEB_HOST doit rester loopback
+WEB_SSL_CERT_PATH=certs/cert.pem # certificat Tailscale recommandé en TLS direct
+WEB_SSL_KEY_PATH=certs/key.pem
 WEB_HOST=127.0.0.1               # boucle locale par défaut
 WEB_ALLOW_NETWORK_BIND=false     # opt-in obligatoire pour une adresse réseau
 CSRF_ALLOWED_ORIGINS=            # vide en prod ; origines exactes du proxy dev si nécessaire

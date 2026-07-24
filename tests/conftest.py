@@ -78,9 +78,10 @@ def _isolate_app_lifespan(monkeypatch: pytest.MonkeyPatch):
         monkeypatch.setattr(sync_contacts_module, "sync_people_names", _noop_sync)
     except Exception:
         pass
-    # Les cookies de session sont marqués Secure quand WEB_HTTPS=true ; le
-    # TestClient parle en http://testserver et n'envoie pas ces cookies.
+    # Les cookies de session sont marqués Secure en TLS direct ou derrière un
+    # proxy TLS ; le TestClient parle en http://testserver et ne les enverrait pas.
     monkeypatch.setattr(config, "WEB_HTTPS", False)
+    monkeypatch.setattr(config, "WEB_HTTPS_BEHIND_PROXY", False)
     monkeypatch.setattr(scheduler_module, "start_scheduler", lambda: None)
     monkeypatch.setattr(scheduler_module, "shutdown_scheduler", lambda: None)
     monkeypatch.setattr(email_watcher, "start", _noop_start)
