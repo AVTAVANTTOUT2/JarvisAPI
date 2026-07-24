@@ -21,12 +21,22 @@ class TestIsAgenticAction:
         from main import _is_agentic_action
         assert _is_agentic_action({"type": "terminal", "command": "ls -la"}) is False
 
-    def test_complex_terminal_is_agentic(self) -> None:
+    def test_unconfirmed_complex_terminal_is_not_agentic(self) -> None:
         from main import _is_agentic_action
         assert _is_agentic_action({
             "type": "terminal",
             "command": "analyse data.csv",
             "complex": True,
+        }) is False
+
+    def test_only_confirmed_server_plan_can_be_agentic(self) -> None:
+        from main import _is_agentic_action
+        assert _is_agentic_action({
+            "type": "terminal",
+            "command": "analyse data.csv",
+            "complex": True,
+            "confirmed": True,
+            "shell_plan_id": "opaque-server-plan",
         }) is True
 
 

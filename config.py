@@ -160,6 +160,15 @@ FCM_PROJECT_ID = _get("FCM_PROJECT_ID", "")
 COMPUTER_ACCESS = _get("COMPUTER_ACCESS", "true")
 COMPUTER_SHELL = _get("COMPUTER_SHELL", "/bin/zsh")
 COMPUTER_TIMEOUT = int(_get("COMPUTER_TIMEOUT", "30"))
+# Les commandes proposées par un LLM sont confinées ici et doivent toujours
+# être confirmées avant une exécution sans shell.
+LLM_SHELL_WORKSPACE = _get(
+    "LLM_SHELL_WORKSPACE",
+    str(BASE_DIR / "data" / "llm_shell_workspace"),
+)
+LLM_SHELL_MAX_COMMANDS = int(_get("LLM_SHELL_MAX_COMMANDS", "8"))
+LLM_SHELL_MAX_TIMEOUT = int(_get("LLM_SHELL_MAX_TIMEOUT", "120"))
+LLM_SHELL_PLAN_TTL_SECONDS = int(_get("LLM_SHELL_PLAN_TTL_SECONDS", "600"))
 # TV contrôle ADB + Google Cast fallback
 TV_IP = _get("TV_IP", "192.168.3.82")
 TV_ADB_PORT = _get("TV_ADB_PORT", "5555")

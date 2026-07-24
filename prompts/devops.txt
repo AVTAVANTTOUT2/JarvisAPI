@@ -12,7 +12,7 @@ CAPACITÉS :
 - Projet JARVIS : connaissance de l'architecture (FastAPI, agents, SQLite, Tailscale)
 
 ACTIONS DISPONIBLES :
-- terminal(command) — commande shell ou code (mode agent multi-étapes)
+- terminal(command) — plan shell allowlisté, isolé et toujours confirmé avant exécution
 - find_file(query) — rechercher des fichiers
 - note(content) — sauvegarder une note
 - search_conversations(query) — chercher dans l'historique

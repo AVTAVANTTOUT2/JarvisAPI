@@ -218,6 +218,21 @@ mobiles pairées peuvent utiliser leur Bearer mobile. L'ingestion est limitée
 par client avec `LOCATION_RATE_LIMIT_REQUESTS` sur
 `LOCATION_RATE_LIMIT_WINDOW_SECONDS`.
 
+### Plans terminal générés par un modèle
+
+Une action `terminal` ne lance plus directement une chaîne shell. JARVIS
+construit un plan à usage unique, affiche la liste complète et son analyse
+d'impact, puis attend une confirmation explicite. La confirmation consomme
+exactement ce plan, sans nouvel appel au modèle.
+
+Les exécutables sont limités à une allowlist de lecture/recherche et
+d'écritures non destructrices. Ils s'exécutent sans shell dans un dossier
+dédié sous `LLM_SHELL_WORKSPACE`, avec un environnement qui ne contient ni le
+HOME réel ni les secrets JARVIS. Le réseau, les processus système, les
+interpréteurs, les gestionnaires de paquets et les chemins sensibles sont
+interdits. Les tâches de code plus larges doivent passer par Cursor dans un
+worktree isolé.
+
 ### Pairer un Mac distant
 
 Depuis la console du navigateur déjà déverrouillé, génère un code à usage

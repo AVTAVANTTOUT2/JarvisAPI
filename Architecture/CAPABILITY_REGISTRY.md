@@ -39,8 +39,8 @@ class Capability:
 | `mail.read` / `mail.send` | jarvis_tool | send = oui | |
 | `tasks.create` | jarvis_tool | non | |
 | `contacts.resolve` | jarvis_tool | non | |
-| `computer.shell` | system | oui | `COMPUTER_ACCESS` |
-| `code.execute` | system | oui | `CODE_EXECUTOR_ENABLED` |
+| `computer.shell` | system | oui, toujours | Plan opaque one-shot, allowlist, `LLM_SHELL_WORKSPACE` |
+| `code.execute` | system | non via terminal | Wrapper legacy ; tâches complexes routées vers Cursor |
 | `cursor.delegate` | cursor | selon risque | CLI cache uniquement au refresh chaud |
 | `briefing.generate` | deepseek | non | BriefingEngine |
 | `voice.fast_answer` | deepseek | non | Flash |

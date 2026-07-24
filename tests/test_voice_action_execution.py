@@ -76,6 +76,36 @@ async def test_school_agent_preserves_open_app_action():
     assert "Roblox" in result["response"]
 
 
+@pytest.mark.asyncio
+async def test_voice_confirmation_consumes_pending_action_without_llm(monkeypatch):
+    import api.chat_actions as chat_actions
+    from api.voice_support import _maybe_execute_pending_voice_action
+
+    monkeypatch.setattr(chat_actions, "_pending_proposal", None)
+    chat_actions._maybe_store_pending_proposal(
+        {"type": "terminal", "shell_plan_id": "server-plan"},
+        conversation_id=7,
+    )
+    execute = AsyncMock(return_value={"ok": True, "output": "done"})
+
+    with patch("actions.execute_action", execute), patch(
+        "api.voice_support._save_voice_messages"
+    ):
+        result = await _maybe_execute_pending_voice_action(
+            "oui",
+            7,
+            started_at=0.0,
+        )
+
+    assert result is not None
+    assert result["debug_trace"]["model"] == "pending_confirmation"
+    execute.assert_awaited_once_with({
+        "type": "terminal",
+        "shell_plan_id": "server-plan",
+        "confirmed": True,
+    })
+
+
 def test_computer_patterns_route_open_app_to_productivity():
     from agents.orchestrator import COMPUTER_PATTERNS, _match_any
 

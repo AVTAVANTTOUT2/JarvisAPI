@@ -443,29 +443,40 @@ JARVIS peut exécuter des actions sur le Mac local via `integrations/computer.py
 
 **Actions** (`actions.py` → `execute_action`) : `terminal`, `open_app`, `find_file`, `clipboard`, `system_info`. Types déclenchant une **2e passe LLM** (réformulation, pas de stdout brut dans le chat) : `terminal`, `find_file`, `system_info`, `clipboard` — flag `ACTIONS_WITH_FOLLOWUP` dans `api/chat_actions.py`.
 
-**Sécurité** : patterns bloqués (ex. `rm -rf /`, `shutdown`, fork bomb, `curl | bash`, etc.) ; commandes `rm`, `mv` vers `~/`, `sudo`, `brew uninstall` → retour `needs_confirmation` tant que l’action n’a pas `confirmed: true`. Le client envoie `{ "type": "action_confirm", "action": { ... "confirmed" implicite côté serveur } }`.
+**Sécurité terminal LLM** : `_action_terminal()` n'appelle jamais
+`ComputerControl.run()`. Il construit un plan opaque via
+`integrations/shell_safety.py`, valide chaque commande par capacité allowlistée,
+affiche la liste et l'impact, puis attend `action_confirm`. Le plan est lié à
+un identifiant aléatoire, expire, se consomme une seule fois et s'exécute avec
+`create_subprocess_exec` (jamais de shell) dans un workspace dédié. Une ancienne
+valeur `confirmed:true` sans plan serveur est ignorée.
 
 **WebSocket** : message `action_confirm` exécute l’action avec confirmation et, si besoin, envoie `response_followup` + persistance de la synthèse.
 
-**Config** : `COMPUTER_ACCESS`, `COMPUTER_SHELL`, `COMPUTER_TIMEOUT` dans `.env`. **`/api/status`** et **`/api/integrations`** exposent `computer: { available, shell }`.
+**Config** : `COMPUTER_ACCESS`, `COMPUTER_SHELL`, `COMPUTER_TIMEOUT`,
+`LLM_SHELL_WORKSPACE`, `LLM_SHELL_MAX_COMMANDS`,
+`LLM_SHELL_MAX_TIMEOUT`, `LLM_SHELL_PLAN_TTL_SECONDS` dans `.env`.
+**`/api/status`** et **`/api/integrations`** exposent
+`computer: { available, shell }`.
 
-## Exécution de code avancée (Open Interpreter)
+## Exécution de code avancée (Open Interpreter, legacy)
 
-JARVIS intègre **Open Interpreter** comme moteur d'exécution avancé pour les tâches complexes. Ce moteur est **complètement invisible** pour l'utilisateur — il voit JARVIS qui sait coder, debugger, déployer. Pas de mention d'Open Interpreter dans les réponses.
+Le wrapper Open Interpreter reste présent pour compatibilité et diagnostic,
+mais l'action publique `terminal` ne lui délègue plus d'instruction : il ne
+peut pas fournir à l'avance la liste exhaustive des commandes à confirmer.
+Les tâches complexes passent par Cursor dans un worktree isolé.
 
-### Architecture dual-exécution
+### Architecture terminal actuelle
 
 ```
 Action terminal reçue
  │
- ├── complex:false (ou absent) + commande shell
- │    → subprocess basique (computer.run)
- │
- └── complex:true OU langage naturel détecté
-      → Open Interpreter (code_executor.execute)
-      → Traduit l'instruction en code/shell
-      → Exécute, debug, réessaie si erreur
-      → Retourne output + code exécuté + résumé
+ ├── commande structurée → analyse allowlist
+ └── langage naturel → traduction LLM sans exécution → analyse allowlist
+      → plan complet + analyse d'impact
+      → confirmation humaine
+      → consommation unique
+      → argv structurés dans LLM_SHELL_WORKSPACE
 ```
 
 ### Module : `integrations/code_executor.py`
@@ -475,22 +486,25 @@ Action terminal reçue
 - `execute(instruction, timeout)` : exécution async dans un thread, retourne `{ok, output, code, errors, summary}`
 - `_is_safe(instruction)` : patterns bloqués (suppression système, format disque, shutdown, fork bomb)
 - `reset()` : vide la conversation de l'interpréteur entre les exécutions
-- Auto-run activé (pas de confirmation interactive)
+- Auto-run interne du wrapper legacy ; jamais joignable par l'action terminal
 - Utilise Claude (Sonnet par défaut) via LiteLLM comme backend LLM
 
 ### Routing intelligent (`actions.py`)
 
-`_action_terminal()` choisit automatiquement le moteur :
+`_action_terminal()` choisit uniquement la source du plan :
 
-1. Si `complex:true` dans l'action → `code_executor.execute()`
-2. Si le texte est du langage naturel (détecté par `_is_natural_language()`) → `code_executor.execute()`
-3. Sinon → `computer.run()` (subprocess classique)
+1. commande structurée → analyse immédiate ;
+2. texte naturel / `complex:true` → génération de la liste sans exécution ;
+3. tout plan valide → confirmation obligatoire ;
+4. confirmation → exécution exacte, sans régénération.
 
 `_is_natural_language()` détecte les verbes d'action courants (crée, installe, configure, deploy, build, fix...).
 
 ### 2e passe LLM enrichie
 
-`_format_action_result_for_followup()` gère maintenant les résultats structurés du code executor : instruction originale, blocs de code exécutés, output, erreurs, résumé — le tout reformulé par l'orchestrateur en langage naturel pour l'utilisateur.
+`_format_action_result_for_followup()` reformule les résultats structurés du
+plan confirmé : instruction originale, commandes exécutées, output, erreurs
+et résumé.
 
 ### Config
 
@@ -504,12 +518,12 @@ CODE_EXECUTOR_MODEL=             # modèle Claude utilisé (défaut: Sonnet)
 
 | Demande utilisateur | Routing | Comportement |
 |---|---|---|
-| "ls -la ~/Documents" | subprocess | Commande simple |
-| "Crée un script Python qui convertit mes CSV en JSON" | code_executor | Écrit le code, l'exécute, montre le résultat |
-| "Mon projet Flask ne démarre plus, regarde pourquoi" | code_executor | Lit les logs, identifie l'erreur, propose un fix |
-| "Analyse le fichier data.csv et dis-moi les tendances" | code_executor | Pandas + stats + résumé |
-| "brew install redis" | subprocess | Installation simple |
-| "Installe redis et lance-le" | code_executor | Multi-étapes intelligent |
+| "ls -la ." | plan shell | Affiche puis confirme une lecture du workspace |
+| "cherche TODO dans le workspace" | génération + plan | Propose `rg TODO .`, puis confirme |
+| "crée output" | plan shell | `mkdir` limité au workspace, impact medium |
+| "git status" | plan shell | Inspection Git uniquement |
+| "brew install redis" | bloqué | Gestionnaire de paquets hors allowlist |
+| "corrige mon projet" | Cursor | Worktree isolé et workflow Cursor |
 
 **`/api/status`** et **`/api/integrations`** exposent `code_executor: { available, engine }`.
 
@@ -1502,9 +1516,10 @@ tous les endpoints `/api/*` (hors `/api/auth/*`) répondent `428`.
 1. **Aucune authentification** → verrou PIN/passphrase + sessions, fail-closed tant que non configuré.
 2. **Jetons device récupérables et stockés en clair** — remplacés par un pairage à usage unique limité par IP, stockage SHA-256, `X-Device-Token` uniforme pour heartbeat/screen/TTS, rotation et révocation admin.
 3. **`/api/location*` (Shortcuts iOS) et lecture de l'historique GPS** ouverts sans contrôle — l'ingestion unitaire exige désormais `LOCATION_API_TOKEN` (en-tête `X-Location-Token`) ou un Bearer mobile, applique une limite par client et valide uniformément les coordonnées ; les endpoints consultés depuis le navigateur passent par le verrou de session standard.
-4. **Aucun en-tête de sécurité** sur les réponses FastAPI (CSP, X-Frame-Options absents) — ajoutés globalement.
-5. **Aucune restauration de sauvegarde possible** — `restore_backup()` + `POST /api/backups/{name}/restore` ajoutés (protection contre le path traversal, snapshot de sécurité automatique).
-6. **Sauvegardes en clair sur disque** — chiffrement Fernet optionnel (`BACKUP_ENCRYPTION_ENABLED`).
+4. **Commandes shell LLM exécutées avant confirmation** — chaque action terminal devient désormais un plan opaque à usage unique, affiché intégralement avec analyse d'impact, limité par une allowlist et exécuté sans shell dans un workspace isolé uniquement après confirmation.
+5. **Aucun en-tête de sécurité** sur les réponses FastAPI (CSP, X-Frame-Options absents) — ajoutés globalement.
+6. **Aucune restauration de sauvegarde possible** — `restore_backup()` + `POST /api/backups/{name}/restore` ajoutés (protection contre le path traversal, snapshot de sécurité automatique).
+7. **Sauvegardes en clair sur disque** — chiffrement Fernet optionnel (`BACKUP_ENCRYPTION_ENABLED`).
 
 ### Endpoints
 
@@ -1539,6 +1554,10 @@ WEB_ALLOW_NETWORK_BIND=false     # opt-in obligatoire pour une adresse réseau
 LOCATION_API_TOKEN=              # vide = /api/location refuse les Shortcuts
 LOCATION_RATE_LIMIT_REQUESTS=120
 LOCATION_RATE_LIMIT_WINDOW_SECONDS=60
+LLM_SHELL_WORKSPACE=./data/llm_shell_workspace
+LLM_SHELL_MAX_COMMANDS=8
+LLM_SHELL_MAX_TIMEOUT=120
+LLM_SHELL_PLAN_TTL_SECONDS=600
 BACKUP_ENCRYPTION_ENABLED=false
 BACKUP_ENCRYPTION_PASSPHRASE=
 ```
