@@ -12,6 +12,12 @@ from fastapi.responses import FileResponse
 
 import config
 from database import save_school_document
+from jarvis.uploads import (
+    SCHOOL_EXTENSIONS,
+    UploadRejected,
+    remove_managed_upload,
+    store_upload,
+)
 
 logger = logging.getLogger("jarvis")
 
@@ -60,41 +66,36 @@ async def upload(file: UploadFile):
     Le document est référencé dans `school_documents` (titre = nom sans extension,
     content = texte extrait, doc_type, file_path).
     """
-    upload_dir = Path(config.UPLOAD_DIR)
-    upload_dir.mkdir(parents=True, exist_ok=True)
-
-    if not file.filename:
-        raise HTTPException(400, "Nom de fichier manquant")
-
-    safe_name = Path(file.filename).name  # vire les / éventuels
-    dest = upload_dir / safe_name
     try:
-        content = await file.read()
-        dest.write_bytes(content)
-    except Exception as e:
-        logger.error(f"Erreur écriture upload {safe_name} : {e}")
-        raise HTTPException(500, f"Échec écriture : {e}")
+        stored = await store_upload(
+            file,
+            namespace="school",
+            allowed_extensions=SCHOOL_EXTENSIONS,
+        )
+    except UploadRejected as exc:
+        raise HTTPException(exc.status_code, exc.detail) from exc
 
-    text, doc_type = _extract_text_from_upload(dest)
-    title = dest.stem
+    text, doc_type = _extract_text_from_upload(stored.path)
+    title = Path(stored.original_name).stem
 
     try:
         doc_id = save_school_document(
-            title=title, content=text, doc_type=doc_type, file_path=str(dest),
+            title=title, content=text, doc_type=doc_type, file_path=str(stored.path),
         )
     except Exception as e:
-        logger.error(f"Erreur DB upload {safe_name} : {e}")
-        doc_id = None
+        remove_managed_upload(stored.path)
+        logger.exception("Erreur DB upload %s", stored.original_name)
+        raise HTTPException(500, "Enregistrement du document impossible") from e
 
     logger.info(
-        f"Upload : {safe_name} ({len(content)} octets, "
+        f"Upload : {stored.original_name} ({stored.size} octets, "
         f"texte extrait : {len(text)} chars, doc_id={doc_id})"
     )
 
     return {
         "status": "ok",
-        "filename": safe_name,
-        "size": len(content),
+        "filename": stored.original_name,
+        "size": stored.size,
         "content_length": len(text),
         "doc_type": doc_type,
         "doc_id": doc_id,

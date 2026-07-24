@@ -131,6 +131,12 @@ IMESSAGE_DAEMON_PORT = int(_get("IMESSAGE_DAEMON_PORT", "8193"))
 # ── Système ─────────────────────────────────────────────────
 DB_PATH = _get("DB_PATH", "./data/jarvis.db")
 UPLOAD_DIR = _get("UPLOAD_DIR", "./data/uploads")
+# Une même politique protège tous les points d'entrée multipart.
+UPLOAD_MAX_BYTES = int(_get("UPLOAD_MAX_BYTES", str(20 * 1024 * 1024)))
+UPLOAD_QUOTA_BYTES = int(_get("UPLOAD_QUOTA_BYTES", str(1024 * 1024 * 1024)))
+# La grâce évite qu'une maintenance concurrente ne purge un fichier avant son
+# enregistrement DB ; les fragments échoués plus anciens sont aussi collectés.
+UPLOAD_ORPHAN_GRACE_SECONDS = int(_get("UPLOAD_ORPHAN_GRACE_SECONDS", "86400"))
 SCHOOL_OUTPUT_DIR = _get("SCHOOL_OUTPUT_DIR", "./data/outputs/school")
 DEV_PROJECTS_ROOT = _get("DEV_PROJECTS_ROOT", str(BASE_DIR / "dev_projects"))
 DEVAGENT_EXEC_TIMEOUT = int(_get("DEVAGENT_EXEC_TIMEOUT", "120"))
