@@ -37,3 +37,11 @@ def test_ci_smoke_imports_risky_production_dependencies():
         "torchaudio",
     ):
         assert f'"{module}"' in job
+
+
+def test_production_requirements_keep_spacy_and_kokoro_numpy_compatible():
+    requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8")
+
+    assert "kokoro-onnx>=0.4" in requirements
+    assert "numpy>=2.0.2,<3" in requirements
+    assert "spacy==3.8.*" in requirements
