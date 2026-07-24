@@ -64,6 +64,28 @@ def test_auth_routes_bypass_session_gate_even_unconfigured(tmp_db):
     assert r.json()["configured"] is False
 
 
+@pytest.mark.parametrize(
+    ("method", "path", "body"),
+    [
+        (
+            "POST",
+            "/api/auth/change-secret",
+            {"current": TEST_AUTH_SECRET, "new": "attacker-secret"},
+        ),
+        ("GET", "/api/auth/sessions", None),
+        ("POST", "/api/auth/sessions/1/revoke", None),
+    ],
+)
+def test_sensitive_auth_routes_require_session(tmp_db, method, path, body):
+    import auth
+
+    auth.setup_secret(TEST_AUTH_SECRET)
+    with _client() as client:
+        r = client.request(method, path, json=body)
+    assert r.status_code == 401
+    assert r.json()["error"] == "unauthorized"
+
+
 def test_static_and_spa_routes_are_not_gated(tmp_db):
     with _client() as client:
         r = client.get("/manifest.json")
@@ -190,6 +212,25 @@ def test_unlock_lockout_after_repeated_failures(tmp_db, monkeypatch):
             assert r.status_code == 401
 
         r = client.post("/api/auth/unlock", json={"secret": "correct-secret"})
+        assert r.status_code == 429
+
+
+def test_change_secret_uses_unlock_lockout(tmp_db, monkeypatch):
+    monkeypatch.setattr("config.AUTH_LOCKOUT_MAX_ATTEMPTS", 3)
+    with _client() as client:
+        authenticate(client)
+
+        for _ in range(3):
+            r = client.post(
+                "/api/auth/change-secret",
+                json={"current": "wrong-secret", "new": "attacker-secret"},
+            )
+            assert r.status_code == 401
+
+        r = client.post(
+            "/api/auth/change-secret",
+            json={"current": TEST_AUTH_SECRET, "new": "brand-new-secret"},
+        )
         assert r.status_code == 429
 
 

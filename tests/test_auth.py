@@ -147,6 +147,18 @@ def test_change_secret_with_wrong_current_fails(tmp_db):
     assert auth.verify_only("old-secret") is True
 
 
+def test_change_secret_wrong_current_counts_toward_lockout(tmp_db):
+    import auth
+
+    auth.setup_secret("old-secret")
+    for _ in range(3):
+        assert auth.change_secret("wrong-current", "new-secret") is False
+
+    locked, remaining = auth.is_locked_out()
+    assert locked is True
+    assert remaining > 0
+
+
 # ── Sessions ───────────────────────────────────────────────────
 
 def test_create_and_verify_session(tmp_db):
