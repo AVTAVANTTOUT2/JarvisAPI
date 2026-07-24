@@ -45,3 +45,10 @@ def test_production_requirements_keep_spacy_and_kokoro_numpy_compatible():
     assert "kokoro-onnx>=0.4" in requirements
     assert "numpy>=2.0.2,<3" in requirements
     assert "spacy==3.8.*" in requirements
+
+
+def test_production_requirements_keep_pkg_resources_for_open_interpreter():
+    requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8")
+
+    assert "open-interpreter==0.4.*" in requirements
+    assert "setuptools>=77.0.3,<82" in requirements
