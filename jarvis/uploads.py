@@ -15,6 +15,11 @@ from typing import TYPE_CHECKING
 from uuid import uuid4
 
 import config
+from core.file_security import (
+    PRIVATE_FILE_MODE,
+    ensure_private_directory,
+    ensure_private_file,
+)
 
 if TYPE_CHECKING:
     from fastapi import UploadFile
@@ -104,11 +109,29 @@ def _target_directory(namespace: str) -> Path:
     ):
         raise ValueError("namespace d'upload invalide")
     root = _managed_root()
+    ensure_private_directory(root)
     target = _lexical_absolute(root / relative)
     if not _is_within(target, root):
         raise ValueError("namespace d'upload hors racine")
-    target.mkdir(parents=True, exist_ok=True)
+    current = root
+    for part in relative.parts:
+        current = current / part
+        ensure_private_directory(current)
     return target
+
+
+def harden_upload_tree_permissions() -> None:
+    """Force 0700 sur les dossiers et 0600 sur les uploads existants."""
+    root = _managed_root()
+    ensure_private_directory(root)
+    for path in root.rglob("*"):
+        if path.is_symlink():
+            logger.warning("[uploads] lien symbolique ignoré pendant le durcissement : %s", path)
+            continue
+        if path.is_dir():
+            ensure_private_directory(path)
+        elif path.is_file():
+            ensure_private_file(path)
 
 
 def _declared_mime_allowed(extension: str, content_type: str | None) -> bool:
@@ -204,7 +227,11 @@ async def store_upload(
     max_bytes = max(1, int(config.UPLOAD_MAX_BYTES))
 
     try:
-        with temporary_path.open("xb") as destination:
+        # Le fichier temporaire est privé dès sa création ; il ne passe jamais
+        # par un mode 0644 dépendant de l'umask du processus.
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+        fd = os.open(temporary_path, flags, PRIVATE_FILE_MODE)
+        with os.fdopen(fd, "wb") as destination:
             while chunk := await upload.read(CHUNK_SIZE):
                 size += len(chunk)
                 if size > max_bytes:
@@ -223,6 +250,7 @@ async def store_upload(
             if quota_bytes > 0 and upload_disk_usage() > quota_bytes:
                 raise UploadRejected(507, "Quota disque des uploads dépassé")
             temporary_path.replace(final_path)
+            ensure_private_file(final_path)
 
         return StoredUpload(
             path=final_path,

@@ -111,7 +111,11 @@ async def lifespan(app: FastAPI):
 
     # Création des dossiers de sortie
     Path(config.SCHOOL_OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
-    Path(config.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
+    from jarvis.uploads import harden_upload_tree_permissions
+    from scripts.db_maintenance import harden_backup_permissions
+
+    harden_upload_tree_permissions()
+    harden_backup_permissions()
 
     # Calendar.app : réveil arrière-plan uniquement (-g/-j) pour éviter les -600
     # AppleScript SANS voler le focus (open -a Calendar ramenait Calendrier au 1er plan).

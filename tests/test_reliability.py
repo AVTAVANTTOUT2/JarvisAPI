@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+import stat
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -21,6 +22,12 @@ def tmp_db(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     monkeypatch.setattr("config.DB_PATH", str(db_path))
     monkeypatch.setattr("database.DB_PATH", db_path)
     monkeypatch.setattr("config.BACKUP_DIR", str(tmp_path / "backups"))
+    monkeypatch.setattr(
+        "config.BACKUP_ENCRYPTION_KEY_FILE",
+        str(tmp_path / ".backup_encryption.key"),
+    )
+    monkeypatch.setattr("config.BACKUP_ENCRYPTION_ENABLED", True)
+    monkeypatch.setattr("config.BACKUP_ENCRYPTION_PASSPHRASE", "")
     from database import init_db
 
     init_db()
@@ -30,17 +37,35 @@ def tmp_db(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
 # ── Sauvegardes ──────────────────────────────────────────────
 
 def test_backup_creates_valid_snapshot(tmp_db, tmp_path):
-    from scripts.db_maintenance import list_backups, run_backup
+    from scripts.db_maintenance import (
+        _decrypt_backup_bytes,
+        _validated_restore_source,
+        list_backups,
+        run_backup,
+    )
 
     report = run_backup()
     assert report["ok"] is True
+    assert report["encrypted"] is True
     dest = Path(report["path"])
     assert dest.exists() and report["size_bytes"] > 0
 
-    # le snapshot est une base SQLite valide contenant les tables JARVIS
-    conn = sqlite3.connect(dest)
-    tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-    conn.close()
+    # Le snapshot déchiffré est une base SQLite intègre contenant les tables JARVIS.
+    source = _validated_restore_source(
+        _decrypt_backup_bytes(dest),
+        Path(config.BACKUP_DIR),
+    )
+    try:
+        conn = sqlite3.connect(source)
+        tables = {
+            r[0]
+            for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        conn.close()
+    finally:
+        source.unlink(missing_ok=True)
     assert "messages" in tables and "conversations" in tables
 
     backups = list_backups()
@@ -78,12 +103,10 @@ def test_backup_missing_db_fails_cleanly(tmp_db, monkeypatch, tmp_path):
 
 # ── Chiffrement + restauration des sauvegardes ───────────────
 
-def test_backup_encrypted_when_enabled(tmp_db, monkeypatch):
+def test_backup_encrypted_by_default_with_private_generated_key(tmp_db):
     from scripts.db_maintenance import run_backup
 
-    monkeypatch.setattr("config.BACKUP_ENCRYPTION_ENABLED", True)
-    monkeypatch.setattr("config.BACKUP_ENCRYPTION_PASSPHRASE", "correct-passphrase")
-
+    assert config.BACKUP_ENCRYPTION_ENABLED is True
     report = run_backup()
     assert report["ok"] is True
     assert report["encrypted"] is True
@@ -91,26 +114,33 @@ def test_backup_encrypted_when_enabled(tmp_db, monkeypatch):
     assert dest.suffix == ".enc"
     # Le fichier chiffré n'est pas une base SQLite lisible en clair
     assert not dest.read_bytes().startswith(b"SQLite format 3")
+    key_path = Path(config.BACKUP_ENCRYPTION_KEY_FILE)
+    assert key_path.is_file()
+    assert stat.S_IMODE(key_path.stat().st_mode) == 0o600
+    assert stat.S_IMODE(dest.stat().st_mode) == 0o600
+    assert stat.S_IMODE(dest.parent.stat().st_mode) == 0o700
 
 
-def test_backup_not_encrypted_when_passphrase_missing(tmp_db, monkeypatch, caplog):
-    from scripts.db_maintenance import run_backup
+def test_backup_fails_closed_when_encryption_key_is_unavailable(
+    tmp_db,
+    monkeypatch,
+):
+    import scripts.db_maintenance as maintenance
 
-    monkeypatch.setattr("config.BACKUP_ENCRYPTION_ENABLED", True)
-    monkeypatch.setattr("config.BACKUP_ENCRYPTION_PASSPHRASE", "")
+    monkeypatch.setattr(
+        maintenance,
+        "_backup_secret_candidates",
+        lambda **_kwargs: [],
+    )
+    report = maintenance.run_backup()
+    assert report["ok"] is False
+    assert "Chiffrement" in report["error"]
+    assert list(Path(config.BACKUP_DIR).glob("jarvis-*.db*")) == []
 
-    report = run_backup()
-    assert report["ok"] is True
-    assert report["encrypted"] is False
-    assert Path(report["path"]).suffix == ".db"
 
-
-def test_restore_roundtrip_encrypted_backup(tmp_db, monkeypatch):
+def test_restore_roundtrip_encrypted_backup(tmp_db):
     from database import create_task, get_db
     from scripts.db_maintenance import restore_backup, run_backup
-
-    monkeypatch.setattr("config.BACKUP_ENCRYPTION_ENABLED", True)
-    monkeypatch.setattr("config.BACKUP_ENCRYPTION_PASSPHRASE", "correct-passphrase")
 
     create_task("Tâche avant sauvegarde")
     report = run_backup()
@@ -128,10 +158,11 @@ def test_restore_roundtrip_encrypted_backup(tmp_db, monkeypatch):
     assert titles == {"Tâche avant sauvegarde"}
 
 
-def test_restore_plain_unencrypted_backup(tmp_db):
+def test_restore_plain_unencrypted_backup(tmp_db, monkeypatch):
     from database import create_task, get_db
     from scripts.db_maintenance import restore_backup, run_backup
 
+    monkeypatch.setattr("config.BACKUP_ENCRYPTION_ENABLED", False)
     create_task("Avant")
     report = run_backup()
     backup_name = Path(report["path"]).name
@@ -158,6 +189,56 @@ def test_restore_wrong_passphrase_fails_cleanly(tmp_db, monkeypatch):
     assert "Déchiffrement" in result["error"]
 
 
+def test_restore_rejects_corrupt_sqlite_before_safety_snapshot(tmp_db, monkeypatch):
+    from core.file_security import write_private_bytes
+    from scripts.db_maintenance import restore_backup
+
+    monkeypatch.setattr("config.BACKUP_ENCRYPTION_ENABLED", False)
+    corrupt = Path(config.BACKUP_DIR) / "jarvis-corrupt.db"
+    write_private_bytes(corrupt, b"not-a-sqlite-database", exclusive=True)
+
+    result = restore_backup(corrupt.name)
+
+    assert result["ok"] is False
+    assert result["error"] == "Sauvegarde SQLite invalide"
+    assert list(Path(config.BACKUP_DIR).glob("jarvis-*.db*")) == [corrupt]
+
+
+def test_restore_legacy_encrypted_backup(tmp_db, monkeypatch):
+    from cryptography.fernet import Fernet
+
+    from database import create_task, get_db
+    from scripts.db_maintenance import (
+        _derive_legacy_fernet_key,
+        restore_backup,
+        run_backup,
+    )
+    from core.file_security import write_private_bytes
+
+    monkeypatch.setattr("config.BACKUP_ENCRYPTION_ENABLED", False)
+    monkeypatch.setattr(
+        "config.BACKUP_ENCRYPTION_PASSPHRASE",
+        "legacy-passphrase",
+    )
+    create_task("Avant legacy")
+    plain = run_backup()
+    plain_path = Path(plain["path"])
+    legacy_path = plain_path.with_suffix(".db.enc")
+    token = Fernet(_derive_legacy_fernet_key("legacy-passphrase")).encrypt(
+        plain_path.read_bytes()
+    )
+    write_private_bytes(legacy_path, token, exclusive=True)
+    plain_path.unlink()
+    create_task("Après legacy")
+
+    result = restore_backup(legacy_path.name)
+
+    assert result["ok"] is True
+    with get_db() as conn:
+        titles = {row["title"] for row in conn.execute("SELECT title FROM tasks")}
+    assert titles == {"Avant legacy"}
+
+
 def test_restore_rejects_path_traversal(tmp_db):
     from scripts.db_maintenance import restore_backup
 
@@ -182,6 +263,39 @@ def test_list_backups_reports_encrypted_flag(tmp_db, monkeypatch):
 
     backups = list_backups()
     assert backups[0]["encrypted"] is True
+
+
+def test_database_and_sidecars_are_private(tmp_db):
+    from database import get_db
+
+    with get_db() as conn:
+        conn.execute("INSERT INTO app_settings (key, value) VALUES ('mode', 'private')")
+
+    assert stat.S_IMODE(tmp_db.stat().st_mode) == 0o600
+    for suffix in ("-wal", "-shm", "-journal"):
+        sidecar = Path(f"{tmp_db}{suffix}")
+        if sidecar.exists():
+            assert stat.S_IMODE(sidecar.stat().st_mode) == 0o600
+
+
+def test_existing_backup_and_key_permissions_are_hardened(tmp_db):
+    from scripts.db_maintenance import harden_backup_permissions
+
+    backup_dir = Path(config.BACKUP_DIR)
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    backup = backup_dir / "jarvis-legacy.db.enc"
+    backup.write_bytes(b"legacy")
+    key = Path(config.BACKUP_ENCRYPTION_KEY_FILE)
+    key.write_text("secret", encoding="utf-8")
+    backup_dir.chmod(0o755)
+    backup.chmod(0o644)
+    key.chmod(0o644)
+
+    harden_backup_permissions()
+
+    assert stat.S_IMODE(backup_dir.stat().st_mode) == 0o700
+    assert stat.S_IMODE(backup.stat().st_mode) == 0o600
+    assert stat.S_IMODE(key.stat().st_mode) == 0o600
 
 
 # ── Rétention / maintenance ──────────────────────────────────

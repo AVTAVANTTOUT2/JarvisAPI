@@ -176,7 +176,8 @@ L'état initial (7 197 lignes, 40+ responsabilités et 42 imports concentrés)
 | busy_timeout | ✅ 5000 ms dans `database/core.py` | Validé Phase 1 |
 | Foreign keys | ✅ ON | |
 | FTS5 | ✅ | Recherche plein-texte |
-| Sauvegardes | ✅ VACUUM INTO quotidien | Rotation configurable |
+| Sauvegardes | ✅ VACUUM INTO quotidien | Fernet V2 par défaut, fail-closed, rotation configurable |
+| Permissions | ✅ Privées | DB/WAL/SHM, backups, uploads et clés 0600 ; dossiers 0700 |
 
 ### 3.2 Schéma
 
@@ -196,6 +197,8 @@ L'état initial (7 197 lignes, 40+ responsabilités et 42 imports concentrés)
 | Écritures concurrentes | ✅ WAL + `busy_timeout = 5000` |
 | Dédoublonnage | ✅ Contraintes UNIQUE multiples |
 | Cohérence référentielle | ✅ Foreign keys activées |
+| Perte d'un backup | ✅ Restauration chiffrée testée + snapshot préalable |
+| Chiffrement DB complet | ⚠️ FileVault requis ; SQLCipher étudié dans ADR-022 |
 
 ## 4. Synchronisation
 
@@ -295,11 +298,11 @@ L'état initial (7 197 lignes, 40+ responsabilités et 42 imports concentrés)
 
 | Donnée | État |
 |---|---|
-| jarvis.db au repos | ❌ Non chiffré |
-| Sauvegardes | ✅ Fernet optionnel |
+| jarvis.db au repos | ⚠️ 0600 + FileVault requis ; SQLCipher évalué dans ADR-022 |
+| Sauvegardes | ✅ Fernet V2 par défaut, clé 0600, restauration testée |
 | Secrets (.env) | ✅ .gitignore |
 | Mots de passe | ✅ Hash scrypt |
-| Données en transit | ⚠️ HTTP par défaut |
+| Données en transit | ✅ HTTP loopback uniquement ; TLS direct/proxy sur le réseau |
 
 ## 6. Performances
 

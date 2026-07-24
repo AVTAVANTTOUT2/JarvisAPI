@@ -104,7 +104,7 @@ Trois commits orphelins de `claude/workflow-project-improvements-yknzqs`, jamais
 - **Surveille** — emails (Mail.app, analyse LLM, silence sur le non-important, drapeau rouge sur l'urgent), écran (Ollama vision local, 0 token API), position GPS (lieux, visites, trajets), relations iMessage (analytics sans LLM + analyse quotidienne), présence au bureau par le son.
 - **Agit** — tâches, calendrier, envoi d'emails et d'iMessages, terminal sécurisé, exécution de code multi-étapes, mode autonome `/loop`, DevAgent (interview → spec → boucle plan/code/test/fix/commit dans un projet isolé).
 - **Rythme la journée** — briefing matin, roast des tâches non faites (18:30), debrief du soir (21:45), citation ironique (07:00), debrief hebdo vocal (dimanche 21:00), anniversaires, pause café, alerte binge streaming, retour tardif, signal d'humeur comportemental (zéro diagnostic).
-- **Se protège** — sauvegardes SQLite quotidiennes avec rotation, purge de rétention hebdomadaire, budget LLM mensuel avec alertes, heures calmes, mode « silence total sauf feu », client LLM avec retry/backoff.
+- **Se protège** — sauvegardes SQLite chiffrées par défaut avec rotation et restauration contrôlée, permissions 0600 sur DB/backups/uploads, purge de rétention hebdomadaire, budget LLM mensuel avec alertes, heures calmes, mode « silence total sauf feu », client LLM avec retry/backoff.
 
 ## Architecture
 
@@ -141,7 +141,7 @@ Trois commits orphelins de `claude/workflow-project-improvements-yknzqs`, jamais
 | Backend | Python 3.12 · FastAPI · WebSocket · APScheduler |
 | LLM | DeepSeek API (format OpenAI, httpx, retry/backoff, pool partagé) |
 | Vision locale | Ollama `qwen2.5-vl:7b` (écran) + `qwen2.5:7b` (triage) — 0 token API |
-| Base | SQLite (`data/jarvis.db`), WAL, FTS5, sauvegardes `VACUUM INTO` |
+| Base | SQLite (`data/jarvis.db`), WAL, FTS5, sauvegardes `VACUUM INTO` chiffrées par défaut |
 | STT | faster-whisper local · WhisperKit · whisper.cpp — aucun repli cloud |
 | TTS | Edge TTS (web) · TTSKit · macOS `say` · Kokoro — 7 émotions, cache spéculatif |
 | Frontend canonique | Next.js 15 · React 19 · Tailwind v4 (`frontend/`, responsive desktop/mobile) |
@@ -393,7 +393,7 @@ Garanties : idempotence (relancer N fois = meme resultat), incremental (curseur 
 
 | Quand | Quoi |
 |---|---|
-| 04:15 | Sauvegarde SQLite (`VACUUM INTO`, rotation `BACKUP_KEEP`) |
+| 04:15 | Sauvegarde SQLite chiffrée (`VACUUM INTO`, rotation `BACKUP_KEEP`) |
 | dim 04:45 | Maintenance : purge de rétention + optimize FTS/WAL |
 | 07:00 | Citation ironique du jour (widget TV) |
 | 07:30 | Briefing du matin (+ notification macOS) |
@@ -476,6 +476,13 @@ Surface complète documentée dans [CLAUDE.md](./CLAUDE.md). Les groupes :
 - L'analyse d'écran tourne sur **Ollama local** : l'API ne reçoit que des résumés texte, jamais d'images.
 - La capture de réunions est **opt-in** et ne conserve que du texte transcrit, jamais d'audio.
 - `chat.db` (iMessage) est ouvert en lecture seule ; l'envoi est désactivé par défaut (`IMESSAGE_SEND_ENABLED=false`).
+- Les sauvegardes sont chiffrées par défaut. Sans passphrase explicite, JARVIS
+  crée `data/.backup_encryption.key` en `0600` : copie cette clé séparément des
+  fichiers `.db.enc`, sinon une restauration après perte du Mac sera impossible.
+- SQLite reste lisible par le processus JARVIS : DB/WAL/SHM et uploads sont en
+  `0600`, dossiers en `0700`. **FileVault reste requis** pour le chiffrement
+  complet du volume ; l'étude SQLCipher est consignée dans
+  `Architecture/adr/ADR-022-DATA-AT-REST.md`.
 
 ## Structure
 

@@ -17,6 +17,12 @@ def tmp_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     monkeypatch.setattr("config.DB_PATH", str(db_path))
     monkeypatch.setattr("database.DB_PATH", db_path)
     monkeypatch.setattr("config.BACKUP_DIR", str(tmp_path / "backups"))
+    monkeypatch.setattr(
+        "config.BACKUP_ENCRYPTION_KEY_FILE",
+        str(tmp_path / ".backup_encryption.key"),
+    )
+    monkeypatch.setattr("config.BACKUP_ENCRYPTION_ENABLED", True)
+    monkeypatch.setattr("config.BACKUP_ENCRYPTION_PASSPHRASE", "")
 
     migrations_dir = tmp_path / "migrations"
     migrations_dir.mkdir()

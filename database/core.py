@@ -9,6 +9,8 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from core.file_security import ensure_private_directory, ensure_private_file
+
 from .migrations import run_migrations
 from .schema import SCHEMA
 from .time_buckets import local_datetime, utc_bounds_for_local_dates
@@ -23,13 +25,33 @@ def _current_db_path() -> Path:
     return Path(DB_PATH)
 
 
+def harden_sqlite_permissions(path: Path | None = None) -> None:
+    """Force 0600 sur SQLite et ses sidecars WAL/SHM lorsqu'ils existent."""
+    db_path = path or _current_db_path()
+    if str(db_path) == ":memory:":
+        return
+    ensure_private_directory(db_path.parent)
+    for candidate in (
+        db_path,
+        Path(f"{db_path}-wal"),
+        Path(f"{db_path}-shm"),
+        Path(f"{db_path}-journal"),
+    ):
+        ensure_private_file(candidate)
+
+
 def get_connection() -> sqlite3.Connection:
     """Ouvre une connexion applicative configurée pour la concurrence locale."""
-    conn = sqlite3.connect(str(_current_db_path()))
+    db_path = _current_db_path()
+    if str(db_path) != ":memory:":
+        ensure_private_directory(db_path.parent)
+    conn = sqlite3.connect(str(db_path))
+    harden_sqlite_permissions(db_path)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA busy_timeout = 5000")
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
+    harden_sqlite_permissions(db_path)
     return conn
 
 
@@ -45,6 +67,7 @@ def get_db() -> Iterator[sqlite3.Connection]:
         raise
     finally:
         conn.close()
+        harden_sqlite_permissions()
 
 
 def init_db() -> None:
@@ -52,6 +75,7 @@ def init_db() -> None:
     with get_db() as conn:
         conn.executescript(SCHEMA)
         run_migrations(conn)
+    harden_sqlite_permissions()
     logger.info("[DB] Base initialisée : %s", _current_db_path())
 
 

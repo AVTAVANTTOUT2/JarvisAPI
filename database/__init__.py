@@ -9,9 +9,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import config
+from core.file_security import ensure_private_directory
 
 DB_PATH = Path(config.DB_PATH)
-DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+if str(DB_PATH) != ":memory:":
+    ensure_private_directory(DB_PATH.parent)
 
 from .schema import SCHEMA
 from .core import (
