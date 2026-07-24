@@ -375,12 +375,15 @@ async def api_places_create(body: dict[str, Any]):
 
 @router.put("/api/places/{place_id}")
 async def api_places_update(place_id: int, body: dict[str, Any]):
-    from database.location_helpers import update_place
+    from database.location_helpers import PLACE_MUTABLE_FIELDS, update_place
 
     payload = dict(body)
     if "radius" in payload and "radius_meters" not in payload:
         payload["radius_meters"] = payload.pop("radius")
-    update_place(place_id, **payload)
+    if not any(key in PLACE_MUTABLE_FIELDS for key in payload):
+        raise HTTPException(400, "Aucun champ modifiable fourni")
+    if not update_place(place_id, **payload):
+        raise HTTPException(404, "Lieu introuvable")
     return {"ok": True}
 
 
