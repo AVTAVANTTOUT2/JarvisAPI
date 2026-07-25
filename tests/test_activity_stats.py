@@ -43,19 +43,21 @@ def _insert_message(
 def test_daily_stats_fills_missing_days(tmp_db):
     from database import get_daily_activity_stats
 
-    stats = get_daily_activity_stats(7)
+    now = datetime(2026, 7, 24, 12, tzinfo=ZoneInfo("Europe/Paris"))
+    stats = get_daily_activity_stats(7, now=now)
     assert len(stats) == 7
     assert all(d["msg_count"] == 0 for d in stats)
     # série continue, plus ancien en premier
     dates = [d["date"] for d in stats]
     assert dates == sorted(dates)
-    assert dates[-1] == datetime.now().date().isoformat()
+    assert dates[-1] == now.date().isoformat()
 
 
 def test_daily_stats_aggregates_and_splits_voice(tmp_db):
     from database import get_daily_activity_stats, get_db
 
-    today = datetime.now().date()
+    now = datetime(2026, 7, 24, 12, tzinfo=ZoneInfo("Europe/Paris"))
+    today = now.date()
     yesterday = today - timedelta(days=1)
     with get_db() as conn:
         conn.execute("INSERT INTO conversations (id, agent) VALUES (1, 'orchestrator')")
@@ -71,7 +73,7 @@ def test_daily_stats_aggregates_and_splits_voice(tmp_db):
         _insert_message(conn, 2, f"{today} 11:00:00", tokens_in=5, tokens_out=5)
         _insert_message(conn, 1, f"{yesterday} 09:00:00", role="user")
 
-    stats = get_daily_activity_stats(7)
+    stats = get_daily_activity_stats(7, now=now)
     last, prev = stats[-1], stats[-2]
     assert last["date"] == today.isoformat()
     assert last["msg_count"] == 2
@@ -138,15 +140,15 @@ def test_daily_stats_respect_paris_dst_boundaries(
     assert costs["today"]["msg_count"] == 2
 
 
-def test_stats_weekly_endpoint(tmp_db):
+def test_stats_weekly_endpoint(tmp_db, monkeypatch: pytest.MonkeyPatch):
     """L'endpoint calcule variations jour/jour et totaux."""
-    from datetime import date
-
     import main
     from database import get_db
     from fastapi.testclient import TestClient
 
-    today = date.today()
+    now = datetime(2026, 7, 24, 12, tzinfo=ZoneInfo("Europe/Paris"))
+    monkeypatch.setattr("database.stats.local_datetime", lambda value=None: now)
+    today = now.date()
     yesterday = today - timedelta(days=1)
     with get_db() as conn:
         conn.execute("INSERT INTO conversations (id, agent) VALUES (1, 'orchestrator')")

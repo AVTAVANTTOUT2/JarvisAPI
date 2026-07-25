@@ -57,6 +57,36 @@ function authStatus(authenticated: boolean) {
 function defaultApiResponse(pathname: string): object {
   if (pathname === '/api/tasks') return { tasks: [] }
   if (pathname === '/api/conversations') return { conversations: [] }
+  if (pathname === '/api/status') {
+    return {
+      today: {
+        msg_count: 0,
+        turn_count: 0,
+        total_in: 0,
+        total_out: 0,
+      },
+    }
+  }
+  if (pathname === '/api/stats/weekly') {
+    return {
+      days: [],
+      change: {
+        messages_pct: null,
+        voice_pct: null,
+        turns_pct: null,
+        interactions_pct: null,
+        cost_pct: null,
+      },
+      totals: {
+        msg_count: 0,
+        voice_count: 0,
+        turn_count: 0,
+        tokens_in: 0,
+        tokens_out: 0,
+        cost: 0,
+      },
+    }
+  }
   if (pathname === '/api/privacy/documents') {
     return {
       mode: 'strict_local',
