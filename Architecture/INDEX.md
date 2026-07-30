@@ -109,7 +109,7 @@ voir [32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md](./32_FRONTEND_DATABASE_SOURCE_OF_
 graph TB
     subgraph "Clients"
         FRONT["Frontend unifié<br/>Next.js 15 + React 19<br/>frontend/out/"]
-        LEGACY["Fallbacks réversibles<br/>web/dist + pwa/out sous /m/"]
+        LEGACY["Repli bureau<br/>web/dist"]
         TV["TV Dashboard<br/>port 5174"]
         IMESSAGE["iPhone<br/>iMessage bridge"]
         AGENT["MacBook Agent<br/>jarvis_agent.py"]

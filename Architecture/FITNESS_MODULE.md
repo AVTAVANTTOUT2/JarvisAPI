@@ -7,7 +7,7 @@
 
 Le module `app/fitness/` ajoute le suivi des séances, repas, apports d'eau et
 du bien-être (note de 1 à 10 et/ou journal libre). Il expose neuf opérations
-sous `/api/fitness`, consommées par l'écran PWA `/m/fitness` et le pipeline
+sous `/api/fitness`, consommées par le pipeline
 vocal existant.
 
 ## Propriété et dépendances

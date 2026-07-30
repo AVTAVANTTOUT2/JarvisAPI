@@ -14,7 +14,7 @@ Assistant personnel autonome, multi-agents, voice-first. Tourne entièrement en 
 - `frontend/` devient l'interface canonique Next.js 15/React 19 : elle choisit automatiquement le layout desktop ou mobile et réutilise les vues existantes.
 - `jarvis_auth/` fournit un unique `AuthClient`, hook `useLockGate()` et composant `LockGate` fail-closed aux interfaces desktop, mobile et unifiée.
 - `frontend/src/lib/api.ts` est l'unique wrapper réseau ; toutes les requêtes et tous les uploads incluent le cookie de session.
-- FastAPI sert `frontend/out` en priorité. `web/dist` reste le fallback racine et l'ancienne PWA reste disponible sous `/m/` pour un rollback sans interruption.
+- FastAPI sert `frontend/out` en priorité pour le bureau, `web/dist` en repli. Les téléphones sont redirigés vers `/mobile/`, une interface autonome en HTML/CSS/JS vanilla (`web_mobile/`).
 - Validation actuelle (24 juillet 2026) : 18 Vitest, 9 scénarios Playwright, 4 contrats FastAPI, typecheck et trois builds frontend réussis.
 
 ### Historique du 11 juillet 2026
@@ -46,17 +46,13 @@ tailscale serve --bg http://127.0.0.1:8080
 - Plan de migration en 6 phases, 15 jours
 - Aucune modification de code tant que le rapport n'est pas validé
 
-### PWA mobile — détection automatique + redirection
-- Ajout de la détection automatique de terminal mobile (`_is_mobile_device`) via User-Agent
-- Redirection automatique `GET /` → `/m/` pour les téléphones (iPhone, Android Mobile, etc.)
-- La PWA est servie depuis le **même port** (WEB_PORT) sous le préfixe `/m/` — l'authentification est partagée automatiquement (même origine HTTP, cookie `jarvis_session`)
-- Build statique Next.js (`output: 'export'`, `basePath: '/m'`) → `pwa/out/`
-- Script de build : `bash scripts/build_pwa.sh`
-- Variables d'env : `PWA_ENABLED`, `PWA_DIR`, `PWA_URL`
-- `config.py` : nouvelles variables `PWA_ENABLED`, `PWA_DIR`, `PWA_URL`, `WEB_DIST_DIR`
-- `main.py` : `_is_mobile_device()`, `_setup_pwa_frontend()`, redirection mobile dans `_setup_frontend()`
-- `pwa/next.config.js` : export statique conditionnel (next-pwa en dev, export en prod)
-- `pwa/src/lib/api.ts` ajoutait alors `credentials: 'include'`; ce fichier historique a été remplacé en Phase 6 par `frontend/src/lib/api.ts`
+### Interface mobile autonome — détection et redirection
+- Détection de téléphone par User-Agent côté serveur (`api/web_mobile.py`), avant tout téléchargement
+- Redirection `GET /` → `/mobile/` ; `?desktop=1` pose un cookie qui la désactive
+- Servie depuis le **même port** (WEB_PORT) — l'authentification est partagée automatiquement (même origine, cookie `jarvis_session`)
+- HTML/CSS/JS vanilla, aucun build, aucun `node_modules`
+- Variable d'env : `WEB_MOBILE_DIR`
+- L'ancienne PWA Next.js (`pwa/`, montée sous `/m/`) a été supprimée : son build n'était plus généré et son layout ne couvrait que 5 des 21 routes
 
 ### Pull & build — intégration commit distant "Mode écoute : diarization"
 - `git pull origin main` — commit `27d3609` fusionné sans conflit avec les 5 fichiers locaux modifiés
@@ -116,7 +112,7 @@ Trois commits orphelins de `claude/workflow-project-improvements-yknzqs`, jamais
                     └──────────────────┬───────────────────────────┘
                                        │
    Next.js 15 (frontend/out) ┐ ┌──────▼──────────┐    ┌─ scheduler APScheduler (29 jobs)
-   web/dist + pwa /m/ fallback┼─▶│ Backend FastAPI │◀──┼─ daemon sentinelle (écran, iMessage,
+   web_mobile (/mobile/) ─────┼─▶│ Backend FastAPI │◀──┼─ daemon sentinelle (écran, iMessage,
    TV War Room (5174) ────────┘ │ (port 8081)     │   │  mails, calendar, TTS local)
    iPhone (iMessage) ──────────▶│ WS /ws + REST   │   └─ audio daemon (micro, VAD, wake word,
                                 └────────┬────────┘      présence, réunions, TTS spéculatif)
@@ -144,8 +140,9 @@ Trois commits orphelins de `claude/workflow-project-improvements-yknzqs`, jamais
 | Base | SQLite (`data/jarvis.db`), WAL, FTS5, sauvegardes `VACUUM INTO` chiffrées par défaut |
 | STT | faster-whisper local · WhisperKit · whisper.cpp — aucun repli cloud |
 | TTS | Edge TTS (web) · TTSKit · macOS `say` · Kokoro — 7 émotions, cache spéculatif |
-| Frontend canonique | Next.js 15 · React 19 · Tailwind v4 (`frontend/`, responsive desktop/mobile) |
-| Fallbacks | Vite (`web/dist`) · PWA Next.js 14 (`pwa/out` sous `/m/`) |
+| Frontend bureau | Next.js 15 · React 19 · Tailwind v4 (`frontend/`) |
+| Frontend mobile | HTML/CSS/JS vanilla, sans build (`web_mobile/`, servi sous `/mobile/`) |
+| Repli bureau | Vite (`web/dist`) |
 | TV | Dashboard War Room FastAPI + JS (`tv/`, port 5174, Philips 55") |
 | Apple | Mail, Calendar, Messages, Contacts via AppleScript — zéro OAuth |
 | Multi-device | Tailscale + `scripts/jarvis_agent.py` (client léger MacBook) |
@@ -288,15 +285,13 @@ Le frontend Next.js 15 est servi **depuis le même port** que le backend (WEB_PO
 ```
 Requête GET / (tous navigateurs)
  │
- └── frontend/out/ (Next.js statique)
-     ├── téléphone / viewport < 768 px → layout mobile
-     └── desktop / tablette → layout desktop
+ ├── User-Agent téléphone → 302 vers /mobile/ (web_mobile/, vanilla)
+ └── sinon → frontend/out/ (Next.js statique, bureau)
 
-/m/ reste disponible → pwa/out/ historique (rollback)
-frontend/out absent → web/dist/ historique (fallback automatique)
+frontend/out absent → web/dist/ historique (repli automatique)
 ```
 
-**Détection mobile** : combinaison User-Agent + largeur de viewport, couverte par tests. Les tablettes Android reçoivent le layout desktop.
+**Détection mobile** : User-Agent, côté serveur, avant tout téléchargement — `api/web_mobile.py`, couverte par tests. Les tablettes Android et l'iPad reçoivent le bureau. `?desktop=1` pose un cookie qui désactive la redirection.
 
 ### Build et déploiement
 
@@ -308,8 +303,8 @@ cd frontend && pnpm install && pnpm build && cd ..
 python main.py
 
 # 3. Accéder depuis un téléphone (sur le même réseau/Tailscale)
-#    http://TON_IP:8081/          → layout mobile automatique
-#    http://TON_IP:8081/m/        → ancienne PWA de rollback
+#    http://TON_IP:8081/          → redirection automatique vers /mobile/
+#    http://TON_IP:8081/?desktop=1 → forcer l'interface bureau
 ```
 
 ### Variables d'env
@@ -317,9 +312,7 @@ python main.py
 | Variable | Défaut | Description |
 |---|---|---|
 | `FRONTEND_DIST_DIR` | `./frontend/out` | Build statique canonique Next.js 15 |
-| `PWA_ENABLED` | `true` | Active le fallback PWA historique sous `/m/` |
-| `PWA_DIR` | `./pwa/out` | Répertoire du build statique PWA |
-| `PWA_URL` | (vide) | URL externe optionnelle (si PWA sur un autre port/domaine). Vide = servie depuis FastAPI sous `/m/` |
+| `WEB_MOBILE_DIR` | `./web_mobile` | Interface mobile autonome servie sous `/mobile/` |
 | `WEB_DIST_DIR` | `./web/dist` | Répertoire du build SPA desktop (fallback) |
 
 ### Auth
@@ -506,7 +499,7 @@ JarvisAPI/
 ├── frontend/             # Next.js 15 responsive → frontend/out prioritaire
 ├── jarvis_auth/          # SDK auth et LockGate partagés
 ├── web/                  # Vues desktop + fallback Vite (web/dist)
-├── pwa/                  # Vues mobiles + fallback historique sous /m/
+├── web_mobile/           # Interface mobile autonome (vanilla, servie sous /mobile/)
 ├── tv/                   # dashboard TV War Room (port 5174)
 ├── Architecture/         # source de vérité doc — voir 32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md
 ├── front_tv/             # HTML bundlé orphelin (non servi)

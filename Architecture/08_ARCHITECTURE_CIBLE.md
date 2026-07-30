@@ -137,7 +137,7 @@ Input (WS texte, WS audio, REST) → _build_enriched_context → orchestrator.ha
 - `database/event_log.py` (journal SQLite idempotent)
 - `websocket_registry.py` (push WebSocket)
 - `scripts/audio_daemon.py` (TTS urgent/high)
-- flux SSE existant consommé par `pwa/EventSync.tsx`
+- flux SSE existant consommé par le frontend bureau
 
 Les consommateurs cibles `Queue Engine` et `SearchService` restent à ajouter lorsque ces services seront implémentés. `NotificationService` est implémenté le 14/07/2026 : il centralise les producteurs, la politique de priorité, la déduplication et l'émission post-commit de `notification.created`. Les événements techniques historiques du pipeline restent compatibles avec le même bus.
 

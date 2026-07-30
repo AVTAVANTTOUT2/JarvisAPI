@@ -21,7 +21,9 @@ Le supervisor et FastAPI utilisent la même politique desktop, centralisée dans
 3. **Erreur explicite** (`frontend_build_missing`) si aucun build n’est disponible
 
 Le montage HTTP supervisor est dans `core/frontend_static.py`. FastAPI conserve
-PWA `/m/` et Jinja, mais délègue le critère de validité Next/Vite au module partagé.
+Jinja, mais délègue le critère de validité Next/Vite au module partagé.
+> Note (31/07/2026) : le montage PWA `/m/` mentionné ici a depuis été supprimé
+> au profit de `web_mobile/` servi sous `/mobile/`.
 
 ## Raisons
 
