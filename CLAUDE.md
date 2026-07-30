@@ -14,7 +14,7 @@ JARVIS est un assistant personnel multi-agents avec interface vocale + web, tour
 ## Stack technique
 
 - **Backend** : Python 3.12 + FastAPI + WebSocket
-- **Frontend** : Next.js 15 + React 19 + Tailwind v4 (`frontend/out` prioritaire), vues desktop `web/src` et mobile `pwa/src` réutilisées ; anciens builds conservés en fallback
+- **Frontend** : bureau en Next.js 15 + React 19 + Tailwind v4 (`frontend/out` prioritaire, vues `web/src` réutilisées, `web/dist` en repli) ; mobile en HTML/CSS/JS vanilla autonome (`web_mobile/`, servi sous `/mobile/`)
 - **Base de données** : SQLite (fichier local `data/jarvis.db`)
 - **LLM** : DeepSeek API (format OpenAI, `llm.py`) — routing fast/main, mode « tâche lourde » (max_tokens élevé) pour les productions longues
 - **STT** : local multi-moteurs (`faster-whisper`, WhisperKit ou whisper.cpp), sans repli cloud
@@ -34,7 +34,7 @@ Le bus applicatif est actif et conserve la compatibilité de construction histor
  voir `Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md` ; ne pas confondre avec le dump
  historique `database/schema.sql` ≈ 46 tables).
 - `websocket_registry.py` diffuse les événements de domaine aux sockets actives et `scripts/audio_daemon.py` traite les notifications `urgent/high`.
-- `pwa/src/components/realtime/EventSync.tsx` consomme `/api/events/stream` et invalide React Query ; le polling périodique notifications/tâches a été supprimé.
+- `/api/events/stream` diffuse les événements de domaine en SSE ; le polling périodique notifications/tâches a été supprimé.
 - Les handlers d'un même événement s'exécutent concurremment ; l'échec de l'un est journalisé sans interrompre les autres.
 - `jarvis/__init__.py` charge `JARVISRouter` à la demande : importer le bus ou la base ne charge aucun backend LLM.
 
@@ -56,7 +56,7 @@ Depuis du code async, utiliser `await event_bus.emit(event)`. Depuis un chemin s
 
 - `jarvis_auth/` est l'unique implémentation de `AuthClient`, `useLockGate()` et `LockGate`. Le rendu est fail-closed et ne monte jamais les enfants privés avant confirmation de session.
 - `frontend/src/lib/api.ts` est l'unique appel direct à `fetch()` dans les trois arbres frontend ; il inclut toujours le cookie, y compris pour uploads, GPS et file hors-ligne.
-- `web/dist` reste le fallback racine si `frontend/out` manque ; `pwa/out` reste accessible sous `/m/` si activé.
+- `web/dist` reste le repli racine si `frontend/out` manque. Les téléphones ne voient ni l'un ni l'autre : ils sont redirigés vers `/mobile/`.
 - `frontend/public/sw.js` ne cache que `/_next/static` et `/icons`, jamais `/api`, HTML ou données personnelles.
 - Validation actuelle au 24/07/2026 : 18 Vitest, typecheck/build Next.js 15, 9 scénarios Playwright, 4 contrats FastAPI, 50 tests web et builds des deux fallbacks. La suite vérifie notamment l'arrêt des services privés lors du verrouillage automatique, le déverrouillage réel, le chat WebSocket, les tâches avec CSRF, les événements SSE et le chargement de MapLibre sous la CSP de production. Les parcours critiques échouent aussi sur erreur console, exception de page, requête réseau échouée ou réponse HTTP en erreur. GitHub Actions exécute ces scénarios navigateur dans le job dédié au frontend unifié, à côté du build Vite historique.
 - La CI possède un job séparé d'installation de production : bibliothèques système audio, `pip install -r requirements.txt`, `pip check`, puis imports de fumée de Torch, PyAudio, Open Interpreter, spaCy, Kokoro et faster-whisper. Un job `macos-14` rejoue en plus les contrats Apple simulés et les smoke tests natifs (`osascript`, dictionnaires Mail/Calendar/Contacts/Messages, plist launchd, `say`, CoreAudio, iMessage, capture et audio). Les appareils physiques et l'observation 24 h ne sont pas vérifiés.
@@ -674,7 +674,7 @@ jarvis/
 │
 ├── frontend/                # Next.js 15 responsive, client API/types partagés
 ├── jarvis_auth/             # AuthClient + useLockGate + LockGate
-├── pwa/                     # Vues mobiles + fallback statique sous /m/
+├── web_mobile/              # Interface mobile autonome (vanilla, servie sous /mobile/)
 │
 ├── prompts/                 # System prompts de chaque agent (fichiers .txt)
 │   ├── persona.txt          # Persona JARVIS commune (injectée dans tous les agents user-facing)
@@ -1597,21 +1597,21 @@ BACKUP_ENCRYPTION_PASSPHRASE=
   bloquer temporairement l'accès légitime en multipliant les échecs.
 - Pas d'audit externe (pentest réel) — l'audit est un examen de code, pas
   une certification.
-- Le défaut historique d'absence de LockGate dans `pwa/` est résolu depuis
-  la Phase 6 par le SDK `jarvis_auth/` partagé et ses tests fail-closed.
+- Le verrou mobile est réimplémenté dans `web_mobile/js/auth.js`, sans
+  dépendre du SDK React : aucune vue n'est montée avant session confirmée.
 
 ## PWA offline-first — Service Worker, file d'écriture, push (mai 2026)
 
-> **État actuel (Phase 6, juil. 2026)** : le frontend **canonique** est `frontend/`
-> (Next.js 15 → `frontend/out`, servi en priorité par FastAPI). `web/` reste le
-> **fallback** Vite (`web/dist`) et la **source** des vues desktop importées par
-> le frontend unifié. La section ci-dessous décrit l’implémentation PWA historique
-> née dans `web/` ; le Service Worker unifié vit dans `frontend/public/sw.js`.
+> **État actuel (juil. 2026)** : cette section décrit le **bureau** uniquement.
+> Le frontend canonique est `frontend/` (Next.js 15 → `frontend/out`), `web/`
+> reste le repli Vite et la source des vues bureau, et le Service Worker unifié
+> vit dans `frontend/public/sw.js`. Le téléphone ne passe plus par là du tout :
+> voir « Interface mobile autonome — `web_mobile/` ». Rien de ce lot (Service
+> Worker, file d'écriture hors ligne, push) n'est encore porté côté mobile.
 
-`web/` (SPA Vite + React, **fallback** et source desktop) a reçu une PWA installable
-et utilisable hors ligne — c’était l’interface qui portait déjà le LockGate au moment
-du lot mai 2026. Depuis la Phase 6, le téléphone / desktop partagent `frontend/` via
-layouts responsive, avec `web/` et `pwa/` conservés pour rollback.
+`web/` (SPA Vite + React, repli et source bureau) a reçu une PWA installable et
+utilisable hors ligne — c’était l’interface qui portait déjà le LockGate au
+moment du lot mai 2026.
 
 ### Service Worker (Workbox, mode injectManifest)
 
@@ -1719,97 +1719,120 @@ layouts responsive, avec `web/` et `pwa/` conservés pour rollback.
   téléphone) — conso batterie/CPU réelle et comportement d'installation
   natif à valider sur device physique.
 
-## Frontend responsive et fallback PWA (juillet 2026)
+## Interface mobile autonome — `web_mobile/` (juillet 2026)
 
-Le frontend canonique Next.js 15 (`frontend/`) est servi **depuis le même
-port** que le backend et choisit automatiquement le layout mobile ou desktop.
-La PWA Next.js 14 historique reste servie sous `/m/` comme rollback.
+Les téléphones ne reçoivent plus le frontend React du tout : ils sont
+redirigés côté serveur vers une interface distincte, écrite en HTML, CSS et
+JavaScript vanilla, sans framework ni étape de build.
+
+### Pourquoi
+
+L'ancien layout mobile vivait dans `pwa/src` et était compilé dans le bundle
+unifié. Il ne couvrait que 5 des 21 routes (`dashboard`, `map`, `mails`,
+`tasks`, `config`) ; toutes les autres retombaient silencieusement sur le
+dashboard mobile — chat et voix compris, c'est-à-dire l'essentiel de l'usage
+téléphone. Et dès que l'heuristique client disait « pas mobile », c'est le
+layout bureau qui s'affichait, sidebar masquée et vues sans breakpoints : le
+bureau rétréci. La détection mobile serveur, elle, était morte —
+`_setup_unified_frontend()` retournait avant que le bloc de redirection ne
+soit atteint.
 
 ### Architecture
 
 ```
-GET / (tous navigateurs)
- └── frontend/out/ (Next.js 15 statique)
-     ├── téléphone / viewport étroit → vues mobiles
-     └── desktop / tablette → vues desktop
+GET /
+ ├── UA téléphone, sans cookie jarvis_force_desktop → 302 /mobile/
+ └── sinon → frontend/out (bureau, inchangé)
 
-/m/ → pwa/out/ historique
-frontend/out absent → web/dist/ historique
+GET /mobile/*  → web_mobile/ (statique, jamais de redirection)
 ```
 
-- Toutes les interfaces partagent la **même origine HTTP** → le cookie
-  `jarvis_session` (SameSite=Strict) est transmis automatiquement.
-  Aucune configuration supplémentaire pour l'auth.
-- Les appels API (`/api/*`) atteignent directement FastAPI — pas de proxy
-  Next.js nécessaire en production (contrairement au mode dev où les
-  rewrites Next.js proxyfient vers le backend).
+`?desktop=1` pose le cookie `jarvis_force_desktop` (un an) et sert le bureau :
+sans cette échappatoire, le bureau serait inatteignable depuis un téléphone.
+Seule la racine redirige — un lien profond bureau reste ouvrable.
 
-### Détection mobile historique et responsive
+### Contraintes tenues
 
-`frontend/src/lib/device.ts` combine viewport et User-Agent. `_is_mobile_device()` dans `api/frontend.py` reste utilisé par le fallback Vite historique :
-
-| Plateforme | Détecté ? |
+| Contrainte | Conséquence |
 |---|---|
-| iPhone / iPod | Oui (mot-clé dans UA) |
-| Android Mobile (téléphone) | Oui (`Android.*Mobile`) |
-| Android Tablet | **Non** — sert le desktop (écran large) |
-| iPad | Non (UA iPad moderne = desktop-like) |
-| Windows Phone, BlackBerry, Opera Mini | Oui |
+| Aucun framework, aucun build, aucun `node_modules` | On édite un fichier, on recharge |
+| Aucun import de `web/src`, `frontend/src`, `jarvis_auth` | Casser le mobile ne peut pas casser le bureau |
+| Même origine que l'API | Le cookie `jarvis_session` (SameSite=Strict), la vérification d'Origin et la CSP `default-src 'self'` fonctionnent sans aménagement |
+| CSP `default-src 'self'` | Police système SF uniquement, icônes SVG tracées à la main, aucun CDN |
+| Fail-closed | Aucune vue montée, aucun WebSocket ouvert, aucune donnée demandée avant session confirmée |
 
-Regex compilée : `_MOBILE_UA_PATTERN` + `_TABLET_UA_PATTERN` (exclusion Android sans "Mobile").
+### Authentification et transport
 
-### Serving PWA
+- **Cookie de session, pas Bearer.** Les points d'entrée `/api/mobile/*`
+  (`chat`, `chat/confirm`, `conversations`, `voice/turn`) exigent
+  `_require_mobile_device()` — un jeton réservé au Companion Android natif,
+  inutilisable depuis un navigateur.
+- **Chat et voix par `WS /ws`**, authentifié par `resolve_websocket_auth()`.
+- **Jeton synchronisé obligatoire.** `api/middleware.py` refuse en 403 toute
+  méthode POST/PATCH/DELETE portée par un cookie sans en-tête
+  `X-CSRF-Token`. `web_mobile/js/api.js` le récupère depuis
+  `/api/auth/status` et le renouvelle seul.
 
-`_setup_pwa_frontend(app: FastAPI) -> bool` dans `api/frontend.py` :
+### Écrans
 
-- Monte les assets Next.js : `/m/_next/static/` → `pwa/out/_next/static/`
-- Monte les icônes : `/m/icons/` → `pwa/out/icons/`
-- Sert les fichiers racine : `/m/manifest.json`, `/m/sw.js`, `/m/workbox-*.js`
-- Routes HTML : `/m/`, `/m/dashboard`, `/m/map`, `/m/mails`, `/m/tasks`, `/m/config`
-- Fallback SPA : toute route inconnue sous `/m/` sert l'index PWA
+`#/chat` (défaut), `#/voix`, `#/aujourdhui`, `#/taches`, `#/mails`, `#/sante`.
+Routage par fragment : aucune route serveur supplémentaire, geste retour iOS
+fonctionnel, rechargement dur sans 404.
 
-### Build
+Trois décisions qui ne sont pas cosmétiques :
 
-```bash
-# Build statique Next.js
-bash scripts/build_pwa.sh
+- **JARVIS n'a pas de bulle.** Les mots de l'utilisateur sont enfermés dans
+  une forme close ; ceux de JARVIS s'écrivent à même le fond, tenus par un
+  filet. Il n'est pas un correspondant, il est l'environnement.
+- **Le briefing est un bouton.** `/api/briefing` ne lit rien en cache : il
+  génère par appel LLM, plusieurs secondes et un coût réel. Le charger
+  automatiquement reviendrait à payer à chaque ouverture.
+- **Pavé numérique dessiné** au verrouillage. Le clavier iOS masquerait la
+  moitié de l'écran et imposerait 16 px sous peine de zoom.
 
-# → pwa/out/
-#   ├── index.html (redirect vers /dashboard)
-#   ├── dashboard.html
-#   ├── map.html, mails.html, tasks.html, config.html
-#   ├── _next/static/ (JS/CSS chunks)
-#   ├── icons/ (icônes PWA)
-#   ├── sw.js, workbox-4754cb34.js (Service Worker)
-#   └── manifest.json
+La voix est en appui maintenu, sans VAD : Safari iOS exige un geste
+utilisateur pour ouvrir le micro comme pour lancer une lecture audio.
+
+### Structure
+
+```
+web_mobile/
+├── index.html          # coque, verrou, jeu d'icônes SVG
+├── app.css             # feuille unique
+├── manifest.webmanifest
+├── icons/
+└── js/
+    ├── api.js          # fetch + cookie + jeton CSRF
+    ├── auth.js         # verrou fail-closed
+    ├── ws.js           # WebSocket + reconnexion
+    ├── ui.js           # fabrique DOM et formats
+    ├── app.js          # coque et routage
+    └── views/          # chat, voice, today, tasks, mails, health
 ```
 
-### Next.js config (`pwa/next.config.js`)
-
-- **Dev** (`NODE_ENV=development`) : `next-pwa` actif (régénère le SW),
-  rewrites proxy `/api/*` → backend. Pas d'export statique.
-- **Prod** (`NODE_ENV=production`) : `output: 'export'`, `basePath: '/m'`.
-  `next-pwa` est désactivé (incompatible avec l'export statique). Le SW
-  dans `public/` (généré lors d'un précédent build dev) est copié dans
-  `out/` par Next.js.
-
-### Variables d'env
+### Config
 
 | Variable | Défaut | Description |
 |---|---|---|
-| `FRONTEND_DIST_DIR` | `./frontend/out` | Build canonique Next.js 15 |
-| `PWA_ENABLED` | `true` | Active le fallback PWA sous `/m/` |
-| `PWA_DIR` | `./pwa/out` | Répertoire du build statique PWA |
-| `PWA_URL` | (vide) | URL externe optionnelle (redirection 302). Vide = servie localement sous `/m/` |
-| `WEB_DIST_DIR` | `./web/dist` | Répertoire du build SPA desktop (utilisé comme fallback) |
+| `WEB_MOBILE_DIR` | `./web_mobile` | Répertoire servi sous `/mobile/` |
+| `FRONTEND_DIST_DIR` | `./frontend/out` | Build bureau Next.js 15 |
+| `WEB_DIST_DIR` | `./web/dist` | Repli Vite bureau |
 
-### Mode dégradé
+Si `web_mobile/` est absent : pas de redirection, pas d'erreur, le bureau est
+servi normalement.
 
-- Si `frontend/out/` est absent → FastAPI sert `web/dist/` et réactive la
-  redirection mobile historique si `pwa/out/` est disponible.
-- Si `PWA_ENABLED=false` ou `pwa/out/` absent → `/m/` n'est pas monté.
-- Si `PWA_URL` est renseigné → redirection HTTP 302 vers cette URL au lieu
-  de servir `/m/` localement (utile si la PWA tourne sur un autre port).
+### Ce qui a disparu
+
+`pwa/` est supprimé, ainsi que le montage `/m/`, `scripts/build_pwa.sh`,
+`PWA_ENABLED` / `PWA_DIR` / `PWA_URL`, l'alias webpack `@mobile` et
+`frontend/src/components/MobileApp.tsx`. L'UI fitness qui y vivait reste
+récupérable : `git show 667f3f0 -- pwa/src/app/fitness pwa/src/components/fitness`.
+Le backend `app/fitness/` n'est pas concerné.
+
+Tests : `tests/test_web_mobile.py` (31 cas — détection, redirection,
+échappatoire, types MIME, traversée de répertoire, et trois contraintes
+structurelles : aucun import des arbres frontend, aucune chaîne de build,
+aucune ressource distante).
 
 ## Mode écoute — diarisation + mémoire conversationnelle + recherche sémantique
 
