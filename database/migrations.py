@@ -785,6 +785,66 @@ def _migrate_mobile_chat_dedup(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_fitness(conn: sqlite3.Connection) -> None:
+    """Tables de suivi activité, nutrition, hydratation et bien-être."""
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS workouts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT NOT NULL,
+            type TEXT NOT NULL CHECK(
+                type IN ('poussee', 'tirage', 'jambes', 'full_body', 'natation', 'autre')
+            ),
+            exercises_json TEXT,
+            duration_min INTEGER CHECK(duration_min IS NULL OR duration_min > 0),
+            source TEXT NOT NULL CHECK(source IN ('voice', 'pwa')),
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS meals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT NOT NULL,
+            meal_type TEXT CHECK(
+                meal_type IS NULL OR
+                meal_type IN ('petit_dej', 'dejeuner', 'diner', 'collation')
+            ),
+            description TEXT NOT NULL,
+            calories_estimate INTEGER CHECK(
+                calories_estimate IS NULL OR calories_estimate >= 0
+            ),
+            source TEXT NOT NULL CHECK(source IN ('voice', 'pwa')),
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS water_intake (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT NOT NULL,
+            amount_ml INTEGER NOT NULL CHECK(amount_ml > 0),
+            source TEXT NOT NULL CHECK(source IN ('voice', 'pwa')),
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS wellbeing_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT NOT NULL,
+            rating INTEGER CHECK(rating BETWEEN 1 AND 10),
+            journal_text TEXT,
+            source TEXT NOT NULL CHECK(source IN ('voice', 'pwa')),
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            CHECK(
+                rating IS NOT NULL OR
+                (journal_text IS NOT NULL AND length(trim(journal_text)) > 0)
+            )
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_workouts_date ON workouts(date);
+        CREATE INDEX IF NOT EXISTS idx_meals_date ON meals(date);
+        CREATE INDEX IF NOT EXISTS idx_water_date ON water_intake(date);
+        CREATE INDEX IF NOT EXISTS idx_wellbeing_date ON wellbeing_logs(date);
+        """
+    )
+
+
 def run_migrations(conn: sqlite3.Connection) -> None:
     """Applique dans un ordre stable toutes les migrations idempotentes."""
     _migrate_people_ai_description(conn)
@@ -821,3 +881,4 @@ def run_migrations(conn: sqlite3.Connection) -> None:
     _migrate_notification_deduplication_index(conn)
     _migrate_location_point_dedup(conn)
     _migrate_mobile_chat_dedup(conn)
+    _migrate_fitness(conn)

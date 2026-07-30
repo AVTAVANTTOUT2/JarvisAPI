@@ -6,7 +6,6 @@ import asyncio
 import json
 import logging
 import re
-from typing import Any
 
 import config
 import llm
@@ -19,6 +18,7 @@ from api.voice_support import (
     _maybe_execute_pending_voice_action,
     _save_voice_messages,
 )
+from app.fitness.voice import maybe_handle_fitness_voice
 from database import _save_voice_debug_trace, get_conversation_history, get_current_screen_context
 
 logger = logging.getLogger("jarvis")
@@ -83,6 +83,9 @@ async def _process_voice_fast(text: str, conversation_id: int, *, stt_ms: int = 
             "debug_trace": {"input_text": text, "response_clean": control, "model": "control"},
         }
 
+    # Match fitness étroit ; ``None`` laisse le pipeline existant continuer.
+    if (fitness := maybe_handle_fitness_voice(text, conversation_id, stt_ms=stt_ms)) is not None:
+        return fitness
     early = await maybe_handle_cognitive_voice(text, conversation_id, t0=_t0, stt_ms=stt_ms)
     if early and not early.get("__continue__"):
         return early
