@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -13,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 import config
+from api import web_mobile
 from core.frontend_resolution import (
     is_usable_next_build,
     is_usable_vite_build,
@@ -41,20 +41,9 @@ _SPA_SEGMENTS = frozenset({
     "voice-debug", "control", "mission", "mobile",
 })
 
-# Règles de détection mobile — expression régulière compilée pour performance.
-# Couvre : Android (hors tablets), iOS (iPhone/iPod), Windows Phone, Opera Mini,
-# BlackBerry, IEMobile, et le mot-clé générique "Mobile" (suffixé de / ou ; ou \s).
-# Exclut explicitement les tablettes Android pour servir le desktop.
-_MOBILE_UA_PATTERN = re.compile(
-    r"(?:Android.*Mobile|iPhone|iPod|webOS|Windows\sPhone|Opera\sMini|"
-    r"BlackBerry|IEMobile|Mobile[/;])",
-    re.IGNORECASE,
-)
-# Tablettes Android : screen touch > 7 pouces — on sert le desktop.
-_TABLET_UA_PATTERN = re.compile(r"Android(?!.*Mobile)", re.IGNORECASE)
-
 # Préfixe de la PWA (doit correspondre au basePath Next.js)
 _PWA_PREFIX = "/m"
+
 
 # Segments PWA : routes Next.js en export statique
 _PWA_SEGMENTS = frozenset({
@@ -63,18 +52,8 @@ _PWA_SEGMENTS = frozenset({
 _UNIFIED_SEGMENTS = _SPA_SEGMENTS | _PWA_SEGMENTS
 
 
-def _is_mobile_device(user_agent: str) -> bool:
-    """Détecte un terminal mobile (téléphone) via le User-Agent.
-
-    Retourne False pour les tablettes Android (écran large) qui peuvent
-    utiliser l'interface desktop confortablement.
-    """
-    if not user_agent:
-        return False
-    # Une tablette Android n'a PAS le mot "Mobile" dans son UA
-    if _TABLET_UA_PATTERN.search(user_agent):
-        return False
-    return bool(_MOBILE_UA_PATTERN.search(user_agent))
+# Détection UA : une seule implémentation, dans api/web_mobile.py.
+_is_mobile_device = web_mobile.is_mobile_device
 
 
 def _setup_pwa_frontend(app: FastAPI) -> bool:
@@ -232,12 +211,14 @@ def _setup_unified_frontend(app: FastAPI) -> bool:
         )
 
     @app.get("/", include_in_schema=False)
-    async def serve_unified_root():
-        return FileResponse(
+    async def serve_unified_root(request: Request):
+        if web_mobile.should_redirect(request):
+            return web_mobile.redirect()
+        return web_mobile.remember_desktop_choice(FileResponse(
             index_file,
             media_type="text/html; charset=utf-8",
             headers={"Cache-Control": "no-cache"},
-        )
+        ), request)
 
     @app.get("/{segment}", include_in_schema=False)
     async def serve_unified_segment(segment: str):
@@ -252,7 +233,7 @@ def _setup_unified_frontend(app: FastAPI) -> bool:
 
     @app.get("/{parent}/{child:path}", include_in_schema=False)
     async def serve_unified_nested(parent: str, child: str):
-        if parent in ("api", "_next", "icons", "static", "upload", "m"):
+        if parent in ("api", "_next", "icons", "static", "upload", "m", "mobile"):
             raise HTTPException(404)
         if parent not in _UNIFIED_SEGMENTS or child.startswith("api/"):
             raise HTTPException(404)
@@ -275,6 +256,12 @@ def _setup_frontend(app: FastAPI) -> None:
     """
     if WEB_STATIC.is_dir():
         app.mount("/static", StaticFiles(directory=WEB_STATIC), name="static")
+
+    # ── Interface mobile autonome ───────────────────────────────
+    # Montée en premier : les routes /mobile/* doivent exister avant que
+    # `_setup_unified_frontend` n'enregistre son attrape-tout `/{segment}`,
+    # et avant son `return` qui court-circuite le reste de cette fonction.
+    web_mobile.setup(app)
 
     # ── PWA mobile ──────────────────────────────────────────────
     pwa_available = False
@@ -333,6 +320,10 @@ def _setup_frontend(app: FastAPI) -> None:
 
         @app.get("/", include_in_schema=False)
         async def serve_spa_root(request: Request):
+            # L'interface mobile autonome prime sur la PWA historique.
+            if web_mobile.should_redirect(request):
+                return web_mobile.redirect()
+
             # Redirection automatique mobile → PWA
             if pwa_available and _is_mobile_device(
                 request.headers.get("user-agent", "")
