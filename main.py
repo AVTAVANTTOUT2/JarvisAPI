@@ -52,6 +52,7 @@ from api.ws_session import (
     _resume_or_create_conversation as _resume_or_create_conversation,
     _ws_last_session as _ws_last_session,
 )
+from app.fitness.routes import router as fitness_router
 from core.network_security import validate_network_bind
 
 logging.basicConfig(
@@ -107,6 +108,7 @@ app.add_middleware(
 
 app.middleware("http")(security_middleware)
 
+app.include_router(fitness_router)
 app.include_router(auth_router)
 app.include_router(conversations_router)
 app.include_router(daemon_router)
