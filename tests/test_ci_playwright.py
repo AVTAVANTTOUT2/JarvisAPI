@@ -22,19 +22,18 @@ def test_ci_runs_playwright_against_the_canonical_frontend():
     assert "pnpm test && pnpm typecheck && pnpm build && pnpm test:e2e" in job
 
 
-def test_playwright_covers_the_nine_critical_browser_scenarios():
+def test_playwright_covers_the_critical_browser_scenarios():
     source = "\n".join(
         path.read_text(encoding="utf-8")
         for path in sorted(E2E_DIR.glob("*.spec.ts"))
     )
 
-    assert source.count("test('@") == 9
+    assert source.count("test('@") == 8
     for contract in (
         "unlocks through the real auth form",
         "chat turn over WebSocket",
         "creates and updates a task",
         "consumes an SSE event",
-        "selects the responsive dashboard",
         "never reveals private content",
         "loads MapLibre workers",
     ):

@@ -253,12 +253,33 @@ def _setup_frontend(app: FastAPI) -> None:
 
         @app.get("/", response_class=HTMLResponse)
         async def serve_jinja(request: Request):
+            if web_mobile.should_redirect(request):
+                return web_mobile.redirect()
             return jinja.TemplateResponse(
                 "index.html",
                 {"request": request, "user_name": config.USER_NAME},
             )
 
         logger.info("Frontend legacy (Jinja) : %s", WEB_TEMPLATES)
+        return
+
+    # Aucun frontend bureau. L'interface mobile est autonome : elle ne doit pas
+    # disparaître parce qu'un build React manque. Sans cette racine, un
+    # téléphone recevrait 404 au lieu d'être redirigé vers /mobile/.
+    if web_mobile.is_available():
+        @app.get("/", include_in_schema=False)
+        async def serve_root_mobile_only(request: Request):
+            if web_mobile.should_redirect(request):
+                return web_mobile.redirect()
+            raise HTTPException(
+                503,
+                "Aucun frontend bureau : `cd frontend && pnpm install && pnpm build`. "
+                "L'interface mobile reste disponible sur /mobile/.",
+            )
+
+        logger.warning(
+            "Aucun frontend bureau — seule l'interface mobile est servie (/mobile/)."
+        )
         return
 
     logger.warning(

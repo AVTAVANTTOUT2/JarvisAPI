@@ -15,6 +15,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api import web_mobile
+from api import frontend
 from api.frontend import _setup_frontend
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -42,8 +43,26 @@ IPAD = (
 )
 
 
+def _write(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+
+
 @pytest.fixture
-def client() -> TestClient:
+def client(tmp_path, monkeypatch) -> TestClient:
+    """Serveur complet avec un frontend bureau minimal.
+
+    Le build bureau est fabriqué ici plutôt que lu sur le disque : en CI
+    `frontend/out` n'existe pas, et des tests qui dépendraient d'un artefact
+    de build passeraient en local pour échouer sur une machine propre.
+    """
+    unified = tmp_path / "frontend-out"
+    _write(unified / "index.html", "desktop-root")
+    _write(unified / "chat" / "index.html", "desktop-chat")
+    _write(unified / "_next" / "static" / "app.js", "asset")
+    monkeypatch.setattr(frontend, "FRONTEND_DIST", unified)
+    monkeypatch.setattr(frontend, "WEB_DIST", tmp_path / "web-dist-absent")
+
     app = FastAPI()
     _setup_frontend(app)
     return TestClient(app)
@@ -100,6 +119,7 @@ def test_only_the_root_redirects(client):
     """Un lien profond ouvert volontairement doit rester accessible."""
     response = client.get("/chat", headers={"user-agent": IPHONE}, follow_redirects=False)
     assert response.status_code == 200
+    assert response.text == "desktop-chat"
 
 
 # ── Service des fichiers ─────────────────────────────────────────────────
@@ -155,12 +175,40 @@ def test_unknown_extensions_are_refused(client, tmp_path, monkeypatch):
 
 def test_absent_directory_disables_everything(tmp_path, monkeypatch):
     """Sans web_mobile/, pas de redirection et surtout pas de crash."""
+    unified = tmp_path / "frontend-out"
+    _write(unified / "index.html", "desktop-root")
+    _write(unified / "_next" / "static" / "app.js", "asset")
+    monkeypatch.setattr(frontend, "FRONTEND_DIST", unified)
+    monkeypatch.setattr(frontend, "WEB_DIST", tmp_path / "web-dist-absent")
     monkeypatch.setattr(web_mobile, "WEB_MOBILE_DIR", tmp_path / "vide")
+
     app = FastAPI()
     _setup_frontend(app)
     client = TestClient(app)
     assert client.get("/mobile/").status_code == 404
     assert client.get("/", headers={"user-agent": IPHONE}, follow_redirects=False).status_code == 200
+
+
+def test_mobile_survives_a_missing_desktop_build(tmp_path, monkeypatch):
+    """L'interface mobile est autonome : elle ne dépend d'aucun build React.
+
+    Sans cette garantie, un téléphone recevrait 404 sur une machine où le
+    frontend n'a pas encore été construit — exactement le cas de la CI.
+    """
+    monkeypatch.setattr(frontend, "FRONTEND_DIST", tmp_path / "frontend-absent")
+    monkeypatch.setattr(frontend, "WEB_DIST", tmp_path / "web-absent")
+    monkeypatch.setattr(frontend, "WEB_TEMPLATES", tmp_path / "templates-absent")
+
+    app = FastAPI()
+    _setup_frontend(app)
+    client = TestClient(app)
+
+    response = client.get("/", headers={"user-agent": IPHONE}, follow_redirects=False)
+    assert response.status_code == 302
+    assert response.headers["location"] == "/mobile/"
+    assert client.get("/mobile/").status_code == 200
+    # Le bureau, lui, annonce franchement qu'il manque un build.
+    assert client.get("/", headers={"user-agent": MAC_DESKTOP}).status_code == 503
 
 
 # ── Isolation ────────────────────────────────────────────────────────────
