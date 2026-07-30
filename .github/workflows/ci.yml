@@ -25,11 +25,14 @@ jobs:
           sudo apt-get install --yes portaudio19-dev libsndfile1
 
       - name: Installer toutes les dépendances de production
-        run: python -m pip install -r requirements.txt
+        run: |
+          python -m pip install -r requirements.txt
+          python -m pip install "pip-audit==2.10.*"
 
       - name: Vérifier la cohérence et les imports de production
         run: |
           python -m pip check
+          pip-audit --local --progress-spinner off
           python - <<'EOF'
           import importlib
 
@@ -74,7 +77,9 @@ jobs:
         run: brew install portaudio libsndfile
 
       - name: Installer les dépendances Python
-        run: python -m pip install -r requirements-dev.txt
+        run: |
+          python -m pip install -r requirements.txt
+          python -m pip install "pytest==8.*" "pytest-asyncio>=0.24,<0.27"
 
       - name: Vérifier la cohérence des dépendances
         run: python -m pip check
@@ -116,7 +121,7 @@ jobs:
             "httpx==0.28.*" "apscheduler==3.10.*" "pymupdf==1.25.*" \
             "edge-tts==7.*" "Pillow>=10.0" "python-dateutil==2.9.*" \
             "requests>=2.31" "cryptography>=41.0" "numpy>=1.26,<3" \
-            "pytest==8.*" "pytest-asyncio>=0.24,<0.27"
+            "pytest==8.*" "pytest-asyncio>=0.24,<0.27" "coverage[toml]==7.15.*"
 
       - name: Vérifier que tous les modules s'importent
         run: |
@@ -147,8 +152,48 @@ jobs:
           git config --global user.name "JarvisAPI CI"
           git config --global user.email "jarvisapi-ci@users.noreply.github.com"
 
-      - name: pytest
-        run: python -m pytest tests/ jarvis/tests agents/devagent -q
+      - name: pytest avec seuil de couverture
+        run: |
+          coverage run -m pytest tests/ jarvis/tests agents/devagent -q
+          coverage report
+
+  quality:
+    name: Qualité et audits
+    runs-on: ubuntu-latest
+    env:
+      QUALITY_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-quality.txt
+
+      - name: Installer Ruff, Black, mypy, Bandit et Semgrep
+        run: python -m pip install -r requirements-quality.txt
+
+      - name: Qualité Python et analyse statique des changements
+        run: python scripts/quality_gate.py --base "$QUALITY_BASE"
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.11.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Audit npm des frontends
+        run: |
+          pnpm --dir frontend audit --prod --audit-level high \
+            --ignore GHSA-qwww-vcr4-c8h2 --ignore-registry-errors
+          pnpm --dir web audit --prod --audit-level high \
+            --ignore GHSA-qwww-vcr4-c8h2 --ignore-registry-errors
+          npm --prefix pwa audit --omit=dev --audit-level=critical
 
   frontend:
     name: Frontend (typecheck + build)

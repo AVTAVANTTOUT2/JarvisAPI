@@ -8,3 +8,7 @@ onlyBuiltDependencies:
 allowBuilds:
   sharp: true
   unrs-resolver: true
+
+auditConfig:
+  ignoreGhsas:
+    - GHSA-qwww-vcr4-c8h2

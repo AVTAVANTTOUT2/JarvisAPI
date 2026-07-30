@@ -1,0 +1,35 @@
+rules:
+  - id: jarvis.python.dynamic-eval
+    message: Éviter eval() sur du contenu dynamique ; utiliser un parseur ou une table de dispatch.
+    severity: ERROR
+    languages: [python]
+    pattern: eval(...)
+
+  - id: jarvis.python.dynamic-exec
+    message: Éviter exec() sur du contenu dynamique ; isoler explicitement l’exécution de code.
+    severity: ERROR
+    languages: [python]
+    pattern: exec(...)
+
+  - id: jarvis.python.subprocess-shell
+    message: shell=True agrandit la surface d’injection ; passer une liste d’arguments sans shell.
+    severity: ERROR
+    languages: [python]
+    patterns:
+      - pattern-either:
+          - pattern: subprocess.run(..., shell=True, ...)
+          - pattern: subprocess.call(..., shell=True, ...)
+          - pattern: subprocess.Popen(..., shell=True, ...)
+
+  - id: jarvis.javascript.dynamic-eval
+    message: Éviter eval() dans les interfaces JARVIS.
+    severity: ERROR
+    languages: [javascript, typescript]
+    pattern: eval(...)
+
+  - id: jarvis.react.dangerous-html
+    message: dangerouslySetInnerHTML exige une revue XSS et un assainissement explicite.
+    severity: ERROR
+    languages: [typescript]
+    pattern: |
+      <$TAG ... dangerouslySetInnerHTML={...} ... />

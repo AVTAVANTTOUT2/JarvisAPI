@@ -517,17 +517,27 @@ JarvisAPI/
 
 ```bash
 python -m pip install -r requirements.txt                 # dépendances de production
+python -m pip install -r requirements-dev.txt             # tests + garde-fous qualité
 python -m pytest tests/ jarvis/tests agents/devagent -q   # suite backend complète
+python scripts/quality_gate.py --base origin/main         # qualité des changements
 cd frontend && pnpm test && pnpm typecheck && pnpm build  # frontend canonique
 cd frontend && pnpm test:e2e                              # desktop + mobile + CSP statique
 ```
 
 CI GitHub Actions (`.github/workflows/ci.yml`) sur chaque push/PR : installation
-réelle de `requirements.txt`, `pip check` et imports des dépendances lourdes,
-import des modules applicatifs, pytest complet, tests/typecheck/build Vite,
-puis tests/typecheck/build et 9 scénarios Playwright du frontend Next.js unifié.
-Les manifests `frontend` et `web` ainsi que les deux jobs Node utilisent tous
-la version exacte `pnpm 11.11.0` avec leurs lockfiles v9 gelés.
+réelle de `requirements.txt`, `pip check`, `pip-audit` et imports des dépendances
+lourdes, import des modules applicatifs, pytest complet avec couverture branchée
+(seuil initial 35 %), tests/typecheck/build Vite, puis tests/typecheck/build et
+9 scénarios Playwright du frontend Next.js unifié. Un job qualité applique Ruff,
+Black, mypy, Bandit et les règles Semgrep locales aux fichiers modifiés ; un
+noyau Python annoté reste contrôlé par mypy sur chaque exécution.
+Les manifests `frontend` et `web` ainsi que les trois jobs Node utilisent tous
+la version exacte `pnpm 11.11.0` avec leurs lockfiles v9 gelés. Leurs dépendances
+de production échouent dès une alerte npm élevée. L'avis React Router
+`GHSA-qwww-vcr4-c8h2`, propre aux Server Components/Server Actions, est exclu
+tant que ces applications restent des exports statiques sans serveur React.
+Le fallback `pwa/` historique est audité au niveau critique ; ses alertes élevées
+restent une dette de migration isolée de l'interface canonique.
 Un runner `macos-14` installe aussi la pile réelle et valide `osascript`,
 Mail/Calendar/Contacts/Messages simulés, les LaunchAgents, `say`, CoreAudio,
 iMessage en lecture seule, la capture et le pipeline audio natif.
