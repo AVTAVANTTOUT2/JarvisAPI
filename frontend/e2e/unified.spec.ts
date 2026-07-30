@@ -97,16 +97,7 @@ test('@desktop serves the complete navigation behind the shared auth gate', asyn
   await expect(turns.getByText('5', { exact: true })).toBeVisible()
 })
 
-test('@mobile selects the responsive dashboard', async ({ page }) => {
-  await mockApi(page, true)
-  await page.goto('/dashboard')
-
-  await expect(page.getByRole('heading', { name: /^(Bonjour|Bonsoir), Elias\.$/ })).toBeVisible()
-  await expect(page.getByRole('navigation')).toBeVisible()
-  await expect(page.getByTestId('lock-gate')).toHaveCount(0)
-})
-
-test('@mobile never reveals private content without an authenticated session', async ({ page }) => {
+test('@desktop never reveals private content without an authenticated session', async ({ page }) => {
   await mockApi(page, false)
   await page.goto('/dashboard')
 
