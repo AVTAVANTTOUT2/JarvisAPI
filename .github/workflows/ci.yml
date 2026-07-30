@@ -199,7 +199,6 @@ jobs:
 
       - name: Installer les dépendances
         run: |
-          npm --prefix ../pwa ci
           pnpm --dir ../web install --frozen-lockfile
           pnpm install --frozen-lockfile
 

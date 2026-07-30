@@ -59,30 +59,6 @@ def fake_repo(tmp_path: Path) -> Path:
     (web / "src" / "sw.ts").write_text("// sw\n", encoding="utf-8")
     (web / "dist" / "index.html").write_text("<html></html>", encoding="utf-8")
 
-    # pwa without out/
-    pwa = tmp_path / "pwa"
-    (pwa / "public").mkdir(parents=True)
-    (pwa / "package.json").write_text(
-        json.dumps(
-            {
-                "dependencies": {"next": "14.2.29", "react": "^18.3.1"},
-                "scripts": {"build": "next build"},
-            }
-        ),
-        encoding="utf-8",
-    )
-    (pwa / "package-lock.json").write_text(
-        json.dumps(
-            {
-                "packages": {
-                    "node_modules/next": {"version": "14.2.29"},
-                    "node_modules/react": {"version": "18.3.1"},
-                }
-            }
-        ),
-        encoding="utf-8",
-    )
-
     # schema sources
     db = tmp_path / "database"
     db.mkdir()
@@ -156,7 +132,7 @@ def test_discover_frontends_classifies_projects(fake_repo: Path) -> None:
     assert projects["frontend"].locked_versions["react"] == "19.2.7"
     assert projects["frontend"].output_present is True
     assert projects["web"].status == "fallback_actif"
-    assert projects["pwa"].output_present is False
+    assert "pwa" not in projects
     assert projects["tv"].status == "actif_tv_5174"
     assert projects["front_tv"].status == "orphelin"
 

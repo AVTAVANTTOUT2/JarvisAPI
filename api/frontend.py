@@ -1,4 +1,4 @@
-"""Montage des frontends desktop, PWA et legacy."""
+"""Montage des frontends bureau (Next.js unifié, repli Vite, repli Jinja)."""
 
 from __future__ import annotations
 
@@ -30,10 +30,7 @@ WEB_DIST = Path(os.getenv("WEB_DIST_DIR", str(BASE_DIR / "web" / "dist"))).resol
 WEB_STATIC = BASE_DIR / "web" / "static"
 WEB_TEMPLATES = BASE_DIR / "web" / "templates"
 
-# Répertoire PWA mobile (build statique Next.js output: 'export')
-PWA_DIR = Path(config.PWA_DIR).resolve() if config.PWA_DIR else None
-
-# Segments React Router (BrowserRouter) — whitelist historique + BIG BROTHER.
+# Segments React Router (BrowserRouter) — liste blanche BIG BROTHER.
 _SPA_SEGMENTS = frozenset({
     "chat", "voice", "tasks", "documents", "memory", "status",
     "dashboard", "contacts", "map", "analytics", "search", "data",
@@ -41,135 +38,22 @@ _SPA_SEGMENTS = frozenset({
     "voice-debug", "control", "mission", "mobile",
 })
 
-# Préfixe de la PWA (doit correspondre au basePath Next.js)
-_PWA_PREFIX = "/m"
 
-
-# Segments PWA : routes Next.js en export statique
-_PWA_SEGMENTS = frozenset({
-    "dashboard", "map", "mails", "tasks", "config", "voice",
-})
-_UNIFIED_SEGMENTS = _SPA_SEGMENTS | _PWA_SEGMENTS
+# `cognitive` manquait à l'union historique : /cognitive répondait 404 au
+# rechargement dur alors que la page existait dans le build.
+_UNIFIED_SEGMENTS = _SPA_SEGMENTS | {"mails", "config", "cognitive"}
 
 
 # Détection UA : une seule implémentation, dans api/web_mobile.py.
 _is_mobile_device = web_mobile.is_mobile_device
 
 
-def _setup_pwa_frontend(app: FastAPI) -> bool:
-    """Configure le serving de la PWA mobile (build statique Next.js).
-
-    La PWA est servie sous le préfixe ``/m/`` pour partager la même origine
-    HTTP que le backend — le cookie de session auth est donc automatiquement
-    transmis sans configuration supplémentaire.
-
-    Returns:
-        True si la PWA a été montée avec succès.
-    """
-    if not PWA_DIR or not PWA_DIR.is_dir():
-        return False
-
-    pwa_index = PWA_DIR / "index.html"
-    if not pwa_index.is_file():
-        logger.warning("PWA: répertoire présent mais pas d'index.html — build manquant ?")
-        return False
-
-    # Assets Next.js (_next/static/)
-    next_static = PWA_DIR / "_next" / "static"
-    if next_static.is_dir():
-        app.mount(
-            f"{_PWA_PREFIX}/_next/static",
-            StaticFiles(directory=str(next_static)),
-            name="pwa_next_static",
-        )
-        logger.info("PWA: assets Next.js montés sur %s/_next/static", _PWA_PREFIX)
-    else:
-        logger.warning("PWA: _next/static absent — CSS/JS cassés sur mobile")
-
-    # Icônes PWA
-    pwa_icons = PWA_DIR / "icons"
-    if pwa_icons.is_dir():
-        app.mount(
-            f"{_PWA_PREFIX}/icons",
-            StaticFiles(directory=str(pwa_icons)),
-            name="pwa_icons",
-        )
-
-    # Fichiers racine PWA : manifest.json, sw.js
-    for filename in ("manifest.json", "sw.js", "workbox-4754cb34.js"):
-        fp = PWA_DIR / filename
-        if not fp.is_file():
-            continue
-        media_type = {
-            "manifest.json": "application/manifest+json",
-            "sw.js": "application/javascript",
-            "workbox-4754cb34.js": "application/javascript",
-        }.get(filename, "application/octet-stream")
-
-        async def _serve_pwa_root(fp_local: Path = fp, mt: str = media_type):
-            return FileResponse(
-                fp_local, media_type=mt,
-                headers={"Cache-Control": "public, max-age=3600"},
-            )
-
-        app.add_api_route(
-            f"{_PWA_PREFIX}/{filename}",
-            _serve_pwa_root,
-            methods=["GET"],
-            include_in_schema=False,
-        )
-
-    # Route racine PWA : /m/ et /m
-    @app.get(f"{_PWA_PREFIX}/", include_in_schema=False)
-    @app.get(f"{_PWA_PREFIX}", include_in_schema=False)
-    async def serve_pwa_root():
-        return FileResponse(
-            pwa_index,
-            media_type="text/html; charset=utf-8",
-            headers={"Cache-Control": "no-cache"},
-        )
-
-    # Routes PWA : /m/dashboard, /m/map, etc.
-    @app.get(f"{_PWA_PREFIX}/{{segment}}", include_in_schema=False)
-    async def serve_pwa_segment(segment: str):
-        # Servir les fichiers statiques de la PWA
-        candidate_html = PWA_DIR / f"{segment}.html"
-        if candidate_html.is_file():
-            return FileResponse(
-                candidate_html,
-                media_type="text/html; charset=utf-8",
-                headers={"Cache-Control": "no-cache"},
-            )
-        # Fallback : SPA routing — servir l'index PWA
-        if segment in _PWA_SEGMENTS:
-            return FileResponse(
-                pwa_index,
-                media_type="text/html; charset=utf-8",
-                headers={"Cache-Control": "no-cache"},
-            )
-        raise HTTPException(404)
-
-    # Sous-routes PWA (ex: /m/tasks/create si existant)
-    @app.get(f"{_PWA_PREFIX}/{{parent}}/{{child:path}}", include_in_schema=False)
-    async def serve_pwa_nested(parent: str, child: str):
-        if parent in ("_next", "icons"):
-            raise HTTPException(404)
-        return FileResponse(
-            pwa_index,
-            media_type="text/html; charset=utf-8",
-            headers={"Cache-Control": "no-cache"},
-        )
-
-    logger.info("PWA mobile montée sur %s (build: %s)", _PWA_PREFIX, PWA_DIR)
-    return True
-
-
 def _setup_unified_frontend(app: FastAPI) -> bool:
     """Monte le build Next.js 15 responsive lorsqu'il est disponible.
 
     L'ancien build Vite reste le fallback de :func:`_setup_frontend` et la
-    PWA historique reste accessible sous ``/m/``. Le frontend unifié est
-    volontairement servi à la racine : il choisit son layout côté client.
+    Le frontend unifié est volontairement servi à la racine ; les téléphones
+    n'y arrivent jamais, ils sont redirigés vers ``/mobile/`` en amont.
     Critère de validité partagé avec le supervisor : :func:`is_usable_next_build`.
     """
     if not is_usable_next_build(FRONTEND_DIST):
@@ -248,11 +132,11 @@ def _setup_unified_frontend(app: FastAPI) -> bool:
 
 
 def _setup_frontend(app: FastAPI) -> None:
-    """Sert le frontend unifié, puis Vite ou Jinja en fallback.
+    """Sert le frontend unifié, puis Vite ou Jinja en repli.
 
-    Si la PWA mobile est configurée (``PWA_ENABLED=true``) et que le build
-    statique Next.js est présent dans ``PWA_DIR``, elle est montée sous
-    ``/m/`` et les terminaux mobiles sont automatiquement redirigés.
+    L'interface mobile autonome est montée en premier : elle doit exister
+    avant l'attrape-tout du frontend unifié, et sa redirection s'applique
+    quel que soit le repli bureau retenu ensuite.
     """
     if WEB_STATIC.is_dir():
         app.mount("/static", StaticFiles(directory=WEB_STATIC), name="static")
@@ -262,11 +146,6 @@ def _setup_frontend(app: FastAPI) -> None:
     # `_setup_unified_frontend` n'enregistre son attrape-tout `/{segment}`,
     # et avant son `return` qui court-circuite le reste de cette fonction.
     web_mobile.setup(app)
-
-    # ── PWA mobile ──────────────────────────────────────────────
-    pwa_available = False
-    if config.PWA_ENABLED:
-        pwa_available = _setup_pwa_frontend(app)
 
     # ── Frontend responsive unifié (prioritaire) / Vite fallback ─
     # Même priorité que le supervisor (core.frontend_resolution).
@@ -320,21 +199,9 @@ def _setup_frontend(app: FastAPI) -> None:
 
         @app.get("/", include_in_schema=False)
         async def serve_spa_root(request: Request):
-            # L'interface mobile autonome prime sur la PWA historique.
+            # Un téléphone ne doit jamais atteindre le repli bureau.
             if web_mobile.should_redirect(request):
                 return web_mobile.redirect()
-
-            # Redirection automatique mobile → PWA
-            if pwa_available and _is_mobile_device(
-                request.headers.get("user-agent", "")
-            ):
-                if config.PWA_URL:
-                    # PWA externe (autre port/domaine) → redirection HTTP 302
-                    return RedirectResponse(
-                        config.PWA_URL, status_code=302,
-                    )
-                # PWA servie localement → redirection vers /m/
-                return RedirectResponse(f"{_PWA_PREFIX}/", status_code=302)
 
             try:
                 return FileResponse(
@@ -348,10 +215,6 @@ def _setup_frontend(app: FastAPI) -> None:
 
         @app.get("/{segment}", include_in_schema=False)
         async def serve_spa_segment(segment: str, request: Request):
-            # Le préfixe PWA /m/ est déjà géré par _setup_pwa_frontend
-            if segment == _PWA_PREFIX.lstrip("/"):
-                raise HTTPException(404)
-
             if segment not in _SPA_SEGMENTS:
                 raise HTTPException(404)
             try:
@@ -381,11 +244,7 @@ def _setup_frontend(app: FastAPI) -> None:
                 logger.error(f"SPA nested inaccessible : {e}")
                 raise HTTPException(503, "Fichiers frontend illisibles.") from e
 
-        logger.info(
-            "Frontend React (Vite) : %s %s",
-            WEB_DIST,
-            "(+ PWA /m/)" if pwa_available else "",
-        )
+        logger.info("Frontend React (Vite) : %s", WEB_DIST)
         return
 
     tmpl = WEB_TEMPLATES / "index.html"

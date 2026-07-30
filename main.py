@@ -27,7 +27,6 @@ from api.chat_processing import _process_message_internal
 from api.frontend import (
     _is_mobile_device as _is_mobile_device,
     _setup_frontend,
-    _setup_pwa_frontend as _setup_pwa_frontend,
 )
 from api.lifespan import lifespan
 from api.middleware import security_middleware
