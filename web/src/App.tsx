@@ -28,6 +28,7 @@ const TasksView = lazy(() => import('@desktop/app/components/views/TasksView'));
 const VoiceDebugView = lazy(() => import('@desktop/app/components/views/VoiceDebugView'));
 const MissionControl = lazy(() => import('@desktop/pages/MissionControl'));
 const MobileDevicesView = lazy(() => import('@desktop/app/components/views/MobileDevicesView'));
+const FitnessView = lazy(() => import('@desktop/app/components/views/FitnessView').then(m => ({ default: m.FitnessView })));
 
 function S({ children }: { children: ReactNode }) {
   return (
@@ -73,6 +74,7 @@ export default function App() {
             <Route path="voice-debug" element={<S><VoiceDebugView /></S>} />
             <Route path="mission" element={<S><MissionControl /></S>} />
             <Route path="mobile" element={<S><MobileDevicesView /></S>} />
+            <Route path="fitness" element={<S><FitnessView /></S>} />
             <Route path="*" element={<Navigate to="/chat" replace />} />
           </Route>
         </Routes>

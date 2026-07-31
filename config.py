@@ -370,6 +370,11 @@ QUOTE_TIME = _get("QUOTE_TIME", "07:00")            # citation ironique du jour
 BIRTHDAY_CHECK_TIME = _get("BIRTHDAY_CHECK_TIME", "08:00")
 RITUALS_TTS = _get("RITUALS_TTS", "true").lower() == "true"  # roast/debrief parlés via daemon
 
+# ── Fitness proactif ───────────────────────────────────────
+# Interrupteur global d'urgence. Les horaires et la cadence se règlent ensuite
+# depuis l'écran Fitness et sont persistés dans fitness_programs.
+FITNESS_REMINDERS_ENABLED = _get("FITNESS_REMINDERS_ENABLED", "true").lower() == "true"
+
 # ── Debrief hebdo vocal + mood tracking discret ──────────────
 WEEKLY_DEBRIEF_TIME = _get("WEEKLY_DEBRIEF_TIME", "21:00")   # dimanche soir
 MOOD_SIGNAL_TIME = _get("MOOD_SIGNAL_TIME", "23:15")         # calcul du signal quotidien

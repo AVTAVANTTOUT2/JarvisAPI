@@ -221,6 +221,32 @@ export const api = {
   deleteAllTasks: () =>
     request<{ ok: boolean; deleted_count: number }>('/api/tasks', { method: 'DELETE' }),
 
+  getFitnessDashboard: (date?: string) =>
+    request(`/api/fitness/dashboard${date ? `?date=${encodeURIComponent(date)}` : ''}`),
+  updateFitnessSession: (sessionId: number, body: Record<string, unknown>) =>
+    request(`/api/fitness/sessions/${sessionId}/progress`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+  addFitnessMeal: (body: Record<string, unknown>) =>
+    request('/api/fitness/meals', { method: 'POST', body: JSON.stringify(body) }),
+  addFitnessWater: (body: Record<string, unknown>) =>
+    request('/api/fitness/water', { method: 'POST', body: JSON.stringify(body) }),
+  addFitnessWeight: (body: Record<string, unknown>) =>
+    request('/api/fitness/weights', { method: 'POST', body: JSON.stringify(body) }),
+  getFitnessAdvice: (date?: string) =>
+    request(`/api/fitness/advice${date ? `?date=${encodeURIComponent(date)}` : ''}`, {
+      method: 'POST',
+    }),
+  updateFitnessProgram: (body: Record<string, unknown>) =>
+    request('/api/fitness/program', { method: 'PATCH', body: JSON.stringify(body) }),
+  updateFitnessProgramSession: (sessionId: number, body: Record<string, unknown>) =>
+    request(`/api/fitness/program/sessions/${sessionId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+  getFitnessWeights: (limit = 52) => request(`/api/fitness/weights?limit=${limit}`),
+
   getLifeProfile: () => request('/api/life-profile'),
   addProfileEntry: (category: string, content: string) =>
     request('/api/life-profile', {

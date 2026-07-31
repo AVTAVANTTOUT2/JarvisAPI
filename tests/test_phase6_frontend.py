@@ -59,6 +59,23 @@ def test_cognitive_route_is_served(tmp_path, monkeypatch):
         assert client.get("/cognitive").text == "unified-cognitive"
 
 
+def test_fitness_route_is_served(tmp_path, monkeypatch):
+    """La page Fitness exportée doit survivre à un rechargement direct."""
+    unified = tmp_path / "frontend"
+    _write(unified / "index.html", "unified-root")
+    _write(unified / "fitness" / "index.html", "unified-fitness")
+    _write(unified / "_next" / "static" / "app.js", "asset")
+
+    monkeypatch.setattr(frontend, "FRONTEND_DIST", unified)
+    monkeypatch.setattr(frontend, "WEB_DIST", tmp_path / "missing-web")
+
+    app = FastAPI()
+    frontend._setup_frontend(app)
+
+    with TestClient(app) as client:
+        assert client.get("/fitness").text == "unified-fitness"
+
+
 def test_vite_frontend_remains_fallback_without_unified_build(tmp_path, monkeypatch):
     web = tmp_path / "web"
     _write(web / "index.html", "vite-fallback")

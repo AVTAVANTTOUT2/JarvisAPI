@@ -57,7 +57,7 @@ Web · Voix · Android · iMessage
 - **Suivi proactif** : tri des emails, notifications, rituels planifiés, mode Ne pas déranger, présence et analyse locale de l'écran.
 - **Localisation** : points GPS, lieux favoris, visites, trajets et habitudes géographiques.
 - **Relations** : historique iMessage, fiches contacts, chronologies, rappels et suggestions de messages.
-- **Santé et activité** : entraînements, repas, hydratation, bien-être et résumé quotidien.
+- **Fitness et nutrition** : programme poids du corps modifiable en base, séances/exercices fait ou non fait, échauffements et étirements, repas/calories/protéines, eau, pesée, conseils IA et relances vocales jusqu'à validation.
 - **Développement** : routage des demandes techniques, plans d'exécution confirmés, travaux isolés et DevAgent pour les tâches multi-étapes.
 - **Multi-appareils** : interface Web responsive, interface mobile légère, application Android native, agent Mac distant et tableau de bord TV.
 - **Sécurité et fiabilité** : écoute réseau locale par défaut, sessions protégées, contrôle CSRF, permissions de fichiers strictes, sauvegardes chiffrées et rotation automatique.
@@ -73,6 +73,8 @@ JARVIS accepte des demandes naturelles, sans syntaxe particulière :
 « Résume ce document et transforme-le en fiche de révision. »
 « Depuis combien de temps n'ai-je pas parlé à Paul ? »
 « Note dans mon journal que la réunion s'est bien passée. »
+« J'ai fait mon sport. »
+« J'ai mangé du poulet et du riz, environ 700 calories. »
 « Explique cette erreur puis prépare un correctif dans un projet isolé. »
 ```
 

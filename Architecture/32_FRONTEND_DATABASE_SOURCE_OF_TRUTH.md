@@ -20,8 +20,8 @@
 
 | Question | Réponse vérifiée |
 |---|---|
-| Combien de tables après `init_db()` (défaut, FTS5 disponible) ? | **81** entrées `sqlite_master` de type `table` (hors `sqlite_*`) |
-| Combien hors objets FTS5 ? | **76** tables persistantes |
+| Combien de tables après `init_db()` (défaut, FTS5 disponible) ? | **90** entrées `sqlite_master` de type `table` (hors `sqlite_*`) |
+| Combien hors objets FTS5 ? | **85** tables persistantes |
 | D'où vient « **46** » ? | Dump statique `database/schema.sql` (46 tables applicatives + `sqlite_sequence`) — **non exécuté** par `init_db()` |
 | D'où vient « **73** » ? | Inventaire Architecture antérieur au chat mobile, à la délégation Cursor et au pairage desktop sécurisé |
 | Frontend canonique (FastAPI 8081) ? | **`frontend/`** — Next.js **15.5.20**, React **19.2.7** (lockfile), export → `frontend/out/` |
@@ -34,11 +34,12 @@
 **Formulation canonique (à réutiliser partout) :**
 
 ```text
-Le projet crée 76 tables persistantes après init_db() + migrations
+Le projet crée 85 tables persistantes après init_db() + migrations
 (Vague 2B : location_point_dedup + mobile_chat_dedup ; délégation Cursor :
 cursor_delegation_jobs ; pairage desktop : device_pairing_codes +
-device_pairing_attempts ; auth : auth_rate_limits), plus jusqu'à 5 objets
-FTS5 (messages_fts + 4 auxiliaires) lorsque FTS5 est disponible, soit 81 tables physiques sur une
+device_pairing_attempts ; auth : auth_rate_limits ; Fitness : quatre journaux
+historiques + cinq tables de programme, progression, pesée et relances), plus
+jusqu'à 5 objets FTS5 (messages_fts + 4 auxiliaires) lorsque FTS5 est disponible, soit 90 tables physiques sur une
 base neuve avec configuration par défaut. Le dump database/schema.sql
 (46 tables applicatives) est un snapshot historique, pas le schéma
 d'exécution.
@@ -216,11 +217,11 @@ init_db()  [database/core.py]
 | F | Tables de tests (fixtures pytest) | **0** dans la base applicative |
 | — | Dump `schema.sql` (snapshot) | **46** applicatives + `sqlite_sequence` |
 | — | `schema.py` seul | **50** |
-| — | Persistantes post-`init_db` (hors FTS) | **76** |
-| — | Physiques post-`init_db` défaut (FTS ON) | **81** |
-| — | Référencées / créées par le code d’init | **76 + condition FTS** |
+| — | Persistantes post-`init_db` (hors FTS) | **85** |
+| — | Physiques post-`init_db` défaut (FTS ON) | **90** |
+| — | Référencées / créées par le code d’init | **85 + condition FTS** |
 
-### Réconciliation 46 vs 76 vs 81
+### Réconciliation 46 vs 85 vs 90
 
 | Affirmation | Origine | Verdict |
 |---|---|---|
@@ -228,9 +229,11 @@ init_db()  [database/core.py]
 | 72 | Diagramme README | Obsolete |
 | 73 | Architecture juil. 2026 | Dépassé par les migrations mobile/Cursor/device |
 | 75 | Total avant le limiteur d'authentification par client | Dépassé |
-| 76 | Total persistant actuel, hors objets FTS5 | **Exact** |
+| 76 | Total avant les extensions auth et Fitness | Dépassé |
 | 78 | Audit intermédiaire de juillet 2026 | Dépassé |
-| 81 | `tests/test_event_bus_integration.py` + limiteur d'authentification | **Exact** si FTS5 disponible |
+| 81 | Audit intermédiaire avant le programme Fitness complet | Dépassé |
+| 85 | Total persistant actuel, hors objets FTS5 | **Exact** |
+| 90 | `tests/test_event_bus_integration.py` avec FTS5 disponible | **Exact** |
 
 ---
 
@@ -285,6 +288,14 @@ Statuts : `active` | `technique` | `miroir` | `conditionnelle` | `devagent`
 | Table | Création | Statut |
 |---|---|---|
 | `school_subjects`, `school_documents`, `school_flashcards` | schema.py | active |
+
+### Fitness
+
+| Table | Création | Statut |
+|---|---|---|
+| `workouts`, `meals`, `water_intake`, `wellbeing_logs` | migrations.py | historique actif |
+| `fitness_programs`, `fitness_program_sessions` | migrations.py | programme modifiable |
+| `fitness_session_progress`, `fitness_weight_logs`, `fitness_prompt_log` | migrations.py | suivi interactif / relances |
 
 ### Localisation
 

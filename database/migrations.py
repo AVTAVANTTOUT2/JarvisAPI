@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import sqlite3
 
@@ -786,7 +787,7 @@ def _migrate_mobile_chat_dedup(conn: sqlite3.Connection) -> None:
 
 
 def _migrate_fitness(conn: sqlite3.Connection) -> None:
-    """Tables de suivi activité, nutrition, hydratation et bien-être."""
+    """Programme, suivi d'activité, nutrition, hydratation et bien-être."""
     conn.executescript(
         """
         CREATE TABLE IF NOT EXISTS workouts (
@@ -841,8 +842,230 @@ def _migrate_fitness(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_meals_date ON meals(date);
         CREATE INDEX IF NOT EXISTS idx_water_date ON water_intake(date);
         CREATE INDEX IF NOT EXISTS idx_wellbeing_date ON wellbeing_logs(date);
+
+        CREATE TABLE IF NOT EXISTS fitness_programs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            goal TEXT NOT NULL,
+            active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0, 1)),
+            weekly_min_sessions INTEGER NOT NULL DEFAULT 3 CHECK(weekly_min_sessions BETWEEN 1 AND 7),
+            calories_min INTEGER NOT NULL DEFAULT 3000 CHECK(calories_min >= 0),
+            calories_max INTEGER NOT NULL DEFAULT 3500 CHECK(calories_max >= calories_min),
+            protein_min_g INTEGER NOT NULL DEFAULT 120 CHECK(protein_min_g >= 0),
+            protein_max_g INTEGER NOT NULL DEFAULT 145 CHECK(protein_max_g >= protein_min_g),
+            reminders_enabled INTEGER NOT NULL DEFAULT 1 CHECK(reminders_enabled IN (0, 1)),
+            reminder_time TEXT NOT NULL DEFAULT '18:00',
+            reminder_interval_min INTEGER NOT NULL DEFAULT 120 CHECK(reminder_interval_min BETWEEN 30 AND 720),
+            meal_tracking_enabled INTEGER NOT NULL DEFAULT 1 CHECK(meal_tracking_enabled IN (0, 1)),
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS fitness_program_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            program_id INTEGER NOT NULL REFERENCES fitness_programs(id) ON DELETE CASCADE,
+            position INTEGER NOT NULL,
+            day_of_week INTEGER NOT NULL CHECK(day_of_week BETWEEN 0 AND 6),
+            type TEXT NOT NULL CHECK(
+                type IN ('poussee', 'tirage', 'jambes', 'full_body', 'natation', 'autre')
+            ),
+            title TEXT NOT NULL,
+            description TEXT,
+            warmup_json TEXT NOT NULL DEFAULT '[]',
+            exercises_json TEXT NOT NULL DEFAULT '[]',
+            stretches_json TEXT NOT NULL DEFAULT '[]',
+            notes TEXT,
+            active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0, 1)),
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(program_id, position)
+        );
+
+        CREATE TABLE IF NOT EXISTS fitness_session_progress (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            program_session_id INTEGER NOT NULL REFERENCES fitness_program_sessions(id) ON DELETE CASCADE,
+            date TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'planned' CHECK(status IN ('planned', 'in_progress', 'done', 'skipped')),
+            exercise_results_json TEXT NOT NULL DEFAULT '[]',
+            duration_min INTEGER CHECK(duration_min IS NULL OR duration_min > 0),
+            perceived_effort INTEGER CHECK(perceived_effort IS NULL OR perceived_effort BETWEEN 1 AND 10),
+            notes TEXT,
+            completed_at TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(program_session_id, date)
+        );
+
+        CREATE TABLE IF NOT EXISTS fitness_weight_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT NOT NULL UNIQUE,
+            weight_kg REAL NOT NULL CHECK(weight_kg BETWEEN 20 AND 500),
+            notes TEXT,
+            source TEXT NOT NULL CHECK(source IN ('voice', 'pwa')),
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS fitness_prompt_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT NOT NULL,
+            kind TEXT NOT NULL CHECK(kind IN ('workout', 'meal')),
+            reference TEXT NOT NULL,
+            prompted_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(date, kind, reference, prompted_at)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_fitness_program_active ON fitness_programs(active);
+        CREATE INDEX IF NOT EXISTS idx_fitness_sessions_day ON fitness_program_sessions(program_id, day_of_week);
+        CREATE INDEX IF NOT EXISTS idx_fitness_progress_date ON fitness_session_progress(date, status);
+        CREATE INDEX IF NOT EXISTS idx_fitness_weight_date ON fitness_weight_logs(date);
+        CREATE INDEX IF NOT EXISTS idx_fitness_prompt_date ON fitness_prompt_log(date, kind);
         """
     )
+
+    meal_columns = {row[1] for row in conn.execute("PRAGMA table_info(meals)").fetchall()}
+    if "protein_g" not in meal_columns:
+        conn.execute(
+            "ALTER TABLE meals ADD COLUMN protein_g REAL "
+            "CHECK(protein_g IS NULL OR protein_g >= 0)"
+        )
+
+    # Programme initial fourni par l'utilisateur. Les INSERT OR IGNORE le
+    # rendent idempotent tout en laissant toutes les modifications ultérieures
+    # intactes.
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO fitness_programs (
+            id, name, goal, active, weekly_min_sessions,
+            calories_min, calories_max, protein_min_g, protein_max_g,
+            reminders_enabled, reminder_time, reminder_interval_min,
+            meal_tracking_enabled
+        ) VALUES (1, ?, ?, 1, 3, 3000, 3500, 120, 145, 1, '18:00', 120, 1)
+        """,
+        (
+            "Programme poids du corps — prise de masse",
+            "Prise de poids progressive avec 4 séances par semaine, 3 minimum, et natation occasionnelle.",
+        ),
+    )
+
+    sessions = [
+        {
+            "position": 1,
+            "day": 0,
+            "type": "poussee",
+            "title": "Poussée",
+            "description": "Pectoraux, épaules et triceps.",
+            "warmup": [
+                {"name": "Cercles d'épaules", "duration_sec": 45},
+                {"name": "Pompes scapulaires", "sets": 2, "reps": "10"},
+                {"name": "Pompes inclinées faciles", "sets": 1, "reps": "10"},
+            ],
+            "exercises": [
+                {"name": "Pompes", "sets": 4, "reps": "8-15", "progression": "Standard → pieds surélevés → tempo lent → sac à dos"},
+                {"name": "Pike push-ups", "sets": 3, "reps": "8-12", "progression": "Surélever progressivement les pieds"},
+                {"name": "Dips entre deux chaises", "sets": 3, "reps": "8-12", "progression": "Amplitude contrôlée, chaises parfaitement stables"},
+                {"name": "Pompes diamant", "sets": 3, "reps": "max propre", "progression": "Arrêter avant la dégradation technique"},
+                {"name": "Planche", "sets": 3, "duration_sec": "30-60", "progression": "Ajouter 5 à 10 secondes"},
+            ],
+            "stretches": [
+                {"name": "Étirement pectoral contre un mur", "duration_sec": 30, "sides": 2},
+                {"name": "Triceps au-dessus de la tête", "duration_sec": 30, "sides": 2},
+                {"name": "Posture de l'enfant", "duration_sec": 45},
+            ],
+            "notes": "Dès que 12 à 15 répétitions sont propres, choisir une variante plus difficile, ralentir le tempo ou ajouter du volume.",
+        },
+        {
+            "position": 2,
+            "day": 1,
+            "type": "tirage",
+            "title": "Tirage avec barre",
+            "description": "Dos, biceps, préhension et abdominaux.",
+            "warmup": [
+                {"name": "Cercles d'épaules et poignets", "duration_sec": 60},
+                {"name": "Suspensions scapulaires légères", "sets": 2, "reps": "6-8"},
+            ],
+            "exercises": [
+                {"name": "Tractions pronation", "sets": 4, "reps": "max propre", "progression": "Si nécessaire: 4×5 négatives de 3-5 s ou pied au sol; à 8-10 reps, ajouter du volume"},
+                {"name": "Tractions supination", "sets": 3, "reps": "max propre", "progression": "Contrôler la descente"},
+                {"name": "Suspension active", "sets": 3, "duration_sec": "20-30", "progression": "Ajouter 5 secondes"},
+                {"name": "Rows sous table", "sets": 3, "reps": "12-15", "progression": "Avancer les pieds pour augmenter l'angle"},
+                {"name": "Relevés de jambes suspendu", "sets": 3, "reps": "10-15", "progression": "Genoux fléchis puis jambes tendues"},
+            ],
+            "stretches": [
+                {"name": "Étirement du grand dorsal", "duration_sec": 40, "sides": 2},
+                {"name": "Avant-bras et poignets", "duration_sec": 30, "sides": 2},
+                {"name": "Suspension passive douce", "duration_sec": 20},
+            ],
+            "notes": "La barre de traction est l'axe principal de progression du dos.",
+        },
+        {
+            "position": 3,
+            "day": 3,
+            "type": "jambes",
+            "title": "Jambes et fessiers",
+            "description": "Force unilatérale, chaîne postérieure et mollets.",
+            "warmup": [
+                {"name": "Mobilité chevilles et hanches", "duration_sec": 90},
+                {"name": "Squats contrôlés", "sets": 2, "reps": "10"},
+            ],
+            "exercises": [
+                {"name": "Squats bulgares ou pistol squat progressif", "sets": 4, "reps": "12-20", "progression": "Réduire progressivement l'assistance"},
+                {"name": "Fentes marchées", "sets": 3, "reps": "12/jambe", "progression": "Tempo 3 secondes en descente"},
+                {"name": "Hip thrust pied surélevé", "sets": 3, "reps": "15-20", "progression": "Passer en unilatéral"},
+                {"name": "Mollets sur marche", "sets": 4, "reps": "20-25", "progression": "Pause de 2 secondes en haut"},
+                {"name": "Wall sit", "sets": 3, "duration_sec": "30-45", "progression": "Ajouter 5 secondes"},
+            ],
+            "stretches": [
+                {"name": "Fléchisseurs de hanche", "duration_sec": 40, "sides": 2},
+                {"name": "Ischio-jambiers", "duration_sec": 40, "sides": 2},
+                {"name": "Mollets contre un mur", "duration_sec": 30, "sides": 2},
+            ],
+            "notes": "Éviter la natation juste avant cette séance.",
+        },
+        {
+            "position": 4,
+            "day": 4,
+            "type": "full_body",
+            "title": "Full body et renfort",
+            "description": "Circuit complet ou travail ciblé des points faibles.",
+            "warmup": [
+                {"name": "Mobilité générale", "duration_sec": 120},
+                {"name": "Montées de genoux légères", "duration_sec": 45},
+            ],
+            "exercises": [
+                {"name": "Pompes", "sets": 4, "reps": "8-15", "progression": "Variante adaptée au niveau"},
+                {"name": "Squats", "sets": 4, "reps": "15-25", "progression": "Tempo lent ou variante unilatérale"},
+                {"name": "Rows sous table", "sets": 4, "reps": "10-15", "progression": "Augmenter l'inclinaison"},
+                {"name": "Fentes", "sets": 3, "reps": "12/jambe", "progression": "Tempo contrôlé"},
+                {"name": "Gainage", "sets": 3, "duration_sec": "30-60", "progression": "Variante plus difficile"},
+            ],
+            "stretches": [
+                {"name": "Étirement global du dos", "duration_sec": 45},
+                {"name": "Quadriceps", "duration_sec": 30, "sides": 2},
+                {"name": "Pectoraux", "duration_sec": 30, "sides": 2},
+            ],
+            "notes": "Faire 3 à 5 tours du circuit, repos 90 secondes entre les tours, ou renforcer les points faibles de la semaine.",
+        },
+    ]
+    for session in sessions:
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO fitness_program_sessions (
+                program_id, position, day_of_week, type, title, description,
+                warmup_json, exercises_json, stretches_json, notes
+            ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                session["position"],
+                session["day"],
+                session["type"],
+                session["title"],
+                session["description"],
+                json.dumps(session["warmup"], ensure_ascii=False),
+                json.dumps(session["exercises"], ensure_ascii=False),
+                json.dumps(session["stretches"], ensure_ascii=False),
+                session["notes"],
+            ),
+        )
 
 
 def run_migrations(conn: sqlite3.Connection) -> None:
