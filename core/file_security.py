@@ -25,7 +25,12 @@ def ensure_private_file(path: str | Path) -> Path:
     if private_file.is_symlink():
         raise RuntimeError(f"fichier sensible refusé (lien symbolique) : {private_file}")
     if private_file.exists():
-        private_file.chmod(PRIVATE_FILE_MODE)
+        try:
+            private_file.chmod(PRIVATE_FILE_MODE)
+        except FileNotFoundError:
+            # Les sidecars SQLite WAL/SHM peuvent disparaître entre exists()
+            # et chmod() lorsqu'une autre connexion ferme son transaction.
+            pass
     return private_file
 
 

@@ -162,6 +162,12 @@ from .devops import (
 
 # Réexports rétrocompatibles des premiers domaines extraits en Phase 2.
 from .settings import get_setting, set_setting
+from .job_runs import (
+    JobRunClaim,
+    claim_job_run,
+    complete_job_run,
+    release_job_run,
+)
 from .tasks import (
     create_task,
     delete_all_tasks,

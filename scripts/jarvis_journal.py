@@ -9,14 +9,23 @@ le LLM ne fait que mettre en forme les chiffres fournis.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime
 
 import config
 import llm
-from database import get_db, upsert_jarvis_journal_entry
+from database import (
+    claim_job_run,
+    complete_job_run,
+    get_db,
+    get_jarvis_journal_entry,
+    release_job_run,
+    upsert_jarvis_journal_entry,
+)
 
 logger = logging.getLogger(__name__)
+_JOURNAL_LOCK = asyncio.Lock()
 
 _SYSTEM_PROMPT = (
     "Tu es JARVIS, majordome IA britannique. Tu tiens un journal personnel, "
@@ -90,8 +99,39 @@ def _facts_to_text(facts: dict) -> str:
 
 
 async def generate_journal_entry(date: str | None = None) -> dict:
-    """Compose et persiste l'entrée du jour. Ne plante jamais (fallback texte)."""
+    """Compose l'entrée une seule fois par jour, concurrence comprise."""
     date = date or _today()
+    async with _JOURNAL_LOCK:
+        existing = get_jarvis_journal_entry(date)
+        if existing and existing.get("entry"):
+            return {
+                "date": date,
+                "entry": existing["entry"],
+                "facts": _day_facts(date),
+                "cached": True,
+            }
+        claim = claim_job_run("jarvis_journal", date)
+        if claim is None:
+            existing = get_jarvis_journal_entry(date) or {}
+            return {
+                "date": date,
+                "entry": existing.get("entry"),
+                "facts": _day_facts(date),
+                "cached": True,
+                "running": True,
+            }
+        try:
+            result = await _generate_journal_entry(date)
+            complete_job_run(claim)
+            result["cached"] = False
+            return result
+        except BaseException:
+            release_job_run(claim)
+            raise
+
+
+async def _generate_journal_entry(date: str) -> dict:
+    """Génère puis persiste l'entrée après acquisition du claim quotidien."""
     facts = _day_facts(date)
     facts_text = _facts_to_text(facts)
 
