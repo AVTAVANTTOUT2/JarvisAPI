@@ -9,15 +9,6 @@
     "preuve": "** `ProgramArguments` / `WorkingDirectory` / logs → `/Users/zeldris/JarvisAPI/...` ; `ls /Users/zeldris/JarvisAPI` → *No such file or directory* ; workspace réel = `/Users/zeldris/JARVIS`."
   },
   {
-    "id": "F-P05-010",
-    "perimeter": "P05",
-    "severity": "CRITICAL",
-    "title": "Sévérité : MEDIUM",
-    "type": "sécurité",
-    "impact": "Injection prompt via corps mail / messages / transcript vers extracteurs JSON (moins critique que terminal, mais peut polluer faits/notifs).",
-    "preuve": "`prompts/email_analyzer.txt:11-14` ; `prompts/imessage_extractor.txt:6-7` ; `prompts/continuous_extractor.txt:5-6` (pas d’instruction ignore-overrides) — contraste `agents/__init__.py:132-133` (voix seulement)"
-  },
-  {
     "id": "P13-F-01",
     "perimeter": "P13",
     "severity": "CRITICAL",
@@ -25,6 +16,24 @@
     "type": "",
     "impact": "",
     "preuve": ""
+  },
+  {
+    "id": "F-P17-001",
+    "perimeter": "P17",
+    "severity": "CRITICAL",
+    "title": "Bypass whitelist IP via `X-Forwarded-For` non authentifié",
+    "type": "sécurité",
+    "impact": "tout client réseau peut envoyer `X-Forwarded-For: 127.0.0.1` et lire `/api/messages`, `/api/emails`, `/api/tasks`, `/api/notifications`, `/api/health` (backend_data), SSE vocal.",
+    "preuve": "`tv/server.py:161-168`"
+  },
+  {
+    "id": "F-P17-002",
+    "perimeter": "P17",
+    "severity": "CRITICAL",
+    "title": "Dashboard TV = lecture PII sans auth (contournement auth API principale)",
+    "type": "sécurité",
+    "impact": "surface « monitoring » exposée au LAN/Tailnet sans PIN ; iMessage, résumés mails, tâches, mood, coûts API. Contourne le fail-closed auth du backend (frontière P02).",
+    "preuve": "`tv/server.py:361-394` + data_sources SQLite `mode=ro` (`tv/data_sources/emails.py:25-32`, `messages.py:96-105`, `notifications.py:39-55`, `tasks.py:38-53`) ; `tv/config.py:18-19` bind all interfaces ; whitelist `/24` + Tailscale `100.64.0.0/10` (`tv/config.py:27-32`)."
   },
   {
     "id": "F-P01-002",
@@ -68,7 +77,7 @@
     "severity": "HIGH",
     "title": "Pairing mobile sans rate — limit (A04)",
     "type": "",
-    "impact": "",
+    "impact": "bruteforce du code pendant sa fenêtre TTL (10 min) depuis le Tailnet / réseau exposé. Usage unique atténue après succès, pas les échecs.",
     "preuve": ""
   },
   {
@@ -87,115 +96,151 @@
     "title": "Contrat Phase 4 OpenAPI/routes obsolète",
     "type": "",
     "impact": "",
-    "preuve": ""
+    "preuve": "- Attendu : `EXPECTED_ROUTE_COUNT=221`, `EXPECTED_OPENAPI_PATH_COUNT=197`"
   },
   {
-    "id": "F-P04-014",
+    "id": "F-P04-001",
     "perimeter": "P04",
     "severity": "HIGH",
-    "title": "Sévérité : MEDIUM",
-    "type": "bug",
-    "impact": "blobs PTT ignorés indéfiniment (`if is_speaking: continue`) sans `speech_done`/`done_playing`.",
-    "preuve": "`api/ws_handler.py:142-146` + retours anticipés `api/ws_messages.py:186-214,478-488`"
-  },
-  {
-    "id": "F-P04-016",
-    "perimeter": "P04",
-    "severity": "HIGH",
-    "title": "Sévérité : MEDIUM",
+    "title": "WebSocket cookie sans validation d’Origin (CSWSH same-site)",
     "type": "sécurité",
-    "impact": "`\"confirmed\":\"false\"` / `1` exécute si `shell_plan_id` valide.",
-    "preuve": "`actions.py:292-295`"
+    "impact": "une page same-site (autre port localhost) peut ouvrir `/ws` avec le cookie, lire le chat et déclencher des actions.",
+    "preuve": "`api/ws_handler.py:41-49`"
   },
   {
-    "id": "F-P04-017",
+    "id": "F-P04-002",
     "perimeter": "P04",
     "severity": "HIGH",
-    "title": "Sévérité : MEDIUM",
-    "type": "perf",
-    "impact": "OOM / DoS mémoire par client Bearer authentifié avant 413.",
-    "preuve": "`api/router_mobile_voice.py:24-25` ; `api/mobile_voice_service.py:47-51`"
+    "title": "`action_confirm` exécute un payload client arbitraire",
+    "type": "sécurité",
+    "impact": "calendrier, tâches, TV, open_app, clipboard… sans proposition serveur. Terminal reste protégé par `shell_plan_id` opaque, pas les autres types.",
+    "preuve": "`api/ws_handler.py:323-336`"
   },
   {
-    "id": "F-P04-018",
+    "id": "F-P04-003",
     "perimeter": "P04",
     "severity": "HIGH",
-    "title": "Sévérité : MEDIUM",
+    "title": "Confirmation textuelle accepte une négation préfixée",
+    "type": "sécurité",
+    "impact": "« lance pas » / « exécute pas » déclenche l’action pending (dont plan shell).",
+    "preuve": "`api/chat_actions.py:230-241`"
+  },
+  {
+    "id": "F-P04-004",
+    "perimeter": "P04",
+    "severity": "HIGH",
+    "title": "Refus mobile n’annule pas la proposition / le plan",
+    "type": "sécurité",
+    "impact": "UI « annulé » mais `_pending_proposal` et `shell_plan_id` restent vivants ; un « oui » ultérieur exécute.",
+    "preuve": "`api/router_mobile_chat.py:136-141`"
+  },
+  {
+    "id": "F-P04-005",
+    "perimeter": "P04",
+    "severity": "HIGH",
+    "title": "Follow-up injecte stdout / clipboard bruts vers le LLM cloud",
+    "type": "sécurité",
+    "impact": "secrets/PII locaux et prompt injection via sorties non fiables quittent la machine vers DeepSeek ; le client reçoit aussi le brut dans `action_result`.",
+    "preuve": "`api/chat_actions.py:298-325` + usage `api/ws_handler.py:357-367`"
+  },
+  {
+    "id": "F-P04-006",
+    "perimeter": "P04",
+    "severity": "HIGH",
+    "title": "Fallback JSON inline exécute un faux bloc action",
+    "type": "sécurité",
+    "impact": "exemple / citation / injection documentaire `{\"type\":\"task\",...}` devient action réelle.",
+    "preuve": "`api/chat_actions.py:387-406`"
+  },
+  {
+    "id": "F-P04-007",
+    "perimeter": "P04",
+    "severity": "HIGH",
+    "title": "Voix mains libres / mobile hors pipeline unifié",
     "type": "contrat-cassé",
-    "impact": "après « dites lance », le message `lance` ne confirme pas le job (sauf voie vocale).",
-    "preuve": "`api/chat_cognitive.py:60-70,109-114` ; appel conditionnel `api/chat_processing.py:91-100`"
+    "impact": "pas d’enrichissement documents/mails/calendar/tâches ; actions/persistance/titrage différents du chat texte. CLAUDE.md annonce le contraire.",
+    "preuve": "`api/voice_processing.py:108-111,191-197` ; `api/mobile_voice_service.py:143-149` ; contraste `api/ws_messages.py:51-58`"
   },
   {
-    "id": "F-P04-019",
+    "id": "F-P04-008",
     "perimeter": "P04",
     "severity": "HIGH",
-    "title": "Sévérité : LOW",
-    "type": "sécurité",
-    "impact": "sujets relationnels / paroles utilisateur dans fichiers logs hors `llm_action_logs` redactés.",
-    "preuve": "`api/chat_context.py:64` ; `api/mobile_voice_service.py:135-141`"
-  },
-  {
-    "id": "F-P04-020",
-    "perimeter": "P04",
-    "severity": "HIGH",
-    "title": "Sévérité : LOW",
+    "title": "Streaming ignore `done.raw_response` → actions School perdues",
     "type": "bug",
-    "impact": "UI reçoit `title=None` ; pas de second event quand le titre existe.",
-    "preuve": "`api/ws_messages.py:457-468`"
+    "impact": "chunks = affichage sans blocs action ; l’action n’est jamais extraite ni exécutée en stream SCHOOL.",
+    "preuve": "`api/ws_messages.py:226-232,261-263` (consommation) ; frontière `agents/school.py:78-97`"
   },
   {
-    "id": "F-P04-021",
+    "id": "F-P04-009",
     "perimeter": "P04",
     "severity": "HIGH",
-    "title": "Sévérité : INFO",
-    "type": "doc-drift",
-    "impact": "masque les vrais appelants (`api/ws_*`, `chat_*`, `voice_*`, mobile).",
-    "preuve": "`actions.py:1-6`"
+    "title": "Idempotence mobile chat non atomique (TOCTOU)",
+    "type": "bug",
+    "impact": "double LLM / double action sur retry concurrent du même `client_message_id`.",
+    "preuve": "`api/router_mobile_chat.py:68-76,90-119`"
   },
   {
-    "id": "F-P05-012",
-    "perimeter": "P05",
+    "id": "F-P04-010",
+    "perimeter": "P04",
     "severity": "HIGH",
-    "title": "Sévérité : LOW",
-    "type": "dead-code | dette",
-    "impact": "Triage toujours main (coût) ; doc « Haiku triage » morte.",
-    "preuve": "`config.py:577` vs `agents/productivity.py` (`model = DEEPSEEK_MAIN_MODEL`, `_route_task` non-heavy → `self.model`)"
+    "title": "Boucle WS bloquée → `voice_cancel` / barge-in non temps réel",
+    "type": "bug",
+    "impact": "aucun JSON/`voice_cancel` lu pendant STT/LLM/TTS ; l’annulation arrive trop tard.",
+    "preuve": "`api/ws_handler.py:82-83,97-100,142-146`"
   },
   {
-    "id": "F-P05-013",
+    "id": "F-P05-001",
     "perimeter": "P05",
     "severity": "HIGH",
-    "title": "Sévérité : LOW",
-    "type": "smell",
-    "impact": "Violation persona (rare path).",
-    "preuve": "`agents/orchestrator.py:639-640`"
+    "title": "Escalade coach « Opus / deep » est un no-op (même modèle)",
+    "type": "contrat-cassé | dead-code",
+    "impact": "Pré-check flash à chaque tour coach non-vocal sans gain de qualité ; doc CLAUDE.md « Opus » mensongère.",
+    "preuve": "`agents/coach.py:162-167` + `config.py:580`"
   },
   {
-    "id": "F-P05-015",
+    "id": "F-P05-002",
     "perimeter": "P05",
     "severity": "HIGH",
-    "title": "Sévérité : LOW",
-    "type": "doc-drift",
-    "impact": "Appelants croient contrôler le cache ; pas de faille runtime.",
-    "preuve": "`llm.py:75-80` (« use_cache … ignoré ») ; cache hit lu `147-148` seulement"
+    "title": "Tag `[DEEP_ANALYSIS]` non stripé → fuite UI",
+    "type": "bug | contrat-cassé",
+    "impact": "Texte utilisateur peut commencer par `[DEEP_ANALYSIS]` ; l’escalade réelle est pré-appel (`_should_escalate`), pas ce tag → instruction morte + fuite.",
+    "preuve": "`prompts/coach.txt:73-74` + `agents/display_text.py:41-43`"
   },
   {
-    "id": "F-P05-017",
+    "id": "F-P05-003",
     "perimeter": "P05",
     "severity": "HIGH",
-    "title": "Sévérité : INFO",
-    "type": "doc-drift",
-    "impact": "Maintenabilité ; pas de bug runtime.",
-    "preuve": "`agents/orchestrator.py:3,338` ; `agents/info.py:16` ; `_call_claude` nom `agents/__init__.py:167` ; `agents/memory.py:9-10`"
+    "title": "Historique utilisateur injecté dans le system prompt sans délimiteurs de confiance",
+    "type": "sécurité",
+    "impact": "Contenu user/assistant traité comme instructions système ; surface d’injection ; tokens doublés (system + messages).",
+    "preuve": "`agents/__init__.py:96-117` (+ duplication messages chat `185-191`)"
   },
   {
-    "id": "F-P05-018",
+    "id": "F-P05-004",
     "perimeter": "P05",
     "severity": "HIGH",
-    "title": "Sévérité : INFO",
-    "type": "smell",
-    "impact": "Point positif checklist 8 (partiel à cause de F-P05-004).",
-    "preuve": "scan `prompts/**` (seule mention `sk-` = guidance `prompts/cursor/security_audit.md:24`) ; `llm.py:150-157` + `agents/__init__.py:247-255`"
+    "title": "Chemin streaming force tokens/cost à 0",
+    "type": "bug | contrat-cassé",
+    "impact": "Sous-déclaration des coûts LLM pour le chat streamé (Info et agents sans `handle_stream` dédié).",
+    "preuve": "`agents/orchestrator.py:745-749`"
+  },
+  {
+    "id": "F-P05-005",
+    "perimeter": "P05",
+    "severity": "HIGH",
+    "title": "`prompts/devops.txt` se présente comme « agent DEVOPS » malgré persona anti-agent",
+    "type": "contrat-cassé | doc-drift",
+    "impact": "Conflit system prompt fort → risque élevé de réponse « je suis l’agent… » à l’utilisateur.",
+    "preuve": "`prompts/devops.txt:1` + `agents/devops.py` (`inject_persona` défaut True) + `prompts/persona.txt:16`"
+  },
+  {
+    "id": "F-P05-006",
+    "perimeter": "P05",
+    "severity": "HIGH",
+    "title": "`jarvis/router` affirme chat LOCAL / privé alors que le chemin appelle DeepSeek",
+    "type": "doc-drift | sécurité",
+    "impact": "Fausse promesse de privacy dans le system prompt ; `LocalBackend` / `DataSource.MESSAGES→LOCAL` hors sync avec la politique 2026.",
+    "preuve": "`jarvis/router.py:1-6`, `29-32`, `56-65` + `jarvis/models.py:16`"
   },
   {
     "id": "P06-P1-01",
@@ -221,7 +266,7 @@
     "severity": "HIGH",
     "title": "Handler sync SQLite sur la boucle asyncio",
     "type": "",
-    "impact": "",
+    "impact": "latence cross-cutting sur chat/voix/WS ; contention avec autres handlers async du même `emit`.",
     "preuve": ""
   },
   {
@@ -230,7 +275,7 @@
     "severity": "HIGH",
     "title": "Handler TTS attendu dans le même `gather` que le bus",
     "type": "",
-    "impact": "",
+    "impact": "couplage domaine→audio ; file d’émissions `notification.created` sérialisée derrière le TTS.",
     "preuve": ""
   },
   {
@@ -252,40 +297,22 @@
     "preuve": ""
   },
   {
-    "id": "F-P09-009",
+    "id": "F-P09-001",
     "perimeter": "P09",
     "severity": "HIGH",
-    "title": "Sévérité : LOW",
-    "type": "dead-code",
-    "impact": "maintenance trompeuse ; wake réel = volume sur flux unique (`934-964`).",
-    "preuve": "`scripts/audio_daemon.py:1534-1538` (`_start_wake_detection` no-op) ; `1554-1646` (boucles encore présentes)"
+    "title": "Half-duplex — `stop_stream()` concurrent au thread micro provoque la mort du capture",
+    "type": "bug",
+    "impact": "après un tour TTS (défaut `AUDIO_DAEMON_HALF_DUPLEX=True`), le lecteur PortAudio peut quitter ; micro mort jusqu’au restart watchdog / boucle immortelle (dizaines de secondes).",
+    "preuve": "`scripts/audio_daemon.py:1368-1372` + `795-809`"
   },
   {
-    "id": "F-P09-010",
+    "id": "F-P09-002",
     "perimeter": "P09",
     "severity": "HIGH",
-    "title": "Sévérité : LOW",
-    "type": "sécurité",
-    "impact": "hors contrat STT cloud, mais téléchargement réseau au démarrage VAD ; `trust_repo=True` élargit la surface.",
-    "preuve": "`audio/vad_silero.py:81-86` (`torch.hub.load(..., trust_repo=True)`)"
-  },
-  {
-    "id": "F-P09-011",
-    "perimeter": "P09",
-    "severity": "HIGH",
-    "title": "Sévérité : INFO",
-    "type": "doc-drift",
-    "impact": "backend `KOKORO_BACKEND=onnx` toujours `available=False` ici ; seuls MLX/macOS/Edge restent.",
-    "preuve": "`audio/tts.py:150-151` / `engine_config.py:12` pointent vers `models/kokoro/` ; `find` → répertoire inexistant"
-  },
-  {
-    "id": "F-P09-012",
-    "perimeter": "P09",
-    "severity": "HIGH",
-    "title": "Sévérité : INFO",
-    "type": "smell",
-    "impact": "robustesse OK (pas de crash) ; diagnostic macOS TTS difficile (pas de stderr).",
-    "preuve": "`audio/tts.py:109-111`, `419-454` (stderr `DEVNULL` sur `say`/`afconvert`) ; `audio/stt_daemon.py:271-273`, `631-633`"
+    "title": "Paramètre `emotion` TTS accepté puis ignoré par tous les moteurs",
+    "type": "contrat-cassé",
+    "impact": "tags `[warm]`/`[urgent]` etc. n’influencent ni débit, ni pitch, ni voix — contrat CLAUDE.md / persona non honoré côté synthèse.",
+    "preuve": "`audio/tts.py:55-66` (validation puis `_synth_edge(text)` sans emotion) ; `audio/tts.py:277-296` (Kokoro) ; `audio/tts.py:363-373` (macOS) ; `native_audio/ttskit_mlx.py:102-108` (`instruct=None` explicite)"
   },
   {
     "id": "P10-C01",
@@ -351,13 +378,13 @@
     "preuve": ""
   },
   {
-    "id": "F-P12-011",
+    "id": "F-P12-001",
     "perimeter": "P12",
     "severity": "HIGH",
-    "title": "Sévérité : INFO",
-    "type": "smell",
-    "impact": "risque accepté si l’utilisateur tape `/loop` ; pas un bypass chat/voix (ceux-ci passent par confirmation).",
-    "preuve": "`agents/autonomous_loop.py:234-242` — `auto_start=True`, `require_confirmation=False`. Commentaire : mode autonome explicite."
+    "title": "Path traversal DevAgent — écriture hors sandbox via chemins relatifs LLM",
+    "type": "sécurité",
+    "impact": "un `rel` du type `../../../agents/foo.py` peut écrire dans le tree JARVIS hors `DEV_PROJECTS_ROOT/{slug}/`.",
+    "preuve": "`agents/devagent/loop.py:37-41`"
   },
   {
     "id": "P13-F-02",
@@ -401,8 +428,107 @@
     "severity": "HIGH",
     "title": "ChatView affiche le nom d’agent",
     "type": "",
+    "impact": "Fuite persona : l’utilisateur voit `school` / `coach` / `info`…",
+    "preuve": "`{message.agent && <span className=\"font-mono\">{message.agent}</span>}` — alimenté depuis WS `response` et historique"
+  },
+  {
+    "id": "F-P15-001",
+    "perimeter": "P15",
+    "severity": "HIGH",
+    "title": "Déverrouillage mobile PIN-only — passphrase bureau impossible",
+    "type": "contrat-cassé | sécurité",
+    "impact": "si le secret est une passphrase (politique `auth.validate_secret_strength`, 10+ car. non purement numériques), l’utilisateur ne peut ni déverrouiller ni configurer depuis le téléphone. Accès mobile refusé pour ce profil.",
+    "preuve": "`web_mobile/js/auth.js:18-19,63-88,149`"
+  },
+  {
+    "id": "P16-F01",
+    "perimeter": "P16",
+    "severity": "HIGH",
+    "title": "R8 release — minify sans keep Gson/DTO/Retrofit → risque régression production silencieuse.",
+    "type": "",
     "impact": "",
     "preuve": ""
+  },
+  {
+    "id": "F-P17-003",
+    "perimeter": "P17",
+    "severity": "HIGH",
+    "title": "`tv_navigate` — navigation CDP sans allowlist d’URL",
+    "type": "sécurité",
+    "impact": "un client MCP (ou prompt injection Cursor) ouvre n’importe quelle URL sur la TV (`javascript:`, phishing, hosts internes LAN = pivot navigateur). Contrôle browser kiosk 24/7.",
+    "preuve": "`scripts/tv_mcp_server.py:201-207`, `343-344`"
+  },
+  {
+    "id": "F-P17-004",
+    "perimeter": "P17",
+    "severity": "HIGH",
+    "title": "`tv_press_key` — keycode Android arbitraire (pas d’allowlist stricte)",
+    "type": "sécurité",
+    "impact": "pas d’injection shell (`create_subprocess_exec`) mais envoi de `KEYCODE_POWER`, `KEYCODE_SLEEP`, appels, etc. Contrôle physique TV via MCP. Docstring tools promet « DPAD… » mais le fallback accepte tout.",
+    "preuve": "`scripts/tv_mcp_server.py:360-373`"
+  },
+  {
+    "id": "F-P17-005",
+    "perimeter": "P17",
+    "severity": "HIGH",
+    "title": "ADB réseau + forward CDP auto au boot (LaunchAgent)",
+    "type": "sécurité",
+    "impact": "au login macOS, connexion ADB TCP non authentifiée vers la TV + bridge CDP local. Qui contrôle le LAN TV (port 5555) ou le localhost Mac (9222) contrôle le navigateur kiosk (et via ADB : shell TV). `settings put global policy_control immersive.full=*` (L37) mute le chrome système.",
+    "preuve": "`scripts/launch_tv_browser.sh:9-12,25-57` ; `tv/com.jarvis.tv-browser.plist:12-13,22-27` (`RunAtLoad`, `TV_IP=192.168.3.82`) ; MCP `adb connect` + `adb forward tcp:9222` (`scripts/tv_mcp_server.py:104-127`)."
+  },
+  {
+    "id": "F-P17-006",
+    "perimeter": "P17",
+    "severity": "HIGH",
+    "title": "`aiohttp` importé par MCP, absent de `requirements.txt`",
+    "type": "sécurité / dette",
+    "impact": "MCP TV non installable depuis le venv déclaré ; dépendance fantôme / drift supply-chain ; audits précédents (P01) déjà signalés.",
+    "preuve": "`scripts/tv_mcp_server.py:32` `import aiohttp` ; `rg aiohttp requirements.txt` → 0 match (httpx présent L15)."
+  },
+  {
+    "id": "F-P18-001",
+    "perimeter": "P18",
+    "severity": "HIGH",
+    "title": "CLAUDE.md counts Phase 4 faux vs fingerprint et code",
+    "type": "doc-drift | contrat-cassé",
+    "impact": "toute PR/agent qui croit CLAUDE régresse vs les tests Phase 4.",
+    "preuve": "`CLAUDE.md:45-47`"
+  },
+  {
+    "id": "F-P18-002",
+    "perimeter": "P18",
+    "severity": "HIGH",
+    "title": "Comptage tables CLAUDE 76/81 faux ; vérité live 85/90",
+    "type": "doc-drift",
+    "impact": "confusion ops/migrations ; doc pointe vers 32 qui dit autre chose au §1.",
+    "preuve": "`CLAUDE.md:33` « **76 persistantes**, **81** avec FTS » ; `tests/test_event_bus_integration.py:53-54` `assert len(table_names) == 90` ; `tests/test_audit_architecture_truth.py:178-179` `persistantes_post_init == 85` ; live `audit.analyze_tables` → 85/90."
+  },
+  {
+    "id": "F-P18-003",
+    "perimeter": "P18",
+    "severity": "HIGH",
+    "title": "`artifacts/architecture_truth.json` commité stale (80/85) vs live (85/90)",
+    "type": "doc-drift",
+    "impact": "consommateurs du JSON (CI locale, agents) lisent une vérité fausse.",
+    "preuve": "artifact restauré `persistantes_post_init: 80`, `physiques_max_default_fts_on: 85`, `generated_at: 2026-07-30T23:22:54Z` ; live analyze → 85/90 ; doc 32 §1 L23-24 = 85/90."
+  },
+  {
+    "id": "F-P18-004",
+    "perimeter": "P18",
+    "severity": "HIGH",
+    "title": "Architecture/32 se contredit (85/90 vs recommandations 76/81)",
+    "type": "doc-drift",
+    "impact": "la « source de vérité » n’est pas auto-cohérente.",
+    "preuve": "`Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md:23-24,37-42` (85/90) vs `:344,354,368` (« 76 persistantes / 81 avec FTS », « total 76 / 81 », « test len==81 »)."
+  },
+  {
+    "id": "F-P18-005",
+    "perimeter": "P18",
+    "severity": "HIGH",
+    "title": "Architecture/28 marque « ✅ » des counts routes/tables faux",
+    "type": "doc-drift",
+    "impact": "validation de cohérence elle-même mensongère.",
+    "preuve": "`Architecture/28_VALIDATION_COHERENCE.md:19-20,29` — 207+WS/189, 75/80, main 175/12 routeurs, statut ✅."
   },
   {
     "id": "F-P01-006",
@@ -504,22 +630,121 @@
     "preuve": ""
   },
   {
-    "id": "F-P05-014",
-    "perimeter": "P05",
+    "id": "F-P04-011",
+    "perimeter": "P04",
     "severity": "MEDIUM",
-    "title": "Sévérité : LOW",
-    "type": "smell",
-    "impact": "Contredit interdiction emoji ; peut biaiser la réponse.",
-    "preuve": "`agents/productivity.py:57-64` (`w.get('icon','')`)"
+    "title": "Échec confirmation pending → `UnboundLocalError`",
+    "type": "bug",
+    "impact": "plan expiré / `ok=false` → exception après `action_result`, erreur générique client.",
+    "preuve": "`api/ws_messages.py:186-214`"
   },
   {
-    "id": "F-P05-016",
+    "id": "F-P04-012",
+    "perimeter": "P04",
+    "severity": "MEDIUM",
+    "title": "Documents attachés cassent / annulent la confirmation « oui »",
+    "type": "bug",
+    "impact": "« oui » n’est plus une confirmation exacte → proposition annulée silencieusement.",
+    "preuve": "`api/ws_messages.py:66-67,186` + `api/chat_actions.py:243-247`"
+  },
+  {
+    "id": "F-P04-013",
+    "perimeter": "P04",
+    "severity": "MEDIUM",
+    "title": "`_pending_proposal` singleton global cross-conversations",
+    "type": "bug",
+    "impact": "écrasement mutuel multi-onglets/appareils ; plans orphelins.",
+    "preuve": "`api/chat_actions.py:23-25,265-269`"
+  },
+  {
+    "id": "F-P04-014",
+    "perimeter": "P04",
+    "severity": "MEDIUM",
+    "title": "`is_speaking=True` même si TTS non démarré",
+    "type": "bug",
+    "impact": "blobs PTT ignorés indéfiniment (`if is_speaking: continue`) sans `speech_done`/`done_playing`.",
+    "preuve": "`api/ws_handler.py:142-146` + retours anticipés `api/ws_messages.py:186-214,478-488`"
+  },
+  {
+    "id": "F-P04-015",
+    "perimeter": "P04",
+    "severity": "MEDIUM",
+    "title": "Clipboard sans `action` lit le presse-papiers par défaut",
+    "type": "sécurité",
+    "impact": "typo/`action` omise → lecture secrète + fuite follow-up (F-P04-005).",
+    "preuve": "`actions.py:493-503`"
+  },
+  {
+    "id": "F-P04-016",
+    "perimeter": "P04",
+    "severity": "MEDIUM",
+    "title": "`confirmed` truthy non-booléen exécute un plan shell",
+    "type": "sécurité",
+    "impact": "`\"confirmed\":\"false\"` / `1` exécute si `shell_plan_id` valide.",
+    "preuve": "`actions.py:292-295`"
+  },
+  {
+    "id": "F-P04-017",
+    "perimeter": "P04",
+    "severity": "MEDIUM",
+    "title": "Audio mobile lu entièrement avant plafond taille",
+    "type": "perf",
+    "impact": "OOM / DoS mémoire par client Bearer authentifié avant 413.",
+    "preuve": "`api/router_mobile_voice.py:24-25` ; `api/mobile_voice_service.py:47-51`"
+  },
+  {
+    "id": "F-P04-018",
+    "perimeter": "P04",
+    "severity": "MEDIUM",
+    "title": "Confirmation Cursor chat inaccessible (intent ≠ cursor)",
+    "type": "contrat-cassé",
+    "impact": "après « dites lance », le message `lance` ne confirme pas le job (sauf voie vocale).",
+    "preuve": "`api/chat_cognitive.py:60-70,109-114` ; appel conditionnel `api/chat_processing.py:91-100`"
+  },
+  {
+    "id": "F-P05-007",
     "perimeter": "P05",
     "severity": "MEDIUM",
-    "title": "Sévérité : INFO",
-    "type": "smell",
-    "impact": "Dual-LLM trompeur ; code mort / confusion audit sécurité.",
-    "preuve": "`jarvis/router.py:49` + méthodes `chat/mail/...` → DeepSeek uniquement ; `jarvis/backends/__init__.py:6-7`"
+    "title": "Horodatage ignore `config.TIMEZONE` (Europe/Paris hardcodé)",
+    "type": "bug",
+    "impact": "Mauvaise « now » si TZ hôte ≠ Paris ou `TIMEZONE` env différent ; briefings/datation incorrects.",
+    "preuve": "`agents/__init__.py:21-33` ; aussi `agents/briefing_engine.py:263,407` ; `agents/coach.py:142`"
+  },
+  {
+    "id": "F-P05-008",
+    "perimeter": "P05",
+    "severity": "MEDIUM",
+    "title": "Parsers ```save``` / ```json``` newline-strict (school/journal/memory)",
+    "type": "bug | robustesse",
+    "impact": "Fence one-line DeepSeek (tolérée pour `action` dans `display_text.py:19`) → sauvegarde devoir / extraction journal/mémoire silencieusement ratée.",
+    "preuve": "`agents/school.py:30,110-118` ; `agents/journal.py:34,133-136` ; `agents/memory.py:47,155`"
+  },
+  {
+    "id": "F-P05-009",
+    "perimeter": "P05",
+    "severity": "MEDIUM",
+    "title": "Placeholder `{{life_profile}}` souvent vide — profil seulement dans `memory_context`",
+    "type": "contrat-cassé",
+    "impact": "Ordre « life puis memory » des prompts partiellement mort ; double section vide en tête.",
+    "preuve": "`agents/orchestrator.py:568-590` (retourne seulement `memory_context` avec `[LIFE_PROFILE]`) + agents `setdefault(\"life_profile\",\"\")` ex. `coach.py:95` + `prompts/school.txt:1-3`"
+  },
+  {
+    "id": "F-P05-010",
+    "perimeter": "P05",
+    "severity": "MEDIUM",
+    "title": "Analyseurs email / iMessage / transcription sans garde « contenu non fiable »",
+    "type": "sécurité",
+    "impact": "Injection prompt via corps mail / messages / transcript vers extracteurs JSON (moins critique que terminal, mais peut polluer faits/notifs).",
+    "preuve": "`prompts/email_analyzer.txt:11-14` ; `prompts/imessage_extractor.txt:6-7` ; `prompts/continuous_extractor.txt:5-6` (pas d’instruction ignore-overrides) — contraste `agents/__init__.py:132-133` (voix seulement)"
+  },
+  {
+    "id": "F-P05-011",
+    "perimeter": "P05",
+    "severity": "MEDIUM",
+    "title": "Streaming générique ignore `_route_task` / heavy tokens",
+    "type": "smell | perf",
+    "impact": "Productions longues via stream Info/autres ≠ plafond `HEAVY_TASK_MAX_TOKENS` ; school contourne via son `handle_stream` → inconsistance.",
+    "preuve": "`agents/orchestrator.py:709-719` (`max_tok=4096`, pas `classify_task_type`)"
   },
   {
     "id": "P06-P2-03",
@@ -554,7 +779,7 @@
     "severity": "MEDIUM",
     "title": "Checksum ≠ sérialisation `event_log`",
     "type": "",
-    "impact": "",
+    "impact": "vérification d’intégrité future cassée ; métadonnées non protégées.",
     "preuve": ""
   },
   {
@@ -594,13 +819,49 @@
     "preuve": ""
   },
   {
+    "id": "F-P09-003",
+    "perimeter": "P09",
+    "severity": "MEDIUM",
+    "title": "Daemon natif n’applique pas `is_stt_prompt_echo` (contrairement au mobile)",
+    "type": "bug",
+    "impact": "sur silence/bruit, Whisper peut republier le `initial_prompt` ; le daemon ne rejette que ghosts YouTube + `avg_logprob`, pas l’écho de prompt.",
+    "preuve": "`audio/stt_daemon.py:82-121` (filtre défini) ; `scripts/audio_daemon.py` — aucune occurrence ; usage hors périmètre `api/mobile_voice_service.py` (P04)"
+  },
+  {
+    "id": "F-P09-004",
+    "perimeter": "P09",
+    "severity": "MEDIUM",
+    "title": "WAV RIFF traité comme conteneur compressé → re-décodage inutile",
+    "type": "perf",
+    "impact": "latence STT accrue (ffmpeg/`decode_audio`) pour tout WAV déjà PCM, y compris chemins qui enverraient du RIFF.",
+    "preuve": "`audio/audio_format.py:25-26` (`RIFF` → True) ; `audio/stt_daemon.py:651-653` (branche decode si encoded)"
+  },
+  {
+    "id": "F-P09-005",
+    "perimeter": "P09",
+    "severity": "MEDIUM",
+    "title": "`FasterWhisperBackend._load_lock` créé jamais utilisé — course au preload",
+    "type": "smell",
+    "impact": "deux `transcribe_pcm` concurrentes au premier appel peuvent double-charger le modèle ou laisser `_load_failed` incohérent.",
+    "preuve": "`audio/stt_daemon.py:164` ; `166-207` / `216-217` (`preload_sync` sans `async with self._load_lock`)"
+  },
+  {
     "id": "F-P09-006",
     "perimeter": "P09",
     "severity": "MEDIUM",
-    "title": "Sévérité : MEDIUM",
+    "title": "Caches TTS process-wide sans synchronisation",
     "type": "smell",
     "impact": "daemon + WS (P04) peuvent lire/écrire concurremment → audio « répète » corrompu ou cache partiel.",
     "preuve": "`audio/tts_cache.py:63-75` (`LastTTS._entry`) ; `78-124` (`SpeculativeTTS._cache` muté sans lock)"
+  },
+  {
+    "id": "F-P09-007",
+    "perimeter": "P09",
+    "severity": "MEDIUM",
+    "title": "File d’utterances pleine → phrase jetée sans feedback utilisateur",
+    "type": "bug",
+    "impact": "sous charge (LLM lent), parole utilisateur perdue silencieusement (log only).",
+    "preuve": "`scripts/audio_daemon.py:1016-1020`"
   },
   {
     "id": "P10-C02",
@@ -720,13 +981,67 @@
     "preuve": ""
   },
   {
+    "id": "F-P12-002",
+    "perimeter": "P12",
+    "severity": "MEDIUM",
+    "title": "Mode `pr_only` / self-mod : jobs peuvent terminer sans PR",
+    "type": "contrat-cassé",
+    "impact": "self-repair / self-improvement / loop peuvent marquer `completed` sur branche `jarvis/cursor/*` locale sans draft PR — conforme « jamais main », non conforme à la promesse produit « s’arrête à la PR ».",
+    "preuve": "enqueue lit `CURSOR_ALLOW_PR` / `CURSOR_ALLOW_PUSH` (défauts false côté config) — `integrations/cursor_delegation.py:222-225` ; ouverture PR conditionnelle `427-431` ; `_maybe_open_pr` early-return si `not allow_push` `495-496`. Autonomy expose le mode `pr_only` `api/router_cognitive.py:321-324`. Te"
+  },
+  {
+    "id": "F-P12-003",
+    "perimeter": "P12",
+    "severity": "MEDIUM",
+    "title": "Frontière PII Cursor = secrets only ; diagnostic expose `user_request`",
+    "type": "sécurité",
+    "impact": "emails/téléphones/noms dans une demande technique ne sont pas masqués avant envoi CLI / persistance ; un opérateur avec `diagnostic=true` lit le texte utilisateur (secrets masqués seulement).",
+    "preuve": "redaction secrets `jarvis/security/redaction.py:10-37` (hors P12, consommé ici) ; usage systématique `integrations/cursor_delegation.py:182-218,315,378` ; vue publique omet le brut `130-157` ; vue diagnostic garde `user_request` tronqué `160-172` ; API `diagnostic=true` `api/router_cognitive.py:143,"
+  },
+  {
+    "id": "F-P12-004",
+    "perimeter": "P12",
+    "severity": "MEDIUM",
+    "title": "Logs DevAgent — redaction seulement sur `dev_loop_log`",
+    "type": "sécurité",
+    "impact": "réponses d’interview / specs / stdout tests de staging peuvent persister secrets ou PII en clair dans SQLite.",
+    "preuve": "`database/devagent.py:269-277` (`redact_action_log_payload`) vs `save_interview_context` JSON brut `184-195` ; `save_spec` / deployments sans redact (record_deployment ~344+)."
+  },
+  {
+    "id": "F-P12-005",
+    "perimeter": "P12",
+    "severity": "MEDIUM",
+    "title": "`run_isolated` DevAgent propage tout `os.environ`",
+    "type": "sécurité",
+    "impact": "commandes projet (tests, git, LLM tools) héritent `DEEPSEEK_API_KEY`, tokens device, etc.",
+    "preuve": "`agents/devagent/executor.py:39-48` — `full_env = {**os.environ, **env}` puis `subprocess.run(...)`. Contraste Cursor : `build_cursor_safe_env` `integrations/cursor_env.py:42-70`."
+  },
+  {
+    "id": "F-P12-006",
+    "perimeter": "P12",
+    "severity": "MEDIUM",
+    "title": "Redaction DB Cursor non défensive en profondeur",
+    "type": "robustesse / sécurité",
+    "impact": "appelant qui bypasse `enqueue` (ou échec silencieux de l’import redaction) persiste du secret en clair ; update peut aussi skipper la redaction.",
+    "preuve": "`_insert_cursor_job_row` écrit `user_request`/`prompt_sent` tels quels `database/cursor_jobs.py:104-126` ; redaction seulement dans `update_cursor_job` `173-183` avec `except Exception: pass`."
+  },
+  {
+    "id": "F-P12-009",
+    "perimeter": "P12",
+    "severity": "MEDIUM",
+    "title": "Quality router — mutations opt-in sur le codebase JARVIS (hors PR Cursor)",
+    "type": "contrat-cassé",
+    "impact": "contournement du chemin self-mod worktree+PR si flags `.env` activés — écriture directe tracked files / hooks.",
+    "preuve": "`api/router_quality.py:64-73` (`security/{id}/fix`), `76-81` (génération tests), `20-28` (install hook git). Doc CLAUDE : report-only sur JARVIS sauf opt-in."
+  },
+  {
     "id": "P14-F02",
     "perimeter": "P14",
     "severity": "MEDIUM",
     "title": "Mission Control expose les noms d’agents",
     "type": "",
-    "impact": "",
-    "preuve": ""
+    "impact": "HUD ops, pas le chat — viole quand même « jamais le mot agent »",
+    "preuve": "Pills `orchestrator`, `school`, `coach`… en clair"
   },
   {
     "id": "P14-F03",
@@ -734,8 +1049,8 @@
     "severity": "MEDIUM",
     "title": "SSE hors client HTTP unique",
     "type": "",
-    "impact": "",
-    "preuve": ""
+    "impact": "Contourne `api.ts` (cookie same-origin OK ; pas de CSRF sur GET)",
+    "preuve": "`new EventSource(\"/api/events/stream\")`"
   },
   {
     "id": "P14-F04",
@@ -743,26 +1058,152 @@
     "severity": "MEDIUM",
     "title": "SW Vite : CacheFirst images sans denylist `/api`",
     "type": "",
-    "impact": "",
-    "preuve": ""
+    "impact": "Risque futur si endpoint image perso ; **chemin canonique** `frontend/public/sw.js` non concerné",
+    "preuve": "`request.destination === 'image'` → CacheFirst, aucun filtre `/api`"
   },
   {
-    "id": "P14-F05",
-    "perimeter": "P14",
+    "id": "F-P15-002",
+    "perimeter": "P15",
     "severity": "MEDIUM",
-    "title": "Soft lock ne purge pas IndexedDB",
+    "title": "Soft-lock idle sans révocation session + rechargement contourne le verrou",
+    "type": "bug",
+    "impact": "après inactivité, l’UI est masquée mais le cookie `jarvis_session` reste valide. Un refresh (ou nouvel onglet) → `requireSession` voit `authenticated:true` → app + WS sans re-saisie. Soft-lock cosmétique (même famille que le soft lock bureau, mais mobile n’a même pas de bouton logout).",
+    "preuve": "`web_mobile/js/app.js:141-165,168-184` + `web_mobile/js/auth.js:237-261`"
+  },
+  {
+    "id": "F-P15-003",
+    "perimeter": "P15",
+    "severity": "MEDIUM",
+    "title": "Réglages fitness — `Number(node.value)` transforme champ vide en `0`",
+    "type": "bug",
+    "impact": "champ vidé → `0` envoyé (`calories_*` / `protein_*` acceptent `ge=0`) ; `reminder_interval_min: 0` ou `reminder_time: \"\"` → 422. Corruption silencieuse possible des cibles nutritionnelles (même classe que P13 desktop).",
+    "preuve": "`web_mobile/js/views/health.js:450-460`"
+  },
+  {
+    "id": "F-P15-004",
+    "perimeter": "P15",
+    "severity": "MEDIUM",
+    "title": "Helpers fitness api.js non branchés (IA repas / photo / wellbeing / summary)",
+    "type": "dead-code | contrat-cassé",
+    "impact": "surface API client morte ; fonctionnalités fitness IA (from-text / from-photo) absentes du mobile alors que le client les déclare ; divergence desktop/mobile.",
+    "preuve": "`web_mobile/js/api.js:138-145` vs usage exclusif de chemins bruts dans `health.js:97,112,148,166,314,389,460,509`"
+  },
+  {
+    "id": "P16-F02",
+    "perimeter": "P16",
+    "severity": "MEDIUM",
+    "title": "pas EncryptedSharedPreferences — store custom solide mais hors Jetpack Security ; clé utilisable sans auth utilisateur.",
     "type": "",
     "impact": "",
     "preuve": ""
   },
   {
-    "id": "P14-F06",
-    "perimeter": "P14",
+    "id": "P16-F03",
+    "perimeter": "P16",
     "severity": "MEDIUM",
-    "title": "Zoom bloqué (shell Vite)",
+    "title": "couverture tests — auth store, TLS, WS, SyncManager, chat sync, services non couverts.",
     "type": "",
     "impact": "",
     "preuve": ""
+  },
+  {
+    "id": "F-P17-007",
+    "perimeter": "P17",
+    "severity": "MEDIUM",
+    "title": "IPs d’infra et chemins utilisateur commités (TV_IP / dashboard / plists)",
+    "type": "sécurité",
+    "impact": "pas de secret cryptographique, mais fingerprinting réseau + username + arborescence ; plists cassés si le path réel diffère (`JARVIS` vs `JarvisAPI` — cohérent avec F-P01-001).",
+    "preuve": "défauts `192.168.3.82` / `192.168.3.52:5174` dans `scripts/tv_mcp_server.py:39-42`, `scripts/launch_tv_browser.sh:9-12`, `tv/com.jarvis.tv-browser.plist:22-23` ; chemins `/Users/zeldris/JarvisAPI/...` dans les deux plists (`tv/com.jarvis.tv.plist:9-19`, `tv-browser.plist:10-18`)."
+  },
+  {
+    "id": "F-P17-008",
+    "perimeter": "P17",
+    "severity": "MEDIUM",
+    "title": "XSS / injection attribut classe sur widgets legacy (priority non allowlistée)",
+    "type": "sécurité",
+    "impact": "si `tv.html` + CDN legacy remis en service, ou si un champ priority est empoisonné, break-out d’attribut → XSS stocké affichant contenu iMessage/mail. Sur `tv-v2` : contenu user majoritairement `esc()` / `textContent` (overlay vocal L305-306) — OK.",
+    "preuve": "`tv/static/js/tasks.js:10` `class=\"task-dot '+t.priority+'\"` ; `tv/static/js/notifications.js:8-9` `notif-item '+p` ; data_sources renvoient `priority` DB `.lower()` sans whitelist HTML (`tv/data_sources/tasks.py:63`, `notifications.py:65-77`). Chemin actif `/` sert `tv-v2.html` (`tv/server.py:267`)"
+  },
+  {
+    "id": "F-P17-009",
+    "perimeter": "P17",
+    "severity": "MEDIUM",
+    "title": "Template legacy `tv.html` charge CDN tiers `@latest` (supply-chain)",
+    "type": "sécurité",
+    "impact": "compromission unpkg/`@latest` → JS arbitraire sur dashboard PII si template réactivé.",
+    "preuve": "`tv/templates/tv.html:127-128`"
+  },
+  {
+    "id": "F-P17-010",
+    "perimeter": "P17",
+    "severity": "MEDIUM",
+    "title": "Proxy backend sans credentials + `verify=False` + WS non authentifié",
+    "type": "sécurité",
+    "impact": "frontière auth API : le process TV lit calendar/status si le backend accepte loopback sans session ; TLS désactivé même en HTTPS. Fuite `backend_data` via `/api/health` (`tv/server.py:309-318`).",
+    "preuve": "`tv/data_sources/calendar.py:24-28` ; `tv/server.py:191-192`, `90-100` (`ws://…/ws` sans cookie/token)."
+  },
+  {
+    "id": "F-P17-011",
+    "perimeter": "P17",
+    "severity": "MEDIUM",
+    "title": "LaunchAgent TV KeepAlive + bind public = surface permanente",
+    "type": "sécurité",
+    "impact": "redémarrage auto du dashboard non authentifié après crash ; persistance post-reboot.",
+    "preuve": "`tv/com.jarvis.tv.plist:12-15` `KeepAlive`+`RunAtLoad` ; serveur `0.0.0.0:5174`."
+  },
+  {
+    "id": "F-P18-006",
+    "perimeter": "P18",
+    "severity": "MEDIUM",
+    "title": "Essaim Architecture/* encore sur 12 routeurs / 174·157 ou 207·189",
+    "type": "doc-drift",
+    "impact": "INDEX a tables 85/90 OK mais routes/routeurs faux → vérité partielle trompeuse.",
+    "preuve": ""
+  },
+  {
+    "id": "F-P18-007",
+    "perimeter": "P18",
+    "severity": "MEDIUM",
+    "title": "CLAUDE validation frontend (18 Vitest / 9 Playwright) faux",
+    "type": "doc-drift",
+    "impact": "claim CI/qualité gonflé ; le contrat Playwright verrouille 8, pas 9.",
+    "preuve": "`CLAUDE.md:61` « 18 Vitest… 9 scénarios Playwright » ; frontend `it|test(` = **17** ; `test('@` e2e = **8** ; `tests/test_ci_playwright.py:31` `assert source.count(\"test('@\") == 8`. Web `it(` = **50** (celui-ci OK)."
+  },
+  {
+    "id": "F-P18-008",
+    "perimeter": "P18",
+    "severity": "MEDIUM",
+    "title": "PIN « 6 chiffres » dans CLAUDE vs code/tests (min 4)",
+    "type": "doc-drift",
+    "impact": "mauvaise config utilisateur / docs sécurité.",
+    "preuve": "`CLAUDE.md:1516` « PIN 6 chiffres » ; `auth.py:78` `_MIN_PIN_DIGITS = 4` ; `.env.example` « PIN de 4 chiffres » ; `tests/test_web_mobile.py` assert `MIN_PIN = 4`."
+  },
+  {
+    "id": "F-P18-009",
+    "perimeter": "P18",
+    "severity": "MEDIUM",
+    "title": "`test_ci_macos` ne verrouille pas 3 fichiers déjà dans le job CI",
+    "type": "contrat-cassé",
+    "impact": "un retrait CI de ces fichiers passe le contrat structurel.",
+    "preuve": "`.github/workflows/ci.yml:84-95` inclut `test_imessage_consumer_cursor.py`, `test_imessage_sourcing.py`, `test_no_legacy_audio_provider.py` ; `tests/test_ci_macos.py:29-38` ne les assert pas."
+  },
+  {
+    "id": "F-P18-010",
+    "perimeter": "P18",
+    "severity": "MEDIUM",
+    "title": "Skip silencieux si `frontend/out` absent (régression CSP non exécutée en CI backend)",
+    "type": "bug | smell",
+    "impact": "garde-fou page noire / CSP `unsafe-inline` Next peut être vert sans jamais s’exécuter sur Ubuntu pytest.",
+    "preuve": "`tests/test_security_middleware.py:388-393` `pytest.skip(\"frontend/out absent dans ce checkout\")` ; job `backend` (`.github/workflows/ci.yml:97-151`) n’build pas Next ; checkout cloud sans `frontend/out`/`web/dist`."
+  },
+  {
+    "id": "F-P18-011",
+    "perimeter": "P18",
+    "severity": "MEDIUM",
+    "title": "Skip dangereux `test_message_insights_table_exists` si DB absente",
+    "type": "smell",
+    "impact": "absence de table runtime non détectée en CI fresh.",
+    "preuve": "`tests/test_message_intelligence.py:111-118` skip « DB inexistante » sur `config.DB_PATH` réel, sans `tmp_db`/init."
   },
   {
     "id": "F-P01-012",
@@ -797,7 +1238,7 @@
     "severity": "LOW",
     "title": "Clé VAPID privée en clair dans `app_settings` (A02)",
     "type": "",
-    "impact": "",
+    "impact": "fuite DB → usurpation d’émetteur push (pas lecture des payloads chiffrés end-to-end).",
     "preuve": ""
   },
   {
@@ -824,7 +1265,7 @@
     "severity": "LOW",
     "title": "Codes HTTP soft au lieu de 404",
     "type": "",
-    "impact": "",
+    "impact": "clients/OpenAPI ne peuvent pas s’appuyer sur 404 ; monitoring faussé.",
     "preuve": ""
   },
   {
@@ -844,6 +1285,60 @@
     "type": "",
     "impact": "",
     "preuve": ""
+  },
+  {
+    "id": "F-P04-019",
+    "perimeter": "P04",
+    "severity": "LOW",
+    "title": "PII opérationnelle dans les logs (titre, transcript)",
+    "type": "sécurité",
+    "impact": "sujets relationnels / paroles utilisateur dans fichiers logs hors `llm_action_logs` redactés.",
+    "preuve": "`api/chat_context.py:64` ; `api/mobile_voice_service.py:135-141`"
+  },
+  {
+    "id": "F-P04-020",
+    "perimeter": "P04",
+    "severity": "LOW",
+    "title": "`conversation_updated` émis avant titre async",
+    "type": "bug",
+    "impact": "UI reçoit `title=None` ; pas de second event quand le titre existe.",
+    "preuve": "`api/ws_messages.py:457-468`"
+  },
+  {
+    "id": "F-P05-012",
+    "perimeter": "P05",
+    "severity": "LOW",
+    "title": "`AGENT_MODELS[\"productivity_triage\"]` jamais lu",
+    "type": "dead-code | dette",
+    "impact": "Triage toujours main (coût) ; doc « Haiku triage » morte.",
+    "preuve": "`config.py:577` vs `agents/productivity.py` (`model = DEEPSEEK_MAIN_MODEL`, `_route_task` non-heavy → `self.model`)"
+  },
+  {
+    "id": "F-P05-013",
+    "perimeter": "P05",
+    "severity": "LOW",
+    "title": "Fuite mot « agent » dans message d’erreur utilisateur",
+    "type": "smell",
+    "impact": "Violation persona (rare path).",
+    "preuve": "`agents/orchestrator.py:639-640`"
+  },
+  {
+    "id": "F-P05-014",
+    "perimeter": "P05",
+    "severity": "LOW",
+    "title": "Contexte météo peut injecter des emoji dans le system prompt",
+    "type": "smell",
+    "impact": "Contredit interdiction emoji ; peut biaiser la réponse.",
+    "preuve": "`agents/productivity.py:57-64` (`w.get('icon','')`)"
+  },
+  {
+    "id": "F-P05-015",
+    "perimeter": "P05",
+    "severity": "LOW",
+    "title": "`use_cache` / cache_control Anthropic morts ; docs CLAUDE encore Anthropic-style",
+    "type": "doc-drift",
+    "impact": "Appelants croient contrôler le cache ; pas de faille runtime.",
+    "preuve": "`llm.py:75-80` (« use_cache … ignoré ») ; cache hit lu `147-148` seulement"
   },
   {
     "id": "P06-P3-06",
@@ -909,6 +1404,33 @@
     "preuve": ""
   },
   {
+    "id": "F-P09-008",
+    "perimeter": "P09",
+    "severity": "LOW",
+    "title": "Pas de sélection de périphérique de sortie (seulement entrée Snowball)",
+    "type": "dette",
+    "impact": "checklist « output device » non couverte — lecture toujours sur défaut système (AirPods etc.).",
+    "preuve": "`scripts/audio_daemon.py:1828-1876` (input only) ; `audio/audio_output.py:96-97` / `161-163` (`OutputStream` sans `device=`)"
+  },
+  {
+    "id": "F-P09-009",
+    "perimeter": "P09",
+    "severity": "LOW",
+    "title": "Chemins Porcupine / volume wake séparés morts",
+    "type": "dead-code",
+    "impact": "maintenance trompeuse ; wake réel = volume sur flux unique (`934-964`).",
+    "preuve": "`scripts/audio_daemon.py:1534-1538` (`_start_wake_detection` no-op) ; `1554-1646` (boucles encore présentes)"
+  },
+  {
+    "id": "F-P09-010",
+    "perimeter": "P09",
+    "severity": "LOW",
+    "title": "Silero VAD charge via `torch.hub` (réseau possible au boot)",
+    "type": "sécurité",
+    "impact": "hors contrat STT cloud, mais téléchargement réseau au démarrage VAD ; `trust_repo=True` élargit la surface.",
+    "preuve": "`audio/vad_silero.py:81-86` (`torch.hub.load(..., trust_repo=True)`)"
+  },
+  {
     "id": "P10-C05",
     "perimeter": "P10",
     "severity": "LOW",
@@ -943,6 +1465,33 @@
     "type": "",
     "impact": "",
     "preuve": ""
+  },
+  {
+    "id": "F-P12-007",
+    "perimeter": "P12",
+    "severity": "LOW",
+    "title": "`route_async` LLM fallback peut proposer Cursor sans recheck CLI",
+    "type": "dette",
+    "impact": "surface morte aujourd’hui ; si branchée sans garde, fausse promesse Cursor.",
+    "preuve": "`jarvis/cognitive/router.py:293-324` — après `route()` déterministe, si `use_llm_fallback` et label `CURSOR`, force `execution_type=\"cursor\"` sans rejouer le check `CURSOR_DELEGATION_ENABLED` / `_cli_info` (présent en sync `196-207`). Aucun caller prod de `route_async` (grep)."
+  },
+  {
+    "id": "F-P12-008",
+    "perimeter": "P12",
+    "severity": "LOW",
+    "title": "Registry / message d’erreur Ollama omettent meal_analysis",
+    "type": "doc-drift",
+    "impact": "opérateur / auditeur croit à 2 consommateurs alors qu’il y en a 3 ; faux positifs de diagnostic.",
+    "preuve": "allowlist `jarvis/cognitive/ollama_guard.py:18-23` inclut `app/fitness/meal_analysis.py` ; message d’erreur `145-147` « hors Screen Watcher / ollama_control » ; capability `screen_watcher.vision` dit « seul usage Ollama autorisé » `capability_registry.py:124-129`."
+  },
+  {
+    "id": "F-P12-012",
+    "perimeter": "P12",
+    "severity": "LOW",
+    "title": "Flag `allow_commit` stocké mais jamais lu dans le runner Cursor",
+    "type": "dette",
+    "impact": "`CURSOR_ALLOW_COMMIT=false` n’a aucun effet.",
+    "preuve": "écrit `cursor_delegation.py:222` ; grep runner — seule occurrence ; commits laissés au CLI dans le worktree. Garde réelle = `PROTECTED_BRANCHES` `411-421`."
   },
   {
     "id": "P13-F-06",
@@ -996,7 +1545,7 @@
     "title": "A11y LockGate incomplète",
     "type": "",
     "impact": "",
-    "preuve": ""
+    "preuve": "`aria-label` présents ; erreurs en `<p>` sans `role=\"alert\"` / `aria-describedby`"
   },
   {
     "id": "P14-F08",
@@ -1004,8 +1553,98 @@
     "severity": "LOW",
     "title": "Surfaces ops affichent `agent`",
     "type": "",
+    "impact": "Vues admin/monitoring — acceptable si hors parcours user quotidien",
+    "preuve": ""
+  },
+  {
+    "id": "F-P15-005",
+    "perimeter": "P15",
+    "severity": "LOW",
+    "title": "`api.logout` exposé mais aucune UI de déconnexion",
+    "type": "smell",
+    "impact": "impossible de révoquer la session depuis le téléphone (vol/prêt d’appareil) sans attendre TTL/inactivité serveur.",
+    "preuve": "`web_mobile/js/api.js:121` ; aucun appel dans `app.js` / vues"
+  },
+  {
+    "id": "F-P15-006",
+    "perimeter": "P15",
+    "severity": "LOW",
+    "title": "PIN mobile plafonné à 12 chiffres alors que le backend n’a pas de max digits",
+    "type": "smell",
+    "impact": "un PIN digits >12 défini hors mobile (si jamais accepté) est inutilisable ici ; edge case.",
+    "preuve": "`web_mobile/js/auth.js:19,104-109` (`MAX_PIN = 12`, auto-submit au plafond)"
+  },
+  {
+    "id": "F-P15-007",
+    "perimeter": "P15",
+    "severity": "LOW",
+    "title": "Aujourd’hui — cases « tâches en retard » non interactives",
+    "type": "smell",
+    "impact": "affordance de coche trompeuse ; l’utilisateur croit pouvoir terminer depuis Aujourd’hui.",
+    "preuve": "`web_mobile/js/views/today.js:90-98` (`h('span', { class: 'box' }, icon('check'))` sans handler)"
+  },
+  {
+    "id": "P16-F04",
+    "perimeter": "P16",
+    "severity": "LOW",
+    "title": "flags FUTURE orphelins — More/Settings n’utilisent pas les `const` de `JarvisFeatureFlags`.",
+    "type": "",
     "impact": "",
     "preuve": ""
+  },
+  {
+    "id": "P16-F05",
+    "perimeter": "P16",
+    "severity": "LOW",
+    "title": "docs obsolètes — `ARCHITECTURE.md` dit encore chat hors scope ; `PRODUCTION_GAP_ANALYSIS.md` figé en 1.2.0 alors que `2.1.0-ui` a chat+Room+WS.",
+    "type": "",
+    "impact": "",
+    "preuve": ""
+  },
+  {
+    "id": "F-P17-012",
+    "perimeter": "P17",
+    "severity": "LOW",
+    "title": "CDP HTTP client = localhost only (OK partiel) ; comment/doc surévaluent JS evaluate",
+    "type": "sécurité",
+    "impact": "checklist « CDP localhost only » = **OK côté client MCP** ; risque résiduel = tout process local Mac parle à :9222. Pas d’eval JS via MCP aujourd’hui (atténuant).",
+    "preuve": "`scripts/tv_mcp_server.py:72-76` `http://localhost:{CDP_LOCAL_PORT}` ; `adb forward tcp:…` (L119-120) — binding host typiquement loopback ; mais `evaluate()` L238-247 est un stub no-op alors que l’en-tête L8 promet « Exécuter du JavaScript »."
+  },
+  {
+    "id": "F-P17-013",
+    "perimeter": "P17",
+    "severity": "LOW",
+    "title": "Imports morts et outil `evaluate` mort dans MCP",
+    "type": "smell / dead-code",
+    "impact": "bruit, fausse surface d’attaque documentaire.",
+    "preuve": "`scripts/tv_mcp_server.py:24-29` (`signal`, `subprocess`, `field`, `Path` inutilisés) ; `evaluate` jamais branché dans `tools/list` / `tools/call`."
+  },
+  {
+    "id": "F-P17-014",
+    "perimeter": "P17",
+    "severity": "LOW",
+    "title": "README whitelist incomplète vs `config.py`",
+    "type": "doc-drift",
+    "impact": "opérateur croit le réseau TV exclu ; il est inclus.",
+    "preuve": "`tv/README.md:40` liste `192.168.1.0/24, 100.64.0.0/10, 127.0.0.1` — omet `192.168.3.0/24` présent `tv/config.py:29`."
+  },
+  {
+    "id": "F-P18-012",
+    "perimeter": "P18",
+    "severity": "LOW",
+    "title": "Sleeps flaky potentiels (délégation Cursor, auth inactivity)",
+    "type": "smell",
+    "impact": "ralentissement / flakiness CI sous charge.",
+    "preuve": "`tests/test_cursor_delegation.py:314` `await asyncio.sleep(3)` ; `tests/test_auth.py:384` `time.sleep(1.1)` ; `tests/test_screen_watcher_control.py:48` sleep(10) dans tâche annulée (moins risqué)."
+  },
+  {
+    "id": "F-P18-013",
+    "perimeter": "P18",
+    "severity": "LOW",
+    "title": "Docs satellites vides ou anachroniques",
+    "type": "doc-drift",
+    "impact": "onboarding / release incomplets.",
+    "preuve": "`FRONTEND_SPECS.md` taille 0 ; `VOCAL_PIPELINE_ANALYSIS.md` cite `main.py:3767` alors que `main.py` fait 217 lignes ; `RELEASE_CHECKLIST.md:32-40` omet jobs `production_dependencies` et `macos_smoke` pourtant revendiqués dans `CLAUDE.md:62`."
   },
   {
     "id": "F-P01-015",
@@ -1062,22 +1701,40 @@
     "preuve": ""
   },
   {
-    "id": "F-P05-004",
-    "perimeter": "P05",
+    "id": "F-P04-021",
+    "perimeter": "P04",
     "severity": "INFO",
-    "title": "Sévérité : HIGH",
-    "type": "bug | contrat-cassé",
-    "impact": "Sous-déclaration des coûts LLM pour le chat streamé (Info et agents sans `handle_stream` dédié).",
-    "preuve": "`agents/orchestrator.py:745-749`"
+    "title": "En-tête `actions.py` prétend n’être appelé que depuis `main.py`",
+    "type": "doc-drift",
+    "impact": "masque les vrais appelants (`api/ws_*`, `chat_*`, `voice_*`, mobile).",
+    "preuve": "`actions.py:1-6`"
   },
   {
-    "id": "F-P05-011",
+    "id": "F-P05-016",
     "perimeter": "P05",
     "severity": "INFO",
-    "title": "Sévérité : MEDIUM",
-    "type": "smell | perf",
-    "impact": "Productions longues via stream Info/autres ≠ plafond `HEAVY_TASK_MAX_TOKENS` ; school contourne via son `handle_stream` → inconsistance.",
-    "preuve": "`agents/orchestrator.py:709-719` (`max_tok=4096`, pas `classify_task_type`)"
+    "title": "`LocalBackend` instancié mais inutilisé sur les chemins router publics",
+    "type": "smell",
+    "impact": "Dual-LLM trompeur ; code mort / confusion audit sécurité.",
+    "preuve": "`jarvis/router.py:49` + méthodes `chat/mail/...` → DeepSeek uniquement ; `jarvis/backends/__init__.py:6-7`"
+  },
+  {
+    "id": "F-P05-017",
+    "perimeter": "P05",
+    "severity": "INFO",
+    "title": "Docstrings agents encore Haiku/Sonnet/Opus/Claude",
+    "type": "doc-drift",
+    "impact": "Maintenabilité ; pas de bug runtime.",
+    "preuve": "`agents/orchestrator.py:3,338` ; `agents/info.py:16` ; `_call_claude` nom `agents/__init__.py:167` ; `agents/memory.py:9-10`"
+  },
+  {
+    "id": "F-P05-018",
+    "perimeter": "P05",
+    "severity": "INFO",
+    "title": "Aucun secret hardcodé dans prompts/ ; coûts trackés sur chemin non-stream",
+    "type": "smell",
+    "impact": "Point positif checklist 8 (partiel à cause de F-P05-004).",
+    "preuve": "scan `prompts/**` (seule mention `sk-` = guidance `prompts/cursor/security_audit.md:24`) ; `llm.py:150-157` + `agents/__init__.py:247-255`"
   },
   {
     "id": "F-P08-07",
@@ -1087,6 +1744,24 @@
     "type": "",
     "impact": "",
     "preuve": ""
+  },
+  {
+    "id": "F-P09-011",
+    "perimeter": "P09",
+    "severity": "INFO",
+    "title": "`models/kokoro/` absent du checkout — ONNX non auditable",
+    "type": "doc-drift",
+    "impact": "backend `KOKORO_BACKEND=onnx` toujours `available=False` ici ; seuls MLX/macOS/Edge restent.",
+    "preuve": "`audio/tts.py:150-151` / `engine_config.py:12` pointent vers `models/kokoro/` ; `find` → répertoire inexistant"
+  },
+  {
+    "id": "F-P09-012",
+    "perimeter": "P09",
+    "severity": "INFO",
+    "title": "Erreurs TTS/STT souvent avalées en `b\"\"` / `None` + log (pas de crash)",
+    "type": "smell",
+    "impact": "robustesse OK (pas de crash) ; diagnostic macOS TTS difficile (pas de stderr).",
+    "preuve": "`audio/tts.py:109-111`, `419-454` (stderr `DEVNULL` sur `say`/`afconvert`) ; `audio/stt_daemon.py:271-273`, `631-633`"
   },
   {
     "id": "P10-C09",
@@ -1125,372 +1800,129 @@
     "preuve": ""
   },
   {
+    "id": "F-P12-010",
+    "perimeter": "P12",
+    "severity": "INFO",
+    "title": "`allow_merge` / `ExecutionType=workflow` non opérationnels",
+    "type": "dead-code / smell",
+    "impact": "configuration trompeuse (`auto_merge_low_risk` aspirational).",
+    "preuve": "`allow_merge` persisté `cursor_delegation.py:225` — aucun `gh pr merge` dans le module ; `ExecutionType` inclut `\"workflow\"` `models.py:10` jamais émis par `route()`."
+  },
+  {
+    "id": "F-P12-011",
+    "perimeter": "P12",
+    "severity": "INFO",
+    "title": "`/loop` auto-start Cursor sans confirmation humaine",
+    "type": "smell",
+    "impact": "risque accepté si l’utilisateur tape `/loop` ; pas un bypass chat/voix (ceux-ci passent par confirmation).",
+    "preuve": "`agents/autonomous_loop.py:234-242` — `auto_start=True`, `require_confirmation=False`. Commentaire : mode autonome explicite."
+  },
+  {
     "id": "P14-F09",
     "perimeter": "P14",
     "severity": "INFO",
     "title": "Worker MapLibre CSP non branché",
     "type": "",
     "impact": "",
+    "preuve": "Aucun `setWorkerUrl` ; runtime = blob workers (autorisés CSP)"
+  },
+  {
+    "id": "F-P15-008",
+    "perimeter": "P15",
+    "severity": "INFO",
+    "title": "Cahier des charges §8 obsolète (noms de fichiers / fitness « vide »)",
+    "type": "doc-drift",
+    "impact": "onboarding auditeur / doc interne trompeuse ; pas d’impact runtime.",
+    "preuve": "`Architecture/35_CAHIER_DES_CHARGES_WEB_MOBILE.md:177-181` (`dashboard.js`, `fitness.js # vide`) vs repo `today.js` + `health.js` (611 lignes)"
+  },
+  {
+    "id": "F-P15-009",
+    "perimeter": "P15",
+    "severity": "INFO",
+    "title": "Cache-bust `?v=` uniquement sur l’import `health.js`",
+    "type": "smell",
+    "impact": "incohérence de versioning modules ES ; risque faible de cache partiel si un jour double import.",
+    "preuve": "`web_mobile/js/app.js:18` vs imports sans query lignes 13-17 ; `index.html:14,56`"
+  },
+  {
+    "id": "F-P15-010",
+    "perimeter": "P15",
+    "severity": "INFO",
+    "title": "Soft unlock idle appelle `unlock` (nouvelle session) au lieu de `verify`",
+    "type": "smell",
+    "impact": "rotation de session inutile à chaque idle unlock ; pas de faille directe.",
+    "preuve": "`web_mobile/js/auth.js:149` toujours `api.unlock` ; contraste jarvis_auth `verify` si softLocked"
+  },
+  {
+    "id": "P16-F06",
+    "perimeter": "P16",
+    "severity": "INFO",
+    "title": "pas de pin cert — documenté ; rotation = rebuild ; MITM possible si CA système compromise pour hôtes non-JARVIS (composite trust).",
+    "type": "",
+    "impact": "",
     "preuve": ""
   },
   {
-    "id": "F-P04-001",
-    "perimeter": "P04",
-    "severity": "HIGH",
-    "title": "Sévérité : HIGH",
-    "type": "sécurité",
-    "impact": "une page same-site (autre port localhost) peut ouvrir `/ws` avec le cookie, lire le chat et déclencher des actions.",
-    "preuve": "`api/ws_handler.py:41-49`"
-  },
-  {
-    "id": "F-P04-002",
-    "perimeter": "P04",
-    "severity": "HIGH",
-    "title": "Sévérité : HIGH",
-    "type": "sécurité",
-    "impact": "calendrier, tâches, TV, open_app, clipboard… sans proposition serveur. Terminal reste protégé par `shell_plan_id` opaque, pas les autres types.",
-    "preuve": "`api/ws_handler.py:323-336`"
-  },
-  {
-    "id": "F-P04-003",
-    "perimeter": "P04",
-    "severity": "HIGH",
-    "title": "Sévérité : HIGH",
-    "type": "sécurité",
-    "impact": "« lance pas » / « exécute pas » déclenche l’action pending (dont plan shell).",
-    "preuve": "`api/chat_actions.py:230-241`"
-  },
-  {
-    "id": "F-P04-004",
-    "perimeter": "P04",
-    "severity": "HIGH",
-    "title": "Sévérité : HIGH",
-    "type": "sécurité",
-    "impact": "UI « annulé » mais `_pending_proposal` et `shell_plan_id` restent vivants ; un « oui » ultérieur exécute.",
-    "preuve": "`api/router_mobile_chat.py:136-141`"
-  },
-  {
-    "id": "F-P04-005",
-    "perimeter": "P04",
-    "severity": "HIGH",
-    "title": "Sévérité : HIGH",
-    "type": "sécurité",
-    "impact": "secrets/PII locaux et prompt injection via sorties non fiables quittent la machine vers DeepSeek ; le client reçoit aussi le brut dans `action_result`.",
-    "preuve": "`api/chat_actions.py:298-325` + usage `api/ws_handler.py:357-367`"
-  },
-  {
-    "id": "F-P04-006",
-    "perimeter": "P04",
-    "severity": "HIGH",
-    "title": "Sévérité : HIGH",
-    "type": "sécurité",
-    "impact": "exemple / citation / injection documentaire `{\"type\":\"task\",...}` devient action réelle.",
-    "preuve": "`api/chat_actions.py:387-406`"
-  },
-  {
-    "id": "F-P04-007",
-    "perimeter": "P04",
-    "severity": "HIGH",
-    "title": "Sévérité : HIGH",
-    "type": "contrat-cassé",
-    "impact": "pas d’enrichissement documents/mails/calendar/tâches ; actions/persistance/titrage différents du chat texte. CLAUDE.md annonce le contraire.",
-    "preuve": "`api/voice_processing.py:108-111,191-197` ; `api/mobile_voice_service.py:143-149` ; contraste `api/ws_messages.py:51-58`"
-  },
-  {
-    "id": "F-P04-008",
-    "perimeter": "P04",
-    "severity": "HIGH",
-    "title": "Sévérité : HIGH",
-    "type": "bug",
-    "impact": "chunks = affichage sans blocs action ; l’action n’est jamais extraite ni exécutée en stream SCHOOL.",
-    "preuve": "`api/ws_messages.py:226-232,261-263` (consommation) ; frontière `agents/school.py:78-97`"
-  },
-  {
-    "id": "F-P04-009",
-    "perimeter": "P04",
-    "severity": "HIGH",
-    "title": "Sévérité : HIGH",
-    "type": "bug",
-    "impact": "double LLM / double action sur retry concurrent du même `client_message_id`.",
-    "preuve": "`api/router_mobile_chat.py:68-76,90-119`"
-  },
-  {
-    "id": "F-P04-010",
-    "perimeter": "P04",
-    "severity": "HIGH",
-    "title": "Sévérité : HIGH",
-    "type": "bug",
-    "impact": "aucun JSON/`voice_cancel` lu pendant STT/LLM/TTS ; l’annulation arrive trop tard.",
-    "preuve": "`api/ws_handler.py:82-83,97-100,142-146`"
-  },
-  {
-    "id": "F-P04-011",
-    "perimeter": "P04",
-    "severity": "MEDIUM",
-    "title": "Sévérité : MEDIUM",
-    "type": "bug",
-    "impact": "plan expiré / `ok=false` → exception après `action_result`, erreur générique client.",
-    "preuve": "`api/ws_messages.py:186-214`"
-  },
-  {
-    "id": "F-P04-012",
-    "perimeter": "P04",
-    "severity": "MEDIUM",
-    "title": "Sévérité : MEDIUM",
-    "type": "bug",
-    "impact": "« oui » n’est plus une confirmation exacte → proposition annulée silencieusement.",
-    "preuve": "`api/ws_messages.py:66-67,186` + `api/chat_actions.py:243-247`"
-  },
-  {
-    "id": "F-P04-013",
-    "perimeter": "P04",
-    "severity": "MEDIUM",
-    "title": "Sévérité : MEDIUM",
-    "type": "bug",
-    "impact": "écrasement mutuel multi-onglets/appareils ; plans orphelins.",
-    "preuve": "`api/chat_actions.py:23-25,265-269`"
-  },
-  {
-    "id": "F-P04-015",
-    "perimeter": "P04",
-    "severity": "MEDIUM",
-    "title": "Sévérité : MEDIUM",
-    "type": "sécurité",
-    "impact": "typo/`action` omise → lecture secrète + fuite follow-up (F-P04-005).",
-    "preuve": "`actions.py:493-503`"
-  },
-  {
-    "id": "F-P05-001",
-    "perimeter": "P05",
-    "severity": "HIGH",
-    "title": "Sévérité : HIGH",
-    "type": "contrat-cassé | dead-code",
-    "impact": "Pré-check flash à chaque tour coach non-vocal sans gain de qualité ; doc CLAUDE.md « Opus » mensongère.",
-    "preuve": "`agents/coach.py:162-167` + `config.py:580`"
-  },
-  {
-    "id": "F-P05-002",
-    "perimeter": "P05",
-    "severity": "HIGH",
-    "title": "Sévérité : HIGH",
-    "type": "bug | contrat-cassé",
-    "impact": "Texte utilisateur peut commencer par `[DEEP_ANALYSIS]` ; l’escalade réelle est pré-appel (`_should_escalate`), pas ce tag → instruction morte + fuite.",
-    "preuve": "`prompts/coach.txt:73-74` + `agents/display_text.py:41-43`"
-  },
-  {
-    "id": "F-P05-003",
-    "perimeter": "P05",
-    "severity": "HIGH",
-    "title": "Sévérité : HIGH",
-    "type": "sécurité",
-    "impact": "Contenu user/assistant traité comme instructions système ; surface d’injection ; tokens doublés (system + messages).",
-    "preuve": "`agents/__init__.py:96-117` (+ duplication messages chat `185-191`)"
-  },
-  {
-    "id": "F-P05-005",
-    "perimeter": "P05",
-    "severity": "HIGH",
-    "title": "Sévérité : HIGH",
-    "type": "contrat-cassé | doc-drift",
-    "impact": "Conflit system prompt fort → risque élevé de réponse « je suis l’agent… » à l’utilisateur.",
-    "preuve": "`prompts/devops.txt:1` + `agents/devops.py` (`inject_persona` défaut True) + `prompts/persona.txt:16`"
-  },
-  {
-    "id": "F-P05-006",
-    "perimeter": "P05",
-    "severity": "HIGH",
-    "title": "Sévérité : HIGH",
-    "type": "doc-drift | sécurité",
-    "impact": "Fausse promesse de privacy dans le system prompt ; `LocalBackend` / `DataSource.MESSAGES→LOCAL` hors sync avec la politique 2026.",
-    "preuve": "`jarvis/router.py:1-6`, `29-32`, `56-65` + `jarvis/models.py:16`"
-  },
-  {
-    "id": "F-P05-007",
-    "perimeter": "P05",
-    "severity": "MEDIUM",
-    "title": "Sévérité : MEDIUM",
-    "type": "bug",
-    "impact": "Mauvaise « now » si TZ hôte ≠ Paris ou `TIMEZONE` env différent ; briefings/datation incorrects.",
-    "preuve": "`agents/__init__.py:21-33` ; aussi `agents/briefing_engine.py:263,407` ; `agents/coach.py:142`"
-  },
-  {
-    "id": "F-P05-008",
-    "perimeter": "P05",
-    "severity": "MEDIUM",
-    "title": "Sévérité : MEDIUM",
-    "type": "bug | robustesse",
-    "impact": "Fence one-line DeepSeek (tolérée pour `action` dans `display_text.py:19`) → sauvegarde devoir / extraction journal/mémoire silencieusement ratée.",
-    "preuve": "`agents/school.py:30,110-118` ; `agents/journal.py:34,133-136` ; `agents/memory.py:47,155`"
-  },
-  {
-    "id": "F-P05-009",
-    "perimeter": "P05",
-    "severity": "MEDIUM",
-    "title": "Sévérité : MEDIUM",
-    "type": "contrat-cassé",
-    "impact": "Ordre « life puis memory » des prompts partiellement mort ; double section vide en tête.",
-    "preuve": "`agents/orchestrator.py:568-590` (retourne seulement `memory_context` avec `[LIFE_PROFILE]`) + agents `setdefault(\"life_profile\",\"\")` ex. `coach.py:95` + `prompts/school.txt:1-3`"
-  },
-  {
-    "id": "F-P09-001",
-    "perimeter": "P09",
-    "severity": "HIGH",
-    "title": "Sévérité : HIGH",
-    "type": "bug",
-    "impact": "après un tour TTS (défaut `AUDIO_DAEMON_HALF_DUPLEX=True`), le lecteur PortAudio peut quitter ; micro mort jusqu’au restart watchdog / boucle immortelle (dizaines de secondes).",
-    "preuve": "`scripts/audio_daemon.py:1368-1372` + `795-809`"
-  },
-  {
-    "id": "F-P09-002",
-    "perimeter": "P09",
-    "severity": "HIGH",
-    "title": "Sévérité : HIGH",
-    "type": "contrat-cassé",
-    "impact": "tags `[warm]`/`[urgent]` etc. n’influencent ni débit, ni pitch, ni voix — contrat CLAUDE.md / persona non honoré côté synthèse.",
-    "preuve": "`audio/tts.py:55-66` (validation puis `_synth_edge(text)` sans emotion) ; `audio/tts.py:277-296` (Kokoro) ; `audio/tts.py:363-373` (macOS) ; `native_audio/ttskit_mlx.py:102-108` (`instruct=None` explicite)"
-  },
-  {
-    "id": "F-P09-003",
-    "perimeter": "P09",
-    "severity": "MEDIUM",
-    "title": "Sévérité : MEDIUM",
-    "type": "bug",
-    "impact": "sur silence/bruit, Whisper peut republier le `initial_prompt` ; le daemon ne rejette que ghosts YouTube + `avg_logprob`, pas l’écho de prompt.",
-    "preuve": "`audio/stt_daemon.py:82-121` (filtre défini) ; `scripts/audio_daemon.py` — aucune occurrence ; usage hors périmètre `api/mobile_voice_service.py` (P04)"
-  },
-  {
-    "id": "F-P09-004",
-    "perimeter": "P09",
-    "severity": "MEDIUM",
-    "title": "Sévérité : MEDIUM",
-    "type": "perf",
-    "impact": "latence STT accrue (ffmpeg/`decode_audio`) pour tout WAV déjà PCM, y compris chemins qui enverraient du RIFF.",
-    "preuve": "`audio/audio_format.py:25-26` (`RIFF` → True) ; `audio/stt_daemon.py:651-653` (branche decode si encoded)"
-  },
-  {
-    "id": "F-P09-005",
-    "perimeter": "P09",
-    "severity": "MEDIUM",
-    "title": "Sévérité : MEDIUM",
-    "type": "smell",
-    "impact": "deux `transcribe_pcm` concurrentes au premier appel peuvent double-charger le modèle ou laisser `_load_failed` incohérent.",
-    "preuve": "`audio/stt_daemon.py:164` ; `166-207` / `216-217` (`preload_sync` sans `async with self._load_lock`)"
-  },
-  {
-    "id": "F-P09-007",
-    "perimeter": "P09",
-    "severity": "MEDIUM",
-    "title": "Sévérité : MEDIUM",
-    "type": "bug",
-    "impact": "sous charge (LLM lent), parole utilisateur perdue silencieusement (log only).",
-    "preuve": "`scripts/audio_daemon.py:1016-1020`"
-  },
-  {
-    "id": "F-P09-008",
-    "perimeter": "P09",
-    "severity": "LOW",
-    "title": "Sévérité : LOW",
-    "type": "dette",
-    "impact": "checklist « output device » non couverte — lecture toujours sur défaut système (AirPods etc.).",
-    "preuve": "`scripts/audio_daemon.py:1828-1876` (input only) ; `audio/audio_output.py:96-97` / `161-163` (`OutputStream` sans `device=`)"
-  },
-  {
-    "id": "F-P12-001",
-    "perimeter": "P12",
-    "severity": "HIGH",
-    "title": "Sévérité : HIGH",
-    "type": "sécurité",
-    "impact": "un `rel` du type `../../../agents/foo.py` peut écrire dans le tree JARVIS hors `DEV_PROJECTS_ROOT/{slug}/`.",
-    "preuve": "`agents/devagent/loop.py:37-41`"
-  },
-  {
-    "id": "F-P12-002",
-    "perimeter": "P12",
-    "severity": "MEDIUM",
-    "title": "Sévérité : MEDIUM",
-    "type": "contrat-cassé",
-    "impact": "self-repair / self-improvement / loop peuvent marquer `completed` sur branche `jarvis/cursor/*` locale sans draft PR — conforme « jamais main », non conforme à la promesse produit « s’arrête à la PR ».",
-    "preuve": "enqueue lit `CURSOR_ALLOW_PR` / `CURSOR_ALLOW_PUSH` (défauts false côté config) — `integrations/cursor_delegation.py:222-225` ; ouverture PR conditionnelle `427-431` ; `_maybe_open_pr` early-return si `not allow_push` `495-496`. Autonomy expose le mode `pr_only` `api/router_cognitive.py:321-324`. Te"
-  },
-  {
-    "id": "F-P12-003",
-    "perimeter": "P12",
-    "severity": "MEDIUM",
-    "title": "Sévérité : MEDIUM",
-    "type": "sécurité",
-    "impact": "emails/téléphones/noms dans une demande technique ne sont pas masqués avant envoi CLI / persistance ; un opérateur avec `diagnostic=true` lit le texte utilisateur (secrets masqués seulement).",
-    "preuve": "redaction secrets `jarvis/security/redaction.py:10-37` (hors P12, consommé ici) ; usage systématique `integrations/cursor_delegation.py:182-218,315,378` ; vue publique omet le brut `130-157` ; vue diagnostic garde `user_request` tronqué `160-172` ; API `diagnostic=true` `api/router_cognitive.py:143,"
-  },
-  {
-    "id": "F-P12-004",
-    "perimeter": "P12",
-    "severity": "MEDIUM",
-    "title": "Sévérité : MEDIUM",
-    "type": "sécurité",
-    "impact": "réponses d’interview / specs / stdout tests de staging peuvent persister secrets ou PII en clair dans SQLite.",
-    "preuve": "`database/devagent.py:269-277` (`redact_action_log_payload`) vs `save_interview_context` JSON brut `184-195` ; `save_spec` / deployments sans redact (record_deployment ~344+)."
-  },
-  {
-    "id": "F-P12-005",
-    "perimeter": "P12",
-    "severity": "MEDIUM",
-    "title": "Sévérité : MEDIUM",
-    "type": "sécurité",
-    "impact": "commandes projet (tests, git, LLM tools) héritent `DEEPSEEK_API_KEY`, tokens device, etc.",
-    "preuve": "`agents/devagent/executor.py:39-48` — `full_env = {**os.environ, **env}` puis `subprocess.run(...)`. Contraste Cursor : `build_cursor_safe_env` `integrations/cursor_env.py:42-70`."
-  },
-  {
-    "id": "F-P12-006",
-    "perimeter": "P12",
-    "severity": "MEDIUM",
-    "title": "Sévérité : MEDIUM",
-    "type": "robustesse / sécurité",
-    "impact": "appelant qui bypasse `enqueue` (ou échec silencieux de l’import redaction) persiste du secret en clair ; update peut aussi skipper la redaction.",
-    "preuve": "`_insert_cursor_job_row` écrit `user_request`/`prompt_sent` tels quels `database/cursor_jobs.py:104-126` ; redaction seulement dans `update_cursor_job` `173-183` avec `except Exception: pass`."
-  },
-  {
-    "id": "F-P12-007",
-    "perimeter": "P12",
-    "severity": "LOW",
-    "title": "Sévérité : LOW",
-    "type": "dette",
-    "impact": "surface morte aujourd’hui ; si branchée sans garde, fausse promesse Cursor.",
-    "preuve": "`jarvis/cognitive/router.py:293-324` — après `route()` déterministe, si `use_llm_fallback` et label `CURSOR`, force `execution_type=\"cursor\"` sans rejouer le check `CURSOR_DELEGATION_ENABLED` / `_cli_info` (présent en sync `196-207`). Aucun caller prod de `route_async` (grep)."
-  },
-  {
-    "id": "F-P12-008",
-    "perimeter": "P12",
-    "severity": "LOW",
-    "title": "Sévérité : LOW",
-    "type": "doc-drift",
-    "impact": "opérateur / auditeur croit à 2 consommateurs alors qu’il y en a 3 ; faux positifs de diagnostic.",
-    "preuve": "allowlist `jarvis/cognitive/ollama_guard.py:18-23` inclut `app/fitness/meal_analysis.py` ; message d’erreur `145-147` « hors Screen Watcher / ollama_control » ; capability `screen_watcher.vision` dit « seul usage Ollama autorisé » `capability_registry.py:124-129`."
-  },
-  {
-    "id": "F-P12-009",
-    "perimeter": "P12",
-    "severity": "MEDIUM",
-    "title": "Sévérité : MEDIUM",
-    "type": "contrat-cassé",
-    "impact": "contournement du chemin self-mod worktree+PR si flags `.env` activés — écriture directe tracked files / hooks.",
-    "preuve": "`api/router_quality.py:64-73` (`security/{id}/fix`), `76-81` (génération tests), `20-28` (install hook git). Doc CLAUDE : report-only sur JARVIS sauf opt-in."
-  },
-  {
-    "id": "F-P12-010",
-    "perimeter": "P12",
+    "id": "F-P17-015",
+    "perimeter": "P17",
     "severity": "INFO",
-    "title": "Sévérité : INFO",
-    "type": "dead-code / smell",
-    "impact": "configuration trompeuse (`auto_merge_low_risk` aspirational).",
-    "preuve": "`allow_merge` persisté `cursor_delegation.py:225` — aucun `gh pr merge` dans le module ; `ExecutionType` inclut `\"workflow\"` `models.py:10` jamais émis par `route()`."
+    "title": "`front_tv/JARVIS War Room.html` = bundle offline, hors serveur TV",
+    "type": "smell",
+    "impact": "pas de surface runtime actuelle ; artefact design. Risque limité au double-clic local.",
+    "preuve": "fichier unique ~268 Ko, bundler `__bundler/manifest` ; non référencé par `tv/server.py`."
   },
   {
-    "id": "F-P12-012",
-    "perimeter": "P12",
-    "severity": "LOW",
-    "title": "Sévérité : LOW",
+    "id": "F-P17-016",
+    "perimeter": "P17",
+    "severity": "INFO",
+    "title": "Pas de commande shell arbitraire exposée comme outil MCP",
+    "type": "sécurité",
+    "impact": "checklist « Pas de commande arbitraire via MCP » = **OK pour shell** ; atténué par F-P17-003/004 (URL/keycode).",
+    "preuve": "tools list L282-330 = navigate/screenshot/info/dashboard/refresh/press_key/status ; `run_cmd` via `create_subprocess_exec` argv (`L51-64`) ; ADB args construits en liste."
+  },
+  {
+    "id": "F-P18-014",
+    "perimeter": "P18",
+    "severity": "INFO",
+    "title": "Trou de couverture OpenAPI (heuristique)",
     "type": "dette",
-    "impact": "`CURSOR_ALLOW_COMMIT=false` n’a aucun effet.",
-    "preuve": "écrit `cursor_delegation.py:222` ; grep runner — seule occurrence ; commits laissés au CLI dans le worktree. Garde réelle = `PROTECTED_BRANCHES` `411-421`."
+    "impact": "fingerprint empêche la dérive de signature, pas le comportement.",
+    "preuve": "206 chemins OpenAPI ; ~71 mentionnés dans `tests/` ; ~135 non mentionnés (ex. `/api/control/*`, nombreux `/api/devagent/*`, `/api/cursor/*`, `/api/audio-daemon/*`, parties fitness)."
+  },
+  {
+    "id": "F-P18-015",
+    "perimeter": "P18",
+    "severity": "INFO",
+    "title": "CLAUDE « 31 cas » web_mobile vs 28 fonctions (~41 paramétrés)",
+    "type": "doc-drift",
+    "impact": "mineur.",
+    "preuve": "`CLAUDE.md:1832` ; AST `tests/test_web_mobile.py` → 28 `test_*`, ~41 avec parametrize."
+  },
+  {
+    "id": "F-P18-016",
+    "perimeter": "P18",
+    "severity": "INFO",
+    "title": "Phase 4 architecture compte 15 `router_*.py` mais ignore `fitness_router` monté",
+    "type": "smell",
+    "impact": "claim « N routeurs de domaine » ambigu (fitness hors `api/router_*.py`).",
+    "preuve": "`tests/test_phase4_architecture.py:20-23` assert 15 ; `main.py:110-125` **16** `include_router` (fitness + 15)."
+  },
+  {
+    "id": "P14-F05",
+    "perimeter": "P14",
+    "severity": "UNKNOWN",
+    "title": "Soft lock ne purge pas IndexedDB",
+    "type": "",
+    "impact": "File offline / readCache restent sur disque pendant soft lock (device partagé)",
+    "preuve": "`onUnauthenticated` seulement si `authenticated === false` ; soft lock garde le cookie"
+  },
+  {
+    "id": "P14-F06",
+    "perimeter": "P14",
+    "severity": "UNKNOWN",
+    "title": "Zoom bloqué (shell Vite)",
+    "type": "",
+    "impact": "WCAG : empêche zoom ; layout Next (`frontend/src/app/layout.tsx`) n’a pas cette restriction",
+    "preuve": "`maximum-scale=1.0, user-scalable=no`"
   }
 ]
