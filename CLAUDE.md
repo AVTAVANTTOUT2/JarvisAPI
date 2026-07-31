@@ -1516,6 +1516,7 @@ tous les endpoints `/api/*` (hors `/api/auth/*`) répondent `428`.
 | `auth.py` | PIN 6 chiffres/passphrase 10 caractères (hash `scrypt`, jamais en clair), sessions DB-backed (jeton opaque, seul le hash SHA-256 est stocké), délai progressif et verrou par client haché, plafond global secondaire |
 | `security_headers.py` | Source unique des en-têtes statiques et de la CSP partagée par FastAPI et le serveur E2E ; OpenFreeMap limité à son origine exacte et worker MapLibre limité à `blob:` |
 | `api/middleware.py` (`security_middleware`) | Application des en-têtes de sécurité à toutes les réponses, y compris les sorties anticipées 401/403/428 ; verrou de session sur `/api/*` (routes auth publiques exactes, ingestion device/localisation qui s'authentifient autrement) ; mutations par cookie protégées par origine exacte et jeton `X-CSRF-Token` lié à la session |
+| `core/supervisor_auth.py` | Canal supervisor → backend limité au loopback et authentifié par un jeton aléatoire privé `0600` placé à côté de la base ; le header booléen historique est refusé |
 | `jarvis_auth/src/LockGate.tsx` | Écran partagé de configuration/déverrouillage + verrouillage automatique client après `AUTO_LOCK_MINUTES` d'inactivité |
 | `core/file_security.py` | Permissions communes : dossiers sensibles 0700, DB/sidecars/backups/uploads/clés 0600, écritures privées sans passage par 0644 |
 | `scripts/db_maintenance.py` | Backups chiffrés par défaut (enveloppe Fernet V2, PBKDF2 salé, clé locale 0600 ou passphrase) + restauration avec contrôle d'intégrité et snapshot de sécurité |
@@ -1575,7 +1576,7 @@ WEB_SSL_CERT_PATH=certs/cert.pem # certificat Tailscale recommandé en TLS direc
 WEB_SSL_KEY_PATH=certs/key.pem
 WEB_HOST=127.0.0.1               # boucle locale par défaut
 WEB_ALLOW_NETWORK_BIND=false     # opt-in obligatoire pour une adresse réseau
-CSRF_ALLOWED_ORIGINS=            # vide en prod ; origines exactes du proxy dev si nécessaire
+CSRF_ALLOWED_ORIGINS=            # vide en prod ; exceptions exactes CSRF+CORS du proxy dev
 LOCATION_API_TOKEN=              # vide = /api/location refuse les Shortcuts
 LOCATION_RATE_LIMIT_REQUESTS=120
 LOCATION_RATE_LIMIT_WINDOW_SECONDS=60

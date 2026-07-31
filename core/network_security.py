@@ -47,3 +47,25 @@ def validate_network_bind(
             "un certificat valide, ou gardez WEB_HOST en loopback derrière "
             "un reverse proxy TLS"
         )
+
+
+def validate_supervisor_network_bind(
+    *,
+    host: str,
+    allow_network_bind: bool,
+    https_enabled: bool,
+    https_behind_proxy: bool = False,
+    auth_configured: bool,
+) -> None:
+    """Ajoute au garde-fou réseau l'exigence d'un verrou utilisateur actif."""
+    validate_network_bind(
+        host=host,
+        allow_network_bind=allow_network_bind,
+        https_enabled=https_enabled,
+        https_behind_proxy=https_behind_proxy,
+    )
+    if not is_loopback_host(host) and not auth_configured:
+        raise RuntimeError(
+            "écoute réseau du supervisor refusée: configurez d'abord "
+            "un PIN ou une passphrase JARVIS depuis la boucle locale"
+        )

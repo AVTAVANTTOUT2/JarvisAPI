@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -25,8 +28,9 @@ def tmp_db(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
 
 
 def _client():
-    import main
     from fastapi.testclient import TestClient
+
+    import main
 
     return TestClient(main.app)
 
@@ -82,6 +86,103 @@ def test_pairing_code_is_one_time_and_token_is_hashed(tmp_db):
         ).fetchone()[0]
     assert stored == auth.hash_token(raw_token)
     assert raw_token != stored
+
+
+def test_mobile_pairing_locks_after_five_failures_with_retry_after(tmp_db):
+    with _client() as client:
+        authenticate(client)
+        valid_code = client.post("/api/mobile/pairing/start").json()["code"]
+        payload = {"code": "000000", "device_id": "locked-phone"}
+
+        for _ in range(4):
+            assert client.post("/api/mobile/pairing/complete", json=payload).status_code == 401
+        blocked = client.post("/api/mobile/pairing/complete", json=payload)
+        assert blocked.status_code == 429
+        assert int(blocked.headers["Retry-After"]) >= 14 * 60
+
+        payload["code"] = valid_code
+        still_blocked = client.post("/api/mobile/pairing/complete", json=payload)
+        assert still_blocked.status_code == 429
+        assert int(still_blocked.headers["Retry-After"]) > 0
+
+
+def test_mobile_pairing_succeeds_after_lockout_expires(tmp_db, monkeypatch):
+    from database import get_db
+
+    monkeypatch.setattr("config.DEVICE_PAIRING_MAX_ATTEMPTS", 2)
+    with _client() as client:
+        authenticate(client)
+        valid_code = client.post("/api/mobile/pairing/start").json()["code"]
+        payload = {"code": "000000", "device_id": "retry-phone"}
+        assert client.post("/api/mobile/pairing/complete", json=payload).status_code == 401
+        assert client.post("/api/mobile/pairing/complete", json=payload).status_code == 429
+
+        with get_db() as conn:
+            conn.execute(
+                """UPDATE device_pairing_attempts SET blocked_until = ?
+                   WHERE client_key LIKE 'mobile:%'""",
+                (
+                    (
+                        datetime.now(timezone.utc).replace(tzinfo=None)
+                        - timedelta(seconds=1)
+                    ).isoformat(timespec="seconds"),
+                ),
+            )
+
+        payload["code"] = valid_code
+        accepted = client.post("/api/mobile/pairing/complete", json=payload)
+        assert accepted.status_code == 200
+
+
+def test_mobile_pairing_code_has_exactly_one_concurrent_consumer(tmp_db):
+    import auth
+    import config
+    from database import consume_mobile_pairing_code
+
+    with _client() as client:
+        authenticate(client)
+        code = client.post("/api/mobile/pairing/start").json()["code"]
+
+    workers = 8
+    barrier = threading.Barrier(workers)
+
+    def consume(index: int) -> tuple[str, int]:
+        barrier.wait()
+        return consume_mobile_pairing_code(
+            auth.hash_token(f"pair:{code}"),
+            f"concurrent-{index}",
+            max_attempts=config.DEVICE_PAIRING_MAX_ATTEMPTS,
+            window_minutes=config.DEVICE_PAIRING_ATTEMPT_WINDOW_MINUTES,
+            lockout_minutes=config.DEVICE_PAIRING_LOCKOUT_MINUTES,
+        )
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        results = list(pool.map(consume, range(workers)))
+
+    assert [status for status, _ in results].count("ok") == 1
+    assert [status for status, _ in results].count("invalid") == workers - 1
+
+
+def test_mobile_lockout_does_not_lock_desktop_pairing(tmp_db, monkeypatch):
+    monkeypatch.setattr("config.DEVICE_PAIRING_MAX_ATTEMPTS", 2)
+    with _client() as client:
+        authenticate(client)
+        mobile_payload = {"code": "000000", "device_id": "blocked-mobile"}
+        assert client.post("/api/mobile/pairing/complete", json=mobile_payload).status_code == 401
+        assert client.post("/api/mobile/pairing/complete", json=mobile_payload).status_code == 429
+
+        desktop_code = client.post("/api/devices/pairing/start").json()["code"]
+        client.cookies.clear()
+        desktop = client.post(
+            "/api/devices/register",
+            json={
+                "device_id": "desktop-after-mobile-lockout",
+                "device_name": "Desktop",
+                "pairing_code": desktop_code,
+            },
+        )
+
+    assert desktop.status_code == 200
 
 
 def test_native_token_opens_cookie_session_and_registers_push(tmp_db):
