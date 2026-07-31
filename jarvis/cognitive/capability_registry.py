@@ -37,7 +37,7 @@ class CapabilityRegistry:
 
     def refresh(self) -> None:
         cursor_on = bool(getattr(config, "CURSOR_DELEGATION_ENABLED", True))
-        computer_on = bool(getattr(config, "COMPUTER_ACCESS", True))
+        computer_on = bool(getattr(config, "COMPUTER_ACCESS", False))
         code_exec = bool(getattr(config, "CODE_EXECUTOR_ENABLED", False))
         if cursor_on:
             # Disponibilité réelle du CLI — UNIQUEMENT depuis le cache déjà
