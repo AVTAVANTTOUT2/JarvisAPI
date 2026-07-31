@@ -13,6 +13,17 @@ from jarvis.events import MemoryUpdated, PersonUpserted
 from .core import get_db
 
 
+PERSON_UPSERT_MUTABLE_FIELDS: frozenset[str] = frozenset(
+    {
+        "relationship",
+        "personality_notes",
+        "dynamics",
+        "patterns",
+        "last_mentioned",
+    }
+)
+
+
 def get_life_profile() -> dict:
     with get_db() as conn:
         rows = conn.execute("SELECT category, content FROM life_profile ORDER BY category").fetchall()
@@ -97,6 +108,12 @@ def clear_person_ai_description(person_id: int) -> None:
 
 
 def upsert_person(name: str, **kwargs: Any) -> int:
+    """Crée ou actualise une personne avec des colonnes explicitement autorisées."""
+    unknown_fields = set(kwargs).difference(PERSON_UPSERT_MUTABLE_FIELDS)
+    if unknown_fields:
+        fields = ", ".join(sorted(unknown_fields))
+        raise ValueError(f"Champs people non modifiables : {fields}")
+
     with get_db() as conn:
         existing = conn.execute("SELECT id FROM people WHERE LOWER(name) = LOWER(?)", (name,)).fetchone()
         if existing:

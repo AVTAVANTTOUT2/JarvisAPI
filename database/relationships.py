@@ -8,7 +8,29 @@ from typing import Any
 from .core import get_db
 
 
+RELATIONSHIP_PROFILE_MUTABLE_FIELDS: frozenset[str] = frozenset(
+    {
+        "handle",
+        "communication_style",
+        "response_pattern",
+        "topics",
+        "sentiment",
+        "power_dynamic",
+        "attachment_style",
+        "trust_level",
+        "interaction_frequency",
+        "last_analyzed",
+    }
+)
+
+
 def upsert_relationship_profile(person_id: int, **kwargs: Any) -> int:
+    """Crée ou actualise un profil avec des colonnes explicitement autorisées."""
+    unknown_fields = set(kwargs).difference(RELATIONSHIP_PROFILE_MUTABLE_FIELDS)
+    if unknown_fields:
+        fields = ", ".join(sorted(unknown_fields))
+        raise ValueError(f"Champs profil relationnel non modifiables : {fields}")
+
     with get_db() as conn:
         existing = conn.execute(
             "SELECT id FROM relationship_profiles WHERE person_id = ?", (person_id,)
