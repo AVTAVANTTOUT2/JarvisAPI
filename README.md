@@ -141,6 +141,8 @@ Enfin, quelques tâches de fond suivent un rythme hebdomadaire :
 
 Chaque automatisation respecte son option d'activation et ses seuils. Un passage du cron ne produit donc pas forcément une notification ou un appel à un modèle.
 
+Le suivi live est disponible dans l'UI bureau sur **`/scheduler`** : statut du jour (fait / en attente / manqué / échec / silencieux), agrégats 7 jours pour les ticks fréquents, sortie des sorties au clic, et relance manuelle pour les jobs quotidiens ou hebdomadaires. API : `GET /api/scheduler/jobs`, `GET /api/scheduler/jobs/{id}/runs`, `POST /api/scheduler/jobs/{id}/run`.
+
 ## Stack technique
 
 | Couche | Technologies |

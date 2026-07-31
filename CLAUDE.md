@@ -30,7 +30,7 @@ Le bus applicatif est actif et conserve la compatibilité de construction histor
 
 - Les mutations de `database/tasks.py`, `notifications.py`, `conversations.py`, `episodes.py`, `facts.py`, `patterns.py` et `people.py` émettent **après commit**.
 - `database/event_log.py` journalise tous les événements dans la table SQLite `event_log`
- (ajoutée au schéma runtime ; le total post-`init_db` est **76 persistantes**, **81** avec FTS —
+ (ajoutée au schéma runtime ; le total post-`init_db` est **86 persistantes**, **91** avec FTS —
  voir `Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md` ; ne pas confondre avec le dump
  historique `database/schema.sql` ≈ 46 tables).
 - `websocket_registry.py` diffuse les événements de domaine aux sockets actives et `scripts/audio_daemon.py` traite les notifications `urgent/high`.
@@ -42,7 +42,7 @@ Depuis du code async, utiliser `await event_bus.emit(event)`. Depuis un chemin s
 
 ## Couche API — Phase 4
 
-`main.py` est un point d'assemblage : configuration FastAPI/CORS, montage des 12 `APIRouter`, branchement du WebSocket, configuration de `pipeline.py`, frontend et lancement Uvicorn. Les 207 opérations HTTP et le WebSocket `/ws` sont verrouillés par empreinte ; l'OpenAPI expose 189 chemins.
+`main.py` est un point d'assemblage : configuration FastAPI/CORS, montage des 16 `APIRouter`, branchement du WebSocket, configuration de `pipeline.py`, frontend et lancement Uvicorn. Les 235 opérations HTTP et le WebSocket `/ws` sont verrouillés par empreinte ; l'OpenAPI expose 209 chemins.
 
 - `api/router_*.py` contient exactement 12 routeurs par domaine ; aucun ne dépasse 447 lignes.
 - `api/lifespan.py`, `api/middleware.py` et `api/frontend.py` portent le cycle de vie, la sécurité HTTP et le serving des frontends.

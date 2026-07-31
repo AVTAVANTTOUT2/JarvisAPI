@@ -23,6 +23,7 @@ const LogsView = lazy(() => import('@desktop/app/components/views/LogsView').the
 const VoiceView = lazy(() => import('@desktop/app/components/views/VoiceView').then(m => ({ default: m.VoiceView })));
 const MonitoringView = lazy(() => import('@desktop/app/components/views/MonitoringView').then(m => ({ default: m.MonitoringView })));
 const CognitiveView = lazy(() => import('@desktop/app/components/views/CognitiveView'));
+const SchedulerView = lazy(() => import('@desktop/app/components/views/SchedulerView'));
 const ControlView = lazy(() => import('@desktop/app/components/views/ControlView'));
 const TasksView = lazy(() => import('@desktop/app/components/views/TasksView'));
 const VoiceDebugView = lazy(() => import('@desktop/app/components/views/VoiceDebugView'));
@@ -69,6 +70,7 @@ export default function App() {
             <Route path="voice" element={<S><VoiceView /></S>} />
             <Route path="monitoring" element={<S><MonitoringView /></S>} />
             <Route path="cognitive" element={<S><CognitiveView /></S>} />
+            <Route path="scheduler" element={<S><SchedulerView /></S>} />
             <Route path="control" element={<S><ControlView /></S>} />
             <Route path="tasks" element={<S><TasksView /></S>} />
             <Route path="fitness" element={<S><FitnessView /></S>} />
