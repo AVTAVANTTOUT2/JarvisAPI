@@ -13,14 +13,9 @@ from agents.autonomous_loop import parse_loop_command
 from agents.display_text import finalize_assistant_display_text, sanitize_streaming_display
 from agents.orchestrator import orchestrator
 from api.chat_actions import (
-    ACTIONS_WITH_FOLLOWUP,
-    _check_pending_proposal,
-    _extract_action_from_text,
-    _format_action_result_for_followup,
-    _is_agentic_action,
-    _maybe_store_pending_proposal,
-    _run_loop_mode_ws,
-    _should_defer_action,
+    ACTIONS_WITH_FOLLOWUP, _check_pending_proposal, _extract_action_from_text,
+    _format_action_result_for_followup, _is_agentic_action,
+    _maybe_store_pending_proposal, _run_loop_mode_ws, _should_defer_action,
 )
 from api.action_confirmations import peek_pending_proposal
 from api.chat_context import _build_enriched_context, _maybe_title_conversation, _send_tts_streaming
@@ -77,7 +72,6 @@ async def _process_message(
         except Exception as e:
             logger.debug("[conv] update_activity user : %s", e)
 
-        # ── Mode autonome /loop ──
         loop_task = parse_loop_command(original_text)
         if loop_task is not None:
             if not loop_task.strip():
@@ -186,7 +180,6 @@ async def _process_message(
             ws, original_text, conversation_id, confirmation_session_id,
         )
         if pending_result is not None:
-            # L'utilisateur a dit "oui/vas-y" → on exécute l'action proposée
             await ws.send_json({
                 "type": "action_result",
                 "action": pending_action_type or "?",
@@ -195,7 +188,6 @@ async def _process_message(
             })
             display_text = str(pending_result.get("message") or "Action exécutée.")
             emotion = "neutral"
-            # 2e passe pour reformuler le résultat
             fu_action = pending_action or {"type": pending_action_type or "unknown"}
             if (
                 pending_result.get("ok")
