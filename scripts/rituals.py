@@ -11,16 +11,20 @@ Appelés par le scheduler ; déclenchables à la main via les endpoints
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timedelta
 
 import config
 import llm
 from database import (
+    claim_job_run,
+    complete_job_run,
     create_task,
     get_daily_ritual,
     get_db,
     get_todays_birthdays,
+    release_job_run,
     set_daily_ritual,
 )
 from jarvis.notification_service import notification_service
@@ -41,6 +45,11 @@ _FALLBACK_QUOTES = [
     "Votre potentiel est immense. Il serait temps de le déranger.",
     "Demain est un autre jour. C'est précisément le problème.",
 ]
+
+_ROAST_LOCK = asyncio.Lock()
+_DEBRIEF_LOCK = asyncio.Lock()
+_WEEKLY_DEBRIEF_LOCK = asyncio.Lock()
+_QUOTE_LOCK = asyncio.Lock()
 
 
 def _speak(text: str, emotion: str = "neutral") -> None:
@@ -93,7 +102,33 @@ def _pending_tasks_snapshot() -> tuple[list[dict], list[dict]]:
 
 
 async def daily_roast() -> dict:
-    """Critique sèche des tâches non faites. Une par jour, pas de pitié."""
+    """Critique sèche des tâches non faites, au plus une fois par jour."""
+    async with _ROAST_LOCK:
+        day = _today()
+        existing = get_daily_ritual(day)
+        if existing and existing.get("roast"):
+            overdue, pending = _pending_tasks_snapshot()
+            return {
+                "roast": existing["roast"],
+                "overdue": len(overdue),
+                "pending": len(pending),
+                "cached": True,
+            }
+        claim = claim_job_run("daily_roast", day)
+        if claim is None:
+            existing = get_daily_ritual(day) or {}
+            return {"roast": existing.get("roast"), "cached": True, "running": True}
+        try:
+            result = await _generate_daily_roast()
+            complete_job_run(claim)
+            result["cached"] = False
+            return result
+        except BaseException:
+            release_job_run(claim)
+            raise
+
+
+async def _generate_daily_roast() -> dict:
     overdue, pending = _pending_tasks_snapshot()
 
     if not overdue and not pending:
@@ -158,7 +193,27 @@ def _day_snapshot() -> dict:
 
 
 async def evening_debrief() -> dict:
-    """Bilan de journée : accompli, raté, à surveiller. Émotion concerned."""
+    """Bilan de journée, généré et notifié au plus une fois par jour."""
+    async with _DEBRIEF_LOCK:
+        day = _today()
+        existing = get_daily_ritual(day)
+        if existing and existing.get("debrief"):
+            return {"debrief": existing["debrief"], "cached": True}
+        claim = claim_job_run("evening_debrief", day)
+        if claim is None:
+            existing = get_daily_ritual(day) or {}
+            return {"debrief": existing.get("debrief"), "cached": True, "running": True}
+        try:
+            result = await _generate_evening_debrief()
+            complete_job_run(claim)
+            result["cached"] = False
+            return result
+        except BaseException:
+            release_job_run(claim)
+            raise
+
+
+async def _generate_evening_debrief() -> dict:
     snap = _day_snapshot()
     apps_txt = ", ".join(
         f"{a['app']} ({int(a['s'] // 60)} min)" for a in snap["top_apps"]
@@ -504,6 +559,31 @@ def _week_snapshot() -> dict:
 
 
 async def weekly_debrief() -> dict:
+    """Bilan hebdomadaire, idempotent pour sa journée d'exécution."""
+    async with _WEEKLY_DEBRIEF_LOCK:
+        day = _today()
+        existing = get_daily_ritual(day)
+        if existing and existing.get("weekly_debrief"):
+            return {"weekly_debrief": existing["weekly_debrief"], "cached": True}
+        claim = claim_job_run("weekly_debrief", day)
+        if claim is None:
+            existing = get_daily_ritual(day) or {}
+            return {
+                "weekly_debrief": existing.get("weekly_debrief"),
+                "cached": True,
+                "running": True,
+            }
+        try:
+            result = await _generate_weekly_debrief()
+            complete_job_run(claim)
+            result["cached"] = False
+            return result
+        except BaseException:
+            release_job_run(claim)
+            raise
+
+
+async def _generate_weekly_debrief() -> dict:
     """Bilan complet de la semaine, prononcé le dimanche soir.
 
     Ton mesuré : accompli / raté / tendance / cap pour la semaine suivante.
@@ -661,10 +741,27 @@ def compute_mood_signal(date: str | None = None) -> dict:
 # ═══════════════════════════════════════════════════════════
 
 async def daily_quote() -> dict:
-    """Une ligne, zéro pitié. Stockée pour le widget TV."""
-    existing = get_daily_ritual(_today())
-    if existing and existing.get("quote"):
-        return {"quote": existing["quote"], "cached": True}
+    """Citation générée au plus une fois par jour, concurrence comprise."""
+    async with _QUOTE_LOCK:
+        day = _today()
+        existing = get_daily_ritual(day)
+        if existing and existing.get("quote"):
+            return {"quote": existing["quote"], "cached": True}
+        claim = claim_job_run("daily_quote", day)
+        if claim is None:
+            existing = get_daily_ritual(day) or {}
+            return {"quote": existing.get("quote"), "cached": True, "running": True}
+        try:
+            result = await _generate_daily_quote()
+            complete_job_run(claim)
+            return result
+        except BaseException:
+            release_job_run(claim)
+            raise
+
+
+async def _generate_daily_quote() -> dict:
+    """Génère et persiste la citation après acquisition du claim quotidien."""
 
     try:
         result = await llm.chat(

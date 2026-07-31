@@ -197,7 +197,12 @@ class RelationshipAnalyzer:
         return await self._process_in_batches(handle, all_messages)
 
     async def _process_in_batches(self, handle: str, messages: list[dict]) -> int:
-        """Découpe en batches et analyse chaque batch."""
+        """Découpe en batches et n'avance le curseur qu'après un batch valide.
+
+        Le premier échec arrête le contact : traiter un batch ultérieur puis
+        avancer son ROWID ferait perdre définitivement les messages du batch
+        échoué lors du prochain retry.
+        """
         batches_done = 0
 
         for i in range(0, len(messages), BATCH_SIZE):
@@ -206,21 +211,30 @@ class RelationshipAnalyzer:
                 continue
 
             try:
-                await self._analyze_batch(handle, batch)
+                processed = await self._analyze_batch(handle, batch)
+                if not processed:
+                    logger.warning(
+                        "[analyzer] Batch %s[%d:%d] non traité — curseur inchangé",
+                        handle,
+                        i,
+                        i + len(batch),
+                    )
+                    break
                 batches_done += 1
 
                 last_rowid = max(m["rowid"] for m in batch)
                 update_analysis_cursor(handle, last_rowid, len(batch))
             except Exception as e:
                 logger.error("[analyzer] Batch %s[%d:%d] : %s", handle, i, i + len(batch), e)
+                break
 
         return batches_done
 
-    async def _analyze_batch(self, handle: str, messages: list[dict]) -> None:
+    async def _analyze_batch(self, handle: str, messages: list[dict]) -> bool:
         """Envoie un batch à DeepSeek et stocke les résultats en DB."""
         prompt_template = self._get_prompt()
         if not prompt_template:
-            return
+            return False
 
         formatted = _format_messages_for_prompt(messages, config.USER_NAME)
         prompt = prompt_template.replace("{{user_name}}", config.USER_NAME)
@@ -237,18 +251,19 @@ class RelationshipAnalyzer:
             )
         except Exception as e:
             logger.error("[analyzer] LLM call : %s", e)
-            return
+            return False
 
         response = result.get("content", "")
         data = self._parse_json(response)
         if not data:
-            return
+            return False
 
         self._store_results(handle, data)
         logger.info(
             "[analyzer] %s : batch %d msgs analysé (cost=$%.4f)",
             handle, len(messages), result.get("cost", 0),
         )
+        return True
 
     def _parse_json(self, response: str) -> dict | None:
         match = JSON_BLOCK_RE.search(response)

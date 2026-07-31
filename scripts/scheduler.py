@@ -20,6 +20,8 @@ _OVERDUE_NOTIFIED_DAY: dict[int, str] = {}
 
 
 async def _run_location_analysis_job():
+    if not config.LOCATION_ANALYSIS_ENABLED or not config.LOCATION_TRACKING:
+        return
     try:
         from scripts.location_analyzer import run_location_analysis
 
@@ -30,6 +32,8 @@ async def _run_location_analysis_job():
 
 async def scheduled_morning_briefing():
     """Génère le briefing du matin et notifie le bureau."""
+    if not config.MORNING_BRIEFING_ENABLED:
+        return
     try:
         from agents.productivity import productivity_agent
         from integrations.notifications_macos import mac_notifier
@@ -48,6 +52,8 @@ async def scheduled_morning_briefing():
 
 async def check_overdue_tasks():
     """Notifications pour les tâches non terminées dont l’échéance est dépassée."""
+    if not config.OVERDUE_TASKS_ENABLED:
+        return
     try:
         from integrations.notifications_macos import mac_notifier
         from database import get_tasks
@@ -87,6 +93,8 @@ async def check_overdue_tasks():
 
 async def scheduled_evening_summary():
     """Génère le résumé du soir."""
+    if not config.EVENING_SUMMARY_ENABLED:
+        return
     try:
         from agents.productivity import productivity_agent
 
@@ -98,6 +106,8 @@ async def scheduled_evening_summary():
 
 async def scheduled_weekly_summary():
     """Résumé hebdomadaire (dimanche soir)."""
+    if not config.WEEKLY_SUMMARY_ENABLED:
+        return
     try:
         from agents.memory import memory_agent
 
@@ -109,6 +119,8 @@ async def scheduled_weekly_summary():
 
 async def _relationship_analysis_daily_job() -> None:
     """Analyse relationnelle iMessage quotidienne (3h du matin)."""
+    if not config.RELATIONSHIP_ANALYSIS_ENABLED:
+        return
     try:
         from scripts.relationship_analyzer import analyzer
 
@@ -119,6 +131,8 @@ async def _relationship_analysis_daily_job() -> None:
 
 
 async def _relationship_alerts_job() -> None:
+    if not config.RELATIONSHIP_ALERTS_ENABLED:
+        return
     try:
         from scripts.contact_alerts import check_relationship_alerts
 
@@ -153,6 +167,8 @@ async def _db_backup_job():
 
 async def _db_maintenance_job():
     """Purge de rétention + optimisation (dimanche 04:45)."""
+    if not config.DB_MAINTENANCE_ENABLED:
+        return
     try:
         from scripts.db_maintenance import run_maintenance
 
@@ -163,6 +179,8 @@ async def _db_maintenance_job():
 
 async def _llm_budget_job():
     """Vérification du budget LLM mensuel (21:30)."""
+    if not config.LLM_BUDGET_CHECK_ENABLED:
+        return
     try:
         from scripts.db_maintenance import check_llm_budget
 
@@ -221,6 +239,8 @@ async def _birthday_job():
 
 async def _coffee_break_job():
     """Alerte pause café si activité écran continue trop longue."""
+    if not config.BREAK_ALERTS_ENABLED:
+        return
     try:
         from scripts.rituals import check_coffee_break
 
@@ -243,6 +263,8 @@ async def _weekly_debrief_job():
 
 async def _mood_signal_job():
     """Signal comportemental quotidien (aucun diagnostic)."""
+    if not config.MOOD_SIGNALS_ENABLED:
+        return
     try:
         from scripts.rituals import compute_mood_signal
 
@@ -265,6 +287,8 @@ async def _jarvis_journal_job():
 
 async def _doomscroll_check_job():
     """Notifie une fois par jour si le temps sur les apps à risque dépasse le seuil."""
+    if not config.DOOMSCROLL_ALERTS_ENABLED:
+        return
     try:
         from scripts.doomscroll_detector import check_and_notify_today
 
@@ -275,6 +299,8 @@ async def _doomscroll_check_job():
 
 async def _missed_opportunities_job():
     """Notifie une fois par semaine s'il existe des lieux favoris délaissés."""
+    if not config.MISSED_OPPORTUNITIES_ENABLED:
+        return
     try:
         from scripts.favorite_places import check_and_notify_weekly
 
@@ -285,6 +311,8 @@ async def _missed_opportunities_job():
 
 async def _self_improvement_job():
     """Auto-amélioration : collecte de preuves → proposition → PR Cursor (pr_only)."""
+    if not getattr(config, "SELF_IMPROVEMENT_ENABLED", False):
+        return
     try:
         from scripts.self_improvement import propose_improvements
 
@@ -303,6 +331,8 @@ async def _self_improvement_job():
 
 async def _presence_tick_job():
     """Contrôle de départ : ferme la session après le timeout de silence."""
+    if not config.PRESENCE_ENABLED:
+        return
     try:
         from scripts.presence import presence_detector
 
@@ -313,6 +343,8 @@ async def _presence_tick_job():
 
 async def _binge_job():
     """Commentaire sec si marathon streaming détecté."""
+    if not config.BINGE_ALERTS_ENABLED:
+        return
     try:
         from scripts.rituals import check_streaming_binge
 
@@ -323,6 +355,8 @@ async def _binge_job():
 
 async def _late_return_job():
     """« Rentrez, Monsieur » si dehors après LATE_RETURN_HOUR."""
+    if not config.LATE_RETURN_ENABLED:
+        return
     try:
         from scripts.rituals import check_late_return
 
@@ -333,6 +367,8 @@ async def _late_return_job():
 
 async def _meeting_tick_job():
     """Clôt une réunion captée après le silence requis, puis la résume."""
+    if not config.MEETING_CAPTURE_ENABLED:
+        return
     try:
         from scripts.meeting import meeting_tracker, summarize_meeting
 
@@ -357,6 +393,8 @@ async def _commitments_extract_job():
 
 async def _duplicate_scan_job():
     """Scan hebdomadaire de code dupliqué (rapport seul, jamais de réécriture auto)."""
+    if not config.DUPLICATE_SCAN_ENABLED:
+        return
     try:
         from scripts.duplicate_scanner import scan_and_report
 
@@ -367,6 +405,8 @@ async def _duplicate_scan_job():
 
 async def _security_audit_job():
     """Audit sécurité hebdomadaire (secrets, patterns dangereux — rapport)."""
+    if not config.SECURITY_AUDIT_ENABLED:
+        return
     try:
         from scripts.security_audit import scan_and_report
 
@@ -377,6 +417,8 @@ async def _security_audit_job():
 
 async def _test_gen_job():
     """Génération de tests manquants (opt-in, no-op si non configuré)."""
+    if not config.AUTO_TEST_GEN_ENABLED:
+        return
     try:
         from scripts.test_coverage_scan import run_test_generation
 
@@ -399,6 +441,8 @@ async def _commitments_overdue_job():
 
 async def _fitness_reminders_job():
     """Relance vocalement séance et repas selon le programme SQLite."""
+    if not config.FITNESS_REMINDERS_ENABLED:
+        return
     try:
         from scripts.fitness_reminders import run_fitness_reminders
 
@@ -564,7 +608,7 @@ def setup_scheduler() -> None:
     )
     # Auto-amélioration : propositions basées sur preuves (PR only, jamais de
     # merge auto). SELF_IMPROVEMENT_SCHEDULE=weekly → dim 06:00 ; daily → 06:00.
-    if getattr(config, "SELF_IMPROVEMENT_ENABLED", True):
+    if getattr(config, "SELF_IMPROVEMENT_ENABLED", False):
         _si_schedule = str(getattr(config, "SELF_IMPROVEMENT_SCHEDULE", "weekly")).lower()
         _si_trigger = (
             CronTrigger(hour=6, minute=0)

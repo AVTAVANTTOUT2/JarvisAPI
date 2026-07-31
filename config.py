@@ -238,11 +238,30 @@ HEAVY_TASK_MAX_TOKENS = int(_get("HEAVY_TASK_MAX_TOKENS", "8192"))
 MORNING_BRIEFING_TIME = _get("MORNING_BRIEFING_TIME", "07:30")
 EVENING_SUMMARY_TIME = _get("EVENING_SUMMARY_TIME", "22:00")
 
+# ── Kill-switches explicites des jobs planifiés ─────────────
+# Chaque job coûteux ou proactif doit pouvoir être neutralisé sans détourner
+# un réglage fonctionnel (notifications bureau, seuil métier, etc.).
+MORNING_BRIEFING_ENABLED = _get("MORNING_BRIEFING_ENABLED", "true").lower() == "true"
+EVENING_SUMMARY_ENABLED = _get("EVENING_SUMMARY_ENABLED", "true").lower() == "true"
+WEEKLY_SUMMARY_ENABLED = _get("WEEKLY_SUMMARY_ENABLED", "true").lower() == "true"
+OVERDUE_TASKS_ENABLED = _get("OVERDUE_TASKS_ENABLED", "true").lower() == "true"
+LOCATION_ANALYSIS_ENABLED = _get("LOCATION_ANALYSIS_ENABLED", "true").lower() == "true"
+RELATIONSHIP_ANALYSIS_ENABLED = _get("RELATIONSHIP_ANALYSIS_ENABLED", "true").lower() == "true"
+RELATIONSHIP_ALERTS_ENABLED = _get("RELATIONSHIP_ALERTS_ENABLED", "true").lower() == "true"
+DB_MAINTENANCE_ENABLED = _get("DB_MAINTENANCE_ENABLED", "true").lower() == "true"
+LLM_BUDGET_CHECK_ENABLED = _get("LLM_BUDGET_CHECK_ENABLED", "true").lower() == "true"
+BREAK_ALERTS_ENABLED = _get("BREAK_ALERTS_ENABLED", "true").lower() == "true"
+MOOD_SIGNALS_ENABLED = _get("MOOD_SIGNALS_ENABLED", "true").lower() == "true"
+BINGE_ALERTS_ENABLED = _get("BINGE_ALERTS_ENABLED", "true").lower() == "true"
+DOOMSCROLL_ALERTS_ENABLED = _get("DOOMSCROLL_ALERTS_ENABLED", "true").lower() == "true"
+MISSED_OPPORTUNITIES_ENABLED = _get("MISSED_OPPORTUNITIES_ENABLED", "true").lower() == "true"
+
 # ── Surveillance email proactive ────────────────────────────
 # Intervalle (en secondes) entre chaque check des nouveaux emails par
 # `scripts/email_watcher.py`. Le watcher analyse chaque mail non lu via
 # Haiku (~$0.001/email) et crée des tâches/rappels/notifications auto.
 EMAIL_CHECK_INTERVAL = float(_get("EMAIL_CHECK_INTERVAL", "120"))
+EMAIL_WATCHER_LOCK_PATH = _get("EMAIL_WATCHER_LOCK_PATH", "")
 
 # ── Daemon JARVIS (sentinelle permanente) ───────────────────
 # Le daemon tourne en parallèle du serveur web : screen watcher,

@@ -13,6 +13,7 @@ Résolution : PATCH /api/commitments/{id} (kept / dropped).
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
@@ -22,8 +23,11 @@ import config
 import llm
 from database import (
     add_commitment,
+    claim_job_run,
+    complete_job_run,
     get_db,
     get_overdue_commitments,
+    release_job_run,
 )
 from jarvis.notification_service import notification_service
 
@@ -67,42 +71,57 @@ async def extract_today_commitments() -> list[dict]:
         return []
 
     corpus = "\n".join(f"- {m[:300]}" for m in messages)
-    try:
-        result = await llm.chat(
-            messages=[{"role": "user", "content": corpus}],
-            model=config.DEEPSEEK_FAST_MODEL,
-            system=(
-                "Voici les messages écrits aujourd'hui par l'utilisateur. Extrais "
-                "UNIQUEMENT ses engagements EXPLICITES envers quelqu'un ou envers "
-                "lui-même : promesse d'envoyer, de faire, de rappeler, de rendre. "
-                "Pas les intentions vagues, pas les questions. Réponds UNIQUEMENT "
-                "en JSON : [{\"content\": \"l'engagement reformulé court\", "
-                "\"made_to\": \"destinataire ou null\", \"due_hint\": \"échéance "
-                "mentionnée ou null\"}]. Liste vide [] si aucun."
-            ),
-            max_tokens=300,
-            temperature=0.0,
-        )
-        items = _parse_json_tolerant(result["content"]) or []
-    except Exception as e:
-        logger.warning("[commitments] extraction LLM indisponible : %s", e)
+    fingerprint = hashlib.sha256(corpus.encode("utf-8")).hexdigest()
+    day = datetime.now().strftime("%Y-%m-%d")
+    claim = claim_job_run("commitments_extract", f"{day}:{fingerprint}")
+    if claim is None:
         return []
+    completed = False
+    try:
+        try:
+            result = await llm.chat(
+                messages=[{"role": "user", "content": corpus}],
+                model=config.DEEPSEEK_FAST_MODEL,
+                system=(
+                    "Voici les messages écrits aujourd'hui par l'utilisateur. Extrais "
+                    "UNIQUEMENT ses engagements EXPLICITES envers quelqu'un ou envers "
+                    "lui-même : promesse d'envoyer, de faire, de rappeler, de rendre. "
+                    "Pas les intentions vagues, pas les questions. Réponds UNIQUEMENT "
+                    "en JSON : [{\"content\": \"l'engagement reformulé court\", "
+                    "\"made_to\": \"destinataire ou null\", \"due_hint\": \"échéance "
+                    "mentionnée ou null\"}]. Liste vide [] si aucun."
+                ),
+                max_tokens=300,
+                temperature=0.0,
+            )
+        except Exception as e:
+            logger.warning("[commitments] extraction LLM indisponible : %s", e)
+            return []
 
-    added = []
-    for item in items[:10]:
-        if not isinstance(item, dict) or not item.get("content"):
-            continue
-        cid = add_commitment(
-            content=item["content"],
-            made_to=item.get("made_to"),
-            due_hint=item.get("due_hint"),
-            source="conversation",
-        )
-        if cid:
-            added.append({"id": cid, **item})
-    if added:
-        logger.info("[commitments] %d engagement(s) extrait(s)", len(added))
-    return added
+        items = _parse_json_tolerant(result["content"])
+        if items is None:
+            logger.warning("[commitments] JSON non parseable — retry au prochain cycle")
+            return []
+
+        added = []
+        for item in items[:10]:
+            if not isinstance(item, dict) or not item.get("content"):
+                continue
+            cid = add_commitment(
+                content=item["content"],
+                made_to=item.get("made_to"),
+                due_hint=item.get("due_hint"),
+                source="conversation",
+            )
+            if cid:
+                added.append({"id": cid, **item})
+        if added:
+            logger.info("[commitments] %d engagement(s) extrait(s)", len(added))
+        completed = complete_job_run(claim)
+        return added
+    finally:
+        if not completed:
+            release_job_run(claim)
 
 
 def check_overdue_commitments_job() -> dict | None:
