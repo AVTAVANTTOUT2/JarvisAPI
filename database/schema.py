@@ -190,6 +190,26 @@ CREATE TABLE IF NOT EXISTS event_log (
 CREATE INDEX IF NOT EXISTS idx_event_log_type ON event_log(event_type);
 CREATE INDEX IF NOT EXISTS idx_event_log_timestamp ON event_log(timestamp);
 
+CREATE TABLE IF NOT EXISTS scheduler_job_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id TEXT NOT NULL,
+    trigger TEXT NOT NULL DEFAULT 'cron'
+        CHECK(trigger IN ('cron', 'manual')),
+    status TEXT NOT NULL DEFAULT 'running'
+        CHECK(status IN ('running', 'ok', 'skipped', 'silent', 'error')),
+    started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    finished_at DATETIME,
+    duration_ms INTEGER,
+    output TEXT,
+    error TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_scheduler_runs_job_started
+    ON scheduler_job_runs(job_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_scheduler_runs_started
+    ON scheduler_job_runs(started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_event_log_type ON event_log(event_type);
+CREATE INDEX IF NOT EXISTS idx_event_log_timestamp ON event_log(timestamp);
+
 CREATE TABLE IF NOT EXISTS llm_action_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,

@@ -1086,6 +1086,35 @@ def _migrate_fitness(conn: sqlite3.Connection) -> None:
         )
 
 
+def _migrate_scheduler_job_runs(conn: sqlite3.Connection) -> None:
+    """Historique des exécutions APScheduler pour la page /scheduler."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS scheduler_job_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id TEXT NOT NULL,
+            trigger TEXT NOT NULL DEFAULT 'cron'
+                CHECK(trigger IN ('cron', 'manual')),
+            status TEXT NOT NULL DEFAULT 'running'
+                CHECK(status IN ('running', 'ok', 'skipped', 'silent', 'error')),
+            started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            finished_at DATETIME,
+            duration_ms INTEGER,
+            output TEXT,
+            error TEXT
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_scheduler_runs_job_started "
+        "ON scheduler_job_runs(job_id, started_at DESC)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_scheduler_runs_started "
+        "ON scheduler_job_runs(started_at DESC)"
+    )
+
+
 def run_migrations(conn: sqlite3.Connection) -> None:
     """Applique dans un ordre stable toutes les migrations idempotentes."""
     _migrate_people_ai_description(conn)
@@ -1123,3 +1152,4 @@ def run_migrations(conn: sqlite3.Connection) -> None:
     _migrate_location_point_dedup(conn)
     _migrate_mobile_chat_dedup(conn)
     _migrate_fitness(conn)
+    _migrate_scheduler_job_runs(conn)

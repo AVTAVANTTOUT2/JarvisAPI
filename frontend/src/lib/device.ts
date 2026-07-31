@@ -9,7 +9,7 @@ export const UNIFIED_ROUTES = [
   'chat', 'voice', 'tasks', 'fitness', 'documents', 'memory', 'status', 'dashboard',
   'contacts', 'map', 'analytics', 'search', 'data', 'conversations', 'calendar',
   'logs', 'monitoring', 'voice-debug', 'control', 'mission', 'mobile', 'mails', 'config',
-  'cognitive',
+  'cognitive', 'scheduler',
 ] as const
 
 export function routeSegment(pathname: string): string {

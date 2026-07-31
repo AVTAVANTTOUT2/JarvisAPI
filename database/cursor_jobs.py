@@ -8,6 +8,11 @@ from datetime import datetime
 from typing import Any
 
 from database.core import get_db
+from jarvis.security.redaction import (
+    redact_persisted_mapping,
+    redact_persisted_text,
+    redact_sensitive_mapping,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +95,29 @@ def ensure_cursor_jobs_table() -> None:
 
 
 def _insert_cursor_job_row(conn: Any, record: dict[str, Any], now: str) -> None:
+    try:
+        safe_title = redact_persisted_text(str(record["title"]))
+        safe_request = redact_persisted_text(str(record["user_request"]))
+        safe_prompt = (
+            redact_persisted_text(record.get("prompt_sent"))
+            if record.get("prompt_sent") is not None
+            else None
+        )
+        safe_acceptance = redact_persisted_mapping(
+            record.get("acceptance_criteria") or []
+        )
+        # Les commandes de test sont réexécutées depuis la DB et doivent donc
+        # rester exactes ; seule la redaction des secrets leur est appliquée.
+        safe_required_tests = redact_sensitive_mapping(
+            record.get("required_tests") or []
+        )
+        safe_routing = redact_persisted_mapping(record.get("routing") or {})
+    except Exception:
+        logger.exception(
+            "[cursor-db] redaction impossible avant INSERT ; persistance refusée"
+        )
+        raise
+
     conn.execute(
         """
         INSERT INTO cursor_delegation_jobs (
@@ -102,8 +130,8 @@ def _insert_cursor_job_row(conn: Any, record: dict[str, Any], now: str) -> None:
         """,
         (
             record["job_id"],
-            record["title"],
-            record["user_request"],
+            safe_title,
+            safe_request,
             record.get("status", "queued"),
             record.get("repository"),
             record.get("working_directory"),
@@ -111,16 +139,16 @@ def _insert_cursor_job_row(conn: Any, record: dict[str, Any], now: str) -> None:
             record.get("branch_name"),
             record.get("prompt_template"),
             record.get("template_version"),
-            record.get("prompt_sent"),
-            json.dumps(record.get("acceptance_criteria") or [], ensure_ascii=False),
-            json.dumps(record.get("required_tests") or [], ensure_ascii=False),
+            safe_prompt,
+            json.dumps(safe_acceptance, ensure_ascii=False),
+            json.dumps(safe_required_tests, ensure_ascii=False),
             record.get("risk_level", "medium"),
             1 if record.get("allow_commit", True) else 0,
             1 if record.get("allow_push", True) else 0,
             1 if record.get("allow_pr", True) else 0,
             1 if record.get("allow_merge", False) else 0,
             record.get("interaction_mode"),
-            json.dumps(record.get("routing") or {}, ensure_ascii=False),
+            json.dumps(safe_routing, ensure_ascii=False),
             now,
             now,
         ),
@@ -170,17 +198,27 @@ def update_cursor_job(job_id: str, **fields: Any) -> dict[str, Any] | None:
         return get_cursor_job(job_id)
     if "status" in fields and fields["status"] not in VALID_STATUSES:
         raise ValueError(f"statut Cursor invalide: {fields['status']}")
-    # Redaction avant persistance
+    # Redaction fail-closed avant persistance : aucune erreur n'est avalée.
     try:
-        from jarvis.security.redaction import redact_sensitive_mapping, redact_sensitive_text
-
         for key in ("prompt_sent", "raw_output", "error_message"):
             if key in fields and isinstance(fields[key], str):
-                fields[key] = redact_sensitive_text(fields[key])
-        if "structured_result" in fields and not isinstance(fields["structured_result"], str):
-            fields["structured_result"] = redact_sensitive_mapping(fields["structured_result"])
+                fields[key] = redact_persisted_text(fields[key])
+        if "structured_result" in fields:
+            structured = fields["structured_result"]
+            if isinstance(structured, str):
+                try:
+                    structured = json.loads(structured)
+                except json.JSONDecodeError:
+                    fields["structured_result"] = redact_persisted_text(structured)
+                else:
+                    fields["structured_result"] = redact_persisted_mapping(structured)
+            else:
+                fields["structured_result"] = redact_persisted_mapping(structured)
     except Exception:
-        pass
+        logger.exception(
+            "[cursor-db] redaction impossible avant UPDATE ; persistance refusée"
+        )
+        raise
     allowed = {
         "status", "worktree_path", "branch_name", "prompt_sent", "raw_output",
         "structured_result", "template_version", "prompt_template",

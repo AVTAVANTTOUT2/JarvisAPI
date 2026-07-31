@@ -50,8 +50,8 @@ async def test_database_mutations_emit_log_and_push_all_phase3_events(
     assert "event_log" in table_names
     assert "location_point_dedup" in table_names
     assert "mobile_chat_dedup" in table_names
-    # 85 persistantes + 5 FTS = 90 physiques avec le programme fitness complet.
-    assert len(table_names) == 90
+    # 86 persistantes + 5 FTS = 91 physiques avec le programme fitness complet.
+    assert len(table_names) == 91
     assert "cursor_delegation_jobs" in table_names
     assert "device_pairing_codes" in table_names
     assert "device_pairing_attempts" in table_names

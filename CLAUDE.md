@@ -30,7 +30,7 @@ Le bus applicatif est actif et conserve la compatibilité de construction histor
 
 - Les mutations de `database/tasks.py`, `notifications.py`, `conversations.py`, `episodes.py`, `facts.py`, `patterns.py` et `people.py` émettent **après commit**.
 - `database/event_log.py` journalise tous les événements dans la table SQLite `event_log`
- (ajoutée au schéma runtime ; le total post-`init_db` est **76 persistantes**, **81** avec FTS —
+ (ajoutée au schéma runtime ; le total post-`init_db` est **86 persistantes**, **91** avec FTS —
  voir `Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md` ; ne pas confondre avec le dump
  historique `database/schema.sql` ≈ 46 tables).
 - `websocket_registry.py` diffuse les événements de domaine aux sockets actives et `scripts/audio_daemon.py` traite les notifications `urgent/high`.
@@ -42,7 +42,7 @@ Depuis du code async, utiliser `await event_bus.emit(event)`. Depuis un chemin s
 
 ## Couche API — Phase 4
 
-`main.py` est un point d'assemblage : configuration FastAPI/CORS, montage des 12 `APIRouter`, branchement du WebSocket, configuration de `pipeline.py`, frontend et lancement Uvicorn. Les 207 opérations HTTP et le WebSocket `/ws` sont verrouillés par empreinte ; l'OpenAPI expose 189 chemins.
+`main.py` est un point d'assemblage : configuration FastAPI/CORS, montage des 16 `APIRouter`, branchement du WebSocket, configuration de `pipeline.py`, frontend et lancement Uvicorn. Les 235 opérations HTTP et le WebSocket `/ws` sont verrouillés par empreinte ; l'OpenAPI expose 209 chemins.
 
 - `api/router_*.py` contient exactement 12 routeurs par domaine ; aucun ne dépasse 447 lignes.
 - `api/lifespan.py`, `api/middleware.py` et `api/frontend.py` portent le cycle de vie, la sécurité HTTP et le serving des frontends.
@@ -440,7 +440,7 @@ EMAIL_CHECK_INTERVAL=120      # secondes entre 2 scans (défaut 2 min)
 
 JARVIS peut exécuter des actions sur le Mac local via `integrations/computer.py` (subprocess + AppleScript), pilotées par des blocs ```action``` dans les réponses (voir `prompts/persona.txt`).
 
-**Module** : `ComputerControl` — `run()` (shell `COMPUTER_SHELL`, timeout, motifs dangereux refusés dans `is_safe`), `open_app`, `find_files`, `clipboard` (`pbcopy` / `pbpaste`), `get_battery` / `get_wifi` / `get_disk_space`, `get_running_apps`, `get_active_window`, `run_applescript`.
+**Module** : `ComputerControl` — `run(str)` legacy est déprécié et refuse toute exécution ; les helpers `open_app`, `find_files`, `clipboard` (`pbcopy` / `pbpaste`), `get_battery` / `get_wifi` / `get_disk_space`, `get_running_apps`, `get_active_window` et `run_applescript` utilisent des argv fixes validés, sans shell, avec un environnement enfant minimal.
 
 **Actions** (`actions.py` → `execute_action`) : `terminal`, `open_app`, `find_file`, `clipboard`, `system_info`. Types déclenchant une **2e passe LLM** (réformulation, pas de stdout brut dans le chat) : `terminal`, `find_file`, `system_info`, `clipboard` — flag `ACTIONS_WITH_FOLLOWUP` dans `api/chat_actions.py`.
 
@@ -510,7 +510,7 @@ et résumé.
 ### Config
 
 ```bash
-CODE_EXECUTOR_ENABLED=true       # active/désactive le moteur avancé
+CODE_EXECUTOR_ENABLED=false      # opt-in explicite du moteur avancé legacy
 CODE_EXECUTOR_TIMEOUT=120        # timeout en secondes
 CODE_EXECUTOR_MODEL=             # modèle Claude utilisé (défaut: Sonnet)
 ```
@@ -987,12 +987,12 @@ TIMEZONE=Europe/Paris
 WEB_PORT=8080
 
 # Accès ordinateur local (macOS)
-COMPUTER_ACCESS=true
+COMPUTER_ACCESS=false            # opt-in explicite des capacités macOS
 COMPUTER_SHELL=/bin/zsh
 COMPUTER_TIMEOUT=30
 
 # Exécution de code avancée
-CODE_EXECUTOR_ENABLED=true       # active/désactive le moteur avancé
+CODE_EXECUTOR_ENABLED=false      # opt-in explicite du moteur avancé legacy
 CODE_EXECUTOR_TIMEOUT=120        # timeout en secondes
 CODE_EXECUTOR_MODEL=             # modèle Claude utilisé (défaut: Sonnet)
 

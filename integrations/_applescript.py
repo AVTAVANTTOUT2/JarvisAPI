@@ -20,14 +20,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import platform
 import shutil
 import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal
 
 logger = logging.getLogger(__name__)
+
+_MINIMAL_PATH = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
 
 OsascriptReason = Literal[
     "ok", "timeout", "nonzero_exit", "not_found", "not_macos", "exception"
@@ -87,7 +89,16 @@ def run_applescript(
 
     env = None
     if extra_env:
-        env = {**os.environ, **extra_env}
+        home = extra_env.get("HOME", str(Path.home()))
+        env = {
+            "PATH": _MINIMAL_PATH,
+            "HOME": home,
+            "USER": Path(home).name,
+            "TMPDIR": "/tmp",
+            "LANG": "C.UTF-8",
+            "LC_ALL": "C.UTF-8",
+            **extra_env,
+        }
 
     try:
         result = subprocess.run(
@@ -153,7 +164,16 @@ async def run_applescript_async(
 
     env = None
     if extra_env:
-        env = {**os.environ, **extra_env}
+        home = extra_env.get("HOME", str(Path.home()))
+        env = {
+            "PATH": _MINIMAL_PATH,
+            "HOME": home,
+            "USER": Path(home).name,
+            "TMPDIR": "/tmp",
+            "LANG": "C.UTF-8",
+            "LC_ALL": "C.UTF-8",
+            **extra_env,
+        }
 
     proc = None
     try:

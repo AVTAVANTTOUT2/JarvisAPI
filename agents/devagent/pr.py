@@ -13,13 +13,17 @@ retourne la description générée avec des instructions manuelles claires.
 
 from __future__ import annotations
 
-import json
 import logging
 import shutil
-import subprocess
 from pathlib import Path
 
-from agents.devagent.executor import git_current_sha, git_diff_stat, git_log_range, run_isolated
+from agents.devagent.executor import (
+    ExecutionTimeout,
+    git_current_sha,
+    git_diff_stat,
+    git_log_range,
+    run_isolated,
+)
 from agents.devagent.utils import parse_json_response
 from integrations.deepseek_client import call_deepseek
 
@@ -157,15 +161,21 @@ def open_pull_request(project_path: Path, title: str, body: str) -> dict:
         }
 
     try:
-        result = subprocess.run(
+        result = run_isolated(
             ["gh", "pr", "create", "--title", title, "--body", body],
-            cwd=str(project_path), capture_output=True, text=True, timeout=30,
+            cwd=project_path,
+            timeout=30,
         )
-    except (OSError, subprocess.SubprocessError) as e:
+    except (OSError, ExecutionTimeout) as e:
         return {"ok": False, "opened": False, "reason": f"échec appel gh : {e}"}
 
-    if result.returncode != 0:
-        return {"ok": False, "opened": False, "reason": result.stderr[:500] or result.stdout[:500]}
+    if result["returncode"] != 0:
+        return {
+            "ok": False,
+            "opened": False,
+            "reason": result["stderr"][:500] or result["stdout"][:500],
+        }
 
-    url = result.stdout.strip().splitlines()[-1] if result.stdout.strip() else None
+    stdout = str(result["stdout"])
+    url = stdout.strip().splitlines()[-1] if stdout.strip() else None
     return {"ok": True, "opened": True, "url": url}

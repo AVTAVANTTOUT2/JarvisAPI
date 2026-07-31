@@ -10,7 +10,7 @@
         <string>/Users/zeldris/JarvisAPI/scripts/launch_tv_browser.sh</string>
     </array>
     <key>RunAtLoad</key>
-    <true/>
+    <false/>
     <key>KeepAlive</key>
     <false/>
     <key>StandardOutPath</key>
@@ -19,8 +19,6 @@
     <string>/Users/zeldris/JarvisAPI/data/logs/tv_browser_launcher.err</string>
     <key>EnvironmentVariables</key>
     <dict>
-        <key>TV_IP</key>
-        <string>192.168.3.82</string>
         <key>TV_ADB_PORT</key>
         <string>5555</string>
         <key>CDP_LOCAL_PORT</key>

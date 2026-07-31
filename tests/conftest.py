@@ -52,6 +52,7 @@ def _isolate_app_lifespan(monkeypatch: pytest.MonkeyPatch):
         return None
 
     monkeypatch.setattr(config, "IMESSAGE_DAEMON_ENABLED", False)
+    monkeypatch.setattr(config, "DEEPSEEK_API_KEY", "test-deepseek-key")
     monkeypatch.setattr(config, "DAEMON_ENABLED", False)
     monkeypatch.setattr(config, "AUDIO_DAEMON_ENABLED", False)
     # Ne pas écraser IMESSAGE_SOURCING_ENABLED : les tests de contrat vérifient
