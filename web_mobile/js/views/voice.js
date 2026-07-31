@@ -23,8 +23,14 @@ export default {
     let analyser = null;
     let rafId = null;
     let chunks = [];
-    let speech = [];          // morceaux MP3 renvoyés par le serveur
+    let speech = [];          // morceaux audio renvoyés par le serveur
+    let speechMime = 'audio/mpeg';
     let player = null;
+    let playerUrl = null;
+    let audioSource = null;
+    let pointerHeld = false;
+    let captureGeneration = 0;
+    let disposed = false;
 
     const stateLine = h('p', { class: 'v-state' });
     const transcript = h('div', { class: 'v-trans' });
@@ -39,6 +45,7 @@ export default {
 
     const LABELS = {
       idle:       ['Prêt',           'Maintenir pour parler',        ''],
+      arming:     ['Micro',           'Maintenez le bouton',          'busy'],
       listening:  ['À l’écoute',     'Relâchez pour envoyer',        'listening'],
       processing: ['Traitement',     'JARVIS réfléchit',             'busy'],
       speaking:   ['Réponse',        'Appuyez pour interrompre',     'reply'],
@@ -65,6 +72,39 @@ export default {
     }
 
     // ── Capture ──
+    function ensureAudioContext() {
+      if (audioCtx && audioCtx.state !== 'closed') {
+        if (audioCtx.state === 'suspended') {
+          try { void audioCtx.resume(); } catch { /* le geste suivant réessaiera */ }
+        }
+        return audioCtx;
+      }
+      const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextCtor) return null;
+      try {
+        audioCtx = new AudioContextCtor();
+        // Appelé directement dans pointerdown : Safari mémorise ainsi le geste
+        // pour autoriser la réponse audio reçue plusieurs secondes plus tard.
+        void audioCtx.resume();
+        return audioCtx;
+      } catch {
+        audioCtx = null;
+        return null;
+      }
+    }
+
+    function recorderOptions() {
+      if (!window.MediaRecorder || typeof MediaRecorder.isTypeSupported !== 'function') return {};
+      const candidates = [
+        'audio/mp4',
+        'audio/webm;codecs=opus',
+        'audio/webm',
+        'audio/ogg;codecs=opus',
+      ];
+      const mimeType = candidates.find((candidate) => MediaRecorder.isTypeSupported(candidate));
+      return mimeType ? { mimeType } : {};
+    }
+
     function drawLevel() {
       if (!analyser) return;
       const data = new Uint8Array(analyser.frequencyBinCount);
@@ -80,7 +120,7 @@ export default {
     }
 
     async function startRecording() {
-      if (state === 'listening' || state === 'processing') return;
+      if (state === 'listening' || state === 'processing' || state === 'arming') return;
 
       // Interrompre JARVIS fait partie du métier de majordome.
       if (state === 'speaking') { stopPlayback(); }
@@ -89,6 +129,9 @@ export default {
         say("Micro indisponible sur ce navigateur.", true);
         return;
       }
+      const generation = ++captureGeneration;
+      const context = ensureAudioContext();
+      setState('arming');
       try {
         stream = await navigator.mediaDevices.getUserMedia({
           audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
@@ -96,20 +139,40 @@ export default {
       } catch {
         // Refus de permission ou contexte non sécurisé (HTTP hors localhost).
         say("Micro refusé. Autorisez l’accès dans les réglages de Safari.", true);
+        setState('idle');
+        return;
+      }
+
+      // Au premier usage, la boîte de permission iOS survit au doigt. Si
+      // l'utilisateur l'a déjà relâché, démarrer ici créerait un enregistrement
+      // sans moyen physique de l'arrêter.
+      if (disposed || !pointerHeld || generation !== captureGeneration) {
+        for (const track of stream.getTracks()) track.stop();
+        stream = null;
+        setState('idle');
+        say('Maintenez le bouton pendant que vous parlez.', true);
         return;
       }
 
       chunks = [];
-      recorder = new MediaRecorder(stream);
+      try {
+        recorder = new MediaRecorder(stream, recorderOptions());
+      } catch {
+        releaseCapture(true);
+        setState('idle');
+        say("Format d’enregistrement non pris en charge.", true);
+        return;
+      }
       recorder.addEventListener('dataavailable', (e) => { if (e.data && e.data.size) chunks.push(e.data); });
       recorder.addEventListener('stop', onRecorded);
       recorder.start();
 
-      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 256;
-      audioCtx.createMediaStreamSource(stream).connect(analyser);
-      drawLevel();
+      if (context && context.state !== 'closed') {
+        analyser = context.createAnalyser();
+        analyser.fftSize = 256;
+        context.createMediaStreamSource(stream).connect(analyser);
+        drawLevel();
+      }
 
       say('…', true);
       setState('listening');
@@ -121,59 +184,159 @@ export default {
       setState('processing');
     }
 
-    function releaseCapture() {
+    function releaseCapture(closeContext = false) {
       if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
-      if (audioCtx) { try { void audioCtx.close(); } catch { /* ignoré */ } audioCtx = null; }
       analyser = null;
       if (stream) { for (const t of stream.getTracks()) t.stop(); stream = null; }
       recorder = null;
+      if (closeContext && audioCtx) {
+        try { void audioCtx.close(); } catch { /* ignoré */ }
+        audioCtx = null;
+      }
     }
 
     function onRecorded() {
       const blob = new Blob(chunks, { type: chunks[0] ? chunks[0].type : 'audio/webm' });
       chunks = [];
-      releaseCapture();
-      if (!blob.size) { setState('idle'); say('Rien entendu.', true); return; }
+      releaseCapture(false);
+      if (disposed) return;
+      if (!blob.size) {
+        releaseCapture(true);
+        setState('idle');
+        say('Rien entendu.', true);
+        return;
+      }
       if (!ws.sendBinary(blob)) {
+        releaseCapture(true);
         setState('idle');
         say('Canal fermé. Rien n’a été envoyé.', true);
       }
     }
 
     // ── Lecture de la réponse ──
-    function stopPlayback() {
-      if (player) { try { player.pause(); } catch { /* ignoré */ } URL.revokeObjectURL(player.src); player = null; }
-      speech = [];
+    function finishPlayback({ clearText = false } = {}) {
+      if (audioSource) {
+        audioSource.onended = null;
+        audioSource = null;
+      }
+      if (player) {
+        player.onended = null;
+        player.onerror = null;
+        player = null;
+      }
+      if (playerUrl) { URL.revokeObjectURL(playerUrl); playerUrl = null; }
       ws.donePlaying();
       setState('idle');
-      say('');
+      if (clearText) say('');
+      if (audioCtx) {
+        try { void audioCtx.close(); } catch { /* ignoré */ }
+        audioCtx = null;
+      }
     }
 
-    function playSpeech() {
-      if (!speech.length) { setState('idle'); return; }
-      const blob = new Blob(speech, { type: 'audio/mpeg' });
+    function stopPlayback() {
+      if (audioSource) { try { audioSource.stop(); } catch { /* déjà terminé */ } }
+      if (player) { try { player.pause(); } catch { /* ignoré */ } }
       speech = [];
-      player = new Audio(URL.createObjectURL(blob));
-      player.addEventListener('ended', () => {
-        if (player) URL.revokeObjectURL(player.src);
-        player = null;
-        ws.donePlaying();
-        setState('idle');
-      });
-      // Le geste utilisateur de l'appui autorise la lecture ; si Safari refuse
-      // malgré tout, on le dit plutôt que de rester muet sans explication.
+      finishPlayback({ clearText: true });
+    }
+
+    async function decodeSpeech(context, parts, blob) {
+      // Edge envoie les fragments d'un seul flux MP3 : ils doivent être
+      // concaténés avant décodage. Kokoro envoie au contraire plusieurs WAV
+      // complets ; concaténer leurs en-têtes ne joue que la première phrase.
+      if (speechMime !== 'audio/wav' || parts.length <= 1) {
+        return context.decodeAudioData(await blob.arrayBuffer());
+      }
+
+      const decodedParts = [];
+      for (const part of parts) {
+        const bytes = part instanceof ArrayBuffer ? part.slice(0) : await new Blob([part]).arrayBuffer();
+        decodedParts.push(await context.decodeAudioData(bytes));
+      }
+      const sampleRate = decodedParts[0].sampleRate;
+      const channels = Math.max(...decodedParts.map((buffer) => buffer.numberOfChannels));
+      const length = decodedParts.reduce((sum, buffer) => sum + buffer.length, 0);
+      const merged = context.createBuffer(channels, length, sampleRate);
+      let offset = 0;
+      for (const buffer of decodedParts) {
+        for (let channel = 0; channel < channels; channel += 1) {
+          const sourceChannel = Math.min(channel, buffer.numberOfChannels - 1);
+          merged.copyToChannel(buffer.getChannelData(sourceChannel), channel, offset);
+        }
+        offset += buffer.length;
+      }
+      return merged;
+    }
+
+    async function playSpeech() {
+      if (!speech.length) {
+        // Le serveur émet aussi speech_done lorsque le moteur TTS est absent.
+        // Sans cet acquittement, son état PTT reste `is_speaking=true` et tous
+        // les enregistrements suivants sont silencieusement ignorés.
+        finishPlayback();
+        return;
+      }
+      const parts = speech;
+      const blob = new Blob(parts, { type: speechMime });
+      speech = [];
+      const context = audioCtx && audioCtx.state !== 'closed' ? audioCtx : null;
+
+      if (context) {
+        try {
+          const decoded = await decodeSpeech(context, parts, blob);
+          if (disposed) return;
+          audioSource = context.createBufferSource();
+          audioSource.buffer = decoded;
+          audioSource.connect(context.destination);
+          audioSource.onended = () => finishPlayback();
+          audioSource.start();
+          setState('speaking');
+          return;
+        } catch {
+          // Certains moteurs renvoient un conteneur que WebAudio ne décode pas
+          // sur une version donnée d'iOS. L'élément audio reste le repli.
+        }
+      }
+
+      playerUrl = URL.createObjectURL(blob);
+      player = new Audio(playerUrl);
+      player.playsInline = true;
+      player.onended = () => finishPlayback();
+      player.onerror = () => finishPlayback();
       player.play().catch(() => {
         say('Réponse reçue. Lecture bloquée par le navigateur.', true);
-        setState('idle');
+        finishPlayback();
       });
       setState('speaking');
     }
 
     // Appui maintenu — pointeur (couvre tactile, souris et stylet).
-    micBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); void startRecording(); });
-    micBtn.addEventListener('pointerup', (e) => { e.preventDefault(); stopRecording(); });
-    micBtn.addEventListener('pointercancel', () => stopRecording());
-    micBtn.addEventListener('pointerleave', () => { if (state === 'listening') stopRecording(); });
+    micBtn.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      pointerHeld = true;
+      try { micBtn.setPointerCapture(e.pointerId); } catch { /* ancien Safari */ }
+      // L'AudioContext doit être créé dans la pile du geste, avant toute await.
+      ensureAudioContext();
+      void startRecording();
+    });
+    micBtn.addEventListener('pointerup', (e) => {
+      e.preventDefault();
+      pointerHeld = false;
+      if (state === 'arming') {
+        captureGeneration += 1;
+        setState('idle');
+        say('Maintenez le bouton pendant que vous parlez.', true);
+      } else {
+        stopRecording();
+      }
+    });
+    micBtn.addEventListener('pointercancel', () => {
+      pointerHeld = false;
+      captureGeneration += 1;
+      if (state === 'arming') setState('idle');
+      else stopRecording();
+    });
     micBtn.addEventListener('contextmenu', (e) => e.preventDefault());
 
     const off = [];
@@ -181,9 +344,22 @@ export default {
     off.push(ws.on('processing', () => setState('processing')));
     off.push(ws.on('response', (m) => { if (m.content) say(m.content); }));
     off.push(ws.on('response_clean', (m) => { if (m.content) say(m.content); }));
+    off.push(ws.on('speaking', (m) => {
+      speech = [];
+      speechMime = m.audio_mime || 'audio/mpeg';
+    }));
     off.push(ws.on('binary', (buf) => { speech.push(buf); }));
-    off.push(ws.on('speech_done', () => playSpeech()));
-    off.push(ws.on('error', (m) => { setState('idle'); say(m.message || 'Erreur.', true); }));
+    off.push(ws.on('speech_done', () => { void playSpeech(); }));
+    off.push(ws.on('speech_cancelled', () => {
+      speech = [];
+      finishPlayback();
+    }));
+    off.push(ws.on('error', (m) => {
+      speech = [];
+      releaseCapture(true);
+      setState('idle');
+      say(m.message || 'Erreur.', true);
+    }));
 
     ctx.setHeader('Voix', null, [
       { icon: 'x', label: 'Retour au chat', onClick: () => ctx.navigate('chat') },
@@ -196,10 +372,16 @@ export default {
     if (!ws.isOpen()) ws.connect();
 
     return () => {
+      disposed = true;
+      pointerHeld = false;
+      captureGeneration += 1;
       for (const fn of off) fn();
       if (state === 'listening' && recorder) { try { recorder.stop(); } catch { /* ignoré */ } }
-      releaseCapture();
+      if (state === 'processing' || state === 'speaking' || speech.length) ws.donePlaying();
+      if (audioSource) { try { audioSource.stop(); } catch { /* ignoré */ } audioSource = null; }
       if (player) { try { player.pause(); } catch { /* ignoré */ } player = null; }
+      if (playerUrl) { URL.revokeObjectURL(playerUrl); playerUrl = null; }
+      releaseCapture(true);
     };
   },
 };

@@ -1,7 +1,7 @@
 # 35 — Cahier des charges : `web_mobile/`
 
 Interface mobile JARVIS refaite de zéro, isolée, servie par FastAPI.
-Rédigé le 30/07/2026. **Statut : à valider avant implémentation.**
+Rédigé le 30/07/2026. **Statut : implémenté, corrigé et audité le 31/07/2026.**
 
 ---
 
@@ -70,8 +70,9 @@ GET /mobile/*  → web_mobile/ (statique, jamais de redirection)
 - **Échappatoire obligatoire** : `?desktop=1` pose un cookie `jarvis_force_desktop`
   qui désactive la redirection. Sans ça, impossible d'atteindre le desktop
   depuis un iPhone. Lien « Version bureau » en pied de l'interface mobile.
-- La redirection ne s'applique qu'à `/`. Les liens profonds desktop restent
-  accessibles si on les ouvre directement.
+- La redirection générale ne s'applique qu'à `/`. Les deux anciens points
+  d'entrée installables `/chat` et `/dashboard` migrent aussi vers leur écran
+  mobile équivalent ; les autres liens profonds desktop restent accessibles.
 
 ## 5. Authentification
 

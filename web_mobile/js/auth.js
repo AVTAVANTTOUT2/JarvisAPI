@@ -167,6 +167,9 @@ function unlocked() {
   stopCountdown();
   code = '';
   firstEntry = '';
+  // Après la création initiale, le prochain verrou doit vérifier le code au
+  // lieu de rester dans l'étape de confirmation de la première saisie.
+  mode = 'unlock';
   el.root.hidden = true;
   const done = resolveUnlocked;
   resolveUnlocked = null;
@@ -178,10 +181,14 @@ export function lock(reason) {
   document.getElementById('app').hidden = true;
   el.root.hidden = false;
   code = '';
+  firstEntry = '';
+  mode = reason === 'unconfigured' ? 'setup' : 'unlock';
   renderDots();
 
-  if (reason === 'expired') say('Session expirée. Entrez votre code.');
+  if (reason === 'unconfigured') say('Aucun code défini. Choisissez-en un.');
+  else if (reason === 'expired') say('Session expirée. Entrez votre code.');
   else if (reason === 'idle') say('Verrouillé par inactivité.');
+  else say('Entrez votre code.');
 
   return new Promise((resolve) => { resolveUnlocked = resolve; });
 }
@@ -195,30 +202,26 @@ export async function requireSession() {
   renderDots();
 
   let st;
-  try {
-    st = await api.authStatus();
-  } catch {
-    el.root.hidden = false;
-    say('Serveur injoignable. Vérifiez le réseau.', true);
-    setKeysDisabled(true);
-    // Nouvelle tentative tant que le serveur ne répond pas : sans statut,
-    // impossible de savoir si l'application a le droit de s'afficher.
-    await new Promise((r) => setTimeout(r, 3000));
-    return requireSession();
+  while (!st) {
+    try {
+      st = await api.authStatus();
+    } catch {
+      el.root.hidden = false;
+      say('Serveur injoignable. Vérifiez le réseau.', true);
+      setKeysDisabled(true);
+      // Sans statut, impossible de savoir si l'application a le droit de
+      // s'afficher. Une boucle évite d'empiler une promesse récursive toutes
+      // les trois secondes pendant une longue coupure réseau.
+      await new Promise((r) => setTimeout(r, 3000));
+    }
   }
+  setKeysDisabled(false);
 
   if (st.authenticated) { el.root.hidden = true; return; }
 
-  el.root.hidden = false;
-  if (!st.configured) {
-    mode = 'setup';
-    say('Aucun code défini. Choisissez-en un.');
-  } else {
-    mode = 'unlock';
-    say('Entrez votre code.');
-    if (st.locked_out) startCountdown(st.lockout_seconds || 0);
-  }
-  return lock();
+  const waiting = lock(st.configured ? undefined : 'unconfigured');
+  if (st.configured && st.locked_out) startCountdown(st.lockout_seconds || 0);
+  return waiting;
 }
 
 /** Verrouillage automatique après inactivité prolongée. */
@@ -226,17 +229,41 @@ export function watchIdle(minutes, onIdle) {
   if (!minutes || minutes <= 0) return () => {};
   const limit = minutes * 60 * 1000;
   let timer = null;
+  let lastActivity = Date.now();
+  let fired = false;
 
-  const reset = () => {
+  const expire = () => {
+    if (fired) return;
+    fired = true;
     clearTimeout(timer);
-    timer = setTimeout(onIdle, limit);
+    onIdle();
   };
-  const events = ['pointerdown', 'keydown', 'visibilitychange'];
-  for (const e of events) document.addEventListener(e, reset, { passive: true });
-  reset();
+  const arm = () => {
+    clearTimeout(timer);
+    if (document.hidden || fired) return;
+    const remaining = limit - (Date.now() - lastActivity);
+    if (remaining <= 0) { expire(); return; }
+    timer = setTimeout(expire, remaining);
+  };
+  const activity = () => {
+    if (fired) return;
+    lastActivity = Date.now();
+    arm();
+  };
+  const visibility = () => {
+    // Les minuteurs sont gelés quand Safari passe en arrière-plan. Ne surtout
+    // pas considérer le retour au premier plan comme une activité : on mesure
+    // le temps réellement écoulé et on verrouille immédiatement si nécessaire.
+    arm();
+  };
+  const events = ['pointerdown', 'keydown'];
+  for (const e of events) document.addEventListener(e, activity, { passive: true });
+  document.addEventListener('visibilitychange', visibility, { passive: true });
+  arm();
 
   return () => {
     clearTimeout(timer);
-    for (const e of events) document.removeEventListener(e, reset);
+    for (const e of events) document.removeEventListener(e, activity);
+    document.removeEventListener('visibilitychange', visibility);
   };
 }

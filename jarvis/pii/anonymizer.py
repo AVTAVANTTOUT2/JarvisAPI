@@ -96,6 +96,22 @@ _CAP_SEQUENCE_RE = re.compile(
 # Token opaque tel qu'inséré dans le texte : [TYPE_N].
 _TOKEN_RE = re.compile(r"\[[^\[\]]{1,64}\]")
 
+# Impératifs fréquemment employés dans les requêtes JARVIS que le petit
+# modèle français confond parfois avec un lieu ou une organisation.
+_NER_COMMAND_FALSE_POSITIVES = {
+    "ajoute",
+    "appelle",
+    "crée",
+    "cree",
+    "envoie",
+    "écris",
+    "ecris",
+    "ouvre",
+    "relance",
+    "réponds",
+    "reponds",
+}
+
 # Cache module-level du pipeline spaCy (chargement coûteux, fait une seule fois).
 _SPACY_PIPELINE = None
 _SPACY_LOAD_ATTEMPTED = False
@@ -252,7 +268,17 @@ class PIIAnonymizer:
         matches: list[PIIMatch] = []
         matches.extend(self._detect_pii_regex(text))
         matches.extend(self._detect_pii_spacy(text))
-        return matches
+        # Les marqueurs déjà opaques (`[REDACTED]`, `[LOCAL_PATH]`,
+        # `[EMAIL_1]`...) ne doivent jamais être analysés une seconde fois :
+        # spaCy peut sinon transformer `[LOCAL_PATH]` en `[[PERSON_1]]`.
+        token_spans = [match.span() for match in _TOKEN_RE.finditer(text)]
+        if not token_spans:
+            return matches
+        return [
+            match
+            for match in matches
+            if not any(match.start < end and match.end > start for start, end in token_spans)
+        ]
 
     def _detect_pii_regex(self, text: str) -> list[PIIMatch]:
         """Détecte les entités structurées par regex (fallback inclus)."""
@@ -299,7 +325,12 @@ class PIIAnonymizer:
             return []
         for ent in doc.ents:
             entity_type = label_map.get(ent.label_)
-            if entity_type and ent.text.strip():
+            value = ent.text.strip()
+            if (
+                entity_type
+                and value
+                and value.casefold() not in _NER_COMMAND_FALSE_POSITIVES
+            ):
                 found.append(
                     PIIMatch(ent.start_char, ent.end_char, ent.text, entity_type)
                 )

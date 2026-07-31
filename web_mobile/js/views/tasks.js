@@ -58,12 +58,14 @@ export default {
       const next = done ? 'todo' : 'done';
       // Optimiste : la coche répond au doigt, pas au réseau.
       boxEl.classList.toggle('done', !done);
+      boxEl.parentElement?.setAttribute('aria-pressed', !done ? 'true' : 'false');
       task.status = next;
       try {
         await api.updateTask(task.id, { status: next });
         await load();
       } catch {
         boxEl.classList.toggle('done', done);
+        boxEl.parentElement?.setAttribute('aria-pressed', done ? 'true' : 'false');
         task.status = done ? 'done' : 'todo';
         netError = 'Modification non enregistrée. Serveur injoignable.';
         render();
@@ -74,12 +76,15 @@ export default {
       const now = new Date();
       const due = dueLabel(task.due_date, now);
       const done = task.status === 'done';
-      const box = h('button', {
-        class: 'box' + (done ? ' done' : ''), type: 'button',
+      const box = h('span', {
+        class: 'box' + (done ? ' done' : ''),
+      }, icon('check'));
+      const toggleButton = h('button', {
+        class: 'task-toggle', type: 'button',
         'aria-label': done ? 'Rouvrir la tâche' : 'Terminer la tâche',
         'aria-pressed': done ? 'true' : 'false',
-      }, icon('check'));
-      box.addEventListener('click', () => { void toggle(task, box); });
+      }, box);
+      toggleButton.addEventListener('click', () => { void toggle(task, box); });
 
       const meta = [];
       if (due) meta.push(h('span', { class: 'cm' + (due.late && !done ? ' late' : ''), text: due.text }));
@@ -87,7 +92,7 @@ export default {
 
       return h('div', { class: 'task' },
         h('span', { class: 'stripe', style: `background:${done ? 'var(--green)' : priorityColor(task.priority)}` }),
-        box,
+        toggleButton,
         h('div', { style: 'flex:1;min-width:0' },
           h('p', { class: 'ct' + (done ? ' strike' : ''), text: task.title }),
           meta.length ? h('div', { class: 'tmeta' }, ...meta) : null));

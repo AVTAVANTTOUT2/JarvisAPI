@@ -7,7 +7,8 @@
  */
 
 import * as ws from '../ws.js';
-import { h, icon } from '../ui.js';
+import { api, ApiError } from '../api.js';
+import { h, icon, skeleton, banner } from '../ui.js';
 
 const ACTION_LABELS = {
   terminal: 'Exécution sur le Mac',
@@ -22,9 +23,17 @@ export default {
 
     let streaming = null;   // { node, text } — réponse en cours d'écriture
     let atBottom = true;
+    let alive = true;
+    let body = null;
+    let showingHistory = false;
+    let activeConversationId = null;
+    let conversations = [];
+    let historyError = null;
 
     const scroll = () => {
-      if (atBottom) wrap.parentElement.scrollTop = wrap.parentElement.scrollHeight;
+      if (atBottom && wrap.parentElement) {
+        wrap.parentElement.scrollTop = wrap.parentElement.scrollHeight;
+      }
     };
 
     // ── Bulles ──
@@ -43,6 +52,18 @@ export default {
       scroll();
       return node;
     };
+
+    function renderMessages(messages) {
+      thread.replaceChildren();
+      streaming = null;
+      for (const message of messages || []) {
+        const text = String(message.content || '').trim();
+        if (!text) continue;
+        if (message.role === 'user') mine(text);
+        else jarvis(text, message.role === 'system');
+      }
+      requestAnimationFrame(scroll);
+    }
 
     // ── Composer ──
     const field = h('input', {
@@ -80,25 +101,146 @@ export default {
     sendBtn.addEventListener('click', submit);
     syncComposer();
 
-    ctx.setHeader('Chat', null, [
-      { icon: 'plus', label: 'Nouvelle conversation', onClick: () => {
-        ws.newConversation();
-        thread.replaceChildren();
-        streaming = null;
-      } },
-    ]);
-    ctx.setBody(wrap);
-    ctx.setDock(h('div', { style: 'display:flex;align-items:flex-end;gap:9px;width:100%' }, field, micBtn, sendBtn));
+    const composer = h(
+      'div',
+      { style: 'display:flex;align-items:flex-end;gap:9px;width:100%' },
+      field,
+      micBtn,
+      sendBtn,
+    );
+
+    function showThread() {
+      showingHistory = false;
+      ctx.setHeader('Chat', null, [
+        { icon: 'list', label: 'Conversations', onClick: () => { void showHistory(); } },
+        { icon: 'plus', label: 'Nouvelle conversation', onClick: beginNewConversation },
+      ]);
+      ctx.setBody(wrap);
+      ctx.setDock(composer);
+      body = wrap.parentElement;
+      requestAnimationFrame(scroll);
+    }
+
+    function beginNewConversation() {
+      if (!ws.newConversation()) {
+        if (showingHistory) {
+          historyError = 'Canal fermé. La conversation n’a pas été créée.';
+          renderHistoryList();
+        } else {
+          jarvis('Canal fermé. La conversation n’a pas été créée.');
+        }
+      }
+      // Le fil n'est vidé qu'après l'accusé `conversation_switched`. Une
+      // coupure réseau ne doit jamais faire disparaître le fil courant.
+    }
+
+    function conversationRow(conversation) {
+      const title = conversation.title || `Conversation ${conversation.id}`;
+      const preview = String(conversation.last_message || '').trim();
+      const count = conversation.message_count ?? conversation.msg_count ?? 0;
+      return h('button', {
+        class: 'conv-row',
+        type: 'button',
+        onClick: () => {
+          historyError = null;
+          if (!ws.switchConversation(conversation.id)) {
+            historyError = 'Canal fermé. Impossible de changer de conversation.';
+            renderHistoryList();
+          }
+        },
+      },
+        h('span', { class: 'conv-main' },
+          h('span', { class: 'ct', text: title }),
+          preview ? h('span', { class: 'cs conv-preview', text: preview }) : null),
+        h('span', { class: 'cm num', text: String(count) }));
+    }
+
+    function renderHistoryList() {
+      if (!showingHistory || !alive) return;
+      const nodes = [];
+      if (historyError) nodes.push(banner(historyError, 'err'));
+      if (conversations.length) {
+        nodes.push(h('div', { class: 'card flush conv-list' }, ...conversations.map(conversationRow)));
+      } else {
+        nodes.push(h('div', { class: 'empty' },
+          h('p', { text: 'Aucune conversation.' }),
+          h('span', { text: 'Commencez un nouveau fil depuis le bouton +.' })));
+      }
+      ctx.setBody(h('div', { class: 'pad' }, ...nodes));
+    }
+
+    async function loadConversations() {
+      try {
+        const data = await api.conversations();
+        if (!alive) return;
+        conversations = data.conversations || [];
+        historyError = null;
+      } catch (err) {
+        if (!alive) return;
+        historyError = err instanceof ApiError && err.status === 0
+          ? 'Serveur injoignable.' : 'Conversations indisponibles.';
+      }
+      renderHistoryList();
+    }
+
+    async function showHistory() {
+      showingHistory = true;
+      ctx.setHeader('Conversations', null, [
+        { icon: 'back', label: 'Retour au chat', onClick: showThread },
+        { icon: 'plus', label: 'Nouvelle conversation', onClick: beginNewConversation },
+      ]);
+      ctx.setDock(null);
+      ctx.setBody(h('div', { class: 'pad' }, skeleton(4)));
+      await loadConversations();
+    }
+
+    async function loadConversation(id) {
+      if (!Number.isInteger(id)) return;
+      activeConversationId = id;
+      try {
+        const data = await api.conversation(id);
+        if (!alive || activeConversationId !== id) return;
+        renderMessages(data.messages || []);
+        showThread();
+      } catch (err) {
+        if (!alive || activeConversationId !== id) return;
+        showThread();
+        jarvis(err instanceof ApiError && err.status === 0
+          ? 'Serveur injoignable. Historique non chargé.'
+          : 'Historique indisponible.');
+      }
+    }
+
+    showThread();
 
     // Suit l'intention de lecture : on ne recolle en bas que si l'utilisateur
     // y était déjà. Sinon une réponse longue arracherait sa lecture.
-    const body = wrap.parentElement;
-    body.addEventListener('scroll', () => {
-      atBottom = body.scrollHeight - body.scrollTop - body.clientHeight < 60;
-    }, { passive: true });
+    const scrollBody = body;
+    const onScroll = () => {
+      atBottom = scrollBody.scrollHeight - scrollBody.scrollTop - scrollBody.clientHeight < 60;
+    };
+    scrollBody.addEventListener('scroll', onScroll, { passive: true });
 
     // ── Flux serveur ──
     const off = [];
+
+    off.push(ws.on('connected', (msg) => {
+      activeConversationId = msg.conversation_id;
+      if (msg.resumed) void loadConversation(msg.conversation_id);
+      else {
+        renderMessages([]);
+        showThread();
+      }
+      void loadConversations();
+    }));
+
+    off.push(ws.on('conversation_switched', (msg) => {
+      void loadConversation(msg.conversation_id);
+      void loadConversations();
+    }));
+
+    off.push(ws.on('conversation_updated', () => { void loadConversations(); }));
+    off.push(ws.on('welcome', (msg) => { if (msg.content) jarvis(msg.content); }));
 
     off.push(ws.on('chunk', (msg) => {
       const delta = msg.content || '';
@@ -147,7 +289,7 @@ export default {
       card.append(h('div', { class: 'confirm-a' },
         h('button', {
           class: 'btn ghost', type: 'button',
-          onClick: () => { ws.send({ type: 'action_confirm', action, confirmed: false }); close('Annulé.'); },
+          onClick: () => { ws.cancelAction(action); close('Annulé.'); },
         }, 'Refuser'),
         h('button', {
           class: 'btn primary', type: 'button',
@@ -155,7 +297,7 @@ export default {
         }, 'Exécuter'),
       ));
 
-      wrap.append(card);
+      thread.append(card);
       scroll();
     }));
 
@@ -169,7 +311,16 @@ export default {
     }));
 
     if (!ws.isOpen()) ws.connect();
+    const currentId = ws.currentConversationId();
+    if (Number.isInteger(currentId)) {
+      void loadConversation(currentId);
+      void loadConversations();
+    }
 
-    return () => { for (const fn of off) fn(); };
+    return () => {
+      alive = false;
+      scrollBody.removeEventListener('scroll', onScroll);
+      for (const fn of off) fn();
+    };
   },
 };

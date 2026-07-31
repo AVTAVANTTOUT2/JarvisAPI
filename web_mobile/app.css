@@ -13,7 +13,7 @@
   --line-2:  rgba(255,255,255,.13);
   --fg:      #ffffff;
   --fg-2:    #888888;
-  --fg-3:    #555555;
+  --fg-3:    #787880;
   --blue:    #4a9eff;
   --violet:  #9c59ff;
   --green:   #30d158;
@@ -98,11 +98,11 @@ a { color: inherit; text-decoration: none; }
 }
 .tab {
   height: 50px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
-  color: #3f4149; font-size: 9.5px; font-weight: 500;
+  color: var(--fg-3); font-size: 9.5px; font-weight: 500;
 }
+.tab.reserved { color: #6d6d75; }
 .tab[aria-current="page"] { color: var(--blue); }
 .tab[aria-current="page"] .icon { stroke-width: 1.9; }
-.tab.reserved { color: #2c2e35; }
 
 /* ── Éléments récurrents ───────────────────────────────────────── */
 .seclabel {
@@ -232,6 +232,19 @@ a { color: inherit; text-decoration: none; }
 .confirm-a { display: flex; gap: 10px; padding: 12px 14px; }
 .confirm-a .btn { flex: 1; }
 
+/* ── Conversations ────────────────────────────────────────────── */
+.conv-list { display: flex; flex-direction: column; }
+.conv-row {
+  min-height: 64px; width: 100%; padding: 12px 14px;
+  display: flex; align-items: center; gap: 12px; text-align: left;
+}
+.conv-row + .conv-row { border-top: 1px solid var(--line); }
+.conv-row:active { background: var(--surf-2); }
+.conv-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.conv-preview {
+  display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
 /* ── Voix ──────────────────────────────────────────────────────── */
 /* `.body` défile ; sans hauteur imposée, l'écran vocal se tasserait en haut
    et le bouton ne serait plus au pouce. `min-height:100%` le fait remplir
@@ -289,6 +302,12 @@ a { color: inherit; text-decoration: none; }
 .box .icon { width: 13px; height: 13px; stroke-width: 3; opacity: 0; color: #06101f; }
 .box.done { background: var(--blue); border-color: var(--blue); }
 .box.done .icon { opacity: 1; }
+.task-toggle {
+  width: 44px; height: 44px; flex: none;
+  margin: -10px 0 -10px -11px;
+  display: grid; place-items: center; border-radius: 12px;
+}
+.task-toggle:active { background: var(--surf-2); }
 .tmeta { display: flex; align-items: center; gap: 8px; margin-top: 5px; flex-wrap: wrap; }
 .late { color: var(--red); font-weight: 600; }
 .strike { color: var(--fg-3); text-decoration: line-through; }
@@ -297,7 +316,7 @@ a { color: inherit; text-decoration: none; }
 /* ── Mails ─────────────────────────────────────────────────────── */
 .filters { display: flex; gap: 8px; padding: 14px 20px 4px; overflow-x: auto; }
 .fpill {
-  padding: 7px 14px; min-height: 34px; border-radius: 999px; white-space: nowrap;
+  padding: 7px 14px; min-height: 44px; border-radius: 999px; white-space: nowrap;
   font-size: 13px; font-weight: 500; border: 1px solid var(--line-2); color: var(--fg-2);
   display: inline-flex; align-items: center; gap: 5px; flex: none;
 }

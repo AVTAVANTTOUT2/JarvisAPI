@@ -39,6 +39,7 @@ const el = {
 let current = null;      // { id, teardown }
 let stopIdle = () => {};
 let offline = false;
+let relockInFlight = null;
 
 /* Fail-closed. `hidden` ne fait que masquer : sans ce drapeau, le
  * `hashchange` déclenché par la redirection initiale monterait une vue —
@@ -137,22 +138,31 @@ async function render() {
 
 // ── Session ──────────────────────────────────────────────────────────
 
-async function relock(reason) {
-  sessionOpen = false;
-  stopIdle();
-  ws.disconnect();
-  if (current && current.teardown) { try { current.teardown(); } catch { /* ignoré */ } }
-  current = null;
-  // Rien de la session précédente ne doit rester lisible derrière le verrou.
-  el.topbar.replaceChildren();
-  el.view.replaceChildren();
-  el.dock.replaceChildren();
-  el.tabs.replaceChildren();
-  setOffline(false);
-  setCsrfToken(null);
+function relock(reason) {
+  // Une expiration HTTP et la fermeture 4401 du WebSocket peuvent arriver au
+  // même instant. Un seul verrou doit posséder la promesse de déverrouillage :
+  // le second écraserait sinon son résolveur et figerait l'application.
+  if (relockInFlight) return relockInFlight;
 
-  await lock(reason);
-  await start();
+  relockInFlight = (async () => {
+    sessionOpen = false;
+    stopIdle();
+    ws.disconnect();
+    if (current && current.teardown) { try { current.teardown(); } catch { /* ignoré */ } }
+    current = null;
+    // Rien de la session précédente ne doit rester lisible derrière le verrou.
+    el.topbar.replaceChildren();
+    el.view.replaceChildren();
+    el.dock.replaceChildren();
+    el.tabs.replaceChildren();
+    setOffline(false);
+    setCsrfToken(null);
+
+    await lock(reason);
+    await start();
+  })().finally(() => { relockInFlight = null; });
+
+  return relockInFlight;
 }
 
 async function start() {

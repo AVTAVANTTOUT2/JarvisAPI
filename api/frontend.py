@@ -105,15 +105,18 @@ def _setup_unified_frontend(app: FastAPI) -> bool:
         ), request)
 
     @app.get("/{segment}", include_in_schema=False)
-    async def serve_unified_segment(segment: str):
+    async def serve_unified_segment(segment: str, request: Request):
         if segment not in _UNIFIED_SEGMENTS:
             raise HTTPException(404)
+        legacy_redirect = web_mobile.redirect_legacy_pwa_entry(request, segment)
+        if legacy_redirect:
+            return legacy_redirect
         route_index = FRONTEND_DIST / segment / "index.html"
-        return FileResponse(
+        return web_mobile.remember_desktop_choice(FileResponse(
             route_index if route_index.is_file() else index_file,
             media_type="text/html; charset=utf-8",
             headers={"Cache-Control": "no-cache"},
-        )
+        ), request)
 
     @app.get("/{parent}/{child:path}", include_in_schema=False)
     async def serve_unified_nested(parent: str, child: str):
@@ -217,12 +220,15 @@ def _setup_frontend(app: FastAPI) -> None:
         async def serve_spa_segment(segment: str, request: Request):
             if segment not in _SPA_SEGMENTS:
                 raise HTTPException(404)
+            legacy_redirect = web_mobile.redirect_legacy_pwa_entry(request, segment)
+            if legacy_redirect:
+                return legacy_redirect
             try:
-                return FileResponse(
+                return web_mobile.remember_desktop_choice(FileResponse(
                     index_file,
                     media_type="text/html; charset=utf-8",
                     content_disposition_type="inline",
-                )
+                ), request)
             except OSError as e:
                 logger.error(f"SPA index inaccessible : {e}")
                 raise HTTPException(503, "Fichiers frontend illisibles.") from e

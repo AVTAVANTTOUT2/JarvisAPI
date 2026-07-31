@@ -118,11 +118,17 @@ export const api = {
   // ── Données ──
   notifications: ()      => request('GET', '/api/notifications'),
   markRead:      (id)    => request('POST', `/api/notifications/${id}/read`, {}),
-  calendar:      ()      => request('GET', '/api/calendar'),
+  calendar:      (start, end) => request(
+    'GET',
+    `/api/calendar?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`,
+  ),
   tasks:         (st)    => request('GET', st ? `/api/tasks?status=${encodeURIComponent(st)}` : '/api/tasks'),
   createTask:    (t)     => request('POST', '/api/tasks', t),
   updateTask:    (id, p) => request('PATCH', `/api/tasks/${id}`, p),
+  deleteTask:    (id)    => request('DELETE', `/api/tasks/${id}`),
   emails:        (n = 20) => request('GET', `/api/emails?limit=${n}`),
+  conversations: (n = 50) => request('GET', `/api/conversations?limit=${n}`),
+  conversation:  (id)     => request('GET', `/api/conversations/${id}`),
 
   /** Appel LLM : plusieurs secondes et un coût réel. Jamais au montage d'un écran. */
   briefing: (kind = 'morning') => request('GET', `/api/briefing?kind=${encodeURIComponent(kind)}`),

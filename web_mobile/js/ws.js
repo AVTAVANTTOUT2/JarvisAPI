@@ -17,8 +17,9 @@ const handlers = new Map();
 let socket = null;
 let attempt = 0;
 let timer = null;
-let closedByUs = false;
+let shouldReconnect = true;
 let stateFn = () => {};
+let conversationId = null;
 
 function emit(type, payload) {
   const set = handlers.get(type);
@@ -39,6 +40,7 @@ export function on(type, fn) {
 export function onState(fn) { stateFn = fn; }
 
 export function isOpen() { return socket && socket.readyState === WebSocket.OPEN; }
+export function currentConversationId() { return conversationId; }
 
 function url() {
   const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -47,7 +49,9 @@ function url() {
 
 export function connect() {
   if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return;
-  closedByUs = false;
+  shouldReconnect = true;
+  clearTimeout(timer);
+  timer = null;
 
   let ws;
   try {
@@ -60,20 +64,32 @@ export function connect() {
   ws.binaryType = 'arraybuffer';
 
   ws.addEventListener('open', () => {
+    if (socket !== ws) { ws.close(); return; }
     attempt = 0;
     stateFn('open');
   });
 
   ws.addEventListener('message', (event) => {
+    if (socket !== ws) return;
     if (typeof event.data !== 'string') { emit('binary', event.data); return; }
     let msg;
     try { msg = JSON.parse(event.data); } catch { return; }
+    if (
+      (msg.type === 'connected' || msg.type === 'conversation_switched')
+      && Number.isInteger(msg.conversation_id)
+    ) {
+      conversationId = msg.conversation_id;
+    }
     if (msg && msg.type) emit(msg.type, msg);
   });
 
   ws.addEventListener('close', (event) => {
+    // Une ancienne socket peut finir de se fermer après qu'une nouvelle a déjà
+    // été ouverte (reverrouillage puis déverrouillage rapide). Elle ne doit
+    // jamais effacer ni faire reconnecter la connexion courante.
+    if (socket !== ws) return;
     socket = null;
-    if (closedByUs) return;
+    if (!shouldReconnect) return;
     // 4428 / 4401 : ce n'est pas le réseau, c'est la session. Reconnecter
     // en boucle ne servirait qu'à consommer de la batterie.
     if (event.code === 4401 || event.code === 4428) { stateFn('auth'); return; }
@@ -85,37 +101,53 @@ export function connect() {
 }
 
 function scheduleReconnect() {
+  if (!shouldReconnect) return;
   clearTimeout(timer);
   attempt += 1;
   const delay = Math.min(30000, 800 * 2 ** Math.min(attempt, 5));
-  timer = setTimeout(connect, delay);
+  timer = setTimeout(() => {
+    timer = null;
+    if (shouldReconnect) connect();
+  }, delay);
 }
 
 export function disconnect() {
-  closedByUs = true;
+  shouldReconnect = false;
   clearTimeout(timer);
-  if (socket) { try { socket.close(); } catch { /* déjà fermée */ } }
+  timer = null;
+  conversationId = null;
+  const active = socket;
   socket = null;
+  if (active) { try { active.close(); } catch { /* déjà fermée */ } }
 }
 
 /** Envoie un objet JSON. Retourne false si le canal n'est pas ouvert. */
 export function send(payload) {
   if (!isOpen()) return false;
-  socket.send(JSON.stringify(payload));
-  return true;
+  try {
+    socket.send(JSON.stringify(payload));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Envoie un blob audio brut (mode vocal). */
 export function sendBinary(blob) {
   if (!isOpen()) return false;
-  socket.send(blob);
-  return true;
+  try {
+    socket.send(blob);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export const sendText = (content, opts = {}) =>
   send({ type: 'text', content, stream: opts.stream !== false, tts: !!opts.tts });
 
 export const confirmAction = (action) => send({ type: 'action_confirm', action });
+export const cancelAction = (action) => send({ type: 'action_cancel', action });
 export const newConversation = () => send({ type: 'new_conversation' });
 export const switchConversation = (id) => send({ type: 'switch_conversation', conversation_id: id });
 export const donePlaying = () => send({ type: 'done_playing' });

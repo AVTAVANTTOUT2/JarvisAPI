@@ -32,6 +32,14 @@ PREFIX = "/mobile"
 # atteindre l'interface complète, pas même pour déboguer.
 FORCE_DESKTOP_COOKIE = "jarvis_force_desktop"
 
+# Points d'entrée des deux manifests bureau qui ont existé. Une icône déjà
+# installée sur l'iPhone ouvre directement l'un d'eux et ne passe donc jamais
+# par ``/``. Ce cas de migration est distinct des autres liens profonds bureau.
+LEGACY_PWA_ENTRYPOINTS = {
+    "chat": "chat",
+    "dashboard": "aujourdhui",
+}
+
 # Règles de détection mobile — expression régulière compilée.
 # Couvre : Android (hors tablettes), iOS (iPhone/iPod), Windows Phone,
 # Opera Mini, BlackBerry, IEMobile, et le mot-clé générique "Mobile".
@@ -92,6 +100,14 @@ def should_redirect(request: Request) -> bool:
 
 def redirect() -> RedirectResponse:
     return RedirectResponse(f"{PREFIX}/", status_code=302)
+
+
+def redirect_legacy_pwa_entry(request: Request, segment: str) -> RedirectResponse | None:
+    """Migre une ancienne icône PWA bureau vers son écran mobile équivalent."""
+    mobile_route = LEGACY_PWA_ENTRYPOINTS.get(segment)
+    if not mobile_route or not should_redirect(request):
+        return None
+    return RedirectResponse(f"{PREFIX}/#/{mobile_route}", status_code=302)
 
 
 def remember_desktop_choice(response: Response, request: Request) -> Response:

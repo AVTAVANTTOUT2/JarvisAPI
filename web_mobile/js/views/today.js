@@ -23,11 +23,21 @@ export default {
     let briefingText = null;
     let alive = true;
 
+    function localIso(date) {
+      const pad = (value) => String(value).padStart(2, '0');
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+        + `T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+    }
+
     async function load() {
       if (!alive) return;
+      const dayStart = new Date(now);
+      dayStart.setHours(0, 0, 0, 0);
+      const dayEnd = new Date(dayStart);
+      dayEnd.setDate(dayEnd.getDate() + 1);
       const [notifs, events, tasks] = await Promise.all([
         api.notifications().catch(errorOf),
-        api.calendar().catch(errorOf),
+        api.calendar(localIso(dayStart), localIso(dayEnd)).catch(errorOf),
         api.tasks().catch(errorOf),
       ]);
       if (!alive) return;

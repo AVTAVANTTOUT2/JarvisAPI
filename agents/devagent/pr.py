@@ -54,6 +54,23 @@ def _first_commit_sha(project_path: Path) -> str | None:
     return result["stdout"].splitlines()[0].strip()
 
 
+def _description_base(project_path: Path, base: str | None) -> str:
+    """Retourne une base exclusive seulement si elle précède réellement HEAD.
+
+    Dans un dépôt DevAgent neuf, le commit d'itération peut être le tout premier
+    commit (l'initialisation à vide ne produit rien). L'utiliser comme
+    ``base..HEAD`` donnerait alors un historique vide et empêcherait la
+    génération de la description.
+    """
+    if base is not None:
+        return base
+    candidate = _first_commit_sha(project_path)
+    if not candidate:
+        return ""
+    head = git_current_sha(project_path)
+    return "" if candidate == head else candidate
+
+
 def _render_markdown(title: str, summary: str, changelog: list[str], test_plan: list[str]) -> str:
     lines = [f"# {title}", "", "## Résumé", summary, "", "## Changelog"]
     lines += [f"- {c}" for c in changelog] or ["- (aucune entrée)"]
@@ -67,12 +84,12 @@ async def generate_pr_description(project_path: Path, project_name: str, base: s
 
     Retourne ``{ok, title, summary, changelog, test_plan, path, reason?}``.
     """
-    base = base or _first_commit_sha(project_path)
-    log = git_log_range(project_path, base=base or "")
+    base = _description_base(project_path, base)
+    log = git_log_range(project_path, base=base)
     if not log.strip():
         return {"ok": False, "reason": "aucun commit à décrire (historique vide ou base == HEAD)"}
 
-    diff_stat = git_diff_stat(project_path, base=base or "")
+    diff_stat = git_diff_stat(project_path, base=base)
 
     try:
         response = await call_deepseek(

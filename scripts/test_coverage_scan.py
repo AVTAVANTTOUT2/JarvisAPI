@@ -22,6 +22,7 @@ from __future__ import annotations
 import ast
 import logging
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -29,9 +30,6 @@ import config
 from jarvis.notification_service import notification_service
 
 logger = logging.getLogger(__name__)
-
-GENERATED_TESTS_DIR = config.BASE_DIR / "tests" / "generated"
-
 
 @dataclass
 class FunctionInfo:
@@ -145,14 +143,15 @@ async def generate_test_for_function(fn: FunctionInfo, base_dir: Path = config.B
     if "def test_" not in code:
         return {"ok": False, "path": None, "reason": "réponse LLM sans fonction de test"}
 
-    GENERATED_TESTS_DIR.mkdir(parents=True, exist_ok=True)
+    generated_tests_dir = base_dir / "tests" / "generated"
+    generated_tests_dir.mkdir(parents=True, exist_ok=True)
     safe_module = module_import.replace(".", "_")
-    test_path = GENERATED_TESTS_DIR / f"test_gen_{safe_module}_{fn.name}.py"
+    test_path = generated_tests_dir / f"test_gen_{safe_module}_{fn.name}.py"
     test_path.write_text(code, encoding="utf-8")
 
     try:
         proc = subprocess.run(
-            ["python3", "-m", "pytest", str(test_path), "-q"],
+            [sys.executable, "-m", "pytest", str(test_path), "-q"],
             cwd=base_dir, capture_output=True, text=True, timeout=60,
         )
     except subprocess.TimeoutExpired:

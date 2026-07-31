@@ -115,11 +115,32 @@ def test_desktop_cookie_alone_disables_the_redirect(client):
     assert response.status_code == 200
 
 
-def test_only_the_root_redirects(client):
-    """Un lien profond ouvert volontairement doit rester accessible."""
-    response = client.get("/chat", headers={"user-agent": IPHONE}, follow_redirects=False)
+@pytest.mark.parametrize(
+    "path,target",
+    [
+        ("/chat", "/mobile/#/chat"),
+        ("/dashboard", "/mobile/#/aujourdhui"),
+    ],
+)
+def test_installed_desktop_pwa_entrypoints_are_migrated(client, path, target):
+    """Les manifests historiques contournaient `/` via ces deux start_url."""
+    response = client.get(path, headers={"user-agent": IPHONE}, follow_redirects=False)
+    assert response.status_code == 302
+    assert response.headers["location"] == target
+
+
+def test_other_deep_desktop_links_remain_accessible(client):
+    response = client.get("/tasks", headers={"user-agent": IPHONE}, follow_redirects=False)
+    assert response.status_code == 200
+
+
+def test_desktop_escape_hatch_also_works_on_a_legacy_entrypoint(client):
+    response = client.get(
+        "/chat?desktop=1", headers={"user-agent": IPHONE}, follow_redirects=False
+    )
     assert response.status_code == 200
     assert response.text == "desktop-chat"
+    assert web_mobile.FORCE_DESKTOP_COOKIE in response.headers.get("set-cookie", "")
 
 
 # ── Service des fichiers ─────────────────────────────────────────────────
@@ -267,3 +288,52 @@ def test_safe_areas_are_honoured():
     css = (WEB_MOBILE / "app.css").read_text(encoding="utf-8")
     assert "safe-area-inset-top" in css
     assert "safe-area-inset-bottom" in css
+
+
+# ── Contrats client ↔ API / WebSocket ─────────────────────────────────────
+
+def _mobile_source(relative_path: str) -> str:
+    return (WEB_MOBILE / relative_path).read_text(encoding="utf-8")
+
+
+def test_action_refusal_uses_the_server_cancel_protocol():
+    """`action_confirm` exécute toujours : un refus doit envoyer action_cancel."""
+    chat = _mobile_source("js/views/chat.js")
+    websocket = _mobile_source("js/ws.js")
+    assert "ws.cancelAction(action)" in chat
+    assert "type: 'action_cancel'" in websocket
+    assert "confirmed: false" not in chat
+
+
+def test_today_calendar_supplies_the_required_date_range():
+    """GET /api/calendar renvoie 400 sans `start` et `end`."""
+    api_source = _mobile_source("js/api.js")
+    today_source = _mobile_source("js/views/today.js")
+    assert "/api/calendar?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}" in api_source
+    assert "api.calendar(localIso(dayStart), localIso(dayEnd))" in today_source
+
+
+def test_chat_restores_and_switches_conversation_history():
+    api_source = _mobile_source("js/api.js")
+    chat = _mobile_source("js/views/chat.js")
+    assert "/api/conversations?limit=${n}" in api_source
+    assert "/api/conversations/${id}" in api_source
+    assert "ws.currentConversationId()" in chat
+    assert "ws.on('conversation_switched'" in chat
+
+
+def test_voice_always_acknowledges_a_tts_turn():
+    """Même sans octet audio, done_playing libère l'état PTT du serveur."""
+    voice = _mobile_source("js/views/voice.js")
+    empty_branch = voice.index("if (!speech.length)")
+    finish_call = voice.index("finishPlayback();", empty_branch)
+    done_call = voice.index("ws.donePlaying();")
+    assert empty_branch < finish_call
+    assert done_call < empty_branch
+
+
+def test_idle_timer_treats_background_time_as_inactivity():
+    auth_source = _mobile_source("js/auth.js")
+    assert "document.hidden" in auth_source
+    assert "Date.now() - lastActivity" in auth_source
+    assert "visibilitychange', visibility" in auth_source
