@@ -5,15 +5,30 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
-from datetime import datetime
 from typing import Any, Optional
 
 import config
 from jarvis.log_privacy import redact_action_log_payload, sanitize_log_label
+from jarvis.security.redaction import redact_persisted_mapping, redact_persisted_text
 
 from .core import get_db
 
 logger = logging.getLogger(__name__)
+
+
+def _serialize_redacted_json(value: Any) -> str:
+    """Sérialise un payload JSON après redaction irréversible secrets + PII."""
+    parsed = value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return redact_persisted_text(value)
+    return json.dumps(
+        redact_persisted_mapping(parsed),
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
 
 DEVAGENT_SCHEMA = """
 CREATE TABLE IF NOT EXISTS dev_projects (
@@ -182,7 +197,7 @@ def get_interview_context(project_id: int) -> dict[str, Any]:
 
 
 def save_interview_context(project_id: int, context: dict[str, Any]) -> None:
-    payload = json.dumps(context, ensure_ascii=False)
+    payload = _serialize_redacted_json(context)
     with get_db() as conn:
         conn.execute(
             """
@@ -208,6 +223,7 @@ def complete_interview_session(project_id: int) -> None:
 
 
 def save_spec(project_id: int, spec_json: str) -> int:
+    safe_spec_json = _serialize_redacted_json(spec_json)
     with get_db() as conn:
         version_row = conn.execute(
             "SELECT COALESCE(MAX(version), 0) AS v FROM dev_spec WHERE project_id = ?",
@@ -219,7 +235,7 @@ def save_spec(project_id: int, spec_json: str) -> int:
             INSERT INTO dev_spec (project_id, spec_json, locked_at, version)
             VALUES (?, ?, CURRENT_TIMESTAMP, ?)
             """,
-            (project_id, spec_json, version),
+            (project_id, safe_spec_json, version),
         )
         return int(cur.lastrowid)
 
@@ -258,7 +274,9 @@ def update_loop_state(project_id: int, state: dict[str, Any]) -> None:
             (
                 int(state.get("iteration", 0)),
                 state.get("phase"),
-                state.get("last_error"),
+                redact_persisted_text(state.get("last_error"))
+                if state.get("last_error") is not None
+                else None,
                 int(state.get("consecutive_failures", 0)),
                 int(state.get("tokens_used", 0)),
                 project_id,
@@ -349,11 +367,12 @@ def record_deployment(
     log: Optional[str] = None,
 ) -> int:
     """Enregistre une tentative de déploiement staging (succès ou échec)."""
+    safe_log = redact_persisted_text(log) if log is not None else None
     with get_db() as conn:
         cur = conn.execute(
             """INSERT INTO dev_deployments (project_id, commit_sha, status, staging_path, log)
                VALUES (?, ?, ?, ?, ?)""",
-            (project_id, commit_sha, status, staging_path, log),
+            (project_id, commit_sha, status, staging_path, safe_log),
         )
         return int(cur.lastrowid)
 
