@@ -66,6 +66,7 @@ voir [32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md](./32_FRONTEND_DATABASE_SOURCE_OF_
 | [adr/](./adr/) | ADR individuels — ADR-016 à ADR-022 |
 | [diagrams/](./diagrams/) | Diagrammes Mermaid source |
 | [audit/](./audit/) | Rapports d'audit détaillés par domaine |
+| [audit/RAPPORT_PIRE_AUDIT.md](./audit/RAPPORT_PIRE_AUDIT.md) | Consolidation sorties agents Cursor (P01–P14) + findings pire→moindre |
 
 ---
 
