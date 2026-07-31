@@ -928,6 +928,24 @@ def _migrate_fitness(conn: sqlite3.Connection) -> None:
             "ALTER TABLE meals ADD COLUMN protein_g REAL "
             "CHECK(protein_g IS NULL OR protein_g >= 0)"
         )
+    meal_enrichments = (
+        ("carbs_g", "REAL CHECK(carbs_g IS NULL OR carbs_g >= 0)"),
+        ("fat_g", "REAL CHECK(fat_g IS NULL OR fat_g >= 0)"),
+        ("fiber_g", "REAL CHECK(fiber_g IS NULL OR fiber_g >= 0)"),
+        ("items_json", "TEXT"),
+        ("photo_path", "TEXT"),
+        (
+            "analysis_source",
+            "TEXT NOT NULL DEFAULT 'manual' "
+            "CHECK(analysis_source IN ('manual', 'text_ai', 'photo_ai'))",
+        ),
+        ("confidence", "REAL CHECK(confidence IS NULL OR (confidence >= 0 AND confidence <= 1))"),
+        ("raw_input", "TEXT"),
+    )
+    meal_columns = {row[1] for row in conn.execute("PRAGMA table_info(meals)").fetchall()}
+    for column_name, column_ddl in meal_enrichments:
+        if column_name not in meal_columns:
+            conn.execute(f"ALTER TABLE meals ADD COLUMN {column_name} {column_ddl}")
 
     # Programme initial fourni par l'utilisateur. Les INSERT OR IGNORE le
     # rendent idempotent tout en laissant toutes les modifications ultérieures

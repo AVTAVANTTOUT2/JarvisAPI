@@ -265,6 +265,75 @@ async def store_upload(
         raise
 
 
+def store_bytes_upload(
+    data: bytes,
+    *,
+    original_name: str,
+    namespace: str,
+    allowed_extensions: frozenset[str],
+    max_bytes: int | None = None,
+) -> StoredUpload:
+    """Persiste un blob déjà en mémoire sous ``UPLOAD_DIR`` avec les mêmes garde-fous."""
+    safe_name, extension = normalize_upload_name(original_name)
+    if extension not in allowed_extensions:
+        raise UploadRejected(
+            415, f"Type de fichier non autorisé : {extension or 'sans extension'}"
+        )
+    if not data:
+        raise UploadRejected(400, "Le fichier est vide")
+    limit = max(1, int(max_bytes if max_bytes is not None else config.UPLOAD_MAX_BYTES))
+    if len(data) > limit:
+        raise UploadRejected(413, f"Fichier trop volumineux (maximum {limit} octets)")
+
+    target_dir = _target_directory(namespace)
+    token = uuid4().hex
+    temporary_path = target_dir / f".{token}.part"
+    final_name = f"{token}{extension}"
+    final_path = target_dir / final_name
+
+    try:
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+        fd = os.open(temporary_path, flags, PRIVATE_FILE_MODE)
+        with os.fdopen(fd, "wb") as destination:
+            destination.write(data)
+
+        detected_mime = _validate_signature(temporary_path, extension)
+        quota_bytes = int(config.UPLOAD_QUOTA_BYTES)
+        with _quota_lock:
+            if quota_bytes > 0 and upload_disk_usage() > quota_bytes:
+                raise UploadRejected(507, "Quota disque des uploads dépassé")
+            temporary_path.replace(final_path)
+            ensure_private_file(final_path)
+
+        return StoredUpload(
+            path=final_path,
+            stored_name=final_name,
+            original_name=safe_name,
+            extension=extension,
+            size=len(data),
+            detected_mime=detected_mime,
+        )
+    except Exception:
+        temporary_path.unlink(missing_ok=True)
+        raise
+
+
+def resolve_managed_upload(relative_path: str) -> Path:
+    """Résout un chemin relatif sous ``UPLOAD_DIR`` ou lève ``UploadRejected``."""
+    relative = Path(relative_path)
+    if relative.is_absolute() or not relative.parts or any(
+        part in {"", ".", ".."} for part in relative.parts
+    ):
+        raise UploadRejected(400, "Chemin d'upload invalide")
+    root = _managed_root()
+    candidate = _lexical_absolute(root / relative)
+    if not _is_within(candidate, root):
+        raise UploadRejected(400, "Chemin d'upload hors racine")
+    if not candidate.is_file():
+        raise UploadRejected(404, "Fichier d'upload introuvable")
+    return candidate
+
+
 def remove_managed_upload(path: str | Path) -> bool:
     """Supprime un fichier uniquement s'il se trouve sous ``UPLOAD_DIR``."""
     root = _managed_root()

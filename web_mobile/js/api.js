@@ -46,21 +46,25 @@ async function refreshCsrf() {
 
 export function setCsrfToken(token) { csrfToken = token || null; }
 
-async function send(method, path, body) {
+async function send(method, path, body, { formData = false } = {}) {
   const init = {
     method,
     credentials: 'include',
     headers: { 'Accept': 'application/json' },
   };
   if (body !== undefined) {
-    init.headers['Content-Type'] = 'application/json';
-    init.body = JSON.stringify(body);
+    if (formData) {
+      init.body = body;
+    } else {
+      init.headers['Content-Type'] = 'application/json';
+      init.body = JSON.stringify(body);
+    }
   }
   if (UNSAFE.has(method) && csrfToken) init.headers['X-CSRF-Token'] = csrfToken;
   return fetch(path, init);
 }
 
-async function request(method, path, body, { retried = false } = {}) {
+async function request(method, path, body, { retried = false, formData = false } = {}) {
   const isAuthRoute = path.startsWith('/api/auth/');
 
   // Une écriture sans jeton en main est vouée au 403 : on le cherche d'abord.
@@ -68,7 +72,7 @@ async function request(method, path, body, { retried = false } = {}) {
 
   let res;
   try {
-    res = await send(method, path, body);
+    res = await send(method, path, body, { formData });
   } catch {
     // Le serveur vit à la maison, le téléphone est souvent ailleurs.
     // La coupure est un cas courant, pas une anomalie.
@@ -78,7 +82,7 @@ async function request(method, path, body, { retried = false } = {}) {
   // Jeton périmé (session renouvelée ailleurs) : on le renouvelle, une fois.
   if (res.status === 403 && UNSAFE.has(method) && !retried && !isAuthRoute) {
     const fresh = await refreshCsrf();
-    if (fresh) return request(method, path, body, { retried: true });
+    if (fresh) return request(method, path, body, { retried: true, formData });
   }
 
   if (!isAuthRoute && (res.status === 401 || res.status === 428)) {
@@ -135,6 +139,8 @@ export const api = {
   fitnessSummaryToday: () => request('GET', '/api/fitness/summary/today'),
   createWorkout:       (b) => request('POST', '/api/fitness/workouts', b),
   createMeal:          (b) => request('POST', '/api/fitness/meals', b),
+  createMealFromText:  (b) => request('POST', '/api/fitness/meals/from-text', b),
+  createMealFromPhoto: (form) => request('POST', '/api/fitness/meals/from-photo', form, { formData: true }),
   addWater:            (b) => request('POST', '/api/fitness/water', b),
   createWellbeing:     (b) => request('POST', '/api/fitness/wellbeing', b),
 

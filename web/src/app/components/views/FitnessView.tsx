@@ -271,6 +271,29 @@ export function FitnessView() {
     }
   }
 
+  async function addMealFromText() {
+    if (!mealDescription.trim()) return;
+    setSaving(true);
+    try {
+      await api.addFitnessMealFromText({
+        date: dashboard?.date ?? localIsoDate(),
+        text: mealDescription.trim(),
+        meal_type: mealType,
+        source: 'pwa',
+        save: true,
+      });
+      setMealDescription('');
+      setMealCalories('');
+      setMealProtein('');
+      setMealOpen(false);
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Analyse alimentaire impossible');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function addWater(amount: number) {
     setSaving(true);
     try {
@@ -524,9 +547,12 @@ export function FitnessView() {
                     <select value={mealType} onChange={event => setMealType(event.target.value)} className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-sm">
                       {Object.entries(MEAL_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                     </select>
-                    <textarea value={mealDescription} onChange={event => setMealDescription(event.target.value)} placeholder="Ce que vous avez mangé" className="w-full min-h-20 bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-sm resize-none" />
-                    <div className="grid grid-cols-2 gap-2"><input value={mealCalories} onChange={event => setMealCalories(event.target.value)} inputMode="numeric" placeholder="kcal" className="bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-sm" /><input value={mealProtein} onChange={event => setMealProtein(event.target.value)} inputMode="decimal" placeholder="protéines g" className="bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-sm" /></div>
-                    <button disabled={saving || !mealDescription.trim()} onClick={() => void addMeal()} className="w-full rounded-lg bg-white text-black py-2 text-sm disabled:opacity-40">Enregistrer</button>
+                    <textarea value={mealDescription} onChange={event => setMealDescription(event.target.value)} placeholder="Ce que vous avez mangé (texte libre ou détail manuel)" className="w-full min-h-20 bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-sm resize-none" />
+                    <div className="grid grid-cols-2 gap-2"><input value={mealCalories} onChange={event => setMealCalories(event.target.value)} inputMode="numeric" placeholder="kcal (manuel)" className="bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-sm" /><input value={mealProtein} onChange={event => setMealProtein(event.target.value)} inputMode="decimal" placeholder="protéines g" className="bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-sm" /></div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button disabled={saving || !mealDescription.trim()} onClick={() => void addMealFromText()} className="w-full rounded-lg border border-white/15 py-2 text-sm disabled:opacity-40">Analyser (IA)</button>
+                      <button disabled={saving || !mealDescription.trim()} onClick={() => void addMeal()} className="w-full rounded-lg bg-white text-black py-2 text-sm disabled:opacity-40">Manuel</button>
+                    </div>
                   </div>
                 )}
                 <div className="mt-4 space-y-2">

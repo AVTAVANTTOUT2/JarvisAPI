@@ -230,6 +230,8 @@ export const api = {
     }),
   addFitnessMeal: (body: Record<string, unknown>) =>
     request('/api/fitness/meals', { method: 'POST', body: JSON.stringify(body) }),
+  addFitnessMealFromText: (body: Record<string, unknown>) =>
+    request('/api/fitness/meals/from-text', { method: 'POST', body: JSON.stringify(body) }),
   addFitnessWater: (body: Record<string, unknown>) =>
     request('/api/fitness/water', { method: 'POST', body: JSON.stringify(body) }),
   addFitnessWeight: (body: Record<string, unknown>) =>

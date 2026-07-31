@@ -67,9 +67,23 @@ sont émises qu'une fois par créneau manquant.
 fitness de la journée. Un conseil déterministe reste disponible hors ligne ;
 aucun diagnostic médical n'est produit.
 
+## Nutrition IA (photo + texte)
+
+Deux entrées convergent vers `meals` enrichie (macros, `items_json`, photo,
+confiance) :
+
+- `POST /api/fitness/meals/from-text` — journal libre → DeepSeek Main → items
+  structurés + totaux.
+- `POST /api/fitness/meals/from-photo` — photo → vision Ollama
+  (`FITNESS_MEAL_VISION_MODEL`) puis macros DeepSeek ; image sous
+  `UPLOAD_DIR/fitness/meals/`.
+- `GET /api/fitness/meals/{id}/photo` — photo privée (session requise).
+
+L'écran mobile `#/sante` propose Texte IA, Photo et Manuel.
+
 ## Vérification et retour arrière
 
 La suite `tests/test_fitness_*.py` couvre modèles, persistance, routes, programme
 initial, modification, progression, cadence/arrêt des rappels, mapping STT
-simulé et non-interception. Les données existantes des quatre journaux sont
-conservées par la migration.
+simulé, non-interception et analyse repas (texte/photo mockés). Les données
+existantes des quatre journaux sont conservées par la migration.
