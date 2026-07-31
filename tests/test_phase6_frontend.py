@@ -60,7 +60,7 @@ def test_cognitive_route_is_served(tmp_path, monkeypatch):
 
 
 def test_fitness_route_is_served(tmp_path, monkeypatch):
-    """`fitness` doit être dans la liste blanche après restauration de l'UI."""
+    """La page Fitness exportée doit survivre à un rechargement direct."""
     unified = tmp_path / "frontend"
     _write(unified / "index.html", "unified-root")
     _write(unified / "fitness" / "index.html", "unified-fitness")

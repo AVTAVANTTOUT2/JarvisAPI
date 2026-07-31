@@ -397,6 +397,16 @@ async def _commitments_overdue_job():
         logger.exception("[scheduler] commitments_overdue : %s", e)
 
 
+async def _fitness_reminders_job():
+    """Relance vocalement séance et repas selon le programme SQLite."""
+    try:
+        from scripts.fitness_reminders import run_fitness_reminders
+
+        await asyncio.to_thread(run_fitness_reminders)
+    except Exception as e:
+        logger.exception("[scheduler] fitness_reminders : %s", e)
+
+
 def setup_scheduler() -> None:
     """Enregistre les jobs (idempotent avec replace_existing)."""
     h, m = _parse_hh_mm(config.MORNING_BRIEFING_TIME)
@@ -410,6 +420,12 @@ def setup_scheduler() -> None:
         check_overdue_tasks,
         CronTrigger(minute=0),
         id="check_overdue",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        _fitness_reminders_job,
+        CronTrigger(minute="*/30"),
+        id="fitness_reminders",
         replace_existing=True,
     )
     scheduler.add_job(
@@ -561,15 +577,15 @@ def setup_scheduler() -> None:
         )
 
     logger.info(
-        "[scheduler] 29 jobs enregistrés (briefing %02d:%02d, résumé soir %02d:%02d, "
+        "[scheduler] %d jobs enregistrés (briefing %02d:%02d, résumé soir %02d:%02d, "
         "hebdo dim 20:00, overdue chaque heure, analyse géo 23:00, "
         "alertes relationnelles /6h, analyse relationnelle 3:00, "
         "backup 4:15, maintenance dim 4:45, budget LLM 21:30, "
         "roast %s, debrief %s, citation %s, anniversaires %s, pause café /20min 9-22h, "
         "debrief hebdo dim %s, signal mood %s, présence /10min, "
         "scan doublons mer 5:00, audit sécurité mer 5:15, génération tests sam 5:30, "
-        "journal JARVIS %s, doomscroll 22:00, lieux délaissés dim 19:00)",
-        h, m, eh, em,
+        "journal JARVIS %s, fitness /30min, doomscroll 22:00, lieux délaissés dim 19:00)",
+        len(scheduler.get_jobs()), h, m, eh, em,
         config.ROAST_TIME, config.DEBRIEF_TIME, config.QUOTE_TIME, config.BIRTHDAY_CHECK_TIME,
         config.WEEKLY_DEBRIEF_TIME, config.MOOD_SIGNAL_TIME, config.JARVIS_JOURNAL_TIME,
     )

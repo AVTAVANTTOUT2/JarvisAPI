@@ -25,7 +25,7 @@ DESKTOP_SPA_SEGMENTS: frozenset[str] = frozenset({
     "dashboard", "contacts", "map", "analytics", "search", "data",
     "conversations", "calendar", "logs", "monitoring",
     "voice-debug", "control", "mission", "mobile",
-    "mails", "config",
+    "mails", "config", "cognitive", "fitness",
 })
 
 _ASSET_EXTENSIONS: frozenset[str] = frozenset({

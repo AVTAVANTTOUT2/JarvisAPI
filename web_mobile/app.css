@@ -333,44 +333,59 @@ a { color: inherit; text-decoration: none; }
 .evt.next .h { color: var(--blue); }
 .briefing { white-space: pre-wrap; font-size: 14px; line-height: 1.55; color: var(--fg-2); }
 
-/* ── Santé / Fitness ───────────────────────────────────────────── */
-.fitness-summary { margin-bottom: 4px; }
-.fitness-metrics {
-  display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+/* ── Fitness ───────────────────────────────────────────────── */
+.fit-pad { gap: 14px; }
+.fit-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.fit-metric {
+  min-width: 0; padding: 13px; border-radius: 15px;
+  border: 1px solid var(--line); background: var(--surf);
+  display: flex; flex-direction: column;
 }
-.fitness-metric {
-  min-width: 0; text-align: center; padding: 10px 4px;
-  border-radius: 14px; border: 1px solid var(--line); background: rgba(0,0,0,.18);
+.fit-metric > span { font-size: 10px; text-transform: uppercase; letter-spacing: .09em; color: var(--fg-3); }
+.fit-metric > strong { margin-top: 5px; font-family: var(--mono); font-size: 19px; font-weight: 600; }
+.fit-metric > small { font-size: 10.5px; color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fit-metric > i { height: 3px; margin-top: 9px; border-radius: 2px; overflow: hidden; background: var(--surf-2); }
+.fit-metric > i > b { display: block; height: 100%; border-radius: inherit; background: var(--blue); }
+.fit-rest { text-align: center; padding: 34px 18px; }
+.fit-session { padding: 17px; }
+.fit-session.complete { border-color: rgba(48,209,88,.35); background: rgba(48,209,88,.055); }
+.fit-session-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.fit-session-head span { display: block; margin-bottom: 3px; color: var(--fg-3); font-size: 10px; text-transform: uppercase; letter-spacing: .09em; }
+.fit-status { flex: none; padding: 4px 8px; border-radius: 999px; font: 600 9px var(--mono); letter-spacing: .04em; color: var(--amber); background: rgba(255,214,10,.1); }
+.fit-status.done { color: var(--green); background: rgba(48,209,88,.1); }
+.fit-status.skipped { color: var(--red); background: rgba(255,69,58,.1); }
+.fit-details { margin-top: 12px; border: 1px solid var(--line); border-radius: 12px; background: rgba(0,0,0,.15); }
+.fit-details summary { padding: 11px 12px; cursor: pointer; color: var(--fg-2); font-size: 12px; }
+.fit-details p { padding: 0 12px 8px; color: var(--fg-3); font-size: 11.5px; }
+.fit-exercises { display: flex; flex-direction: column; gap: 7px; margin-top: 12px; }
+.fit-exercise {
+  width: 100%; min-height: 58px; padding: 9px 10px; display: flex; gap: 10px; align-items: flex-start;
+  border: 1px solid var(--line); border-radius: 12px; background: rgba(0,0,0,.13); text-align: left;
 }
-.fitness-metric strong {
-  display: block; font-size: 13px; font-weight: 600; color: var(--fg);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.fitness-metric span {
-  display: block; margin-top: 3px; font-size: 9px; font-weight: 600;
-  letter-spacing: .08em; text-transform: uppercase; color: var(--fg-3);
-}
-.fitness-form { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
-.fitness-form .cm { margin-top: -6px; }
-.fitness-field {
-  width: 100%; border-radius: 14px; min-height: 44px;
-  font-size: 16px; /* Safari : pas de zoom au focus */
-}
-select.fitness-field { appearance: none; }
-.fitness-area { min-height: 72px; resize: none; border-radius: 16px; line-height: 1.4; }
-.fitness-row { display: grid; grid-template-columns: 1fr 100px; gap: 8px; }
-.fitness-row3 { display: grid; grid-template-columns: 1fr 64px 64px; gap: 8px; }
-.fitness-water-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-.fitness-water { min-height: 48px; padding: 0 8px; font-size: 13px; }
-.fitness-rating {
-  border-radius: 14px; border: 1px solid var(--line); background: rgba(0,0,0,.18);
-  padding: 12px;
-}
-.fitness-rating-head {
-  display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;
-}
-.fitness-range { width: 100%; accent-color: var(--fg); }
-.fitness-err { margin: 0; font-size: 12px; color: var(--red); }
+.fit-exercise[aria-pressed="true"] { border-color: rgba(48,209,88,.28); background: rgba(48,209,88,.05); }
+.fit-exercise .box { margin-top: 0; }
+.fit-exercise strong { display: block; font-size: 13.5px; }
+.fit-exercise small { display: block; margin-top: 2px; font: 10.5px var(--mono); color: var(--fg-3); }
+.fit-exercise em { display: block; margin-top: 3px; color: var(--fg-3); font-size: 10.5px; font-style: normal; line-height: 1.3; }
+.fit-actions { display: flex; gap: 8px; margin-top: 13px; }
+.fit-actions .btn { flex: 1; min-width: 0; padding: 0 10px; font-size: 12.5px; }
+.fit-note { margin-top: 12px; padding-left: 10px; border-left: 2px solid var(--line-2); color: var(--fg-3); font-size: 11.5px; }
+.fit-card-head { display: flex; justify-content: space-between; align-items: center; }
+.fit-form { display: flex; flex-direction: column; gap: 8px; margin-top: 13px; padding-top: 13px; border-top: 1px solid var(--line); }
+.fit-form .field { border-radius: 11px; min-height: 42px; }
+.fit-select { width: 100%; flex: none; color-scheme: dark; }
+.fit-area { width: 100%; min-height: 72px; border-radius: 12px !important; resize: vertical; }
+.fit-two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.fit-two .field { min-width: 0; width: 100%; }
+.fit-meals { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.fit-meals > div { padding: 9px 10px; border-radius: 10px; background: rgba(0,0,0,.17); }
+.fit-meals span { color: var(--fg-2); font-size: 11px; }
+.fit-meals strong { float: right; color: var(--fg-3); font: 10px var(--mono); }
+.fit-meals p { clear: both; padding-top: 3px; color: var(--fg-3); font-size: 12px; }
+.fit-advice .btn { margin-top: 12px; }
+.fit-program { display: flex; gap: 13px; align-items: flex-start; }
+.fit-program > span { width: 29px; flex: none; padding-top: 2px; font: 11px var(--mono); color: var(--blue); }
+.fit-program > div { min-width: 0; }
 
 /* ── Verrouillage ──────────────────────────────────────────────── */
 .lock {

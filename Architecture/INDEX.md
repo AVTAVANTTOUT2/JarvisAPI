@@ -4,7 +4,7 @@
 
 **Dernière mise à jour** : 14 juillet 2026
 **Périmètre** : 273 fichiers Python (56 261 lignes), 99 fichiers source frontend (18 770 lignes),
-**75 tables SQLite persistantes** après `init_db()` (+ jusqu’à **5 objets FTS5** → **80** physiques ;
+**85 tables SQLite persistantes** après `init_db()` (+ jusqu’à **5 objets FTS5** → **90** physiques ;
 le dump `schema.sql` historique compte **46** tables applicatives —
 voir [32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md](./32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md))
 **État** : **Documentation officielle — toute modification du code doit rester cohérente avec ce dossier**
@@ -82,11 +82,11 @@ voir [32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md](./32_FRONTEND_DATABASE_SOURCE_OF_
 │  Vues desktop      │ 38 fichiers, 12 940 lignes          │
 │  Vues mobiles      │ 32 fichiers, 4 641 lignes           │
 │  SDK auth partagé  │ 4 fichiers, 373 lignes              │
-│  Base de données   │ 75 persistantes (+FTS→80), mode WAL │
+│  Base de données   │ 85 persistantes (+FTS→90), mode WAL │
 │  Routes API        │ 174 opérations HTTP, 157 chemins    │
 │  WebSocket         │ 1 endpoint, handler dédié           │
 │  Agents LLM        │ 7 agents + orchestrateur            │
-│  Jobs schedulés    │ 29 (APScheduler)                    │
+│  Jobs schedulés    │ 30 (APScheduler)                    │
 │  Démons            │ 5 (screen, audio, email, imessage)  │
 │  Tests backend     │ 565 pytest, 66 fichiers             │
 │  Tests frontend    │ 28 Vitest + 3 Playwright            │
@@ -131,7 +131,7 @@ graph TB
     end
 
     subgraph "Database"
-        DB[(SQLite WAL<br/>jarvis.db<br/>75 persistantes<br/>+ FTS → 80)]
+        DB[(SQLite WAL<br/>jarvis.db<br/>85 persistantes<br/>+ FTS → 90)]
     end
 
     subgraph "Données Apple"
@@ -140,7 +140,7 @@ graph TB
     end
 
     subgraph "Scripts"
-        SCHED["APScheduler<br/>29 jobs"]
+        SCHED["APScheduler<br/>30 jobs par défaut"]
         DAEMON["JarvisDaemon<br/>screen watcher<br/>TTS, notifications"]
         EMAILW["EmailWatcher<br/>Apple Mail polling"]
         AUDIOD["AudioDaemon<br/>micro, VAD, wake word"]

@@ -114,6 +114,35 @@ class FitnessVoiceParser:
             f"Séance {spoken_label} enregistrée.",
         )
 
+    def _parse_scheduled_session(
+        self,
+        folded: str,
+        today: date,
+    ) -> FitnessVoiceIntent | None:
+        if re.fullmatch(
+            r"(?:j ai fait|je viens de finir|marque comme fait|valide) "
+            r"(?:(?:ma|la) seance|mon sport|mon entrainement)(?: aujourd hui)?",
+            folded,
+        ):
+            return self._post_intent(
+                "/api/fitness/sessions/today/complete",
+                today,
+                {"status": "done"},
+                "Séance du jour marquée comme faite.",
+            )
+        if re.fullmatch(
+            r"(?:je n ai pas fait|marque comme non fait|j ai rate) "
+            r"(?:(?:ma|la) seance|mon sport|mon entrainement)(?: aujourd hui)?",
+            folded,
+        ):
+            return self._post_intent(
+                "/api/fitness/sessions/today/skip",
+                today,
+                {"status": "skipped"},
+                "Séance du jour marquée comme non faite.",
+            )
+        return None
+
     def _parse_meal(
         self,
         original: str,
@@ -323,6 +352,7 @@ class FitnessVoiceParser:
         local_today = today or current_local_date()
 
         for parser in (
+            lambda: self._parse_scheduled_session(folded, local_today),
             lambda: self._parse_workout(folded, local_today),
             lambda: self._parse_meal(original, folded, local_today),
             lambda: self._parse_water(folded, local_today),
@@ -345,6 +375,18 @@ class FitnessVoiceParser:
             return FitnessVoiceIntent(
                 method="GET",
                 endpoint="/api/fitness/summary/today",
+                payload={},
+                confirmation="",
+            )
+
+        if re.fullmatch(
+            r"(?:quel est|donne moi|affiche) (?:mon )?programme(?: de sport)? "
+            r"(?:du jour|aujourd hui)",
+            folded,
+        ):
+            return FitnessVoiceIntent(
+                method="GET",
+                endpoint="/api/fitness/dashboard",
                 payload={},
                 confirmation="",
             )
@@ -386,6 +428,19 @@ def _format_summary(service: FitnessService) -> str:
         f"environ {summary.calories_estimate} kilocalories et {water} d'eau."
         f"{wellbeing}"
     )
+
+
+def _format_daily_program(service: FitnessService) -> str:
+    dashboard = service.dashboard()
+    session = dashboard.scheduled_session
+    if session is None:
+        next_title = dashboard.next_session.title if dashboard.next_session else "aucune"
+        return f"Aucune séance prévue aujourd'hui. Prochaine séance : {next_title}."
+    status = dashboard.progress.status.value if dashboard.progress else "planned"
+    if status == "done":
+        return f"La séance {session.title} est déjà marquée comme faite aujourd'hui."
+    exercise_names = ", ".join(item.name for item in session.exercises)
+    return f"Aujourd'hui, séance {session.title} : {exercise_names}."
 
 
 def _result(
@@ -466,6 +521,14 @@ def maybe_handle_fitness_voice(
             reply = intent.confirmation
         elif intent.endpoint == "/api/fitness/summary/today":
             reply = _format_summary(service)
+        elif intent.endpoint == "/api/fitness/dashboard":
+            reply = _format_daily_program(service)
+        elif intent.endpoint == "/api/fitness/sessions/today/complete":
+            service.set_scheduled_session_status("done")
+            reply = intent.confirmation
+        elif intent.endpoint == "/api/fitness/sessions/today/skip":
+            service.set_scheduled_session_status("skipped")
+            reply = intent.confirmation
         else:
             return None
     except (ValidationError, ValueError, sqlite3.Error) as error:
