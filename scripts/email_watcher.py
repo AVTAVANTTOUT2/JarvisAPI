@@ -13,12 +13,14 @@ après une longue coupure). Les cycles suivants traitent les nouveaux IDs.
 """
 
 import asyncio
+import fcntl
 import json
 import logging
+import os
 import re
-from typing import Any
-
+from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any, TextIO
 
 import config
 import llm
@@ -26,7 +28,6 @@ from database import (
     create_task,
     get_all_processed_email_ids,
     save_email_full,
-    upsert_email_summary,
 )
 from jarvis.notification_service import notification_service
 from jarvis.security.llm_data_boundary import (
@@ -41,6 +42,43 @@ PROMPT_PATH = Path(__file__).resolve().parent.parent / "prompts" / "email_analyz
 
 MAX_BODY_CHARS = 1500
 MAX_UNREAD_PER_CYCLE = 20
+
+
+def _email_process_lock_path() -> Path:
+    configured = str(getattr(config, "EMAIL_WATCHER_LOCK_PATH", "") or "").strip()
+    if configured:
+        return Path(configured).expanduser().resolve()
+    db_path = Path(config.DB_PATH).expanduser().resolve()
+    return db_path.parent / f".{db_path.name}.email-watcher.lock"
+
+
+def _try_acquire_email_process_lock() -> TextIO | None:
+    """Tente un flock exclusif sans bloquer le thread de l'event loop."""
+    path = _email_process_lock_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
+    handle = os.fdopen(fd, "a+")
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return handle
+    except BlockingIOError:
+        handle.close()
+        return None
+
+
+@asynccontextmanager
+async def _email_process_lock():
+    """Verrouille un cycle complet entre watcher, endpoint et catch-up CLI."""
+    handle = None
+    while handle is None:
+        handle = await asyncio.to_thread(_try_acquire_email_process_lock)
+        if handle is None:
+            await asyncio.sleep(0.05)
+    try:
+        yield
+    finally:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        handle.close()
 
 
 def _load_prompt_template() -> str:
@@ -155,23 +193,24 @@ class EmailWatcher:
         if mc is not None and hasattr(mc, "reset_availability_cache"):
             mc.reset_availability_cache()
         try:
-            self.last_processed_ids = get_all_processed_email_ids()
-            hydrated = len(self.last_processed_ids)
+            processed_in_db = get_all_processed_email_ids()
+            self.last_processed_ids |= processed_in_db
+            hydrated = len(processed_in_db)
         except Exception as e:
             logger.error(f"[email_watcher] run_catchup_cycle hydratation : {e}")
-            self.last_processed_ids = set()
             hydrated = 0
-        self._initialized = False
-        await self._check_new_emails()
+        await self._check_new_emails(force_catchup=True)
         out = {"ok": True, "hydrated_from_db": hydrated, **self._last_cycle_stats}
         return out
 
     # ── Cycle de check ─────────────────────────────────────────
 
-    async def _check_new_emails(self) -> None:
+    async def _check_new_emails(self, *, force_catchup: bool = False) -> None:
         from integrations import mail_client
 
-        async with self._cycle_lock:
+        async with self._cycle_lock, _email_process_lock():
+            if force_catchup:
+                self._initialized = False
             stats: dict[str, Any] = {
                 "mail_client_missing": False,
                 "mail_available": False,
@@ -180,6 +219,7 @@ class EmailWatcher:
                 "first_cycle_already": 0,
                 "first_cycle_to_analyze": 0,
                 "incremental_new": 0,
+                "analysis_failed": 0,
             }
             self._last_cycle_stats = stats
 
@@ -240,11 +280,14 @@ class EmailWatcher:
                 for email_summary in fresh:
                     email_id = email_summary["id"]
                     try:
-                        await self._analyze_email(email_summary)
+                        processed = await self._analyze_email(email_summary)
                     except Exception as e:
                         logger.exception(f"[email_watcher] _analyze_email {email_id} : {e}")
-                    finally:
+                        processed = False
+                    if processed:
                         self.last_processed_ids.add(email_id)
+                    else:
+                        stats["analysis_failed"] += 1
                 return
 
             stats["mode"] = "incremental"
@@ -258,15 +301,18 @@ class EmailWatcher:
             for email_summary in new:
                 email_id = email_summary["id"]
                 try:
-                    await self._analyze_email(email_summary)
+                    processed = await self._analyze_email(email_summary)
                 except Exception as e:
                     logger.exception(f"[email_watcher] _analyze_email {email_id} : {e}")
-                finally:
+                    processed = False
+                if processed:
                     self.last_processed_ids.add(email_id)
+                else:
+                    stats["analysis_failed"] += 1
 
     # ── Analyse d'un email ─────────────────────────────────────
 
-    async def _analyze_email(self, email_summary: dict) -> None:
+    async def _analyze_email(self, email_summary: dict) -> bool:
         """Récupère le body → DeepSeek → JSON → agit si notify=true.
         
         Stocke également le contenu intégral et le résumé en DB
@@ -278,11 +324,11 @@ class EmailWatcher:
         full = await mail_client.get_message(email_id)
         if not full:
             logger.warning(f"[email_watcher] get_message {email_id} → None")
-            return
+            return False
 
         prompt = self._build_prompt(full)
         if not prompt:
-            return
+            return False
 
         try:
             result = await llm.chat(
@@ -298,12 +344,12 @@ class EmailWatcher:
             )
         except Exception as e:
             logger.error(f"[email_watcher] DeepSeek call : {e}")
-            return
+            return False
 
         analysis = _parse_json(result.get("content", ""))
         if not analysis:
             logger.warning(f"[email_watcher] JSON non parseable pour {email_id}")
-            return
+            return False
 
         sender = (full.get("from") or "?").strip()
         sender_short = sender.split("<")[0].strip() or sender
@@ -330,11 +376,12 @@ class EmailWatcher:
             )
         except Exception as e:
             logger.error(f"[email_watcher] save_email_full : {e}")
+            return False
 
         if not notify or reason == "ignore":
             logger.info(f"[email_watcher] Ignoré : {sender_short} — {subject}")
             # Déjà sauvegardé via save_email_full plus haut — rien à faire
-            return
+            return True
 
         # DeepSeek dit de notifier → on agit
         logger.info(
@@ -430,6 +477,7 @@ class EmailWatcher:
 
         # Note : le contenu intégral + résumé est déjà en DB via save_email_full
         # (appelé avant la branche notify/ignore). Pas besoin d'upsert_email_summary.
+        return True
 
     def _build_prompt(self, full_email: dict) -> str:
         if not self._prompt_template:

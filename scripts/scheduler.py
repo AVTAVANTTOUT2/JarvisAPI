@@ -38,6 +38,8 @@ JobFn = Callable[[], Awaitable[Any]]
 
 @tracked("location_analysis")
 async def _run_location_analysis_job():
+    if not config.LOCATION_ANALYSIS_ENABLED or not config.LOCATION_TRACKING:
+        return skipped("LOCATION_ANALYSIS_ENABLED=false ou LOCATION_TRACKING=false")
     from scripts.location_analyzer import run_location_analysis
 
     await run_location_analysis()
@@ -47,6 +49,8 @@ async def _run_location_analysis_job():
 @tracked("morning_briefing")
 async def scheduled_morning_briefing():
     """Génère le briefing du matin et notifie le bureau."""
+    if not config.MORNING_BRIEFING_ENABLED:
+        return skipped("MORNING_BRIEFING_ENABLED=false")
     from agents.productivity import productivity_agent
     from integrations.notifications_macos import mac_notifier
 
@@ -64,6 +68,8 @@ async def scheduled_morning_briefing():
 @tracked("check_overdue")
 async def check_overdue_tasks():
     """Notifications pour les tâches non terminées dont l’échéance est dépassée."""
+    if not config.OVERDUE_TASKS_ENABLED:
+        return skipped("OVERDUE_TASKS_ENABLED=false")
     from integrations.notifications_macos import mac_notifier
     from database import get_tasks
 
@@ -106,6 +112,8 @@ async def check_overdue_tasks():
 @tracked("evening_summary")
 async def scheduled_evening_summary():
     """Génère le résumé du soir."""
+    if not config.EVENING_SUMMARY_ENABLED:
+        return skipped("EVENING_SUMMARY_ENABLED=false")
     from agents.productivity import productivity_agent
 
     await productivity_agent.evening_summary()
@@ -116,6 +124,8 @@ async def scheduled_evening_summary():
 @tracked("weekly_summary")
 async def scheduled_weekly_summary():
     """Résumé hebdomadaire (dimanche soir)."""
+    if not config.WEEKLY_SUMMARY_ENABLED:
+        return skipped("WEEKLY_SUMMARY_ENABLED=false")
     from agents.memory import memory_agent
 
     await memory_agent.weekly_summary()
@@ -126,6 +136,8 @@ async def scheduled_weekly_summary():
 @tracked("relationship_analysis_daily")
 async def _relationship_analysis_daily_job() -> Any:
     """Analyse relationnelle iMessage quotidienne (3h du matin)."""
+    if not config.RELATIONSHIP_ANALYSIS_ENABLED:
+        return skipped("RELATIONSHIP_ANALYSIS_ENABLED=false")
     from scripts.relationship_analyzer import analyzer
 
     await analyzer.run_daily_update()
@@ -135,6 +147,8 @@ async def _relationship_analysis_daily_job() -> Any:
 
 @tracked("relationship_alerts")
 async def _relationship_alerts_job() -> Any:
+    if not config.RELATIONSHIP_ALERTS_ENABLED:
+        return skipped("RELATIONSHIP_ALERTS_ENABLED=false")
     from scripts.contact_alerts import check_relationship_alerts
 
     await check_relationship_alerts()
@@ -161,6 +175,8 @@ async def _db_backup_job():
 @tracked("db_maintenance")
 async def _db_maintenance_job():
     """Purge de rétention + optimisation (dimanche 04:45)."""
+    if not config.DB_MAINTENANCE_ENABLED:
+        return skipped("DB_MAINTENANCE_ENABLED=false")
     from scripts.db_maintenance import run_maintenance
 
     report = await asyncio.to_thread(run_maintenance)
@@ -170,6 +186,8 @@ async def _db_maintenance_job():
 @tracked("llm_budget")
 async def _llm_budget_job():
     """Vérification du budget LLM mensuel (21:30)."""
+    if not config.LLM_BUDGET_CHECK_ENABLED:
+        return skipped("LLM_BUDGET_CHECK_ENABLED=false")
     from scripts.db_maintenance import check_llm_budget
 
     report = await asyncio.to_thread(check_llm_budget)
@@ -223,6 +241,8 @@ async def _birthday_job():
 @tracked("coffee_break")
 async def _coffee_break_job():
     """Alerte pause café si activité écran continue trop longue."""
+    if not config.BREAK_ALERTS_ENABLED:
+        return skipped("BREAK_ALERTS_ENABLED=false")
     from scripts.rituals import check_coffee_break
 
     result = await asyncio.to_thread(check_coffee_break)
@@ -245,6 +265,8 @@ async def _weekly_debrief_job():
 @tracked("mood_signal")
 async def _mood_signal_job():
     """Signal comportemental quotidien (aucun diagnostic)."""
+    if not config.MOOD_SIGNALS_ENABLED:
+        return skipped("MOOD_SIGNALS_ENABLED=false")
     from scripts.rituals import compute_mood_signal
 
     result = await asyncio.to_thread(compute_mood_signal)
@@ -265,6 +287,8 @@ async def _jarvis_journal_job():
 @tracked("doomscroll_check")
 async def _doomscroll_check_job():
     """Notifie une fois par jour si le temps sur les apps à risque dépasse le seuil."""
+    if not config.DOOMSCROLL_ALERTS_ENABLED:
+        return skipped("DOOMSCROLL_ALERTS_ENABLED=false")
     from scripts.doomscroll_detector import check_and_notify_today
 
     result = await asyncio.to_thread(check_and_notify_today)
@@ -276,6 +300,8 @@ async def _doomscroll_check_job():
 @tracked("missed_opportunities")
 async def _missed_opportunities_job():
     """Notifie une fois par semaine s'il existe des lieux favoris délaissés."""
+    if not config.MISSED_OPPORTUNITIES_ENABLED:
+        return skipped("MISSED_OPPORTUNITIES_ENABLED=false")
     from scripts.favorite_places import check_and_notify_weekly
 
     result = await asyncio.to_thread(check_and_notify_weekly)
@@ -323,6 +349,8 @@ async def _presence_tick_job():
 @tracked("streaming_binge")
 async def _binge_job():
     """Commentaire sec si marathon streaming détecté."""
+    if not config.BINGE_ALERTS_ENABLED:
+        return skipped("BINGE_ALERTS_ENABLED=false")
     from scripts.rituals import check_streaming_binge
 
     result = await asyncio.to_thread(check_streaming_binge)
@@ -638,7 +666,9 @@ def setup_scheduler() -> None:
         _missed_opportunities_job, CronTrigger(day_of_week="sun", hour=19, minute=0),
         id="missed_opportunities", replace_existing=True,
     )
-    if getattr(config, "SELF_IMPROVEMENT_ENABLED", True):
+    # Auto-amélioration : propositions basées sur preuves (PR only, jamais de
+    # merge auto). SELF_IMPROVEMENT_SCHEDULE=weekly → dim 06:00 ; daily → 06:00.
+    if getattr(config, "SELF_IMPROVEMENT_ENABLED", False):
         _si_schedule = str(getattr(config, "SELF_IMPROVEMENT_SCHEDULE", "weekly")).lower()
         _si_trigger = (
             CronTrigger(hour=6, minute=0)

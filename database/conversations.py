@@ -17,6 +17,11 @@ from .migrations import _fts_available, _fts_query
 logger = logging.getLogger(__name__)
 
 
+CONVERSATION_MUTABLE_FIELDS: frozenset[str] = frozenset(
+    {"title", "pinned", "archived", "tags"}
+)
+
+
 def save_message(conversation_id: int, role: str, content: str,
                  agent: str = None, model: str = None,
                  tokens_in: int = 0, tokens_out: int = 0, cost: float = 0.0) -> int:
@@ -137,9 +142,14 @@ def get_conversation_detail(conv_id: int) -> dict | None:
 
 
 def update_conversation(conv_id: int, **kwargs: Any) -> bool:
-    """Met à jour une conversation et indique si elle existe."""
+    """Met à jour les métadonnées autorisées et indique si la conversation existe."""
     if not kwargs:
         return False
+    unknown_fields = set(kwargs).difference(CONVERSATION_MUTABLE_FIELDS)
+    if unknown_fields:
+        fields = ", ".join(sorted(unknown_fields))
+        raise ValueError(f"Champs conversation non modifiables : {fields}")
+
     with get_db() as conn:
         sets = ", ".join(f"{k} = ?" for k in kwargs)
         vals = list(kwargs.values()) + [conv_id]
