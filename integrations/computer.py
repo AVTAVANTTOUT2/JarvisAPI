@@ -1,13 +1,12 @@
-"""Contrôle local macOS — shell sécurisé, AppleScript, infos système."""
+"""Contrôle local macOS sans shell — AppleScript et infos système."""
 
 from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import re
-import shlex
 from pathlib import Path
+from typing import Sequence
 
 import config
 
@@ -15,66 +14,127 @@ from ._applescript import run_applescript_async
 
 logger = logging.getLogger(__name__)
 
-BLOCKED_PATTERNS = [
-    re.compile(r"\brm\s+-rf\s+/\b", re.IGNORECASE),
-    re.compile(r"\brm\s+-rf\s+~\b", re.IGNORECASE),
-    re.compile(r"\bmkfs\b", re.IGNORECASE),
-    re.compile(r"\bdd\s+if=", re.IGNORECASE),
-    re.compile(r">\s*/dev/sd", re.IGNORECASE),
-    re.compile(r"\bshutdown\b", re.IGNORECASE),
-    re.compile(r"\breboot\b", re.IGNORECASE),
-    re.compile(r"\bsudo\s+rm\b", re.IGNORECASE),
-    re.compile(r"\bsudo\s+mkfs\b", re.IGNORECASE),
-    re.compile(r":\(\)\s*:\s*\|:", re.IGNORECASE),
-    re.compile(r"\bcurl\b.*\|\s*bash", re.IGNORECASE),
-    re.compile(r"\bwget\b.*\|\s*bash", re.IGNORECASE),
-]
+_SYSTEM_PATH = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+_OPEN = "/usr/bin/open"
+_PBPASTE = "/usr/bin/pbpaste"
+_PBCOPY = "/usr/bin/pbcopy"
+_PMSET = "/usr/bin/pmset"
+_DF = "/bin/df"
+_FIND = "/usr/bin/find"
+_AIRPORT = (
+    "/System/Library/PrivateFrameworks/Apple80211.framework/"
+    "Versions/Current/Resources/airport"
+)
+
+
+def _minimal_child_environment(home: str) -> dict[str, str]:
+    """Environnement déterministe qui n'hérite jamais des secrets du serveur."""
+    return {
+        "PATH": _SYSTEM_PATH,
+        "HOME": home,
+        "USER": Path(home).name,
+        "TMPDIR": "/tmp",
+        "LANG": "C.UTF-8",
+        "LC_ALL": "C.UTF-8",
+    }
 
 
 class ComputerControl:
-    """Interface subprocess sécurisée avec le Mac de l'utilisateur."""
+    """Helpers macOS opt-in limités à des argv fixes et validés."""
 
     def __init__(self) -> None:
-        self.allowed = config.COMPUTER_ACCESS.lower() == "true"
+        self.allowed = config.COMPUTER_ACCESS
         self.shell = config.COMPUTER_SHELL
         self.home = str(Path.home())
         self.timeout = config.COMPUTER_TIMEOUT
-        self.blocked_patterns = BLOCKED_PATTERNS
 
-    def is_safe(self, command: str) -> tuple[bool, str]:
-        if not command or not command.strip():
-            return False, "commande vide"
-        for pat in self.blocked_patterns:
-            if pat.search(command):
-                return False, f"pattern bloqué : {pat.pattern}"
-        return True, ""
+    def _validate_argv(self, argv: tuple[str, ...]) -> tuple[bool, str]:
+        """Valide les seules formes de commandes utilisées par les helpers."""
+        if argv in {
+            (_PBPASTE,),
+            (_PBCOPY,),
+            (_PMSET, "-g", "batt"),
+            (_AIRPORT, "-I"),
+            (_DF, "-h", "/"),
+        }:
+            return True, ""
 
-    async def run(self, command: str, timeout: int | None = None, cwd: str | None = None) -> dict:
+        if len(argv) == 3 and argv[:2] == (_OPEN, "-a"):
+            name = argv[2]
+            if (
+                0 < len(name) <= 128
+                and not any(ord(char) < 32 for char in name)
+                and "/" not in name
+                and "\\" not in name
+            ):
+                return True, ""
+            return False, "nom d'application invalide"
+
+        if len(argv) == 6 and argv[0] == _FIND:
+            base, depth_flag, depth, name_flag, pattern = argv[1:]
+            try:
+                base_path = Path(base).resolve()
+                home_path = Path(self.home).resolve()
+                within_home = (
+                    base_path == home_path or base_path.is_relative_to(home_path)
+                )
+            except (OSError, RuntimeError):
+                within_home = False
+            query = (
+                pattern[1:-1]
+                if pattern.startswith("*") and pattern.endswith("*")
+                else ""
+            )
+            if (
+                within_home
+                and depth_flag == "-maxdepth"
+                and depth == "6"
+                and name_flag == "-iname"
+                and 0 < len(query) <= 200
+                and re.fullmatch(r"[\w\s.\-]+", query) is not None
+            ):
+                return True, ""
+            return False, "arguments find invalides"
+
+        return False, "commande absente de l'allowlist interne"
+
+    async def _run_argv(
+        self,
+        argv: Sequence[str],
+        *,
+        timeout: int | None = None,
+        input_data: bytes | None = None,
+    ) -> dict:
         if not self.allowed:
             return {"ok": False, "error": "Accès ordinateur désactivé"}
-        safe, reason = self.is_safe(command)
-        if not safe:
+        normalized = tuple(str(arg) for arg in argv)
+        valid, reason = self._validate_argv(normalized)
+        if not valid:
+            logger.warning("[computer] argv refusés : %s", reason)
             return {"ok": False, "error": f"Commande bloquée : {reason}"}
 
         to = timeout if timeout is not None else self.timeout
-        logger.info("[computer] Exécution : %s", command[:500])
+        logger.info("[computer] Exécution argv : %r", normalized)
 
-        env = {**os.environ, "HOME": self.home, "USER": os.getenv("USER", "")}
         try:
-            process = await asyncio.create_subprocess_shell(
-                command,
+            process = await asyncio.create_subprocess_exec(
+                *normalized,
+                stdin=asyncio.subprocess.PIPE if input_data is not None else None,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                cwd=cwd or self.home,
-                executable=self.shell,
-                env=env,
+                cwd=self.home,
+                env=_minimal_child_environment(self.home),
+                start_new_session=True,
             )
         except Exception as e:
             logger.warning("[computer] spawn : %s", e)
-            return {"ok": False, "error": str(e), "command": command}
+            return {"ok": False, "error": str(e), "argv": list(normalized)}
 
         try:
-            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=to)
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(input=input_data),
+                timeout=to,
+            )
         except asyncio.TimeoutError:
             try:
                 process.kill()
@@ -84,27 +144,43 @@ class ComputerControl:
             return {
                 "ok": False,
                 "error": f"Timeout après {to}s",
-                "command": command,
+                "argv": list(normalized),
             }
 
         out = stdout.decode("utf-8", errors="replace")[:5000]
         err = stderr.decode("utf-8", errors="replace")[:2000]
         return {
             "ok": process.returncode == 0,
-            "command": command,
+            "argv": list(normalized),
             "stdout": out,
             "stderr": err,
             "returncode": process.returncode,
         }
 
+    async def run(
+        self,
+        command: str,
+        timeout: int | None = None,
+        cwd: str | None = None,
+    ) -> dict:
+        """API legacy confinée : aucune chaîne arbitraire n'est plus exécutée."""
+        del timeout, cwd
+        logger.warning("[computer] run(str) est déprécié et refusé")
+        return {
+            "ok": False,
+            "error": "ComputerControl.run(str) est désactivé; utilisez un helper argv dédié",
+            "command": command,
+        }
+
     async def open_app(self, app_name: str) -> dict:
         if not app_name.strip():
             return {"ok": False, "error": "nom d'application vide"}
-        cmd = f"open -a {shlex.quote(app_name.strip())}"
-        return await self.run(cmd, timeout=30)
+        return await self._run_argv((_OPEN, "-a", app_name.strip()), timeout=30)
 
     async def run_applescript(self, script: str) -> dict:
         """Exécute AppleScript via ``osascript -e`` (sans shell fragile)."""
+        if not self.allowed:
+            return {"ok": False, "error": "Accès ordinateur désactivé"}
         if not script.strip():
             return {"ok": False, "error": "script vide"}
         as_timeout = 30.0
@@ -129,28 +205,23 @@ class ComputerControl:
         return {"ok": False, "error": "AppleScript échec"}
 
     async def get_clipboard(self) -> str:
-        r = await self.run("pbpaste", timeout=10)
+        r = await self._run_argv((_PBPASTE,), timeout=10)
         if r.get("ok"):
             return r.get("stdout", "")
         return ""
 
     async def set_clipboard(self, text: str) -> dict:
-        proc = await asyncio.create_subprocess_exec(
-            "pbcopy",
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+        result = await self._run_argv(
+            (_PBCOPY,),
+            timeout=15,
+            input_data=text.encode("utf-8", errors="replace"),
         )
-        try:
-            out, err = await asyncio.wait_for(
-                proc.communicate(input=text.encode("utf-8", errors="replace")),
-                timeout=15,
-            )
-        except asyncio.TimeoutError:
-            proc.kill()
-            return {"ok": False, "error": "pbcopy timeout"}
-        ok = proc.returncode == 0
-        return {"ok": ok, "message": "Presse-papiers mis à jour." if ok else err.decode("utf-8", errors="replace")[:500]}
+        return {
+            "ok": result.get("ok", False),
+            "message": "Presse-papiers mis à jour."
+            if result.get("ok")
+            else result.get("stderr") or result.get("error", "Échec pbcopy"),
+        }
 
     async def get_running_apps(self) -> list[str]:
         script = (
@@ -167,7 +238,7 @@ class ComputerControl:
         return [p.strip() for p in parts if p.strip()][:80]
 
     async def get_battery(self) -> dict:
-        r = await self.run("pmset -g batt", timeout=10)
+        r = await self._run_argv((_PMSET, "-g", "batt"), timeout=10)
         out = r.get("stdout", "") if r.get("ok") else ""
         pct = None
         m = re.search(r"(\d+)\s*%", out)
@@ -181,11 +252,7 @@ class ComputerControl:
         return {"battery_percent": pct, "battery_raw": out[:800], "status": status}
 
     async def get_wifi(self) -> dict:
-        airport = (
-            "/System/Library/PrivateFrameworks/Apple80211.framework/"
-            "Versions/Current/Resources/airport"
-        )
-        r = await self.run(f"{shlex.quote(airport)} -I", timeout=15)
+        r = await self._run_argv((_AIRPORT, "-I"), timeout=15)
         out = r.get("stdout", "") if r.get("stdout") else r.get("stderr", "")
         ssid = None
         m = re.search(r"^\s*SSID:\s*(.+)$", out, re.MULTILINE)
@@ -198,7 +265,7 @@ class ComputerControl:
         return {"wifi_ssid": ssid, "wifi_rssi": rssi, "wifi_raw": out[:1200]}
 
     async def get_disk_space(self) -> dict:
-        r = await self.run("df -h /", timeout=10)
+        r = await self._run_argv((_DF, "-h", "/"), timeout=10)
         lines = (r.get("stdout") or "").strip().splitlines()
         info = {"disk_df": r.get("stdout", "")[:2000], "ok_df": r.get("ok", False)}
         if len(lines) >= 2:
@@ -216,17 +283,17 @@ class ComputerControl:
             return []
         base = path or self.home
         try:
-            base_exp = str(Path(base).expanduser().resolve())
-        except Exception:
-            base_exp = self.home
-        if not base_exp.startswith(self.home) and base_exp != "/":
-            base_exp = self.home
+            base_path = Path(base).expanduser().resolve()
+            home_path = Path(self.home).resolve()
+            if base_path != home_path and not base_path.is_relative_to(home_path):
+                base_path = home_path
+        except (OSError, RuntimeError):
+            base_path = Path(self.home)
         pattern = f"*{q}*"
-        cmd = (
-            f"find {shlex.quote(base_exp)} -iname {shlex.quote(pattern)} "
-            f"-maxdepth 6 2>/dev/null | head -20"
+        r = await self._run_argv(
+            (_FIND, str(base_path), "-maxdepth", "6", "-iname", pattern),
+            timeout=60,
         )
-        r = await self.run(cmd, timeout=60)
         if not r.get("stdout"):
             return []
         return [ln.strip() for ln in r["stdout"].splitlines() if ln.strip()][:20]
