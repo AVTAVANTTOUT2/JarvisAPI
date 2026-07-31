@@ -91,6 +91,54 @@ Les actions sensibles, notamment les plans de commandes terminal, demandent une 
 | Suivre ses habitudes | Observe les routines choisies, le temps d'écran, les déplacements ou la régularité des tâches. |
 | Développer un projet | Classe la demande, prépare un plan, travaille dans un espace isolé puis expose les résultats et les tests. |
 
+## Une journée type
+
+Voici le rythme par défaut d'une journée avec le scheduler actif. Les heures suivent l'heure locale du Mac et les rituels peuvent être déplacés dans `.env` ou `.env.config`.
+
+| Heure | Automatisation | Ce que cela apporte |
+|---|---|---|
+| 03:00 | Analyse relationnelle iMessage | Met à jour les tendances et les échanges récents. |
+| 04:15 | Sauvegarde SQLite | Crée une sauvegarde chiffrée et applique la rotation configurée. |
+| 07:00 | Citation du jour | Prépare la citation ironique affichée sur le tableau de bord TV. |
+| 07:30 | Briefing du matin | Rassemble agenda, tâches, météo et informations importantes, puis envoie une notification. |
+| 08:00 | Anniversaires | Vérifie les anniversaires présents dans les fiches contacts. |
+| 10:00 | Engagements en attente | Rappelle les promesses ouvertes depuis plus de trois jours. |
+| 18:30 | Revue des tâches | Signale, sur le ton de JARVIS, les tâches prévues mais non terminées. |
+| 21:30 | Budget LLM | Contrôle la consommation mensuelle et les seuils d'alerte. |
+| 21:45 | Débrief du soir | Résume la journée, les réussites et les éléments manqués, puis fige le score de productivité. |
+| 22:00 | Résumé et temps d'écran | Génère le résumé du soir et vérifie un éventuel doomscrolling. |
+| 22:40 | Extraction des engagements | Repère les promesses prises dans les messages de la journée. |
+| 23:00 | Analyse des déplacements | Met à jour lieux, visites, trajets et habitudes géographiques. |
+| 23:15 | Signal d'humeur | Calcule un signal comportemental discret, sans diagnostic médical. |
+| 23:50 | Journal de JARVIS | Produit, si la fonction est activée, une courte entrée récapitulative. |
+
+Des contrôles plus légers tournent aussi pendant la journée. Ils restent silencieux tant qu'aucune condition ne nécessite d'action.
+
+| Fréquence | Contrôle |
+|---|---|
+| Toutes les 5 minutes | Détecte la fin d'une réunion captée et lance son résumé si cette fonction est activée. |
+| Toutes les 10 minutes | Vérifie la présence et clôt une session après une longue période de silence. |
+| Toutes les 20 minutes, de 09:00 à 22:40 | Propose une pause après une activité écran continue trop longue. |
+| Toutes les 30 minutes | Vérifie les longues sessions de streaming. |
+| Toutes les 30 minutes, de 22:00 à 03:30 | Peut signaler un retour tardif selon la localisation. |
+| Toutes les heures | Recherche les tâches dont l'échéance est dépassée. |
+| Toutes les 6 heures | Recherche les alertes relationnelles utiles. |
+
+Enfin, quelques tâches de fond suivent un rythme hebdomadaire :
+
+| Jour et heure | Automatisation |
+|---|---|
+| Mercredi 05:00 | Rapport sur le code dupliqué, sans réécriture automatique. |
+| Mercredi 05:15 | Audit de sécurité du dépôt. |
+| Samedi 05:30 | Recherche et génération optionnelle de tests manquants. |
+| Dimanche 04:45 | Purge de rétention et optimisation de SQLite. |
+| Dimanche 06:00 | Recherche d'améliorations et proposition de PR si l'auto-amélioration est activée. |
+| Dimanche 19:00 | Recherche de lieux favoris délaissés. |
+| Dimanche 20:00 | Résumé mémoire de la semaine. |
+| Dimanche 21:00 | Débrief hebdomadaire vocal. |
+
+Chaque automatisation respecte son option d'activation et ses seuils. Un passage du cron ne produit donc pas forcément une notification ou un appel à un modèle.
+
 ## Stack technique
 
 | Couche | Technologies |
