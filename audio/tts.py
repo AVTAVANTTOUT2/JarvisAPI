@@ -3,7 +3,7 @@
 Backends disponibles (``TTS_ENGINE`` dans `.env` ou DB `app_settings`) :
   - ``edge``       — Microsoft Edge Neural (gratuit, faible latence réseau)
   - ``macos``      — say + afconvert (macOS natif, zéro réseau, sort en AAC/M4A)
-  - ``kokoro``     — modèle ONNX local
+  - ``kokoro``     — Kokoro local (MLX-Audio par défaut, ONNX en option)
   - ``ttskit``     — sidecar natif local
 
 API :
@@ -137,11 +137,13 @@ tts = TTSEngine()
 
 
 class KokoroTTSEngine:
-    """TTS local via kokoro-onnx (ONNX Runtime, ~24 kHz PCM → WAV bytes).
+    """TTS local Kokoro — backend MLX-Audio (défaut) ou kokoro-onnx.
 
-    Lazy-loading : le modèle n'est chargé qu'au premier appel ``synthesize``.
-    Si le chargement échoue (fichiers manquants, erreur ONNX, dépendance absente),
-    le moteur se désactive et ``get_fallback()`` retourne un moteur de secours.
+    ``KOKORO_BACKEND=mlx`` : sidecar ``native_audio/kokoro_synthesize`` dans
+    ``JARVIS_VENV`` (mlx-audio + misaki + espeak-ng). Repli immédiat → macOS
+    ``say`` (jamais Edge).
+
+    ``KOKORO_BACKEND=onnx`` : modèle ONNX lazy-loadé au premier ``synthesize``.
     """
 
     SAMPLE_RATE = 24000
@@ -149,24 +151,59 @@ class KokoroTTSEngine:
     VOICES_PATH = Path(__file__).resolve().parent.parent / "models" / "kokoro" / "voices.bin"
 
     def __init__(self) -> None:
+        self._backend = (
+            getattr(config, "KOKORO_BACKEND", config.DEFAULT_KOKORO_BACKEND)
+            or config.DEFAULT_KOKORO_BACKEND
+        ).strip().lower()
         self._voice = getattr(config, "KOKORO_VOICE", config.DEFAULT_KOKORO_VOICE)
         self._lang = getattr(config, "KOKORO_LANG", config.DEFAULT_KOKORO_LANG)
+        self._lang_code = getattr(
+            config, "KOKORO_LANG_CODE", config.DEFAULT_KOKORO_LANG_CODE
+        )
+        self._model = getattr(config, "KOKORO_MODEL", config.DEFAULT_KOKORO_MODEL)
+        self._speed = float(
+            getattr(config, "KOKORO_SPEED", config.DEFAULT_KOKORO_SPEED)
+        )
+        self._max_tokens = int(
+            getattr(config, "KOKORO_MAX_TOKENS", config.DEFAULT_KOKORO_MAX_TOKENS)
+        )
         self._kokoro: object | None = None
         self._load_failed = False
-        self.available = self.MODEL_PATH.exists() and self.VOICES_PATH.exists()
+        self.available = self._probe_available()
         if self.available:
             logger.info(
-                "[TTS] Kokoro pret (lazy) — modele=%s voix=%s",
-                self.MODEL_PATH.name, self._voice,
+                "[TTS] Kokoro prêt (lazy) — backend=%s voix=%s model=%s",
+                self._backend,
+                self._voice,
+                self._model if self._backend == "mlx" else self.MODEL_PATH.name,
             )
         else:
             logger.warning(
-                "[TTS] Kokoro INACTIF — fichiers manquants : modele=%s voices=%s",
-                self.MODEL_PATH.exists(), self.VOICES_PATH.exists(),
+                "[TTS] Kokoro INACTIF — backend=%s (mlx: JARVIS_VENV/mlx-audio ; "
+                "onnx: models/kokoro/*.onnx)",
+                self._backend,
             )
+
+    def _probe_available(self) -> bool:
+        if self._backend == "mlx":
+            try:
+                from native_audio.kokoro_bridge import is_kokoro_mlx_available
+
+                return is_kokoro_mlx_available()
+            except Exception as e:
+                logger.debug("[TTS] probe Kokoro MLX : %s", e)
+                return False
+        return self.MODEL_PATH.exists() and self.VOICES_PATH.exists()
+
+    def refresh_availability(self) -> bool:
+        """Recalcule ``available`` (ex. après install mlx-audio)."""
+        self.available = self._probe_available()
+        return self.available
 
     def _ensure_loaded(self) -> bool:
         """Charge le modèle ONNX au premier appel. Retourne True si prêt."""
+        if self._backend == "mlx":
+            return self.refresh_availability()
         if self._kokoro is not None:
             return True
         if self._load_failed:
@@ -178,14 +215,14 @@ class KokoroTTSEngine:
             t0 = _t.perf_counter()
             self._kokoro = Kokoro(str(self.MODEL_PATH), str(self.VOICES_PATH))
             elapsed = _t.perf_counter() - t0
-            logger.info("[TTS] Kokoro charge en %.2fs", elapsed)
+            logger.info("[TTS] Kokoro ONNX chargé en %.2fs", elapsed)
             return True
         except ImportError:
             logger.error(
-                "[TTS] kokoro-onnx non installe — pip install kokoro-onnx"
+                "[TTS] kokoro-onnx non installé — pip install kokoro-onnx"
             )
         except Exception as e:
-            logger.exception("[TTS] Kokoro chargement echoue : %s", e)
+            logger.exception("[TTS] Kokoro chargement échoué : %s", e)
         self._load_failed = True
         self.available = False
         return False
@@ -206,10 +243,36 @@ class KokoroTTSEngine:
     def get_fallback(self) -> "MacOSTTSEngine":
         """Retourne un moteur de secours local uniquement (pas Edge)."""
         if macos_tts.available:
-            logger.warning("[TTS] Kokoro fallback → macOS TTS")
+            logger.warning(
+                "[TTS] Kokoro fallback → macOS TTS (voix %s)",
+                getattr(macos_tts, "_voice", "?"),
+            )
             return macos_tts
         logger.error("[TTS] Kokoro fallback indisponible — aucun TTS local")
         return macos_tts
+
+    async def _synthesize_mlx(self, text: str) -> bytes:
+        from native_audio.kokoro_bridge import synthesize_bytes
+
+        return await synthesize_bytes(
+            text,
+            model=self._model,
+            voice=self._voice,
+            lang_code=self._lang_code,
+            speed=self._speed,
+            max_tokens=self._max_tokens,
+            audio_format="wav",
+        )
+
+    async def _synthesize_onnx(self, text: str) -> bytes:
+        loop = asyncio.get_event_loop()
+        samples, sr = await loop.run_in_executor(
+            None,
+            lambda: self._kokoro.create(
+                text, voice=self._voice, speed=self._speed, lang=self._lang
+            ),
+        )
+        return self._pcm_to_wav_bytes(samples, sr)
 
     async def synthesize(self, text: str, emotion: str = "neutral") -> bytes:
         if not text or not text.strip():
@@ -219,29 +282,41 @@ class KokoroTTSEngine:
 
         asyncio.create_task(event_bus.emit(JarvisEvent(
             type="tts.start",
-            data={"engine": "kokoro", "text_length": len(text)},
+            data={
+                "engine": "kokoro",
+                "backend": self._backend,
+                "text_length": len(text),
+            },
         )))
 
         try:
-            loop = asyncio.get_event_loop()
-            samples, sr = await loop.run_in_executor(
-                None, lambda: self._kokoro.create(text, voice=self._voice, speed=1.0, lang=self._lang)
-            )
-            wav = self._pcm_to_wav_bytes(samples, sr)
-            logger.debug(
-                "[TTS] Kokoro OK : %d bytes WAV, %.1fs audio",
-                len(wav), len(samples) / sr,
-            )
+            if self._backend == "mlx":
+                wav = await self._synthesize_mlx(text)
+            else:
+                wav = await self._synthesize_onnx(text)
+            if not wav:
+                logger.warning("[TTS] Kokoro sortie vide — fallback macOS")
+                return await self.get_fallback().synthesize(text, emotion)
+            logger.debug("[TTS] Kokoro OK (%s) : %d bytes", self._backend, len(wav))
             asyncio.create_task(event_bus.emit(JarvisEvent(type="tts.done")))
             return wav
         except Exception as e:
             logger.exception("[TTS] Kokoro synthesize erreur : %s", e)
             return await self.get_fallback().synthesize(text, emotion)
 
+    async def synthesize_native(self, text: str, emotion: str = "neutral") -> bytes:
+        """WAV PCM pour la sortie locale (daemon) — même payload que ``synthesize``."""
+        return await self.synthesize(text, emotion)
+
     async def synthesize_stream(
         self, text: str, emotion: str = "neutral"
     ) -> AsyncGenerator[bytes, None]:
         if not text or not text.strip():
+            return
+        if self._backend == "mlx":
+            data = await self.synthesize(text, emotion)
+            if data:
+                yield data
             return
         if not self._ensure_loaded():
             async for chunk in self.get_fallback().synthesize_stream(text, emotion):
@@ -249,7 +324,7 @@ class KokoroTTSEngine:
             return
         try:
             async for samples, sr in self._kokoro.create_stream(
-                text, voice=self._voice, speed=1.0, lang=self._lang
+                text, voice=self._voice, speed=self._speed, lang=self._lang
             ):
                 wav = self._pcm_to_wav_bytes(samples, sr)
                 if wav:
@@ -268,12 +343,12 @@ class MacOSTTSEngine:
     """TTS natif macOS : `say` génère un AIFF, `afconvert` le compresse en AAC/M4A.
 
     Aucune dépendance réseau. Fonctionne hors-ligne. La voix par défaut est
-    ``MACOS_TTS_VOICE`` (config/.env, défaut : "Thomas"). Le fichier M4A est
+    ``MACOS_TTS_VOICE`` (config/.env, défaut : "Jacques"). Le fichier M4A est
     lisible par tous les navigateurs modernes (Chrome, Firefox, Safari).
     """
 
     def __init__(self) -> None:
-        self._voice = getattr(config, "MACOS_TTS_VOICE", "Thomas")
+        self._voice = getattr(config, "MACOS_TTS_VOICE", "Jacques")
         self.available = bool(shutil.which("say") and shutil.which("afconvert"))
         if self.available:
             logger.info("[TTS] Backend macOS : say + afconvert (voix %s)", self._voice)
@@ -429,7 +504,7 @@ def resolve_tts_voice(engine_name: str | None = None) -> str:
     if name == "edge":
         return getattr(config, "TTS_VOICE", "fr-FR-HenriNeural") or "fr-FR-HenriNeural"
     if name == "macos":
-        return getattr(config, "MACOS_TTS_VOICE", "Thomas") or "Thomas"
+        return getattr(config, "MACOS_TTS_VOICE", "Jacques") or "Jacques"
     if name == "kokoro":
         return getattr(config, "KOKORO_VOICE", config.DEFAULT_KOKORO_VOICE) or config.DEFAULT_KOKORO_VOICE
     return getattr(config, "TTS_VOICE", "") or ""

@@ -23,7 +23,7 @@ const ROUTES = [
   { id: 'aujourdhui', label: "Aujourd'hui", icon: 'home',  view: today },
   { id: 'taches',     label: 'Tâches',      icon: 'task',  view: tasks },
   { id: 'mails',      label: 'Mails',       icon: 'mail',  view: mails },
-  { id: 'sante',      label: 'Santé',       icon: 'pulse', view: health, reserved: true },
+  { id: 'sante',      label: 'Santé',       icon: 'pulse', view: health },
 ];
 const DEFAULT_ROUTE = 'chat';
 

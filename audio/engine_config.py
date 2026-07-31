@@ -49,8 +49,13 @@ class AudioEngineConfig:
     stt_compute_type: str
     stt_allow_download: bool
     tts_engine: str
+    kokoro_backend: str
+    kokoro_model: str
     kokoro_voice: str
     kokoro_lang: str
+    kokoro_lang_code: str
+    kokoro_speed: float
+    kokoro_max_tokens: int
 
 
 def load_audio_engine_config() -> AudioEngineConfig:
@@ -65,8 +70,22 @@ def load_audio_engine_config() -> AudioEngineConfig:
         stt_compute_type=getattr(config, "STT_COMPUTE_TYPE", config.DEFAULT_STT_COMPUTE_TYPE),
         stt_allow_download=bool(getattr(config, "STT_ALLOW_MODEL_DOWNLOAD", False)),
         tts_engine=(getattr(config, "TTS_ENGINE", config.DEFAULT_TTS_ENGINE) or config.DEFAULT_TTS_ENGINE).lower(),
+        kokoro_backend=(
+            getattr(config, "KOKORO_BACKEND", config.DEFAULT_KOKORO_BACKEND)
+            or config.DEFAULT_KOKORO_BACKEND
+        ).lower(),
+        kokoro_model=getattr(config, "KOKORO_MODEL", config.DEFAULT_KOKORO_MODEL),
         kokoro_voice=getattr(config, "KOKORO_VOICE", config.DEFAULT_KOKORO_VOICE),
         kokoro_lang=getattr(config, "KOKORO_LANG", config.DEFAULT_KOKORO_LANG),
+        kokoro_lang_code=getattr(
+            config, "KOKORO_LANG_CODE", config.DEFAULT_KOKORO_LANG_CODE
+        ),
+        kokoro_speed=float(
+            getattr(config, "KOKORO_SPEED", config.DEFAULT_KOKORO_SPEED)
+        ),
+        kokoro_max_tokens=int(
+            getattr(config, "KOKORO_MAX_TOKENS", config.DEFAULT_KOKORO_MAX_TOKENS)
+        ),
     )
 
 
@@ -80,8 +99,11 @@ def log_audio_startup_config(*, active_stt_engine: str | None = None) -> None:
     logger.info("STT model: %s", cfg.stt_model)
     logger.info("STT language: %s", cfg.stt_language)
     logger.info("TTS engine: %s", cfg.tts_engine)
+    logger.info("Kokoro backend: %s", cfg.kokoro_backend)
+    logger.info("Kokoro model: %s", cfg.kokoro_model)
     logger.info("Kokoro voice: %s", cfg.kokoro_voice)
-    logger.info("Kokoro language: %s", cfg.kokoro_lang)
+    logger.info("Kokoro language: %s / %s", cfg.kokoro_lang, cfg.kokoro_lang_code)
+    logger.info("Kokoro speed: %s max_tokens: %s", cfg.kokoro_speed, cfg.kokoro_max_tokens)
     logger.info("Cloud fallback: disabled")
     if not cfg.stt_allow_download:
         logger.info(

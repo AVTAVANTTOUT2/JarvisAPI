@@ -18,10 +18,10 @@ ROOT = Path(__file__).resolve().parent.parent
 
 FORBIDDEN_DEFAULT_PATTERNS = (
     re.compile(r'(?<!DEFAULT_)TTS_ENGINE\s*=\s*["\']edge["\']'),
-    re.compile(r'(?<!DEFAULT_)KOKORO_VOICE\s*=\s*["\']ff_siwis["\']'),
+    re.compile(r'(?<!DEFAULT_)KOKORO_VOICE\s*=\s*["\']af_nicole["\']'),
     re.compile(r'(?<!DEFAULT_)AUDIO_DAEMON_STT_MODEL\s*=\s*["\']small["\']'),
     re.compile(r'_get\(\s*["\']TTS_ENGINE["\']\s*,\s*["\']edge["\']'),
-    re.compile(r'_get\(\s*["\']KOKORO_VOICE["\']\s*,\s*["\']ff_siwis["\']'),
+    re.compile(r'_get\(\s*["\']KOKORO_VOICE["\']\s*,\s*["\']af_nicole["\']'),
     re.compile(r'_get\(\s*["\']AUDIO_DAEMON_STT_MODEL["\']\s*,\s*["\']small["\']'),
 )
 
@@ -40,8 +40,13 @@ SCAN_PATHS = (
 def test_canonical_builtin_defaults():
     """Constantes intégrées — indépendantes du .env utilisateur."""
     assert config.DEFAULT_TTS_ENGINE == "kokoro"
-    assert config.DEFAULT_KOKORO_VOICE == "af_nicole"
+    assert config.DEFAULT_KOKORO_BACKEND == "mlx"
+    assert config.DEFAULT_KOKORO_MODEL == "mlx-community/Kokoro-82M-bf16"
+    assert config.DEFAULT_KOKORO_VOICE == "ff_siwis"
     assert config.DEFAULT_KOKORO_LANG == "fr-fr"
+    assert config.DEFAULT_KOKORO_LANG_CODE == "f"
+    assert config.DEFAULT_KOKORO_SPEED == 0.96
+    assert config.DEFAULT_KOKORO_MAX_TOKENS == 180
     assert config.DEFAULT_STT_ENGINE == "faster-whisper"
     assert config.DEFAULT_STT_MODEL == "large-v3-turbo"
     assert config.DEFAULT_STT_FALLBACK_MODEL == "large-v3"

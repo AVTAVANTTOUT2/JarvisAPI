@@ -63,7 +63,7 @@ def test_setup_secret_rejects_too_short(tmp_db):
         auth.setup_secret("abc")
 
 
-@pytest.mark.parametrize("secret", ["12345", "abcdefghi"])
+@pytest.mark.parametrize("secret", ["123", "abcdefghi"])
 def test_setup_secret_enforces_strong_pin_or_passphrase(tmp_db, secret):
     import auth
 
@@ -71,7 +71,7 @@ def test_setup_secret_enforces_strong_pin_or_passphrase(tmp_db, secret):
         auth.setup_secret(secret)
 
 
-@pytest.mark.parametrize("secret", ["123456", "abcdefghij"])
+@pytest.mark.parametrize("secret", ["1234", "123456", "abcdefghij"])
 def test_setup_secret_accepts_strong_pin_or_passphrase(tmp_db, secret):
     import auth
 
@@ -305,7 +305,7 @@ def test_change_secret_rejects_weak_new_secret(tmp_db):
 
     auth.setup_secret("old-secret")
     with pytest.raises(ValueError):
-        auth.change_secret("old-secret", "12345")
+        auth.change_secret("old-secret", "123")  # PIN < 4 chiffres
     assert auth.verify_only("old-secret") is True
 
 

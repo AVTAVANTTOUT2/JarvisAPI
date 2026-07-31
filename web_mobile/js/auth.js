@@ -7,11 +7,16 @@
  * iOS recouvrirait la moitié de l'écran, imposerait 16 px sous peine de zoom,
  * et offrirait des touches deux fois trop petites. Des cibles de 78 px dans
  * le tiers bas règlent les trois d'un coup.
+ *
+ * Longueur variable : le bureau accepte un PIN à 4 chiffres (ou plus). Le
+ * déverrouillage mobile soumet via « OK » dès MIN_PIN chiffres ; la création
+ * exige aussi MIN_PIN, sans imposer une longueur fixe de 6.
  */
 
 import { api, ApiError } from './api.js';
 
-const LEN = 6;
+const MIN_PIN = 4;
+const MAX_PIN = 12;
 
 const el = {
   root: document.getElementById('lock'),
@@ -27,13 +32,18 @@ let busy = false;
 let countdown = null;
 let resolveUnlocked = null;
 
+function dotsCount() {
+  return Math.min(MAX_PIN, Math.max(MIN_PIN, code.length || MIN_PIN));
+}
+
 function renderDots(error = false) {
   el.dots.className = 'lock-dots' + (error ? ' err' : '');
-  el.dots.replaceChildren(...Array.from({ length: LEN }, (_, i) => {
+  el.dots.replaceChildren(...Array.from({ length: dotsCount() }, (_, i) => {
     const d = document.createElement('span');
     d.className = 'lock-dot' + (i < code.length ? ' set' : '');
     return d;
   }));
+  syncOkButton();
 }
 
 function say(text, error = false) {
@@ -41,12 +51,31 @@ function say(text, error = false) {
   el.msg.className = 'lock-msg' + (error ? ' err' : '');
 }
 
+function canSubmit() {
+  return code.length >= MIN_PIN && code.length <= MAX_PIN;
+}
+
+function syncOkButton() {
+  const ok = el.keys.querySelector('[data-action="ok"]');
+  if (ok) ok.disabled = busy || !canSubmit();
+}
+
 function buildKeys() {
-  const layout = ['1','2','3','4','5','6','7','8','9','', '0','⌫'];
+  const layout = ['1','2','3','4','5','6','7','8','9','OK','0','⌫'];
   el.keys.replaceChildren(...layout.map((label) => {
     const b = document.createElement('button');
     b.type = 'button';
-    if (label === '') { b.className = 'lock-key bare'; b.disabled = true; b.setAttribute('aria-hidden', 'true'); return b; }
+    if (label === 'OK') {
+      b.className = 'lock-key bare';
+      b.textContent = 'OK';
+      b.dataset.action = 'ok';
+      b.setAttribute('aria-label', 'Valider le code');
+      b.addEventListener('click', () => {
+        if (busy || !canSubmit()) return;
+        submit();
+      });
+      return b;
+    }
     if (label === '⌫') {
       b.className = 'lock-key bare'; b.textContent = 'Effacer';
       b.setAttribute('aria-label', 'Effacer le dernier chiffre');
@@ -58,19 +87,26 @@ function buildKeys() {
     b.addEventListener('click', () => press(label));
     return b;
   }));
+  syncOkButton();
 }
 
 function setKeysDisabled(disabled) {
   for (const b of el.keys.querySelectorAll('.lock-key')) {
+    if (b.dataset.action === 'ok') {
+      b.disabled = disabled || !canSubmit();
+      continue;
+    }
     if (!b.classList.contains('bare') || b.textContent === 'Effacer') b.disabled = disabled;
   }
 }
 
 function press(digit) {
-  if (busy || code.length >= LEN) return;
+  if (busy || code.length >= MAX_PIN) return;
   code += digit;
   renderDots();
-  if (code.length === LEN) submit();
+  // Auto-soumission uniquement au plafond : en dessous, « OK » laisse
+  // valider un PIN à 4 chiffres comme sur le bureau.
+  if (code.length === MAX_PIN) submit();
 }
 
 function buzz() {
@@ -80,6 +116,7 @@ function buzz() {
 }
 
 async function submit() {
+  if (!canSubmit()) return;
   busy = true;
   setKeysDisabled(true);
 
@@ -185,10 +222,10 @@ export function lock(reason) {
   mode = reason === 'unconfigured' ? 'setup' : 'unlock';
   renderDots();
 
-  if (reason === 'unconfigured') say('Aucun code défini. Choisissez-en un.');
-  else if (reason === 'expired') say('Session expirée. Entrez votre code.');
-  else if (reason === 'idle') say('Verrouillé par inactivité.');
-  else say('Entrez votre code.');
+  if (reason === 'unconfigured') say('Aucun code défini. Choisissez-en un (4 chiffres min.), puis OK.');
+  else if (reason === 'expired') say('Session expirée. Entrez votre code, puis OK.');
+  else if (reason === 'idle') say('Verrouillé par inactivité. Entrez votre code, puis OK.');
+  else say('Entrez votre code, puis OK.');
 
   return new Promise((resolve) => { resolveUnlocked = resolve; });
 }

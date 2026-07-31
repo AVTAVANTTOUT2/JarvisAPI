@@ -107,6 +107,12 @@ async def api_status():
             "tts_backend": tts.get_backend_name() if tts else "none",
             "tts_voice": config.KOKORO_VOICE if config.TTS_ENGINE == "kokoro" else config.TTS_VOICE,
             "kokoro_lang": config.KOKORO_LANG,
+            "kokoro_backend": getattr(config, "KOKORO_BACKEND", config.DEFAULT_KOKORO_BACKEND),
+            "kokoro_model": getattr(config, "KOKORO_MODEL", config.DEFAULT_KOKORO_MODEL),
+            "kokoro_lang_code": getattr(
+                config, "KOKORO_LANG_CODE", config.DEFAULT_KOKORO_LANG_CODE
+            ),
+            "kokoro_speed": getattr(config, "KOKORO_SPEED", config.DEFAULT_KOKORO_SPEED),
         },
         "voice_conversation": {
             "silence_duration_ms": getattr(config, "VOICE_SILENCE_DURATION_MS", 1200),

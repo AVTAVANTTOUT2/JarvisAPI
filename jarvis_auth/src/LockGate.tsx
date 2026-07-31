@@ -60,8 +60,8 @@ export function LockGate({ children, title = 'JARVIS', ...options }: LockGatePro
       setError('Le secret est requis.')
       return
     }
-    if (mode === 'setup' && ((/^\d+$/.test(secret) && secret.length < 6) || (!/^\d+$/.test(secret) && secret.length < 10))) {
-      setError('Utilisez un PIN de 6 chiffres ou une passphrase de 10 caractères.')
+    if (mode === 'setup' && ((/^\d+$/.test(secret) && secret.length < 4) || (!/^\d+$/.test(secret) && secret.length < 10))) {
+      setError('Utilisez un PIN de 4 chiffres ou une passphrase de 10 caractères.')
       return
     }
     if (mode === 'setup' && secret !== confirmation) {
@@ -137,7 +137,7 @@ export function LockGate({ children, title = 'JARVIS', ...options }: LockGatePro
               autoFocus
               value={secret}
               onChange={(event) => setSecret(event.target.value)}
-              placeholder={mode === 'setup' ? 'PIN 6 chiffres ou passphrase 10+ caractères' : 'Code de déverrouillage'}
+              placeholder={mode === 'setup' ? 'PIN 4 chiffres ou passphrase 10+ caractères' : 'Code de déverrouillage'}
               disabled={busy || (lockedOut && !localRecovery)}
               aria-label={mode === 'setup' ? 'Nouveau code' : 'Code de déverrouillage'}
             />
