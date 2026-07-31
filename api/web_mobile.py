@@ -38,6 +38,7 @@ FORCE_DESKTOP_COOKIE = "jarvis_force_desktop"
 LEGACY_PWA_ENTRYPOINTS = {
     "chat": "chat",
     "dashboard": "aujourdhui",
+    "fitness": "sante",
 }
 
 # Règles de détection mobile — expression régulière compilée.
@@ -143,6 +144,18 @@ def setup(app: FastAPI) -> bool:
         return False
 
     index_file = WEB_MOBILE_DIR / "index.html"
+
+    @app.get("/m", include_in_schema=False)
+    @app.get("/m/", include_in_schema=False)
+    async def redirect_legacy_mobile_root():
+        """Migre l'ancien point d'entrée PWA vers l'interface autonome."""
+        return RedirectResponse(f"{PREFIX}/", status_code=302)
+
+    @app.get("/m/fitness", include_in_schema=False)
+    @app.get("/m/fitness/", include_in_schema=False)
+    async def redirect_legacy_mobile_fitness():
+        """Conserve les favoris et icônes qui ciblaient l'ancien écran fitness."""
+        return RedirectResponse(f"{PREFIX}/#/sante", status_code=302)
 
     @app.get(PREFIX, include_in_schema=False)
     async def serve_web_mobile_bare():

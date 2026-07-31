@@ -11,6 +11,7 @@ import io
 import re
 import sys
 from pathlib import Path
+from typing import Any
 
 DEFAULT_MODEL = "mlx-community/Kokoro-82M-bf16"
 DEFAULT_VOICE = "ff_siwis"
@@ -121,7 +122,14 @@ def synthesize(
     max_tokens: int,
     audio_format: str = "wav",
 ) -> bytes:
-    """Charge Kokoro MLX, génère l'audio, retourne WAV ou PCM16."""
+    """Charge Kokoro MLX, génère l'audio, retourne WAV ou PCM16.
+
+    mlx-audio imprime des messages (``Creating new KokoroPipeline…``) sur
+    stdout : on redirige stdout → stderr pendant la génération pour ne pas
+    polluer le flux binaire du sidecar.
+    """
+    import contextlib
+
     import numpy as np
     from mlx_audio.tts.utils import load_model
 
@@ -134,22 +142,33 @@ def synthesize(
         f"speed={speed} max_tokens={max_tokens}",
         file=sys.stderr,
     )
-    model = load_model(model_id)
-    segments: list = []
-    sample_rate = DEFAULT_SAMPLE_RATE
-    for result in model.generate(
-        text=prepared,
-        voice=voice,
-        speed=speed,
-        lang_code=lang_code,
-    ):
-        audio = getattr(result, "audio", None)
-        if audio is None:
-            continue
-        segments.append(np.asarray(audio, dtype=np.float32).reshape(-1))
-        sr = int(getattr(result, "sample_rate", 0) or 0)
-        if sr > 0:
-            sample_rate = sr
+
+    @contextlib.contextmanager
+    def _silence_stdout() -> Any:
+        old = sys.stdout
+        sys.stdout = sys.stderr
+        try:
+            yield
+        finally:
+            sys.stdout = old
+
+    with _silence_stdout():
+        model = load_model(model_id)
+        segments: list = []
+        sample_rate = DEFAULT_SAMPLE_RATE
+        for result in model.generate(
+            text=prepared,
+            voice=voice,
+            speed=speed,
+            lang_code=lang_code,
+        ):
+            audio = getattr(result, "audio", None)
+            if audio is None:
+                continue
+            segments.append(np.asarray(audio, dtype=np.float32).reshape(-1))
+            sr = int(getattr(result, "sample_rate", 0) or 0)
+            if sr > 0:
+                sample_rate = sr
 
     if not segments:
         return b""

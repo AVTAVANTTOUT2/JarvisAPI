@@ -251,6 +251,14 @@ class KokoroTTSEngine:
         logger.error("[TTS] Kokoro fallback indisponible — aucun TTS local")
         return macos_tts
 
+    async def _fallback_synthesize(self, text: str, emotion: str) -> bytes:
+        """Repli macOS en WAV PCM (lisible par sounddevice), pas M4A web."""
+        fb = self.get_fallback()
+        native = getattr(fb, "synthesize_native", None)
+        if callable(native):
+            return await native(text, emotion)
+        return await fb.synthesize(text, emotion)
+
     async def _synthesize_mlx(self, text: str) -> bytes:
         from native_audio.kokoro_bridge import synthesize_bytes
 
@@ -278,7 +286,7 @@ class KokoroTTSEngine:
         if not text or not text.strip():
             return b""
         if not self._ensure_loaded():
-            return await self.get_fallback().synthesize(text, emotion)
+            return await self._fallback_synthesize(text, emotion)
 
         asyncio.create_task(event_bus.emit(JarvisEvent(
             type="tts.start",
@@ -295,14 +303,24 @@ class KokoroTTSEngine:
             else:
                 wav = await self._synthesize_onnx(text)
             if not wav:
-                logger.warning("[TTS] Kokoro sortie vide — fallback macOS")
-                return await self.get_fallback().synthesize(text, emotion)
-            logger.debug("[TTS] Kokoro OK (%s) : %d bytes", self._backend, len(wav))
+                logger.warning(
+                    "[TTS] Kokoro %s sortie vide — fallback macOS (%s)",
+                    self._backend,
+                    getattr(macos_tts, "_voice", "?"),
+                )
+                return await self._fallback_synthesize(text, emotion)
+            logger.info(
+                "[TTS] Kokoro OK backend=%s voice=%s lang=%s bytes=%d",
+                self._backend,
+                self._voice,
+                self._lang_code if self._backend == "mlx" else self._lang,
+                len(wav),
+            )
             asyncio.create_task(event_bus.emit(JarvisEvent(type="tts.done")))
             return wav
         except Exception as e:
             logger.exception("[TTS] Kokoro synthesize erreur : %s", e)
-            return await self.get_fallback().synthesize(text, emotion)
+            return await self._fallback_synthesize(text, emotion)
 
     async def synthesize_native(self, text: str, emotion: str = "neutral") -> bytes:
         """WAV PCM pour la sortie locale (daemon) — même payload que ``synthesize``."""
