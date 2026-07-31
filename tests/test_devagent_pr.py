@@ -67,6 +67,31 @@ async def test_generate_pr_description_fallback_without_llm(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_generate_pr_description_includes_single_root_commit(tmp_path):
+    from agents.devagent.executor import git_commit, git_init
+    from agents.devagent.pr import generate_pr_description
+
+    project = tmp_path / "single_commit"
+    project.mkdir()
+    git_init(project)
+    (project / "app.py").write_text("print('ok')\n", encoding="utf-8")
+    git_commit(project, "feat: premier commit")
+
+    fake_payload = {
+        "title": "Premier commit",
+        "summary": "Initialise le projet.",
+        "changelog": ["Ajout de app.py"],
+        "test_plan": [],
+    }
+    fake_response = {"content": json.dumps(fake_payload), "tokens_total": 10}
+    with patch("agents.devagent.pr.call_deepseek", new=AsyncMock(return_value=fake_response)):
+        result = await generate_pr_description(project, "Projet neuf")
+
+    assert result["ok"] is True
+    assert Path(result["path"]).exists()
+
+
+@pytest.mark.asyncio
 async def test_generate_pr_description_empty_history_reported(tmp_path):
     from agents.devagent.executor import git_init
     from agents.devagent.pr import generate_pr_description

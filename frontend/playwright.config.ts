@@ -17,11 +17,6 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } },
     },
     {
-      name: 'mobile',
-      grep: /@mobile/,
-      use: { ...devices['iPhone 14'], browserName: 'chromium', channel: 'chrome' },
-    },
-    {
       name: 'static-csp',
       grep: /@static-csp/,
       use: { ...devices['Desktop Chrome'], baseURL: 'http://127.0.0.1:3107' },

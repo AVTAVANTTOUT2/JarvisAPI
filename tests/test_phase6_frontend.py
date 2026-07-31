@@ -1,4 +1,9 @@
-"""Contrats de routage du frontend unifié et de ses fallbacks."""
+"""Contrats de routage du frontend bureau et de ses replis.
+
+L'interface mobile ne figure plus ici : elle est autonome et couverte par
+``tests/test_web_mobile.py``. C'est précisément le but — casser le mobile ne
+doit plus pouvoir casser le bureau, ni l'inverse.
+"""
 
 import re
 from pathlib import Path
@@ -26,8 +31,6 @@ def test_unified_frontend_is_prioritized_and_routes_are_static(tmp_path, monkeyp
 
     monkeypatch.setattr(frontend, "FRONTEND_DIST", unified)
     monkeypatch.setattr(frontend, "WEB_DIST", tmp_path / "missing-web")
-    monkeypatch.setattr(frontend, "PWA_DIR", None)
-    monkeypatch.setattr(frontend.config, "PWA_ENABLED", False)
 
     app = FastAPI()
     frontend._setup_frontend(app)
@@ -39,23 +42,21 @@ def test_unified_frontend_is_prioritized_and_routes_are_static(tmp_path, monkeyp
         assert client.get("/unknown").status_code == 404
 
 
-def test_historical_pwa_coexists_with_unified_frontend(tmp_path, monkeypatch):
+def test_cognitive_route_is_served(tmp_path, monkeypatch):
+    """`cognitive` manquait à la liste blanche : 404 au rechargement dur."""
     unified = tmp_path / "frontend"
-    pwa = tmp_path / "pwa"
     _write(unified / "index.html", "unified-root")
+    _write(unified / "cognitive" / "index.html", "unified-cognitive")
     _write(unified / "_next" / "static" / "app.js", "asset")
-    _write(pwa / "index.html", "historical-pwa")
 
     monkeypatch.setattr(frontend, "FRONTEND_DIST", unified)
-    monkeypatch.setattr(frontend, "PWA_DIR", pwa)
-    monkeypatch.setattr(frontend.config, "PWA_ENABLED", True)
+    monkeypatch.setattr(frontend, "WEB_DIST", tmp_path / "missing-web")
 
     app = FastAPI()
     frontend._setup_frontend(app)
 
     with TestClient(app) as client:
-        assert client.get("/").text == "unified-root"
-        assert client.get("/m/").text == "historical-pwa"
+        assert client.get("/cognitive").text == "unified-cognitive"
 
 
 def test_vite_frontend_remains_fallback_without_unified_build(tmp_path, monkeypatch):
@@ -64,8 +65,6 @@ def test_vite_frontend_remains_fallback_without_unified_build(tmp_path, monkeypa
 
     monkeypatch.setattr(frontend, "FRONTEND_DIST", tmp_path / "missing-unified")
     monkeypatch.setattr(frontend, "WEB_DIST", web)
-    monkeypatch.setattr(frontend, "PWA_DIR", None)
-    monkeypatch.setattr(frontend.config, "PWA_ENABLED", False)
 
     app = FastAPI()
     frontend._setup_frontend(app)
@@ -74,12 +73,28 @@ def test_vite_frontend_remains_fallback_without_unified_build(tmp_path, monkeypa
         assert client.get("/").text == "vite-fallback"
 
 
-def test_desktop_and_mobile_share_one_authenticated_api_wrapper():
+def test_the_historical_pwa_mount_is_gone(tmp_path, monkeypatch):
+    """Plus aucun /m/ : l'interface mobile vit sous /mobile/, et elle seule."""
+    unified = tmp_path / "frontend"
+    _write(unified / "index.html", "unified-root")
+    _write(unified / "_next" / "static" / "app.js", "asset")
+
+    monkeypatch.setattr(frontend, "FRONTEND_DIST", unified)
+    monkeypatch.setattr(frontend, "WEB_DIST", tmp_path / "missing-web")
+
+    app = FastAPI()
+    frontend._setup_frontend(app)
+
+    with TestClient(app) as client:
+        assert client.get("/m/").status_code == 404
+    assert not hasattr(frontend, "_setup_pwa_frontend")
+
+
+def test_desktop_uses_one_authenticated_api_wrapper():
     assert not (REPO_ROOT / "web/src/services/api.ts").exists()
-    assert not (REPO_ROOT / "pwa/src/lib/api.ts").exists()
 
     direct_fetches = []
-    for source_root in ("web/src", "pwa/src", "frontend/src"):
+    for source_root in ("web/src", "frontend/src"):
         for path in (REPO_ROOT / source_root).rglob("*"):
             if path.suffix not in {".ts", ".tsx"} or path.name.endswith(".test.ts"):
                 continue
@@ -91,6 +106,13 @@ def test_desktop_and_mobile_share_one_authenticated_api_wrapper():
     api_source = (REPO_ROOT / "frontend/src/lib/api.ts").read_text(encoding="utf-8")
     assert "credentials: 'include'" in api_source
     assert "@unified/lib/api" in (REPO_ROOT / "web/src/pages/MissionControl.tsx").read_text()
-    assert "@unified/lib/api" in (REPO_ROOT / "pwa/src/lib/geolocation.ts").read_text()
-    pwa_layout = (REPO_ROOT / "pwa/src/app/client-layout.tsx").read_text(encoding="utf-8")
-    assert "<LockGate onAuthenticated={startAuthenticatedTracking}>" in pwa_layout
+
+
+def test_unified_bundle_no_longer_compiles_a_mobile_layout():
+    """Le mobile ne doit plus entrer dans le bundle bureau."""
+    assert not (REPO_ROOT / "frontend/src/components/MobileApp.tsx").exists()
+    for config_file in ("frontend/next.config.js", "frontend/tsconfig.json",
+                        "frontend/vitest.config.ts", "frontend/src/app/globals.css"):
+        text = (REPO_ROOT / config_file).read_text(encoding="utf-8")
+        assert "@mobile" not in text
+        assert "pwa/src" not in text

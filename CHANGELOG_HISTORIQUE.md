@@ -1787,7 +1787,7 @@ Checklist exhaustive exécutée automatiquement (API, WebSocket, DB, logs).
 ### Fonctionnalités absentes
 
 3. **Scheduler (APScheduler/cron)** — Les briefings matin (07:30), soir (22:00) et résumé hebdomadaire ne se déclenchent pas automatiquement. Déclenchement uniquement via UI ou `/api/briefing`.
-4. **Carnet Contacts macOS** — Pas d'intégration Contacts.app pour résoudre les numéros iMessage en noms. Le `+33767787818` reste un numéro au lieu d'afficher un prénom.
+4. **Carnet Contacts macOS** — Pas d'intégration Contacts.app pour résoudre les numéros iMessage en noms. Le `+33612345678` reste un numéro au lieu d'afficher un prénom.
 
 ### Non testables (nécessitent un navigateur)
 
@@ -2258,7 +2258,7 @@ Vérification :
 Demande exécutée : fusion des doublons visibles dans la liste contacts (`Bertille Doublon`, `Elias`, `Bertille`).
 
 Constat :
-- les 3 fiches pointaient vers le même handle iMessage : `+33783920665`
+- les 3 fiches pointaient vers le même handle iMessage : `+33612345678`
 
 Opérations effectuées :
 - conservation de la fiche `Bertille`

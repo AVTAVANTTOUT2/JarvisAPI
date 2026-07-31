@@ -6,7 +6,13 @@
 
 > Ce document **remplace** les affirmations conflictuelles « 44 tables », « 72 tables », « 73 tables »
 > et les formulations ambiguës sur le « frontend principal ».  
-> En cas de conflit, croire le code (`api/frontend.py`, `database/core.py`, `supervisor.py`) et le rapport JSON.
+> En cas de conflit, croire le code (`api/frontend.py`, `api/web_mobile.py`, `database/core.py`, `supervisor.py`) et le rapport JSON.
+
+> **Mise à jour du 31 juillet 2026 — l'arbre `pwa/` et le montage `/m/` n'existent plus.**
+> Les téléphones sont redirigés côté serveur vers `/mobile/`, servi depuis `web_mobile/`
+> (HTML/CSS/JS vanilla, sans build). Les sections de routage ci-dessous ont été
+> réécrites en conséquence ; les inventaires de paquets datés du 24/07 sont
+> conservés tels quels et ne décrivent plus l'état courant pour la ligne `pwa/`.
 
 ---
 
@@ -20,7 +26,7 @@
 | D'où vient « **73** » ? | Inventaire Architecture antérieur au chat mobile, à la délégation Cursor et au pairage desktop sécurisé |
 | Frontend canonique (FastAPI 8081) ? | **`frontend/`** — Next.js **15.5.20**, React **19.2.7** (lockfile), export → `frontend/out/` |
 | Fallback racine FastAPI ? | **`web/dist/`** — Vite **6.4.2** + React **19.2.5** |
-| PWA historique ? | **`pwa/`** — Next.js **14.2.29**, React **18.3.1**, servie sous **`/m/`** si build présent |
+| Interface mobile | **`web_mobile/`** — HTML/CSS/JS vanilla, aucun build, servie sous **`/mobile/`** |
 | TV ? | **`tv/`** — FastAPI + vanilla JS, port **5174** (processus séparé) |
 | Orphelin ? | **`front_tv/`** — HTML bundlé non référencé |
 | Supervisor (9000) sert quoi ? | **`frontend/out` en priorité**, puis **`web/dist`** (même politique que FastAPI — ADR-019) |
@@ -39,8 +45,8 @@ d'exécution.
 
 Le frontend canonique est frontend/ (Next.js 15 → frontend/out), servi en
 priorité par FastAPI (port 8081) **et** par le supervisor (port 9000).
-web/dist reste le fallback actif racine. pwa/out (Next.js 14) est la PWA
-historique sous /m/ (absente du checkout si non buildée). tv/ (port 5174)
+web/dist reste le repli actif racine. web_mobile/ est l'interface mobile
+autonome servie sous /mobile/, sans build. tv/ (port 5174)
 est le dashboard War Room dédié. Voir ADR-019.
 ```
 
@@ -82,24 +88,29 @@ Code : `api/frontend.py` → `_setup_frontend()` appelé depuis `main.py`.
 ### Requête `/` (backend FastAPI, port 8081)
 
 ```text
+Montage : si web_mobile/index.html : monte /mobile/* (indépendant de la suite)
+
 Requête GET /
-→ si PWA_ENABLED et pwa/out/index.html : monte /m/* (indépendant de la suite)
-→ si frontend/out/index.html + _next/static/ : sert frontend unifié (PRIORITAIRE) → STOP
-→ sinon si web/dist/index.html :
-      → si UA mobile ET PWA montée : Redirect 302 → /m/ (ou PWA_URL)
-      → sinon sert web/dist SPA
+→ si UA téléphone ET pas de cookie jarvis_force_desktop : Redirect 302 → /mobile/
+→ sinon si frontend/out/index.html + _next/static/ : sert frontend unifié (PRIORITAIRE)
+→ sinon si web/dist/index.html : sert web/dist SPA
 → sinon si web/templates/index.html : Jinja legacy
+→ sinon si web_mobile présent : racine mobile-seule (bureau → 503)
 → sinon : warning « Aucun frontend »
+
+`?desktop=1` pose le cookie jarvis_force_desktop (1 an) et sert le bureau.
+La redirection ne s'applique qu'à la racine : les liens profonds restent ouvrables.
 ```
 
-**Note viewport** : la détection mobile **serveur** (redirection `/` → `/m/`) n’existe que sur le chemin **fallback Vite**. Le frontend unifié Next.js choisit layout desktop/mobile **côté client** (`frontend/src/lib/device.ts` : UA + viewport) — pas de redirect HTTP.
+**Note** : la détection est **serveur** et s'applique à tous les chemins de repli — c'est un changement par rapport à l'audit du 24/07, où elle n'existait que sur le chemin Vite et où le frontend unifié choisissait son layout côté client. `frontend/src/lib/device.ts` ne contient plus de détection.
 
-### `/m/`
+### `/mobile/`
 
 ```text
-GET /m/ , /m/{segment}
-→ uniquement si PWA_ENABLED et pwa/out présent
-→ sinon non monté (404 / route absente)
+GET /mobile/ , /mobile/{asset:path}
+→ uniquement si web_mobile/index.html présent
+→ extensions inconnues et traversée de répertoire : 404
+→ fichier absent : 404 franc, jamais l'index déguisé (routage par fragment)
 ```
 
 ### `/api/*` et `/ws`
@@ -331,7 +342,7 @@ Statuts : `active` | `technique` | `miroir` | `conditionnelle` | `devagent`
 
 1. **Citer toujours** les comptages A/B/C/D + total 76 / 81 — jamais un seul chiffre nu.
 2. **Frontend** : phrase canonique du §1.
-3. **Ne pas** supprimer `web/`, `pwa/`, `front_tv/` ni fusionner TV dans FastAPI sans plan dédié.
+3. **Ne pas** supprimer `web/` ni `front_tv/`, ni fusionner TV dans FastAPI sans plan dédié. (`pwa/` a été supprimé le 31/07 avec un plan dédié — voir `35_CAHIER_DES_CHARGES_WEB_MOBILE.md`.)
 4. **Alignement supervisor / FastAPI** : réalisé le 16/07/2026 (ADR-019,
    `core/frontend_resolution.py`). Validation visuelle recommandée sur le port 9000.
 
@@ -341,12 +352,12 @@ Statuts : `active` | `technique` | `miroir` | `conditionnelle` | `devagent`
 |---|---|---|
 | 1 | Documentation obsolète (README 26+/72) | `README.md` L100, L124 |
 | 2 | Changement non documenté (tables migrations/FTS/DevAgent) | `migrations.py`, `devagent.py`, test `len==81` |
-| 3 | Plusieurs générations frontend encore actives | `api/frontend.py` unifié + Vite + `/m/` |
+| 3 | Plusieurs générations frontend encore actives | `api/frontend.py` unifié + Vite (résolu pour `/m/`, supprimé le 31/07) |
 | 4 | Fallback historique volontaire | commentaires Phase 6 + tests `test_phase6_frontend.py` |
 | 5 | Tables conditionnelles / techniques comptées différemment | FTS5 + 76 vs 81 |
 | 6 | Snapshot `schema.sql` ≠ schéma runtime | `core.py` importe `SCHEMA` depuis `schema.py` |
 | 7 | Supervisor ≠ FastAPI pour le front | `supervisor.py` `DIST_DIR = web/dist` |
-| 8 | Build PWA absent du checkout | `pwa/out` manquant le jour de l’audit |
+| 8 | Build PWA absent du checkout | `pwa/out` manquant le jour de l’audit — arbre supprimé depuis |
 
 ---
 

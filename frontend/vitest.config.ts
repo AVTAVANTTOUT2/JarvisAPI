@@ -12,7 +12,6 @@ export default defineConfig({
       '@frontend': path.resolve(__dirname, './src'),
       '@unified': path.resolve(__dirname, './src'),
       '@desktop': path.resolve(__dirname, '../web/src'),
-      '@mobile': path.resolve(__dirname, '../pwa/src'),
     },
   },
   test: {

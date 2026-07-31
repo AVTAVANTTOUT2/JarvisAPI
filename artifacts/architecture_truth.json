@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-07-24T11:28:29.890552+00:00",
+  "generated_at": "2026-07-30T23:22:54.187125+00:00",
   "repo_root": ".",
   "canonical_formulation": {
-    "database": "Le projet crée 75 tables persistantes après init_db() + migrations, plus jusqu'à 5 objets FTS5, soit 80 tables physiques lorsque FTS5 est disponible.",
-    "frontends": "Le frontend canonique est frontend/ (Next.js 15 → frontend/out). web/dist reste le fallback actif. pwa/out est la PWA historique sous /m/. tv/ (5174) est réservé à la TV. FastAPI (8081) et le supervisor (9000) servent frontend/out en priorité, puis web/dist en fallback (core.frontend_resolution)."
+    "database": "Le projet crée 80 tables persistantes après init_db() + migrations, plus jusqu'à 5 objets FTS5, soit 85 tables physiques lorsque FTS5 est disponible.",
+    "frontends": "Le frontend canonique est frontend/ (Next.js 15 → frontend/out). web/dist reste le fallback actif. web_mobile/ est l'interface mobile autonome servie sous /mobile/, sans build. tv/ (5174) est réservé à la TV. FastAPI (8081) et le supervisor (9000) servent frontend/out en priorité, puis web/dist en fallback (core.frontend_resolution)."
   },
   "frontends": [
     {
@@ -33,7 +33,7 @@
         "test:e2e": "playwright test"
       },
       "output_dir": "frontend/out",
-      "output_present": false,
+      "output_present": true,
       "has_service_worker": true,
       "has_manifest": true,
       "status": "actif_canonique_fastapi",
@@ -65,43 +65,10 @@
         "test": "vitest run"
       },
       "output_dir": "web/dist",
-      "output_present": false,
+      "output_present": true,
       "has_service_worker": true,
       "has_manifest": false,
       "status": "fallback_actif",
-      "notes": []
-    },
-    {
-      "path": "pwa",
-      "framework": "next",
-      "package_versions": {
-        "next": "14.2.29",
-        "react": "^18.3.1",
-        "react-dom": "^18.3.1",
-        "typescript": "^5.7.0",
-        "next-pwa": "^5.6.0",
-        "tailwindcss": "^3.4.17",
-        "@tanstack/react-query": "^5.62.0"
-      },
-      "locked_versions": {
-        "next": "14.2.29",
-        "react": "18.3.1",
-        "react-dom": "18.3.1",
-        "typescript": "5.9.3",
-        "next-pwa": "5.6.0",
-        "tailwindcss": "3.4.19"
-      },
-      "scripts": {
-        "dev": "node server.js",
-        "build": "next build",
-        "start": "next start -H 0.0.0.0 -p 3000",
-        "lint": "next lint"
-      },
-      "output_dir": "pwa/out",
-      "output_present": false,
-      "has_service_worker": true,
-      "has_manifest": true,
-      "status": "fallback_historique_m",
       "notes": []
     },
     {
@@ -152,9 +119,9 @@
   ],
   "resolution": {
     "canonical_order": [
-      "PWA /m/ montée si PWA_ENABLED et pwa/out",
-      "frontend/out prioritaire (Next.js 15 unifié)",
-      "web/dist fallback Vite + redirect mobile optionnelle",
+      "web_mobile/ monté sous /mobile/, téléphones redirigés",
+      "frontend/out prioritaire (Next.js 15 bureau)",
+      "web/dist fallback Vite",
       "web/templates Jinja legacy",
       "warning aucun frontend"
     ],
@@ -166,16 +133,16 @@
     "paths": {
       "FRONTEND_DIST_DIR_default": "frontend/out",
       "WEB_DIST_DIR_default": "web/dist",
-      "PWA_DIR_default": "pwa/out",
+      "WEB_MOBILE_DIR_default": "web_mobile",
       "TV_PORT_default": 5174,
       "BACKEND_PORT_typical": 8081,
       "SUPERVISOR_PORT_default": 9000,
       "VITE_DEV_PORT": 5173
     },
     "build_presence": {
-      "frontend/out": false,
-      "web/dist": false,
-      "pwa/out": false
+      "frontend/out": true,
+      "web/dist": true,
+      "web_mobile": true
     }
   },
   "tables": {
@@ -187,14 +154,14 @@
     "counts": {
       "schema_py": 50,
       "schema_sql_applicatives": 46,
-      "migrations_unique_excluding_schema_and_fts": 19,
+      "migrations_unique_excluding_schema_and_fts": 24,
       "devagent": 6,
-      "persistantes_post_init": 75,
+      "persistantes_post_init": 80,
       "fts_objects_if_available": 5,
-      "physiques_max_default_fts_on": 80,
+      "physiques_max_default_fts_on": 85,
       "imessage_mirror": 9,
       "technique_estime": 19,
-      "metier_estime": 41
+      "metier_estime": 46
     },
     "lists": {
       "schema_py": [
@@ -298,6 +265,7 @@
         "work_sessions"
       ],
       "migrations_only": [
+        "auth_rate_limits",
         "commitments",
         "conversation_turns",
         "daily_rituals",
@@ -305,6 +273,7 @@
         "duplicate_findings",
         "jarvis_journal",
         "location_point_dedup",
+        "meals",
         "memory_embeddings",
         "message_insights",
         "mobile_chat_dedup",
@@ -316,7 +285,10 @@
         "push_subscriptions",
         "schema_migrations",
         "security_findings",
-        "sessions"
+        "sessions",
+        "water_intake",
+        "wellbeing_logs",
+        "workouts"
       ],
       "devagent": [
         "dev_deployments",
@@ -330,6 +302,7 @@
         "agentic_workflows",
         "app_settings",
         "app_usage",
+        "auth_rate_limits",
         "commitments",
         "conversation_documents",
         "conversation_turns",
@@ -369,6 +342,7 @@
         "location_history",
         "location_patterns",
         "location_point_dedup",
+        "meals",
         "memory_embeddings",
         "message_insights",
         "messages",
@@ -400,8 +374,11 @@
         "user_facts",
         "visits",
         "voice_debug_log",
+        "water_intake",
         "weekly_summaries",
-        "work_sessions"
+        "wellbeing_logs",
+        "work_sessions",
+        "workouts"
       ],
       "imessage_mirror": [
         "imessage_attachments",
@@ -438,15 +415,15 @@
     },
     "explanations": {
       "schema_sql": "46 tables applicatives dans database/schema.sql (dump non exécuté), hors sqlite_sequence.",
-      "persistantes": "75 tables créées par schema.py + migrations + DevAgent, hors objets FTS.",
-      "physiques_fts": "80 entrées sqlite_master avec les cinq objets FTS5 disponibles.",
+      "persistantes": "80 tables créées par schema.py + migrations + DevAgent, hors objets FTS.",
+      "physiques_fts": "85 entrées sqlite_master avec les cinq objets FTS5 disponibles.",
       "historique": "Les totaux 44, 70, 71, 72, 73, 75, 76 et 78 décrivent des snapshots antérieurs, pas le runtime courant."
     }
   },
   "documentation_findings": [
     {
       "file": "README.md",
-      "line": 100,
+      "line": 99,
       "kind": "tables_schema_dump",
       "severity": "info",
       "excerpt": "46 tables",

@@ -14,7 +14,6 @@ const config = {
       ...(webpackConfig.resolve.modules || ['node_modules']),
     ];
     webpackConfig.resolve.alias['@desktop'] = path.resolve(__dirname, '../web/src');
-    webpackConfig.resolve.alias['@mobile'] = path.resolve(__dirname, '../pwa/src');
     webpackConfig.resolve.alias['@unified'] = path.resolve(__dirname, 'src');
     webpackConfig.plugins.push(new webpack.DefinePlugin({
       'import.meta.env.DEV': JSON.stringify(false),

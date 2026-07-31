@@ -55,6 +55,20 @@ def test_same_entity_yields_same_token(anonymizer: PIIAnonymizer) -> None:
     assert len(result.mapping) == 1
 
 
+def test_existing_redaction_markers_are_not_anonymized(
+    anonymizer: PIIAnonymizer,
+) -> None:
+    result = anonymizer.anonymize(
+        "Diagnostic [LOCAL_PATH], contenu [REDACTED], contact jean@x.com."
+    )
+
+    assert "[LOCAL_PATH]" in result.anonymized_text
+    assert "[REDACTED]" in result.anonymized_text
+    assert "[EMAIL_1]" in result.anonymized_text
+    assert "[[PERSON_" not in result.anonymized_text
+    assert "[[ORG_" not in result.anonymized_text
+
+
 def test_distinct_entities_yield_distinct_tokens(anonymizer: PIIAnonymizer) -> None:
     result = anonymizer.anonymize("De a@x.com à b@y.com.")
     assert result.mapping["[EMAIL_1]"] == "a@x.com"

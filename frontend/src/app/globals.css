@@ -2,7 +2,6 @@
 @import 'leaflet/dist/leaflet.css';
 
 @source '../../../web/src/**/*.{js,ts,jsx,tsx}';
-@source '../../../pwa/src/**/*.{js,ts,jsx,tsx}';
 @source '../../../jarvis_auth/src/**/*.{js,ts,jsx,tsx}';
 
 @theme {

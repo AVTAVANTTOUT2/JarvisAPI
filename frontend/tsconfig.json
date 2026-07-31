@@ -33,9 +33,6 @@
       "@desktop/*": [
         "../web/src/*"
       ],
-      "@mobile/*": [
-        "../pwa/src/*"
-      ],
       "react": [
         "./node_modules/@types/react/index.d.ts"
       ],
