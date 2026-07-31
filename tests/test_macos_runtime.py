@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from integrations._applescript import run_applescript, run_applescript_async
+from scripts.launchagents import write_launch_agents
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -74,10 +75,18 @@ def test_apple_application_dictionaries_compile(tmp_path):
         assert output.stat().st_size > 0
 
 
-def test_launch_agent_plists_are_valid():
+def test_launch_agent_plists_are_valid(tmp_path):
+    venv = tmp_path / "CI runtime venv"
+    python = venv / "bin" / "python"
+    python.parent.mkdir(parents=True)
+    python.symlink_to(sys.executable)
+    generated = write_launch_agents(
+        output_dir=tmp_path / "Generated LaunchAgents",
+        repo_root=ROOT,
+        venv_dir=venv,
+    )
     plists = (
-        ROOT / "com.jarvis.imessage-daemon.plist",
-        ROOT / "com.jarvis.supervisor.plist",
+        *generated.values(),
         ROOT / "tv" / "com.jarvis.tv-browser.plist",
         ROOT / "tv" / "com.jarvis.tv.plist",
     )

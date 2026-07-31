@@ -141,6 +141,8 @@ Enfin, quelques tâches de fond suivent un rythme hebdomadaire :
 
 Chaque automatisation respecte son option d'activation et ses seuils. Un passage du cron ne produit donc pas forcément une notification ou un appel à un modèle.
 
+Le suivi live est disponible dans l'UI bureau sur **`/scheduler`** : statut du jour (fait / en attente / manqué / échec / silencieux), agrégats 7 jours pour les ticks fréquents, sortie des sorties au clic, et relance manuelle pour les jobs quotidiens ou hebdomadaires. API : `GET /api/scheduler/jobs`, `GET /api/scheduler/jobs/{id}/runs`, `POST /api/scheduler/jobs/{id}/run`.
+
 ## Stack technique
 
 | Couche | Technologies |
@@ -191,6 +193,9 @@ WEB_HOST=127.0.0.1
 WEB_PORT=8080
 ```
 
+Le backend est fail-closed : une clé absente ou laissée à `sk-...` arrête le
+démarrage avant l'initialisation de la base et des workers.
+
 Les réglages applicatifs peuvent être séparés des secrets avec `.env.config.example` :
 
 ```bash
@@ -215,13 +220,24 @@ python main.py
 
 Ouvrir ensuite [http://127.0.0.1:8080](http://127.0.0.1:8080). Le port peut être changé avec `WEB_PORT`.
 
-Pour un fonctionnement permanent avec redémarrage automatique du backend :
+Pour un lancement manuel du superviseur :
 
 ```bash
 ./scripts/launch_supervisor.sh
 ```
 
 Le superviseur est alors accessible par défaut sur [http://127.0.0.1:9000](http://127.0.0.1:9000).
+
+Pour l'installer comme LaunchAgent macOS, depuis le checkout et son venv réels :
+
+```bash
+python scripts/jarvis_launchd.py install
+```
+
+L'installateur génère `~/Library/LaunchAgents/com.jarvis.supervisor.plist`,
+vérifie `ProgramArguments`, `WorkingDirectory` et les logs, puis exécute
+`plutil -lint` avant de charger le service. Aucun chemin utilisateur n'est
+stocké dans le dépôt.
 
 ## Configuration utile
 
