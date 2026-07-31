@@ -32,6 +32,24 @@ logger = logging.getLogger(__name__)
 
 MESSAGE_CHUNK_SIZE = 2000  # limite raisonnable iMessage avant split
 OSASCRIPT_TIMEOUT = 30.0   # secondes (aligné Mail / Calendar)
+_IMESSAGE_PHONE_RE = re.compile(r"^\+[1-9]\d{6,14}$")
+_IMESSAGE_EMAIL_RE = re.compile(
+    r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]{1,64}@"
+    r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+    r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$"
+)
+
+
+def validate_imessage_address(address: str) -> str | None:
+    """Retourne une adresse iMessage canonique sûre, sinon ``None``."""
+    normalized = (address or "").strip()
+    if not normalized or len(normalized) > 254:
+        return None
+    if _IMESSAGE_PHONE_RE.fullmatch(normalized):
+        return normalized
+    if _IMESSAGE_EMAIL_RE.fullmatch(normalized):
+        return normalized
+    return None
 
 
 class IMessageBridge:
@@ -97,6 +115,9 @@ class IMessageBridge:
         """Vérifie l'accès à chat.db. Retourne False si pas configuré ou pas accessible."""
         if not self.target:
             logger.info("[iMessage] Bridge desactive — IMESSAGE_TARGET non configure dans .env")
+            return False
+        if validate_imessage_address(self.target) is None:
+            logger.error("[iMessage] Destinataire invalide : %r", self.target)
             return False
         if not self.db_path.exists():
             logger.error(
@@ -178,11 +199,16 @@ class IMessageBridge:
 
     def _send_chunk(self, chunk: str) -> bool:
         """Envoie un chunk via Messages.app + osascript. Retourne True si OK."""
+        target = validate_imessage_address(self.target)
+        if target is None:
+            logger.warning("[iMessage] Envoi refusé : destinataire invalide")
+            return False
         escaped = self._escape_for_applescript(chunk)
+        escaped_target = self._escape_for_applescript(target)
         script = (
             'tell application "Messages"\n'
             '    set targetService to 1st account whose service type = iMessage\n'
-            f'    set targetBuddy to participant "{self.target}" of targetService\n'
+            f'    set targetBuddy to participant "{escaped_target}" of targetService\n'
             f'    send "{escaped}" to targetBuddy\n'
             'end tell'
         )
@@ -373,9 +399,12 @@ def send_imessage_to_address(address: str, text: str) -> tuple[bool, str]:
     addr = (address or "").strip()
     if not addr:
         return False, "Adresse vide"
+    validated_addr = validate_imessage_address(addr)
+    if validated_addr is None:
+        return False, "Adresse iMessage invalide"
     if not (text or "").strip():
         return False, "Texte vide"
-    bridge = IMessageBridge(addr)
+    bridge = IMessageBridge(validated_addr)
     try:
         n = bridge._send_message(text)
         if n > 0:

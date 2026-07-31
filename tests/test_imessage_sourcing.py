@@ -9,6 +9,7 @@ Vérifie que :
 import asyncio
 import sys
 from pathlib import Path
+from unittest.mock import Mock
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -79,3 +80,53 @@ def test_imessage_sourcing_config_defaults():
     assert config.IMESSAGE_SOURCING_ENABLED is True
     assert config.IMESSAGE_SEND_ENABLED is False
     assert config.IMESSAGE_SCAN_INTERVAL == 300
+
+
+@pytest.mark.parametrize(
+    "address",
+    [
+        '+33600000000" & do shell script "touch /tmp/pwned" & "',
+        "foo@example.com\\\" & error number -128 & \\\"",
+        "not a phone number",
+        "+3300;do shell script",
+    ],
+)
+def test_imessage_recipient_injection_is_rejected_before_applescript(
+    monkeypatch: pytest.MonkeyPatch,
+    address: str,
+):
+    import config
+    from integrations import imessage
+
+    monkeypatch.setattr(config, "IMESSAGE_SEND_ENABLED", True)
+    run_applescript = Mock()
+    monkeypatch.setattr(imessage, "run_applescript", run_applescript)
+
+    ok, message = imessage.send_imessage_to_address(address, "test")
+
+    assert ok is False
+    assert message == "Adresse iMessage invalide"
+    run_applescript.assert_not_called()
+
+
+@pytest.mark.parametrize("address", ["+33600000000", "user+jarvis@example.com"])
+def test_valid_imessage_recipient_is_escaped_in_applescript(
+    monkeypatch: pytest.MonkeyPatch,
+    address: str,
+):
+    import config
+    from integrations import imessage
+    from integrations._applescript import OsascriptResult
+
+    monkeypatch.setattr(config, "IMESSAGE_SEND_ENABLED", True)
+    run_applescript = Mock(
+        return_value=OsascriptResult(True, "ok", 0, "", "")
+    )
+    monkeypatch.setattr(imessage, "run_applescript", run_applescript)
+
+    ok, _ = imessage.send_imessage_to_address(address, "bonjour")
+
+    assert ok is True
+    script = run_applescript.call_args.args[0]
+    escaped = imessage.escape_applescript_string(address)
+    assert f'participant "{escaped}" of targetService' in script

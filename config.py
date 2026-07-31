@@ -206,7 +206,7 @@ FCM_SERVICE_ACCOUNT_FILE = _get("FCM_SERVICE_ACCOUNT_FILE", "")
 FCM_PROJECT_ID = _get("FCM_PROJECT_ID", "")
 
 # ── Contrôle ordinateur local (macOS) ────────────────────────
-COMPUTER_ACCESS = _get("COMPUTER_ACCESS", "true")
+COMPUTER_ACCESS = _get("COMPUTER_ACCESS", "false").lower() == "true"
 COMPUTER_SHELL = _get("COMPUTER_SHELL", "/bin/zsh")
 COMPUTER_TIMEOUT = int(_get("COMPUTER_TIMEOUT", "30"))
 # Les commandes proposées par un LLM sont confinées ici et doivent toujours
@@ -227,7 +227,7 @@ TV_CAST_TIMEOUT = int(_get("TV_CAST_TIMEOUT", "20"))
 TV_DASHBOARD_URL = _get("TV_DASHBOARD_URL", "http://192.168.3.52:5174/")  # URL a ouvrir via Chromecast
 
 # ── Exécution de code avancée ────────────────────────────────
-CODE_EXECUTOR_ENABLED = _get("CODE_EXECUTOR_ENABLED", "true").lower() == "true"
+CODE_EXECUTOR_ENABLED = _get("CODE_EXECUTOR_ENABLED", "false").lower() == "true"
 CODE_EXECUTOR_TIMEOUT = int(_get("CODE_EXECUTOR_TIMEOUT", "120"))
 CODE_EXECUTOR_MODEL = _get("CODE_EXECUTOR_MODEL", "") or DEEPSEEK_MAIN_MODEL
 

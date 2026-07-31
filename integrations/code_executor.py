@@ -27,9 +27,11 @@ class CodeExecutor:
     et réaliser des workflows multi-étapes.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
+        self.enabled = bool(getattr(config, "CODE_EXECUTOR_ENABLED", False))
         self.available = False
-        if not getattr(config, "CODE_EXECUTOR_ENABLED", True):
+        self.interpreter = None
+        if not self.enabled:
             logger.info("[code_executor] Désactivé par configuration")
             return
         try:
@@ -136,7 +138,7 @@ class CodeExecutor:
 
     def reset(self):
         """Reset la conversation de l'interpréteur."""
-        if self.available:
+        if self.available and self.interpreter is not None:
             self.interpreter.messages = []
 
 

@@ -10,11 +10,19 @@ from typing import Any
 
 import config
 from agents.devagent.coder import CODER_PROMPT, FIXER_PROMPT
-from agents.devagent.executor import git_commit, git_current_sha, git_init, run_isolated, setup_venv
+from agents.devagent.executor import (
+    git_commit,
+    git_current_sha,
+    git_init,
+    resolve_generated_path,
+    run_isolated,
+    setup_venv,
+)
 from agents.devagent.planner import ACCEPTANCE_JUDGE_PROMPT, PLANNER_PROMPT
 from agents.devagent.utils import parse_json_response
 from database import devagent as devagent_db
 from integrations.deepseek_client import call_deepseek
+from jarvis.security.redaction import redact_persisted_mapping
 
 logger = logging.getLogger(__name__)
 
@@ -23,20 +31,27 @@ _running: set[int] = set()
 
 def _write_state_file(project_path: Path, state: dict[str, Any]) -> None:
     state_path = project_path / ".devagent_state.json"
-    state_path.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
+    safe_state = redact_persisted_mapping(state)
+    state_path.write_text(
+        json.dumps(safe_state, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
 
 
 def _read_existing_files(project_path: Path, files: list[str]) -> dict[str, str]:
     existing: dict[str, str] = {}
     for rel in files:
-        full = project_path / "src" / rel
+        full = resolve_generated_path(project_path, rel)
         existing[rel] = full.read_text(encoding="utf-8") if full.exists() else ""
     return existing
 
 
 def _write_generated_files(project_path: Path, files: dict[str, str]) -> None:
-    for rel, content in files.items():
-        full = project_path / "src" / rel
+    resolved_files = [
+        (resolve_generated_path(project_path, rel), content)
+        for rel, content in files.items()
+    ]
+    for full, content in resolved_files:
         full.parent.mkdir(parents=True, exist_ok=True)
         full.write_text(content, encoding="utf-8")
 

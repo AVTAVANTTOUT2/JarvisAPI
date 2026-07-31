@@ -20,7 +20,7 @@ import json
 import logging
 from pathlib import Path
 
-from agents.devagent.executor import git_commit, run_isolated
+from agents.devagent.executor import git_commit, resolve_generated_path, run_isolated
 from agents.devagent.utils import parse_json_response
 from integrations.deepseek_client import call_deepseek
 from scripts.duplicate_scanner import find_duplicates
@@ -98,12 +98,16 @@ async def refactor_top_duplicate(project_path: Path, test_command: str = "python
 
     # Sauvegarde du contenu original pour rollback si les tests échouent.
     backup: dict[str, str | None] = {}
+    resolved_files = {
+        rel: resolve_generated_path(project_path, rel)
+        for rel in generated
+    }
     for rel in generated:
-        p = project_path / "src" / rel
+        p = resolved_files[rel]
         backup[rel] = p.read_text(encoding="utf-8") if p.exists() else None
 
     for rel, content in generated.items():
-        full = project_path / "src" / rel
+        full = resolved_files[rel]
         full.parent.mkdir(parents=True, exist_ok=True)
         full.write_text(content, encoding="utf-8")
 
@@ -111,7 +115,7 @@ async def refactor_top_duplicate(project_path: Path, test_command: str = "python
     if test_result["returncode"] != 0:
         # Rollback : restaure le contenu original (ou supprime le fichier créé).
         for rel, original in backup.items():
-            full = project_path / "src" / rel
+            full = resolved_files[rel]
             if original is None:
                 full.unlink(missing_ok=True)
             else:
