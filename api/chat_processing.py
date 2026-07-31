@@ -231,9 +231,13 @@ async def _process_message_internal(
                     "agentic": True,
                 }
                 if results_text:
+                    safe_results = _format_action_result_for_followup(
+                        {"type": "terminal"},
+                        action_result,
+                    )
                     fu = await orchestrator.handle(
                         (
-                            f"Résultats :\n\n{results_text}\n\n"
+                            f"Résultats :\n\n{safe_results}\n\n"
                             f"Question : {original_text}\n\n"
                             "Synthétise."
                         ),

@@ -10,6 +10,10 @@ from typing import Any, Literal
 import config
 import llm
 from agents.display_text import finalize_assistant_display_text
+from jarvis.security.llm_data_boundary import (
+    UNTRUSTED_DATA_SYSTEM_RULE,
+    wrap_untrusted_data,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -340,23 +344,29 @@ async def generate_structured_briefing(
     else:
         structure = "(aucune donnée disponible)"
 
+    safe_structure = wrap_untrusted_data(
+        "BRIEFING_SOURCES",
+        structure,
+        max_chars=12_000,
+    )
     system = (
-        "Tu es JARVIS. Produis un briefing utile à la décision, en français, "
+        UNTRUSTED_DATA_SYSTEM_RULE
+        + "\nTu es JARVIS. Produis un briefing utile à la décision, en français, "
         "sans emoji, sans point d'exclamation sauf urgence réelle. "
         "Classe mentalement : critique / à faire aujourd'hui / à surveiller / information. "
         "Ne répète pas le même élément. Données d'abord."
     )
     if kind == "evening":
-        user_msg = _evening_prompt(structure)
+        user_msg = _evening_prompt(safe_structure)
     elif kind == "delta":
         user_msg = (
-            f"Changements depuis ce matin :\n{structure}\n\n"
+            f"Changements depuis ce matin :\n{safe_structure}\n\n"
             "Rédige un point de situation court (5-8 lignes) : uniquement ce qui "
             "est NOUVEAU ou a changé. Si rien n'a changé, dis-le en une phrase."
         )
     else:
         user_msg = (
-            f"Briefing {kind}. Structure collectée :\n{structure}\n\n"
+            f"Briefing {kind}. Structure collectée :\n{safe_structure}\n\n"
             "Rédige le briefing complet (écran), 8-15 lignes max. Réponds à la "
             "question : qu'est-ce qui mérite réellement l'attention aujourd'hui ?"
         )
@@ -378,7 +388,11 @@ async def generate_structured_briefing(
 
     voice_text = ""
     try:
-        voice_source = structure if voice_only else full_text
+        voice_source = wrap_untrusted_data(
+            "BRIEFING_FOR_VOICE",
+            structure if voice_only else full_text,
+            max_chars=12_000,
+        )
         v = await llm.chat(
             messages=[
                 {
@@ -391,7 +405,10 @@ async def generate_structured_briefing(
                 }
             ],
             model=config.DEEPSEEK_FAST_MODEL,
-            system="Tu es JARVIS à l'oral. Concision absolue. Pas de markdown.",
+            system=(
+                UNTRUSTED_DATA_SYSTEM_RULE
+                + "\nTu es JARVIS à l'oral. Concision absolue. Pas de markdown."
+            ),
             max_tokens=280,
             temperature=0.3,
         )

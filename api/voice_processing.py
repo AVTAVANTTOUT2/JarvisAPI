@@ -10,7 +10,7 @@ import re
 import config
 import llm
 from actions import execute_action
-from api.chat_actions import _is_agentic_action
+from api.chat_actions import _format_action_result_for_followup, _is_agentic_action
 from api.voice_support import (
     _broadcast_voice_debug,
     _build_voice_confirmation_response,
@@ -20,6 +20,7 @@ from api.voice_support import (
 )
 from app.fitness.voice import maybe_handle_fitness_voice
 from database import _save_voice_debug_trace, get_conversation_history, get_current_screen_context
+from jarvis.security.llm_data_boundary import UNTRUSTED_DATA_SYSTEM_RULE, sanitize_history_messages
 
 logger = logging.getLogger("jarvis")
 
@@ -92,7 +93,6 @@ async def _process_voice_fast(text: str, conversation_id: int, *, stt_ms: int = 
     debug_trace = (early or {}).get("debug_trace") or {}
     intent = (early or {}).get("intent")
 
-    # ── 0. Persona condensee pour le vocal (~50 tokens) ────────────────────────
     VOICE_PERSONA = (
         "Tu es JARVIS, majordome IA d'{}. Ton britannique, concis, sec. "
         "Tu l'appelles 'Monsieur' avec ironie bienveillante. "
@@ -101,25 +101,23 @@ async def _process_voice_fast(text: str, conversation_id: int, *, stt_ms: int = 
         "3 phrases max a l'oral. Pas de Markdown."
     ).format(config.USER_NAME)
 
-    # ── 1. Contexte temporel minimal ──────────────────────────────────────────
     from agents import _get_horodatage
     horodatage = _get_horodatage()
 
-    # ── 2. Historique recent (10 derniers messages, pas de build_full_context) ──
     history: list[dict[str, str]] = []
     try:
         raw = get_conversation_history(conversation_id, limit=10)
-        history = [
+        raw_history = [
             {"role": m["role"], "content": m["content"]}
             for m in raw
             if m.get("role") in ("user", "assistant") and m.get("content")
         ]
-        if history and history[-1]["role"] == "user":
-            history = history[:-1]
+        if raw_history and raw_history[-1]["role"] == "user":
+            raw_history = raw_history[:-1]
+        history = sanitize_history_messages(raw_history, max_messages=10)
     except Exception as e:
         logger.debug("[voice_fast] get_conversation_history : %s", e)
 
-    # ── Contexte ecran ──────────────────────────────────────────────────
     screen_context = ""
     try:
         ctx = get_current_screen_context()
@@ -132,7 +130,6 @@ async def _process_voice_fast(text: str, conversation_id: int, *, stt_ms: int = 
     except Exception:
         pass
 
-    # ── 3. System prompt compact — permet de répondre ET d'agir ──
     weather_city = getattr(config, "WEATHER_CITY", "Lille")
 
     ACTIONS_COMPACT = """ACTIONS (bloc ```action {"type":"...", ...} ``` — tu peux répondre ET agir) :
@@ -163,6 +160,7 @@ RÈGLES :
 
     system = f"""{horodatage}
 {VOICE_PERSONA}
+{UNTRUSTED_DATA_SYSTEM_RULE}
 LIEU : {weather_city}, France{screen_context}
 
 {ACTIONS_COMPACT}
@@ -358,7 +356,6 @@ RÈGLES SUPPLEMENTAIRES :
             else:
                 action_result = await execute_action(action)
 
-            # ── Event bus : action detectee ──
             try:
                 from jarvis.event_bus import JarvisEvent, event_bus as _eb
                 _action_type = action.get("type", "?")
@@ -373,7 +370,6 @@ RÈGLES SUPPLEMENTAIRES :
 
             debug_trace["action_result"] = action_result
 
-            # ── Event bus : resultat action ──
             try:
                 from jarvis.event_bus import JarvisEvent, event_bus as _eb
                 _action_type = action.get("type", "?")
@@ -412,23 +408,8 @@ RÈGLES SUPPLEMENTAIRES :
 
     # ── 8. Pass 2 : DeepSeek reformule le resultat de l'action ─────────────────
     action_type = action.get("type", "?")
-    result_summary = json.dumps(action_result, ensure_ascii=False, default=str)[:800]
-
-    pass2_messages = history + [
-        {"role": "user", "content": text},
-        {"role": "assistant", "content": f"[Action executee : {action_type}]"},
-        {
-            "role": "user",
-            "content": (
-                f"Resultat de l'action {action_type} : {result_summary}\n\n"
-                "Formule une reponse vocale naturelle et concise (1-3 phrases) a "
-                "partir de ce resultat. Ne mentionne pas l'action elle-meme. "
-                "Donne l'information directement."
-            ),
-        },
-    ]
-
     pass2_system = f"""Tu es JARVIS, assistant personnel de {config.USER_NAME}. Tu parles a l'ORAL.
+{UNTRUSTED_DATA_SYSTEM_RULE}
 Formule une reponse naturelle a partir du resultat d'action ci-dessous.
 1 a 3 phrases max. Pas de Markdown. Pas de "voici le resultat".
 Donne l'information directement comme si tu la savais.
@@ -437,40 +418,60 @@ Date : {horodatage}."""
     debug_trace["pass2_prompt"] = pass2_system
 
     _t_llm2 = _time.time()
-    try:
-        result2 = await llm.chat(
-            messages=pass2_messages,
-            model=config.DEEPSEEK_FAST_MODEL,
-            system=pass2_system,
-            max_tokens=min(getattr(config, "VOICE_MAX_TOKENS", 500), 300),
-            temperature=0.7,
-        )
-        debug_trace["latency_llm_pass2_ms"] = round((_time.time() - _t_llm2) * 1000)
-        response_text = result2.get("content", "") or ""
-        debug_trace["pass2_response"] = response_text
-        total_cost += float(result2.get("cost", 0.0))
-        debug_trace["cost"] = total_cost
-        debug_trace["tokens_in"] += int(result2.get("tokens_in", 0))
-        debug_trace["tokens_out"] += int(result2.get("tokens_out", 0))
-
-        # Extraire emotion pass 2
-        em2 = re.match(r'^\s*\[(\w+)\]\s*\n?', response_text)
-        if em2:
-            emotion = em2.group(1)
-            response_text = response_text[em2.end():]
-
-        debug_trace["emotion"] = emotion
-        response_text = response_text.strip()
-
-        # Fallback si le LLM pass 2 a genere une reponse vide
-        if not response_text:
-            response_text = _fallback_action_response(action_type, action_result)
-
-    except Exception as e:
-        logger.error("[voice_fast] LLM erreur pass 2 : %s", e)
-        debug_trace["latency_llm_pass2_ms"] = round((_time.time() - _t_llm2) * 1000)
-        debug_trace["error"] = str(e)
+    if action_type == "clipboard":
+        # Le contenu peut être affiché localement, mais ne repart jamais au cloud.
         response_text = _fallback_action_response(action_type, action_result)
+        debug_trace["latency_llm_pass2_ms"] = 0
+        debug_trace["pass2_skipped"] = "clipboard_local_only"
+    else:
+        result_summary = _format_action_result_for_followup(action, action_result)
+        pass2_messages = history + [
+            {"role": "user", "content": text},
+            {"role": "assistant", "content": f"[Action executee : {action_type}]"},
+            {
+                "role": "user",
+                "content": (
+                    f"Resultat de l'action {action_type} :\n{result_summary}\n\n"
+                    "Formule une reponse vocale naturelle et concise (1-3 phrases) a "
+                    "partir de ce resultat. Ne mentionne pas l'action elle-meme. "
+                    "Donne l'information directement."
+                ),
+            },
+        ]
+        try:
+            result2 = await llm.chat(
+                messages=pass2_messages,
+                model=config.DEEPSEEK_FAST_MODEL,
+                system=pass2_system,
+                max_tokens=min(getattr(config, "VOICE_MAX_TOKENS", 500), 300),
+                temperature=0.7,
+            )
+            debug_trace["latency_llm_pass2_ms"] = round((_time.time() - _t_llm2) * 1000)
+            response_text = result2.get("content", "") or ""
+            debug_trace["pass2_response"] = response_text
+            total_cost += float(result2.get("cost", 0.0))
+            debug_trace["cost"] = total_cost
+            debug_trace["tokens_in"] += int(result2.get("tokens_in", 0))
+            debug_trace["tokens_out"] += int(result2.get("tokens_out", 0))
+
+            # Extraire emotion pass 2
+            em2 = re.match(r'^\s*\[(\w+)\]\s*\n?', response_text)
+            if em2:
+                emotion = em2.group(1)
+                response_text = response_text[em2.end():]
+
+            debug_trace["emotion"] = emotion
+            response_text = response_text.strip()
+
+            # Fallback si le LLM pass 2 a genere une reponse vide
+            if not response_text:
+                response_text = _fallback_action_response(action_type, action_result)
+
+        except Exception as e:
+            logger.error("[voice_fast] LLM erreur pass 2 : %s", e)
+            debug_trace["latency_llm_pass2_ms"] = round((_time.time() - _t_llm2) * 1000)
+            debug_trace["error"] = str(e)
+            response_text = _fallback_action_response(action_type, action_result)
 
     # ── 9. Sauvegarder et retourner ────────────────────────────────────────────
     debug_trace["response_clean"] = response_text

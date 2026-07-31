@@ -111,12 +111,28 @@ def _is_git_tracked(path: Path, root: Path) -> bool:
 async def diagnose_crash(log_tail: str) -> dict:
     """Analyse LLM des dernières lignes de log. Ne lève jamais — dégrade proprement."""
     import llm
+    from jarvis.security.llm_data_boundary import (
+        UNTRUSTED_DATA_SYSTEM_RULE,
+        wrap_untrusted_data,
+    )
 
     try:
+        safe_log = wrap_untrusted_data(
+            "CRASH_LOG",
+            log_tail,
+            max_chars=4_000,
+        )
+        trusted_system = DIAGNOSTIC_PROMPT.format(
+            log_tail="(journal fourni dans le message utilisateur délimité)"
+        )
         result = await llm.chat(
-            messages=[{"role": "user", "content": log_tail[-4000:]}],
+            messages=[{"role": "user", "content": safe_log}],
             model=config.DEEPSEEK_MAIN_MODEL,
-            system=DIAGNOSTIC_PROMPT.format(log_tail=log_tail[-4000:]),
+            system=(
+                UNTRUSTED_DATA_SYSTEM_RULE
+                + "\n\n"
+                + trusted_system
+            ),
             max_tokens=1500,
             temperature=0.1,
         )

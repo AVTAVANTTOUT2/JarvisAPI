@@ -36,10 +36,14 @@ from integrations.cursor_cli import build_agent_command, inspect_cursor_cli
 from integrations.cursor_env import build_cursor_safe_env
 from integrations.cursor_prompt_composer import compose_cursor_prompt, parse_cursor_result
 from integrations.cursor_required_tests import parse_and_run_required_tests
+from jarvis.security.llm_data_boundary import (
+    redact_external_value,
+    redact_for_external_llm,
+)
 from jarvis.security.redaction import (
     diagnostic_cursor_job_view,
     public_cursor_job_view,
-    redact_sensitive_mapping,
+    redact_persisted_mapping,
     redact_sensitive_text,
 )
 
@@ -55,7 +59,7 @@ TERMINAL_STATUSES = frozenset(
 
 
 def _redact_secrets(text: str) -> str:
-    """Compat : délègue au service central de redaction."""
+    """Compat : masque les secrets sans altérer les marqueurs du protocole CLI."""
     return redact_sensitive_text(text)
 
 
@@ -180,7 +184,7 @@ class CursorDelegationService:
             base_branch = "main"
 
         # Redacter AVANT composition LLM et AVANT persistence.
-        safe_request = redact_sensitive_text(user_request)
+        safe_request = redact_for_external_llm(user_request, max_chars=20_000)
 
         composed = await compose_cursor_prompt(
             user_request=safe_request,
@@ -208,14 +212,17 @@ class CursorDelegationService:
         record = create_cursor_job_within_capacity(
             {
                 "job_id": job_id,
-                "title": redact_sensitive_text(title[:200]),
+                "title": redact_for_external_llm(title, max_chars=200),
                 "user_request": safe_request,
                 "status": initial_status,
                 "repository": str(repo),
                 "working_directory": str(repo),
                 "prompt_template": composed["template_id"],
                 "template_version": composed["template_version"],
-                "prompt_sent": redact_sensitive_text(composed["prompt"]),
+                "prompt_sent": redact_for_external_llm(
+                    composed["prompt"],
+                    max_chars=100_000,
+                ),
                 "acceptance_criteria": acceptance_criteria or [],
                 "required_tests": required_tests or [],
                 "risk_level": risk_level,
@@ -312,7 +319,7 @@ class CursorDelegationService:
             raw = out or ""
             if len(raw) > 200_000:
                 raw = raw[-200_000:]
-            return proc.returncode, redact_sensitive_text(raw)
+            return proc.returncode, raw
         except subprocess.TimeoutExpired:
             self._kill_proc(proc)
             raise
@@ -362,7 +369,10 @@ class CursorDelegationService:
             )
 
             info = inspect_cursor_cli(getattr(config, "CURSOR_CLI_PATH", "") or None)
-            prompt = redact_sensitive_text(job.get("prompt_sent") or job["user_request"])
+            prompt = redact_for_external_llm(
+                job.get("prompt_sent") or job["user_request"],
+                max_chars=100_000,
+            )
 
             cmd = build_agent_command(
                 info,
@@ -375,21 +385,37 @@ class CursorDelegationService:
             logger.info("[cursor] run %s cmd_prefix=%s timeout=%s", job_id, cmd[:5], timeout)
 
             returncode, raw = self._spawn_cursor(cmd, wt_resolved, timeout, job_id)
-            raw = redact_sensitive_text(raw)
 
             # Le job a pu être annulé pendant l'exécution
             current = get_cursor_job(job_id)
             if current and current.get("status") == "cancelled":
                 return current
 
-            parsed = redact_sensitive_mapping(parse_cursor_result(raw))
+            # Parser les marqueurs de protocole localement avant toute redaction
+            # PII : l'anonymisation défensive ne doit pas casser le verdict.
+            parsed_local = parse_cursor_result(raw)
+            parsed = redact_external_value(
+                parsed_local,
+                max_chars=20_000,
+                max_items=100,
+            )
+            verdict_local = str(parsed_local.get("verdict") or "PARTIAL").upper()
+            parsed["verdict"] = (
+                verdict_local
+                if verdict_local in {"COMPLETED", "PARTIAL", "BLOCKED"}
+                else "PARTIAL"
+            )
+            safe_raw = redact_for_external_llm(raw, max_chars=200_000)
             if returncode != 0:
                 update_cursor_job(
                     job_id,
                     status="failed",
-                    raw_output=raw[-200_000:],
+                    raw_output=safe_raw,
                     structured_result={**parsed, "cli_returncode": returncode},
-                    error_message=redact_sensitive_text(f"Cursor CLI exit={returncode}"),
+                    error_message=redact_for_external_llm(
+                        f"Cursor CLI exit={returncode}",
+                        max_chars=500,
+                    ),
                     finished_at=datetime.now().isoformat(timespec="seconds"),
                 )
                 self._notify(job_id, "failed", parsed.get("verdict", "BLOCKED"), None, job["title"])
@@ -398,12 +424,12 @@ class CursorDelegationService:
             update_cursor_job(
                 job_id,
                 status="testing",
-                raw_output=raw[-200_000:],
+                raw_output=safe_raw,
                 structured_result=parsed,
             )
 
             test_ok, test_log = self._run_required_tests(job, wt_resolved, timeout)
-            test_log = redact_sensitive_text(test_log)
+            test_log = redact_for_external_llm(test_log, max_chars=20_000)
 
             sha = self._git(["rev-parse", "HEAD"], wt_resolved)
             commit_sha = (sha.stdout or "").strip() if sha.returncode == 0 else None
@@ -444,11 +470,16 @@ class CursorDelegationService:
                     "test_ok": test_ok,
                     "test_log": test_log[-5000:],
                 },
-                error_message=None if final_status != "failed" else redact_sensitive_text(
-                    str(parsed.get("error") or "tests échoués ou verdict BLOCKED")
+                error_message=(
+                    None
+                    if final_status != "failed"
+                    else redact_for_external_llm(
+                        parsed.get("error") or "tests échoués ou verdict BLOCKED",
+                        max_chars=1_000,
+                    )
                 ),
                 finished_at=datetime.now().isoformat(timespec="seconds"),
-                raw_output=raw[-200_000:],
+                raw_output=safe_raw,
             )
             self._notify(job_id, final_status, verdict, pr_url, job["title"])
             return get_cursor_job(job_id)  # type: ignore[return-value]
@@ -467,7 +498,7 @@ class CursorDelegationService:
             update_cursor_job(
                 job_id,
                 status="failed",
-                error_message=redact_sensitive_text(str(exc))[:1000],
+                error_message=redact_for_external_llm(exc, max_chars=1_000),
                 finished_at=datetime.now().isoformat(timespec="seconds"),
             )
             return get_cursor_job(job_id)  # type: ignore[return-value]
@@ -482,7 +513,7 @@ class CursorDelegationService:
             worktree=wt_path,
             timeout=min(timeout, 900),
         )
-        return ok, redact_sensitive_text(log)
+        return ok, redact_for_external_llm(log, max_chars=20_000)
 
     def _maybe_open_pr(
         self,
@@ -512,9 +543,10 @@ class CursorDelegationService:
                 "gh", "pr", "create",
                 "--draft",
                 "--base", base_branch,
-                "--title", redact_sensitive_text(job["title"][:80]),
-                "--body", redact_sensitive_text(
-                    f"Job Cursor `{job_id}`\n\n{str(parsed.get('body', ''))[:3000]}"
+                "--title", redact_for_external_llm(job["title"], max_chars=80),
+                "--body", redact_for_external_llm(
+                    f"Job Cursor `{job_id}`\n\n{str(parsed.get('body', ''))[:3000]}",
+                    max_chars=3_200,
                 ),
                 "--head", live_branch,
             ],
@@ -644,7 +676,7 @@ class CursorDelegationService:
             return diagnostic_cursor_job_view(job)
         if public:
             return public_cursor_job_view(job)
-        return redact_sensitive_mapping(job)
+        return redact_persisted_mapping(job)
 
 
 cursor_delegation = CursorDelegationService()
