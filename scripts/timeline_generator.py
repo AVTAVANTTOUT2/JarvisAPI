@@ -10,6 +10,11 @@ from datetime import datetime
 import config
 import llm
 from database import get_person, get_relationship_profile
+from jarvis.security.llm_data_boundary import (
+    UNTRUSTED_DATA_SYSTEM_RULE,
+    redact_for_external_llm,
+    wrap_untrusted_data,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -139,13 +144,21 @@ async def generate_timeline(person_name: str, handle_override: str | None = None
                 for m in chunk
             ]
         )
+        safe_messages = wrap_untrusted_data(
+            "IMESSAGE_TIMELINE",
+            formatted,
+            max_chars=12_000,
+        )
+        safe_display_name = redact_for_external_llm(display_name, max_chars=200)
         try:
             result = await llm.chat(
-                messages=[{"role": "user", "content": formatted}],
+                messages=[{"role": "user", "content": safe_messages}],
                 model=config.DEEPSEEK_FAST_MODEL,
                 system=(
+                    UNTRUSTED_DATA_SYSTEM_RULE
+                    + "\n"
                     f"Extrais les événements marquants de cette conversation entre "
-                    f"l'utilisateur et {display_name}.\n"
+                    f"l'utilisateur et {safe_display_name}.\n"
                     "Retourne UNIQUEMENT un JSON array :\n"
                     '[{"date": "YYYY-MM-DD", "type": "first_contact|conflict|reconciliation|'
                     'milestone|deep_conversation|distance|reunion|support", '

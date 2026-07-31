@@ -30,6 +30,10 @@ from database import (
     release_job_run,
 )
 from jarvis.notification_service import notification_service
+from jarvis.security.llm_data_boundary import (
+    UNTRUSTED_DATA_SYSTEM_RULE,
+    wrap_untrusted_data,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -70,12 +74,17 @@ async def extract_today_commitments() -> list[dict]:
     if not messages:
         return []
 
-    corpus = "\n".join(f"- {m[:300]}" for m in messages)
-    fingerprint = hashlib.sha256(corpus.encode("utf-8")).hexdigest()
+    raw_corpus = "\n".join(f"- {m[:300]}" for m in messages)
+    fingerprint = hashlib.sha256(raw_corpus.encode("utf-8")).hexdigest()
     day = datetime.now().strftime("%Y-%m-%d")
     claim = claim_job_run("commitments_extract", f"{day}:{fingerprint}")
     if claim is None:
         return []
+    corpus = wrap_untrusted_data(
+        "CONVERSATION_HISTORY_FOR_COMMITMENTS",
+        raw_corpus,
+        max_chars=20_000,
+    )
     completed = False
     try:
         try:
@@ -83,7 +92,8 @@ async def extract_today_commitments() -> list[dict]:
                 messages=[{"role": "user", "content": corpus}],
                 model=config.DEEPSEEK_FAST_MODEL,
                 system=(
-                    "Voici les messages écrits aujourd'hui par l'utilisateur. Extrais "
+                    UNTRUSTED_DATA_SYSTEM_RULE
+                    + "\nVoici les messages écrits aujourd'hui par l'utilisateur. Extrais "
                     "UNIQUEMENT ses engagements EXPLICITES envers quelqu'un ou envers "
                     "lui-même : promesse d'envoyer, de faire, de rappeler, de rendre. "
                     "Pas les intentions vagues, pas les questions. Réponds UNIQUEMENT "

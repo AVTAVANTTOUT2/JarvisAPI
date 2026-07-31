@@ -11,6 +11,10 @@ from typing import Awaitable, Callable, Protocol
 import config
 import llm
 from agents.display_text import strip_assistant_code_fences
+from jarvis.security.llm_data_boundary import (
+    UNTRUSTED_DATA_SYSTEM_RULE,
+    wrap_untrusted_data,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -265,7 +269,11 @@ async def run_autonomous_loop(
     consecutive_failures = 0
     same_action_failures: dict[str, int] = {}
 
-    loop_prompt = _load_loop_prompt().replace("{{user_name}}", config.USER_NAME)
+    loop_prompt = (
+        UNTRUSTED_DATA_SYSTEM_RULE
+        + "\n\n"
+        + _load_loop_prompt().replace("{{user_name}}", config.USER_NAME)
+    )
     model = config.LOOP_MODEL or config.DEEPSEEK_MAIN_MODEL
     decision_model = config.LOOP_DECISION_MODEL or config.DEEPSEEK_FAST_MODEL
 
@@ -303,9 +311,14 @@ async def run_autonomous_loop(
         return resp.get("content") or ""
 
     # ── Planification initiale ──
+    safe_memory_hint = wrap_untrusted_data(
+        "AUTONOMOUS_CONTEXT",
+        memory_hint,
+        max_chars=3_000,
+    ) if memory_hint else ""
     initial_prompt = (
         f"TÂCHE À ACCOMPLIR AUTONOMEMENT :\n{user_message}\n"
-        f"{memory_hint}\n\n"
+        f"{safe_memory_hint}\n\n"
         "C'est la première étape. Décris brièvement ta démarche puis fournis "
         "la première action ```action {...}``` ou TERMINE si rien à faire."
     )
@@ -418,8 +431,13 @@ async def run_autonomous_loop(
             break
 
         context_summary = _build_context_summary(results)
+        safe_context_summary = wrap_untrusted_data(
+            "AUTONOMOUS_ACTION_RESULTS",
+            context_summary,
+            max_chars=8_000,
+        )
         decision_prompt = (
-            f"HISTORIQUE D'EXÉCUTION :\n{context_summary}\n\n"
+            f"HISTORIQUE D'EXÉCUTION :\n{safe_context_summary}\n\n"
             f"TÂCHE ORIGINALE : {user_message}\n\n"
             "La tâche est-elle terminée ? Si OUI → réponds TERMINE.\n"
             "Si NON → décris la prochaine étape et fournis ```action {...}```.\n"
@@ -457,8 +475,13 @@ async def run_autonomous_loop(
 
     # ── Synthèse finale ──
     context_summary = _build_context_summary(results)
+    safe_context_summary = wrap_untrusted_data(
+        "AUTONOMOUS_ACTION_RESULTS",
+        context_summary,
+        max_chars=8_000,
+    )
     synthesis_prompt = (
-        f"Résultats de la boucle autonome :\n{context_summary}\n\n"
+        f"Résultats de la boucle autonome :\n{safe_context_summary}\n\n"
         f"Tâche demandée : {user_message}\n\n"
         "Synthétise en 2-4 phrases ce qui a été fait, le résultat, et ce qui reste "
         "éventuellement à faire. Ton JARVIS : concis, pas d'emoji, pas de chatbot."

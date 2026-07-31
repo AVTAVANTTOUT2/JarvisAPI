@@ -25,6 +25,10 @@ from database import (
     save_message,
 )
 from jarvis.event_bus import JarvisEvent, event_bus
+from jarvis.security.llm_data_boundary import (
+    sanitize_history_messages,
+    wrap_untrusted_data,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -86,20 +90,19 @@ def _format_email_summaries_block(summaries: list[dict]) -> str:
         summ = (s.get("summary") or "").replace("\n", " ").strip()[:400]
         lines.append(f"- De: {sender} | Objet: {sub} | Résumé: {summ}")
     body = "\n".join(lines)
-    return (
-        "[EMAIL_SUMMARIES_DB]\n"
-        "Mails récemment analysés (y compris déjà lus) :\n"
-        f"{body}\n"
-        "[/EMAIL_SUMMARIES_DB]"
+    return wrap_untrusted_data(
+        "EMAIL_SUMMARIES_DB",
+        "Mails récemment analysés (y compris déjà lus) :\n" + body,
+        max_chars=8_000,
     )
 
 
 def _format_live_emails_block(emails: list[dict], preview_max: int = 220) -> str:
     if not emails:
-        return (
-            "[EMAILS_CONTEXT]\n"
-            "(Aucun mail non lu listé depuis Mail.app, ou liste vide.)\n"
-            "[/EMAILS_CONTEXT]"
+        return wrap_untrusted_data(
+            "MAIL_APP",
+            "(Aucun mail non lu listé depuis Mail.app, ou liste vide.)",
+            max_chars=500,
         )
     lines = []
     for e in emails[:12]:
@@ -110,7 +113,11 @@ def _format_live_emails_block(emails: list[dict], preview_max: int = 220) -> str
         sub = str(e.get("subject") or "(sans objet)")
         lines.append(f"- De: {frm} | Objet: {sub} | Aperçu: {prev}")
     body = "\n".join(lines)
-    return f"[EMAILS_CONTEXT]\nMails non lus récents (Mail.app) :\n{body}\n[/EMAILS_CONTEXT]"
+    return wrap_untrusted_data(
+        "MAIL_APP",
+        "Mails non lus récents (Mail.app) :\n" + body,
+        max_chars=6_000,
+    )
 
 
 async def append_recent_mails_to_context(ctx: dict, user_message: str, category: str) -> None:
@@ -703,8 +710,8 @@ class OrchestratorAgent(BaseAgent):
         emotion_tag_stripped = False
         detected_emotion = "neutral"
 
-        history_messages = ctx.get("history", [])
-        stream_messages = list(history_messages) + [{"role": "user", "content": to_agent}]
+        history_messages = sanitize_history_messages(ctx.get("history", []))
+        stream_messages = history_messages + [{"role": "user", "content": to_agent}]
 
         eff_model = agent.model
         max_tok = 4096

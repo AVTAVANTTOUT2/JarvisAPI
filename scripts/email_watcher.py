@@ -30,6 +30,10 @@ from database import (
     save_email_full,
 )
 from jarvis.notification_service import notification_service
+from jarvis.security.llm_data_boundary import (
+    UNTRUSTED_DATA_SYSTEM_RULE,
+    wrap_untrusted_data,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -330,7 +334,10 @@ class EmailWatcher:
             result = await llm.chat(
                 messages=[{"role": "user", "content": prompt}],
                 model=config.DEEPSEEK_FAST_MODEL,
-                system="Tu retournes UNIQUEMENT du JSON valide, rien d'autre.",
+                system=(
+                    UNTRUSTED_DATA_SYSTEM_RULE
+                    + "\nTu retournes UNIQUEMENT du JSON valide, rien d'autre."
+                ),
                 max_tokens=200,
                 temperature=0.0,
                 use_cache=False,
@@ -475,11 +482,22 @@ class EmailWatcher:
     def _build_prompt(self, full_email: dict) -> str:
         if not self._prompt_template:
             return ""
+        email_data = wrap_untrusted_data(
+            "EMAIL",
+            json.dumps(
+                {
+                    "from": str(full_email.get("from", "")),
+                    "subject": str(full_email.get("subject", "")),
+                    "body": _truncate_body(full_email.get("body", "")),
+                },
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ),
+            max_chars=2_500,
+        )
         return (
             self._prompt_template
-            .replace("{{from}}", str(full_email.get("from", "")))
-            .replace("{{subject}}", str(full_email.get("subject", "")))
-            .replace("{{body}}", _truncate_body(full_email.get("body", "")))
+            .replace("{{email_data}}", email_data)
             .replace("{{user_name}}", config.USER_NAME)
         )
 

@@ -18,6 +18,11 @@ from api.people_support import (
     _generate_person_ai_description,
     _resolve_handle_with_contacts,
 )
+from jarvis.security.llm_data_boundary import (
+    UNTRUSTED_DATA_SYSTEM_RULE,
+    redact_for_external_llm,
+    wrap_untrusted_data,
+)
 from database import (
     clear_person_ai_description,
     create_task,
@@ -202,18 +207,31 @@ async def api_person_suggest_message(name: str):
         days_last = "?"
     last_ex = analytics.get("last_exchanges") or []
 
-    system = f"""Tu es JARVIS. Génère un message iMessage court et naturel que l'utilisateur pourrait envoyer à {display}.
-Relation : {person.get("relationship") or "?"}
+    safe_display = redact_for_external_llm(display, max_chars=200)
+    relationship_data = wrap_untrusted_data(
+        "IMESSAGE_SUGGESTION_CONTEXT",
+        f"""Relation : {person.get("relationship") or "?"}
 Dernier échange (jours depuis) : {days_last}
-Derniers messages (aperçu) : {last_ex!s}
-Le message doit être naturel, pas formel, comme l'utilisateur parle vraiment. 1-2 phrases max. Retourne UNIQUEMENT le message, rien d'autre."""
+Derniers messages (aperçu) : {last_ex!s}""",
+        max_chars=4_000,
+    )
+    system = (
+        UNTRUSTED_DATA_SYSTEM_RULE
+        + f"\nTu es JARVIS. Génère un message iMessage court et naturel que "
+        f"l'utilisateur pourrait envoyer à {safe_display}. Le message doit être "
+        "naturel, pas formel, comme l'utilisateur parle vraiment. 1-2 phrases max. "
+        "Retourne UNIQUEMENT le message, rien d'autre."
+    )
 
     try:
         result = await llm.chat(
             messages=[
                 {
                     "role": "user",
-                    "content": f"Suggère un message court et naturel à envoyer à {display}.",
+                    "content": (
+                        f"Suggère un message court et naturel à envoyer à {safe_display}.\n\n"
+                        + relationship_data
+                    ),
                 }
             ],
             model=config.DEEPSEEK_FAST_MODEL,

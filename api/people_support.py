@@ -11,6 +11,11 @@ from urllib.parse import unquote
 import config
 import llm
 from agents.display_text import strip_leading_emotion
+from jarvis.security.llm_data_boundary import (
+    UNTRUSTED_DATA_SYSTEM_RULE,
+    redact_for_external_llm,
+    wrap_untrusted_data,
+)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 logger = logging.getLogger("jarvis")
@@ -177,24 +182,33 @@ async def _generate_person_ai_description(person: dict, profile: dict | None) ->
     topics = rp.get("topics") or ""
     if isinstance(topics, (list, dict)):
         topics = json.dumps(topics, ensure_ascii=False)
-    user_msg = f"""Génère une description concise de {person.get("name")} en 3-4 phrases, du point de vue de {config.USER_NAME}.
-
-Déduis le genre de {person.get("name")} à partir du prénom et du contexte. Utilise les pronoms appropriés (il/elle).
-
-Données :
-Relation : {person.get("relationship") or "—"}
+    safe_name = redact_for_external_llm(person.get("name"), max_chars=200)
+    profile_data = wrap_untrusted_data(
+        "IMESSAGE_RELATIONSHIP_PROFILE",
+        f"""Relation : {person.get("relationship") or "—"}
 Dynamique : {person.get("dynamics") or "—"}
 Personnalité : {person.get("personality_notes") or "—"}
 Style comm : {rp.get("communication_style") or "—"}
 Sentiment : {rp.get("sentiment") or "—"}
 Sujets : {topics or "—"}
-Fréquence : {rp.get("interaction_frequency") or "—"}
+Fréquence : {rp.get("interaction_frequency") or "—"}""",
+        max_chars=4_000,
+    )
+    user_msg = f"""Génère une description concise de {safe_name} en 3-4 phrases, du point de vue de {config.USER_NAME}.
+
+Déduis le genre de {safe_name} à partir du prénom et du contexte. Utilise les pronoms appropriés (il/elle).
+
+Données :
+{profile_data}
 
 Écris comme un profil humain naturel, pas comme une fiche technique. Pas d'emoji. Français."""
     res = await llm.chat(
         messages=[{"role": "user", "content": user_msg}],
         model=config.DEEPSEEK_FAST_MODEL,
-        system="Tu réponds uniquement par le texte de la description, sans titre ni préambule.",
+        system=(
+            UNTRUSTED_DATA_SYSTEM_RULE
+            + "\nTu réponds uniquement par le texte de la description, sans titre ni préambule."
+        ),
         max_tokens=500,
         temperature=0.4,
         use_cache=False,

@@ -192,13 +192,19 @@ async def _process_message(
                 "action_payload": pending_action,
                 "result": pending_result,
             })
+            display_text = str(pending_result.get("message") or "Action exécutée.")
+            emotion = "neutral"
             # 2e passe pour reformuler le résultat
-            if pending_result.get("ok") and not pending_result.get("needs_confirmation"):
-                fu_action = pending_action or {"type": pending_action_type or "unknown"}
+            fu_action = pending_action or {"type": pending_action_type or "unknown"}
+            if (
+                pending_result.get("ok")
+                and not pending_result.get("needs_confirmation")
+                and fu_action.get("type") in ACTIONS_WITH_FOLLOWUP
+            ):
                 try:
                     payload = _format_action_result_for_followup(fu_action, pending_result)
                 except Exception:
-                    payload = str(pending_result)[:1000]
+                    payload = "Résultat indisponible à la frontière LLM."
                 fu = await orchestrator.handle(
                     (
                         f"Résultat de l'action exécutée :\n\n{payload}\n\n"
@@ -325,9 +331,13 @@ async def _process_message(
                 }
 
                 if results_text:
+                    safe_results = _format_action_result_for_followup(
+                        {"type": "terminal"},
+                        action_result,
+                    )
                     fu = await orchestrator.handle(
                         (
-                            f"Résultats des actions exécutées :\n\n{results_text}\n\n"
+                            f"Résultats des actions exécutées :\n\n{safe_results}\n\n"
                             f"Question originale : {original_text}\n\n"
                             "Synthétise ces résultats de façon claire et utile."
                         ),

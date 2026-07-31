@@ -13,6 +13,11 @@ from pathlib import Path
 import config
 import llm
 from database import add_fact, create_task, save_episode, save_recording, upsert_person
+from jarvis.security.llm_data_boundary import (
+    UNTRUSTED_DATA_SYSTEM_RULE,
+    redact_for_external_llm,
+    wrap_untrusted_data,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -320,20 +325,31 @@ class ContinuousRecording:
         extractor_tpl = PROMPT_EXTRACTOR.read_text(encoding="utf-8")
         partials: list[dict] = []
         total = len(segments)
+        safe_label = redact_for_external_llm(self.label or "Sans titre", max_chars=200)
 
         for idx, chunk in enumerate(segments, start=1):
             prompt = (
-                extractor_tpl.replace("{{label}}", self.label or "Sans titre")
+                extractor_tpl.replace("{{label}}", safe_label)
                 .replace("{{duration}}", dur_human)
                 .replace("{{segment_num}}", str(idx))
                 .replace("{{total_segments}}", str(total))
-                .replace("{{chunk}}", chunk)
+                .replace(
+                    "{{chunk}}",
+                    wrap_untrusted_data(
+                        "TRANSCRIPTION",
+                        chunk,
+                        max_chars=CHUNK_CHARS,
+                    ),
+                )
             )
             try:
                 r = await llm.chat(
                     messages=[{"role": "user", "content": prompt}],
                     model=config.DEEPSEEK_FAST_MODEL,
-                    system="Tu réponds uniquement par un objet JSON valide, sans markdown.",
+                    system=(
+                        UNTRUSTED_DATA_SYSTEM_RULE
+                        + "\nTu réponds uniquement par un objet JSON valide, sans markdown."
+                    ),
                     max_tokens=4096,
                     temperature=0.2,
                     use_cache=False,
@@ -350,15 +366,25 @@ class ContinuousRecording:
         synth_tpl = PROMPT_SYNTH.read_text(encoding="utf-8")
         synth_prompt = (
             synth_tpl.replace("{{duration}}", dur_human)
-            .replace("{{label}}", self.label or "Sans titre")
-            .replace("{{aggregated_data}}", agg_txt[:120_000])
+            .replace("{{label}}", safe_label)
+            .replace(
+                "{{aggregated_data}}",
+                wrap_untrusted_data(
+                    "TRANSCRIPTION_EXTRACTION",
+                    agg_txt,
+                    max_chars=120_000,
+                ),
+            )
         )
 
         try:
             r2 = await llm.chat(
                 messages=[{"role": "user", "content": synth_prompt}],
                 model=config.DEEPSEEK_MAIN_MODEL,
-                system="Tu réponds uniquement par un objet JSON valide.",
+                system=(
+                    UNTRUSTED_DATA_SYSTEM_RULE
+                    + "\nTu réponds uniquement par un objet JSON valide."
+                ),
                 max_tokens=8192,
                 temperature=0.4,
                 use_cache=False,

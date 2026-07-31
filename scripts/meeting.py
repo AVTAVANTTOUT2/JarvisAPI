@@ -23,6 +23,10 @@ import config
 import llm
 from database import create_task, save_recording
 from jarvis.notification_service import notification_service
+from jarvis.security.llm_data_boundary import (
+    UNTRUSTED_DATA_SYSTEM_RULE,
+    wrap_untrusted_data,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +107,11 @@ def _parse_json_tolerant(raw: str) -> dict | None:
 
 async def summarize_meeting(meeting: dict) -> dict:
     """Résumé + actions d'une réunion close. Persiste et notifie."""
-    transcript = meeting.get("transcript", "")[:12000]
+    transcript = wrap_untrusted_data(
+        "MEETING_TRANSCRIPTION",
+        meeting.get("transcript", ""),
+        max_chars=12_000,
+    )
     title = f"Réunion du {meeting['started_at'][:16]}"
     summary = ""
     actions: list[dict] = []
@@ -113,7 +121,8 @@ async def summarize_meeting(meeting: dict) -> dict:
             messages=[{"role": "user", "content": transcript}],
             model=config.DEEPSEEK_MAIN_MODEL,
             system=(
-                "Voici la transcription brute d'une réunion captée au micro "
+                UNTRUSTED_DATA_SYSTEM_RULE
+                + "\nLa transcription délimitée est captée au micro "
                 "(plusieurs interlocuteurs mélangés, sans attribution). Réponds "
                 "UNIQUEMENT en JSON : {\"title\": \"titre 5 mots max\", "
                 "\"summary\": \"résumé factuel en 4 phrases max\", "
