@@ -396,7 +396,6 @@ def run_maintenance() -> dict:
         ("location_history", config.RETENTION_LOCATION_DAYS),
         ("llm_action_logs", config.RETENTION_LLM_LOGS_DAYS),
         ("dev_loop_log", config.RETENTION_LLM_LOGS_DAYS),
-        ("scheduler_job_runs", config.RETENTION_SCHEDULER_RUNS_DAYS),
     ]
     referenced_uploads: set[str] = set()
     with get_db() as conn:
@@ -408,6 +407,11 @@ def run_maintenance() -> dict:
                 (f"-{int(days)} days",),
             )
             purged[table] = cur.rowcount
+        from database.scheduler_runs import purge_scheduler_runs
+
+        purged["scheduler_job_runs"] = purge_scheduler_runs(
+            int(config.RETENTION_SCHEDULER_RUNS_DAYS)
+        )
         if config.RETENTION_NOTIF_READ_DAYS > 0:
             cur = conn.execute(
                 "DELETE FROM notifications WHERE read = 1 AND created_at < datetime('now', ?)",
