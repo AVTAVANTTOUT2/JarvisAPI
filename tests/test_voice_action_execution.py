@@ -79,12 +79,14 @@ async def test_school_agent_preserves_open_app_action():
 @pytest.mark.asyncio
 async def test_voice_confirmation_consumes_pending_action_without_llm(monkeypatch):
     import api.chat_actions as chat_actions
+    from api.action_confirmations import reset_pending_proposals_for_tests
     from api.voice_support import _maybe_execute_pending_voice_action
 
-    monkeypatch.setattr(chat_actions, "_pending_proposal", None)
+    reset_pending_proposals_for_tests()
     chat_actions._maybe_store_pending_proposal(
         {"type": "terminal", "shell_plan_id": "server-plan"},
         conversation_id=7,
+        confirmation_session_id="voice:test",
     )
     execute = AsyncMock(return_value={"ok": True, "output": "done"})
 
@@ -95,6 +97,7 @@ async def test_voice_confirmation_consumes_pending_action_without_llm(monkeypatc
             "oui",
             7,
             started_at=0.0,
+            confirmation_session_id="voice:test",
         )
 
     assert result is not None
@@ -164,3 +167,36 @@ async def test_process_message_internal_executes_open_app(monkeypatch, tmp_path)
     mock_exec.assert_awaited_once()
     assert mock_exec.await_args.args[0]["type"] == "open_app"
     assert "```action" not in result["text"]
+
+
+@pytest.mark.asyncio
+async def test_voice_json_example_outside_action_fence_is_never_executed():
+    from api.voice_processing import _process_voice_fast
+
+    raw = 'Exemple seulement : {"type":"open_app","name":"Calculator"}'
+    execute = AsyncMock(return_value={"ok": True})
+    with patch(
+        "api.voice_cognitive.maybe_handle_cognitive_voice",
+        AsyncMock(return_value=None),
+    ), patch(
+        "api.voice_processing.llm.chat",
+        AsyncMock(return_value={
+            "content": raw,
+            "tokens_in": 1,
+            "tokens_out": 1,
+            "cost": 0.0,
+        }),
+    ), patch(
+        "api.voice_processing.execute_action", execute,
+    ), patch(
+        "api.voice_processing._save_voice_messages",
+    ), patch(
+        "api.voice_processing._save_voice_debug_trace", return_value=1,
+    ), patch(
+        "api.voice_processing._broadcast_voice_debug", AsyncMock(),
+    ):
+        result = await _process_voice_fast(raw, 77)
+
+    assert result["action"] is None
+    assert result["text"] == raw
+    execute.assert_not_awaited()

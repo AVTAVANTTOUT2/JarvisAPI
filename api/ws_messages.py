@@ -12,17 +12,12 @@ from agents import easter_eggs, get_agent
 from agents.autonomous_loop import parse_loop_command
 from agents.display_text import finalize_assistant_display_text, sanitize_streaming_display
 from agents.orchestrator import orchestrator
-import api.chat_actions as chat_actions
 from api.chat_actions import (
-    ACTIONS_WITH_FOLLOWUP,
-    _check_pending_proposal,
-    _extract_action_from_text,
-    _format_action_result_for_followup,
-    _is_agentic_action,
-    _maybe_store_pending_proposal,
-    _run_loop_mode_ws,
-    _should_defer_action,
+    ACTIONS_WITH_FOLLOWUP, _check_pending_proposal, _extract_action_from_text,
+    _format_action_result_for_followup, _is_agentic_action,
+    _maybe_store_pending_proposal, _run_loop_mode_ws, _should_defer_action,
 )
+from api.action_confirmations import peek_pending_proposal
 from api.chat_context import _build_enriched_context, _maybe_title_conversation, _send_tts_streaming
 from api.llm_logging import _schedule_llm_log
 from database import get_conversation_detail, save_message, update_conversation_activity
@@ -38,6 +33,7 @@ async def _process_message(
     voice_mode: bool = False,
     stream: bool = True,
     send_tts: bool = False,
+    confirmation_session_id: str,
 ) -> dict:
     """Pipeline unique texte + vocal : DB → orchestrateur (même enrichissement) →
     nettoyage affichage → actions → TTS optionnel.
@@ -76,7 +72,6 @@ async def _process_message(
         except Exception as e:
             logger.debug("[conv] update_activity user : %s", e)
 
-        # ── Mode autonome /loop ──
         loop_task = parse_loop_command(original_text)
         if loop_task is not None:
             if not loop_task.strip():
@@ -90,6 +85,7 @@ async def _process_message(
                 loop_task.strip(),
                 conversation_id,
                 voice_mode=voice_mode,
+                confirmation_session_id=confirmation_session_id,
             )
 
         # ── Raccourci « répète » : rejoue le dernier audio TTS tel quel ──
@@ -176,16 +172,14 @@ async def _process_message(
             logger.debug("[_process_message] routage cognitif : %s", e)
 
         # ── Vérifier si l'utilisateur confirme une proposition en attente ──
-        pending_action = (
-            dict(chat_actions._pending_proposal["action"])
-            if chat_actions._pending_proposal
-            and chat_actions._pending_proposal.get("conversation_id") == conversation_id
-            else None
+        pending_action = peek_pending_proposal(
+            conversation_id=conversation_id, session_id=confirmation_session_id,
         )
         pending_action_type = pending_action.get("type") if pending_action else None
-        pending_result = await _check_pending_proposal(ws, content, conversation_id)
+        pending_result = await _check_pending_proposal(
+            ws, original_text, conversation_id, confirmation_session_id,
+        )
         if pending_result is not None:
-            # L'utilisateur a dit "oui/vas-y" → on exécute l'action proposée
             await ws.send_json({
                 "type": "action_result",
                 "action": pending_action_type or "?",
@@ -194,7 +188,6 @@ async def _process_message(
             })
             display_text = str(pending_result.get("message") or "Action exécutée.")
             emotion = "neutral"
-            # 2e passe pour reformuler le résultat
             fu_action = pending_action or {"type": pending_action_type or "unknown"}
             if (
                 pending_result.get("ok")
@@ -356,7 +349,9 @@ async def _process_message(
             else:
                 # Mode simple : une action
                 if _should_defer_action(display_text, action):
-                    _maybe_store_pending_proposal(action, conversation_id)
+                    pending_client_action = _maybe_store_pending_proposal(
+                        action, conversation_id, confirmation_session_id,
+                    )
                     action_result = {
                         "ok": True,
                         "deferred": True,
@@ -364,26 +359,32 @@ async def _process_message(
                     }
                     await ws.send_json({
                         "type": "action_pending",
-                        "action": action,
+                        "action": pending_client_action,
                         "action_type": action.get("type"),
                         "message": display_text,
                     })
                     logger.info("[pending] Action différée (proposition utilisateur)")
                 else:
                     if action.get("type") == "mail" and not action.get("confirmed"):
-                        _maybe_store_pending_proposal(action, conversation_id)
+                        _maybe_store_pending_proposal(
+                            action, conversation_id, confirmation_session_id,
+                        )
                         logger.info("[pending] Proposition mail stockée pour confirmation")
 
                     try:
                         action_result = await execute_action(action)
+                        pending_client_action = None
+                        if action_result.get("needs_confirmation"):
+                            pending_client_action = _maybe_store_pending_proposal(
+                                action, conversation_id, confirmation_session_id,
+                            )
                         await ws.send_json({
                             "type": "action_result",
                             "action": action.get("type"),
-                            "action_payload": action,
+                            "action_payload": pending_client_action or action,
                             "result": action_result,
                         })
                         if action_result.get("needs_confirmation"):
-                            _maybe_store_pending_proposal(action, conversation_id)
                             logger.info(
                                 "[pending] Action %s en attente de confirmation",
                                 action.get("type"),

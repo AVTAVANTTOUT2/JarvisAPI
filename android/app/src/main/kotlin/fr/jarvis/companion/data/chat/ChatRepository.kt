@@ -35,6 +35,7 @@ import java.util.UUID
 
 data class PendingActionState(
     val action: JsonObject,
+    val proposalId: String,
     val actionType: String?,
     val message: String?,
 )
@@ -176,9 +177,9 @@ class ChatRepository(
         val serverId = conv?.serverId
         if (serverId != null) {
             if (webSocket.connectionState.value == WsConnectionState.Connected) {
-                webSocket.sendActionConfirm(pending.action, confirmed)
+                webSocket.sendActionDecision(pending.proposalId, confirmed)
             } else {
-                repository.confirmMobileChat(serverId, confirmed)
+                repository.confirmMobileChat(serverId, pending.proposalId, confirmed)
             }
         }
         _pendingAction.value = null
@@ -199,11 +200,30 @@ class ChatRepository(
             "done", "response" -> finalizeStream(localId, message.content)
             "response_followup" -> appendFollowup(localId, message.content.orEmpty())
             "action_pending" -> {
-                _pendingAction.value = PendingActionState(
-                    action = message.action ?: JsonObject(),
-                    actionType = message.actionType,
-                    message = message.message ?: message.content,
+                setPendingAction(
+                    message.action,
+                    message.actionType,
+                    message.message ?: message.content,
                 )
+            }
+            "action_result" -> {
+                val result = message.raw.get("result")
+                    ?.takeIf { it.isJsonObject }
+                    ?.asJsonObject
+                val needsConfirmation = result
+                    ?.get("needs_confirmation")
+                    ?.takeIf { it.isJsonPrimitive }
+                    ?.asBoolean == true
+                if (needsConfirmation) {
+                    val action = message.raw.get("action_payload")
+                        ?.takeIf { it.isJsonObject }
+                        ?.asJsonObject
+                    setPendingAction(
+                        action,
+                        message.raw.get("action")?.asString,
+                        result?.get("message")?.asString,
+                    )
+                }
             }
             "error" -> handleStreamError(localId, message.message ?: "Erreur serveur")
             "conversation_switched" -> {
@@ -215,6 +235,25 @@ class ChatRepository(
                 }
             }
         }
+    }
+
+    private fun setPendingAction(
+        action: JsonObject?,
+        actionType: String?,
+        message: String?,
+    ) {
+        val proposalId = action
+            ?.get("proposal_id")
+            ?.takeIf { it.isJsonPrimitive }
+            ?.asString
+            .orEmpty()
+        if (action == null || proposalId.isBlank()) return
+        _pendingAction.value = PendingActionState(
+            action = action,
+            proposalId = proposalId,
+            actionType = actionType ?: action.get("type")?.asString,
+            message = message,
+        )
     }
 
     private suspend fun startAssistantPlaceholder(
@@ -357,6 +396,7 @@ class ChatRepository(
             if (action != null) {
                 _pendingAction.value = PendingActionState(
                     action = gson.fromJson(action.toString(), JsonObject::class.java),
+                    proposalId = action.optString("proposal_id"),
                     actionType = action.optString("type"),
                     message = responseText,
                 )

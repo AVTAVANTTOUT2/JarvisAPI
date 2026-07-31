@@ -17,6 +17,7 @@ async def _maybe_execute_pending_voice_action(
     conversation_id: int,
     *,
     started_at: float,
+    confirmation_session_id: str,
 ) -> dict[str, Any] | None:
     """Consomme une confirmation vocale sans refaire appel au modèle."""
     import time
@@ -24,7 +25,11 @@ async def _maybe_execute_pending_voice_action(
     from actions import execute_action
     from api.chat_actions import _pop_pending_action_if_confirmed
 
-    pending_action = _pop_pending_action_if_confirmed(text, conversation_id)
+    pending_action = _pop_pending_action_if_confirmed(
+        text,
+        conversation_id,
+        confirmation_session_id,
+    )
     if pending_action is None:
         return None
 
@@ -56,6 +61,7 @@ async def _build_voice_confirmation_response(
     cost: float,
     debug_trace: dict[str, Any],
     started_at: float,
+    confirmation_session_id: str,
 ) -> dict[str, Any]:
     """Persiste et expose un plan vocal sans lancer la seconde passe LLM."""
     import asyncio
@@ -64,7 +70,11 @@ async def _build_voice_confirmation_response(
     from api.chat_actions import _maybe_store_pending_proposal
     from database import _save_voice_debug_trace
 
-    _maybe_store_pending_proposal(action, conversation_id)
+    pending_action = _maybe_store_pending_proposal(
+        action,
+        conversation_id,
+        confirmation_session_id,
+    )
     response_text = _fallback_action_response(
         str(action.get("type") or "terminal"),
         action_result,
@@ -79,6 +89,7 @@ async def _build_voice_confirmation_response(
         "emotion": "neutral",
         "cost": cost,
         "action": action_result,
+        "pending_action": pending_action,
         "latency_ms": debug_trace["latency_total_ms"],
         "debug_trace": debug_trace,
         "trace_id": trace_id,

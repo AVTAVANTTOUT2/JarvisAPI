@@ -58,15 +58,25 @@ def _match_voice_control(text: str) -> str | None:
     return None
 
 
-async def _process_voice_fast(text: str, conversation_id: int, *, stt_ms: int = 0) -> dict:
+async def _process_voice_fast(
+    text: str,
+    conversation_id: int,
+    *,
+    stt_ms: int = 0,
+    confirmation_session_id: str | None = None,
+) -> dict:
     """Pipeline vocal ultra-rapide — routage cognitif + Flash + actions/Cursor."""
     import time as _time
     from api.voice_cognitive import maybe_handle_cognitive_voice
 
     _t0 = _time.time()
+    confirmation_session_id = confirmation_session_id or f"local-voice:{conversation_id}"
 
     pending_result = await _maybe_execute_pending_voice_action(
-        text, conversation_id, started_at=_t0,
+        text,
+        conversation_id,
+        started_at=_t0,
+        confirmation_session_id=confirmation_session_id,
     )
     if pending_result is not None:
         return pending_result
@@ -228,9 +238,6 @@ RÈGLES SUPPLEMENTAIRES :
 
     # ── 6. Detecter un bloc action ────────────────────────────────────────────
     action_match = re.search(r'```action\s*\n?(.*?)```', raw_response, re.DOTALL | re.IGNORECASE)
-    if not action_match:
-        # Fallback : JSON brut inline avec "type"
-        action_match = re.search(r'\{\s*"type"\s*:\s*"(\w+)"\s*[,}].*?\}', raw_response, re.DOTALL)
 
     if not action_match:
         # ── Pas d'action -> reponse directe (1 seul appel LLM) ─────────────────
@@ -271,31 +278,7 @@ RÈGLES SUPPLEMENTAIRES :
     action: dict = {}
     try:
         if action_match:
-            json_str = action_match.group(0)
-            # Si c'est un match inline (pas de backticks), extraire l'objet JSON complet
-            if not json_str.startswith("```"):
-                # Trouver les bornes de l'objet JSON
-                start = action_match.start()
-                depth = 0
-                end = start
-                for i, ch in enumerate(raw_response[start:], start):
-                    if ch == '{':
-                        depth += 1
-                    elif ch == '}':
-                        depth -= 1
-                        if depth == 0:
-                            end = i + 1
-                            break
-                json_str = raw_response[start:end]
-            else:
-                # Format ```action ...``` → prendre le contenu
-                inner = re.search(r'```action\s*\n?(.*?)```', json_str, re.DOTALL | re.IGNORECASE)
-                if inner:
-                    json_str = inner.group(1).strip()
-                else:
-                    json_str = action_match.group(1).strip()
-
-            action = json.loads(json_str)
+            action = json.loads(action_match.group(1).strip())
             debug_trace["action_detected"] = action
 
             action_type_direct = action.get("type", "").strip()
@@ -373,7 +356,7 @@ RÈGLES SUPPLEMENTAIRES :
             try:
                 from jarvis.event_bus import JarvisEvent, event_bus as _eb
                 _action_type = action.get("type", "?")
-                _result_str = str(action_result.get("output", action_result.get("message", action_result)))[:300]
+                _result_str = "succès" if action_result.get("ok") else "échec"
                 asyncio.create_task(_eb.emit(JarvisEvent(
                     type="agent.action_result",
                     agent="voice",
@@ -404,6 +387,7 @@ RÈGLES SUPPLEMENTAIRES :
             cost=total_cost,
             debug_trace=debug_trace,
             started_at=_t0,
+            confirmation_session_id=confirmation_session_id,
         )
 
     # ── 8. Pass 2 : DeepSeek reformule le resultat de l'action ─────────────────
@@ -418,11 +402,14 @@ Date : {horodatage}."""
     debug_trace["pass2_prompt"] = pass2_system
 
     _t_llm2 = _time.time()
+    public_action_result = action_result
     if action_type == "clipboard":
         # Le contenu peut être affiché localement, mais ne repart jamais au cloud.
         response_text = _fallback_action_response(action_type, action_result)
         debug_trace["latency_llm_pass2_ms"] = 0
         debug_trace["pass2_skipped"] = "clipboard_local_only"
+        debug_trace["action_result"] = "[LOCAL_ONLY]"
+        public_action_result = {"ok": bool(action_result.get("ok"))}
     else:
         result_summary = _format_action_result_for_followup(action, action_result)
         pass2_messages = history + [
@@ -491,7 +478,7 @@ Date : {horodatage}."""
         "text": response_text,
         "emotion": emotion,
         "cost": total_cost,
-        "action": action_result,
+        "action": public_action_result,
         "latency_ms": latency_ms,
         "debug_trace": debug_trace,
         "trace_id": trace_id,

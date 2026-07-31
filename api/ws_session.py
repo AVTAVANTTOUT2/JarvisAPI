@@ -9,6 +9,7 @@ from fastapi import WebSocket
 
 import auth
 import config
+from api.middleware import _canonical_origin
 from database import create_conversation
 from websocket_registry import connected_ws
 
@@ -25,16 +26,44 @@ def resolve_websocket_auth(ws: WebSocket) -> tuple[Any, dict | None]:
         (session, mobile_device) — au moins un des deux est non-None si l'appelant
         laisse passer la connexion. Les deux peuvent être None si non authentifié.
     """
-    session = auth.verify_session(ws.cookies.get(config.SESSION_COOKIE_NAME))
-    if session:
-        return session, None
     authorization = ws.headers.get("authorization") or ""
     scheme, _, token = authorization.partition(" ")
     if scheme.lower() == "bearer" and token.strip():
         mobile_device = auth.verify_mobile_token(token.strip())
         if mobile_device:
             return None, mobile_device
+    cookie = ws.cookies.get(config.SESSION_COOKIE_NAME)
+    if cookie and _websocket_cookie_origin_allowed(ws):
+        session = auth.verify_session(cookie)
+        if session:
+            return session, None
     return None, None
+
+
+def _websocket_cookie_origin_allowed(ws: WebSocket) -> bool:
+    """Exige l'origine HTTP(S) exacte du handshake pour une session cookie."""
+    candidate = _canonical_origin(ws.headers.get("origin") or "")
+    host = ws.headers.get("host") or ""
+    if not candidate or not host:
+        return False
+    if config.WEB_HTTPS_BEHIND_PROXY:
+        public_scheme = "https"
+    else:
+        public_scheme = "https" if ws.url.scheme == "wss" else "http"
+    expected = _canonical_origin(f"{public_scheme}://{host}")
+    return expected is not None and candidate == expected
+
+
+def websocket_confirmation_session_id(
+    session: dict | None,
+    mobile_device: dict | None,
+) -> str:
+    """Identité stable à laquelle lier les propositions de cette socket."""
+    if mobile_device:
+        return f"mobile:{mobile_device['device_id']}"
+    if session:
+        return f"session:{session['id']}"
+    raise ValueError("WebSocket sans identité authentifiée")
 
 
 def _resume_or_create_conversation(now: float | None = None) -> tuple[int, bool]:

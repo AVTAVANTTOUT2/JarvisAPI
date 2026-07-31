@@ -22,16 +22,17 @@ from integrations.shell_safety import (
 @pytest.fixture(autouse=True)
 def isolated_shell_workspace(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     from integrations.computer import computer
-    import api.chat_actions as chat_actions
+    from api.action_confirmations import reset_pending_proposals_for_tests
 
     monkeypatch.setattr("config.LLM_SHELL_WORKSPACE", str(tmp_path / "shell"))
     monkeypatch.setattr("config.LLM_SHELL_MAX_COMMANDS", 8)
     monkeypatch.setattr("config.LLM_SHELL_MAX_TIMEOUT", 30)
     monkeypatch.setattr("config.LLM_SHELL_PLAN_TTL_SECONDS", 600)
     monkeypatch.setattr(computer, "allowed", True)
-    monkeypatch.setattr(chat_actions, "_pending_proposal", None)
+    reset_pending_proposals_for_tests()
     reset_shell_plans_for_tests()
     yield
+    reset_pending_proposals_for_tests()
     reset_shell_plans_for_tests()
 
 
@@ -78,6 +79,38 @@ async def test_confirmed_plan_is_single_use():
 
 
 @pytest.mark.asyncio
+async def test_confirmed_must_be_a_strict_boolean() -> None:
+    action = {"type": "terminal", "command": "pwd"}
+    proposal = await _action_terminal(action)
+    action["confirmed"] = "false"
+
+    refused = await _action_terminal(action)
+    assert refused["needs_confirmation"] is True
+
+    action["confirmed"] = True
+    executed = await _action_terminal(action)
+    assert executed["ok"] is True
+    assert proposal["shell_plan_id"] == action["shell_plan_id"]
+
+
+@pytest.mark.asyncio
+async def test_clipboard_requires_explicit_get_or_set(monkeypatch: pytest.MonkeyPatch) -> None:
+    from actions import _action_clipboard
+    from integrations.computer import computer
+
+    get_clipboard = AsyncMock(return_value="secret")
+    set_clipboard = AsyncMock(return_value={"ok": True})
+    monkeypatch.setattr(computer, "get_clipboard", get_clipboard)
+    monkeypatch.setattr(computer, "set_clipboard", set_clipboard)
+
+    for invalid in ({"type": "clipboard"}, {"type": "clipboard", "action": "delete"}):
+        result = await _action_clipboard(invalid)
+        assert result["ok"] is False
+    get_clipboard.assert_not_awaited()
+    set_clipboard.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_cancelled_plan_cannot_be_confirmed_later():
     from api.chat_actions import (
         _cancel_pending_proposal,
@@ -87,16 +120,56 @@ async def test_cancelled_plan_cannot_be_confirmed_later():
 
     action = {"type": "terminal", "command": "pwd"}
     proposal = await _action_terminal(action)
-    _maybe_store_pending_proposal(action, conversation_id=42)
+    pending = _maybe_store_pending_proposal(
+        action,
+        conversation_id=42,
+        confirmation_session_id="session:test",
+    )
 
-    assert _cancel_pending_proposal(42, action) is True
-    assert _pop_pending_action_if_confirmed("oui", 42) is None
+    assert _cancel_pending_proposal(
+        42,
+        pending["proposal_id"],
+        "session:test",
+    ) is True
+    assert _pop_pending_action_if_confirmed("oui", 42, "session:test") is None
 
     action["confirmed"] = True
     result = await _action_terminal(action)
     assert result["ok"] is False
     assert "inconnu" in result["message"]
     assert proposal["shell_plan_id"] == action["shell_plan_id"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("refusal", ["lance pas", "exécute pas"])
+async def test_textual_refusal_revokes_shell_plan(refusal: str) -> None:
+    from api.chat_actions import (
+        _maybe_store_pending_proposal,
+        _pop_pending_action_if_confirmed,
+    )
+
+    action = {"type": "terminal", "command": "pwd"}
+    await _action_terminal(action)
+    _maybe_store_pending_proposal(
+        action,
+        conversation_id=43,
+        confirmation_session_id="session:text-refusal",
+    )
+
+    assert _pop_pending_action_if_confirmed(
+        refusal,
+        43,
+        "session:text-refusal",
+    ) is None
+    assert _pop_pending_action_if_confirmed(
+        "oui",
+        43,
+        "session:text-refusal",
+    ) is None
+    action["confirmed"] = True
+    result = await _action_terminal(action)
+    assert result["ok"] is False
+    assert "inconnu" in result["message"]
 
 
 @pytest.mark.asyncio

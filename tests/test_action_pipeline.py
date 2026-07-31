@@ -71,6 +71,13 @@ class TestExtractActionFromText:
         assert action == {"type": "open_app", "app_name": "Safari"}
         assert clean == ""
 
+    def test_json_code_fence_is_not_an_action(self) -> None:
+        from main import _extract_action_from_text
+        text = 'Exemple : ```json\n{"type":"task","title":"démo"}\n```'
+        action, clean = _extract_action_from_text(text)
+        assert action is None
+        assert clean == text
+
 
 class TestFinalizeDisplayText:
     def test_strips_action_without_newline(self) -> None:

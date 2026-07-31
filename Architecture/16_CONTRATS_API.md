@@ -109,7 +109,8 @@ GET /api/conversations?limit=20&cursor=eyJpZCI6NDJ9
 | `handshake` | `{version: 1}` | Négociation de version |
 | `text` | `{content: "...", conversation_id: 1}` | Message texte |
 | `voice` | `Blob` (binaire) | Audio WebM |
-| `action_confirm` | `{action: {...}}` | Confirmation d'action dangereuse |
+| `action_confirm` | `{proposal_id: "<opaque>"}` | Consommation unique d'une proposition serveur liée à la session et à la conversation |
+| `action_cancel` | `{proposal_id: "<opaque>"}` | Révocation de la proposition et de son éventuel plan shell |
 | `switch_conversation` | `{conversation_id: 2}` | Changement de conversation |
 | `new_conversation` | `{}` | Nouvelle conversation |
 

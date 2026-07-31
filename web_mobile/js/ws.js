@@ -146,8 +146,10 @@ export function sendBinary(blob) {
 export const sendText = (content, opts = {}) =>
   send({ type: 'text', content, stream: opts.stream !== false, tts: !!opts.tts });
 
-export const confirmAction = (action) => send({ type: 'action_confirm', action });
-export const cancelAction = (action) => send({ type: 'action_cancel', action });
+export const confirmAction = (proposal) =>
+  send({ type: 'action_confirm', proposal_id: proposal?.proposal_id });
+export const cancelAction = (proposal) =>
+  send({ type: 'action_cancel', proposal_id: proposal?.proposal_id });
 export const newConversation = () => send({ type: 'new_conversation' });
 export const switchConversation = (id) => send({ type: 'switch_conversation', conversation_id: id });
 export const donePlaying = () => send({ type: 'done_playing' });

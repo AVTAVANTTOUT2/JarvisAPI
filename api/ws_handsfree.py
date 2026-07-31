@@ -166,7 +166,12 @@ async def _handle_hands_free_blob(
         conv_session["is_speaking"] = True
 
         try:
-            result = await _process_voice_fast(text, cid, stt_ms=stt_ms)
+            result = await _process_voice_fast(
+                text,
+                cid,
+                stt_ms=stt_ms,
+                confirmation_session_id=conv_session["confirmation_session_id"],
+            )
             if cancel_event.is_set():
                 await reset_listening()
                 return

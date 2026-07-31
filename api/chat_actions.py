@@ -12,6 +12,11 @@ import config
 from actions import execute_action
 from agents.autonomous_loop import run_autonomous_loop
 from agents.display_text import finalize_assistant_display_text
+from api.action_confirmations import (
+    cancel_pending_proposal,
+    consume_text_confirmation,
+    store_pending_proposal,
+)
 from api.chat_context import _build_enriched_context, _maybe_title_conversation
 from database import save_message, update_conversation_activity
 from jarvis.security.llm_data_boundary import format_action_result_for_external_llm
@@ -21,17 +26,7 @@ logger = logging.getLogger("jarvis")
 
 # ── WebSocket chat ──────────────────────────────────────────
 
-# Mémoire de proposition en attente — quand JARVIS propose "Veux-tu que je fasse X ?"
-# et que l'utilisateur répond "oui" / "vas-y", on exécute immédiatement.
-_pending_proposal: dict | None = None
-
 _ACTION_RE = re.compile(r"```action\s*\n?(.*?)```", re.DOTALL | re.IGNORECASE)
-
-# Regex fallback pour JSON inline hors backticks
-_ACTION_JSON_INLINE_RE = re.compile(
-    r'\{\s*"type"\s*:\s*"(\w+)"\s*[,}].*?\}',
-    re.DOTALL,
-)
 
 ACTIONS_WITH_FOLLOWUP = frozenset({
     "terminal",
@@ -73,6 +68,7 @@ async def _run_loop_mode_ws(
     conversation_id: int,
     *,
     voice_mode: bool = False,
+    confirmation_session_id: str,
 ) -> dict:
     """Exécute le mode /loop autonome avec événements WebSocket temps réel."""
     context = await _build_enriched_context(task, conversation_id)
@@ -95,7 +91,11 @@ async def _run_loop_mode_ws(
     )
     pending_action = loop_result.get("pending_action")
     if isinstance(pending_action, dict):
-        _maybe_store_pending_proposal(pending_action, conversation_id)
+        _maybe_store_pending_proposal(
+            pending_action,
+            conversation_id,
+            confirmation_session_id,
+        )
 
     synthesis = loop_result.get("synthesis") or "Boucle terminée."
     emotion = "neutral"
@@ -138,6 +138,7 @@ async def _run_loop_mode_internal(
     conversation_id: int,
     *,
     voice_mode: bool = False,
+    confirmation_session_id: str,
 ) -> dict:
     """Mode /loop sans WebSocket (REST, daemon, iMessage)."""
     context = await _build_enriched_context(task, conversation_id)
@@ -147,7 +148,11 @@ async def _run_loop_mode_internal(
     loop_result = await run_autonomous_loop(task, conversation_id, context)
     pending_action = loop_result.get("pending_action")
     if isinstance(pending_action, dict):
-        _maybe_store_pending_proposal(pending_action, conversation_id)
+        _maybe_store_pending_proposal(
+            pending_action,
+            conversation_id,
+            confirmation_session_id,
+        )
     synthesis = loop_result.get("synthesis") or "Boucle terminée."
     display_text = finalize_assistant_display_text(synthesis)
 
@@ -194,89 +199,66 @@ def _should_defer_action(display_text: str, action: dict) -> bool:
 
 def _cancel_pending_proposal(
     conversation_id: int,
-    action: dict | None = None,
+    proposal_id: str,
+    confirmation_session_id: str,
 ) -> bool:
     """Annule la proposition de la conversation et révoque son plan shell."""
-    global _pending_proposal
-
-    stored_action: dict = {}
-    if (
-        _pending_proposal
-        and _pending_proposal.get("conversation_id") == conversation_id
-    ):
-        stored_action = _pending_proposal.get("action") or {}
-        _pending_proposal = None
-
-    candidate = action if isinstance(action, dict) else stored_action
-    plan_id = str(candidate.get("shell_plan_id") or "")
-    revoked = False
-    if plan_id:
-        from integrations.shell_safety import revoke_shell_plan
-
-        revoked = revoke_shell_plan(plan_id)
-    return bool(stored_action) or revoked
+    return cancel_pending_proposal(
+        proposal_id,
+        conversation_id=conversation_id,
+        session_id=confirmation_session_id,
+    )
 
 
-def _pop_pending_action_if_confirmed(text: str, conversation_id: int) -> dict | None:
+def _pop_pending_action_if_confirmed(
+    text: str,
+    conversation_id: int,
+    confirmation_session_id: str,
+) -> dict | None:
     """Retire et retourne l'action pending si l'utilisateur confirme (« oui », « vas-y »…)."""
-    global _pending_proposal
-
-    if not _pending_proposal:
-        return None
-
-    if _pending_proposal.get("conversation_id") != conversation_id:
-        return None
-
-    text_lower = text.strip().lower()
-    confirmation_patterns = (
-        "oui", "vas-y", "vas y", "fais-le", "fais le", "ok", "okay",
-        "d'accord", "go", "lance", "exécute", "execute", "yes",
-        "pourquoi pas", "je veux bien", "allez", "allé", "fonce",
-        "oui vas-y", "oui vas y", "oui fais le", "oui stp", "oui merci",
+    action = consume_text_confirmation(
+        text,
+        conversation_id=conversation_id,
+        session_id=confirmation_session_id,
     )
-
-    is_confirmation = (
-        text_lower in confirmation_patterns
-        or any(text_lower.startswith(p) for p in confirmation_patterns if len(p) > 3)
-    )
-
-    if not is_confirmation:
-        if _pending_proposal:
-            logger.info("[pending] Proposition annulée (user a dit autre chose)")
-        _cancel_pending_proposal(conversation_id)
-        return None
-
-    action = {**_pending_proposal["action"], "confirmed": True}
-    _pending_proposal = None
-    logger.info(
-        "[pending] Confirmation détectée « %s » → exécution de %s",
-        text[:60], action.get("type"),
-    )
+    if action:
+        logger.info(
+            "[pending] Confirmation exacte détectée → exécution de %s",
+            action.get("type"),
+        )
     return action
 
 
-def _maybe_store_pending_proposal(action: dict, conversation_id: int) -> None:
+def _maybe_store_pending_proposal(
+    action: dict,
+    conversation_id: int,
+    confirmation_session_id: str,
+) -> dict:
     """Stocke une proposition d'action en attente de confirmation de l'utilisateur.
 
     Quand JARVIS dit « Veux-tu que je fasse X ? » avec un bloc action,
     on mémorise l'action pour que si l'utilisateur répond « oui » / « vas-y »
     au message suivant, l'action soit exécutée immédiatement.
     """
-    global _pending_proposal
-    _pending_proposal = {
-        "conversation_id": conversation_id,
-        "action": action,
-    }
+    return store_pending_proposal(
+        action,
+        conversation_id=conversation_id,
+        session_id=confirmation_session_id,
+    )
 
 
 async def _check_pending_proposal(
-    ws, text: str, conversation_id: int,
+    ws, text: str, conversation_id: int, confirmation_session_id: str,
 ) -> dict | None:
     """Vérifie si l'utilisateur confirme une proposition en attente.
 
     Retourne le résultat de l'action si confirmée, None sinon.
     """
-    action = _pop_pending_action_if_confirmed(text, conversation_id)
+    action = _pop_pending_action_if_confirmed(
+        text,
+        conversation_id,
+        confirmation_session_id,
+    )
     if action is None:
         return None
 
@@ -300,16 +282,13 @@ def _format_action_result_for_followup(action: dict, action_result: dict) -> str
 def _extract_action_from_text(text: str) -> tuple[dict | None, str]:
     """Extrait un bloc ```action {JSON}``` d'une réponse — tolérant au format.
 
-    Accepte :
-    - `` ```action\\n{JSON}\\n``` `` (standard)
-    - `` ```action {JSON}``` `` (sans nouvelle ligne)
-    - JSON inline hors backticks (fallback)
+    Accepte uniquement un bloc `````action`` explicite, avec ou sans retour
+    à la ligne avant le JSON. Un exemple JSON inline n'est jamais exécutable.
 
     Retourne (action_dict, texte_propre) ou (None, text).
     """
     import json as _json
 
-    # 1. Format standard / tolérant
     m = _ACTION_RE.search(text)
     if m:
         json_str = m.group(1).strip()
@@ -319,29 +298,6 @@ def _extract_action_from_text(text: str) -> tuple[dict | None, str]:
             if isinstance(action, dict) and "type" in action:
                 return action, clean
         except _json.JSONDecodeError:
-            pass
-
-    # 2. Fallback : JSON inline avec "type"
-    m2 = _ACTION_JSON_INLINE_RE.search(text)
-    if m2:
-        try:
-            start = m2.start()
-            depth = 0
-            end = start
-            for i, ch in enumerate(text[start:], start):
-                if ch == '{':
-                    depth += 1
-                elif ch == '}':
-                    depth -= 1
-                    if depth == 0:
-                        end = i + 1
-                        break
-            json_str = text[start:end]
-            action = _json.loads(json_str)
-            if isinstance(action, dict) and "type" in action:
-                clean = (text[:start] + text[end:]).strip()
-                return action, clean
-        except (_json.JSONDecodeError, ValueError):
             pass
 
     return None, text

@@ -61,6 +61,49 @@ def test_websocket_accepts_mobile_bearer(tmp_db):
             assert "conversation_id" in msg
 
 
+def test_websocket_cookie_requires_exact_origin(tmp_db):
+    from starlette.websockets import WebSocketDisconnect
+
+    with _client() as client:
+        authenticate(client)
+        client.headers.pop("Origin", None)
+        with pytest.raises(WebSocketDisconnect) as exc_info:
+            with client.websocket_connect("/ws"):
+                pass
+        assert exc_info.value.code == 4401
+
+        client.headers["Origin"] = "http://testserver"
+        for headers in (
+            {"Origin": "http://evil.example"},
+            {"Origin": "http://testserver:8080"},
+        ):
+            with pytest.raises(WebSocketDisconnect) as exc_info:
+                with client.websocket_connect("/ws", headers=headers):
+                    pass
+            assert exc_info.value.code == 4401
+
+        with client.websocket_connect(
+            "/ws",
+            headers={"Origin": "http://testserver"},
+        ) as ws:
+            assert ws.receive_json()["type"] == "connected"
+
+
+def test_mobile_bearer_ignores_browser_origin_policy(tmp_db):
+    with _client() as client:
+        authenticate(client)
+        token = _pair(client)
+        client.cookies.clear()
+        with client.websocket_connect(
+            "/ws",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Origin": "https://native-app.invalid",
+            },
+        ) as ws:
+            assert ws.receive_json()["type"] == "connected"
+
+
 def test_websocket_rejects_without_auth(tmp_db):
     with _client() as client:
         authenticate(client)  # configure PIN
@@ -68,3 +111,53 @@ def test_websocket_rejects_without_auth(tmp_db):
         with pytest.raises(Exception):
             with client.websocket_connect("/ws"):
                 pass
+
+
+def test_mobile_confirmation_requires_boolean_and_refusal_consumes_proposal(tmp_db):
+    from api.action_confirmations import store_pending_proposal
+
+    with _client() as client:
+        authenticate(client)
+        token = _pair(client)
+        headers = {"Authorization": f"Bearer {token}"}
+        conversation = client.post(
+            "/api/mobile/conversations", headers=headers, json={},
+        ).json()["conversation_id"]
+        pending = store_pending_proposal(
+            {"type": "task", "title": "ne jamais créer"},
+            conversation_id=conversation,
+            session_id="mobile:ws-phone",
+        )
+        string_false = client.post(
+            "/api/mobile/chat/confirm",
+            headers=headers,
+            json={
+                "conversation_id": conversation,
+                "proposal_id": pending["proposal_id"],
+                "confirmed": "false",
+            },
+        )
+        assert string_false.status_code == 400
+
+        refused = client.post(
+            "/api/mobile/chat/confirm",
+            headers=headers,
+            json={
+                "conversation_id": conversation,
+                "proposal_id": pending["proposal_id"],
+                "confirmed": False,
+            },
+        )
+        assert refused.status_code == 200
+        assert refused.json()["cancelled"] is True
+
+        replay = client.post(
+            "/api/mobile/chat/confirm",
+            headers=headers,
+            json={
+                "conversation_id": conversation,
+                "proposal_id": pending["proposal_id"],
+                "confirmed": True,
+            },
+        )
+        assert replay.status_code == 409

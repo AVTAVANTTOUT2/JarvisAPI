@@ -11,20 +11,17 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 import auth
 import config
-import api.chat_actions as chat_actions
-from actions import execute_action
-from agents.display_text import finalize_assistant_display_text
-from agents.orchestrator import orchestrator
-from api.chat_actions import ACTIONS_WITH_FOLLOWUP, _format_action_result_for_followup, _run_loop_mode_ws
-from api.llm_logging import _schedule_llm_log
+from api.chat_actions import _run_loop_mode_ws
 from api.memory_background import _run_memory_in_background
 from api.welcome import _maybe_send_daily_welcome
 from api.ws_handsfree import _handle_hands_free_blob, handle_voice_cancel_message
 from api.ws_messages import _process_message
+from api.ws_action_messages import handle_ws_action_decision
 from api.ws_session import (
     _resume_or_create_conversation,
     _ws_last_session,
     resolve_websocket_auth,
+    websocket_confirmation_session_id,
 )
 from database import create_conversation, end_conversation, get_conversation_detail, get_conversation_history, get_last_conversation_summary, save_message
 from websocket_registry import add_websocket, remove_websocket
@@ -45,6 +42,7 @@ async def websocket_endpoint(ws: WebSocket):
     if not session and not mobile_device:
         await ws.close(code=4401)
         return
+    confirmation_session_id = websocket_confirmation_session_id(session, mobile_device)
 
     await ws.accept()
     if mobile_device:
@@ -141,7 +139,8 @@ async def websocket_endpoint(ws: WebSocket):
 
                 try:
                     await _process_message(
-                        ws, text, conversation_id, voice_mode=True, stream=True, send_tts=True,
+                        ws, text, conversation_id, voice_mode=True, stream=True,
+                        send_tts=True, confirmation_session_id=confirmation_session_id,
                     )
                     is_speaking = True  # jusqu'à done_playing (réponse vocale jouée)
                 except Exception as e:
@@ -208,6 +207,7 @@ async def websocket_endpoint(ws: WebSocket):
                     conv_session = {
                         "active": True,
                         "conversation_id": create_conversation(agent="voice"),
+                        "confirmation_session_id": confirmation_session_id,
                         "is_speaking": False,
                         "is_processing": False,
                     }
@@ -306,7 +306,8 @@ async def websocket_endpoint(ws: WebSocket):
 
                     try:
                         await _process_message(
-                            ws, text, conversation_id, voice_mode=True, stream=True, send_tts=True,
+                            ws, text, conversation_id, voice_mode=True, stream=True,
+                            send_tts=True, confirmation_session_id=confirmation_session_id,
                         )
                         is_speaking = True
                     except Exception as e:
@@ -320,71 +321,12 @@ async def websocket_endpoint(ws: WebSocket):
                             await ws.send_json({"type": "listening"})
                     continue
 
-                if msg_type == "action_confirm":
-                    act = msg.get("action")
-                    if not isinstance(act, dict) or not act.get("type"):
-                        await ws.send_json({"type": "error", "message": "action invalide"})
-                        continue
-                    act = {**act, "confirmed": True}
-                    _schedule_llm_log(
-                        agent="orchestrator",
-                        action_type=str(act.get("type") or "unknown"),
-                        payload={"conversation_id": conversation_id, "action": act, "confirmed": True},
-                        status="pending",
-                    )
-                    try:
-                        res = await execute_action(act)
-                    except Exception as e:
-                        logger.exception("action_confirm : %s", e)
-                        await ws.send_json({
-                            "type": "action_result",
-                            "action": act.get("type"),
-                            "result": {"ok": False, "message": str(e)},
-                        })
-                        continue
-                    await ws.send_json({
-                        "type": "action_result",
-                        "action": act.get("type"),
-                        "action_payload": act,
-                        "result": res,
-                    })
-                    if (
-                        res.get("ok")
-                        and act.get("type") in ACTIONS_WITH_FOLLOWUP
-                        and not res.get("needs_confirmation")
-                    ):
-                        try:
-                            payload = _format_action_result_for_followup(act, res)
-                            await ws.send_json({"type": "status", "content": "Synthèse du résultat…"})
-                            fu = await orchestrator.handle(
-                                (
-                                    f"Résultat brut de l'action :\n\n{payload}\n\n"
-                                    "L'utilisateur a confirmé l'exécution. Résume le résultat de façon claire. "
-                                    "Pas de bloc action."
-                                ),
-                                conversation_id=conversation_id,
-                                voice_mode=False,
-                            )
-                            txt = finalize_assistant_display_text(fu.get("response", ""))
-                            await ws.send_json({"type": "response_followup", "content": txt})
-                            try:
-                                save_message(
-                                    conversation_id, "assistant", txt,
-                                    agent=fu.get("agent"),
-                                    model=fu.get("model"),
-                                    tokens_in=int(fu.get("tokens_in") or 0),
-                                    tokens_out=int(fu.get("tokens_out") or 0),
-                                    cost=float(fu.get("cost") or 0.0),
-                                )
-                            except Exception as e:
-                                logger.error("save followup action_confirm : %s", e)
-                        except Exception as e:
-                            logger.exception("[action_confirm] followup : %s", e)
-                    continue
-
-                if msg_type == "action_cancel":
-                    chat_actions._cancel_pending_proposal(conversation_id, msg.get("action"))
-                    await ws.send_json({"type": "action_cancelled"})
+                if await handle_ws_action_decision(
+                    ws,
+                    msg,
+                    conversation_id=conversation_id,
+                    confirmation_session_id=confirmation_session_id,
+                ):
                     continue
 
                 if msg_type == "new_conversation":
@@ -438,7 +380,9 @@ async def websocket_endpoint(ws: WebSocket):
                         logger.debug("[ws] loop save user : %s", e)
                     try:
                         await _run_loop_mode_ws(
-                            ws, task, conversation_id, voice_mode=bool(msg.get("voice_mode")),
+                            ws, task, conversation_id,
+                            voice_mode=bool(msg.get("voice_mode")),
+                            confirmation_session_id=confirmation_session_id,
                         )
                     except Exception:
                         logger.exception("[ws] loop mode")
@@ -459,7 +403,8 @@ async def websocket_endpoint(ws: WebSocket):
 
                 try:
                     await _process_message(
-                        ws, content, conversation_id, voice_mode=False, stream=stream, send_tts=tts_flag,
+                        ws, content, conversation_id, voice_mode=False, stream=stream,
+                        send_tts=tts_flag, confirmation_session_id=confirmation_session_id,
                     )
                     if tts_flag:
                         is_speaking = True

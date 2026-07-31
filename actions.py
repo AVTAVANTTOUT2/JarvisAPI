@@ -289,7 +289,7 @@ async def _action_terminal(action: dict) -> dict:
             plan = get_shell_plan(plan_id)
         except ShellPlanError as exc:
             return {"ok": False, "message": f"Plan shell refusé : {exc}"}
-        if not action.get("confirmed"):
+        if action.get("confirmed") is not True:
             return _shell_confirmation_response(plan)
         try:
             return await execute_shell_plan(plan_id)
@@ -304,7 +304,7 @@ async def _action_terminal(action: dict) -> dict:
     except (TypeError, ValueError):
         timeout = 120
 
-    if action.get("confirmed"):
+    if action.get("confirmed") is True:
         logger.warning(
             "[terminal] pré-confirmation ignorée: aucun plan serveur n'est attaché"
         )
@@ -496,11 +496,16 @@ async def _action_clipboard(action: dict) -> dict:
     if not computer or not computer.allowed:
         return {"ok": False, "message": "Accès ordinateur désactivé."}
 
-    if action.get("action") == "set":
+    clipboard_action = action.get("action")
+    if clipboard_action == "set":
         return await computer.set_clipboard(action.get("text", ""))
-
-    text = await computer.get_clipboard()
-    return {"ok": True, "content": text}
+    if clipboard_action == "get":
+        text = await computer.get_clipboard()
+        return {"ok": True, "content": text}
+    return {
+        "ok": False,
+        "message": "Action presse-papiers invalide : 'get' ou 'set' requis.",
+    }
 
 
 async def _action_system_info(action: dict) -> dict:

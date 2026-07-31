@@ -8,6 +8,13 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 
+from actions import execute_action
+from api.action_confirmations import (
+    ProposalError,
+    cancel_pending_proposal,
+    consume_pending_proposal,
+    is_valid_proposal_id,
+)
 from api.chat_processing import _process_message_internal
 from api.router_auth import _require_mobile_device
 from database import (
@@ -93,7 +100,12 @@ async def api_mobile_chat(request: Request, body: dict) -> dict:
         logger.exception("[mobile_chat] save user : %s", exc)
         raise HTTPException(500, "Impossible d'enregistrer le message") from exc
 
-    result = await _process_message_internal(content, conversation_id, voice_mode=False)
+    result = await _process_message_internal(
+        content,
+        conversation_id,
+        voice_mode=False,
+        confirmation_session_id=f"mobile:{device_id}",
+    )
     response_text = str(result.get("text") or "").strip()
     action = result.get("action")
     action_result = result.get("action_result")
@@ -124,7 +136,8 @@ async def api_mobile_chat(request: Request, body: dict) -> dict:
 @router.post("/api/mobile/chat/confirm")
 async def api_mobile_chat_confirm(request: Request, body: dict) -> dict:
     """Confirme ou refuse une action sensible proposée dans le chat."""
-    _require_mobile_device(request)
+    device = _require_mobile_device(request)
+    confirmation_session_id = f"mobile:{device['device_id']}"
     conversation_id = body.get("conversation_id")
     try:
         conversation_id = int(conversation_id)
@@ -133,16 +146,43 @@ async def api_mobile_chat_confirm(request: Request, body: dict) -> dict:
     if not get_conversation_detail(conversation_id):
         raise HTTPException(404, "Conversation introuvable")
 
-    confirmed = bool(body.get("confirmed", False))
+    confirmed = body.get("confirmed")
+    if type(confirmed) is not bool:
+        raise HTTPException(400, "confirmed doit être un booléen")
+    proposal_id = body.get("proposal_id")
+    if not is_valid_proposal_id(proposal_id):
+        raise HTTPException(400, "proposal_id invalide")
     if not confirmed:
-        return {"ok": True, "cancelled": True, "conversation_id": conversation_id}
+        cancelled = cancel_pending_proposal(
+            proposal_id,
+            conversation_id=conversation_id,
+            session_id=confirmation_session_id,
+        )
+        return {
+            "ok": cancelled,
+            "cancelled": cancelled,
+            "conversation_id": conversation_id,
+        }
 
-    # Réutilise le pipeline « oui » / confirmation textuelle.
-    result = await _process_message_internal("oui", conversation_id, voice_mode=False)
+    try:
+        action = consume_pending_proposal(
+            proposal_id,
+            conversation_id=conversation_id,
+            session_id=confirmation_session_id,
+        )
+    except ProposalError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    action_result = await execute_action(action)
+    response_text = str(action_result.get("message") or "Action exécutée.")
+    try:
+        save_message(conversation_id, "assistant", response_text, agent="action_executor")
+    except Exception as exc:
+        logger.debug("[mobile_chat] save confirmation : %s", exc)
     return {
-        "ok": True,
+        "ok": bool(action_result.get("ok")),
         "cancelled": False,
         "conversation_id": conversation_id,
-        "response_text": result.get("text") or "",
-        "action_result": result.get("action_result"),
+        "response_text": response_text,
+        "action_type": action.get("type"),
+        "action_result": action_result,
     }
