@@ -1,292 +1,610 @@
-/* Santé — suivi fitness (séances, repas, eau, bien-être).
- *
- * Consomme /api/fitness/* déjà exposé par app/fitness/. Source « pwa » :
- * seule origine UI autorisée par le contrat backend (avec « voice »).
- */
+/* Fitness mobile — miroir fonctionnel de la vue desktop, sans dépendance React. */
 
 import { api, ApiError } from '../api.js';
-import { h, icon, skeleton, banner, empty } from '../ui.js';
+import { h, icon, skeleton, banner } from '../ui.js';
 
-function todayIso() {
+const DAYS = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
+const MEALS = {
+  petit_dej: 'Petit déjeuner',
+  dejeuner: 'Déjeuner',
+  diner: 'Dîner',
+  collation: 'Collation',
+};
+
+function localIsoDate() {
   const now = new Date();
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  const offset = now.getTimezoneOffset() * 60_000;
+  return new Date(now.getTime() - offset).toISOString().slice(0, 10);
 }
 
-function waterLabel(ml) {
-  if (ml >= 1000) return `${(ml / 1000).toLocaleString('fr-FR')} L`;
-  return `${ml} ml`;
+function prescription(exercise) {
+  const parts = [];
+  if (exercise.sets) parts.push(`${exercise.sets} séries`);
+  if (exercise.reps) parts.push(`${exercise.reps} reps`);
+  if (exercise.duration_sec) parts.push(`${exercise.duration_sec} s`);
+  if (exercise.sides === 2) parts.push('de chaque côté');
+  return parts.join(' · ') || 'À la sensation';
 }
 
-function field(attrs = {}, ...kids) {
-  return h('input', { class: 'field fitness-field', ...attrs }, ...kids);
+function ratio(value, target) {
+  if (!target) return 0;
+  return Math.max(0, Math.min(100, Math.round((value / target) * 100)));
 }
 
-function select(attrs = {}, options) {
-  return h('select', { class: 'field fitness-field', ...attrs },
-    ...options.map(([value, label]) => h('option', { value, text: label })));
+function progressResult(dashboard, exercise) {
+  const list = (dashboard.progress && dashboard.progress.exercise_results) || [];
+  return list.find((item) => item.name === exercise.name) || null;
 }
 
-function textarea(attrs = {}) {
-  return h('textarea', { class: 'field fitness-field fitness-area', ...attrs });
+function input(attrs = {}) {
+  return h('input', { class: 'field fit-input', ...attrs });
 }
 
-function feedbackLine(msg) {
-  return msg ? h('p', { class: 'fitness-err', text: msg }) : null;
+function textarea(attrs = {}, value = '') {
+  const node = h('textarea', { class: 'field fit-area', ...attrs });
+  node.value = value;
+  return node;
+}
+
+function select(options, value, attrs = {}) {
+  const node = h('select', { class: 'field fit-select', ...attrs },
+    ...options.map(([key, label]) => h('option', { value: key, text: label })));
+  node.value = String(value ?? '');
+  return node;
+}
+
+function editorLines(items) {
+  return (items || []).map((item) => (
+    `${item.name} | ${item.sets ?? ''} | ${item.reps ?? ''} | ${item.duration_sec ?? ''} | ${item.sides ?? ''}`
+  )).join('\n');
+}
+
+function parseEditorLines(value, previousItems) {
+  return value.split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [name = '', sets = '', reps = '', duration = '', sides = ''] = line
+        .split('|')
+        .map((part) => part.trim());
+      const previous = (previousItems || []).find((item) => item.name === name);
+      return {
+        name,
+        sets: sets && Number(sets) > 0 ? Number(sets) : null,
+        reps: reps || null,
+        duration_sec: duration ? (/^\d+$/.test(duration) ? Number(duration) : duration) : null,
+        sides: sides && Number(sides) > 0 ? Number(sides) : null,
+        progression: previous ? previous.progression : null,
+      };
+    });
 }
 
 export default {
   async mount(ctx) {
-    ctx.setHeader('Santé', 'Bouger, nourrir, hydrater, ressentir', [
-      { icon: 'refresh', label: 'Actualiser', onClick: () => { void load(); } },
-    ]);
-    ctx.setDock(null);
-    ctx.setBody(skeleton(4));
-
     let alive = true;
-    let summary = null;
+    let dashboard = null;
+    let busy = false;
+    let networkError = null;
+    let mutationError = null;
+    let advice = null;
+    let mealFormOpen = false;
+    let activeTab = 'today';
+    let settingsOpen = false;
+    let editingSession = null;
 
     async function load() {
-      if (!alive) return;
       try {
-        summary = await api.fitnessSummaryToday();
-        render();
+        dashboard = await api.get(`/api/fitness/dashboard?date=${encodeURIComponent(localIsoDate())}`);
+        networkError = null;
       } catch (err) {
-        if (!alive) return;
-        const msg = err instanceof ApiError ? err.message : 'Erreur';
-        ctx.setBody(
-          banner(msg === 'Serveur injoignable' ? 'Serveur injoignable.' : 'Résumé indisponible.', 'err'),
-          empty('Section santé inaccessible.', 'Réessayez une fois le réseau rétabli.'),
-        );
+        networkError = err instanceof ApiError && err.status === 0
+          ? 'Serveur injoignable.' : 'Suivi fitness indisponible.';
       }
+      if (alive) render();
     }
 
-    function metric(label, value) {
-      return h('div', { class: 'fitness-metric' },
+    async function setProgress(status, results) {
+      if (!dashboard || !dashboard.scheduled_session || busy) return;
+      busy = true;
+      mutationError = null;
+      render();
+      try {
+        await api.put(
+          `/api/fitness/sessions/${dashboard.scheduled_session.id}/progress`,
+          {
+            date: dashboard.date,
+            status,
+            exercise_results: results ?? ((dashboard.progress && dashboard.progress.exercise_results) || []),
+          },
+        );
+      } catch {
+        mutationError = 'Modification non enregistrée.';
+      }
+      busy = false;
+      await load();
+    }
+
+    async function toggleExercise(exercise) {
+      const current = (dashboard.progress && dashboard.progress.exercise_results) || [];
+      const other = current.filter((item) => item.name !== exercise.name);
+      const existing = current.find((item) => item.name === exercise.name);
+      const next = [...other, {
+        name: exercise.name,
+        completed: !(existing && existing.completed),
+        sets_done: existing ? existing.sets_done : null,
+        reps_done: existing ? existing.reps_done : null,
+        duration_sec: existing ? existing.duration_sec : null,
+        notes: existing ? existing.notes : null,
+      }];
+      await setProgress('in_progress', next);
+    }
+
+    async function addWater(amount) {
+      if (busy || !dashboard) return;
+      busy = true;
+      mutationError = null;
+      render();
+      try {
+        await api.post('/api/fitness/water', {
+          date: dashboard.date,
+          amount_ml: amount,
+          source: 'pwa',
+        });
+      } catch {
+        mutationError = 'Hydratation non enregistrée.';
+      }
+      busy = false;
+      await load();
+    }
+
+    async function getAdvice() {
+      if (busy || !dashboard) return;
+      busy = true;
+      mutationError = null;
+      render();
+      try {
+        advice = await api.post(`/api/fitness/advice?date=${encodeURIComponent(dashboard.date)}`);
+      } catch {
+        mutationError = 'Conseil indisponible.';
+      }
+      busy = false;
+      render();
+    }
+
+    function metric(label, value, detail, percent) {
+      return h('div', { class: 'fit-metric' },
+        h('span', { text: label }),
         h('strong', { class: 'num', text: value }),
-        h('span', { text: label }));
+        h('small', { text: detail }),
+        h('i', {}, h('b', { style: `width:${ratio(percent, 100)}%` })));
     }
 
-    function summaryCard() {
-      if (!summary) return null;
-      const forme = summary.wellbeing && summary.wellbeing.rating != null
-        ? `${summary.wellbeing.rating}/10`
-        : '—';
-      const seance = summary.workout_done
-        ? `${summary.workout_count} faite${summary.workout_count > 1 ? 's' : ''}`
-        : 'Aucune';
-      return h('div', { class: 'card fitness-summary' },
-        h('p', { class: 'seclabel', style: 'margin:0 0 10px' }, "Aujourd'hui",
-          summary.calories_estimate > 0
-            ? h('em', { class: 'num', text: `≈ ${summary.calories_estimate} kcal` })
-            : null),
-        h('div', { class: 'fitness-metrics' },
-          metric('Séance', seance),
-          metric('Repas', String(summary.meal_count || 0)),
-          metric('Eau', waterLabel(summary.water_ml || 0)),
-          metric('Forme', forme)));
+    function segmentSwitch() {
+      return h('div', { class: 'fit-switch', role: 'tablist', 'aria-label': 'Vue fitness' },
+        ...[
+          ['today', "Aujourd'hui"],
+          ['program', 'Programme'],
+        ].map(([key, label]) => {
+          const button = h('button', {
+            class: `fit-switch-btn${activeTab === key ? ' active' : ''}`,
+            type: 'button',
+            role: 'tab',
+            'aria-selected': activeTab === key ? 'true' : 'false',
+            text: label,
+          });
+          button.addEventListener('click', () => { activeTab = key; render(); });
+          return button;
+        }));
     }
 
-    function setBusy(btn, busy, ok) {
-      if (!btn) return;
-      btn.disabled = !!busy;
-      if (busy) btn.textContent = '…';
-      else if (ok) {
-        btn.textContent = 'Enregistré';
-        setTimeout(() => { if (alive) btn.textContent = btn.dataset.label || 'Enregistrer'; }, 1200);
-      } else btn.textContent = btn.dataset.label || 'Enregistrer';
+    function sessionCard() {
+      const session = dashboard.scheduled_session;
+      if (!session) {
+        return h('div', { class: 'card fit-rest' },
+          h('p', { class: 'fit-rest-mark', text: '✦' }),
+          h('p', { class: 'ct', text: 'Jour de récupération' }),
+          h('p', { class: 'cs', text: `Prochaine séance : ${dashboard.next_session ? dashboard.next_session.title : 'à planifier'}.` }));
+      }
+
+      const status = dashboard.progress ? dashboard.progress.status : 'planned';
+      const workoutDone = status === 'done';
+      const exercises = session.exercises.map((exercise) => {
+        const checked = Boolean(progressResult(dashboard, exercise)?.completed);
+        const box = h('span', { class: `box${checked ? ' done' : ''}` }, icon('check'));
+        const button = h('button', {
+          class: 'fit-exercise',
+          type: 'button',
+          disabled: busy || workoutDone,
+          'aria-pressed': checked ? 'true' : 'false',
+        }, box, h('span', {},
+          h('strong', { text: exercise.name }),
+          h('small', { text: prescription(exercise) }),
+          exercise.progression ? h('em', { text: `Progression : ${exercise.progression}` }) : null));
+        button.addEventListener('click', () => { void toggleExercise(exercise); });
+        return button;
+      });
+
+      const doneButton = h('button', {
+        class: 'btn primary', type: 'button', disabled: busy || workoutDone,
+      }, icon('check'), 'Marquer comme fait');
+      doneButton.addEventListener('click', () => { void setProgress('done'); });
+
+      const skipButton = h('button', {
+        class: 'btn ghost', type: 'button', disabled: busy || workoutDone,
+      }, icon('x'), "Non fait aujourd'hui");
+      skipButton.addEventListener('click', () => { void setProgress('skipped'); });
+
+      let resetButton = null;
+      if (dashboard.progress && status !== 'planned') {
+        resetButton = h('button', { class: 'fit-reset', type: 'button', disabled: busy },
+          icon('refresh'), 'Réinitialiser');
+        resetButton.addEventListener('click', () => { void setProgress('planned', []); });
+      }
+
+      const completedCount = session.exercises.filter((exercise) => (
+        Boolean(progressResult(dashboard, exercise)?.completed)
+      )).length;
+      const warmup = h('details', { class: 'fit-details' },
+        h('summary', { text: `Échauffement · ${session.warmup.length} étapes` }),
+        ...session.warmup.map((item) => h('p', { text: `${item.name} · ${prescription(item)}` })));
+      const stretch = h('details', {
+        class: 'fit-details',
+        open: completedCount === session.exercises.length && session.exercises.length > 0,
+      }, h('summary', { text: `Étirements de fin · ${session.stretches.length}` }),
+      ...session.stretches.map((item) => h('p', { text: `${item.name} · ${prescription(item)}` })));
+
+      return h('section', { class: `card fit-session${workoutDone ? ' complete' : ''}` },
+        h('div', { class: 'fit-session-head' },
+          h('div', {},
+            h('span', { text: `Séance du jour · ${DAYS[session.day_of_week]}` }),
+            h('p', { class: 'fit-session-title', text: session.title })),
+          h('b', {
+            class: `fit-status ${status}`,
+            text: workoutDone ? 'FAIT' : status === 'skipped' ? 'NON FAIT' : status === 'in_progress' ? 'EN COURS' : 'À FAIRE',
+          })),
+        h('p', { class: 'cs', text: session.description || '' }),
+        warmup,
+        h('div', { class: 'fit-exercises' }, ...exercises),
+        stretch,
+        h('div', { class: 'fit-actions fit-session-actions' }, doneButton, skipButton),
+        resetButton,
+        session.notes ? h('p', { class: 'fit-note', text: session.notes }) : null);
     }
 
-    function workoutForm() {
-      const type = select({}, [
-        ['poussee', 'Poussée'],
-        ['tirage', 'Tirage / dos'],
-        ['jambes', 'Jambes'],
-        ['full_body', 'Full body'],
-        ['natation', 'Natation'],
-        ['autre', 'Autre'],
-      ]);
-      const duration = field({ type: 'number', inputmode: 'numeric', min: '1', max: '1440', placeholder: 'Minutes' });
-      const exercise = field({ type: 'text', maxlength: '160', placeholder: 'Exercice (optionnel)' });
-      const sets = field({ type: 'number', inputmode: 'numeric', min: '1', placeholder: 'Séries', 'aria-label': 'Séries' });
-      const reps = field({ type: 'number', inputmode: 'numeric', min: '1', placeholder: 'Reps', 'aria-label': 'Répétitions' });
-      const err = h('div', {});
-      const btn = h('button', { class: 'btn primary block', type: 'submit', text: 'Enregistrer', dataset: { label: 'Enregistrer' } });
+    function adviceCard() {
+      const button = h('button', { class: 'btn block', type: 'button', disabled: busy },
+        busy ? 'Analyse…' : 'Analyser ma journée');
+      button.addEventListener('click', () => { void getAdvice(); });
+      return h('section', { class: 'card fit-advice' },
+        h('div', { class: 'fit-card-head' },
+          h('p', { class: 'ct', text: 'Conseil JARVIS' }),
+          advice ? h('span', {
+            class: 'fit-source',
+            text: advice.source === 'ai' ? 'IA' : 'hors ligne',
+          }) : null),
+        h('p', {
+          class: 'cs fit-advice-copy',
+          text: advice ? advice.text : 'Demandez une recommandation fondée sur la séance, l’alimentation, l’eau et votre progression du jour.',
+        }),
+        button);
+    }
 
-      return h('form', {
-        class: 'card fitness-form',
-        onSubmit: async (event) => {
-          event.preventDefault();
-          err.replaceChildren();
-          setBusy(btn, true);
+    function mealCard() {
+      const addButton = h('button', {
+        class: 'round fit-round',
+        type: 'button',
+        'aria-label': mealFormOpen ? 'Fermer le formulaire repas' : 'Ajouter un repas',
+      }, icon(mealFormOpen ? 'x' : 'plus'));
+      addButton.addEventListener('click', () => { mealFormOpen = !mealFormOpen; render(); });
+
+      let form = null;
+      if (mealFormOpen) {
+        const type = select(Object.entries(MEALS), 'dejeuner', { 'aria-label': 'Type de repas' });
+        const description = textarea({ placeholder: 'Ce que vous avez mangé', 'aria-label': 'Description du repas' });
+        const calories = input({ type: 'number', inputmode: 'numeric', min: '0', placeholder: 'kcal', 'aria-label': 'Calories' });
+        const protein = input({ type: 'number', inputmode: 'decimal', min: '0', placeholder: 'protéines g', 'aria-label': 'Protéines' });
+        const feedback = h('p', { class: 'fit-inline-error' });
+        const save = h('button', { class: 'btn primary block', type: 'button' }, 'Enregistrer');
+        save.addEventListener('click', async () => {
+          if (!description.value.trim() || busy) return;
+          busy = true;
+          save.disabled = true;
+          mutationError = null;
           try {
-            const name = exercise.value.trim();
-            await api.createWorkout({
-              date: todayIso(),
-              type: type.value,
-              duration_min: duration.value ? Number(duration.value) : null,
-              exercises_json: name
-                ? [{
-                  name,
-                  ...(sets.value ? { sets: Number(sets.value) } : {}),
-                  ...(reps.value ? { reps: Number(reps.value) } : {}),
-                }]
-                : null,
-              source: 'pwa',
-            });
-            exercise.value = '';
-            sets.value = '';
-            reps.value = '';
-            setBusy(btn, false, true);
-            await load();
-          } catch {
-            setBusy(btn, false);
-            err.replaceChildren(feedbackLine('Enregistrement impossible. Réessaie.'));
-          }
-        },
-      },
-        h('p', { class: 'ct', text: 'Séance' }),
-        h('p', { class: 'cm', text: 'Mouvement et durée' }),
-        h('div', { class: 'fitness-row' }, type, duration),
-        h('div', { class: 'fitness-row3' }, exercise, sets, reps),
-        btn,
-        err);
-    }
-
-    function mealForm() {
-      const mealType = select({}, [
-        ['petit_dej', 'Petit-déj.'],
-        ['dejeuner', 'Déjeuner'],
-        ['diner', 'Dîner'],
-        ['collation', 'Collation'],
-      ]);
-      const calories = field({ type: 'number', inputmode: 'numeric', min: '0', max: '20000', placeholder: 'Kcal (optionnel)' });
-      const description = textarea({ rows: '2', maxlength: '2000', placeholder: 'Qu’as-tu mangé ?' });
-      const err = h('div', {});
-      const btn = h('button', { class: 'btn primary block', type: 'submit', text: 'Enregistrer', dataset: { label: 'Enregistrer' } });
-
-      return h('form', {
-        class: 'card fitness-form',
-        onSubmit: async (event) => {
-          event.preventDefault();
-          if (!description.value.trim()) return;
-          err.replaceChildren();
-          setBusy(btn, true);
-          try {
-            await api.createMeal({
-              date: todayIso(),
-              meal_type: mealType.value,
+            await api.post('/api/fitness/meals', {
+              date: dashboard.date,
+              meal_type: type.value,
               description: description.value.trim(),
               calories_estimate: calories.value ? Number(calories.value) : null,
+              protein_g: protein.value ? Number(protein.value) : null,
               source: 'pwa',
             });
-            description.value = '';
-            calories.value = '';
-            setBusy(btn, false, true);
-            await load();
+            mealFormOpen = false;
           } catch {
-            setBusy(btn, false);
-            err.replaceChildren(feedbackLine('Enregistrement impossible. Réessaie.'));
+            feedback.textContent = 'Repas non enregistré.';
           }
-        },
-      },
-        h('p', { class: 'ct', text: 'Repas' }),
-        h('p', { class: 'cm', text: 'Simple, sans comptage obligatoire' }),
-        h('div', { class: 'fitness-row' }, mealType, calories),
-        description,
-        btn,
-        err);
-    }
-
-    function waterForm() {
-      const err = h('div', {});
-      const buttons = [250, 500, 1000].map((amount) => {
-        const label = amount === 1000 ? '+1 L' : `+${amount} ml`;
-        const btn = h('button', {
-          class: 'btn ghost fitness-water',
-          type: 'button',
-          text: label,
-          dataset: { label },
-          onClick: async () => {
-            err.replaceChildren();
-            setBusy(btn, true);
-            try {
-              await api.addWater({ date: todayIso(), amount_ml: amount, source: 'pwa' });
-              setBusy(btn, false, true);
-              await load();
-            } catch {
-              setBusy(btn, false);
-              err.replaceChildren(feedbackLine('Enregistrement impossible. Réessaie.'));
-            }
-          },
+          busy = false;
+          await load();
         });
-        return btn;
-      });
+        form = h('div', { class: 'fit-form' },
+          type,
+          description,
+          h('div', { class: 'fit-two' }, calories, protein),
+          save,
+          feedback);
+      }
 
-      return h('div', { class: 'card fitness-form' },
-        h('p', { class: 'ct', text: 'Eau' }),
-        h('p', { class: 'cm', text: 'Ajout rapide' }),
-        h('div', { class: 'fitness-water-row' }, ...buttons),
-        err);
+      const meals = dashboard.meals.length
+        ? dashboard.meals.map((meal) => h('div', { class: 'fit-meal' },
+          h('div', {},
+            h('span', { text: MEALS[meal.meal_type] || 'Repas' }),
+            h('strong', { text: `${meal.calories_estimate ?? '?'} kcal · ${meal.protein_g ?? '?'} g` })),
+          h('p', { text: meal.description })))
+        : [h('p', { class: 'fit-empty-copy', text: "Aucun repas noté aujourd'hui." })];
+
+      return h('section', { class: 'card' },
+        h('div', { class: 'fit-card-head' },
+          h('div', {},
+            h('p', { class: 'ct', text: 'Alimentation' }),
+            h('p', { class: 'cs', text: `${dashboard.meals.length} repas aujourd'hui` })),
+          addButton),
+        form,
+        h('div', { class: 'fit-meals' }, ...meals));
     }
 
-    function wellbeingForm() {
-      const ratingValue = h('strong', { class: 'num', text: '7/10' });
-      const rating = h('input', {
-        type: 'range', min: '1', max: '10', step: '1', value: '7',
-        class: 'fitness-range', 'aria-label': 'Note de bien-être',
-        onInput: (event) => { ratingValue.textContent = `${event.target.value}/10`; },
+    function waterCard() {
+      const buttons = [250, 500, 750].map((amount) => {
+        const button = h('button', {
+          class: 'btn ghost', type: 'button', text: `+${amount} ml`, disabled: busy,
+        });
+        button.addEventListener('click', () => { void addWater(amount); });
+        return button;
       });
-      const journal = textarea({ rows: '3', maxlength: '2000', placeholder: 'Une pensée, une sensation… (optionnel)' });
-      const err = h('div', {});
-      const btn = h('button', { class: 'btn primary block', type: 'submit', text: 'Enregistrer', dataset: { label: 'Enregistrer' } });
+      return h('section', { class: 'card fit-compact-card' },
+        h('p', { class: 'ct', text: 'Eau' }),
+        h('p', { class: 'cs', text: `${(dashboard.summary.water_ml / 1000).toFixed(1)} L aujourd'hui` }),
+        h('div', { class: 'fit-actions' }, ...buttons));
+    }
 
-      return h('form', {
-        class: 'card fitness-form',
-        onSubmit: async (event) => {
-          event.preventDefault();
-          err.replaceChildren();
-          setBusy(btn, true);
-          try {
-            await api.createWellbeing({
-              date: todayIso(),
-              rating: Number(rating.value),
-              journal_text: journal.value.trim() || null,
-              source: 'pwa',
-            });
-            journal.value = '';
-            setBusy(btn, false, true);
-            await load();
-          } catch {
-            setBusy(btn, false);
-            err.replaceChildren(feedbackLine('Enregistrement impossible. Réessaie.'));
-          }
-        },
-      },
-        h('p', { class: 'ct', text: 'Bien-être' }),
-        h('p', { class: 'cm', text: 'Note rapide et journal libre' }),
-        h('div', { class: 'fitness-rating' },
-          h('div', { class: 'fitness-rating-head' },
-            h('span', { class: 'cm', text: 'Ressenti global' }),
-            ratingValue),
-          rating),
-        journal,
-        btn,
-        err);
+    function weightCard() {
+      const latest = dashboard.latest_weight;
+      const weight = input({
+        type: 'number',
+        inputmode: 'decimal',
+        min: '20.1',
+        max: '400',
+        step: '0.1',
+        placeholder: latest ? `${latest.weight_kg} kg` : 'Poids en kg',
+        'aria-label': 'Poids en kilogrammes',
+      });
+      const feedback = h('p', { class: 'fit-inline-error' });
+      const save = h('button', { class: 'btn fit-weight-save', type: 'button', disabled: busy }, 'Enregistrer');
+      save.addEventListener('click', async () => {
+        const value = Number(weight.value);
+        if (!value || busy) return;
+        busy = true;
+        save.disabled = true;
+        mutationError = null;
+        try {
+          await api.post('/api/fitness/weights', {
+            date: dashboard.date,
+            weight_kg: value,
+            source: 'pwa',
+          });
+          weight.value = '';
+        } catch {
+          feedback.textContent = 'Pesée non enregistrée.';
+        }
+        busy = false;
+        await load();
+      });
+      return h('section', { class: 'card fit-compact-card' },
+        h('p', { class: 'ct', text: 'Pesée hebdomadaire' }),
+        h('p', {
+          class: 'cs',
+          text: latest ? `Dernière mesure : ${latest.weight_kg} kg le ${latest.date}` : 'Aucune pesée enregistrée.',
+        }),
+        h('div', { class: 'fit-weight-row' }, weight, save),
+        feedback);
+    }
+
+    function todayView() {
+      const program = dashboard.program;
+      const summary = dashboard.summary;
+      const protein = dashboard.meals.reduce((sum, meal) => sum + (meal.protein_g || 0), 0);
+      return [
+        h('div', { class: 'fit-metrics' },
+          metric('Semaine', `${dashboard.weekly_done}/${dashboard.weekly_target}`, `${dashboard.current_streak_weeks} semaine(s) de série`, ratio(dashboard.weekly_done, dashboard.weekly_target)),
+          metric('Calories', summary.calories_estimate.toLocaleString('fr-FR'), `Cible ${program.calories_min}–${program.calories_max} kcal`, ratio(summary.calories_estimate, program.calories_min)),
+          metric('Protéines', `${Math.round(protein)} g`, `Cible ${program.protein_min_g}–${program.protein_max_g} g`, ratio(protein, program.protein_min_g)),
+          metric('Hydratation', `${(summary.water_ml / 1000).toFixed(1)} L`, `${summary.meal_count} repas journalisé(s)`, ratio(summary.water_ml, 2000))),
+        sessionCard(),
+        adviceCard(),
+        mealCard(),
+        h('div', { class: 'fit-compact-grid' }, waterCard(), weightCard()),
+      ];
+    }
+
+    function settingsModal() {
+      if (!settingsOpen) return null;
+      const program = dashboard.program;
+      const numeric = [
+        ['calories_min', 'Calories min'],
+        ['calories_max', 'Calories max'],
+        ['protein_min_g', 'Protéines min'],
+        ['protein_max_g', 'Protéines max'],
+        ['weekly_min_sessions', 'Séances minimum'],
+        ['reminder_interval_min', 'Rappel toutes les min'],
+      ];
+      const fields = new Map();
+      const fieldNodes = numeric.map(([key, label]) => {
+        const node = input({ type: 'number', value: String(program[key] ?? ''), 'aria-label': label });
+        fields.set(key, node);
+        return h('label', { class: 'fit-label' }, h('span', { text: label }), node);
+      });
+      const reminderTime = input({ type: 'time', value: program.reminder_time || '', 'aria-label': 'Premier rappel' });
+      const reminders = input({ type: 'checkbox', checked: Boolean(program.reminders_enabled) });
+      const mealTracking = input({ type: 'checkbox', checked: Boolean(program.meal_tracking_enabled) });
+      const feedback = h('p', { class: 'fit-inline-error' });
+      const save = h('button', { class: 'btn primary block', type: 'button' }, 'Enregistrer les réglages');
+      save.addEventListener('click', async () => {
+        if (busy) return;
+        busy = true;
+        save.disabled = true;
+        try {
+          const payload = {};
+          for (const [key, node] of fields) payload[key] = Number(node.value);
+          payload.reminder_time = reminderTime.value;
+          payload.reminders_enabled = reminders.checked;
+          payload.meal_tracking_enabled = mealTracking.checked;
+          await api.patch('/api/fitness/program', payload);
+          settingsOpen = false;
+          mutationError = null;
+          busy = false;
+          await load();
+        } catch {
+          busy = false;
+          save.disabled = false;
+          feedback.textContent = 'Réglages non enregistrés.';
+        }
+      });
+      const close = h('button', { class: 'round fit-modal-close', type: 'button', 'aria-label': 'Fermer' }, icon('x'));
+      close.addEventListener('click', () => { settingsOpen = false; render(); });
+      return h('div', { class: 'fit-modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Objectifs et rappels' },
+        h('div', { class: 'fit-modal-sheet' },
+          h('div', { class: 'fit-modal-head' }, h('h2', { text: 'Objectifs et rappels' }), close),
+          h('div', { class: 'fit-settings-grid' }, ...fieldNodes,
+            h('label', { class: 'fit-label' }, h('span', { text: 'Premier rappel' }), reminderTime)),
+          h('label', { class: 'fit-toggle' }, h('span', { text: 'Relances séance à voix haute' }), reminders),
+          h('label', { class: 'fit-toggle' }, h('span', { text: 'Questions sur les repas' }), mealTracking),
+          feedback,
+          save));
+    }
+
+    function sessionEditorModal() {
+      if (!editingSession) return null;
+      const session = editingSession;
+      const title = input({ value: session.title, 'aria-label': 'Titre de la séance' });
+      const day = select(DAYS.map((label, index) => [String(index), label]), session.day_of_week, { 'aria-label': 'Jour de la séance' });
+      const description = input({ value: session.description || '', 'aria-label': 'Description de la séance' });
+      const warmup = textarea({ 'aria-label': 'Échauffement' }, editorLines(session.warmup));
+      const exercises = textarea({ 'aria-label': 'Exercices' }, editorLines(session.exercises));
+      const stretches = textarea({ 'aria-label': 'Étirements' }, editorLines(session.stretches));
+      const notes = textarea({ 'aria-label': 'Notes' }, session.notes || '');
+      exercises.classList.add('fit-area-tall');
+      const feedback = h('p', { class: 'fit-inline-error' });
+      const save = h('button', { class: 'btn primary block', type: 'button' }, 'Enregistrer la séance');
+      save.addEventListener('click', async () => {
+        if (!title.value.trim() || busy) return;
+        const parsedWarmup = parseEditorLines(warmup.value, session.warmup);
+        const parsedExercises = parseEditorLines(exercises.value, session.exercises);
+        const parsedStretches = parseEditorLines(stretches.value, session.stretches);
+        if ([...parsedWarmup, ...parsedExercises, ...parsedStretches].some((item) => !item.name)) {
+          feedback.textContent = 'Chaque ligne doit commencer par un nom.';
+          return;
+        }
+        busy = true;
+        save.disabled = true;
+        try {
+          await api.patch(`/api/fitness/program/sessions/${session.id}`, {
+            title: title.value.trim(),
+            description: description.value.trim() || null,
+            day_of_week: Number(day.value),
+            notes: notes.value.trim() || null,
+            warmup: parsedWarmup,
+            exercises: parsedExercises,
+            stretches: parsedStretches,
+          });
+          editingSession = null;
+          mutationError = null;
+          busy = false;
+          await load();
+        } catch {
+          busy = false;
+          save.disabled = false;
+          feedback.textContent = 'Séance non enregistrée.';
+        }
+      });
+      const close = h('button', { class: 'round fit-modal-close', type: 'button', 'aria-label': 'Fermer' }, icon('x'));
+      close.addEventListener('click', () => { editingSession = null; render(); });
+      return h('div', { class: 'fit-modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Modifier la séance' },
+        h('div', { class: 'fit-modal-sheet fit-editor-sheet' },
+          h('div', { class: 'fit-modal-head' }, h('h2', { text: 'Modifier la séance' }), close),
+          h('div', { class: 'fit-two' },
+            h('label', { class: 'fit-label' }, h('span', { text: 'Titre' }), title),
+            h('label', { class: 'fit-label' }, h('span', { text: 'Jour' }), day)),
+          h('label', { class: 'fit-label' }, h('span', { text: 'Description' }), description),
+          h('p', { class: 'fit-format-help', text: 'Format : nom | séries | répétitions | secondes | côtés.' }),
+          h('label', { class: 'fit-label' }, h('span', { text: 'Échauffement' }), warmup),
+          h('label', { class: 'fit-label' }, h('span', { text: 'Exercices' }), exercises),
+          h('label', { class: 'fit-label' }, h('span', { text: 'Étirements' }), stretches),
+          h('label', { class: 'fit-label' }, h('span', { text: 'Notes' }), notes),
+          feedback,
+          save));
+    }
+
+    function programView() {
+      const program = dashboard.program;
+      const settings = h('button', { class: 'btn ghost block', type: 'button' }, 'Objectifs et rappels');
+      settings.addEventListener('click', () => { settingsOpen = true; render(); });
+      const cards = program.sessions.map((session) => {
+        const edit = h('button', { class: 'round fit-edit', type: 'button', 'aria-label': `Modifier ${session.title}` }, '✎');
+        edit.addEventListener('click', () => { editingSession = session; render(); });
+        return h('article', { class: 'card fit-program-card' },
+          h('div', { class: 'fit-card-head fit-program-head' },
+            h('div', {},
+              h('span', { class: 'fit-program-day', text: `${DAYS[session.day_of_week]} · Séance ${session.position}` }),
+              h('p', { class: 'fit-program-title', text: session.title }),
+              h('p', { class: 'cs', text: session.description || '' })),
+            edit),
+          h('div', { class: 'fit-program-exercises' },
+            ...session.exercises.map((exercise) => h('div', {},
+              h('span', { text: exercise.name }),
+              h('strong', { text: prescription(exercise) })))),
+          h('details', { class: 'fit-program-details' },
+            h('summary', { text: 'Échauffement et étirements' }),
+            h('p', { text: `Échauffement : ${session.warmup.map((item) => item.name).join(', ') || '—'}` }),
+            h('p', { text: `Étirements : ${session.stretches.map((item) => item.name).join(', ') || '—'}` })));
+      });
+      return [
+        h('section', { class: 'card fit-program-intro' },
+          h('p', { class: 'fit-program-name', text: program.name }),
+          h('p', { class: 'cs', text: `${program.sessions.length} séances prévues · minimum ${program.weekly_min_sessions} · natation occasionnelle compatible` }),
+          settings),
+        ...cards,
+        h('section', { class: 'card fit-swim-note' },
+          h('strong', { text: 'Natation. ' }),
+          h('span', { text: 'Évitez-la juste avant la séance jambes et compensez toujours la dépense cardio par un repas complet après la nage.' })),
+      ];
     }
 
     function render() {
       if (!alive) return;
+      ctx.setHeader('Fitness', dashboard ? `${dashboard.weekly_done}/${dashboard.weekly_target} séances cette semaine` : 'Programme personnel', [
+        { icon: 'refresh', label: 'Actualiser', onClick: () => { void load(); } },
+      ]);
+      ctx.setDock(null);
+      if (!dashboard) {
+        ctx.setBody(networkError ? banner(networkError, 'err') : skeleton(5));
+        return;
+      }
+      const error = mutationError || networkError;
       ctx.setBody(
-        summaryCard(),
-        h('p', { class: 'seclabel', text: "Ajouter à aujourd'hui" }),
-        workoutForm(),
-        mealForm(),
-        waterForm(),
-        wellbeingForm(),
+        error ? banner(error, 'err') : null,
+        h('div', { class: 'pad fit-pad' },
+          h('section', { class: 'fit-hero' },
+            h('p', { class: 'fit-kicker', text: 'Fitness connecté' }),
+            h('h2', { text: 'Votre entraînement, suivi par JARVIS' }),
+            h('p', { text: dashboard.program.goal })),
+          segmentSwitch(),
+          ...(activeTab === 'today' ? todayView() : programView())),
+        settingsModal(),
+        sessionEditorModal(),
       );
     }
 
+    ctx.setHeader('Fitness');
+    ctx.setBody(skeleton(5));
     await load();
     return () => { alive = false; };
   },

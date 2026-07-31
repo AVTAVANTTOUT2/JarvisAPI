@@ -28,7 +28,7 @@ const TasksView = lazy(() => import('@desktop/app/components/views/TasksView'));
 const VoiceDebugView = lazy(() => import('@desktop/app/components/views/VoiceDebugView'));
 const MissionControl = lazy(() => import('@desktop/pages/MissionControl'));
 const MobileDevicesView = lazy(() => import('@desktop/app/components/views/MobileDevicesView'));
-const FitnessView = lazy(() => import('@desktop/app/components/views/FitnessView'));
+const FitnessView = lazy(() => import('@desktop/app/components/views/FitnessView').then(m => ({ default: m.FitnessView })));
 
 function S({ children }: { children: ReactNode }) {
   return (

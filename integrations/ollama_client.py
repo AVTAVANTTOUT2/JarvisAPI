@@ -1,7 +1,7 @@
-"""Client HTTP Ollama — unique porte d'entrée applicative (allowlist).
+"""Client HTTP Ollama — porte d'entrée applicative (allowlist).
 
-Utilisé uniquement par le Screen Watcher. Tout autre consommateur doit
-échouer via ``jarvis.cognitive.ollama_guard``.
+Consommateurs autorisés : Screen Watcher, contrôle process Ollama, et
+analyse photo des repas fitness (``app.fitness.meal_analysis``).
 """
 
 from __future__ import annotations

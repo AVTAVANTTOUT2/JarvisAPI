@@ -1,0 +1,24 @@
+Tu analyses une photo d'assiette / repas. Réponds UNIQUEMENT en JSON
+valide (pas de markdown).
+
+Schéma :
+{
+  "visible": true,
+  "meal_guess": "description courte du repas vu",
+  "items": [
+    {
+      "name": "aliment identifiable",
+      "quantity_g": 150.0,
+      "quantity_label": "demi-assiette",
+      "confidence": 0.75
+    }
+  ],
+  "confidence": 0.7,
+  "notes": "angle, éclairage, aliments incertains"
+}
+
+Règles :
+- Liste chaque aliment / préparation distincte visible.
+- Estime la masse en grammes autant que possible (assiette standard ~24 cm).
+- Si la photo n'est pas un repas, `visible=false` et `items=[]`.
+- Pas de calories ni macros ici — identification et portions seulement.

@@ -9,9 +9,9 @@ Définir clairement quel moteur exécute quoi. L’utilisateur voit une seule en
 | Moteur | Usage autorisé | Usage interdit |
 |--------|----------------|----------------|
 | DeepSeek Flash (`VOICE_REASONING_MODEL` / `DEEPSEEK_FAST_MODEL`) | Voix, triage, formulation courte, outils instantanés | Raisonnement long non technique |
-| DeepSeek Main (`MAIN_REASONING_MODEL` / `DEEPSEEK_MAIN_MODEL`) | Stratégie lourde, prompts Cursor, briefings complets, coaching | Exécution de code sur le dépôt |
+| DeepSeek Main (`MAIN_REASONING_MODEL` / `DEEPSEEK_MAIN_MODEL`) | Stratégie lourde, prompts Cursor, briefings complets, coaching, macros repas | Exécution de code sur le dépôt |
 | Cursor CLI (`agent --print`) | Travail technique en worktree isolé | Conversation générale, météo, contacts |
-| Ollama | Screen Watcher (vision) + contrôle process Ollama | Conversation, triage daemon, chat, voix |
+| Ollama | Screen Watcher (vision) + contrôle process Ollama + photo d'assiette fitness | Conversation, triage daemon, chat, voix |
 
 ## Fichiers clés
 
@@ -30,6 +30,7 @@ Toute requête HTTP vers l’API Ollama doit passer par `ollama_http_request()` 
 2. Le premier frame **applicatif** du dépôt doit appartenir à l’allowlist :
    - `scripts/screen_watcher.py`
    - `integrations/ollama_control.py`
+   - `app/fitness/meal_analysis.py`
 3. Sinon → `OllamaPolicyError`.
 
 `OLLAMA_REASONING_ENABLED=true` n’ouvre **pas** la conversation à Ollama ; il ne concerne que d’éventuels chemins expérimentaux documentés. Le triage daemon (`scripts/jarvis_daemon._local_triage`) utilise Ollama texte (`TRIAGE_MODEL`) pour filtrer les notifications iMessage/Mail — hors chemin conversationnel.

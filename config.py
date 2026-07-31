@@ -96,6 +96,7 @@ KOKORO_LANG_CODE = _get("KOKORO_LANG_CODE", DEFAULT_KOKORO_LANG_CODE)
 KOKORO_SPEED = float(_get("KOKORO_SPEED", str(DEFAULT_KOKORO_SPEED)))
 KOKORO_MAX_TOKENS = int(_get("KOKORO_MAX_TOKENS", str(DEFAULT_KOKORO_MAX_TOKENS)))
 MACOS_TTS_VOICE = _get("MACOS_TTS_VOICE", "Jacques")
+AUDIO_DAEMON_OUTPUT_DEVICE = _get("AUDIO_DAEMON_OUTPUT_DEVICE", "")  # vide = sortie défaut macOS
 AUDIO_DAEMON_HALF_DUPLEX = _get("AUDIO_DAEMON_HALF_DUPLEX", "true").lower() == "true"
 AUDIO_DAEMON_PRE_ROLL_MS = int(_get("AUDIO_DAEMON_PRE_ROLL_MS", "300"))
 WAKE_WORD = _get("WAKE_WORD", "jarvis")
@@ -299,7 +300,7 @@ AUDIO_DAEMON_SILENCE_MS = int(_get("AUDIO_DAEMON_SILENCE_MS", "450"))
 AUDIO_DAEMON_MIN_SPEECH_MS = int(_get("AUDIO_DAEMON_MIN_SPEECH_MS", "200"))
 AUDIO_DAEMON_MAX_UTTERANCE_S = int(_get("AUDIO_DAEMON_MAX_UTTERANCE_S", "30"))
 AUDIO_DAEMON_CONVERSATION_TIMEOUT = float(_get("AUDIO_DAEMON_CONVERSATION_TIMEOUT", "30.0"))
-AUDIO_DAEMON_INPUT_DEVICE = _get("AUDIO_DAEMON_INPUT_DEVICE", "")  # vide = auto Blue Snowball sinon defaut systeme
+AUDIO_DAEMON_INPUT_DEVICE = _get("AUDIO_DAEMON_INPUT_DEVICE", "")  # vide = entrée défaut macOS
 AUDIO_DAEMON_WAKE_SOUND = _get("AUDIO_DAEMON_WAKE_SOUND", "true").lower() == "true"
 AUDIO_DAEMON_STT_ENGINE = STT_ENGINE
 AUDIO_DAEMON_STT_MODEL = STT_MODEL
@@ -379,6 +380,17 @@ DEBRIEF_TIME = _get("DEBRIEF_TIME", "21:45")        # bilan de journée, ton con
 QUOTE_TIME = _get("QUOTE_TIME", "07:00")            # citation ironique du jour
 BIRTHDAY_CHECK_TIME = _get("BIRTHDAY_CHECK_TIME", "08:00")
 RITUALS_TTS = _get("RITUALS_TTS", "true").lower() == "true"  # roast/debrief parlés via daemon
+
+# ── Fitness proactif ───────────────────────────────────────
+# Interrupteur global d'urgence. Les horaires et la cadence se règlent ensuite
+# depuis l'écran Fitness et sont persistés dans fitness_programs.
+FITNESS_REMINDERS_ENABLED = _get("FITNESS_REMINDERS_ENABLED", "true").lower() == "true"
+# Vision locale pour photos d'assiette (défaut = modèle screen watcher).
+FITNESS_MEAL_VISION_MODEL = _get("FITNESS_MEAL_VISION_MODEL", "") or SCREEN_VISION_MODEL
+FITNESS_MEAL_VISION_TIMEOUT_S = float(_get("FITNESS_MEAL_VISION_TIMEOUT_S", "90"))
+FITNESS_MEAL_VISION_MAX_TOKENS = int(_get("FITNESS_MEAL_VISION_MAX_TOKENS", "800"))
+FITNESS_MEAL_ANALYSIS_MAX_TOKENS = int(_get("FITNESS_MEAL_ANALYSIS_MAX_TOKENS", "2048"))
+FITNESS_MEAL_PHOTO_MAX_BYTES = int(_get("FITNESS_MEAL_PHOTO_MAX_BYTES", "8000000"))
 
 # ── Debrief hebdo vocal + mood tracking discret ──────────────
 WEEKLY_DEBRIEF_TIME = _get("WEEKLY_DEBRIEF_TIME", "21:00")   # dimanche soir

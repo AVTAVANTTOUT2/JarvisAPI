@@ -144,20 +144,21 @@ def test_parse_cursor_result_missing_markers():
 def test_ollama_allowlist_contains_screen_watcher():
     assert "scripts/screen_watcher.py" in OLLAMA_ALLOWED_MODULES
     assert "integrations/ollama_control.py" in OLLAMA_ALLOWED_MODULES
+    assert "app/fitness/meal_analysis.py" in OLLAMA_ALLOWED_MODULES
 
 
 def test_ollama_reasoning_consumers_contract():
     """CONTRAT STRICT : zéro consommateur de raisonnement Ollama hors allowlist.
 
-    Résultat attendu : `Ollama reasoning consumers = screen_watcher uniquement`
-    (screen_watcher passe par integrations/ollama_client qui est de la
-    plomberie ; tout autre fichier listé ici est une régression).
+    Résultat attendu : Screen Watcher + meal_analysis fitness (vision assiette).
+    (screen_watcher / meal_analysis passent par integrations/ollama_client qui
+    est de la plomberie ; tout autre fichier listé ici est une régression).
     """
     root = Path(__file__).resolve().parents[1]
     offenders = ollama_reasoning_consumers(root)
     assert offenders == [], (
         "Nouveaux chemins de raisonnement local détectés — Ollama est réservé "
-        f"au Screen Watcher : {offenders}"
+        f"au Screen Watcher et à l'analyse photo fitness : {offenders}"
     )
 
 

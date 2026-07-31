@@ -1,4 +1,5 @@
-"""Garde-fou : Ollama réservé au Screen Watcher (et contrôle process).
+"""Garde-fou : Ollama réservé au Screen Watcher, au contrôle process, et
+à l'analyse photo des repas fitness.
 
 Toute requête HTTP vers l'API Ollama doit passer par ``ollama_http_request``
 qui vérifie le module appelant contre une allowlist stricte.
@@ -18,6 +19,7 @@ OLLAMA_ALLOWED_MODULES: frozenset[str] = frozenset(
     {
         "scripts/screen_watcher.py",
         "integrations/ollama_control.py",
+        "app/fitness/meal_analysis.py",
     }
 )
 
@@ -27,6 +29,7 @@ _ALLOWED_MODULE_NAMES: frozenset[str] = frozenset(
     {
         "scripts.screen_watcher",
         "integrations.ollama_control",
+        "app.fitness.meal_analysis",
     }
 )
 
@@ -60,6 +63,7 @@ def _allowed_caller_paths() -> frozenset[Path]:
         {
             (_REPO_ROOT / "scripts" / "screen_watcher.py").resolve(),
             (_REPO_ROOT / "integrations" / "ollama_control.py").resolve(),
+            (_REPO_ROOT / "app" / "fitness" / "meal_analysis.py").resolve(),
         }
     )
 

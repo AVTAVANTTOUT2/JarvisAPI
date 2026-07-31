@@ -15,7 +15,7 @@ import voice from './views/voice.js';
 import today from './views/today.js';
 import tasks from './views/tasks.js';
 import mails from './views/mails.js';
-import health from './views/health.js';
+import health from './views/health.js?v=20260731';
 
 const ROUTES = [
   { id: 'chat',       label: 'Chat',        icon: 'chat',  view: chat },
@@ -23,7 +23,7 @@ const ROUTES = [
   { id: 'aujourdhui', label: "Aujourd'hui", icon: 'home',  view: today },
   { id: 'taches',     label: 'Tâches',      icon: 'task',  view: tasks },
   { id: 'mails',      label: 'Mails',       icon: 'mail',  view: mails },
-  { id: 'sante',      label: 'Santé',       icon: 'pulse', view: health },
+  { id: 'sante',      label: 'Fitness',      icon: 'pulse', view: health },
 ];
 const DEFAULT_ROUTE = 'chat';
 
