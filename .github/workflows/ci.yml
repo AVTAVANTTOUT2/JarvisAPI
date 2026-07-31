@@ -34,6 +34,7 @@ jobs:
           import importlib
 
           modules = [
+              "aiohttp",
               "catt",
               "cryptography",
               "edge_tts",

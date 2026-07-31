@@ -1,7 +1,7 @@
 """Script de diagnostic standalone — screen capture + crop ultrawide.
 
 Usage :
-  cd /Users/zeldris/JarvisAPI
+  cd /chemin/absolu/vers/JarvisAPI
   source venv/bin/activate
   python scripts/test_screen_capture.py
 

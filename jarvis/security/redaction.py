@@ -3,9 +3,54 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
+
+from jarvis.pii import PIIAnonymizer
 
 _REDACTED = "***REDACTED***"
+_PII_ANONYMIZER = PIIAnonymizer()
+
+_TOKEN_COUNTER_KEYS = frozenset(
+    {
+        "cachehittokens",
+        "heavytaskmaxtokens",
+        "maxtokens",
+        "tokenbudget",
+        "tokensin",
+        "tokensout",
+        "tokenstotal",
+        "tokensused",
+    }
+)
+
+# Métadonnées nécessaires à la reprise ou à l'exécution : leurs secrets sont
+# masqués, mais elles ne passent pas au NER PII afin de ne pas corrompre un
+# chemin, un enum ou un budget numérique.
+_PERSISTENCE_METADATA_KEYS = frozenset(
+    {
+        "backend",
+        "branchname",
+        "clireturncode",
+        "commitsha",
+        "isolationpath",
+        "iteration",
+        "loopbudget",
+        "maxconsecutivefailures",
+        "maxiterations",
+        "maxtokens",
+        "phase",
+        "projecttype",
+        "prurl",
+        "risklevel",
+        "slug",
+        "stack",
+        "status",
+        "testok",
+        "tokensused",
+        "verdict",
+    }
+)
 
 # Patterns de secrets connus (ordre : plus spécifiques d'abord).
 _SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
@@ -100,6 +145,66 @@ def redact_sensitive_mapping(data: Mapping[str, Any] | list[Any] | Any) -> Any:
     if isinstance(data, tuple):
         return tuple(redact_sensitive_mapping(item) for item in data)
     return data
+
+
+def redact_persisted_text(text: str | None) -> str:
+    """Masque secrets et PII avant une persistance durable.
+
+    Contrairement à l'anonymisation des appels LLM, le mapping réversible est
+    détruit immédiatement : une valeur persistée ne peut donc pas être
+    dé-anonymisée ultérieurement.
+    """
+    secret_safe = redact_sensitive_text(text).replace(_REDACTED, "[REDACTED]")
+    result = _PII_ANONYMIZER.anonymize(secret_safe)
+    try:
+        return result.anonymized_text
+    finally:
+        result.mapping.clear()
+
+
+def redact_persisted_mapping(data: Mapping[str, Any] | list[Any] | Any) -> Any:
+    """Redaction récursive secrets + PII pour les frontières de stockage."""
+    sensitive_tokens = (
+        "secret",
+        "token",
+        "password",
+        "passphrase",
+        "api_key",
+        "apikey",
+        "credential",
+        "private_key",
+        "cookie",
+        "authorization",
+    )
+
+    def _redact_value(value: Any, *, pii: bool = True) -> Any:
+        if isinstance(value, str):
+            if pii:
+                return redact_persisted_text(value)
+            return redact_sensitive_text(value).replace(_REDACTED, "[REDACTED]")
+        if isinstance(value, Mapping):
+            redacted: dict[str, Any] = {}
+            for key, item in value.items():
+                key_text = str(key)
+                normalized_key = re.sub(r"[^a-z0-9]", "", key_text.lower())
+                secret_key = (
+                    normalized_key not in _TOKEN_COUNTER_KEYS
+                    and any(token in key_text.lower() for token in sensitive_tokens)
+                    and not isinstance(item, (bool, int, float))
+                )
+                if secret_key:
+                    redacted[key_text] = "[REDACTED]"
+                    continue
+                child_pii = pii and normalized_key not in _PERSISTENCE_METADATA_KEYS
+                redacted[key_text] = _redact_value(item, pii=child_pii)
+            return redacted
+        if isinstance(value, list):
+            return [_redact_value(item, pii=pii) for item in value]
+        if isinstance(value, tuple):
+            return tuple(_redact_value(item, pii=pii) for item in value)
+        return value
+
+    return _redact_value(data)
 
 
 # Champs exposés dans la vue publique des jobs Cursor.

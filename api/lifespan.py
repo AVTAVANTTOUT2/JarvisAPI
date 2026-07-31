@@ -52,6 +52,11 @@ async def _auto_pull_ollama(model: str) -> None:
 async def lifespan(app: FastAPI):
     """Démarrage : init DB + enregistrement des agents disponibles."""
     logger.info("Démarrage JARVIS…")
+    try:
+        config.validate_required_runtime_config()
+    except config.ConfigurationError as exc:
+        logger.critical("[startup] Configuration invalide : %s", exc)
+        raise
     init_db()
     event_bus.bind_loop(asyncio.get_running_loop())
 
@@ -167,9 +172,6 @@ async def lifespan(app: FastAPI):
                 )
         except Exception:
             pass
-
-    if not config.DEEPSEEK_API_KEY:
-        logger.warning("⚠️  DEEPSEEK_API_KEY manquant — copie .env.example en .env et ajoute ta clé")
 
     # ── Helper : scan initial de l'analyse relationnelle ──
     async def _initial_relationship_scan(analyzer, reader) -> None:

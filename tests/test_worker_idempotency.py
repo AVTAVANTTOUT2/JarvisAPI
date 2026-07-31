@@ -343,5 +343,8 @@ async def test_every_scheduled_job_has_an_explicit_kill_switch(
     from scripts import scheduler
 
     monkeypatch.setattr(config, flag_name, False)
+    job = getattr(scheduler, job_name)
+    implementation = getattr(job, "__wrapped__", job)
     with patch.object(builtins, "__import__", side_effect=AssertionError("job import reached")):
-        assert await getattr(scheduler, job_name)() is None
+        result = await implementation()
+    assert result["status"] == "skipped"
