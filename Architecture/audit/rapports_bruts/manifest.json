@@ -57,8 +57,10 @@
     "status": "IDLE",
     "findings_extracted": 21,
     "severity_counts": {
-      "HIGH": 17,
-      "MEDIUM": 4
+      "HIGH": 10,
+      "MEDIUM": 8,
+      "LOW": 2,
+      "INFO": 1
     },
     "bytes": 18350
   },
@@ -71,10 +73,10 @@
     "status": "IDLE",
     "findings_extracted": 18,
     "severity_counts": {
-      "CRITICAL": 1,
-      "HIGH": 10,
+      "HIGH": 6,
       "MEDIUM": 5,
-      "INFO": 2
+      "LOW": 4,
+      "INFO": 3
     },
     "bytes": 17813
   },
@@ -133,9 +135,10 @@
     "status": "IDLE",
     "findings_extracted": 12,
     "severity_counts": {
-      "HIGH": 6,
+      "HIGH": 2,
       "MEDIUM": 5,
-      "LOW": 1
+      "LOW": 3,
+      "INFO": 2
     },
     "bytes": 12590
   },
@@ -178,10 +181,10 @@
     "status": "IDLE",
     "findings_extracted": 12,
     "severity_counts": {
-      "HIGH": 2,
+      "HIGH": 1,
       "MEDIUM": 6,
       "LOW": 3,
-      "INFO": 1
+      "INFO": 2
     },
     "bytes": 16502
   },
@@ -210,10 +213,76 @@
     "findings_extracted": 9,
     "severity_counts": {
       "HIGH": 1,
-      "MEDIUM": 5,
+      "MEDIUM": 3,
+      "UNKNOWN": 2,
       "LOW": 2,
       "INFO": 1
     },
     "bytes": 7973
+  },
+  {
+    "perimeter": "P15",
+    "title": "Interface mobile web",
+    "file": "rapports_bruts/P15_web_mobile.md",
+    "bcId": "bc-019fb8a4-40be-72b3-9274-9b03856ce253",
+    "url": "https://cursor.com/agents/bc-019fb8a4-40be-72b3-9274-9b03856ce253",
+    "status": "IDLE",
+    "findings_extracted": 10,
+    "severity_counts": {
+      "HIGH": 1,
+      "MEDIUM": 3,
+      "LOW": 3,
+      "INFO": 3
+    },
+    "bytes": 12744
+  },
+  {
+    "perimeter": "P16",
+    "title": "Android Companion",
+    "file": "rapports_bruts/P16_android_companion.md",
+    "bcId": "bc-019fb8a4-d78c-799e-bf5f-0c2f4d7bac17",
+    "url": "https://cursor.com/agents/bc-019fb8a4-d78c-799e-bf5f-0c2f4d7bac17",
+    "status": "IDLE",
+    "findings_extracted": 6,
+    "severity_counts": {
+      "HIGH": 1,
+      "MEDIUM": 2,
+      "LOW": 2,
+      "INFO": 1
+    },
+    "bytes": 11014
+  },
+  {
+    "perimeter": "P17",
+    "title": "TV War Room MCP/CDP",
+    "file": "rapports_bruts/P17_tv_war_room_mcp.md",
+    "bcId": "bc-019fb8a5-48b0-7611-a9f6-a4885fd172de",
+    "url": "https://cursor.com/agents/bc-019fb8a5-48b0-7611-a9f6-a4885fd172de",
+    "status": "IDLE",
+    "findings_extracted": 16,
+    "severity_counts": {
+      "CRITICAL": 2,
+      "HIGH": 4,
+      "MEDIUM": 5,
+      "LOW": 3,
+      "INFO": 2
+    },
+    "bytes": 16051
+  },
+  {
+    "perimeter": "P18",
+    "title": "Tests, CI, contrats, docs",
+    "file": "rapports_bruts/P18_tests_ci_docs.md",
+    "bcId": "bc-019fb8a5-d4c9-7eba-917a-d7b7d9090f21",
+    "url": "https://cursor.com/agents/bc-019fb8a5-d4c9-7eba-917a-d7b7d9090f21",
+    "status": "IDLE",
+    "findings_extracted": 16,
+    "severity_counts": {
+      "HIGH": 5,
+      "MEDIUM": 6,
+      "LOW": 2,
+      "INFO": 3
+    },
+    "bytes": 16884
   }
 ]
