@@ -40,6 +40,20 @@ DEEPSEEK_MAIN_MODEL = _get("DEEPSEEK_MAIN_MODEL", "deepseek-v4-pro")
 VOICE_REASONING_MODEL = _get("VOICE_REASONING_MODEL", "") or DEEPSEEK_FAST_MODEL
 MAIN_REASONING_MODEL = _get("MAIN_REASONING_MODEL", "") or DEEPSEEK_MAIN_MODEL
 
+
+class ConfigurationError(RuntimeError):
+    """Configuration obligatoire absente ou laissée à sa valeur d'exemple."""
+
+
+def validate_required_runtime_config() -> None:
+    """Refuse de démarrer un backend incapable de servir les fonctions LLM."""
+    api_key = (DEEPSEEK_API_KEY or "").strip()
+    if not api_key or api_key == "sk-...":
+        raise ConfigurationError(
+            "DEEPSEEK_API_KEY est obligatoire. Configure-la dans .env avant de démarrer JARVIS."
+        )
+
+
 # ── Audio — STT local (faster-whisper) + TTS local (Kokoro) ──
 DEFAULT_STT_ENGINE = "faster-whisper"
 DEFAULT_STT_MODEL = "large-v3-turbo"

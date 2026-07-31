@@ -1,7 +1,7 @@
 """Rattrapage manuel après longue coupure : mails non présents en DB + analyse iMessage.
 
 Usage:
-    cd /Users/zeldris/JarvisAPI && source venv/bin/activate
+    cd /chemin/absolu/vers/JarvisAPI && source venv/bin/activate
     python scripts/catchup_after_downtime.py
 
 Nécessite Mail.app accessible et les mêmes permissions que le serveur JARVIS.

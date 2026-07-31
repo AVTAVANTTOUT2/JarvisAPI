@@ -5,8 +5,8 @@ Ce document décrit la check-list opérationnelle pour démarrer JARVIS propreme
 ## 1) Pré-requis (une fois)
 
 - macOS avec Python 3.12, `venv`, `pip`, `pnpm` installés.
-- Projet présent dans `/Users/zeldris/JarvisAPI`.
-- Fichier `.env` prêt (au minimum `ANTHROPIC_API_KEY`, `WEB_PORT`, `IMESSAGE_TARGET`).
+- Projet cloné dans le répertoire de ton choix.
+- Fichier `.env` prêt (au minimum `DEEPSEEK_API_KEY` et `WEB_PORT`, plus `IMESSAGE_TARGET` si utilisé). Sans clé DeepSeek, le backend refuse de démarrer.
 - Applications Apple ouvertes au moins une fois : `Messages`, `Mail`, `Calendar`, `Contacts`.
 - Si daemon local activé: `Ollama` installé + modèles téléchargés (`qwen2.5-vl:7b`, `qwen2.5:7b`).
 
@@ -55,7 +55,7 @@ macOS affiche les boites **Automation** et certaines alertes sur l'**application
 2. Arrete tout ce qui ecoute deja sur `WEB_PORT` (souvent `8081`) et sur `5173` si tu utilises Vite, pour eviter les doublons.
 3. Lance **sans daemon** (premier plan) :
    ```bash
-   cd /Users/zeldris/JarvisAPI
+   cd /chemin/absolu/vers/JarvisAPI
    source venv/bin/activate
    ./scripts/jarvis_full_restart.sh --dev
    ```
@@ -89,7 +89,7 @@ Quand tout est regle, tu peux repasser en arriere-plan : `./scripts/jarvis_full_
 ## Etape A - Ouvrir un terminal propre
 
 ```bash
-cd /Users/zeldris/JarvisAPI
+cd /chemin/absolu/vers/JarvisAPI
 source venv/bin/activate
 ```
 
@@ -222,7 +222,7 @@ Repartir proprement sans corruption DB, sans doublons de workers, et avec valida
 3. Ouvrir terminal:
 
 ```bash
-cd /Users/zeldris/JarvisAPI
+cd /chemin/absolu/vers/JarvisAPI
 source venv/bin/activate
 ./scripts/jarvis_full_restart.sh --dev
 ```
@@ -245,7 +245,7 @@ curl -sk https://127.0.0.1:8081/api/integrations
 Si suspicion de corruption SQLite apres coupure:
 
 ```bash
-sqlite3 /Users/zeldris/JarvisAPI/data/jarvis.db "PRAGMA quick_check;"
+sqlite3 data/jarvis.db "PRAGMA quick_check;"
 ```
 
 Resultat attendu: `ok`.
@@ -253,7 +253,7 @@ Resultat attendu: `ok`.
 Pour Messages DB (lecture seule):
 
 ```bash
-sqlite3 "/Users/zeldris/Library/Messages/chat.db" "PRAGMA quick_check;"
+sqlite3 "$HOME/Library/Messages/chat.db" "PRAGMA quick_check;"
 ```
 
 ## 7) Checklist "pret pour la journee"
@@ -272,12 +272,12 @@ sqlite3 "/Users/zeldris/Library/Messages/chat.db" "PRAGMA quick_check;"
 
 ```bash
 # Restart propre
-cd /Users/zeldris/JarvisAPI && source venv/bin/activate && ./scripts/jarvis_full_restart.sh --dev
+cd /chemin/absolu/vers/JarvisAPI && source venv/bin/activate && ./scripts/jarvis_full_restart.sh --dev
 
 # Status systeme JARVIS
 curl -sk https://127.0.0.1:8081/api/status
 curl -sk https://127.0.0.1:8081/api/integrations
 
 # Verification DB locale
-sqlite3 /Users/zeldris/JarvisAPI/data/jarvis.db "PRAGMA quick_check;"
+sqlite3 data/jarvis.db "PRAGMA quick_check;"
 ```

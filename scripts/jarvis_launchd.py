@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Installe ou desinstalle le service launchd JARVIS 24/7.
+"""Installe ou désinstalle le service launchd JARVIS 24/7.
 
-Le service lance JARVIS.app (wrapper natif macOS) via launchd,
-ce qui garantit que les permissions micro/AppleEvents sont persistantes
-apres reboot et veille.
+Le LaunchAgent exécute le supervisor avec le Python du venv réel. Un wrapper
+JARVIS.app est aussi installé pour déclencher visiblement les demandes de
+permissions micro/AppleEvents lors de la configuration initiale.
 
 Usage:
     python scripts/jarvis_launchd.py install        # installe .app + launchd
@@ -19,14 +19,22 @@ Raccourci terminal (apres install du CLI ~/.local/bin/jarvis) :
 from __future__ import annotations
 
 import os
+import shlex
 import subprocess
 import sys
 import time
 from pathlib import Path
 
+if __package__:
+    from scripts.launchagents import write_launch_agents
+else:
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from scripts.launchagents import write_launch_agents
+
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 LOGS_DIR = PROJECT_DIR / "data" / "logs"
-VENV_PYTHON = str(PROJECT_DIR / "venv" / "bin" / "python")
+VENV_DIR = PROJECT_DIR / "venv"
+VENV_PYTHON = VENV_DIR / "bin" / "python"
 HOME = os.path.expanduser("~")
 APP_DIR = Path(HOME) / "Applications" / "JARVIS.app"
 APP_BIN = APP_DIR / "Contents" / "MacOS" / "JARVIS"
@@ -47,8 +55,8 @@ def _install_app() -> None:
         "#!/bin/bash\n"
         'export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"\n'
         "export PYTHONUNBUFFERED=1\n"
-        f"cd {PROJECT_DIR}\n"
-        f"exec {VENV_PYTHON} supervisor.py\n",
+        f"cd {shlex.quote(str(PROJECT_DIR))}\n"
+        f"exec {shlex.quote(str(VENV_PYTHON))} supervisor.py\n",
         encoding="utf-8",
     )
     APP_BIN.chmod(0o755)
@@ -79,47 +87,14 @@ def _install_app() -> None:
 
 
 def _install_launchd_plist() -> None:
-    """Ecrit le plist launchd qui pointe vers JARVIS.app."""
-    LAUNCHD_DIR.mkdir(parents=True, exist_ok=True)
-    LOGS_DIR.mkdir(parents=True, exist_ok=True)
-
-    plist = (
-        '<?xml version="1.0" encoding="UTF-8"?>\n'
-        '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
-        '<plist version="1.0">\n'
-        "<dict>\n"
-        "    <key>Label</key>\n"
-        "    <string>com.jarvis.supervisor</string>\n"
-        "    <key>ProgramArguments</key>\n"
-        "    <array>\n"
-        f"        <string>{APP_BIN}</string>\n"
-        "    </array>\n"
-        f"    <key>WorkingDirectory</key>\n"
-        f"    <string>{PROJECT_DIR}</string>\n"
-        "    <key>RunAtLoad</key>\n"
-        "    <true/>\n"
-        "    <key>KeepAlive</key>\n"
-        "    <true/>\n"
-        "    <key>ThrottleInterval</key>\n"
-        "    <integer>5</integer>\n"
-        f"    <key>StandardOutPath</key>\n"
-        f"    <string>{SUPERVISOR_LOG}</string>\n"
-        f"    <key>StandardErrorPath</key>\n"
-        f"    <string>{SUPERVISOR_LOG}</string>\n"
-        "    <key>EnvironmentVariables</key>\n"
-        "    <dict>\n"
-        "        <key>PATH</key>\n"
-        "        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>\n"
-        "        <key>PYTHONUNBUFFERED</key>\n"
-        "        <string>1</string>\n"
-        f"        <key>HOME</key>\n"
-        f"        <string>{HOME}</string>\n"
-        "    </dict>\n"
-        "</dict>\n"
-        "</plist>\n"
+    """Génère le plist supervisor depuis le checkout et le venv réels."""
+    written = write_launch_agents(
+        output_dir=LAUNCHD_DIR,
+        repo_root=PROJECT_DIR,
+        venv_dir=VENV_DIR,
+        services=("supervisor",),
     )
-    LAUNCHD_DEST.write_text(plist, encoding="utf-8")
-    print(f"Plist launchd installe : {LAUNCHD_DEST}")
+    print(f"Plist launchd installe : {written['supervisor']}")
 
 
 def _bootstrap() -> bool:
@@ -139,8 +114,12 @@ def _bootstrap() -> bool:
 
 
 def cmd_install() -> int:
+    try:
+        _install_launchd_plist()
+    except (OSError, RuntimeError, ValueError) as exc:
+        print(f"Erreur : installation LaunchAgent impossible : {exc}")
+        return 1
     _install_app()
-    _install_launchd_plist()
 
     if not _bootstrap():
         print("Erreur : launchctl bootstrap a echoue.")
