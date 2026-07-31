@@ -144,7 +144,12 @@ async def process_mobile_voice_turn(
         # (routage cognitif, ack immédiat, actions, délégation Cursor).
         try:
             llm_result = await asyncio.wait_for(
-                _process_voice_fast(transcript, conv_id, stt_ms=stt_ms),
+                _process_voice_fast(
+                    transcript,
+                    conv_id,
+                    stt_ms=stt_ms,
+                    confirmation_session_id=f"mobile:{device_id}",
+                ),
                 timeout=config.MOBILE_VOICE_LLM_TIMEOUT_SEC,
             )
         except asyncio.TimeoutError as exc:
@@ -213,4 +218,6 @@ async def process_mobile_voice_turn(
         }
         if tts_error:
             payload["tts_error"] = tts_error
+        if llm_result.get("pending_action"):
+            payload["pending_action"] = llm_result["pending_action"]
         return payload

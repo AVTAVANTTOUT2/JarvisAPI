@@ -231,5 +231,6 @@ data class MobileChatRequest(
 
 data class MobileChatConfirmRequest(
     val conversation_id: Long,
+    val proposal_id: String,
     val confirmed: Boolean,
 )

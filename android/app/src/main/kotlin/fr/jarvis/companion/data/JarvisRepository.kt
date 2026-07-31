@@ -250,9 +250,17 @@ class JarvisRepository(context: Context) {
             .getOrElse { JarvisApiResult.failure(it.message ?: "erreur réseau") }
     }
 
-    suspend fun confirmMobileChat(conversationId: Long, confirmed: Boolean): JarvisApiResult =
+    suspend fun confirmMobileChat(
+        conversationId: Long,
+        proposalId: String,
+        confirmed: Boolean,
+    ): JarvisApiResult =
         withContext(Dispatchers.IO) {
-            val body = MobileChatConfirmRequest(conversation_id = conversationId, confirmed = confirmed)
+            val body = MobileChatConfirmRequest(
+                conversation_id = conversationId,
+                proposal_id = proposalId,
+                confirmed = confirmed,
+            )
             runCatching { toResult(api().confirmMobileChat(bearer(), body)) }
                 .getOrElse { JarvisApiResult.failure(it.message ?: "erreur réseau") }
         }

@@ -314,11 +314,14 @@ def _mobile_source(relative_path: str) -> str:
 
 
 def test_action_refusal_uses_the_server_cancel_protocol():
-    """`action_confirm` exécute toujours : un refus doit envoyer action_cancel."""
+    """Les deux décisions ne renvoient que l'identifiant opaque du serveur."""
     chat = _mobile_source("js/views/chat.js")
     websocket = _mobile_source("js/ws.js")
     assert "ws.cancelAction(action)" in chat
     assert "type: 'action_cancel'" in websocket
+    assert "type: 'action_confirm'" in websocket
+    assert "proposal_id: proposal?.proposal_id" in websocket
+    assert "action_confirm', action" not in websocket
     assert "confirmed: false" not in chat
 
 

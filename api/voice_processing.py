@@ -10,7 +10,7 @@ import re
 import config
 import llm
 from actions import execute_action
-from api.chat_actions import _is_agentic_action
+from api.chat_actions import _format_action_result_for_followup, _is_agentic_action
 from api.voice_support import (
     _broadcast_voice_debug,
     _build_voice_confirmation_response,
@@ -57,15 +57,25 @@ def _match_voice_control(text: str) -> str | None:
     return None
 
 
-async def _process_voice_fast(text: str, conversation_id: int, *, stt_ms: int = 0) -> dict:
+async def _process_voice_fast(
+    text: str,
+    conversation_id: int,
+    *,
+    stt_ms: int = 0,
+    confirmation_session_id: str | None = None,
+) -> dict:
     """Pipeline vocal ultra-rapide — routage cognitif + Flash + actions/Cursor."""
     import time as _time
     from api.voice_cognitive import maybe_handle_cognitive_voice
 
     _t0 = _time.time()
+    confirmation_session_id = confirmation_session_id or f"local-voice:{conversation_id}"
 
     pending_result = await _maybe_execute_pending_voice_action(
-        text, conversation_id, started_at=_t0,
+        text,
+        conversation_id,
+        started_at=_t0,
+        confirmation_session_id=confirmation_session_id,
     )
     if pending_result is not None:
         return pending_result
@@ -230,9 +240,6 @@ RÈGLES SUPPLEMENTAIRES :
 
     # ── 6. Detecter un bloc action ────────────────────────────────────────────
     action_match = re.search(r'```action\s*\n?(.*?)```', raw_response, re.DOTALL | re.IGNORECASE)
-    if not action_match:
-        # Fallback : JSON brut inline avec "type"
-        action_match = re.search(r'\{\s*"type"\s*:\s*"(\w+)"\s*[,}].*?\}', raw_response, re.DOTALL)
 
     if not action_match:
         # ── Pas d'action -> reponse directe (1 seul appel LLM) ─────────────────
@@ -273,31 +280,7 @@ RÈGLES SUPPLEMENTAIRES :
     action: dict = {}
     try:
         if action_match:
-            json_str = action_match.group(0)
-            # Si c'est un match inline (pas de backticks), extraire l'objet JSON complet
-            if not json_str.startswith("```"):
-                # Trouver les bornes de l'objet JSON
-                start = action_match.start()
-                depth = 0
-                end = start
-                for i, ch in enumerate(raw_response[start:], start):
-                    if ch == '{':
-                        depth += 1
-                    elif ch == '}':
-                        depth -= 1
-                        if depth == 0:
-                            end = i + 1
-                            break
-                json_str = raw_response[start:end]
-            else:
-                # Format ```action ...``` → prendre le contenu
-                inner = re.search(r'```action\s*\n?(.*?)```', json_str, re.DOTALL | re.IGNORECASE)
-                if inner:
-                    json_str = inner.group(1).strip()
-                else:
-                    json_str = action_match.group(1).strip()
-
-            action = json.loads(json_str)
+            action = json.loads(action_match.group(1).strip())
             debug_trace["action_detected"] = action
 
             action_type_direct = action.get("type", "").strip()
@@ -377,7 +360,7 @@ RÈGLES SUPPLEMENTAIRES :
             try:
                 from jarvis.event_bus import JarvisEvent, event_bus as _eb
                 _action_type = action.get("type", "?")
-                _result_str = str(action_result.get("output", action_result.get("message", action_result)))[:300]
+                _result_str = "succès" if action_result.get("ok") else "échec"
                 asyncio.create_task(_eb.emit(JarvisEvent(
                     type="agent.action_result",
                     agent="voice",
@@ -408,11 +391,23 @@ RÈGLES SUPPLEMENTAIRES :
             cost=total_cost,
             debug_trace=debug_trace,
             started_at=_t0,
+            confirmation_session_id=confirmation_session_id,
         )
 
     # ── 8. Pass 2 : DeepSeek reformule le resultat de l'action ─────────────────
     action_type = action.get("type", "?")
-    result_summary = json.dumps(action_result, ensure_ascii=False, default=str)[:800]
+    if action_type == "clipboard":
+        response_text = _fallback_action_response(action_type, action_result)
+        _save_voice_messages(conversation_id, text, response_text, total_cost)
+        return {
+            "text": response_text,
+            "emotion": emotion,
+            "cost": total_cost,
+            "action": {"ok": bool(action_result.get("ok"))},
+            "latency_ms": round((_time.time() - _t0) * 1000),
+            "debug_trace": {**debug_trace, "action_result": "[LOCAL_ONLY]"},
+        }
+    result_summary = _format_action_result_for_followup(action, action_result)[:800]
 
     pass2_messages = history + [
         {"role": "user", "content": text},

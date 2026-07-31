@@ -499,7 +499,7 @@ export function ChatView() {
   // ── Confirmation d'action (commandes sensibles) ─────────
 
   const confirmPendingAction = useCallback((action: Record<string, unknown>) => {
-    ws.send({ type: 'action_confirm', action })
+    ws.send({ type: 'action_confirm', proposal_id: action.proposal_id })
     setMessages(prev => {
       const updated = [...prev]
       const idx = updated.map((m, i) => ({ m, i })).reverse().find(x => x.m.role === 'assistant')?.i
@@ -509,7 +509,7 @@ export function ChatView() {
   }, [])
 
   const cancelPendingAction = useCallback((action: Record<string, unknown>) => {
-    ws.send({ type: 'action_cancel', action })
+    ws.send({ type: 'action_cancel', proposal_id: action.proposal_id })
     setMessages(prev => {
       const updated = [...prev]
       const idx = updated.map((m, i) => ({ m, i })).reverse().find(x => x.m.role === 'assistant')?.i

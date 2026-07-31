@@ -22,6 +22,7 @@ from api.chat_actions import (
     _run_loop_mode_internal,
     _should_defer_action,
 )
+from api.action_confirmations import peek_pending_proposal
 from api.chat_context import _build_enriched_context, _maybe_title_conversation
 from api.llm_logging import _schedule_llm_log
 from database import save_message, update_conversation_activity
@@ -33,6 +34,7 @@ async def _process_message_internal(
     text: str,
     conversation_id: int,
     voice_mode: bool = False,
+    confirmation_session_id: str | None = None,
 ) -> dict:
     """Pipeline JARVIS sans WebSocket — pour les endpoints REST (journal, contacts, etc.).
 
@@ -42,6 +44,7 @@ async def _process_message_internal(
     Retourne {text, emotion, action, action_result, agent, model, cost}.
     """
     try:
+        confirmation_session_id = confirmation_session_id or f"internal:{conversation_id}"
         jarvis_patterns = (
             "noté, monsieur",
             "ajouté à l'agenda",
@@ -82,6 +85,7 @@ async def _process_message_internal(
                 loop_task.strip(),
                 conversation_id,
                 voice_mode=voice_mode,
+                confirmation_session_id=confirmation_session_id,
             )
 
         # ── Routage cognitif : tâche technique → délégation Cursor ──
@@ -113,10 +117,18 @@ async def _process_message_internal(
             logger.debug("[_process_message_internal] routage cognitif : %s", e)
 
         # Confirmation « oui / vas-y » sur une action en attente (REST)
-        pending_action = _pop_pending_action_if_confirmed(original_text, conversation_id)
-        if pending_action is not None:
+        pending_action = peek_pending_proposal(
+            conversation_id=conversation_id,
+            session_id=confirmation_session_id,
+        )
+        confirmed_action = _pop_pending_action_if_confirmed(
+            original_text,
+            conversation_id,
+            confirmation_session_id,
+        )
+        if confirmed_action is not None:
             try:
-                action_result = await execute_action(pending_action)
+                action_result = await execute_action(confirmed_action)
             except Exception as e:
                 logger.exception("[internal-pending] execute_action : %s", e)
                 action_result = {"ok": False, "message": str(e)}
@@ -134,10 +146,10 @@ async def _process_message_internal(
             if (
                 action_result.get("ok")
                 and not action_result.get("needs_confirmation")
-                and pending_action.get("type") in ACTIONS_WITH_FOLLOWUP
+                and confirmed_action.get("type") in ACTIONS_WITH_FOLLOWUP
             ):
                 try:
-                    payload = _format_action_result_for_followup(pending_action, action_result)
+                    payload = _format_action_result_for_followup(confirmed_action, action_result)
                     fu = await orchestrator.handle(
                         (
                             f"Résultat brut de l'action :\n\n{payload}\n\n"
@@ -201,6 +213,7 @@ async def _process_message_internal(
 
         action_result: dict | None = None
         final_meta = result
+        action_for_client = action
 
         if action:
             _schedule_llm_log(
@@ -247,10 +260,15 @@ async def _process_message_internal(
                     final_meta = fu
             else:
                 if _should_defer_action(display_text, action):
-                    _maybe_store_pending_proposal(action, conversation_id)
+                    action_for_client = _maybe_store_pending_proposal(
+                        action,
+                        conversation_id,
+                        confirmation_session_id,
+                    )
                     action_result = {
                         "ok": True,
                         "deferred": True,
+                        "needs_confirmation": True,
                         "message": display_text,
                     }
                 else:
@@ -262,7 +280,11 @@ async def _process_message_internal(
                             action_result.get("ok") if action_result else None,
                         )
                         if action_result.get("needs_confirmation"):
-                            _maybe_store_pending_proposal(action, conversation_id)
+                            action_for_client = _maybe_store_pending_proposal(
+                                action,
+                                conversation_id,
+                                confirmation_session_id,
+                            )
                     except Exception as e:
                         logger.exception("[internal-action] execute_action : %s", e)
                         action_result = {"ok": False, "message": str(e)}
@@ -320,7 +342,7 @@ async def _process_message_internal(
         return {
             "text": display_text,
             "emotion": emotion,
-            "action": action,
+            "action": action_for_client,
             "action_result": action_result,
             "agent": final_meta.get("agent"),
             "model": final_meta.get("model"),

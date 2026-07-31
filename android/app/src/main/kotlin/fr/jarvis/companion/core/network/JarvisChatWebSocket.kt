@@ -127,12 +127,11 @@ class JarvisChatWebSocket(
         )
     }
 
-    fun sendActionConfirm(action: JsonObject, confirmed: Boolean = true): Boolean {
+    fun sendActionDecision(proposalId: String, confirmed: Boolean): Boolean {
         return sendJson(
             mapOf(
-                "type" to "action_confirm",
-                "action" to action,
-                "confirmed" to confirmed,
+                "type" to if (confirmed) "action_confirm" else "action_cancel",
+                "proposal_id" to proposalId,
             ),
         )
     }
