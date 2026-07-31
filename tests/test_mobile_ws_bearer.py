@@ -66,8 +66,14 @@ def test_websocket_cookie_requires_exact_origin(tmp_db):
 
     with _client() as client:
         authenticate(client)
+        client.headers.pop("Origin", None)
+        with pytest.raises(WebSocketDisconnect) as exc_info:
+            with client.websocket_connect("/ws"):
+                pass
+        assert exc_info.value.code == 4401
+
+        client.headers["Origin"] = "http://testserver"
         for headers in (
-            {},
             {"Origin": "http://evil.example"},
             {"Origin": "http://testserver:8080"},
         ):
