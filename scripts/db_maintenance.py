@@ -407,6 +407,13 @@ def run_maintenance() -> dict:
                 (f"-{int(days)} days",),
             )
             purged[table] = cur.rowcount
+        sched_days = int(config.RETENTION_SCHEDULER_RUNS_DAYS)
+        if sched_days > 0:
+            cur = conn.execute(
+                "DELETE FROM scheduler_job_runs WHERE started_at < datetime('now', ?)",
+                (f"-{sched_days} days",),
+            )
+            purged["scheduler_job_runs"] = cur.rowcount
         if config.RETENTION_NOTIF_READ_DAYS > 0:
             cur = conn.execute(
                 "DELETE FROM notifications WHERE read = 1 AND created_at < datetime('now', ?)",

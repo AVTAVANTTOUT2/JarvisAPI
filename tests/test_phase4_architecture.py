@@ -20,7 +20,7 @@ def _line_count(path: Path) -> int:
 def test_phase4_assembles_exactly_fifteen_domain_routers():
     router_paths = sorted(API_DIR.glob("router_*.py"))
 
-    assert len(router_paths) == 15
+    assert len(router_paths) == 16
     for path in router_paths:
         module = importlib.import_module(f"api.{path.stem}")
         assert isinstance(module.router, APIRouter), path.name
