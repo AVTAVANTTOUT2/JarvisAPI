@@ -86,15 +86,14 @@ async def test_kokoro_engine_mlx_fallback_on_empty(monkeypatch):
 
     monkeypatch.setattr(engine, "_ensure_loaded", lambda: True)
     monkeypatch.setattr(engine, "_synthesize_mlx", _empty)
-    monkeypatch.setattr(macos_tts, "available", True)
 
     called: list[str] = []
 
-    async def _macos_synth(text: str, emotion: str = "neutral") -> bytes:
+    async def _fallback(text: str, emotion: str = "neutral") -> bytes:
         called.append(text)
         return b"RIFF_FAKE"
 
-    monkeypatch.setattr(macos_tts, "synthesize", _macos_synth)
+    monkeypatch.setattr(engine, "_fallback_synthesize", _fallback)
     out = await engine.synthesize("Bonjour")
     assert out == b"RIFF_FAKE"
     assert called == ["Bonjour"]

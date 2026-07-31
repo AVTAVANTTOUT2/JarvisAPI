@@ -9,14 +9,19 @@ Usage:
     python scripts/jarvis_launchd.py install        # installe .app + launchd
     python scripts/jarvis_launchd.py uninstall      # desinstalle tout
     python scripts/jarvis_launchd.py status         # verifie l'etat
+    python scripts/jarvis_launchd.py restart|maj    # redemarre le stack (prises en compte code)
     python scripts/jarvis_launchd.py open           # ouvre l'app (declenche les prompts permissions)
+
+Raccourci terminal (apres install du CLI ~/.local/bin/jarvis) :
+    jarvis maj
 """
 
 from __future__ import annotations
 
 import os
-import sys
 import subprocess
+import sys
+import time
 from pathlib import Path
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
@@ -210,12 +215,81 @@ def cmd_open() -> int:
     return 0
 
 
+def _service_loaded(uid: int) -> bool:
+    result = subprocess.run(
+        ["launchctl", "print", f"gui/{uid}/com.jarvis.supervisor"],
+        capture_output=True,
+    )
+    return result.returncode == 0
+
+
+def _port_listening(port: int) -> bool:
+    result = subprocess.run(
+        ["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN"],
+        capture_output=True,
+    )
+    return result.returncode == 0
+
+
+def _wait_healthy(*, timeout_s: float = 60.0) -> bool:
+    """Attend supervisor (:9000) + backend (:8081)."""
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        if _port_listening(9000) and _port_listening(8081):
+            return True
+        time.sleep(1.0)
+    return False
+
+
+def cmd_restart() -> int:
+    """Redémarre tout le stack via launchd (prise en compte du code).
+
+    Alias CLI : ``jarvis maj``.
+    """
+    if not LAUNCHD_DEST.exists() or not APP_BIN.exists():
+        print("Service non installé — installation…")
+        if cmd_install() != 0:
+            return 1
+
+    uid = os.getuid()
+    label = f"gui/{uid}/com.jarvis.supervisor"
+
+    if not _service_loaded(uid):
+        print("LaunchAgent inactif — bootstrap…")
+        if not _bootstrap():
+            print("Erreur : launchctl bootstrap a échoué.")
+            return 1
+
+    print("Redémarrage JARVIS (launchctl kickstart -k)…")
+    result = subprocess.run(
+        ["launchctl", "kickstart", "-k", label],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        err = (result.stderr or result.stdout or "").strip()
+        print(f"Erreur kickstart : {err or f'exit {result.returncode}'}")
+        return 1
+
+    print("Attente santé (supervisor :9000, backend :8081)…")
+    if not _wait_healthy(timeout_s=90.0):
+        print("Timeout : le stack n'est pas revenu sain.")
+        print(f"Logs : {SUPERVISOR_LOG}")
+        cmd_status()
+        return 1
+
+    print("OK — changements pris en compte, stack relancé.")
+    return cmd_status()
+
+
 if __name__ == "__main__":
     cmds = {
         "install": cmd_install,
         "uninstall": cmd_uninstall,
         "status": cmd_status,
         "open": cmd_open,
+        "restart": cmd_restart,
+        "maj": cmd_restart,
     }
     action = sys.argv[1] if len(sys.argv) > 1 else "status"
     if action not in cmds:

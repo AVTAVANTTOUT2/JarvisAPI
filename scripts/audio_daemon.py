@@ -1761,20 +1761,26 @@ class AudioDaemon:
             played = await native_audio_output.play_bytes(audio_bytes)
             if played:
                 return
-            logger.debug("[audio_daemon] Décodage natif impossible — repli afplay")
+            logger.warning(
+                "[audio_daemon] Lecture native échouée (len=%d magic=%s) — repli afplay",
+                len(audio_bytes),
+                audio_bytes[:8].hex() if audio_bytes else "",
+            )
 
-        # Fallback minimal si sounddevice absent
+        # Fallback minimal si sounddevice absent / conversion impossible
         tmp_path: str | None = None
         try:
-            if audio_bytes[:4] == b"RIFF":
-                ext = ".wav"
-            elif audio_bytes[:3] == b"ID3" or (audio_bytes[0] == 0xFF and (audio_bytes[1] & 0xE0) == 0xE0):
-                ext = ".mp3"
-            else:
-                ext = ".m4a"
+            from audio.audio_format import playback_file_extension
+
+            ext = playback_file_extension(audio_bytes)
             with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
                 tmp.write(audio_bytes)
                 tmp_path = tmp.name
+            logger.info(
+                "[audio_daemon] afplay fallback %s (%d octets) — sortie = défaut macOS",
+                ext,
+                len(audio_bytes),
+            )
             self._tts_proc = await asyncio.create_subprocess_exec(
                 "afplay", tmp_path,
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -1828,10 +1834,10 @@ class AudioDaemon:
     def _resolve_input_device_index(self, pa: Any) -> int | None:
         """Résout l'index du périphérique d'entrée depuis la config.
 
-        Priorite :
-        1. ``AUDIO_DAEMON_INPUT_DEVICE`` explicite dans .env
-        2. Auto-detection "Blue Snowball" / "Shiver" si dispo
-        3. Defaut systeme (index explicite — ``None`` casse PortAudio sous LaunchAgent)
+        Priorité :
+        1. ``AUDIO_DAEMON_INPUT_DEVICE`` explicite dans .env (nom ou sous-chaîne)
+        2. Entrée par défaut macOS / système
+        3. Premier micro trouvé (dernier recours)
         """
         device_name = (getattr(config, "AUDIO_DAEMON_INPUT_DEVICE", "") or "").strip()
         if device_name:
@@ -1841,17 +1847,9 @@ class AudioDaemon:
                     logger.info("[audio_daemon] Peripherique d'entree selectionne : %s (index=%d)", info["name"], i)
                     return i
             logger.warning(
-                "[audio_daemon] Peripherique '%s' non trouve — fallback sur entree disponible",
+                "[audio_daemon] Peripherique '%s' non trouve — fallback sur defaut systeme",
                 device_name,
             )
-
-        # Preferer un micro USB connu avant le defaut (AirPods, etc.)
-        for prefer in ("blue snowball", "shiver"):
-            for i in range(pa.get_device_count()):
-                info = pa.get_device_info_by_index(i)
-                if info.get("maxInputChannels", 0) > 0 and prefer in str(info.get("name", "")).lower():
-                    logger.info("[audio_daemon] Micro '%s' auto-detecte (index=%d)", info["name"], i)
-                    return i
 
         # Defaut systeme avec index explicite (evite Errno -9996 sous LaunchAgent)
         try:

@@ -14,8 +14,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from api import web_mobile
-from api import frontend
+from api import frontend, web_mobile
 from api.frontend import _setup_frontend
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -120,11 +119,27 @@ def test_desktop_cookie_alone_disables_the_redirect(client):
     [
         ("/chat", "/mobile/#/chat"),
         ("/dashboard", "/mobile/#/aujourdhui"),
+        ("/fitness", "/mobile/#/sante"),
     ],
 )
 def test_installed_desktop_pwa_entrypoints_are_migrated(client, path, target):
     """Les manifests historiques contournaient `/` via ces deux start_url."""
     response = client.get(path, headers={"user-agent": IPHONE}, follow_redirects=False)
+    assert response.status_code == 302
+    assert response.headers["location"] == target
+
+
+@pytest.mark.parametrize(
+    "path,target",
+    [
+        ("/m", "/mobile/"),
+        ("/m/", "/mobile/"),
+        ("/m/fitness", "/mobile/#/sante"),
+        ("/m/fitness/", "/mobile/#/sante"),
+    ],
+)
+def test_historical_mobile_pwa_urls_redirect_to_the_autonomous_app(client, path, target):
+    response = client.get(path, follow_redirects=False)
     assert response.status_code == 302
     assert response.headers["location"] == target
 
@@ -163,6 +178,7 @@ def test_bare_prefix_redirects_to_the_directory(client):
         ("/mobile/app.css", "text/css"),
         ("/mobile/js/app.js", "application/javascript"),
         ("/mobile/js/views/chat.js", "application/javascript"),
+        ("/mobile/js/views/health.js", "application/javascript"),
         ("/mobile/manifest.webmanifest", "application/manifest+json"),
         ("/mobile/icons/icon-192.png", "image/png"),
     ],
@@ -171,6 +187,7 @@ def test_assets_are_served_with_the_right_type(client, path, expected_type):
     response = client.get(path)
     assert response.status_code == 200
     assert response.headers["content-type"].startswith(expected_type)
+    assert response.headers["cache-control"] == "no-cache"
 
 
 def test_missing_file_is_a_plain_404(client):
@@ -348,3 +365,37 @@ def test_mobile_lock_accepts_variable_length_pin():
     # Ne plus auto-soumettre uniquement à une longueur fixe de 6.
     assert "const LEN = 6" not in auth_source
     assert "code.length === MAX_PIN" in auth_source
+
+
+def test_mobile_fitness_matches_the_connected_desktop_experience():
+    """La PWA autonome doit conserver les capacités de la nouvelle vue desktop."""
+    health = _mobile_source("js/views/health.js")
+    for contract in (
+        "current_streak_weeks",
+        "latest_weight",
+        "/api/fitness/weights",
+        "/api/fitness/program",
+        "/api/fitness/program/sessions/",
+        "setProgress('planned', [])",
+        "Objectifs et rappels",
+        "Modifier la séance",
+        "exercise.sides === 2",
+        "À la sensation",
+        "meal.calories_estimate ?? '?'",
+    ):
+        assert contract in health
+
+
+def test_mobile_fitness_uses_safe_ratios_and_explicit_local_dates():
+    health = _mobile_source("js/views/health.js")
+    assert "if (!target) return 0;" in health
+    assert "/api/fitness/dashboard?date=${encodeURIComponent(localIsoDate())}" in health
+    assert "/api/fitness/advice?date=${encodeURIComponent(dashboard.date)}" in health
+
+
+def test_mobile_fitness_assets_are_cache_busted_from_the_shell():
+    index = _mobile_source("index.html")
+    app = _mobile_source("js/app.js")
+    assert "/mobile/app.css?v=20260731" in index
+    assert "/mobile/js/app.js?v=20260731" in index
+    assert "./views/health.js?v=20260731" in app

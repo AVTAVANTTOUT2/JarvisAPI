@@ -11,8 +11,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-import api.frontend as frontend
-
+from api import frontend
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -90,8 +89,8 @@ def test_vite_frontend_remains_fallback_without_unified_build(tmp_path, monkeypa
         assert client.get("/").text == "vite-fallback"
 
 
-def test_the_historical_pwa_mount_is_gone(tmp_path, monkeypatch):
-    """Plus aucun /m/ : l'interface mobile vit sous /mobile/, et elle seule."""
+def test_the_historical_pwa_mount_redirects_without_being_served(tmp_path, monkeypatch):
+    """L'ancien /m/ migre vers /mobile/ sans restaurer le build PWA supprimé."""
     unified = tmp_path / "frontend"
     _write(unified / "index.html", "unified-root")
     _write(unified / "_next" / "static" / "app.js", "asset")
@@ -103,7 +102,9 @@ def test_the_historical_pwa_mount_is_gone(tmp_path, monkeypatch):
     frontend._setup_frontend(app)
 
     with TestClient(app) as client:
-        assert client.get("/m/").status_code == 404
+        response = client.get("/m/", follow_redirects=False)
+        assert response.status_code == 302
+        assert response.headers["location"] == "/mobile/"
     assert not hasattr(frontend, "_setup_pwa_frontend")
 
 
