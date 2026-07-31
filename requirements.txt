@@ -13,6 +13,7 @@ edge-tts==7.*
 
 # Intégrations
 httpx==0.28.*
+aiohttp>=3.12,<4
 apscheduler==3.10.*
 
 # PDF

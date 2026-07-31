@@ -36,10 +36,14 @@ Un binaire `jarvis-ttskit` dans le PATH reste considéré autonome.
 ### Setup (une fois)
 
 ```bash
-source ~/mlx-env/bin/activate   # ou $JARVIS_VENV
-pip install -U 'mlx-audio>=0.3.0'
+python3.12 -m venv "${JARVIS_VENV:-$HOME/mlx-env}"
+source "${JARVIS_VENV:-$HOME/mlx-env}/bin/activate"
+python -m pip install -r requirements-mlx.txt
 # Premier appel : télécharge le modèle HF (~cache Hugging Face)
 ```
+
+Ce venv est volontairement séparé de `venv/` : `mlx-audio` est propre à
+Apple Silicon et n'est pas dupliqué dans les dépendances du backend.
 
 ### Config (`.env.config`)
 

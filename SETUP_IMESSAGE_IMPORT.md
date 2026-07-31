@@ -1,6 +1,6 @@
 # Setup Import iMessage — A faire au retour sur le Mac
 
-> **Pourquoi cette procedure ?** Cursor (remote SSH) ne peut pas lire `chat.db` meme avec Full Disk Access accorde a Cursor.app — c'est `cursor-server` (node) qui ouvre le fichier, et macOS TCC refuse. Un daemon permanent a ete cree pour contourner ce probleme. Il ne reste qu'une seule action manuelle.
+> **Pourquoi cette procedure ?** Cursor (remote SSH) ne peut pas lire `chat.db` meme avec Full Disk Access accorde a Cursor.app — c'est `cursor-server` (node) qui ouvre le fichier, et macOS TCC refuse. Un daemon permanent execute le lecteur avec le Python local autorise par macOS.
 
 ---
 
@@ -22,13 +22,33 @@
 
 > Si le chemin ci-dessus n'existe pas (version de Python differente), executer dans Terminal :
 > ```bash
-> readlink -f /Users/zeldris/JarvisAPI/venv/bin/python
+> cd /chemin/absolu/vers/JarvisAPI
+> source venv/bin/activate
+> python -c 'import sys; from pathlib import Path; print(Path(sys.executable).resolve())'
 > ```
 > Puis remplacer `bin/python3.12` par `Resources/Python.app` dans le chemin retourne.
 
 ---
 
-## Etape 2 — Verifier que le daemon est vivant
+## Etape 2 — Generer et installer le LaunchAgent
+
+Depuis le depot :
+
+```bash
+cd /chemin/absolu/vers/JarvisAPI
+python scripts/launchagents.py install --service imessage-daemon --venv venv
+launchctl bootout "gui/$(id -u)/com.jarvis.imessage-daemon" 2>/dev/null || true
+launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/com.jarvis.imessage-daemon.plist"
+```
+
+Le script derive tous les chemins du checkout et du venv réels, crée le
+répertoire de logs et valide le fichier avec `plutil -lint`. Si le backend est
+lancé en parallèle, définir `IMESSAGE_DAEMON_ENABLED=false` dans `.env.config`
+afin qu'un seul processus possède le port 8193.
+
+---
+
+## Etape 3 — Verifier que le daemon est vivant
 
 ```bash
 curl http://127.0.0.1:8193/health
@@ -38,16 +58,16 @@ Doit retourner `"ok": true`. Si ce n'est pas le cas, attendre 60 secondes (le wa
 
 > Si `connection refused` : le daemon n'a pas demarre. Verifier :
 > ```bash
-> launchctl list | grep imessage
+> launchctl print "gui/$(id -u)/com.jarvis.imessage-daemon"
 > ```
 > Si absent, relancer :
 > ```bash
-> launchctl load ~/Library/LaunchAgents/com.jarvis.imessage-daemon.plist
+> launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/com.jarvis.imessage-daemon.plist"
 > ```
 
 ---
 
-## Etape 3 — Lancer l'import
+## Etape 4 — Lancer l'import
 
 ```bash
 curl -X POST http://127.0.0.1:8193/import/start
@@ -57,7 +77,7 @@ Reponse attendue : `{"status": "started", "mode": "initial"}`
 
 ---
 
-## Etape 4 — Suivre la progression
+## Etape 5 — Suivre la progression
 
 ```bash
 # Progression en direct
@@ -71,7 +91,7 @@ L'import prend quelques minutes (62 MB de `chat.db`, traite par batches de 5000 
 
 ---
 
-## Etape 5 — Verifier que tout est OK
+## Etape 6 — Verifier que tout est OK
 
 ```bash
 # Audit de coherence
@@ -100,9 +120,9 @@ curl http://127.0.0.1:8193/stats
 
 ---
 
-## Ce qui est deja en place (aucune action requise)
+## Ce que l'installation met en place
 
-- **LaunchAgent** : `~/Library/LaunchAgents/com.jarvis.imessage-daemon.plist`
+- **LaunchAgent généré** : `~/Library/LaunchAgents/com.jarvis.imessage-daemon.plist`
 - Demarre automatiquement au boot (`RunAtLoad=true`)
 - Redemarre automatiquement en cas de crash (`KeepAlive=true`)
 - Watchdog toutes les 60 secondes (verifie l'acces a `chat.db`)
@@ -114,11 +134,11 @@ curl http://127.0.0.1:8193/stats
 
 ```bash
 # Voir les logs du daemon
-tail -100 /Users/zeldris/JarvisAPI/data/logs/imessage-daemon.log
+tail -100 data/logs/imessage-daemon.log
 
 # Redemarrer le daemon
-launchctl unload ~/Library/LaunchAgents/com.jarvis.imessage-daemon.plist
-launchctl load ~/Library/LaunchAgents/com.jarvis.imessage-daemon.plist
+launchctl bootout "gui/$(id -u)/com.jarvis.imessage-daemon" 2>/dev/null || true
+launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/com.jarvis.imessage-daemon.plist"
 
 # Diagnostic complet
 curl -X POST http://127.0.0.1:8193/doctor

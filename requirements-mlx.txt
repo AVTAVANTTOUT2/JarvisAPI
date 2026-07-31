@@ -1,0 +1,4 @@
+# Sidecars audio MLX, installés dans JARVIS_VENV (venv séparé du backend).
+# mlx-audio apporte le runtime importé par native_audio/kokoro_mlx.py et
+# native_audio/ttskit_mlx.py.
+mlx-audio>=0.3,<0.5
