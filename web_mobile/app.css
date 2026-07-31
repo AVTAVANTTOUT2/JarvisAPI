@@ -333,6 +333,45 @@ a { color: inherit; text-decoration: none; }
 .evt.next .h { color: var(--blue); }
 .briefing { white-space: pre-wrap; font-size: 14px; line-height: 1.55; color: var(--fg-2); }
 
+/* ── Santé / Fitness ───────────────────────────────────────────── */
+.fitness-summary { margin-bottom: 4px; }
+.fitness-metrics {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+}
+.fitness-metric {
+  min-width: 0; text-align: center; padding: 10px 4px;
+  border-radius: 14px; border: 1px solid var(--line); background: rgba(0,0,0,.18);
+}
+.fitness-metric strong {
+  display: block; font-size: 13px; font-weight: 600; color: var(--fg);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.fitness-metric span {
+  display: block; margin-top: 3px; font-size: 9px; font-weight: 600;
+  letter-spacing: .08em; text-transform: uppercase; color: var(--fg-3);
+}
+.fitness-form { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+.fitness-form .cm { margin-top: -6px; }
+.fitness-field {
+  width: 100%; border-radius: 14px; min-height: 44px;
+  font-size: 16px; /* Safari : pas de zoom au focus */
+}
+select.fitness-field { appearance: none; }
+.fitness-area { min-height: 72px; resize: none; border-radius: 16px; line-height: 1.4; }
+.fitness-row { display: grid; grid-template-columns: 1fr 100px; gap: 8px; }
+.fitness-row3 { display: grid; grid-template-columns: 1fr 64px 64px; gap: 8px; }
+.fitness-water-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.fitness-water { min-height: 48px; padding: 0 8px; font-size: 13px; }
+.fitness-rating {
+  border-radius: 14px; border: 1px solid var(--line); background: rgba(0,0,0,.18);
+  padding: 12px;
+}
+.fitness-rating-head {
+  display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;
+}
+.fitness-range { width: 100%; accent-color: var(--fg); }
+.fitness-err { margin: 0; font-size: 12px; color: var(--red); }
+
 /* ── Verrouillage ──────────────────────────────────────────────── */
 .lock {
   height: 100dvh; display: flex; flex-direction: column; align-items: center;

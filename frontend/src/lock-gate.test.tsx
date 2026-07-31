@@ -72,7 +72,7 @@ describe('shared LockGate', () => {
     expect(startPrivateServices).toHaveBeenCalledOnce()
   })
 
-  it('requires a six-digit PIN or a ten-character passphrase during setup', async () => {
+  it('requires a four-digit PIN or a ten-character passphrase during setup', async () => {
     const client = fakeClient([{ ...lockedStatus, configured: false }])
     render(
       <LockGate client={client}>
@@ -80,12 +80,12 @@ describe('shared LockGate', () => {
       </LockGate>,
     )
 
-    fireEvent.change(await screen.findByLabelText('Nouveau code'), { target: { value: '1234' } })
-    fireEvent.change(screen.getByLabelText('Confirmation du code'), { target: { value: '1234' } })
+    fireEvent.change(await screen.findByLabelText('Nouveau code'), { target: { value: '123' } })
+    fireEvent.change(screen.getByLabelText('Confirmation du code'), { target: { value: '123' } })
     fireEvent.click(screen.getByRole('button', { name: 'Configurer' }))
 
     expect(
-      await screen.findByText('Utilisez un PIN de 6 chiffres ou une passphrase de 10 caractères.'),
+      await screen.findByText('Utilisez un PIN de 4 chiffres ou une passphrase de 10 caractères.'),
     ).toBeInTheDocument()
     expect(client.setup).not.toHaveBeenCalled()
   })

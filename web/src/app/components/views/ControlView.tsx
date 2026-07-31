@@ -96,12 +96,24 @@ export default function ControlView() {
 
   // ── Fetch functions ──────────────────────────────────────
 
+  const hydrateSubServicesFromTop = useCallback((services: SupervisorService[]) => {
+    const backend = services.find((s) => s.id === 'backend')
+    if (backend?.running && backend.sub_services && backend.sub_services.length > 0) {
+      setSubServices(backend.sub_services)
+    } else if (!backend?.running) {
+      setSubServices([])
+    }
+  }, [])
+
   const fetchTopServices = useCallback(async () => {
     try {
       const data = await api.getSupervisorStatus()
       if (!mountedRef.current) return
       setTopServices(data.services)
       setSupervisorInfo(data.supervisor)
+      // Status supervisor embarque deja les sous-services — source de verite
+      // meme si /api/supervisor/sub-services echoue (ex. page ouverte sur :8081).
+      hydrateSubServicesFromTop(data.services)
       setError(null)
     } catch {
       // Supervisor indisponible — fallback silencieux
@@ -109,7 +121,7 @@ export default function ControlView() {
         setError("Superviseur inaccessible — demarrez-le : ./scripts/launch_supervisor.sh")
       }
     }
-  }, [])
+  }, [hydrateSubServicesFromTop])
 
   const fetchSubServices = useCallback(async () => {
     try {
@@ -153,6 +165,7 @@ export default function ControlView() {
           if (msg.type === 'initial_state' || msg.type === 'status_update') {
             if (msg.services) {
               setTopServices(msg.services)
+              hydrateSubServicesFromTop(msg.services)
             }
             if (msg.supervisor_pid) {
               // Mise à jour fonctionnelle : ne PAS dépendre de supervisorInfo,
@@ -162,7 +175,7 @@ export default function ControlView() {
                 prev ? { ...prev, pid: msg.supervisor_pid! } : prev,
               )
             }
-            // Also refresh sub-services when backend is part of an update
+            // Rafraichit aussi via l'endpoint dedie (etat plus riche si dispo)
             fetchSubServices()
           }
         } catch {
@@ -184,7 +197,7 @@ export default function ControlView() {
     } catch {
       // WebSocket non supporte
     }
-  }, [fetchSubServices])
+  }, [fetchSubServices, hydrateSubServicesFromTop])
 
   // ── Lifecycle ────────────────────────────────────────────
 

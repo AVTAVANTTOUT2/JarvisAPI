@@ -337,3 +337,14 @@ def test_idle_timer_treats_background_time_as_inactivity():
     assert "document.hidden" in auth_source
     assert "Date.now() - lastActivity" in auth_source
     assert "visibilitychange', visibility" in auth_source
+
+
+def test_mobile_lock_accepts_variable_length_pin():
+    """Le bureau accepte un PIN à 4 chiffres ; le pavé mobile ne doit pas exiger 6."""
+    auth_source = _mobile_source("js/auth.js")
+    assert "const MIN_PIN = 4" in auth_source
+    assert "const MAX_PIN = 12" in auth_source
+    assert 'data-action="ok"' in auth_source or "dataset.action = 'ok'" in auth_source
+    # Ne plus auto-soumettre uniquement à une longueur fixe de 6.
+    assert "const LEN = 6" not in auth_source
+    assert "code.length === MAX_PIN" in auth_source

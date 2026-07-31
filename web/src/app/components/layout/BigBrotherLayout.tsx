@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { ws } from '@desktop/services/websocket';
-import { Activity, Bot, CalendarDays, ListTodo, MessageSquare, Mic, Settings2, Smartphone, TerminalSquare, Bug } from 'lucide-react';
+import { Activity, Bot, CalendarDays, Dumbbell, ListTodo, MessageSquare, Mic, Settings2, Smartphone, TerminalSquare, Bug } from 'lucide-react';
 
 function navCls({ isActive }: { isActive: boolean }) {
   return `block w-full text-left px-3 py-2.5 rounded-xl text-sm transition-colors border border-transparent ${
@@ -67,6 +67,12 @@ export function BigBrotherLayout() {
             <span className="inline-flex items-center gap-2">
               <ListTodo size={14} />
               Tâches
+            </span>
+          </NavLink>
+          <NavLink to="/fitness" className={navCls}>
+            <span className="inline-flex items-center gap-2">
+              <Dumbbell size={14} />
+              Fitness
             </span>
           </NavLink>
           <NavLink to="/map" className={navCls}>
@@ -150,6 +156,10 @@ export function BigBrotherLayout() {
             <NavLink to="/tasks" className={topNavCls}>
               <ListTodo size={14} />
               Tâches
+            </NavLink>
+            <NavLink to="/fitness" className={topNavCls}>
+              <Dumbbell size={14} />
+              Fitness
             </NavLink>
             <NavLink to="/dashboard" className={topNavCls}>
               Dashboard

@@ -130,6 +130,13 @@ export const api = {
   conversations: (n = 50) => request('GET', `/api/conversations?limit=${n}`),
   conversation:  (id)     => request('GET', `/api/conversations/${id}`),
 
+  // ── Fitness ──
+  fitnessSummaryToday: () => request('GET', '/api/fitness/summary/today'),
+  createWorkout:       (b) => request('POST', '/api/fitness/workouts', b),
+  createMeal:          (b) => request('POST', '/api/fitness/meals', b),
+  addWater:            (b) => request('POST', '/api/fitness/water', b),
+  createWellbeing:     (b) => request('POST', '/api/fitness/wellbeing', b),
+
   /** Appel LLM : plusieurs secondes et un coût réel. Jamais au montage d'un écran. */
   briefing: (kind = 'morning') => request('GET', `/api/briefing?kind=${encodeURIComponent(kind)}`),
 };

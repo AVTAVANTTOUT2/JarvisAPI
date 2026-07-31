@@ -839,7 +839,8 @@ class AudioDaemon:
                             self._mic_mute_logged = True
                             logger.critical(
                                 "[audio_daemon] Micro muet depuis 3s — permission macOS probablement refusee. "
-                                "Reglages Systeme > Confidentialite > Microphone → cocher Cursor et Terminal."
+                                "Reglages Systeme > Confidentialite > Microphone → cocher JARVIS "
+                                "(et le Python du venv si present)."
                             )
                     else:
                         silent_since = 0
@@ -1829,28 +1830,49 @@ class AudioDaemon:
 
         Priorite :
         1. ``AUDIO_DAEMON_INPUT_DEVICE`` explicite dans .env
-        2. Auto-detection "Blue Snowball" si dispo
-        3. Defaut systeme
+        2. Auto-detection "Blue Snowball" / "Shiver" si dispo
+        3. Defaut systeme (index explicite — ``None`` casse PortAudio sous LaunchAgent)
         """
-        device_name = getattr(config, "AUDIO_DAEMON_INPUT_DEVICE", "") or ""
+        device_name = (getattr(config, "AUDIO_DAEMON_INPUT_DEVICE", "") or "").strip()
         if device_name:
             for i in range(pa.get_device_count()):
                 info = pa.get_device_info_by_index(i)
                 if info.get("maxInputChannels", 0) > 0 and device_name.lower() in str(info.get("name", "")).lower():
                     logger.info("[audio_daemon] Peripherique d'entree selectionne : %s (index=%d)", info["name"], i)
                     return i
-            logger.warning("[audio_daemon] Peripherique '%s' non trouve — fallback sur defaut systeme", device_name)
-            return None
+            logger.warning(
+                "[audio_daemon] Peripherique '%s' non trouve — fallback sur entree disponible",
+                device_name,
+            )
 
-        # Auto-detection Blue Snowball
+        # Preferer un micro USB connu avant le defaut (AirPods, etc.)
+        for prefer in ("blue snowball", "shiver"):
+            for i in range(pa.get_device_count()):
+                info = pa.get_device_info_by_index(i)
+                if info.get("maxInputChannels", 0) > 0 and prefer in str(info.get("name", "")).lower():
+                    logger.info("[audio_daemon] Micro '%s' auto-detecte (index=%d)", info["name"], i)
+                    return i
+
+        # Defaut systeme avec index explicite (evite Errno -9996 sous LaunchAgent)
+        try:
+            default_info = pa.get_default_input_device_info()
+            idx = int(default_info["index"])
+            logger.info(
+                "[audio_daemon] Entree defaut systeme : %s (index=%d)",
+                default_info.get("name"),
+                idx,
+            )
+            return idx
+        except Exception as e:
+            logger.warning("[audio_daemon] Pas de defaut systeme (%s) — 1er micro trouve", e)
+
         for i in range(pa.get_device_count()):
             info = pa.get_device_info_by_index(i)
-            if info.get("maxInputChannels", 0) > 0 and "blue snowball" in str(info.get("name", "")).lower():
-                logger.info("[audio_daemon] Blue Snowball auto-detecte (index=%d)", i)
+            if info.get("maxInputChannels", 0) > 0:
+                logger.info("[audio_daemon] Fallback 1er micro : %s (index=%d)", info["name"], i)
                 return i
 
-        # Defaut systeme
-        logger.info("[audio_daemon] Aucun peripherique specifique configure — defaut systeme")
+        logger.error("[audio_daemon] Aucun peripherique d'entree disponible")
         return None
 
     def _cleanup_audio(self) -> None:

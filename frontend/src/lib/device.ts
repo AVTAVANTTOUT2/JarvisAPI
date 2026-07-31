@@ -6,7 +6,7 @@
  * téléchargé.
  */
 export const UNIFIED_ROUTES = [
-  'chat', 'voice', 'tasks', 'documents', 'memory', 'status', 'dashboard',
+  'chat', 'voice', 'tasks', 'fitness', 'documents', 'memory', 'status', 'dashboard',
   'contacts', 'map', 'analytics', 'search', 'data', 'conversations', 'calendar',
   'logs', 'monitoring', 'voice-debug', 'control', 'mission', 'mobile', 'mails', 'config',
   'cognitive',

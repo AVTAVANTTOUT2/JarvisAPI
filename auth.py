@@ -74,16 +74,25 @@ def is_configured() -> bool:
     return bool(get_setting(_SETTING_SECRET_HASH, ""))
 
 
+# PIN court autorisé (usage personnel + verrou anti-bruteforce).
+_MIN_PIN_DIGITS = 4
+_MIN_PASSPHRASE_LEN = 10
+
+
 def validate_secret_strength(secret: str) -> None:
-    """Applique la politique : PIN de 6 chiffres ou passphrase de 10 caractères."""
+    """Applique la politique : PIN de 4 chiffres ou passphrase de 10 caractères."""
     if not secret:
         raise ValueError("Le secret est requis.")
     if secret.isascii() and secret.isdigit():
-        if len(secret) < 6:
-            raise ValueError("Le PIN doit contenir au moins 6 chiffres.")
+        if len(secret) < _MIN_PIN_DIGITS:
+            raise ValueError(
+                f"Le PIN doit contenir au moins {_MIN_PIN_DIGITS} chiffres."
+            )
         return
-    if len(secret) < 10:
-        raise ValueError("La passphrase doit contenir au moins 10 caractères.")
+    if len(secret) < _MIN_PASSPHRASE_LEN:
+        raise ValueError(
+            f"La passphrase doit contenir au moins {_MIN_PASSPHRASE_LEN} caractères."
+        )
 
 
 def setup_secret(secret: str) -> None:
