@@ -22,11 +22,14 @@ def resolve_preferred_output_device(sd_module: Any | None = None) -> int | None:
     1. ``AUDIO_DAEMON_OUTPUT_DEVICE`` (index entier ou sous-chaîne du nom)
     2. Sortie par défaut CoreAudio / macOS — jamais d'appariement micro→casque
     """
-    try:
-        import sounddevice as sd  # type: ignore[import-not-found]
-    except ImportError:
-        return None
-    sd_mod = sd_module or sd
+    if sd_module is not None:
+        sd_mod = sd_module
+    else:
+        try:
+            import sounddevice as sd  # type: ignore[import-not-found]
+        except ImportError:
+            return None
+        sd_mod = sd
 
     override = (os.environ.get("AUDIO_DAEMON_OUTPUT_DEVICE") or "").strip()
     if not override:
