@@ -1,0 +1,219 @@
+[
+  {
+    "perimeter": "P01",
+    "title": "Bootstrap, config et assemblage",
+    "file": "rapports_bruts/P01_bootstrap_config_assemblage.md",
+    "bcId": "bc-019fb865-afbc-7a96-a2b4-eeb1f8e38476",
+    "url": "https://cursor.com/agents/bc-019fb865-afbc-7a96-a2b4-eeb1f8e38476",
+    "status": "IDLE",
+    "findings_extracted": 17,
+    "severity_counts": {
+      "CRITICAL": 1,
+      "HIGH": 4,
+      "MEDIUM": 6,
+      "LOW": 3,
+      "INFO": 3
+    },
+    "bytes": 14281
+  },
+  {
+    "perimeter": "P02",
+    "title": "Auth et sécurité HTTP",
+    "file": "rapports_bruts/P02_auth_securite_http.md",
+    "bcId": "bc-019fb865-e1ca-7440-bdf3-87cbfd45fc6d",
+    "url": "https://cursor.com/agents/bc-019fb865-e1ca-7440-bdf3-87cbfd45fc6d",
+    "status": "IDLE",
+    "findings_extracted": 10,
+    "severity_counts": {
+      "HIGH": 1,
+      "MEDIUM": 4,
+      "LOW": 3,
+      "INFO": 2
+    },
+    "bytes": 10037
+  },
+  {
+    "perimeter": "P03",
+    "title": "API REST routeurs",
+    "file": "rapports_bruts/P03_api_rest_routeurs.md",
+    "bcId": "bc-019fb866-2ab1-7b98-ae0d-6de5e08698b3",
+    "url": "https://cursor.com/agents/bc-019fb866-2ab1-7b98-ae0d-6de5e08698b3",
+    "status": "IDLE",
+    "findings_extracted": 7,
+    "severity_counts": {
+      "HIGH": 2,
+      "MEDIUM": 1,
+      "LOW": 3,
+      "INFO": 1
+    },
+    "bytes": 9548
+  },
+  {
+    "perimeter": "P04",
+    "title": "WebSocket, chat, voix, actions",
+    "file": "rapports_bruts/P04_websocket_chat_voix_actions.md",
+    "bcId": "bc-019fb866-6788-7f50-a4c9-702e84c2357b",
+    "url": "https://cursor.com/agents/bc-019fb866-6788-7f50-a4c9-702e84c2357b",
+    "status": "IDLE",
+    "findings_extracted": 21,
+    "severity_counts": {
+      "HIGH": 17,
+      "MEDIUM": 4
+    },
+    "bytes": 18350
+  },
+  {
+    "perimeter": "P05",
+    "title": "Agents, LLM, prompts",
+    "file": "rapports_bruts/P05_agents_llm_prompts.md",
+    "bcId": "bc-019fb866-b5a9-7c88-a270-32f88b2789dd",
+    "url": "https://cursor.com/agents/bc-019fb866-b5a9-7c88-a270-32f88b2789dd",
+    "status": "IDLE",
+    "findings_extracted": 18,
+    "severity_counts": {
+      "CRITICAL": 1,
+      "HIGH": 10,
+      "MEDIUM": 5,
+      "INFO": 2
+    },
+    "bytes": 17813
+  },
+  {
+    "perimeter": "P06",
+    "title": "Database et migrations",
+    "file": "rapports_bruts/P06_database_migrations.md",
+    "bcId": "bc-019fb866-e425-7a71-b0f2-f922ff187ad5",
+    "url": "https://cursor.com/agents/bc-019fb866-e425-7a71-b0f2-f922ff187ad5",
+    "status": "IDLE",
+    "findings_extracted": 7,
+    "severity_counts": {
+      "HIGH": 2,
+      "MEDIUM": 3,
+      "LOW": 2
+    },
+    "bytes": 12130
+  },
+  {
+    "perimeter": "P07",
+    "title": "Event bus et notifications",
+    "file": "rapports_bruts/P07_event_bus_notifications.md",
+    "bcId": "bc-019fb867-1d2f-7ae3-86d5-badae2c975fb",
+    "url": "https://cursor.com/agents/bc-019fb867-1d2f-7ae3-86d5-badae2c975fb",
+    "status": "IDLE",
+    "findings_extracted": 8,
+    "severity_counts": {
+      "HIGH": 2,
+      "MEDIUM": 3,
+      "LOW": 3
+    },
+    "bytes": 11807
+  },
+  {
+    "perimeter": "P08",
+    "title": "Intégrations OS/cloud",
+    "file": "rapports_bruts/P08_integrations_os_cloud.md",
+    "bcId": "bc-019fb867-4e8a-753b-bd17-a9bcda25b111",
+    "url": "https://cursor.com/agents/bc-019fb867-4e8a-753b-bd17-a9bcda25b111",
+    "status": "IDLE",
+    "findings_extracted": 7,
+    "severity_counts": {
+      "HIGH": 2,
+      "MEDIUM": 2,
+      "LOW": 2,
+      "INFO": 1
+    },
+    "bytes": 9144
+  },
+  {
+    "perimeter": "P09",
+    "title": "Audio STT/TTS",
+    "file": "rapports_bruts/P09_audio_stt_tts.md",
+    "bcId": "bc-019fb86f-7099-70a4-8e3b-8fc13574cec2",
+    "url": "https://cursor.com/agents/bc-019fb86f-7099-70a4-8e3b-8fc13574cec2",
+    "status": "IDLE",
+    "findings_extracted": 12,
+    "severity_counts": {
+      "HIGH": 6,
+      "MEDIUM": 5,
+      "LOW": 1
+    },
+    "bytes": 12590
+  },
+  {
+    "perimeter": "P10",
+    "title": "Daemon multi-device screen",
+    "file": "rapports_bruts/P10_daemon_multi_device_screen.md",
+    "bcId": "bc-019fb873-3149-73f9-87f4-f5472ce1d257",
+    "url": "https://cursor.com/agents/bc-019fb873-3149-73f9-87f4-f5472ce1d257",
+    "status": "IDLE",
+    "findings_extracted": 12,
+    "severity_counts": {
+      "HIGH": 1,
+      "MEDIUM": 3,
+      "LOW": 4,
+      "INFO": 4
+    },
+    "bytes": 9696
+  },
+  {
+    "perimeter": "P11",
+    "title": "Workers, scheduler, qualité",
+    "file": "rapports_bruts/P11_workers_scheduler_qualite.md",
+    "bcId": "bc-019fb873-7009-7ceb-8ff3-9016e9c23bbe",
+    "url": "https://cursor.com/agents/bc-019fb873-7009-7ceb-8ff3-9016e9c23bbe",
+    "status": "IDLE",
+    "findings_extracted": 16,
+    "severity_counts": {
+      "HIGH": 6,
+      "MEDIUM": 10
+    },
+    "bytes": 13594
+  },
+  {
+    "perimeter": "P12",
+    "title": "Cognitif, Cursor, DevAgent",
+    "file": "rapports_bruts/P12_cognitif_cursor_devagent.md",
+    "bcId": "bc-019fb873-a157-7bab-8ad5-1fad11fd3c30",
+    "url": "https://cursor.com/agents/bc-019fb873-a157-7bab-8ad5-1fad11fd3c30",
+    "status": "IDLE",
+    "findings_extracted": 12,
+    "severity_counts": {
+      "HIGH": 2,
+      "MEDIUM": 6,
+      "LOW": 3,
+      "INFO": 1
+    },
+    "bytes": 16502
+  },
+  {
+    "perimeter": "P13",
+    "title": "Module Fitness",
+    "file": "rapports_bruts/P13_module_fitness.md",
+    "bcId": "bc-019fb874-5fe8-7a95-ba92-e371bff39610",
+    "url": "https://cursor.com/agents/bc-019fb874-5fe8-7a95-ba92-e371bff39610",
+    "status": "IDLE",
+    "findings_extracted": 10,
+    "severity_counts": {
+      "CRITICAL": 1,
+      "HIGH": 4,
+      "LOW": 5
+    },
+    "bytes": 9121
+  },
+  {
+    "perimeter": "P14",
+    "title": "Frontend bureau + jarvis_auth",
+    "file": "rapports_bruts/P14_frontend_bureau_jarvis_auth.md",
+    "bcId": "bc-019fb874-dfa3-7a38-bf46-e471cc3f8282",
+    "url": "https://cursor.com/agents/bc-019fb874-dfa3-7a38-bf46-e471cc3f8282",
+    "status": "ERROR",
+    "findings_extracted": 9,
+    "severity_counts": {
+      "HIGH": 1,
+      "MEDIUM": 5,
+      "LOW": 2,
+      "INFO": 1
+    },
+    "bytes": 7973
+  }
+]
