@@ -20,6 +20,21 @@ def _decode_row(row: Any, *, exercises: bool = False) -> dict[str, Any]:
     return result
 
 
+def _decode_meal_row(row: Any) -> dict[str, Any]:
+    """Convertit une ligne ``meals`` avec items JSON et drapeau photo."""
+    result = _decode_row(row)
+    raw_items = result.pop("items_json", None)
+    try:
+        result["items"] = json.loads(raw_items) if raw_items else None
+    except (TypeError, json.JSONDecodeError):
+        result["items"] = None
+    photo_path = result.get("photo_path")
+    result["has_photo"] = bool(photo_path)
+    if result.get("analysis_source") in (None, ""):
+        result["analysis_source"] = "manual"
+    return result
+
+
 def _decode_json(value: str | None, fallback: Any) -> Any:
     try:
         return json.loads(value) if value else fallback
@@ -116,22 +131,62 @@ def create_meal(
     calories_estimate: int | None,
     protein_g: float | None,
     source: str,
+    carbs_g: float | None = None,
+    fat_g: float | None = None,
+    fiber_g: float | None = None,
+    items: list[dict[str, Any]] | None = None,
+    photo_path: str | None = None,
+    analysis_source: str = "manual",
+    confidence: float | None = None,
+    raw_input: str | None = None,
 ) -> dict[str, Any]:
     """Insère un repas et retourne la ligne créée."""
+    encoded_items = (
+        json.dumps(items, ensure_ascii=False, separators=(",", ":"))
+        if items is not None
+        else None
+    )
     with get_db() as conn:
         cursor = conn.execute(
             """
             INSERT INTO meals (
-                date, meal_type, description, calories_estimate, protein_g, source
-            ) VALUES (?, ?, ?, ?, ?, ?)
+                date, meal_type, description, calories_estimate, protein_g,
+                carbs_g, fat_g, fiber_g, items_json, photo_path,
+                analysis_source, confidence, raw_input, source
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (log_date, meal_type, description, calories_estimate, protein_g, source),
+            (
+                log_date,
+                meal_type,
+                description,
+                calories_estimate,
+                protein_g,
+                carbs_g,
+                fat_g,
+                fiber_g,
+                encoded_items,
+                photo_path,
+                analysis_source,
+                confidence,
+                raw_input,
+                source,
+            ),
         )
         row = conn.execute(
             "SELECT * FROM meals WHERE id = ?",
             (int(cursor.lastrowid),),
         ).fetchone()
-    return _decode_row(row)
+    return _decode_meal_row(row)
+
+
+def get_meal(meal_id: int) -> dict[str, Any] | None:
+    """Retourne un repas par identifiant, ou ``None``."""
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT * FROM meals WHERE id = ?",
+            (meal_id,),
+        ).fetchone()
+    return _decode_meal_row(row) if row is not None else None
 
 
 def list_meals_for_date(log_date: str) -> list[dict[str, Any]]:
@@ -141,7 +196,7 @@ def list_meals_for_date(log_date: str) -> list[dict[str, Any]]:
             "SELECT * FROM meals WHERE date = ? ORDER BY id DESC",
             (log_date,),
         ).fetchall()
-    return [_decode_row(row) for row in rows]
+    return [_decode_meal_row(row) for row in rows]
 
 
 def has_meal_type(log_date: str, meal_type: str) -> bool:

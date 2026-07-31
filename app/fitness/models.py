@@ -68,6 +68,14 @@ class FitnessSource(str, Enum):
     PWA = "pwa"
 
 
+class MealAnalysisSource(str, Enum):
+    """Provenance de l'estimation nutritionnelle d'un repas."""
+
+    MANUAL = "manual"
+    TEXT_AI = "text_ai"
+    PHOTO_AI = "photo_ai"
+
+
 class SessionStatus(str, Enum):
     """État journalier d'une séance programmée."""
 
@@ -129,6 +137,23 @@ class WorkoutCreate(StrictModel):
     source: FitnessSource = Field(strict=False)
 
 
+class MealFoodItem(StrictModel):
+    """Aliment ou préparation décomposée dans un repas."""
+
+    name: ShortText
+    quantity_g: float | None = Field(default=None, ge=0, le=10_000)
+    quantity_label: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, min_length=1, max_length=160),
+    ] | None = None
+    calories: int = Field(ge=0, le=20_000)
+    protein_g: float = Field(ge=0, le=1_000)
+    carbs_g: float = Field(ge=0, le=2_000)
+    fat_g: float = Field(ge=0, le=1_000)
+    fiber_g: float | None = Field(default=None, ge=0, le=500)
+    confidence: float = Field(default=0.5, ge=0, le=1)
+
+
 class MealCreate(StrictModel):
     """Commande de création d'un repas."""
 
@@ -137,7 +162,37 @@ class MealCreate(StrictModel):
     description: NonEmptyText
     calories_estimate: int | None = Field(default=None, ge=0, le=20_000)
     protein_g: float | None = Field(default=None, ge=0, le=1_000)
+    carbs_g: float | None = Field(default=None, ge=0, le=2_000)
+    fat_g: float | None = Field(default=None, ge=0, le=1_000)
+    fiber_g: float | None = Field(default=None, ge=0, le=500)
+    items: list[MealFoodItem] | None = None
+    photo_path: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, min_length=1, max_length=500),
+    ] | None = None
+    analysis_source: MealAnalysisSource = Field(
+        default=MealAnalysisSource.MANUAL,
+        strict=False,
+    )
+    confidence: float | None = Field(default=None, ge=0, le=1)
+    raw_input: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, min_length=1, max_length=8_000),
+    ] | None = None
     source: FitnessSource = Field(strict=False)
+
+
+class MealTextAnalyze(StrictModel):
+    """Journal alimentaire libre à structurer par l'IA puis enregistrer."""
+
+    date: IsoDate
+    text: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, min_length=1, max_length=8_000),
+    ]
+    meal_type: MealType | None = Field(default=None, strict=False)
+    source: FitnessSource = Field(default=FitnessSource.PWA, strict=False)
+    save: bool = True
 
 
 class WaterCreate(StrictModel):
@@ -176,6 +231,15 @@ class MealRead(MealCreate):
 
     id: int
     created_at: datetime
+    has_photo: bool = False
+
+
+class MealAnalysisPreview(StrictModel):
+    """Résultat d'analyse avant ou après persistance."""
+
+    meal: MealRead | None = None
+    analysis: MealCreate
+    persisted: bool
 
 
 class WaterRead(WaterCreate):

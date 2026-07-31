@@ -13,8 +13,14 @@ from .models import (
     FitnessAdvice,
     FitnessProgramRead,
     FitnessProgramUpdate,
+    FitnessSource,
+    MealAnalysisPreview,
+    MealAnalysisSource,
     MealCreate,
+    MealFoodItem,
     MealRead,
+    MealTextAnalyze,
+    MealType,
     ProgramSessionRead,
     ProgramSessionUpdate,
     SessionProgressRead,
@@ -100,14 +106,34 @@ class FitnessService:
                 meal_type = "diner"
             else:
                 meal_type = "collation"
+        items = (
+            [item.model_dump(mode="json") for item in payload.items]
+            if payload.items is not None
+            else None
+        )
         row = fitness_repository.create_meal(
             log_date=payload.date.isoformat(),
             meal_type=meal_type,
             description=payload.description,
             calories_estimate=payload.calories_estimate,
             protein_g=payload.protein_g,
+            carbs_g=payload.carbs_g,
+            fat_g=payload.fat_g,
+            fiber_g=payload.fiber_g,
+            items=items,
+            photo_path=payload.photo_path,
+            analysis_source=payload.analysis_source.value,
+            confidence=payload.confidence,
+            raw_input=payload.raw_input,
             source=payload.source.value,
         )
+        return MealRead.model_validate(row)
+
+    def get_meal(self, meal_id: int) -> MealRead:
+        """Retourne un repas ou lève ``LookupError``."""
+        row = fitness_repository.get_meal(meal_id)
+        if row is None:
+            raise LookupError(f"Repas {meal_id} introuvable")
         return MealRead.model_validate(row)
 
     def list_meals(self, log_date: date) -> list[MealRead]:
@@ -116,6 +142,125 @@ class FitnessService:
             MealRead.model_validate(row)
             for row in fitness_repository.list_meals_for_date(log_date.isoformat())
         ]
+
+    def _analysis_to_meal_create(
+        self,
+        analysis: dict,
+        *,
+        log_date: date,
+        source_value: str,
+        meal_type_hint: MealType | None,
+        photo_path: str | None = None,
+    ) -> MealCreate:
+        meal_type_raw = analysis.get("meal_type")
+        if meal_type_raw in {member.value for member in MealType}:
+            meal_type = MealType(meal_type_raw)
+        else:
+            meal_type = meal_type_hint
+        items_raw = analysis.get("items") or []
+        items = [MealFoodItem.model_validate(item) for item in items_raw]
+        return MealCreate(
+            date=log_date,
+            meal_type=meal_type,
+            description=str(analysis["description"]),
+            calories_estimate=int(analysis["calories_estimate"]),
+            protein_g=float(analysis["protein_g"]),
+            carbs_g=float(analysis["carbs_g"]),
+            fat_g=float(analysis["fat_g"]),
+            fiber_g=(
+                float(analysis["fiber_g"])
+                if analysis.get("fiber_g") is not None
+                else None
+            ),
+            items=items,
+            photo_path=photo_path,
+            analysis_source=MealAnalysisSource(analysis["analysis_source"]),
+            confidence=float(analysis["confidence"]),
+            raw_input=analysis.get("raw_input"),
+            source=FitnessSource(source_value),
+        )
+
+    async def create_meal_from_text(
+        self,
+        payload: MealTextAnalyze,
+    ) -> MealAnalysisPreview:
+        """Analyse un journal libre puis enregistre le repas (sauf ``save=false``)."""
+        from .meal_analysis import analyze_meal_text
+
+        analysis = await analyze_meal_text(
+            payload.text,
+            meal_type_hint=(
+                payload.meal_type.value if payload.meal_type is not None else None
+            ),
+        )
+        draft = self._analysis_to_meal_create(
+            analysis,
+            log_date=payload.date,
+            source_value=payload.source.value,
+            meal_type_hint=payload.meal_type,
+        )
+        if not payload.save:
+            return MealAnalysisPreview(meal=None, analysis=draft, persisted=False)
+        meal = self.create_meal(draft)
+        return MealAnalysisPreview(meal=meal, analysis=draft, persisted=True)
+
+    async def create_meal_from_photo(
+        self,
+        *,
+        log_date: date,
+        image_bytes: bytes,
+        original_name: str | None,
+        meal_type: MealType | None,
+        note: str | None,
+        source_value: str,
+        save: bool = True,
+    ) -> MealAnalysisPreview:
+        """Analyse une photo d'assiette, stocke l'image, enregistre le repas."""
+        from pathlib import Path
+
+        from jarvis.uploads import UploadRejected, store_bytes_upload
+
+        from .meal_analysis import MEAL_IMAGE_EXTENSIONS, analyze_meal_photo
+
+        analysis = await analyze_meal_photo(
+            image_bytes,
+            meal_type_hint=meal_type.value if meal_type is not None else None,
+            note=note,
+        )
+
+        photo_path: str | None = None
+        try:
+            import config as app_config
+
+            stored = store_bytes_upload(
+                image_bytes,
+                original_name=original_name or "meal.jpg",
+                namespace="fitness/meals",
+                allowed_extensions=MEAL_IMAGE_EXTENSIONS,
+                max_bytes=int(
+                    getattr(app_config, "FITNESS_MEAL_PHOTO_MAX_BYTES", 8_000_000)
+                ),
+            )
+            photo_path = str(
+                Path("fitness/meals") / stored.stored_name
+            ).replace("\\", "/")
+        except UploadRejected:
+            raise
+        except Exception:
+            # L'analyse reste utilisable même si le stockage photo échoue.
+            photo_path = None
+
+        draft = self._analysis_to_meal_create(
+            analysis,
+            log_date=log_date,
+            source_value=source_value,
+            meal_type_hint=meal_type,
+            photo_path=photo_path,
+        )
+        if not save:
+            return MealAnalysisPreview(meal=None, analysis=draft, persisted=False)
+        meal = self.create_meal(draft)
+        return MealAnalysisPreview(meal=meal, analysis=draft, persisted=True)
 
     def create_water(self, payload: WaterCreate) -> WaterCreateResponse:
         """Ajoute une quantité d'eau et retourne le cumul de la date."""
