@@ -25,8 +25,11 @@ from database import (
 )
 from integrations import calendar_client, mail_client, weather
 from jarvis.document_privacy import document_strict_local_enabled
-from jarvis.pii.anonymizer import PIIAnonymizer
 from jarvis.pii.boundary import DataBoundary
+from jarvis.security.llm_data_boundary import (
+    UNTRUSTED_DATA_SYSTEM_RULE,
+    wrap_untrusted_data,
+)
 
 logger = logging.getLogger("jarvis")
 
@@ -43,11 +46,22 @@ async def _maybe_title_conversation(conv_id: int) -> None:
         if not (has_user and has_assistant):
             return
         first_msgs = msgs[:4]
-        context = "\n".join([f"{m['role']}: {m['content'][:100]}" for m in first_msgs])
+        raw_context = "\n".join(
+            f"{m['role']}: {m['content'][:100]}" for m in first_msgs
+        )
+        context = wrap_untrusted_data(
+            "CONVERSATION_HISTORY_FOR_TITLE",
+            raw_context,
+            max_chars=800,
+        )
         result = await llm.chat(
             messages=[{"role": "user", "content": context}],
             model=config.DEEPSEEK_FAST_MODEL,
-            system="Génère un titre court (3-6 mots) pour cette conversation. Pas de guillemets, pas de ponctuation finale. Juste le titre. Exemples : 'Révision exam droit', 'Analyse relation Bertille', 'Planning semaine', 'Problème code Python'.",
+            system=(
+                UNTRUSTED_DATA_SYSTEM_RULE
+                + "\nGénère un titre court (3-6 mots) pour cette conversation. "
+                "Pas de guillemets, pas de ponctuation finale. Juste le titre."
+            ),
             max_tokens=20,
             temperature=0.3,
             use_cache=False,
@@ -194,16 +208,13 @@ async def _build_enriched_context(text: str, conversation_id: int) -> dict:
 
             raw_context = "\n\n".join(docs_parts)[:limit]
             if raw_context:
-                anonymizer = PIIAnonymizer()
-                anonymized = anonymizer.anonymize(raw_context)
-                try:
-                    DataBoundary().check(anonymized.anonymized_text)
-                    context["documents_context"] = (
-                        "[DOCUMENTS ATTACHÉS — DONNÉES PII MASQUÉES]\n"
-                        + anonymized.anonymized_text
-                    )
-                finally:
-                    anonymized.mapping.clear()
+                safe_context = wrap_untrusted_data(
+                    "ATTACHED_DOCUMENTS",
+                    raw_context,
+                    max_chars=limit,
+                )
+                DataBoundary().check(safe_context)
+                context["documents_context"] = safe_context
     except Exception as e:
         logger.warning("[ctx] document cloud bloqué par la frontière de données : %s", e)
 
@@ -223,11 +234,16 @@ async def _build_enriched_context(text: str, conversation_id: int) -> dict:
             if mail_client and mail_client.is_available():
                 emails = await mail_client.get_unread(10)
                 if emails:
-                    context["emails_context"] = "\n".join([
+                    email_lines = "\n".join([
                         f"- De: {e.get('from', '')} | Objet: {e.get('subject', '')} | "
                         f"{str(e.get('preview', '') or e.get('snippet', ''))[:300]}"
                         for e in emails
                     ])
+                    context["emails_context"] = wrap_untrusted_data(
+                        "MAIL_APP",
+                        email_lines,
+                        max_chars=5_000,
+                    )
         except Exception as ex:
             logger.warning("[ctx] mail : %s", ex)
 
@@ -312,10 +328,15 @@ async def _build_enriched_context(text: str, conversation_id: int) -> dict:
         try:
             recs = get_recordings(limit=5)
             if recs:
-                context["recordings_context"] = "\n".join([
+                recording_lines = "\n".join([
                     f"- {r.get('title', r.get('label', '?'))} ({r.get('duration_seconds', 0)}s)"
                     for r in recs
                 ])
+                context["recordings_context"] = wrap_untrusted_data(
+                    "TRANSCRIPTION_METADATA",
+                    recording_lines,
+                    max_chars=2_000,
+                )
         except Exception:
             pass
 
@@ -326,10 +347,15 @@ async def _build_enriched_context(text: str, conversation_id: int) -> dict:
         try:
             recent_convs = get_conversations(limit=5)
             if recent_convs:
-                context["recent_conversations"] = "\n".join([
+                recent_lines = "\n".join([
                     f"- [{c.get('title', 'Sans titre')}] {str(c.get('last_message', ''))[:100]}"
                     for c in recent_convs
                 ])
+                context["recent_conversations"] = wrap_untrusted_data(
+                    "CONVERSATION_HISTORY_SEARCH",
+                    recent_lines,
+                    max_chars=2_000,
+                )
         except Exception:
             pass
 

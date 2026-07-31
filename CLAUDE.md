@@ -442,7 +442,7 @@ JARVIS peut exécuter des actions sur le Mac local via `integrations/computer.py
 
 **Module** : `ComputerControl` — `run(str)` legacy est déprécié et refuse toute exécution ; les helpers `open_app`, `find_files`, `clipboard` (`pbcopy` / `pbpaste`), `get_battery` / `get_wifi` / `get_disk_space`, `get_running_apps`, `get_active_window` et `run_applescript` utilisent des argv fixes validés, sans shell, avec un environnement enfant minimal.
 
-**Actions** (`actions.py` → `execute_action`) : `terminal`, `open_app`, `find_file`, `clipboard`, `system_info`. Types déclenchant une **2e passe LLM** (réformulation, pas de stdout brut dans le chat) : `terminal`, `find_file`, `system_info`, `clipboard` — flag `ACTIONS_WITH_FOLLOWUP` dans `api/chat_actions.py`.
+**Actions** (`actions.py` → `execute_action`) : `terminal`, `open_app`, `find_file`, `clipboard`, `system_info`. Les types autorisés à déclencher une **2e passe LLM** passent d'abord par une allowlist de champs, des plafonds et la frontière secrets/PII de `jarvis/security/llm_data_boundary.py`. Le presse-papiers est local-only et ne déclenche jamais cette seconde passe — flag `ACTIONS_WITH_FOLLOWUP` dans `api/chat_actions.py`.
 
 **Sécurité terminal LLM** : `_action_terminal()` n'appelle jamais
 `ComputerControl.run()`. Il construit un plan opaque via
@@ -503,9 +503,9 @@ Action terminal reçue
 
 ### 2e passe LLM enrichie
 
-`_format_action_result_for_followup()` reformule les résultats structurés du
-plan confirmé : instruction originale, commandes exécutées, output, erreurs
-et résumé.
+`_format_action_result_for_followup()` ne transmet que des champs allowlistés,
+redactés, plafonnés et délimités comme données non fiables. `stdout`/`stderr`
+ne partent jamais bruts et le contenu du presse-papiers reste exclu du cloud.
 
 ### Config
 

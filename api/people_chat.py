@@ -29,6 +29,11 @@ from database import (
     save_message,
     update_conversation_activity,
 )
+from jarvis.security.llm_data_boundary import (
+    UNTRUSTED_DATA_SYSTEM_RULE,
+    redact_for_external_llm,
+    wrap_untrusted_data,
+)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 logger = logging.getLogger("jarvis")
@@ -113,6 +118,16 @@ async def api_people_ask(name: str, payload: dict[str, Any] = Body(default_facto
             snippets = _format_imessage_snippets(msgs, person.get("name") or path_decoded)
         except Exception as e:
             logger.warning("[contact_chat] format extraits : %s", e)
+        safe_events = wrap_untrusted_data(
+            "RELATIONSHIP_EVENTS",
+            events_block,
+            max_chars=8_000,
+        )
+        safe_snippets = wrap_untrusted_data(
+            "IMESSAGE",
+            snippets,
+            max_chars=15_000,
+        )
 
         tpl = ""
         try:
@@ -123,18 +138,42 @@ async def api_people_ask(name: str, payload: dict[str, Any] = Body(default_facto
             tpl = _load_persona_block()
 
         try:
-            system = (
+            system = UNTRUSTED_DATA_SYSTEM_RULE + "\n\n" + (
                 tpl.replace("{{persona}}", _load_persona_block())
-                .replace("{{contact_name}}", person.get("name") or path_decoded)
-                .replace("{{relationship}}", str(person.get("relationship") or "—"))
-                .replace("{{personality_notes}}", str(person.get("personality_notes") or "—"))
-                .replace("{{dynamics}}", str(person.get("dynamics") or "—"))
-                .replace("{{patterns}}", str(person.get("patterns") or "—"))
-                .replace("{{communication_style}}", str(rp.get("communication_style") or "—"))
-                .replace("{{sentiment}}", str(rp.get("sentiment") or "—"))
-                .replace("{{trust_level}}", str(rp.get("trust_level") or "—"))
-                .replace("{{events}}", events_block)
-                .replace("{{recent_messages}}", snippets)
+                .replace(
+                    "{{contact_name}}",
+                    redact_for_external_llm(person.get("name") or path_decoded, max_chars=200),
+                )
+                .replace(
+                    "{{relationship}}",
+                    redact_for_external_llm(person.get("relationship") or "—", max_chars=300),
+                )
+                .replace(
+                    "{{personality_notes}}",
+                    redact_for_external_llm(person.get("personality_notes") or "—", max_chars=1_000),
+                )
+                .replace(
+                    "{{dynamics}}",
+                    redact_for_external_llm(person.get("dynamics") or "—", max_chars=1_000),
+                )
+                .replace(
+                    "{{patterns}}",
+                    redact_for_external_llm(person.get("patterns") or "—", max_chars=1_000),
+                )
+                .replace(
+                    "{{communication_style}}",
+                    redact_for_external_llm(rp.get("communication_style") or "—", max_chars=1_000),
+                )
+                .replace(
+                    "{{sentiment}}",
+                    redact_for_external_llm(rp.get("sentiment") or "—", max_chars=200),
+                )
+                .replace(
+                    "{{trust_level}}",
+                    redact_for_external_llm(rp.get("trust_level") or "—", max_chars=200),
+                )
+                .replace("{{events}}", safe_events)
+                .replace("{{recent_messages}}", safe_snippets)
             )
             logger.info("[contact_chat] system prompt construit (%d car.)", len(system))
         except Exception:
@@ -152,11 +191,18 @@ async def api_people_ask(name: str, payload: dict[str, Any] = Body(default_facto
                 f"Confiance : {profile.get('trust_level') or '?'}\n"
             )
 
+        contact_context = wrap_untrusted_data(
+            "IMESSAGE_CONTACT_CONTEXT",
+            (
+                f"Profil :\n{profile_text}\n"
+                f"Événements récents :\n{events_block}\n\n"
+                f"Derniers échanges iMessage :\n{snippets}"
+            ),
+            max_chars=20_000,
+        )
         enriched_question = (
             f"[QUESTION SUR {(person.get('name') or path_decoded).upper()}]"
-            f"{profile_text}"
-            f"\nÉvénements récents :\n{events_block}"
-            f"\n\nDerniers échanges iMessage :\n{snippets}"
+            f"\n{contact_context}"
             f"\n\nQuestion : {question}"
         )
 

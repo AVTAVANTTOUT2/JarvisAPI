@@ -4,16 +4,15 @@ Le daemon tourne **en parallèle** du serveur web (lancé via `asyncio.create_ta
 dans le lifespan FastAPI). Il orchestre :
 
 - screen watcher (capture + diff + LLM vision local) ;
-- surveillance iMessage (handle.id de tous les contacts → triage local Ollama) ;
+- surveillance iMessage et mails, avec triage texte DeepSeek lorsque nécessaire ;
 - surveillance mails (Apple Mail) ;
 - rappels calendrier (15 min avant) ;
 - wake word "Jarvis" (Porcupine) → mode conversation mains libres ;
 - file d'attente TTS jouée sur les haut-parleurs locaux ;
 - surveillance des heartbeats des machines distantes.
 
-PRINCIPE GÉNÉRAL :
-  Ollama local pré-digère et trie. Claude API ne reçoit que des résumés texte,
-  jamais d'images. 95 % du travail coûte 0 token API.
+Les chemins réseau sont documentés au niveau de chaque fonction ; ce daemon ne
+promet pas un traitement intégralement local.
 """
 
 from __future__ import annotations
@@ -37,6 +36,10 @@ from database import (
     set_active_device,
 )
 from jarvis.notification_service import notification_service
+from jarvis.security.llm_data_boundary import (
+    UNTRUSTED_DATA_SYSTEM_RULE,
+    wrap_untrusted_data,
+)
 from integrations.apple_data import apple_data
 from pipeline import process_message_internal
 from scripts.screen_watcher import screen_watcher
@@ -368,9 +371,14 @@ class JarvisDaemon:
         Utilise DeepSeek Flash (politique LLM 2026). En cas d'échec → False
         (silence > faux positifs). Ne passe jamais par Ollama.
         """
+        safe_event = wrap_untrusted_data(
+            "DAEMON_EVENT",
+            event_description,
+            max_chars=1_000,
+        )
         prompt = (
             "L'utilisateur travaille. Cet événement vient d'arriver :\n"
-            f"{event_description}\n\n"
+            f"{safe_event}\n\n"
             "Dois-je l'interrompre vocalement ? Réponds UNIQUEMENT par OUI ou NON.\n"
             "- Message personnel d'un ami/famille → OUI\n"
             "- Mail urgent ou professionnel important → OUI\n"
@@ -384,7 +392,10 @@ class JarvisDaemon:
             response = await llm.chat(
                 messages=[{"role": "user", "content": prompt}],
                 model=getattr(config, "TRIAGE_MODEL", None) or config.DEEPSEEK_FAST_MODEL,
-                system="Réponds uniquement OUI ou NON.",
+                system=(
+                    UNTRUSTED_DATA_SYSTEM_RULE
+                    + "\nRéponds uniquement OUI ou NON."
+                ),
                 max_tokens=5,
                 temperature=0.0,
             )

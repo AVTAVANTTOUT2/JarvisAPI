@@ -10,6 +10,10 @@ from pathlib import Path
 from typing import Any
 
 import config
+from jarvis.security.llm_data_boundary import (
+    UNTRUSTED_DATA_SYSTEM_RULE,
+    redact_for_external_llm,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -89,12 +93,22 @@ async def compose_cursor_prompt(
         "Rapport final présent avec marqueurs JARVIS_CURSOR_RESULT",
     ]
     tests = required_tests or ["pytest tests/ -q --tb=line -x"]
+    safe_user_request = redact_for_external_llm(user_request, max_chars=20_000)
+    safe_criteria = [
+        redact_for_external_llm(item, max_chars=2_000) for item in criteria[:100]
+    ]
+    safe_tests = [
+        redact_for_external_llm(item, max_chars=2_000) for item in tests[:100]
+    ]
     values = {
-        "user_request": user_request,
-        "acceptance_criteria": "\n".join(f"- {c}" for c in criteria),
-        "required_tests": "\n".join(f"- {t}" for t in tests),
+        "user_request": safe_user_request,
+        "acceptance_criteria": "\n".join(f"- {c}" for c in safe_criteria),
+        "required_tests": "\n".join(f"- {t}" for t in safe_tests),
         "context_files": "\n".join(f"- {f}" for f in (context_files or [])) or "(Cursor inspecte le dépôt)",
-        "extra_context": extra_context or "(aucun)",
+        "extra_context": redact_for_external_llm(
+            extra_context or "(aucun)",
+            max_chars=10_000,
+        ),
         "repo_rules": (
             "- Ne jamais modifier main directement\n"
             "- Travailler uniquement dans le worktree / branche fournie\n"
@@ -142,7 +156,10 @@ async def compose_cursor_prompt(
                 }
             ],
             model=composer_model,
-            system="Tu produis des prompts d'ingénierie de qualité production.",
+            system=(
+                UNTRUSTED_DATA_SYSTEM_RULE
+                + "\nTu produis des prompts d'ingénierie de qualité production."
+            ),
             max_tokens=4096,
             temperature=0.2,
         )

@@ -236,6 +236,8 @@ def public_cursor_job_view(job: Mapping[str, Any] | None) -> dict[str, Any] | No
     """Vue API normale : statut, branche, PR, résumé nettoyé — pas de brut."""
     if not job:
         return None
+    from jarvis.security.llm_data_boundary import redact_for_external_llm
+
     view: dict[str, Any] = {}
     for key in _PUBLIC_JOB_KEYS:
         if key in job:
@@ -243,7 +245,7 @@ def public_cursor_job_view(job: Mapping[str, Any] | None) -> dict[str, Any] | No
     # Résumé / erreurs nettoyés
     err = job.get("error_message")
     if err:
-        view["error_message"] = redact_sensitive_text(str(err))[:500]
+        view["error_message"] = redact_for_external_llm(err, max_chars=500)
     structured = job.get("structured_result")
     if isinstance(structured, Mapping):
         summary_bits = {
@@ -252,10 +254,11 @@ def public_cursor_job_view(job: Mapping[str, Any] | None) -> dict[str, Any] | No
             "cli_returncode": structured.get("cli_returncode"),
         }
         if structured.get("body"):
-            summary_bits["summary"] = redact_sensitive_text(
-                str(structured.get("body"))
-            )[:800]
-        view["summary"] = redact_sensitive_mapping(summary_bits)
+            summary_bits["summary"] = redact_for_external_llm(
+                structured.get("body"),
+                max_chars=800,
+            )
+        view["summary"] = redact_persisted_mapping(summary_bits)
     # Durée approximative
     if job.get("started_at") and job.get("finished_at"):
         view["duration_hint"] = f"{job.get('started_at')} → {job.get('finished_at')}"
@@ -266,7 +269,7 @@ def diagnostic_cursor_job_view(job: Mapping[str, Any] | None) -> dict[str, Any] 
     """Vue diagnostic : plus de détail, toujours redacted — jamais d'env brut."""
     if not job:
         return None
-    redacted = redact_sensitive_mapping(dict(job))
+    redacted = redact_persisted_mapping(dict(job))
     # Ne jamais exposer un éventuel environnement injecté
     redacted.pop("environment", None)
     redacted.pop("env", None)
