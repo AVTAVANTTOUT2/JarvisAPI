@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
@@ -9,7 +10,12 @@ from pathlib import Path
 
 import config
 import llm
-from database import add_fact
+from database import (
+    add_fact,
+    claim_job_run,
+    complete_job_run,
+    release_job_run,
+)
 from database.location_helpers import (
     get_active_location_patterns,
     get_all_places,
@@ -64,18 +70,35 @@ def _fmt_visits_short(visits: list[dict], limit: int = 80) -> str:
 
 
 class LocationAnalyzer:
-    async def run_daily_analysis(self) -> None:
+    async def run_daily_analysis(self) -> dict:
         if not getattr(config, "LOCATION_TRACKING", True):
             logger.info("[location_analyzer] Désactivé (LOCATION_TRACKING=false)")
-            return
+            return {"status": "disabled"}
 
         tpl = _load_prompt_template()
         if not tpl:
-            return
+            return {"status": "prompt_missing"}
 
         places = get_all_places()
         visits_30 = visits_summary_last_days(30)
         today = get_today_visits()
+
+        window_payload = json.dumps(
+            {"places": places, "visits_30": visits_30, "today": today},
+            ensure_ascii=False,
+            sort_keys=True,
+            default=str,
+            separators=(",", ":"),
+        )
+        fingerprint = hashlib.sha256(window_payload.encode("utf-8")).hexdigest()
+        claim = claim_job_run("location_analysis", fingerprint)
+        if claim is None:
+            logger.info(
+                "[location_analyzer] Fenêtre déjà analysée (%s) — skip",
+                fingerprint[:12],
+            )
+            return {"status": "already_analyzed", "fingerprint": fingerprint}
+        completed = False
 
         places_txt = "\n".join(
             f"- {p.get('name')} ({p.get('category')}) — visites détectées: {p.get('visit_count', 0)}"
@@ -90,98 +113,104 @@ class LocationAnalyzer:
         )
 
         try:
-            result = await llm.chat(
-                [{"role": "user", "content": prompt}],
-                model=config.DEEPSEEK_FAST_MODEL,
-                system="Tu réponds uniquement en JSON valide, sans texte autour.",
-                max_tokens=2048,
-                temperature=0.2,
-                use_cache=False,
+            try:
+                result = await llm.chat(
+                    [{"role": "user", "content": prompt}],
+                    model=config.DEEPSEEK_FAST_MODEL,
+                    system="Tu réponds uniquement en JSON valide, sans texte autour.",
+                    max_tokens=2048,
+                    temperature=0.2,
+                    use_cache=False,
+                )
+            except Exception as e:
+                logger.exception("[location_analyzer] llm.chat : %s", e)
+                return {"status": "llm_error", "fingerprint": fingerprint}
+
+            raw = result.get("content") or ""
+            data = _parse_json(raw)
+            if not data:
+                logger.warning("[location_analyzer] Pas de JSON exploitable")
+                return {"status": "parse_error", "fingerprint": fingerprint}
+
+            from database.location_helpers import add_location_pattern
+
+            for r in data.get("routines_detected") or []:
+                if not isinstance(r, dict):
+                    continue
+                desc = (r.get("pattern") or "").strip()
+                if not desc:
+                    continue
+                day = (r.get("day") or "").strip()
+                full = f"{day}: {desc}" if day else desc
+                try:
+                    add_location_pattern("routine", full[:500], None)
+                except Exception as e:
+                    logger.warning("[location_analyzer] add_location_pattern routine : %s", e)
+
+            for fact_text in data.get("suggestions") or []:
+                if isinstance(fact_text, str) and fact_text.strip():
+                    try:
+                        add_fact("location", fact_text.strip()[:500], source="location_analyzer", confidence="medium")
+                    except Exception as e:
+                        logger.warning("[location_analyzer] add_fact : %s", e)
+
+            for an in data.get("anomalies") or []:
+                if not isinstance(an, dict):
+                    continue
+                desc = (an.get("description") or "").strip()
+                if not desc:
+                    continue
+                atype = (an.get("type") or "other").strip()
+                if atype not in (
+                    "routine",
+                    "absence",
+                    "new_place",
+                    "frequency_change",
+                    "timing_change",
+                    "unusual_visit",
+                    "long_stay",
+                    "short_stay",
+                ):
+                    atype = "unusual_visit"
+                try:
+                    add_location_pattern(atype, desc[:500], None)
+                except Exception as e:
+                    logger.warning("[location_analyzer] pattern anomalie : %s", e)
+
+                if atype in ("absence", "unusual_visit", "timing_change") and config.DESKTOP_NOTIFICATIONS:
+                    try:
+                        notification_service.create(
+                            source="location",
+                            title="JARVIS — Localisation",
+                            content=desc[:500],
+                            priority="medium",
+                        )
+                    except Exception as e:
+                        logger.warning("[location_analyzer] create_notification : %s", e)
+                    try:
+                        from integrations.notifications_macos import mac_notifier
+
+                        await mac_notifier.notify(
+                            title="JARVIS — Habitudes géo",
+                            message=desc[:180],
+                            sound=config.NOTIFICATION_SOUND or "Glass",
+                        )
+                    except Exception as e:
+                        logger.debug("[location_analyzer] mac notify : %s", e)
+
+            completed = complete_job_run(claim)
+            logger.info(
+                "[location_analyzer] Terminé (patterns actifs en DB : %s)",
+                len(get_active_location_patterns()),
             )
-        except Exception as e:
-            logger.exception("[location_analyzer] llm.chat : %s", e)
-            return
-
-        raw = result.get("content") or ""
-        data = _parse_json(raw)
-        if not data:
-            logger.warning("[location_analyzer] Pas de JSON exploitable")
-            return
-
-        from database.location_helpers import add_location_pattern
-
-        for r in data.get("routines_detected") or []:
-            if not isinstance(r, dict):
-                continue
-            desc = (r.get("pattern") or "").strip()
-            if not desc:
-                continue
-            day = (r.get("day") or "").strip()
-            full = f"{day}: {desc}" if day else desc
-            try:
-                add_location_pattern("routine", full[:500], None)
-            except Exception as e:
-                logger.warning("[location_analyzer] add_location_pattern routine : %s", e)
-
-        for fact_text in data.get("suggestions") or []:
-            if isinstance(fact_text, str) and fact_text.strip():
-                try:
-                    add_fact("location", fact_text.strip()[:500], source="location_analyzer", confidence="medium")
-                except Exception as e:
-                    logger.warning("[location_analyzer] add_fact : %s", e)
-
-        for an in data.get("anomalies") or []:
-            if not isinstance(an, dict):
-                continue
-            desc = (an.get("description") or "").strip()
-            if not desc:
-                continue
-            atype = (an.get("type") or "other").strip()
-            if atype not in (
-                "routine",
-                "absence",
-                "new_place",
-                "frequency_change",
-                "timing_change",
-                "unusual_visit",
-                "long_stay",
-                "short_stay",
-            ):
-                atype = "unusual_visit"
-            try:
-                add_location_pattern(atype, desc[:500], None)
-            except Exception as e:
-                logger.warning("[location_analyzer] pattern anomalie : %s", e)
-
-            if atype in ("absence", "unusual_visit", "timing_change") and config.DESKTOP_NOTIFICATIONS:
-                try:
-                    notification_service.create(
-                        source="location",
-                        title="JARVIS — Localisation",
-                        content=desc[:500],
-                        priority="medium",
-                    )
-                except Exception as e:
-                    logger.warning("[location_analyzer] create_notification : %s", e)
-                try:
-                    from integrations.notifications_macos import mac_notifier
-
-                    await mac_notifier.notify(
-                        title="JARVIS — Habitudes géo",
-                        message=desc[:180],
-                        sound=config.NOTIFICATION_SOUND or "Glass",
-                    )
-                except Exception as e:
-                    logger.debug("[location_analyzer] mac notify : %s", e)
-
-        logger.info(
-            "[location_analyzer] Terminé (patterns actifs en DB : %s)",
-            len(get_active_location_patterns()),
-        )
+            return {"status": "completed", "fingerprint": fingerprint}
+        finally:
+            if not completed:
+                release_job_run(claim)
 
 
 location_analyzer = LocationAnalyzer()
 
 
-async def run_location_analysis() -> None:
-    await location_analyzer.run_daily_analysis()
+async def run_location_analysis() -> dict:
+    return await location_analyzer.run_daily_analysis()
