@@ -8,6 +8,7 @@ from typing import Any
 
 from agents.devagent.utils import parse_json_response
 from integrations.deepseek_client import call_deepseek
+from jarvis.security.llm_data_boundary import wrap_untrusted_data
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +46,11 @@ Regles:
 async def next_interview_step(project_id: int, context: dict[str, Any]) -> dict[str, Any]:
     """Genere la prochaine question ou la spec finale."""
     prompt = INTERVIEW_SYSTEM_PROMPT.format(
-        context_json=json.dumps(context, ensure_ascii=False)
+        context_json=wrap_untrusted_data(
+            "DEVAGENT_INTERVIEW_CONTEXT",
+            json.dumps(context, ensure_ascii=False),
+            max_chars=20_000,
+        )
     )
     response = await call_deepseek(
         system=prompt,

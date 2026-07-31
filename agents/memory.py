@@ -41,6 +41,10 @@ from database import (
     upsert_person,
     upsert_relationship_profile,
 )
+from jarvis.security.llm_data_boundary import (
+    UNTRUSTED_DATA_SYSTEM_RULE,
+    wrap_untrusted_data,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -376,7 +380,11 @@ class MemoryAgent(BaseAgent):
             role = m.get("role", "?")
             content = (m.get("content") or "").replace("\n", " ")[:300]
             lines.append(f"[{role}] {content}")
-        summary_text = "\n".join(lines)
+        summary_text = wrap_untrusted_data(
+            "CONVERSATION_HISTORY_FOR_MEMORY",
+            "\n".join(lines),
+            max_chars=16_000,
+        )
 
         logger.info(f"[memory] Traitement conversation {conversation_id} ({len(history)} msgs)")
         result = await self.handle(summary_text)
@@ -392,7 +400,7 @@ class MemoryAgent(BaseAgent):
             logger.error(f"[memory] weekly fetch : {e}")
             episodes, patterns, moods = [], [], []
 
-        prompt = (
+        raw_weekly_data = (
             f"Voici les données de la semaine de {config.USER_NAME}.\n\n"
             f"ÉPISODES ({len(episodes)}) :\n"
             + "\n".join(f"- [{e['agent']}] {(e.get('summary') or e['content'])[:200]}"
@@ -402,6 +410,14 @@ class MemoryAgent(BaseAgent):
             + f"\n\nMOODS ({len(moods)}) :\n"
             + "\n".join(f"- {m['created_at']} : {m['mood_score']}/10 énergie {m['energy_level']}/10"
                         for m in moods)
+        )
+        weekly_data = wrap_untrusted_data(
+            "WEEKLY_HISTORY",
+            raw_weekly_data,
+            max_chars=20_000,
+        )
+        prompt = (
+            weekly_data
             + "\n\nProduis un résumé structuré : "
               "1) Ce qui ressort de la semaine (3-4 lignes), "
               "2) Patterns observés, "
@@ -414,7 +430,11 @@ class MemoryAgent(BaseAgent):
             result = await llm.chat(
                 messages=[{"role": "user", "content": prompt}],
                 model=config.DEEPSEEK_MAIN_MODEL,
-                system="Tu produis le résumé hebdomadaire de la mémoire JARVIS. Sortie JSON structurée comme demandé.",
+                system=(
+                    UNTRUSTED_DATA_SYSTEM_RULE
+                    + "\nTu produis le résumé hebdomadaire de la mémoire JARVIS. "
+                    "Sortie JSON structurée comme demandé."
+                ),
                 max_tokens=2000,
                 temperature=0.4,
             )

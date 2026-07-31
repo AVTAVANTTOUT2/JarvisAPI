@@ -10,6 +10,11 @@ import config
 import llm
 from database import save_episode, save_message
 from jarvis.event_bus import JarvisEvent, event_bus
+from jarvis.security.llm_data_boundary import (
+    UNTRUSTED_DATA_SYSTEM_RULE,
+    sanitize_history_messages,
+    wrap_untrusted_data,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -82,39 +87,26 @@ class BaseAgent(ABC):
         horodatage = _get_horodatage()
 
         agent_prompt = self.load_prompt()
+        trusted_prefix = f"{horodatage}\n\n{UNTRUSTED_DATA_SYSTEM_RULE}"
         if self.inject_persona:
             persona = _load_persona()
-            base = f"{horodatage}\n\n{persona}\n\n---\n\n{agent_prompt}" if persona else f"{horodatage}\n\n{agent_prompt}"
+            base = f"{trusted_prefix}\n\n{persona}\n\n---\n\n{agent_prompt}" if persona else f"{trusted_prefix}\n\n{agent_prompt}"
         else:
-            base = f"{horodatage}\n\n{agent_prompt}"
+            base = f"{trusted_prefix}\n\n{agent_prompt}"
 
         if context:
             for key, value in context.items():
                 if key in ("voice_mode", "history", "history_text"):
                     continue
-                base = base.replace(f"{{{{{key}}}}}", str(value))
-            # ── Historique conversation (derniers 50 messages formatés) ─────
-            history_messages = context.get("history")
-            if history_messages:
-                timed_lines: list[str] = []
-                for msg in history_messages:
-                    role = msg.get("role", "?")
-                    label = "Utilisateur" if role == "user" else "JARVIS"
-                    ts = msg.get("created_at") or ""
-                    content = (msg.get("content") or "").strip()
-                    if not content:
-                        continue
-                    # Tronquer les messages très longs (500 chars max)
-                    if len(content) > 500:
-                        content = content[:500] + "…"
-                    timed_lines.append(f"[{ts}] {label} : {content}")
-                if timed_lines:
-                    base += (
-                        "\n\n---\n\n"
-                        "HISTORIQUE DE LA CONVERSATION (du plus ancien au plus récent) :\n"
-                        + "\n".join(timed_lines[-50:])
-                        + "\n\n(Fin de l'historique)"
+                if key in {"user_name", "city", "language", "timezone"}:
+                    replacement = str(value)
+                else:
+                    replacement = wrap_untrusted_data(
+                        f"CONTEXT_{key}",
+                        value,
+                        max_chars=8_000,
                     )
+                base = base.replace(f"{{{{{key}}}}}", replacement)
             if context.get("voice_mode"):
                 base += (
                     "\n\n---\n"
@@ -174,19 +166,18 @@ class BaseAgent(ABC):
                            ) -> dict:
         """Helper : appelle Claude avec le bon system prompt + historique.
 
-        L'historique est lu depuis ``context["history"]`` (injecté par
-        l'orchestrateur à partir de la DB) ou, en fallback, depuis le
-        paramètre ``history``.  Seuls les rôles *user* et *assistant*
-        sont conservés.
+        L'historique est lu depuis ``context["history"]`` ou ``history``. Il
+        reste dans ``messages[]`` avec son rôle d'origine, est redacté, plafonné
+        et marqué non fiable ; il n'est jamais recopié dans le system prompt.
         """
         system = self.build_system_prompt(context or {})
         messages = []
 
         ctx_history = (context or {}).get("history")
         if ctx_history:
-            messages.extend(ctx_history)
+            messages.extend(sanitize_history_messages(ctx_history))
         elif history:
-            messages.extend(history)
+            messages.extend(sanitize_history_messages(history))
 
         messages.append({"role": "user", "content": user_message})
 
@@ -461,12 +452,17 @@ class BaseAgent(ABC):
                 break
 
             # Demander au LLM si une nouvelle action est nécessaire
-            context_summary = "\n".join([
+            raw_context_summary = "\n".join([
                 f"Step {r['step']}: {r['action'].get('type')} → "
                 f"{str(r['result'].get('output', r['result'].get('message', '')))[:500]}"
                 for r in results
                 if isinstance(r.get("step"), int)
             ])
+            context_summary = wrap_untrusted_data(
+                "AGENTIC_ACTION_RESULTS",
+                raw_context_summary,
+                max_chars=4_000,
+            )
 
             decision_prompt = (
                 f"Contexte d'exécution :\n{context_summary}\n\n"
@@ -480,6 +476,7 @@ class BaseAgent(ABC):
                 decision = await llm.chat(
                     messages=[{"role": "user", "content": decision_prompt}],
                     model=config.DEEPSEEK_FAST_MODEL,
+                    system=UNTRUSTED_DATA_SYSTEM_RULE,
                     max_tokens=200,
                     temperature=0.0,
                 )
