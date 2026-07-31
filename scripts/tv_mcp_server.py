@@ -21,13 +21,10 @@ import json
 import logging
 import os
 import shutil
-import signal
-import subprocess
 import sys
-import time
-from dataclasses import dataclass, field
-from pathlib import Path
+from dataclasses import dataclass
 from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import aiohttp
 
@@ -36,14 +33,57 @@ logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 
 # ── Configuration ────────────────────────────────────────────────────────────
 
-TV_IP: str = os.environ.get("TV_IP", "192.168.3.82")
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+TV_IP: str = os.environ.get("TV_IP", "").strip()
 TV_ADB_PORT: int = int(os.environ.get("TV_ADB_PORT", "5555"))
+TV_ADB_SERIAL: str = os.environ.get("TV_ADB_SERIAL", "").strip()
+TV_ALLOW_NETWORK_ADB: bool = _env_bool("TV_ALLOW_NETWORK_ADB")
 CDP_LOCAL_PORT: int = int(os.environ.get("CDP_LOCAL_PORT", "9222"))
-DASHBOARD_URL: str = os.environ.get("TV_DASHBOARD_URL", "http://192.168.3.52:5174/")
+DASHBOARD_URL: str = os.environ.get("TV_DASHBOARD_URL", "http://127.0.0.1:5174/").strip()
+DASHBOARD_TOKEN: str = os.environ.get("TV_DASHBOARD_TOKEN", "").strip()
 KIWI_PACKAGE: str = "com.kiwibrowser.browser"
 KIWI_ACTIVITY: str = f"{KIWI_PACKAGE}/com.google.android.apps.chrome.Main"
 
 ADB_CMD: str = shutil.which("adb") or "adb"
+ADB_TARGET: str = TV_ADB_SERIAL or (f"{TV_IP}:{TV_ADB_PORT}" if TV_IP else "")
+
+ALLOWED_NAVIGATION_SCHEMES = frozenset({"http", "https"})
+_dashboard_netloc = urlsplit(DASHBOARD_URL).netloc.lower()
+ALLOWED_NAVIGATION_HOSTS = frozenset(
+    host.strip().lower()
+    for host in os.environ.get("TV_ALLOWED_NAVIGATION_HOSTS", _dashboard_netloc).split(",")
+    if host.strip()
+)
+
+ALLOWED_KEYCODES = {
+    "HOME": "KEYCODE_HOME",
+    "KEYCODE_HOME": "KEYCODE_HOME",
+    "BACK": "KEYCODE_BACK",
+    "KEYCODE_BACK": "KEYCODE_BACK",
+    "UP": "KEYCODE_DPAD_UP",
+    "DPAD_UP": "KEYCODE_DPAD_UP",
+    "KEYCODE_DPAD_UP": "KEYCODE_DPAD_UP",
+    "DOWN": "KEYCODE_DPAD_DOWN",
+    "DPAD_DOWN": "KEYCODE_DPAD_DOWN",
+    "KEYCODE_DPAD_DOWN": "KEYCODE_DPAD_DOWN",
+    "LEFT": "KEYCODE_DPAD_LEFT",
+    "DPAD_LEFT": "KEYCODE_DPAD_LEFT",
+    "KEYCODE_DPAD_LEFT": "KEYCODE_DPAD_LEFT",
+    "RIGHT": "KEYCODE_DPAD_RIGHT",
+    "DPAD_RIGHT": "KEYCODE_DPAD_RIGHT",
+    "KEYCODE_DPAD_RIGHT": "KEYCODE_DPAD_RIGHT",
+    "CENTER": "KEYCODE_DPAD_CENTER",
+    "DPAD_CENTER": "KEYCODE_DPAD_CENTER",
+    "KEYCODE_DPAD_CENTER": "KEYCODE_DPAD_CENTER",
+    "ENTER": "KEYCODE_ENTER",
+    "KEYCODE_ENTER": "KEYCODE_ENTER",
+}
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -66,7 +106,59 @@ async def run_cmd(*args: str, timeout: float = 15.0) -> tuple[int, str, str]:
 
 async def adb(*args: str, timeout: float = 15.0) -> tuple[int, str, str]:
     """Execute une commande ADB."""
-    return await run_cmd(ADB_CMD, *args, timeout=timeout)
+    if not ADB_TARGET:
+        return -1, "", "TV_ADB_SERIAL ou TV_IP non configuré"
+    return await run_cmd(ADB_CMD, "-s", ADB_TARGET, *args, timeout=timeout)
+
+
+def _is_network_adb_target(target: str) -> bool:
+    """Reconnaît les serials ADB TCP sans confondre les émulateurs locaux."""
+    return ":" in target and not target.startswith("emulator-")
+
+
+def adb_configuration_error(target: str, allow_network: bool) -> str | None:
+    """Valide la cible avant toute commande ADB ou création de forward CDP."""
+    if not target:
+        return "TV_ADB_SERIAL ou TV_IP doit être configuré explicitement"
+    if _is_network_adb_target(target) and not allow_network:
+        return "ADB réseau refusé: définir TV_ALLOW_NETWORK_ADB=true explicitement"
+    return None
+
+
+def validate_navigation_url(url: str) -> str | None:
+    """Retourne une erreur si l'URL sort des schémas et hosts autorisés."""
+    if not isinstance(url, str) or not url or any(ord(char) < 32 for char in url):
+        return "URL invalide"
+    try:
+        parsed = urlsplit(url)
+        # Accéder à port force aussi la validation des ports mal formés.
+        _ = parsed.port
+    except ValueError:
+        return "URL invalide"
+    if parsed.scheme.lower() not in ALLOWED_NAVIGATION_SCHEMES:
+        return "Schéma URL non autorisé"
+    if not parsed.hostname or parsed.username is not None or parsed.password is not None:
+        return "Host URL invalide"
+    if parsed.netloc.lower() not in ALLOWED_NAVIGATION_HOSTS:
+        return "Host URL non autorisé"
+    return None
+
+
+def resolve_keycode(key: Any) -> str | None:
+    """Résout uniquement les touches explicitement autorisées."""
+    if not isinstance(key, str):
+        return None
+    return ALLOWED_KEYCODES.get(key.strip().upper())
+
+
+def dashboard_launch_url() -> str:
+    """Ajoute le jeton de bootstrap sans élargir l'allowlist de navigation."""
+    if not DASHBOARD_TOKEN:
+        return DASHBOARD_URL
+    parsed = urlsplit(DASHBOARD_URL)
+    query = [(key, value) for key, value in parse_qsl(parsed.query) if key != "token"]
+    query.append(("token", DASHBOARD_TOKEN))
+    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(query), parsed.fragment))
 
 
 async def cdp_get(path: str) -> dict[str, Any]:
@@ -99,16 +191,42 @@ class TVBrowser:
     forward_active: bool = False
     _current_page_id: str | None = None
 
+    async def is_adb_connected(self) -> bool:
+        """Inspecte la cible configurée sans lancer de connexion réseau."""
+        if adb_configuration_error(ADB_TARGET, TV_ALLOW_NETWORK_ADB):
+            return False
+        code, stdout, _ = await run_cmd(ADB_CMD, "devices")
+        if code != 0:
+            return False
+        return any(line.startswith(f"{ADB_TARGET}\tdevice") for line in stdout.splitlines())
+
     async def ensure_adb_connected(self) -> bool:
         """Vérifie que la TV est connectée via ADB."""
-        code, stdout, stderr = await adb("devices")
-        if f"{TV_IP}:{TV_ADB_PORT}" not in stdout:
-            logger.info(f"Connexion ADB à {TV_IP}:{TV_ADB_PORT}...")
-            code, stdout, stderr = await adb("connect", f"{TV_IP}:{TV_ADB_PORT}", timeout=10.0)
-            if "connected" not in stdout and "already" not in stdout:
-                logger.error(f"Échec connexion ADB: {stdout} {stderr}")
-                return False
-            logger.info("ADB connecté")
+        config_error = adb_configuration_error(ADB_TARGET, TV_ALLOW_NETWORK_ADB)
+        if config_error:
+            logger.error(config_error)
+            return False
+        if await self.is_adb_connected():
+            return True
+
+        if not _is_network_adb_target(ADB_TARGET):
+            logger.error("Cible ADB USB absente: %s", ADB_TARGET)
+            return False
+
+        logger.info("Connexion ADB réseau à la cible explicitement autorisée %s", ADB_TARGET)
+        code, stdout, stderr = await run_cmd(
+            ADB_CMD,
+            "connect",
+            ADB_TARGET,
+            timeout=10.0,
+        )
+        if code != 0 or ("connected" not in stdout and "already" not in stdout):
+            logger.error("Échec connexion ADB: %s %s", stdout, stderr)
+            return False
+        if not await self.is_adb_connected():
+            logger.error("La cible ADB n'apparaît pas connectée après adb connect")
+            return False
+        logger.info("ADB connecté")
         return True
 
     async def start_cdp_forward(self) -> bool:
@@ -144,7 +262,7 @@ class TVBrowser:
                 "-n",
                 KIWI_ACTIVITY,
                 "-d",
-                DASHBOARD_URL,
+                dashboard_launch_url(),
                 "-f",
                 "0x10000000",
             )
@@ -157,7 +275,7 @@ class TVBrowser:
                 "-n",
                 KIWI_ACTIVITY,
                 "-d",
-                DASHBOARD_URL,
+                dashboard_launch_url(),
             )
 
         await asyncio.sleep(4)
@@ -253,6 +371,18 @@ class TVBrowser:
 tv_browser = TVBrowser()
 
 
+def _tool_result(msg_id: Any, result: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "jsonrpc": "2.0",
+        "id": msg_id,
+        "result": {
+            "content": [
+                {"type": "text", "text": json.dumps(result, indent=2, ensure_ascii=False)}
+            ]
+        },
+    }
+
+
 async def handle_mcp_message(msg: dict[str, Any]) -> dict[str, Any]:
     """Traite un message MCP entrant."""
     method = msg.get("method", "")
@@ -335,67 +465,81 @@ async def handle_mcp_message(msg: dict[str, Any]) -> dict[str, Any]:
     if method == "tools/call":
         tool_name = msg.get("params", {}).get("name", "")
         arguments = msg.get("params", {}).get("arguments", {})
+        if not isinstance(arguments, dict):
+            return _tool_result(msg_id, {"ok": False, "error": "Arguments invalides"})
 
-        await tv_browser.ensure_ready()
-
-        result = None
-
-        if tool_name == "tv_navigate":
-            result = await tv_browser.navigate(arguments.get("url", DASHBOARD_URL))
-
-        elif tool_name == "tv_screenshot":
-            result = await tv_browser.screenshot()
-
-        elif tool_name == "tv_get_info":
-            result = await tv_browser.get_title()
-
-        elif tool_name == "tv_open_dashboard":
-            await tv_browser.navigate(DASHBOARD_URL)
-            result = {"ok": True, "url": DASHBOARD_URL}
-
-        elif tool_name == "tv_refresh":
-            code, _, _ = await adb("shell", "input", "keyevent", "KEYCODE_F5")
-            result = {"ok": code == 0}
-
-        elif tool_name == "tv_press_key":
-            key_map = {
-                "HOME": "KEYCODE_HOME",
-                "BACK": "KEYCODE_BACK",
-                "UP": "DPAD_UP",
-                "DOWN": "DPAD_DOWN",
-                "LEFT": "DPAD_LEFT",
-                "RIGHT": "DPAD_RIGHT",
-                "CENTER": "DPAD_CENTER",
-                "ENTER": "KEYCODE_ENTER",
-            }
-            keycode = key_map.get(arguments.get("key", "").upper(), arguments.get("key", ""))
-            code, _, _ = await adb("shell", "input", "keyevent", keycode)
-            result = {"ok": code == 0, "key": keycode}
-
-        elif tool_name == "tv_status":
-            adb_ok = await tv_browser.ensure_adb_connected()
-            cdp_ok = False
-            try:
-                await cdp_get("/json/version")
-                cdp_ok = True
-            except Exception:
-                pass
-            result = {"ok": True, "adb_connected": adb_ok, "cdp_available": cdp_ok, "dashboard_url": DASHBOARD_URL}
-
-        else:
+        known_tools = {
+            "tv_navigate",
+            "tv_screenshot",
+            "tv_get_info",
+            "tv_open_dashboard",
+            "tv_refresh",
+            "tv_press_key",
+            "tv_status",
+        }
+        if tool_name not in known_tools:
             return {
                 "jsonrpc": "2.0",
                 "id": msg_id,
                 "error": {"code": -32601, "message": f"Unknown tool: {tool_name}"},
             }
 
-        return {
-            "jsonrpc": "2.0",
-            "id": msg_id,
-            "result": {
-                "content": [{"type": "text", "text": json.dumps(result, indent=2, ensure_ascii=False)}]
-            },
-        }
+        # Les arguments contrôlables sont rejetés avant tout adb connect,
+        # forward CDP ou lancement du navigateur.
+        navigation_url: str | None = None
+        keycode: str | None = None
+        if tool_name == "tv_navigate":
+            navigation_url = arguments.get("url", "")
+            validation_error = validate_navigation_url(navigation_url)
+            if validation_error:
+                result = {"ok": False, "error": validation_error}
+                return _tool_result(msg_id, result)
+        elif tool_name == "tv_open_dashboard":
+            navigation_url = dashboard_launch_url()
+            validation_error = validate_navigation_url(navigation_url)
+            if validation_error:
+                result = {"ok": False, "error": f"Dashboard invalide: {validation_error}"}
+                return _tool_result(msg_id, result)
+        elif tool_name == "tv_press_key":
+            keycode = resolve_keycode(arguments.get("key"))
+            if keycode is None:
+                return _tool_result(msg_id, {"ok": False, "error": "Touche non autorisée"})
+
+        if tool_name == "tv_status":
+            adb_ok = await tv_browser.is_adb_connected()
+            cdp_ok = False
+            try:
+                await cdp_get("/json/version")
+                cdp_ok = True
+            except Exception:
+                pass
+            result = {
+                "ok": True,
+                "adb_connected": adb_ok,
+                "cdp_available": cdp_ok,
+                "dashboard_url": DASHBOARD_URL,
+            }
+        else:
+            if not await tv_browser.ensure_ready():
+                return _tool_result(msg_id, {"ok": False, "error": "TV indisponible ou configuration refusée"})
+
+            if tool_name == "tv_navigate":
+                result = await tv_browser.navigate(navigation_url or "")
+            elif tool_name == "tv_screenshot":
+                result = await tv_browser.screenshot()
+            elif tool_name == "tv_get_info":
+                result = await tv_browser.get_title()
+            elif tool_name == "tv_open_dashboard":
+                navigation_result = await tv_browser.navigate(navigation_url or "")
+                result = {**navigation_result, "url": DASHBOARD_URL}
+            elif tool_name == "tv_refresh":
+                code, _, _ = await adb("shell", "input", "keyevent", "KEYCODE_F5")
+                result = {"ok": code == 0}
+            else:  # tv_press_key, validé ci-dessus
+                code, _, _ = await adb("shell", "input", "keyevent", keycode or "")
+                result = {"ok": code == 0, "key": keycode}
+
+        return _tool_result(msg_id, result)
 
     # ── Notifications ──
     if "id" not in msg:
@@ -412,13 +556,9 @@ async def handle_mcp_message(msg: dict[str, Any]) -> dict[str, Any]:
 async def main() -> None:
     """Boucle principale MCP Server (stdio)."""
     logger.info("TV Browser MCP Server démarré")
-    logger.info(f"TV: {TV_IP}:{TV_ADB_PORT}")
+    logger.info("Cible ADB: %s", ADB_TARGET or "non configurée")
     logger.info(f"CDP: localhost:{CDP_LOCAL_PORT}")
     logger.info(f"Dashboard: {DASHBOARD_URL}")
-
-    # Initialiser la connexion TV au démarrage
-    ready = await tv_browser.ensure_ready()
-    logger.info(f"TV prête: {ready}")
 
     # Boucle MCP sur stdin/stdout
     reader = asyncio.StreamReader()

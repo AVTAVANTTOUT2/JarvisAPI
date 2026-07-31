@@ -10,9 +10,12 @@ Affichage plein ecran 24/7 en mode kiosk.
 pip install fastapi uvicorn jinja2 httpx psutil aiofiles --break-system-packages
 
 # Lancer le serveur
+export TV_AUTH_TOKEN="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
 cd ~/JarvisAPI/tv && python3 server.py
 
-# Ouvrir http://localhost:5174
+# Bootstrap authentifié : le jeton est échangé contre un cookie HttpOnly,
+# puis immédiatement retiré de l'URL par une redirection.
+open "http://127.0.0.1:5174/?token=${TV_AUTH_TOKEN}"
 ```
 
 ## Service macOS (launchd)
@@ -37,10 +40,44 @@ Remplacer XXX = IP TV, YYY = IP Mac Mini.
 
 ## Securite
 
-- IP Whitelist: 192.168.1.0/24, 100.64.0.0/10, 127.0.0.1
-- Toute IP non autorisee recois HTTP 403
-- Pas d'authentification (IP suffit)
+- Bind par défaut : `127.0.0.1:5174`
+- `TV_AUTH_TOKEN` est obligatoire ; HTML, fichiers statiques, API et SSE utilisent la même frontière d'authentification
+- Allowlist par défaut : `127.0.0.0/8, ::1/128`
+- `X-Forwarded-For` est ignoré sauf si le pair direct appartient à `TV_TRUSTED_PROXIES`
+- Toute IP non autorisée reçoit HTTP 403 ; un jeton absent ou invalide reçoit HTTP 401
 - Headers: X-Content-Type-Options: nosniff, X-Frame-Options: DENY
+
+Pour exposer volontairement le dashboard à la TV sur le réseau, les trois
+protections doivent être déclarées explicitement :
+
+```bash
+export TV_HOST=0.0.0.0
+export TV_ALLOW_NETWORK_BIND=true
+export TV_ALLOWED_NETWORKS=192.168.1.0/24
+export TV_AUTH_TOKEN='<jeton-aléatoire-long>'
+python3 server.py
+```
+
+Un reverse proxy n'est déclaré de confiance que par son adresse ou son réseau,
+par exemple `TV_TRUSTED_PROXIES=127.0.0.1/32`. Activer
+`TV_COOKIE_SECURE=true` lorsque le dashboard est servi en HTTPS.
+
+Le bridge TV réseau est également fail-closed. Il ne lance ni `adb connect`,
+ni forward CDP au démarrage du MCP. Pour une activation manuelle :
+
+```bash
+export TV_IP=192.168.1.50
+export TV_ALLOW_NETWORK_ADB=true
+export TV_DASHBOARD_URL=http://192.168.1.10:5174/
+export TV_DASHBOARD_TOKEN="$TV_AUTH_TOKEN"
+export TV_ALLOWED_NAVIGATION_HOSTS=192.168.1.10:5174
+cd ~/JarvisAPI
+bash scripts/launch_tv_browser.sh
+```
+
+`tv_navigate` accepte uniquement HTTP(S) vers les hosts exacts déclarés et
+`tv_press_key` uniquement les touches documentées. Le LaunchAgent du bridge a
+`RunAtLoad=false` afin qu'ADB/CDP réseau ne démarre jamais au login.
 
 ## Endpoints API
 
