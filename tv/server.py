@@ -11,6 +11,7 @@ Démarrage:
 from __future__ import annotations
 
 import asyncio
+import hmac
 import ipaddress
 import json
 import logging
@@ -35,7 +36,10 @@ from starlette.middleware.base import BaseHTTPMiddleware
 import uvicorn
 import websockets
 
-import config as cfg
+try:
+    from . import config as cfg
+except ImportError:  # lancement historique: cd tv && python3 server.py
+    import config as cfg
 
 # ── Logging ───────────────────────────────────────────────────
 logging.basicConfig(
@@ -133,7 +137,7 @@ async def _ws_listener() -> None:
         await asyncio.sleep(_WS_RECONNECT_DELAY)
 
 
-# ── Middleware IP Whitelist ────────────────────────────────────
+# ── Frontière de sécurité HTTP ────────────────────────────────
 def _parse_network(raw: str) -> ipaddress.IPv4Network | ipaddress.IPv6Network | ipaddress.IPv4Address:
     try:
         return ipaddress.ip_network(raw, strict=False)
@@ -142,10 +146,50 @@ def _parse_network(raw: str) -> ipaddress.IPv4Network | ipaddress.IPv6Network | 
 
 
 WHITELIST = [_parse_network(n) for n in cfg.WHITELIST_NETWORKS]
+TRUSTED_PROXIES = [_parse_network(n) for n in cfg.TRUSTED_PROXY_NETWORKS]
 
 
-class IPWhitelistMiddleware(BaseHTTPMiddleware):
-    """Middleware qui bloque toute requête hors IP whitelist."""
+def _address_in_networks(ip_str: str, networks: list[Any]) -> bool:
+    """Vérifie une adresse contre une liste d'adresses ou de réseaux parsés."""
+    try:
+        addr = ipaddress.ip_address(ip_str)
+    except ValueError:
+        return False
+    for net in networks:
+        if isinstance(net, (ipaddress.IPv4Network, ipaddress.IPv6Network)):
+            if addr.version == net.version and addr in net:
+                return True
+        elif addr == net:
+            return True
+    return False
+
+
+def _token_from_request(request: Request) -> str:
+    authorization = request.headers.get("Authorization", "")
+    scheme, separator, value = authorization.partition(" ")
+    if separator and scheme.lower() == "bearer":
+        return value.strip()
+    header_token = request.headers.get("X-TV-Token")
+    if header_token:
+        return header_token.strip()
+    return request.cookies.get(cfg.TV_AUTH_COOKIE_NAME, "")
+
+
+def _valid_token(candidate: str) -> bool:
+    expected = cfg.TV_AUTH_TOKEN
+    return bool(expected and candidate and hmac.compare_digest(candidate, expected))
+
+
+def _unauthorized_response() -> JSONResponse:
+    return JSONResponse(
+        status_code=401,
+        content={"error": "Unauthorized", "message": "Jeton TV requis."},
+        headers={"WWW-Authenticate": "Bearer", "Cache-Control": "no-store"},
+    )
+
+
+class TVSecurityMiddleware(BaseHTTPMiddleware):
+    """Applique la même ACL et la même authentification à toute la surface TV."""
 
     async def dispatch(self, request: Request, call_next):
         client_ip = _get_client_ip(request)
@@ -155,32 +199,70 @@ class IPWhitelistMiddleware(BaseHTTPMiddleware):
                 status_code=403,
                 content={"error": "Forbidden", "message": f"IP {client_ip} non autorisée."},
             )
+
+        if not cfg.TV_AUTH_TOKEN:
+            logger.error("TV_AUTH_TOKEN absent: requête refusée en mode fail-closed")
+            return JSONResponse(
+                status_code=503,
+                content={"error": "Service unavailable", "message": "Authentification TV non configurée."},
+            )
+
+        # Bootstrap du navigateur kiosk: le jeton n'est accepté en query que
+        # sur la racine, puis retiré immédiatement de l'URL et placé en cookie.
+        query_token = request.query_params.get("token") if request.url.path == "/" else None
+        if query_token is not None:
+            if not _valid_token(query_token):
+                return _unauthorized_response()
+            response = RedirectResponse(url="/", status_code=303)
+            response.set_cookie(
+                cfg.TV_AUTH_COOKIE_NAME,
+                query_token,
+                httponly=True,
+                secure=cfg.TV_COOKIE_SECURE,
+                samesite="strict",
+                path="/",
+            )
+            response.headers["Cache-Control"] = "no-store"
+            return response
+
+        if not _valid_token(_token_from_request(request)):
+            return _unauthorized_response()
+
         return await call_next(request)
 
 
 def _get_client_ip(request: Request) -> str:
-    """Extrait l'IP réelle du client, en tenant compte des proxies (X-Forwarded-For)."""
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    if request.client:
-        return request.client.host
-    return "unknown"
+    """Retourne l'IP cliente sans faire confiance aux headers non déclarés."""
+    direct_ip = request.client.host if request.client else "unknown"
+    if not _address_in_networks(direct_ip, TRUSTED_PROXIES):
+        return direct_ip
+
+    forwarded = request.headers.get("X-Forwarded-For", "")
+    hops = [hop.strip() for hop in forwarded.split(",") if hop.strip()]
+    if not hops:
+        return direct_ip
+    if any(not _is_valid_ip(hop) for hop in hops):
+        return "unknown"
+
+    # Parcours de droite à gauche: ignorer uniquement les proxies déclarés et
+    # retenir le premier hop non fiable, c'est-à-dire le client observable.
+    for hop in reversed([*hops, direct_ip]):
+        if not _address_in_networks(hop, TRUSTED_PROXIES):
+            return hop
+    return hops[0]
+
+
+def _is_valid_ip(value: str) -> bool:
+    try:
+        ipaddress.ip_address(value)
+    except ValueError:
+        return False
+    return True
 
 
 def _is_whitelisted(ip_str: str) -> bool:
     """Vérifie si l'IP est dans la whitelist."""
-    try:
-        addr = ipaddress.ip_address(ip_str)
-    except ValueError:
-        return False
-    for net in WHITELIST:
-        if isinstance(net, (ipaddress.IPv4Network, ipaddress.IPv6Network)):
-            if addr in net:
-                return True
-        elif addr == net:
-            return True
-    return False
+    return _address_in_networks(ip_str, WHITELIST)
 
 
 # ── Health check backend ──────────────────────────────────────
@@ -202,6 +284,7 @@ async def _check_backend_health() -> dict:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _ws_listener_task
+    cfg.validate_security_config()
     logger.info(
         "JARVIS TV War Room — Démarrage sur %s:%s",
         cfg.TV_HOST,
@@ -237,7 +320,7 @@ app = FastAPI(
     redoc_url=None,
     openapi_url=None,
 )
-app.add_middleware(IPWhitelistMiddleware)
+app.add_middleware(TVSecurityMiddleware)
 
 # Security headers middleware (Starlette BaseHTTPMiddleware)
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -245,6 +328,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "no-referrer"
         if request.url.path.startswith("/api/"):
             response.headers["Cache-Control"] = "no-store"
         return response
@@ -411,6 +495,7 @@ async def api_status():
 # ═══════════════════════════════════════════════════════════════
 
 def main():
+    cfg.validate_security_config()
     uvicorn.run(
         "server:app",
         host=cfg.TV_HOST,
@@ -418,6 +503,7 @@ def main():
         reload=False,
         log_level="info",
         access_log=False,
+        proxy_headers=False,
     )
 
 
