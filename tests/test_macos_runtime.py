@@ -93,7 +93,10 @@ def test_launch_agent_plists_are_valid():
         payload = plistlib.loads(path.read_bytes())
         assert payload["Label"].startswith("com.jarvis.")
         assert payload["ProgramArguments"]
-        assert payload["RunAtLoad"] is True
+        if path.name == "com.jarvis.tv-browser.plist":
+            assert payload["RunAtLoad"] is False
+        else:
+            assert payload["RunAtLoad"] is True
 
 
 def test_say_synthesizes_audio_and_coreaudio_is_visible(tmp_path):
