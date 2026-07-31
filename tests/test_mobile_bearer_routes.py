@@ -143,3 +143,22 @@ def test_bearer_does_not_open_mutations_in_wave1(tmp_db):
         )
 
     assert response.status_code == 401
+
+
+def test_native_bearer_mutation_does_not_require_browser_origin(tmp_db):
+    """Le contrôle Origin cible les cookies navigateur, pas le Companion natif."""
+    from database import create_conversation
+
+    with _client() as client:
+        authenticate(client)
+        token = _pair(client)
+        conversation_id = create_conversation(agent="orchestrator")
+        del client.headers["Origin"]
+
+        response = client.patch(
+            f"/api/conversations/{conversation_id}",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"title": "Titre natif"},
+        )
+
+    assert response.status_code == 200
