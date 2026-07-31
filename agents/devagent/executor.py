@@ -5,14 +5,141 @@ from __future__ import annotations
 import logging
 import os
 import subprocess
-from pathlib import Path
-from typing import Sequence
+import tempfile
+from collections.abc import Mapping, Sequence
+from pathlib import Path, PurePosixPath, PureWindowsPath
+from urllib.parse import unquote
 
 logger = logging.getLogger(__name__)
 
 
 class ExecutionTimeout(Exception):
     """Levee quand une commande depasse le timeout autorise."""
+
+
+class GeneratedPathError(ValueError):
+    """Levée lorsqu'un chemin de fichier généré sort du sandbox ``src/``."""
+
+
+_DEVAGENT_ENV_ALLOWLIST = frozenset(
+    {
+        "PATH",
+        "HOME",
+        "LANG",
+        "LC_ALL",
+        "LC_CTYPE",
+        "TERM",
+        "TMPDIR",
+        "TMP",
+        "TEMP",
+        "USER",
+        "LOGNAME",
+        "SHELL",
+        "TZ",
+        "CI",
+        "GIT_EDITOR",
+        "EDITOR",
+        "GIT_TERMINAL_PROMPT",
+        "GIT_CONFIG_NOSYSTEM",
+        "NO_OPEN_BROWSER",
+        "GIT_AUTHOR_NAME",
+        "GIT_AUTHOR_EMAIL",
+        "GIT_COMMITTER_NAME",
+        "GIT_COMMITTER_EMAIL",
+    }
+)
+
+
+def _fully_url_decode(path: str) -> str:
+    """Décode les variantes URL imbriquées pour détecter les traversées cachées."""
+    decoded = path
+    for _ in range(8):
+        candidate = unquote(decoded)
+        if candidate == decoded:
+            return decoded
+        decoded = candidate
+    if unquote(decoded) != decoded:
+        raise GeneratedPathError("Chemin généré excessivement encodé")
+    return decoded
+
+
+def resolve_generated_path(project_path: Path, relative_path: str) -> Path:
+    """Résout un chemin LLM et garantit son confinement dans ``project/src``.
+
+    Les chemins absolus, les composants ``..`` (même encodés) et les liens
+    symboliques sortants sont refusés avant toute création de répertoire.
+    """
+    if not isinstance(relative_path, str):
+        raise GeneratedPathError("Le chemin généré doit être une chaîne")
+    raw_path = relative_path.strip()
+    if not raw_path or "\x00" in raw_path:
+        raise GeneratedPathError("Chemin généré vide ou invalide")
+
+    decoded_path = _fully_url_decode(raw_path)
+    normalized_path = decoded_path.replace("\\", "/")
+    if "\x00" in normalized_path:
+        raise GeneratedPathError("Chemin généré contenant un octet nul")
+
+    posix_path = PurePosixPath(normalized_path)
+    windows_path = PureWindowsPath(normalized_path)
+    if posix_path.is_absolute() or windows_path.is_absolute():
+        raise GeneratedPathError(f"Chemin généré absolu refusé : {relative_path!r}")
+    if ".." in posix_path.parts:
+        raise GeneratedPathError(f"Composante '..' refusée : {relative_path!r}")
+
+    project_root = project_path.resolve()
+    src_root = (project_root / "src").resolve()
+    if not src_root.is_relative_to(project_root):
+        raise GeneratedPathError("Le dossier src du projet sort du sandbox")
+
+    target = (src_root / Path(normalized_path)).resolve()
+    if not target.is_relative_to(src_root):
+        raise GeneratedPathError(f"Chemin généré hors de src : {relative_path!r}")
+    return target
+
+
+def build_devagent_safe_env(
+    *,
+    isolated_home: Path,
+    extra: Mapping[str, str] | None = None,
+    parent_environ: Mapping[str, str] | None = None,
+) -> dict[str, str]:
+    """Construit l'environnement allowlisté transmis aux subprocess DevAgent."""
+    parent = parent_environ if parent_environ is not None else os.environ
+    isolated_home.mkdir(parents=True, exist_ok=True)
+    temp_dir = isolated_home / "tmp"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+
+    safe_env = {
+        "PATH": parent.get("PATH", "/usr/bin:/bin:/usr/local/bin"),
+        "HOME": str(isolated_home),
+        "LANG": parent.get("LANG") or "fr_FR.UTF-8",
+        "LC_ALL": parent.get("LC_ALL") or parent.get("LANG") or "fr_FR.UTF-8",
+        "TERM": "dumb",
+        "TMPDIR": str(temp_dir),
+        "GIT_TERMINAL_PROMPT": "0",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "NO_OPEN_BROWSER": "1",
+        "GIT_AUTHOR_NAME": "DevAgent",
+        "GIT_AUTHOR_EMAIL": "devagent@localhost",
+        "GIT_COMMITTER_NAME": "DevAgent",
+        "GIT_COMMITTER_EMAIL": "devagent@localhost",
+    }
+    for key in ("LC_CTYPE", "USER", "LOGNAME", "SHELL", "TZ", "CI"):
+        value = parent.get(key)
+        if value:
+            safe_env[key] = value
+
+    if extra:
+        forbidden = sorted(set(extra) - _DEVAGENT_ENV_ALLOWLIST)
+        if forbidden:
+            raise ValueError(
+                "Variables d'environnement DevAgent non autorisées : "
+                + ", ".join(forbidden)
+            )
+        safe_env.update({str(key): str(value) for key, value in extra.items()})
+
+    return {key: value for key, value in safe_env.items() if key in _DEVAGENT_ENV_ALLOWLIST}
 
 
 def run_isolated(
@@ -23,9 +150,9 @@ def run_isolated(
 ) -> dict[str, str | int]:
     """Execute une commande dans le repertoire isole du projet.
 
-    ``env`` (optionnel) est fusionné par-dessus l'environnement courant —
-    utile pour ``GIT_EDITOR=true`` lors d'un ``git rebase --continue`` sans
-    éditeur interactif disponible.
+    ``env`` (optionnel) ne peut surcharger que l'allowlist explicite — utile
+    pour ``GIT_EDITOR=true`` lors d'un ``git rebase --continue``. Les clés API,
+    jetons et secrets du processus parent ne sont jamais transmis.
     """
     if isinstance(command, str):
         args = command.split()
@@ -36,26 +163,30 @@ def run_isolated(
     if not resolved_cwd.exists():
         raise FileNotFoundError(f"Repertoire projet introuvable : {resolved_cwd}")
 
-    full_env = {**os.environ, **env} if env else None
-
-    try:
-        result = subprocess.run(
-            args,
-            cwd=str(resolved_cwd),
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            env=full_env,
+    with tempfile.TemporaryDirectory(prefix="jarvis-devagent-home-") as temp_home:
+        safe_env = build_devagent_safe_env(
+            isolated_home=Path(temp_home),
+            extra=env,
         )
-        return {
-            "returncode": result.returncode,
-            "stdout": result.stdout or "",
-            "stderr": result.stderr or "",
-        }
-    except subprocess.TimeoutExpired as exc:
-        raise ExecutionTimeout(
-            f"Commande depassee {timeout}s : {' '.join(args)}"
-        ) from exc
+        try:
+            result = subprocess.run(
+                args,
+                cwd=str(resolved_cwd),
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                env=safe_env,
+                check=False,
+            )
+            return {
+                "returncode": result.returncode,
+                "stdout": result.stdout or "",
+                "stderr": result.stderr or "",
+            }
+        except subprocess.TimeoutExpired as exc:
+            raise ExecutionTimeout(
+                f"Commande depassee {timeout}s : {' '.join(args)}"
+            ) from exc
 
 
 def git_current_sha(project_path: Path) -> str | None:

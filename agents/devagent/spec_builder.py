@@ -9,6 +9,7 @@ from pathlib import Path
 import config
 from agents.devagent.models import DevSpec
 from agents.devagent.utils import slugify
+from jarvis.security.redaction import redact_persisted_mapping
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +43,11 @@ def lock_spec(spec_dict: dict) -> DevSpec:
 
     spec = DevSpec(**spec_dict)
     spec_path = isolation / "spec.json"
-    spec_path.write_text(spec.model_dump_json(indent=2), encoding="utf-8")
+    safe_spec = redact_persisted_mapping(spec.model_dump())
+    spec_path.write_text(
+        json.dumps(safe_spec, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
 
     state_path = isolation / ".devagent_state.json"
     if not state_path.exists():
