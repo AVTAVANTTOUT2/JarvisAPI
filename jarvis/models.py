@@ -11,9 +11,9 @@ from enum import Enum
 
 
 class DataSource(Enum):
-    """Origine d'une donnée — détermine le backend autorisé.
+    """Origine d'une donnée — décrit la protection appliquée avant DeepSeek.
 
-    - ``MESSAGES`` : conversations privées d'Elias → LOCAL uniquement.
+    - ``MESSAGES`` : conversations → DeepSeek après pseudonymisation PII.
     - ``EMAIL``    : email → DeepSeek après anonymisation PII.
     - ``DOCUMENT`` : extrait de document → DeepSeek après ``sanitize_chunks``.
     - ``WEB``      : contenu web public → DeepSeek libre.

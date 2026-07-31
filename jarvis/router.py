@@ -1,9 +1,8 @@
-"""Routeur principal du dual-LLM JARVIS — séparation stricte et définitive.
+"""Routeur de compatibilité JARVIS vers DeepSeek avec pseudonymisation PII.
 
-Règle absolue : les messages d'Elias (``chat``, ``summarize`` source MESSAGES)
-restent en LOCAL. Tout le reste passe par DeepSeek, et toute PII est
-pseudonymisée avant l'envoi puis restaurée à la réception. Le mapping PII est
-détruit immédiatement après usage et n'est jamais loggué ni persisté.
+Les chemins publics ``chat`` et ``summarize`` utilisent le fournisseur cloud
+configuré. Les PII détectées sont pseudonymisées avant l'envoi puis restaurées
+à la réception ; le mapping est détruit immédiatement après usage.
 """
 
 from __future__ import annotations
@@ -28,12 +27,12 @@ _PII_SYSTEM_PREAMBLE = (
 )
 _CHAT_SYSTEM_DEFAULT = (
     "Tu es JARVIS, l'assistant personnel d'Elias. Concis, précis, en français. "
-    "Tu tournes en local : ces échanges sont strictement privés."
+    "N'affirme pas que le traitement est local ou strictement privé."
 )
 
 
 class JARVISRouter:
-    """Point d'entrée unique : choisit le backend selon la nature de la donnée."""
+    """Point d'entrée de compatibilité : DeepSeek après protection des PII."""
 
     def __init__(
         self,

@@ -202,9 +202,10 @@ def _fallback_action_response(action_type: str, result: dict) -> str:
     if action_type == "clipboard":
         if result.get("action") == "set" or "text" in result:
             return "Copie dans le presse-papiers, Monsieur."
-        content = result.get("content", "")
-        preview = content[:80] if content else ""
-        return f"Presse-papiers : {preview}" if preview else "Presse-papiers vide, Monsieur."
+        return (
+            "Presse-papiers lu localement, Monsieur. "
+            "Son contenu n'a pas été transmis."
+        )
 
     if action_type == "system_info":
         info_type = result.get("info", "")

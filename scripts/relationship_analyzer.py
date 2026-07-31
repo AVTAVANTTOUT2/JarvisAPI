@@ -32,6 +32,11 @@ from database import (
     upsert_person,
     upsert_relationship_profile,
 )
+from jarvis.security.llm_data_boundary import (
+    UNTRUSTED_DATA_SYSTEM_RULE,
+    redact_for_external_llm,
+    wrap_untrusted_data,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -222,16 +227,26 @@ class RelationshipAnalyzer:
         if not prompt_template:
             return
 
-        formatted = _format_messages_for_prompt(messages, config.USER_NAME)
+        formatted = wrap_untrusted_data(
+            "IMESSAGE",
+            _format_messages_for_prompt(messages, config.USER_NAME),
+            max_chars=20_000,
+        )
         prompt = prompt_template.replace("{{user_name}}", config.USER_NAME)
-        prompt = prompt.replace("{{handle}}", handle)
+        prompt = prompt.replace(
+            "{{handle}}",
+            redact_for_external_llm(handle, max_chars=200),
+        )
         prompt = prompt.replace("{{messages}}", formatted)
 
         try:
             result = await llm.chat(
                 messages=[{"role": "user", "content": prompt}],
                 model=config.DEEPSEEK_FAST_MODEL,
-                system="Tu es un extracteur de données. Retourne UNIQUEMENT du JSON valide.",
+                system=(
+                    UNTRUSTED_DATA_SYSTEM_RULE
+                    + "\nTu es un extracteur de données. Retourne UNIQUEMENT du JSON valide."
+                ),
                 max_tokens=2000,
                 temperature=0.1,
             )

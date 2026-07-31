@@ -113,7 +113,7 @@ CONTRÔLE DE L'ORDINATEUR (Mac local de {{user_name}}, subprocess sécurisé —
 - FIND_FILE : recherche de fichiers → ```action
 {"type":"find_file","query":"rapport","path":"~/Documents"}
 ```
-- CLIPBOARD : presse-papiers — lecture ```action {"type":"clipboard","action":"get"}``` — écriture ```action {"type":"clipboard","action":"set","text":"..."}```
+- CLIPBOARD : presse-papiers local-only — lecture ```action {"type":"clipboard","action":"get"}``` — écriture ```action {"type":"clipboard","action":"set","text":"..."}```. Ne recopie jamais son contenu dans une réponse ou un autre prompt.
 - SYSTEM_INFO : informations machine → ```action {"type":"system_info","info":"battery"}```
   avec ``info`` parmi : ``battery``, ``wifi``, ``disk``, ``apps``.
 - NAME_PLACE : nommer l'endroit actuel (dernier GPS) → ```action

@@ -170,7 +170,7 @@ def test_inline_json_example_is_not_an_action() -> None:
 
 
 def test_terminal_and_clipboard_secrets_never_enter_followup_prompt() -> None:
-    secret = "LOCAL_SENSITIVE_VALUE_42"
+    secret = "sk-actionConfirmationBoundary123456789"
     terminal = _format_action_result_for_followup(
         {"type": "terminal", "command": "cat secret.txt"},
         {
@@ -187,5 +187,5 @@ def test_terminal_and_clipboard_secrets_never_enter_followup_prompt() -> None:
         {"ok": True, "content": secret},
     )
     assert secret not in terminal
-    assert "cat secret.txt" not in terminal
+    assert "UNTRUSTED_DATA:ACTION_RESULT_TERMINAL" in terminal
     assert secret not in clipboard

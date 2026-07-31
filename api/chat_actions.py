@@ -19,6 +19,7 @@ from api.action_confirmations import (
 )
 from api.chat_context import _build_enriched_context, _maybe_title_conversation
 from database import save_message, update_conversation_activity
+from jarvis.security.llm_data_boundary import format_action_result_for_external_llm
 
 logger = logging.getLogger("jarvis")
 
@@ -274,62 +275,8 @@ async def _check_pending_proposal(
 
 
 def _format_action_result_for_followup(action: dict, action_result: dict) -> str:
-    """Texte dense pour la 2e passe orchestrateur (réformulation)."""
-    t = action.get("type", "")
-    if t == "terminal":
-        code = action_result.get("code") or []
-        impact = action_result.get("impact_analysis") or {}
-        return (
-            f"Plan shell terminé : {'succès' if action_result.get('ok') else 'échec'}.\n"
-            f"Commandes exécutées : {len(code) if isinstance(code, list) else 0}.\n"
-            f"Impact maximal prévalidé : {impact.get('max_risk', 'inconnu')}.\n"
-            "Les sorties stdout/stderr locales sont volontairement exclues."
-        )
-    if t == "find_file":
-        files = action_result.get("files") or []
-        if not files:
-            return "Aucun fichier correspondant."
-        return "Fichiers trouvés :\n" + "\n".join(files)
-    if t == "clipboard":
-        return "Action presse-papiers traitée localement ; contenu exclu du LLM."
-    if t == "system_info":
-        lines = [f"{k}: {v}" for k, v in action_result.items() if k != "ok"]
-        return "\n".join(lines[:200])
-    if t == "where_am_i":
-        return action_result.get("message") or str(action_result.get("location") or "")
-    if t == "day_route":
-        return action_result.get("message") or ""
-    if t == "weather":
-        w = action_result.get("weather") or {}
-        return (
-            f"Météo {w.get('city', '?')} : {w.get('temp', '?')}°C, "
-            f"{w.get('description', '?')}, humidité {w.get('humidity', '?')}%, "
-            f"vent {w.get('wind_speed', '?')} km/h"
-        )
-    if t == "calendar":
-        events = action_result.get("events") or []
-        if not events:
-            return "Aucun événement à l'agenda pour cette période."
-        lines = [f"- {e.get('start', '?')} : {e.get('summary', e.get('title', '?'))}" for e in events[:20]]
-        return "Événements :\n" + "\n".join(lines)
-    if t == "calendar_create":
-        return action_result.get("message") or "Événement créé."
-    if t == "open_app":
-        return action_result.get("message") or f"Application {action.get('name', '?')} ouverte."
-    if t == "mail_read":
-        emails = action_result.get("emails") or []
-        if not emails:
-            return "Aucun mail non lu."
-        lines = [f"- De: {e.get('from', '?')} | {e.get('subject', '?')}" for e in emails[:10]]
-        return "Mails non lus :\n" + "\n".join(lines)
-    if t == "name_place":
-        if not action_result.get("ok"):
-            return action_result.get("message") or (
-                "Je n'ai pas encore reçu votre position, Monsieur. "
-                "Activez ou resynchronisez la localisation du téléphone."
-            )
-        return action_result.get("message") or "Lieu enregistré."
-    return str(action_result)[:8000]
+    """Compatibilité interne vers la frontière unique de résultats d'action."""
+    return format_action_result_for_external_llm(action, action_result)
 
 
 def _extract_action_from_text(text: str) -> tuple[dict | None, str]:

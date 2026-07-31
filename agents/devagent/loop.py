@@ -22,6 +22,7 @@ from agents.devagent.planner import ACCEPTANCE_JUDGE_PROMPT, PLANNER_PROMPT
 from agents.devagent.utils import parse_json_response
 from database import devagent as devagent_db
 from integrations.deepseek_client import call_deepseek
+from jarvis.security.llm_data_boundary import wrap_untrusted_data
 from jarvis.security.redaction import redact_persisted_mapping
 
 logger = logging.getLogger(__name__)
@@ -94,7 +95,11 @@ async def _judge_acceptance(
     response = await call_deepseek(
         system=ACCEPTANCE_JUDGE_PROMPT.format(
             spec_json=json.dumps(spec, ensure_ascii=False),
-            test_output=test_output[:4000],
+            test_output=wrap_untrusted_data(
+                "DEVAGENT_TEST_OUTPUT",
+                test_output,
+                max_chars=4_000,
+            ),
             file_list=json.dumps(_list_src_files(project_path)),
         ),
         user="Evalue les criteres d'acceptation.",
@@ -151,7 +156,11 @@ async def _run_loop_inner(project_id: int) -> None:
             system=PLANNER_PROMPT.format(
                 spec_json=json.dumps(spec, ensure_ascii=False),
                 state_json=json.dumps(state, ensure_ascii=False),
-                last_log=state.get("last_error") or "",
+                last_log=wrap_untrusted_data(
+                    "DEVAGENT_LAST_ERROR",
+                    state.get("last_error") or "",
+                    max_chars=2_000,
+                ),
             ),
             user="Planifie la prochaine tache.",
             json_mode=True,
@@ -217,7 +226,11 @@ async def _run_loop_inner(project_id: int) -> None:
             fix_response = await call_deepseek(
                 system=FIXER_PROMPT.format(
                     task=plan.get("task", ""),
-                    error=test_result.get("stderr") or test_result.get("stdout") or "",
+                    error=wrap_untrusted_data(
+                        "DEVAGENT_TEST_OUTPUT",
+                        test_result.get("stderr") or test_result.get("stdout") or "",
+                        max_chars=4_000,
+                    ),
                     files=json.dumps(files),
                     existing_content=json.dumps(
                         _read_existing_files(project_path, files), ensure_ascii=False

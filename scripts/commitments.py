@@ -26,6 +26,10 @@ from database import (
     get_overdue_commitments,
 )
 from jarvis.notification_service import notification_service
+from jarvis.security.llm_data_boundary import (
+    UNTRUSTED_DATA_SYSTEM_RULE,
+    wrap_untrusted_data,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -66,13 +70,18 @@ async def extract_today_commitments() -> list[dict]:
     if not messages:
         return []
 
-    corpus = "\n".join(f"- {m[:300]}" for m in messages)
+    corpus = wrap_untrusted_data(
+        "CONVERSATION_HISTORY_FOR_COMMITMENTS",
+        "\n".join(f"- {m[:300]}" for m in messages),
+        max_chars=20_000,
+    )
     try:
         result = await llm.chat(
             messages=[{"role": "user", "content": corpus}],
             model=config.DEEPSEEK_FAST_MODEL,
             system=(
-                "Voici les messages écrits aujourd'hui par l'utilisateur. Extrais "
+                UNTRUSTED_DATA_SYSTEM_RULE
+                + "\nVoici les messages écrits aujourd'hui par l'utilisateur. Extrais "
                 "UNIQUEMENT ses engagements EXPLICITES envers quelqu'un ou envers "
                 "lui-même : promesse d'envoyer, de faire, de rappeler, de rendre. "
                 "Pas les intentions vagues, pas les questions. Réponds UNIQUEMENT "
