@@ -29,7 +29,7 @@ from api.frontend import (
     _setup_frontend,
 )
 from api.lifespan import lifespan
-from api.middleware import security_middleware
+from api.middleware import configured_cors_origins, security_middleware
 from api.router_auth import router as auth_router
 from api.router_conversations import router as conversations_router
 from api.router_daemon import router as daemon_router
@@ -86,21 +86,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://0.0.0.0:3000",
-        "http://localhost:9000",
-        "http://127.0.0.1:9000",
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:5174",
-        "http://127.0.0.1:5174",
-        "http://localhost:8080",
-        "http://127.0.0.1:8080",
-        "http://localhost:8081",
-        "http://127.0.0.1:8081",
-    ],
+    allow_origins=configured_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

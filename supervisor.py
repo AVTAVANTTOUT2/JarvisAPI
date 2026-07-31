@@ -15,6 +15,7 @@ import logging
 import os
 import signal
 import socket
+import sqlite3
 import subprocess
 import sys
 import time
@@ -30,12 +31,22 @@ from fastapi.responses import JSONResponse
 from starlette.requests import Request
 from starlette.responses import Response
 
+import auth
+from api.middleware import (
+    browser_websocket_origin_allowed,
+    configured_cors_origins,
+    security_middleware,
+)
 from core.frontend_resolution import (
     log_lines_for_resolution,
     resolve_desktop_frontend,
 )
 from core.frontend_static import register_desktop_frontend_routes
-from core.network_security import validate_network_bind
+from core.network_security import validate_supervisor_network_bind
+from core.supervisor_auth import (
+    load_supervisor_control_token,
+    supervisor_control_headers,
+)
 
 # ── Configuration ───────────────────────────────────────────────────────
 PROJECT_DIR = Path(__file__).parent.resolve()
@@ -87,23 +98,12 @@ log = logging.getLogger("supervisor")
 app = FastAPI(title="JARVIS Supervisor", docs_url=None, redoc_url=None)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:9000",
-        "http://127.0.0.1:9000",
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:5174",
-        "http://127.0.0.1:5174",
-        "http://localhost:8080",
-        "http://127.0.0.1:8080",
-        "http://localhost:8081",
-        "http://127.0.0.1:8081",
-    ],
+    allow_origins=configured_cors_origins(),
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.middleware("http")(security_middleware)
 
 # ── Etat global ─────────────────────────────────────────────────────────
 _start_time = time.time()
@@ -123,6 +123,22 @@ _http = httpx.AsyncClient(
     limits=httpx.Limits(max_keepalive_connections=5, max_connections=20),
     verify=_backend_http_verify(),
 )
+
+
+def _validate_supervisor_startup_security() -> None:
+    """Refuse un bind distant sans verrou et prépare le secret inter-processus."""
+    try:
+        auth_configured = auth.is_configured()
+    except (OSError, sqlite3.Error):
+        auth_configured = False
+    validate_supervisor_network_bind(
+        host=config.WEB_HOST,
+        allow_network_bind=config.WEB_ALLOW_NETWORK_BIND,
+        https_enabled=config.WEB_HTTPS,
+        https_behind_proxy=config.WEB_HTTPS_BEHIND_PROXY,
+        auth_configured=auth_configured,
+    )
+    load_supervisor_control_token(create=True)
 
 # ── Lock file — empeche deux supervisors de tourner en meme temps ───────
 _lock_file: Any = None  # objet fichier pour fcntl.flock
@@ -295,7 +311,7 @@ async def _svc_status(svc: dict) -> dict:
             resp = await _http.get(
                 f"{BACKEND_URL}/api/control/services",
                 timeout=5,
-                headers={"X-Jarvis-Supervisor": "1"},
+                headers=supervisor_control_headers(),
             )
             if resp.status_code == 200:
                 result["sub_services"] = resp.json().get("services", [])
@@ -313,7 +329,7 @@ async def _stop_screen_watcher_via_backend() -> dict:
         resp = await _http.post(
             f"{BACKEND_URL}/api/control/screen_watcher/stop",
             timeout=20,
-            headers={"X-Jarvis-Supervisor": "1"},
+            headers=supervisor_control_headers(),
         )
         return resp.json() if resp.status_code < 500 else {"ok": False, "error": resp.text}
     except Exception as exc:
@@ -636,11 +652,10 @@ async def api_sub_services(request: Request):
     if not _port_open(BACKEND_PORT):
         return {"available": False, "services": [], "message": "Backend arrete"}
     try:
-        headers = {"X-Jarvis-Supervisor": "1"}
-        cookie = request.headers.get("cookie")
-        if cookie:
-            headers["cookie"] = cookie
-        resp = await _http.get(f"{BACKEND_URL}/api/control/services", headers=headers)
+        resp = await _http.get(
+            f"{BACKEND_URL}/api/control/services",
+            headers=supervisor_control_headers(),
+        )
         return {"available": True, **resp.json()}
     except Exception as exc:
         return {"available": False, "services": [], "error": str(exc)}
@@ -653,14 +668,10 @@ async def api_sub_action(sid: str, action: str, request: Request):
     if action not in ("start", "stop", "restart"):
         return {"ok": False, "error": f"Action invalide : {action}"}
     try:
-        headers = {"X-Jarvis-Supervisor": "1"}
-        cookie = request.headers.get("cookie")
-        if cookie:
-            headers["cookie"] = cookie
         resp = await _http.post(
             f"{BACKEND_URL}/api/control/{sid}/{action}",
             timeout=30,
-            headers=headers,
+            headers=supervisor_control_headers(),
         )
         return resp.json()
     except Exception as exc:
@@ -690,14 +701,10 @@ async def api_ollama_action(action: str):
 async def api_screen_watcher_detail(request: Request):
     if not _port_open(BACKEND_PORT):
         return {"ok": False, "status": "stopped", "error": "Backend arrete"}
-    headers = {"X-Jarvis-Supervisor": "1"}
-    cookie = request.headers.get("cookie")
-    if cookie:
-        headers["cookie"] = cookie
     try:
         resp = await _http.get(
             f"{BACKEND_URL}/api/control/screen_watcher/detail",
-            headers=headers,
+            headers=supervisor_control_headers(),
             timeout=10,
         )
         return resp.json()
@@ -716,6 +723,19 @@ async def api_screen_watcher_action(action: str, request: Request):
 
 @app.websocket("/ws/supervisor")
 async def ws_supervisor(ws: WebSocket):
+    try:
+        configured = auth.is_configured()
+    except (OSError, sqlite3.Error):
+        configured = False
+    if not configured:
+        await ws.close(code=4428)
+        return
+    if not auth.verify_session(ws.cookies.get(config.SESSION_COOKIE_NAME)):
+        await ws.close(code=4401)
+        return
+    if not browser_websocket_origin_allowed(ws):
+        await ws.close(code=4403)
+        return
     await ws.accept()
     _ws_clients.add(ws)
     try:
@@ -996,6 +1016,7 @@ async def _health_check_loop() -> None:
 async def lifespan(_app: FastAPI):
     global _health_check_task, _caffeinate_proc
     # Startup
+    _validate_supervisor_startup_security()
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
     log.info("Superviseur JARVIS demarre sur port %d", SUPERVISOR_PORT)
     for line in log_lines_for_resolution(FRONTEND_RESOLUTION):
@@ -1087,12 +1108,7 @@ app.router.lifespan_context = lifespan
 
 if __name__ == "__main__":
     try:
-        validate_network_bind(
-            host=config.WEB_HOST,
-            allow_network_bind=config.WEB_ALLOW_NETWORK_BIND,
-            https_enabled=config.WEB_HTTPS,
-            https_behind_proxy=config.WEB_HTTPS_BEHIND_PROXY,
-        )
+        _validate_supervisor_startup_security()
     except RuntimeError as exc:
         log.error("%s", exc)
         sys.exit(1)
