@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 
 from .core import get_db
 
@@ -16,9 +17,35 @@ def create_mobile_pairing_code(code_hash: str, expires_at: str) -> None:
         )
 
 
-def consume_mobile_pairing_code(code_hash: str) -> bool:
-    """Consomme atomiquement un code encore valide."""
+def consume_mobile_pairing_code(
+    code_hash: str,
+    client_key: str,
+    *,
+    max_attempts: int,
+    window_minutes: int,
+    lockout_minutes: int,
+) -> tuple[str, int]:
+    """Consomme atomiquement un code et limite les essais mobile par client."""
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    max_attempts = max(1, int(max_attempts))
+    window = timedelta(minutes=max(1, int(window_minutes)))
+    lockout = timedelta(minutes=max(1, int(lockout_minutes)))
+    scoped_client_key = f"mobile:{client_key or 'unknown'}"
+
     with get_db() as conn:
+        attempt = conn.execute(
+            """SELECT failed_attempts, window_started_at, blocked_until
+               FROM device_pairing_attempts WHERE client_key = ?""",
+            (scoped_client_key,),
+        ).fetchone()
+        if attempt and attempt["blocked_until"]:
+            try:
+                blocked_until = datetime.fromisoformat(str(attempt["blocked_until"]))
+            except ValueError:
+                blocked_until = now
+            if blocked_until > now:
+                return "blocked", max(1, int((blocked_until - now).total_seconds()))
+
         cursor = conn.execute(
             """UPDATE mobile_pairing_codes
                SET used_at = CURRENT_TIMESTAMP
@@ -26,7 +53,52 @@ def consume_mobile_pairing_code(code_hash: str) -> bool:
                  AND datetime(expires_at) > datetime('now')""",
             (code_hash,),
         )
-        return cursor.rowcount == 1
+        if cursor.rowcount == 1:
+            conn.execute(
+                "DELETE FROM device_pairing_attempts WHERE client_key = ?",
+                (scoped_client_key,),
+            )
+            return "ok", 0
+
+        attempts = 0
+        window_started = now
+        if attempt:
+            try:
+                previous_window = datetime.fromisoformat(
+                    str(attempt["window_started_at"])
+                )
+            except ValueError:
+                previous_window = now
+            if now - previous_window < window:
+                attempts = int(attempt["failed_attempts"] or 0)
+                window_started = previous_window
+        attempts += 1
+
+        blocked_until_value: str | None = None
+        status = "invalid"
+        retry_after = 0
+        if attempts >= max_attempts:
+            blocked_until = now + lockout
+            blocked_until_value = blocked_until.isoformat(timespec="seconds")
+            status = "blocked"
+            retry_after = max(1, int(lockout.total_seconds()))
+
+        conn.execute(
+            """INSERT INTO device_pairing_attempts
+                   (client_key, failed_attempts, window_started_at, blocked_until)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(client_key) DO UPDATE SET
+                   failed_attempts = excluded.failed_attempts,
+                   window_started_at = excluded.window_started_at,
+                   blocked_until = excluded.blocked_until""",
+            (
+                scoped_client_key,
+                attempts,
+                window_started.isoformat(timespec="seconds"),
+                blocked_until_value,
+            ),
+        )
+        return status, retry_after
 
 
 def upsert_mobile_device(

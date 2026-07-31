@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 import re
+import sqlite3
 from urllib.parse import urlsplit
 
-from fastapi import Request, Response
+from fastapi import Request, Response, WebSocket
 from fastapi.responses import JSONResponse
 
 import auth
 import config
+from core.supervisor_auth import (
+    SUPERVISOR_CONTROL_HEADER,
+    verify_supervisor_control_token,
+)
 from security_headers import SECURITY_HEADERS
-
 
 _DEVICE_TOKEN_POST_ROUTE_RE = re.compile(r"^/api/devices/[^/]+/(heartbeat|screen)$")
 _DEVICE_TOKEN_GET_ROUTE_RE = re.compile(r"^/api/devices/[^/]+/tts$")
@@ -86,7 +90,15 @@ def _canonical_origin(value: str) -> tuple[str, str, int] | None:
         parsed = urlsplit(value.strip())
         scheme = parsed.scheme.lower()
         hostname = (parsed.hostname or "").lower().rstrip(".")
-        if scheme not in {"http", "https"} or not hostname:
+        if (
+            scheme not in {"http", "https"}
+            or not hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.path not in {"", "/"}
+            or parsed.query
+            or parsed.fragment
+        ):
             return None
         port = parsed.port
     except ValueError:
@@ -96,13 +108,33 @@ def _canonical_origin(value: str) -> tuple[str, str, int] | None:
     return scheme, hostname, port
 
 
+def configured_cors_origins(value: str | None = None) -> list[str]:
+    """Retourne uniquement les origines navigateur exactes explicitement déclarées."""
+    configured = config.CSRF_ALLOWED_ORIGINS if value is None else value
+    origins: list[str] = []
+    for raw in configured.split(","):
+        candidate = _canonical_origin(raw)
+        if candidate is None:
+            continue
+        scheme, hostname, port = candidate
+        host = f"[{hostname}]" if ":" in hostname else hostname
+        default_port = 443 if scheme == "https" else 80
+        normalized = f"{scheme}://{host}"
+        if port != default_port:
+            normalized += f":{port}"
+        if normalized not in origins:
+            origins.append(normalized)
+    return origins
+
+
 def _csrf_origin_allowed(request: Request) -> bool:
     """Même origine exacte, ou exception de proxy explicitement configurée."""
-    source = request.headers.get("origin") or request.headers.get("referer")
-    # Les clients non navigateur peuvent omettre Origin/Referer, mais doivent
-    # quand même présenter le jeton synchronisé.
+    source = request.headers.get("origin")
+    # Une mutation portée par un cookie est un flux navigateur : son Origin
+    # doit être présente et exacte. Les clients natifs Bearer ne passent pas
+    # par cette vérification.
     if not source:
-        return True
+        return False
     candidate = _canonical_origin(source)
     if candidate is None:
         return False
@@ -121,18 +153,44 @@ def _csrf_origin_allowed(request: Request) -> bool:
     return candidate in configured
 
 
+def browser_websocket_origin_allowed(ws: WebSocket) -> bool:
+    """Vérifie l'Origin d'un WebSocket navigateur authentifié par cookie."""
+    source = ws.headers.get("origin")
+    if not source:
+        return False
+    candidate = _canonical_origin(source)
+    if candidate is None:
+        return False
+
+    host = ws.headers.get("host", "")
+    if config.WEB_HTTPS_BEHIND_PROXY:
+        public_scheme = "https"
+    else:
+        public_scheme = "https" if ws.url.scheme == "wss" else "http"
+    effective = _canonical_origin(f"{public_scheme}://{host}") if host else None
+    if effective is not None and candidate == effective:
+        return True
+    return candidate in {
+        origin
+        for raw in config.CSRF_ALLOWED_ORIGINS.split(",")
+        if (origin := _canonical_origin(raw))
+    }
+
+
 # Routes qui ne passent PAS par le verrou de session navigateur — soit parce
 # qu'elles servent à s'authentifier, soit parce qu'elles sont appelées par un
 # autre mécanisme (jeton device, jeton localisation) par un client qui n'est
 # pas un navigateur avec cookie de session.
-def _supervisor_local_control(request: Request, path: str) -> bool:
-    """Appels internes supervisor → backend (localhost + header dédié)."""
+def _supervisor_control_authenticated(request: Request, path: str) -> bool:
+    """Canal supervisor → backend : loopback et jeton aléatoire privé requis."""
+    if not path.startswith("/api/control/"):
+        return False
     client = request.client.host if request.client else ""
     if client not in ("127.0.0.1", "::1"):
         return False
-    if request.headers.get("x-jarvis-supervisor") != "1":
-        return False
-    return path.startswith("/api/control/")
+    return verify_supervisor_control_token(
+        request.headers.get(SUPERVISOR_CONTROL_HEADER)
+    )
 
 
 def _bypasses_session_gate(method: str, path: str) -> bool:
@@ -172,28 +230,34 @@ async def _dispatch_with_session_gate(request: Request, call_next) -> Response:
         method != "OPTIONS"
         and path.startswith("/api/")
         and not _bypasses_session_gate(method, path)
-        and not _supervisor_local_control(request, path)
+        and not _supervisor_control_authenticated(request, path)
     ):
-        if not auth.is_configured():
+        try:
+            configured = auth.is_configured()
+        except (OSError, sqlite3.Error):
+            configured = False
+        if not configured:
             return JSONResponse({"error": "setup_required"}, status_code=428)
 
+        bearer = _extract_bearer_token(request)
+        mobile_device = (
+            auth.verify_mobile_token(bearer)
+            if bearer and _mobile_bearer_allows(method, path)
+            else None
+        )
         token = request.cookies.get(config.SESSION_COOKIE_NAME)
-        session = auth.verify_session(token)
-        mobile_device = None
-        if not session:
-            bearer = _extract_bearer_token(request)
-            if bearer and _mobile_bearer_allows(method, path):
-                mobile_device = auth.verify_mobile_token(bearer)
-            if not mobile_device:
-                return JSONResponse({"error": "unauthorized"}, status_code=401)
+        session = None if mobile_device else auth.verify_session(token)
+        if mobile_device:
             request.state.mobile_device = mobile_device
-        else:
+        elif session:
             request.state.session = session
+        else:
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
 
         if method in _UNSAFE_METHODS and session:
             # SameSite protège le cross-site ; le jeton synchronisé protège en
             # plus contre une application malveillante sur le même hostname.
-            # L'origine, lorsqu'elle est fournie, doit correspondre exactement
+            # L'origine est obligatoire et doit correspondre exactement
             # (schéma + hôte + port) ou figurer dans la liste dev explicite.
             csrf_token = request.headers.get("x-csrf-token")
             if not auth.verify_csrf_token(token, csrf_token) or not _csrf_origin_allowed(request):

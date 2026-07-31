@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
 import json
 import secrets
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, HTTPException, Request, Response
@@ -264,7 +264,7 @@ async def api_mobile_pairing_start():
 
 
 @router.post("/api/mobile/pairing/complete")
-async def api_mobile_pairing_complete(body: dict):
+async def api_mobile_pairing_complete(body: dict, request: Request):
     """Échange un code affiché dans l'interface privée contre un jeton natif."""
     from database import consume_mobile_pairing_code, upsert_mobile_device
 
@@ -274,7 +274,20 @@ async def api_mobile_pairing_complete(body: dict):
         raise HTTPException(400, "Code de pairage invalide")
     if not device_id:
         raise HTTPException(400, "device_id requis")
-    if not consume_mobile_pairing_code(auth.hash_token(f"pair:{code}")):
+    status, retry_after = consume_mobile_pairing_code(
+        auth.hash_token(f"pair:{code}"),
+        _client_ip(request) or "unknown",
+        max_attempts=config.DEVICE_PAIRING_MAX_ATTEMPTS,
+        window_minutes=config.DEVICE_PAIRING_ATTEMPT_WINDOW_MINUTES,
+        lockout_minutes=config.DEVICE_PAIRING_LOCKOUT_MINUTES,
+    )
+    if status == "blocked":
+        raise HTTPException(
+            429,
+            "Trop de tentatives de pairage",
+            headers={"Retry-After": str(retry_after)},
+        )
+    if status != "ok":
         raise HTTPException(401, "Code expiré, invalide ou déjà utilisé")
 
     token = secrets.token_urlsafe(48)

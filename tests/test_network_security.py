@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from core.network_security import is_loopback_host, validate_network_bind
+from core.network_security import (
+    is_loopback_host,
+    validate_network_bind,
+    validate_supervisor_network_bind,
+)
 
 
 @pytest.mark.parametrize("host", ["127.0.0.1", "::1", "[::1]", "localhost"])
@@ -77,4 +81,23 @@ def test_network_bind_accepts_explicit_direct_https():
         host="0.0.0.0",
         allow_network_bind=True,
         https_enabled=True,
+    )
+
+
+def test_supervisor_network_bind_requires_configured_auth():
+    with pytest.raises(RuntimeError, match="configurez d'abord"):
+        validate_supervisor_network_bind(
+            host="0.0.0.0",
+            allow_network_bind=True,
+            https_enabled=True,
+            auth_configured=False,
+        )
+
+
+def test_supervisor_network_bind_accepts_https_with_configured_auth():
+    validate_supervisor_network_bind(
+        host="0.0.0.0",
+        allow_network_bind=True,
+        https_enabled=True,
+        auth_configured=True,
     )

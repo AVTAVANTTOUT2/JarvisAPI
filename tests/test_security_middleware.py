@@ -223,6 +223,16 @@ def test_post_with_matching_origin_allowed(tmp_db):
     assert r.status_code == 200
 
 
+def test_cors_is_empty_by_default_and_uses_only_explicit_exact_origins():
+    from api.middleware import configured_cors_origins
+
+    assert configured_cors_origins("") == []
+    assert configured_cors_origins(
+        "https://localhost:5173, http://0.0.0.0:3000/path, "
+        "https://localhost:5173, https://jarvis.example:8443"
+    ) == ["https://localhost:5173", "https://jarvis.example:8443"]
+
+
 def test_supervisor_preserved_host_matches_exact_origin(tmp_db):
     with _client() as client:
         authenticate(client)
@@ -261,14 +271,16 @@ def test_reverse_proxy_uses_public_https_scheme_for_csrf(monkeypatch):
     assert _csrf_origin_allowed(request) is True
 
 
-def test_post_without_origin_header_allowed(tmp_db):
-    """Un client non navigateur peut omettre Origin, mais garde le jeton CSRF."""
+def test_cookie_mutation_without_origin_header_rejected(tmp_db):
+    """Une mutation navigateur portée par cookie exige une Origin exacte."""
     with _client() as client:
         authenticate(client)
+        del client.headers["Origin"]
         r = client.post(
             "/api/life-context", json={"context_type": "test", "description": "x"}
         )
-    assert r.status_code == 200
+    assert r.status_code == 403
+    assert r.json()["error"] == "csrf_check_failed"
 
 
 def test_post_without_csrf_token_rejected_even_same_origin(tmp_db):
@@ -404,6 +416,7 @@ def test_setup_then_unlock_then_logout_flow(tmp_db):
         r = client.post("/api/auth/setup", json={"secret": "first-secret"})
         assert r.status_code == 200
         client.headers["X-CSRF-Token"] = r.json()["csrf_token"]
+        client.headers["Origin"] = "http://testserver"
 
         r2 = client.post("/api/auth/setup", json={"secret": "again"})
         assert r2.status_code == 409
@@ -428,6 +441,7 @@ def test_unlock_lockout_after_repeated_failures(tmp_db, monkeypatch):
     with _client() as client:
         setup = client.post("/api/auth/setup", json={"secret": "correct-secret"})
         client.headers["X-CSRF-Token"] = setup.json()["csrf_token"]
+        client.headers["Origin"] = "http://testserver"
         assert client.post("/api/auth/logout").status_code == 200
 
         for _ in range(3):
@@ -445,6 +459,7 @@ def test_unlock_enforces_progressive_delay(tmp_db, monkeypatch):
     with _client() as client:
         setup = client.post("/api/auth/setup", json={"secret": "correct-secret"})
         client.headers["X-CSRF-Token"] = setup.json()["csrf_token"]
+        client.headers["Origin"] = "http://testserver"
         assert client.post("/api/auth/logout").status_code == 200
 
         first = client.post("/api/auth/unlock", json={"secret": "wrong"})

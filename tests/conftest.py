@@ -104,4 +104,5 @@ def authenticate(client):
     csrf_token = r.json().get("csrf_token")
     assert csrf_token
     client.headers["X-CSRF-Token"] = csrf_token
+    client.headers["Origin"] = "http://testserver"
     return client
