@@ -1,548 +1,277 @@
 # JARVIS
 
-Assistant personnel autonome, multi-agents, voice-first. Tourne entièrement en local sur Mac — SQLite pour la mémoire, DeepSeek pour le raisonnement, AppleScript pour l'écosystème Apple (zéro OAuth). Persona majordome britannique : sec, précis, zéro emoji.
+JARVIS est un assistant personnel pour macOS, pensé pour centraliser les conversations, la mémoire, les tâches et les automatisations du quotidien dans une seule interface.
 
+Il peut être utilisé depuis le Web, à la voix, via iMessage ou avec l'application Android. Les données persistantes restent sur le Mac dans SQLite. Le raisonnement s'appuie sur DeepSeek, tandis que la transcription, la synthèse vocale et l'analyse d'écran peuvent fonctionner localement.
+
+> Une seule personnalité côté utilisateur, plusieurs agents spécialisés en interne.
+
+## Objectif
+
+Le projet cherche à créer un assistant réellement utile au quotidien, capable de :
+
+- comprendre une demande en langage naturel ;
+- retrouver le bon contexte dans les conversations, les tâches et les données personnelles ;
+- choisir automatiquement l'agent ou l'outil adapté ;
+- agir sur les applications et services du Mac après les contrôles nécessaires ;
+- apprendre des habitudes sans disperser les données dans plusieurs services.
+
+JARVIS n'est donc pas seulement un chatbot : il relie une interface de conversation, une mémoire persistante, des automatisations et l'écosystème Apple.
+
+## Fonctionnement
+
+Une demande suit le même pipeline, quelle que soit son origine :
+
+```text
+Web · Voix · Android · iMessage
+              │
+              ▼
+      API FastAPI + WebSocket
+              │
+              ▼
+   Authentification et ajout du contexte
+              │
+              ▼
+      Routeur cognitif / orchestrateur
+        ┌─────┼───────────┐
+        ▼     ▼           ▼
+      Agent  Outil     Modèle adapté
+        └─────┼───────────┘
+              ▼
+ AppleScript · API · SQLite · réponse en streaming
 ```
-"salut"
-→ "Bonjour Monsieur. Que puis-je faire pour vous ?"
+
+1. L'utilisateur écrit ou parle à JARVIS.
+2. Le backend authentifie la session et récupère uniquement le contexte utile.
+3. Le routeur classe la demande : information, productivité, école, coaching, journal, développement ou action directe.
+4. L'agent choisi consulte la mémoire, appelle un modèle ou utilise une intégration.
+5. La réponse est diffusée à l'interface et les informations utiles sont enregistrées dans SQLite.
+
+## Fonctionnalités
+
+- **Chat persistant** : réponses en streaming, historique, recherche, conversations épinglées ou archivées et pièces jointes.
+- **Assistant vocal** : transcription locale avec faster-whisper, synthèse vocale locale, mode mains libres, mot d'activation optionnel et enregistrements longs.
+- **Mémoire personnelle** : faits, personnes, événements, journal, habitudes, engagements et recherche plein texte ou sémantique.
+- **Productivité** : tâches, agenda, briefings, rappels, suivi des engagements et bilan de la journée.
+- **Écosystème Apple** : lecture et envoi via Mail, Calendar, Messages et Contacts grâce à AppleScript, sans OAuth supplémentaire.
+- **Suivi proactif** : tri des emails, notifications, rituels planifiés, mode Ne pas déranger, présence et analyse locale de l'écran.
+- **Localisation** : points GPS, lieux favoris, visites, trajets et habitudes géographiques.
+- **Relations** : historique iMessage, fiches contacts, chronologies, rappels et suggestions de messages.
+- **Santé et activité** : entraînements, repas, hydratation, bien-être et résumé quotidien.
+- **Développement** : routage des demandes techniques, plans d'exécution confirmés, travaux isolés et DevAgent pour les tâches multi-étapes.
+- **Multi-appareils** : interface Web responsive, interface mobile légère, application Android native, agent Mac distant et tableau de bord TV.
+- **Sécurité et fiabilité** : écoute réseau locale par défaut, sessions protégées, contrôle CSRF, permissions de fichiers strictes, sauvegardes chiffrées et rotation automatique.
+
+## Exemples
+
+JARVIS accepte des demandes naturelles, sans syntaxe particulière :
+
+```text
+« Fais-moi un briefing de ma journée. »
+« Quels mails importants ai-je reçus depuis hier ? »
+« Ajoute “envoyer le dossier” à mes tâches pour demain matin. »
+« Résume ce document et transforme-le en fiche de révision. »
+« Depuis combien de temps n'ai-je pas parlé à Paul ? »
+« Note dans mon journal que la réunion s'est bien passée. »
+« Explique cette erreur puis prépare un correctif dans un projet isolé. »
 ```
 
-## Dernier changelog — 14 juillet 2026
+Les actions sensibles, notamment les plans de commandes terminal, demandent une confirmation explicite avant leur exécution.
 
-### Phase 6 — frontend unifié et SDK auth
+## Cas d'utilisation
 
-- `frontend/` devient l'interface canonique Next.js 15/React 19 : elle choisit automatiquement le layout desktop ou mobile et réutilise les vues existantes.
-- `jarvis_auth/` fournit un unique `AuthClient`, hook `useLockGate()` et composant `LockGate` fail-closed aux interfaces desktop, mobile et unifiée.
-- `frontend/src/lib/api.ts` est l'unique wrapper réseau ; toutes les requêtes et tous les uploads incluent le cookie de session.
-- FastAPI sert `frontend/out` en priorité pour le bureau, `web/dist` en repli. Les téléphones sont redirigés vers `/mobile/`, une interface autonome en HTML/CSS/JS vanilla (`web_mobile/`).
-- Validation actuelle (24 juillet 2026) : 18 Vitest, 9 scénarios Playwright, 4 contrats FastAPI, typecheck et trois builds frontend réussis.
-
-### Historique du 11 juillet 2026
-
-### Fix microphone — HTTP → HTTPS
-- **Gardien `navigator.mediaDevices`** dans `web/src/app/components/views/VoiceView.tsx` :
-  message d'erreur explicite quand `getUserMedia` est absent (connexion HTTP).
-  L'API `getUserMedia` est une API de « contexte securise » — indisponible sur
-  HTTP sauf `localhost`. L'erreur `Cannot read properties of undefined (reading 'getUserMedia')`
-  est remplacee par une explication claire avec les solutions.
-- **`scripts/install_tailscale_cert.sh`** : installe un certificat Tailscale
-  valide pour le mode TLS direct, sans CA auto-signée à déployer sur les appareils.
-- **`.env.example`** : documente TLS direct et terminaison TLS par reverse proxy.
-- **Installation** : section dediee au microphone/HTTPS dans le README.
-
-Pour activer le micro depuis un iPhone en acces distant :
-```bash
-# Backend HTTP strictement local, HTTPS public géré par Tailscale Serve :
-# WEB_HOST=127.0.0.1
-# WEB_HTTPS=false
-# WEB_HTTPS_BEHIND_PROXY=true
-tailscale serve --bg http://127.0.0.1:8080
-```
-
-### Architecture Review — audit complet
-- **Rapport d'architecture complet** dans le dossier [`Architecture/`](./Architecture/INDEX.md)
-- 23 problèmes identifiés (4 critiques, 6 majeurs, 8 modérés, 5 mineurs)
-- 10 ADR (Architecture Decision Records)
-- Plan de migration en 6 phases, 15 jours
-- Aucune modification de code tant que le rapport n'est pas validé
-
-### Interface mobile autonome — détection et redirection
-- Détection de téléphone par User-Agent côté serveur (`api/web_mobile.py`), avant tout téléchargement
-- Redirection `GET /` → `/mobile/` ; `?desktop=1` pose un cookie qui la désactive
-- Servie depuis le **même port** (WEB_PORT) — l'authentification est partagée automatiquement (même origine, cookie `jarvis_session`)
-- HTML/CSS/JS vanilla, aucun build, aucun `node_modules`
-- Variable d'env : `WEB_MOBILE_DIR`
-- L'ancienne PWA Next.js (`pwa/`, montée sous `/m/`) a été supprimée : son build n'était plus généré et son layout ne couvrait que 5 des 21 routes
-
-### Pull & build — intégration commit distant "Mode écoute : diarization"
-- `git pull origin main` — commit `27d3609` fusionné sans conflit avec les 5 fichiers locaux modifiés
-- 18 fichiers ajoutés/modifiés : diarization (`audio/continuous_recorder.py`, `audio/stt.py`), recherche sémantique (`scripts/semantic_search.py`), 7 nouveaux fichiers de tests, mise à jour `config.py` / `database/__init__.py` / `main.py` / `CLAUDE.md`
-- `requirements.txt` auto-merged : ajout local `catt>=0.12` + ajout distant `sentence-transformers`, `annoy`, etc.
-- `pip install -r requirements.txt` OK (avertissement non-bloquant : `kokoro-onnx` vs `numpy 1.26.4`)
-- `pnpm install && pnpm build` OK — 3067 modules, Service Worker actif, 53 assets précachés
-
-### Changements locaux préservés (non commités)
-| Fichier | Contenu |
+| Besoin | Ce que fait JARVIS |
 |---|---|
-| `actions.py` | Contrôle TV complet : WoL, Google Cast fallback (deep standby), anti-spam 30s, `_adb_connect_ensure`, `_wake_tv_via_cast`, `_open_tv_dashboard` |
-| `prompts/persona.txt` | Doc commandes TV mise à jour (`on` ouvre dashboard, `wol` magic packet seul) |
-| `requirements.txt` | Ajout `catt>=0.12` (Google Cast) |
-| `scripts/audio_daemon.py` | Fix segfault PyAudio Apple Silicon, phrases fantômes TV, silence micro non-crash |
-| `scripts/screen_watcher.py` | Anti-RAM-kill : espacement minimum 120s entre analyses Ollama vision |
+| Organiser sa journée | Regroupe agenda, tâches, météo, mails importants et rappels dans un briefing. |
+| Vider sa boîte de réception | Analyse les messages non lus, fait ressortir l'urgent et prépare une réponse. |
+| Travailler à la voix | Écoute une demande, la transcrit localement, répond et lit la réponse à haute voix. |
+| Réviser un cours | Produit un résumé, une fiche, des exercices ou des flashcards à partir d'une demande ou d'un document. |
+| Entretenir ses relations | Retrouve les derniers échanges, détecte les longs silences et suggère un message adapté. |
+| Garder une mémoire personnelle | Relie journal, conversations, lieux et événements pour restituer le contexte plus tard. |
+| Suivre ses habitudes | Observe les routines choisies, le temps d'écran, les déplacements ou la régularité des tâches. |
+| Développer un projet | Classe la demande, prépare un plan, travaille dans un espace isolé puis expose les résultats et les tests. |
 
-## Ancien changelog — import iMessage + fusion commits en attente
+## Stack technique
 
-**Import iMessage** — nouveau systeme d'import idempotent et incremental de `chat.db` vers `jarvis.db` :
-- 8 nouvelles tables SQLite (`imessage_handles`, `imessage_chats`, `imessage_messages`, etc.)
-- Triple cle de deduplication (ROWID, GUID, hash SHA256)
-- Curseur de synchronisation incremental par ROWID
-- Reconciliation automatique post-import
-- Script CLI (`scripts/imessage_import.py`) : import, sync, audit, status, reset
-- 33 tests unitaires et d'integration
-
-Trois commits orphelins de `claude/workflow-project-improvements-yknzqs`, jamais inclus dans la PR #7 (fix web), ont ete rebases sur `main` et fusionnes :
-
-| Domaine | Ajouts |
-|---------|--------|
-| Présence | détection arrivée/départ au bureau via le son (`scripts/presence.py`) |
-| Mood | signal d'humeur comportemental discret (déviation vs baseline) |
-| Rituels | debrief hebdo vocal (dimanche 21h), comparatif semaine, retour tardif |
-| Batch 2 | running gags, alerte binge streaming, tracker réunions, engagements/promesses, DND |
-| Voix | cache TTS spéculatif + raccourci « répète » (`audio/tts_cache.py`) |
-| Docs | README condensé aligné codebase + `CHANGELOG_HISTORIQUE.md` (archive ancien README) |
-
-29 tests dédiés : `test_batch_gags_dnd`, `test_presence_mood_weekly`, `test_voice_cache`.
-
-## Ce que JARVIS fait
-
-- **Converse** — chat web avec conversations persistantes, page vocale mains libres, bridge iMessage (on lui parle depuis l'iPhone comme à un contact), wake word « Jarvis » optionnel.
-- **Se souvient** — mémoire à deux étages : extraction structurée (faits, personnes, événements, patterns, running gags) par le modèle rapide, raisonnement sur données denses par le modèle principal. SQLite : **75 tables persistantes** après `init_db()` (+ jusqu’à **5 objets FTS5** → **80** physiques si FTS disponible). Le dump `database/schema.sql` (46 tables) est un snapshot historique, pas le schéma d’exécution. Détail : `Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md`.
-- **Surveille** — emails (Mail.app, analyse LLM, silence sur le non-important, drapeau rouge sur l'urgent), écran (Ollama vision local, 0 token API), position GPS (lieux, visites, trajets), relations iMessage (analytics sans LLM + analyse quotidienne), présence au bureau par le son.
-- **Agit** — tâches, calendrier, envoi d'emails et d'iMessages, terminal sécurisé, exécution de code multi-étapes, mode autonome `/loop`, DevAgent (interview → spec → boucle plan/code/test/fix/commit dans un projet isolé).
-- **Rythme la journée** — briefing matin, roast des tâches non faites (18:30), debrief du soir (21:45), citation ironique (07:00), debrief hebdo vocal (dimanche 21:00), anniversaires, pause café, alerte binge streaming, retour tardif, signal d'humeur comportemental (zéro diagnostic).
-- **Se protège** — sauvegardes SQLite chiffrées par défaut avec rotation et restauration contrôlée, permissions 0600 sur DB/backups/uploads, purge de rétention hebdomadaire, budget LLM mensuel avec alertes, heures calmes, mode « silence total sauf feu », client LLM avec retry/backoff.
-
-## Architecture
-
-```
-                    ┌──────────────────────────────────────────────┐
-                    │        Supervisor (port 9000, 24/7)          │
-                    │   sert frontend/out (puis web/dist fallback),│
-                    │   contrôle/relance le backend                │
-                    └──────────────────┬───────────────────────────┘
-                                       │
-   Next.js 15 (frontend/out) ┐ ┌──────▼──────────┐    ┌─ scheduler APScheduler (29 jobs)
-   web_mobile (/mobile/) ─────┼─▶│ Backend FastAPI │◀──┼─ daemon sentinelle (écran, iMessage,
-   TV War Room (5174) ────────┘ │ (port 8081)     │   │  mails, calendar, TTS local)
-   iPhone (iMessage) ──────────▶│ WS /ws + REST   │   └─ audio daemon (micro, VAD, wake word,
-                                └────────┬────────┘      présence, réunions, TTS spéculatif)
-                                         │
-                    ┌────────────────────┼────────────────────┐
-              ┌─────▼─────┐      ┌───────▼──────┐      ┌──────▼──────┐
-              │Orchestrator│ ───▶ │ 6 agents     │      │   SQLite    │
-              │(classif.)  │      │ info school  │      │ jarvis.db   │
-              └────────────┘      │ produc coach │      │ 75 + FTS→80 │
-                                  │ journal mem. │      └─────────────┘
-                                  └──────────────┘
-        LLM : DeepSeek API (fast = classification/triage, main = raisonnement,
-        mode tâche lourde à max_tokens élevé) · vision locale : Ollama qwen2.5-vl
-```
-
-**Contrat de pipeline unique** : `pipeline.py` expose les points d'entrée publics, configurés par `main.py`; les implémentations vivent dans `api/chat_processing.py` et `api/ws_messages.py`. Chat, voix, iMessage, recherche et journal partagent le même enrichissement/orchestration.
-
-## Stack
-
-| Couche | Techno |
+| Couche | Technologies |
 |---|---|
-| Backend | Python 3.12 · FastAPI · WebSocket · APScheduler |
-| LLM | DeepSeek API (format OpenAI, httpx, retry/backoff, pool partagé) |
-| Vision locale | Ollama `qwen2.5-vl:7b` (écran) + `qwen2.5:7b` (triage) — 0 token API |
-| Base | SQLite (`data/jarvis.db`), WAL, FTS5, sauvegardes `VACUUM INTO` chiffrées par défaut |
-| STT | faster-whisper local · WhisperKit · whisper.cpp — aucun repli cloud |
-| TTS | Edge TTS (web) · TTSKit · macOS `say` · Kokoro — 7 émotions, cache spéculatif |
-| Frontend bureau | Next.js 15 · React 19 · Tailwind v4 (`frontend/`) |
-| Frontend mobile | HTML/CSS/JS vanilla, sans build (`web_mobile/`, servi sous `/mobile/`) |
-| Repli bureau | Vite (`web/dist`) |
-| TV | Dashboard War Room FastAPI + JS (`tv/`, port 5174, Philips 55") |
-| Apple | Mail, Calendar, Messages, Contacts via AppleScript — zéro OAuth |
-| Multi-device | Tailscale + `scripts/jarvis_agent.py` (client léger MacBook) |
+| Backend | Python 3.12, FastAPI, Uvicorn, WebSocket, APScheduler |
+| Frontend principal | Next.js 15, React 19, TypeScript, Tailwind CSS 4, TanStack Query |
+| Frontend mobile léger | HTML, CSS et JavaScript sans étape de build |
+| Application Android | Kotlin, Jetpack Compose, Room, WorkManager, Retrofit, FCM optionnel |
+| Données | SQLite, WAL, FTS5, embeddings locaux avec sentence-transformers |
+| Raisonnement | DeepSeek Flash et Main, API compatible OpenAI |
+| IA locale | Ollama pour la surveillance d'écran et le tri local des notifications |
+| Audio | faster-whisper, Silero VAD, Kokoro, TTSKit et synthèse vocale macOS |
+| Intégrations | AppleScript, Tailscale, Google Cast, API météo |
+| Tests | pytest, Vitest, Testing Library et Playwright |
 
-## Installation (Mac)
+## Installation rapide
+
+### Prérequis
+
+- macOS ;
+- Python 3.12 ;
+- Node.js 22 et pnpm 11.11.0 ;
+- une clé API DeepSeek ;
+- les autorisations macOS correspondant aux intégrations activées.
+
+### 1. Installer le backend
 
 ```bash
-# 1. Environnement (Python 3.12 requis)
+git clone https://github.com/AVTAVANTTOUT2/JarvisAPI.git
+cd JarvisAPI
+
 python3.12 -m venv venv
 source venv/bin/activate
-pip install -r requirements.txt
-
-# 2. Configuration
-cp .env.example .env
-# Éditer .env — au minimum DEEPSEEK_API_KEY. Tout le reste a des défauts sains.
-
-# 3. Frontend unifié
-cd frontend && pnpm install && pnpm build && cd ..
-
-# 4. Lancer
-python main.py            # backend seul → http://127.0.0.1:8080 (WEB_PORT)
-                          # (8081 sur le setup actuel — 8080 occupé par whisper-server)
-# ou en 24/7 :
-./scripts/launch_supervisor.sh    # supervisor 9000 + backend auto-relancé
-python scripts/jarvis_launchd.py install   # démarrage auto au boot macOS
+python -m pip install -r requirements.txt
 ```
 
-**Permissions macOS** (Reglages > Confidentialite) : Acces complet au disque (chat.db iMessage), Automation (Messages, Mail, Calendar, Contacts, System Events), Microphone (daemon audio), Enregistrement de l'ecran (screen watcher). Check-list complete : [STARTUP_PROTOCOL.md](./STARTUP_PROTOCOL.md).
-
-### HTTPS et microphone (accès distant iPhone / navigateur externe)
-
-Le microphone du navigateur (`getUserMedia`) est une **API de contexte securise** — indisponible sur une connexion HTTP simple, sauf sur `localhost`. Si tu accedes a JARVIS depuis un iPhone ou un autre appareil via Tailscale (ex. `http://100.123.50.38:8081`), le micro sera bloque.
-
-Par défaut, le backend et le superviseur écoutent uniquement sur
-`127.0.0.1`. JARVIS refuse toujours un bind réseau en HTTP, même si un token
-GPS ou mobile est configuré.
-
-**Option recommandée — Tailscale Serve termine TLS :**
+### 2. Configurer JARVIS
 
 ```bash
-# .env.config
+cp .env.example .env
+```
+
+Renseigner au minimum la clé DeepSeek dans `.env` :
+
+```dotenv
+DEEPSEEK_API_KEY=sk-...
+WEB_HOST=127.0.0.1
+WEB_PORT=8080
+```
+
+Les réglages applicatifs peuvent être séparés des secrets avec `.env.config.example` :
+
+```bash
+cp .env.config.example .env.config
+```
+
+### 3. Construire l'interface
+
+```bash
+cd frontend
+pnpm install --frozen-lockfile
+pnpm build
+cd ..
+```
+
+### 4. Démarrer
+
+```bash
+source venv/bin/activate
+python main.py
+```
+
+Ouvrir ensuite [http://127.0.0.1:8080](http://127.0.0.1:8080). Le port peut être changé avec `WEB_PORT`.
+
+Pour un fonctionnement permanent avec redémarrage automatique du backend :
+
+```bash
+./scripts/launch_supervisor.sh
+```
+
+Le superviseur est alors accessible par défaut sur [http://127.0.0.1:9000](http://127.0.0.1:9000).
+
+## Configuration utile
+
+| Variable | Rôle |
+|---|---|
+| `DEEPSEEK_API_KEY` | Clé du moteur de raisonnement principal. |
+| `DEEPSEEK_FAST_MODEL` / `DEEPSEEK_MAIN_MODEL` | Modèles utilisés pour les réponses rapides et les tâches complexes. |
+| `DB_PATH` | Emplacement de la base SQLite. |
+| `STT_ENGINE` / `TTS_ENGINE` | Moteurs de transcription et de synthèse vocale. |
+| `IMESSAGE_TARGET` | Active le bridge iMessage pour le numéro ou l'adresse indiquée. |
+| `IMESSAGE_SEND_ENABLED` | Autorise explicitement l'envoi d'iMessages. Désactivé par défaut. |
+| `DAEMON_ENABLED` | Active les fonctions proactives en arrière-plan. |
+| `SCREEN_WATCHER_ENABLED` | Active l'analyse locale de l'écran. |
+| `WEB_HOST` / `WEB_PORT` | Adresse et port d'écoute du backend. |
+| `LOCATION_API_TOKEN` | Protège l'envoi de positions par un raccourci ou un client externe. |
+
+Toutes les options sont commentées dans [`.env.example`](./.env.example) et [`.env.config.example`](./.env.config.example).
+
+## Autorisations macOS
+
+Selon les fonctions utilisées, macOS peut demander :
+
+- **Accès complet au disque** pour lire la base iMessage ;
+- **Automation** pour Messages, Mail, Calendar, Contacts et System Events ;
+- **Microphone** pour la voix et le mot d'activation ;
+- **Enregistrement de l'écran** pour le Screen Watcher ;
+- **Notifications** pour les alertes système.
+
+Le détail et les procédures de reprise sont dans [STARTUP_PROTOCOL.md](./STARTUP_PROTOCOL.md).
+
+## Accès distant
+
+Le backend écoute uniquement sur la boucle locale par défaut. Pour un accès depuis un téléphone, conserver ce bind local et placer un proxy HTTPS devant JARVIS, par exemple Tailscale Serve :
+
+```dotenv
 WEB_HOST=127.0.0.1
 WEB_ALLOW_NETWORK_BIND=false
 WEB_HTTPS=false
 WEB_HTTPS_BEHIND_PROXY=true
+```
 
-python main.py
-# Remplacer 8080 si WEB_PORT diffère.
+```bash
 tailscale serve --bg http://127.0.0.1:8080
 tailscale serve status
 ```
 
-Le navigateur utilise l’URL HTTPS indiquée par `tailscale serve status`.
-`WEB_HTTPS_BEHIND_PROXY=true` marque le cookie de session `Secure` et ajoute
-HSTS, tandis que le port Uvicorn reste inaccessible hors du Mac. Caddy ou nginx
-peuvent jouer le même rôle à condition de ne relayer que vers le bind loopback.
+Le microphone d'un navigateur distant nécessite HTTPS. Ne pas exposer directement le port HTTP de JARVIS sur le réseau.
 
-**Option TLS direct — certificat Tailscale :**
+## Tests
 
 ```bash
-bash scripts/install_tailscale_cert.sh
+# Backend
+python -m pytest tests/ jarvis/tests agents/devagent -q
 
-# .env.config
-WEB_HOST=0.0.0.0
-WEB_ALLOW_NETWORK_BIND=true
-WEB_HTTPS=true
-WEB_HTTPS_BEHIND_PROXY=false
-WEB_SSL_CERT_PATH=certs/cert.pem
-WEB_SSL_KEY_PATH=certs/key.pem
+# Frontend principal
+cd frontend
+pnpm test
+pnpm typecheck
+pnpm build
+pnpm test:e2e
 ```
 
-Accède alors à JARVIS avec le nom MagicDNS couvert par le certificat, jamais
-avec une URL HTTP. L’accès purement local peut rester en
-`http://localhost:WEB_PORT`.
+La CI vérifie également l'installation de production, les intégrations macOS simulées et le frontend historique de repli.
 
-### Ingestion GPS depuis Shortcuts
+## Structure du projet
 
-`POST /api/location` est fermé tant que `LOCATION_API_TOKEN` est vide. Génère
-un secret aléatoire, place-le dans `.env`, puis envoie-le uniquement dans
-l'en-tête `X-Location-Token` du raccourci (jamais dans l'URL). Les applications
-mobiles pairées peuvent utiliser leur Bearer mobile. L'ingestion est limitée
-par client avec `LOCATION_RATE_LIMIT_REQUESTS` sur
-`LOCATION_RATE_LIMIT_WINDOW_SECONDS`.
-
-### Plans terminal générés par un modèle
-
-Une action `terminal` ne lance plus directement une chaîne shell. JARVIS
-construit un plan à usage unique, affiche la liste complète et son analyse
-d'impact, puis attend une confirmation explicite. La confirmation consomme
-exactement ce plan, sans nouvel appel au modèle.
-
-Les exécutables sont limités à une allowlist de lecture/recherche et
-d'écritures non destructrices. Ils s'exécutent sans shell dans un dossier
-dédié sous `LLM_SHELL_WORKSPACE`, avec un environnement qui ne contient ni le
-HOME réel ni les secrets JARVIS. Le réseau, les processus système, les
-interpréteurs, les gestionnaires de paquets et les chemins sensibles sont
-interdits. Les tâches de code plus larges doivent passer par Cursor dans un
-worktree isolé.
-
-### Pairer un Mac distant
-
-Depuis la console du navigateur déjà déverrouillé, génère un code à usage
-unique (10 minutes) :
-
-```js
-await fetch('/api/devices/pairing/start', {method: 'POST'}).then(r => r.json())
-```
-
-Sur le Mac distant, utilise le code une seule fois :
-
-```bash
-pip install -r requirements-agent.txt
-python scripts/jarvis_agent.py \
-  --server https://100.123.50.38:8081 \
-  --pairing-code 123456
-```
-
-L'agent stocke ensuite son jeton en permissions `0600` dans
-`~/Library/Application Support/JARVIS/device_tokens/` et utilise
-`X-Device-Token` pour le heartbeat, les captures et le TTS. Un identifiant déjà
-pairé ne renvoie jamais son ancien jeton : utilise
-`POST /api/devices/{device_id}/token/rotate` depuis une session admin, puis
-relance une fois l'agent avec `--token NOUVEAU_JETON`. La révocation immédiate
-est disponible via `POST /api/devices/{device_id}/revoke`.
-
-**Vérifier que tout est sain** :
-
-```bash
-python -m pytest tests/ jarvis/tests agents/devagent -q   # suite complète
-python scripts/imessage_sync_health_check.py               # santé sync iMessage
-curl http://127.0.0.1:8081/api/status                      # état runtime
-```
-
-## Frontend unifié et accès téléphone
-
-Le frontend Next.js 15 est servi **depuis le même port** que le backend (WEB_PORT, défaut 8081). Il choisit le layout mobile pour les téléphones/écrans étroits et le layout desktop pour les autres terminaux. Le cookie `jarvis_session` reste même origine.
-
-### Fonctionnement
-
-```
-Requête GET / (tous navigateurs)
- │
- ├── User-Agent téléphone → 302 vers /mobile/ (web_mobile/, vanilla)
- └── sinon → frontend/out/ (Next.js statique, bureau)
-
-frontend/out absent → web/dist/ historique (repli automatique)
-```
-
-**Détection mobile** : User-Agent, côté serveur, avant tout téléchargement — `api/web_mobile.py`, couverte par tests. Les tablettes Android et l'iPad reçoivent le bureau. `?desktop=1` pose un cookie qui désactive la redirection.
-
-### Build et déploiement
-
-```bash
-# 1. Build canonique (Next.js → export statique dans frontend/out/)
-cd frontend && pnpm install && pnpm build && cd ..
-
-# 2. Démarrer le backend (ou redémarrer s'il tourne déjà)
-python main.py
-
-# 3. Accéder depuis un téléphone (sur le même réseau/Tailscale)
-#    http://TON_IP:8081/          → redirection automatique vers /mobile/
-#    http://TON_IP:8081/?desktop=1 → forcer l'interface bureau
-```
-
-### Variables d'env
-
-| Variable | Défaut | Description |
-|---|---|---|
-| `FRONTEND_DIST_DIR` | `./frontend/out` | Build statique canonique Next.js 15 |
-| `WEB_MOBILE_DIR` | `./web_mobile` | Interface mobile autonome servie sous `/mobile/` |
-| `WEB_DIST_DIR` | `./web/dist` | Répertoire du build SPA desktop (fallback) |
-
-### Auth
-
-Toutes les interfaces partagent `jarvis_auth/LockGate`. Tant que `/api/auth/status` n'a pas confirmé une session valide — ou si le serveur est inaccessible — aucun contenu privé n'est rendu. Le wrapper API commun transmet `credentials: 'include'` et ajoute aux mutations le jeton `X-CSRF-Token` lié à la session. Les origines sont comparées exactement (schéma, hôte et port) ; les seules exceptions de proxy sont déclarées dans `CSRF_ALLOWED_ORIGINS`.
-
-### Installation sur l'écran d'accueil (iOS/Android)
-
-- **Android (Chrome)** : un bouton "Installer" natif apparaît (événement `beforeinstallprompt`)
-- **iOS (Safari)** : Partager → "Sur l'écran d'accueil"
-
-## Configuration
-
-Tout vit dans `.env` — [.env.example](./.env.example) documente chaque variable. Les blocs :
-
-| Bloc | Variables clés |
-|---|---|
-| LLM | `DEEPSEEK_API_KEY` (obligatoire), `DEEPSEEK_FAST_MODEL`, `DEEPSEEK_MAIN_MODEL`, `HEAVY_TASK_MAX_TOKENS` |
-| Audio | `TTS_ENGINE` (kokoro/edge/ttskit/macos, défaut **kokoro**), `STT_ENGINE` / `STT_MODEL` (défaut **faster-whisper** / **large-v3-turbo**), `AUDIO_DAEMON_*`, `KOKORO_VOICE`, `WAKE_WORD_ENABLED` |
-| iMessage | `IMESSAGE_TARGET` (ton numéro — vide = bridge off), `IMESSAGE_SEND_ENABLED`, `IMESSAGE_PREFIX` |
-| Import iMessage | `IIMPORT_BATCH_SIZE` (5000), `IIMPORT_MAX_RETRIES` (3), `IIMPORT_SYNC_INTERVAL` (300) |
-| Sentinelle | `DAEMON_ENABLED`, `SCREEN_WATCHER_*`, `OLLAMA_URL`, `EMAIL_CHECK_INTERVAL` |
-| Fiabilité | `BACKUP_*`, `RETENTION_*`, `LLM_BUDGET_MONTHLY`, `QUIET_HOURS_START/END` |
-| Rituels | `ROAST_TIME`, `DEBRIEF_TIME`, `QUOTE_TIME`, `WEEKLY_DEBRIEF_TIME`, `RITUALS_TTS` |
-| Vigies | `BREAK_ALERT_MINUTES`, `BINGE_ALERT_MINUTES`, `LATE_RETURN_HOUR`, `PRESENCE_TIMEOUT_MIN` |
-| Voix | `SPECULATIVE_TTS_ENABLED`, `VOICE_SESSION_GRACE_S`, `VOICE_MAX_TOKENS` |
-| Opt-in | `MEETING_CAPTURE_ENABLED` (résumé de réunions au micro — off par défaut) |
-
-## Les agents
-
-| Agent | Modèle | Rôle |
-|---|---|---|
-| `orchestrator` | fast | Classifie chaque message (SCHOOL / PRODUCTIVITY / COACH / INFO / JOURNAL) et dispatche |
-| `info` | fast | Météo, recherche web, questions factuelles |
-| `school` | main | Cours, fiches, flashcards, devoirs complets (mode tâche lourde, fichiers sauvés dans `data/outputs/`) |
-| `productivity` | fast/main | Emails, calendrier, tâches, briefings matin/soir |
-| `coach` | main | Relations, émotions, décisions — reçoit tout le contexte mémoire |
-| `journal` | main | Extraction d'insights des entrées de journal |
-| `memory` | fast | Silencieux — alimente faits, personnes, patterns, contexte de vie |
-
-L'utilisateur ne voit jamais le mot « agent » : JARVIS est une seule entité. La persona commune est injectée depuis `prompts/persona.txt` dans tous les agents user-facing.
-
-À part : **DevAgent** (`agents/devagent/`) — développement autonome dans `dev_projects/{slug}/` (venv + git isolés) : interview adaptative → spec verrouillée → boucle plan → code → test → fix → commit avec budget d'itérations/tokens et juge d'acceptation.
-
-## Import iMessage (chat.db vers jarvis.db)
-
-Import idempotent et incremental de l'historique iMessage complet depuis `~/Library/Messages/chat.db`. Stocke les donnees brutes (handles, chats, messages, pieces jointes, reactions) dans 8 nouvelles tables SQLite avec triple cle de deduplication (ROWID, GUID, hash de contenu).
-
-```bash
-# Import initial complet
-python scripts/imessage_import.py
-
-# Sync incrementale (nouveaux messages uniquement)
-python scripts/imessage_import.py --sync
-
-# Audit de coherence sans import
-python scripts/imessage_import.py --check
-
-# Etat du curseur
-python scripts/imessage_import.py --status
-
-# Reinitialiser le curseur
-python scripts/imessage_import.py --reset
-```
-
-Tables : `imessage_handles`, `imessage_chats`, `imessage_chat_handles`, `imessage_messages`, `imessage_attachments`, `imessage_message_attachments`, `imessage_reactions`, `imessage_sync_cursor`.
-
-Garanties : idempotence (relancer N fois = meme resultat), incremental (curseur ROWID), reconciliation auto, contraintes UNIQUE physiques.
-
-## Automatisations (scheduler, 23 jobs)
-
-| Quand | Quoi |
-|---|---|
-| 04:15 | Sauvegarde SQLite chiffrée (`VACUUM INTO`, rotation `BACKUP_KEEP`) |
-| dim 04:45 | Maintenance : purge de rétention + optimize FTS/WAL |
-| 07:00 | Citation ironique du jour (widget TV) |
-| 07:30 | Briefing du matin (+ notification macOS) |
-| 08:00 | Anniversaires des contacts (`people.birthday`) |
-| 10:00 | Rappel des promesses ouvertes > 3 jours |
-| chaque heure | Tâches en retard |
-| /5 min | Clôture des réunions captées (opt-in) |
-| /10 min | Tick présence (départ après silence) |
-| /20 min (9-22h) | Pause café si écran continu ≥ 90 min |
-| /30 min | Binge streaming ; retour tardif (22h-3h) |
-| /6 h | Alertes relationnelles (silences inhabituels, messages sans réponse) |
-| 18:30 | Roast des tâches non faites |
-| 21:30 | Contrôle du budget LLM mensuel |
-| 21:45 | Debrief du soir + score productivité figé |
-| 22:00 | Résumé du soir (mémoire) |
-| 22:40 | Extraction des engagements du jour |
-| 23:00 | Analyse des habitudes géographiques |
-| 23:15 | Signal d'humeur comportemental |
-| dim 20:00 / 21:00 | Résumé hebdo mémoire / debrief hebdo vocal |
-| 03:00 | Analyse relationnelle iMessage incrémentale |
-
-## Audio local (défaut 2026)
-
-Par défaut, JARVIS fonctionne **sans cloud audio** :
-
-| Composant | Défaut | Taille approx. | Cache / fichiers |
-|---|---|---:|---|
-| STT | faster-whisper `large-v3-turbo` | ~1,5 Go | `~/.cache/faster-whisper/` |
-| STT repli | faster-whisper `large-v3` | ~3 Go | idem |
-| TTS | Kokoro `af_nicole` + `fr-fr` | ~350 Mo | `models/kokoro/` |
-
-La voix `af_nicole` est une voix anglaise US ; `KOKORO_LANG=fr-fr` oriente la phonétique vers le français, sans garantie d'accent natif.
-
-Première installation :
-
-```bash
-pip install -r requirements.txt
-bash scripts/setup_local_audio.sh          # vérifie présence des modèles
-bash scripts/setup_local_audio.sh --download  # télécharge Whisper (consentement explicite)
-```
-
-Moteurs alternatifs (configuration explicite uniquement) : `TTS_ENGINE=edge|macos|ttskit`, `STT_ENGINE=whisperkit|whispercpp`.
-Demander `TTS_ENGINE=kokoro` ne bascule **jamais** silencieusement vers Edge (repli local `macos`/`say` uniquement).
-
-## Companion Android
-
-Application native Kotlin (`android/`) — pairage HTTPS, GPS, FCM, wake word, conversation vocale push-to-talk.
-
-| Version | versionCode | Tag |
-|---|---:|---|
-| **1.0.4** (courante) | 6 | `companion-v1.0.4` |
-
-- Guide : [`android/README.md`](./android/README.md)
-- Architecture : [`android/docs/ARCHITECTURE.md`](./android/docs/ARCHITECTURE.md)
-- Voix : [`android/docs/VOICE.md`](./android/docs/VOICE.md)
-- Checklist release : [`RELEASE_CHECKLIST.md`](./RELEASE_CHECKLIST.md)
-
-```bash
-cd android && ./gradlew assembleDebug testDebugUnitTest lintDebug
-```
-
-## API
-
-Surface complète documentée dans [CLAUDE.md](./CLAUDE.md). Les groupes :
-
-- `WS /ws` — chat + voix temps réel (streaming, actions, TTS, reprise de session après coupure < 3 min)
-- `/api/status`, `/api/integrations`, `/api/stats/weekly`, `/api/stats/compare`, `/api/costs`
-- `/api/conversations*` — persistance type Claude (titres auto, épingles, recherche FTS, upload de documents)
-- `/api/people*` — contacts : analytics iMessage, timeline, description IA, envoi, suggestions, running gags
-- `/api/tasks`, `/api/notifications`, `/api/commitments`, `/api/journal`, `/api/memory`
-- `/api/location*`, `/api/places*`, `/api/visits*`, `/api/trips` — GPS et lieux
-- `/api/rituals*`, `/api/productivity/score`, `/api/mood/signals`, `/api/presence`, `/api/meetings`
-- `/api/backups*`, `/api/maintenance/run`, `/api/dnd` — fiabilité et silence
-- `/api/devices*`, `/api/screen-activity*`, `/api/app-usage` — multi-machines
-- `/api/devagent*` — projets de développement autonomes
-
-## Vie privée
-
-- **DataBoundary** (package `jarvis/`) : les messages bruts ne quittent jamais le Mac — modèle MLX local pour le personnel, DeepSeek uniquement après anonymisation PII (spaCy NER + regex).
-- L'analyse d'écran tourne sur **Ollama local** : l'API ne reçoit que des résumés texte, jamais d'images.
-- La capture de réunions est **opt-in** et ne conserve que du texte transcrit, jamais d'audio.
-- `chat.db` (iMessage) est ouvert en lecture seule ; l'envoi est désactivé par défaut (`IMESSAGE_SEND_ENABLED=false`).
-- Les sauvegardes sont chiffrées par défaut. Sans passphrase explicite, JARVIS
-  crée `data/.backup_encryption.key` en `0600` : copie cette clé séparément des
-  fichiers `.db.enc`, sinon une restauration après perte du Mac sera impossible.
-- SQLite reste lisible par le processus JARVIS : DB/WAL/SHM et uploads sont en
-  `0600`, dossiers en `0700`. **FileVault reste requis** pour le chiffrement
-  complet du volume ; l'étude SQLCipher est consignée dans
-  `Architecture/adr/ADR-022-DATA-AT-REST.md`.
-
-## Structure
-
-```
+```text
 JarvisAPI/
-├── main.py               # Assemblage FastAPI, lifespan et configuration pipeline
-├── api/                  # 12 routeurs + handlers WebSocket/frontend
-├── supervisor.py         # process 24/7 port 9000 — frontend/out > web/dist, relance le backend
-├── core/                 # résolution frontend partagée (supervisor + FastAPI)
-├── config.py             # .env → settings typés
-├── llm.py                # client DeepSeek (chat, stream, classify, coûts)
-├── actions.py            # exécution des blocs ```action``` des réponses
-├── agents/               # orchestrateur + 6 agents + devagent/ + easter_eggs
-├── audio/                # STT local/cloud, TTS 4 backends, VAD, cache spéculatif
-├── database/             # schéma, migrations idempotentes, helpers, FTS
-├── integrations/         # Mail, Calendar, iMessage, Contacts, météo, GPS, computer
-├── scripts/              # scheduler, daemons, rituels, watchers, maintenance, présence
-├── tools/                # audits non destructifs (ex. architecture_truth)
-├── prompts/              # persona + system prompts par agent (.txt)
-├── jarvis/               # dual-LLM privacy : PII, router, backends MLX/DeepSeek
-├── frontend/             # Next.js 15 responsive → frontend/out prioritaire
-├── jarvis_auth/          # SDK auth et LockGate partagés
-├── web/                  # Vues desktop + fallback Vite (web/dist)
-├── web_mobile/           # Interface mobile autonome (vanilla, servie sous /mobile/)
-├── tv/                   # dashboard TV War Room (port 5174)
-├── Architecture/         # source de vérité doc — voir 32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md
-├── front_tv/             # HTML bundlé orphelin (non servi)
-└── tests/                # suite pytest backend (voir Architecture/06_PLAN_TESTS.md)
+├── main.py             # application FastAPI et assemblage du pipeline
+├── api/                # routes REST, WebSocket, auth et services
+├── agents/             # orchestrateur et agents spécialisés
+├── jarvis/             # routage, confidentialité et services internes
+├── database/           # schéma SQLite, migrations et accès aux données
+├── integrations/       # AppleScript, DeepSeek, Ollama, météo et appareils
+├── audio/              # transcription, VAD et synthèse vocale
+├── scripts/            # daemons, scheduler, maintenance et installation
+├── frontend/           # application Next.js canonique
+├── web/                # composants React partagés et frontend de repli Vite
+├── web_mobile/         # interface mobile autonome
+├── android/            # application Android native
+├── tv/                 # tableau de bord grand écran
+├── tests/              # tests backend et contrats d'intégration
+└── Architecture/       # documentation technique et décisions d'architecture
 ```
 
-## Tests et CI
+## Vie privée et sécurité
 
-```bash
-python -m pip install -r requirements.txt                 # dépendances de production
-python -m pytest tests/ jarvis/tests agents/devagent -q   # suite backend complète
-cd frontend && pnpm test && pnpm typecheck && pnpm build  # frontend canonique
-cd frontend && pnpm test:e2e                              # desktop + mobile + CSP statique
-```
-
-CI GitHub Actions (`.github/workflows/ci.yml`) sur chaque push/PR : installation
-réelle de `requirements.txt`, `pip check` et imports des dépendances lourdes,
-import des modules applicatifs, pytest complet, tests/typecheck/build Vite,
-puis tests/typecheck/build et 9 scénarios Playwright du frontend Next.js unifié.
-Les manifests `frontend` et `web` ainsi que les deux jobs Node utilisent tous
-la version exacte `pnpm 11.11.0` avec leurs lockfiles v9 gelés.
-Un runner `macos-14` installe aussi la pile réelle et valide `osascript`,
-Mail/Calendar/Contacts/Messages simulés, les LaunchAgents, `say`, CoreAudio,
-iMessage en lecture seule, la capture et le pipeline audio natif.
+- Les conversations, tâches, contacts enrichis et souvenirs sont stockés localement dans SQLite.
+- Les données personnelles envoyées au modèle distant passent par une couche d'anonymisation lorsque le pipeline le prévoit.
+- Les captures d'écran sont analysées localement avec Ollama et ne sont pas envoyées à DeepSeek.
+- La transcription et la synthèse vocale disposent de moteurs locaux.
+- Les documents restent locaux par défaut avec `DOCUMENT_STRICT_LOCAL=true`.
+- Les sauvegardes SQLite peuvent être chiffrées et les fichiers sensibles utilisent des permissions restrictives.
+- L'écoute réseau est locale par défaut ; tout accès distant doit être protégé par HTTPS.
 
 ## Documentation
 
-| Fichier | Contenu |
-|---|---|
-| [Architecture/](./Architecture/INDEX.md) | **Audit architectural complet** — 23 problèmes, 10 ADR, plan de migration 6 phases |
-| [CLAUDE.md](./CLAUDE.md) | Référence technique complète (architecture, tables, endpoints, conventions) |
-| [STARTUP_PROTOCOL.md](./STARTUP_PROTOCOL.md) | Démarrage propre, permissions macOS, reprise après coupure |
-| [VOCAL_PIPELINE_ANALYSIS.md](./VOCAL_PIPELINE_ANALYSIS.md) | Pipeline vocal micro → haut-parleur, latences, points de défaillance |
-| [CHANGELOG_HISTORIQUE.md](./CHANGELOG_HISTORIQUE.md) | Archive des changelogs détaillés (ancien README) |
-
-## Routage cognitif (2026)
-
-| Couche | Usage |
-|--------|--------|
-| DeepSeek Flash | Voix, triage, formulation courte |
-| DeepSeek Main | Raisonnement lourd, prompts Cursor, briefings |
-| Cursor CLI (`agent --print`) | Code / technique en worktree isolé |
-| Ollama | Screen Watcher uniquement |
-
-API : `/api/cognitive/*`, `/api/cursor/*`, `/api/briefings/generate`, UI `/cognitive`.
-Docs : `Architecture/LLM_POLICY.md`, `Architecture/CURSOR_DELEGATION.md`.
+- [Architecture/INDEX.md](./Architecture/INDEX.md) : architecture, audits et décisions techniques.
+- [CLAUDE.md](./CLAUDE.md) : référence détaillée du code, des routes et des conventions.
+- [STARTUP_PROTOCOL.md](./STARTUP_PROTOCOL.md) : installation macOS, permissions et reprise après incident.
+- [android/README.md](./android/README.md) : configuration et build de l'application Android.
+- [tv/README.md](./tv/README.md) : tableau de bord TV.
+- [CHANGELOG_HISTORIQUE.md](./CHANGELOG_HISTORIQUE.md) : historique détaillé du projet.
