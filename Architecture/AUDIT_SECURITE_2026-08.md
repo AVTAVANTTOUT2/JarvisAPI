@@ -25,9 +25,9 @@ traitées, pas ponctuellement.
 | 2 | Faible | Le listener WebSocket du serveur TV n'est pas authentifié (intégration morte) | Symptôme corrigé, fond à arbitrer |
 | 3 | Faible | Interpolation HTML non échappée dans les widgets TV | **Corrigé** |
 | 4 | Faible | `open_app` sans allowlist d'applications | À arbitrer |
-| 5 | Faible | Aucun scan de dépendances / SAST en CI | Ouvert — voir finding 7 |
+| 5 | Faible | Aucun scan de dépendances / SAST en CI | **Corrigé** — job `pip-audit` bloquant |
 | 6 | Info | `verify=False` dans le health check TV | **Corrigé** |
-| 7 | **Moyenne** | `fastapi==0.115.*` bloque les correctifs de sécurité de starlette | Découvert en corrigeant le 5 |
+| 7 | **Moyenne** | `open-interpreter` (legacy) ancre 18 des 20 CVE de l'arbre | Mesuré ; retrait à arbitrer |
 
 ---
 
@@ -251,15 +251,43 @@ alignerait cette action sur le traitement — nettement plus strict — réserv�
 
 ## 5. Aucun scan de dépendances ni SAST en CI — Faible
 
-`.github/workflows/ci.yml` ne contient ni `pip-audit`, ni `bandit`, ni
+`.github/workflows/ci.yml` ne contenait ni `pip-audit`, ni `bandit`, ni
 `safety`, ni CodeQL, ni `npm/pnpm audit`. L'arbre de dépendances est lourd
 (torch, spacy, open-interpreter, faster-whisper, pymupdf, cryptography) et
 épinglé en plages (`==0.115.*`), pas par hash.
 
 `scripts/security_audit.py` existe et couvre des motifs internes, mais aucun
-contrôle ne porte sur les CVE des dépendances tierces. Ajouter un job
-`pip-audit` est peu coûteux et couvre l'angle mort le plus probable de ce
-projet.
+contrôle ne portait sur les CVE des dépendances tierces.
+
+### Correction appliquée
+
+Étape `pip-audit` **bloquante** ajoutée au job `production_dependencies`, qui
+installe déjà l'arbre complet.
+
+Deux choix de conception méritent d'être explicités :
+
+- **l'audit porte sur l'environnement réellement installé**, pas sur
+  `pip-audit -r requirements.txt`. Ce dernier résout les versions *minimales*
+  de chaque plage et signale donc des versions que personne n'installe : sur
+  ce dépôt il remonte starlette 0.37.2 par la plage `fastapi==0.115.*`, alors
+  que la cause réelle est tout autre (finding 7). Auditer l'environnement
+  installé évite ce faux diagnostic — et ne coûte rien, le job paie déjà
+  l'installation ;
+- **liste d'exceptions explicite plutôt que `continue-on-error`.** Un
+  contrôle de sécurité non bloquant n'échoue jamais, donc ne contrôle rien.
+  Les 19 identifiants de l'arriéré connu au 2026-08-01 sont listés dans le
+  job, groupés par cause racine et commentés. Toute CVE **nouvelle**, ou sur
+  un autre paquet, fait échouer la CI.
+
+Vérification de la barrière, sur l'arbre de production exact (174 paquets
+résolus) : `No known vulnerabilities found, 23 ignored`, sortie 0. En
+remettant `python-dotenv` en 1.1.1 — une CVE absente de la liste — la
+commande sort en 1 et affiche l'advisory. Le job n'est donc pas décoratif.
+
+`python-dotenv` a été monté de `1.1.*` à `1.2.*` (PYSEC-2026-2270, corrigé en
+1.2.2). Seul `load_dotenv(path, override=True)` est utilisé dans le dépôt
+(`env_loader.py`) et l'API est inchangée ; la suite complète a été exécutée
+avec 1.2.2 installé.
 
 ---
 
@@ -280,56 +308,75 @@ backend passe en TLS ou que `BACKEND_HOST` désigne une machine distante
 
 ---
 
-## 7. `fastapi==0.115.*` bloque les correctifs de sécurité de starlette — Moyenne
+## 7. `open-interpreter` (legacy) ancre 18 des 20 CVE de l'arbre — Moyenne
 
-Découvert en instrumentant le finding 5 : le premier `pip-audit` exécuté sur
-l'arbre de dépendances ne remonte pas un angle mort théorique, mais un arriéré
-réel.
+Découvert en instrumentant le finding 5. Le premier `pip-audit` ne remonte pas
+un angle mort théorique mais un arriéré réel : **20 advisories sur 5 paquets**
+dans l'arbre de production résolu.
 
-**Fichier :** `requirements.txt` l. 2
+> **Correction d'un diagnostic intermédiaire.** Une première lecture attribuait
+> le blocage de starlette au pin `fastapi==0.115.*` (qui contraint
+> `starlette<0.47.0`). C'est faux, et ça désignait le mauvais chantier. La
+> résolution complète montre la vraie contrainte :
+> `open-interpreter -> starlette (>=0.37.2,<0.38.0)`. C'est ce plafond dur qui
+> fixe starlette en 0.37.2 — et qui, par ricochet, rétrograde FastAPI en
+> 0.115.2 au lieu de 0.115.14.
 
-Sur l'environnement réellement installé (fastapi 0.115.14, la plus récente de
-la plage), `pip-audit` remonte **8 advisories starlette** en 0.46.2. Or
-`fastapi==0.115.*` contraint `starlette<0.47.0`, tandis que les correctifs
-sont en 0.47.2, 0.49.1 et 1.x. **Le pin rend ces correctifs inatteignables**,
-quelle que soit la résolution.
+### Mesure
 
-Starlette n'est pas une dépendance périphérique : c'est la couche HTTP sous
-FastAPI, dans le chemin de traitement de chaque requête — y compris le
-`security_middleware` qui porte tout le verrou de session.
+Arbre de production résolu, `pip install --dry-run --report` puis audit des
+versions exactes :
 
-Autres paquets signalés sur le même arbre : `litellm` (10 advisories, tiré par
-`open-interpreter==0.4.*` — dont la section « Exécution de code avancée » de
-`CLAUDE.md` note qu'il n'est déjà plus joignable par l'action `terminal`),
-`protobuf`, `setuptools`, `urllib3`, `wheel`, `python-dotenv`.
+| Paquet | Version | Advisories | Contrainte |
+|---|---|---|---|
+| litellm | 1.83.0 | 10 | `open-interpreter -> litellm (>=1.41.26,<2.0.0)` |
+| starlette | 0.37.2 | 7 | `open-interpreter -> starlette (>=0.37.2,<0.38.0)` |
+| setuptools | 81.0.0 | 1 | cap `<82` de `requirements.txt`, exigé car open-interpreter importe encore `pkg_resources` |
+| protobuf | 4.25.9 | 1 | rétrogradé par la même résolution |
+| python-dotenv | 1.1.1 | 1 | indépendant — **corrigé** |
 
-### Pourquoi ce n'est pas corrigé ici
+Résolution refaite sans `open-interpreter`, toutes choses égales par ailleurs :
 
-Atteindre les correctifs starlette impose une montée FastAPI 0.115 → 0.117 au
-minimum (`starlette<0.49.0`), et 0.14x pour la série 1.x. Or
-`tests/test_phase4_route_contract.py` verrouille par empreinte les 235
-opérations HTTP et l'empreinte OpenAPI ; une montée de 26 versions mineures a
-toutes les chances d'exiger une re-baseline de ce contrat. Ce n'est pas une
-correction d'audit, c'est un chantier de mise à niveau avec un risque de
-régression propre.
+```
+avec open-interpreter    : 174 paquets, 20 advisories sur 5 paquets
+sans open-interpreter    : 146 paquets,  8 advisories sur 2 paquets
+                           litellm absent, setuptools 83.0.0, protobuf 7.35.1,
+                           fastapi 0.115.14, starlette 0.46.2
+```
 
-### Conséquence sur le finding 5
+Soit **18 des 20 advisories** portées par une seule dépendance — dont les 7 de
+starlette, qui n'est pas périphérique : c'est la couche HTTP sous FastAPI,
+dans le chemin de chaque requête, y compris le `security_middleware` qui porte
+tout le verrou de session.
 
-La forme du job CI dépend de cet arbitrage, et il n'a donc pas été livré :
+### Pourquoi c'est une bonne cible
 
-- livrer `pip-audit` bloquant **maintenant** rend la CI rouge dès le premier
-  passage, sur un arriéré connu — la voie la plus sûre pour que l'équipe
-  apprenne à ignorer le job ;
-- livrer le job en `continue-on-error` produit un contrôle de sécurité qui
-  n'échoue jamais, c'est-à-dire aucun contrôle.
+`open-interpreter` est déjà du code mort côté sécurité. `CLAUDE.md`, section
+« Exécution de code avancée (Open Interpreter, legacy) » :
 
-Les deux options défendables sont donc : traiter l'arriéré puis livrer le job
-bloquant ; ou livrer le job bloquant avec une liste d'exceptions
-`--ignore-vuln` explicite, datée et commentée, qui laisse passer l'arriéré
-connu mais fait échouer toute CVE **nouvelle**. La seconde donne une CI verte
-immédiatement et un vrai garde-fou ; elle demande d'énumérer l'arriéré sur un
-environnement de production complet (torch, spaCy…), impossible à installer
-dans l'environnement d'audit.
+> Le wrapper Open Interpreter reste présent pour compatibilité et diagnostic,
+> mais l'action publique `terminal` ne lui délègue plus d'instruction : il ne
+> peut pas fournir à l'avance la liste exhaustive des commandes à confirmer.
+
+`CODE_EXECUTOR_ENABLED=false` par défaut. La dépendance coûte donc 28 paquets
+et 18 advisories pour une capacité volontairement débranchée.
+
+### Ce que le retrait implique
+
+Ce n'est pas une correction d'audit mais une décision produit — retirer une
+fonctionnalité documentée, même legacy :
+
+- `integrations/code_executor.py` et ses appelants ;
+- l'import de fumée `interpreter` dans le job CI `production_dependencies` ;
+- le cap `setuptools<82` de `requirements.txt` et son commentaire, qui
+  n'existent que pour lui ;
+- la section correspondante de `CLAUDE.md`.
+
+Après retrait, l'arriéré tombe à 7 advisories starlette, atteignables par une
+montée FastAPI (0.117 pour `starlette<0.49.0`, 0.14x pour la série 1.x). À
+noter pour ce chantier-là : `tests/test_phase4_route_contract.py` verrouille
+par empreinte les 235 opérations HTTP et l'empreinte OpenAPI, et exigera très
+probablement une re-baseline.
 
 ---
 
@@ -436,6 +483,7 @@ Corrigé et vérifié dans ce lot :
 | 3 | `TV.esc()` sur les trois interpolations d'attribut | `tests/test_tv_security.py` 16/16 |
 | 6 | `verify=False` retiré | idem |
 | 2 (partiel) | Journalisation explicite du refus + backoff plafonné | idem |
+| 5 | Job `pip-audit` bloquant + liste d'exceptions datée ; `python-dotenv` monté en 1.2.* | Simulé sur l'arbre de production exact : sortie 0 ; sortie 1 sur une CVE hors liste |
 
 Régression globale : `tests/ jarvis/tests agents/devagent` → **1268 passés,
 9 ignorés, 1 échec**. L'échec unique
@@ -445,10 +493,12 @@ TLS auto-signé du bac à sable. Sans rapport avec les fichiers modifiés.
 
 ## Reste à arbitrer
 
-1. **Finding 7 + 5** — le plus important. Traiter l'arriéré de dépendances
-   (montée FastAPI, avec re-baseline probable du contrat de routes), puis
-   livrer `pip-audit` bloquant ; ou livrer le job avec une liste d'exceptions
-   datée qui gate uniquement les CVE nouvelles.
+1. **Finding 7** — le plus important, et désormais chiffré : retirer
+   `open-interpreter` supprime 18 des 19 exceptions du job CI, pour une
+   capacité déjà débranchée (`CODE_EXECUTOR_ENABLED=false`, action `terminal`
+   qui ne lui délègue plus rien). Décision produit : c'est un retrait de
+   fonctionnalité, même legacy. Ensuite seulement, la montée FastAPI pour les
+   7 advisories starlette restantes.
 2. **Finding 2** — canal d'événements dédié en lecture seule authentifié par
    le jeton supervisor, ou retrait de la fonctionnalité.
 3. **Finding 4** — allowlist d'applications pour `open_app`, à trancher si
