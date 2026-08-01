@@ -422,6 +422,15 @@ def _safe_environment(workspace: Path) -> dict[str, str]:
         "LC_ALL": "C.UTF-8",
         "GIT_CONFIG_GLOBAL": "/dev/null",
         "GIT_CONFIG_NOSYSTEM": "1",
+        # Sans plafond, git remonte l'arborescence depuis le workspace et
+        # découvre le dépôt qui l'héberge — `LLM_SHELL_WORKSPACE` vit sous
+        # `data/` dans le dépôt JARVIS par défaut. `git show HEAD:<path>` et
+        # `git log -p` exposeraient alors tout le source et tout l'historique,
+        # alors que `impact_analysis` annonce une isolation par workspace.
+        # Le plafond doit être le PARENT : git ne considère pas les répertoires
+        # plafonds eux-mêmes, donc le pointer sur le workspace ne bloque rien.
+        # Un dépôt légitimement créé dans le workspace reste utilisable.
+        "GIT_CEILING_DIRECTORIES": str(workspace.parent),
         "GIT_PAGER": "cat",
         "PAGER": "cat",
         "NO_COLOR": "1",

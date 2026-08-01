@@ -82,7 +82,10 @@ tv_event_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=50)
 _ws_listener_task: asyncio.Task[Any] | None = None
 
 _WS_RECONNECT_DELAY: float = 5.0
+_WS_RECONNECT_DELAY_MAX: float = 300.0
 _SSE_HEARTBEAT_SECONDS: float = 25.0
+# Le backend ferme toute socket non authentifiée avec ce code (api/ws_handler).
+_WS_UNAUTHORIZED_CLOSE_CODES = frozenset({4401, 4428})
 
 
 async def _ws_listener() -> None:
@@ -93,6 +96,7 @@ async def _ws_listener() -> None:
     """
     ws_url = f"ws://{cfg.BACKEND_HOST}:{cfg.BACKEND_PORT}/ws"
     logger.info("[tv] Connexion WebSocket backend : %s", ws_url)
+    delay = _WS_RECONNECT_DELAY
 
     while True:
         try:
@@ -103,6 +107,7 @@ async def _ws_listener() -> None:
                 close_timeout=5,
             ) as ws:
                 logger.info("[tv] WebSocket backend connecté")
+                delay = _WS_RECONNECT_DELAY
                 async for msg in ws:
                     try:
                         data: dict[str, Any] = json.loads(msg)
@@ -121,8 +126,25 @@ async def _ws_listener() -> None:
                             except (asyncio.QueueEmpty, asyncio.QueueFull):
                                 pass
 
+        except websockets.ConnectionClosed as e:
+            # Ce listener ne présente aucune identité : le backend referme donc
+            # la socket en 4401. Tant que la question de l'authentification de
+            # ce canal n'est pas tranchée, l'échec doit être explicite plutôt
+            # que noyé dans une reconnexion toutes les 5 s — l'overlay vocal
+            # SSE de la TV ne reçoit alors que des heartbeats.
+            if getattr(e, "code", None) in _WS_UNAUTHORIZED_CLOSE_CODES:
+                logger.error(
+                    "[tv] WebSocket backend refusé (code %s) : ce canal n'est pas "
+                    "authentifié, l'overlay vocal restera vide. Nouvelle tentative "
+                    "dans %.0fs",
+                    e.code,
+                    delay,
+                )
+            else:
+                logger.warning(
+                    "[tv] WebSocket déconnecté (%s) — reconnexion dans %.0fs", e, delay
+                )
         except (
-            websockets.ConnectionClosed,
             websockets.InvalidURI,
             websockets.InvalidHandshake,
             ConnectionRefusedError,
@@ -130,11 +152,14 @@ async def _ws_listener() -> None:
             OSError,
             asyncio.TimeoutError,
         ) as e:
-            logger.warning("[tv] WebSocket déconnecté (%s) — reconnexion dans %.0fs", e, _WS_RECONNECT_DELAY)
+            logger.warning("[tv] WebSocket déconnecté (%s) — reconnexion dans %.0fs", e, delay)
         except Exception as e:
-            logger.warning("[tv] WebSocket erreur inattendue (%s) — reconnexion dans %.0fs", e, _WS_RECONNECT_DELAY)
+            logger.warning("[tv] WebSocket erreur inattendue (%s) — reconnexion dans %.0fs", e, delay)
 
-        await asyncio.sleep(_WS_RECONNECT_DELAY)
+        await asyncio.sleep(delay)
+        # Backoff exponentiel plafonné : un refus permanent ne doit pas
+        # marteler le backend ni saturer les logs.
+        delay = min(delay * 2, _WS_RECONNECT_DELAY_MAX)
 
 
 # ── Frontière de sécurité HTTP ────────────────────────────────
@@ -270,7 +295,10 @@ async def _check_backend_health() -> dict:
     """Vérifie la santé du backend principal JARVIS (port 8081)."""
     import httpx
     try:
-        async with httpx.AsyncClient(verify=False, timeout=3.0) as client:
+        # Pas de `verify=False` : inutile tant que BACKEND_BASE_URL est en
+        # http://, et silencieusement dangereux le jour où le backend passe
+        # en TLS ou devient distant (Tailscale).
+        async with httpx.AsyncClient(timeout=3.0) as client:
             resp = await client.get(f"{cfg.BACKEND_BASE_URL}/api/status")
             if resp.status_code == 200:
                 data = resp.json()
