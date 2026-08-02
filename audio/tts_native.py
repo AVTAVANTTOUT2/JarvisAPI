@@ -55,6 +55,21 @@ class TTSKitEngine:
         chunks = [c async for c in self.synthesize_stream(text, emotion)]
         return b"".join(chunks)
 
+    async def synthesize_stream_pcm(
+        self, text: str, emotion: str = "neutral",
+    ) -> AsyncGenerator[bytes, None]:
+        """Contrat `audio.tts_provider` — le sidecar rend déjà du PCM16 brut."""
+        async for chunk in self.synthesize_stream(text, emotion):
+            yield chunk
+
+    async def warmup(self) -> bool:
+        """Vérifie la présence du sidecar ; le modèle est chargé par lui."""
+        return self.preload_sync()
+
+    async def shutdown(self) -> None:
+        """Aucune ressource tenue entre deux énoncés (processus par synthèse)."""
+        return None
+
     async def synthesize_stream(
         self, text: str, emotion: str = "neutral",
     ) -> AsyncGenerator[bytes, None]:
@@ -133,14 +148,14 @@ def get_native_tts_engine(*, exclude: frozenset[str] = frozenset()) -> Any:
 
 
 def native_tts_sample_rate(engine: Any) -> int:
-    if engine is None:
-        return 24000
-    name = getattr(engine, "get_backend_name", lambda: "")()
-    if name == "ttskit":
-        return TTSKitEngine.SAMPLE_RATE
-    if name == "kokoro":
-        return 24000
-    return 44100
+    """Fréquence de sortie du moteur — déclarée par lui, pas déduite de son nom.
+
+    Un branchement sur le nom du fournisseur ici obligerait à modifier ce
+    fichier générique à chaque changement de moteur. Voir `audio.tts_provider`.
+    """
+    from audio.tts_provider import provider_sample_rate
+
+    return provider_sample_rate(engine)
 
 
 __all__ = [

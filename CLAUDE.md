@@ -965,11 +965,15 @@ Quatre décisions structurantes :
   2361 ms sur 2,66 s de parole FR avec `large-v3-turbo`). `TranscriptionResult` sépare
   `audio_ms`, `inference_ms` et le facteur temps réel — « 5 s de STT » ne dit
   pas si le moteur est lent ou l'énoncé long.
-- **Kokoro reste chargé.** `native_audio/kokoro_mlx.py --serve` garde le modèle
-  en mémoire et diffuse des trames PCM ; `KokoroWorker` maintient ce processus,
-  sérialise les synthèses et le relance s'il meurt, sans jamais lever. Le premier
-  fragment de texte est volontairement court : la lecture démarre sur la première
-  phrase pendant que la suite se synthétise.
+- **Le moteur TTS est derrière un contrat.** `audio/tts_provider.py` décrit ce
+  que le pipeline attend (`synthesize_stream_pcm`, `warmup`, `SAMPLE_RATE`). Le
+  daemon, le VAD, le STT, l'orchestration et le lecteur PCM ne nomment **aucun**
+  fournisseur — `tests/test_tts_provider_seam.py` le vérifie fichier par fichier.
+  **Kokoro est transitoire** : ses optimisations propres (sidecar maintenu chaud
+  via `--serve`, découpage du premier fragment, protocole de trames) vivent dans
+  `native_audio/kokoro_*.py`, inventoriés dans `PROVIDER_SPECIFIC_MODULES`.
+  Basculer vers Fish Audio revient à écrire un module qui satisfait le contrat
+  et à supprimer ceux-là — sans toucher au reste de la chaîne.
 - **Le streaming LLM ne sert pas à parler plus tôt.** Une réponse peut contenir
   un bloc `action` dont le résultat remplace le texte : prononcer la phrase
   intermédiaire changerait la réponse. `llm.chat_stream_collect()` sert à exposer
@@ -984,8 +988,8 @@ test refuse toute divergence entre les défauts et les `.env*.example`.
 STT_BEAM_SIZE=1                  # temps réel : un seul faisceau
 STT_VAD_FILTER=false             # le daemon segmente déjà l'énoncé
 STT_COMPUTE_TYPE=float32         # int8 est 2x plus lent ici (mesuré)
-KOKORO_WARM_WORKER=true          # sidecar chaud, modèle chargé une fois
-KOKORO_FIRST_CHUNK_MAX_TOKENS=12 # 1re phrase courte = premier son plus tôt
+KOKORO_WARM_WORKER=true          # spécifique Kokoro (transitoire)
+KOKORO_FIRST_CHUNK_MAX_TOKENS=12 # spécifique Kokoro (transitoire)
 VOICE_LLM_STREAMING=true         # expose llm.first_token
 AUDIO_DAEMON_SILENCE_MS=500      # fin de phrase : 300-600 ms
 AUDIO_DAEMON_MIN_SPEECH_MS=200   # durée minimale de parole
@@ -993,7 +997,8 @@ AUDIO_DAEMON_PRE_ROLL_MS=300     # amorce conservée avant le seuil
 ```
 
 Tests : `tests/test_voice_latency.py`, `tests/test_voice_rearm.py`,
-`tests/test_voice_pipeline_e2e.py`, `tests/test_voice_tts_warm.py`. Ils tournent
+`tests/test_voice_pipeline_e2e.py`, `tests/test_voice_tts_warm.py`,
+`tests/test_tts_provider_seam.py`. Ils tournent
 avec des moteurs simulés — ils ne mesurent pas le matériel, ils vérifient que
 l'orchestration n'ajoute ni palier fixe, ni étape bloquante, ni état résiduel.
 

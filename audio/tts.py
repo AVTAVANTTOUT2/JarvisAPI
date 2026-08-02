@@ -530,6 +530,10 @@ class MacOSTTSEngine:
     lisible par tous les navigateurs modernes (Chrome, Firefox, Safari).
     """
 
+    # Déclarée par le moteur plutôt que déduite de son nom dans le code
+    # générique (voir `audio.tts_provider.provider_sample_rate`).
+    SAMPLE_RATE = 44100
+
     def __init__(self) -> None:
         self._voice = getattr(config, "MACOS_TTS_VOICE", "Jacques")
         self.available = bool(shutil.which("say") and shutil.which("afconvert"))

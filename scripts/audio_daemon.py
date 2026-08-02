@@ -2,7 +2,7 @@
 
 Pipeline :
   Thread pyaudio → asyncio.Queue → VAD (Silero + ring pre-roll) → STT local
-  → _process_voice_fast → file vocale prioritaire → TTS local (TTSKit/Kokoro/macOS)
+  → _process_voice_fast → file vocale prioritaire → moteur TTS local
   → sounddevice PCM streaming.
 
 Half-duplex par défaut (micro coupé pendant TTS) — voir AUDIO_DAEMON_HALF_DUPLEX.
@@ -28,6 +28,7 @@ import config
 from audio import voice_latency as vl
 from audio.audio_output import native_audio_output
 from audio.tts_native import get_native_tts_engine, native_tts_sample_rate
+from audio.tts_provider import supports_pcm_streaming
 from audio.vad_utterance import VadUtteranceCollector, VadUtteranceConfig, chunk_rms
 from audio.voice_latency import UtteranceTrace
 from audio.voice_queue import VoicePriority, voice_queue
@@ -1794,7 +1795,7 @@ class AudioDaemon:
         wait: bool = False,
         trace: UtteranceTrace | None = None,
     ) -> None:
-        """Enfile une synthèse vocale locale (TTSKit → Kokoro → macOS)."""
+        """Enfile une synthèse vocale sur le moteur local résolu."""
         if not text or not text.strip():
             return
         if priority is None:
@@ -1855,15 +1856,14 @@ class AudioDaemon:
                 trace.mark(vl.TTS_MODEL_READY, engine=backend, sample_rate=sr)
 
             # Chemin diffusé : la lecture démarre sur le premier fragment au
-            # lieu d'attendre la synthèse complète. Kokoro chaud expose
-            # ``synthesize_stream_pcm`` ; TTSKit garde ``synthesize_stream``.
-            pcm_stream_fn = getattr(engine, "synthesize_stream_pcm", None)
-            legacy_stream_fn = getattr(engine, "synthesize_stream", None)
-            stream_fn = None
-            if callable(pcm_stream_fn):
-                stream_fn = pcm_stream_fn
-            elif callable(legacy_stream_fn) and backend == "ttskit":
-                stream_fn = legacy_stream_fn
+            # lieu d'attendre la synthèse complète. Le daemon ne connaît aucun
+            # fournisseur par son nom — il interroge le contrat
+            # `audio.tts_provider` (voir ce module pour changer de moteur).
+            stream_fn = (
+                engine.synthesize_stream_pcm
+                if supports_pcm_streaming(engine)
+                else None
+            )
 
             if stream_fn is not None and native_audio_output.available:
                 collected: list[bytes] = []
@@ -1902,11 +1902,13 @@ class AudioDaemon:
                         trace.mark(vl.TTS_PLAYBACK_COMPLETED, engine=backend)
                     _last_tts.store(text, emotion, b"".join(collected))
                     return
+                # Flux vide : on réessaie avec un autre moteur local plutôt que
+                # de rester muet. Le moteur défaillant est écarté par son nom
+                # déclaré — le daemon n'en connaît aucun à l'avance.
                 logger.warning("[audio_daemon] Flux TTS %s vide — repli local", backend)
-                if backend == "ttskit":
-                    engine = get_native_tts_engine(exclude=frozenset({"ttskit"}))
-                    if engine is None:
-                        return
+                engine = get_native_tts_engine(exclude=frozenset({backend}))
+                if engine is None:
+                    return
 
             if trace is not None:
                 trace.mark(
