@@ -64,7 +64,6 @@ class FishLocalTTSProvider:
         self._settings = settings
         self._client: SidecarClient | None = None
         self._sample_rate = settings.sample_rate
-        self._model_dir: Path | None = None
         self._warmup_ms: float | None = None
         self._voice_cloned = False
 
@@ -88,11 +87,13 @@ class FishLocalTTSProvider:
         return "mlx" if device in {"auto", "metal", "gpu"} else device
 
     def _model_label(self) -> str:
-        """Nom court du modèle — jamais un chemin absolu dans les logs."""
-        if self._model_dir is not None:
-            parts = self._model_dir.parts
-            return parts[-1] if len(parts) < 3 else "/".join(parts[-2:])
-        return self._settings.model_path.rsplit("/", 1)[-1]
+        """Nom court du modèle — jamais un chemin absolu dans les logs.
+
+        On nomme le modèle **tel qu'il est configuré**, pas tel qu'il est rangé
+        sur le disque : un chemin de cache Hugging Face donnerait un journal du
+        genre « snapshots/c8d4481… », qui n'identifie rien pour un humain.
+        """
+        return self._settings.model_path.rstrip("/").rsplit("/", 1)[-1]
 
     # ── Préparation ─────────────────────────────────────────────────────────
 
@@ -127,10 +128,7 @@ class FishLocalTTSProvider:
                 "environnement contenant mlx-audio"
             )
 
-        model_dir = self._resolve_model()
-        self._model_dir = model_dir
-
-        command = [str(launcher), "--serve", "--model", str(model_dir)]
+        command = [str(launcher), "--serve", "--model", str(self._resolve_model())]
         reference = self._settings.reference_audio()
         if reference is not None:
             transcript = self._settings.reference_text()
