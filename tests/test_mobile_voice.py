@@ -9,6 +9,8 @@ import wave
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
+from tests.local_tts_stub import StubProvider
+
 import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -126,14 +128,14 @@ def test_voice_turn_rejects_oversized_payload(tmp_db, monkeypatch):
 
 @patch("api.mobile_voice_service.stt_local")
 @patch("api.mobile_voice_service._process_voice_fast", new_callable=AsyncMock)
-@patch("api.mobile_voice_service.get_tts_by_name")
-def test_voice_turn_rejects_stt_prompt_echo(mock_get_tts, mock_llm, mock_stt, tmp_db):
+@patch("api.mobile_voice_service.get_local_tts_provider")
+def test_voice_turn_rejects_stt_prompt_echo(mock_provider, mock_llm, mock_stt, tmp_db):
     """Whisper qui recopie le prompt (liste d'apps) ne doit pas atteindre le LLM."""
     mock_stt.available = True
     mock_stt.transcribe = AsyncMock(
         return_value="JARVIS, DeepSeek, Messages, Mail, Calendar, Visual Studio Code, Blue Snowball"
     )
-    mock_get_tts.return_value = AsyncMock()
+    mock_provider.return_value = StubProvider()
 
     with _client() as client:
         authenticate(client)
@@ -145,12 +147,10 @@ def test_voice_turn_rejects_stt_prompt_echo(mock_get_tts, mock_llm, mock_stt, tm
     mock_llm.assert_not_awaited()
 
 
-@patch("api.mobile_voice_service.resolve_tts_engine_name", return_value="edge")
 @patch("api.mobile_voice_service.stt_local")
 @patch("api.mobile_voice_service._process_voice_fast", new_callable=AsyncMock)
-@patch("api.mobile_voice_service.get_tts_by_name")
-def test_voice_turn_happy_path(mock_get_tts, mock_llm, mock_stt, mock_resolve_tts, tmp_db, monkeypatch):
-    monkeypatch.setattr("config.TTS_VOICE", "fr-FR-HenriNeural")
+@patch("api.mobile_voice_service.get_local_tts_provider")
+def test_voice_turn_happy_path(mock_provider, mock_llm, mock_stt, tmp_db):
     mock_stt.available = True
     mock_stt.preload_sync.return_value = True
     mock_stt.transcribe = AsyncMock(return_value="quel temps fait-il")
@@ -160,11 +160,8 @@ def test_voice_turn_happy_path(mock_get_tts, mock_llm, mock_stt, mock_resolve_tt
         "cost": 0.001,
         "latency_ms": 420,
     }
-    tts = AsyncMock()
-    tts.available = True
-    tts.synthesize = AsyncMock(return_value=b"\xff\xf3fake")
-    tts.get_backend_name = lambda: "edge"
-    mock_get_tts.return_value = tts
+    provider = StubProvider()
+    mock_provider.return_value = provider
 
     wav = _make_wav()
     with _client() as client:
@@ -179,8 +176,10 @@ def test_voice_turn_happy_path(mock_get_tts, mock_llm, mock_stt, mock_resolve_tt
     assert body["source"] == "android_voice"
     assert body["device_id"] == "happy-voice"
     assert body["stt_engine"] == "faster-whisper"
-    assert body["tts_engine"] == "edge"
-    assert body.get("tts_voice") == "fr-FR-HenriNeural"
+    assert body["tts_engine"] == "stub"
+    assert body.get("tts_voice") == "jarvis"
+    # Le téléphone reçoit un fichier lisible tel quel, pas du PCM brut.
+    assert body["audio_mime_type"] == "audio/wav"
     assert body["conversation_id"] > 0
     mock_stt.transcribe.assert_awaited_once()
     mock_llm.assert_awaited_once()
@@ -188,22 +187,25 @@ def test_voice_turn_happy_path(mock_get_tts, mock_llm, mock_stt, mock_resolve_tt
     assert call.args[0] == "quel temps fait-il"
     assert call.args[1] == body["conversation_id"]
     assert "stt_ms" in call.kwargs
-    tts.synthesize.assert_awaited_once()
+    assert provider.calls == ["Lille, dix-huit degrés, couvert."]
 
 
 @patch("api.mobile_voice_service.stt_local")
 @patch("api.mobile_voice_service._process_voice_fast", new_callable=AsyncMock)
-@patch("api.mobile_voice_service.get_tts_by_name")
+@patch("api.mobile_voice_service.get_local_tts_provider")
 def test_voice_turn_text_without_tts_when_synthesis_fails(
-    mock_get_tts, mock_llm, mock_stt, tmp_db
+    mock_provider, mock_llm, mock_stt, tmp_db
 ):
     mock_stt.available = True
     mock_stt.transcribe = AsyncMock(return_value="bonjour")
     mock_llm.return_value = {"text": "Bonjour Monsieur.", "emotion": "warm"}
-    tts = AsyncMock()
-    tts.synthesize = AsyncMock(side_effect=RuntimeError("kokoro down"))
-    tts.get_backend_name = lambda: "kokoro"
-    mock_get_tts.return_value = tts
+
+    class Broken(StubProvider):
+        async def stream(self, text, *, request_id, utterance_id):
+            raise RuntimeError("moteur local en panne")
+            yield  # pragma: no cover - rend la fonction génératrice
+
+    mock_provider.return_value = Broken()
 
     with _client() as client:
         authenticate(client)
@@ -219,17 +221,14 @@ def test_voice_turn_text_without_tts_when_synthesis_fails(
 
 @patch("api.mobile_voice_service.stt_local")
 @patch("api.mobile_voice_service._process_voice_fast", new_callable=AsyncMock)
-@patch("api.mobile_voice_service.get_tts_by_name")
+@patch("api.mobile_voice_service.get_local_tts_provider")
 def test_voice_turn_preserves_conversation_context(
-    mock_get_tts, mock_llm, mock_stt, tmp_db
+    mock_provider, mock_llm, mock_stt, tmp_db
 ):
     mock_stt.available = True
     mock_stt.transcribe = AsyncMock(side_effect=["première question", "deuxième question"])
     mock_llm.return_value = {"text": "Réponse.", "emotion": "neutral"}
-    tts = AsyncMock()
-    tts.synthesize = AsyncMock(return_value=b"RIFF")
-    tts.get_backend_name = lambda: "kokoro"
-    mock_get_tts.return_value = tts
+    mock_provider.return_value = StubProvider()
 
     wav = _make_wav()
     with _client() as client:
@@ -267,14 +266,13 @@ def test_voice_fixture_wav_integration_smoke(tmp_db, monkeypatch):
 
     with patch("api.mobile_voice_service.stt_local") as mock_stt, patch(
         "api.mobile_voice_service._process_voice_fast", new_callable=AsyncMock
-    ) as mock_llm, patch("api.mobile_voice_service.get_tts_by_name") as mock_get_tts:
+    ) as mock_llm, patch(
+        "api.mobile_voice_service.get_local_tts_provider"
+    ) as mock_provider:
         mock_stt.available = True
         mock_stt.transcribe = AsyncMock(return_value="test")
         mock_llm.return_value = {"text": "OK", "emotion": "neutral"}
-        tts = AsyncMock()
-        tts.synthesize = AsyncMock(return_value=fixture.read_bytes())
-        tts.get_backend_name = lambda: "kokoro"
-        mock_get_tts.return_value = tts
+        mock_provider.return_value = StubProvider()
 
         with _client() as client:
             authenticate(client)

@@ -174,49 +174,46 @@ async def api_email_watcher_catchup():
 
 # ── Réglages dynamiques (sans redémarrage) ──────────────────
 
-_VALID_TTS_ENGINES = {"edge", "macos", "kokoro", "ttskit"}
-
 
 async def api_get_tts_setting():
-    """Retourne le moteur TTS actif (DB ou fallback .env)."""
-    from database import get_setting as _gs
-    engine = _gs("tts_engine", getattr(config, "TTS_ENGINE", config.DEFAULT_TTS_ENGINE) or config.DEFAULT_TTS_ENGINE)
-    return {"engine": engine}
+    """Décrit le moteur vocal local actif.
+
+    Il n'y a plus de catalogue de moteurs : un seul fournisseur local, une
+    seule voix. Cette route reste une lecture d'état.
+    """
+    from jarvis.audio.tts import get_local_tts_provider, load_tts_settings
+
+    settings = load_tts_settings()
+    try:
+        info = get_local_tts_provider(settings).info()
+    except Exception as exc:  # noqa: BLE001 - configuration invalide reste lisible
+        return {"engine": settings.provider, "available": False, "error": str(exc)}
+    return {"engine": info.provider, "available": True, **info.as_log_fields()}
 
 
 async def api_set_tts_setting(body: dict):
-    """Change le moteur TTS à la volée (sans redémarrage).
+    """Refuse tout changement de moteur à chaud.
 
-    Payload : ``{"engine": "edge" | "macos" | "kokoro" | "ttskit"}``
+    Le fournisseur est choisi par ``TTS_PROVIDER`` et chargé une fois, au
+    démarrage — plusieurs gigaoctets de poids ne se remplacent pas en cours
+    de conversation. Cette route ne subsiste que pour répondre clairement aux
+    clients historiques qui l'appellent encore.
     """
-    from database import set_setting as _ss
-    from audio.tts import get_tts_by_name
+    from fastapi import HTTPException
 
-    engine = (body.get("engine") or "").lower().strip()
-    if engine not in _VALID_TTS_ENGINES:
-        from fastapi import HTTPException
+    from jarvis.audio.tts import load_tts_settings
+
+    requested = (body.get("engine") or "").lower().strip()
+    active = load_tts_settings().provider
+    if requested and requested != active:
         raise HTTPException(
             status_code=422,
-            detail=f"Moteur invalide : {engine!r}. Valeurs acceptées : {sorted(_VALID_TTS_ENGINES)}",
+            detail=(
+                f"Le moteur vocal ne se change pas à chaud. Fournisseur actif : "
+                f"{active!r}. Modifiez TTS_PROVIDER dans .env puis redémarrez."
+            ),
         )
-
-    # Vérifie la disponibilité du moteur demandé
-    target = get_tts_by_name(engine)
-    resolved_engine = getattr(target, "get_backend_name", lambda: "none")()
-    if not getattr(target, "available", False) or resolved_engine != engine:
-        from fastapi import HTTPException
-        raise HTTPException(
-            status_code=422,
-            detail=f"Le moteur '{engine}' n'est pas disponible sur ce système. "
-                   f"Vérifiez edge-tts (edge), les modèles locaux (kokoro/ttskit) "
-                   f"ou les commandes say/afconvert (macos).",
-        )
-
-    _ss("tts_engine", engine)
-    # Aligne config runtime pour le process courant (mobile_voice / cache)
-    config.TTS_ENGINE = engine
-    logger.info("[TTS] Moteur changé → %s", engine)
-    return {"engine": engine, "ok": True}
+    return {"engine": active, "ok": True}
 
 
 # ── Notifications (email watcher + alertes patterns) ────────

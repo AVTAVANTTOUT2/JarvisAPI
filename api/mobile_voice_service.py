@@ -10,10 +10,15 @@ from typing import Any
 
 import config
 from api.voice_processing import _process_voice_fast
-from audio.audio_format import detect_upload_format, is_encoded_audio_container, tts_audio_mime
+from audio.audio_format import (
+    DEFAULT_TTS_MIME,
+    detect_upload_format,
+    is_encoded_audio_container,
+)
 from audio.stt_daemon import is_stt_prompt_echo, stt_local
-from audio.tts import get_tts_by_name, resolve_tts_engine_name, resolve_tts_voice
 from database import create_conversation, get_conversation_detail, touch_mobile_device
+from jarvis.audio.tts import get_local_tts_provider
+from jarvis.audio.tts.wav import synthesize_wav
 
 logger = logging.getLogger("jarvis.mobile_voice")
 
@@ -158,16 +163,13 @@ async def process_mobile_voice_turn(
         response_text = str(llm_result.get("text") or "").strip()
         emotion = str(llm_result.get("emotion") or "neutral")
 
-        tts_engine_name = resolve_tts_engine_name()
-        tts_engine = get_tts_by_name(tts_engine_name)
-        backend = getattr(tts_engine, "get_backend_name", lambda: tts_engine_name)()
-        if tts_engine_name == "edge" and not getattr(tts_engine, "available", False):
-            raise MobileVoiceError(
-                "TTS Edge indisponible — pip install edge-tts (voix française Henri)",
-                503,
-            )
+        provider = get_local_tts_provider()
+        info = provider.info()
+        backend = info.provider
 
-        audio_mime = tts_audio_mime(backend)
+        # Le téléphone reçoit un fichier, pas un flux : WAV, produit sans
+        # encodeur externe et lisible par Android comme par les navigateurs.
+        audio_mime = DEFAULT_TTS_MIME
         audio_bytes_out = b""
         tts_error: str | None = None
 
@@ -175,7 +177,11 @@ async def process_mobile_voice_turn(
             _t_tts = time.time()
             try:
                 audio_bytes_out = await asyncio.wait_for(
-                    tts_engine.synthesize(response_text, emotion=emotion),
+                    synthesize_wav(
+                        provider,
+                        response_text,
+                        request_id=f"mobile:{device_id}:{int(_t_tts * 1000)}",
+                    ),
                     timeout=config.MOBILE_VOICE_TTS_TIMEOUT_SEC,
                 )
                 trace_id = llm_result.get("trace_id")
@@ -210,7 +216,7 @@ async def process_mobile_voice_turn(
             "stt_engine": _stt_engine_label(),
             "stt_model": _stt_model_label(),
             "tts_engine": backend,
-            "tts_voice": resolve_tts_voice(tts_engine_name),
+            "tts_voice": info.voice,
             "source": "android_voice",
             "device_id": device_id,
             "agent": "voice",

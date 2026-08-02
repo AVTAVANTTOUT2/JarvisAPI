@@ -60,7 +60,28 @@ def encode_frame(tag: bytes, payload: bytes = b"") -> bytes:
 
 
 class FishModelMissing(RuntimeError):
-    """Poids absents du disque — action humaine requise, pas un repli."""
+    """Poids absents ou incomplets — action humaine requise, pas un repli."""
+
+
+# Fichiers sans lesquels le moteur ne peut pas parler. Un répertoire de cache
+# peut exister avec seulement les petits fichiers (un téléchargement
+# interrompu s'arrête presque toujours sur les poids) : sans cette
+# vérification, l'installation serait déclarée présente et l'échec
+# n'apparaîtrait qu'au premier énoncé, dans une trace MLX illisible.
+REQUIRED_FILES: tuple[str, ...] = ("config.json", "tokenizer.json", "codec.safetensors")
+WEIGHT_GLOB = "model*.safetensors"
+
+INSTALL_HINT = "python scripts/download_tts_model.py"
+
+
+def _missing_pieces(model_dir: Path) -> list[str]:
+    """Fichiers requis absents ou visiblement tronqués."""
+    missing = [name for name in REQUIRED_FILES if not (model_dir / name).is_file()]
+    if not any(model_dir.glob(WEIGHT_GLOB)):
+        missing.append(WEIGHT_GLOB)
+    if any(model_dir.glob("*.incomplete")):
+        missing.append("téléchargement interrompu (*.incomplete)")
+    return missing
 
 
 def resolve_local_model_dir(spec: str) -> Path:
@@ -74,26 +95,33 @@ def resolve_local_model_dir(spec: str) -> Path:
     raw = (spec or DEFAULT_MODEL).strip()
     candidate = Path(raw).expanduser()
     if candidate.is_dir():
-        return candidate
+        resolved = candidate
+    else:
+        try:
+            from huggingface_hub import snapshot_download
+            from huggingface_hub.errors import (  # type: ignore[attr-defined]
+                LocalEntryNotFoundError,
+            )
+        except ImportError as exc:  # pragma: no cover - dépend de l'environnement
+            raise FishModelMissing(
+                f"huggingface_hub absent : impossible de localiser {raw}"
+            ) from exc
 
-    try:
-        from huggingface_hub import snapshot_download
-        from huggingface_hub.errors import (  # type: ignore[attr-defined]
-            LocalEntryNotFoundError,
+        try:
+            resolved = Path(snapshot_download(raw, local_files_only=True))
+        except (LocalEntryNotFoundError, OSError, ValueError) as exc:
+            raise FishModelMissing(
+                f"modèle « {raw} » absent du cache local. "
+                f"Installation (une seule fois, hors conversation) : {INSTALL_HINT}"
+            ) from exc
+
+    missing = _missing_pieces(resolved)
+    if missing:
+        raise FishModelMissing(
+            f"modèle « {raw} » incomplet dans {resolved} — manque : "
+            f"{', '.join(missing)}. Reprise : {INSTALL_HINT}"
         )
-    except ImportError as exc:  # pragma: no cover - dépend de l'environnement
-        raise FishModelMissing(
-            f"huggingface_hub absent : impossible de localiser {raw}"
-        ) from exc
-
-    try:
-        return Path(snapshot_download(raw, local_files_only=True))
-    except (LocalEntryNotFoundError, OSError, ValueError) as exc:
-        raise FishModelMissing(
-            f"modèle « {raw} » absent du cache local. "
-            f"Installation (une seule fois, hors conversation) : "
-            f"python scripts/download_tts_model.py"
-        ) from exc
+    return resolved
 
 
 def claim_binary_stdout() -> Any:

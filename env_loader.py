@@ -36,9 +36,11 @@ SECRET_ENV_KEYS: frozenset[str] = frozenset(
 def load_jarvis_env(*, force: bool = False) -> None:
     """Charge ``.env.config`` puis ``.env`` (idempotent).
 
-    ``override=True`` sur ``.env.config`` : le fichier gagne sur un vieux
-    ``TTS_ENGINE=kokoro`` hérité du shell / LaunchAgent (sinon Edge Henri
-    reste ignoré et Kokoro EN parle encore).
+    ``override=True`` sur ``.env.config`` : le fichier gagne sur une variable
+    héritée du shell ou du LaunchAgent. Sans cela, un réglage oublié dans
+    l'environnement d'un service lancé au démarrage prime silencieusement sur
+    la configuration versionnée — et le poste ne se comporte pas comme son
+    fichier de configuration le dit.
     """
     global _ENV_LOADED
     if _ENV_LOADED and not force:

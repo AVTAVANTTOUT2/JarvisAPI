@@ -24,11 +24,11 @@ elif [[ -d ".venv/bin" ]]; then
   source .venv/bin/activate
 fi
 
-echo "→ Vérification faster-whisper + kokoro-onnx…"
+echo "→ Vérification faster-whisper…"
 python - <<'PY'
 import importlib.util
 missing = []
-for pkg in ("faster_whisper", "kokoro_onnx", "soundfile", "numpy"):
+for pkg in ("faster_whisper", "soundfile", "numpy"):
     if importlib.util.find_spec(pkg) is None:
         missing.append(pkg)
 if missing:
@@ -54,24 +54,25 @@ except Exception as exc:
     print(f"  ctranslate2: non installé ({exc})")
 PY
 
-# ── Kokoro (modèles ONNX locaux) ───────────────────────────────────────────
-KOKORO_DIR="$ROOT/models/kokoro"
-KOKORO_ONNX="$KOKORO_DIR/kokoro-v0_19.onnx"
-KOKORO_VOICES="$KOKORO_DIR/voices.bin"
-
+# ── Synthèse vocale locale ─────────────────────────────────────────────────
+# JARVIS ne télécharge jamais de poids : ce script dit seulement s'ils sont là,
+# et par quelle commande les installer.
 echo ""
-echo "→ Kokoro (TTS local, ~350 Mo) : $KOKORO_DIR"
-if [[ -f "$KOKORO_ONNX" && -f "$KOKORO_VOICES" ]]; then
-  echo "  OK — modèles Kokoro présents"
-else
-  echo "  MANQUANT — kokoro-v0_19.onnx et voices.bin requis"
-  echo "  Placez-les dans models/kokoro/ (voir README) ou relancez avec --download"
-  if $DOWNLOAD; then
-    mkdir -p "$KOKORO_DIR"
-    echo "  Téléchargement Kokoro non automatisé ici — copiez les fichiers depuis"
-    echo "  https://github.com/thewh1teagle/kokoro-onnx/releases"
-  fi
-fi
+echo "→ Moteur vocal local"
+python - <<'VOICEPY'
+from jarvis.audio.tts import load_tts_settings
+from native_audio.fish_local import FishModelMissing, resolve_local_model_dir
+
+settings = load_tts_settings()
+print(f"  fournisseur : {settings.provider}")
+print(f"  modele      : {settings.model_path}")
+print(f"  voix        : {settings.voice_path}")
+try:
+    print(f"  OK — poids presents : {resolve_local_model_dir(settings.model_path)}")
+except FishModelMissing as exc:
+    print(f"  MANQUANT — {exc}")
+    print("  Installation : python scripts/download_tts_model.py")
+VOICEPY
 
 # ── Faster-Whisper large-v3-turbo (~1,5 Go) ────────────────────────────────
 WHISPER_CACHE="${HOME}/.cache/faster-whisper"
@@ -110,8 +111,8 @@ echo ""
 echo "Configuration par défaut attendue (.env.config) :"
 echo "  STT_ENGINE=faster-whisper"
 echo "  STT_MODEL=large-v3-turbo"
-echo "  TTS_ENGINE=kokoro"
-echo "  KOKORO_VOICE=af_nicole"
-echo "  KOKORO_LANG=fr-fr"
+echo "  TTS_PROVIDER=fish_local"
+echo "  TTS_MODEL_PATH=mlx-community/fish-audio-s2-pro-8bit"
+echo "  TTS_VOICE_PATH=./voices/jarvis"
 echo ""
 echo "Terminé."

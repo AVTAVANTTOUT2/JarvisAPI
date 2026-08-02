@@ -8,17 +8,15 @@ de pull request et la CI réseau. Ce fichier échoue si l'une des trois glisse.
 
 from __future__ import annotations
 
-import asyncio
 import configparser
 import errno
 import importlib
 import socket
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Final
 
 import pytest
-
-from audio.tts_errors import TTSFailureKind, classify_tts_failure
 
 PROJECT_ROOT: Final[Path] = Path(__file__).resolve().parent.parent
 PYTEST_INI: Final[Path] = PROJECT_ROOT / "pytest.ini"
@@ -30,7 +28,6 @@ EXTERNAL_MARKER: Final[str] = "external_network"
 TTS_MARKER: Final[str] = "integration_tts"
 
 root_conftest = importlib.import_module("conftest")
-external_tests = importlib.import_module("tests.test_tts_edge_external")
 
 
 def _pytest_ini() -> configparser.SectionProxy:
@@ -65,11 +62,19 @@ def test_external_tests_are_effectively_deselected(pytestconfig: pytest.Config):
     assert pytestconfig.getoption("markexpr") == f"not {EXTERNAL_MARKER}"
 
 
-def test_external_module_marks_every_test():
-    assert external_tests.pytestmark == [
-        pytest.mark.external_network,
-        pytest.mark.integration_tts,
+def test_no_test_reaches_the_network_without_the_marker():
+    """La pile vocale étant locale, plus aucun test n'a de raison de sortir.
+
+    Le marqueur reste déclaré : c'est lui qui rend visible, et volontaire,
+    toute future dépendance réseau d'un test.
+    """
+    marked = [
+        path
+        for path in (PROJECT_ROOT / "tests").glob("test_*.py")
+        if f"pytest.mark.{EXTERNAL_MARKER}" in path.read_text(encoding="utf-8")
+        and path.name != "test_offline_test_isolation.py"
     ]
+    assert marked == []
 
 
 # ── 2. Garde-fou de connexions sortantes ─────────────────────────────────────
@@ -109,14 +114,14 @@ def test_loopback_addresses_stay_allowed(address: Any):
 @pytest.mark.parametrize(
     "address",
     [
-        ("speech.platform.bing.com", 443),
+        ("huggingface.co", 443),
         ("93.184.216.34", 443),
         ("2606:2800:220:1:248:1893:25c8:1946", 443),
         ("api.deepseek.com", 443),
         ("192.168.1.10", 8080),
         (None, 443),
     ],
-    ids=["edge_tts", "ipv4_public", "ipv6_public", "llm", "reseau_local", "hote_invalide"],
+    ids=["poids_hf", "ipv4_public", "ipv6_public", "llm", "reseau_local", "hote_invalide"],
 )
 def test_outbound_addresses_are_blocked(address: Any):
     assert root_conftest._is_loopback_address(address) is False
@@ -132,19 +137,17 @@ def test_blocked_connection_looks_exactly_like_being_offline():
 
     assert isinstance(blocked, ConnectionError)
     assert blocked.errno == errno.ECONNREFUSED
-    # La classification TTS doit y voir une indisponibilité, pas un défaut.
-    assert classify_tts_failure(blocked) is TTSFailureKind.NETWORK_UNAVAILABLE
 
 
 def test_guard_refuses_a_real_outbound_connection(request: pytest.FixtureRequest):
     """Vérification de bout en bout : la connexion n'a pas lieu."""
     with pytest.raises(root_conftest.OutboundNetworkBlocked) as blocked:
-        socket.create_connection(("speech.platform.bing.com", 443), timeout=1)
+        socket.create_connection(("huggingface.co", 443), timeout=1)
 
-    assert "speech.platform.bing.com:443" in str(blocked.value)
+    assert "huggingface.co:443" in str(blocked.value)
     # Cette tentative est volontaire : on la retire du récapitulatif de session.
     assert root_conftest.drain_blocked_attempts(request.node.nodeid) == [
-        "speech.platform.bing.com:443"
+        "huggingface.co:443"
     ]
 
 
@@ -172,61 +175,20 @@ def test_network_guard_is_autouse_and_skips_external_tests():
     assert f'get_closest_marker("{EXTERNAL_MARKER}")' in source
 
 
-# ── 3. Politique d'skip du module réseau ─────────────────────────────────────
+# ── 3. La synthèse vocale ne sort pas de la machine ──────────────────────────
 
 
-async def _raise(exc: BaseException) -> None:
-    raise exc
+def test_local_tts_stack_declares_no_network_dependency():
+    """Le fournisseur vocal doit se déclarer hors ligne, sans exception.
 
+    C'est la propriété qui rend le test réseau inutile : il n'y a plus de
+    moteur distant à joindre, donc plus de pipeline CI à lui consacrer.
+    """
+    from jarvis.audio.tts import create_local_tts_provider, load_tts_settings
 
-@pytest.mark.parametrize(
-    "exc",
-    [
-        ConnectionRefusedError(61, "Connection refused"),
-        TimeoutError("timed out"),
-        OSError(errno.ENETUNREACH, "Network is unreachable"),
-    ],
-    ids=["refus_tcp", "timeout", "reseau_injoignable"],
-)
-async def test_external_helper_skips_only_identified_unavailability(exc: BaseException):
-    assert classify_tts_failure(exc) is TTSFailureKind.NETWORK_UNAVAILABLE
-
-    with pytest.raises(pytest.skip.Exception) as skipped:
-        await external_tests._await_or_skip(_raise(exc), what="test")
-
-    assert "Edge injoignable" in str(skipped.value)
-    assert "network_unavailable" in str(skipped.value)
-
-
-@pytest.mark.parametrize(
-    "exc",
-    [
-        ValueError("Invalid voice 'pas-une-voix'."),
-        RuntimeError("réponse inattendue du service"),
-        AssertionError("format audio invalide"),
-    ],
-    ids=["parametre_invalide", "reponse_inattendue", "format_invalide"],
-)
-async def test_external_helper_never_skips_a_functional_failure(exc: BaseException):
-    assert classify_tts_failure(exc) is TTSFailureKind.FUNCTIONAL
-
-    with pytest.raises(type(exc)):
-        await external_tests._await_or_skip(_raise(exc), what="test")
-
-
-async def test_external_helper_bounds_every_network_call():
-    """Un appel réseau qui ne répond jamais ne doit pas figer la CI réseau."""
-
-    async def _never() -> None:
-        await asyncio.sleep(3600)
-
-    external_timeout = external_tests.NETWORK_TIMEOUT_SEC
-    assert 0 < external_timeout <= 120
-
-    with pytest.raises(pytest.skip.Exception):
-        await external_tests._await_or_skip(
-            asyncio.wait_for(_never(), timeout=0.01), what="test"
-        )
+    for provider_name in ("fish_local", "current_local"):
+        settings = replace(load_tts_settings(), provider=provider_name)
+        assert create_local_tts_provider(settings).info().offline is True
 
 
 # ── 4. Séparation des pipelines CI et documentation ──────────────────────────
@@ -238,16 +200,13 @@ def test_pull_request_ci_never_runs_external_tests():
     assert EXTERNAL_MARKER not in workflow
 
 
-def test_a_dedicated_workflow_runs_external_tests_on_demand():
-    workflow = EXTERNAL_WORKFLOW.read_text(encoding="utf-8")
-
-    assert "workflow_dispatch:" in workflow
-    assert f"-m {EXTERNAL_MARKER}" in workflow
-    assert "pull_request" not in workflow
+def test_no_workflow_runs_network_tests_anymore():
+    """Le workflow réseau dédié n'existe plus : il n'existait que pour Edge."""
+    assert not EXTERNAL_WORKFLOW.exists()
 
 
-def test_readme_documents_the_three_execution_modes():
+def test_readme_documents_the_execution_modes():
     readme = README.read_text(encoding="utf-8")
 
-    assert f"-m {EXTERNAL_MARKER}" in readme
+    assert f'-m "not {EXTERNAL_MARKER}"' in readme or EXTERNAL_MARKER in readme
     assert TTS_MARKER in readme

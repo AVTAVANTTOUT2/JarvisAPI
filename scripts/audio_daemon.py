@@ -783,6 +783,16 @@ class AudioDaemon:
 
         # Libère pyaudio
         self._cleanup_audio()
+
+        # Le modèle vocal tient plusieurs gigaoctets et un sous-processus :
+        # les laisser derrière soi empêcherait un redémarrage propre du daemon.
+        try:
+            from jarvis.audio.tts import reset_local_tts_provider
+
+            await reset_local_tts_provider()
+        except Exception as e:
+            logger.debug("[audio_daemon] fermeture du moteur vocal : %s", e)
+
         self.state = "idle"
         await self._broadcast_state()
         logger.info("[audio_daemon] Arrêté")

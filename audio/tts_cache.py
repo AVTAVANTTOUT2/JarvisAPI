@@ -17,6 +17,7 @@ import logging
 import unicodedata
 
 import config
+from jarvis.audio.tts.config import load_tts_settings
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +67,7 @@ class LastTTS:
     def __init__(self) -> None:
         self._entry: dict | None = None
 
-    def store(self, text: str, emotion: str, audio: bytes, mime: str = "audio/mpeg") -> None:
+    def store(self, text: str, emotion: str, audio: bytes, mime: str = "audio/wav") -> None:
         if not text or not audio:
             return
         self._entry = {"text": text, "emotion": emotion, "audio": audio, "mime": mime}
@@ -84,17 +85,14 @@ class SpeculativeTTS:
 
     @staticmethod
     def _current_sig() -> str:
-        """Empreinte moteur+voix : un changement de voix doit vider le cache.
+        """Empreinte fournisseur+voix : un changement de voix vide le cache.
 
-        La voix est résolue par la frontière provider-aware, sans dépendre de
-        la disponibilité locale du moteur. Le cache reste ainsi générique et
-        son invalidation identique sur macOS comme sur le runner Linux.
+        Lue dans la configuration et non auprès d'un moteur chargé : le cache
+        reste générique et son invalidation identique sur toutes les machines,
+        y compris là où aucun modèle n'est installé.
         """
-        engine = getattr(config, "TTS_ENGINE", config.DEFAULT_TTS_ENGINE)
-        from audio.tts_provider import provider_voice_signature
-
-        voice = provider_voice_signature(str(engine))
-        return f"{engine}:{voice}"
+        settings = load_tts_settings()
+        return f"{settings.provider}:{settings.voice_id}"
 
     def _check_sig(self) -> None:
         sig = self._current_sig()
@@ -110,7 +108,7 @@ class SpeculativeTTS:
         self._check_sig()
         return self._cache.get((_normalize(text), emotion))
 
-    async def put(self, text: str, emotion: str, engine) -> bool:
+    async def put(self, text: str, emotion: str, provider) -> bool:
         """Pré-synthétise et met en cache. Idempotent, jamais bloquant pour l'appelant."""
         if not getattr(config, "SPECULATIVE_TTS_ENABLED", True):
             return False
@@ -119,7 +117,11 @@ class SpeculativeTTS:
         if key in self._cache:
             return True
         try:
-            audio = await engine.synthesize(text, emotion=emotion)
+            from jarvis.audio.tts.wav import synthesize_wav
+
+            audio = await synthesize_wav(
+                provider, text, request_id=f"speculative:{key[0][:24]}",
+            )
         except Exception as e:
             logger.debug("[tts_cache] pré-synthèse échouée (%s) : %s", text[:30], e)
             return False
@@ -129,23 +131,24 @@ class SpeculativeTTS:
         return False
 
     async def warmup(self) -> int:
-        """Pré-génère les phrases canoniques (démarrage daemon). Retourne le nb en cache."""
+        """Pré-génère les phrases canoniques (démarrage daemon). Retourne le nb en cache.
+
+        Le fournisseur est celui, unique, du processus : pré-générer avec un
+        second modèle chargé en mémoire coûterait plus que le gain.
+        """
         if not getattr(config, "SPECULATIVE_TTS_ENABLED", True):
             return 0
         try:
-            from audio.tts import get_tts_by_name
+            from jarvis.audio.tts import get_local_tts_provider
 
-            engine = get_tts_by_name(
-                __import__("audio.tts", fromlist=["resolve_tts_engine_name"]).resolve_tts_engine_name()
-            )
+            provider = get_local_tts_provider()
+            await provider.warmup()
         except Exception as e:
             logger.debug("[tts_cache] warmup : moteur TTS indisponible (%s)", e)
             return 0
-        if engine is None or not getattr(engine, "available", False):
-            return 0
         ok = 0
         for text, emotion in CANNED_PHRASES:
-            if await self.put(text, emotion, engine):
+            if await self.put(text, emotion, provider):
                 ok += 1
         logger.info("[tts_cache] warmup : %d/%d phrases pré-générées", ok, len(CANNED_PHRASES))
         return ok

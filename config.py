@@ -103,17 +103,14 @@ DEFAULT_STT_VAD_FILTER = False
 DEFAULT_AUDIO_DAEMON_SILENCE_MS = 500     # fourchette utile : 300-600 ms
 DEFAULT_AUDIO_DAEMON_MIN_SPEECH_MS = 200  # en dessous, on jette les claquements
 DEFAULT_AUDIO_DAEMON_PRE_ROLL_MS = 300    # amorce conservée avant le seuil
-DEFAULT_TTS_ENGINE = "kokoro"
-DEFAULT_KOKORO_BACKEND = "mlx"
+# ── Backend vocal transitoire (`TTS_PROVIDER=current_local`) ─
+# Ces valeurs ne sont lues que par `jarvis/audio/tts/backends/current_local.py`
+# et disparaîtront avec lui, une fois le backend cible validé sur la machine.
 DEFAULT_KOKORO_MODEL = "mlx-community/Kokoro-82M-bf16"
 DEFAULT_KOKORO_VOICE = "ff_siwis"
-DEFAULT_KOKORO_LANG = "fr-fr"
 DEFAULT_KOKORO_LANG_CODE = "f"
 DEFAULT_KOKORO_SPEED = 0.96
 DEFAULT_KOKORO_MAX_TOKENS = 180
-# Sidecar Kokoro maintenu chaud : le modèle reste chargé entre deux réponses.
-# Sans lui, chaque synthèse relance un interpréteur et recharge Kokoro-82M.
-DEFAULT_KOKORO_WARM_WORKER = True
 # Taille du premier fragment synthétisé (en mots) : plus il est court, plus le
 # premier son arrive tôt — au prix de quelques fragments supplémentaires.
 DEFAULT_KOKORO_FIRST_CHUNK_MAX_TOKENS = 12
@@ -153,12 +150,6 @@ STT_ALLOW_MODEL_DOWNLOAD = (
     .lower()
     == "true"
 )
-
-TTS_ENGINE = (_get("TTS_ENGINE") or DEFAULT_TTS_ENGINE).lower()
-TTS_VOICE = _get("TTS_VOICE", "fr-FR-HenriNeural")
-TTS_MODEL = _get("TTS_MODEL", "qwen3-tts-0.6b")
-TTS_LANGUAGE = _get("TTS_LANGUAGE", "fr")
-TTS_SPEAKER = _get("TTS_SPEAKER", "Ryan")  # CustomVoice Qwen3 (pas une voix Edge fr-*)
 
 # ── Synthèse vocale locale (pile définitive) ────────────────
 # Un seul jeu de réglages, valable quel que soit le backend : c'est ce qui
@@ -204,37 +195,15 @@ TTS_FLUSH_TIMEOUT_MS = _positive_int(
     "TTS_FLUSH_TIMEOUT_MS", DEFAULT_TTS_FLUSH_TIMEOUT_MS
 )
 
-# Edge est le seul moteur TTS réseau. Sans borne explicite, un appel sortant
-# bloqué (proxy, DNS muet, coupure) fige le tour de parole jusqu'au délai TCP du
-# système. Les deux premières bornes sont transmises à `edge_tts.Communicate`,
-# la troisième plafonne la synthèse complète côté JARVIS.
-DEFAULT_EDGE_TTS_CONNECT_TIMEOUT_SEC = 10
-DEFAULT_EDGE_TTS_RECEIVE_TIMEOUT_SEC = 60
-DEFAULT_EDGE_TTS_TOTAL_TIMEOUT_SEC = 60.0
-EDGE_TTS_CONNECT_TIMEOUT_SEC = _positive_int(
-    "EDGE_TTS_CONNECT_TIMEOUT_SEC", DEFAULT_EDGE_TTS_CONNECT_TIMEOUT_SEC
-)
-EDGE_TTS_RECEIVE_TIMEOUT_SEC = _positive_int(
-    "EDGE_TTS_RECEIVE_TIMEOUT_SEC", DEFAULT_EDGE_TTS_RECEIVE_TIMEOUT_SEC
-)
-EDGE_TTS_TOTAL_TIMEOUT_SEC = _positive_float(
-    "EDGE_TTS_TOTAL_TIMEOUT_SEC", DEFAULT_EDGE_TTS_TOTAL_TIMEOUT_SEC
-)
-
-KOKORO_BACKEND = (_get("KOKORO_BACKEND") or DEFAULT_KOKORO_BACKEND).strip().lower()
+# Backend transitoire `current_local` uniquement — voir le bloc de défauts.
 KOKORO_MODEL = _get("KOKORO_MODEL", DEFAULT_KOKORO_MODEL)
 KOKORO_VOICE = _get("KOKORO_VOICE", DEFAULT_KOKORO_VOICE)
-KOKORO_LANG = _get("KOKORO_LANG", DEFAULT_KOKORO_LANG)
 KOKORO_LANG_CODE = _get("KOKORO_LANG_CODE", DEFAULT_KOKORO_LANG_CODE)
 KOKORO_SPEED = float(_get("KOKORO_SPEED", str(DEFAULT_KOKORO_SPEED)))
 KOKORO_MAX_TOKENS = int(_get("KOKORO_MAX_TOKENS", str(DEFAULT_KOKORO_MAX_TOKENS)))
-KOKORO_WARM_WORKER = _get(
-    "KOKORO_WARM_WORKER", str(DEFAULT_KOKORO_WARM_WORKER),
-).lower() in ("true", "1", "yes")
 KOKORO_FIRST_CHUNK_MAX_TOKENS = int(
     _get("KOKORO_FIRST_CHUNK_MAX_TOKENS", str(DEFAULT_KOKORO_FIRST_CHUNK_MAX_TOKENS))
 )
-MACOS_TTS_VOICE = _get("MACOS_TTS_VOICE", "Jacques")
 AUDIO_DAEMON_OUTPUT_DEVICE = _get("AUDIO_DAEMON_OUTPUT_DEVICE", "")  # vide = sortie défaut macOS
 AUDIO_DAEMON_HALF_DUPLEX = _get("AUDIO_DAEMON_HALF_DUPLEX", "true").lower() == "true"
 AUDIO_DAEMON_PRE_ROLL_MS = int(
@@ -844,6 +813,15 @@ MOBILE_VOICE_TTS_TIMEOUT_SEC = float(_get("MOBILE_VOICE_TTS_TIMEOUT_SEC", "60"))
 # Une capacité supprimée doit le dire : un `.env` laissé en place continuerait
 # sinon d'affirmer une fonctionnalité que le code ne sert plus. On avertit une
 # fois au chargement plutôt que d'ignorer la ligne en silence.
+_RETIRED_TTS = (
+    "La pile vocale est passée à un fournisseur local unique — utilisez "
+    "TTS_PROVIDER, TTS_MODEL_PATH et TTS_VOICE_PATH."
+)
+_RETIRED_EDGE = (
+    "Edge TTS a été retiré : la synthèse est entièrement locale, plus aucun "
+    "appel réseau à borner."
+)
+
 RETIRED_ENV_VARS: dict[str, str] = {
     "CODE_EXECUTOR_ENABLED": (
         "Open Interpreter a été retiré ; les tâches techniques passent par "
@@ -851,6 +829,27 @@ RETIRED_ENV_VARS: dict[str, str] = {
     ),
     "CODE_EXECUTOR_TIMEOUT": "Open Interpreter a été retiré.",
     "CODE_EXECUTOR_MODEL": "Open Interpreter a été retiré.",
+    # Pile vocale : un seul fournisseur local, choisi par TTS_PROVIDER. Un
+    # `.env` qui définit encore l'ancien sélecteur de moteur doit le savoir,
+    # plutôt que de croire configurer une voix qui n'existe plus.
+    "TTS_ENGINE": _RETIRED_TTS,
+    "TTS_VOICE": f"{_RETIRED_TTS} La voix vit dans TTS_VOICE_PATH.",
+    "TTS_MODEL": f"{_RETIRED_TTS} Le modèle vit dans TTS_MODEL_PATH.",
+    "TTS_LANGUAGE": _RETIRED_TTS,
+    "TTS_SPEAKER": _RETIRED_TTS,
+    "MACOS_TTS_VOICE": f"{_RETIRED_TTS} Le moteur macOS `say` a été retiré.",
+    "EDGE_TTS_CONNECT_TIMEOUT_SEC": _RETIRED_EDGE,
+    "EDGE_TTS_RECEIVE_TIMEOUT_SEC": _RETIRED_EDGE,
+    "EDGE_TTS_TOTAL_TIMEOUT_SEC": _RETIRED_EDGE,
+    "KOKORO_BACKEND": (
+        "Le backend ONNX a été retiré ; le backend transitoire `current_local` "
+        "utilise uniquement le sidecar MLX."
+    ),
+    "KOKORO_LANG": "Seul KOKORO_LANG_CODE est utilisé par le backend transitoire.",
+    "KOKORO_WARM_WORKER": (
+        "Le sidecar est toujours maintenu chaud : le chargement du modèle "
+        "n'appartient plus au tour de parole."
+    ),
 }
 
 
