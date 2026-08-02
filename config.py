@@ -159,7 +159,50 @@ TTS_VOICE = _get("TTS_VOICE", "fr-FR-HenriNeural")
 TTS_MODEL = _get("TTS_MODEL", "qwen3-tts-0.6b")
 TTS_LANGUAGE = _get("TTS_LANGUAGE", "fr")
 TTS_SPEAKER = _get("TTS_SPEAKER", "Ryan")  # CustomVoice Qwen3 (pas une voix Edge fr-*)
-TTS_MODEL_PATH = _get("TTS_MODEL_PATH", "")  # chemin local optionnel pour TTSKit
+
+# ── Synthèse vocale locale (pile définitive) ────────────────
+# Un seul jeu de réglages, valable quel que soit le backend : c'est ce qui
+# permet de remplacer le moteur sans toucher au pipeline. Ce bloc ne contient
+# volontairement aucune clé, aucune URL et aucun hôte — un fournisseur qui en
+# réclamerait ne pourrait pas être configuré ici.
+# Les valeurs par défaut vivent dans `jarvis/audio/tts/config.py` ; elles sont
+# répétées ici parce que `config` reste la façade lue par le reste du dépôt.
+DEFAULT_TTS_PROVIDER = "fish_local"
+DEFAULT_TTS_MODEL_PATH = "mlx-community/fish-audio-s2-pro-8bit"
+DEFAULT_TTS_VOICE_PATH = "./voices/jarvis"
+DEFAULT_TTS_DEVICE = "auto"
+DEFAULT_TTS_STREAMING = True
+DEFAULT_TTS_SAMPLE_RATE = 24000
+DEFAULT_TTS_CHANNELS = 1
+DEFAULT_TTS_WARMUP = True
+DEFAULT_TTS_TIMEOUT_SECONDS = 30.0
+DEFAULT_TTS_MIN_CHUNK_CHARS = 30
+DEFAULT_TTS_TARGET_CHUNK_CHARS = 80
+DEFAULT_TTS_MAX_CHUNK_CHARS = 180
+DEFAULT_TTS_FLUSH_TIMEOUT_MS = 250
+
+TTS_PROVIDER = (_get("TTS_PROVIDER") or DEFAULT_TTS_PROVIDER).strip().lower()
+# Chemin d'un répertoire de poids **déjà installé**, ou identifiant d'un dépôt
+# déjà présent dans le cache local. Aucun téléchargement n'est déclenché par
+# JARVIS : voir `scripts/download_tts_model.py`.
+TTS_MODEL_PATH = _get("TTS_MODEL_PATH", DEFAULT_TTS_MODEL_PATH)
+TTS_VOICE_PATH = _get("TTS_VOICE_PATH", DEFAULT_TTS_VOICE_PATH)
+TTS_DEVICE = _get("TTS_DEVICE", DEFAULT_TTS_DEVICE).strip().lower()
+TTS_STREAMING = _get("TTS_STREAMING", str(DEFAULT_TTS_STREAMING)).lower() in (
+    "true", "1", "yes",
+)
+TTS_SAMPLE_RATE = _positive_int("TTS_SAMPLE_RATE", DEFAULT_TTS_SAMPLE_RATE)
+TTS_CHANNELS = _positive_int("TTS_CHANNELS", DEFAULT_TTS_CHANNELS)
+TTS_WARMUP = _get("TTS_WARMUP", str(DEFAULT_TTS_WARMUP)).lower() in ("true", "1", "yes")
+TTS_TIMEOUT_SECONDS = _positive_float("TTS_TIMEOUT_SECONDS", DEFAULT_TTS_TIMEOUT_SECONDS)
+TTS_MIN_CHUNK_CHARS = _positive_int("TTS_MIN_CHUNK_CHARS", DEFAULT_TTS_MIN_CHUNK_CHARS)
+TTS_TARGET_CHUNK_CHARS = _positive_int(
+    "TTS_TARGET_CHUNK_CHARS", DEFAULT_TTS_TARGET_CHUNK_CHARS
+)
+TTS_MAX_CHUNK_CHARS = _positive_int("TTS_MAX_CHUNK_CHARS", DEFAULT_TTS_MAX_CHUNK_CHARS)
+TTS_FLUSH_TIMEOUT_MS = _positive_int(
+    "TTS_FLUSH_TIMEOUT_MS", DEFAULT_TTS_FLUSH_TIMEOUT_MS
+)
 
 # Edge est le seul moteur TTS réseau. Sans borne explicite, un appel sortant
 # bloqué (proxy, DNS muet, coupure) fige le tour de parole jusqu'au délai TCP du
