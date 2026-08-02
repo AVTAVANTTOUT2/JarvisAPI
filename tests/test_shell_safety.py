@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
+import subprocess
 from pathlib import Path
 from unittest.mock import AsyncMock
 
@@ -373,6 +376,82 @@ def test_safe_environment_contains_no_parent_secrets(
     assert "LOCATION_API_TOKEN" not in env
     assert env["HOME"] == str(tmp_path)
     assert env["GIT_CONFIG_GLOBAL"] == "/dev/null"
+    # Le plafond doit être le parent : git ne considère pas les répertoires
+    # plafonds eux-mêmes, donc le pointer sur le workspace ne bloquerait rien.
+    assert env["GIT_CEILING_DIRECTORIES"] == str(tmp_path.parent)
+
+
+def _init_repo_with_secret(root: Path) -> None:
+    """Crée un vrai dépôt git contenant un fichier au contenu reconnaissable."""
+    (root / "secret_source.py").write_text(
+        'DEEPSEEK_API_KEY = "sk-canary-do-not-leak"\n', encoding="utf-8"
+    )
+    env = {
+        "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+        "HOME": str(root),
+        "GIT_CONFIG_GLOBAL": "/dev/null",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_AUTHOR_NAME": "t",
+        "GIT_AUTHOR_EMAIL": "t@example.invalid",
+        "GIT_COMMITTER_NAME": "t",
+        "GIT_COMMITTER_EMAIL": "t@example.invalid",
+    }
+    for argv in (
+        ("git", "init", "-q"),
+        ("git", "add", "secret_source.py"),
+        ("git", "commit", "-q", "-m", "canary commit message"),
+    ):
+        subprocess.run(argv, cwd=root, env=env, check=True, capture_output=True)
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git indisponible")
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "command",
+    ["git status", "git log -p", "git show HEAD:secret_source.py", "git diff"],
+)
+async def test_git_cannot_reach_the_repository_hosting_the_workspace(
+    command: str,
+    tmp_path: Path,
+):
+    """Le workspace vit sous `data/` dans le dépôt JARVIS : git ne doit pas remonter.
+
+    Sans `GIT_CEILING_DIRECTORIES`, git découvre le dépôt parent et
+    `git show HEAD:<path>` / `git log -p` exposent tout le source et tout
+    l'historique — alors que `impact_analysis` annonce une isolation par
+    workspace, un risque faible et aucun accès aux secrets.
+
+    Ce test exécute réellement le plan : l'analyse statique seule ne peut pas
+    voir l'échappement, puisque la commande est allowlistée par ailleurs.
+    """
+    _init_repo_with_secret(tmp_path)
+
+    plan = prepare_shell_plan([command])
+    workspace = Path(plan["workspace"])
+    # Le workspace doit bien être imbriqué dans le dépôt, sinon le test ne
+    # reproduit pas la configuration réelle.
+    assert workspace.is_relative_to(tmp_path)
+
+    result = await execute_shell_plan(plan["plan_id"])
+
+    assert result["ok"] is False
+    combined = result["output"] + " ".join(result["errors"])
+    assert "sk-canary-do-not-leak" not in combined
+    assert "canary commit message" not in combined
+    assert "not a git repository" in combined.lower()
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git indisponible")
+@pytest.mark.asyncio
+async def test_git_still_works_on_a_repository_created_inside_the_workspace():
+    """Le plafond ne casse pas un dépôt légitimement créé dans le workspace."""
+    plan = prepare_shell_plan(["git status --short"])
+    workspace = Path(plan["workspace"])
+    _init_repo_with_secret(workspace)
+
+    result = await execute_shell_plan(plan["plan_id"])
+
+    assert result["ok"] is True
 
 
 @pytest.mark.asyncio

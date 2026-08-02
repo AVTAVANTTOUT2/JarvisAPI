@@ -1431,6 +1431,79 @@ CDP_LOCAL_PORT=9222       # Port local bridge CDP
 TV_DASHBOARD_URL=http://192.168.3.52:5174/  # Dashboard URL
 ```
 
+## Canal WebSocket TV — `/ws/tv/events` (lecture seule)
+
+La TV ne se branche plus sur `/ws`. Elle a son propre canal, authentifié et
+strictement descendant. Détails complets : `Architecture/36_CANAL_WEBSOCKET_TV.md`.
+
+Le canal de chat transporte des conversations, de l'audio et des commandes
+d'action. Un écran allumé en permanence dans le salon n'a besoin d'aucun des
+trois. Auparavant, `tv/server.py` ouvrait `ws://backend:8081/ws` **sans
+authentification** et filtrait côté client — depuis le verrouillage
+d'application, ce handshake était refusé en 4401 et l'overlay vocal restait
+muet. Le canal dédié corrige la panne et sa cause.
+
+### Frontière
+
+```
+Origin présent (navigateur) → doit être exacte, sinon 4403 (avant tout jeton)
+Pair TCP → 127.0.0.1 / ::1 / localhost, sinon 4401
+X-Jarvis-Control-Token → secret privé du canal supervisor (0600), sinon 4401
+```
+
+Aucun jeton supplémentaire à configurer : le canal réutilise
+`data/.supervisor_control_token`, comme `/api/control/*`. Les refus sont
+journalisés en ERROR avec une étiquette fermée (`jeton_absent`,
+`jeton_invalide`, `hors_boucle_locale`, `origine_navigateur_refusee`) et
+l'adresse du pair — jamais une valeur envoyée par le client, donc jamais un
+jeton.
+
+### Contrat d'événement
+
+`{schema_version, event_id, type, timestamp, device_id, state, source, payload}`.
+Cinq types : `tv.voice_state`, `tv.notification`, `tv.task`, `tv.system`,
+`tv.heartbeat`. Chaque type déclare les clés de payload qu'il peut porter ; le
+reste est jeté, puis les secrets sont redactés et les chaînes tronquées.
+
+`message.sent`, `conversation.updated`, `episode.saved`, `fact.added`,
+`memory.updated`, `person.upserted` et `pattern.detected` n'ont **aucune**
+traduction TV, et deux tests le verrouillent. Les transcriptions vocales
+(`user_text`, `jarvis_text`) restent hors du canal tant que
+`TV_EVENTS_INCLUDE_TRANSCRIPTS=false`.
+
+### Lecture seule et robustesse
+
+Aucune trame entrante n'est valide : la boucle de réception n'existe que pour
+les refuser (fermeture 4405 après `TV_WS_MAX_CLIENT_VIOLATIONS`, 4413
+immédiatement si la trame dépasse la taille maximale). S'ajoutent un heartbeat,
+une limite de connexions, une file bornée par abonné qui perd son plus ancien
+événement plutôt que de bloquer le producteur, et la déconnexion en 4408 d'un
+client lent (budget de pertes dépassé ou envoi expiré).
+
+| Fichier | Rôle |
+|---|---|
+| `jarvis/tv_events.py` | Schéma, allowlists, redaction, hub, pont event bus |
+| `api/ws_tv.py` | Endpoint, authentification, lecture seule, heartbeat, limites |
+| `tv/server.py` | Consommateur : relais vers le SSE `/api/events` de la TV |
+| `tests/test_ws_tv_events.py` | 45 cas de contrat |
+
+### Variables d'env
+
+```bash
+TV_EVENTS_ENABLED=true
+TV_EVENTS_DEVICE_ID=                  # vide → DEVICE_ID
+TV_EVENTS_INCLUDE_TRANSCRIPTS=false   # texte de conversation à l'écran : opt-in
+TV_EVENT_MAX_TEXT_CHARS=200
+TV_WS_MAX_CONNECTIONS=4
+TV_WS_QUEUE_MAXSIZE=100
+TV_WS_MAX_DROPPED_EVENTS=200
+TV_WS_HEARTBEAT_SECONDS=20
+TV_WS_SEND_TIMEOUT_SECONDS=5
+TV_WS_MAX_EVENT_BYTES=8192
+TV_WS_MAX_CLIENT_MESSAGE_BYTES=4096
+TV_WS_MAX_CLIENT_VIOLATIONS=3
+```
+
 ## Lot 1 — Prédictions et rétrospectives (données déjà en base, aucun ML)
 
 Neuf features additionnelles, toutes des heuristiques déterministes sur des

@@ -38,6 +38,35 @@ BACKEND_HOST: Final[str] = os.getenv("BACKEND_HOST", "127.0.0.1")
 BACKEND_PORT: Final[int] = int(os.getenv("BACKEND_PORT", "8081"))
 BACKEND_BASE_URL: Final[str] = f"http://{BACKEND_HOST}:{BACKEND_PORT}"
 
+# ── Canal d'événements TV du backend ─────────────────────────
+# Canal descendant dédié : authentifié, en lecture seule, sans aucun message
+# de chat. Le canal `/ws` du backend n'est plus consommé ici — il transporte
+# des conversations et des commandes dont la TV n'a pas besoin.
+BACKEND_TV_EVENTS_PATH: Final[str] = "/ws/tv/events"
+BACKEND_TV_EVENTS_URL: Final[str] = (
+    f"ws://{BACKEND_HOST}:{BACKEND_PORT}{BACKEND_TV_EVENTS_PATH}"
+)
+# Même valeur que `core.supervisor_auth.SUPERVISOR_CONTROL_HEADER`. Le serveur
+# TV reste volontairement sans import du dépôt principal ; un test de contrat
+# vérifie que les deux constantes ne dérivent pas l'une de l'autre.
+JARVIS_CONTROL_HEADER: Final[str] = "X-Jarvis-Control-Token"
+MIN_CONTROL_TOKEN_LENGTH: Final[int] = 40
+TV_WS_MAX_FRAME_BYTES: Final[int] = 65_536
+
+
+def _control_token_path() -> str:
+    """Résout le fichier de jeton comme le fait `core.supervisor_auth`."""
+    configured = os.getenv("SUPERVISOR_CONTROL_TOKEN_FILE", "").strip()
+    if configured:
+        return configured
+    db_path = Path(os.path.expanduser(os.getenv("DB_PATH", "") or DB_PATH))
+    if not db_path.is_absolute():
+        db_path = ROOT_DIR / db_path
+    return str(db_path.parent / ".supervisor_control_token")
+
+
+SUPERVISOR_CONTROL_TOKEN_FILE: Final[str] = _control_token_path()
+
 # ── Sécurité ──────────────────────────────────────────────────
 # Le dashboard contient des données personnelles. Son jeton dédié est donc
 # obligatoire, y compris sur loopback. Un bind réseau demande en plus un opt-in.
