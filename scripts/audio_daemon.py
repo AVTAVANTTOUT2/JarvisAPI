@@ -1352,16 +1352,16 @@ class AudioDaemon:
         if interrupt_event.is_set():
             interrupt_event.clear()
             logger.debug("[audio_daemon] Interruption après STT — abandon traitement")
-            self.state = "wake_listening" if self.wake_word_enabled else "listening"
-            await self._broadcast_state()
+            await self._rearm(reason="interrupted_after_stt", trace=trace)
             return
 
         if not text:
+            # Transcription vide : aucune conversation, aucun message, aucun
+            # LLM, aucun TTS. Le pipeline se réarme sur-le-champ — c'est le cas
+            # qui laissait le micro sourd jusqu'au prochain wake word.
             if not stt_available:
                 logger.warning("[audio_daemon] Aucun STT local disponible — skip")
-            self.state = "wake_listening" if self.wake_word_enabled else "listening"
-            voice_queue.set_user_conversation_active(False)
-            await self._broadcast_state()
+            await self._rearm(reason="empty_transcript", trace=trace)
             return
 
         # ── 1. Detection sleep/wake (bypass total LLM, latence zero) ──
@@ -1379,16 +1379,12 @@ class AudioDaemon:
             and (now - self._last_tts_end) < 2.0
         ):
             logger.debug("[audio_daemon] Transcription post-TTS ignorée (résidu d'écho) : %s", text[:60])
-            self.state = "wake_listening" if self.wake_word_enabled else "listening"
-            voice_queue.set_user_conversation_active(False)
-            await self._broadcast_state()
+            await self._rearm(reason="tts_echo", trace=trace)
             return
 
         if not _is_acceptable_transcript(text, used_local_stt=used_local_stt, segments=stt_segments):
             logger.debug("[audio_daemon] Transcription rejetée (bruit/confiance) : %r", text[:80])
-            self.state = "wake_listening" if self.wake_word_enabled else "listening"
-            voice_queue.set_user_conversation_active(False)
-            await self._broadcast_state()
+            await self._rearm(reason="rejected_transcript", trace=trace)
             return
 
         logger.info("[audio_daemon] Entendu : %s", text)
@@ -1476,9 +1472,7 @@ class AudioDaemon:
         if interrupt_event.is_set():
             interrupt_event.clear()
             logger.debug("[audio_daemon] Interruption avant TTS — abandon playback")
-            self._tts_playing_event.clear()
-            self.state = "wake_listening" if self.wake_word_enabled else "listening"
-            await self._broadcast_state()
+            await self._rearm(reason="interrupted_before_tts", trace=trace)
             return
 
         # 4. TTS + playback
@@ -1558,12 +1552,9 @@ class AudioDaemon:
             except Exception as e:
                 logger.debug("[audio_daemon] restart stream apres TTS: %s", e)
 
-        self._tts_playing_event.clear()
         self._last_tts_end = time.time()
         self._conv_start_time = time.time()
-        voice_queue.set_user_conversation_active(False)
-        self.state = "wake_listening" if self.wake_word_enabled else "listening"
-        await self._broadcast_state()
+        await self._rearm(reason="turn_completed", trace=trace)
 
     # ── Watchdog micro ───────────────────────────────────────────────────────
 
