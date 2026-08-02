@@ -18,7 +18,7 @@ JARVIS est un assistant personnel multi-agents avec interface vocale + web, tour
 - **Base de données** : SQLite (fichier local `data/jarvis.db`)
 - **LLM** : DeepSeek API (format OpenAI, `llm.py`) — routing fast/main, mode « tâche lourde » (max_tokens élevé) pour les productions longues
 - **STT** : local multi-moteurs (`faster-whisper`, WhisperKit ou whisper.cpp), sans repli cloud
-- **TTS** : Edge pour le web ; TTSKit, Kokoro ou macOS `say` pour le pipeline local
+- **TTS** : 100 % local, hors ligne — interface `jarvis/audio/tts`, backend Fish Audio S2 Pro via MLX (`fish_local`), aucun service réseau
 - **VAD** : côté client uniquement (Web Audio API `AnalyserNode`)
 - **Embeddings** : `all-MiniLM-L6-v2` via `sentence-transformers` (local, pour RAG)
 - **Recherche web** : Tavily API ou SearXNG local
@@ -59,7 +59,7 @@ Depuis du code async, utiliser `await event_bus.emit(event)`. Depuis un chemin s
 - `web/dist` reste le repli racine si `frontend/out` manque. Les téléphones ne voient ni l'un ni l'autre : ils sont redirigés vers `/mobile/`.
 - `frontend/public/sw.js` ne cache que `/_next/static` et `/icons`, jamais `/api`, HTML ou données personnelles.
 - Validation actuelle au 24/07/2026 : 18 Vitest, typecheck/build Next.js 15, 9 scénarios Playwright, 4 contrats FastAPI, 50 tests web et builds des deux fallbacks. La suite vérifie notamment l'arrêt des services privés lors du verrouillage automatique, le déverrouillage réel, le chat WebSocket, les tâches avec CSRF, les événements SSE et le chargement de MapLibre sous la CSP de production. Les parcours critiques échouent aussi sur erreur console, exception de page, requête réseau échouée ou réponse HTTP en erreur. GitHub Actions exécute ces scénarios navigateur dans le job dédié au frontend unifié, à côté du build Vite historique.
-- La CI possède un job séparé d'installation de production : bibliothèques système audio, `pip install -r requirements.txt`, `pip check`, puis imports de fumée de Torch, PyAudio, spaCy, Kokoro et faster-whisper. Un job `macos-14` rejoue en plus les contrats Apple simulés et les smoke tests natifs (`osascript`, dictionnaires Mail/Calendar/Contacts/Messages, plist launchd, `say`, CoreAudio, iMessage, capture et audio). Les appareils physiques et l'observation 24 h ne sont pas vérifiés.
+- La CI possède un job séparé d'installation de production : bibliothèques système audio, `pip install -r requirements.txt`, `pip check`, puis imports de fumée de Torch, PyAudio, spaCy et faster-whisper. Un job `macos-14` rejoue en plus les contrats Apple simulés et les smoke tests natifs (`osascript`, dictionnaires Mail/Calendar/Contacts/Messages, plist launchd, `say`, CoreAudio, iMessage, capture et audio). Les appareils physiques et l'observation 24 h ne sont pas vérifiés.
 - `frontend/package.json`, `web/package.json` et les deux jobs frontend GitHub Actions épinglent tous `pnpm 11.11.0`. Les deux lockfiles v9 sont installés avec `--frozen-lockfile`, et un contrat pytest interdit désormais toute dérive de version.
 
 ## Personnalité JARVIS
@@ -822,39 +822,60 @@ Le daemon utilise uniquement des moteurs locaux. `audio/stt_daemon.py` fournit
 une façade commune à faster-whisper, WhisperKit et whisper.cpp. Les blobs WebM,
 WAV, MP3 et OGG du navigateur sont décodés localement avant transcription.
 
-### TTS — Edge ou moteurs locaux (`audio/tts.py`, `audio/tts_native.py`)
+### TTS — 100 % local (`jarvis/audio/tts/`)
 
-Selon `TTS_ENGINE` dans `.env` : `edge` pour le client web, ou `ttskit`,
-`kokoro`, `macos` pour les moteurs locaux. La chaîne native ne bascule jamais
-sur un service réseau.
+Un seul fournisseur local, choisi par `TTS_PROVIDER`, derrière une interface
+stable que le reste du dépôt est seul à connaître :
 
-`tts.synthesize(text, emotion="warm")` retourne des bytes MP3. En mode mains libres, `synthesize_stream` envoie des chunks jusqu'à fermeture du flux ; la session WebSocket termine avec `speech_done` pour que le client assemble un fichier MP3 valide avant lecture.
+```python
+provider = get_local_tts_provider()
+await provider.warmup()
+async for chunk in provider.stream(text, request_id=rid, utterance_id=uid):
+    ...
+```
 
-#### Frontière réseau du moteur Edge
+Aucun module métier ne nomme un moteur. Aucune clé, aucune URL, aucun hôte : la
+table des fournisseurs est fermée et ne contient que des backends locaux, ce
+qui rend impossible l'apparition d'un service distant par configuration.
 
-`edge` est le seul moteur qui sort de la machine. Trois conséquences tenues
-dans le code plutôt que dans une convention :
+| Fournisseur | Rôle |
+|---|---|
+| `fish_local` | cible — Fish Audio S2 Pro via `mlx-audio`, GPU Metal, sans CUDA |
+| `current_local` | transitoire — le temps d'installer les poids Fish ; jamais choisi automatiquement |
 
-- **Bornes explicites.** `EDGE_TTS_CONNECT_TIMEOUT_SEC` et
- `EDGE_TTS_RECEIVE_TIMEOUT_SEC` sont transmis à `edge_tts.Communicate` ;
- `EDGE_TTS_TOTAL_TIMEOUT_SEC` plafonne la synthèse bufferisée. Sans elles, une
- coupure réseau fige le tour de parole jusqu'au délai TCP du système.
-- **Deux natures d'échec, deux réactions.** `audio/tts_errors.py`
- (`classify_tts_failure`) distingue « service injoignable » (DNS, refus TCP,
- délai, interception TLS, proxy qui refuse le tunnel → avertissement) de
- « contrat rompu » (401/403, `NoAudioReceived`, réponse inattendue, régression
- de parsing → erreur). Un refus de proxy est classé injoignable même s'il
- répond en HTTP : le service TTS n'a jamais été atteint.
-- **Aucun repli implicite.** `tts_audio_mime()` annonce le type MIME d'après le
- nom du moteur *avant* la synthèse : renvoyer du WAV local sous `audio/mpeg`
- casserait la lecture. Un échec Edge renvoie `b""` et le repli local relève de
- l'appelant (`audio.tts_native.get_native_tts_engine`, qui ne retourne jamais
- Edge). La synthèse ne passe plus par un fichier temporaire : le texte lu est
- une donnée personnelle, il reste en mémoire.
+Quatre décisions structurantes :
 
-Tests : `tests/test_tts_edge_unit.py` (edge-tts simulé, hors ligne),
-`tests/test_tts_local_fallback.py` (chaîne locale et dégradation WebSocket) et
-`tests/test_tts_edge_external.py` (appel réel, marqueur `external_network`).
+- **La diffusion est par segment, et le dit.** `info().streaming` vaut
+  `segmented` : l'implémentation MLX de Fish lève `NotImplementedError` sur son
+  mode `stream`. JARVIS découpe le texte (`segmenter.py`) et joue chaque
+  segment pendant que le suivant se génère. Mesuré sur une réponse de quatre
+  phrases (M4, `current_local`) : premier son à 318 ms, synthèse complète à
+  1 184 ms — la voix arrive 3,7 fois plus tôt qu'en un bloc. Annoncer
+  « streaming natif » serait faux.
+- **Aucun repli silencieux.** Un modèle absent ou une synthèse échouée conserve
+  la réponse texte, réarme le pipeline et expose un état « TTS indisponible ».
+  Faire entendre une voix que l'utilisateur n'a pas choisie, sans le dire,
+  serait pire qu'un silence expliqué.
+- **Aucun téléchargement au runtime.** `resolve_local_model_dir` n'accepte
+  qu'un répertoire présent ou un dépôt déjà en cache, vérifie que les poids
+  sont **complets** (un transfert interrompu s'arrête sur les gros fichiers) et
+  part avec `HF_HUB_OFFLINE=1`. Installation : `python
+  scripts/download_tts_model.py`.
+- **Le chemin fichier est séparé du chemin temps réel.** Navigateur, mobile et
+  appareils distants reçoivent un WAV complet (`wav.py`) : des fragments WAV
+  concaténés ne forment pas un fichier valide. Le tour de parole local, lui,
+  diffuse fragment par fragment.
+
+Erreurs : `TTSUnavailableError`, `TTSModelNotFoundError`,
+`TTSUnsupportedDeviceError`, `TTSSynthesisError`, `TTSCancelledError`.
+
+Instrumentation : douze événements (`events.py`) sous allowlist de champs —
+longueurs, moteurs, durées, identifiants de corrélation, jamais un texte.
+
+Documentation : `docs/audio/LOCAL_TTS_ARCHITECTURE.md`,
+`docs/audio/FISH_LOCAL_STATUS.md`, `docs/audio/CUSTOM_VOICE.md`.
+Tests : `tests/test_local_tts.py`, `tests/test_tts_segmenter.py`.
+Banc de mesure : `python scripts/benchmark_tts.py`.
 
 ### VAD — côté client uniquement
 
@@ -880,7 +901,7 @@ Micro → MediaRecorder.start() (sans timeslice, un enregistrement par phrase)
 → stop() → onstop → Blob WebM complet → WebSocket binaire
 → décodage local du WebM → STT local multi-moteurs
 → Claude Haiku (mode vocal, VOICE_MAX_TOKENS, [VOICE_MODE])
-→ TTS (Edge ou moteur local) → WebSocket → playback
+→ TTS local (PCM16) → WebSocket → playback
 ```
 
 Détails du flux :
@@ -916,10 +937,11 @@ Flux historique encore possible depuis le composer chat : `conversation_mode` + 
 ### Config
 
 ```bash
-TTS_ENGINE=edge                     # edge | ttskit | kokoro | macos
+TTS_PROVIDER=fish_local             # fish_local | current_local (transitoire)
+TTS_MODEL_PATH=mlx-community/fish-audio-s2-pro-8bit
+TTS_VOICE_PATH=./voices/jarvis
 AUDIO_DAEMON_STT_ENGINE=local       # local | whisperkit | whispercpp
 AUDIO_DAEMON_STT_MODEL=small
-TTS_VOICE=fr-FR-VivienneMultilingualNeural
 VOICE_SILENCE_DURATION_MS=1200     # fin de phrase ; page /voice (client)
 VOICE_MIN_SPEECH_MS=400
 VOICE_MAX_TOKENS=500               # réponses ML courtes pour la voix
@@ -965,15 +987,13 @@ Quatre décisions structurantes :
   2361 ms sur 2,66 s de parole FR avec `large-v3-turbo`). `TranscriptionResult` sépare
   `audio_ms`, `inference_ms` et le facteur temps réel — « 5 s de STT » ne dit
   pas si le moteur est lent ou l'énoncé long.
-- **Le moteur TTS est derrière un contrat.** `audio/tts_provider.py` décrit ce
-  que le pipeline attend (`synthesize_stream_pcm`, `warmup`, `SAMPLE_RATE`). Le
-  daemon, le VAD, le STT, l'orchestration et le lecteur PCM ne nomment **aucun**
-  fournisseur — `tests/test_tts_provider_seam.py` le vérifie fichier par fichier.
-  **Kokoro est transitoire** : ses optimisations propres (sidecar maintenu chaud
-  via `--serve`, découpage du premier fragment, protocole de trames) vivent dans
-  `native_audio/kokoro_*.py`, inventoriés dans `PROVIDER_SPECIFIC_MODULES`.
-  Basculer vers Fish Audio revient à écrire un module qui satisfait le contrat
-  et à supprimer ceux-là — sans toucher au reste de la chaîne.
+- **Le moteur TTS est derrière un contrat.** `jarvis/audio/tts/base.py` décrit
+  ce que le pipeline attend (`warmup`, `stream`, `cancel`, `close`, un
+  `AudioChunk` qui porte son format). Le daemon, le VAD, le STT,
+  l'orchestration et le lecteur PCM ne nomment **aucun** fournisseur —
+  `tests/test_local_tts.py` le vérifie par un scan du dépôt. Remplacer le
+  moteur revient à écrire un module dans `backends/` et à l'enregistrer dans la
+  fabrique ; rien d'autre ne bouge.
 - **Le streaming LLM ne sert pas à parler plus tôt.** Une réponse peut contenir
   un bloc `action` dont le résultat remplace le texte : prononcer la phrase
   intermédiaire changerait la réponse. `llm.chat_stream_collect()` sert à exposer
@@ -988,8 +1008,10 @@ test refuse toute divergence entre les défauts et les `.env*.example`.
 STT_BEAM_SIZE=1                  # temps réel : un seul faisceau
 STT_VAD_FILTER=false             # le daemon segmente déjà l'énoncé
 STT_COMPUTE_TYPE=float32         # int8 est 2x plus lent ici (mesuré)
-KOKORO_WARM_WORKER=true          # spécifique Kokoro (transitoire)
-KOKORO_FIRST_CHUNK_MAX_TOKENS=12 # spécifique Kokoro (transitoire)
+TTS_WARMUP=true                  # modèle chargé hors tour de parole
+TTS_MIN_CHUNK_CHARS=30           # segmentation : premier son vs prosodie
+TTS_TARGET_CHUNK_CHARS=80
+TTS_MAX_CHUNK_CHARS=180
 VOICE_LLM_STREAMING=true         # expose llm.first_token
 AUDIO_DAEMON_SILENCE_MS=500      # fin de phrase : 300-600 ms
 AUDIO_DAEMON_MIN_SPEECH_MS=200   # durée minimale de parole
@@ -997,13 +1019,13 @@ AUDIO_DAEMON_PRE_ROLL_MS=300     # amorce conservée avant le seuil
 ```
 
 Tests : `tests/test_voice_latency.py`, `tests/test_voice_rearm.py`,
-`tests/test_voice_pipeline_e2e.py`, `tests/test_voice_tts_warm.py`,
-`tests/test_tts_provider_seam.py`.
+`tests/test_voice_pipeline_e2e.py`, `tests/test_local_tts.py`,
+`tests/test_tts_segmenter.py`.
 
 #### Mesure réelle (02/08/2026, Mac Apple Silicon, moteurs réels)
 
 Énoncé « Bonjour Jarvis, comment vas-tu ? » (2,18 s), `large-v3-turbo` CPU,
-DeepSeek Flash, Kokoro chaud, sortie audio locale. Deux séries de 1 tour à
+DeepSeek Flash, moteur vocal local chaud, sortie audio locale. Deux séries de 1 tour à
 froid + 3 tours à chaud.
 
 | Étape | Cible | À froid | À chaud (médiane) | À chaud (étendue) |
@@ -1062,8 +1084,7 @@ jarvis/
 │
 ├── audio/
 │   ├── stt_daemon.py        # STT local multi-moteurs + décodage des médias web
-│   ├── tts.py               # TTS Edge, Kokoro et macOS
-│   ├── tts_native.py        # TTSKit puis replis locaux
+│   ├── tts_cache.py         # rejeu « répète » + synthèse spéculative
 │   └── continuous_recorder.py  # Écoute continue : transcription locale → analyse → actions
 │
 ├── integrations/
@@ -1402,10 +1423,11 @@ DEEPSEEK_BASE_URL=https://api.deepseek.com
 DEEPSEEK_FAST_MODEL=deepseek-v4-flash   # classification, triage, extraction
 DEEPSEEK_MAIN_MODEL=deepseek-v4-pro     # rédaction, coaching, raisonnement
 HEAVY_TASK_MAX_TOKENS=8192              # plafond tokens des productions longues
-TTS_ENGINE=edge             # edge | ttskit | kokoro | macos
+TTS_PROVIDER=fish_local     # fish_local | current_local (transitoire)
+TTS_MODEL_PATH=mlx-community/fish-audio-s2-pro-8bit
+TTS_VOICE_PATH=./voices/jarvis
 AUDIO_DAEMON_STT_ENGINE=local
 AUDIO_DAEMON_STT_MODEL=small
-TTS_VOICE=fr-FR-VivienneMultilingualNeural
 WEATHER_API_KEY=...
 WEATHER_CITY=Lille
 TAVILY_API_KEY=...
@@ -1581,7 +1603,7 @@ Créer : `main.py`, `config.py`, `llm.py`, `database/`, `agents/__init__.py`, `a
 Créer : `agents/school.py`, pipeline upload documents (PDF → extraction texte), résumés, fiches de révision, flashcards. RAG avec embeddings sur les docs de cours.
 
 ### Phase 3 — Audio
-Créer le pipeline STT/TTS et son intégration WebSocket audio. État actuel : façade STT locale multi-moteurs et TTS Edge/local.
+Créer le pipeline STT/TTS et son intégration WebSocket audio. État actuel : façade STT locale multi-moteurs et synthèse vocale entièrement locale.
 
 ### Phase 4 — Productivité
 Créer : `integrations/mail.py` (Apple Mail via AppleScript), `integrations/calendar_api.py`, `agents/productivity.py`. Briefing matin automatique (cron/launchd).
@@ -1658,7 +1680,7 @@ Le **daemon** est lancé au démarrage de FastAPI (lifespan) via `asyncio.create
        ↓ (analysis["notable"] non vide)
 [3] Claude (Haiku via _process_message_internal)  → tokens réels, voix JARVIS
        ↓
-TTS Edge / TTSKit / Kokoro / macOS → lecture locale ou file `/api/devices/{id}/tts` (distant)
+TTS local (PCM16) → lecture locale ou file `/api/devices/{id}/tts` (distant)
 ```
 
 95 % du travail tourne en local (Ollama). Claude API ne reçoit **que des résumés texte** (`activity`, `notable`) — jamais d'images.

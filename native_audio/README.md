@@ -1,9 +1,52 @@
-# Sidecars audio natifs optionnels
+# Sidecars audio natifs
 
-JARVIS n'installe et ne télécharge aucun modèle pendant une conversation. Sans
-sidecar, le STT revient à faster-whisper local et le TTS à Kokoro ou `say`.
+JARVIS n'installe et ne télécharge aucun modèle pendant une conversation.
 
-## WhisperKit
+Ces sidecars tournent dans `JARVIS_VENV` (défaut `~/mlx-env`), un environnement
+séparé de `venv/` : `mlx-audio` est propre à Apple Silicon et n'a rien à faire
+dans les dépendances du serveur.
+
+## Fish Audio local — `fish_synthesize` (moteur cible)
+
+Sidecar du moteur vocal : `native_audio/fish_local.py`, lancé par
+`native_audio/fish_synthesize`. Modèle chargé **une seule fois**, puis une
+synthèse par requête JSON lue sur stdin, fragments PCM16 sur stdout.
+
+```bash
+# Mode serveur — celui qu'utilise le pipeline
+native_audio/fish_synthesize --serve --model /chemin/vers/les/poids
+
+# Diagnostic : le modèle est-il installé et complet ?
+native_audio/fish_synthesize --probe
+
+# Une synthèse, WAV sur stdout
+native_audio/fish_synthesize --model /chemin --format wav --text "Bonjour Monsieur." > out.wav
+```
+
+Protocole du mode serveur : trame = tag ASCII 4 octets + longueur big-endian
+4 octets + charge utile. `RDY` (métadonnées JSON : fréquence, canaux, voix
+clonée), `CHK` (PCM16), `END`, `ERR`. Binaire de bout en bout — aucun encodage
+texte ne peut corrompre l'audio.
+
+`HF_HUB_OFFLINE=1` est forcé par le lanceur, et `resolve_local_model_dir`
+n'accepte qu'un répertoire présent ou un dépôt déjà en cache, poids **complets**
+vérifiés. Un modèle absent produit une erreur avec la commande d'installation,
+jamais un téléchargement.
+
+Installation des poids : `python scripts/download_tts_model.py`.
+État réel de l'intégration : `docs/audio/FISH_LOCAL_STATUS.md`.
+
+## Kokoro — `kokoro_synthesize` (transitoire)
+
+Sidecar du backend `current_local`, conservé le temps que les poids Fish soient
+installés sur la machine. Même protocole de trames. Il disparaîtra du dépôt
+avec `jarvis/audio/tts/backends/current_local.py` et les variables `KOKORO_*`.
+
+```bash
+kokoro_synthesize --serve --model mlx-community/Kokoro-82M-bf16 --voice ff_siwis --lang-code f
+```
+
+## WhisperKit — `whisperkit_transcribe` (STT, optionnel)
 
 Compilez un binaire `whisperkit_transcribe` et placez-le ici, ou installez
 `jarvis-whisperkit` dans le PATH.
@@ -20,54 +63,13 @@ Et imprimer sur stdout un JSON :
 {"text": "...", "segments": [], "language": "fr"}
 ```
 
-Python (`native_audio/whisperkit_bridge.py`) supervise l'appel ; aucun téléchargement
-de modèle n'est déclenché automatiquement par JARVIS.
+Python (`native_audio/whisperkit_bridge.py`) supervise l'appel ; aucun
+téléchargement de modèle n'est déclenché automatiquement par JARVIS.
 
-## TTSKit (Qwen3-TTS MLX)
-
-Le dépôt fournit `native_audio/ttskit_synthesize` : sidecar Python qui exécute
-**Qwen3-TTS-12Hz-0.6B-CustomVoice** via `mlx-audio` dans `JARVIS_VENV`
-(défaut `~/mlx-env`). Aucun cloud, streaming PCM16 24 kHz sur stdout.
-
-`is_ttskit_available()` exige que `$JARVIS_VENV/bin/python` soit exécutable
-lorsque ce lanceur repo est utilisé (évite un faux positif sans venv MLX).
-Un binaire `jarvis-ttskit` dans le PATH reste considéré autonome.
-
-### Setup (une fois)
+## Setup du venv MLX (une fois)
 
 ```bash
 python3.12 -m venv "${JARVIS_VENV:-$HOME/mlx-env}"
 source "${JARVIS_VENV:-$HOME/mlx-env}/bin/activate"
 python -m pip install -r requirements-mlx.txt
-# Premier appel : télécharge le modèle HF (~cache Hugging Face)
 ```
-
-Ce venv est volontairement séparé de `venv/` : `mlx-audio` est propre à
-Apple Silicon et n'est pas dupliqué dans les dépendances du backend.
-
-### Config (`.env.config`)
-
-```bash
-TTS_ENGINE=ttskit
-TTS_MODEL=qwen3-tts-0.6b
-TTS_LANGUAGE=fr
-TTS_SPEAKER=Ryan          # CustomVoice : Ryan | Aiden | Vivian | …
-# TTS_MODEL_PATH=         # optionnel : chemin local du modèle déjà téléchargé
-```
-
-### Contrat CLI
-
-```
-ttskit_synthesize --model qwen3-tts-0.6b --language fr \
-  --format pcm_s16le --sample-rate 24000 --speaker Ryan \
-  --text "Bonjour Monsieur."
-```
-
-Alias `--model qwen3-tts-0.6b` →
-`mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-6bit`.
-`--speaker` (ou `TTS_SPEAKER`) sélectionne la voix CustomVoice ; pas d'`instruct`
-émotionnel (voix stable). Logs sur stderr ; le processus est interrompu si la
-lecture est annulée.
-
-Alternative : placez un autre binaire `ttskit_synthesize` ici, ou
-`jarvis-ttskit` dans le PATH (même contrat).
