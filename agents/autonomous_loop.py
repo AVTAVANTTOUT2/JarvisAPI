@@ -223,7 +223,7 @@ async def run_autonomous_loop(
             [], workflow_id, "failed", 0, 0, 0.0, synthesis,
         )
 
-    # ── Routage cognitif : tâches techniques → Cursor (préféré à Open Interpreter)
+    # ── Routage cognitif : tâches techniques → Cursor (worktree isolé)
     try:
         from jarvis.cognitive import route_request
 

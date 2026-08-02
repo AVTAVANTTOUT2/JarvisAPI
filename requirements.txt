@@ -19,12 +19,6 @@ apscheduler==3.10.*
 # PDF
 pymupdf==1.25.*
 
-# Code execution engine
-# Open Interpreter 0.4 importe encore pkg_resources (retiré de setuptools 82).
-# La borne basse reste compatible avec Torch 2.13.
-setuptools>=77.0.3,<82
-open-interpreter==0.4.*
-
 # Daemon JARVIS — screen watcher + wake word
 Pillow>=10.0
 pvporcupine>=3.0          # wake word "Jarvis" (optionnel — désactivable via WAKE_WORD_ENABLED=false)

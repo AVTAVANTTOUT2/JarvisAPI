@@ -1,10 +1,13 @@
 """Configuration centralisée JARVIS — charge .env.config + .env."""
 
+import logging
 import os
 import socket
 from pathlib import Path
 
 from env_loader import load_jarvis_env
+
+logger = logging.getLogger(__name__)
 
 # Charge d'abord la configuration, puis les secrets qui peuvent la surcharger.
 BASE_DIR = Path(__file__).resolve().parent
@@ -225,11 +228,6 @@ TV_MAC = _get("TV_MAC", "f0:ed:51:02:16:34")
 TV_CAST_ENABLED = _get("TV_CAST_ENABLED", "true").lower() == "true"
 TV_CAST_TIMEOUT = int(_get("TV_CAST_TIMEOUT", "20"))
 TV_DASHBOARD_URL = _get("TV_DASHBOARD_URL", "http://192.168.3.52:5174/")  # URL a ouvrir via Chromecast
-
-# ── Exécution de code avancée ────────────────────────────────
-CODE_EXECUTOR_ENABLED = _get("CODE_EXECUTOR_ENABLED", "false").lower() == "true"
-CODE_EXECUTOR_TIMEOUT = int(_get("CODE_EXECUTOR_TIMEOUT", "120"))
-CODE_EXECUTOR_MODEL = _get("CODE_EXECUTOR_MODEL", "") or DEEPSEEK_MAIN_MODEL
 
 # Notifications bureau macOS (`display notification`)
 DESKTOP_NOTIFICATIONS = _get("DESKTOP_NOTIFICATIONS", "true").lower() == "true"
@@ -630,3 +628,34 @@ MOBILE_VOICE_MAX_DURATION_SEC = int(_get("MOBILE_VOICE_MAX_DURATION_SEC", "60"))
 MOBILE_VOICE_STT_TIMEOUT_SEC = float(_get("MOBILE_VOICE_STT_TIMEOUT_SEC", "120"))
 MOBILE_VOICE_LLM_TIMEOUT_SEC = float(_get("MOBILE_VOICE_LLM_TIMEOUT_SEC", "90"))
 MOBILE_VOICE_TTS_TIMEOUT_SEC = float(_get("MOBILE_VOICE_TTS_TIMEOUT_SEC", "60"))
+
+# ── Variables retirées ───────────────────────────────────────
+# Une capacité supprimée doit le dire : un `.env` laissé en place continuerait
+# sinon d'affirmer une fonctionnalité que le code ne sert plus. On avertit une
+# fois au chargement plutôt que d'ignorer la ligne en silence.
+RETIRED_ENV_VARS: dict[str, str] = {
+    "CODE_EXECUTOR_ENABLED": (
+        "Open Interpreter a été retiré ; les tâches techniques passent par "
+        "Cursor CLI et l'action terminal confinée."
+    ),
+    "CODE_EXECUTOR_TIMEOUT": "Open Interpreter a été retiré.",
+    "CODE_EXECUTOR_MODEL": "Open Interpreter a été retiré.",
+}
+
+
+def warn_retired_env_vars() -> list[str]:
+    """Signale les variables encore définies alors que leur capacité a disparu.
+
+    Retourne les noms rencontrés pour permettre une assertion en test.
+    """
+    found = [name for name in RETIRED_ENV_VARS if os.getenv(name) is not None]
+    for name in found:
+        logger.warning(
+            "[config] %s est définie mais n'a plus aucun effet — %s",
+            name,
+            RETIRED_ENV_VARS[name],
+        )
+    return found
+
+
+warn_retired_env_vars()

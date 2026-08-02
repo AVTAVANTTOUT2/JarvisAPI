@@ -40,7 +40,6 @@ jobs:
               "edge_tts",
               "faster_whisper",
               "fitz",
-              "interpreter",
               "kokoro_onnx",
               "pyaudio",
               "pvporcupine",
@@ -108,8 +107,8 @@ jobs:
 
       - name: Installer les dépendances de test
         # Sous-ensemble léger de requirements.txt : les dépendances lourdes
-        # (torch, open-interpreter, faster-whisper, pyaudio…) sont optionnelles
-        # au runtime — tous les modules dégradent proprement sans elles.
+        # (torch, faster-whisper, pyaudio…) sont optionnelles au runtime —
+        # tous les modules dégradent proprement sans elles.
         run: |
           pip install \
             "fastapi==0.115.*" "uvicorn[standard]==0.34.*" "python-dotenv==1.1.*" \

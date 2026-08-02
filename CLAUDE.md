@@ -59,7 +59,7 @@ Depuis du code async, utiliser `await event_bus.emit(event)`. Depuis un chemin s
 - `web/dist` reste le repli racine si `frontend/out` manque. Les téléphones ne voient ni l'un ni l'autre : ils sont redirigés vers `/mobile/`.
 - `frontend/public/sw.js` ne cache que `/_next/static` et `/icons`, jamais `/api`, HTML ou données personnelles.
 - Validation actuelle au 24/07/2026 : 18 Vitest, typecheck/build Next.js 15, 9 scénarios Playwright, 4 contrats FastAPI, 50 tests web et builds des deux fallbacks. La suite vérifie notamment l'arrêt des services privés lors du verrouillage automatique, le déverrouillage réel, le chat WebSocket, les tâches avec CSRF, les événements SSE et le chargement de MapLibre sous la CSP de production. Les parcours critiques échouent aussi sur erreur console, exception de page, requête réseau échouée ou réponse HTTP en erreur. GitHub Actions exécute ces scénarios navigateur dans le job dédié au frontend unifié, à côté du build Vite historique.
-- La CI possède un job séparé d'installation de production : bibliothèques système audio, `pip install -r requirements.txt`, `pip check`, puis imports de fumée de Torch, PyAudio, Open Interpreter, spaCy, Kokoro et faster-whisper. Un job `macos-14` rejoue en plus les contrats Apple simulés et les smoke tests natifs (`osascript`, dictionnaires Mail/Calendar/Contacts/Messages, plist launchd, `say`, CoreAudio, iMessage, capture et audio). Les appareils physiques et l'observation 24 h ne sont pas vérifiés.
+- La CI possède un job séparé d'installation de production : bibliothèques système audio, `pip install -r requirements.txt`, `pip check`, puis imports de fumée de Torch, PyAudio, spaCy, Kokoro et faster-whisper. Un job `macos-14` rejoue en plus les contrats Apple simulés et les smoke tests natifs (`osascript`, dictionnaires Mail/Calendar/Contacts/Messages, plist launchd, `say`, CoreAudio, iMessage, capture et audio). Les appareils physiques et l'observation 24 h ne sont pas vérifiés.
 - `frontend/package.json`, `web/package.json` et les deux jobs frontend GitHub Actions épinglent tous `pnpm 11.11.0`. Les deux lockfiles v9 sont installés avec `--frozen-lockfile`, et un contrat pytest interdit désormais toute dérive de version.
 
 ## Personnalité JARVIS
@@ -460,12 +460,19 @@ valeur `confirmed:true` sans plan serveur est ignorée.
 **`/api/status`** et **`/api/integrations`** exposent
 `computer: { available, shell }`.
 
-## Exécution de code avancée (Open Interpreter, legacy)
+## Exécution de code — un seul chemin, confiné
 
-Le wrapper Open Interpreter reste présent pour compatibilité et diagnostic,
-mais l'action publique `terminal` ne lui délègue plus d'instruction : il ne
-peut pas fournir à l'avance la liste exhaustive des commandes à confirmer.
-Les tâches complexes passent par Cursor dans un worktree isolé.
+Le moteur Open Interpreter a été **retiré du projet**. Il ne pouvait pas
+fournir à l'avance la liste exhaustive des commandes à confirmer, ce qui
+l'excluait déjà du chemin de l'action `terminal` ; il ne restait qu'une
+surface morte et une longue chaîne de dépendances (litellm, selenium,
+gitpython, une borne `starlette<0.38`). Les tâches techniques passent par
+Cursor dans un worktree isolé, les commandes simples par le plan shell
+confirmé ci-dessous.
+
+Les variables `CODE_EXECUTOR_*` n'ont plus d'effet. Un `.env` qui les définit
+encore déclenche un avertissement au chargement de `config` plutôt qu'un
+silence trompeur (`config.RETIRED_ENV_VARS`).
 
 ### Architecture terminal actuelle
 
@@ -479,16 +486,6 @@ Action terminal reçue
       → consommation unique
       → argv structurés dans LLM_SHELL_WORKSPACE
 ```
-
-### Module : `integrations/code_executor.py`
-
-**`CodeExecutor`** — wrapper autour d'Open Interpreter, singleton `code_executor`.
-
-- `execute(instruction, timeout)` : exécution async dans un thread, retourne `{ok, output, code, errors, summary}`
-- `_is_safe(instruction)` : patterns bloqués (suppression système, format disque, shutdown, fork bomb)
-- `reset()` : vide la conversation de l'interpréteur entre les exécutions
-- Auto-run interne du wrapper legacy ; jamais joignable par l'action terminal
-- Utilise Claude (Sonnet par défaut) via LiteLLM comme backend LLM
 
 ### Routing intelligent (`actions.py`)
 
@@ -507,14 +504,6 @@ Action terminal reçue
 redactés, plafonnés et délimités comme données non fiables. `stdout`/`stderr`
 ne partent jamais bruts et le contenu du presse-papiers reste exclu du cloud.
 
-### Config
-
-```bash
-CODE_EXECUTOR_ENABLED=false      # opt-in explicite du moteur avancé legacy
-CODE_EXECUTOR_TIMEOUT=120        # timeout en secondes
-CODE_EXECUTOR_MODEL=             # modèle Claude utilisé (défaut: Sonnet)
-```
-
 ### Exemples de capacités
 
 | Demande utilisateur | Routing | Comportement |
@@ -525,8 +514,6 @@ CODE_EXECUTOR_MODEL=             # modèle Claude utilisé (défaut: Sonnet)
 | "git status" | plan shell | Inspection Git uniquement |
 | "brew install redis" | bloqué | Gestionnaire de paquets hors allowlist |
 | "corrige mon projet" | Cursor | Worktree isolé et workflow Cursor |
-
-**`/api/status`** et **`/api/integrations`** exposent `code_executor: { available, engine }`.
 
 ## Audio — pipeline local post-PR #17
 
@@ -651,7 +638,6 @@ jarvis/
 │   ├── weather.py           # OpenWeatherMap
 │   ├── web_search.py        # Tavily API
 │   ├── computer.py          # Shell sécurisé, AppleScript, infos système (macOS)
-│   ├── code_executor.py     # Exécution de code avancée (Open Interpreter, invisible user)
 │   ├── notifications_macos.py  # Notifications bureau macOS
 │   └── location.py          # LocationManager — GPS, visites, trajets
 │
@@ -990,11 +976,6 @@ WEB_PORT=8080
 COMPUTER_ACCESS=false            # opt-in explicite des capacités macOS
 COMPUTER_SHELL=/bin/zsh
 COMPUTER_TIMEOUT=30
-
-# Exécution de code avancée
-CODE_EXECUTOR_ENABLED=false      # opt-in explicite du moteur avancé legacy
-CODE_EXECUTOR_TIMEOUT=120        # timeout en secondes
-CODE_EXECUTOR_MODEL=             # modèle Claude utilisé (défaut: Sonnet)
 
 # Calendrier : Calendar.app (aucune clé) — comptes iCloud/Google déjà dans l'app
 # Startup : ouvrir Calendar.app au démarrage réduit les erreurs AppleScript `-600` ("application not running")
