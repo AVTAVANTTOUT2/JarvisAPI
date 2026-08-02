@@ -24,7 +24,7 @@ traitées, pas ponctuellement.
 | 1 | **Moyenne** | `git` échappe au workspace « isolé » du shell LLM | **Corrigé** + test de non-régression |
 | 2 | Faible | Le listener WebSocket du serveur TV n'est pas authentifié (intégration morte) | Symptôme corrigé, fond à arbitrer |
 | 3 | Faible | Interpolation HTML non échappée dans les widgets TV | **Corrigé** |
-| 4 | Faible | `open_app` sans allowlist d'applications | À arbitrer |
+| 4 | Faible | `open_app` sans allowlist d'applications | **Corrigé** — allowlist opt-in |
 | 5 | Faible | Aucun scan de dépendances / SAST en CI | **Corrigé** — job `pip-audit` bloquant |
 | 6 | Info | `verify=False` dans le health check TV | **Corrigé** |
 | 7 | **Moyenne** | `open-interpreter` (legacy) ancre 18 des 20 CVE de l'arbre | Mesuré ; retrait à arbitrer |
@@ -238,14 +238,30 @@ deux proviennent de tables de correspondance codées en dur avec valeur de repli
 `integrations/computer.py` — `open_app()` (l. 175-178)
 
 `open_app` n'est pas dans le flux de confirmation : un bloc ```action``` émis
-par le LLM lance directement `open -a <nom>`, sans allowlist. L'exécution passe
-par argv sans shell, et `open -a` ne prend pas d'argument fichier — la portée
-se limite donc au lancement d'une application installée, sans passage de
-paramètres.
+par le LLM lance directement `open -a <nom>`, sans allowlist d'applications.
 
-Atténué par `COMPUTER_ACCESS=false` par défaut. Une allowlist d'applications
-alignerait cette action sur le traitement — nettement plus strict — réservé à
-`terminal`.
+> **Correction d'une surévaluation initiale.** Le premier passage suggérait un
+> risque de lancement d'un bundle arbitraire depuis le disque. C'est faux :
+> `ComputerControl._validate_argv` refuse déjà `/` et `\`, les caractères de
+> contrôle, les noms au-delà de 128 caractères, et n'accepte que la forme
+> exacte à trois éléments `(open, -a, nom)` — aucun fichier ni URL ne peut
+> être passé en argument. Vérifié par test.
+
+Le résidu réel est donc plus étroit : lancer une application **déjà
+enregistrée**, sans lui transmettre quoi que ce soit. Nuisance plutôt que
+compromission, et déjà atténué par `COMPUTER_ACCESS=false` par défaut.
+
+### Correction appliquée
+
+Allowlist facultative `COMPUTER_ALLOWED_APPS` : vide (défaut) = comportement
+historique inchangé ; renseignée = allowlist stricte insensible à la casse.
+L'ajout ne casse aucune installation existante et donne un cran de
+durcissement à qui active `COMPUTER_ACCESS`.
+
+`tests/test_computer_control_argv.py` (18 cas) verrouille à la fois les
+garanties préexistantes — refus des chemins, des caractères de contrôle et de
+toute forme argv autre que `open -a <nom>` — et le nouveau comportement. Le
+test d'allowlist stricte échoue sans le correctif.
 
 ---
 
@@ -484,6 +500,7 @@ Corrigé et vérifié dans ce lot :
 | 6 | `verify=False` retiré | idem |
 | 2 (partiel) | Journalisation explicite du refus + backoff plafonné | idem |
 | 5 | Job `pip-audit` bloquant + liste d'exceptions datée ; `python-dotenv` monté en 1.2.* | Simulé sur l'arbre de production exact : sortie 0 ; sortie 1 sur une CVE hors liste |
+| 4 | Allowlist opt-in `COMPUTER_ALLOWED_APPS` | `tests/test_computer_control_argv.py` 18/18 ; le cas d'allowlist stricte échoue sans le correctif |
 
 Régression globale : `tests/ jarvis/tests agents/devagent` → **1268 passés,
 9 ignorés, 1 échec**. L'échec unique
@@ -501,6 +518,29 @@ TLS auto-signé du bac à sable. Sans rapport avec les fichiers modifiés.
    7 advisories starlette restantes.
 2. **Finding 2** — canal d'événements dédié en lecture seule authentifié par
    le jeton supervisor, ou retrait de la fonctionnalité.
-3. **Finding 4** — allowlist d'applications pour `open_app`, à trancher si
-   `COMPUTER_ACCESS` doit passer à `true`. Sans cet opt-in, l'action est
-   inerte.
+
+Rien d'autre n'est en attente : les findings 1, 3, 4, 5 et 6 sont corrigés et
+couverts par des tests.
+
+## Observation hors périmètre — la suite de tests n'est pas idempotente
+
+Constaté en validant les correctifs, sans rapport avec eux (reproduit avec
+toutes les modifications remisées).
+
+`tests/test_message_intelligence.py::test_message_insights_table_exists` lit la
+**vraie** base `config.DB_PATH` et se contente de `pytest.skip()` si le fichier
+est absent. Or la suite complète crée `data/jarvis.db` — 4 Ko, **zéro table** :
+un chemin de code ouvre une connexion sur le `DB_PATH` réel sans passer par
+`init_db()`, échappant au monkeypatch que `tests/conftest.py` met en place.
+
+Conséquence : premier passage sur une copie fraîche → le test est *sauté* ;
+la suite laisse le fichier ; **second passage consécutif → il échoue**. La CI
+ne le voit jamais puisqu'elle repart d'un checkout neuf, ce qui explique que ce
+soit passé inaperçu.
+
+Ce n'est pas une faille, mais deux choses méritent d'être notées : sur le Mac
+de l'utilisateur, lancer les tests touche le chemin de sa base réelle — c'est
+exactement le risque que l'en-tête de `conftest.py` documente ; et un test qui
+dépend d'un état ambiant hors dépôt donne un signal peu fiable. Le corriger
+demande de faire pointer ce test sur la base de test plutôt que sur
+`config.DB_PATH`, et de retrouver le chemin qui fuit.
