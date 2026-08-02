@@ -85,9 +85,12 @@ DEFAULT_STT_MODEL = "large-v3-turbo"
 DEFAULT_STT_FALLBACK_MODEL = "large-v3"
 DEFAULT_STT_LANGUAGE = "fr"
 DEFAULT_STT_DEVICE = "auto"
-# int8 sur CPU Apple Silicon : ~2 à 3 fois plus rapide que float32 pour une
-# perte négligeable sur des commandes courtes. « auto » retombait sur float32.
-DEFAULT_STT_COMPUTE_TYPE = "int8"
+# Mesuré sur Apple Silicon (large-v3-turbo, 2,66 s de parole FR, CPU) :
+#   auto → int8   4609 ms   |   float32   2361 ms
+# CTranslate2 n'a pas de noyau int8 accéléré ici : la quantification ajoute une
+# déquantification par couche au lieu d'économiser du calcul. « auto » choisit
+# pourtant int8, ce qui doublait le temps de transcription. On fixe float32.
+DEFAULT_STT_COMPUTE_TYPE = "float32"
 DEFAULT_STT_BEAM_SIZE = 1
 DEFAULT_STT_VAD_FILTER = False
 DEFAULT_TTS_ENGINE = "kokoro"

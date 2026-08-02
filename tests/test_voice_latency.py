@@ -322,3 +322,58 @@ async def test_llm_falls_back_to_buffered_call_when_stream_fails(monkeypatch):
         system="s", max_tokens=250, temperature=0.5, trace=None,
     )
     assert result["content"] == "repli"
+
+
+# ── Réglages STT temps réel ─────────────────────────────────────────────────
+
+
+def test_stt_realtime_defaults_are_measured_not_assumed():
+    """`auto` choisit int8, deux fois plus lent ici — le défaut doit être explicite.
+
+    Mesuré sur Apple Silicon (large-v3-turbo, 2,66 s de parole FR, CPU) :
+    auto/int8 = 4609 ms, float32 = 2361 ms. CTranslate2 n'a pas de noyau int8
+    accéléré sur ce CPU : la quantification ajoute une déquantification par
+    couche au lieu d'économiser du calcul. Ce test empêche un retour silencieux
+    à `auto`, qui doublerait la transcription.
+    """
+    import config
+
+    assert config.DEFAULT_STT_COMPUTE_TYPE == "float32"
+    assert config.DEFAULT_STT_BEAM_SIZE == 1
+    assert config.DEFAULT_STT_VAD_FILTER is False
+
+
+def test_stt_backend_uses_the_realtime_settings(monkeypatch):
+    """Les réglages traversent bien jusqu'à l'appel du moteur."""
+    import config
+    from audio.stt_daemon import FasterWhisperBackend
+
+    monkeypatch.setattr(config, "STT_BEAM_SIZE", 1, raising=False)
+    monkeypatch.setattr(config, "STT_VAD_FILTER", False, raising=False)
+
+    captured: dict = {}
+
+    class _Info:
+        language = "fr"
+        duration = 1.0
+
+    class _Model:
+        def transcribe(self, _audio, **kwargs):
+            captured.update(kwargs)
+            return iter(()), _Info()
+
+    backend = FasterWhisperBackend("large-v3-turbo")
+    backend._model = _Model()
+    backend._loaded = True
+
+    result = asyncio.run(
+        backend.transcribe_pcm(b"\x00\x01" * 2000, sample_rate=16000, language="fr")
+    )
+
+    assert captured["beam_size"] == 1
+    assert captured["vad_filter"] is False
+    assert captured["condition_on_previous_text"] is False
+    # Le facteur temps réel est calculé, pas deviné.
+    assert result is not None
+    assert result.audio_ms > 0
+    assert result.real_time_factor is not None

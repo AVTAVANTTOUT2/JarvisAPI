@@ -958,8 +958,11 @@ Quatre décisions structurantes :
   la conversation est réellement close : une parole non transcrite n'est pas une
   fin de conversation, et exiger un nouveau déclenchement rendait le micro sourd.
 - **Le STT ne segmente pas deux fois.** Le collecteur VAD a déjà découpé
-  l'énoncé, donc `STT_VAD_FILTER=false` ; `STT_BEAM_SIZE=1` et
-  `STT_COMPUTE_TYPE=int8` visent le temps réel. `TranscriptionResult` sépare
+  l'énoncé, donc `STT_VAD_FILTER=false` ; `STT_BEAM_SIZE=1` vise le temps réel.
+  `STT_COMPUTE_TYPE=float32` est **mesuré**, pas supposé : `auto` choisit int8,
+  et CTranslate2 n'a pas de noyau int8 accéléré sur ce CPU — la quantification
+  y coûte une déquantification par couche et double le temps (4609 ms contre
+  2361 ms sur 2,66 s de parole FR avec `large-v3-turbo`). `TranscriptionResult` sépare
   `audio_ms`, `inference_ms` et le facteur temps réel — « 5 s de STT » ne dit
   pas si le moteur est lent ou l'énoncé long.
 - **Kokoro reste chargé.** `native_audio/kokoro_mlx.py --serve` garde le modèle
@@ -975,7 +978,7 @@ Quatre décisions structurantes :
 ```bash
 STT_BEAM_SIZE=1                  # temps réel : un seul faisceau
 STT_VAD_FILTER=false             # le daemon segmente déjà l'énoncé
-STT_COMPUTE_TYPE=int8            # CPU Apple Silicon
+STT_COMPUTE_TYPE=float32         # int8 est 2x plus lent ici (mesuré)
 KOKORO_WARM_WORKER=true          # sidecar chaud, modèle chargé une fois
 KOKORO_FIRST_CHUNK_MAX_TOKENS=12 # 1re phrase courte = premier son plus tôt
 VOICE_LLM_STREAMING=true         # expose llm.first_token
