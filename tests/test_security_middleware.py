@@ -404,8 +404,14 @@ def test_root_spa_includes_next_inline_bootstrap_and_csp_allows_it(tmp_db):
     if r.status_code != 200:
         pytest.skip("frontend/out absent dans ce checkout")
     html = r.text
+    # La charge RSC est poussée par un script inline : elle doit être présente
+    # ET non vide. `self.__next_f` seul passerait sur une coquille sans données.
     assert "self.__next_f" in html
-    assert "jarvis-loading" in html
+    assert "self.__next_f.push([1," in html
+    # Le chunk d'entrée doit être référencé, sinon rien n'hydrate le shell.
+    # (Le marqueur `jarvis-loading` a été retiré avec le layout mobile client :
+    # la détection est côté serveur, cet état de chargement n'existe plus.)
+    assert "/_next/static/chunks/" in html
     assert "script-src 'self' 'unsafe-inline'" in r.headers.get("content-security-policy", "")
 
 
@@ -606,6 +612,13 @@ def test_activate_device_requires_session_not_device_token(tmp_db):
         token = _pair_remote_device(client)
         no_auth = client.post("/api/devices/mac-test/activate")
         assert no_auth.status_code == 401
+
+        # Le cœur du contrat : un jeton device valide reste insuffisant ici.
+        # Sinon une machine appairée pourrait se promouvoir active toute seule.
+        with_device_token = client.post(
+            "/api/devices/mac-test/activate", headers={"X-Device-Token": token}
+        )
+        assert with_device_token.status_code == 401
 
         authenticate(client)
         ok = client.post("/api/devices/mac-test/activate")
