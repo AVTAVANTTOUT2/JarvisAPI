@@ -38,6 +38,22 @@ router = APIRouter()
 logger = logging.getLogger("jarvis")
 
 
+async def _generate_and_store_timeline(key: str, handle: str | None) -> list[dict]:
+    """Génère la timeline et ne persiste que les résultats non vides."""
+    from scripts.timeline_generator import generate_timeline
+    from database import (
+        clear_person_timeline_cache,
+        update_person_timeline_cache,
+    )
+
+    events = await generate_timeline(key, handle_override=handle)
+    if events:
+        await asyncio.to_thread(update_person_timeline_cache, key, events)
+    else:
+        await asyncio.to_thread(clear_person_timeline_cache, key)
+    return events
+
+
 @router.get("/api/people")
 async def api_people_list():
     return {"people": get_people_sorted_by_recent()}
@@ -101,21 +117,21 @@ async def api_person_timeline_haiku(name: str):
     Si aucun cache n'existe encore, genere via Haiku, stocke le resultat,
     puis le retourne. Utiliser POST /timeline/regenerate pour forcer un refresh.
     """
-    from scripts.timeline_generator import generate_timeline
-    from database import get_person_timeline_cache, update_person_timeline_cache
+    from database import get_person_timeline_cache
 
     decoded = _decode_person_path(name)
     key = decoded or name.strip()
 
     cached = await asyncio.to_thread(get_person_timeline_cache, key)
-    if cached is not None:
+    # Un cache "[]" est traité comme miss : ancien bug (JSON LLM tronqué)
+    # laissait des timelines vides bloquées à vie.
+    if cached is not None and cached.get("events"):
         return {"events": cached["events"], "updated_at": cached["updated_at"], "from_cache": True}
 
     person = get_person(key)
     handle = _resolve_handle_with_contacts(person.get("name") if person else key)
     try:
-        events = await generate_timeline(key, handle_override=handle)
-        await asyncio.to_thread(update_person_timeline_cache, key, events)
+        events = await _generate_and_store_timeline(key, handle)
         cached2 = await asyncio.to_thread(get_person_timeline_cache, key)
         return {
             "events": events,
@@ -130,16 +146,14 @@ async def api_person_timeline_haiku(name: str):
 @router.post("/api/people/{name}/timeline/regenerate")
 async def api_person_timeline_regenerate(name: str):
     """Force la regeneration de la timeline via Haiku et ecrase le cache DB."""
-    from scripts.timeline_generator import generate_timeline
-    from database import update_person_timeline_cache, get_person_timeline_cache
+    from database import get_person_timeline_cache
 
     decoded = _decode_person_path(name)
     key = decoded or name.strip()
     person = get_person(key)
     handle = _resolve_handle_with_contacts(person.get("name") if person else key)
     try:
-        events = await generate_timeline(key, handle_override=handle)
-        await asyncio.to_thread(update_person_timeline_cache, key, events)
+        events = await _generate_and_store_timeline(key, handle)
         cached = await asyncio.to_thread(get_person_timeline_cache, key)
         return {
             "events": events,

@@ -29,6 +29,74 @@ from integrations.apple_data import (
     apple_data,
     apple_epoch_to_datetime,
 )
+from integrations.imessage_body import message_text_from_row
+
+def _message_batch_sql(conn: sqlite3.Connection) -> str:
+    """Construit la lecture compatible avec plusieurs générations de chat.db."""
+    tables = {
+        str(row["name"] if isinstance(row, sqlite3.Row) else row[0])
+        for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+    }
+    message_columns = {
+        str(row["name"] if isinstance(row, sqlite3.Row) else row[1])
+        for row in conn.execute("PRAGMA table_info(message)")
+    }
+    has_body = "attributedBody" in message_columns
+    has_chat_join = "chat_message_join" in tables
+    has_handle_join = has_chat_join and "chat_handle_join" in tables
+
+    attributed_body = "m.attributedBody" if has_body else "NULL AS attributedBody"
+    resolved_handle = "m.handle_id"
+    if has_handle_join:
+        resolved_handle = """CASE
+               WHEN m.handle_id IS NULL OR m.handle_id = 0 THEN (
+                   SELECT chj.handle_id
+                   FROM chat_message_join cmj
+                   JOIN chat_handle_join chj ON chj.chat_id = cmj.chat_id
+                   WHERE cmj.message_id = m.ROWID
+                   ORDER BY chj.handle_id
+                   LIMIT 1
+               )
+               ELSE m.handle_id
+           END"""
+
+    resolved_chat = "NULLIF(TRIM(m.cache_roomnames), '')"
+    if has_chat_join and "chat" in tables:
+        resolved_chat = """COALESCE(
+               NULLIF(TRIM(m.cache_roomnames), ''),
+               (
+                   SELECT c.chat_identifier
+                   FROM chat_message_join cmj
+                   JOIN chat c ON c.ROWID = cmj.chat_id
+                   WHERE cmj.message_id = m.ROWID
+                   ORDER BY cmj.chat_id
+                   LIMIT 1
+               )
+           )"""
+
+    body_filter = " OR m.attributedBody IS NOT NULL" if has_body else ""
+    return f"""
+        SELECT m.ROWID,
+               m.guid,
+               m.text,
+               {attributed_body},
+               m.handle_id,
+               m.date,
+               m.date_read,
+               m.is_from_me,
+               m.is_read,
+               m.item_type,
+               m.group_title,
+               m.associated_message_guid,
+               m.associated_message_type,
+               m.cache_roomnames,
+               {resolved_handle} AS resolved_handle_id,
+               {resolved_chat} AS resolved_chat_identifier
+        FROM message m
+        WHERE m.ROWID BETWEEN ? AND ?
+          AND (m.text IS NOT NULL{body_filter})
+        ORDER BY m.ROWID ASC
+    """
 
 logger = logging.getLogger(__name__)
 
@@ -664,29 +732,37 @@ class IMessageImporter:
             batch_end = min(current + self.batch_size - 1, to_rowid)
             try:
                 rows = chat_conn.execute(
-                    """SELECT ROWID, guid, text, handle_id, date, date_read,
-                              is_from_me, is_read, item_type, group_title,
-                              associated_message_guid, associated_message_type,
-                              cache_roomnames
-                       FROM message
-                       WHERE ROWID BETWEEN ? AND ?
-                         AND text IS NOT NULL
-                       ORDER BY ROWID ASC""",
+                    _message_batch_sql(chat_conn),
                     (current, batch_end),
                 ).fetchall()
 
                 with get_db() as jarvis_conn:
                     for r in rows:
                         try:
+                            text = message_text_from_row(
+                                r["text"],
+                                r["attributedBody"],
+                            )
+                            if not text:
+                                total_skipped += 1
+                                continue
+
+                            resolved_handle = r["resolved_handle_id"]
+                            if resolved_handle in (None, 0):
+                                resolved_handle = None
+                            else:
+                                resolved_handle = int(resolved_handle)
+
                             inserted = self._insert_message(
                                 jarvis_conn,
                                 apple_rowid=r["ROWID"],
                                 guid=str(r["guid"] or ""),
-                                apple_handle_id=r["handle_id"],
+                                apple_handle_id=resolved_handle,
                                 handles_map=handles_map,
-                                apple_chat_roomname=str(r["cache_roomnames"] or ""),
+                                apple_chat_roomname=str(r["resolved_chat_identifier"] or ""),
                                 chats_map=chats_map,
-                                text=str(r["text"] or ""),
+                                text=text,
+                                attributed_body=r["attributedBody"],
                                 date=int(r["date"] or 0),
                                 date_read=int(r["date_read"] or 0),
                                 is_from_me=int(r["is_from_me"] or 0),
@@ -773,9 +849,11 @@ class IMessageImporter:
         group_title: str | None,
         associated_message_guid: str | None,
         associated_message_type: int,
+        attributed_body: bytes | memoryview | None = None,
     ) -> bool:
         """Insere ou ignore un message. Retourne True si insere, False si skip."""
         content_hash = _compute_content_hash(date, apple_handle_id, text, guid)
+        body_blob = bytes(attributed_body) if attributed_body else None
 
         # Verifications pre-insert (deduplication)
         existing = conn.execute(
@@ -817,13 +895,13 @@ class IMessageImporter:
         try:
             conn.execute(
                 """INSERT INTO imessage_messages
-                   (apple_rowid, guid, chat_id, handle_id, text, date, date_read,
-                    is_from_me, is_read, item_type, group_title,
+                   (apple_rowid, guid, chat_id, handle_id, text, attributed_body,
+                    date, date_read, is_from_me, is_read, item_type, group_title,
                     associated_message_guid, associated_message_type, content_hash)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     apple_rowid, guid, jarvis_chat_id, jarvis_handle_id,
-                    text, date, date_read, is_from_me, is_read, item_type,
+                    text, body_blob, date, date_read, is_from_me, is_read, item_type,
                     group_title, associated_message_guid, associated_message_type,
                     content_hash,
                 ),
@@ -1043,6 +1121,89 @@ class IMessageImporter:
 
         return {"imported": imported}
 
+    # ── Backfill metadata ──────────────────────────────────────
+
+    def backfill_orphan_messages(self) -> dict[str, int]:
+        """Reassocie handle/chat/text pour les messages deja importes sans lien."""
+        if not self.is_available():
+            return {"updated": 0, "text_recovered": 0, "imported": 0}
+
+        stats = {"updated": 0, "text_recovered": 0, "imported": 0}
+        chat_conn = self._open_chat_db()
+        try:
+            handles_map = self._import_handles(chat_conn)
+            chats_map = self._import_chats(chat_conn)
+            self._import_chat_handles(chat_conn, handles_map, chats_map)
+
+            with get_db() as jarvis_conn:
+                orphan_rows = jarvis_conn.execute(
+                    """SELECT id, apple_rowid, text, attributed_body
+                       FROM imessage_messages
+                       WHERE handle_id IS NULL OR chat_id IS NULL
+                          OR TRIM(COALESCE(text, '')) = ''"""
+                ).fetchall()
+
+                for row in orphan_rows:
+                    apple_row = chat_conn.execute(
+                        _message_batch_sql(chat_conn),
+                        (row["apple_rowid"], row["apple_rowid"]),
+                    ).fetchone()
+                    if not apple_row:
+                        continue
+
+                    text = message_text_from_row(
+                        apple_row["text"],
+                        apple_row["attributedBody"],
+                    ) or (row["text"] or "").strip() or None
+
+                    resolved_handle = apple_row["resolved_handle_id"]
+                    if resolved_handle in (None, 0):
+                        resolved_handle = None
+                    else:
+                        resolved_handle = int(resolved_handle)
+
+                    jarvis_handle_id = (
+                        handles_map.get(resolved_handle) if resolved_handle else None
+                    )
+                    jarvis_chat_id = self._resolve_chat_id(
+                        jarvis_conn,
+                        str(apple_row["resolved_chat_identifier"] or ""),
+                        chats_map,
+                        resolved_handle,
+                    )
+
+                    updates: list[str] = []
+                    params: list[Any] = []
+                    if jarvis_handle_id:
+                        updates.append("handle_id = ?")
+                        params.append(jarvis_handle_id)
+                    if jarvis_chat_id:
+                        updates.append("chat_id = ?")
+                        params.append(jarvis_chat_id)
+                    if text and not (row["text"] or "").strip():
+                        updates.append("text = ?")
+                        params.append(text)
+                        stats["text_recovered"] += 1
+                    body_blob = apple_row["attributedBody"]
+                    if body_blob and not row["attributed_body"]:
+                        updates.append("attributed_body = ?")
+                        params.append(bytes(body_blob))
+
+                    if updates:
+                        params.append(row["id"])
+                        jarvis_conn.execute(
+                            f"UPDATE imessage_messages SET {', '.join(updates)} WHERE id = ?",
+                            params,
+                        )
+                        stats["updated"] += 1
+
+            batch = self._import_all_messages(chat_conn, handles_map, chats_map)
+            stats["imported"] = int(batch.get("imported", 0))
+        finally:
+            self._close_chat_db()
+
+        return stats
+
     # ── Reconciliation ─────────────────────────────────────────
 
     def reconcile(self) -> ReconciliationReport:
@@ -1090,17 +1251,12 @@ class IMessageImporter:
 
             # Tentative de correction : reassocier les messages orphelins
             if report.orphan_messages > 0:
-                jarvis_conn.execute(
-                    """UPDATE imessage_messages SET chat_id = NULL
-                       WHERE chat_id IS NOT NULL
-                         AND chat_id NOT IN (SELECT id FROM imessage_chats)"""
-                )
-                jarvis_conn.execute(
-                    """UPDATE imessage_messages SET handle_id = NULL
-                       WHERE handle_id IS NOT NULL
-                         AND handle_id NOT IN (SELECT id FROM imessage_handles)"""
-                )
-                report.orphan_fixed = report.orphan_messages - jarvis_conn.execute(
+                backfill_stats = self.backfill_orphan_messages()
+                report.orphan_fixed = int(backfill_stats.get("updated", 0))
+                report.jarvis_db_messages = jarvis_conn.execute(
+                    "SELECT COUNT(*) c FROM imessage_messages"
+                ).fetchone()["c"]
+                report.orphan_messages = jarvis_conn.execute(
                     """SELECT COUNT(*) c FROM imessage_messages m
                        WHERE m.chat_id IS NULL OR m.handle_id IS NULL"""
                 ).fetchone()["c"]

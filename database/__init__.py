@@ -75,6 +75,7 @@ from .people import (
     get_people_sorted_by_recent,
     get_person,
     get_person_timeline_cache,
+    clear_person_timeline_cache,
     get_total_messages_analyzed,
     patch_person,
     rename_person_if_phone_number,

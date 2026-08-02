@@ -997,7 +997,7 @@ export function ContactsView() {
                     </div>
                     <div className="flex items-center gap-2">
                       {/* Bouton principal : génère ou charge depuis cache */}
-                      {!timelineEvents.length && (
+                      {!timelineEvents.length && !timelineUpdatedAt && (
                         <button
                           type="button"
                           onClick={() => void loadAiTimeline()}
@@ -1005,11 +1005,11 @@ export function ContactsView() {
                           className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white text-black text-sm font-mono disabled:opacity-50"
                         >
                           {timelineLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-                          {timelineLoading ? 'Chargement…' : 'Charger la timeline'}
+                          {timelineLoading ? 'Analyse en cours…' : 'Charger la timeline'}
                         </button>
                       )}
-                      {/* Bouton Regénérer (visible si timeline déjà chargée) */}
-                      {timelineEvents.length > 0 && (
+                      {/* Regénérer si déjà chargée (même si vide — permet de retenter) */}
+                      {(timelineEvents.length > 0 || timelineUpdatedAt) && (
                         <button
                           type="button"
                           onClick={() => void regenerateTimeline()}
@@ -1028,8 +1028,8 @@ export function ContactsView() {
                   {/* État de chargement */}
                   {(timelineLoading || timelineRegenerating) && (
                     <p className="text-xs text-muted-foreground font-mono mb-3 animate-pulse">
-                      {timelineRegenerating
-                        ? 'Analyse des nouveaux événements en cours…'
+                      {timelineRegenerating || !timelineUpdatedAt
+                        ? 'Analyse des messages iMessage en cours (jusqu’à ~45 s)…'
                         : 'Lecture du cache…'}
                     </p>
                   )}
@@ -1064,7 +1064,11 @@ export function ContactsView() {
                       );
                     })}
                     {!timelineEvents.length && !timelineLoading && !timelineRegenerating && (
-                      <p className="text-sm text-muted-foreground">Clique sur le bouton pour charger.</p>
+                      <p className="text-sm text-muted-foreground">
+                        {timelineUpdatedAt
+                          ? 'Aucun événement marquant détecté. Tu peux régénérer.'
+                          : 'Clique sur le bouton pour charger.'}
+                      </p>
                     )}
                   </div>
                 </div>
