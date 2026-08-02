@@ -18,6 +18,7 @@ class TTSKitEngine:
     """TTSKit + Qwen3-TTS 0.6B (local) — chargement explicite, pas de téléchargement auto."""
 
     SAMPLE_RATE = 24000
+    AUDIO_MIME = "audio/wav"   # conteneur déclaré (voir audio.audio_format)
 
     def __init__(self) -> None:
         self._model_name = getattr(config, "TTS_MODEL", "qwen3-tts-0.6b")

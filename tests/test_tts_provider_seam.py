@@ -210,3 +210,17 @@ def test_audio_container_is_declared_by_the_engine():
     # Sans moteur, les valeurs historiques restent servies.
     assert tts_audio_mime("edge") == "audio/mpeg"
     assert tts_audio_mime("macos") == "audio/mp4"
+
+
+def test_mime_is_correct_when_only_the_engine_name_is_known():
+    """Régression : les appelants web ne passent que le nom du moteur.
+
+    Annoncer du WAV en `audio/mpeg` empêche la lecture côté client. Le nom
+    doit donc suffire à retrouver le conteneur, sans table codée en dur.
+    """
+    from audio.audio_format import tts_audio_mime
+
+    assert tts_audio_mime("kokoro") == "audio/wav"
+    assert tts_audio_mime("ttskit") == "audio/wav"
+    assert tts_audio_mime("macos") == "audio/mp4"
+    assert tts_audio_mime("edge") == "audio/mpeg"

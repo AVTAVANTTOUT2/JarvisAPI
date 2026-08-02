@@ -113,14 +113,25 @@ DEFAULT_TTS_MIME = "audio/mpeg"
 
 
 def tts_audio_mime(engine_name: str, engine: object | None = None) -> str:
-    """MIME à annoncer au client WebSocket.
+    """MIME à annoncer au client selon le conteneur que produit le moteur.
 
     Le moteur est la seule source fiable : le nom ne dit rien du conteneur
-    réellement produit, et un branchement par nom ici oblige à rouvrir ce
-    fichier générique à chaque changement de fournisseur.
+    réellement produit. Quand l'appelant n'a pas l'objet sous la main, le
+    moteur est résolu depuis son nom — annoncer un WAV en ``audio/mpeg``
+    empêcherait purement et simplement la lecture côté client.
     """
     declared = getattr(engine, "AUDIO_MIME", None) if engine is not None else None
     if isinstance(declared, str) and declared:
         return declared
+
     name = (engine_name or "edge").lower().strip()
+    if engine is None:
+        try:
+            from audio.tts import get_tts_by_name
+
+            resolved = getattr(get_tts_by_name(name), "AUDIO_MIME", None)
+            if isinstance(resolved, str) and resolved:
+                return resolved
+        except Exception:
+            pass
     return _LEGACY_ENGINE_MIME.get(name, DEFAULT_TTS_MIME)
