@@ -998,7 +998,34 @@ AUDIO_DAEMON_PRE_ROLL_MS=300     # amorce conservée avant le seuil
 
 Tests : `tests/test_voice_latency.py`, `tests/test_voice_rearm.py`,
 `tests/test_voice_pipeline_e2e.py`, `tests/test_voice_tts_warm.py`,
-`tests/test_tts_provider_seam.py`. Ils tournent
+`tests/test_tts_provider_seam.py`.
+
+#### Mesure réelle (02/08/2026, Mac Apple Silicon, moteurs réels)
+
+Énoncé « Bonjour Jarvis, comment vas-tu ? » (2,18 s), `large-v3-turbo` CPU,
+DeepSeek Flash, Kokoro chaud, sortie audio locale.
+
+| Étape | Cible | À froid | À chaud (médiane) |
+|---|---:|---:|---:|
+| STT (inférence) | < 700 ms | 3508 ms | **2390 ms** |
+| Contexte + file | < 200 ms | 1891 ms | **24 ms** |
+| Premier token LLM | < 800 ms | 3083 ms | **2248 ms** |
+| Premier fragment audio TTS | < 500 ms | 3799 ms | **436 ms** |
+| **Fin de parole → premier son** | < 2 s | 11499 ms | **5452 ms** |
+
+Ce qui est tenu : l'orchestration (24 ms) et le TTS (436 ms). Ce qui ne l'est
+pas : le STT et le réseau LLM, qui pèsent à eux seuls ~4,6 s des 5,4 s.
+
+Deux leviers restants, tous deux hors du code :
+
+- **Modèle STT.** Mesuré sur les deux énoncés de test, transcription
+  identique : `large-v3-turbo` 2334/2862 ms, `small` **595/673 ms** (÷4),
+  `base` 192/217 ms mais transcription fausse sur la phrase longue
+  (« Quel t'en fais-il aujourd'hui à l'île ? »). `small` amènerait le total
+  à ~3,2 s. C'est un arbitrage qualité/latence, laissé au propriétaire du
+  poste — le défaut reste `large-v3-turbo`.
+- **Aller-retour DeepSeek** (~1,9-2,3 s jusqu'au premier token). Rien dans le
+  dépôt ne peut le réduire ; seul un modèle local le supprimerait. Ils tournent
 avec des moteurs simulés — ils ne mesurent pas le matériel, ils vérifient que
 l'orchestration n'ajoute ni palier fixe, ni étape bloquante, ni état résiduel.
 
