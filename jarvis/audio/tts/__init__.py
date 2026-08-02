@@ -38,6 +38,8 @@ from jarvis.audio.tts.factory import (
     get_local_tts_provider,
     reset_local_tts_provider,
 )
+from jarvis.audio.tts.segmenter import TextStreamSegmenter, segment_stream
+
 __all__ = [
     "DEFAULT_CHANNELS",
     "DEFAULT_SAMPLE_RATE",
@@ -52,8 +54,10 @@ __all__ = [
     "TTSSynthesisError",
     "TTSUnavailableError",
     "TTSUnsupportedDeviceError",
+    "TextStreamSegmenter",
     "create_local_tts_provider",
     "get_local_tts_provider",
     "load_tts_settings",
     "reset_local_tts_provider",
+    "segment_stream",
 ]
