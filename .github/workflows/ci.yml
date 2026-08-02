@@ -126,7 +126,7 @@ jobs:
         # tous les modules dégradent proprement sans elles.
         run: |
           pip install \
-            "fastapi==0.115.*" "uvicorn[standard]==0.34.*" "python-dotenv==1.2.*" \
+            "fastapi==0.139.*" "uvicorn[standard]==0.34.*" "python-dotenv==1.2.*" \
             "websockets==15.*" "python-multipart==0.0.*" "jinja2==3.1.*" \
             "httpx==0.28.*" "apscheduler==3.10.*" "pymupdf==1.25.*" \
             "edge-tts==7.*" "Pillow>=10.0" "python-dateutil==2.9.*" \

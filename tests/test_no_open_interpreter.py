@@ -100,7 +100,12 @@ sys.meta_path.insert(0, ForbiddenModuleFinder())
 
 import main
 
-paths = {route.path for route in main.app.routes if hasattr(route, "path")}
+paths = set(main.app.openapi().get("paths", {}))
+paths.update(
+    route.path
+    for route in main.app.routes
+    if "WebSocket" in type(route).__name__ and getattr(route, "path", None)
+)
 missing = {"/api/status", "/api/integrations", "/ws"} - paths
 if missing:
     raise SystemExit(f"routes absentes du backend demarre : {sorted(missing)}")

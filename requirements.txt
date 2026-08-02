@@ -1,5 +1,5 @@
 # Core
-fastapi==0.115.*
+fastapi==0.139.*
 uvicorn[standard]==0.34.*
 python-dotenv==1.2.*    # 1.1.x : PYSEC-2026-2270 (corrigé en 1.2.2)
 websockets==15.*

@@ -49,5 +49,5 @@ def test_production_requirements_keep_spacy_and_kokoro_numpy_compatible():
 def test_production_requirements_pin_the_web_core():
     requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8")
 
-    assert "fastapi==0.115.*" in requirements
+    assert "fastapi==0.139.*" in requirements
     assert "uvicorn[standard]==0.34.*" in requirements
