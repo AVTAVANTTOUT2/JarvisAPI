@@ -225,6 +225,178 @@ export interface SupervisorStatus {
   services: SupervisorService[]
 }
 
+export interface FoodSuggestionItem {
+  name: string
+  quantity: number
+}
+
+export interface FoodSuggestion {
+  id: number
+  slot: number
+  restaurant: string
+  items: FoodSuggestionItem[]
+  estimated_price: number | null
+  /** Montant maximum que le clic autorise. Renvoyé tel quel à la commande. */
+  max_price: number | null
+  currency: string
+  reasoning: string | null
+  score: number
+  factors: Record<string, number>
+  expires_at: string | null
+}
+
+export interface FoodOrder {
+  id: number
+  restaurant: string
+  items_json: string
+  total_price: number | null
+  currency: string
+  status: string
+  dry_run: number
+  delivery_status: string | null
+  eta_minutes: number | null
+  delivered_at: string | null
+  rating: number | null
+  suggestion_id: number | null
+  error: string | null
+  created_at: string
+}
+
+export interface FoodIntegrationStatus {
+  enabled: boolean
+  dry_run: boolean
+  can_browse: boolean
+  can_place_real_order: boolean
+  can_scrape: boolean
+  suggestions_enabled: boolean
+  selectors_verified: boolean
+  reasons: string[]
+  max_order_price: number
+  max_daily_spend: number
+  max_daily_orders: number
+}
+
+export interface FoodStatusResponse {
+  integration: FoodIntegrationStatus
+  today: { date: string; orders: number; spend: number }
+}
+
+export interface FoodQuickOrderResult {
+  ok: boolean
+  status: string
+  restaurant: string
+  items_label: string
+  total_price: number | null
+  currency: string
+  dry_run: boolean
+  error?: string | null
+  slot: number
+  suggestion_id: number
+  authorised_price?: number
+}
+
+export interface FoodMenuSummary {
+  restaurant: string
+  item_count: number
+  scraped_at: string
+}
+
+export interface FoodMenuItem {
+  id: number
+  restaurant: string
+  item_name: string
+  category: string | null
+  price: number | null
+  currency: string
+  available: number
+  scraped_at: string
+}
+
+export interface FoodSettings {
+  enabled: boolean
+  dry_run: boolean
+  menu_scrape_enabled: boolean
+  suggestions_enabled: boolean
+  headless: boolean
+  max_order_price: number
+  max_daily_spend: number
+  max_daily_orders: number
+  max_items: number
+  max_item_quantity: number
+}
+
+/** Bornes dures issues du `.env` : l'interface peut descendre, jamais monter. */
+export interface FoodSettingsCeilings {
+  enabled: boolean
+  dry_run_forced: boolean
+  menu_scrape_enabled: boolean
+  suggestions_enabled: boolean
+  headless: boolean
+  max_order_price: number
+  max_daily_spend: number
+  max_daily_orders: number
+  max_items: number
+  max_item_quantity: number
+}
+
+export interface FoodSettingsResponse {
+  settings: FoodSettings
+  ceilings: FoodSettingsCeilings
+}
+
+export interface FoodCartPlan {
+  plan_id: string
+  restaurant: string
+  items: FoodSuggestionItem[]
+  items_label: string
+  total_price: number
+  currency: string
+  dry_run: boolean
+  expires_in_seconds: number
+  needs_confirmation?: boolean
+}
+
+export interface FoodOrderOutcome {
+  ok: boolean
+  status: string
+  restaurant: string
+  items_label: string
+  total_price: number | null
+  currency: string
+  dry_run: boolean
+  error: string | null
+  timestamp: string
+}
+
+export interface FoodSelectorsReport {
+  ok: boolean
+  path: string
+  verified: boolean
+  captured_at?: string | null
+  version?: number
+  roles: Record<string, number>
+  missing_required: string[]
+  missing_optional?: string[]
+  error?: string
+}
+
+export interface FoodCaptureStatus {
+  running: boolean
+  mode: string
+  started_at: number | null
+  finished_at: number | null
+  returncode: number | null
+  output: string
+}
+
+export interface FoodSessionReport {
+  path: string
+  exists: boolean
+  readable: boolean
+  age_hours: number | null
+  capture: FoodCaptureStatus
+}
+
 export interface VoiceDebugTrace {
   id: number
   created_at: string

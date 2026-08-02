@@ -30,9 +30,9 @@ Le bus applicatif est actif et conserve la compatibilité de construction histor
 
 - Les mutations de `database/tasks.py`, `notifications.py`, `conversations.py`, `episodes.py`, `facts.py`, `patterns.py` et `people.py` émettent **après commit**.
 - `database/event_log.py` journalise tous les événements dans la table SQLite `event_log`
- (ajoutée au schéma runtime ; le total post-`init_db` est **86 persistantes**, **91** avec FTS —
+ (ajoutée au schéma runtime ; le total post-`init_db` est **90 persistantes**, **95** avec FTS —
  voir `Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md` ; ne pas confondre avec le dump
- historique `database/schema.sql` ≈ 46 tables).
+ historique `database/schema.sql` ≈ 47 tables).
 - `websocket_registry.py` diffuse les événements de domaine aux sockets actives et `scripts/audio_daemon.py` traite les notifications `urgent/high`.
 - `/api/events/stream` diffuse les événements de domaine en SSE ; le polling périodique notifications/tâches a été supprimé.
 - Les handlers d'un même événement s'exécutent concurremment ; l'échec de l'un est journalisé sans interrompre les autres.
@@ -42,9 +42,9 @@ Depuis du code async, utiliser `await event_bus.emit(event)`. Depuis un chemin s
 
 ## Couche API — Phase 4
 
-`main.py` est un point d'assemblage : configuration FastAPI/CORS, montage des 16 `APIRouter`, branchement du WebSocket, configuration de `pipeline.py`, frontend et lancement Uvicorn. Les 235 opérations HTTP et le WebSocket `/ws` sont verrouillés par empreinte ; l'OpenAPI expose 209 chemins.
+`main.py` est un point d'assemblage : configuration FastAPI/CORS, montage des 17 `APIRouter`, branchement du WebSocket, configuration de `pipeline.py`, frontend et lancement Uvicorn. Les 261 opérations HTTP et le WebSocket `/ws` sont verrouillés par empreinte ; l'OpenAPI expose 231 chemins.
 
-- `api/router_*.py` contient exactement 12 routeurs par domaine ; aucun ne dépasse 447 lignes.
+- `api/router_*.py` contient exactement 17 routeurs par domaine ; aucun ne dépasse 467 lignes.
 - `api/lifespan.py`, `api/middleware.py` et `api/frontend.py` portent le cycle de vie, la sécurité HTTP et le serving des frontends.
 - `api/ws_handler.py`, `api/ws_messages.py`, `api/chat_*.py` et `api/voice_*.py` séparent le transport WebSocket, le contexte, les actions et les pipelines texte/vocal.
 - Tous les modules `api/*.py` restent sous 500 lignes et aucun n'importe `main.py`.
@@ -52,7 +52,7 @@ Depuis du code async, utiliser `await event_bus.emit(event)`. Depuis un chemin s
 
 ## Frontend unifié et SDK Auth — Phase 6
 
-`frontend/` est l'application canonique Next.js 15/React 19. `UnifiedApp` choisit le layout mobile avec User-Agent + viewport, sinon le layout desktop, puis importe directement les vues existantes sans les recopier. L'export statique produit 25 pages et FastAPI le sert avant les fallbacks.
+`frontend/` est l'application canonique Next.js 15/React 19. `UnifiedApp` choisit le layout mobile avec User-Agent + viewport, sinon le layout desktop, puis importe directement les vues existantes sans les recopier. L'export statique produit 26 segments métier et FastAPI le sert avant les fallbacks.
 
 - `jarvis_auth/` est l'unique implémentation de `AuthClient`, `useLockGate()` et `LockGate`. Le rendu est fail-closed et ne monte jamais les enfants privés avant confirmation de session.
 - `frontend/src/lib/api.ts` est l'unique appel direct à `fetch()` dans les trois arbres frontend ; il inclut toujours le cookie, y compris pour uploads, GPS et file hors-ligne.
@@ -64,7 +64,7 @@ Depuis du code async, utiliser `await event_bus.emit(event)`. Depuis un chemin s
 
 ## Personnalité JARVIS
 
-JARVIS est **UNE seule entité** du point de vue de l'utilisateur. Les agents (`info`, `school`, `productivity`, `coach`, `journal`, `memory`) sont des **rouages internes** invisibles. L'utilisateur ne doit JAMAIS voir le mot "agent" dans une réponse, ni se faire dire "je suis l'agent X".
+JARVIS est **UNE seule entité** du point de vue de l'utilisateur. Les agents (`info`, `school`, `productivity`, `coach`, `journal`, `memory`, `devops`, `food`) sont des **rouages internes** invisibles. L'utilisateur ne doit JAMAIS voir le mot "agent" dans une réponse, ni se faire dire "je suis l'agent X".
 
 ### La persona (prompts/persona.txt)
 
@@ -89,7 +89,7 @@ JARVIS est **UNE seule entité** du point de vue de l'utilisateur. Les agents (`
 
 | Agent | `inject_persona` | Pourquoi |
 |---|---|---|
-| `info`, `school`, `productivity`, `coach`, `journal` | `True` (défaut) | Parlent à l'utilisateur — voix JARVIS obligatoire |
+| `info`, `school`, `productivity`, `coach`, `journal`, `food` | `True` (défaut) | Parlent à l'utilisateur — voix JARVIS obligatoire |
 | `orchestrator` | `False` | Classifieur interne — sortie consommée par du code (`SCHOOL`, `INFO`, …) |
 | `memory` | `False` | Système silencieux — sortie JSON consommée par le parser |
 
@@ -117,14 +117,21 @@ Input utilisateur (texte ou audio transcrit)
     │
     ▼
 ORCHESTRATEUR (Haiku 4.5, ~50 tokens)
-Classifie en: SCHOOL | PRODUCTIVITY | COACH | INFO | JOURNAL
+Classifie en: SCHOOL | PRODUCTIVITY | COACH | INFO | JOURNAL | DEVOPS | FOOD
     │
     ├── SCHOOL     → Agent École (Sonnet 4.6)
     ├── PRODUCTIVITY → Agent Productivité (Haiku triage / Sonnet rédaction)
     ├── COACH      → Agent Life Coach (Sonnet / Opus si décision profonde)
     ├── INFO       → Agent Info (Haiku 4.5)
-    └── JOURNAL    → Agent Journal (Sonnet 4.6)
+    ├── JOURNAL    → Agent Journal (Sonnet 4.6)
+    ├── DEVOPS     → Agent DevOps (code, infra, délégation Cursor)
+    └── FOOD       → Agent Repas (Haiku — panier Uber Eats, jamais le paiement)
 ```
+
+Priorité stricte des mots-clés : `COACH > FOOD > JOURNAL > SCHOOL >
+PRODUCTIVITY > DEVOPS > INFO`. Les motifs FOOD sont volontairement étroits — le
+mot « commande » seul reste DEVOPS, sans quoi « lance la commande git status »
+ouvrirait un panier.
 
 Tous les agents partagent un **Memory Agent** transversal qui gère la mémoire épisodique, le life profile, les fiches people, et la détection de patterns.
 
@@ -142,6 +149,7 @@ Le mapping agent → modèle vit dans `config.AGENT_MODELS` (surchargez via `.en
 | Life Coach (deep) | `DEEPSEEK_MAIN_MODEL` | Décisions structurantes uniquement |
 | Info | `DEEPSEEK_FAST_MODEL` | Météo, questions factuelles |
 | Journal | `DEEPSEEK_MAIN_MODEL` | Extraction insights du journal |
+| Repas | `DEEPSEEK_FAST_MODEL` | Panier Uber Eats, historique, plafonds |
 | Mémoire | `DEEPSEEK_FAST_MODEL` | Résumés, détection patterns |
 
 **Ordre du system prompt inchangé** : `[LIFE_PROFILE]` + `[MEMORY_CONTEXT]` d'abord, puis `[AGENT_INSTRUCTIONS]`. DeepSeek gère le prompt caching automatiquement côté serveur (pas de `cache_control` explicite — le cache hit est lu dans `usage.prompt_cache_hit_tokens`).
@@ -515,6 +523,299 @@ ne partent jamais bruts et le contenu du presse-papiers reste exclu du cloud.
 | "brew install redis" | bloqué | Gestionnaire de paquets hors allowlist |
 | "corrige mon projet" | Cursor | Worktree isolé et workflow Cursor |
 
+## Commande de repas — Uber Eats piloté au navigateur
+
+Uber ne publie pas d'API consommateur : l'API officielle est réservée aux
+restaurateurs. La seule voie restante est de piloter un navigateur avec la
+session déjà authentifiée de l'utilisateur. **C'est une automatisation de
+navigateur, donc contraire aux conditions d'utilisation d'Uber, et sujette à la
+détection de robots — risque assumé.** Les sélecteurs DOM n'ont aucune garantie
+de stabilité : ils vivent dans un JSON versionné, pas dans le code.
+
+### Trois interrupteurs pour dépenser un euro
+
+Une commande réelle exige simultanément `UBER_EATS_ENABLED=true`,
+`UBER_EATS_DRY_RUN=false`, et un fichier de sélecteurs marqué `"verified": true`.
+Tant que l'un manque, JARVIS construit le panier et annonce le total, mais ne
+clique jamais sur le bouton de paiement.
+
+### Flux en deux passes (`actions.py` → `food_order`)
+
+```
+Passe 1 — uber_eats.prepare_order()
+  navigation → recherche → articles → lecture du total réel
+  → plafonds revérifiés → plan opaque figé (TTL UBER_EATS_PLAN_TTL_SECONDS)
+  → réponse needs_confirmation, aucune dépense
+
+Passe 2 — uber_eats.confirm_order(plan_id)
+  plan consommé atomiquement (un seul appel réussit)
+  → total relu et comparé au plan (dérive > 1 centime = refus)
+  → plafonds revérifiés → clic paiement → marqueur de confirmation exigé
+```
+
+Un `confirmed: true` produit par le modèle sans plan serveur est ignoré et
+journalisé : c'est ce qui empêche une génération de texte de commander seule.
+Une proposition abandonnée révoque son plan via `api/action_confirmations.py`.
+
+### Modules
+
+| Fichier | Rôle |
+|---|---|
+| `integrations/playwright_runtime.py` | Import tardif de Playwright — JARVIS démarre sans |
+| `integrations/uber_eats_selectors.py` | Chargement, validation et résolution des sélecteurs (stratégies ordonnées, cache invalidé par mtime) |
+| `integrations/uber_eats_selectors.json` | Sélecteurs versionnés, livrés `"verified": false` |
+| `integrations/uber_eats.py` | Client Playwright, plans opaques, plafonds, captures d'échec |
+| `scripts/uber_eats_capture_session.py` | Capture de session (`--codegen` pour les sélecteurs réels) |
+| `agents/food.py` + `prompts/food.txt` | Agent FOOD — contexte, voix JARVIS, bloc `action` |
+| `database/food_orders.py` | Journal `food_orders`, suivi de livraison, notation, compteurs journaliers |
+
+### Table `food_orders`
+
+`plan_id`, `restaurant`, `items_json`, `total_price`, `currency`, `dry_run`,
+`status` (`planned` / `simulated` / `placed` / `blocked` / `failed`), `error`,
+`screenshot_path`, `created_at`, plus le suivi de course : `delivery_status`,
+`eta_minutes`, `delivered_at`, `tracking_url`, `rating`, `suggestion_id`.
+
+`status` et `delivery_status` ne disent pas la même chose et ne doivent pas
+être confondus : le premier décrit l'issue de la tentative côté JARVIS, le
+second l'avancement réel de la livraison. Une commande peut être `placed` et
+encore `preparing`.
+
+Un index unique partiel sur `plan_id` limité à `status = 'placed'` rend
+physiquement impossible la double commande issue d'un même plan. Seules les
+lignes `placed` avec `dry_run = 0` alimentent les plafonds journaliers,
+calculés dans `TIMEZONE` puis convertis en bornes UTC.
+
+## Suggestions de repas et commande en un clic
+
+Extension du parcours ci-dessus : JARVIS relève les menus, apprend les
+habitudes, propose trois repas par service, et permet de commander d'un seul
+geste — sans jamais renoncer à la borne de dépense.
+
+### Ce que le clic autorise exactement
+
+Le prompt d'origine posait « le clic visuel EST la confirmation ». C'est tenu,
+avec une précision qui change tout : **un clic engage au plus le montant écrit
+sur le bouton**, jamais le prix réel du panier s'il s'avère plus élevé.
+
+```
+Génération      estimation d'après le menu relevé
+                → max_price = estimation × (1 + FOOD_QUICK_ORDER_PRICE_TOLERANCE),
+                  plafonné par UBER_EATS_MAX_ORDER_PRICE, figé en base
+
+Clic            le client renvoie le montant affiché
+                → refus 409 s'il diffère de celui figé (écran périmé)
+                → suggestion réservée atomiquement (deux clics ≠ deux commandes)
+
+Panier réel     total lu à l'écran
+                ≤ montant autorisé  → paiement immédiat, sans seconde question
+                > montant autorisé  → rien n'est engagé, plan rendu à confirmer
+```
+
+La suggestion est relâchée si le panier échoue : un incident technique ne doit
+pas consommer une proposition.
+
+**Clavier** : `1`, `2`, `3` *arment* une suggestion, `Entrée` confirme, `Échap`
+annule. Deux gestes plutôt qu'un, parce qu'une frappe parasite sur une page au
+premier plan ne doit pas déclencher un paiement. Le clic à la souris, lui,
+reste bien en un seul geste — il porte déjà une intention explicite.
+
+### Le choix est déterministe, seule la phrase vient du modèle
+
+Même principe que le routage cognitif : `scripts/food_intelligence.py` classe
+les candidats par une formule fixe — fréquence, correspondance avec le jour de
+la semaine, notes obtenues, fraîcheur (un restaurant commandé hier est
+déprécié), écart au budget habituel. Chaque suggestion expose ses `factors`,
+affichés tels quels. Le modèle n'intervient que pour écrire une phrase de
+justification, en un seul appel pour les trois propositions, avec repli
+déterministe si le réseau manque.
+
+Un restaurant dont le menu n'a pas de prix lisible est écarté : sans prix, le
+montant autorisé au clic serait un chèque en blanc.
+
+### Le relevé ne peut pas acheter
+
+`integrations/uber_eats_discovery.py` ouvre des pages, lit du texte, ferme le
+navigateur. Il ne contient aucun clic d'ajout au panier ni de paiement, et
+`tests/test_food_intelligence.py` le vérifie statiquement : la séparation est
+une propriété testée, pas une convention de rangement. Les liens de suivi sont
+validés contre le domaine configuré avant toute navigation, sinon la session
+serait exposée à un hôte arbitraire.
+
+### Modules et tables
+
+| Fichier | Rôle |
+|---|---|
+| `integrations/uber_eats_discovery.py` | Relevé en lecture seule : fil d'accueil, menus, page de suivi |
+| `scripts/food_intelligence.py` | Apprentissage des préférences et scoring des suggestions |
+| `scripts/food_menu_refresh.py` | Relevé planifiable (aussi exécutable à la main) |
+| `api/food_support.py` | Commande en un clic, suivi, état consolidé |
+| `api/router_food.py` | Routes `/api/food/*` |
+| `database/food_intelligence.py` | `food_menu_cache`, `food_preferences`, `food_suggestions` |
+| `web/src/app/components/views/FoodView.tsx` | Page « Nourriture » |
+
+- `food_menu_cache` : articles relevés, `UNIQUE(restaurant, item_name)`, remplacement transactionnel par restaurant.
+- `food_preferences` : préférences dérivées avec `confidence` et `sample_size` — trois commandes ne valent pas vingt.
+- `food_suggestions` : propositions du jour, avec `max_price`, `score`, `factors_json` et `expires_at`. Un nouveau lot périme le précédent sans le supprimer, pour garder le lien avec les commandes déclenchées.
+
+## Pilotage complet depuis le tableau de bord
+
+Toute l'intégration se commande depuis la page Nourriture : réglages, panier
+libre, relevé de menus, diagnostic et capture de session. Plus rien n'oblige à
+ouvrir un terminal sur le Mac, sauf le geste physique de connexion.
+
+### Deux niveaux de pouvoir, jamais un seul
+
+Ouvrir les dépenses à une surface réseau demandait une borne. Le `.env` ne
+porte plus les valeurs courantes mais les **valeurs maximales atteignables** ;
+la base (`app_settings`, préfixe `uber_eats.`) porte les réglages du moment.
+
+```
+.env            borne dure, modifiable seulement sur la machine, redémarrage
+   ▼
+base            réglage courant, modifiable depuis le navigateur
+   ▼
+effectif        min(base, borne) — et pour les interrupteurs, base ET borne
+```
+
+Trois conséquences volontaires : un interrupteur fermé dans le `.env` ne peut
+pas être ouvert depuis le réseau ; `UBER_EATS_DRY_RUN=true` verrouille la
+simulation quoi qu'en dise l'interface ; un plafond ne peut jamais être relevé
+au-delà de ce que le propriétaire de la machine a déjà consenti. Une session
+compromise dépense au pire le budget déjà autorisé.
+
+Le drapeau `verified` des sélecteurs reste hors interface. C'est le dernier
+garde-fou avant le clic de paiement : un test statique interdit à la couche de
+contrôle de l'écrire.
+
+`integrations/uber_eats_settings.py` porte cette fusion. Les plafonds sont
+relus à chaque vérification : abaisser une limite bloque immédiatement un
+panier déjà construit qui attend sa confirmation. À l'inverse, le mode
+simulation est figé dans le plan au moment où l'utilisateur voit le total —
+quitter la simulation ensuite ne transforme pas un essai en paiement.
+
+### Panier libre en deux passes
+
+L'onglet « Commander » compose un panier à la main (saisie libre ou clic dans
+le menu relevé), puis suit exactement le chemin de l'action `food_order` :
+`POST /api/food/cart/prepare` construit le panier et lit le total réel sans
+rien engager, `POST /api/food/cart/{plan_id}/confirm` consomme le plan une
+seule fois. L'interface web n'a pas de raccourci vers le paiement. La réponse
+de confirmation ne renvoie pas le `plan_id` consommé : le seul usage possible
+serait un rejeu.
+
+### Diagnostic et réparation
+
+L'onglet « Diagnostic » affiche la couverture des sélecteurs rôle par rôle,
+l'âge de la session, et permet trois gestes : sonder la session en conditions
+réelles (`POST /api/food/session/probe`, headless), relire le fichier de
+sélecteurs après édition, et lancer une capture. La capture ouvre une fenêtre
+**sur la machine hôte** : on la déclenche à distance et on suit son état, mais
+la connexion Uber reste un geste humain devant l'écran. Une seule capture à la
+fois, interruption possible, arrêt automatique après quinze minutes.
+
+### Endpoints de pilotage
+
+| Route | Méthode | Description |
+|---|---|---|
+| `/api/food/settings` | GET / PATCH | Réglages courants et bornes du `.env` |
+| `/api/food/settings/reset` | POST | Revient aux valeurs du `.env` |
+| `/api/food/cart/prepare` | POST | Construit un panier, lit le total, n'engage rien |
+| `/api/food/cart/{plan_id}` | GET / DELETE | Relit ou abandonne un panier en attente |
+| `/api/food/cart/{plan_id}/confirm` | POST | Consomme le plan et commande |
+| `/api/food/menus/{restaurant}` | GET | Articles connus, pour composer un panier |
+| `/api/food/selectors` | GET | Couverture et validité du fichier |
+| `/api/food/selectors/reload` | POST | Relit le fichier après édition |
+| `/api/food/session` | GET | Présence et fraîcheur de la session |
+| `/api/food/session/probe` | POST | Vérifie qu'Uber reconnaît encore la session |
+| `/api/food/session/capture` | GET / POST / DELETE | État, lancement et arrêt de la capture |
+
+### Endpoints
+
+| Route | Méthode | Description |
+|---|---|---|
+| `/api/food/status` | GET | État de l'intégration, plafonds, consommation du jour |
+| `/api/food/suggestions` | GET | Suggestions cliquables |
+| `/api/food/suggestions/generate` | POST | Recalcule préférences puis suggestions |
+| `/api/food/suggestions/{slot}/order` | POST | `{accepted_price}` — commande en un clic |
+| `/api/food/orders` | GET | Historique |
+| `/api/food/orders/{id}/rating` | POST | `{rating}` de 1 à 5 |
+| `/api/food/delivery` | GET | Commandes en route |
+| `/api/food/delivery/refresh` | POST | Relit le suivi et diffuse les changements |
+| `/api/food/menus` | GET | Menus en cache et leur fraîcheur |
+| `/api/food/menus/refresh` | POST | Relève les menus suivis |
+| `/api/food/preferences` | GET | Préférences dérivées |
+
+Toutes ces routes passent par le verrou de session et exigent le jeton
+synchronisé sur les mutations — aucune exception n'a été ajoutée au middleware.
+
+### Temps réel
+
+Aucun second WebSocket : les mises à jour passent par l'événement
+`food.order_updated` sur le bus applicatif, consommé par le flux SSE existant
+`/api/events/stream`. Le type est déclaré **avant** le bloc « Domaine
+applicatif » de `EVENT_TYPES`, car `DOMAIN_EVENT_TYPES` en est défini comme les
+dix derniers et doit rester aligné sur les dix classes typées.
+
+### Jobs planifiés
+
+| Job | Horaire | Rôle |
+|---|---|---|
+| `food_menu_refresh` | 11:10 et 18:10 | Relève les menus avant les deux services |
+| `food_suggestions` | 11:40 et 18:40 | Recalcule les préférences puis génère le lot |
+| `food_delivery_tracking` | toutes les 5 min | Relit le suivi des commandes en cours |
+
+### Limites assumées
+
+- Les sélecteurs de relevé (`feed_*`, `menu_*`, `order_*_text`) sont, comme les
+  autres, des hypothèses non confirmées contre le DOM réel.
+- Le suivi de livraison dépend d'un lien capturé après le paiement : sans lui,
+  la commande reste affichée sans avancement.
+- Le choix des articles est volontairement simple (les moins chers du menu
+  connu) : prévisible, mais pas gastronomique.
+- La notation alimente le score mais n'a pas d'effet immédiat : elle est prise
+  en compte à la génération suivante.
+
+### Mise en service
+
+```bash
+pip install playwright && playwright install chromium
+python scripts/uber_eats_capture_session.py --codegen
+# reporter les sélecteurs réels dans integrations/uber_eats_selectors.json
+# puis "verified": true, puis UBER_EATS_DRY_RUN=false
+```
+
+La session expire périodiquement : le client détecte l'écran de connexion et
+demande une nouvelle capture au lieu de tâtonner. Chaque échec produit une
+capture d'écran privée dans `UBER_EATS_SCREENSHOT_DIR` (rotation
+`UBER_EATS_SCREENSHOT_KEEP`), jamais transmise au LLM.
+
+### Variables d'env
+
+```bash
+UBER_EATS_ENABLED=false          # opt-in explicite
+UBER_EATS_DRY_RUN=true           # simulation : jamais de clic de paiement
+UBER_EATS_MAX_ORDER_PRICE=40     # plafond par commande
+UBER_EATS_MAX_DAILY_SPEND=80     # plafond journalier
+UBER_EATS_MAX_DAILY_ORDERS=2     # nombre de commandes par jour
+UBER_EATS_MAX_ITEMS=10
+UBER_EATS_MAX_ITEM_QUANTITY=5
+UBER_EATS_PLAN_TTL_SECONDS=600   # durée de vie d'un panier en attente
+UBER_EATS_STORAGE_STATE=./data/uber_eats_storage_state.json
+UBER_EATS_SELECTORS_FILE=./integrations/uber_eats_selectors.json
+UBER_EATS_SCREENSHOT_DIR=./data/uber_eats_screenshots
+```
+
+### Limites assumées
+
+- Détection de robot possible malgré une session légitime ; en cas de blocage
+  systématique, la seule issue propre est le lien profond avec validation
+  manuelle dans l'application.
+- Les sélecteurs livrés sont des hypothèses non confirmées : rien n'a été
+  vérifié contre le DOM réel d'Uber Eats.
+- Aucune vérification du contenu du panier après ajout : seuls le total et sa
+  stabilité entre les deux passes sont contrôlés.
+
 ## Audio — pipeline local post-PR #17
 
 Le daemon utilise uniquement des moteurs locaux. `audio/stt_daemon.py` fournit
@@ -634,7 +935,7 @@ RECORDING_SUMMARY_ONLY=false
 ```
 jarvis/
 ├── main.py                  # Assemblage FastAPI/Uvicorn (175 lignes)
-├── api/                     # 12 routeurs + lifespan, middleware, frontend et pipeline WebSocket
+├── api/                     # 17 routeurs + lifespan, middleware, frontend et pipeline WebSocket
 ├── config.py                # Charge .env, expose tous les settings
 ├── llm.py                   # Client DeepSeek API (chat, stream, classify)
 ├── actions.py               # execute_action : tâches, mails, terminal, ordinateur…
@@ -650,6 +951,7 @@ jarvis/
 │   ├── coach.py             # Relations, émotions, patterns, décisions
 │   ├── info.py              # Météo, recherche web, questions rapides
 │   ├── journal.py           # Journal intime → extraction insights JSON
+│   ├── food.py              # Commande de repas Uber Eats (panier, jamais le paiement)
 │   └── memory.py            # Mémoire transversale, résumés, patterns
 │
 ├── audio/
@@ -665,12 +967,18 @@ jarvis/
 │   ├── web_search.py        # Tavily API
 │   ├── computer.py          # Shell sécurisé, AppleScript, infos système (macOS)
 │   ├── notifications_macos.py  # Notifications bureau macOS
+│   ├── playwright_runtime.py   # Import tardif de Playwright (dépendance facultative)
+│   ├── uber_eats.py         # Commande de repas : plans opaques, plafonds, captures
+│   ├── uber_eats_selectors.py  # Sélecteurs externalisés, validés, résolus à l'exécution
+│   ├── uber_eats_discovery.py  # Relevé lecture seule : menus, fil d'accueil, suivi
 │   └── location.py          # LocationManager — GPS, visites, trajets
 │
 ├── database/
 │   ├── __init__.py          # init_db(), get_db() context manager
 │   ├── schema.sql           # Schéma SQLite complet (toutes les tables)
 │   ├── location_helpers.py  # CRUD localisation (lieux, historique, visites, trajets, patterns)
+│   ├── food_orders.py       # Journal des commandes de repas + plafonds journaliers
+│   ├── food_intelligence.py # Menus relevés, préférences dérivées, suggestions du jour
 │   └── queries.py           # Helpers CRUD (save_message, get_life_profile, etc.)
 │
 ├── jarvis/
@@ -696,6 +1004,7 @@ jarvis/
 │   ├── coach.txt
 │   ├── info.txt
 │   ├── journal.txt
+│   ├── food.txt             # Agent FOOD — panier Uber Eats, jamais le paiement
 │   ├── memory.txt
 │   ├── email_analyzer.txt   # Prompt JSON-only pour l'analyse d'emails (Haiku)
 │   ├── location_analyzer.txt  # Haiku — habitudes géographiques (JSON)
@@ -742,6 +1051,9 @@ Le fichier `database/schema.sql` contient toutes les tables. Les voici regroupé
 - `email_summaries` : id, gmail_id (UNIQUE), sender, subject, summary, action_needed, priority — **alimentée par `email_watcher`** (UPSERT idempotent par `gmail_id`)
 - `daily_briefings` : id, date (UNIQUE), morning_briefing, evening_summary
 - `notifications` : id, source (email/pattern/calendar/system), title, content, priority (urgent/high/medium/low), read, email_id, created_at — alimentée par `email_watcher` (mails urgent/high) et lue par `/api/notifications` + UI
+
+### Repas
+- `food_orders` : id, plan_id, restaurant, items_json, total_price, currency, dry_run, status (planned/simulated/placed/blocked/failed), error, screenshot_path, created_at — index unique partiel sur `plan_id` limité à `status = 'placed'` (anti-double commande)
 
 ### Localisation
 - `places` : lieux nommés (catégorie, lat/lng, `radius_meters`, stats)

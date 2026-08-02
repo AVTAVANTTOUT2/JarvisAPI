@@ -17,10 +17,16 @@ def _line_count(path: Path) -> int:
     return len(path.read_text(encoding="utf-8").splitlines())
 
 
-def test_phase4_assembles_exactly_fifteen_domain_routers():
+#: Nombre de routeurs métier attendus dans `api/`. À faire évoluer sciemment :
+#: un routeur qui apparaît sans décision explicite est presque toujours une
+#: route ajoutée au mauvais endroit.
+EXPECTED_DOMAIN_ROUTERS = 17
+
+
+def test_phase4_assembles_the_expected_number_of_domain_routers():
     router_paths = sorted(API_DIR.glob("router_*.py"))
 
-    assert len(router_paths) == 16
+    assert len(router_paths) == EXPECTED_DOMAIN_ROUTERS
     for path in router_paths:
         module = importlib.import_module(f"api.{path.stem}")
         assert isinstance(module.router, APIRouter), path.name

@@ -42,6 +42,7 @@ ACTIONS_WITH_FOLLOWUP = frozenset({
     "where_am_i",
     "day_route",
     "tv",
+    "food_order",
 })
 
 # Types d'actions qui peuvent déclencher la boucle agentique (multi-étapes)

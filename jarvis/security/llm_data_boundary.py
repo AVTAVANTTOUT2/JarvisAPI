@@ -295,6 +295,25 @@ def format_action_result_for_external_llm(
             for email in (emails[:10] if isinstance(emails, list) else [])
             if isinstance(email, Mapping)
         ]
+    elif action_type == "food_order":
+        for key, limit in (
+            ("status", 40),
+            ("restaurant", 120),
+            ("items_label", 400),
+            ("message", 400),
+            ("error", 400),
+        ):
+            if action_result.get(key):
+                structured[key] = _text(action_result[key], limit)
+        total = action_result.get("total_price")
+        if isinstance(total, (int, float)) and not isinstance(total, bool):
+            structured["total_price"] = round(float(total), 2)
+        currency = action_result.get("currency")
+        if currency:
+            structured["currency"] = _text(currency, 8)
+        for flag in ("dry_run", "needs_confirmation"):
+            if flag in action_result:
+                structured[flag] = bool(action_result[flag])
     elif action_type == "search_conversations":
         results = action_result.get("results")
         structured["results"] = [

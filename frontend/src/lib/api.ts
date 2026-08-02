@@ -13,6 +13,19 @@ import type {
   ConversationSearchResult,
   ConversationSummary,
   DeviceInfo,
+  FoodCaptureStatus,
+  FoodCartPlan,
+  FoodMenuItem,
+  FoodMenuSummary,
+  FoodOrder,
+  FoodOrderOutcome,
+  FoodQuickOrderResult,
+  FoodSelectorsReport,
+  FoodSessionReport,
+  FoodSettings,
+  FoodSettingsResponse,
+  FoodStatusResponse,
+  FoodSuggestion,
   LlmActionLog,
   ScreenActivityRow,
   ServiceInfo,
@@ -220,6 +233,77 @@ export const api = {
     request<{ ok: boolean; deleted_id: number }>(`/api/tasks/${id}`, { method: 'DELETE' }),
   deleteAllTasks: () =>
     request<{ ok: boolean; deleted_count: number }>('/api/tasks', { method: 'DELETE' }),
+
+  getFoodStatus: () => request<FoodStatusResponse>('/api/food/status'),
+  getFoodSuggestions: () => request<{ suggestions: FoodSuggestion[] }>('/api/food/suggestions'),
+  generateFoodSuggestions: () =>
+    request('/api/food/suggestions/generate', { method: 'POST' }),
+  // `accepted_price` est le montant lu sur le bouton : le serveur refuse de
+  // payer au-delà, donc un écran périmé ne peut pas engager plus que prévu.
+  quickOrderFood: (slot: number, acceptedPrice: number) =>
+    request<FoodQuickOrderResult>(`/api/food/suggestions/${slot}/order`, {
+      method: 'POST',
+      body: JSON.stringify({ accepted_price: acceptedPrice }),
+    }),
+  getFoodOrders: (limit = 30) => request<{ orders: FoodOrder[] }>(`/api/food/orders?limit=${limit}`),
+  rateFoodOrder: (orderId: number, rating: number) =>
+    request<{ order: FoodOrder }>(`/api/food/orders/${orderId}/rating`, {
+      method: 'POST',
+      body: JSON.stringify({ rating }),
+    }),
+  getFoodDelivery: () => request<{ orders: FoodOrder[] }>('/api/food/delivery'),
+  refreshFoodDelivery: () => request('/api/food/delivery/refresh', { method: 'POST' }),
+  getFoodMenus: () => request<{ restaurants: FoodMenuSummary[] }>('/api/food/menus'),
+  refreshFoodMenus: (restaurants?: string[]) =>
+    request('/api/food/menus/refresh', {
+      method: 'POST',
+      body: JSON.stringify(restaurants ? { restaurants } : {}),
+    }),
+  getFoodMenuItems: (restaurant: string) =>
+    request<{ restaurant: string; items: FoodMenuItem[] }>(
+      `/api/food/menus/${encodeURIComponent(restaurant)}`,
+    ),
+
+  getFoodSettings: () => request<FoodSettingsResponse>('/api/food/settings'),
+  updateFoodSettings: (patch: Partial<FoodSettings>) =>
+    request<FoodSettingsResponse>('/api/food/settings', {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
+  resetFoodSettings: () =>
+    request<FoodSettingsResponse>('/api/food/settings/reset', { method: 'POST' }),
+
+  // Panier libre : la préparation lit le total réel sans rien engager, la
+  // confirmation consomme le plan une seule fois.
+  prepareFoodCart: (restaurant: string, items: { name: string; quantity: number }[]) =>
+    request<FoodCartPlan>('/api/food/cart/prepare', {
+      method: 'POST',
+      body: JSON.stringify({ restaurant, items }),
+    }),
+  confirmFoodCart: (planId: string) =>
+    request<FoodOrderOutcome>(`/api/food/cart/${encodeURIComponent(planId)}/confirm`, {
+      method: 'POST',
+    }),
+  cancelFoodCart: (planId: string) =>
+    request<{ ok: boolean; revoked: boolean }>(`/api/food/cart/${encodeURIComponent(planId)}`, {
+      method: 'DELETE',
+    }),
+
+  getFoodSelectors: () => request<FoodSelectorsReport>('/api/food/selectors'),
+  reloadFoodSelectors: () =>
+    request<FoodSelectorsReport>('/api/food/selectors/reload', { method: 'POST' }),
+  getFoodSession: () => request<FoodSessionReport>('/api/food/session'),
+  probeFoodSession: () =>
+    request<{ ok: boolean; message: string; url?: string }>('/api/food/session/probe', {
+      method: 'POST',
+    }),
+  startFoodCapture: (mode: 'session' | 'codegen' = 'session') =>
+    request<FoodCaptureStatus>('/api/food/session/capture', {
+      method: 'POST',
+      body: JSON.stringify({ mode }),
+    }),
+  stopFoodCapture: () =>
+    request<FoodCaptureStatus>('/api/food/session/capture', { method: 'DELETE' }),
 
   getFitnessDashboard: (date?: string) =>
     request(`/api/fitness/dashboard${date ? `?date=${encodeURIComponent(date)}` : ''}`),

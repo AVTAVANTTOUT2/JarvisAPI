@@ -68,12 +68,26 @@ def is_valid_proposal_id(value: object) -> bool:
 
 
 def _revoke_action_plan(action: dict) -> bool:
-    plan_id = str(action.get("shell_plan_id") or "").strip()
-    if not plan_id:
-        return False
-    from integrations.shell_safety import revoke_shell_plan
+    """Révoque le plan serveur adossé à une proposition abandonnée.
 
-    return revoke_shell_plan(plan_id)
+    Une proposition remplacée, annulée ou expirée ne doit laisser derrière elle
+    aucun plan consommable : ni commande shell, ni panier prêt à payer.
+    """
+    revoked = False
+    shell_plan_id = str(action.get("shell_plan_id") or "").strip()
+    if shell_plan_id:
+        from integrations.shell_safety import revoke_shell_plan
+
+        revoked = revoke_shell_plan(shell_plan_id) or revoked
+
+    if str(action.get("type") or "") == "food_order":
+        food_plan_id = str(action.get("plan_id") or "").strip()
+        if food_plan_id:
+            from integrations.uber_eats import revoke_order_plan
+
+            revoked = revoke_order_plan(food_plan_id) or revoked
+
+    return revoked
 
 
 def _drop_locked(proposal_id: str) -> dict | None:

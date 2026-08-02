@@ -1115,6 +1115,121 @@ def _migrate_scheduler_job_runs(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_food_orders(conn: sqlite3.Connection) -> None:
+    """Journal des commandes de repas et garde-fou anti-double commande."""
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS food_orders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            plan_id TEXT,
+            restaurant TEXT NOT NULL,
+            items_json TEXT NOT NULL,
+            total_price REAL CHECK(total_price IS NULL OR total_price >= 0),
+            currency TEXT NOT NULL DEFAULT 'EUR',
+            dry_run INTEGER NOT NULL DEFAULT 1 CHECK(dry_run IN (0, 1)),
+            status TEXT NOT NULL CHECK(
+                status IN ('planned', 'simulated', 'placed', 'blocked', 'failed')
+            ),
+            error TEXT,
+            screenshot_path TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_food_orders_created
+            ON food_orders(created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_food_orders_status_created
+            ON food_orders(status, created_at DESC);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_food_orders_placed_plan
+            ON food_orders(plan_id) WHERE status = 'placed' AND plan_id IS NOT NULL;
+        """
+    )
+
+
+#: Colonnes de suivi de livraison ajoutées après la première version de la
+#: table. `delivery_status` ne remplace pas `status` : l'un décrit l'issue de
+#: la tentative côté JARVIS, l'autre l'avancement réel de la course.
+_FOOD_ORDER_TRACKING_COLUMNS: tuple[tuple[str, str], ...] = (
+    (
+        "delivery_status",
+        "TEXT CHECK(delivery_status IS NULL OR delivery_status IN "
+        "('placed', 'preparing', 'picked_up', 'on_the_way', 'delivered', 'cancelled'))",
+    ),
+    ("eta_minutes", "INTEGER CHECK(eta_minutes IS NULL OR eta_minutes >= 0)"),
+    ("delivered_at", "DATETIME"),
+    ("tracking_url", "TEXT"),
+    ("rating", "INTEGER CHECK(rating IS NULL OR rating BETWEEN 1 AND 5)"),
+    ("suggestion_id", "INTEGER"),
+)
+
+
+def _migrate_food_intelligence(conn: sqlite3.Connection) -> None:
+    """Suivi de livraison, notation, menus relevés, préférences et suggestions.
+
+    La clé étrangère ``suggestion_id`` n'est pas déclarée en ``ALTER TABLE`` :
+    SQLite ne sait pas ajouter une contrainte à une table existante sans la
+    recréer, et recréer ``food_orders`` ferait perdre l'index unique partiel
+    qui empêche la double commande. L'intégrité est donc tenue côté écriture.
+    """
+    columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(food_orders)").fetchall()
+    }
+    for name, ddl in _FOOD_ORDER_TRACKING_COLUMNS:
+        if name not in columns:
+            conn.execute(f"ALTER TABLE food_orders ADD COLUMN {name} {ddl}")
+
+    conn.executescript(
+        """
+        CREATE INDEX IF NOT EXISTS idx_food_orders_delivery
+            ON food_orders(delivery_status) WHERE delivery_status IS NOT NULL;
+
+        CREATE TABLE IF NOT EXISTS food_menu_cache (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            restaurant TEXT NOT NULL,
+            item_name TEXT NOT NULL,
+            category TEXT,
+            price REAL CHECK(price IS NULL OR price >= 0),
+            currency TEXT NOT NULL DEFAULT 'EUR',
+            cuisine_type TEXT,
+            available INTEGER NOT NULL DEFAULT 1 CHECK(available IN (0, 1)),
+            scraped_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(restaurant, item_name)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_food_menu_restaurant
+            ON food_menu_cache(restaurant, available);
+
+        CREATE TABLE IF NOT EXISTS food_preferences (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            key TEXT UNIQUE NOT NULL,
+            value TEXT NOT NULL,
+            confidence REAL NOT NULL DEFAULT 0.5
+                CHECK(confidence >= 0.0 AND confidence <= 1.0),
+            sample_size INTEGER NOT NULL DEFAULT 0 CHECK(sample_size >= 0),
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS food_suggestions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            slot INTEGER NOT NULL CHECK(slot >= 1),
+            restaurant TEXT NOT NULL,
+            items_json TEXT NOT NULL,
+            estimated_price REAL CHECK(estimated_price IS NULL OR estimated_price >= 0),
+            max_price REAL CHECK(max_price IS NULL OR max_price >= 0),
+            currency TEXT NOT NULL DEFAULT 'EUR',
+            reasoning TEXT,
+            score REAL NOT NULL DEFAULT 0.0,
+            factors_json TEXT,
+            generated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            expires_at DATETIME,
+            ordered INTEGER NOT NULL DEFAULT 0 CHECK(ordered IN (0, 1))
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_food_suggestions_active
+            ON food_suggestions(ordered, expires_at, slot);
+        """
+    )
+
+
 def run_migrations(conn: sqlite3.Connection) -> None:
     """Applique dans un ordre stable toutes les migrations idempotentes."""
     _migrate_people_ai_description(conn)
@@ -1153,3 +1268,5 @@ def run_migrations(conn: sqlite3.Connection) -> None:
     _migrate_mobile_chat_dedup(conn)
     _migrate_fitness(conn)
     _migrate_scheduler_job_runs(conn)
+    _migrate_food_orders(conn)
+    _migrate_food_intelligence(conn)

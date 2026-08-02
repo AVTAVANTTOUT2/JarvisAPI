@@ -310,6 +310,53 @@ async def _missed_opportunities_job():
     return silent("aucun lieu délaissé")
 
 
+@tracked("food_menu_refresh")
+async def _food_menu_refresh_job():
+    """Relève les menus des restaurants suivis, avant les pics de commande."""
+    from integrations.uber_eats_settings import get_settings
+
+    if not get_settings().menu_scrape_enabled:
+        return skipped("relevé de menus désactivé")
+    from scripts.food_menu_refresh import refresh_tracked_menus
+
+    report = await refresh_tracked_menus()
+    if not report.get("ok"):
+        return silent(str(report.get("reason") or "aucun menu relevé"))
+    counts = report.get("refreshed") or {}
+    return ok(f"{len(counts)} menu(s) relevé(s) : {', '.join(sorted(counts))}")
+
+
+@tracked("food_suggestions")
+async def _food_suggestions_job():
+    """Recalcule les préférences puis régénère les suggestions du jour."""
+    from integrations.uber_eats_settings import get_settings
+
+    if not get_settings().suggestions_enabled:
+        return skipped("suggestions désactivées")
+    from scripts.food_intelligence import generate_suggestions, learn_preferences
+
+    await asyncio.to_thread(learn_preferences)
+    report = await generate_suggestions()
+    if not report.get("ok"):
+        return silent(str(report.get("reason") or "aucune suggestion générée"))
+    return ok(f"{report['created']} suggestion(s) prête(s)")
+
+
+@tracked("food_delivery_tracking")
+async def _food_delivery_tracking_job():
+    """Relit l'avancement des livraisons en cours et pousse les changements."""
+    from integrations.uber_eats_settings import get_settings
+
+    if not get_settings().menu_scrape_enabled:
+        return skipped("relevé de menus désactivé")
+    from api.food_support import refresh_delivery_progress
+
+    report = await refresh_delivery_progress()
+    if not report["checked"]:
+        return silent("aucune commande en cours")
+    return ok(f"{report['updated']} mise(s) à jour sur {report['checked']} commande(s)")
+
+
 @tracked("self_improvement")
 async def _self_improvement_job():
     """Auto-amélioration : collecte de preuves → proposition → PR Cursor (pr_only)."""
@@ -632,6 +679,20 @@ def setup_scheduler() -> None:
     scheduler.add_job(
         _meeting_tick_job, CronTrigger(minute="*/5"),
         id="meeting_tick", replace_existing=True,
+    )
+    # Relevé avant les deux services : un menu de la veille proposerait des
+    # plats retirés de la carte.
+    scheduler.add_job(
+        _food_menu_refresh_job, CronTrigger(hour="11,18", minute=10),
+        id="food_menu_refresh", replace_existing=True,
+    )
+    scheduler.add_job(
+        _food_suggestions_job, CronTrigger(hour="11,18", minute=40),
+        id="food_suggestions", replace_existing=True,
+    )
+    scheduler.add_job(
+        _food_delivery_tracking_job, CronTrigger(minute="*/5"),
+        id="food_delivery_tracking", replace_existing=True,
     )
     scheduler.add_job(
         _commitments_extract_job, CronTrigger(hour=22, minute=40),

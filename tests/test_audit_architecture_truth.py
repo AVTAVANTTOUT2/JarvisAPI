@@ -171,12 +171,14 @@ def test_build_report_and_cli(fake_repo: Path, tmp_path: Path) -> None:
 def test_real_repo_smoke_counts_stable() -> None:
     """Garde-fou : le dépôt réel produit les comptages attendus (code only)."""
     tables = audit.analyze_tables(ROOT)
-    assert tables["counts"]["schema_sql_applicatives"] == 46
-    # Vague 2B + chat + délégation Cursor + pairage desktop sécurisé et
-    # neuf tables fitness (journaux + programme interactif).
-    assert tables["counts"]["schema_py"] == 51
-    assert tables["counts"]["persistantes_post_init"] == 86
-    assert tables["counts"]["physiques_max_default_fts_on"] == 91
+    assert tables["counts"]["schema_sql_applicatives"] == 50
+    # Vague 2B + chat + délégation Cursor + pairage desktop sécurisé,
+    # neuf tables fitness (journaux + programme interactif), le journal des
+    # commandes de repas et les trois tables de suggestion (menus relevés,
+    # préférences dérivées, propositions du jour).
+    assert tables["counts"]["schema_py"] == 55
+    assert tables["counts"]["persistantes_post_init"] == 90
+    assert tables["counts"]["physiques_max_default_fts_on"] == 95
     assert tables["init_pipeline"]["does_not_execute_schema_sql"] is True
 
     resolution = audit.analyze_frontend_resolution(ROOT)

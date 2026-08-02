@@ -298,6 +298,59 @@ TV_WS_MAX_EVENT_BYTES = int(_get("TV_WS_MAX_EVENT_BYTES", "8192"))
 TV_WS_MAX_CLIENT_MESSAGE_BYTES = int(_get("TV_WS_MAX_CLIENT_MESSAGE_BYTES", "4096"))
 TV_WS_MAX_CLIENT_VIOLATIONS = int(_get("TV_WS_MAX_CLIENT_VIOLATIONS", "3"))
 
+# ── Commande de repas (Uber Eats, automatisation navigateur) ─
+# Aucune API consommateur publique chez Uber : la commande passe par un
+# navigateur Playwright avec la session capturée manuellement. Dépenser de
+# l'argent réel exige trois interrupteurs distincts : l'intégration activée,
+# le mode simulation désactivé, et des sélecteurs marqués vérifiés.
+UBER_EATS_ENABLED = _get("UBER_EATS_ENABLED", "false").lower() == "true"
+UBER_EATS_DRY_RUN = _get("UBER_EATS_DRY_RUN", "true").lower() == "true"
+UBER_EATS_BASE_URL = _get("UBER_EATS_BASE_URL", "https://www.ubereats.com")
+UBER_EATS_STORAGE_STATE = _config_path(
+    "UBER_EATS_STORAGE_STATE",
+    "data/uber_eats_storage_state.json",
+)
+UBER_EATS_SELECTORS_FILE = _config_path(
+    "UBER_EATS_SELECTORS_FILE",
+    "integrations/uber_eats_selectors.json",
+)
+UBER_EATS_SCREENSHOT_DIR = _config_path(
+    "UBER_EATS_SCREENSHOT_DIR",
+    "data/uber_eats_screenshots",
+)
+# Les captures d'échec contiennent adresse, nom et moyens de paiement :
+# stockage privé, rotation courte, jamais transmises à un LLM.
+UBER_EATS_SCREENSHOT_KEEP = int(_get("UBER_EATS_SCREENSHOT_KEEP", "20"))
+UBER_EATS_MAX_ORDER_PRICE = float(_get("UBER_EATS_MAX_ORDER_PRICE", "40"))
+UBER_EATS_MAX_DAILY_SPEND = float(_get("UBER_EATS_MAX_DAILY_SPEND", "80"))
+UBER_EATS_MAX_DAILY_ORDERS = int(_get("UBER_EATS_MAX_DAILY_ORDERS", "2"))
+UBER_EATS_MAX_ITEMS = int(_get("UBER_EATS_MAX_ITEMS", "10"))
+UBER_EATS_MAX_ITEM_QUANTITY = int(_get("UBER_EATS_MAX_ITEM_QUANTITY", "5"))
+UBER_EATS_HEADLESS = _get("UBER_EATS_HEADLESS", "true").lower() == "true"
+UBER_EATS_LOCALE = _get("UBER_EATS_LOCALE", "fr-FR")
+UBER_EATS_NAV_TIMEOUT_MS = int(_get("UBER_EATS_NAV_TIMEOUT_MS", "30000"))
+UBER_EATS_ACTION_TIMEOUT_MS = int(_get("UBER_EATS_ACTION_TIMEOUT_MS", "10000"))
+UBER_EATS_PLAN_TTL_SECONDS = int(_get("UBER_EATS_PLAN_TTL_SECONDS", "600"))
+
+# ── Suggestions de repas et suivi de livraison ───────────────
+# Le relevé de menus est en lecture seule : il ne peut rien acheter, mais il
+# reste une automatisation de navigateur soumise aux mêmes conditions d'usage.
+FOOD_SUGGESTIONS_ENABLED = _get("FOOD_SUGGESTIONS_ENABLED", "false").lower() == "true"
+FOOD_MENU_SCRAPE_ENABLED = _get("FOOD_MENU_SCRAPE_ENABLED", "false").lower() == "true"
+FOOD_MENU_SCRAPE_MAX_RESTAURANTS = int(_get("FOOD_MENU_SCRAPE_MAX_RESTAURANTS", "8"))
+FOOD_MENU_MAX_AGE_HOURS = int(_get("FOOD_MENU_MAX_AGE_HOURS", "48"))
+FOOD_SUGGESTION_TTL_HOURS = int(_get("FOOD_SUGGESTION_TTL_HOURS", "12"))
+FOOD_SUGGESTION_SLOTS = int(_get("FOOD_SUGGESTION_SLOTS", "3"))
+FOOD_SUGGESTION_MIN_ORDERS = int(_get("FOOD_SUGGESTION_MIN_ORDERS", "3"))
+# Marge acceptée entre l'estimation affichée et le total réel du panier. Le
+# clic autorise l'estimation majorée de ce pourcentage ; au-delà, JARVIS
+# n'engage rien et demande une confirmation explicite.
+FOOD_QUICK_ORDER_PRICE_TOLERANCE = float(
+    _get("FOOD_QUICK_ORDER_PRICE_TOLERANCE", "0.15")
+)
+FOOD_DELIVERY_POLL_SECONDS = int(_get("FOOD_DELIVERY_POLL_SECONDS", "120"))
+FOOD_DELIVERY_POLL_MAX_MINUTES = int(_get("FOOD_DELIVERY_POLL_MAX_MINUTES", "120"))
+
 # Notifications bureau macOS (`display notification`)
 DESKTOP_NOTIFICATIONS = _get("DESKTOP_NOTIFICATIONS", "true").lower() == "true"
 NOTIFICATION_SOUND = _get("NOTIFICATION_SOUND", "Glass")
@@ -688,6 +741,7 @@ AGENT_MODELS = {
     "info": DEEPSEEK_FAST_MODEL,
     "journal": DEEPSEEK_MAIN_MODEL,
     "memory": DEEPSEEK_FAST_MODEL,
+    "food": DEEPSEEK_FAST_MODEL,
 }
 
 # ── Conversation vocale Android (push-to-talk) ─────────────────
