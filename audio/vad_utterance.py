@@ -7,7 +7,7 @@ import struct
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Callable
+from typing import Any, Callable
 
 
 def chunk_rms(pcm_bytes: bytes) -> float:
@@ -23,7 +23,7 @@ def chunk_rms(pcm_bytes: bytes) -> float:
 @dataclass
 class VadUtteranceConfig:
     chunk_ms: int = 30
-    silence_ms: int = 450
+    silence_ms: int = 500
     min_speech_ms: int = 200
     max_utterance_s: float = 30.0
     pre_roll_ms: int = 300
@@ -31,6 +31,50 @@ class VadUtteranceConfig:
     silero_threshold_on: float = 0.42
     silero_threshold_off: float = 0.28
     use_silero: bool = False
+
+
+def vad_config_from_runtime(
+    config_module: Any,
+    *,
+    chunk_ms: int,
+    use_silero: bool,
+) -> VadUtteranceConfig:
+    """Résout le VAD depuis les défauts versionnés de ``config.py``.
+
+    Accepter le module en argument garde ce résolveur testable sans importer le
+    daemon, PyAudio ou Silero et leurs effets de bord matériels/réseau.
+    """
+    return VadUtteranceConfig(
+        chunk_ms=chunk_ms,
+        silence_ms=int(getattr(
+            config_module,
+            "AUDIO_DAEMON_SILENCE_MS",
+            config_module.DEFAULT_AUDIO_DAEMON_SILENCE_MS,
+        )),
+        min_speech_ms=int(getattr(
+            config_module,
+            "AUDIO_DAEMON_MIN_SPEECH_MS",
+            config_module.DEFAULT_AUDIO_DAEMON_MIN_SPEECH_MS,
+        )),
+        max_utterance_s=float(getattr(
+            config_module, "AUDIO_DAEMON_MAX_UTTERANCE_S", 30,
+        )),
+        pre_roll_ms=int(getattr(
+            config_module,
+            "AUDIO_DAEMON_PRE_ROLL_MS",
+            config_module.DEFAULT_AUDIO_DAEMON_PRE_ROLL_MS,
+        )),
+        speech_threshold=float(getattr(
+            config_module, "AUDIO_DAEMON_SPEECH_THRESHOLD", 0.02,
+        )),
+        silero_threshold_on=float(getattr(
+            config_module, "SILERO_VAD_THRESHOLD", 0.42,
+        )),
+        silero_threshold_off=float(getattr(
+            config_module, "SILERO_VAD_THRESHOLD_OFF", 0.28,
+        )),
+        use_silero=use_silero,
+    )
 
 
 @dataclass
@@ -162,4 +206,9 @@ class VadUtteranceCollector:
         return None
 
 
-__all__ = ["VadUtteranceCollector", "VadUtteranceConfig", "chunk_rms"]
+__all__ = [
+    "VadUtteranceCollector",
+    "VadUtteranceConfig",
+    "chunk_rms",
+    "vad_config_from_runtime",
+]

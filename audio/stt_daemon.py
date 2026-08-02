@@ -192,7 +192,10 @@ class FasterWhisperBackend(DaemonSTTBackend):
         cpu_count = os.cpu_count() or 4
         num_workers = max(1, min(cpu_count // 2, 4))
         device = str(getattr(config, "STT_DEVICE", "auto") or "auto")
-        compute_type = str(getattr(config, "STT_COMPUTE_TYPE", "auto") or "auto")
+        compute_type = str(
+            getattr(config, "STT_COMPUTE_TYPE", config.DEFAULT_STT_COMPUTE_TYPE)
+            or config.DEFAULT_STT_COMPUTE_TYPE
+        )
         allow_download = bool(getattr(config, "STT_ALLOW_MODEL_DOWNLOAD", False))
         try:
             self._model = WhisperModel(
@@ -238,8 +241,12 @@ class FasterWhisperBackend(DaemonSTTBackend):
         # Temps réel : un faisceau unique suffit pour des commandes courtes, et
         # le VAD interne serait un second passage sur un audio déjà segmenté en
         # amont par le collecteur du daemon.
-        beam_size = max(1, int(getattr(config, "STT_BEAM_SIZE", 1)))
-        vad_filter = bool(getattr(config, "STT_VAD_FILTER", False))
+        beam_size = max(1, int(getattr(
+            config, "STT_BEAM_SIZE", config.DEFAULT_STT_BEAM_SIZE,
+        )))
+        vad_filter = bool(getattr(
+            config, "STT_VAD_FILTER", config.DEFAULT_STT_VAD_FILTER,
+        ))
 
         def _run() -> TranscriptionResult | None:
             started = time.perf_counter()

@@ -29,7 +29,11 @@ from audio import voice_latency as vl
 from audio.audio_output import native_audio_output
 from audio.tts_native import get_native_tts_engine, native_tts_sample_rate
 from audio.tts_provider import supports_pcm_streaming
-from audio.vad_utterance import VadUtteranceCollector, VadUtteranceConfig, chunk_rms
+from audio.vad_utterance import (
+    VadUtteranceCollector,
+    chunk_rms,
+    vad_config_from_runtime,
+)
 from audio.voice_latency import UtteranceTrace
 from audio.voice_queue import VoicePriority, voice_queue
 from pipeline import process_voice_fast
@@ -977,20 +981,13 @@ class AudioDaemon:
         self._input_future = loop.run_in_executor(None, _blocking_input)
 
         # ── Paramètres VAD (config stricte, sans paliers codés en dur) ──
-        speech_threshold = getattr(config, "AUDIO_DAEMON_SPEECH_THRESHOLD", 0.02)
         timeout = getattr(config, "AUDIO_DAEMON_CONVERSATION_TIMEOUT", 30.0)
-
-        vad_cfg = VadUtteranceConfig(
+        vad_cfg = vad_config_from_runtime(
+            config,
             chunk_ms=CHUNK_MS,
-            silence_ms=int(getattr(config, "AUDIO_DAEMON_SILENCE_MS", 450)),
-            min_speech_ms=int(getattr(config, "AUDIO_DAEMON_MIN_SPEECH_MS", 200)),
-            max_utterance_s=float(getattr(config, "AUDIO_DAEMON_MAX_UTTERANCE_S", 30)),
-            pre_roll_ms=int(getattr(config, "AUDIO_DAEMON_PRE_ROLL_MS", 300)),
-            speech_threshold=speech_threshold,
-            silero_threshold_on=float(getattr(config, "SILERO_VAD_THRESHOLD", 0.42)),
-            silero_threshold_off=float(getattr(config, "SILERO_VAD_THRESHOLD_OFF", 0.28)),
             use_silero=USE_SILERO_VAD,
         )
+        speech_threshold = vad_cfg.speech_threshold
 
         def _rms_is_speech(chunk: bytes) -> bool:
             return chunk_rms(chunk) > speech_threshold
