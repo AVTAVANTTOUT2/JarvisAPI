@@ -209,6 +209,15 @@ FCM_PROJECT_ID = _get("FCM_PROJECT_ID", "")
 COMPUTER_ACCESS = _get("COMPUTER_ACCESS", "false").lower() == "true"
 COMPUTER_SHELL = _get("COMPUTER_SHELL", "/bin/zsh")
 COMPUTER_TIMEOUT = int(_get("COMPUTER_TIMEOUT", "30"))
+# Restriction facultative de l'action `open_app`, qui s'exécute sans
+# confirmation : un bloc ```action``` émis sous injection de prompt peut donc
+# lancer n'importe quelle application enregistrée. Les chemins sont déjà
+# refusés en amont (`ComputerControl._validate_argv`), aucun argument n'est
+# transmis à l'application. Liste vide = aucune restriction (comportement
+# historique) ; liste renseignée = allowlist stricte, insensible à la casse.
+COMPUTER_ALLOWED_APPS = frozenset(
+    a.strip().lower() for a in _get("COMPUTER_ALLOWED_APPS", "").split(",") if a.strip()
+)
 # Les commandes proposées par un LLM sont confinées ici et doivent toujours
 # être confirmées avant une exécution sans shell.
 LLM_SHELL_WORKSPACE = _get(

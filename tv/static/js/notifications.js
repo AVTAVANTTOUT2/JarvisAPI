@@ -6,8 +6,8 @@ function render(d){
   var h='';
   for (var i=0;i<d.length;i++){
     var n=d[i], p=n.priority||'low';
-    h+='<div class="notif-item '+p+'">';
-    h+='<span class="notif-dot '+p+'"></span>';
+    h+='<div class="notif-item '+TV.esc(p)+'">';
+    h+='<span class="notif-dot '+TV.esc(p)+'"></span>';
     h+='<span class="notif-content">'+TV.esc(n.content||n.title||'')+'</span></div>';
   }
   el.innerHTML=h;

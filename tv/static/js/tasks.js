@@ -7,7 +7,7 @@ function render(d){
   for (var i=0;i<d.length;i++){
     var t=d[i];
     h+='<div class="task-item">';
-    h+='<span class="task-dot '+t.priority+'"></span>';
+    h+='<span class="task-dot '+TV.esc(t.priority)+'"></span>';
     h+='<span class="task-title">'+TV.esc(t.title)+'</span>';
     if (t.due_date) h+='<span class="task-due">'+TV.esc(t.due_date)+'</span>';
     h+='</div>';
