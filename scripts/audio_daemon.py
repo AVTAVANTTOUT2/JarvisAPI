@@ -453,6 +453,10 @@ class AudioDaemon:
         except Exception as e:
             logger.warning("[audio_daemon] Génération sons échouée : %s", e)
 
+        # Préchauffage TTS : charger le modèle ici plutôt qu'au premier tour de
+        # parole, où il s'ajoutait intégralement à la latence perçue.
+        asyncio.create_task(self._warmup_tts(), name="tts_engine_warmup")
+
         # TTS spéculatif (optionnel, désactivé par défaut pour le pipeline natif)
         if getattr(config, "SPECULATIVE_TTS_ENABLED", False):
             try:
@@ -1798,11 +1802,14 @@ class AudioDaemon:
                 "urgent": VoicePriority.CRITICAL,
                 "alert": VoicePriority.IMPORTANT,
             }.get(emotion, VoicePriority.USER_RESPONSE)
+        if trace is not None:
+            trace.mark(vl.TTS_QUEUE_ENTERED, text_chars=len(text))
         await voice_queue.enqueue(
             text,
             emotion=emotion,
             priority=priority,
             wait=wait,
+            trace=trace,
         )
 
     async def _play_tts_native(
@@ -1826,7 +1833,12 @@ class AudioDaemon:
                 cached = _spec_tts.get(text, emotion)
                 if cached:
                     _last_tts.store(text, emotion, cached)
+                    if trace is not None:
+                        trace.mark(vl.TTS_FIRST_AUDIO_CHUNK, engine="cache")
+                        trace.mark(vl.TTS_PLAYBACK_STARTED, engine="cache")
                     await self._play_audio_local(cached, cancel_event=cancel_event)
+                    if trace is not None:
+                        trace.mark(vl.TTS_PLAYBACK_COMPLETED, engine="cache")
                     return
 
             engine = get_native_tts_engine()
@@ -1836,38 +1848,86 @@ class AudioDaemon:
 
             self._native_tts_engine = engine
             sr = native_tts_sample_rate(engine)
-
-            stream_fn = getattr(engine, "synthesize_stream", None)
             backend = engine.get_backend_name()
-            if callable(stream_fn) and backend == "ttskit" and native_audio_output.available:
+            if trace is not None:
+                # Moteur résolu et disponible : sur un sidecar chaud, le modèle
+                # est déjà chargé et cette étape doit coûter ~0 ms.
+                trace.mark(vl.TTS_MODEL_READY, engine=backend, sample_rate=sr)
+
+            # Chemin diffusé : la lecture démarre sur le premier fragment au
+            # lieu d'attendre la synthèse complète. Kokoro chaud expose
+            # ``synthesize_stream_pcm`` ; TTSKit garde ``synthesize_stream``.
+            pcm_stream_fn = getattr(engine, "synthesize_stream_pcm", None)
+            legacy_stream_fn = getattr(engine, "synthesize_stream", None)
+            stream_fn = None
+            if callable(pcm_stream_fn):
+                stream_fn = pcm_stream_fn
+            elif callable(legacy_stream_fn) and backend == "ttskit":
+                stream_fn = legacy_stream_fn
+
+            if stream_fn is not None and native_audio_output.available:
                 collected: list[bytes] = []
+                if trace is not None:
+                    trace.mark(
+                        vl.TTS_SYNTHESIS_STARTED,
+                        engine=backend, text_chars=len(text), sample_rate=sr,
+                    )
 
                 async def _pcm_stream():
+                    index = 0
                     async for chunk in stream_fn(text, emotion=emotion):
                         if cancel_event and cancel_event.is_set():
                             native_audio_output.stop()
                             break
                         if chunk:
+                            if trace is not None and index == 0:
+                                trace.mark(
+                                    vl.TTS_FIRST_AUDIO_CHUNK,
+                                    engine=backend, chunk_index=index,
+                                )
                             collected.append(chunk)
+                            index += 1
                             yield chunk
 
-                await native_audio_output.play_stream_from_async(_pcm_stream(), sample_rate=sr)
+                def _on_first_chunk() -> None:
+                    if trace is not None:
+                        trace.mark(vl.TTS_PLAYBACK_STARTED, engine=backend)
+
+                await native_audio_output.play_stream_from_async(
+                    _pcm_stream(), sample_rate=sr, on_first_chunk=_on_first_chunk,
+                )
                 if collected:
+                    if trace is not None:
+                        trace.mark(vl.TTS_SYNTHESIS_COMPLETED, engine=backend)
+                        trace.mark(vl.TTS_PLAYBACK_COMPLETED, engine=backend)
                     _last_tts.store(text, emotion, b"".join(collected))
                     return
-                logger.warning("[audio_daemon] TTSKit vide — repli local")
-                engine = get_native_tts_engine(exclude=frozenset({"ttskit"}))
-                if engine is None:
-                    return
+                logger.warning("[audio_daemon] Flux TTS %s vide — repli local", backend)
+                if backend == "ttskit":
+                    engine = get_native_tts_engine(exclude=frozenset({"ttskit"}))
+                    if engine is None:
+                        return
 
+            if trace is not None:
+                trace.mark(
+                    vl.TTS_SYNTHESIS_STARTED,
+                    engine=engine.get_backend_name(), text_chars=len(text),
+                )
             native_synth = getattr(engine, "synthesize_native", None)
             if callable(native_synth):
                 audio_bytes = await native_synth(text, emotion=emotion)
             else:
                 audio_bytes = await engine.synthesize(text, emotion=emotion)
+            if trace is not None:
+                trace.mark(vl.TTS_SYNTHESIS_COMPLETED, engine=engine.get_backend_name())
             if audio_bytes:
+                if trace is not None:
+                    trace.mark(vl.TTS_FIRST_AUDIO_CHUNK, engine=engine.get_backend_name())
+                    trace.mark(vl.TTS_PLAYBACK_STARTED, engine=engine.get_backend_name())
                 _last_tts.store(text, emotion, audio_bytes)
                 await self._play_audio_local(audio_bytes, cancel_event=cancel_event)
+                if trace is not None:
+                    trace.mark(vl.TTS_PLAYBACK_COMPLETED, engine=engine.get_backend_name())
         except Exception as e:
             logger.warning("[audio_daemon] TTS native erreur : %s", e)
         finally:

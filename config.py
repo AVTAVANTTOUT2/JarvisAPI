@@ -98,6 +98,12 @@ DEFAULT_KOKORO_LANG = "fr-fr"
 DEFAULT_KOKORO_LANG_CODE = "f"
 DEFAULT_KOKORO_SPEED = 0.96
 DEFAULT_KOKORO_MAX_TOKENS = 180
+# Sidecar Kokoro maintenu chaud : le modèle reste chargé entre deux réponses.
+# Sans lui, chaque synthèse relance un interpréteur et recharge Kokoro-82M.
+DEFAULT_KOKORO_WARM_WORKER = True
+# Taille du premier fragment synthétisé (en mots) : plus il est court, plus le
+# premier son arrive tôt — au prix de quelques fragments supplémentaires.
+DEFAULT_KOKORO_FIRST_CHUNK_MAX_TOKENS = 12
 
 
 def _normalize_stt_engine(engine: str) -> str:
@@ -166,6 +172,12 @@ KOKORO_LANG = _get("KOKORO_LANG", DEFAULT_KOKORO_LANG)
 KOKORO_LANG_CODE = _get("KOKORO_LANG_CODE", DEFAULT_KOKORO_LANG_CODE)
 KOKORO_SPEED = float(_get("KOKORO_SPEED", str(DEFAULT_KOKORO_SPEED)))
 KOKORO_MAX_TOKENS = int(_get("KOKORO_MAX_TOKENS", str(DEFAULT_KOKORO_MAX_TOKENS)))
+KOKORO_WARM_WORKER = _get(
+    "KOKORO_WARM_WORKER", str(DEFAULT_KOKORO_WARM_WORKER),
+).lower() in ("true", "1", "yes")
+KOKORO_FIRST_CHUNK_MAX_TOKENS = int(
+    _get("KOKORO_FIRST_CHUNK_MAX_TOKENS", str(DEFAULT_KOKORO_FIRST_CHUNK_MAX_TOKENS))
+)
 MACOS_TTS_VOICE = _get("MACOS_TTS_VOICE", "Jacques")
 AUDIO_DAEMON_OUTPUT_DEVICE = _get("AUDIO_DAEMON_OUTPUT_DEVICE", "")  # vide = sortie défaut macOS
 AUDIO_DAEMON_HALF_DUPLEX = _get("AUDIO_DAEMON_HALF_DUPLEX", "true").lower() == "true"
