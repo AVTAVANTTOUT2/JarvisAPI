@@ -1,10 +1,14 @@
-"""Garantit Edge Henri (FR masculin) pour le pipeline vocal Android."""
+"""Garantit Edge Henri (FR masculin) pour le pipeline vocal Android.
+
+La synthèse Edge elle-même est couverte à deux niveaux :
+  - `tests/test_tts_edge_unit.py` — `edge_tts` simulé, hors ligne, déterministe ;
+  - `tests/test_tts_edge_external.py` — appel réel à Microsoft, marqueur
+    `external_network`, exclu de la suite standard.
+"""
 
 from __future__ import annotations
 
 from unittest.mock import patch
-
-import pytest
 
 
 def test_resolve_tts_engine_prefers_db_edge(monkeypatch):
@@ -25,16 +29,18 @@ def test_resolve_tts_engine_falls_back_to_config(monkeypatch):
         assert resolve_tts_engine_name() == "edge"
 
 
-@pytest.mark.asyncio
-async def test_edge_henri_produces_mpeg_not_wav():
-    """Henri Edge = MP3 (ID3/FFFB), pas WAV RIFF de Kokoro."""
-    from audio.tts import get_tts_by_name
+def test_resolved_voice_is_a_french_male_edge_voice(monkeypatch):
+    """Une voix vide ferait parler Edge en anglais : le repli reste Henri."""
+    from audio.tts import resolve_tts_voice
 
-    engine = get_tts_by_name("edge")
-    if not getattr(engine, "available", False):
-        pytest.skip("edge-tts non installé")
-    audio = await engine.synthesize("Bonjour Monsieur. Test de la voix française.")
-    assert len(audio) > 1000
-    # MP3 Edge : frame sync 0xFFEx ou tag ID3
-    assert audio[:3] == b"ID3" or (audio[0] == 0xFF and (audio[1] & 0xE0) == 0xE0)
-    assert audio[:4] != b"RIFF"
+    monkeypatch.setattr("config.TTS_VOICE", "")
+    assert resolve_tts_voice("edge") == "fr-FR-HenriNeural"
+
+
+def test_edge_announces_mpeg_while_local_engines_announce_their_own_format():
+    """Henri Edge = MP3 ; le WAV/M4A appartient aux moteurs locaux."""
+    from audio.audio_format import tts_audio_mime
+
+    assert tts_audio_mime("edge") == "audio/mpeg"
+    assert tts_audio_mime("kokoro") == "audio/wav"
+    assert tts_audio_mime("macos") == "audio/mp4"
