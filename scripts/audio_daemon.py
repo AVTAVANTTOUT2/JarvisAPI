@@ -20,6 +20,7 @@ import subprocess
 import tempfile
 import threading
 import time
+import uuid
 import wave
 from pathlib import Path
 from typing import Any, Callable, Coroutine
@@ -27,8 +28,6 @@ from typing import Any, Callable, Coroutine
 import config
 from audio import voice_latency as vl
 from audio.audio_output import native_audio_output
-from audio.tts_native import get_native_tts_engine, native_tts_sample_rate
-from audio.tts_provider import supports_pcm_streaming
 from audio.vad_utterance import (
     VadUtteranceCollector,
     chunk_rms,
@@ -36,6 +35,13 @@ from audio.vad_utterance import (
 )
 from audio.voice_latency import UtteranceTrace
 from audio.voice_queue import VoicePriority, voice_queue
+from jarvis.audio.tts import (
+    TextStreamSegmenter,
+    get_local_tts_provider,
+    load_tts_settings,
+)
+from jarvis.audio.tts.errors import TTSError
+from jarvis.audio.tts.playback import play_chunks
 from pipeline import process_voice_fast
 
 # Detection Silero VAD (sans log, le logger est defini plus bas)
@@ -304,7 +310,7 @@ class AudioDaemon:
         "_last_frame_time",
         "_sleep_mode",
         "_half_duplex",
-        "_native_tts_engine",
+        "_tts_unavailable_reason",
     )
 
     def __init__(self) -> None:
@@ -348,23 +354,41 @@ class AudioDaemon:
         # Mode veille applicative (controle par action LLM ou commande directe)
         self._sleep_mode: bool = False
         self._half_duplex: bool = bool(getattr(config, "AUDIO_DAEMON_HALF_DUPLEX", True))
-        self._native_tts_engine: Any = None
+        # Renseigné quand le moteur local n'a pas pu se charger : l'API expose
+        # un état « indisponible » explicite plutôt qu'un silence inexpliqué.
+        self._tts_unavailable_reason: str | None = None
 
     # ── Préchauffage des moteurs ──────────────────────────────────────────────
 
     async def _warmup_tts(self) -> None:
-        """Charge le moteur TTS hors tour de parole (jamais bloquant)."""
+        """Charge le modèle TTS hors tour de parole (jamais bloquant).
+
+        Un échec ici n'arrête pas le daemon : JARVIS continue de comprendre et
+        d'agir, et l'état TTS indisponible est visible dans ``get_status``.
+        Basculer en silence sur un autre moteur ferait entendre une voix que
+        l'utilisateur n'a pas choisie.
+        """
+        settings = load_tts_settings()
+        if not settings.warmup:
+            logger.info("[audio_daemon] Préchauffage TTS désactivé (TTS_WARMUP=false)")
+            return
         try:
-            engine = get_native_tts_engine()
-            warmup = getattr(engine, "warmup", None)
-            if callable(warmup):
-                started = await warmup()
-                logger.info(
-                    "[audio_daemon] Préchauffage TTS %s : %s",
-                    engine.get_backend_name(), "prêt" if started else "indisponible",
-                )
+            provider = get_local_tts_provider(settings)
+            await provider.warmup()
+            info = provider.info()
+            logger.info(
+                "TTS ready provider=%s backend=%s device=%s voice=%s "
+                "streaming=%s offline=%s",
+                info.provider, info.backend, info.device, info.voice,
+                info.streaming, str(info.offline).lower(),
+            )
+            self._tts_unavailable_reason = None
+        except TTSError as e:
+            self._tts_unavailable_reason = str(e)
+            logger.error("[audio_daemon] TTS local indisponible : %s", e)
         except Exception as e:
-            logger.warning("[audio_daemon] Préchauffage TTS : %s", e)
+            self._tts_unavailable_reason = str(e)
+            logger.exception("[audio_daemon] Préchauffage TTS : %s", e)
 
     # ── Réarmement du pipeline ────────────────────────────────────────────────
 
@@ -572,18 +596,8 @@ class AudioDaemon:
 
         loop = asyncio.get_running_loop()
 
-        # TTS natif : pré-chargement au boot (jamais pendant une conversation)
-        try:
-            engine = get_native_tts_engine()
-            if engine is not None:
-                preload = getattr(engine, "preload_sync", None) or getattr(
-                    engine, "_ensure_loaded", None,
-                )
-                if callable(preload):
-                    await loop.run_in_executor(None, preload)
-        except Exception as e:
-            logger.debug("[audio_daemon] preload TTS natif : %s", e)
-
+        # TTS local : le chargement du modèle appartient au warmup, jamais à un
+        # tour de parole. `_warmup_tts` est lancé plus bas, hors conversation.
         await voice_queue.start(self._play_tts_native, self._stop_current_tts)
         voice_queue.set_mic_capture_active(True)
 
@@ -820,12 +834,13 @@ class AudioDaemon:
             logger.debug("[audio_daemon] get_status STT local: %s", e)
 
         tts_engine = "none"
+        tts_info: dict[str, Any] = {}
         try:
-            engine = get_native_tts_engine()
-            if engine is not None:
-                tts_engine = engine.get_backend_name()
+            info = get_local_tts_provider().info()
+            tts_engine = info.provider
+            tts_info = dict(info.as_log_fields())
         except Exception as e:
-            logger.debug("[audio_daemon] get_status TTS natif: %s", e)
+            logger.debug("[audio_daemon] get_status TTS local: %s", e)
 
         return {
             "enabled": self.enabled,
@@ -836,6 +851,9 @@ class AudioDaemon:
             "last_interaction": self._last_interaction,
             "stt_engine": stt_engine,
             "tts_engine": tts_engine,
+            "tts": tts_info,
+            "tts_available": self._tts_unavailable_reason is None,
+            "tts_error": self._tts_unavailable_reason,
             "has_porcupine": self._porcupine is not None,
         }
 
@@ -1505,11 +1523,9 @@ class AudioDaemon:
                 logger.debug("[audio_daemon] stop stream avant TTS: %s", e)
 
         _t_tts_start = _time.time()
-        tts_engine_name = str(getattr(config, "TTS_ENGINE", config.DEFAULT_TTS_ENGINE))
+        tts_engine_name = str(getattr(config, "TTS_PROVIDER", config.DEFAULT_TTS_PROVIDER))
         try:
-            engine = get_native_tts_engine()
-            if engine is not None:
-                tts_engine_name = engine.get_backend_name()
+            tts_engine_name = get_local_tts_provider().info().provider
             await self._play_tts(
                 response_text,
                 emotion=emotion,
@@ -1839,99 +1855,111 @@ class AudioDaemon:
                         trace.mark(vl.TTS_PLAYBACK_COMPLETED, engine="cache")
                     return
 
-            engine = get_native_tts_engine()
-            if engine is None:
-                logger.error("[audio_daemon] Aucun moteur TTS local disponible")
-                return
-
-            self._native_tts_engine = engine
-            sr = native_tts_sample_rate(engine)
-            backend = engine.get_backend_name()
-            if trace is not None:
-                # Moteur résolu et disponible : sur un sidecar chaud, le modèle
-                # est déjà chargé et cette étape doit coûter ~0 ms.
-                trace.mark(vl.TTS_MODEL_READY, engine=backend, sample_rate=sr)
-
-            # Chemin diffusé : la lecture démarre sur le premier fragment au
-            # lieu d'attendre la synthèse complète. Le daemon ne connaît aucun
-            # fournisseur par son nom — il interroge le contrat
-            # `audio.tts_provider` (voir ce module pour changer de moteur).
-            stream_fn = (
-                engine.synthesize_stream_pcm
-                if supports_pcm_streaming(engine)
-                else None
+            await self._speak_local(
+                text, emotion, cancel_event=cancel_event, trace=trace,
             )
-
-            if stream_fn is not None and native_audio_output.available:
-                collected: list[bytes] = []
-                if trace is not None:
-                    trace.mark(
-                        vl.TTS_SYNTHESIS_STARTED,
-                        engine=backend, text_chars=len(text), sample_rate=sr,
-                    )
-
-                async def _pcm_stream():
-                    index = 0
-                    async for chunk in stream_fn(text, emotion=emotion):
-                        if cancel_event and cancel_event.is_set():
-                            native_audio_output.stop()
-                            break
-                        if chunk:
-                            if trace is not None and index == 0:
-                                trace.mark(
-                                    vl.TTS_FIRST_AUDIO_CHUNK,
-                                    engine=backend, chunk_index=index,
-                                )
-                            collected.append(chunk)
-                            index += 1
-                            yield chunk
-
-                def _on_first_chunk() -> None:
-                    if trace is not None:
-                        trace.mark(vl.TTS_PLAYBACK_STARTED, engine=backend)
-
-                await native_audio_output.play_stream_from_async(
-                    _pcm_stream(), sample_rate=sr, on_first_chunk=_on_first_chunk,
-                )
-                if collected:
-                    if trace is not None:
-                        trace.mark(vl.TTS_SYNTHESIS_COMPLETED, engine=backend)
-                        trace.mark(vl.TTS_PLAYBACK_COMPLETED, engine=backend)
-                    _last_tts.store(text, emotion, b"".join(collected))
-                    return
-                # Flux vide : on réessaie avec un autre moteur local plutôt que
-                # de rester muet. Le moteur défaillant est écarté par son nom
-                # déclaré — le daemon n'en connaît aucun à l'avance.
-                logger.warning("[audio_daemon] Flux TTS %s vide — repli local", backend)
-                engine = get_native_tts_engine(exclude=frozenset({backend}))
-                if engine is None:
-                    return
-
-            if trace is not None:
-                trace.mark(
-                    vl.TTS_SYNTHESIS_STARTED,
-                    engine=engine.get_backend_name(), text_chars=len(text),
-                )
-            native_synth = getattr(engine, "synthesize_native", None)
-            if callable(native_synth):
-                audio_bytes = await native_synth(text, emotion=emotion)
-            else:
-                audio_bytes = await engine.synthesize(text, emotion=emotion)
-            if trace is not None:
-                trace.mark(vl.TTS_SYNTHESIS_COMPLETED, engine=engine.get_backend_name())
-            if audio_bytes:
-                if trace is not None:
-                    trace.mark(vl.TTS_FIRST_AUDIO_CHUNK, engine=engine.get_backend_name())
-                    trace.mark(vl.TTS_PLAYBACK_STARTED, engine=engine.get_backend_name())
-                _last_tts.store(text, emotion, audio_bytes)
-                await self._play_audio_local(audio_bytes, cancel_event=cancel_event)
-                if trace is not None:
-                    trace.mark(vl.TTS_PLAYBACK_COMPLETED, engine=engine.get_backend_name())
+        except TTSError as e:
+            # Le moteur a échoué : la réponse texte est déjà persistée et
+            # affichée, le pipeline se réarme. Pas de bascule vers un autre
+            # moteur, pas de service distant.
+            self._tts_unavailable_reason = str(e)
+            logger.error("[audio_daemon] Synthèse locale échouée : %s", e)
         except Exception as e:
             logger.warning("[audio_daemon] TTS native erreur : %s", e)
         finally:
             self._tts_playing_event.clear()
             self._last_tts_end = time.time()
+
+    async def _speak_local(
+        self,
+        text: str,
+        emotion: str,
+        *,
+        cancel_event: asyncio.Event | None,
+        trace: UtteranceTrace | None,
+    ) -> None:
+        """Segmente la réponse et joue chaque segment dès qu'il est synthétisé.
+
+        Le découpage est ce qui fait arriver le premier son avant la fin de la
+        synthèse complète : pendant que le segment N est joué, le segment N+1
+        se génère. La file bornée de la sortie audio fournit la contre-pression
+        — un moteur plus rapide que la lecture ne remplit pas la mémoire.
+        """
+        from audio.tts_cache import last_tts as _last_tts
+
+        settings = load_tts_settings()
+        provider = get_local_tts_provider(settings)
+        await provider.warmup()
+        self._tts_unavailable_reason = None
+
+        info = provider.info()
+        request_id = uuid.uuid4().hex
+        utterance_id = getattr(trace, "utterance_id", "") if trace is not None else ""
+
+        if trace is not None:
+            trace.mark(
+                vl.TTS_MODEL_READY, engine=info.provider, sample_rate=info.sample_rate,
+            )
+            trace.mark(
+                vl.TTS_SYNTHESIS_STARTED,
+                engine=info.provider,
+                text_chars=len(text),
+                sample_rate=info.sample_rate,
+            )
+
+        segmenter = TextStreamSegmenter(settings)
+        segments = segmenter.feed(text) + segmenter.flush()
+        collected: list[bytes] = []
+
+        async def _chunks():
+            index = 0
+            for segment in segments:
+                if cancel_event is not None and cancel_event.is_set():
+                    await provider.cancel(request_id)
+                    native_audio_output.stop()
+                    return
+                async for chunk in provider.stream(
+                    segment, request_id=request_id, utterance_id=utterance_id,
+                ):
+                    if cancel_event is not None and cancel_event.is_set():
+                        await provider.cancel(request_id)
+                        native_audio_output.stop()
+                        return
+                    if trace is not None and index == 0:
+                        trace.mark(
+                            vl.TTS_FIRST_AUDIO_CHUNK,
+                            engine=info.provider, chunk_index=index,
+                        )
+                    collected.append(chunk.data)
+                    index += 1
+                    yield chunk
+
+        def _on_playback_started() -> None:
+            if trace is not None:
+                trace.mark(vl.TTS_PLAYBACK_STARTED, engine=info.provider)
+
+        await play_chunks(
+            _chunks(),
+            sample_rate=info.sample_rate,
+            on_playback_started=_on_playback_started,
+        )
+
+        if trace is not None:
+            trace.mark(vl.TTS_SYNTHESIS_COMPLETED, engine=info.provider)
+            trace.mark(vl.TTS_PLAYBACK_COMPLETED, engine=info.provider)
+
+        if collected:
+            from jarvis.audio.tts.wav import pcm_to_wav
+
+            _last_tts.store(
+                text,
+                emotion,
+                pcm_to_wav(
+                    b"".join(collected),
+                    sample_rate=info.sample_rate,
+                    channels=info.channels,
+                ),
+            )
 
     def _stop_current_tts(self) -> None:
         """Interrompt immédiatement la sortie active (priorité critique/barge-in)."""
