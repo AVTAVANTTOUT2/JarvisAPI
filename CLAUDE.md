@@ -930,6 +930,65 @@ RECORDING_CHUNK_SIZE_MB=20
 RECORDING_SUMMARY_ONLY=false
 ```
 
+### Latence du tour de parole
+
+Le pipeline vocal traverse quatre sous-systèmes répartis sur plusieurs tâches
+asyncio et deux threads. `audio/voice_latency.py` (`UtteranceTrace`) leur donne
+un identifiant commun et une horloge monotone : sans lui, chaque sous-système ne
+mesure que lui-même et le temps « entre deux » reste invisible.
+
+L'origine de la trace est la **fin de parole** détectée par le VAD, pas le début
+de la capture : c'est l'instant à partir duquel l'utilisateur attend, donc le
+seul point de référence honnête pour la métrique principale
+`end_of_speech_to_first_audio_ms`. Le silence qui a servi à détecter cette fin
+est retranché — il appartient au VAD, pas à la réponse.
+
+26 étapes canoniques sont déclarées dans `KNOWN_EVENTS`, du segment VAD au
+réarmement. **Aucun contenu ne franchit cette frontière** : une allowlist de
+champs (`ALLOWED_FIELDS`) n'autorise que des longueurs, des noms de moteur et
+des durées — jamais une transcription, une réponse ou un jeton. La chronologie
+complète est diffusée dans l'événement WebSocket `voice_debug_tts` (clé
+`latency`), qui remplace le `{}` historique.
+
+Quatre décisions structurantes :
+
+- **Le réarmement est un chemin unique.** `_rearm()` dans `scripts/audio_daemon.py`
+  gère toutes les sorties anticipées (transcription vide, écho post-TTS, bruit
+  rejeté, interruption, erreur). `rearm_state()` ne réclame le wake word que si
+  la conversation est réellement close : une parole non transcrite n'est pas une
+  fin de conversation, et exiger un nouveau déclenchement rendait le micro sourd.
+- **Le STT ne segmente pas deux fois.** Le collecteur VAD a déjà découpé
+  l'énoncé, donc `STT_VAD_FILTER=false` ; `STT_BEAM_SIZE=1` et
+  `STT_COMPUTE_TYPE=int8` visent le temps réel. `TranscriptionResult` sépare
+  `audio_ms`, `inference_ms` et le facteur temps réel — « 5 s de STT » ne dit
+  pas si le moteur est lent ou l'énoncé long.
+- **Kokoro reste chargé.** `native_audio/kokoro_mlx.py --serve` garde le modèle
+  en mémoire et diffuse des trames PCM ; `KokoroWorker` maintient ce processus,
+  sérialise les synthèses et le relance s'il meurt, sans jamais lever. Le premier
+  fragment de texte est volontairement court : la lecture démarre sur la première
+  phrase pendant que la suite se synthétise.
+- **Le streaming LLM ne sert pas à parler plus tôt.** Une réponse peut contenir
+  un bloc `action` dont le résultat remplace le texte : prononcer la phrase
+  intermédiaire changerait la réponse. `llm.chat_stream_collect()` sert à exposer
+  `llm.first_token`, seule façon de distinguer un modèle lent d'un réseau lent.
+
+```bash
+STT_BEAM_SIZE=1                  # temps réel : un seul faisceau
+STT_VAD_FILTER=false             # le daemon segmente déjà l'énoncé
+STT_COMPUTE_TYPE=int8            # CPU Apple Silicon
+KOKORO_WARM_WORKER=true          # sidecar chaud, modèle chargé une fois
+KOKORO_FIRST_CHUNK_MAX_TOKENS=12 # 1re phrase courte = premier son plus tôt
+VOICE_LLM_STREAMING=true         # expose llm.first_token
+AUDIO_DAEMON_SILENCE_MS=500      # fin de phrase : 300-600 ms
+AUDIO_DAEMON_MIN_SPEECH_MS=200   # durée minimale de parole
+AUDIO_DAEMON_PRE_ROLL_MS=300     # amorce conservée avant le seuil
+```
+
+Tests : `tests/test_voice_latency.py`, `tests/test_voice_rearm.py`,
+`tests/test_voice_pipeline_e2e.py`, `tests/test_voice_tts_warm.py`. Ils tournent
+avec des moteurs simulés — ils ne mesurent pas le matériel, ils vérifient que
+l'orchestration n'ajoute ni palier fixe, ni étape bloquante, ni état résiduel.
+
 ## Structure du projet
 
 ```
