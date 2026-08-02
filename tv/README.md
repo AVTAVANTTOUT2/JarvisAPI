@@ -116,11 +116,32 @@ bash scripts/launch_tv_browser.sh
 | Footer | Devices connectes + cout API jour |
 | **Overlay vocal** | **Transcription + reponse temps reel du daemon audio** |
 
+## Canal d'événements backend
+
+Le serveur TV consomme `ws://127.0.0.1:8081/ws/tv/events` — canal dédié,
+authentifié et **strictement descendant**. Il n'utilise plus `/ws`, qui
+transporte le chat, l'audio et les commandes de JARVIS.
+
+- **Authentification** : en-tête `X-Jarvis-Control-Token`, lu depuis
+  `data/.supervisor_control_token` (fichier `0600` créé au démarrage du
+  backend). Rien à configurer ici.
+- **Sens unique** : le serveur TV n'envoie jamais rien ; toute écriture
+  entraînerait la fermeture du canal côté backend.
+- **Contenu** : `tv.voice_state`, `tv.notification`, `tv.task`, `tv.system`,
+  `tv.heartbeat`. Aucun message de conversation, et pas de transcription
+  vocale tant que `TV_EVENTS_INCLUDE_TRANSCRIPTS=false`.
+- **Reconnexion** : 5 s après une coupure réseau, 30 s après un refus
+  d'authentification (codes 4401/4403) — le temps de corriger le jeton.
+
+Le format poussé au navigateur est inchangé : `tv.voice_state` est retraduit en
+`audio_daemon_state` avant d'entrer dans le flux SSE. Détails complets :
+`Architecture/36_CANAL_WEBSOCKET_TV.md`.
+
 ## Overlay vocal
 
 Le dashboard affiche en temps reel les interactions vocales avec JARVIS :
 
-- Ecoute le WebSocket du backend principal (port 8081)
+- Ecoute le canal d'evenements du backend principal (port 8081)
 - Relaye via SSE (`/api/events`) vers le navigateur TV
 - Overlay avec orbe anime + transcription de l'utilisateur + reponse de JARVIS
 - Disparait automatiquement 3 secondes apres le retour en veille
