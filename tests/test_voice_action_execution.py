@@ -189,7 +189,7 @@ async def test_voice_json_example_outside_action_fence_is_never_executed():
     ), patch(
         "api.voice_processing.execute_action", execute,
     ), patch(
-        "api.voice_processing._save_voice_messages",
+        "api.voice_fastpath._save_voice_messages",
     ), patch(
         "api.voice_processing._save_voice_debug_trace", return_value=1,
     ), patch(

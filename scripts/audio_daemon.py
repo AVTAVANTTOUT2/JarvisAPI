@@ -713,6 +713,15 @@ class AudioDaemon:
     async def stop(self) -> None:
         """Arrête proprement (micro, porcupine, pyaudio)."""
         logger.info("[audio_daemon] Arrêt demandé")
+
+        # Les messages du dernier tour sont écrits en arrière-plan pour ne pas
+        # retarder la parole : on les attend ici plutôt que de les perdre.
+        try:
+            from api.voice_fastpath import flush_pending_persists
+
+            await flush_pending_persists()
+        except Exception as e:
+            logger.debug("[audio_daemon] vidage des écritures vocales : %s", e)
         self._running = False
         self.enabled = False
 
@@ -1441,22 +1450,30 @@ class AudioDaemon:
         if interrupt_event.is_set():
             interrupt_event.clear()
             logger.debug("[audio_daemon] Interruption avant LLM — abandon traitement")
-            self.state = "wake_listening" if self.wake_word_enabled else "listening"
-            await self._broadcast_state()
+            await self._rearm(reason="interrupted_before_llm", trace=trace)
             return
 
         # 3. Pipeline vocal rapide (bypass orchestrateur, DeepSeek flash direct)
         self._last_interaction = time.time()
 
         if self._conv_id is None:
-            self._conv_id = create_conversation(agent="daemon_audio")
+            trace.mark(vl.CONVERSATION_LOOKUP_STARTED)
+            loop = asyncio.get_running_loop()
+            # Création SQLite : hors boucle, sinon elle bloque le tour de parole
+            # et tout ce qui partage la boucle (VAD, WebSocket, file vocale).
+            self._conv_id = await loop.run_in_executor(
+                None, lambda: create_conversation(agent="daemon_audio"),
+            )
+            trace.mark(vl.CONVERSATION_LOOKUP_COMPLETED)
+        trace.set_conversation(self._conv_id)
 
         try:
-            result = await process_voice_fast(text, self._conv_id)
+            result = await process_voice_fast(
+                text, self._conv_id, stt_ms=stt_latency_ms, trace=trace,
+            )
         except Exception as e:
             logger.exception("[audio_daemon] _process_voice_fast : %s", e)
-            self.state = "wake_listening" if self.wake_word_enabled else "listening"
-            await self._broadcast_state()
+            await self._rearm(reason="llm_error", trace=trace)
             await self._play_tts("Désolé Monsieur, je rencontre un problème technique.", emotion="concerned")
             return
 
