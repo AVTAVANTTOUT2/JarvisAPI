@@ -226,6 +226,26 @@ TV_CAST_ENABLED = _get("TV_CAST_ENABLED", "true").lower() == "true"
 TV_CAST_TIMEOUT = int(_get("TV_CAST_TIMEOUT", "20"))
 TV_DASHBOARD_URL = _get("TV_DASHBOARD_URL", "http://192.168.3.52:5174/")  # URL a ouvrir via Chromecast
 
+# ── Canal WebSocket TV — /ws/tv/events (lecture seule) ───────
+# Diffusion descendante vers l'écran mural, authentifiée par le jeton privé du
+# canal supervisor et limitée à la boucle locale. Aucune commande n'y transite.
+TV_EVENTS_ENABLED = _get("TV_EVENTS_ENABLED", "true").lower() == "true"
+TV_EVENTS_DEVICE_ID = _get("TV_EVENTS_DEVICE_ID", "")  # vide → DEVICE_ID
+# Les transcriptions sont du contenu de conversation : hors du canal par défaut,
+# parce qu'un écran de salon n'a pas à afficher ce qui se dit dans la pièce.
+TV_EVENTS_INCLUDE_TRANSCRIPTS = (
+    _get("TV_EVENTS_INCLUDE_TRANSCRIPTS", "false").lower() == "true"
+)
+TV_EVENT_MAX_TEXT_CHARS = int(_get("TV_EVENT_MAX_TEXT_CHARS", "200"))
+TV_WS_MAX_CONNECTIONS = int(_get("TV_WS_MAX_CONNECTIONS", "4"))
+TV_WS_QUEUE_MAXSIZE = int(_get("TV_WS_QUEUE_MAXSIZE", "100"))
+TV_WS_MAX_DROPPED_EVENTS = int(_get("TV_WS_MAX_DROPPED_EVENTS", "200"))
+TV_WS_HEARTBEAT_SECONDS = float(_get("TV_WS_HEARTBEAT_SECONDS", "20"))
+TV_WS_SEND_TIMEOUT_SECONDS = float(_get("TV_WS_SEND_TIMEOUT_SECONDS", "5"))
+TV_WS_MAX_EVENT_BYTES = int(_get("TV_WS_MAX_EVENT_BYTES", "8192"))
+TV_WS_MAX_CLIENT_MESSAGE_BYTES = int(_get("TV_WS_MAX_CLIENT_MESSAGE_BYTES", "4096"))
+TV_WS_MAX_CLIENT_VIOLATIONS = int(_get("TV_WS_MAX_CLIENT_VIOLATIONS", "3"))
+
 # ── Exécution de code avancée ────────────────────────────────
 CODE_EXECUTOR_ENABLED = _get("CODE_EXECUTOR_ENABLED", "false").lower() == "true"
 CODE_EXECUTOR_TIMEOUT = int(_get("CODE_EXECUTOR_TIMEOUT", "120"))

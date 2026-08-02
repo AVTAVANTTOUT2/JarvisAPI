@@ -82,59 +82,176 @@ tv_event_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=50)
 _ws_listener_task: asyncio.Task[Any] | None = None
 
 _WS_RECONNECT_DELAY: float = 5.0
+_WS_AUTH_RETRY_DELAY: float = 30.0
 _SSE_HEARTBEAT_SECONDS: float = 25.0
+_UNAUTHORIZED_CLOSE_CODES: frozenset[int] = frozenset({4401, 4403})
+_TV_VOICE_STATE_TYPE: str = "tv.voice_state"
+_TV_HEARTBEAT_TYPE: str = "tv.heartbeat"
+# Champs de l'état vocal remontés au navigateur, dans le format historique
+# attendu par l'overlay. Le backend décide déjà si les transcriptions sortent.
+_VOICE_STATE_FIELDS: tuple[str, ...] = (
+    "enabled",
+    "wake_word_enabled",
+    "continuous_mode",
+    "last_interaction",
+    "user_text",
+    "jarvis_text",
+)
+
+
+def _load_control_token() -> str | None:
+    """Lit le jeton privé du canal supervisor.
+
+    Le jeton n'est jamais journalisé : en cas de problème, seuls le chemin et
+    le type d'erreur sont tracés.
+    """
+    path = Path(cfg.SUPERVISOR_CONTROL_TOKEN_FILE)
+    try:
+        token = path.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        logger.error(
+            "[tv] Jeton de contrôle absent (%s) — il est créé au démarrage du backend",
+            path,
+        )
+        return None
+    except OSError as exc:
+        logger.error(
+            "[tv] Jeton de contrôle illisible (%s) : %s", path, type(exc).__name__
+        )
+        return None
+    if len(token) < cfg.MIN_CONTROL_TOKEN_LENGTH:
+        logger.error(
+            "[tv] Jeton de contrôle trop court (%s) — canal TV non connecté", path
+        )
+        return None
+    return token
+
+
+def _browser_payload(event: dict[str, Any]) -> dict[str, Any] | None:
+    """Traduit un événement du canal TV vers le format lu par le navigateur.
+
+    L'overlay historique attend ``audio_daemon_state`` ; le reste des types TV
+    est transmis tel quel, un client qui ne les connaît pas les ignore.
+
+    Returns:
+        Le message à pousser en SSE, ou None si l'événement n'a rien à afficher.
+    """
+    event_type = str(event.get("type") or "")
+    if not event_type or event_type == _TV_HEARTBEAT_TYPE:
+        return None
+    if event_type != _TV_VOICE_STATE_TYPE:
+        return event
+
+    payload = event.get("payload")
+    payload = payload if isinstance(payload, dict) else {}
+    message: dict[str, Any] = {
+        "type": "audio_daemon_state",
+        "state": event.get("state") or "idle",
+    }
+    for key in _VOICE_STATE_FIELDS:
+        if key in payload:
+            message[key] = payload[key]
+    return message
+
+
+def _enqueue_browser_event(event: dict[str, Any]) -> None:
+    """Dépose un message pour le flux SSE, en perdant le plus ancien si besoin."""
+    try:
+        tv_event_queue.put_nowait(event)
+        return
+    except asyncio.QueueFull:
+        pass
+    try:
+        tv_event_queue.get_nowait()
+        tv_event_queue.put_nowait(event)
+    except (asyncio.QueueEmpty, asyncio.QueueFull):
+        pass
+
+
+async def _consume_tv_events(token: str) -> None:
+    """Ouvre le canal TV du backend et relaye jusqu'à déconnexion."""
+    async with websockets.connect(
+        cfg.BACKEND_TV_EVENTS_URL,
+        additional_headers={cfg.JARVIS_CONTROL_HEADER: token},
+        ping_interval=20,
+        ping_timeout=10,
+        close_timeout=5,
+        max_size=cfg.TV_WS_MAX_FRAME_BYTES,
+    ) as ws:
+        logger.info("[tv] Canal d'événements TV connecté")
+        async for raw in ws:
+            try:
+                event: dict[str, Any] = json.loads(raw)
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if not isinstance(event, dict):
+                continue
+            message = _browser_payload(event)
+            if message is not None:
+                _enqueue_browser_event(message)
 
 
 async def _ws_listener() -> None:
-    """Écoute le WebSocket du backend principal et relaye vers tv_event_queue.
+    """Maintient la connexion au canal TV du backend, avec reconnexion.
 
-    Se reconnecte automatiquement en cas de déconnexion.
-    Filtre uniquement les événements de type ``audio_daemon_state``.
+    Ce canal est descendant : le serveur TV n'envoie jamais rien au backend.
+    Un refus d'authentification n'est pas une panne réseau — il est réessayé
+    beaucoup plus lentement, le temps que l'opérateur corrige le jeton.
     """
-    ws_url = f"ws://{cfg.BACKEND_HOST}:{cfg.BACKEND_PORT}/ws"
-    logger.info("[tv] Connexion WebSocket backend : %s", ws_url)
+    logger.info("[tv] Canal d'événements backend : %s", cfg.BACKEND_TV_EVENTS_URL)
 
     while True:
+        delay = _WS_RECONNECT_DELAY
+        token = _load_control_token()
+        if token is None:
+            await asyncio.sleep(_WS_AUTH_RETRY_DELAY)
+            continue
         try:
-            async with websockets.connect(
-                ws_url,
-                ping_interval=20,
-                ping_timeout=10,
-                close_timeout=5,
-            ) as ws:
-                logger.info("[tv] WebSocket backend connecté")
-                async for msg in ws:
-                    try:
-                        data: dict[str, Any] = json.loads(msg)
-                    except json.JSONDecodeError:
-                        continue
-
-                    if data.get("type", "").startswith("audio_daemon_"):
-                        try:
-                            tv_event_queue.put_nowait(data)
-                        except asyncio.QueueFull:
-                            # Queue saturée → jeter silencieusement
-                            # l'événement le plus ancien pour faire place
-                            try:
-                                tv_event_queue.get_nowait()
-                                tv_event_queue.put_nowait(data)
-                            except (asyncio.QueueEmpty, asyncio.QueueFull):
-                                pass
-
+            await _consume_tv_events(token)
+        except websockets.InvalidStatus as exc:
+            delay = _WS_AUTH_RETRY_DELAY
+            logger.error(
+                "[tv] Canal TV refusé au handshake (HTTP %s) — nouvel essai dans %.0fs",
+                getattr(getattr(exc, "response", None), "status_code", "?"),
+                delay,
+            )
+        except websockets.ConnectionClosed as exc:
+            code = getattr(getattr(exc, "rcvd", None), "code", None)
+            if code in _UNAUTHORIZED_CLOSE_CODES:
+                delay = _WS_AUTH_RETRY_DELAY
+                logger.error(
+                    "[tv] Canal TV refusé (code %s) — vérifier le jeton de contrôle "
+                    "et l'origine ; nouvel essai dans %.0fs",
+                    code,
+                    delay,
+                )
+            else:
+                logger.warning(
+                    "[tv] Canal TV fermé (code %s) — reconnexion dans %.0fs",
+                    code,
+                    delay,
+                )
         except (
-            websockets.ConnectionClosed,
             websockets.InvalidURI,
             websockets.InvalidHandshake,
             ConnectionRefusedError,
             ConnectionResetError,
             OSError,
             asyncio.TimeoutError,
-        ) as e:
-            logger.warning("[tv] WebSocket déconnecté (%s) — reconnexion dans %.0fs", e, _WS_RECONNECT_DELAY)
-        except Exception as e:
-            logger.warning("[tv] WebSocket erreur inattendue (%s) — reconnexion dans %.0fs", e, _WS_RECONNECT_DELAY)
+        ) as exc:
+            logger.warning(
+                "[tv] Canal TV indisponible (%s) — reconnexion dans %.0fs",
+                type(exc).__name__,
+                delay,
+            )
+        except Exception as exc:
+            logger.warning(
+                "[tv] Canal TV — erreur inattendue (%s) ; reconnexion dans %.0fs",
+                type(exc).__name__,
+                delay,
+            )
 
-        await asyncio.sleep(_WS_RECONNECT_DELAY)
+        await asyncio.sleep(delay)
 
 
 # ── Frontière de sécurité HTTP ────────────────────────────────
