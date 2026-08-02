@@ -28,7 +28,6 @@ def test_ci_smoke_imports_risky_production_dependencies():
 
     for module in (
         "faster_whisper",
-        "interpreter",
         "kokoro_onnx",
         "pyaudio",
         "sentence_transformers",
@@ -47,8 +46,8 @@ def test_production_requirements_keep_spacy_and_kokoro_numpy_compatible():
     assert "spacy==3.8.*" in requirements
 
 
-def test_production_requirements_keep_pkg_resources_for_open_interpreter():
+def test_production_requirements_pin_the_web_core():
     requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8")
 
-    assert "open-interpreter==0.4.*" in requirements
-    assert "setuptools>=77.0.3,<82" in requirements
+    assert "fastapi==0.139.*" in requirements
+    assert "uvicorn[standard]==0.34.*" in requirements

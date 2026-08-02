@@ -88,7 +88,6 @@ JarvisAPI/
 │   ├── weather.py             ← OpenWeatherMap
 │   ├── web_search.py          ← Tavily API
 │   ├── computer.py            ← Shell sécurisé + AppleScript
-│   ├── code_executor.py       ← Open Interpreter (exécution code avancée)
 │   ├── notifications_macos.py ← Notifications bureau macOS
 │   └── location.py            ← LocationManager (GPS, visites, trajets)
 │

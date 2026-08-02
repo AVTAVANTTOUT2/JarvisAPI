@@ -1,5 +1,5 @@
 # Core
-fastapi==0.115.*
+fastapi==0.139.*
 uvicorn[standard]==0.34.*
 python-dotenv==1.2.*    # 1.1.x : PYSEC-2026-2270 (corrigé en 1.2.2)
 websockets==15.*
@@ -18,12 +18,6 @@ apscheduler==3.10.*
 
 # PDF
 pymupdf==1.25.*
-
-# Code execution engine
-# Open Interpreter 0.4 importe encore pkg_resources (retiré de setuptools 82).
-# La borne basse reste compatible avec Torch 2.13.
-setuptools>=77.0.3,<82
-open-interpreter==0.4.*
 
 # Daemon JARVIS — screen watcher + wake word
 Pillow>=10.0
