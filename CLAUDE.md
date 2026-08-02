@@ -975,6 +975,11 @@ Quatre décisions structurantes :
   intermédiaire changerait la réponse. `llm.chat_stream_collect()` sert à exposer
   `llm.first_token`, seule façon de distinguer un modèle lent d'un réseau lent.
 
+Ces réglages sont des **défauts intégrés** (`config.DEFAULT_*`), pas seulement
+des lignes d'exemple : une installation neuve les obtient sans aucun fichier
+local. `audio/engine_config.py` les expose au démarrage et en diagnostic, et un
+test refuse toute divergence entre les défauts et les `.env*.example`.
+
 ```bash
 STT_BEAM_SIZE=1                  # temps réel : un seul faisceau
 STT_VAD_FILTER=false             # le daemon segmente déjà l'énoncé

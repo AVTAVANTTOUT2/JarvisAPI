@@ -377,3 +377,63 @@ def test_stt_backend_uses_the_realtime_settings(monkeypatch):
     assert result is not None
     assert result.audio_ms > 0
     assert result.real_time_factor is not None
+
+
+# ── Réglages versionnés, pas seulement locaux ───────────────────────────────
+
+
+def test_latency_settings_are_versioned_defaults():
+    """Une installation neuve doit hériter des valeurs mesurées.
+
+    Ces réglages vivaient dans un `.env.config` gitignoré : un poste neuf
+    repartait donc avec 1200 ms de silence et un décodage int8. Les défauts
+    intégrés sont désormais la source de vérité.
+    """
+    import config
+
+    assert config.DEFAULT_AUDIO_DAEMON_SILENCE_MS == 500
+    assert config.DEFAULT_AUDIO_DAEMON_MIN_SPEECH_MS == 200
+    assert config.DEFAULT_AUDIO_DAEMON_PRE_ROLL_MS == 300
+    assert config.DEFAULT_STT_COMPUTE_TYPE == "float32"
+    assert config.DEFAULT_STT_BEAM_SIZE == 1
+    assert config.DEFAULT_STT_VAD_FILTER is False
+
+
+def test_env_examples_agree_with_builtin_defaults():
+    """Un exemple qui contredit le défaut intégré désinforme plus qu'il n'aide."""
+    from pathlib import Path
+
+    import config
+
+    expected = {
+        "AUDIO_DAEMON_SILENCE_MS": str(config.DEFAULT_AUDIO_DAEMON_SILENCE_MS),
+        "AUDIO_DAEMON_MIN_SPEECH_MS": str(config.DEFAULT_AUDIO_DAEMON_MIN_SPEECH_MS),
+        "AUDIO_DAEMON_PRE_ROLL_MS": str(config.DEFAULT_AUDIO_DAEMON_PRE_ROLL_MS),
+        "STT_COMPUTE_TYPE": config.DEFAULT_STT_COMPUTE_TYPE,
+        "STT_BEAM_SIZE": str(config.DEFAULT_STT_BEAM_SIZE),
+        "STT_VAD_FILTER": str(config.DEFAULT_STT_VAD_FILTER).lower(),
+    }
+    root = Path(__file__).resolve().parent.parent
+
+    for name in (".env.example", ".env.config.example"):
+        lines = (root / name).read_text(encoding="utf-8").splitlines()
+        for key, want in expected.items():
+            hits = [ln for ln in lines if ln.startswith(f"{key}=")]
+            assert len(hits) == 1, (
+                f"{name} : {key} apparaît {len(hits)} fois — "
+                "un doublon rend la valeur effective imprévisible."
+            )
+            got = hits[0].split("=", 1)[1].split("#")[0].strip()
+            assert got == want, f"{name} : {key}={got}, attendu {want}"
+
+
+def test_engine_config_exposes_the_realtime_settings():
+    """Les réglages appliqués doivent être lisibles au démarrage et en diagnostic."""
+    from audio.engine_config import load_audio_engine_config
+
+    cfg = load_audio_engine_config()
+    assert cfg.stt_beam_size >= 1
+    assert cfg.stt_vad_filter is False
+    assert cfg.vad_silence_ms > 0
+    assert cfg.vad_min_speech_ms > 0
+    assert cfg.vad_pre_roll_ms > 0

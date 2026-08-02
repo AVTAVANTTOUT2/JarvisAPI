@@ -93,6 +93,16 @@ DEFAULT_STT_DEVICE = "auto"
 DEFAULT_STT_COMPUTE_TYPE = "float32"
 DEFAULT_STT_BEAM_SIZE = 1
 DEFAULT_STT_VAD_FILTER = False
+
+# ── Segmentation VAD du daemon audio ────────────────────────
+# Ces trois valeurs déterminent le délai entre la dernière syllabe et le
+# démarrage du STT. Elles sont versionnées ici — et non laissées à un `.env`
+# local — pour qu'une installation neuve hérite des valeurs mesurées.
+# 1200 ms de silence (ancien réglage local) ajoutaient à eux seuls plus d'une
+# seconde avant la moindre transcription.
+DEFAULT_AUDIO_DAEMON_SILENCE_MS = 500     # fourchette utile : 300-600 ms
+DEFAULT_AUDIO_DAEMON_MIN_SPEECH_MS = 200  # en dessous, on jette les claquements
+DEFAULT_AUDIO_DAEMON_PRE_ROLL_MS = 300    # amorce conservée avant le seuil
 DEFAULT_TTS_ENGINE = "kokoro"
 DEFAULT_KOKORO_BACKEND = "mlx"
 DEFAULT_KOKORO_MODEL = "mlx-community/Kokoro-82M-bf16"
@@ -184,7 +194,9 @@ KOKORO_FIRST_CHUNK_MAX_TOKENS = int(
 MACOS_TTS_VOICE = _get("MACOS_TTS_VOICE", "Jacques")
 AUDIO_DAEMON_OUTPUT_DEVICE = _get("AUDIO_DAEMON_OUTPUT_DEVICE", "")  # vide = sortie défaut macOS
 AUDIO_DAEMON_HALF_DUPLEX = _get("AUDIO_DAEMON_HALF_DUPLEX", "true").lower() == "true"
-AUDIO_DAEMON_PRE_ROLL_MS = int(_get("AUDIO_DAEMON_PRE_ROLL_MS", "300"))
+AUDIO_DAEMON_PRE_ROLL_MS = int(
+    _get("AUDIO_DAEMON_PRE_ROLL_MS", str(DEFAULT_AUDIO_DAEMON_PRE_ROLL_MS))
+)
 WAKE_WORD = _get("WAKE_WORD", "jarvis")
 
 # Mode conversation mains libres (client : détection silence ; valeurs envoyées dans le status HTTP)
@@ -478,8 +490,12 @@ END_PHRASES: tuple[str, ...] = (
 AUDIO_DAEMON_ENABLED = _get("AUDIO_DAEMON_ENABLED", "false").lower() == "true"
 AUDIO_DAEMON_SAMPLE_RATE = int(_get("AUDIO_DAEMON_SAMPLE_RATE", "16000"))
 AUDIO_DAEMON_SPEECH_THRESHOLD = float(_get("AUDIO_DAEMON_SPEECH_THRESHOLD", "0.02"))
-AUDIO_DAEMON_SILENCE_MS = int(_get("AUDIO_DAEMON_SILENCE_MS", "450"))
-AUDIO_DAEMON_MIN_SPEECH_MS = int(_get("AUDIO_DAEMON_MIN_SPEECH_MS", "200"))
+AUDIO_DAEMON_SILENCE_MS = int(
+    _get("AUDIO_DAEMON_SILENCE_MS", str(DEFAULT_AUDIO_DAEMON_SILENCE_MS))
+)
+AUDIO_DAEMON_MIN_SPEECH_MS = int(
+    _get("AUDIO_DAEMON_MIN_SPEECH_MS", str(DEFAULT_AUDIO_DAEMON_MIN_SPEECH_MS))
+)
 AUDIO_DAEMON_MAX_UTTERANCE_S = int(_get("AUDIO_DAEMON_MAX_UTTERANCE_S", "30"))
 AUDIO_DAEMON_CONVERSATION_TIMEOUT = float(_get("AUDIO_DAEMON_CONVERSATION_TIMEOUT", "30.0"))
 AUDIO_DAEMON_INPUT_DEVICE = _get("AUDIO_DAEMON_INPUT_DEVICE", "")  # vide = entrée défaut macOS
