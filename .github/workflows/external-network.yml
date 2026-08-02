@@ -1,0 +1,39 @@
+name: Tests réseau externes
+
+# Ces tests sortent réellement sur Internet (TTS Edge →
+# speech.platform.bing.com). Ils sont exclus de la CI de pull request, qui doit
+# rester déterministe : ici, un échec peut venir du réseau autant que du code.
+# Déclenchement manuel, plus un passage hebdomadaire pour détecter une rupture
+# d'API Microsoft avant que l'utilisateur ne l'entende.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 5 * * 1"
+
+jobs:
+  external_network:
+    name: Scénarios réseau réels (pytest -m external_network)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      # Même sous-ensemble léger que le job `backend` : les dépendances lourdes
+      # ne sont pas nécessaires pour importer les modules testés.
+      - name: Installer les dépendances de test
+        run: |
+          pip install \
+            "fastapi==0.115.*" "uvicorn[standard]==0.34.*" "python-dotenv==1.1.*" \
+            "websockets==15.*" "python-multipart==0.0.*" "jinja2==3.1.*" \
+            "httpx==0.28.*" "apscheduler==3.10.*" "pymupdf==1.25.*" \
+            "edge-tts==7.*" "Pillow>=10.0" "python-dateutil==2.9.*" \
+            "requests>=2.31" "cryptography>=41.0" "numpy>=1.26,<3" \
+            "pytest==8.*" "pytest-asyncio>=0.24,<0.27"
+
+      - name: Tests marqués external_network
+        run: python -m pytest -m external_network -v -rs

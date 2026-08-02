@@ -13,6 +13,15 @@ API :
 
     macos_tts                            → singleton MacOSTTSEngine
     get_tts_by_name(name)                → retourne le bon singleton selon le nom
+
+Frontière réseau : ``edge`` est le seul moteur qui sort de la machine
+(``speech.platform.bing.com``). Ses appels sont bornés par
+``EDGE_TTS_CONNECT_TIMEOUT_SEC``, ``EDGE_TTS_RECEIVE_TIMEOUT_SEC`` et
+``EDGE_TTS_TOTAL_TIMEOUT_SEC``, et ses échecs sont qualifiés par
+``audio.tts_errors`` : service injoignable (avertissement) ou contrat rompu
+(erreur). Un échec Edge ne bascule jamais en silence sur un moteur local : le
+type MIME est annoncé au client avant la synthèse, donc le repli appartient à
+l'appelant (``audio.tts_native.get_native_tts_engine`` pour la chaîne locale).
 """
 
 import asyncio
@@ -21,9 +30,10 @@ import os
 import shutil
 import tempfile
 from pathlib import Path
-from typing import AsyncGenerator
+from typing import Any, AsyncGenerator
 
 import config
+from audio.tts_errors import describe_tts_failure, is_network_unavailable
 from jarvis.event_bus import JarvisEvent, event_bus
 
 logger = logging.getLogger(__name__)
@@ -31,6 +41,24 @@ logger = logging.getLogger(__name__)
 VALID_EMOTIONS = frozenset({
     "neutral", "warm", "serious", "concerned", "amused", "urgent", "encouraging"
 })
+
+# Type des messages Edge porteurs d'octets MP3 ; les autres sont des marqueurs
+# de prosodie (`WordBoundary`, `SentenceBoundary`) sans audio.
+EDGE_AUDIO_MESSAGE_TYPE = "audio"
+
+
+def _emit_background(event: JarvisEvent) -> None:
+    """Émet sans bloquer la synthèse, en gardant une référence forte à la tâche.
+
+    `event_bus.emit_nowait` suit ses tâches (`_pending`) : un `create_task` nu
+    peut être ramassé par le GC avant d'avoir émis, et rend `wait_until_idle()`
+    aveugle. Un bus indisponible ne doit jamais casser un tour de parole.
+    """
+    try:
+        event_bus.emit_nowait(event)
+    except Exception as exc:  # pragma: no cover - dépend de l'état de la boucle
+        logger.debug("[TTS] émission %s ignorée : %s", event.type, exc)
+
 
 class TTSEngine:
     """TTS Edge pour les clients réseau ; les moteurs locaux sont séparés."""
@@ -58,14 +86,14 @@ class TTSEngine:
         emotion = emotion if emotion in VALID_EMOTIONS else "neutral"
         logger.debug("[TTS] synthesize backend=%s emotion=%s len=%d", self._backend, emotion, len(text))
 
-        asyncio.create_task(event_bus.emit(JarvisEvent(
+        _emit_background(JarvisEvent(
             type="tts.start",
             data={"engine": self._backend, "text_length": len(text)},
-        )))
+        ))
 
         result = await self._synth_edge(text)
 
-        asyncio.create_task(event_bus.emit(JarvisEvent(type="tts.done")))
+        _emit_background(JarvisEvent(type="tts.done"))
         return result
 
     async def synthesize_stream(
@@ -77,60 +105,107 @@ class TTSEngine:
         async for chunk in self._synth_edge_stream(text):
             yield chunk
 
-    async def _synth_edge_stream(self, text: str) -> AsyncGenerator[bytes, None]:
-        """Stream Edge TTS chunk par chunk (time-to-first-byte réduit)."""
-        try:
-            import edge_tts
-        except ImportError:
-            return
+    def _build_communicate(self, edge_tts_module: Any, text: str) -> Any:
+        """Prépare l'appel Edge : voix résolue et délais réseau bornés.
 
+        La voix passe par `resolve_tts_voice("edge")` : un `TTS_VOICE` vide
+        laisserait `edge_tts` choisir sa voix par défaut, qui est anglaise.
+        """
+        return edge_tts_module.Communicate(
+            text,
+            resolve_tts_voice("edge"),
+            connect_timeout=config.EDGE_TTS_CONNECT_TIMEOUT_SEC,
+            receive_timeout=config.EDGE_TTS_RECEIVE_TIMEOUT_SEC,
+        )
+
+    async def _edge_audio_chunks(self, text: str) -> AsyncGenerator[bytes, None]:
+        """Octets MP3 renvoyés par Edge, sans filet : l'appelant classe l'échec.
+
+        Chemin unique vers `edge_tts` — la version bufferisée et la version
+        streamée partagent donc exactement les mêmes paramètres réseau.
+        """
+        import edge_tts
+
+        communicate = self._build_communicate(edge_tts, text)
+        async for message in communicate.stream():
+            if message.get("type") != EDGE_AUDIO_MESSAGE_TYPE:
+                continue
+            data = message.get("data")
+            if data:
+                yield data
+
+    def _log_edge_failure(self, stage: str, exc: BaseException) -> None:
+        """Journalise selon la nature de l'échec : réseau absent ou contrat rompu."""
+        detail = describe_tts_failure(exc)
+        if is_network_unavailable(exc):
+            logger.warning("[TTS] Edge %s — service injoignable : %s", stage, detail)
+        else:
+            logger.error("[TTS] Edge %s — défaut fonctionnel : %s", stage, detail, exc_info=exc)
+
+    async def _synth_edge_stream(self, text: str) -> AsyncGenerator[bytes, None]:
+        """Stream Edge TTS chunk par chunk (time-to-first-byte réduit).
+
+        Pas de plafond global ici : le flux est consommé au fil de l'eau et
+        annulable par le client. Les bornes `connect`/`receive` d'`edge_tts`
+        couvrent le silence réseau.
+        """
         try:
-            communicate = edge_tts.Communicate(text, config.TTS_VOICE)
-            async for chunk in communicate.stream():
-                if chunk.get("type") == "audio" and chunk.get("data"):
-                    yield chunk["data"]
-        except Exception as e:
-            logger.exception("[TTS] Edge stream : %s", e)
+            async for chunk in self._edge_audio_chunks(text):
+                yield chunk
+        except ImportError:
+            logger.warning("[TTS] Edge stream : edge-tts non installé")
+        except Exception as exc:
+            self._log_edge_failure("stream", exc)
 
     async def _synth_edge(self, text: str) -> bytes:
+        """MP3 complet en mémoire — aucun fichier temporaire.
+
+        Le texte synthétisé est une réponse personnelle de JARVIS : il n'a rien
+        à faire dans `/tmp`. `edge_tts.Communicate.save()` ne fait de toute
+        façon que concaténer les mêmes messages `audio` dans un fichier.
+        """
         try:
-            import edge_tts
+            async with asyncio.timeout(config.EDGE_TTS_TOTAL_TIMEOUT_SEC):
+                chunks = [chunk async for chunk in self._edge_audio_chunks(text)]
         except ImportError:
+            logger.warning("[TTS] Edge : edge-tts non installé")
+            return b""
+        except Exception as exc:
+            self._log_edge_failure("synthèse", exc)
             return b""
 
-        tmp_fd, tmp_path = tempfile.mkstemp(suffix=".mp3")
-        os.close(tmp_fd)
-        try:
-            communicate = edge_tts.Communicate(text, config.TTS_VOICE)
-            await communicate.save(tmp_path)
-            data = Path(tmp_path).read_bytes()
-            logger.debug("[TTS] Edge OK : %d bytes", len(data))
-            return data
-        except Exception as e:
-            logger.exception("[TTS] Edge : %s", e)
+        data = b"".join(chunks)
+        if not data:
+            logger.error(
+                "[TTS] Edge n'a renvoyé aucun audio (voix %s, %d caractères)",
+                resolve_tts_voice("edge"),
+                len(text),
+            )
             return b""
-        finally:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
+        logger.debug("[TTS] Edge OK : %d octets", len(data))
+        return data
 
-    async def get_voices(self, locale_filter: str = "fr-FR") -> list:
+    async def get_voices(self, locale_filter: str = "fr-FR") -> list[dict[str, Any]]:
         if self._backend != "edge":
             return []
         try:
             import edge_tts
 
-            voices = await edge_tts.list_voices()
-            if locale_filter:
-                voices = [v for v in voices if locale_filter in v.get("ShortName", "")]
-            return [
-                {"name": v.get("ShortName"), "gender": v.get("Gender"), "locale": v.get("Locale")}
-                for v in voices
-            ]
-        except Exception as e:
-            logger.error("[TTS] list_voices : %s", e)
+            async with asyncio.timeout(config.EDGE_TTS_TOTAL_TIMEOUT_SEC):
+                voices = await edge_tts.list_voices()
+        except ImportError:
+            logger.warning("[TTS] list_voices : edge-tts non installé")
             return []
+        except Exception as exc:
+            self._log_edge_failure("list_voices", exc)
+            return []
+
+        if locale_filter:
+            voices = [v for v in voices if locale_filter in v.get("ShortName", "")]
+        return [
+            {"name": v.get("ShortName"), "gender": v.get("Gender"), "locale": v.get("Locale")}
+            for v in voices
+        ]
 
 
 tts = TTSEngine()
@@ -288,14 +363,14 @@ class KokoroTTSEngine:
         if not self._ensure_loaded():
             return await self._fallback_synthesize(text, emotion)
 
-        asyncio.create_task(event_bus.emit(JarvisEvent(
+        _emit_background(JarvisEvent(
             type="tts.start",
             data={
                 "engine": "kokoro",
                 "backend": self._backend,
                 "text_length": len(text),
             },
-        )))
+        ))
 
         try:
             if self._backend == "mlx":
@@ -316,7 +391,7 @@ class KokoroTTSEngine:
                 self._lang_code if self._backend == "mlx" else self._lang,
                 len(wav),
             )
-            asyncio.create_task(event_bus.emit(JarvisEvent(type="tts.done")))
+            _emit_background(JarvisEvent(type="tts.done"))
             return wav
         except Exception as e:
             logger.exception("[TTS] Kokoro synthesize erreur : %s", e)
@@ -383,14 +458,14 @@ class MacOSTTSEngine:
         if not self.available or not (text and text.strip()):
             return b""
 
-        asyncio.create_task(event_bus.emit(JarvisEvent(
+        _emit_background(JarvisEvent(
             type="tts.start",
             data={"engine": "macos", "text_length": len(text)},
-        )))
+        ))
 
         result = await self._synth_macos(text)
 
-        asyncio.create_task(event_bus.emit(JarvisEvent(type="tts.done")))
+        _emit_background(JarvisEvent(type="tts.done"))
         return result
 
     async def synthesize_stream(
