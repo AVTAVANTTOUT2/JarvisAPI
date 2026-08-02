@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import stat
-import subprocess
 import sys
 from pathlib import Path
 
@@ -20,6 +19,7 @@ from integrations.cursor_delegation import (  # noqa: E402
     CursorDelegationService,
     _redact_secrets,
 )
+from tests.git_repo import git, init_repo_with_commit  # noqa: E402
 
 
 # ── Helpers ──────────────────────────────────────────────────
@@ -27,13 +27,8 @@ from integrations.cursor_delegation import (  # noqa: E402
 
 def _make_git_repo(path: Path) -> Path:
     path.mkdir(parents=True, exist_ok=True)
-    subprocess.run(["git", "init", "-b", "main"], cwd=path, capture_output=True, check=True)
-    subprocess.run(["git", "config", "user.email", "t@t.t"], cwd=path, capture_output=True)
-    subprocess.run(["git", "config", "user.name", "T"], cwd=path, capture_output=True)
     (path / "app.py").write_text("VALUE = 1\n", encoding="utf-8")
-    subprocess.run(["git", "add", "-A"], cwd=path, capture_output=True)
-    subprocess.run(["git", "commit", "-m", "init"], cwd=path, capture_output=True, check=True)
-    return path
+    return init_repo_with_commit(path)
 
 
 def _make_fake_cli(path: Path, *, verdict: str = "COMPLETED", exit_code: int = 0,
@@ -179,13 +174,9 @@ def test_job_completed_with_worktree_and_markers(delegation_env):
     assert job["structured_result"]["cli_returncode"] == 0
     assert "travail simulé" in job["raw_output"]
     # Branche isolée réellement créée, main intact
-    branches = subprocess.run(
-        ["git", "branch", "--list"], cwd=repo, capture_output=True, text=True
-    ).stdout
+    branches = git(repo, "branch", "--list").stdout
     assert "jarvis/cursor/" in branches
-    head = subprocess.run(
-        ["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=repo, capture_output=True, text=True
-    ).stdout.strip()
+    head = git(repo, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
     assert head == "main"
 
 
@@ -366,9 +357,7 @@ def test_rollback_removes_worktree_and_branch(delegation_env):
     rolled = service.rollback(job["job_id"])
     assert rolled["status"] == "rolled_back"
     assert not wt.exists()
-    branches = subprocess.run(
-        ["git", "branch", "--list"], cwd=repo, capture_output=True, text=True
-    ).stdout
+    branches = git(repo, "branch", "--list").stdout
     assert job["branch_name"] not in branches
 
 

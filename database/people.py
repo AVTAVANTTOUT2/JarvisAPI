@@ -196,6 +196,8 @@ def get_person_timeline_cache(name: str) -> dict | None:
     try:
         import json as _json
         events = _json.loads(row["timeline_cache"])
+        if not isinstance(events, list) or not events:
+            return None
         return {"events": events, "updated_at": row["timeline_updated_at"]}
     except Exception:
         return None
@@ -217,6 +219,17 @@ def update_person_timeline_cache(name: str, events: list) -> None:
             (payload, name),
         )
 
+
+def clear_person_timeline_cache(name: str) -> None:
+    """Invalide le cache timeline (NULL) pour permettre une régénération."""
+    with get_db() as conn:
+        conn.execute(
+            """UPDATE people
+               SET timeline_cache = NULL,
+                   timeline_updated_at = NULL
+               WHERE LOWER(name) = LOWER(?)""",
+            (name,),
+        )
 
 def patch_person(old_name: str, fields: dict[str, Any]) -> dict | None:
     """Met à jour une ligne `people` identifiée par le nom (insensible à la casse).

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import subprocess
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
@@ -11,6 +10,8 @@ import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
+
+from tests.git_repo import git, init_repo  # noqa: E402  (dépend de sys.path)
 
 
 @pytest.fixture
@@ -27,18 +28,16 @@ def tmp_db(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
 @pytest.fixture
 def tmp_repo(tmp_path, monkeypatch):
     """Dépôt git réel avec un fichier .py suivi, et le state file redirigé dans tmp_path."""
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
+    repo = init_repo(tmp_path / "repo")
     (repo / "buggy.py").write_text("def f():\n    return 1 / 0\n", encoding="utf-8")
-    subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
-    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=repo, check=True)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "init")
     monkeypatch.setattr("scripts.self_healing.STATE_PATH", tmp_path / ".self_healing_state.json")
     return repo
 
 
 def _commit_count(repo: Path) -> int:
-    result = subprocess.run(["git", "log", "--oneline"], cwd=repo, capture_output=True, text=True)
+    result = git(repo, "log", "--oneline", check=False)
     return len(result.stdout.strip().splitlines())
 
 
@@ -198,10 +197,9 @@ async def test_rollback_on_recurrence_after_patch(tmp_db, tmp_repo, monkeypatch)
 
     # Simule un patch précédent : un vrai commit à annuler.
     (tmp_repo / "buggy.py").write_text("def f():\n    return 0\n", encoding="utf-8")
-    subprocess.run(["git", "add", "-A"], cwd=tmp_repo, check=True)
-    subprocess.run(["git", "commit", "-q", "-m", "self-healing: correctif automatique (buggy.py)"],
-                   cwd=tmp_repo, check=True)
-    patch_sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=tmp_repo, capture_output=True, text=True).stdout.strip()
+    git(tmp_repo, "add", "-A")
+    git(tmp_repo, "commit", "-q", "-m", "self-healing: correctif automatique (buggy.py)")
+    patch_sha = git(tmp_repo, "rev-parse", "HEAD").stdout.strip()
     _save_state({"last_patch_commit": patch_sha, "last_patch_at": _now_iso()})
 
     diagnose_mock = AsyncMock()

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -16,6 +17,17 @@ from jarvis.security.llm_data_boundary import (
     wrap_untrusted_data,
 )
 
+_TIMELINE_CHUNK_CONCURRENCY = 3
+_TIMELINE_SYSTEM_TEMPLATE = (
+    "Extrais les événements marquants de cette conversation entre "
+    "l'utilisateur et {display_name}.\n"
+    "Retourne UNIQUEMENT un JSON array valide et COMPLET (fermé par ]).\n"
+    '[{{"date": "YYYY-MM-DD", "type": "first_contact|conflict|reconciliation|'
+    'milestone|deep_conversation|distance|reunion|support", '
+    '"title": "titre court", "summary": "résumé en 1 phrase"}}]\n'
+    "Maximum 3 événements par bloc. Titres ≤ 6 mots, summaries ≤ 15 mots. "
+    "Si rien de notable : []."
+)
 logger = logging.getLogger(__name__)
 
 _JSON_BLOCK = re.compile(r"```(?:json)?\s*\n([\s\S]*?)\n```", re.IGNORECASE)
@@ -76,6 +88,30 @@ def _parse_message_dt(val) -> datetime | None:
     return None
 
 
+_EVENT_OBJECT = re.compile(r"\{[^{}]*\}")
+
+
+def _is_timeline_event(item: object) -> bool:
+    return (
+        isinstance(item, dict)
+        and bool(item.get("date"))
+        and bool(item.get("title") or item.get("summary"))
+    )
+
+
+def _salvage_event_objects(text: str) -> list[dict]:
+    """Récupère les objets JSON complets dans une réponse tronquée (max_tokens)."""
+    events: list[dict] = []
+    for match in _EVENT_OBJECT.finditer(text or ""):
+        try:
+            obj = json.loads(match.group(0))
+        except json.JSONDecodeError:
+            continue
+        if _is_timeline_event(obj):
+            events.append(obj)
+    return events
+
+
 def _parse_events_json(content: str) -> list[dict]:
     text = (content or "").strip()
     if not text:
@@ -83,7 +119,7 @@ def _parse_events_json(content: str) -> list[dict]:
     try:
         data = json.loads(text)
         if isinstance(data, list):
-            return [x for x in data if isinstance(x, dict)]
+            return [x for x in data if _is_timeline_event(x)]
     except json.JSONDecodeError:
         pass
     m = _JSON_BLOCK.search(text)
@@ -91,7 +127,7 @@ def _parse_events_json(content: str) -> list[dict]:
         try:
             data = json.loads(m.group(1).strip())
             if isinstance(data, list):
-                return [x for x in data if isinstance(x, dict)]
+                return [x for x in data if _is_timeline_event(x)]
         except json.JSONDecodeError:
             pass
     m2 = _JSON_ARRAY.search(text)
@@ -99,11 +135,11 @@ def _parse_events_json(content: str) -> list[dict]:
         try:
             data = json.loads(m2.group(0))
             if isinstance(data, list):
-                return [x for x in data if isinstance(x, dict)]
+                return [x for x in data if _is_timeline_event(x)]
         except json.JSONDecodeError:
             pass
-    return []
-
+    # DeepSeek coupe souvent le JSON mid-objet quand max_tokens est trop bas.
+    return _salvage_event_objects(text)
 
 def _chunks(lst: list, n: int):
     for i in range(0, len(lst), n):
@@ -133,9 +169,21 @@ async def generate_timeline(person_name: str, handle_override: str | None = None
         return []
 
     msgs.sort(key=lambda x: x["date"])
-    all_events: list[dict] = []
 
-    for chunk in _chunks(msgs, 50):
+    # Cap pour rester sous ~30s côté UI tout en couvrant span + fin récente.
+    chunks = list(_chunks(msgs, 50))
+    if len(chunks) > 8:
+        chunks = chunks[:3] + chunks[len(chunks) // 2 : len(chunks) // 2 + 2] + chunks[-3:]
+
+    safe_display_name = redact_for_external_llm(display_name, max_chars=200)
+    system = (
+        UNTRUSTED_DATA_SYSTEM_RULE
+        + "\n"
+        + _TIMELINE_SYSTEM_TEMPLATE.format(display_name=safe_display_name)
+    )
+    sem = asyncio.Semaphore(_TIMELINE_CHUNK_CONCURRENCY)
+
+    async def _extract_chunk(chunk: list[dict]) -> list[dict]:
         formatted = "\n".join(
             [
                 f"[{m['date'].strftime('%d/%m/%Y %H:%M')}] "
@@ -149,30 +197,30 @@ async def generate_timeline(person_name: str, handle_override: str | None = None
             formatted,
             max_chars=12_000,
         )
-        safe_display_name = redact_for_external_llm(display_name, max_chars=200)
-        try:
-            result = await llm.chat(
-                messages=[{"role": "user", "content": safe_messages}],
-                model=config.DEEPSEEK_FAST_MODEL,
-                system=(
-                    UNTRUSTED_DATA_SYSTEM_RULE
-                    + "\n"
-                    f"Extrais les événements marquants de cette conversation entre "
-                    f"l'utilisateur et {safe_display_name}.\n"
-                    "Retourne UNIQUEMENT un JSON array :\n"
-                    '[{"date": "YYYY-MM-DD", "type": "first_contact|conflict|reconciliation|'
-                    'milestone|deep_conversation|distance|reunion|support", '
-                    '"title": "titre court", "summary": "résumé en 1 phrase"}]\n'
-                    "Événements significatifs uniquement. Maximum 5 événements par bloc."
-                ),
-                max_tokens=500,
-                temperature=0.0,
-                use_cache=False,
+        async with sem:
+            try:
+                result = await llm.chat(
+                    messages=[{"role": "user", "content": safe_messages}],
+                    model=config.DEEPSEEK_FAST_MODEL,
+                    system=system,
+                    max_tokens=1200,
+                    temperature=0.0,
+                    use_cache=False,
+                )
+            except Exception as e:
+                logger.warning("[timeline] chunk DeepSeek : %s", e)
+                return []
+        events = _parse_events_json(result.get("content") or "")
+        if not events and (result.get("content") or "").strip() not in ("", "[]"):
+            logger.warning(
+                "[timeline] parse vide (stop=%s, preview=%r)",
+                result.get("stop_reason"),
+                (result.get("content") or "")[:180],
             )
-            events = _parse_events_json(result.get("content") or "")
-            all_events.extend(events)
-        except Exception as e:
-            logger.warning("[timeline] chunk DeepSeek : %s", e)
+        return events
+
+    chunk_results = await asyncio.gather(*[_extract_chunk(c) for c in chunks])
+    all_events: list[dict] = [ev for part in chunk_results for ev in part]
 
     seen: set[tuple[str, str]] = set()
     deduped: list[dict] = []

@@ -18,6 +18,25 @@ from integrations.apple_data import (
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 APPLE_DATA_MODULE = PROJECT_ROOT / "integrations" / "apple_data.py"
+#: Dossiers hors périmètre du scan statique. `.jarvis/worktrees` et
+#: `.worktrees` contiennent des copies complètes du dépôt : une délégation
+#: Cursor en cours y expose un second `integrations/apple_data.py`, dont les
+#: usages légitimes seraient comptés comme des violations du contrat. Même
+#: politique que `jarvis.cognitive.ollama_guard`.
+SKIPPED_SCAN_DIRS = frozenset(
+    {
+        ".claude",
+        ".git",
+        ".jarvis",
+        ".venv",
+        ".worktrees",
+        "data",
+        "models",
+        "node_modules",
+        "tests",
+        "venv",
+    }
+)
 CHAT_DB_CONSUMERS = (
     "api/lifespan.py",
     "integrations/imessage.py",
@@ -160,10 +179,14 @@ def _call_name(call: ast.Call) -> str | None:
 def test_chat_db_opening_and_timestamp_conversion_stay_centralized():
     """Empêche le retour des lecteurs SQLite directs de Messages.app."""
     conversion_definitions: list[Path] = []
+    scanned = 0
 
-    skipped_parts = {"tests", ".git", "venv", ".venv", "node_modules", ".claude", "models", "data"}
     for path in PROJECT_ROOT.rglob("*.py"):
-        if skipped_parts & set(path.parts):
+        # Exclusions calculées sur le chemin RELATIF : un dépôt cloné sous un
+        # dossier nommé « data » ou « venv » viderait sinon tout le scan, et le
+        # contrat passerait au vert sans avoir rien lu.
+        relative = path.relative_to(PROJECT_ROOT)
+        if SKIPPED_SCAN_DIRS & set(relative.parts):
             continue
         try:
             source = path.read_text(encoding="utf-8")
@@ -171,6 +194,7 @@ def test_chat_db_opening_and_timestamp_conversion_stay_centralized():
             # Fichier non-UTF8 (dépendance embarquée, artefact binaire) : hors périmètre.
             continue
         tree = ast.parse(source, filename=str(path))
+        scanned += 1
 
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -192,6 +216,8 @@ def test_chat_db_opening_and_timestamp_conversion_stay_centralized():
                 "utiliser AppleDataService"
             )
 
+    # Sans ce plancher, élargir la liste d'exclusions rendrait le contrat vide.
+    assert scanned > 200, f"scan trop étroit : {scanned} fichiers seulement"
     assert conversion_definitions == [APPLE_DATA_MODULE]
 
     for relative_path in CHAT_DB_CONSUMERS:

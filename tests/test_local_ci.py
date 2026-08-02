@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import subprocess
 import sys
 from pathlib import Path
 
@@ -10,6 +9,8 @@ import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
+
+from tests.git_repo import init_repo  # noqa: E402  (dépend de sys.path)
 
 
 @pytest.fixture
@@ -128,7 +129,7 @@ def test_run_local_ci_fails_if_any_step_fails(tmp_path, monkeypatch, tmp_db):
 # ── Installeur de hook ────────────────────────────────────────
 
 def _init_git_repo(path: Path) -> None:
-    subprocess.run(["git", "init", "-q"], cwd=path, check=True)
+    init_repo(path)
 
 
 def test_install_hook_creates_executable_pre_commit(tmp_path, monkeypatch):
