@@ -106,6 +106,7 @@ jobs:
             tests/test_audio_defaults.py \
             tests/test_native_audio_pipeline.py \
             tests/test_no_legacy_audio_provider.py \
+            tests/test_tts_local_fallback.py \
             tests/test_screen_watcher_control.py \
             -q
 

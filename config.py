@@ -24,6 +24,28 @@ def _config_path(key: str, default: str) -> Path:
     return value if value.is_absolute() else BASE_DIR / value
 
 
+def _positive_float(key: str, default: float) -> float:
+    """Lit un délai strictement positif ; toute saisie invalide retombe au défaut.
+
+    Un `.env` mal renseigné ne doit pas empêcher le backend de démarrer, et un
+    délai nul ou négatif désarmerait la borne qu'il est censé poser.
+    """
+    raw = _get(key, "").strip()
+    if not raw:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+def _positive_int(key: str, default: int) -> int:
+    """Variante entière de `_positive_float` (bornes attendues en secondes pleines)."""
+    value = int(_positive_float(key, float(default)))
+    return value if value > 0 else default
+
+
 def _normalize_deepseek_base_url(url: str) -> str:
     """Retourne l'origine API ; llm.py ajoute déjà /v1/chat/completions."""
     base = (url or "https://api.deepseek.com").strip().rstrip("/")
@@ -105,6 +127,24 @@ TTS_MODEL = _get("TTS_MODEL", "qwen3-tts-0.6b")
 TTS_LANGUAGE = _get("TTS_LANGUAGE", "fr")
 TTS_SPEAKER = _get("TTS_SPEAKER", "Ryan")  # CustomVoice Qwen3 (pas une voix Edge fr-*)
 TTS_MODEL_PATH = _get("TTS_MODEL_PATH", "")  # chemin local optionnel pour TTSKit
+
+# Edge est le seul moteur TTS réseau. Sans borne explicite, un appel sortant
+# bloqué (proxy, DNS muet, coupure) fige le tour de parole jusqu'au délai TCP du
+# système. Les deux premières bornes sont transmises à `edge_tts.Communicate`,
+# la troisième plafonne la synthèse complète côté JARVIS.
+DEFAULT_EDGE_TTS_CONNECT_TIMEOUT_SEC = 10
+DEFAULT_EDGE_TTS_RECEIVE_TIMEOUT_SEC = 60
+DEFAULT_EDGE_TTS_TOTAL_TIMEOUT_SEC = 60.0
+EDGE_TTS_CONNECT_TIMEOUT_SEC = _positive_int(
+    "EDGE_TTS_CONNECT_TIMEOUT_SEC", DEFAULT_EDGE_TTS_CONNECT_TIMEOUT_SEC
+)
+EDGE_TTS_RECEIVE_TIMEOUT_SEC = _positive_int(
+    "EDGE_TTS_RECEIVE_TIMEOUT_SEC", DEFAULT_EDGE_TTS_RECEIVE_TIMEOUT_SEC
+)
+EDGE_TTS_TOTAL_TIMEOUT_SEC = _positive_float(
+    "EDGE_TTS_TOTAL_TIMEOUT_SEC", DEFAULT_EDGE_TTS_TOTAL_TIMEOUT_SEC
+)
+
 KOKORO_BACKEND = (_get("KOKORO_BACKEND") or DEFAULT_KOKORO_BACKEND).strip().lower()
 KOKORO_MODEL = _get("KOKORO_MODEL", DEFAULT_KOKORO_MODEL)
 KOKORO_VOICE = _get("KOKORO_VOICE", DEFAULT_KOKORO_VOICE)
