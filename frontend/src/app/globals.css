@@ -31,7 +31,6 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-.jarvis-loading { min-height: 100dvh; display: grid; place-items: center; color: #888; }
 .bg-grid-pattern {
   background-color: var(--color-background);
   background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,.06) 1px, transparent 0);
