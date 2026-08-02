@@ -33,40 +33,14 @@ jobs:
       # `requirements.txt` : `pip-audit -r` choisit les versions minimales de
       # chaque plage et signale donc des versions que personne n'installe.
       #
-      # Le job est BLOQUANT. Les identifiants ci-dessous sont l'arriéré connu
-      # au 2026-08-01, chacun tracé à sa cause racine ; toute CVE nouvelle ou
-      # sur un autre paquet fait échouer la CI.
-      #
-      # `open-interpreter==0.4.*` porte à lui seul 18 des 19 exceptions :
-      # il plafonne `starlette<0.38.0` et `litellm<2.0.0`, et impose le cap
-      # `setuptools<82` (il importe encore `pkg_resources`). Ce plafond
-      # starlette écrase aussi FastAPI en 0.115.2. Or l'action publique
-      # `terminal` ne lui délègue plus rien (voir CLAUDE.md, « Exécution de
-      # code avancée (legacy) ») et `CODE_EXECUTOR_ENABLED=false` par défaut.
-      # Le retirer ramènerait l'arriéré de 19 à 7 exceptions — décision
-      # produit en attente, voir Architecture/AUDIT_SECURITE_2026-08.md.
+      # Le job est BLOQUANT et n'accepte plus aucune exception connue : le
+      # retrait du moteur d'exécution legacy a supprimé les contraintes qui
+      # forçaient les versions vulnérables de Starlette, LiteLLM, setuptools
+      # et protobuf. Toute CVE détectée fait donc échouer la CI.
       - name: Auditer les CVE des dépendances installées
         run: |
           python -m pip install pip-audit
-
-          # starlette 0.37.2 — plafonné par open-interpreter (<0.38.0)
-          known="PYSEC-2026-161 PYSEC-2026-1941 PYSEC-2026-1943"
-          known="$known PYSEC-2026-2280 PYSEC-2026-2281"
-          known="$known PYSEC-2026-248 PYSEC-2026-249"
-          # litellm 1.83.0 — transitif open-interpreter (<2.0.0)
-          known="$known PYSEC-2026-388 PYSEC-2026-391"
-          known="$known PYSEC-2026-2598 PYSEC-2026-2599 PYSEC-2026-2600"
-          known="$known PYSEC-2026-2601 PYSEC-2026-2602"
-          known="$known PYSEC-2026-3476 PYSEC-2026-3477 PYSEC-2026-3479"
-          # setuptools 81 — cap <82 exigé par pkg_resources (open-interpreter)
-          known="$known PYSEC-2026-3447"
-          # protobuf 4.25.9 — rétrogradé par la résolution open-interpreter
-          known="$known PYSEC-2026-1805"
-
-          ignores=""
-          for id in $known; do ignores="$ignores --ignore-vuln $id"; done
-          # shellcheck disable=SC2086
-          pip-audit --progress-spinner off $ignores
+          pip-audit --progress-spinner off
 
       - name: Vérifier la cohérence et les imports de production
         run: |

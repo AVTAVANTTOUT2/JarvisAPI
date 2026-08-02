@@ -44,6 +44,7 @@ RETIRED_SYMBOLS = (
 # exclus du scan, contrairement à la documentation vivante.
 ARCHIVED_PREFIXES = (
     "Architecture/audit/",
+    "Architecture/AUDIT_SECURITE_2026-08.md",
     "CHANGELOG_HISTORIQUE.md",
 )
 
