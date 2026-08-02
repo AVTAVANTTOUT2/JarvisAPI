@@ -25,6 +25,7 @@ from database import get_active_device, init_db, register_local_device, set_acti
 from integrations import imessage_bridge
 from integrations.apple_data import apple_data
 from jarvis.event_bus import event_bus
+from jarvis.tv_events import publish_audio_daemon_state
 from scripts.email_watcher import email_watcher
 from websocket_registry import broadcast_ws
 
@@ -287,7 +288,16 @@ async def lifespan(app: FastAPI):
         try:
             from scripts.audio_daemon import audio_daemon
 
-            audio_daemon.set_broadcast(broadcast_ws)
+            async def _broadcast_daemon_state(event: dict) -> None:
+                """Diffuse l'état du daemon aux clients chat, puis au canal TV.
+
+                Le miroir TV est un flux distinct et borné : il ne peut ni
+                retarder ni faire échouer la diffusion du chat.
+                """
+                await broadcast_ws(event)
+                publish_audio_daemon_state(event)
+
+            audio_daemon.set_broadcast(_broadcast_daemon_state)
             audio_daemon_task = asyncio.create_task(audio_daemon.start(), name="audio_daemon")
             logger.info("[startup] Audio daemon démarré (wake word + micro natif)")
         except Exception as e:
