@@ -519,6 +519,17 @@ def test_subscription_declares_overflow_past_its_budget():
     assert subscription.is_overflowed is True
 
 
+async def test_closing_a_subscription_wakes_a_waiting_reader():
+    subscription = TvEventSubscription(label="closing", maxsize=1, max_dropped=2)
+    waiting = asyncio.create_task(subscription.next_event(timeout=30.0))
+    await asyncio.sleep(0)
+
+    subscription.close()
+
+    assert await asyncio.wait_for(waiting, timeout=0.5) is None
+    assert subscription.offer(build_tv_event(TV_HEARTBEAT, source="test")) is False
+
+
 def test_a_slow_subscriber_never_blocks_the_others():
     slow = tv_event_hub.subscribe(label="slow")
     fast = tv_event_hub.subscribe(label="fast")

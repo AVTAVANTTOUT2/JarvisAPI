@@ -388,14 +388,22 @@ async def tv_events_websocket(ws: WebSocket) -> None:
         done, pending = await asyncio.wait(
             {reader, writer}, return_when=asyncio.FIRST_COMPLETED
         )
-        await _cancel(pending)
+        if reader in done:
+            # Une déconnexion client est le chemin normal. Fermer l'abonnement
+            # réveille le writer sans annuler une tâche asyncio imbriquée dans
+            # le CancelScope AnyIO de Starlette (ce qui annulait parfois toute
+            # la session TestClient au lieu de seulement cette tâche).
+            closure.request(None, "lecteur_termine")
+            tv_event_hub.unsubscribe(subscription)
+            if pending:
+                await asyncio.gather(*pending, return_exceptions=True)
+        else:
+            await _cancel(pending)
         _report_failures(done, label)
     finally:
         # Filet en cas d'annulation de l'endpoint lui-même (arrêt applicatif) :
         # aucune tâche ne doit survivre à la fermeture du canal.
-        for task in (reader, writer):
-            if not task.done():
-                task.cancel()
+        await _cancel({task for task in (reader, writer) if not task.done()})
         tv_event_hub.unsubscribe(subscription)
         _active_connections.discard(ws)
         if closure.code is not None:
