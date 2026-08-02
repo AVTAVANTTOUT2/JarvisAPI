@@ -529,6 +529,32 @@ sur un service réseau.
 
 `tts.synthesize(text, emotion="warm")` retourne des bytes MP3. En mode mains libres, `synthesize_stream` envoie des chunks jusqu'à fermeture du flux ; la session WebSocket termine avec `speech_done` pour que le client assemble un fichier MP3 valide avant lecture.
 
+#### Frontière réseau du moteur Edge
+
+`edge` est le seul moteur qui sort de la machine. Trois conséquences tenues
+dans le code plutôt que dans une convention :
+
+- **Bornes explicites.** `EDGE_TTS_CONNECT_TIMEOUT_SEC` et
+ `EDGE_TTS_RECEIVE_TIMEOUT_SEC` sont transmis à `edge_tts.Communicate` ;
+ `EDGE_TTS_TOTAL_TIMEOUT_SEC` plafonne la synthèse bufferisée. Sans elles, une
+ coupure réseau fige le tour de parole jusqu'au délai TCP du système.
+- **Deux natures d'échec, deux réactions.** `audio/tts_errors.py`
+ (`classify_tts_failure`) distingue « service injoignable » (DNS, refus TCP,
+ délai, interception TLS, proxy qui refuse le tunnel → avertissement) de
+ « contrat rompu » (401/403, `NoAudioReceived`, réponse inattendue, régression
+ de parsing → erreur). Un refus de proxy est classé injoignable même s'il
+ répond en HTTP : le service TTS n'a jamais été atteint.
+- **Aucun repli implicite.** `tts_audio_mime()` annonce le type MIME d'après le
+ nom du moteur *avant* la synthèse : renvoyer du WAV local sous `audio/mpeg`
+ casserait la lecture. Un échec Edge renvoie `b""` et le repli local relève de
+ l'appelant (`audio.tts_native.get_native_tts_engine`, qui ne retourne jamais
+ Edge). La synthèse ne passe plus par un fichier temporaire : le texte lu est
+ une donnée personnelle, il reste en mémoire.
+
+Tests : `tests/test_tts_edge_unit.py` (edge-tts simulé, hors ligne),
+`tests/test_tts_local_fallback.py` (chaîne locale et dégradation WebSocket) et
+`tests/test_tts_edge_external.py` (appel réel, marqueur `external_network`).
+
 ### VAD — côté client uniquement
 
 Détection de parole par volume en temps réel via Web Audio API `AnalyserNode` dans `Voice.tsx`. Seuils configurables (`VOICE_SILENCE_DURATION_MS`, `VOICE_MIN_SPEECH_MS`). Pas de `webrtcvad`, pas de VAD serveur.
@@ -1951,3 +1977,35 @@ d'arrière-plan (`database._dispatch_semantic_indexing`,
 test peut survivre au `monkeypatch` de `DB_PATH` et toucher la vraie
 `data/jarvis.db`. Les fichiers qui testent le déclenchement lui-même
 surchargent la fixture `_no_background_db_threads` par une version vide.
+
+### Isolation réseau de la suite
+
+`conftest.py` (racine, donc actif pour `tests/`, `jarvis/tests` et
+`agents/devagent`) refuse toute connexion sortante hors boucle locale. Le refus
+imite une machine sans réseau (`ConnectionRefusedError`, `errno ECONNREFUSED`) :
+les replis hors ligne déjà écrits s'appliquent normalement, et un test dont
+l'assertion dépend d'une réponse distante échoue sur son assertion. Les
+tentatives refusées sont listées en fin de session avec le nom du test — c'est
+ainsi qu'on a vu que l'import d'`audio/vad_silero.py` appelle `torch.hub` (donc
+`github.com`) au chargement du module.
+
+Deux marqueurs déclarés dans `pytest.ini`, avec `--strict-markers` :
+
+| Marqueur | Sens | Suite standard |
+|---|---|---|
+| `external_network` | sort réellement sur Internet | exclu par `addopts = -m "not external_network"` |
+| `integration_tts` | produit vraiment de l'audio (moteur local ou distant) | inclus s'il est hors ligne |
+
+```bash
+python -m pytest tests/ jarvis/tests agents/devagent -q   # standard, hors ligne
+python -m pytest -m "not integration_tts" -q              # unitaire strict
+python -m pytest -m integration_tts -v                    # intégrations locales réelles
+python -m pytest -m external_network -v -rs               # réseau réel (workflow dédié)
+```
+
+Un `-m` en ligne de commande remplace celui d'`addopts`. La CI de pull request
+n'exécute jamais `external_network` ; le workflow `Tests réseau externes`
+(`workflow_dispatch` + hebdomadaire) s'en charge. Un scénario réseau n'est
+ignoré que sur une indisponibilité identifiée par `audio/tts_errors.py` : tout
+échec fonctionnel reste rouge. `tests/test_offline_test_isolation.py` verrouille
+cette politique (marqueurs, garde-fou, séparation des pipelines CI).
