@@ -266,6 +266,10 @@ def test_retired_env_vars_are_reported_not_silently_ignored(
 ) -> None:
     import config
 
+    # Un `.env` local peut encore définir les trois variables ; on isole
+    # explicitement pour ne mesurer que celle que le test arme.
+    for name in config.RETIRED_ENV_VARS:
+        monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("CODE_EXECUTOR_ENABLED", "true")
     with caplog.at_level(logging.WARNING, logger="config"):
         found = config.warn_retired_env_vars()
