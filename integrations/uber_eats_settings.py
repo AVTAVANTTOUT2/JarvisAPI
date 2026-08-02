@@ -22,9 +22,11 @@ import logging
 import sqlite3
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Any
 
 import config
+import database
 from database import get_setting, set_setting
 
 logger = logging.getLogger("jarvis.food")
@@ -85,6 +87,13 @@ def _env_bool(attribute: str, default: bool) -> bool:
 
 def _stored(key: str) -> str | None:
     """Lit un réglage persisté, ou ``None`` s'il n'a jamais été modifié."""
+    db_path = Path(database.DB_PATH)
+    if str(db_path) != ":memory:" and not db_path.exists():
+        # Lire les valeurs par défaut avant ``init_db()`` doit rester une
+        # opération pure. Ouvrir SQLite ici créerait un fichier vide que le
+        # reste de l'application pourrait prendre à tort pour une base
+        # initialisée.
+        return None
     try:
         raw = get_setting(f"{SETTINGS_PREFIX}{key}", "")
     except sqlite3.OperationalError as exc:

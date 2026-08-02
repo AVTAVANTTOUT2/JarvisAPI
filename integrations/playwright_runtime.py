@@ -54,5 +54,12 @@ def playwright_errors() -> tuple[type[BaseException], ...]:
     ``TimeoutError`` dérive de ``Error`` côté Playwright ; les deux sont
     retournés pour rester explicite et robuste à une évolution de hiérarchie.
     """
-    api = import_playwright()
+    try:
+        api = import_playwright()
+    except PlaywrightUnavailable:
+        # Cette fonction est principalement utilisée pour construire des
+        # clauses ``except``. Elle ne doit donc jamais masquer l'exception
+        # métier déjà en cours simplement parce que la dépendance facultative
+        # n'est pas installée.
+        return (PlaywrightUnavailable,)
     return (api.TimeoutError, api.Error)

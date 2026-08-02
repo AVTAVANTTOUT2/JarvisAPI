@@ -313,6 +313,21 @@ def without_playwright(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(uber_eats_module, "is_playwright_installed", lambda: False)
 
 
+def test_playwright_error_types_are_safe_when_the_optional_runtime_is_absent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from integrations import playwright_runtime
+
+    def _absent() -> None:
+        raise playwright_runtime.PlaywrightUnavailable("absent")
+
+    monkeypatch.setattr(playwright_runtime, "import_playwright", _absent)
+
+    assert playwright_runtime.playwright_errors() == (
+        playwright_runtime.PlaywrightUnavailable,
+    )
+
+
 @pytest.fixture()
 def uber_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     """Base isolée + configuration Uber Eats pointant sur des fichiers temporaires."""

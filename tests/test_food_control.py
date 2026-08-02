@@ -42,6 +42,19 @@ def control_env(uber_env, monkeypatch: pytest.MonkeyPatch):  # noqa: F811
 # ── Réglages : l'interface resserre, jamais elle n'élargit ──────────────────
 
 
+def test_reading_defaults_before_init_does_not_create_an_empty_database(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import database
+    from integrations.uber_eats_settings import get_settings
+
+    missing_db = tmp_path / "not-initialised.db"
+    monkeypatch.setattr(database, "DB_PATH", missing_db)
+
+    assert get_settings().dry_run is True
+    assert not missing_db.exists()
+
+
 def test_settings_default_to_the_env_values(control_env) -> None:
     from integrations.uber_eats_settings import get_settings
 
