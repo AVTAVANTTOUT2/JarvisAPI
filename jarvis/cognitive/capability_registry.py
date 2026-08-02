@@ -38,7 +38,6 @@ class CapabilityRegistry:
     def refresh(self) -> None:
         cursor_on = bool(getattr(config, "CURSOR_DELEGATION_ENABLED", True))
         computer_on = bool(getattr(config, "COMPUTER_ACCESS", False))
-        code_exec = bool(getattr(config, "CODE_EXECUTOR_ENABLED", False))
         if cursor_on:
             # Disponibilité réelle du CLI — UNIQUEMENT depuis le cache déjà
             # inspecté (jamais de subprocess ici : refresh() est appelé dans
@@ -116,10 +115,6 @@ class CapabilityRegistry:
             "cursor.delegate": Capability(
                 "cursor.delegate", cursor_on, "medium", True, "cursor",
                 "Déléguer une tâche technique à Cursor CLI (worktree isolé, confirmation requise)",
-            ),
-            "code_executor": Capability(
-                "code_executor", code_exec and not cursor_on, "high", True, "system",
-                "Fallback Open Interpreter (désactivé si Cursor disponible)",
             ),
             "screen_watcher.vision": Capability(
                 "screen_watcher.vision",

@@ -14,7 +14,7 @@ import config
 from agents.orchestrator import orchestrator
 from agents.productivity import productivity_agent
 from api.daemon_support import _audio_daemon_status_payload
-from api.misc_status import _code_executor_status_payload, _computer_status_payload
+from api.misc_status import _computer_status_payload
 from api.people_support import _decode_person_path, _resolve_handle_with_contacts
 from database import (
     clear_llm_logs,
@@ -85,7 +85,6 @@ async def api_integrations():
         "imessage_send": config.IMESSAGE_SEND_ENABLED,
         "email_watcher": email_watcher.running,
         "computer": _computer_status_payload(),
-        "code_executor": _code_executor_status_payload(),
         "location_tracking": getattr(config, "LOCATION_TRACKING", True),
         "audio_daemon": _audio_daemon_status_payload(),
     }

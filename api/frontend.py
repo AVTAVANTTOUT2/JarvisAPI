@@ -262,6 +262,7 @@ def _setup_frontend(app: FastAPI) -> None:
             if web_mobile.should_redirect(request):
                 return web_mobile.redirect()
             return jinja.TemplateResponse(
+                request,
                 "index.html",
                 {"request": request, "user_name": config.USER_NAME},
             )
