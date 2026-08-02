@@ -184,7 +184,7 @@ async def _raise(exc: BaseException) -> None:
     [
         ConnectionRefusedError(61, "Connection refused"),
         TimeoutError("timed out"),
-        OSError(51, "Network is unreachable"),
+        OSError(errno.ENETUNREACH, "Network is unreachable"),
     ],
     ids=["refus_tcp", "timeout", "reseau_injoignable"],
 )

@@ -9,6 +9,7 @@ classification des échecs et contrat du payload audio.
 from __future__ import annotations
 
 import asyncio
+import errno
 import importlib
 import logging
 import socket
@@ -416,7 +417,7 @@ async def test_blank_text_emits_no_event(monkeypatch, emitted_events):
         asyncio.TimeoutError(),
         socket.gaierror(8, "nodename nor servname provided"),
         ssl.SSLCertVerificationError("certificate verify failed"),
-        OSError(51, "Network is unreachable"),
+        OSError(errno.ENETUNREACH, "Network is unreachable"),
     ],
     ids=[
         "refus_tcp",
