@@ -393,13 +393,14 @@ class TvEventSubscription:
     déconnecte.
     """
 
-    __slots__ = ("_max_dropped", "_queue", "dropped_events", "label")
+    __slots__ = ("_closed", "_max_dropped", "_queue", "dropped_events", "label")
 
     def __init__(self, *, label: str, maxsize: int, max_dropped: int) -> None:
         self.label = label
         self.dropped_events = 0
+        self._closed = False
         self._max_dropped = max_dropped
-        self._queue: asyncio.Queue[TvEvent] = asyncio.Queue(maxsize=maxsize)
+        self._queue: asyncio.Queue[TvEvent | None] = asyncio.Queue(maxsize=maxsize)
 
     @property
     def pending(self) -> int:
@@ -418,6 +419,9 @@ class TvEventSubscription:
             True si l'événement est en file, False si même le remplacement du
             plus ancien a échoué (file de taille nulle).
         """
+        if self._closed:
+            return False
+
         try:
             self._queue.put_nowait(event)
             return True
@@ -434,6 +438,25 @@ class TvEventSubscription:
             return True
         except asyncio.QueueFull:  # pragma: no cover - file vidée juste avant
             return False
+
+    def close(self) -> None:
+        """Ferme et réveille immédiatement un lecteur en attente."""
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            self._queue.put_nowait(None)
+            return
+        except asyncio.QueueFull:
+            pass
+
+        # La sentinelle de fermeture prime sur le plus ancien événement :
+        # l'abonné est déjà retiré du hub, aucune donnée ne doit le retenir.
+        try:
+            self._queue.get_nowait()
+        except asyncio.QueueEmpty:  # pragma: no cover - file déclarée pleine
+            return
+        self._queue.put_nowait(None)
 
     async def next_event(self, timeout: float) -> TvEvent | None:
         """Attend le prochain événement.
@@ -477,6 +500,7 @@ class TvEventHub:
 
     def unsubscribe(self, subscription: TvEventSubscription) -> None:
         """Retire un abonnement ; sans effet s'il est déjà parti."""
+        subscription.close()
         try:
             self._subscribers.remove(subscription)
         except ValueError:
