@@ -11,7 +11,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Activity, Calendar, Cloud, Cpu, FileCode, Mail, MapPin,
+  Activity, Calendar, Cloud, Cpu, Mail, MapPin,
   MessageSquare, Mic, Monitor, Pause, Play, Plus, RefreshCw,
   Square, Volume2, Wifi, X, CheckCircle, XCircle,
   AlertCircle, Database, Bot, Search,
@@ -373,23 +373,6 @@ const FEATURES: FeatureSpec[] = [
           status: statusR.status === 'fulfilled' ? statusR.value : statusR.reason,
           places_count: placesCount,
         },
-      };
-    },
-  },
-  {
-    id: 'code-executor',
-    label: 'Code Executor',
-    icon: FileCode,
-    description: 'Exécution de code avancée (Open Interpreter)',
-    test: async () => {
-      const status = (await api.getStatus()) as { code_executor?: { available?: boolean; engine?: string } };
-      const ce = status?.code_executor;
-      return {
-        ok: !!ce?.available,
-        summary: ce?.available
-          ? `Engine : ${ce.engine}`
-          : `Mode basique (engine : ${ce?.engine || '—'})`,
-        details: ce,
       };
     },
   },

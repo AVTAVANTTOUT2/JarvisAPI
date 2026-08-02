@@ -36,17 +36,6 @@ def _computer_status_payload() -> dict:
         return {"available": False, "shell": config.COMPUTER_SHELL}
 
 
-def _code_executor_status_payload() -> dict:
-    try:
-        from integrations.code_executor import code_executor
-        return {
-            "available": code_executor.available if code_executor else False,
-            "engine": "advanced" if (code_executor and code_executor.available) else "basic",
-        }
-    except Exception:
-        return {"available": False, "engine": "basic"}
-
-
 def _safe_memory_stats() -> dict:
     try:
         return count_memory_stats()
@@ -133,7 +122,6 @@ async def api_status():
             "processed_count": len(email_watcher.last_processed_ids),
         },
         "computer": _computer_status_payload(),
-        "code_executor": _code_executor_status_payload(),
         "memory": _safe_memory_stats(),
         "location": loc_payload,
         "audio_daemon": _audio_daemon_status_payload(),

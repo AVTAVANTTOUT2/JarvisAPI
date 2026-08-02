@@ -37,7 +37,7 @@ Contexte JARVIS :
 
 # Fichiers probables
 {{context_files}}
-- `auth.py` (hash scrypt, anti-brute-force), `api/middleware.py` (verrou de session, en-têtes CSP/HSTS, vérif Origin), `api/router_*.py` (surfaces exposées), `database/*.py` (requêtes SQL), `integrations/computer.py` et `integrations/code_executor.py` (exécution de commandes — motifs dangereux), `push.py` (crypto Web Push).
+- `auth.py` (hash scrypt, anti-brute-force), `api/middleware.py` (verrou de session, en-têtes CSP/HSTS, vérif Origin), `api/router_*.py` (surfaces exposées), `database/*.py` (requêtes SQL), `integrations/computer.py` et `integrations/shell_safety.py` (exécution de commandes — plans confirmés, allowlist), `push.py` (crypto Web Push).
 
 # Règles d'architecture
 {{repo_rules}}

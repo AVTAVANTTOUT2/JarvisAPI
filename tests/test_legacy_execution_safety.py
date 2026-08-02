@@ -1,12 +1,14 @@
-"""Régressions des findings F-P08-01 et F-P08-02."""
+"""Régressions du finding F-P08-01 (`computer.run` confiné).
+
+Le finding F-P08-02 visait le moteur Open Interpreter dormant : la
+bibliothèque ayant été retirée, ses contrats vivent désormais dans
+`tests/test_no_open_interpreter.py`.
+"""
 
 from __future__ import annotations
 
 import asyncio
-import builtins
-import importlib
 import importlib.util
-import sys
 from pathlib import Path
 
 import pytest
@@ -20,7 +22,6 @@ def test_powerful_execution_capabilities_are_boolean_and_opt_in(
     import env_loader
 
     monkeypatch.delenv("COMPUTER_ACCESS", raising=False)
-    monkeypatch.delenv("CODE_EXECUTOR_ENABLED", raising=False)
     monkeypatch.setattr(env_loader, "load_jarvis_env", lambda: None)
 
     spec = importlib.util.spec_from_file_location("config_p08_defaults", config.__file__)
@@ -29,29 +30,6 @@ def test_powerful_execution_capabilities_are_boolean_and_opt_in(
     spec.loader.exec_module(isolated_config)
 
     assert isolated_config.COMPUTER_ACCESS is False
-    assert isolated_config.CODE_EXECUTOR_ENABLED is False
-
-
-def test_disabled_code_executor_never_imports_open_interpreter(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import config
-
-    monkeypatch.setattr(config, "CODE_EXECUTOR_ENABLED", False)
-    sys.modules.pop("integrations.code_executor", None)
-    original_import = builtins.__import__
-
-    def guarded_import(name, *args, **kwargs):
-        if name == "interpreter":
-            raise AssertionError("Open Interpreter ne doit pas être importé")
-        return original_import(name, *args, **kwargs)
-
-    monkeypatch.setattr(builtins, "__import__", guarded_import)
-    module = importlib.import_module("integrations.code_executor")
-
-    assert module.code_executor.enabled is False
-    assert module.code_executor.available is False
-    assert module.code_executor.interpreter is None
 
 
 @pytest.mark.asyncio

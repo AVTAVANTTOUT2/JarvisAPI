@@ -131,7 +131,7 @@ curl -sk https://127.0.0.1:8081/api/status
 
 Verifier:
 - `ok` global / service up.
-- integrateurs actifs attendus (`email_watcher`, `computer`, `code_executor`, daemon selon config).
+- integrateurs actifs attendus (`email_watcher`, `computer`, daemon selon config).
 - pas d'erreur critique dans les logs startup.
 
 ## Integrations attendues
@@ -143,7 +143,6 @@ curl -sk https://127.0.0.1:8081/api/integrations
 Verifier au minimum:
 - `imessage_bridge` actif si `IMESSAGE_TARGET` renseigne.
 - `mail` et `calendar` disponibles.
-- `code_executor` selon `CODE_EXECUTOR_ENABLED`.
 - `daemon` / screen watcher selon variables.
 
 ## Frontend + WebSocket
