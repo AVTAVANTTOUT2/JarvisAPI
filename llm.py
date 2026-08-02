@@ -3,7 +3,7 @@
 import asyncio
 import json
 import logging
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Callable
 
 import httpx
 
@@ -217,6 +217,107 @@ async def chat_stream(
                     yield chunk_content
             except json.JSONDecodeError:
                 continue
+
+
+async def chat_stream_collect(
+    messages: list[dict],
+    model: str = None,
+    system: str = "",
+    max_tokens: int = 4096,
+    temperature: float = 0.7,
+    on_first_token: Callable[[], None] | None = None,
+) -> dict:
+    """Appel streamé qui rend le **même dict** que :func:`chat`.
+
+    Utilisé par le pipeline vocal pour obtenir l'instant du premier token —
+    impossible à mesurer sur un appel bufferisé, où l'on ne voit que la durée
+    totale. ``stream_options.include_usage`` est demandé afin que le suivi des
+    coûts reste exact ; si le serveur ne le renvoie pas, les compteurs sont
+    estimés et ``usage_estimated`` le signale plutôt que d'afficher 0.
+    """
+    model = model or config.DEEPSEEK_MAIN_MODEL
+
+    api_messages: list[dict] = []
+    if system:
+        api_messages.append({"role": "system", "content": system})
+    api_messages.extend(messages)
+
+    url = f"{config.DEEPSEEK_BASE_URL}/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {config.DEEPSEEK_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": model,
+        "messages": api_messages,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        "stream": True,
+        "stream_options": {"include_usage": True},
+    }
+
+    _check_api_key()
+    client = _get_http_client()
+
+    parts: list[str] = []
+    usage: dict = {}
+    stop_reason: str | None = None
+    first_seen = False
+
+    async with client.stream("POST", url, json=payload, headers=headers) as response:
+        response.raise_for_status()
+        async for line in response.aiter_lines():
+            if not line.startswith("data: "):
+                continue
+            data_str = line[6:]
+            if data_str == "[DONE]":
+                break
+            try:
+                data = json.loads(data_str)
+            except json.JSONDecodeError:
+                continue
+            if data.get("usage"):
+                usage = data["usage"]
+            choices = data.get("choices") or []
+            if not choices:
+                continue
+            if choices[0].get("finish_reason"):
+                stop_reason = choices[0]["finish_reason"]
+            chunk_content = (choices[0].get("delta") or {}).get("content", "")
+            if chunk_content:
+                if not first_seen:
+                    first_seen = True
+                    if on_first_token is not None:
+                        try:
+                            on_first_token()
+                        except Exception:
+                            pass  # une mesure ne doit jamais casser la génération
+                parts.append(chunk_content)
+
+    content = "".join(parts)
+    tokens_in = int(usage.get("prompt_tokens") or 0)
+    tokens_out = int(usage.get("completion_tokens") or 0)
+    cache_hit = int(usage.get("prompt_cache_hit_tokens") or 0)
+    estimated = False
+    if not tokens_in and not tokens_out:
+        # Repli grossier mais explicite : ~4 caractères par token.
+        estimated = True
+        tokens_in = sum(len(m.get("content") or "") for m in api_messages) // 4
+        tokens_out = len(content) // 4
+        logger.warning(
+            "[llm] usage absent du flux %s — coût estimé depuis la longueur", model,
+        )
+
+    return {
+        "content": content,
+        "tokens_in": tokens_in,
+        "tokens_out": tokens_out,
+        "cache_hit": cache_hit,
+        "cost": estimate_cost(model, tokens_in, tokens_out, cache_hit),
+        "model": model,
+        "stop_reason": stop_reason,
+        "usage_estimated": estimated,
+    }
 
 
 async def quick_classify(text: str, categories: list[str], model: str = None) -> str:

@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from typing import Any
 
 MessageProcessor = Callable[[str, int, bool], Awaitable[dict[str, Any]]]
-VoiceProcessor = Callable[[str, int], Awaitable[dict[str, Any]]]
+VoiceProcessor = Callable[..., Awaitable[dict[str, Any]]]
 ContextBuilder = Callable[[str, int], Awaitable[dict[str, Any]]]
 
 
@@ -65,9 +65,22 @@ async def process_message_internal(
     )
 
 
-async def process_voice_fast(text: str, conversation_id: int) -> dict[str, Any]:
-    """Traite une phrase vocale via l'implémentation enregistrée."""
-    return await _configured_handlers().process_voice(text, conversation_id)
+async def process_voice_fast(
+    text: str,
+    conversation_id: int,
+    *,
+    stt_ms: int = 0,
+    trace: Any | None = None,
+) -> dict[str, Any]:
+    """Traite une phrase vocale via l'implémentation enregistrée.
+
+    ``trace`` transporte la chronologie de latence du tour de parole ; elle est
+    facultative pour que les producteurs qui n'en tiennent pas (tests, API)
+    restent inchangés.
+    """
+    return await _configured_handlers().process_voice(
+        text, conversation_id, stt_ms=stt_ms, trace=trace,
+    )
 
 
 async def build_enriched_context(

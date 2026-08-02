@@ -222,6 +222,7 @@ class KokoroTTSEngine:
     """
 
     SAMPLE_RATE = 24000
+    AUDIO_MIME = "audio/wav"   # conteneur déclaré (voir audio.audio_format)
     MODEL_PATH = Path(__file__).resolve().parent.parent / "models" / "kokoro" / "kokoro-v0_19.onnx"
     VOICES_PATH = Path(__file__).resolve().parent.parent / "models" / "kokoro" / "voices.bin"
 
@@ -244,6 +245,15 @@ class KokoroTTSEngine:
         )
         self._kokoro: object | None = None
         self._load_failed = False
+        self._worker: object | None = None
+        self._worker_disabled = not bool(
+            getattr(config, "KOKORO_WARM_WORKER", config.DEFAULT_KOKORO_WARM_WORKER)
+        )
+        self._first_chunk_max_tokens = int(getattr(
+            config,
+            "KOKORO_FIRST_CHUNK_MAX_TOKENS",
+            config.DEFAULT_KOKORO_FIRST_CHUNK_MAX_TOKENS,
+        ))
         self.available = self._probe_available()
         if self.available:
             logger.info(
@@ -315,6 +325,14 @@ class KokoroTTSEngine:
     def get_backend_name(self) -> str:
         return "kokoro"
 
+    def voice_signature(self) -> str:
+        """Voix courante, relue depuis la configuration à chaque appel.
+
+        Le cache spéculatif doit s'invalider quand la voix change ; une valeur
+        figée à la construction du moteur le rendrait aveugle.
+        """
+        return str(getattr(config, "KOKORO_VOICE", config.DEFAULT_KOKORO_VOICE) or "")
+
     def get_fallback(self) -> "MacOSTTSEngine":
         """Retourne un moteur de secours local uniquement (pas Edge)."""
         if macos_tts.available:
@@ -334,7 +352,88 @@ class KokoroTTSEngine:
             return await native(text, emotion)
         return await fb.synthesize(text, emotion)
 
+    # ── Sidecar chaud (modèle chargé une seule fois) ────────────────────────
+
+    def _get_worker(self) -> object | None:
+        """Instancie le worker chaud à la demande. ``None`` si désactivé."""
+        if self._worker_disabled or self._backend != "mlx":
+            return None
+        if self._worker is None:
+            try:
+                from native_audio.kokoro_bridge import KokoroWorker
+
+                self._worker = KokoroWorker(
+                    model=self._model,
+                    voice=self._voice,
+                    lang_code=self._lang_code,
+                    speed=self._speed,
+                    max_tokens=self._max_tokens,
+                    first_chunk_max_tokens=self._first_chunk_max_tokens,
+                )
+            except Exception as e:
+                logger.warning("[TTS] Kokoro worker chaud indisponible : %s", e)
+                self._worker_disabled = True
+                return None
+        return self._worker
+
+    async def warmup(self) -> bool:
+        """Charge le modèle hors tour de parole. À appeler au démarrage."""
+        worker = self._get_worker()
+        if worker is None:
+            return False
+        try:
+            started = await worker.start()  # type: ignore[attr-defined]
+        except Exception as e:
+            logger.warning("[TTS] Kokoro warmup : %s", e)
+            return False
+        if not started:
+            logger.warning("[TTS] Kokoro chaud non démarré — repli one-shot par synthèse")
+        return started
+
+    async def shutdown(self) -> None:
+        worker = self._worker
+        self._worker = None
+        if worker is not None:
+            try:
+                await worker.stop()  # type: ignore[attr-defined]
+            except Exception as e:
+                logger.debug("[TTS] arrêt worker Kokoro : %s", e)
+
+    async def synthesize_stream_pcm(
+        self, text: str, emotion: str = "neutral",
+    ) -> AsyncGenerator[bytes, None]:
+        """PCM16 24 kHz fragment par fragment, via le sidecar chaud.
+
+        Ne produit rien si le sidecar chaud est indisponible : l'appelant doit
+        alors passer par ``synthesize`` (WAV complet) plutôt que rester muet.
+        """
+        worker = self._get_worker()
+        if worker is None:
+            return
+        async for chunk in worker.stream_pcm(text):  # type: ignore[attr-defined]
+            if chunk:
+                yield chunk
+
     async def _synthesize_mlx(self, text: str) -> bytes:
+        # Chemin chaud d'abord : même processus, modèle déjà en mémoire.
+        worker = self._get_worker()
+        if worker is not None:
+            chunks: list[bytes] = []
+            try:
+                async for chunk in worker.stream_pcm(text):  # type: ignore[attr-defined]
+                    if chunk:
+                        chunks.append(chunk)
+            except Exception as e:
+                logger.warning("[TTS] Kokoro chaud : %s — repli one-shot", e)
+                chunks = []
+            if chunks:
+                from native_audio.kokoro_mlx import audio_to_wav_bytes
+                import numpy as np
+
+                pcm = b"".join(chunks)
+                samples = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768.0
+                return audio_to_wav_bytes(samples, sample_rate=self.SAMPLE_RATE)
+
         from native_audio.kokoro_bridge import synthesize_bytes
 
         return await synthesize_bytes(
@@ -440,6 +539,11 @@ class MacOSTTSEngine:
     lisible par tous les navigateurs modernes (Chrome, Firefox, Safari).
     """
 
+    # Déclarés par le moteur plutôt que déduits de son nom dans le code
+    # générique (voir `audio.tts_provider.provider_sample_rate`).
+    SAMPLE_RATE = 44100
+    AUDIO_MIME = "audio/mp4"
+
     def __init__(self) -> None:
         self._voice = getattr(config, "MACOS_TTS_VOICE", "Jacques")
         self.available = bool(shutil.which("say") and shutil.which("afconvert"))
@@ -452,6 +556,9 @@ class MacOSTTSEngine:
 
     def get_backend_name(self) -> str:
         return "macos"
+
+    def voice_signature(self) -> str:
+        return str(getattr(config, "MACOS_TTS_VOICE", "Jacques") or "")
 
     async def synthesize(self, text: str, emotion: str = "neutral") -> bytes:
         """Synthétise `text` en M4A (AAC) via say + afconvert."""
@@ -616,8 +723,11 @@ def get_tts_by_name(name: str) -> TTSEngine | MacOSTTSEngine | KokoroTTSEngine:
     if normalized == "ttskit":
         from audio.tts_native import ttskit_tts
 
-        if ttskit_tts.preload_sync():
-            return ttskit_tts  # type: ignore[return-value]
+        # Résoudre un nom ne doit pas dépendre de la disponibilité de la
+        # machine courante : les appelants lisent aussi le MIME et la signature
+        # de voix avant toute synthèse. Le contrôle ``available`` reste à la
+        # frontière qui exécute réellement le moteur.
+        return ttskit_tts  # type: ignore[return-value]
     if normalized == "kokoro":
         return kokoro_tts
     if normalized == "macos":

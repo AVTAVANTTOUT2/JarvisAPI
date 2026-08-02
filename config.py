@@ -85,7 +85,24 @@ DEFAULT_STT_MODEL = "large-v3-turbo"
 DEFAULT_STT_FALLBACK_MODEL = "large-v3"
 DEFAULT_STT_LANGUAGE = "fr"
 DEFAULT_STT_DEVICE = "auto"
-DEFAULT_STT_COMPUTE_TYPE = "auto"
+# Mesuré sur Apple Silicon (large-v3-turbo, 2,66 s de parole FR, CPU) :
+#   auto → int8   4609 ms   |   float32   2361 ms
+# CTranslate2 n'a pas de noyau int8 accéléré ici : la quantification ajoute une
+# déquantification par couche au lieu d'économiser du calcul. « auto » choisit
+# pourtant int8, ce qui doublait le temps de transcription. On fixe float32.
+DEFAULT_STT_COMPUTE_TYPE = "float32"
+DEFAULT_STT_BEAM_SIZE = 1
+DEFAULT_STT_VAD_FILTER = False
+
+# ── Segmentation VAD du daemon audio ────────────────────────
+# Ces trois valeurs déterminent le délai entre la dernière syllabe et le
+# démarrage du STT. Elles sont versionnées ici — et non laissées à un `.env`
+# local — pour qu'une installation neuve hérite des valeurs mesurées.
+# 1200 ms de silence (ancien réglage local) ajoutaient à eux seuls plus d'une
+# seconde avant la moindre transcription.
+DEFAULT_AUDIO_DAEMON_SILENCE_MS = 500     # fourchette utile : 300-600 ms
+DEFAULT_AUDIO_DAEMON_MIN_SPEECH_MS = 200  # en dessous, on jette les claquements
+DEFAULT_AUDIO_DAEMON_PRE_ROLL_MS = 300    # amorce conservée avant le seuil
 DEFAULT_TTS_ENGINE = "kokoro"
 DEFAULT_KOKORO_BACKEND = "mlx"
 DEFAULT_KOKORO_MODEL = "mlx-community/Kokoro-82M-bf16"
@@ -94,6 +111,12 @@ DEFAULT_KOKORO_LANG = "fr-fr"
 DEFAULT_KOKORO_LANG_CODE = "f"
 DEFAULT_KOKORO_SPEED = 0.96
 DEFAULT_KOKORO_MAX_TOKENS = 180
+# Sidecar Kokoro maintenu chaud : le modèle reste chargé entre deux réponses.
+# Sans lui, chaque synthèse relance un interpréteur et recharge Kokoro-82M.
+DEFAULT_KOKORO_WARM_WORKER = True
+# Taille du premier fragment synthétisé (en mots) : plus il est court, plus le
+# premier son arrive tôt — au prix de quelques fragments supplémentaires.
+DEFAULT_KOKORO_FIRST_CHUNK_MAX_TOKENS = 12
 
 
 def _normalize_stt_engine(engine: str) -> str:
@@ -115,6 +138,16 @@ STT_FALLBACK_MODEL = (
 STT_LANGUAGE = _get("STT_LANGUAGE") or _get("LANGUAGE") or DEFAULT_STT_LANGUAGE
 STT_DEVICE = _get("STT_DEVICE", DEFAULT_STT_DEVICE)
 STT_COMPUTE_TYPE = _get("STT_COMPUTE_TYPE", DEFAULT_STT_COMPUTE_TYPE)
+# Décodage temps réel : un seul faisceau, et pas de second VAD interne — le
+# daemon segmente déjà l'énoncé avant d'appeler le moteur.
+STT_BEAM_SIZE = int(_get("STT_BEAM_SIZE", str(DEFAULT_STT_BEAM_SIZE)))
+# Appel Flash streamé pour la voix : donne l'instant du premier token. La
+# lecture ne démarre pas pour autant avant la fin de la passe 1 (un bloc
+# ``action`` remplacerait le texte prononcé).
+VOICE_LLM_STREAMING = _get("VOICE_LLM_STREAMING", "true").lower() in ("true", "1", "yes")
+STT_VAD_FILTER = _get("STT_VAD_FILTER", str(DEFAULT_STT_VAD_FILTER)).lower() in (
+    "true", "1", "yes",
+)
 STT_ALLOW_MODEL_DOWNLOAD = (
     _get("STT_ALLOW_MODEL_DOWNLOAD", _get("AUDIO_DAEMON_ALLOW_MODEL_DOWNLOAD", "false"))
     .lower()
@@ -152,10 +185,18 @@ KOKORO_LANG = _get("KOKORO_LANG", DEFAULT_KOKORO_LANG)
 KOKORO_LANG_CODE = _get("KOKORO_LANG_CODE", DEFAULT_KOKORO_LANG_CODE)
 KOKORO_SPEED = float(_get("KOKORO_SPEED", str(DEFAULT_KOKORO_SPEED)))
 KOKORO_MAX_TOKENS = int(_get("KOKORO_MAX_TOKENS", str(DEFAULT_KOKORO_MAX_TOKENS)))
+KOKORO_WARM_WORKER = _get(
+    "KOKORO_WARM_WORKER", str(DEFAULT_KOKORO_WARM_WORKER),
+).lower() in ("true", "1", "yes")
+KOKORO_FIRST_CHUNK_MAX_TOKENS = int(
+    _get("KOKORO_FIRST_CHUNK_MAX_TOKENS", str(DEFAULT_KOKORO_FIRST_CHUNK_MAX_TOKENS))
+)
 MACOS_TTS_VOICE = _get("MACOS_TTS_VOICE", "Jacques")
 AUDIO_DAEMON_OUTPUT_DEVICE = _get("AUDIO_DAEMON_OUTPUT_DEVICE", "")  # vide = sortie défaut macOS
 AUDIO_DAEMON_HALF_DUPLEX = _get("AUDIO_DAEMON_HALF_DUPLEX", "true").lower() == "true"
-AUDIO_DAEMON_PRE_ROLL_MS = int(_get("AUDIO_DAEMON_PRE_ROLL_MS", "300"))
+AUDIO_DAEMON_PRE_ROLL_MS = int(
+    _get("AUDIO_DAEMON_PRE_ROLL_MS", str(DEFAULT_AUDIO_DAEMON_PRE_ROLL_MS))
+)
 WAKE_WORD = _get("WAKE_WORD", "jarvis")
 
 # Mode conversation mains libres (client : détection silence ; valeurs envoyées dans le status HTTP)
@@ -449,8 +490,12 @@ END_PHRASES: tuple[str, ...] = (
 AUDIO_DAEMON_ENABLED = _get("AUDIO_DAEMON_ENABLED", "false").lower() == "true"
 AUDIO_DAEMON_SAMPLE_RATE = int(_get("AUDIO_DAEMON_SAMPLE_RATE", "16000"))
 AUDIO_DAEMON_SPEECH_THRESHOLD = float(_get("AUDIO_DAEMON_SPEECH_THRESHOLD", "0.02"))
-AUDIO_DAEMON_SILENCE_MS = int(_get("AUDIO_DAEMON_SILENCE_MS", "450"))
-AUDIO_DAEMON_MIN_SPEECH_MS = int(_get("AUDIO_DAEMON_MIN_SPEECH_MS", "200"))
+AUDIO_DAEMON_SILENCE_MS = int(
+    _get("AUDIO_DAEMON_SILENCE_MS", str(DEFAULT_AUDIO_DAEMON_SILENCE_MS))
+)
+AUDIO_DAEMON_MIN_SPEECH_MS = int(
+    _get("AUDIO_DAEMON_MIN_SPEECH_MS", str(DEFAULT_AUDIO_DAEMON_MIN_SPEECH_MS))
+)
 AUDIO_DAEMON_MAX_UTTERANCE_S = int(_get("AUDIO_DAEMON_MAX_UTTERANCE_S", "30"))
 AUDIO_DAEMON_CONVERSATION_TIMEOUT = float(_get("AUDIO_DAEMON_CONVERSATION_TIMEOUT", "30.0"))
 AUDIO_DAEMON_INPUT_DEVICE = _get("AUDIO_DAEMON_INPUT_DEVICE", "")  # vide = entrée défaut macOS

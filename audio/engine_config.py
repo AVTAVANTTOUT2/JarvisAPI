@@ -48,6 +48,13 @@ class AudioEngineConfig:
     stt_device: str
     stt_compute_type: str
     stt_allow_download: bool
+    # Réglages temps réel : versionnés dans `config`, exposés ici pour que le
+    # démarrage et les diagnostics montrent ce qui est réellement appliqué.
+    stt_beam_size: int
+    stt_vad_filter: bool
+    vad_silence_ms: int
+    vad_min_speech_ms: int
+    vad_pre_roll_ms: int
     tts_engine: str
     kokoro_backend: str
     kokoro_model: str
@@ -69,6 +76,14 @@ def load_audio_engine_config() -> AudioEngineConfig:
         stt_device=getattr(config, "STT_DEVICE", config.DEFAULT_STT_DEVICE),
         stt_compute_type=getattr(config, "STT_COMPUTE_TYPE", config.DEFAULT_STT_COMPUTE_TYPE),
         stt_allow_download=bool(getattr(config, "STT_ALLOW_MODEL_DOWNLOAD", False)),
+        stt_beam_size=int(getattr(config, "STT_BEAM_SIZE", config.DEFAULT_STT_BEAM_SIZE)),
+        stt_vad_filter=bool(getattr(config, "STT_VAD_FILTER", config.DEFAULT_STT_VAD_FILTER)),
+        vad_silence_ms=int(getattr(
+            config, "AUDIO_DAEMON_SILENCE_MS", config.DEFAULT_AUDIO_DAEMON_SILENCE_MS)),
+        vad_min_speech_ms=int(getattr(
+            config, "AUDIO_DAEMON_MIN_SPEECH_MS", config.DEFAULT_AUDIO_DAEMON_MIN_SPEECH_MS)),
+        vad_pre_roll_ms=int(getattr(
+            config, "AUDIO_DAEMON_PRE_ROLL_MS", config.DEFAULT_AUDIO_DAEMON_PRE_ROLL_MS)),
         tts_engine=(getattr(config, "TTS_ENGINE", config.DEFAULT_TTS_ENGINE) or config.DEFAULT_TTS_ENGINE).lower(),
         kokoro_backend=(
             getattr(config, "KOKORO_BACKEND", config.DEFAULT_KOKORO_BACKEND)
@@ -98,6 +113,14 @@ def log_audio_startup_config(*, active_stt_engine: str | None = None) -> None:
     logger.info("STT engine: %s", stt_active)
     logger.info("STT model: %s", cfg.stt_model)
     logger.info("STT language: %s", cfg.stt_language)
+    logger.info(
+        "STT temps réel: compute=%s beam=%d vad_filter=%s",
+        cfg.stt_compute_type, cfg.stt_beam_size, cfg.stt_vad_filter,
+    )
+    logger.info(
+        "VAD daemon: silence=%dms min_speech=%dms pre_roll=%dms",
+        cfg.vad_silence_ms, cfg.vad_min_speech_ms, cfg.vad_pre_roll_ms,
+    )
     logger.info("TTS engine: %s", cfg.tts_engine)
     logger.info("Kokoro backend: %s", cfg.kokoro_backend)
     logger.info("Kokoro model: %s", cfg.kokoro_model)

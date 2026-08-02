@@ -930,6 +930,112 @@ RECORDING_CHUNK_SIZE_MB=20
 RECORDING_SUMMARY_ONLY=false
 ```
 
+### Latence du tour de parole
+
+Le pipeline vocal traverse quatre sous-systèmes répartis sur plusieurs tâches
+asyncio et deux threads. `audio/voice_latency.py` (`UtteranceTrace`) leur donne
+un identifiant commun et une horloge monotone : sans lui, chaque sous-système ne
+mesure que lui-même et le temps « entre deux » reste invisible.
+
+L'origine de la trace est la **fin de parole** détectée par le VAD, pas le début
+de la capture : c'est l'instant à partir duquel l'utilisateur attend, donc le
+seul point de référence honnête pour la métrique principale
+`end_of_speech_to_first_audio_ms`. Le silence qui a servi à détecter cette fin
+est retranché — il appartient au VAD, pas à la réponse.
+
+26 étapes canoniques sont déclarées dans `KNOWN_EVENTS`, du segment VAD au
+réarmement. **Aucun contenu ne franchit cette frontière** : une allowlist de
+champs (`ALLOWED_FIELDS`) n'autorise que des longueurs, des noms de moteur et
+des durées — jamais une transcription, une réponse ou un jeton. La chronologie
+complète est diffusée dans l'événement WebSocket `voice_debug_tts` (clé
+`latency`), qui remplace le `{}` historique.
+
+Quatre décisions structurantes :
+
+- **Le réarmement est un chemin unique.** `_rearm()` dans `scripts/audio_daemon.py`
+  gère toutes les sorties anticipées (transcription vide, écho post-TTS, bruit
+  rejeté, interruption, erreur). `rearm_state()` ne réclame le wake word que si
+  la conversation est réellement close : une parole non transcrite n'est pas une
+  fin de conversation, et exiger un nouveau déclenchement rendait le micro sourd.
+- **Le STT ne segmente pas deux fois.** Le collecteur VAD a déjà découpé
+  l'énoncé, donc `STT_VAD_FILTER=false` ; `STT_BEAM_SIZE=1` vise le temps réel.
+  `STT_COMPUTE_TYPE=float32` est **mesuré**, pas supposé : `auto` choisit int8,
+  et CTranslate2 n'a pas de noyau int8 accéléré sur ce CPU — la quantification
+  y coûte une déquantification par couche et double le temps (4609 ms contre
+  2361 ms sur 2,66 s de parole FR avec `large-v3-turbo`). `TranscriptionResult` sépare
+  `audio_ms`, `inference_ms` et le facteur temps réel — « 5 s de STT » ne dit
+  pas si le moteur est lent ou l'énoncé long.
+- **Le moteur TTS est derrière un contrat.** `audio/tts_provider.py` décrit ce
+  que le pipeline attend (`synthesize_stream_pcm`, `warmup`, `SAMPLE_RATE`). Le
+  daemon, le VAD, le STT, l'orchestration et le lecteur PCM ne nomment **aucun**
+  fournisseur — `tests/test_tts_provider_seam.py` le vérifie fichier par fichier.
+  **Kokoro est transitoire** : ses optimisations propres (sidecar maintenu chaud
+  via `--serve`, découpage du premier fragment, protocole de trames) vivent dans
+  `native_audio/kokoro_*.py`, inventoriés dans `PROVIDER_SPECIFIC_MODULES`.
+  Basculer vers Fish Audio revient à écrire un module qui satisfait le contrat
+  et à supprimer ceux-là — sans toucher au reste de la chaîne.
+- **Le streaming LLM ne sert pas à parler plus tôt.** Une réponse peut contenir
+  un bloc `action` dont le résultat remplace le texte : prononcer la phrase
+  intermédiaire changerait la réponse. `llm.chat_stream_collect()` sert à exposer
+  `llm.first_token`, seule façon de distinguer un modèle lent d'un réseau lent.
+
+Ces réglages sont des **défauts intégrés** (`config.DEFAULT_*`), pas seulement
+des lignes d'exemple : une installation neuve les obtient sans aucun fichier
+local. `audio/engine_config.py` les expose au démarrage et en diagnostic, et un
+test refuse toute divergence entre les défauts et les `.env*.example`.
+
+```bash
+STT_BEAM_SIZE=1                  # temps réel : un seul faisceau
+STT_VAD_FILTER=false             # le daemon segmente déjà l'énoncé
+STT_COMPUTE_TYPE=float32         # int8 est 2x plus lent ici (mesuré)
+KOKORO_WARM_WORKER=true          # spécifique Kokoro (transitoire)
+KOKORO_FIRST_CHUNK_MAX_TOKENS=12 # spécifique Kokoro (transitoire)
+VOICE_LLM_STREAMING=true         # expose llm.first_token
+AUDIO_DAEMON_SILENCE_MS=500      # fin de phrase : 300-600 ms
+AUDIO_DAEMON_MIN_SPEECH_MS=200   # durée minimale de parole
+AUDIO_DAEMON_PRE_ROLL_MS=300     # amorce conservée avant le seuil
+```
+
+Tests : `tests/test_voice_latency.py`, `tests/test_voice_rearm.py`,
+`tests/test_voice_pipeline_e2e.py`, `tests/test_voice_tts_warm.py`,
+`tests/test_tts_provider_seam.py`.
+
+#### Mesure réelle (02/08/2026, Mac Apple Silicon, moteurs réels)
+
+Énoncé « Bonjour Jarvis, comment vas-tu ? » (2,18 s), `large-v3-turbo` CPU,
+DeepSeek Flash, Kokoro chaud, sortie audio locale. Deux séries de 1 tour à
+froid + 3 tours à chaud.
+
+| Étape | Cible | À froid | À chaud (médiane) | À chaud (étendue) |
+|---|---:|---:|---:|---:|
+| STT (inférence) | < 700 ms | 3508 ms | **2478 ms** | 2375 – 2700 |
+| Contexte + file | < 200 ms | 1891 ms | **25 ms** | 18 – 55 |
+| Premier token LLM | < 800 ms | 3083 ms | **2218 ms** | 1270 – 9323 |
+| Premier fragment audio TTS | < 500 ms | 3799 ms | **448 ms** | 310 – 470 |
+| **Fin de parole → premier son** | < 2 s | 11,5 – 14,2 s | **6,9 s** | 5,1 – 18,4 s |
+
+Ce que le code tient : l'orchestration (25 ms, cible 200) et le TTS (448 ms,
+cible 500) — les deux étapes que ce lot a réécrites. Ce qu'il ne tient pas : le
+STT et le réseau LLM.
+
+L'étendue du premier token (1,3 s à 9,3 s) n'est pas du bruit de mesure : c'est
+la variabilité de l'API DeepSeek. Elle domine le total et rend la cible de 2 s
+inatteignable tant que le raisonnement sort de la machine.
+
+Deux leviers restants, tous deux hors du code de ce lot :
+
+- **Modèle STT.** Mesuré sur les deux énoncés de test, transcription
+  identique : `large-v3-turbo` 2334/2862 ms, `small` **595/673 ms** (÷4),
+  `base` 192/217 ms mais transcription fausse sur la phrase longue
+  (« Quel t'en fais-il aujourd'hui à l'île ? »). `small` retirerait ~1,8 s.
+  C'est un arbitrage qualité/latence laissé au propriétaire du poste — le
+  défaut versionné reste `large-v3-turbo`.
+- **Aller-retour DeepSeek.** Rien dans le dépôt ne le réduit ; seul un modèle
+  local supprimerait la variance.
+
+Le chemin avec action (météo) ajoute 493 ms mesurés — exécution de l'action et
+seconde passe LLM comprises.
+
 ## Structure du projet
 
 ```

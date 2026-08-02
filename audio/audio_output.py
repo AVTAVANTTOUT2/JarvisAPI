@@ -8,7 +8,7 @@ import logging
 import os
 import tempfile
 import threading
-from collections.abc import AsyncGenerator, Iterable
+from collections.abc import AsyncGenerator, Callable, Iterable
 from pathlib import Path
 from typing import Any
 
@@ -292,8 +292,15 @@ class NativeAudioOutput:
         stream: AsyncGenerator[bytes, None],
         *,
         sample_rate: int = 24000,
+        on_first_chunk: Callable[[], None] | None = None,
     ) -> bool:
-        """Consomme un générateur async et joue au fil de l'eau."""
+        """Consomme un générateur async et joue au fil de l'eau.
+
+        ``on_first_chunk`` est appelé depuis le thread de sortie juste avant la
+        première écriture sur le périphérique : c'est le seul instant où l'on
+        peut affirmer que du son sort réellement, par opposition au moment où
+        le fragment a été produit.
+        """
         if not self.available:
             return False
 
@@ -303,6 +310,7 @@ class NativeAudioOutput:
         self._stop_flag.clear()
         loop = asyncio.get_running_loop()
         device = resolve_preferred_output_device(self._sd)
+        first_write = True
 
         async def _producer() -> None:
             def _put(item: bytes | None) -> bool:
@@ -330,6 +338,7 @@ class NativeAudioOutput:
         def _consumer() -> None:
             import numpy as np  # type: ignore[import-untyped]
 
+            nonlocal first_write
             with self._lock:
                 self._playing = True
             try:
@@ -353,6 +362,12 @@ class NativeAudioOutput:
                         break
                     arr = np.frombuffer(item, dtype=np.int16)
                     if arr.size:
+                        if first_write and on_first_chunk is not None:
+                            first_write = False
+                            try:
+                                on_first_chunk()
+                            except Exception:
+                                pass  # une mesure ne doit jamais casser la lecture
                         out.write(arr.reshape(-1, 1))
                 out.stop()
                 out.close()

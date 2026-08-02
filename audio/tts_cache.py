@@ -84,12 +84,17 @@ class SpeculativeTTS:
 
     @staticmethod
     def _current_sig() -> str:
+        """Empreinte moteur+voix : un changement de voix doit vider le cache.
+
+        La voix est résolue par la frontière provider-aware, sans dépendre de
+        la disponibilité locale du moteur. Le cache reste ainsi générique et
+        son invalidation identique sur macOS comme sur le runner Linux.
+        """
         engine = getattr(config, "TTS_ENGINE", config.DEFAULT_TTS_ENGINE)
-        if engine == "edge":
-            return f"{engine}:{getattr(config, 'TTS_VOICE', '')}"
-        if engine == "macos":
-            return f"{engine}:{getattr(config, 'MACOS_TTS_VOICE', 'Thomas')}"
-        return f"{engine}:{getattr(config, 'KOKORO_VOICE', config.DEFAULT_KOKORO_VOICE)}"
+        from audio.tts_provider import provider_voice_signature
+
+        voice = provider_voice_signature(str(engine))
+        return f"{engine}:{voice}"
 
     def _check_sig(self) -> None:
         sig = self._current_sig()

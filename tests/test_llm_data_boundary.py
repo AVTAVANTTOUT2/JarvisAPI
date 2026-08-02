@@ -45,6 +45,7 @@ def _isolate_db(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
 
 def _patch_voice_dependencies(monkeypatch: pytest.MonkeyPatch) -> None:
     import api.voice_cognitive as voice_cognitive
+    import api.voice_fastpath as voice_fastpath
     import api.voice_processing as voice_processing
 
     async def _continue(*_args, **_kwargs):
@@ -57,7 +58,7 @@ def _patch_voice_dependencies(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(voice_processing, "maybe_handle_fitness_voice", lambda *_a, **_k: None)
     monkeypatch.setattr(voice_processing, "get_conversation_history", lambda *_a, **_k: [])
     monkeypatch.setattr(voice_processing, "get_current_screen_context", lambda: None)
-    monkeypatch.setattr(voice_processing, "_save_voice_messages", lambda *_a, **_k: None)
+    monkeypatch.setattr(voice_fastpath, "_save_voice_messages", lambda *_a, **_k: None)
     monkeypatch.setattr(voice_processing, "_save_voice_debug_trace", lambda *_a, **_k: 1)
     monkeypatch.setattr(voice_processing, "_broadcast_voice_debug", _noop)
 
@@ -99,6 +100,7 @@ async def test_history_token_never_reaches_fake_llm_prompt(monkeypatch):
 async def test_terminal_stdout_token_is_redacted_before_second_fake_llm_pass(
     monkeypatch,
 ):
+    import api.voice_fastpath as voice_fastpath
     import api.voice_processing as voice_processing
 
     _patch_voice_dependencies(monkeypatch)
@@ -133,6 +135,7 @@ async def test_terminal_stdout_token_is_redacted_before_second_fake_llm_pass(
 
 @pytest.mark.asyncio
 async def test_clipboard_token_never_triggers_a_second_fake_llm_pass(monkeypatch):
+    import api.voice_fastpath as voice_fastpath
     import api.voice_processing as voice_processing
 
     _patch_voice_dependencies(monkeypatch)
