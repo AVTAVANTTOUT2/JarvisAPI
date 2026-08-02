@@ -33,8 +33,21 @@ from typing import Any, Protocol, runtime_checkable
 # ouvrir un flux, et se tromper de fréquence produit une voix déformée.
 FALLBACK_SAMPLE_RATE = 24000
 
+# Fichiers qui nomment un fournisseur **par nécessité** : ils forment la chaîne
+# de résolution ou exposent l'état de l'installation. Retirer un moteur suppose
+# d'y retirer sa branche — liste courte et connue d'avance, pas une découverte
+# à faire au moment de la migration.
+PROVIDER_AWARE_MODULES: tuple[str, ...] = (
+    "audio/tts.py",                          # singletons et chaîne locale
+    "audio/tts_native.py",                   # résolution du moteur natif
+    "audio/engine_config.py",                # configuration audio résolue
+    "config.py",                             # réglages exposés
+    "api/misc_integrations.py",              # allowlist du sélecteur de moteur
+    "api/misc_status.py",                    # état de l'installation
+)
+
 # Modules porteurs d'optimisations propres à un fournisseur. Retirer un moteur
-# = supprimer ses modules ici et sa branche dans la chaîne de résolution.
+# = supprimer ses modules ici, plus sa branche dans les modules ci-dessus.
 PROVIDER_SPECIFIC_MODULES: dict[str, tuple[str, ...]] = {
     "kokoro": (
         "native_audio/kokoro_mlx.py",     # sidecar : mode serveur + découpage
@@ -50,6 +63,8 @@ PROVIDER_SPECIFIC_MODULES: dict[str, tuple[str, ...]] = {
 # Ce module-ci en est exclu — il *est* l'inventaire, donc il les nomme.
 PROVIDER_AGNOSTIC_MODULES: tuple[str, ...] = (
     "audio/vad_utterance.py",
+    "audio/audio_format.py",
+    "audio/tts_cache.py",
     "audio/stt_daemon.py",
     "audio/audio_output.py",
     "audio/voice_queue.py",
@@ -107,6 +122,7 @@ def supports_pcm_streaming(engine: Any) -> bool:
 __all__ = [
     "FALLBACK_SAMPLE_RATE",
     "PROVIDER_AGNOSTIC_MODULES",
+    "PROVIDER_AWARE_MODULES",
     "PROVIDER_SPECIFIC_MODULES",
     "StreamingTTSProvider",
     "provider_sample_rate",

@@ -102,11 +102,25 @@ def playback_file_extension(audio_bytes: bytes) -> str:
     return ".m4a"
 
 
-def tts_audio_mime(engine_name: str) -> str:
-    """MIME à annoncer au client WebSocket selon le moteur TTS."""
+# Type MIME annoncé au client selon le conteneur que produit le moteur. Un
+# fournisseur déclare le sien via `AUDIO_MIME` ; cette table ne sert que de
+# repli pour les moteurs historiques qui ne le déclarent pas encore.
+_LEGACY_ENGINE_MIME: dict[str, str] = {
+    "macos": "audio/mp4",
+    "edge": "audio/mpeg",
+}
+DEFAULT_TTS_MIME = "audio/mpeg"
+
+
+def tts_audio_mime(engine_name: str, engine: object | None = None) -> str:
+    """MIME à annoncer au client WebSocket.
+
+    Le moteur est la seule source fiable : le nom ne dit rien du conteneur
+    réellement produit, et un branchement par nom ici oblige à rouvrir ce
+    fichier générique à chaque changement de fournisseur.
+    """
+    declared = getattr(engine, "AUDIO_MIME", None) if engine is not None else None
+    if isinstance(declared, str) and declared:
+        return declared
     name = (engine_name or "edge").lower().strip()
-    if name == "kokoro":
-        return "audio/wav"
-    if name == "macos":
-        return "audio/mp4"
-    return "audio/mpeg"
+    return _LEGACY_ENGINE_MIME.get(name, DEFAULT_TTS_MIME)

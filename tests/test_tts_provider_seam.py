@@ -160,3 +160,53 @@ def test_engine_without_streaming_is_not_forced_down_the_stream_path():
             return b"RIFF"
 
     assert supports_pcm_streaming(_BufferedOnly()) is False
+
+
+def test_provider_aware_modules_are_the_complete_removal_map():
+    """L'inventaire des fichiers à retoucher doit être exact.
+
+    Si un fichier nomme un fournisseur sans figurer dans l'un des trois
+    inventaires, la migration le découvrira au pire moment. Ce test le fait
+    échouer tout de suite.
+    """
+    from audio.tts_provider import PROVIDER_AWARE_MODULES
+
+    known = set(PROVIDER_AWARE_MODULES)
+    for modules in PROVIDER_SPECIFIC_MODULES.values():
+        known.update(modules)
+
+    scanned = (
+        list(ROOT.glob("audio/*.py"))
+        + list(ROOT.glob("api/voice_*.py"))
+        + [ROOT / "scripts/audio_daemon.py", ROOT / "config.py"]
+    )
+    unexpected: list[str] = []
+    for path in scanned:
+        rel = str(path.relative_to(ROOT))
+        if rel in known or rel == "audio/tts_provider.py":
+            continue
+        code = _code_without_comments(path).lower()
+        if any(name in code for name in PROVIDER_NAMES):
+            unexpected.append(rel)
+
+    assert unexpected == [], (
+        f"fichiers nommant un fournisseur hors inventaire : {unexpected} — "
+        "ajoutez-les à PROVIDER_AWARE_MODULES ou découplez-les."
+    )
+
+
+def test_audio_container_is_declared_by_the_engine():
+    """Le MIME annoncé au client vient du moteur, pas d'une table de noms."""
+    from audio.audio_format import tts_audio_mime
+    from audio.tts import kokoro_tts, macos_tts
+
+    assert tts_audio_mime("kokoro", kokoro_tts) == "audio/wav"
+    assert tts_audio_mime("macos", macos_tts) == "audio/mp4"
+
+    class _FutureProvider:
+        AUDIO_MIME = "audio/ogg"
+
+    assert tts_audio_mime("inconnu", _FutureProvider()) == "audio/ogg"
+    # Sans moteur, les valeurs historiques restent servies.
+    assert tts_audio_mime("edge") == "audio/mpeg"
+    assert tts_audio_mime("macos") == "audio/mp4"

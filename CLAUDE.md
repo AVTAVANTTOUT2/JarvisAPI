@@ -1003,31 +1003,38 @@ Tests : `tests/test_voice_latency.py`, `tests/test_voice_rearm.py`,
 #### Mesure réelle (02/08/2026, Mac Apple Silicon, moteurs réels)
 
 Énoncé « Bonjour Jarvis, comment vas-tu ? » (2,18 s), `large-v3-turbo` CPU,
-DeepSeek Flash, Kokoro chaud, sortie audio locale.
+DeepSeek Flash, Kokoro chaud, sortie audio locale. Deux séries de 1 tour à
+froid + 3 tours à chaud.
 
-| Étape | Cible | À froid | À chaud (médiane) |
-|---|---:|---:|---:|
-| STT (inférence) | < 700 ms | 3508 ms | **2390 ms** |
-| Contexte + file | < 200 ms | 1891 ms | **24 ms** |
-| Premier token LLM | < 800 ms | 3083 ms | **2248 ms** |
-| Premier fragment audio TTS | < 500 ms | 3799 ms | **436 ms** |
-| **Fin de parole → premier son** | < 2 s | 11499 ms | **5452 ms** |
+| Étape | Cible | À froid | À chaud (médiane) | À chaud (étendue) |
+|---|---:|---:|---:|---:|
+| STT (inférence) | < 700 ms | 3508 ms | **2478 ms** | 2375 – 2700 |
+| Contexte + file | < 200 ms | 1891 ms | **25 ms** | 18 – 55 |
+| Premier token LLM | < 800 ms | 3083 ms | **2218 ms** | 1270 – 9323 |
+| Premier fragment audio TTS | < 500 ms | 3799 ms | **448 ms** | 310 – 470 |
+| **Fin de parole → premier son** | < 2 s | 11,5 – 14,2 s | **6,9 s** | 5,1 – 18,4 s |
 
-Ce qui est tenu : l'orchestration (24 ms) et le TTS (436 ms). Ce qui ne l'est
-pas : le STT et le réseau LLM, qui pèsent à eux seuls ~4,6 s des 5,4 s.
+Ce que le code tient : l'orchestration (25 ms, cible 200) et le TTS (448 ms,
+cible 500) — les deux étapes que ce lot a réécrites. Ce qu'il ne tient pas : le
+STT et le réseau LLM.
 
-Deux leviers restants, tous deux hors du code :
+L'étendue du premier token (1,3 s à 9,3 s) n'est pas du bruit de mesure : c'est
+la variabilité de l'API DeepSeek. Elle domine le total et rend la cible de 2 s
+inatteignable tant que le raisonnement sort de la machine.
+
+Deux leviers restants, tous deux hors du code de ce lot :
 
 - **Modèle STT.** Mesuré sur les deux énoncés de test, transcription
   identique : `large-v3-turbo` 2334/2862 ms, `small` **595/673 ms** (÷4),
   `base` 192/217 ms mais transcription fausse sur la phrase longue
-  (« Quel t'en fais-il aujourd'hui à l'île ? »). `small` amènerait le total
-  à ~3,2 s. C'est un arbitrage qualité/latence, laissé au propriétaire du
-  poste — le défaut reste `large-v3-turbo`.
-- **Aller-retour DeepSeek** (~1,9-2,3 s jusqu'au premier token). Rien dans le
-  dépôt ne peut le réduire ; seul un modèle local le supprimerait. Ils tournent
-avec des moteurs simulés — ils ne mesurent pas le matériel, ils vérifient que
-l'orchestration n'ajoute ni palier fixe, ni étape bloquante, ni état résiduel.
+  (« Quel t'en fais-il aujourd'hui à l'île ? »). `small` retirerait ~1,8 s.
+  C'est un arbitrage qualité/latence laissé au propriétaire du poste — le
+  défaut versionné reste `large-v3-turbo`.
+- **Aller-retour DeepSeek.** Rien dans le dépôt ne le réduit ; seul un modèle
+  local supprimerait la variance.
+
+Le chemin avec action (météo) ajoute 493 ms mesurés — exécution de l'action et
+seconde passe LLM comprises.
 
 ## Structure du projet
 

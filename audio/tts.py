@@ -222,6 +222,7 @@ class KokoroTTSEngine:
     """
 
     SAMPLE_RATE = 24000
+    AUDIO_MIME = "audio/wav"   # conteneur déclaré (voir audio.audio_format)
     MODEL_PATH = Path(__file__).resolve().parent.parent / "models" / "kokoro" / "kokoro-v0_19.onnx"
     VOICES_PATH = Path(__file__).resolve().parent.parent / "models" / "kokoro" / "voices.bin"
 
@@ -323,6 +324,14 @@ class KokoroTTSEngine:
 
     def get_backend_name(self) -> str:
         return "kokoro"
+
+    def voice_signature(self) -> str:
+        """Voix courante, relue depuis la configuration à chaque appel.
+
+        Le cache spéculatif doit s'invalider quand la voix change ; une valeur
+        figée à la construction du moteur le rendrait aveugle.
+        """
+        return str(getattr(config, "KOKORO_VOICE", config.DEFAULT_KOKORO_VOICE) or "")
 
     def get_fallback(self) -> "MacOSTTSEngine":
         """Retourne un moteur de secours local uniquement (pas Edge)."""
@@ -530,9 +539,10 @@ class MacOSTTSEngine:
     lisible par tous les navigateurs modernes (Chrome, Firefox, Safari).
     """
 
-    # Déclarée par le moteur plutôt que déduite de son nom dans le code
+    # Déclarés par le moteur plutôt que déduits de son nom dans le code
     # générique (voir `audio.tts_provider.provider_sample_rate`).
     SAMPLE_RATE = 44100
+    AUDIO_MIME = "audio/mp4"
 
     def __init__(self) -> None:
         self._voice = getattr(config, "MACOS_TTS_VOICE", "Jacques")
@@ -546,6 +556,9 @@ class MacOSTTSEngine:
 
     def get_backend_name(self) -> str:
         return "macos"
+
+    def voice_signature(self) -> str:
+        return str(getattr(config, "MACOS_TTS_VOICE", "Jacques") or "")
 
     async def synthesize(self, text: str, emotion: str = "neutral") -> bytes:
         """Synthétise `text` en M4A (AAC) via say + afconvert."""

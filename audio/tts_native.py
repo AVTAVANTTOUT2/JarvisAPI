@@ -51,6 +51,9 @@ class TTSKitEngine:
     def get_backend_name(self) -> str:
         return "ttskit"
 
+    def voice_signature(self) -> str:
+        return str(getattr(config, "TTS_SPEAKER", "") or "")
+
     async def synthesize(self, text: str, emotion: str = "neutral") -> bytes:
         chunks = [c async for c in self.synthesize_stream(text, emotion)]
         return b"".join(chunks)
