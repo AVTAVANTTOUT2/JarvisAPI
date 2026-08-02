@@ -249,6 +249,15 @@ FCM_PROJECT_ID = _get("FCM_PROJECT_ID", "")
 COMPUTER_ACCESS = _get("COMPUTER_ACCESS", "false").lower() == "true"
 COMPUTER_SHELL = _get("COMPUTER_SHELL", "/bin/zsh")
 COMPUTER_TIMEOUT = int(_get("COMPUTER_TIMEOUT", "30"))
+# Restriction facultative de l'action `open_app`, qui s'exécute sans
+# confirmation : un bloc ```action``` émis sous injection de prompt peut donc
+# lancer n'importe quelle application enregistrée. Les chemins sont déjà
+# refusés en amont (`ComputerControl._validate_argv`), aucun argument n'est
+# transmis à l'application. Liste vide = aucune restriction (comportement
+# historique) ; liste renseignée = allowlist stricte, insensible à la casse.
+COMPUTER_ALLOWED_APPS = frozenset(
+    a.strip().lower() for a in _get("COMPUTER_ALLOWED_APPS", "").split(",") if a.strip()
+)
 # Les commandes proposées par un LLM sont confinées ici et doivent toujours
 # être confirmées avant une exécution sans shell.
 LLM_SHELL_WORKSPACE = _get(
@@ -265,6 +274,26 @@ TV_MAC = _get("TV_MAC", "f0:ed:51:02:16:34")
 TV_CAST_ENABLED = _get("TV_CAST_ENABLED", "true").lower() == "true"
 TV_CAST_TIMEOUT = int(_get("TV_CAST_TIMEOUT", "20"))
 TV_DASHBOARD_URL = _get("TV_DASHBOARD_URL", "http://192.168.3.52:5174/")  # URL a ouvrir via Chromecast
+
+# ── Canal WebSocket TV — /ws/tv/events (lecture seule) ───────
+# Diffusion descendante vers l'écran mural, authentifiée par le jeton privé du
+# canal supervisor et limitée à la boucle locale. Aucune commande n'y transite.
+TV_EVENTS_ENABLED = _get("TV_EVENTS_ENABLED", "true").lower() == "true"
+TV_EVENTS_DEVICE_ID = _get("TV_EVENTS_DEVICE_ID", "")  # vide → DEVICE_ID
+# Les transcriptions sont du contenu de conversation : hors du canal par défaut,
+# parce qu'un écran de salon n'a pas à afficher ce qui se dit dans la pièce.
+TV_EVENTS_INCLUDE_TRANSCRIPTS = (
+    _get("TV_EVENTS_INCLUDE_TRANSCRIPTS", "false").lower() == "true"
+)
+TV_EVENT_MAX_TEXT_CHARS = int(_get("TV_EVENT_MAX_TEXT_CHARS", "200"))
+TV_WS_MAX_CONNECTIONS = int(_get("TV_WS_MAX_CONNECTIONS", "4"))
+TV_WS_QUEUE_MAXSIZE = int(_get("TV_WS_QUEUE_MAXSIZE", "100"))
+TV_WS_MAX_DROPPED_EVENTS = int(_get("TV_WS_MAX_DROPPED_EVENTS", "200"))
+TV_WS_HEARTBEAT_SECONDS = float(_get("TV_WS_HEARTBEAT_SECONDS", "20"))
+TV_WS_SEND_TIMEOUT_SECONDS = float(_get("TV_WS_SEND_TIMEOUT_SECONDS", "5"))
+TV_WS_MAX_EVENT_BYTES = int(_get("TV_WS_MAX_EVENT_BYTES", "8192"))
+TV_WS_MAX_CLIENT_MESSAGE_BYTES = int(_get("TV_WS_MAX_CLIENT_MESSAGE_BYTES", "4096"))
+TV_WS_MAX_CLIENT_VIOLATIONS = int(_get("TV_WS_MAX_CLIENT_VIOLATIONS", "3"))
 
 # ── Exécution de code avancée ────────────────────────────────
 CODE_EXECUTOR_ENABLED = _get("CODE_EXECUTOR_ENABLED", "false").lower() == "true"

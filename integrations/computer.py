@@ -61,14 +61,20 @@ class ComputerControl:
 
         if len(argv) == 3 and argv[:2] == (_OPEN, "-a"):
             name = argv[2]
-            if (
+            if not (
                 0 < len(name) <= 128
                 and not any(ord(char) < 32 for char in name)
                 and "/" not in name
                 and "\\" not in name
             ):
-                return True, ""
-            return False, "nom d'application invalide"
+                return False, "nom d'application invalide"
+            # `open_app` s'exécute sans confirmation : une allowlist renseignée
+            # borne ce que peut lancer un bloc ```action``` produit sous
+            # injection de prompt. Vide = comportement historique.
+            allowed = config.COMPUTER_ALLOWED_APPS
+            if allowed and name.strip().lower() not in allowed:
+                return False, "application hors de COMPUTER_ALLOWED_APPS"
+            return True, ""
 
         if len(argv) == 6 and argv[0] == _FIND:
             base, depth_flag, depth, name_flag, pattern = argv[1:]
