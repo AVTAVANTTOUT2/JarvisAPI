@@ -68,6 +68,11 @@ EVENT_TYPES: tuple[str, ...] = (
     "system.service_up",
     "system.service_down",
     "system.error",
+    # Commande de repas — suivi de livraison poussé vers l'interface.
+    # Volontairement placé avant le bloc « Domaine applicatif » : ce dernier
+    # est défini comme les dix derniers types et doit rester aligné sur les
+    # dix classes typées de jarvis/events.py.
+    "food.order_updated",
     # Domaine applicatif — Phase 3
     "notification.created",
     "task.created",

@@ -58,6 +58,27 @@ def test_cognitive_route_is_served(tmp_path, monkeypatch):
         assert client.get("/cognitive").text == "unified-cognitive"
 
 
+def test_food_route_is_served(tmp_path, monkeypatch):
+    """La page Nourriture exportée doit survivre à un rechargement direct.
+
+    Sans son segment dans la liste blanche serveur, `/food` répondrait 404 au
+    rechargement dur alors que la page existe bien dans le build.
+    """
+    unified = tmp_path / "frontend"
+    _write(unified / "index.html", "unified-root")
+    _write(unified / "food" / "index.html", "unified-food")
+    _write(unified / "_next" / "static" / "app.js", "asset")
+
+    monkeypatch.setattr(frontend, "FRONTEND_DIST", unified)
+    monkeypatch.setattr(frontend, "WEB_DIST", tmp_path / "missing-web")
+
+    app = FastAPI()
+    frontend._setup_frontend(app)
+
+    with TestClient(app) as client:
+        assert client.get("/food").text == "unified-food"
+
+
 def test_fitness_route_is_served(tmp_path, monkeypatch):
     """La page Fitness exportée doit survivre à un rechargement direct."""
     unified = tmp_path / "frontend"

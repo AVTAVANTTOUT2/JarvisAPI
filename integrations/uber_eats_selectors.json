@@ -1,0 +1,132 @@
+{
+  "version": 1,
+  "verified": false,
+  "captured_at": null,
+  "captured_against": "https://www.ubereats.com",
+  "notes": [
+    "verified=false signifie : ces stratégies sont des hypothèses, elles n'ont pas été confirmées contre le DOM réel d'Uber Eats.",
+    "Tant que verified vaut false, integrations/uber_eats.py refuse de quitter le mode simulation et ne cliquera jamais sur le bouton de paiement.",
+    "Chaque rôle liste des stratégies essayées dans l'ordre. La première qui devient visible gagne. Mettre les plus spécifiques (test_id) en tête.",
+    "Le rôle menu_item accepte le gabarit {item}, le rôle store_card accepte {restaurant}.",
+    "Les rôles feed_*, menu_section*, menu_entry* et order_*_text servent au relevé en lecture seule et au suivi de livraison. Ils sont optionnels : leur absence dégrade les suggestions mais n'empêche jamais une commande."
+  ],
+  "capture_procedure": [
+    "1. pip install playwright && playwright install chromium",
+    "2. python scripts/uber_eats_capture_session.py --codegen",
+    "3. Se connecter, chercher un restaurant, ajouter un article, aller jusqu'à l'écran de paiement SANS valider.",
+    "4. Reporter les sélecteurs générés par codegen dans locators ci-dessous, puis passer verified à true."
+  ],
+  "locators": {
+    "login_marker": [
+      { "strategy": "role", "role": "button", "value": "Se connecter", "exact": false },
+      { "strategy": "role", "role": "button", "value": "Log in", "exact": false },
+      { "strategy": "role", "role": "link", "value": "Se connecter", "exact": false },
+      { "strategy": "css", "value": "form[action*='login'], [data-testid*='login']" }
+    ],
+    "session_marker": [
+      { "strategy": "test_id", "value": "cart-button" },
+      { "strategy": "role", "role": "button", "value": "Panier", "exact": false },
+      { "strategy": "role", "role": "button", "value": "Cart", "exact": false },
+      { "strategy": "role", "role": "button", "value": "Compte", "exact": false }
+    ],
+    "cookie_accept_button": [
+      { "strategy": "role", "role": "button", "value": "Tout accepter", "exact": false },
+      { "strategy": "role", "role": "button", "value": "Accept all", "exact": false },
+      { "strategy": "css", "value": "#onetrust-accept-btn-handler" }
+    ],
+    "address_prompt": [
+      { "strategy": "role", "role": "dialog", "value": "adresse", "exact": false },
+      { "strategy": "css", "value": "[data-testid='address-modal']" }
+    ],
+    "search_input": [
+      { "strategy": "test_id", "value": "search-input" },
+      { "strategy": "placeholder", "value": "Rechercher dans Uber Eats", "exact": false },
+      { "strategy": "placeholder", "value": "Search Uber Eats", "exact": false },
+      { "strategy": "role", "role": "combobox", "value": "Rechercher", "exact": false },
+      { "strategy": "css", "value": "input[type='search']" }
+    ],
+    "store_card": [
+      { "strategy": "test_id", "value": "store-card" },
+      { "strategy": "role", "role": "link", "value": "{restaurant}", "exact": false },
+      { "strategy": "css", "value": "a[href*='/store/']" }
+    ],
+    "menu_item": [
+      { "strategy": "role", "role": "button", "value": "{item}", "exact": false },
+      { "strategy": "role", "role": "link", "value": "{item}", "exact": false },
+      { "strategy": "text", "value": "{item}", "exact": false }
+    ],
+    "quantity_increase_button": [
+      { "strategy": "role", "role": "button", "value": "Augmenter la quantité", "exact": false },
+      { "strategy": "role", "role": "button", "value": "Increase quantity", "exact": false },
+      { "strategy": "test_id", "value": "quantity-increment" }
+    ],
+    "add_to_cart_button": [
+      { "strategy": "role", "role": "button", "value": "Ajouter", "exact": false },
+      { "strategy": "role", "role": "button", "value": "Add to order", "exact": false },
+      { "strategy": "test_id", "value": "add-to-cart-button" }
+    ],
+    "cart_button": [
+      { "strategy": "test_id", "value": "cart-button" },
+      { "strategy": "role", "role": "button", "value": "Panier", "exact": false },
+      { "strategy": "role", "role": "button", "value": "Cart", "exact": false }
+    ],
+    "cart_total": [
+      { "strategy": "test_id", "value": "cart-total" },
+      { "strategy": "test_id", "value": "order-total" },
+      { "strategy": "css", "value": "[data-testid='checkout-total'] , [data-test='order-total']" }
+    ],
+    "checkout_button": [
+      { "strategy": "role", "role": "button", "value": "Passer au paiement", "exact": false },
+      { "strategy": "role", "role": "button", "value": "Go to checkout", "exact": false },
+      { "strategy": "test_id", "value": "checkout-button" }
+    ],
+    "place_order_button": [
+      { "strategy": "role", "role": "button", "value": "Commander", "exact": true },
+      { "strategy": "role", "role": "button", "value": "Place order", "exact": true },
+      { "strategy": "test_id", "value": "place-order-button" }
+    ],
+    "order_confirmation_marker": [
+      { "strategy": "text", "value": "Commande confirmée", "exact": false },
+      { "strategy": "text", "value": "Order placed", "exact": false },
+      { "strategy": "css", "value": "[data-testid='order-tracking']" }
+    ],
+    "feed_store_card": [
+      { "strategy": "test_id", "value": "store-card" },
+      { "strategy": "css", "value": "a[href*='/store/']" }
+    ],
+    "feed_store_title": [
+      { "strategy": "test_id", "value": "store-title" },
+      { "strategy": "role", "role": "heading" },
+      { "strategy": "css", "value": "h3, h4" }
+    ],
+    "menu_section": [
+      { "strategy": "test_id", "value": "menu-category" },
+      { "strategy": "css", "value": "[data-testid*='category'], section[aria-labelledby]" }
+    ],
+    "menu_section_title": [
+      { "strategy": "test_id", "value": "category-title" },
+      { "strategy": "role", "role": "heading" },
+      { "strategy": "css", "value": "h2, h3" }
+    ],
+    "menu_entry": [
+      { "strategy": "test_id", "value": "menu-item" },
+      { "strategy": "css", "value": "li[data-testid], a[href*='?mod=']" }
+    ],
+    "menu_entry_title": [
+      { "strategy": "test_id", "value": "rich-text" },
+      { "strategy": "css", "value": "span[data-testid='rich-text'], h4, h3" }
+    ],
+    "menu_entry_price": [
+      { "strategy": "test_id", "value": "item-price" },
+      { "strategy": "css", "value": "[data-testid*='price']" }
+    ],
+    "order_status_text": [
+      { "strategy": "test_id", "value": "order-status" },
+      { "strategy": "css", "value": "[data-testid*='status'], [aria-live='polite']" }
+    ],
+    "order_eta_text": [
+      { "strategy": "test_id", "value": "order-eta" },
+      { "strategy": "css", "value": "[data-testid*='eta'], [data-testid*='arrival']" }
+    ]
+  }
+}

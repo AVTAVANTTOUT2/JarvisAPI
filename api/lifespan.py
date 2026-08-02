@@ -16,6 +16,7 @@ import config
 from agents import register_agent
 from agents.coach import coach_agent
 from agents.devops import devops_agent
+from agents.food import food_agent
 from agents.info import info_agent
 from agents.journal import journal_agent
 from agents.memory import memory_agent
@@ -113,7 +114,10 @@ async def lifespan(app: FastAPI):
     register_agent(journal_agent)
     register_agent(memory_agent)
     register_agent(devops_agent)
-    logger.info("Agents enregistrés : devops, info, school, productivity, coach, journal, memory")
+    register_agent(food_agent)
+    logger.info(
+        "Agents enregistrés : devops, food, info, school, productivity, coach, journal, memory"
+    )
 
     # Création des dossiers de sortie
     Path(config.SCHOOL_OUTPUT_DIR).mkdir(parents=True, exist_ok=True)

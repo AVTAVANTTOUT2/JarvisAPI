@@ -169,7 +169,7 @@ async def append_recent_mails_to_context(ctx: dict, user_message: str, category:
     ctx["memory_context"] = (mem + "\n\n" + merged).strip() if mem else merged
 
 
-CATEGORIES = ["SCHOOL", "PRODUCTIVITY", "COACH", "INFO", "JOURNAL", "DEVOPS"]
+CATEGORIES = ["SCHOOL", "PRODUCTIVITY", "COACH", "INFO", "JOURNAL", "DEVOPS", "FOOD"]
 CATEGORY_TO_AGENT = {
     "SCHOOL": "school",
     "PRODUCTIVITY": "productivity",
@@ -177,6 +177,7 @@ CATEGORY_TO_AGENT = {
     "INFO": "info",
     "JOURNAL": "journal",
     "DEVOPS": "devops",
+    "FOOD": "food",
 }
 
 # ── Classification par mots-clés (0 token, 0 latence) ──────────────────────
@@ -200,6 +201,21 @@ DEVOPS_KEYWORDS = [
     "config", "variable d'environnement", "env", "log", "logs", "monitoring",
     "performance", "latence", "optimisation", "refactor", "test unitaire",
     "package", "dépendance", "venv", "requirements", "build", "compile",
+]
+
+# Commande de repas — volontairement étroit. Le mot « commande » seul est banni :
+# « lance la commande git status » doit rester DEVOPS, pas une commande Uber Eats.
+FOOD_PATTERNS = [
+    "uber eats", "ubereats",
+    "j'ai faim", "jai faim", "je meurs de faim", "je crève de faim",
+    "commande à manger", "commande a manger",
+    "commander à manger", "commander a manger",
+    "commande de la nourriture", "commander de la nourriture",
+    "commande un repas", "commander un repas", "commande le repas",
+    "commande à bouffer", "commande a bouffer",
+    "livraison de repas", "se faire livrer", "fais-toi livrer",
+    "commande une pizza", "commander une pizza",
+    "commande des sushis", "commander des sushis",
 ]
 
 COACH_PATTERNS = [
@@ -252,7 +268,9 @@ JOURNAL_PATTERNS = [
     "j'ai vécu", "je tenais à noter",
 ]
 
-VALID_CATEGORIES = frozenset(["COACH", "JOURNAL", "SCHOOL", "PRODUCTIVITY", "DEVOPS", "INFO"])
+VALID_CATEGORIES = frozenset(
+    ["COACH", "JOURNAL", "SCHOOL", "PRODUCTIVITY", "DEVOPS", "INFO", "FOOD"]
+)
 
 
 def _match_any(message: str, patterns: list[str]) -> bool:
@@ -279,7 +297,10 @@ async def classify_category(message: str) -> str:
     """Classification par mots-clés avec fallback LLM (DeepSeek Flash).
 
     Priorité stricte :
-        COACH > JOURNAL > SCHOOL > PRODUCTIVITY > DEVOPS > INFO (filet sécurité)
+        COACH > FOOD > JOURNAL > SCHOOL > PRODUCTIVITY > DEVOPS > INFO (filet sécurité)
+
+    FOOD passe avant JOURNAL parce que « aujourd'hui j'ai faim, commande une
+    pizza » est une demande d'action, pas un récit de journée.
 
     Si aucun mot-clé ne matche, appel ``llm.quick_classify`` (DeepSeek Flash,
     ~50 tokens, gratuit/discount) avec la liste complète des catégories.
@@ -300,6 +321,8 @@ async def classify_category(message: str) -> str:
 
     if _match_any(message, COACH_PATTERNS):
         return _resolve("COACH", "keyword")
+    if _match_any(message, FOOD_PATTERNS):
+        return _resolve("FOOD", "keyword")
     if _match_any(message, JOURNAL_PATTERNS):
         return _resolve("JOURNAL", "keyword")
     # Ouvrir/lancer une app Mac → PRODUCTIVITY (persona open_app), avant SCHOOL/LLM

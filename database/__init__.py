@@ -228,6 +228,28 @@ from .email import (
     save_email_full,
     upsert_email_summary,
 )
+from .food_intelligence import (
+    claim_suggestion,
+    get_active_suggestion_by_slot,
+    get_active_suggestions,
+    get_food_preferences,
+    get_menu_items,
+    get_menu_restaurants,
+    release_suggestion,
+    replace_menu_items,
+    replace_suggestions,
+    set_food_preference,
+)
+from .food_orders import (
+    get_daily_food_order_stats,
+    get_food_order,
+    get_food_orders,
+    get_orders_awaiting_delivery,
+    get_rated_food_orders,
+    rate_food_order,
+    record_food_order,
+    update_food_order_delivery,
+)
 from .facts import (
     add_fact,
     get_all_facts_summary,

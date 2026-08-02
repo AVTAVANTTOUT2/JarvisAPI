@@ -35,6 +35,7 @@ from api.router_conversations import router as conversations_router
 from api.router_daemon import router as daemon_router
 from api.router_devagent import router as devagent_router
 from api.router_devices import router as devices_router
+from api.router_food import router as food_router
 from api.router_location import router as location_router
 from api.router_mobile_voice import router as mobile_voice_router
 from api.router_mobile_chat import router as mobile_chat_router
@@ -101,6 +102,7 @@ app.include_router(conversations_router)
 app.include_router(daemon_router)
 app.include_router(devagent_router)
 app.include_router(devices_router)
+app.include_router(food_router)
 app.include_router(location_router)
 app.include_router(mobile_voice_router)
 app.include_router(mobile_chat_router)

@@ -60,6 +60,8 @@ async def execute_action(action: dict) -> dict:
             out = await _action_search_conversations(action)
         elif action_type == "tv":
             out = await _action_tv(action)
+        elif action_type == "food_order":
+            out = await _action_food_order(action)
         else:
             out = {"ok": False, "message": f"Type d'action inconnu : {action_type}"}
     except Exception as e:
@@ -399,6 +401,131 @@ def _shell_confirmation_response(plan: dict) -> dict:
         "impact_analysis": impact,
         "message": message,
     }
+
+
+def _format_amount(value: float | None, currency: str) -> str:
+    """Formate un montant à la française : ``24,90 €``."""
+    if value is None:
+        return "montant inconnu"
+    symbols = {"EUR": "€", "USD": "$", "GBP": "£"}
+    return f"{value:.2f}".replace(".", ",") + f" {symbols.get(currency, currency)}"
+
+
+def _food_confirmation_response(plan: dict) -> dict:
+    """Réponse d'attente : le panier est prêt, rien n'est payé."""
+    amount = _format_amount(plan.get("total_price"), str(plan.get("currency") or "EUR"))
+    simulation = " (mode simulation : rien ne sera envoyé à Uber Eats)" if plan.get("dry_run") else ""
+    message = (
+        f"Panier prêt chez {plan.get('restaurant')} : {plan.get('items_label')}. "
+        f"Total {amount}{simulation}. "
+        "Confirmez pour valider la commande — ce panier expire dans "
+        f"{plan.get('expires_in_seconds', 0)} secondes."
+    )
+    return {
+        "ok": True,
+        "needs_confirmation": True,
+        "plan_id": plan.get("plan_id"),
+        "food_plan": plan,
+        "restaurant": plan.get("restaurant"),
+        "items_label": plan.get("items_label"),
+        "total_price": plan.get("total_price"),
+        "currency": plan.get("currency"),
+        "dry_run": plan.get("dry_run"),
+        "impact_analysis": {
+            "max_risk": "high" if not plan.get("dry_run") else "low",
+            "spends_money": not plan.get("dry_run"),
+            "amount": plan.get("total_price"),
+            "currency": plan.get("currency"),
+        },
+        "message": message,
+    }
+
+
+def _food_outcome_response(outcome: dict) -> dict:
+    """Traduit l'issue d'une commande en réponse d'action lisible."""
+    amount = _format_amount(outcome.get("total_price"), str(outcome.get("currency") or "EUR"))
+    status = outcome.get("status")
+    if status == "placed":
+        message = f"Commande passée chez {outcome.get('restaurant')} pour {amount}."
+    elif status == "simulated":
+        message = (
+            f"Mode simulation actif : la commande chez {outcome.get('restaurant')} "
+            f"({amount}) n'a pas été envoyée à Uber Eats."
+        )
+    else:
+        message = outcome.get("error") or "Commande non aboutie."
+    return {
+        "ok": bool(outcome.get("ok")),
+        "status": status,
+        "restaurant": outcome.get("restaurant"),
+        "items_label": outcome.get("items_label"),
+        "total_price": outcome.get("total_price"),
+        "currency": outcome.get("currency"),
+        "dry_run": outcome.get("dry_run"),
+        "plan_id": outcome.get("plan_id"),
+        "error": outcome.get("error"),
+        "message": message,
+    }
+
+
+async def _action_food_order(action: dict) -> dict:
+    """Commande de repas en deux passes : panier figé, puis paiement confirmé.
+
+    Première passe : le panier est rempli, le total lu, et un plan opaque à
+    usage unique est enregistré côté serveur. Seconde passe : ce plan exact est
+    consommé. Un ``confirmed: true`` arrivant sans plan serveur est ignoré —
+    c'est ce qui empêche un modèle de commander de sa propre initiative.
+    """
+    from integrations.uber_eats import (
+        UberEatsError,
+        UberEatsInvalidRequest,
+        UberEatsLimitExceeded,
+        UberEatsPlanError,
+        UberEatsSessionExpired,
+        UberEatsUnavailable,
+        get_order_plan,
+        uber_eats,
+    )
+
+    plan_id = str(action.get("plan_id") or "").strip()
+    if plan_id:
+        if action.get("confirmed") is not True:
+            try:
+                return _food_confirmation_response(get_order_plan(plan_id))
+            except UberEatsPlanError as exc:
+                return {"ok": False, "message": f"Panier refusé : {exc}"}
+        try:
+            outcome = await uber_eats.confirm_order(plan_id)
+        except UberEatsPlanError as exc:
+            return {"ok": False, "message": f"Panier refusé : {exc}"}
+        return _food_outcome_response(outcome.as_dict())
+
+    if action.get("confirmed") is True:
+        logger.warning(
+            "[food_order] pré-confirmation ignorée : aucun panier serveur n'est attaché"
+        )
+
+    try:
+        plan, _planned = await uber_eats.prepare_order(
+            action.get("restaurant"), action.get("items")
+        )
+    except UberEatsInvalidRequest as exc:
+        return {"ok": False, "message": f"Demande incomplète : {exc}"}
+    except UberEatsUnavailable as exc:
+        return {"ok": False, "message": f"Commande indisponible : {exc}"}
+    except UberEatsSessionExpired as exc:
+        return {"ok": False, "message": f"Session Uber Eats à renouveler : {exc}"}
+    except UberEatsLimitExceeded as exc:
+        return {"ok": False, "blocked": True, "message": f"Commande bloquée : {exc}"}
+    except UberEatsError as exc:
+        logger.error("[food_order] parcours en échec : %s", exc, exc_info=True)
+        return {"ok": False, "message": f"Commande impossible : {exc}"}
+
+    plan_view = plan.public_view()
+    action["confirmed"] = False
+    action["plan_id"] = plan.plan_id
+    action["food_plan"] = plan_view
+    return _food_confirmation_response(plan_view)
 
 
 async def _generate_shell_commands(instruction: str) -> list[str] | dict:

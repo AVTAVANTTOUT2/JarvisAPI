@@ -42,6 +42,15 @@ spacy==3.8.*             # NER PII (modèle : python -m spacy download fr_core_n
 # TV control — Google Cast fallback (reveil TV Philips deep standby)
 catt>=0.12
 
+# Commande de repas Uber Eats — automatisation navigateur.
+# Version épinglée à l'exact : le parcours dépend d'un comportement de locator
+# précis, et une montée de version silencieuse casserait un flux qui dépense de
+# l'argent. Alignée sur la version installée sur le Mac de déploiement.
+# Le navigateur s'installe à part : `playwright install chromium` — une montée
+# de version exige de relancer cette commande, les binaires étant versionnés.
+# JARVIS démarre sans (import tardif dans integrations/playwright_runtime.py).
+playwright==1.62.0
+
 # Utils
 python-dateutil==2.9.*
 
