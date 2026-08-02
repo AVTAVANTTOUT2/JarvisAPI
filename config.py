@@ -85,7 +85,11 @@ DEFAULT_STT_MODEL = "large-v3-turbo"
 DEFAULT_STT_FALLBACK_MODEL = "large-v3"
 DEFAULT_STT_LANGUAGE = "fr"
 DEFAULT_STT_DEVICE = "auto"
-DEFAULT_STT_COMPUTE_TYPE = "auto"
+# int8 sur CPU Apple Silicon : ~2 à 3 fois plus rapide que float32 pour une
+# perte négligeable sur des commandes courtes. « auto » retombait sur float32.
+DEFAULT_STT_COMPUTE_TYPE = "int8"
+DEFAULT_STT_BEAM_SIZE = 1
+DEFAULT_STT_VAD_FILTER = False
 DEFAULT_TTS_ENGINE = "kokoro"
 DEFAULT_KOKORO_BACKEND = "mlx"
 DEFAULT_KOKORO_MODEL = "mlx-community/Kokoro-82M-bf16"
@@ -115,6 +119,16 @@ STT_FALLBACK_MODEL = (
 STT_LANGUAGE = _get("STT_LANGUAGE") or _get("LANGUAGE") or DEFAULT_STT_LANGUAGE
 STT_DEVICE = _get("STT_DEVICE", DEFAULT_STT_DEVICE)
 STT_COMPUTE_TYPE = _get("STT_COMPUTE_TYPE", DEFAULT_STT_COMPUTE_TYPE)
+# Décodage temps réel : un seul faisceau, et pas de second VAD interne — le
+# daemon segmente déjà l'énoncé avant d'appeler le moteur.
+STT_BEAM_SIZE = int(_get("STT_BEAM_SIZE", str(DEFAULT_STT_BEAM_SIZE)))
+# Appel Flash streamé pour la voix : donne l'instant du premier token. La
+# lecture ne démarre pas pour autant avant la fin de la passe 1 (un bloc
+# ``action`` remplacerait le texte prononcé).
+VOICE_LLM_STREAMING = _get("VOICE_LLM_STREAMING", "true").lower() in ("true", "1", "yes")
+STT_VAD_FILTER = _get("STT_VAD_FILTER", str(DEFAULT_STT_VAD_FILTER)).lower() in (
+    "true", "1", "yes",
+)
 STT_ALLOW_MODEL_DOWNLOAD = (
     _get("STT_ALLOW_MODEL_DOWNLOAD", _get("AUDIO_DAEMON_ALLOW_MODEL_DOWNLOAD", "false"))
     .lower()

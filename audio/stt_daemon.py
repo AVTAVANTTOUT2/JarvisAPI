@@ -6,6 +6,7 @@ import asyncio
 import io
 import logging
 import struct
+import time
 import wave
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -50,6 +51,18 @@ class TranscriptionResult:
     duration: float | None = None
     is_partial: bool = False
     engine: str = "none"
+    # Temps d'inférence pur, hors rééchantillonnage et hors attente de file.
+    # Sans cette séparation, « STT : 4944 ms » ne dit pas si le moteur est lent
+    # ou si l'énoncé capturé était long.
+    inference_ms: int = 0
+    audio_ms: int = 0
+
+    @property
+    def real_time_factor(self) -> float | None:
+        """Inférence / durée audio. > 1 = plus lent que le temps réel."""
+        if not self.audio_ms:
+            return None
+        return round(self.inference_ms / self.audio_ms, 3)
 
 
 def build_initial_prompt() -> str:
@@ -220,26 +233,42 @@ class FasterWhisperBackend(DaemonSTTBackend):
 
         pcm_16k = resample_pcm16_mono(pcm_bytes, sample_rate, 16000)
         prompt = build_initial_prompt()
+        audio_ms = round(len(pcm_16k) / (16000 * 2) * 1000)
+
+        # Temps réel : un faisceau unique suffit pour des commandes courtes, et
+        # le VAD interne serait un second passage sur un audio déjà segmenté en
+        # amont par le collecteur du daemon.
+        beam_size = max(1, int(getattr(config, "STT_BEAM_SIZE", 1)))
+        vad_filter = bool(getattr(config, "STT_VAD_FILTER", False))
 
         def _run() -> TranscriptionResult | None:
+            started = time.perf_counter()
             try:
                 segments_iter, info = self._model.transcribe(
                     _pcm_to_float32_ndarray(pcm_16k, 16000),
                     language=language if language != "auto" else None,
-                    beam_size=5,
-                    vad_filter=True,
+                    beam_size=beam_size,
+                    vad_filter=vad_filter,
                     condition_on_previous_text=False,
                     initial_prompt=prompt,
                 )
                 segments_list = list(segments_iter)
                 text = " ".join(s.text.strip() for s in segments_list if s.text.strip()).strip()
-                return TranscriptionResult(
+                result = TranscriptionResult(
                     text=text,
                     segments=segments_list,
                     language=getattr(info, "language", language),
                     duration=getattr(info, "duration", None),
                     engine=self.name,
+                    inference_ms=round((time.perf_counter() - started) * 1000),
+                    audio_ms=audio_ms,
                 )
+                logger.debug(
+                    "[stt_daemon] %s audio=%dms inference=%dms rtf=%s beam=%d vad=%s",
+                    self.name, audio_ms, result.inference_ms,
+                    result.real_time_factor, beam_size, vad_filter,
+                )
+                return result
             except TypeError:
                 # Anciennes versions faster-whisper sans ndarray
                 import tempfile
@@ -252,8 +281,8 @@ class FasterWhisperBackend(DaemonSTTBackend):
                     segments_iter, info = self._model.transcribe(
                         path,
                         language=language if language != "auto" else None,
-                        beam_size=5,
-                        vad_filter=True,
+                        beam_size=beam_size,
+                        vad_filter=vad_filter,
                         condition_on_previous_text=False,
                         initial_prompt=prompt,
                     )
@@ -265,6 +294,8 @@ class FasterWhisperBackend(DaemonSTTBackend):
                         language=getattr(info, "language", language),
                         duration=getattr(info, "duration", None),
                         engine=self.name,
+                        inference_ms=round((time.perf_counter() - started) * 1000),
+                        audio_ms=audio_ms,
                     )
                 finally:
                     Path(path).unlink(missing_ok=True)
@@ -608,6 +639,9 @@ class DaemonSTT:
             "language": result.language,
             "duration": result.duration,
             "engine": result.engine,
+            "inference_ms": result.inference_ms,
+            "audio_ms": result.audio_ms,
+            "real_time_factor": result.real_time_factor,
         }
 
     @staticmethod
