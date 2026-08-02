@@ -184,10 +184,15 @@ def _setup_chat_db_tables(conn: sqlite3.Connection) -> None:
             chat_id INTEGER,
             handle_id INTEGER
         );
+        CREATE TABLE chat_message_join (
+            chat_id INTEGER,
+            message_id INTEGER
+        );
         CREATE TABLE message (
             ROWID INTEGER PRIMARY KEY AUTOINCREMENT,
             guid TEXT,
             text TEXT,
+            attributedBody BLOB,
             handle_id INTEGER,
             date INTEGER DEFAULT 0,
             date_read INTEGER DEFAULT 0,
@@ -654,3 +659,84 @@ class TestIdempotency:
         with get_db() as conn:
             count = conn.execute("SELECT COUNT(*) c FROM imessage_messages").fetchone()["c"]
             assert count == 2
+
+
+class TestHandleZeroResolution:
+    """Messages Apple avec handle_id=0 relies via chat_message_join."""
+
+    def test_import_message_recovers_attributed_body(self, importer_with_memory_db):
+        importer, chat_db = importer_with_memory_db
+        from database import get_db
+
+        hids = _seed_handles(chat_db, [{"id": "+33600000098", "service": "iMessage"}])
+        _seed_chats(chat_db, [{"identifier": "+33600000098", "style": 0}])
+        handles_map = importer._import_handles(chat_db)
+        chats_map = importer._import_chats(chat_db)
+        body = b"streamtyped\x00NSString\x00Bonjour sans texte brut\x00"
+        cursor = chat_db.execute(
+            """INSERT INTO message
+               (guid, text, attributedBody, handle_id, date, cache_roomnames)
+               VALUES (?, NULL, ?, ?, ?, ?)""",
+            ("guid-body", body, hids[0], 600000000, "+33600000098"),
+        )
+
+        result = importer._import_message_batch(
+            chat_db,
+            handles_map,
+            chats_map,
+            from_rowid=cursor.lastrowid,
+            to_rowid=cursor.lastrowid,
+        )
+
+        assert result["imported"] == 1
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT text, attributed_body FROM imessage_messages WHERE guid = ?",
+                ("guid-body",),
+            ).fetchone()
+        assert row["text"] == "Bonjour sans texte brut"
+        assert row["attributed_body"] == body
+
+    def test_import_message_with_handle_zero(self, importer_with_memory_db):
+        importer, chat_db = importer_with_memory_db
+        from database import get_db
+
+        hids = _seed_handles(chat_db, [{"id": "+33600000099", "service": "iMessage"}])
+        cids = _seed_chats(chat_db, [{"identifier": "+33600000099", "style": 0}])
+        chat_db.execute(
+            "INSERT INTO chat_handle_join (chat_id, handle_id) VALUES (?, ?)",
+            (cids[0], hids[0]),
+        )
+
+        mids = _seed_messages(chat_db, [{
+            "guid": "guid-zero",
+            "text": "Via chat join",
+            "handle_id": 0,
+            "date": 600000000,
+            "is_from_me": 0,
+        }])
+        chat_db.execute(
+            "INSERT INTO chat_message_join (chat_id, message_id) VALUES (?, ?)",
+            (cids[0], mids[0]),
+        )
+
+        handles_map = importer._import_handles(chat_db)
+        chats_map = importer._import_chats(chat_db)
+        importer._import_chat_handles(chat_db, handles_map, chats_map)
+
+        result = importer._import_message_batch(
+            chat_db, handles_map, chats_map, from_rowid=mids[0], to_rowid=mids[0],
+        )
+        assert result["imported"] == 1
+
+        with get_db() as conn:
+            row = conn.execute(
+                """SELECT m.text, h.handle, c.chat_identifier
+                   FROM imessage_messages m
+                   LEFT JOIN imessage_handles h ON h.id = m.handle_id
+                   LEFT JOIN imessage_chats c ON c.id = m.chat_id
+                   WHERE m.guid = 'guid-zero'"""
+            ).fetchone()
+            assert row["text"] == "Via chat join"
+            assert row["handle"] == "+33600000099"
+            assert row["chat_identifier"] == "+33600000099"
