@@ -124,7 +124,7 @@ async def test_voice_queue_defers_background_during_user_turn() -> None:
     q = VoiceQueue()
     played: list[str] = []
 
-    async def _play(text: str, emotion: str, cancel) -> None:
+    async def _play(text: str, emotion: str, cancel, *, trace=None) -> None:
         played.append(text)
 
     await q.start(_play)
@@ -148,7 +148,7 @@ async def test_voice_queue_defers_background_during_user_turn() -> None:
 async def test_voice_queue_critical_passes_during_conversation() -> None:
     q = VoiceQueue()
 
-    async def _play(text: str, emotion: str, cancel) -> None:
+    async def _play(text: str, emotion: str, cancel, *, trace=None) -> None:
         pass
 
     await q.start(_play)
@@ -258,7 +258,7 @@ async def test_voice_queue_all_tts_through_consumer() -> None:
     played: list[str] = []
     q = VoiceQueue()
 
-    async def _play(text: str, emotion: str, cancel) -> None:
+    async def _play(text: str, emotion: str, cancel, *, trace=None) -> None:
         played.append(text)
 
     await q.start(_play)
@@ -467,7 +467,7 @@ async def test_critical_voice_request_cancels_current_playback() -> None:
     played: list[str] = []
     cancelled = asyncio.Event()
 
-    async def _play(text: str, emotion: str, cancel) -> None:
+    async def _play(text: str, emotion: str, cancel, *, trace=None) -> None:
         played.append(text)
         if text == "Fond":
             await cancel.wait()

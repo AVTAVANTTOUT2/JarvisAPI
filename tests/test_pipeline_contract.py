@@ -23,7 +23,7 @@ def test_pipeline_delegates_all_entry_points(monkeypatch):
         calls.append(("message", text, conversation_id, voice_mode))
         return {"kind": "message"}
 
-    async def process_voice(text, conversation_id):
+    async def process_voice(text, conversation_id, *, stt_ms=0, trace=None):
         calls.append(("voice", text, conversation_id))
         return {"kind": "voice"}
 

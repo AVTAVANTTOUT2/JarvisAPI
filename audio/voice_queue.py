@@ -31,9 +31,12 @@ class VoiceRequest:
     emotion: str = field(default="neutral", compare=False)
     cancel_event: asyncio.Event | None = field(default=None, compare=False)
     done_event: asyncio.Event | None = field(default=None, compare=False)
+    # Trace de latence du tour de parole ; ``None`` pour les notifications de
+    # fond, qui n'appartiennent à aucun énoncé utilisateur.
+    trace: Any | None = field(default=None, compare=False)
 
 
-PlayFn = Callable[[str, str, asyncio.Event | None], Awaitable[None]]
+PlayFn = Callable[..., Awaitable[None]]
 CancelFn = Callable[[], None]
 
 
@@ -91,6 +94,7 @@ class VoiceQueue:
         priority: VoicePriority = VoicePriority.BACKGROUND,
         wait: bool = False,
         timeout: float = 120.0,
+        trace: Any | None = None,
     ) -> bool:
         """Ajoute une demande de parole. Si ``wait=True``, bloque jusqu'à la fin."""
         clean = (text or "").strip()
@@ -105,6 +109,7 @@ class VoiceQueue:
             emotion=emotion or "neutral",
             cancel_event=asyncio.Event(),
             done_event=done_event,
+            trace=trace,
         )
 
         async with self._cond:
@@ -207,7 +212,9 @@ class VoiceQueue:
             self._current_request = req
             self._tts_playing = True
             try:
-                await self._play_fn(req.text, req.emotion, req.cancel_event)
+                await self._play_fn(
+                    req.text, req.emotion, req.cancel_event, trace=req.trace,
+                )
             except asyncio.CancelledError:
                 raise
             except Exception as e:

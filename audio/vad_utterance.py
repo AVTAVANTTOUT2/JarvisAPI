@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import struct
+import time
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Callable
@@ -49,6 +50,15 @@ class VadUtteranceCollector:
     total_chunks: int = 0
     _pre_roll_max: int = field(init=False, repr=False)
 
+    # Horodatage monotone de l'énoncé en cours. ``speech_started_at`` est posé
+    # au franchissement du seuil ; ``last_speech_ended_at`` est reconstitué à la
+    # finalisation en retranchant le silence de fin — sinon la mesure « fin de
+    # parole → premier son » inclurait le délai qu'on cherche justement à régler.
+    speech_started_at: float | None = None
+    last_speech_started_at: float | None = None
+    last_speech_ended_at: float | None = None
+    last_audio_ms: float = 0.0
+
     def __post_init__(self) -> None:
         self._pre_roll_max = max(1, int(self.config.pre_roll_ms / self.config.chunk_ms))
 
@@ -61,6 +71,7 @@ class VadUtteranceCollector:
         self.speech_chunks = 0
         self.silent_chunks = 0
         self.total_chunks = 0
+        self.speech_started_at = None
 
     @property
     def max_chunks(self) -> int:
@@ -100,6 +111,7 @@ class VadUtteranceCollector:
                 return None
             self.has_speech = True
             self.speech_active = True
+            self.speech_started_at = time.perf_counter()
             self.frames = list(self.pre_speech_ring)
             # Le pré-roll est majoritairement silencieux : seule la frame qui
             # vient de franchir le seuil compte comme parole effective.
@@ -129,6 +141,21 @@ class VadUtteranceCollector:
 
         if flush_force or end_detected:
             audio = b"".join(self.frames)
+            now = time.perf_counter()
+            self.last_speech_started_at = self.speech_started_at
+            # Fin de parole réelle = maintenant moins le silence qui a servi à
+            # la détecter. Sur un flush forcé, la parole courait encore.
+            ended_at = (
+                now if flush_force
+                else now - (self.silent_chunks * self.config.chunk_ms / 1000.0)
+            )
+            # Si les chunks arrivent plus vite que le temps réel (rejeu d'un
+            # buffer, test), la soustraction remonterait avant le début de la
+            # parole et produirait une latence négative en aval.
+            if self.speech_started_at is not None:
+                ended_at = max(ended_at, self.speech_started_at)
+            self.last_speech_ended_at = min(ended_at, now)
+            self.last_audio_ms = self.total_chunks * self.config.chunk_ms
             self.reset()
             return audio if audio else None
 

@@ -25,9 +25,11 @@ from pathlib import Path
 from typing import Any, Callable, Coroutine
 
 import config
+from audio import voice_latency as vl
 from audio.audio_output import native_audio_output
 from audio.tts_native import get_native_tts_engine, native_tts_sample_rate
 from audio.vad_utterance import VadUtteranceCollector, VadUtteranceConfig, chunk_rms
+from audio.voice_latency import UtteranceTrace
 from audio.voice_queue import VoicePriority, voice_queue
 from pipeline import process_voice_fast
 
@@ -342,6 +344,77 @@ class AudioDaemon:
         self._sleep_mode: bool = False
         self._half_duplex: bool = bool(getattr(config, "AUDIO_DAEMON_HALF_DUPLEX", True))
         self._native_tts_engine: Any = None
+
+    # ── Préchauffage des moteurs ──────────────────────────────────────────────
+
+    async def _warmup_tts(self) -> None:
+        """Charge le moteur TTS hors tour de parole (jamais bloquant)."""
+        try:
+            engine = get_native_tts_engine()
+            warmup = getattr(engine, "warmup", None)
+            if callable(warmup):
+                started = await warmup()
+                logger.info(
+                    "[audio_daemon] Préchauffage TTS %s : %s",
+                    engine.get_backend_name(), "prêt" if started else "indisponible",
+                )
+        except Exception as e:
+            logger.warning("[audio_daemon] Préchauffage TTS : %s", e)
+
+    # ── Réarmement du pipeline ────────────────────────────────────────────────
+
+    def conversation_open(self) -> bool:
+        """La conversation est-elle encore ouverte (pas de wake word à refaire) ?"""
+        if self.continuous_mode:
+            return True
+        if self._conv_start_time <= 0:
+            return False
+        timeout = float(getattr(config, "AUDIO_DAEMON_CONVERSATION_TIMEOUT", 45.0))
+        return (time.time() - self._conv_start_time) <= timeout
+
+    def rearm_state(self) -> str:
+        """État d'écoute à restaurer après un tour, abouti ou non.
+
+        Un tour avorté (transcription vide, écho, bruit rejeté) n'est pas une
+        fin de conversation : exiger un nouveau wake word rendrait le micro
+        sourd jusqu'au prochain déclenchement, ce qui se lit comme un blocage
+        de plusieurs dizaines de secondes côté utilisateur.
+        """
+        if self.wake_word_enabled and not self.conversation_open():
+            return "wake_listening"
+        return "listening"
+
+    async def _rearm(
+        self,
+        *,
+        reason: str,
+        trace: UtteranceTrace | None = None,
+        purge_utterances: bool = False,
+    ) -> None:
+        """Remet le pipeline en écoute immédiatement, sans état résiduel."""
+        if USE_SILERO_VAD and _vad_silero is not None:
+            try:
+                _vad_silero.reset()
+            except Exception as e:  # pragma: no cover — moteur externe
+                logger.debug("[audio_daemon] reset Silero au réarmement : %s", e)
+
+        self._tts_playing_event.clear()
+        if self._interrupt_event is not None and self._interrupt_event.is_set():
+            self._interrupt_event.clear()
+
+        if purge_utterances and self._utterance_queue is not None:
+            while not self._utterance_queue.empty():
+                try:
+                    self._utterance_queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+
+        self.state = self.rearm_state()
+        voice_queue.set_user_conversation_active(False)
+        if trace is not None:
+            trace.mark(vl.PIPELINE_REARMED, reason=reason)
+            trace.log_summary(reason=reason)
+        await self._broadcast_state()
 
     # ── Mode veille applicative ───────────────────────────────────────────────
 
@@ -1014,8 +1087,33 @@ class AudioDaemon:
 
                 completed = utterance_collector.ingest(chunk)
                 if completed:
+                    # Origine de la trace = fin de parole réelle (le silence de
+                    # détection est retranché), pas l'instant de finalisation.
+                    trace = UtteranceTrace(
+                        conversation_id=self._conv_id,
+                        t0=utterance_collector.last_speech_ended_at or time.perf_counter(),
+                    )
+                    audio_ms = utterance_collector.last_audio_ms
+                    started_at = utterance_collector.last_speech_started_at
+                    if started_at is not None:
+                        trace.marks.append(vl.Mark(
+                            event=vl.SEGMENT_SPEECH_STARTED,
+                            at=started_at,
+                            since_start_ms=(started_at - trace.t0) * 1000.0,
+                            since_previous_ms=0.0,
+                            fields={"audio_ms": audio_ms},
+                        ))
+                    trace.mark(vl.SEGMENT_SPEECH_ENDED, audio_ms=audio_ms)
+                    trace.mark(
+                        vl.SEGMENT_FINALIZED,
+                        audio_ms=audio_ms,
+                        engine="silero" if USE_SILERO_VAD else "rms",
+                    )
                     try:
-                        utterance_queue.put_nowait(completed)
+                        utterance_queue.put_nowait((trace, completed))
+                        trace.mark(
+                            vl.STT_QUEUE_ENTERED, queue_depth=utterance_queue.qsize(),
+                        )
                     except asyncio.QueueFull:
                         logger.warning("[audio_daemon] utterance_queue pleine — utterance jetée")
                     if USE_SILERO_VAD:
@@ -1077,15 +1175,16 @@ class AudioDaemon:
 
         while self._running and self._stop_event and not self._stop_event.is_set():
             try:
-                audio_bytes = await asyncio.wait_for(utterance_queue.get(), timeout=2.0)
+                item = await asyncio.wait_for(utterance_queue.get(), timeout=2.0)
                 consecutive_errors = 0  # reset
+                trace, audio_bytes = item
 
                 # Vérifier si on a été interrompu pendant l'attente
                 if interrupt_event.is_set():
                     interrupt_event.clear()
                     continue
 
-                await self._process_single_utterance(audio_bytes, stt_available)
+                await self._process_single_utterance(audio_bytes, stt_available, trace=trace)
 
             except asyncio.TimeoutError:
                 # Vérifier timeout conversation (pas en mode continu)
@@ -1138,8 +1237,15 @@ class AudioDaemon:
 
     # ── Traitement d'une utterance ────────────────────────────────────────────
 
-    async def _process_single_utterance(self, pcm_bytes: bytes, stt_available: bool) -> None:
+    async def _process_single_utterance(
+        self,
+        pcm_bytes: bytes,
+        stt_available: bool,
+        *,
+        trace: UtteranceTrace | None = None,
+    ) -> None:
         """Garantit la libération du verrou conversation, même sur erreur/retour anticipé."""
+        trace = trace or UtteranceTrace(conversation_id=self._conv_id)
         voice_queue.set_user_conversation_active(True)
         try:
             from scripts.screen_watcher import screen_watcher
@@ -1148,12 +1254,14 @@ class AudioDaemon:
         except Exception as e:
             logger.debug("[audio_daemon] report analyse écran : %s", e)
         try:
-            await self._process_single_utterance_active(pcm_bytes, stt_available)
+            await self._process_single_utterance_active(
+                pcm_bytes, stt_available, trace=trace,
+            )
         finally:
             voice_queue.set_user_conversation_active(False)
 
     async def _process_single_utterance_active(
-        self, pcm_bytes: bytes, stt_available: bool,
+        self, pcm_bytes: bytes, stt_available: bool, *, trace: UtteranceTrace,
     ) -> None:
         """Traitement complet d'une phrase : STT → _process_voice_fast → TTS → playback + purge post-TTS.
 
@@ -1184,6 +1292,7 @@ class AudioDaemon:
         if stt_available:
             try:
                 from audio.stt_local import stt_local as _stt_local
+                trace.mark(vl.STT_STARTED, audio_ms=audio_duration_ms)
                 meta = await _stt_local.transcribe_with_metadata(
                     pcm_bytes,
                     sample_rate=SAMPLE_RATE,
@@ -1199,6 +1308,17 @@ class AudioDaemon:
 
         stt_latency_ms = round((_time.time() - _t_stt_start) * 1000)
         stt_engine = (meta or {}).get("engine", "local") if used_local_stt else "none"
+        stt_inference_ms = int((meta or {}).get("inference_ms") or stt_latency_ms)
+        trace.mark(
+            vl.STT_COMPLETED,
+            engine=stt_engine,
+            audio_ms=audio_duration_ms,
+            text_chars=len(text),
+            real_time_factor=(
+                round(stt_inference_ms / audio_duration_ms, 3)
+                if audio_duration_ms > 0 else None
+            ),
+        )
 
         # ── Event bus : STT result ──
         try:
@@ -1382,6 +1502,7 @@ class AudioDaemon:
                 emotion=emotion,
                 priority=VoicePriority.USER_RESPONSE,
                 wait=True,
+                trace=trace,
             )
         except Exception as e:
             logger.warning("[audio_daemon] TTS/playback echoue : %s", e)
@@ -1389,12 +1510,17 @@ class AudioDaemon:
 
         # ── Broadcast debug TTS ───────────────────────────────────────────────
         try:
+            # Le `{}` historique ne disait rien de la répartition interne :
+            # on expose la chronologie complète, corrélée par utterance_id.
             await self._broadcast_state({
                 "type": "voice_debug_tts",
                 "timestamp": _time.strftime("%H:%M:%S"),
                 "text": response_text[:200] if response_text else "",
+                "engine": tts_engine_name,
                 "tts_engine": tts_engine_name,
+                "chars": len(response_text or ""),
                 "tts_latency_ms": tts_latency_ms,
+                "latency": trace.snapshot(),
             })
         except Exception as e:
             logger.debug("[audio_daemon] broadcast debug TTS: %s", e)
@@ -1654,6 +1780,7 @@ class AudioDaemon:
         *,
         priority: VoicePriority | None = None,
         wait: bool = False,
+        trace: UtteranceTrace | None = None,
     ) -> None:
         """Enfile une synthèse vocale locale (TTSKit → Kokoro → macOS)."""
         if not text or not text.strip():
@@ -1675,6 +1802,7 @@ class AudioDaemon:
         text: str,
         emotion: str = "neutral",
         cancel_event: asyncio.Event | None = None,
+        trace: UtteranceTrace | None = None,
     ) -> None:
         """Lecture TTS locale — appelée par la file vocale centrale."""
         if not text or not text.strip():
