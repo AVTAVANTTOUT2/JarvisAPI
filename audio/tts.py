@@ -723,8 +723,11 @@ def get_tts_by_name(name: str) -> TTSEngine | MacOSTTSEngine | KokoroTTSEngine:
     if normalized == "ttskit":
         from audio.tts_native import ttskit_tts
 
-        if ttskit_tts.preload_sync():
-            return ttskit_tts  # type: ignore[return-value]
+        # Résoudre un nom ne doit pas dépendre de la disponibilité de la
+        # machine courante : les appelants lisent aussi le MIME et la signature
+        # de voix avant toute synthèse. Le contrôle ``available`` reste à la
+        # frontière qui exécute réellement le moteur.
+        return ttskit_tts  # type: ignore[return-value]
     if normalized == "kokoro":
         return kokoro_tts
     if normalized == "macos":

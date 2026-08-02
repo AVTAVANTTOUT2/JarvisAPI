@@ -27,6 +27,7 @@ Ce qu'un fournisseur doit fournir pour tenir la cible de latence :
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
+from inspect import getattr_static
 from typing import Any, Protocol, runtime_checkable
 
 # Fréquence retenue quand un moteur ne déclare rien : la sortie PCM doit bien
@@ -57,6 +58,16 @@ PROVIDER_SPECIFIC_MODULES: dict[str, tuple[str, ...]] = {
         "native_audio/ttskit_mlx.py",
         "native_audio/ttskit_bridge.py",
     ),
+}
+
+# La voix participe à l'identité du cache TTS. Sa clé de configuration vit à
+# cette frontière provider-aware afin que le cache générique n'ait ni branche
+# par moteur ni besoin de résoudre un moteur disponible sur la machine.
+_PROVIDER_VOICE_CONFIG: dict[str, tuple[str, str]] = {
+    "edge": ("TTS_VOICE", ""),
+    "macos": ("MACOS_TTS_VOICE", "Jacques"),
+    "kokoro": ("KOKORO_VOICE", ""),
+    "ttskit": ("TTS_SPEAKER", "Ryan"),
 }
 
 # Modules génériques : aucun nom de fournisseur ne doit y apparaître.
@@ -114,8 +125,28 @@ def provider_sample_rate(engine: Any) -> int:
     return FALLBACK_SAMPLE_RATE
 
 
+def provider_voice_signature(engine_name: str) -> str:
+    """Retourne la voix configurée sans tester la disponibilité du moteur."""
+    import config
+
+    name = (engine_name or "").strip().lower()
+    key, fallback = _PROVIDER_VOICE_CONFIG.get(name, ("TTS_VOICE", ""))
+    if name == "kokoro" and not fallback:
+        fallback = str(getattr(config, "DEFAULT_KOKORO_VOICE", "") or "")
+    return str(getattr(config, key, fallback) or fallback)
+
+
 def supports_pcm_streaming(engine: Any) -> bool:
-    """Le moteur sait-il diffuser du PCM au fil de l'eau ?"""
+    """Le moteur déclare-t-il réellement la diffusion PCM ?
+
+    ``MagicMock`` fabrique n'importe quel attribut à la lecture. Une simple
+    inspection dynamique le classait donc comme moteur streaming et envoyait
+    les moteurs bufferisés dans un chemin audio indisponible sous Linux.
+    """
+    try:
+        getattr_static(engine, "synthesize_stream_pcm")
+    except AttributeError:
+        return False
     return callable(getattr(engine, "synthesize_stream_pcm", None))
 
 
@@ -126,5 +157,6 @@ __all__ = [
     "PROVIDER_SPECIFIC_MODULES",
     "StreamingTTSProvider",
     "provider_sample_rate",
+    "provider_voice_signature",
     "supports_pcm_streaming",
 ]

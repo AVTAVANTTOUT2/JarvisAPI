@@ -96,10 +96,12 @@ def test_native_chain_returns_nothing_rather_than_falling_back_to_edge(monkeypat
     assert tts_native.get_native_tts_engine() is None
 
 
-@pytest.mark.parametrize("name", ["kokoro", "macos"])
+@pytest.mark.parametrize("name", ["kokoro", "macos", "ttskit"])
 def test_get_tts_by_name_returns_edge_only_when_edge_is_asked(monkeypatch, name: str):
     monkeypatch.setattr(tts_module.kokoro_tts, "available", False)
     monkeypatch.setattr(tts_module.macos_tts, "available", False)
+    monkeypatch.setattr(tts_native.ttskit_tts, "available", False)
+    monkeypatch.setattr(tts_native.ttskit_tts, "preload_sync", lambda: False)
 
     assert tts_module.get_tts_by_name(name) is not tts_module.tts
     assert tts_module.get_tts_by_name("edge") is tts_module.tts

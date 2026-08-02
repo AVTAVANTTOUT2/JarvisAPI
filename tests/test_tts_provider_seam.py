@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -21,6 +22,7 @@ from audio.tts_provider import (
     PROVIDER_SPECIFIC_MODULES,
     StreamingTTSProvider,
     provider_sample_rate,
+    provider_voice_signature,
     supports_pcm_streaming,
 )
 
@@ -160,6 +162,22 @@ def test_engine_without_streaming_is_not_forced_down_the_stream_path():
             return b"RIFF"
 
     assert supports_pcm_streaming(_BufferedOnly()) is False
+
+
+def test_dynamic_mock_attribute_does_not_fake_streaming_support():
+    """Un double générique ne doit pas inventer la capacité de streaming."""
+    engine = MagicMock()
+
+    assert supports_pcm_streaming(engine) is False
+
+
+def test_voice_signature_does_not_depend_on_provider_availability(monkeypatch):
+    """Le cache doit voir un changement de voix même sans moteur local installé."""
+    monkeypatch.setattr("config.KOKORO_VOICE", "af_nicole")
+    assert provider_voice_signature("kokoro") == "af_nicole"
+
+    monkeypatch.setattr("config.KOKORO_VOICE", "af_bella")
+    assert provider_voice_signature("kokoro") == "af_bella"
 
 
 def test_provider_aware_modules_are_the_complete_removal_map():
