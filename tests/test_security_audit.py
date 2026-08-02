@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import subprocess
 import sys
 from pathlib import Path
 
@@ -10,6 +9,8 @@ import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
+
+from tests.git_repo import init_repo_with_commit  # noqa: E402  (dépend de sys.path)
 
 
 @pytest.fixture
@@ -116,9 +117,7 @@ def test_scan_disabled(tmp_db, tmp_path, monkeypatch):
 
 
 def _init_git_repo(path: Path) -> None:
-    subprocess.run(["git", "init"], cwd=path, check=True, capture_output=True)
-    subprocess.run(["git", "add", "-A"], cwd=path, check=True, capture_output=True)
-    subprocess.run(["git", "commit", "-m", "init"], cwd=path, check=True, capture_output=True)
+    init_repo_with_commit(path)
 
 
 def test_apply_safe_fix_redacts_secret_only(tmp_db, tmp_path, monkeypatch):
