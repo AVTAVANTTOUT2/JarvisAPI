@@ -48,6 +48,12 @@ LLM_REQUEST_STARTED = "llm.request.started"
 LLM_FIRST_TOKEN = "llm.first_token"
 LLM_COMPLETED = "llm.completed"
 
+# Exécution d'une action (météo, calendrier, recherche…) puis reformulation :
+# sans ces deux étapes, une réponse qui passe par une action présente un trou
+# de plusieurs secondes entre `llm.completed` et `tts.queue.entered`.
+ACTION_STARTED = "voice.action.started"
+ACTION_COMPLETED = "voice.action.completed"
+
 ASSISTANT_MESSAGE_PERSIST_STARTED = "assistant_message.persist.started"
 ASSISTANT_MESSAGE_PERSIST_COMPLETED = "assistant_message.persist.completed"
 
@@ -79,6 +85,8 @@ KNOWN_EVENTS: frozenset[str] = frozenset({
     LLM_REQUEST_STARTED,
     LLM_FIRST_TOKEN,
     LLM_COMPLETED,
+    ACTION_STARTED,
+    ACTION_COMPLETED,
     ASSISTANT_MESSAGE_PERSIST_STARTED,
     ASSISTANT_MESSAGE_PERSIST_COMPLETED,
     TTS_QUEUE_ENTERED,
@@ -107,6 +115,8 @@ ALLOWED_FIELDS: frozenset[str] = frozenset({
     "chunk_index",      # index du fragment TTS
     "sample_rate",
     "reason",           # étiquette fermée (ex. "empty_transcript")
+    "action_type",      # type d'action exécutée (weather, calendar…)
+    "pass_index",       # numéro de passe LLM (1 = décision, 2 = reformulation)
     "cold",             # premier appel du moteur (bool)
     "ok",
 })
@@ -228,6 +238,7 @@ class UtteranceTrace:
             "stt_queue_ms": self.span_ms(STT_QUEUE_ENTERED, STT_STARTED),
             "llm_first_token_ms": self.elapsed_ms(LLM_FIRST_TOKEN),
             "llm_ms": self.span_ms(LLM_REQUEST_STARTED, LLM_COMPLETED),
+            "action_ms": self.span_ms(ACTION_STARTED, ACTION_COMPLETED),
             "tts_first_audio_ms": self.elapsed_ms(TTS_FIRST_AUDIO_CHUNK),
             "tts_synthesis_ms": self.span_ms(TTS_SYNTHESIS_STARTED, TTS_SYNTHESIS_COMPLETED),
             "playback_ms": self.span_ms(TTS_PLAYBACK_STARTED, TTS_PLAYBACK_COMPLETED),
@@ -271,6 +282,8 @@ def new_trace(conversation_id: int | None = None) -> UtteranceTrace:
 
 
 __all__ = [
+    "ACTION_COMPLETED",
+    "ACTION_STARTED",
     "ALLOWED_FIELDS",
     "KNOWN_EVENTS",
     "Mark",

@@ -437,3 +437,30 @@ def test_engine_config_exposes_the_realtime_settings():
     assert cfg.vad_silence_ms > 0
     assert cfg.vad_min_speech_ms > 0
     assert cfg.vad_pre_roll_ms > 0
+
+
+def test_action_path_is_instrumented():
+    """Une réponse passant par une action ne doit pas laisser de trou.
+
+    Sans ces étapes, l'exécution de l'action (météo, calendrier…) et la seconde
+    passe LLM disparaissaient entre `llm.completed` et `tts.queue.entered` :
+    plusieurs secondes non attribuées dans la chronologie.
+    """
+    trace = UtteranceTrace()
+    trace.mark(vl.LLM_REQUEST_STARTED, pass_index=1)
+    trace.mark(vl.LLM_COMPLETED, pass_index=1)
+    trace.mark(vl.ACTION_STARTED)
+    trace.mark(vl.ACTION_COMPLETED, action_type="weather", ok=True)
+    trace.mark(vl.LLM_REQUEST_STARTED, pass_index=2)
+    trace.mark(vl.LLM_COMPLETED, pass_index=2)
+
+    snap = trace.snapshot()
+    assert snap["action_ms"] is not None
+    # Les deux passes restent distinguables dans la chronologie.
+    passes = [m.fields.get("pass_index") for m in trace.marks
+              if m.event == vl.LLM_COMPLETED]
+    assert passes == [1, 2]
+    # `elapsed_ms` conserve la première occurrence : le premier token reste
+    # celui de la passe 1, pas celui de la reformulation.
+    first = next(m for m in trace.marks if m.event == vl.LLM_REQUEST_STARTED)
+    assert trace.elapsed_ms(vl.LLM_REQUEST_STARTED) == round(first.since_start_ms, 1)

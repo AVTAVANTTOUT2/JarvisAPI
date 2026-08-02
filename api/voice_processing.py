@@ -168,7 +168,7 @@ async def _process_voice_fast(
     _mark(trace, "LLM_QUEUE_ENTERED", model=config.DEEPSEEK_FAST_MODEL)
 
     _t_llm1 = _time.time()
-    _mark(trace, "LLM_REQUEST_STARTED", model=config.DEEPSEEK_FAST_MODEL)
+    _mark(trace, "LLM_REQUEST_STARTED", model=config.DEEPSEEK_FAST_MODEL, pass_index=1)
     try:
         result = await _voice_llm_call(
             messages=messages,
@@ -178,7 +178,7 @@ async def _process_voice_fast(
             trace=trace,
         )
         debug_trace["latency_llm_pass1_ms"] = round((_time.time() - _t_llm1) * 1000)
-        _mark(trace, "LLM_COMPLETED", model=config.DEEPSEEK_FAST_MODEL,
+        _mark(trace, "LLM_COMPLETED", model=config.DEEPSEEK_FAST_MODEL, pass_index=1,
               text_chars=len(result.get("content") or ""))
         raw_response = result.get("content", "") or ""
         debug_trace["raw_response"] = raw_response
@@ -252,6 +252,7 @@ async def _process_voice_fast(
     # ── 7. Action detectee -> parser de maniere robuste ──────────────────────
     action_result: dict | None = None
     action: dict = {}
+    _mark(trace, "ACTION_STARTED")
     try:
         if action_match:
             action = json.loads(action_match.group(1).strip())
@@ -353,6 +354,8 @@ async def _process_voice_fast(
 
     if action_result is None:
         action_result = {"ok": False, "error": "Aucun resultat"}
+    _mark(trace, "ACTION_COMPLETED", action_type=action.get("type") or "?",
+          ok=bool(action_result.get("ok")))
 
     if action_result.get("needs_confirmation"):
         return await _build_voice_confirmation_response(
@@ -396,6 +399,7 @@ async def _process_voice_fast(
                 ),
             },
         ]
+        _mark(trace, "LLM_REQUEST_STARTED", model=config.DEEPSEEK_FAST_MODEL, pass_index=2)
         try:
             result2 = await llm.chat(
                 messages=pass2_messages,
@@ -406,6 +410,8 @@ async def _process_voice_fast(
             )
             debug_trace["latency_llm_pass2_ms"] = round((_time.time() - _t_llm2) * 1000)
             response_text = result2.get("content", "") or ""
+            _mark(trace, "LLM_COMPLETED", model=config.DEEPSEEK_FAST_MODEL,
+                  pass_index=2, text_chars=len(response_text))
             debug_trace["pass2_response"] = response_text
             total_cost += float(result2.get("cost", 0.0))
             debug_trace["cost"] = total_cost
