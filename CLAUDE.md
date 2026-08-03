@@ -31,6 +31,7 @@ Le bus applicatif est actif et conserve la compatibilité de construction histor
 - Les mutations de `database/tasks.py`, `notifications.py`, `conversations.py`, `episodes.py`, `facts.py`, `patterns.py` et `people.py` émettent **après commit**.
 - `database/event_log.py` journalise tous les événements dans la table SQLite `event_log`.
   Runtime SQLite canonique : **90 tables persistantes**, **95 tables physiques avec FTS5**, schéma généré : **91 déclarations de tables**.
+  Structure API canonique : **259 opérations HTTP + 2 WebSockets**, **230 chemins OpenAPI**, **17 routeurs api/router_*.py + Fitness = 18 montés**, main.py **211 lignes**.
   `database/schema.sql` est désormais un miroir généré et contrôlé du schéma frais ;
   `init_db()` continue d'exécuter exclusivement `schema.py` puis `migrations.py`.
 - `websocket_registry.py` diffuse les événements de domaine aux sockets actives et `scripts/audio_daemon.py` traite les notifications `urgent/high`.
@@ -42,9 +43,9 @@ Depuis du code async, utiliser `await event_bus.emit(event)`. Depuis un chemin s
 
 ## Couche API — Phase 4
 
-`main.py` est un point d'assemblage : configuration FastAPI/CORS, montage des 17 `APIRouter`, branchement du WebSocket, configuration de `pipeline.py`, frontend et lancement Uvicorn. Les 261 opérations HTTP et le WebSocket `/ws` sont verrouillés par empreinte ; l'OpenAPI expose 231 chemins.
+`main.py` est un point d'assemblage : configuration FastAPI/CORS, montage de 17 `APIRouter` sous `api/router_*.py` plus Fitness, branchement des WebSockets de chat et de TV, configuration de `pipeline.py`, frontend et lancement Uvicorn. Le contrat public compte 259 opérations HTTP et 2 WebSockets ; l'OpenAPI expose 230 chemins.
 
-- `api/router_*.py` contient exactement 17 routeurs par domaine ; aucun ne dépasse 467 lignes.
+- `api/router_*.py` contient exactement 17 routeurs par domaine ; Fitness porte le 18e routeur monté et aucun routeur ne dépasse 478 lignes.
 - `api/lifespan.py`, `api/middleware.py` et `api/frontend.py` portent le cycle de vie, la sécurité HTTP et le serving des frontends.
 - `api/ws_handler.py`, `api/ws_messages.py`, `api/chat_*.py` et `api/voice_*.py` séparent le transport WebSocket, le contexte, les actions et les pipelines texte/vocal.
 - Tous les modules `api/*.py` restent sous 500 lignes et aucun n'importe `main.py`.
@@ -1068,8 +1069,8 @@ seconde passe LLM comprises.
 
 ```
 jarvis/
-├── main.py                  # Assemblage FastAPI/Uvicorn (175 lignes)
-├── api/                     # 17 routeurs + lifespan, middleware, frontend et pipeline WebSocket
+├── main.py                  # Assemblage FastAPI/Uvicorn (211 lignes)
+├── api/                     # 17 routeurs (+ Fitness monté séparément) + support API
 ├── config.py                # Charge .env, expose tous les settings
 ├── llm.py                   # Client DeepSeek API (chat, stream, classify)
 ├── actions.py               # execute_action : tâches, mails, terminal, ordinateur…
@@ -2038,7 +2039,7 @@ tous les endpoints `/api/*` (hors `/api/auth/*`) répondent `428`.
 
 | Fichier | Rôle |
 |---|---|
-| `auth.py` | PIN 6 chiffres/passphrase 10 caractères (hash `scrypt`, jamais en clair), sessions DB-backed (jeton opaque, seul le hash SHA-256 est stocké), délai progressif et verrou par client haché, plafond global secondaire |
+| `auth.py` | PIN de 4 chiffres minimum/passphrase de 10 caractères minimum (hash `scrypt`, jamais en clair), sessions DB-backed (jeton opaque, seul le hash SHA-256 est stocké), délai progressif et verrou par client haché, plafond global secondaire |
 | `security_headers.py` | Source unique des en-têtes statiques et de la CSP partagée par FastAPI et le serveur E2E ; OpenFreeMap limité à son origine exacte et worker MapLibre limité à `blob:` |
 | `api/middleware.py` (`security_middleware`) | Application des en-têtes de sécurité à toutes les réponses, y compris les sorties anticipées 401/403/428 ; verrou de session sur `/api/*` (routes auth publiques exactes, ingestion device/localisation qui s'authentifient autrement) ; mutations par cookie protégées par origine exacte et jeton `X-CSRF-Token` lié à la session |
 | `core/supervisor_auth.py` | Canal supervisor → backend limité au loopback et authentifié par un jeton aléatoire privé `0600` placé à côté de la base ; le header booléen historique est refusé |

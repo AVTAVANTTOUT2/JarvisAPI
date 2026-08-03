@@ -76,7 +76,7 @@ La Phase 5 applique cette règle à Messages.app uniquement. La centralisation d
 
 > **Aucun module ne doit dépasser 1000 lignes.**
 
-- Actuel après Phase 4 : `main.py` fait 175 lignes et tous les modules `api/` restent à 500 lignes ou moins ; `database/` culmine à 666 lignes et sa façade fait 236 lignes
+- Actuel : `main.py` fait 211 lignes et tous les modules `api/` restent à 500 lignes ou moins ; `database/` conserve une façade modulaire
 - Cible : max 500 lignes par module impératif nouvellement créé ; les modules déclaratifs historiques doivent être justifiés
 - Exception : `schema.sql` (déclaratif), fichiers de tests
 - Détection : `wc -l *.py | sort -rn | head -10`

@@ -161,7 +161,7 @@ durable complet n'existe pas. `Queue Engine`, `AI Service`, `/health` et
 
 ## Phase 4 — Routeurs FastAPI (Jour 5-7)
 
-**État** : ✅ Implémentée et validée le 14/07/2026. La bascule a conservé les 174 opérations HTTP, le WebSocket `/ws` et les 157 chemins OpenAPI. `main.py` contient 175 lignes d'assemblage.
+**État** : ✅ Implémentée et validée le 14/07/2026, puis étendue. Le contrat courant compte 259 opérations HTTP, 2 WebSockets et 230 chemins OpenAPI ; `main.py` reste un assemblage sous 500 lignes.
 
 ### Routeurs créés (12)
 
@@ -183,7 +183,7 @@ durable complet n'existe pas. `Queue Engine`, `AI Service`, `/health` et
 | `api/frontend.py` | Montage desktop/PWA et détection mobile | 316 | Bas |
 | `api/middleware.py` | `security_middleware` | 99 | Bas |
 
-### main.py après (175 lignes)
+### main.py après (assemblage sous 500 lignes)
 
 ```python
 from api.router_auth import router as auth_router

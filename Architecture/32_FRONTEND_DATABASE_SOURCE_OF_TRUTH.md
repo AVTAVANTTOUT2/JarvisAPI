@@ -6,7 +6,9 @@
 
 Runtime SQLite canonique : **90 tables persistantes**, **95 tables physiques avec FTS5**, schéma généré : **91 déclarations de tables**.
 
-Surface API canonique : **260 opérations**, **231 chemins**, **118 consommées et testées**, **57 consommées sans référence de test**, **36 non-frontend documentées et testées**, **49 non-frontend documentées sans référence de test**, **0 non attribuées**.
+Surface API canonique : **261 opérations**, **232 chemins**, **119 consommées et testées**, **57 consommées sans référence de test**, **36 non-frontend documentées et testées**, **49 non-frontend documentées sans référence de test**, **0 non attribuées**.
+
+Structure API canonique : **259 opérations HTTP + 2 WebSockets**, **230 chemins OpenAPI**, **17 routeurs api/router_*.py + Fitness = 18 montés**, main.py **211 lignes**.
 
 > Ce document **remplace** les affirmations conflictuelles « 44 tables », « 72 tables », « 73 tables »
 > et les formulations ambiguës sur le « frontend principal ».  
@@ -34,7 +36,7 @@ Surface API canonique : **260 opérations**, **231 chemins**, **118 consommées 
 | TV ? | **`tv/`** — FastAPI + vanilla JS, port **5174** (processus séparé) |
 | Maquette TV historique | Supprimée du tree runtime le 03/08/2026 ; `tv-v2` est l'unique implémentation |
 | Supervisor (9000) sert quoi ? | **`frontend/out` en priorité**, puis **`web/dist`** (même politique que FastAPI — ADR-019) |
-| Surface API ? | **260 opérations / 231 chemins**, inventoriés automatiquement avec leurs consommateurs et tests |
+| Surface API ? | **261 opérations / 232 chemins**, inventoriés automatiquement avec leurs consommateurs et tests |
 
 **Formulation canonique (à réutiliser partout) :**
 
@@ -136,11 +138,11 @@ et aux tests qui le référencent. L'analyse est statique et n'importe pas
 | Vite de repli (`web/`) | 42 |
 | Web mobile (`web_mobile/`) | 28 |
 | Android | 26 |
-| TV | 8 |
+| TV | 9 |
 | SDK auth partagé | 6 |
 | macOS | 15 |
 
-Les références de test couvrent 127 chemins distincts. Les catégories de
+Les références de test couvrent 128 chemins distincts. Les catégories de
 l'artefact sont comptées par opération : `consumer_and_tested`,
 `consumer_without_path_test`, `owned_non_frontend_and_tested` et
 `owned_non_frontend_without_path_test`. Une référence de chemin ne prouve pas à

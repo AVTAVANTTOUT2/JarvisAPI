@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-03T22:36:47.042105+00:00",
+  "generated_at": "2026-08-03T22:44:44.121892+00:00",
   "repo_root": ".",
   "canonical_formulation": {
     "database": "Le projet crée 90 tables persistantes après init_db() + migrations, plus jusqu'à 5 objets FTS5, soit 95 tables physiques lorsque FTS5 est disponible.",
@@ -464,9 +464,9 @@
   "api_surface": {
     "coverage_scope": "Références statiques par chemin : la méthode HTTP et les assertions comportementales restent vérifiées par les suites de tests.",
     "counts": {
-      "operations": 260,
-      "paths": 231,
-      "consumer_and_tested": 118,
+      "operations": 261,
+      "paths": 232,
+      "consumer_and_tested": 119,
       "consumer_without_path_test": 57,
       "owned_non_frontend_and_tested": 36,
       "owned_non_frontend_without_path_test": 49
@@ -480,6 +480,14 @@
       "shared_auth_sdk",
       "tv"
     ],
+    "structure": {
+      "http_operations": 259,
+      "websocket_operations": 2,
+      "openapi_paths": 230,
+      "domain_router_modules": 17,
+      "mounted_routers": 18,
+      "main_lines": 211
+    },
     "ownership_policy": {
       "path": "Architecture/api_route_ownership.json",
       "rules": 32,
@@ -5096,6 +5104,22 @@
           "tests/test_phase4_route_contract.py",
           "tests/test_security_middleware.py",
           "tests/test_supervisor_frontend.py",
+          "tests/test_ws_tv_events.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "WEBSOCKET",
+        "path": "/ws/tv/events",
+        "source": "main.py",
+        "line": 120,
+        "consumers": {
+          "tv": [
+            "tv/config.py"
+          ]
+        },
+        "tests": [
           "tests/test_ws_tv_events.py"
         ],
         "non_frontend_ownership": null,

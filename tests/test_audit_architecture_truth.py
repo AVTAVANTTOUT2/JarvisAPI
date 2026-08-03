@@ -105,6 +105,7 @@ def fake_repo(tmp_path: Path) -> Path:
     )
     (tmp_path / "api" / "router_jobs.py").write_text(
         "from fastapi import APIRouter\n"
+        "EVENTS_PATH = '/ws/events'\n"
         "router = APIRouter(prefix='/api')\n"
         "@router.post('/jobs/{job_id}')\n"
         "def run_job(): ...\n"
@@ -113,11 +114,13 @@ def fake_repo(tmp_path: Path) -> Path:
     )
     (tmp_path / "main.py").write_text(
         "from fastapi import FastAPI\n"
+        "from api.router_jobs import EVENTS_PATH\n"
         "app = FastAPI()\n"
         "@app.get('/api/status')\n"
         "def status(): ...\n"
         "async def ws_handler(ws): ...\n"
-        "app.websocket('/ws')(ws_handler)\n",
+        "app.websocket('/ws')(ws_handler)\n"
+        "app.websocket(EVENTS_PATH)(ws_handler)\n",
         encoding="utf-8",
     )
     (tmp_path / "tests").mkdir()
@@ -201,15 +204,16 @@ def test_api_surface_maps_routes_to_consumers_and_tests(fake_repo: Path) -> None
         ("GET", "/api/status"),
         ("POST", "/api/jobs/{job_id}"),
         ("WEBSOCKET", "/ws"),
+        ("WEBSOCKET", "/ws/events"),
     ]
 
     surface = audit.analyze_api_surface(fake_repo)
     assert surface["counts"] == {
-        "operations": 4,
-        "paths": 4,
+        "operations": 5,
+        "paths": 5,
         "consumer_and_tested": 2,
         "server_only_tested": 1,
-        "unreferenced": 1,
+        "unreferenced": 2,
     }
     by_path = {route["path"]: route for route in surface["routes"]}
     assert by_path["/api/jobs/{job_id}"]["consumers"] == {
@@ -246,7 +250,7 @@ def test_api_ownership_policy_is_exact_and_rejects_client_masking(
                 "owner": "realtime",
                 "audience": "indirect-client",
                 "methods": ["WEBSOCKET"],
-                "paths": ["/ws"],
+                "paths": ["/ws", "/ws/events"],
                 "rationale": "URL construite depuis l'origine serveur.",
             },
         ],
@@ -337,12 +341,20 @@ def test_real_repo_smoke_counts_stable() -> None:
 
     api_surface = audit.analyze_api_surface(ROOT)
     assert api_surface["counts"] == {
-        "operations": 260,
-        "paths": 231,
-        "consumer_and_tested": 118,
+        "operations": 261,
+        "paths": 232,
+        "consumer_and_tested": 119,
         "consumer_without_path_test": 57,
         "owned_non_frontend_and_tested": 36,
         "owned_non_frontend_without_path_test": 49,
+    }
+    assert api_surface["structure"] == {
+        "http_operations": 259,
+        "websocket_operations": 2,
+        "openapi_paths": 230,
+        "domain_router_modules": 17,
+        "mounted_routers": 18,
+        "main_lines": 211,
     }
     assert api_surface["ownership_policy"]["rules"] == 32
     assert api_surface["ownership_policy"]["findings"] == []

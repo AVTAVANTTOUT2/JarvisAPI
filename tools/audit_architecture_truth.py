@@ -75,6 +75,27 @@ CANONICAL_COUNT_DOCS = (
     "Architecture/adr/ADR-017-sqlite-base-unique.md",
 )
 
+CANONICAL_API_DOCS = (
+    "CLAUDE.md",
+    "Architecture/INDEX.md",
+    "Architecture/01_CARTOGRAPHIE.md",
+    "Architecture/03_AUDIT_TECHNIQUE.md",
+    "Architecture/28_VALIDATION_COHERENCE.md",
+    "Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md",
+)
+
+STALE_API_DOC_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"\b12\s+routeurs?\b", re.I),
+    re.compile(r"\b174\s+opérations?\b", re.I),
+    re.compile(r"\b157\s+chemins?\b", re.I),
+    re.compile(r"\b207\s+opérations?\b", re.I),
+    re.compile(r"\b189\s+chemins?\b", re.I),
+    re.compile(r"\b175\s+lignes?\b", re.I),
+    re.compile(r"\b261\s+opérations?\s+HTTP\b", re.I),
+    re.compile(r"\b231\s+chemins?\s+OpenAPI\b", re.I),
+    re.compile(r"PIN\s+6\s+chiffres", re.I),
+)
+
 FTS_SHADOW_SUFFIXES = {"config", "content", "data", "docsize", "idx"}
 
 HTTP_ROUTE_METHODS = {
@@ -220,6 +241,36 @@ def _string_constants(tree: ast.Module) -> dict[str, str]:
     return constants
 
 
+def _imported_string_constants(
+    root: Path,
+    tree: ast.Module,
+) -> dict[str, str]:
+    """Résout les constantes importées depuis un module Python du dépôt."""
+    constants: dict[str, str] = {}
+    for statement in tree.body:
+        if not isinstance(statement, ast.ImportFrom) or statement.level != 0:
+            continue
+        module = statement.module
+        if not module:
+            continue
+        module_path = root.joinpath(*module.split(".")).with_suffix(".py")
+        if not module_path.is_file():
+            continue
+        try:
+            imported_tree = ast.parse(
+                module_path.read_text(encoding="utf-8"),
+                filename=str(module_path),
+            )
+        except (OSError, SyntaxError, UnicodeDecodeError):
+            continue
+        imported_constants = _string_constants(imported_tree)
+        for alias in statement.names:
+            value = imported_constants.get(alias.name)
+            if value is not None:
+                constants[alias.asname or alias.name] = value
+    return constants
+
+
 def _call_name(node: ast.AST) -> str | None:
     if isinstance(node, ast.Name):
         return node.id
@@ -256,7 +307,13 @@ def _route_path(prefix: str, raw_path: str) -> str:
 
 
 def _api_path_in_scope(path: str) -> bool:
-    return path == "/api" or path.startswith("/api/") or path in API_ROUTE_SPECIAL_PATHS
+    return (
+        path == "/api"
+        or path.startswith("/api/")
+        or path == "/ws"
+        or path.startswith("/ws/")
+        or path in API_ROUTE_SPECIAL_PATHS
+    )
 
 
 def _literal_methods(node: ast.AST | None) -> tuple[str, ...]:
@@ -275,7 +332,8 @@ def _routes_from_python(root: Path, path: Path) -> list[ApiRoute]:
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     except (OSError, SyntaxError, UnicodeDecodeError):
         return []
-    constants = _string_constants(tree)
+    constants = _imported_string_constants(root, tree)
+    constants.update(_string_constants(tree))
     prefixes = _router_prefixes(tree, constants)
     relative = path.relative_to(root).as_posix()
     routes: list[ApiRoute] = []
@@ -725,6 +783,35 @@ def analyze_api_surface(root: Path) -> dict[str, Any]:
                 "classification": classification,
             }
         )
+    main_path = root / "main.py"
+    mounted_routers = 0
+    if main_path.is_file():
+        main_tree = ast.parse(
+            main_path.read_text(encoding="utf-8"),
+            filename=str(main_path),
+        )
+        mounted_routers = sum(
+            1
+            for node in ast.walk(main_tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "include_router"
+        )
+    websocket_operations = sum(route.method == "WEBSOCKET" for route in routes)
+    structure = {
+        "http_operations": len(routes) - websocket_operations,
+        "websocket_operations": websocket_operations,
+        "openapi_paths": len(
+            {route.path for route in routes if route.method != "WEBSOCKET"}
+        ),
+        "domain_router_modules": len(list((root / "api").glob("router_*.py"))),
+        "mounted_routers": mounted_routers,
+        "main_lines": (
+            len(main_path.read_text(encoding="utf-8").splitlines())
+            if main_path.is_file()
+            else 0
+        ),
+    }
     return {
         "coverage_scope": (
             "Références statiques par chemin : la méthode HTTP et les assertions "
@@ -736,6 +823,7 @@ def analyze_api_surface(root: Path) -> dict[str, Any]:
             **dict(sorted(classification_counts.items())),
         },
         "consumer_surfaces": sorted(CONSUMER_SURFACES),
+        "structure": structure,
         "ownership_policy": (
             {
                 "path": API_ROUTE_OWNERSHIP_POLICY,
@@ -1182,6 +1270,19 @@ def _canonical_api_line(api_surface: dict[str, Any]) -> str:
     )
 
 
+def _canonical_api_structure_line(api_surface: dict[str, Any]) -> str:
+    structure = api_surface["structure"]
+    return (
+        "Structure API canonique : "
+        f"**{structure['http_operations']} opérations HTTP + "
+        f"{structure['websocket_operations']} WebSockets**, "
+        f"**{structure['openapi_paths']} chemins OpenAPI**, "
+        f"**{structure['domain_router_modules']} routeurs api/router_*.py + "
+        f"Fitness = {structure['mounted_routers']} montés**, "
+        f"main.py **{structure['main_lines']} lignes**."
+    )
+
+
 def scan_canonical_count_docs(
     root: Path, tables: dict[str, Any]
 ) -> list[dict[str, Any]]:
@@ -1230,6 +1331,52 @@ def scan_canonical_api_doc(
             "note": f"Attendu exactement : {expected}",
         }
     ]
+
+
+def scan_api_structure_docs(
+    root: Path, api_surface: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """Interdit les anciens fingerprints API et exige le résumé calculé."""
+    expected = _canonical_api_structure_line(api_surface)
+    findings: list[dict[str, Any]] = []
+    for relative in CANONICAL_API_DOCS:
+        path = root / relative
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8")
+        if expected not in text:
+            findings.append(
+                {
+                    "file": relative,
+                    "line": 0,
+                    "kind": "canonical_api_structure",
+                    "severity": "error",
+                    "excerpt": "formulation canonique API absente ou périmée",
+                    "note": f"Attendu exactement : {expected}",
+                }
+            )
+
+    candidates = [root / "CLAUDE.md"]
+    architecture = root / "Architecture"
+    if architecture.is_dir():
+        candidates.extend(sorted(architecture.glob("*.md")))
+    for path in candidates:
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8")
+        for pattern in STALE_API_DOC_PATTERNS:
+            for match in pattern.finditer(text):
+                findings.append(
+                    {
+                        "file": path.relative_to(root).as_posix(),
+                        "line": text.count("\n", 0, match.start()) + 1,
+                        "kind": "stale_api_structure_claim",
+                        "severity": "error",
+                        "excerpt": match.group(0),
+                        "note": f"Remplacer par la vérité calculée : {expected}",
+                    }
+                )
+    return findings
 
 
 def scan_doc_contradictions(root: Path, tables: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1338,6 +1485,7 @@ def build_report(root: Path) -> dict[str, Any]:
         "documentation_findings": contradictions
         + scan_canonical_count_docs(root, tables)
         + scan_canonical_api_doc(root, api_surface)
+        + scan_api_structure_docs(root, api_surface)
         + api_surface["ownership_policy"]["findings"]
         + [
             {

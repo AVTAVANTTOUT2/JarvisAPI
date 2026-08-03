@@ -49,13 +49,13 @@
 
 ### P1-1 — main.py : 7 197 lignes, 40+ responsabilités (état historique)
 
-**État** : ✅ RÉSOLU le 14/07/2026 — `main.py` est réduit à 175 lignes d'assemblage ; 12 `APIRouter` et les handlers/support associés sont isolés dans `api/`, sans import inverse vers `main.py`.
+**État** : ✅ RÉSOLU le 14/07/2026 — `main.py` reste un assemblage sous 500 lignes ; 17 `APIRouter` sous `api/router_*.py` et le routeur Fitness sont isolés, sans import inverse vers `main.py`.
 
 - **Gravité** : MAJEURE
 - **Fichier** : `main.py`
 - **Origine** : Croissance organique sur 12+ mois. Chaque nouvelle feature a été ajoutée dans `main.py` plutôt que dans un module séparé.
 - **Conséquence** : Impossible à tester unitairement. Toute modification dans un domaine risque de casser un autre. Conflits de merge fréquents. Onboarding impossible pour un nouveau développeur.
-- **Correction** : Routeurs FastAPI par domaine (ADR-008). Les 174 opérations HTTP et le WebSocket ont conservé leur contrat ; l'OpenAPI reste stable à 157 chemins.
+- **Correction** : routeurs FastAPI par domaine (ADR-008). Le contrat courant est verrouillé à 259 opérations HTTP, 2 WebSockets et 230 chemins OpenAPI par les tests et l'inventaire généré.
 
 ### P1-2 — database/__init__.py : 4 169 lignes, ~208 fonctions, 23 domaines
 
@@ -131,7 +131,7 @@
 - **Gravité** : MODÉRÉE
 - **Fichiers** : routeurs `api/` (quality, self-healing, migrations, audio-daemon, imessage-import, voice-debug, commitments, DND, meetings, presence)
 - **Origine historique** : accumulation de fonctionnalités d'administration sans interface utilisateur.
-- **Résolution** : `tools/audit_architecture_truth.py` relie automatiquement les 260 opérations / 231 chemins aux clients et tests. Les 85 opérations sans client direct sont attribuées exactement dans `Architecture/api_route_ownership.json` : 74 opérateur, 4 device-agent, 5 automation, 1 ressource client indirecte et 1 contrat d'intégration.
+- **Résolution** : `tools/audit_architecture_truth.py` relie automatiquement les 261 opérations / 232 chemins aux clients et tests. Les 85 opérations sans client direct sont attribuées exactement dans `Architecture/api_route_ownership.json` : 74 opérateur, 4 device-agent, 5 automation, 1 ressource client indirecte et 1 contrat d'intégration.
 - **Garde-fou** : la CI refuse une opération non attribuée, une attribution ambiguë ou périmée, et une règle non-frontend qui masquerait une route cliente.
 
 ### P2-4 — Conversion Apple timestamp dupliquée 4 fois ✅ RÉSOLU (Phase 5)

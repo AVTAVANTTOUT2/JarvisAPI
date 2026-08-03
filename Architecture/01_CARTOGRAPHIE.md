@@ -5,6 +5,7 @@
 **Dernière mise à jour** : 3 août 2026
 
 Runtime SQLite canonique : **90 tables persistantes**, **95 tables physiques avec FTS5**, schéma généré : **91 déclarations de tables**.
+Structure API canonique : **259 opérations HTTP + 2 WebSockets**, **230 chemins OpenAPI**, **17 routeurs api/router_*.py + Fitness = 18 montés**, main.py **211 lignes**.
 
 ---
 
@@ -12,9 +13,9 @@ Runtime SQLite canonique : **90 tables persistantes**, **95 tables physiques ave
 
 ```
 JarvisAPI/
-├── main.py                    ← Assemblage FastAPI/Uvicorn (175 lignes)
-├── api/                       ← 12 routeurs de domaine + handlers/support API
-│   ├── router_*.py           ← 207 opérations HTTP, 189 chemins OpenAPI
+├── main.py                    ← Assemblage FastAPI/Uvicorn (211 lignes)
+├── api/                       ← 17 routeurs de domaine + handlers/support API
+│   ├── router_*.py           ← participe aux 259 opérations HTTP / 230 chemins OpenAPI
 │   ├── ws_handler.py         ← WebSocket /ws
 │   ├── lifespan.py           ← Cycle de vie des services
 │   ├── middleware.py         ← Sécurité HTTP
@@ -202,8 +203,8 @@ graph TB
     INTEG["integrations/*<br/>(importent config)"]
     SCRIPTS["scripts/*<br/>(importent config, llm, db, integ)"]
 
-    MAIN["main.py<br/>ASSEMBLAGE<br/>175 lignes<br/>daemons découplés via pipeline.py"]
-    API["api/<br/>12 routeurs<br/>handlers par responsabilité"]
+    MAIN["main.py<br/>ASSEMBLAGE<br/>211 lignes<br/>daemons découplés via pipeline.py"]
+    API["api/<br/>17 routeurs + Fitness<br/>handlers par responsabilité"]
 
     CONFIG --> LLM
     CONFIG --> DB
@@ -233,8 +234,8 @@ graph TB
 | `llm.py` | Agents, scripts, API | OK |
 | `database/__init__.py` | Agents, scripts, API, integrations | Façade stable de 236 lignes ; implémentation répartie dans 25 modules |
 | `jarvis/event_bus.py` et `jarvis/events.py` | DB, agents, API, daemons | Actif : 10 événements de domaine, 3 consommateurs réels (journal SQLite, WebSocket, TTS) et flux SSE existant |
-| `api/` | `main.py` | 12 routeurs ; tous les modules restent sous 500 lignes et aucun n'importe `main.py` |
-| `main.py` | supervisor | Assemblage stable de 175 lignes ; monte les routeurs, le WebSocket, le frontend et le lifespan |
+| `api/` | `main.py` | 17 routeurs, plus Fitness monté séparément ; tous les modules restent sous 500 lignes et aucun n'importe `main.py` |
+| `main.py` | supervisor | Assemblage stable de 211 lignes ; monte 18 routeurs, 2 WebSockets, le frontend et le lifespan |
 | `agents/orchestrator.py` | API | OK |
 | `scripts/jarvis_daemon.py` | `api/lifespan.py` (cycle de vie), `pipeline.py` (traitement) | Cycle d'import supprimé |
 
@@ -475,7 +476,7 @@ imessage_analysis_cache → curseur d'analyse par contact
 │             │ - Proxy WebSocket vers 8081            │
 │             │ - Health-check + auto-restart          │
 │  Port 8081  │ Backend FastAPI                       │
-│             │ - 174 opérations HTTP / 157 chemins  │
+│             │ - 259 opérations HTTP / 230 OpenAPI  │
 │             │ - WebSocket /ws                       │
 │             │ - Sert frontend/out en priorité       │
 │             │ - Garde web/dist et /m/ en fallback   │
@@ -736,11 +737,11 @@ GPS / lieux restent chargées côté API. Aucune coordonnée n'est envoyée à u
 | Fichiers source frontend | 99 (38 web + 38 pwa + 19 frontend + 4 jarvis_auth) |
 | Lignes frontend | 18 770 |
 | Tables SQLite | 75 applicatives après initialisation et migrations (`sqlite_sequence` exclue) |
-| API | 174 opérations HTTP + 1 WebSocket ; 157 chemins OpenAPI |
+| API | 259 opérations HTTP + 2 WebSockets ; 230 chemins OpenAPI |
 | Tests backend | 565 tests pytest collectés dans 66 fichiers ; 564 passants, 1 ignoré le 14/07/2026 |
 | Agents LLM | 7 + orchestrateur |
 | Jobs APScheduler | 29 |
 | Démons | 5 |
-| God objects API/DB | 0 (`main.py` 175 lignes ; tous les modules `api/` ≤ 500 lignes) |
+| God objects API/DB | 0 (`main.py` 211 lignes ; tous les modules `api/` ≤ 500 lignes) |
 | Dépendance circulaire | 0 |
 | Duplications majeures | 8 |

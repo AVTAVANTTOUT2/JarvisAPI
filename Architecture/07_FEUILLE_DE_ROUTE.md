@@ -27,7 +27,7 @@ Les travaux sont classés selon l'ordre de priorité suivant :
 
 **Semaine 2 — Découplage**
 - [x] Phase 3 : Event bus actif (validée le 14/07/2026 — 10 événements, 3 consommateurs, PWA temps réel)
-- [x] Phase 4 : Routeurs FastAPI (validée le 14/07/2026 — 12 routeurs, `main.py` 175 lignes, contrat API inchangé)
+- [x] Phase 4 : Routeurs FastAPI (validée le 14/07/2026, puis étendue — 18 routeurs montés, `main.py` sous 500 lignes, contrat API verrouillé)
 - [x] Phase 5 : Apple Data Service (validée le 14/07/2026 — accès `chat.db` centralisé et conversion Apple unique)
 
 **Semaines 3-4 — Unification**
