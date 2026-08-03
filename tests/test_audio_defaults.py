@@ -13,9 +13,7 @@ from audio.stt_daemon import create_daemon_stt_backend, FasterWhisperBackend, Fa
 ROOT = Path(__file__).resolve().parent.parent
 
 FORBIDDEN_DEFAULT_PATTERNS = (
-    re.compile(r'(?<!DEFAULT_)KOKORO_VOICE\s*=\s*["\']af_nicole["\']'),
     re.compile(r'(?<!DEFAULT_)AUDIO_DAEMON_STT_MODEL\s*=\s*["\']small["\']'),
-    re.compile(r'_get\(\s*["\']KOKORO_VOICE["\']\s*,\s*["\']af_nicole["\']'),
     re.compile(r'_get\(\s*["\']AUDIO_DAEMON_STT_MODEL["\']\s*,\s*["\']small["\']'),
 )
 
@@ -35,7 +33,7 @@ def test_canonical_builtin_defaults():
     """Constantes intégrées — indépendantes du .env utilisateur."""
     assert config.DEFAULT_TTS_PROVIDER == "fish_local"
     assert config.DEFAULT_TTS_MODEL_PATH == "mlx-community/fish-audio-s2-pro-8bit"
-    assert config.DEFAULT_TTS_VOICE_PATH == "./voices/jarvis"
+    assert config.DEFAULT_TTS_VOICE_PATH == "./voices/jarvis-fr"
     assert config.DEFAULT_TTS_DEVICE == "auto"
     assert config.DEFAULT_STT_ENGINE == "faster-whisper"
     assert config.DEFAULT_STT_MODEL == "large-v3-turbo"
@@ -50,9 +48,9 @@ def test_stt_engine_local_alias():
 
 
 def test_explicit_user_overrides_respected(monkeypatch):
-    monkeypatch.setattr(config, "TTS_PROVIDER", "current_local")
+    monkeypatch.setattr(config, "TTS_VOICE_PATH", "./voices/custom")
     monkeypatch.setattr(config, "STT_MODEL", "small")
-    assert config.TTS_PROVIDER == "current_local"
+    assert config.TTS_VOICE_PATH == "./voices/custom"
     assert config.STT_MODEL == "small"
 
 

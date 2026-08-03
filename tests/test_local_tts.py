@@ -34,7 +34,7 @@ from jarvis.audio.tts import (
     reset_local_tts_provider,
 )
 from jarvis.audio.tts import events
-from jarvis.audio.tts.config import KNOWN_PROVIDERS
+from jarvis.audio.tts.config import DEFAULT_TTS_PROVIDER, DEFAULT_TTS_VOICE_PATH, KNOWN_PROVIDERS
 from tests.local_tts_stub import StubProvider
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -42,7 +42,12 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 @pytest.fixture()
 def settings():
-    return load_tts_settings()
+    base = load_tts_settings()
+    return replace(
+        base,
+        provider=DEFAULT_TTS_PROVIDER,
+        voice_path=DEFAULT_TTS_VOICE_PATH,
+    )
 
 
 # ── 1. Configuration locale ──────────────────────────────────────────────────
@@ -199,12 +204,31 @@ def test_reference_audio_without_transcript_is_detected(tmp_path):
     assert incomplete.reference_text() is None
 
 
+def test_reference_cache_is_detected(tmp_path):
+    (tmp_path / "reference.npy").write_bytes(b"\x00")
+    settings = replace(load_tts_settings(), voice_path=str(tmp_path))
+    assert settings.reference_cache() is not None
+
+
 def test_a_single_voice_is_configured(settings):
     """Pas de sélecteur multi-voix : JARVIS est une entité, pas un catalogue."""
+    assert KNOWN_PROVIDERS == frozenset({"fish_local"})
+    assert DEFAULT_TTS_VOICE_PATH.endswith("jarvis-fr")
+    assert Path(DEFAULT_TTS_VOICE_PATH).name == "jarvis-fr"
+    assert settings.voice_id == "jarvis-fr"
     voices_dir = PROJECT_ROOT / "voices"
-    directories = [p for p in voices_dir.iterdir() if p.is_dir()]
-    assert len(directories) == 1
-    assert directories[0].name == settings.voice_id
+    directories = sorted(p.name for p in voices_dir.iterdir() if p.is_dir())
+    assert directories == ["jarvis-fr"]
+
+
+def test_legacy_tts_backends_are_gone():
+    """Aucun moteur TTS hors Fish ne doit rester dans le dépôt actif."""
+    assert not (PROJECT_ROOT / "jarvis/audio/tts/backends/current_local.py").exists()
+    assert not (PROJECT_ROOT / "native_audio/kokoro_mlx.py").exists()
+    assert not (PROJECT_ROOT / "native_audio/kokoro_synthesize").exists()
+    factory_src = (PROJECT_ROOT / "jarvis/audio/tts/factory.py").read_text(encoding="utf-8")
+    assert "current_local" not in factory_src
+    assert "kokoro" not in factory_src.lower()
 
 
 # ── 3. Cycle de vie ──────────────────────────────────────────────────────────

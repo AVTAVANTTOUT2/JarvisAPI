@@ -25,7 +25,7 @@ def test_trace_marks_are_monotonic_and_correlated():
     trace = UtteranceTrace(conversation_id=7)
     trace.mark(vl.STT_STARTED, engine="faster-whisper", audio_ms=800)
     trace.mark(vl.STT_COMPLETED, engine="faster-whisper", text_chars=12)
-    trace.mark(vl.TTS_PLAYBACK_STARTED, engine="kokoro")
+    trace.mark(vl.TTS_PLAYBACK_STARTED, engine="fish_local")
 
     snap = trace.snapshot()
     assert snap["conversation_id"] == 7
@@ -130,43 +130,11 @@ def test_vad_resets_speech_timestamp_between_utterances():
     assert collector.speech_started_at is None
 
 
-# ── Découpage TTS : le premier fragment part tôt ────────────────────────────
-
-
-def test_first_tts_fragment_is_short_so_audio_starts_early():
-    from native_audio.kokoro_mlx import split_text_for_kokoro
-
-    text = (
-        "Bonjour Monsieur. Il fait dix-huit degrés à Lille avec un ciel couvert. "
-        "Prenez un parapluie pour cet après-midi, la pluie est annoncée vers seize heures."
-    )
-    parts = split_text_for_kokoro(text, max_tokens=180, first_chunk_max_tokens=6)
-    assert len(parts) > 1
-    assert len(parts[0].split()) <= 6
-    # Aucun mot perdu ni dupliqué par le découpage.
-    assert " ".join(parts).split() == text.split()
-
-
-def test_split_without_first_chunk_limit_keeps_historical_behaviour():
-    from native_audio.kokoro_mlx import chunk_text_for_kokoro
-
-    text = "Une phrase. Deux phrases. Trois phrases."
-    assert chunk_text_for_kokoro(text, max_tokens=180) == text
-
-
-def test_split_handles_empty_and_single_word():
-    from native_audio.kokoro_mlx import split_text_for_kokoro
-
-    assert split_text_for_kokoro("") == []
-    assert split_text_for_kokoro("   ") == []
-    assert split_text_for_kokoro("Oui.") == ["Oui."]
-
-
 # ── Protocole du sidecar chaud ──────────────────────────────────────────────
 
 
-def test_kokoro_frame_roundtrip():
-    from native_audio.kokoro_mlx import FRAME_HEADER, TAG_CHUNK, encode_frame
+def test_fish_local_frame_roundtrip():
+    from native_audio.fish_local import FRAME_HEADER, TAG_CHUNK, encode_frame
 
     payload = b"\x01\x02\x03\x04"
     frame = encode_frame(TAG_CHUNK, payload)
@@ -174,31 +142,6 @@ def test_kokoro_frame_roundtrip():
     assert tag == TAG_CHUNK
     assert length == len(payload)
     assert frame[FRAME_HEADER.size:] == payload
-
-
-def test_kokoro_server_streams_one_frame_per_fragment():
-    """Le serveur émet un fragment à la fois, pas un bloc final unique."""
-    from native_audio.kokoro_mlx import KokoroServer
-
-    class _FakeResult:
-        def __init__(self, n: int) -> None:
-            self.audio = [0.0] * n
-            self.sample_rate = 24000
-
-    class _FakeModel:
-        def generate(self, *, text, voice, speed, lang_code):
-            yield _FakeResult(len(text))
-
-    server = KokoroServer("modele-simule")
-    server._model = _FakeModel()
-
-    chunks = list(server.synthesize_chunks({
-        "text": "Bonjour Monsieur. Il fait beau aujourd'hui à Lille.",
-        "first_chunk_max_tokens": 2,
-        "max_tokens": 180,
-    }))
-    assert len(chunks) >= 2
-    assert all(isinstance(c, bytes) and c for c in chunks)
 
 
 # ── Fast path des interpellations triviales ─────────────────────────────────

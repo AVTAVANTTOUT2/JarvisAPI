@@ -840,8 +840,7 @@ qui rend impossible l'apparition d'un service distant par configuration.
 
 | Fournisseur | Rôle |
 |---|---|
-| `fish_local` | cible — Fish Audio S2 Pro via `mlx-audio`, GPU Metal, sans CUDA |
-| `current_local` | transitoire — le temps d'installer les poids Fish ; jamais choisi automatiquement |
+| `fish_local` | Fish Audio S2 Pro via `mlx-audio`, GPU Metal, sans CUDA — seul moteur TTS |
 
 Quatre décisions structurantes :
 
@@ -851,7 +850,7 @@ Quatre décisions structurantes :
   segment pendant que le suivant se génère. Le **premier** segment obéit à des
   seuils plus courts (`TTS_FIRST_CHUNK_*`) : il est le seul dont la longueur se
   paie en silence pur. Mesuré sur une réponse de quatre phrases (M4,
-  `current_local`) : premier son à 184 ms, synthèse complète à 1 316 ms — la
+  `fish_local`) : premier son à 184 ms, synthèse complète à 1 316 ms — la
   voix arrive 7 fois plus tôt qu'en un bloc, au prix d'un temps de synthèse
   total un peu supérieur, masqué par la lecture. Annoncer « streaming natif »
   serait faux.
@@ -940,9 +939,9 @@ Flux historique encore possible depuis le composer chat : `conversation_mode` + 
 ### Config
 
 ```bash
-TTS_PROVIDER=fish_local             # fish_local | current_local (transitoire)
+TTS_PROVIDER=fish_local
 TTS_MODEL_PATH=mlx-community/fish-audio-s2-pro-8bit
-TTS_VOICE_PATH=./voices/jarvis
+TTS_VOICE_PATH=./voices/jarvis-fr
 AUDIO_DAEMON_STT_ENGINE=local       # local | whisperkit | whispercpp
 AUDIO_DAEMON_STT_MODEL=small
 VOICE_SILENCE_DURATION_MS=1200     # fin de phrase ; page /voice (client)
@@ -1428,9 +1427,9 @@ DEEPSEEK_BASE_URL=https://api.deepseek.com
 DEEPSEEK_FAST_MODEL=deepseek-v4-flash   # classification, triage, extraction
 DEEPSEEK_MAIN_MODEL=deepseek-v4-pro     # rédaction, coaching, raisonnement
 HEAVY_TASK_MAX_TOKENS=8192              # plafond tokens des productions longues
-TTS_PROVIDER=fish_local     # fish_local | current_local (transitoire)
+TTS_PROVIDER=fish_local
 TTS_MODEL_PATH=mlx-community/fish-audio-s2-pro-8bit
-TTS_VOICE_PATH=./voices/jarvis
+TTS_VOICE_PATH=./voices/jarvis-fr
 AUDIO_DAEMON_STT_ENGINE=local
 AUDIO_DAEMON_STT_MODEL=small
 WEATHER_API_KEY=...

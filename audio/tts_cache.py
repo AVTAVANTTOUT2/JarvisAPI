@@ -8,7 +8,7 @@ Deux caches process-wide, partagés entre le daemon audio et le WebSocket :
   (accusés de réception, confirmations d'action). Quand la réponse finale
   correspond à une phrase pré-générée, la lecture est instantanée.
 
-Le cache spéculatif est invalidé si le moteur ou la voix TTS change.
+Le cache spéculatif est invalidé si le moteur, le modèle ou la voix TTS change.
 """
 
 from __future__ import annotations
@@ -85,14 +85,14 @@ class SpeculativeTTS:
 
     @staticmethod
     def _current_sig() -> str:
-        """Empreinte fournisseur+voix : un changement de voix vide le cache.
+        """Empreinte fournisseur+voix+modèle : un changement vide le cache.
 
         Lue dans la configuration et non auprès d'un moteur chargé : le cache
         reste générique et son invalidation identique sur toutes les machines,
         y compris là où aucun modèle n'est installé.
         """
         settings = load_tts_settings()
-        return f"{settings.provider}:{settings.voice_id}"
+        return f"{settings.provider}:{settings.voice_id}:{settings.model_path}"
 
     def _check_sig(self) -> None:
         sig = self._current_sig()

@@ -137,16 +137,19 @@ class FishLocalTTSProvider:
 
         command = [str(launcher), "--serve", "--model", str(model_dir)]
         reference = self._settings.reference_audio()
-        if reference is not None:
+        cache = self._settings.reference_cache()
+        # Le sidecar accepte un WAV ; le cache ``.npy`` est chargé à côté s'il
+        # existe (même stem). On passe toujours le chemin WAV canonique.
+        if reference is not None or cache is not None:
             transcript = self._settings.reference_text()
+            ref_path = reference or (self._settings.voice_dir / "reference.wav")
             if not transcript:
                 logger.warning(
-                    "[fish_local] %s présent sans transcript — voix par défaut "
-                    "utilisée (le clonage a besoin des deux)",
-                    reference.name,
+                    "[fish_local] référence présente sans transcript — voix par "
+                    "défaut utilisée (le clonage a besoin des deux)",
                 )
             else:
-                command += ["--ref-audio", str(reference), "--ref-text", transcript]
+                command += ["--ref-audio", str(ref_path), "--ref-text", transcript]
 
         return SidecarClient(
             command,

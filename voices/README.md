@@ -1,6 +1,6 @@
 # Voix de JARVIS
 
-Une seule voix est active : `voices/jarvis/`. Il n'y a pas de sélecteur
+Une seule voix est active : `voices/jarvis-fr/`. Il n'y a pas de sélecteur
 multi-voix, et il n'y en aura pas — JARVIS est une entité, pas un catalogue.
 
 ## Contenu
@@ -9,7 +9,14 @@ multi-voix, et il n'y en aura pas — JARVIS est une entité, pas un catalogue.
 |---|---|---|
 | `metadata.json` | oui | identité, langue, licence, consentement |
 | `reference.wav` | non | échantillon de la voix à cloner (10–30 s, mono, propre) |
+| `reference.npy` / `.npz` | non | cache float32 pré-encodé (warmup rapide) |
 | `transcript.txt` | non | transcription **exacte** de `reference.wav` |
+
+Préparation automatique depuis un master WAV :
+
+```bash
+python scripts/prepare_jarvis_voice.py
+```
 
 Tant que `reference.wav` est absent, le moteur parle avec la voix par défaut du
 modèle. C'est volontaire : une installation neuve doit pouvoir parler.

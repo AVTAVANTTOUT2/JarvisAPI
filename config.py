@@ -103,17 +103,6 @@ DEFAULT_STT_VAD_FILTER = False
 DEFAULT_AUDIO_DAEMON_SILENCE_MS = 500     # fourchette utile : 300-600 ms
 DEFAULT_AUDIO_DAEMON_MIN_SPEECH_MS = 200  # en dessous, on jette les claquements
 DEFAULT_AUDIO_DAEMON_PRE_ROLL_MS = 300    # amorce conservée avant le seuil
-# ── Backend vocal transitoire (`TTS_PROVIDER=current_local`) ─
-# Ces valeurs ne sont lues que par `jarvis/audio/tts/backends/current_local.py`
-# et disparaîtront avec lui, une fois le backend cible validé sur la machine.
-DEFAULT_KOKORO_MODEL = "mlx-community/Kokoro-82M-bf16"
-DEFAULT_KOKORO_VOICE = "ff_siwis"
-DEFAULT_KOKORO_LANG_CODE = "f"
-DEFAULT_KOKORO_SPEED = 0.96
-DEFAULT_KOKORO_MAX_TOKENS = 180
-# Taille du premier fragment synthétisé (en mots) : plus il est court, plus le
-# premier son arrive tôt — au prix de quelques fragments supplémentaires.
-DEFAULT_KOKORO_FIRST_CHUNK_MAX_TOKENS = 12
 
 
 def _normalize_stt_engine(engine: str) -> str:
@@ -160,7 +149,7 @@ STT_ALLOW_MODEL_DOWNLOAD = (
 # répétées ici parce que `config` reste la façade lue par le reste du dépôt.
 DEFAULT_TTS_PROVIDER = "fish_local"
 DEFAULT_TTS_MODEL_PATH = "mlx-community/fish-audio-s2-pro-8bit"
-DEFAULT_TTS_VOICE_PATH = "./voices/jarvis"
+DEFAULT_TTS_VOICE_PATH = "./voices/jarvis-fr"
 DEFAULT_TTS_DEVICE = "auto"
 DEFAULT_TTS_STREAMING = True
 DEFAULT_TTS_SAMPLE_RATE = 24000
@@ -207,15 +196,6 @@ TTS_FIRST_CHUNK_MAX_CHARS = _positive_int(
     "TTS_FIRST_CHUNK_MAX_CHARS", DEFAULT_TTS_FIRST_CHUNK_MAX_CHARS
 )
 
-# Backend transitoire `current_local` uniquement — voir le bloc de défauts.
-KOKORO_MODEL = _get("KOKORO_MODEL", DEFAULT_KOKORO_MODEL)
-KOKORO_VOICE = _get("KOKORO_VOICE", DEFAULT_KOKORO_VOICE)
-KOKORO_LANG_CODE = _get("KOKORO_LANG_CODE", DEFAULT_KOKORO_LANG_CODE)
-KOKORO_SPEED = float(_get("KOKORO_SPEED", str(DEFAULT_KOKORO_SPEED)))
-KOKORO_MAX_TOKENS = int(_get("KOKORO_MAX_TOKENS", str(DEFAULT_KOKORO_MAX_TOKENS)))
-KOKORO_FIRST_CHUNK_MAX_TOKENS = int(
-    _get("KOKORO_FIRST_CHUNK_MAX_TOKENS", str(DEFAULT_KOKORO_FIRST_CHUNK_MAX_TOKENS))
-)
 AUDIO_DAEMON_OUTPUT_DEVICE = _get("AUDIO_DAEMON_OUTPUT_DEVICE", "")  # vide = sortie défaut macOS
 AUDIO_DAEMON_HALF_DUPLEX = _get("AUDIO_DAEMON_HALF_DUPLEX", "true").lower() == "true"
 AUDIO_DAEMON_PRE_ROLL_MS = int(
@@ -834,6 +814,11 @@ _RETIRED_EDGE = (
     "appel réseau à borner."
 )
 
+_RETIRED_KOKORO = (
+    "Kokoro et le backend transitoire `current_local` ont été retirés ; "
+    "Fish local (`fish_local`) est le seul moteur TTS."
+)
+
 RETIRED_ENV_VARS: dict[str, str] = {
     "CODE_EXECUTOR_ENABLED": (
         "Open Interpreter a été retiré ; les tâches techniques passent par "
@@ -853,15 +838,15 @@ RETIRED_ENV_VARS: dict[str, str] = {
     "EDGE_TTS_CONNECT_TIMEOUT_SEC": _RETIRED_EDGE,
     "EDGE_TTS_RECEIVE_TIMEOUT_SEC": _RETIRED_EDGE,
     "EDGE_TTS_TOTAL_TIMEOUT_SEC": _RETIRED_EDGE,
-    "KOKORO_BACKEND": (
-        "Le backend ONNX a été retiré ; le backend transitoire `current_local` "
-        "utilise uniquement le sidecar MLX."
-    ),
-    "KOKORO_LANG": "Seul KOKORO_LANG_CODE est utilisé par le backend transitoire.",
-    "KOKORO_WARM_WORKER": (
-        "Le sidecar est toujours maintenu chaud : le chargement du modèle "
-        "n'appartient plus au tour de parole."
-    ),
+    "KOKORO_BACKEND": _RETIRED_KOKORO,
+    "KOKORO_LANG": _RETIRED_KOKORO,
+    "KOKORO_WARM_WORKER": _RETIRED_KOKORO,
+    "KOKORO_MODEL": _RETIRED_KOKORO,
+    "KOKORO_VOICE": _RETIRED_KOKORO,
+    "KOKORO_LANG_CODE": _RETIRED_KOKORO,
+    "KOKORO_SPEED": _RETIRED_KOKORO,
+    "KOKORO_MAX_TOKENS": _RETIRED_KOKORO,
+    "KOKORO_FIRST_CHUNK_MAX_TOKENS": _RETIRED_KOKORO,
 }
 
 

@@ -36,16 +36,6 @@ jamais un téléchargement.
 Installation des poids : `python scripts/download_tts_model.py`.
 État réel de l'intégration : `docs/audio/FISH_LOCAL_STATUS.md`.
 
-## Kokoro — `kokoro_synthesize` (transitoire)
-
-Sidecar du backend `current_local`, conservé le temps que les poids Fish soient
-installés sur la machine. Même protocole de trames. Il disparaîtra du dépôt
-avec `jarvis/audio/tts/backends/current_local.py` et les variables `KOKORO_*`.
-
-```bash
-kokoro_synthesize --serve --model mlx-community/Kokoro-82M-bf16 --voice ff_siwis --lang-code f
-```
-
 ## WhisperKit — `whisperkit_transcribe` (STT, optionnel)
 
 Compilez un binaire `whisperkit_transcribe` et placez-le ici, ou installez

@@ -2,7 +2,7 @@
 """Banc de mesure de la synthèse vocale locale — chiffres réels, pas de mock.
 
     python scripts/benchmark_tts.py                 # fournisseur configuré
-    python scripts/benchmark_tts.py --provider current_local
+    python scripts/benchmark_tts.py --provider fish_local
     python scripts/benchmark_tts.py --runs 5 --json rapport.json
 
 Ce que le banc mesure et pourquoi :

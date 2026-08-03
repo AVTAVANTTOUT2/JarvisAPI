@@ -12,11 +12,11 @@ import configparser
 import errno
 import importlib
 import socket
-from dataclasses import replace
 from pathlib import Path
 from typing import Any, Final
 
 import pytest
+from dataclasses import replace
 
 PROJECT_ROOT: Final[Path] = Path(__file__).resolve().parent.parent
 PYTEST_INI: Final[Path] = PROJECT_ROOT / "pytest.ini"
@@ -185,10 +185,10 @@ def test_local_tts_stack_declares_no_network_dependency():
     moteur distant à joindre, donc plus de pipeline CI à lui consacrer.
     """
     from jarvis.audio.tts import create_local_tts_provider, load_tts_settings
+    from jarvis.audio.tts.config import DEFAULT_TTS_PROVIDER
 
-    for provider_name in ("fish_local", "current_local"):
-        settings = replace(load_tts_settings(), provider=provider_name)
-        assert create_local_tts_provider(settings).info().offline is True
+    settings = replace(load_tts_settings(), provider=DEFAULT_TTS_PROVIDER)
+    assert create_local_tts_provider(settings).info().offline is True
 
 
 # ── 4. Séparation des pipelines CI et documentation ──────────────────────────

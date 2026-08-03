@@ -30,17 +30,10 @@ def _fish_local(settings: TTSSettings) -> LocalTTSProvider:
     return FishLocalTTSProvider(settings)
 
 
-def _current_local(settings: TTSSettings) -> LocalTTSProvider:
-    from jarvis.audio.tts.backends.current_local import CurrentLocalTTSProvider
-
-    return CurrentLocalTTSProvider(settings)
-
-
 # Import différé : construire un fournisseur ne doit charger ni MLX, ni les
-# poids, ni le sidecar de l'autre backend.
+# poids, ni le sidecar.
 _BUILDERS: dict[str, Callable[[TTSSettings], LocalTTSProvider]] = {
     "fish_local": _fish_local,
-    "current_local": _current_local,
 }
 
 
