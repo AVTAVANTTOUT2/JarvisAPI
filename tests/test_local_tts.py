@@ -18,6 +18,7 @@ import asyncio
 import inspect
 import logging
 import re
+import signal
 import tempfile
 from dataclasses import replace
 from pathlib import Path
@@ -316,6 +317,84 @@ async def test_shared_provider_is_a_singleton(settings):
     second = get_local_tts_provider(settings)
     assert first is second
     await reset_local_tts_provider()
+
+
+@pytest.mark.asyncio
+async def test_fish_concurrent_warmup_starts_single_sidecar(settings, monkeypatch):
+    """Deux warmups parallèles ne doivent ouvrir qu'un seul SidecarClient.
+
+    Régression OOM : daemon + speculative_tts.create_task appelaient
+    warmup() sans verrou → 2–3 processus Fish à ~12 Go RSS.
+    """
+    from jarvis.audio.tts.backends import fish_local as fish_mod
+    from jarvis.audio.tts.backends.fish_local import FishLocalTTSProvider
+
+    starts = 0
+    builds = 0
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.ready = False
+
+        async def start(self) -> dict[str, object]:
+            nonlocal starts
+            starts += 1
+            await asyncio.sleep(0.05)
+            self.ready = True
+            return {"sample_rate": 44100, "voice_cloned": True}
+
+        async def stop(self) -> None:
+            self.ready = False
+
+    def fake_build(self):
+        nonlocal builds
+        builds += 1
+        return FakeClient()
+
+    monkeypatch.setattr(FishLocalTTSProvider, "_build_client", fake_build)
+    monkeypatch.setattr(FishLocalTTSProvider, "_check_device", lambda self: None)
+    monkeypatch.setattr(FishLocalTTSProvider, "_resolve_model", lambda self: Path("."))
+
+    provider = FishLocalTTSProvider(settings)
+    await asyncio.gather(provider.warmup(), provider.warmup(), provider.warmup())
+    assert builds == 1
+    assert starts == 1
+    assert provider._client is not None and provider._client.ready
+
+
+@pytest.mark.asyncio
+async def test_sidecar_terminate_signals_process_group(monkeypatch):
+    """L'arrêt doit viser le process group (start_new_session), pas seulement le PID."""
+    from jarvis.audio.tts.backends.sidecar import SidecarClient
+
+    signals: list[tuple[int, int]] = []
+
+    class FakeProc:
+        pid = 4242
+        returncode = None
+
+        def send_signal(self, sig):
+            signals.append(("send", int(sig)))
+
+        def terminate(self):
+            signals.append(("term", 15))
+
+        def kill(self):
+            signals.append(("kill", 9))
+
+        async def wait(self):
+            self.returncode = 0
+
+    monkeypatch.setattr(
+        "jarvis.audio.tts.backends.sidecar.os.killpg",
+        lambda pid, sig: signals.append((pid, int(sig))),
+    )
+
+    client = SidecarClient(["/bin/true"], label="test")
+    client._proc = FakeProc()
+    await client._terminate()
+    assert (4242, int(signal.SIGTERM)) in signals
+    assert client._proc is None
 
 
 @pytest.mark.asyncio

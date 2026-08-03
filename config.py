@@ -632,6 +632,15 @@ LATE_RETURN_HOUR = int(_get("LATE_RETURN_HOUR", "23"))         # à partir de ce
 # ── Voix : rejeu, session persistante, TTS spéculatif ─────────
 SPECULATIVE_TTS_ENABLED = _get("SPECULATIVE_TTS_ENABLED", "false").lower() == "true"
 VOICE_SESSION_GRACE_S = int(_get("VOICE_SESSION_GRACE_S", "180"))  # reprise après coupure courte
+if SPECULATIVE_TTS_ENABLED and TTS_PROVIDER == "fish_local":
+    # Fish S2 Pro pèse plusieurs Go en RSS ; un second warmup concurrent
+    # (daemon + cache) a déjà provoqué un OOM machine. Le daemon sérialise
+    # désormais, mais le flag reste coûteux (pré-synthèse de phrases).
+    logger.warning(
+        "SPECULATIVE_TTS_ENABLED=true avec fish_local : le préchauffage est "
+        "sérialisé, mais chaque phrase pré-générée charge encore le GPU. "
+        "Désactivez-le si la RAM est serrée."
+    )
 
 # ── Auto-résumé de réunions (micro daemon audio) ──────────────
 # Opt-in : capture les transcriptions ambiantes du micro pour détecter une

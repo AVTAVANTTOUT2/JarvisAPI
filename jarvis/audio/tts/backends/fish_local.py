@@ -22,6 +22,7 @@ Trois réalités qu'il serait malhonnête de maquiller :
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from collections.abc import AsyncIterator
@@ -66,6 +67,10 @@ class FishLocalTTSProvider:
         self._sample_rate = settings.sample_rate
         self._warmup_ms: float | None = None
         self._voice_cloned = False
+        # Sans ce verrou, deux warmups concurrents (daemon + cache spéculatif)
+        # construisent chacun un SidecarClient et chargent le modèle deux fois
+        # en mémoire Metal — mesuré : ~12 Go RSS par instance → OOM machine.
+        self._warmup_lock = asyncio.Lock()
 
     # ── Identité ────────────────────────────────────────────────────────────
 
@@ -205,51 +210,63 @@ class FishLocalTTSProvider:
             return
 
     async def warmup(self) -> None:
-        """Charge le modèle hors tour de parole. Idempotent."""
+        """Charge le modèle hors tour de parole. Idempotent et sérialisé."""
         if self._client is not None and self._client.ready:
             return
 
-        self._check_device()
-        started = time.perf_counter()
-        events.emit_tts_event(
-            events.WARMUP_STARTED,
-            provider=PROVIDER_NAME,
-            backend=BACKEND_NAME,
-            device=self._resolved_device(),
-        )
+        async with self._warmup_lock:
+            if self._client is not None and self._client.ready:
+                return
 
-        client = self._build_client()
-        try:
-            metadata = await client.start()
-        except TTSUnavailableError:
+            self._check_device()
+            started = time.perf_counter()
             events.emit_tts_event(
-                events.FAILED, provider=PROVIDER_NAME, reason="warmup_failed",
+                events.WARMUP_STARTED,
+                provider=PROVIDER_NAME,
+                backend=BACKEND_NAME,
+                device=self._resolved_device(),
             )
-            raise
 
-        declared = int(metadata.get("sample_rate") or 0)
-        if declared > 0:
-            if declared != self._settings.sample_rate:
-                logger.info(
-                    "[fish_local] fréquence du modèle %d Hz (TTS_SAMPLE_RATE=%d) "
-                    "— la valeur du modèle fait foi",
-                    declared, self._settings.sample_rate,
+            # Remplace un client mort ou partiel avant d'en ouvrir un neuf —
+            # sinon un restart laisse un sidecar orphelin en mémoire Metal.
+            previous = self._client
+            self._client = None
+            if previous is not None:
+                await previous.stop()
+
+            client = self._build_client()
+            try:
+                metadata = await client.start()
+            except TTSUnavailableError:
+                await client.stop()
+                events.emit_tts_event(
+                    events.FAILED, provider=PROVIDER_NAME, reason="warmup_failed",
                 )
-            self._sample_rate = declared
-        self._voice_cloned = bool(metadata.get("voice_cloned"))
-        self._client = client
-        self._warmup_ms = (time.perf_counter() - started) * 1000.0
+                raise
 
-        events.emit_tts_event(
-            events.WARMUP_COMPLETED,
-            provider=PROVIDER_NAME,
-            backend=BACKEND_NAME,
-            device=self._resolved_device(),
-            model=self._model_label(),
-            voice=self._settings.voice_id,
-            sample_rate=self._sample_rate,
-            warmup_ms=round(self._warmup_ms, 1),
-        )
+            declared = int(metadata.get("sample_rate") or 0)
+            if declared > 0:
+                if declared != self._settings.sample_rate:
+                    logger.info(
+                        "[fish_local] fréquence du modèle %d Hz (TTS_SAMPLE_RATE=%d) "
+                        "— la valeur du modèle fait foi",
+                        declared, self._settings.sample_rate,
+                    )
+                self._sample_rate = declared
+            self._voice_cloned = bool(metadata.get("voice_cloned"))
+            self._client = client
+            self._warmup_ms = (time.perf_counter() - started) * 1000.0
+
+            events.emit_tts_event(
+                events.WARMUP_COMPLETED,
+                provider=PROVIDER_NAME,
+                backend=BACKEND_NAME,
+                device=self._resolved_device(),
+                model=self._model_label(),
+                voice=self._settings.voice_id,
+                sample_rate=self._sample_rate,
+                warmup_ms=round(self._warmup_ms, 1),
+            )
 
     # ── Synthèse ────────────────────────────────────────────────────────────
 
