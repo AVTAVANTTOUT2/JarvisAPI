@@ -8,7 +8,12 @@
 #   pip install -r requirements-agent.txt
 #
 # Lancement :
-#   python scripts/jarvis_agent.py --server http://100.x.x.x:8081 --token MON_TOKEN
+#   python scripts/jarvis_agent.py \
+#     --server https://jarvis.votre-tailnet.ts.net --pairing-code 123456
+#
+# HTTP est accepté uniquement sur 127.0.0.1/::1/localhost. Pour une PKI privée,
+# fournir le certificat CA avec --ca-bundle /chemin/ca.pem ; il n'existe pas de
+# mode --insecure afin de protéger jeton, captures et commandes TTS.
 
 requests>=2.31
 Pillow>=10.0
