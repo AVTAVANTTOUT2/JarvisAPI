@@ -24,7 +24,7 @@ from .core import (
     get_usage_stats,
     init_db,
 )
-from .event_log import get_event_log, get_unprocessed_events
+from .event_log import get_event_log
 
 
 from .conversations import (

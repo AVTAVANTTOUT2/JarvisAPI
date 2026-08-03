@@ -154,7 +154,10 @@ Les fonctions d'écriture de `tasks`, `notifications`, `conversations`, `episode
 | **Critère** | ✅ Polling notifications/tâches supprimé de la PWA ; suite backend complète à 542 passants, 1 ignoré ; build PWA réussi |
 | **Réversibilité** | Ne pas enregistrer les handlers |
 
-Le journal conserve `processed_by = NULL` tant qu'aucun moteur de rejeu n'existe. Les données sont donc disponibles pour un futur rejeu, mais aucun rejeu automatique au redémarrage n'est revendiqué dans cette phase. `Queue Engine`, `AI Service`, `/health` et `/metrics` restent des travaux Q4/futurs hors Phase 3.
+Le journal est une trace d'observabilité idempotente, pas un outbox. Aucun état
+de consommation ni aucune promesse de rejeu ne sont exposés tant qu'un moteur
+durable complet n'existe pas. `Queue Engine`, `AI Service`, `/health` et
+`/metrics` restent des travaux Q4/futurs hors Phase 3.
 
 ## Phase 4 — Routeurs FastAPI (Jour 5-7)
 

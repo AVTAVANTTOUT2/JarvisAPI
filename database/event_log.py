@@ -36,7 +36,11 @@ def _persist_event(event: JarvisEvent) -> None:
 
 
 def get_event_log(limit: int = 100, event_type: str | None = None) -> list[dict]:
-    """Retourne les événements journalisés, du plus récent au plus ancien."""
+    """Retourne la trace d'observabilité, du plus récent au plus ancien.
+
+    Cette table n'est pas un outbox : aucune garantie de rejeu ou de livraison
+    n'est attachée aux lignes journalisées.
+    """
     bounded_limit = max(1, min(int(limit), 1000))
     with get_db() as conn:
         if event_type:
@@ -68,19 +72,3 @@ def get_event_log(limit: int = 100, event_type: str | None = None) -> list[dict]
             event["payload"] = {}
         events.append(event)
     return events
-
-
-def get_unprocessed_events(limit: int = 100) -> list[dict]:
-    """Liste les événements sans marque de traitement, prêts pour un futur replay."""
-    bounded_limit = max(1, min(int(limit), 1000))
-    with get_db() as conn:
-        rows = conn.execute(
-            """
-            SELECT * FROM event_log
-            WHERE processed_by IS NULL
-            ORDER BY timestamp, id
-            LIMIT ?
-            """,
-            (bounded_limit,),
-        ).fetchall()
-    return [dict(row) for row in rows]

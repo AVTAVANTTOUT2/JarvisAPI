@@ -60,14 +60,12 @@ async def lifespan(app: FastAPI):
         logger.critical("[startup] Configuration invalide : %s", exc)
         raise
     init_db()
+    from scripts.db_migrations import run_startup_migrations
+
+    # Une migration partiellement appliquée rendrait le schéma ambigu. Le
+    # processus doit donc échouer avant de lier les consommateurs runtime.
+    run_startup_migrations()
     event_bus.bind_loop(asyncio.get_running_loop())
-
-    try:
-        from scripts.db_migrations import run_startup_migrations
-
-        run_startup_migrations()
-    except Exception as e:
-        logger.critical("Erreur migrations au démarrage : %s", e)
 
     # Cache Contacts.app (résolution numéro / email → nom affiché)
     # build_cache() est synchrone et peut bloquer >20s : lancé en background

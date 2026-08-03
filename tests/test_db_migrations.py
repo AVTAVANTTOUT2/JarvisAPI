@@ -134,11 +134,66 @@ def test_backup_failure_blocks_migrations(tmp_env, monkeypatch):
     assert migration_status()["pending"] == ["0001_a.sql"]
 
 
-def test_startup_hook_never_raises_on_failure(tmp_env, monkeypatch, caplog):
-    from scripts.db_migrations import run_startup_migrations
+def test_sql_and_migration_record_are_atomic(tmp_env):
+    from database import get_db
+    from scripts.db_migrations import apply_pending_migrations, migration_status
+
+    with get_db() as conn:
+        conn.execute(
+            """
+            CREATE TRIGGER reject_migration_record
+            BEFORE INSERT ON schema_migrations
+            BEGIN
+                SELECT RAISE(ABORT, 'record refused');
+            END
+            """
+        )
+
+    _write(tmp_env, "0001_atomic.sql", "CREATE TABLE must_rollback (id INTEGER);")
+    report = apply_pending_migrations()
+
+    assert report["ok"] is False
+    assert "record refused" in report["error"]
+    with get_db() as conn:
+        tables = {
+            row[0]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+    assert "must_rollback" not in tables
+    assert migration_status()["pending"] == ["0001_atomic.sql"]
+
+
+def test_rejects_transaction_control_inside_migration(tmp_env):
+    from database import get_db
+    from scripts.db_migrations import apply_pending_migrations
+
+    _write(
+        tmp_env,
+        "0001_unsafe.sql",
+        "CREATE TABLE must_rollback (id INTEGER); COMMIT;",
+    )
+    report = apply_pending_migrations()
+
+    assert report["ok"] is False
+    assert "commandes de transaction" in report["error"]
+    with get_db() as conn:
+        tables = {
+            row[0]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+    assert "must_rollback" not in tables
+
+
+def test_startup_hook_raises_on_failure(tmp_env):
+    from scripts.db_migrations import MigrationStartupError, run_startup_migrations
 
     _write(tmp_env, "0001_bad.sql", "INSERT INTO nope (x) VALUES (1);")
-    run_startup_migrations()  # ne doit jamais lever
+    with pytest.raises(MigrationStartupError, match="0001_bad.sql"):
+        run_startup_migrations()
 
 
 def test_startup_hook_respects_auto_apply_flag(tmp_env, monkeypatch):

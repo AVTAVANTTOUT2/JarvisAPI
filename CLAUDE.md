@@ -35,10 +35,10 @@ Le bus applicatif est actif et conserve la compatibilité de construction histor
  historique `database/schema.sql` ≈ 47 tables).
 - `websocket_registry.py` diffuse les événements de domaine aux sockets actives et `scripts/audio_daemon.py` traite les notifications `urgent/high`.
 - `/api/events/stream` diffuse les événements de domaine en SSE ; le polling périodique notifications/tâches a été supprimé.
-- Les handlers d'un même événement s'exécutent concurremment ; l'échec de l'un est journalisé sans interrompre les autres.
+- Chaque handler possède une file bornée indépendante ; les callbacks synchrones sont déportés hors de la boucle asyncio et l'échec d'un consommateur n'interrompt pas les autres.
 - `jarvis/__init__.py` charge `JARVISRouter` à la demande : importer le bus ou la base ne charge aucun backend LLM.
 
-Depuis du code async, utiliser `await event_bus.emit(event)`. Depuis un chemin synchrone ou un thread scheduler, utiliser `event_bus.emit_nowait(event)` ; `api/lifespan.py` lie le bus à la boucle applicative au démarrage. Ne jamais émettre un événement de fait avant la persistance. `get_unprocessed_events()` prépare un futur rejeu, mais aucun rejeu automatique au redémarrage n'est implémenté à ce stade.
+Depuis du code async, utiliser `await event_bus.emit(event)`. Depuis un chemin synchrone ou un thread scheduler, utiliser `event_bus.emit_nowait(event)` ; `api/lifespan.py` lie le bus à la boucle applicative au démarrage. Ne jamais émettre un événement de fait avant la persistance. `event_log` est une trace d'observabilité idempotente, pas un outbox et ne revendique aucun rejeu après crash.
 
 ## Couche API — Phase 4
 

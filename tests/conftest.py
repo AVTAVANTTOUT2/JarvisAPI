@@ -89,6 +89,15 @@ def _isolate_app_lifespan(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(email_watcher, "stop", lambda: None)
 
 
+@pytest.fixture(autouse=True)
+async def _drain_event_bus_consumers():
+    """Ne ferme jamais une boucle de test avec des consommateurs encore actifs."""
+    yield
+    from jarvis.event_bus import event_bus
+
+    await event_bus.wait_until_idle()
+
+
 def authenticate(client):
     """Configure le verrou (si besoin) et déverrouille — le client garde le cookie de session.
 
