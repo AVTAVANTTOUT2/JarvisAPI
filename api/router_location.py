@@ -16,6 +16,12 @@ from fastapi import APIRouter, HTTPException, Request
 
 import auth
 import config
+from api.errors import api_error
+from api.location_models import (
+    NameCurrentLocationRequest,
+    PlaceCreateRequest,
+    PlaceUpdateRequest,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -355,33 +361,28 @@ async def api_places_list():
 
 
 @router.post("/api/places")
-async def api_places_create(body: dict[str, Any]):
+async def api_places_create(body: PlaceCreateRequest):
     from database.location_helpers import create_place
 
-    try:
-        pid = create_place(
-            name=str(body["name"]),
-            category=str(body.get("category") or "other"),
-            lat=float(body["latitude"]),
-            lng=float(body["longitude"]),
-            radius=float(body["radius"]) if body.get("radius") is not None else None,
-            address=body.get("address"),
-            notes=body.get("notes"),
-        )
-    except (KeyError, TypeError, ValueError) as e:
-        raise HTTPException(400, str(e)) from e
-    return {"id": pid, **body}
+    pid = create_place(
+        name=body.name,
+        category=body.category,
+        lat=body.latitude,
+        lng=body.longitude,
+        radius=body.radius,
+        address=body.address,
+        notes=body.notes,
+    )
+    return {"id": pid, **body.model_dump(exclude_none=True)}
 
 
 @router.put("/api/places/{place_id}")
-async def api_places_update(place_id: int, body: dict[str, Any]):
-    from database.location_helpers import PLACE_MUTABLE_FIELDS, update_place
+async def api_places_update(place_id: int, body: PlaceUpdateRequest):
+    from database.location_helpers import update_place
 
-    payload = dict(body)
+    payload = body.model_dump(exclude_unset=True)
     if "radius" in payload and "radius_meters" not in payload:
         payload["radius_meters"] = payload.pop("radius")
-    if not any(key in PLACE_MUTABLE_FIELDS for key in payload):
-        raise HTTPException(400, "Aucun champ modifiable fourni")
     if not update_place(place_id, **payload):
         raise HTTPException(404, "Lieu introuvable")
     return {"ok": True}
@@ -449,19 +450,20 @@ async def api_location_patterns():
 
 
 @router.post("/api/location/name-current")
-async def api_location_name_current(body: dict[str, Any]):
+async def api_location_name_current(body: NameCurrentLocationRequest):
     from database.location_helpers import create_place, get_current_location
 
     cur = get_current_location()
     if not cur:
-        return {"ok": False, "message": "Pas de position GPS récente"}
-    try:
-        pid = create_place(
-            name=str(body["name"]),
-            category=str(body.get("category") or "other"),
-            lat=float(cur["latitude"]),
-            lng=float(cur["longitude"]),
+        raise api_error(
+            409,
+            "recent_location_not_found",
+            "Aucune position GPS récente n'est disponible",
         )
-    except (KeyError, TypeError, ValueError) as e:
-        raise HTTPException(400, str(e)) from e
+    pid = create_place(
+        name=body.name,
+        category=body.category,
+        lat=float(cur["latitude"]),
+        lng=float(cur["longitude"]),
+    )
     return {"ok": True, "place_id": pid}
