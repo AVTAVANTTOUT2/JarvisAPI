@@ -6,9 +6,16 @@ import logging
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, ConfigDict, Field
 
 router = APIRouter()
 logger = logging.getLogger("jarvis")
+
+
+class DndEnableRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    minutes: int = Field(default=120, ge=1, le=24 * 60)
 
 
 @router.get("/api/rituals/today")
@@ -60,12 +67,11 @@ async def api_dnd_status():
 
 
 @router.post("/api/dnd")
-async def api_dnd_enable(body: dict = None):
+async def api_dnd_enable(body: DndEnableRequest | None = None):
     """Active le DND. body: {\"minutes\": 120} (défaut 120). Seul l'urgent passe."""
     from database import set_dnd
 
-    minutes = int((body or {}).get("minutes") or 120)
-    minutes = max(1, min(minutes, 24 * 60))
+    minutes = body.minutes if body is not None else 120
     until = set_dnd(minutes)
     return {"active": True, "until": until}
 

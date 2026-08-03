@@ -6,6 +6,7 @@ import asyncio
 import logging
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
+from pydantic import BaseModel, ConfigDict, Field
 
 from agents.devagent import lock_spec, next_interview_step, run_loop, slugify, submit_answer
 from agents.devagent.models import InterviewAnswer
@@ -14,6 +15,13 @@ from database import devagent as devagent_db
 
 router = APIRouter()
 logger = logging.getLogger("jarvis")
+
+
+class DevAgentAutorunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, str_strip_whitespace=True)
+
+    description: str = Field(min_length=1, max_length=50_000)
+    name: str | None = Field(default=None, min_length=1, max_length=200)
 
 
 @router.get("/api/devagent/{project_id}/deployments")
@@ -90,18 +98,15 @@ async def api_devagent_refactor(project_id: int):
 # ── Exécution autonome ───────────────────────────────────────
 
 @router.post("/api/devagent/autorun")
-async def api_devagent_autorun(payload: dict):
+async def api_devagent_autorun(payload: DevAgentAutorunRequest):
     """Agent autonome bout en bout : interview auto-répondue → spec → boucle, zéro humain.
 
     Body : {"description": "...", "name": "..." (optionnel)}.
     """
     from agents.devagent.autorun import autorun_project
 
-    description = (payload or {}).get("description", "").strip()
-    if not description:
-        raise HTTPException(400, "Le champ 'description' est requis.")
     try:
-        return await autorun_project(description, name=(payload or {}).get("name"))
+        return await autorun_project(payload.description, name=payload.name)
     except RuntimeError as e:
         logger.exception("[devagent/autorun] échec")
         raise api_error(502, "devagent_autorun_failed", "Démarrage autonome impossible") from e

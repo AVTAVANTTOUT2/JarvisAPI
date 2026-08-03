@@ -119,12 +119,28 @@ def test_assign_speaker_reuses_existing_person(tmp_db):
     assert r.json()["person_id"] == existing_id
 
 
-def test_assign_speaker_missing_name_400(tmp_db):
+def test_assign_speaker_missing_name_422(tmp_db):
     rec_id = _make_recording()
     with _client() as client:
         authenticate(client)
         r = client.post(f"/api/recordings/{rec_id}/speakers/A/assign", json={})
-    assert r.status_code == 400
+    assert r.status_code == 422
+
+
+def test_assign_speaker_rejects_unknown_and_coerced_fields(tmp_db):
+    rec_id = _make_recording()
+    with _client() as client:
+        authenticate(client)
+        coerced = client.post(
+            f"/api/recordings/{rec_id}/speakers/A/assign",
+            json={"name": 123},
+        )
+        unknown = client.post(
+            f"/api/recordings/{rec_id}/speakers/A/assign",
+            json={"name": "Karim", "person_id": 42},
+        )
+    assert coerced.status_code == 422
+    assert unknown.status_code == 422
 
 
 def test_assign_unknown_label_404(tmp_db):
