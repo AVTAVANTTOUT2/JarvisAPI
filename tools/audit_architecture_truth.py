@@ -202,7 +202,7 @@ def discover_frontends(root: Path) -> list[FrontendProject]:
         )
         results.append(project)
 
-    # TV / orphan (pas de package.json)
+    # Dashboard TV autonome (pas de package.json).
     if (root / "tv" / "server.py").is_file():
         results.append(
             FrontendProject(
@@ -217,15 +217,6 @@ def discover_frontends(root: Path) -> list[FrontendProject]:
                 has_manifest=False,
                 status="actif_tv_5174",
                 notes=["Processus séparé (port 5174), hors api/frontend.py"],
-            )
-        )
-    if (root / "front_tv").is_dir():
-        results.append(
-            FrontendProject(
-                path="front_tv",
-                framework="html_bundle",
-                status="orphelin",
-                notes=["Aucune référence runtime dans le dépôt"],
             )
         )
     return results

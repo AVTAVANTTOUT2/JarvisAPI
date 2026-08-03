@@ -167,9 +167,9 @@ tv/
 ├── server.py            FastAPI port 5174
 ├── config.py            Configuration
 ├── data_sources/        11 modules Python (SQLite + API)
-├── static/css/tv.css    Style militaire dark
-├── static/js/           14 modules JS vanilla
-├── templates/tv.html    Template unique
+├── static/js/tv-v2.js   Runtime client unique
+├── static/assets/       Polices locales
+├── templates/tv-v2.html Template runtime unique, sans CDN
 ├── com.jarvis.tv.plist  Service launchd
 └── README.md
 ```

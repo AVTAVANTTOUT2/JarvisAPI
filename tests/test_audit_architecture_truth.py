@@ -115,7 +115,6 @@ def fake_repo(tmp_path: Path) -> Path:
     )
     (tmp_path / "tv").mkdir()
     (tmp_path / "tv" / "server.py").write_text("print('tv')\n", encoding="utf-8")
-    (tmp_path / "front_tv").mkdir()
     (tmp_path / "README.md").write_text(
         "26+ tables SQLite\n72 tables\n`web/` (SPA principale, Vite + React)\n",
         encoding="utf-8",
@@ -139,7 +138,7 @@ def test_discover_frontends_classifies_projects(fake_repo: Path) -> None:
     assert projects["web"].status == "fallback_actif"
     assert "pwa" not in projects
     assert projects["tv"].status == "actif_tv_5174"
-    assert projects["front_tv"].status == "orphelin"
+    assert "front_tv" not in projects
 
 
 def test_analyze_tables_counts(fake_repo: Path) -> None:

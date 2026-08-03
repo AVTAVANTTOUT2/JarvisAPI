@@ -30,7 +30,7 @@ Runtime SQLite canonique : **90 tables persistantes**, **95 tables physiques ave
 | Fallback racine FastAPI ? | **`web/dist/`** — Vite **6.4.2** + React **19.2.5** |
 | Interface mobile | **`web_mobile/`** — HTML/CSS/JS vanilla, aucun build, servie sous **`/mobile/`** |
 | TV ? | **`tv/`** — FastAPI + vanilla JS, port **5174** (processus séparé) |
-| Orphelin ? | **`front_tv/`** — HTML bundlé non référencé |
+| Maquette TV historique | Supprimée du tree runtime le 03/08/2026 ; `tv-v2` est l'unique implémentation |
 | Supervisor (9000) sert quoi ? | **`frontend/out` en priorité**, puis **`web/dist`** (même politique que FastAPI — ADR-019) |
 
 **Formulation canonique (à réutiliser partout) :**
@@ -61,7 +61,6 @@ est le dashboard War Room dédié. Voir ADR-019.
 | `pwa/` | Next.js + React | next `14.2.29`, react `^18.3.1` | next `14.2.29`, react `18.3.1` | Next | export + `basePath: '/m'` | `npm run dev` | `npm run build` / `scripts/build_pwa.sh` | `pwa/out/` | `public/sw.js` + next-pwa | `manifest.json` | **Fallback historique `/m/`** (build souvent absent) |
 | `jarvis_auth/` | React lib | peer `react>=18.3` | N/A | — | package partagé | — | — | — | — | — | **Actif** (SDK LockGate) |
 | `tv/` | FastAPI + Jinja2 + vanilla JS | N/A (Python) | N/A | aucun | SSR templates | `python tv/server.py` | aucun | live | non | non | **Actif — TV 5174** |
-| `front_tv/` | HTML bundlé | N/A | N/A | externe | fichier unique | — | — | — | — | — | **Orphelin / non référencé** |
 
 ### Dépendances structurantes (lockfiles)
 
@@ -353,7 +352,7 @@ Statuts : `active` | `technique` | `miroir` | `conditionnelle` | `devagent`
 
 1. **Citer toujours** la formulation canonique 90 persistantes / 95 physiques / 91 déclarations.
 2. **Frontend** : phrase canonique du §1.
-3. **Ne pas** supprimer `web/` ni `front_tv/`, ni fusionner TV dans FastAPI sans plan dédié. (`pwa/` a été supprimé le 31/07 avec un plan dédié — voir `35_CAHIER_DES_CHARGES_WEB_MOBILE.md`.)
+3. **Ne pas** supprimer `web/` ni fusionner TV dans FastAPI sans plan dédié. La maquette `front_tv/` et le template TV legacy ont été retirés le 03/08 après vérification de l'unique route `tv-v2`. (`pwa/` a été supprimé le 31/07 avec un plan dédié — voir `35_CAHIER_DES_CHARGES_WEB_MOBILE.md`.)
 4. **Alignement supervisor / FastAPI** : réalisé le 16/07/2026 (ADR-019,
    `core/frontend_resolution.py`). Validation visuelle recommandée sur le port 9000.
 
