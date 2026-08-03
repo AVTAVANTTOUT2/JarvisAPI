@@ -86,6 +86,7 @@ CANONICAL_API_DOCS = (
 
 STALE_API_DOC_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\b12\s+routeurs?\b", re.I),
+    re.compile(r"\b12\s+`?APIRouter", re.I),
     re.compile(r"\b174\s+opérations?\b", re.I),
     re.compile(r"\b157\s+chemins?\b", re.I),
     re.compile(r"\b207\s+opérations?\b", re.I),

@@ -76,7 +76,7 @@ Preuves courantes : signatures de 259 opérations HTTP et 2 WebSockets inventori
 | Fichier | Contenu |
 |---|---|
 | `tests/test_phase4_route_contract.py` | Snapshot déterministe des signatures de routes et du schéma OpenAPI avant/après extraction |
-| `tests/test_phase4_architecture.py` | 12 `APIRouter`, limites de taille, absence d'import inverse et montage explicite du lifespan |
+| `tests/test_phase4_architecture.py` | 17 `APIRouter` sous `api/` plus Fitness, limites de taille, absence d'import inverse et montage explicite du lifespan |
 | Suite existante | Tests `TestClient`, WebSocket et métiers assurant la non-régression comportementale |
 
 ### Phase 5 — implémentée et validée le 14/07/2026
@@ -116,6 +116,13 @@ Preuves : 5 contrats dédiés, plus les suites de régression des producteurs, W
 | `tests/test_csrf.py` | Vérification Origin/Referer |
 | `tests/test_injection.py` | SQL, XSS, path traversal |
 | `tests/test_device_token.py` | Usurpation device_id sans token |
+
+Le job `Frontend unifié` construit `frontend/out` avant Playwright. Le serveur
+`serve-static-csp.py` échoue avec un statut non nul si cet artefact manque, puis
+les scénarios `@static-csp` chargent réellement l'export avec les en-têtes de
+production. Aucun test backend ne transforme désormais l'absence du build en
+skip silencieux. Le job macOS possède par ailleurs une liste exacte, contrôlée,
+des contrats Apple/audio qu'il exécute.
 
 ## Métriques de couverture
 

@@ -1,5 +1,6 @@
 """Contrat structurel du job GitHub Actions exécuté sur macOS."""
 
+import re
 from pathlib import Path
 
 
@@ -27,7 +28,7 @@ def test_ci_has_a_real_macos_26_job():
 def test_macos_job_runs_native_and_simulated_apple_contracts():
     job = _macos_job()
 
-    for test_file in (
+    expected = {
         "test_macos_runtime.py",
         "test_apple_data.py",
         "test_calendar_no_foreground.py",
@@ -39,8 +40,10 @@ def test_macos_job_runs_native_and_simulated_apple_contracts():
         "test_local_tts.py",
         "test_tts_segmenter.py",
         "test_screen_watcher_control.py",
-    ):
-        assert test_file in job
+    }
+    configured = set(re.findall(r"tests/(test_[a-z0-9_]+\.py)", job))
+
+    assert configured == expected
 
 
 def test_macos_job_regenerates_and_builds_app_with_widget():
