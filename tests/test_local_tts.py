@@ -271,8 +271,13 @@ def test_a_fresh_install_stays_silent_about_missing_voices(tmp_path, caplog):
 
 
 def test_a_single_voice_is_configured(settings):
-    """Pas de sélecteur multi-voix : JARVIS est une entité, pas un catalogue."""
-    assert KNOWN_PROVIDERS == frozenset({"fish_local"})
+    """Pas de sélecteur multi-voix : JARVIS est une entité, pas un catalogue.
+
+    Le nombre de **moteurs** disponibles n'est pas ce qui est contraint ici :
+    plusieurs backends locaux peuvent coexister sans que JARVIS devienne un
+    catalogue, tant qu'ils parlent tous de la même voix. Ce qui est verrouillé,
+    c'est qu'il n'existe qu'un seul profil vocal actif.
+    """
     assert DEFAULT_TTS_VOICE_PATH.endswith("jarvis-fr")
     assert Path(DEFAULT_TTS_VOICE_PATH).name == "jarvis-fr"
     assert settings.voice_id == "jarvis-fr"
@@ -287,8 +292,34 @@ def test_a_single_voice_is_configured(settings):
     assert profiles == ["jarvis-fr"]
 
 
+def test_the_provider_table_is_closed_and_local_only():
+    """La table des fournisseurs est fermée et ne contient que du local.
+
+    C'est la propriété qui rend impossible l'apparition d'un moteur distant par
+    simple variable d'environnement : la fabrique refuse tout nom absent de
+    cette table, donc ajouter un backend est un acte de code, pas de
+    configuration. Le défaut pointe sur Qwen3 depuis que Fish a été mesuré
+    incapable de tenir le temps réel sur cette classe de machine.
+    """
+    from jarvis.audio.tts.factory import _BUILDERS
+
+    assert KNOWN_PROVIDERS == frozenset({"fish_local", "qwen3_local"})
+    assert set(_BUILDERS) == KNOWN_PROVIDERS
+    assert DEFAULT_TTS_PROVIDER == "qwen3_local"
+
+
+def test_selecting_an_unknown_provider_is_refused():
+    """Un nom hors table lève — jamais de repli silencieux sur un autre moteur."""
+    from jarvis.audio.tts.errors import TTSUnavailableError
+    from jarvis.audio.tts.factory import create_local_tts_provider
+
+    bogus = replace(load_tts_settings(), provider="elevenlabs")
+    with pytest.raises(TTSUnavailableError):
+        create_local_tts_provider(bogus)
+
+
 def test_legacy_tts_backends_are_gone():
-    """Aucun moteur TTS hors Fish ne doit rester dans le dépôt actif."""
+    """Aucun moteur TTS retiré ne doit rester dans le dépôt actif."""
     assert not (PROJECT_ROOT / "jarvis/audio/tts/backends/current_local.py").exists()
     assert not (PROJECT_ROOT / "native_audio/kokoro_mlx.py").exists()
     assert not (PROJECT_ROOT / "native_audio/kokoro_synthesize").exists()

@@ -147,8 +147,8 @@ STT_ALLOW_MODEL_DOWNLOAD = (
 # réclamerait ne pourrait pas être configuré ici.
 # Les valeurs par défaut vivent dans `jarvis/audio/tts/config.py` ; elles sont
 # répétées ici parce que `config` reste la façade lue par le reste du dépôt.
-DEFAULT_TTS_PROVIDER = "fish_local"
-DEFAULT_TTS_MODEL_PATH = "mlx-community/fish-audio-s2-pro-8bit"
+DEFAULT_TTS_PROVIDER = "qwen3_local"
+DEFAULT_TTS_MODEL_PATH = "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-6bit"
 DEFAULT_TTS_VOICE_PATH = "./voices/jarvis-fr"
 DEFAULT_TTS_DEVICE = "auto"
 DEFAULT_TTS_STREAMING = True

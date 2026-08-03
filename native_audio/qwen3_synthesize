@@ -1,0 +1,18 @@
+#!/bin/bash
+# Lanceur du sidecar Qwen3-TTS local — exécute qwen3_local.py sous JARVIS_VENV
+# (le venv qui porte mlx-audio). Aucun réseau : HF_HUB_OFFLINE est forcé.
+set -euo pipefail
+DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(dirname "$DIR")"
+VENV="${JARVIS_VENV:-$HOME/mlx-env}"
+PYTHON="${VENV}/bin/python"
+if [[ ! -x "$PYTHON" ]]; then
+  echo "[qwen3-local] Python MLX introuvable: $PYTHON (pip install mlx-audio dans JARVIS_VENV)" >&2
+  exit 127
+fi
+# Le sidecar importe `native_audio.sidecar_protocol` : la racine du dépôt doit
+# être sur le chemin d'import, pas seulement le répertoire du script.
+export PYTHONPATH="${ROOT}${PYTHONPATH:+:$PYTHONPATH}"
+export HF_HUB_OFFLINE=1
+export HF_HUB_DISABLE_TELEMETRY=1
+exec "$PYTHON" "$ROOT/native_audio/qwen3_local.py" "$@"

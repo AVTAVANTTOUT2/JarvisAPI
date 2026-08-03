@@ -30,10 +30,22 @@ def _fish_local(settings: TTSSettings) -> LocalTTSProvider:
     return FishLocalTTSProvider(settings)
 
 
+def _qwen3_local(settings: TTSSettings) -> LocalTTSProvider:
+    from jarvis.audio.tts.backends.qwen3_local import Qwen3LocalTTSProvider
+
+    return Qwen3LocalTTSProvider(settings)
+
+
 # Import différé : construire un fournisseur ne doit charger ni MLX, ni les
 # poids, ni le sidecar.
+#
+# ``fish_local`` reste sélectionnable mais n'est plus le défaut : mesuré sur ce
+# Mac mini M4, il exige 189 Go/s de bande passante mémoire soutenue pour parler
+# en temps réel, contre environ 70 Go/s disponibles. Il est conservé comme
+# référence de qualité vocale et pour les usages hors temps réel.
 _BUILDERS: dict[str, Callable[[TTSSettings], LocalTTSProvider]] = {
     "fish_local": _fish_local,
+    "qwen3_local": _qwen3_local,
 }
 
 

@@ -22,8 +22,8 @@ from pathlib import Path
 # fichier local. Ces valeurs sont donc la source de vérité, et `.env` ne fait
 # que les surcharger.
 
-DEFAULT_TTS_PROVIDER = "fish_local"
-DEFAULT_TTS_MODEL_PATH = "mlx-community/fish-audio-s2-pro-8bit"
+DEFAULT_TTS_PROVIDER = "qwen3_local"
+DEFAULT_TTS_MODEL_PATH = "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-6bit"
 DEFAULT_TTS_VOICE_PATH = "./voices/jarvis-fr"
 DEFAULT_TTS_DEVICE = "auto"
 DEFAULT_TTS_STREAMING = True
@@ -54,7 +54,12 @@ DEFAULT_TTS_FIRST_CHUNK_MAX_CHARS = 60
 
 # Fournisseurs connus. La fabrique refuse tout autre nom : c'est ce qui rend
 # impossible l'apparition d'un backend distant par simple configuration.
-KNOWN_PROVIDERS: frozenset[str] = frozenset({"fish_local"})
+#
+# ``qwen3_local`` est le défaut : 12,5 trames par seconde d'audio pour un
+# talker de 0,6 milliard de paramètres, là où ``fish_local`` en demande 21,53
+# pour un backbone de 4 milliards. Le second reste sélectionnable — sa qualité
+# vocale n'est pas en cause, seulement sa vitesse sur cette classe de machine.
+KNOWN_PROVIDERS: frozenset[str] = frozenset({"fish_local", "qwen3_local"})
 
 # Nom de fichier attendus dans le répertoire de voix.
 VOICE_METADATA_FILE = "metadata.json"
