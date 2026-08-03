@@ -1,10 +1,12 @@
-# 32 — Source de vérité : frontends et base SQLite
+# 32 — Source de vérité : frontends, API et base SQLite
 
 **Date** : 3 août 2026
 **Méthode** : audit du code exécutable sur `main` (pas de la documentation).  
 **Contrôle automatique** : `tools/audit_architecture_truth.py --check --schema-output database/schema.sql`
 
 Runtime SQLite canonique : **90 tables persistantes**, **95 tables physiques avec FTS5**, schéma généré : **91 déclarations de tables**.
+
+Surface API canonique : **260 opérations**, **231 chemins**, **110 consommées et testées**, **57 consommées sans référence de test**, **44 serveur seulement mais testées**, **49 non référencées**.
 
 > Ce document **remplace** les affirmations conflictuelles « 44 tables », « 72 tables », « 73 tables »
 > et les formulations ambiguës sur le « frontend principal ».  
@@ -32,6 +34,7 @@ Runtime SQLite canonique : **90 tables persistantes**, **95 tables physiques ave
 | TV ? | **`tv/`** — FastAPI + vanilla JS, port **5174** (processus séparé) |
 | Maquette TV historique | Supprimée du tree runtime le 03/08/2026 ; `tv-v2` est l'unique implémentation |
 | Supervisor (9000) sert quoi ? | **`frontend/out` en priorité**, puis **`web/dist`** (même politique que FastAPI — ADR-019) |
+| Surface API ? | **260 opérations / 231 chemins**, inventoriés automatiquement avec leurs consommateurs et tests |
 
 **Formulation canonique (à réutiliser partout) :**
 
@@ -117,6 +120,39 @@ GET /mobile/ , /mobile/{asset:path}
 ```text
 Toujours le backend FastAPI (main.py) — jamais les builds frontend.
 Auth fail-closed via api/middleware.py (hors allowlist).
+```
+
+### Inventaire route → consommateur → test
+
+`artifacts/architecture_truth.json`, clé `api_surface.routes`, relie chaque
+opération FastAPI à son fichier serveur, aux clients qui mentionnent son chemin
+et aux tests qui le référencent. L'analyse est statique et n'importe pas
+`main.py`; elle couvre aussi les décorateurs avec préfixe `APIRouter`,
+`add_api_route(...)` et l'enregistrement fonctionnel du WebSocket `/ws`.
+
+| Surface cliente | Chemins référencés |
+|---|---:|
+| Next canonique (`frontend/`) | 115 |
+| Vite de repli (`web/`) | 42 |
+| Web mobile (`web_mobile/`) | 28 |
+| Android | 8 |
+| TV | 8 |
+| SDK auth partagé | 6 |
+| macOS | 0 |
+
+Les références de test couvrent 127 chemins distincts. Les catégories de
+l'artefact sont comptées par opération : `consumer_and_tested`,
+`consumer_without_path_test`, `server_only_tested` et `unreferenced`. Une
+référence de chemin ne prouve pas à elle seule la couverture de chaque verbe ou
+du comportement métier ; les tests gardent cette responsabilité. Les routes
+`unreferenced` constituent la file de décision explicite du lot suivant :
+suppression si elles sont mortes, ou documentation comme surface opérateur.
+
+Toute modification de route ou de référence client/test rend l'artefact
+obsolète et fait échouer la CI. Régénération :
+
+```bash
+python tools/audit_architecture_truth.py --schema-output database/schema.sql
 ```
 
 ### Assets

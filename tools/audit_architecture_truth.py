@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Génère et vérifie la vérité frontends + schéma SQLite (code only).
+"""Génère et vérifie la vérité frontends + API + schéma SQLite (code only).
 
 Produit ``artifacts/architecture_truth.json`` et, sur demande, le schéma
 SQLite déterministe d'une base fraîche, sans :
@@ -17,6 +17,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import ast
 import copy
 import importlib.util
 import json
@@ -76,6 +77,65 @@ CANONICAL_COUNT_DOCS = (
 
 FTS_SHADOW_SUFFIXES = {"config", "content", "data", "docsize", "idx"}
 
+HTTP_ROUTE_METHODS = {
+    "get": ("GET",),
+    "post": ("POST",),
+    "put": ("PUT",),
+    "patch": ("PATCH",),
+    "delete": ("DELETE",),
+    "head": ("HEAD",),
+    "options": ("OPTIONS",),
+    "websocket": ("WEBSOCKET",),
+}
+API_ROUTE_SOURCE_ROOTS = ("api", "app")
+API_ROUTE_SPECIAL_PATHS = {"/upload", "/ws"}
+SOURCE_SUFFIXES = {
+    ".cjs",
+    ".html",
+    ".js",
+    ".jsx",
+    ".kt",
+    ".mjs",
+    ".py",
+    ".swift",
+    ".ts",
+    ".tsx",
+}
+IGNORED_SOURCE_PARTS = {
+    ".git",
+    ".gradle",
+    ".next",
+    ".pytest_cache",
+    ".venv",
+    "DerivedData",
+    "build",
+    "coverage",
+    "dist",
+    "node_modules",
+    "out",
+}
+CONSUMER_SURFACES = {
+    "frontend_next": ("frontend",),
+    "frontend_vite": ("web",),
+    "mobile_web": ("web_mobile",),
+    "android": ("android/app/src/main",),
+    "macos": ("macos",),
+    "tv": ("tv",),
+    "shared_auth_sdk": ("jarvis_auth/src",),
+}
+TEST_SOURCE_ROOTS = (
+    "tests",
+    "jarvis/tests",
+    "agents/devagent",
+    "frontend",
+    "web",
+    "web_mobile",
+    "android/app/src/test",
+    "android/app/src/androidTest",
+    "macos",
+    "jarvis_auth",
+)
+
 
 @dataclass
 class FrontendProject:
@@ -92,6 +152,14 @@ class FrontendProject:
     notes: list[str] = field(default_factory=list)
 
 
+@dataclass(frozen=True, order=True)
+class ApiRoute:
+    method: str
+    path: str
+    source: str
+    line: int
+
+
 def _read_json(path: Path) -> dict[str, Any] | None:
     if not path.is_file():
         return None
@@ -103,6 +171,335 @@ def _read_json(path: Path) -> dict[str, Any] | None:
 
 def _extract_create_tables(text: str) -> list[str]:
     return sorted(set(CREATE_TABLE_RE.findall(text)))
+
+
+def _static_string(node: ast.AST | None, constants: dict[str, str]) -> str | None:
+    """Évalue les chemins de route statiques sans exécuter le module."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.Name):
+        return constants.get(node.id)
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        left = _static_string(node.left, constants)
+        right = _static_string(node.right, constants)
+        return left + right if left is not None and right is not None else None
+    if isinstance(node, ast.JoinedStr):
+        parts: list[str] = []
+        for value in node.values:
+            if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                parts.append(value.value)
+            elif isinstance(value, ast.FormattedValue):
+                expression = ast.unparse(value.value) if hasattr(ast, "unparse") else "value"
+                parts.append("{" + expression + "}")
+            else:
+                return None
+        return "".join(parts)
+    return None
+
+
+def _string_constants(tree: ast.Module) -> dict[str, str]:
+    constants: dict[str, str] = {}
+    for statement in tree.body:
+        if not isinstance(statement, (ast.Assign, ast.AnnAssign)):
+            continue
+        value = _static_string(statement.value, constants)
+        if value is None:
+            continue
+        targets = statement.targets if isinstance(statement, ast.Assign) else [statement.target]
+        for target in targets:
+            if isinstance(target, ast.Name):
+                constants[target.id] = value
+    return constants
+
+
+def _call_name(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    return None
+
+
+def _router_prefixes(tree: ast.Module, constants: dict[str, str]) -> dict[str, str]:
+    prefixes = {"app": ""}
+    for statement in tree.body:
+        if not isinstance(statement, (ast.Assign, ast.AnnAssign)):
+            continue
+        call = statement.value
+        if not isinstance(call, ast.Call) or _call_name(call.func) != "APIRouter":
+            continue
+        prefix = ""
+        for keyword in call.keywords:
+            if keyword.arg == "prefix":
+                prefix = _static_string(keyword.value, constants) or ""
+                break
+        targets = statement.targets if isinstance(statement, ast.Assign) else [statement.target]
+        for target in targets:
+            if isinstance(target, ast.Name):
+                prefixes[target.id] = prefix.rstrip("/")
+    return prefixes
+
+
+def _route_path(prefix: str, raw_path: str) -> str:
+    path = f"{prefix}/{raw_path.lstrip('/')}" if prefix else raw_path
+    if not path.startswith("/"):
+        path = "/" + path
+    return path.rstrip("/") or "/"
+
+
+def _api_path_in_scope(path: str) -> bool:
+    return path == "/api" or path.startswith("/api/") or path in API_ROUTE_SPECIAL_PATHS
+
+
+def _literal_methods(node: ast.AST | None) -> tuple[str, ...]:
+    if not isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+        return ()
+    methods = [
+        element.value.upper()
+        for element in node.elts
+        if isinstance(element, ast.Constant) and isinstance(element.value, str)
+    ]
+    return tuple(sorted(set(methods)))
+
+
+def _routes_from_python(root: Path, path: Path) -> list[ApiRoute]:
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    except (OSError, SyntaxError, UnicodeDecodeError):
+        return []
+    constants = _string_constants(tree)
+    prefixes = _router_prefixes(tree, constants)
+    relative = path.relative_to(root).as_posix()
+    routes: list[ApiRoute] = []
+
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            for decorator in node.decorator_list:
+                if not isinstance(decorator, ast.Call) or not isinstance(
+                    decorator.func, ast.Attribute
+                ):
+                    continue
+                receiver = decorator.func.value
+                if not isinstance(receiver, ast.Name) or receiver.id not in prefixes:
+                    continue
+                method_name = decorator.func.attr.lower()
+                methods = HTTP_ROUTE_METHODS.get(method_name)
+                if method_name == "api_route":
+                    methods_node = next(
+                        (kw.value for kw in decorator.keywords if kw.arg == "methods"),
+                        None,
+                    )
+                    methods = _literal_methods(methods_node)
+                if not methods or not decorator.args:
+                    continue
+                raw_path = _static_string(decorator.args[0], constants)
+                if raw_path is None:
+                    continue
+                route_path = _route_path(prefixes[receiver.id], raw_path)
+                if not _api_path_in_scope(route_path):
+                    continue
+                routes.extend(
+                    ApiRoute(method, route_path, relative, decorator.lineno)
+                    for method in methods
+                )
+
+        if not isinstance(node, ast.Expr) or not isinstance(node.value, ast.Call):
+            continue
+        call = node.value
+        # Enregistrement fonctionnel : app.websocket("/ws")(handler).
+        if isinstance(call.func, ast.Call) and isinstance(call.func.func, ast.Attribute):
+            registration = call.func
+            receiver = registration.func.value
+            if isinstance(receiver, ast.Name) and receiver.id in prefixes:
+                methods = HTTP_ROUTE_METHODS.get(registration.func.attr.lower())
+                raw_path = (
+                    _static_string(registration.args[0], constants)
+                    if registration.args
+                    else None
+                )
+                if methods and raw_path is not None:
+                    route_path = _route_path(prefixes[receiver.id], raw_path)
+                    if _api_path_in_scope(route_path):
+                        routes.extend(
+                            ApiRoute(method, route_path, relative, registration.lineno)
+                            for method in methods
+                        )
+            continue
+        if not isinstance(call.func, ast.Attribute):
+            continue
+        receiver = call.func.value
+        if not isinstance(receiver, ast.Name) or receiver.id not in prefixes or not call.args:
+            continue
+        call_kind = call.func.attr
+        if call_kind not in {"add_api_route", "add_websocket_route"}:
+            continue
+        raw_path = _static_string(call.args[0], constants)
+        if raw_path is None:
+            continue
+        route_path = _route_path(prefixes[receiver.id], raw_path)
+        if not _api_path_in_scope(route_path):
+            continue
+        if call_kind == "add_websocket_route":
+            methods = ("WEBSOCKET",)
+        else:
+            methods_node = next(
+                (kw.value for kw in call.keywords if kw.arg == "methods"),
+                None,
+            )
+            methods = _literal_methods(methods_node) or ("GET",)
+        routes.extend(
+            ApiRoute(method, route_path, relative, call.lineno) for method in methods
+        )
+    return routes
+
+
+def discover_api_routes(root: Path) -> list[ApiRoute]:
+    """Inventorie statiquement les routes publiques montées par JARVIS."""
+    candidates = [root / "main.py"]
+    for source_root in API_ROUTE_SOURCE_ROOTS:
+        directory = root / source_root
+        if directory.is_dir():
+            candidates.extend(sorted(directory.rglob("*.py")))
+    routes = {
+        route
+        for candidate in candidates
+        if candidate.is_file()
+        for route in _routes_from_python(root, candidate)
+    }
+    return sorted(routes)
+
+
+def _is_test_source(path: Path, root: Path) -> bool:
+    relative = path.relative_to(root)
+    lowered_parts = tuple(part.lower() for part in relative.parts)
+    name = path.name.lower()
+    return (
+        "tests" in lowered_parts
+        or "test" in lowered_parts
+        or "androidtest" in lowered_parts
+        or name.startswith("test_")
+        or ".test." in name
+        or ".spec." in name
+        or name.endswith("tests.swift")
+    )
+
+
+def _iter_reference_sources(
+    root: Path,
+    source_roots: tuple[str, ...],
+    *,
+    tests: bool,
+) -> list[Path]:
+    sources: set[Path] = set()
+    for source_root in source_roots:
+        directory = root / source_root
+        if not directory.exists():
+            continue
+        candidates = [directory] if directory.is_file() else directory.rglob("*")
+        for path in candidates:
+            if not path.is_file() or path.suffix.lower() not in SOURCE_SUFFIXES:
+                continue
+            relative = path.relative_to(root)
+            if any(part in IGNORED_SOURCE_PARTS for part in relative.parts):
+                continue
+            if _is_test_source(path, root) != tests:
+                continue
+            sources.add(path)
+    return sorted(sources)
+
+
+def _route_reference_pattern(path: str) -> re.Pattern[str]:
+    """Accepte `{id}`, `${id}` ou une valeur concrète pour chaque paramètre."""
+    pieces: list[str] = []
+    for part in path.split("/"):
+        if not part:
+            continue
+        if re.fullmatch(r"\{[^}/]+(?::[^}]+)?\}", part):
+            pieces.append(r"[^/?#\s\"'`]+")
+        else:
+            pieces.append(re.escape(part))
+    body = "/" + "/".join(pieces)
+    return re.compile(
+        rf"(?<![A-Za-z0-9_-]){body}(?=$|[?#\s\"'`),;\]])"
+    )
+
+
+def _reference_map(
+    root: Path,
+    route_paths: set[str],
+    source_roots: tuple[str, ...],
+    *,
+    tests: bool,
+) -> dict[str, list[str]]:
+    patterns = {path: _route_reference_pattern(path) for path in sorted(route_paths)}
+    references: dict[str, set[str]] = {path: set() for path in route_paths}
+    for source in _iter_reference_sources(root, source_roots, tests=tests):
+        try:
+            text = source.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        relative = source.relative_to(root).as_posix()
+        for path, pattern in patterns.items():
+            if pattern.search(text):
+                references[path].add(relative)
+    return {path: sorted(files) for path, files in references.items()}
+
+
+def analyze_api_surface(root: Path) -> dict[str, Any]:
+    routes = discover_api_routes(root)
+    route_paths = {route.path for route in routes}
+    surface_references = {
+        surface: _reference_map(root, route_paths, roots, tests=False)
+        for surface, roots in CONSUMER_SURFACES.items()
+    }
+    test_references = _reference_map(
+        root,
+        route_paths,
+        TEST_SOURCE_ROOTS,
+        tests=True,
+    )
+    inventory: list[dict[str, Any]] = []
+    classification_counts: dict[str, int] = {}
+    for route in routes:
+        consumers = {
+            surface: references[route.path]
+            for surface, references in surface_references.items()
+            if references[route.path]
+        }
+        tests = test_references[route.path]
+        if consumers and tests:
+            classification = "consumer_and_tested"
+        elif consumers:
+            classification = "consumer_without_path_test"
+        elif tests:
+            classification = "server_only_tested"
+        else:
+            classification = "unreferenced"
+        classification_counts[classification] = classification_counts.get(classification, 0) + 1
+        inventory.append(
+            {
+                "method": route.method,
+                "path": route.path,
+                "source": route.source,
+                "line": route.line,
+                "consumers": consumers,
+                "tests": tests,
+                "classification": classification,
+            }
+        )
+    return {
+        "coverage_scope": (
+            "Références statiques par chemin : la méthode HTTP et les assertions "
+            "comportementales restent vérifiées par les suites de tests."
+        ),
+        "counts": {
+            "operations": len(routes),
+            "paths": len(route_paths),
+            **dict(sorted(classification_counts.items())),
+        },
+        "consumer_surfaces": sorted(CONSUMER_SURFACES),
+        "routes": inventory,
+    }
 
 
 def _pnpm_importer_versions(
@@ -525,6 +922,18 @@ def _canonical_count_line(tables: dict[str, Any]) -> str:
     )
 
 
+def _canonical_api_line(api_surface: dict[str, Any]) -> str:
+    counts = api_surface["counts"]
+    return (
+        "Surface API canonique : "
+        f"**{counts['operations']} opérations**, **{counts['paths']} chemins**, "
+        f"**{counts.get('consumer_and_tested', 0)} consommées et testées**, "
+        f"**{counts.get('consumer_without_path_test', 0)} consommées sans référence de test**, "
+        f"**{counts.get('server_only_tested', 0)} serveur seulement mais testées**, "
+        f"**{counts.get('unreferenced', 0)} non référencées**."
+    )
+
+
 def scan_canonical_count_docs(
     root: Path, tables: dict[str, Any]
 ) -> list[dict[str, Any]]:
@@ -549,6 +958,30 @@ def scan_canonical_count_docs(
                 }
             )
     return findings
+
+
+def scan_canonical_api_doc(
+    root: Path, api_surface: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """Synchronise le résumé humain avec l'inventaire API généré."""
+    relative = "Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md"
+    path = root / relative
+    if not path.is_file():
+        return []
+    expected = _canonical_api_line(api_surface)
+    text = path.read_text(encoding="utf-8")
+    if expected in text:
+        return []
+    return [
+        {
+            "file": relative,
+            "line": 0,
+            "kind": "canonical_api_surface_counts",
+            "severity": "error",
+            "excerpt": "formulation canonique API absente ou périmée",
+            "note": f"Attendu exactement : {expected}",
+        }
+    ]
 
 
 def scan_doc_contradictions(root: Path, tables: dict[str, Any]) -> list[dict[str, Any]]:
@@ -621,6 +1054,7 @@ def build_report(root: Path) -> dict[str, Any]:
     frontends = discover_frontends(root)
     resolution = analyze_frontend_resolution(root)
     tables = analyze_tables(root)
+    api_surface = analyze_api_surface(root)
     contradictions = scan_doc_contradictions(root, tables)
     frontend_inventory = [asdict(frontend) for frontend in frontends]
     for frontend in frontend_inventory:
@@ -652,8 +1086,10 @@ def build_report(root: Path) -> dict[str, Any]:
         "frontends": frontend_inventory,
         "resolution": stable_resolution,
         "tables": tables,
+        "api_surface": api_surface,
         "documentation_findings": contradictions
         + scan_canonical_count_docs(root, tables)
+        + scan_canonical_api_doc(root, api_surface)
         + [
             {
                 "file": "supervisor.py",
@@ -753,6 +1189,7 @@ def main(argv: list[str] | None = None) -> int:
         f"[audit_architecture_truth] wrote {args.output} "
         f"(persistantes={report['tables']['counts']['persistantes_post_init']}, "
         f"physiques_max={report['tables']['counts']['physiques_max_default_fts_on']}, "
+        f"api_operations={report['api_surface']['counts']['operations']}, "
         f"doc_errors={len(errors)})",
         file=sys.stderr,
     )

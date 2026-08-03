@@ -46,6 +46,11 @@ def fake_repo(tmp_path: Path) -> Path:
     (fe / "public" / "sw.js").write_text("// sw\n", encoding="utf-8")
     (fe / "public" / "manifest.webmanifest").write_text("{}", encoding="utf-8")
     (fe / "out" / "index.html").write_text("<html></html>", encoding="utf-8")
+    (fe / "src").mkdir()
+    (fe / "src" / "api.ts").write_text(
+        "fetch('/api/status'); fetch(`/api/jobs/${jobId}`);\n",
+        encoding="utf-8",
+    )
 
     # web Vite
     web = tmp_path / "web"
@@ -96,6 +101,30 @@ def fake_repo(tmp_path: Path) -> Path:
         "def _setup_frontend(app):\n"
         "    if desktop.kind == 'next_canonical' and _setup_unified_frontend(app):\n"
         "        return\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "api" / "router_jobs.py").write_text(
+        "from fastapi import APIRouter\n"
+        "router = APIRouter(prefix='/api')\n"
+        "@router.post('/jobs/{job_id}')\n"
+        "def run_job(): ...\n"
+        "router.add_api_route('/operator', lambda: None, methods=['GET'])\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "main.py").write_text(
+        "from fastapi import FastAPI\n"
+        "app = FastAPI()\n"
+        "@app.get('/api/status')\n"
+        "def status(): ...\n"
+        "async def ws_handler(ws): ...\n"
+        "app.websocket('/ws')(ws_handler)\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_api.py").write_text(
+        "client.get('/api/status')\n"
+        "client.post('/api/jobs/42')\n"
+        "client.get('/api/operator')\n",
         encoding="utf-8",
     )
     (tmp_path / "core").mkdir()
@@ -151,6 +180,32 @@ def test_analyze_tables_counts(fake_repo: Path) -> None:
     assert tables["counts"]["fts_objects_if_available"] == 5
     assert tables["counts"]["physiques_max_default_fts_on"] == 9
     assert tables["init_pipeline"]["uses_schema_py"] is True
+
+
+def test_api_surface_maps_routes_to_consumers_and_tests(fake_repo: Path) -> None:
+    routes = audit.discover_api_routes(fake_repo)
+    assert [(route.method, route.path) for route in routes] == [
+        ("GET", "/api/operator"),
+        ("GET", "/api/status"),
+        ("POST", "/api/jobs/{job_id}"),
+        ("WEBSOCKET", "/ws"),
+    ]
+
+    surface = audit.analyze_api_surface(fake_repo)
+    assert surface["counts"] == {
+        "operations": 4,
+        "paths": 4,
+        "consumer_and_tested": 2,
+        "server_only_tested": 1,
+        "unreferenced": 1,
+    }
+    by_path = {route["path"]: route for route in surface["routes"]}
+    assert by_path["/api/jobs/{job_id}"]["consumers"] == {
+        "frontend_next": ["frontend/src/api.ts"]
+    }
+    assert by_path["/api/jobs/{job_id}"]["tests"] == ["tests/test_api.py"]
+    assert by_path["/api/operator"]["classification"] == "server_only_tested"
+    assert by_path["/ws"]["classification"] == "unreferenced"
 
 
 def test_doc_scan_flags_readme_errors(fake_repo: Path) -> None:

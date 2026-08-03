@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-03T19:30:56.573754+00:00",
+  "generated_at": "2026-08-03T22:18:34.339037+00:00",
   "repo_root": ".",
   "canonical_formulation": {
     "database": "Le projet crée 90 tables persistantes après init_db() + migrations, plus jusqu'à 5 objets FTS5, soit 95 tables physiques lorsque FTS5 est disponible.",
@@ -460,6 +460,3819 @@
       "physiques_fts": "95 entrées sqlite_master avec les cinq objets FTS5 disponibles.",
       "historique": "Les totaux 44, 70, 71, 72, 73, 75, 76 et 78 décrivent des snapshots antérieurs, pas le runtime courant."
     }
+  },
+  "api_surface": {
+    "coverage_scope": "Références statiques par chemin : la méthode HTTP et les assertions comportementales restent vérifiées par les suites de tests.",
+    "counts": {
+      "operations": 260,
+      "paths": 231,
+      "consumer_and_tested": 110,
+      "consumer_without_path_test": 57,
+      "server_only_tested": 44,
+      "unreferenced": 49
+    },
+    "consumer_surfaces": [
+      "android",
+      "frontend_next",
+      "frontend_vite",
+      "macos",
+      "mobile_web",
+      "shared_auth_sdk",
+      "tv"
+    ],
+    "routes": [
+      {
+        "method": "DELETE",
+        "path": "/api/conversations/{conv_id}",
+        "source": "api/router_conversations.py",
+        "line": 111,
+        "consumers": {
+          "frontend_next": [
+            "frontend/complement_validation.cjs",
+            "frontend/retest_switch.cjs",
+            "frontend/src/lib/api.ts"
+          ],
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ]
+        },
+        "tests": [
+          "tests/test_crud_not_found.py",
+          "tests/test_misc_input_contracts.py",
+          "tests/test_mobile_bearer_routes.py",
+          "tests/test_mobile_chat.py",
+          "tests/test_secure_uploads.py",
+          "tests/test_web_mobile.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "DELETE",
+        "path": "/api/dnd",
+        "source": "api/router_rituals.py",
+        "line": 79,
+        "consumers": {},
+        "tests": [
+          "tests/test_misc_input_contracts.py"
+        ],
+        "classification": "server_only_tested"
+      },
+      {
+        "method": "DELETE",
+        "path": "/api/food/cart/{plan_id}",
+        "source": "api/router_food.py",
+        "line": 306,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_food_control.py",
+          "tests/test_food_input_contract.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "DELETE",
+        "path": "/api/food/session/capture",
+        "source": "api/router_food.py",
+        "line": 354,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_food_control.py",
+          "tests/test_food_input_contract.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "DELETE",
+        "path": "/api/life-profile/{entry_id}",
+        "source": "api/router_misc.py",
+        "line": 358,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_crud_not_found.py",
+          "tests/test_life_input_contract.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "DELETE",
+        "path": "/api/logs",
+        "source": "api/router_misc.py",
+        "line": 308,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ]
+        },
+        "tests": [
+          "frontend/src/lib/api-logs.test.ts",
+          "tests/test_action_log_privacy.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "DELETE",
+        "path": "/api/places/{place_id}",
+        "source": "api/router_location.py",
+        "line": 400,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_crud_not_found.py",
+          "tests/test_lot1_endpoints.py",
+          "tests/test_place_input_contract.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "DELETE",
+        "path": "/api/tasks",
+        "source": "api/router_tasks.py",
+        "line": 72,
+        "consumers": {
+          "frontend_next": [
+            "frontend/complement_validation.cjs",
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx",
+            "web/src/app/components/views/TasksView.tsx"
+          ],
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ],
+          "android": [
+            "android/app/src/main/kotlin/fr/jarvis/companion/core/JarvisFeatureFlags.kt",
+            "android/app/src/main/kotlin/fr/jarvis/companion/feature/tasks/TasksScreen.kt"
+          ],
+          "tv": [
+            "tv/server.py",
+            "tv/static/js/tv-v2.js"
+          ]
+        },
+        "tests": [
+          "frontend/e2e/critical-flows.spec.ts",
+          "frontend/e2e/unified.spec.ts",
+          "tests/test_mobile_bearer_routes.py",
+          "tests/test_mobile_chat.py",
+          "tests/test_task_input_contract.py",
+          "web/src/lib/offline/queue.test.ts"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "DELETE",
+        "path": "/api/tasks/{task_id}",
+        "source": "api/router_tasks.py",
+        "line": 64,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ]
+        },
+        "tests": [
+          "tests/test_crud_not_found.py",
+          "tests/test_task_input_contract.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/app-usage",
+        "source": "api/router_devices.py",
+        "line": 357,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/audio-daemon/status",
+        "source": "api/router_daemon.py",
+        "line": 36,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/auth/sessions",
+        "source": "api/router_auth.py",
+        "line": 261,
+        "consumers": {
+          "frontend_next": [
+            "frontend/complement_validation.cjs",
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_security_middleware.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/auth/status",
+        "source": "api/router_auth.py",
+        "line": 136,
+        "consumers": {
+          "frontend_next": [
+            "frontend/complement_validation.cjs",
+            "frontend/src/types/api.ts"
+          ],
+          "mobile_web": [
+            "web_mobile/js/api.js",
+            "web_mobile/js/auth.js"
+          ],
+          "shared_auth_sdk": [
+            "jarvis_auth/src/client.ts"
+          ]
+        },
+        "tests": [
+          "frontend/e2e/critical-flows.spec.ts",
+          "frontend/e2e/unified.spec.ts",
+          "tests/test_mobile_pairing.py",
+          "tests/test_security_middleware.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/autonomy/settings",
+        "source": "api/router_cognitive.py",
+        "line": 344,
+        "consumers": {
+          "frontend_vite": [
+            "web/src/app/components/views/CognitiveView.tsx"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/backups",
+        "source": "api/router_misc.py",
+        "line": 108,
+        "consumers": {},
+        "tests": [],
+        "classification": "unreferenced"
+      },
+      {
+        "method": "GET",
+        "path": "/api/briefing",
+        "source": "api/router_misc.py",
+        "line": 328,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ],
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ]
+        },
+        "tests": [
+          "frontend/e2e/unified.spec.ts",
+          "tests/test_mobile_bearer_routes.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/calendar",
+        "source": "api/router_misc.py",
+        "line": 393,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ],
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ],
+          "tv": [
+            "tv/data_sources/calendar.py",
+            "tv/server.py",
+            "tv/static/js/tv-v2.js"
+          ]
+        },
+        "tests": [
+          "frontend/e2e/unified.spec.ts",
+          "tests/test_mobile_bearer_routes.py",
+          "tests/test_relationships_input_contract.py",
+          "tests/test_web_mobile.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/cognitive/capabilities",
+        "source": "api/router_cognitive.py",
+        "line": 119,
+        "consumers": {
+          "frontend_vite": [
+            "web/src/app/components/views/CognitiveView.tsx"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/cognitive/llm-policy",
+        "source": "api/router_cognitive.py",
+        "line": 128,
+        "consumers": {
+          "frontend_vite": [
+            "web/src/app/components/views/CognitiveView.tsx"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/commitments",
+        "source": "api/router_misc.py",
+        "line": 213,
+        "consumers": {},
+        "tests": [],
+        "classification": "unreferenced"
+      },
+      {
+        "method": "GET",
+        "path": "/api/commitments/consistency",
+        "source": "api/router_misc.py",
+        "line": 223,
+        "consumers": {},
+        "tests": [
+          "tests/test_lot1_endpoints.py"
+        ],
+        "classification": "server_only_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/contacts",
+        "source": "api/router_misc.py",
+        "line": 428,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/contacts/resolve",
+        "source": "api/router_cognitive.py",
+        "line": 323,
+        "consumers": {},
+        "tests": [],
+        "classification": "unreferenced"
+      },
+      {
+        "method": "GET",
+        "path": "/api/control/services",
+        "source": "api/router_daemon.py",
+        "line": 91,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_control_plane_auth.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/control/{service}/detail",
+        "source": "api/router_daemon.py",
+        "line": 97,
+        "consumers": {},
+        "tests": [
+          "tests/test_http_error_contract.py"
+        ],
+        "classification": "server_only_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/control/{service}/logs",
+        "source": "api/router_daemon.py",
+        "line": 187,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/conversations",
+        "source": "api/router_conversations.py",
+        "line": 86,
+        "consumers": {
+          "frontend_next": [
+            "frontend/complement_validation.cjs",
+            "frontend/retest_back.cjs",
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ],
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ]
+        },
+        "tests": [
+          "frontend/e2e/critical-flows.spec.ts",
+          "tests/test_mobile_bearer_routes.py",
+          "tests/test_web_mobile.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/conversations/search",
+        "source": "api/router_conversations.py",
+        "line": 77,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/conversations/{conv_id}",
+        "source": "api/router_conversations.py",
+        "line": 93,
+        "consumers": {
+          "frontend_next": [
+            "frontend/complement_validation.cjs",
+            "frontend/retest_switch.cjs",
+            "frontend/src/lib/api.ts"
+          ],
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ]
+        },
+        "tests": [
+          "tests/test_crud_not_found.py",
+          "tests/test_misc_input_contracts.py",
+          "tests/test_mobile_bearer_routes.py",
+          "tests/test_mobile_chat.py",
+          "tests/test_secure_uploads.py",
+          "tests/test_web_mobile.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/costs",
+        "source": "api/router_misc.py",
+        "line": 103,
+        "consumers": {},
+        "tests": [],
+        "classification": "unreferenced"
+      },
+      {
+        "method": "GET",
+        "path": "/api/cursor/jobs",
+        "source": "api/router_cognitive.py",
+        "line": 163,
+        "consumers": {
+          "frontend_vite": [
+            "web/src/app/components/views/CognitiveView.tsx"
+          ]
+        },
+        "tests": [
+          "tests/test_cursor_security_hardening.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/cursor/jobs/{job_id}",
+        "source": "api/router_cognitive.py",
+        "line": 187,
+        "consumers": {
+          "frontend_vite": [
+            "web/src/app/components/views/CognitiveView.tsx"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/cursor/status",
+        "source": "api/router_cognitive.py",
+        "line": 144,
+        "consumers": {},
+        "tests": [],
+        "classification": "unreferenced"
+      },
+      {
+        "method": "GET",
+        "path": "/api/day-scores",
+        "source": "api/router_misc.py",
+        "line": 183,
+        "consumers": {},
+        "tests": [
+          "tests/test_lot1_endpoints.py"
+        ],
+        "classification": "server_only_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/day-scores/{date}",
+        "source": "api/router_misc.py",
+        "line": 188,
+        "consumers": {},
+        "tests": [
+          "tests/test_lot1_endpoints.py"
+        ],
+        "classification": "server_only_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/devagent/{project_id}/deployments",
+        "source": "api/router_devagent.py",
+        "line": 27,
+        "consumers": {},
+        "tests": [],
+        "classification": "unreferenced"
+      },
+      {
+        "method": "GET",
+        "path": "/api/devagent/{project_id}/status",
+        "source": "api/router_devagent.py",
+        "line": 180,
+        "consumers": {},
+        "tests": [],
+        "classification": "unreferenced"
+      },
+      {
+        "method": "GET",
+        "path": "/api/devices",
+        "source": "api/router_devices.py",
+        "line": 340,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ],
+          "android": [
+            "android/app/src/main/kotlin/fr/jarvis/companion/feature/settings/SettingsPresentation.kt"
+          ],
+          "tv": [
+            "tv/server.py",
+            "tv/static/js/tv-v2.js"
+          ]
+        },
+        "tests": [
+          "tests/test_remote_device_pairing.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/devices/{device_id}/tts",
+        "source": "api/router_devices.py",
+        "line": 303,
+        "consumers": {},
+        "tests": [
+          "tests/test_remote_device_pairing.py"
+        ],
+        "classification": "server_only_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/dnd",
+        "source": "api/router_rituals.py",
+        "line": 61,
+        "consumers": {},
+        "tests": [
+          "tests/test_misc_input_contracts.py"
+        ],
+        "classification": "server_only_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/doomscroll",
+        "source": "api/router_misc.py",
+        "line": 163,
+        "consumers": {},
+        "tests": [
+          "tests/test_lot1_endpoints.py"
+        ],
+        "classification": "server_only_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/emails",
+        "source": "api/router_misc.py",
+        "line": 333,
+        "consumers": {
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ],
+          "tv": [
+            "tv/server.py",
+            "tv/static/js/tv-v2.js"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/events/stream",
+        "source": "api/router_misc.py",
+        "line": 258,
+        "consumers": {
+          "frontend_vite": [
+            "web/src/app/components/views/FoodView.tsx",
+            "web/src/pages/MissionControl.tsx"
+          ]
+        },
+        "tests": [
+          "frontend/e2e/critical-flows.spec.ts",
+          "frontend/e2e/unified.spec.ts",
+          "tests/test_sse_resume.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/export",
+        "source": "api/router_misc.py",
+        "line": 443,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/fitness/dashboard",
+        "source": "app/fitness/routes.py",
+        "line": 242,
+        "consumers": {
+          "mobile_web": [
+            "web_mobile/js/views/health.js"
+          ]
+        },
+        "tests": [
+          "tests/test_web_mobile.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/fitness/meals",
+        "source": "app/fitness/routes.py",
+        "line": 154,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/fitness/FitnessForms.tsx"
+          ],
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ]
+        },
+        "tests": [
+          "tests/test_fitness_api.py",
+          "tests/test_fitness_meal_analysis.py",
+          "tests/test_fitness_voice.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/fitness/meals/{meal_id}/photo",
+        "source": "app/fitness/routes.py",
+        "line": 126,
+        "consumers": {},
+        "tests": [
+          "tests/test_fitness_meal_analysis.py"
+        ],
+        "classification": "server_only_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/fitness/program",
+        "source": "app/fitness/routes.py",
+        "line": 205,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "mobile_web": [
+            "web_mobile/js/views/health.js"
+          ]
+        },
+        "tests": [
+          "tests/test_web_mobile.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/fitness/summary/today",
+        "source": "app/fitness/routes.py",
+        "line": 199,
+        "consumers": {
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ]
+        },
+        "tests": [
+          "tests/test_fitness_api.py",
+          "tests/test_fitness_voice.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/fitness/water/today",
+        "source": "app/fitness/routes.py",
+        "line": 170,
+        "consumers": {},
+        "tests": [
+          "tests/test_fitness_api.py"
+        ],
+        "classification": "server_only_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/fitness/weights",
+        "source": "app/fitness/routes.py",
+        "line": 264,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "mobile_web": [
+            "web_mobile/js/views/health.js"
+          ]
+        },
+        "tests": [
+          "tests/test_web_mobile.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/fitness/wellbeing",
+        "source": "app/fitness/routes.py",
+        "line": 186,
+        "consumers": {
+          "frontend_vite": [
+            "web/src/app/components/fitness/FitnessForms.tsx"
+          ],
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ]
+        },
+        "tests": [
+          "tests/test_fitness_api.py",
+          "tests/test_fitness_voice.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/fitness/workouts",
+        "source": "app/fitness/routes.py",
+        "line": 67,
+        "consumers": {
+          "frontend_vite": [
+            "web/src/app/components/fitness/FitnessForms.tsx"
+          ],
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ]
+        },
+        "tests": [
+          "tests/test_fitness_api.py",
+          "tests/test_fitness_voice.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/food/cart/{plan_id}",
+        "source": "api/router_food.py",
+        "line": 288,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_food_control.py",
+          "tests/test_food_input_contract.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/food/delivery",
+        "source": "api/router_food.py",
+        "line": 192,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/food/menus",
+        "source": "api/router_food.py",
+        "line": 204,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/food/menus/{restaurant}",
+        "source": "api/router_food.py",
+        "line": 230,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_food_input_contract.py",
+          "tests/test_food_intelligence.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/food/orders",
+        "source": "api/router_food.py",
+        "line": 170,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/food/preferences",
+        "source": "api/router_food.py",
+        "line": 239,
+        "consumers": {},
+        "tests": [],
+        "classification": "unreferenced"
+      },
+      {
+        "method": "GET",
+        "path": "/api/food/selectors",
+        "source": "api/router_food.py",
+        "line": 318,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/food/session",
+        "source": "api/router_food.py",
+        "line": 330,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/food/session/capture",
+        "source": "api/router_food.py",
+        "line": 360,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_food_control.py",
+          "tests/test_food_input_contract.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/food/settings",
+        "source": "api/router_food.py",
+        "line": 248,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_food_control.py",
+          "tests/test_food_input_contract.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/food/status",
+        "source": "api/router_food.py",
+        "line": 116,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_food_intelligence.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/food/suggestions",
+        "source": "api/router_food.py",
+        "line": 122,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_food_intelligence.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/imessage-import/status",
+        "source": "api/router_misc.py",
+        "line": 133,
+        "consumers": {},
+        "tests": [],
+        "classification": "unreferenced"
+      },
+      {
+        "method": "GET",
+        "path": "/api/improvements/proposals",
+        "source": "api/router_cognitive.py",
+        "line": 330,
+        "consumers": {},
+        "tests": [],
+        "classification": "unreferenced"
+      },
+      {
+        "method": "GET",
+        "path": "/api/integrations",
+        "source": "api/router_misc.py",
+        "line": 253,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ]
+        },
+        "tests": [
+          "tests/test_no_open_interpreter.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/jarvis-journal",
+        "source": "api/router_misc.py",
+        "line": 173,
+        "consumers": {},
+        "tests": [
+          "tests/test_lot1_endpoints.py",
+          "tests/test_security_middleware.py"
+        ],
+        "classification": "server_only_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/journal",
+        "source": "api/router_misc.py",
+        "line": 378,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ]
+        },
+        "tests": [
+          "tests/test_life_input_contract.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/life-context",
+        "source": "api/router_misc.py",
+        "line": 363,
+        "consumers": {},
+        "tests": [
+          "tests/test_life_context_endpoint.py",
+          "tests/test_life_input_contract.py",
+          "tests/test_security_middleware.py"
+        ],
+        "classification": "server_only_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/life-profile",
+        "source": "api/router_misc.py",
+        "line": 343,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ]
+        },
+        "tests": [
+          "tests/test_life_input_contract.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/location/history",
+        "source": "api/router_location.py",
+        "line": 426,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "android": [
+            "android/app/src/main/kotlin/fr/jarvis/companion/core/JarvisFeatureFlags.kt"
+          ]
+        },
+        "tests": [
+          "frontend/e2e/unified.spec.ts",
+          "tests/test_name_place_location.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/location/patterns",
+        "source": "api/router_location.py",
+        "line": 454,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "frontend/e2e/unified.spec.ts"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/location/status",
+        "source": "api/router_location.py",
+        "line": 419,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ]
+        },
+        "tests": [
+          "frontend/e2e/unified.spec.ts",
+          "tests/test_name_place_location.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/logs",
+        "source": "api/router_misc.py",
+        "line": 303,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ]
+        },
+        "tests": [
+          "frontend/src/lib/api-logs.test.ts",
+          "tests/test_action_log_privacy.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/meetings",
+        "source": "api/router_misc.py",
+        "line": 228,
+        "consumers": {},
+        "tests": [],
+        "classification": "unreferenced"
+      },
+      {
+        "method": "GET",
+        "path": "/api/memory",
+        "source": "api/router_misc.py",
+        "line": 233,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/memory/search-semantic",
+        "source": "api/router_recordings.py",
+        "line": 96,
+        "consumers": {},
+        "tests": [
+          "tests/test_conversation_memory_endpoints.py"
+        ],
+        "classification": "server_only_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/migrations/status",
+        "source": "api/router_quality.py",
+        "line": 133,
+        "consumers": {},
+        "tests": [],
+        "classification": "unreferenced"
+      },
+      {
+        "method": "GET",
+        "path": "/api/mobile/devices",
+        "source": "api/router_auth.py",
+        "line": 385,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/mobile/location/diagnostics",
+        "source": "api/router_location.py",
+        "line": 356,
+        "consumers": {},
+        "tests": [
+          "tests/test_name_place_location.py"
+        ],
+        "classification": "server_only_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/mood",
+        "source": "api/router_misc.py",
+        "line": 338,
+        "consumers": {
+          "tv": [
+            "tv/server.py",
+            "tv/static/js/tv-v2.js"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/mood/signals",
+        "source": "api/router_misc.py",
+        "line": 143,
+        "consumers": {},
+        "tests": [],
+        "classification": "unreferenced"
+      },
+      {
+        "method": "GET",
+        "path": "/api/notifications",
+        "source": "api/router_misc.py",
+        "line": 283,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ],
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ],
+          "tv": [
+            "tv/server.py"
+          ]
+        },
+        "tests": [
+          "frontend/e2e/critical-flows.spec.ts",
+          "frontend/e2e/unified.spec.ts",
+          "tests/test_mobile_bearer_routes.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/notifications/all",
+        "source": "api/router_misc.py",
+        "line": 313,
+        "consumers": {},
+        "tests": [],
+        "classification": "unreferenced"
+      },
+      {
+        "method": "GET",
+        "path": "/api/outputs",
+        "source": "api/router_misc.py",
+        "line": 243,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/outputs/{filepath:path}",
+        "source": "api/router_misc.py",
+        "line": 248,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/patterns",
+        "source": "api/router_misc.py",
+        "line": 388,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/people",
+        "source": "api/router_people.py",
+        "line": 61,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/people/{name}",
+        "source": "api/router_people.py",
+        "line": 66,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_timeline_generator.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/people/{name}/analytics",
+        "source": "api/router_people.py",
+        "line": 91,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/people/{name}/description",
+        "source": "api/router_people.py",
+        "line": 294,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/people/{name}/timeline",
+        "source": "api/router_people.py",
+        "line": 118,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_timeline_generator.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/places",
+        "source": "api/router_location.py",
+        "line": 365,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ]
+        },
+        "tests": [
+          "frontend/e2e/unified.spec.ts",
+          "tests/test_place_input_contract.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/places/favorites",
+        "source": "api/router_misc.py",
+        "line": 153,
+        "consumers": {},
+        "tests": [
+          "tests/test_lot1_endpoints.py"
+        ],
+        "classification": "server_only_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/places/missed-opportunities",
+        "source": "api/router_misc.py",
+        "line": 158,
+        "consumers": {},
+        "tests": [
+          "tests/test_lot1_endpoints.py"
+        ],
+        "classification": "server_only_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/places/{place_id}/stats",
+        "source": "api/router_location.py",
+        "line": 410,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/predictions/messages",
+        "source": "api/router_misc.py",
+        "line": 148,
+        "consumers": {},
+        "tests": [
+          "tests/test_lot1_endpoints.py"
+        ],
+        "classification": "server_only_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/presence",
+        "source": "api/router_misc.py",
+        "line": 193,
+        "consumers": {},
+        "tests": [],
+        "classification": "unreferenced"
+      },
+      {
+        "method": "GET",
+        "path": "/api/privacy/documents",
+        "source": "api/router_conversations.py",
+        "line": 64,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "frontend/e2e/critical-flows.spec.ts",
+          "frontend/src/auth-client.test.ts",
+          "tests/test_document_privacy.py",
+          "tests/test_misc_input_contracts.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/procrastination/cost",
+        "source": "api/router_misc.py",
+        "line": 168,
+        "consumers": {},
+        "tests": [
+          "tests/test_lot1_endpoints.py"
+        ],
+        "classification": "server_only_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/productivity/score",
+        "source": "api/router_misc.py",
+        "line": 138,
+        "consumers": {},
+        "tests": [],
+        "classification": "unreferenced"
+      },
+      {
+        "method": "GET",
+        "path": "/api/push/vapid-public-key",
+        "source": "api/router_misc.py",
+        "line": 288,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_push_endpoints.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/quality/duplicates",
+        "source": "api/router_quality.py",
+        "line": 52,
+        "consumers": {},
+        "tests": [],
+        "classification": "unreferenced"
+      },
+      {
+        "method": "GET",
+        "path": "/api/quality/security",
+        "source": "api/router_quality.py",
+        "line": 69,
+        "consumers": {},
+        "tests": [],
+        "classification": "unreferenced"
+      },
+      {
+        "method": "GET",
+        "path": "/api/recordings",
+        "source": "api/router_recordings.py",
+        "line": 25,
+        "consumers": {
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/recordings/{recording_id}",
+        "source": "api/router_recordings.py",
+        "line": 37,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/recordings/{recording_id}/speakers",
+        "source": "api/router_recordings.py",
+        "line": 58,
+        "consumers": {},
+        "tests": [
+          "tests/test_conversation_memory_endpoints.py"
+        ],
+        "classification": "server_only_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/recordings/{recording_id}/turns",
+        "source": "api/router_recordings.py",
+        "line": 48,
+        "consumers": {},
+        "tests": [
+          "tests/test_conversation_memory_endpoints.py"
+        ],
+        "classification": "server_only_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/relationship-graph",
+        "source": "api/router_misc.py",
+        "line": 418,
+        "consumers": {},
+        "tests": [
+          "tests/test_relationship_graph.py"
+        ],
+        "classification": "server_only_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/relationship/{name}",
+        "source": "api/router_misc.py",
+        "line": 413,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/rituals/today",
+        "source": "api/router_rituals.py",
+        "line": 21,
+        "consumers": {},
+        "tests": [],
+        "classification": "unreferenced"
+      },
+      {
+        "method": "GET",
+        "path": "/api/scheduler/jobs",
+        "source": "api/router_scheduler.py",
+        "line": 13,
+        "consumers": {
+          "frontend_vite": [
+            "web/src/app/components/views/SchedulerView.tsx"
+          ]
+        },
+        "tests": [
+          "tests/test_scheduler_status.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/scheduler/jobs/{job_id}/runs",
+        "source": "api/router_scheduler.py",
+        "line": 21,
+        "consumers": {
+          "frontend_vite": [
+            "web/src/app/components/views/SchedulerView.tsx"
+          ]
+        },
+        "tests": [
+          "tests/test_scheduler_status.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/screen-activity",
+        "source": "api/router_devices.py",
+        "line": 345,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/screen-activity/current",
+        "source": "api/router_devices.py",
+        "line": 351,
+        "consumers": {
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/search",
+        "source": "api/router_misc.py",
+        "line": 438,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/self-healing/status",
+        "source": "api/router_misc.py",
+        "line": 198,
+        "consumers": {},
+        "tests": [],
+        "classification": "unreferenced"
+      },
+      {
+        "method": "GET",
+        "path": "/api/settings/tts",
+        "source": "api/router_misc.py",
+        "line": 273,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/stats/compare",
+        "source": "api/router_misc.py",
+        "line": 208,
+        "consumers": {},
+        "tests": [],
+        "classification": "unreferenced"
+      },
+      {
+        "method": "GET",
+        "path": "/api/stats/weekly",
+        "source": "api/router_misc.py",
+        "line": 98,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "frontend/e2e/critical-flows.spec.ts",
+          "frontend/e2e/unified.spec.ts",
+          "tests/test_activity_stats.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/status",
+        "source": "api/router_misc.py",
+        "line": 93,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ],
+          "tv": [
+            "tv/server.py",
+            "tv/static/js/tv-v2.js"
+          ]
+        },
+        "tests": [
+          "frontend/e2e/critical-flows.spec.ts",
+          "frontend/e2e/unified.spec.ts",
+          "tests/test_audit_architecture_truth.py",
+          "tests/test_no_open_interpreter.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/tasks",
+        "source": "api/router_tasks.py",
+        "line": 24,
+        "consumers": {
+          "frontend_next": [
+            "frontend/complement_validation.cjs",
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx",
+            "web/src/app/components/views/TasksView.tsx"
+          ],
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ],
+          "android": [
+            "android/app/src/main/kotlin/fr/jarvis/companion/core/JarvisFeatureFlags.kt",
+            "android/app/src/main/kotlin/fr/jarvis/companion/feature/tasks/TasksScreen.kt"
+          ],
+          "tv": [
+            "tv/server.py",
+            "tv/static/js/tv-v2.js"
+          ]
+        },
+        "tests": [
+          "frontend/e2e/critical-flows.spec.ts",
+          "frontend/e2e/unified.spec.ts",
+          "tests/test_mobile_bearer_routes.py",
+          "tests/test_mobile_chat.py",
+          "tests/test_task_input_contract.py",
+          "web/src/lib/offline/queue.test.ts"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/time-machine/{date}",
+        "source": "api/router_misc.py",
+        "line": 423,
+        "consumers": {},
+        "tests": [
+          "tests/test_time_machine.py"
+        ],
+        "classification": "server_only_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/trips",
+        "source": "api/router_location.py",
+        "line": 447,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ]
+        },
+        "tests": [
+          "frontend/e2e/unified.spec.ts"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/visits",
+        "source": "api/router_location.py",
+        "line": 433,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "frontend/e2e/unified.spec.ts"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/visits/today",
+        "source": "api/router_location.py",
+        "line": 440,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/voice-debug",
+        "source": "api/router_daemon.py",
+        "line": 79,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/voice/metrics",
+        "source": "api/router_cognitive.py",
+        "line": 315,
+        "consumers": {
+          "frontend_vite": [
+            "web/src/app/components/views/CognitiveView.tsx"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "PATCH",
+        "path": "/api/commitments/{commitment_id}",
+        "source": "api/router_misc.py",
+        "line": 218,
+        "consumers": {},
+        "tests": [
+          "tests/test_crud_not_found.py",
+          "tests/test_insights_input_contract.py",
+          "tests/test_lot1_endpoints.py"
+        ],
+        "classification": "server_only_tested"
+      },
+      {
+        "method": "PATCH",
+        "path": "/api/conversations/{conv_id}",
+        "source": "api/router_conversations.py",
+        "line": 102,
+        "consumers": {
+          "frontend_next": [
+            "frontend/complement_validation.cjs",
+            "frontend/retest_switch.cjs",
+            "frontend/src/lib/api.ts"
+          ],
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ]
+        },
+        "tests": [
+          "tests/test_crud_not_found.py",
+          "tests/test_misc_input_contracts.py",
+          "tests/test_mobile_bearer_routes.py",
+          "tests/test_mobile_chat.py",
+          "tests/test_secure_uploads.py",
+          "tests/test_web_mobile.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "PATCH",
+        "path": "/api/fitness/program",
+        "source": "app/fitness/routes.py",
+        "line": 211,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "mobile_web": [
+            "web_mobile/js/views/health.js"
+          ]
+        },
+        "tests": [
+          "tests/test_web_mobile.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "PATCH",
+        "path": "/api/fitness/program/sessions/{session_id}",
+        "source": "app/fitness/routes.py",
+        "line": 220,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "mobile_web": [
+            "web_mobile/js/views/health.js"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "PATCH",
+        "path": "/api/food/settings",
+        "source": "api/router_food.py",
+        "line": 254,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_food_control.py",
+          "tests/test_food_input_contract.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "PATCH",
+        "path": "/api/people/{name}",
+        "source": "api/router_people.py",
+        "line": 75,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_timeline_generator.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "PATCH",
+        "path": "/api/settings/tts",
+        "source": "api/router_misc.py",
+        "line": 278,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "PATCH",
+        "path": "/api/tasks/{task_id}",
+        "source": "api/router_tasks.py",
+        "line": 55,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ]
+        },
+        "tests": [
+          "tests/test_crud_not_found.py",
+          "tests/test_task_input_contract.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/analyze-contact",
+        "source": "api/router_misc.py",
+        "line": 408,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_relationships_input_contract.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/audio-daemon/continuous",
+        "source": "api/router_daemon.py",
+        "line": 71,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/audio-daemon/start",
+        "source": "api/router_daemon.py",
+        "line": 42,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/audio-daemon/stop",
+        "source": "api/router_daemon.py",
+        "line": 53,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/audio-daemon/wake-word",
+        "source": "api/router_daemon.py",
+        "line": 63,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/auth/change-secret",
+        "source": "api/router_auth.py",
+        "line": 240,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_auth_input_contract.py",
+          "tests/test_security_middleware.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/auth/local-unlock",
+        "source": "api/router_auth.py",
+        "line": 207,
+        "consumers": {
+          "shared_auth_sdk": [
+            "jarvis_auth/src/client.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_auth_input_contract.py",
+          "tests/test_security_middleware.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/auth/logout",
+        "source": "api/router_auth.py",
+        "line": 231,
+        "consumers": {
+          "frontend_next": [
+            "frontend/complement_validation.cjs",
+            "frontend/retest_back.cjs"
+          ],
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ],
+          "shared_auth_sdk": [
+            "jarvis_auth/src/client.ts"
+          ]
+        },
+        "tests": [
+          "frontend/src/auth-client.test.ts",
+          "tests/test_security_middleware.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/auth/sessions/{session_id}/revoke",
+        "source": "api/router_auth.py",
+        "line": 280,
+        "consumers": {
+          "frontend_next": [
+            "frontend/complement_validation.cjs",
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_crud_not_found.py",
+          "tests/test_security_middleware.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/auth/setup",
+        "source": "api/router_auth.py",
+        "line": 160,
+        "consumers": {
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ],
+          "shared_auth_sdk": [
+            "jarvis_auth/src/client.ts"
+          ]
+        },
+        "tests": [
+          "frontend/src/auth-client.test.ts",
+          "tests/test_auth_input_contract.py",
+          "tests/test_security_middleware.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/auth/unlock",
+        "source": "api/router_auth.py",
+        "line": 179,
+        "consumers": {
+          "frontend_next": [
+            "frontend/complement_validation.cjs"
+          ],
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ],
+          "shared_auth_sdk": [
+            "jarvis_auth/src/client.ts"
+          ]
+        },
+        "tests": [
+          "frontend/e2e/critical-flows.spec.ts",
+          "frontend/src/auth-client.test.ts",
+          "tests/conftest.py",
+          "tests/test_auth_input_contract.py",
+          "tests/test_security_middleware.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/auth/verify",
+        "source": "api/router_auth.py",
+        "line": 197,
+        "consumers": {
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ],
+          "shared_auth_sdk": [
+            "jarvis_auth/src/client.ts"
+          ]
+        },
+        "tests": [
+          "frontend/e2e/critical-flows.spec.ts",
+          "frontend/src/auth-client.test.ts",
+          "tests/test_web_mobile.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/backups/run",
+        "source": "api/router_misc.py",
+        "line": 113,
+        "consumers": {},
+        "tests": [],
+        "classification": "unreferenced"
+      },
+      {
+        "method": "POST",
+        "path": "/api/backups/{name}/restore",
+        "source": "api/router_misc.py",
+        "line": 118,
+        "consumers": {},
+        "tests": [],
+        "classification": "unreferenced"
+      },
+      {
+        "method": "POST",
+        "path": "/api/briefings/generate",
+        "source": "api/router_cognitive.py",
+        "line": 302,
+        "consumers": {},
+        "tests": [],
+        "classification": "unreferenced"
+      },
+      {
+        "method": "POST",
+        "path": "/api/calendar",
+        "source": "api/router_misc.py",
+        "line": 398,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ],
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ],
+          "tv": [
+            "tv/data_sources/calendar.py",
+            "tv/server.py",
+            "tv/static/js/tv-v2.js"
+          ]
+        },
+        "tests": [
+          "frontend/e2e/unified.spec.ts",
+          "tests/test_mobile_bearer_routes.py",
+          "tests/test_relationships_input_contract.py",
+          "tests/test_web_mobile.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/calendar/test",
+        "source": "api/router_misc.py",
+        "line": 403,
+        "consumers": {},
+        "tests": [],
+        "classification": "unreferenced"
+      },
+      {
+        "method": "POST",
+        "path": "/api/cognitive/route",
+        "source": "api/router_cognitive.py",
+        "line": 111,
+        "consumers": {
+          "frontend_vite": [
+            "web/src/app/components/views/CognitiveView.tsx"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/contacts/sync",
+        "source": "api/router_misc.py",
+        "line": 433,
+        "consumers": {},
+        "tests": [],
+        "classification": "unreferenced"
+      },
+      {
+        "method": "POST",
+        "path": "/api/control/restart-all",
+        "source": "api/router_daemon.py",
+        "line": 143,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/control/start-all",
+        "source": "api/router_daemon.py",
+        "line": 173,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/control/stop-all",
+        "source": "api/router_daemon.py",
+        "line": 159,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/control/{service}/restart",
+        "source": "api/router_daemon.py",
+        "line": 124,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_http_error_contract.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/control/{service}/start",
+        "source": "api/router_daemon.py",
+        "line": 106,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_control_plane_auth.py",
+          "tests/test_http_error_contract.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/control/{service}/stop",
+        "source": "api/router_daemon.py",
+        "line": 115,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_http_error_contract.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/conversations/{conv_id}/archive",
+        "source": "api/router_conversations.py",
+        "line": 119,
+        "consumers": {
+          "frontend_next": [
+            "frontend/complement_validation.cjs",
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_crud_not_found.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/conversations/{conv_id}/pin",
+        "source": "api/router_conversations.py",
+        "line": 127,
+        "consumers": {
+          "frontend_next": [
+            "frontend/complement_validation.cjs",
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_mobile_chat.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/conversations/{conv_id}/upload",
+        "source": "api/router_conversations.py",
+        "line": 138,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "android": [
+            "android/app/src/main/kotlin/fr/jarvis/companion/core/JarvisFeatureFlags.kt",
+            "android/app/src/main/kotlin/fr/jarvis/companion/feature/chat/ChatScreen.kt"
+          ]
+        },
+        "tests": [
+          "frontend/src/auth-client.test.ts",
+          "tests/test_document_privacy.py",
+          "tests/test_secure_uploads.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/cursor/jobs",
+        "source": "api/router_cognitive.py",
+        "line": 205,
+        "consumers": {
+          "frontend_vite": [
+            "web/src/app/components/views/CognitiveView.tsx"
+          ]
+        },
+        "tests": [
+          "tests/test_cursor_security_hardening.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/cursor/jobs/{job_id}/cancel",
+        "source": "api/router_cognitive.py",
+        "line": 256,
+        "consumers": {},
+        "tests": [],
+        "classification": "unreferenced"
+      },
+      {
+        "method": "POST",
+        "path": "/api/cursor/jobs/{job_id}/confirm",
+        "source": "api/router_cognitive.py",
+        "line": 240,
+        "consumers": {},
+        "tests": [],
+        "classification": "unreferenced"
+      },
+      {
+        "method": "POST",
+        "path": "/api/cursor/jobs/{job_id}/retry",
+        "source": "api/router_cognitive.py",
+        "line": 280,
+        "consumers": {},
+        "tests": [],
+        "classification": "unreferenced"
+      },
+      {
+        "method": "POST",
+        "path": "/api/cursor/jobs/{job_id}/rollback",
+        "source": "api/router_cognitive.py",
+        "line": 268,
+        "consumers": {},
+        "tests": [],
+        "classification": "unreferenced"
+      },
+      {
+        "method": "POST",
+        "path": "/api/devagent/autorun",
+        "source": "api/router_devagent.py",
+        "line": 100,
+        "consumers": {},
+        "tests": [
+          "tests/test_misc_input_contracts.py"
+        ],
+        "classification": "server_only_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/devagent/start",
+        "source": "api/router_devagent.py",
+        "line": 115,
+        "consumers": {},
+        "tests": [],
+        "classification": "unreferenced"
+      },
+      {
+        "method": "POST",
+        "path": "/api/devagent/{project_id}/answer",
+        "source": "api/router_devagent.py",
+        "line": 132,
+        "consumers": {},
+        "tests": [],
+        "classification": "unreferenced"
+      },
+      {
+        "method": "POST",
+        "path": "/api/devagent/{project_id}/deploy",
+        "source": "api/router_devagent.py",
+        "line": 38,
+        "consumers": {},
+        "tests": [],
+        "classification": "unreferenced"
+      },
+      {
+        "method": "POST",
+        "path": "/api/devagent/{project_id}/pause",
+        "source": "api/router_devagent.py",
+        "line": 189,
+        "consumers": {},
+        "tests": [],
+        "classification": "unreferenced"
+      },
+      {
+        "method": "POST",
+        "path": "/api/devagent/{project_id}/pr",
+        "source": "api/router_devagent.py",
+        "line": 51,
+        "consumers": {},
+        "tests": [],
+        "classification": "unreferenced"
+      },
+      {
+        "method": "POST",
+        "path": "/api/devagent/{project_id}/rebase",
+        "source": "api/router_devagent.py",
+        "line": 72,
+        "consumers": {},
+        "tests": [],
+        "classification": "unreferenced"
+      },
+      {
+        "method": "POST",
+        "path": "/api/devagent/{project_id}/refactor",
+        "source": "api/router_devagent.py",
+        "line": 85,
+        "consumers": {},
+        "tests": [],
+        "classification": "unreferenced"
+      },
+      {
+        "method": "POST",
+        "path": "/api/devagent/{project_id}/run",
+        "source": "api/router_devagent.py",
+        "line": 161,
+        "consumers": {},
+        "tests": [],
+        "classification": "unreferenced"
+      },
+      {
+        "method": "POST",
+        "path": "/api/devices/pairing/start",
+        "source": "api/router_devices.py",
+        "line": 138,
+        "consumers": {},
+        "tests": [
+          "tests/test_mobile_pairing.py",
+          "tests/test_remote_device_pairing.py",
+          "tests/test_security_middleware.py"
+        ],
+        "classification": "server_only_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/devices/register",
+        "source": "api/router_devices.py",
+        "line": 155,
+        "consumers": {},
+        "tests": [
+          "tests/test_mobile_pairing.py",
+          "tests/test_remote_device_pairing.py",
+          "tests/test_security_middleware.py"
+        ],
+        "classification": "server_only_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/devices/{device_id}/activate",
+        "source": "api/router_devices.py",
+        "line": 315,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_crud_not_found.py",
+          "tests/test_security_middleware.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/devices/{device_id}/heartbeat",
+        "source": "api/router_devices.py",
+        "line": 201,
+        "consumers": {},
+        "tests": [
+          "tests/test_jarvis_agent_device_auth.py",
+          "tests/test_remote_device_pairing.py",
+          "tests/test_security_middleware.py"
+        ],
+        "classification": "server_only_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/devices/{device_id}/revoke",
+        "source": "api/router_devices.py",
+        "line": 332,
+        "consumers": {},
+        "tests": [
+          "tests/test_remote_device_pairing.py"
+        ],
+        "classification": "server_only_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/devices/{device_id}/screen",
+        "source": "api/router_devices.py",
+        "line": 208,
+        "consumers": {},
+        "tests": [
+          "tests/test_security_middleware.py"
+        ],
+        "classification": "server_only_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/devices/{device_id}/token/rotate",
+        "source": "api/router_devices.py",
+        "line": 323,
+        "consumers": {},
+        "tests": [
+          "tests/test_remote_device_pairing.py"
+        ],
+        "classification": "server_only_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/dnd",
+        "source": "api/router_rituals.py",
+        "line": 69,
+        "consumers": {},
+        "tests": [
+          "tests/test_misc_input_contracts.py"
+        ],
+        "classification": "server_only_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/email-watcher/catchup",
+        "source": "api/router_misc.py",
+        "line": 268,
+        "consumers": {},
+        "tests": [],
+        "classification": "unreferenced"
+      },
+      {
+        "method": "POST",
+        "path": "/api/fitness/advice",
+        "source": "app/fitness/routes.py",
+        "line": 250,
+        "consumers": {
+          "mobile_web": [
+            "web_mobile/js/views/health.js"
+          ]
+        },
+        "tests": [
+          "tests/test_web_mobile.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/fitness/meals",
+        "source": "app/fitness/routes.py",
+        "line": 80,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/fitness/FitnessForms.tsx"
+          ],
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ]
+        },
+        "tests": [
+          "tests/test_fitness_api.py",
+          "tests/test_fitness_meal_analysis.py",
+          "tests/test_fitness_voice.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/fitness/meals/from-photo",
+        "source": "app/fitness/routes.py",
+        "line": 99,
+        "consumers": {
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ]
+        },
+        "tests": [
+          "tests/test_fitness_meal_analysis.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/fitness/meals/from-text",
+        "source": "app/fitness/routes.py",
+        "line": 90,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ]
+        },
+        "tests": [
+          "tests/test_fitness_meal_analysis.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/fitness/water",
+        "source": "app/fitness/routes.py",
+        "line": 160,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/fitness/FitnessForms.tsx"
+          ],
+          "mobile_web": [
+            "web_mobile/js/api.js",
+            "web_mobile/js/views/health.js"
+          ]
+        },
+        "tests": [
+          "tests/test_fitness_api.py",
+          "tests/test_fitness_voice.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/fitness/weights",
+        "source": "app/fitness/routes.py",
+        "line": 258,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "mobile_web": [
+            "web_mobile/js/views/health.js"
+          ]
+        },
+        "tests": [
+          "tests/test_web_mobile.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/fitness/wellbeing",
+        "source": "app/fitness/routes.py",
+        "line": 176,
+        "consumers": {
+          "frontend_vite": [
+            "web/src/app/components/fitness/FitnessForms.tsx"
+          ],
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ]
+        },
+        "tests": [
+          "tests/test_fitness_api.py",
+          "tests/test_fitness_voice.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/fitness/workouts",
+        "source": "app/fitness/routes.py",
+        "line": 57,
+        "consumers": {
+          "frontend_vite": [
+            "web/src/app/components/fitness/FitnessForms.tsx"
+          ],
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ]
+        },
+        "tests": [
+          "tests/test_fitness_api.py",
+          "tests/test_fitness_voice.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/food/cart/prepare",
+        "source": "api/router_food.py",
+        "line": 273,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_food_control.py",
+          "tests/test_food_input_contract.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/food/cart/{plan_id}/confirm",
+        "source": "api/router_food.py",
+        "line": 297,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_food_control.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/food/delivery/refresh",
+        "source": "api/router_food.py",
+        "line": 198,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/food/menus/refresh",
+        "source": "api/router_food.py",
+        "line": 210,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_food_input_contract.py",
+          "tests/test_food_intelligence.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/food/orders/{order_id}/rating",
+        "source": "api/router_food.py",
+        "line": 177,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_food_input_contract.py",
+          "tests/test_food_intelligence.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/food/selectors/reload",
+        "source": "api/router_food.py",
+        "line": 324,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_food_control.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/food/session/capture",
+        "source": "api/router_food.py",
+        "line": 342,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_food_control.py",
+          "tests/test_food_input_contract.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/food/session/probe",
+        "source": "api/router_food.py",
+        "line": 336,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_food_control.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/food/settings/reset",
+        "source": "api/router_food.py",
+        "line": 264,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_food_control.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/food/suggestions/generate",
+        "source": "api/router_food.py",
+        "line": 144,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/food/suggestions/{slot}/order",
+        "source": "api/router_food.py",
+        "line": 154,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_food_input_contract.py",
+          "tests/test_food_intelligence.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/imessage-import/run",
+        "source": "api/router_misc.py",
+        "line": 128,
+        "consumers": {},
+        "tests": [],
+        "classification": "unreferenced"
+      },
+      {
+        "method": "POST",
+        "path": "/api/improvements/run",
+        "source": "api/router_cognitive.py",
+        "line": 337,
+        "consumers": {},
+        "tests": [],
+        "classification": "unreferenced"
+      },
+      {
+        "method": "POST",
+        "path": "/api/jarvis-journal/generate",
+        "source": "api/router_misc.py",
+        "line": 178,
+        "consumers": {},
+        "tests": [
+          "tests/test_insights_input_contract.py",
+          "tests/test_lot1_endpoints.py"
+        ],
+        "classification": "server_only_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/journal",
+        "source": "api/router_misc.py",
+        "line": 383,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ]
+        },
+        "tests": [
+          "tests/test_life_input_contract.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/life-context",
+        "source": "api/router_misc.py",
+        "line": 368,
+        "consumers": {},
+        "tests": [
+          "tests/test_life_context_endpoint.py",
+          "tests/test_life_input_contract.py",
+          "tests/test_security_middleware.py"
+        ],
+        "classification": "server_only_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/life-context/{context_id}/close",
+        "source": "api/router_misc.py",
+        "line": 373,
+        "consumers": {},
+        "tests": [
+          "tests/test_life_context_endpoint.py"
+        ],
+        "classification": "server_only_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/life-profile",
+        "source": "api/router_misc.py",
+        "line": 348,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ]
+        },
+        "tests": [
+          "tests/test_life_input_contract.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/location",
+        "source": "api/router_location.py",
+        "line": 182,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_location_batch.py",
+          "tests/test_location_input_contract.py",
+          "tests/test_mobile_pairing.py",
+          "tests/test_security_middleware.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/location/batch",
+        "source": "api/router_location.py",
+        "line": 213,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_location_batch.py",
+          "tests/test_location_input_contract.py",
+          "tests/test_name_place_location.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/location/name-current",
+        "source": "api/router_location.py",
+        "line": 461,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_place_input_contract.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/maintenance/run",
+        "source": "api/router_misc.py",
+        "line": 123,
+        "consumers": {},
+        "tests": [],
+        "classification": "unreferenced"
+      },
+      {
+        "method": "POST",
+        "path": "/api/migrations/run",
+        "source": "api/router_quality.py",
+        "line": 141,
+        "consumers": {},
+        "tests": [],
+        "classification": "unreferenced"
+      },
+      {
+        "method": "POST",
+        "path": "/api/mission/prompt",
+        "source": "api/router_misc.py",
+        "line": 263,
+        "consumers": {
+          "frontend_vite": [
+            "web/src/pages/MissionControl.tsx"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/mobile/capabilities",
+        "source": "api/router_auth.py",
+        "line": 373,
+        "consumers": {},
+        "tests": [
+          "tests/test_mobile_auth_input_contract.py"
+        ],
+        "classification": "server_only_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/mobile/chat",
+        "source": "api/router_mobile_chat.py",
+        "line": 79,
+        "consumers": {},
+        "tests": [
+          "tests/test_mobile_chat.py"
+        ],
+        "classification": "server_only_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/mobile/chat/confirm",
+        "source": "api/router_mobile_chat.py",
+        "line": 149,
+        "consumers": {},
+        "tests": [
+          "tests/test_mobile_ws_bearer.py"
+        ],
+        "classification": "server_only_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/mobile/conversations",
+        "source": "api/router_mobile_chat.py",
+        "line": 57,
+        "consumers": {},
+        "tests": [
+          "tests/test_mobile_chat.py",
+          "tests/test_mobile_ws_bearer.py"
+        ],
+        "classification": "server_only_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/mobile/devices/{device_id}/revoke",
+        "source": "api/router_auth.py",
+        "line": 400,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_crud_not_found.py",
+          "tests/test_mobile_bearer_routes.py",
+          "tests/test_mobile_chat.py",
+          "tests/test_mobile_pairing.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/mobile/pairing/complete",
+        "source": "api/router_auth.py",
+        "line": 303,
+        "consumers": {},
+        "tests": [
+          "tests/test_location_batch.py",
+          "tests/test_mobile_auth_input_contract.py",
+          "tests/test_mobile_bearer_routes.py",
+          "tests/test_mobile_chat.py",
+          "tests/test_mobile_pairing.py",
+          "tests/test_mobile_voice.py",
+          "tests/test_mobile_ws_bearer.py",
+          "tests/test_name_place_location.py"
+        ],
+        "classification": "server_only_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/mobile/pairing/start",
+        "source": "api/router_auth.py",
+        "line": 290,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_location_batch.py",
+          "tests/test_mobile_auth_input_contract.py",
+          "tests/test_mobile_bearer_routes.py",
+          "tests/test_mobile_chat.py",
+          "tests/test_mobile_pairing.py",
+          "tests/test_mobile_voice.py",
+          "tests/test_mobile_ws_bearer.py",
+          "tests/test_name_place_location.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/mobile/push-token",
+        "source": "api/router_auth.py",
+        "line": 362,
+        "consumers": {},
+        "tests": [
+          "tests/test_mobile_auth_input_contract.py",
+          "tests/test_mobile_pairing.py"
+        ],
+        "classification": "server_only_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/mobile/session",
+        "source": "api/router_auth.py",
+        "line": 345,
+        "consumers": {},
+        "tests": [
+          "tests/test_mobile_pairing.py"
+        ],
+        "classification": "server_only_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/mobile/voice/turn",
+        "source": "api/router_mobile_voice.py",
+        "line": 19,
+        "consumers": {
+          "android": [
+            "android/app/src/main/kotlin/fr/jarvis/companion/voice/VoiceRepository.kt"
+          ]
+        },
+        "tests": [
+          "tests/test_mobile_voice.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/notifications/read-all",
+        "source": "api/router_misc.py",
+        "line": 323,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/notifications/{notif_id}/read",
+        "source": "api/router_misc.py",
+        "line": 318,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ],
+          "android": [
+            "android/app/src/main/kotlin/fr/jarvis/companion/core/JarvisFeatureFlags.kt",
+            "android/app/src/main/kotlin/fr/jarvis/companion/feature/notifications/NotificationsScreen.kt"
+          ]
+        },
+        "tests": [
+          "tests/test_crud_not_found.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/people",
+        "source": "api/router_people.py",
+        "line": 344,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/people/{name}/ask",
+        "source": "api/router_people.py",
+        "line": 354,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/people/{name}/description/refresh",
+        "source": "api/router_people.py",
+        "line": 320,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/people/{name}/remind",
+        "source": "api/router_people.py",
+        "line": 272,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/people/{name}/send",
+        "source": "api/router_people.py",
+        "line": 173,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_http_error_contract.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/people/{name}/suggest-message",
+        "source": "api/router_people.py",
+        "line": 206,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/people/{name}/timeline/regenerate",
+        "source": "api/router_people.py",
+        "line": 151,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/places",
+        "source": "api/router_location.py",
+        "line": 372,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ]
+        },
+        "tests": [
+          "frontend/e2e/unified.spec.ts",
+          "tests/test_place_input_contract.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/push/subscribe",
+        "source": "api/router_misc.py",
+        "line": 293,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_push_endpoints.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/push/unsubscribe",
+        "source": "api/router_misc.py",
+        "line": 298,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_push_endpoints.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/quality/ci/install-hook",
+        "source": "api/router_quality.py",
+        "line": 22,
+        "consumers": {},
+        "tests": [
+          "tests/test_quality_mutation_policy.py"
+        ],
+        "classification": "server_only_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/quality/ci/run",
+        "source": "api/router_quality.py",
+        "line": 14,
+        "consumers": {},
+        "tests": [],
+        "classification": "unreferenced"
+      },
+      {
+        "method": "POST",
+        "path": "/api/quality/duplicates/scan",
+        "source": "api/router_quality.py",
+        "line": 60,
+        "consumers": {},
+        "tests": [],
+        "classification": "unreferenced"
+      },
+      {
+        "method": "POST",
+        "path": "/api/quality/security/scan",
+        "source": "api/router_quality.py",
+        "line": 77,
+        "consumers": {},
+        "tests": [],
+        "classification": "unreferenced"
+      },
+      {
+        "method": "POST",
+        "path": "/api/quality/security/{finding_id}/fix",
+        "source": "api/router_quality.py",
+        "line": 85,
+        "consumers": {},
+        "tests": [],
+        "classification": "unreferenced"
+      },
+      {
+        "method": "POST",
+        "path": "/api/quality/tests/generate",
+        "source": "api/router_quality.py",
+        "line": 115,
+        "consumers": {},
+        "tests": [],
+        "classification": "unreferenced"
+      },
+      {
+        "method": "POST",
+        "path": "/api/recordings/{recording_id}/speakers/{label}/assign",
+        "source": "api/router_recordings.py",
+        "line": 68,
+        "consumers": {},
+        "tests": [
+          "tests/test_conversation_memory_endpoints.py"
+        ],
+        "classification": "server_only_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/rituals/{ritual}/run",
+        "source": "api/router_rituals.py",
+        "line": 39,
+        "consumers": {},
+        "tests": [],
+        "classification": "unreferenced"
+      },
+      {
+        "method": "POST",
+        "path": "/api/scheduler/jobs/{job_id}/run",
+        "source": "api/router_scheduler.py",
+        "line": 36,
+        "consumers": {
+          "frontend_vite": [
+            "web/src/app/components/views/SchedulerView.tsx"
+          ]
+        },
+        "tests": [
+          "tests/test_scheduler_status.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/self-healing/diagnose",
+        "source": "api/router_misc.py",
+        "line": 203,
+        "consumers": {},
+        "tests": [
+          "tests/test_insights_input_contract.py"
+        ],
+        "classification": "server_only_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/tasks",
+        "source": "api/router_tasks.py",
+        "line": 34,
+        "consumers": {
+          "frontend_next": [
+            "frontend/complement_validation.cjs",
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx",
+            "web/src/app/components/views/TasksView.tsx"
+          ],
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ],
+          "android": [
+            "android/app/src/main/kotlin/fr/jarvis/companion/core/JarvisFeatureFlags.kt",
+            "android/app/src/main/kotlin/fr/jarvis/companion/feature/tasks/TasksScreen.kt"
+          ],
+          "tv": [
+            "tv/server.py",
+            "tv/static/js/tv-v2.js"
+          ]
+        },
+        "tests": [
+          "frontend/e2e/critical-flows.spec.ts",
+          "frontend/e2e/unified.spec.ts",
+          "tests/test_mobile_bearer_routes.py",
+          "tests/test_mobile_chat.py",
+          "tests/test_task_input_contract.py",
+          "web/src/lib/offline/queue.test.ts"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/upload",
+        "source": "api/router_misc.py",
+        "line": 238,
+        "consumers": {
+          "frontend_next": [
+            "frontend/public/sw.js",
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/vite.config.ts"
+          ],
+          "android": [
+            "android/app/src/main/kotlin/fr/jarvis/companion/core/JarvisFeatureFlags.kt",
+            "android/app/src/main/kotlin/fr/jarvis/companion/feature/chat/ChatScreen.kt"
+          ]
+        },
+        "tests": [
+          "tests/test_document_privacy.py",
+          "tests/test_phase4_route_contract.py",
+          "tests/test_secure_uploads.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "PUT",
+        "path": "/api/fitness/sessions/{session_id}/progress",
+        "source": "app/fitness/routes.py",
+        "line": 231,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "mobile_web": [
+            "web_mobile/js/views/health.js"
+          ]
+        },
+        "tests": [],
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "PUT",
+        "path": "/api/life-profile/{entry_id}",
+        "source": "api/router_misc.py",
+        "line": 353,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_crud_not_found.py",
+          "tests/test_life_input_contract.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "PUT",
+        "path": "/api/places/{place_id}",
+        "source": "api/router_location.py",
+        "line": 388,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_crud_not_found.py",
+          "tests/test_lot1_endpoints.py",
+          "tests/test_place_input_contract.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "PUT",
+        "path": "/api/privacy/documents",
+        "source": "api/router_conversations.py",
+        "line": 70,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "frontend/e2e/critical-flows.spec.ts",
+          "frontend/src/auth-client.test.ts",
+          "tests/test_document_privacy.py",
+          "tests/test_misc_input_contracts.py"
+        ],
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "WEBSOCKET",
+        "path": "/ws",
+        "source": "main.py",
+        "line": 117,
+        "consumers": {
+          "frontend_next": [
+            "frontend/public/sw.js"
+          ],
+          "frontend_vite": [
+            "web/src/services/websocket.ts",
+            "web/src/sw.ts",
+            "web/vite.config.ts"
+          ],
+          "mobile_web": [
+            "web_mobile/js/ws.js"
+          ],
+          "android": [
+            "android/app/src/main/kotlin/fr/jarvis/companion/core/network/JarvisChatWebSocket.kt"
+          ],
+          "tv": [
+            "tv/config.py"
+          ]
+        },
+        "tests": [
+          "frontend/e2e/critical-flows.spec.ts",
+          "tests/test_audit_architecture_truth.py",
+          "tests/test_mobile_ws_bearer.py",
+          "tests/test_no_open_interpreter.py",
+          "tests/test_phase4_route_contract.py",
+          "tests/test_security_middleware.py",
+          "tests/test_supervisor_frontend.py",
+          "tests/test_ws_tv_events.py"
+        ],
+        "classification": "consumer_and_tested"
+      }
+    ]
   },
   "documentation_findings": [],
   "source_of_truth_doc": "Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md"
