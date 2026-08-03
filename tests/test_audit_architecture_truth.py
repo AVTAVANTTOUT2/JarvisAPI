@@ -133,6 +133,12 @@ def fake_repo(tmp_path: Path) -> Path:
         '@POST("api/jobs/{job_id}")\nfun runJob()\n',
         encoding="utf-8",
     )
+    native_mac = tmp_path / "native_mac" / "JarvisMac"
+    native_mac.mkdir(parents=True)
+    (native_mac / "Api.swift").write_text(
+        'let statusURL = "/api/status"\n',
+        encoding="utf-8",
+    )
     (tmp_path / "core").mkdir()
     (tmp_path / "core" / "frontend_resolution.py").write_text(
         "def is_usable_next_build(p): ...\n"
@@ -211,6 +217,10 @@ def test_api_surface_maps_routes_to_consumers_and_tests(fake_repo: Path) -> None
         "frontend_next": ["frontend/src/api.ts"],
     }
     assert by_path["/api/jobs/{job_id}"]["tests"] == ["tests/test_api.py"]
+    assert by_path["/api/status"]["consumers"] == {
+        "frontend_next": ["frontend/src/api.ts"],
+        "macos": ["native_mac/JarvisMac/Api.swift"],
+    }
     assert by_path["/api/operator"]["classification"] == "server_only_tested"
     assert by_path["/ws"]["classification"] == "unreferenced"
 

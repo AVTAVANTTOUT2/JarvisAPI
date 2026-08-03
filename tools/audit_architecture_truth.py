@@ -119,7 +119,7 @@ CONSUMER_SURFACES = {
     "frontend_vite": ("web",),
     "mobile_web": ("web_mobile",),
     "android": ("android/app/src/main",),
-    "macos": ("macos",),
+    "macos": ("native_mac",),
     "tv": ("tv",),
     "shared_auth_sdk": ("jarvis_auth/src",),
 }
@@ -132,7 +132,7 @@ TEST_SOURCE_ROOTS = (
     "web_mobile",
     "android/app/src/test",
     "android/app/src/androidTest",
-    "macos",
+    "native_mac",
     "jarvis_auth",
 )
 
