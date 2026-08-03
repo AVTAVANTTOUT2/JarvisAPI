@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
+
+from core.network_security import is_loopback_request
 
 router = APIRouter()
 
@@ -18,11 +20,30 @@ async def api_quality_ci_run():
 
 
 @router.post("/api/quality/ci/install-hook")
-async def api_quality_ci_install_hook(force: bool = False):
-    """Installe le hook pre-commit qui déclenche la CI locale à chaque commit."""
+async def api_quality_ci_install_hook(request: Request, force: bool = False):
+    """Installe localement notre hook sans pouvoir écraser un hook tiers."""
+    if not is_loopback_request(request):
+        raise HTTPException(403, "Installation du hook autorisée uniquement en local")
+    if force:
+        raise HTTPException(
+            409,
+            "L'écrasement d'un hook tiers est interdit via l'API ; utilisez la CLI locale",
+        )
+
+    from database import log_llm_action
     from scripts.install_git_hooks import install
 
-    result = install(force=force)
+    try:
+        log_llm_action(
+            "quality",
+            "quality_hook_install",
+            {"source": "local_api", "force": False},
+            "pending",
+        )
+    except Exception as exc:
+        raise HTTPException(503, "Journal d'audit qualité indisponible") from exc
+
+    result = install(force=False)
     if not result.get("ok"):
         raise HTTPException(409, result.get("reason", "Installation du hook refusée."))
     return result
@@ -63,22 +84,50 @@ async def api_quality_security_scan():
 
 @router.post("/api/quality/security/{finding_id}/fix")
 async def api_quality_security_fix(finding_id: int):
-    """Applique le correctif mécanique (redaction) — requiert SECURITY_AUTO_FIX_ENABLED."""
+    """Propose le correctif dans un worktree Cursor avec livraison PR-only."""
     from database import get_security_findings
-    from scripts.security_audit import apply_safe_fix
+    from integrations.cursor_delegation import CursorDelegationError
+    from jarvis.security.redaction import public_cursor_job_view
+    from scripts.quality_delegation import QualityDelegationError, delegate_security_fix
 
-    finding = next((f for f in get_security_findings("open", limit=1000) if f["id"] == finding_id), None)
+    finding = next(
+        (
+            item
+            for item in get_security_findings("open", limit=1000)
+            if item["id"] == finding_id
+        ),
+        None,
+    )
     if not finding:
         raise HTTPException(404, "Constat introuvable ou déjà résolu.")
-    return await asyncio.to_thread(apply_safe_fix, finding)
+    try:
+        job = await delegate_security_fix(
+            finding,
+            interaction_mode="chat",
+            auto_start=False,
+            require_confirmation=True,
+        )
+    except (QualityDelegationError, CursorDelegationError) as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return {"ok": True, "delegated": True, "job": public_cursor_job_view(job)}
 
 
 @router.post("/api/quality/tests/generate")
 async def api_quality_generate_tests():
-    """Génère des tests pour les fonctions non couvertes (opt-in, cf. .env.example)."""
-    from scripts.test_coverage_scan import run_test_generation
+    """Propose les tests manquants via Cursor, avec confirmation et PR obligatoire."""
+    from integrations.cursor_delegation import CursorDelegationError
+    from jarvis.security.redaction import public_cursor_job_view
+    from scripts.quality_delegation import QualityDelegationError, delegate_missing_tests
 
-    return await run_test_generation()
+    try:
+        job = await delegate_missing_tests(
+            interaction_mode="chat",
+            auto_start=False,
+            require_confirmation=True,
+        )
+    except (QualityDelegationError, CursorDelegationError) as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return {"ok": True, "delegated": True, "job": public_cursor_job_view(job)}
 
 
 @router.get("/api/migrations/status")

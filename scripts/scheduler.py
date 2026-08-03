@@ -468,13 +468,17 @@ async def _security_audit_job():
 
 @tracked("test_gen")
 async def _test_gen_job():
-    """Génération de tests manquants (opt-in, no-op si non configuré)."""
+    """Délègue les tests manquants à Cursor, uniquement via une PR."""
     if not config.AUTO_TEST_GEN_ENABLED:
         return skipped("AUTO_TEST_GEN_ENABLED=false")
-    from scripts.test_coverage_scan import run_test_generation
+    from scripts.quality_delegation import delegate_missing_tests
 
-    result = await run_test_generation()
-    return ok(result if result is not None else "Génération de tests terminée")
+    job = await delegate_missing_tests(
+        interaction_mode="scheduled",
+        auto_start=True,
+        require_confirmation=False,
+    )
+    return ok(f"Tests délégués via PR-only : {job.get('job_id')}")
 
 
 @tracked("commitments_overdue")

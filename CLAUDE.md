@@ -1273,8 +1273,8 @@ doivent jamais appliquer directement `DATE(created_at)` avec une date locale :
 | Migrations SQLite | `GET/POST /api/migrations/status\|run` | `scripts/db_migrations.py`, `database/migrations/` |
 | Perf + rollback | (interne, hook loop.py) | `scripts/perf_regression.py` |
 | Code dupliqué | `GET /api/quality/duplicates`, `POST .../scan` | `scripts/duplicate_scanner.py` |
-| Audit sécurité | `GET /api/quality/security`, `POST .../scan`, `POST .../{id}/fix` | `scripts/security_audit.py` |
-| Tests manquants | `POST /api/quality/tests/generate` | `scripts/test_coverage_scan.py` |
+| Audit sécurité | `GET /api/quality/security`, `POST .../scan`, `POST .../{id}/fix` (proposition Cursor PR-only) | `scripts/security_audit.py`, `scripts/quality_delegation.py` |
+| Tests manquants | `POST /api/quality/tests/generate` (proposition Cursor PR-only) | `scripts/quality_delegation.py` |
 | CI locale | `POST /api/quality/ci/run`, `POST .../install-hook` | `scripts/local_ci.py`, `scripts/install_git_hooks.py` |
 | Self-healing | `GET /api/self-healing/status`, `POST .../diagnose` | `scripts/self_healing.py` (hook `supervisor.py`) |
 | DevAgent — PR auto | `POST /api/devagent/{id}/pr` | `agents/devagent/pr.py` |
@@ -1284,10 +1284,11 @@ doivent jamais appliquer directement `DATE(created_at)` avec une date locale :
 | DevAgent — autorun | `POST /api/devagent/autorun` | `agents/devagent/autorun.py` |
 
 Détails et garde-fous de chaque feature dans les docstrings de tête de
-chaque module — tous suivent le principe : **report-only sur la codebase
-JARVIS elle-même** (jamais de mutation auto du code de l'assistant sans
-opt-in explicite), **application + validation automatique réservée aux
-projets DevAgent** (isolés, versionnés, testés → rollback trivial).
+chaque module — tous suivent le principe : **report-only dans le checkout
+JARVIS actif** ; les mutations de code opt-in passent par Cursor dans un
+worktree avec livraison PR-only. **Application + validation automatique
+réservée aux projets DevAgent** (isolés, versionnés, testés → rollback
+trivial).
 Self-healing est le plus encadré : diagnostic seul par défaut
 (`SELF_HEALING_ENABLED=false`), patch encore plus explicitement opt-in
 (`SELF_HEALING_AUTO_APPLY=false`), rollback automatique si la même

@@ -15,9 +15,10 @@ Deux catégories de constats :
   Jamais de correctif automatique — corriger correctement exige de
   comprendre l'intention du code, ce qui n'est pas du ressort d'un scanner.
 
-Le scan périodique (job hebdomadaire) ne fait JAMAIS de correctif — seuls
-les appels explicites (endpoint / CLI) avec le flag activé peuvent muter le
-code source.
+Le scan périodique (job hebdomadaire) ne fait JAMAIS de correctif. L'endpoint
+API délègue toute correction à Cursor dans un worktree avec PR obligatoire.
+La fonction directe reste disponible pour un dépôt explicitement en mode
+``best_effort``, mais refuse le checkout JARVIS en mode ``pr_only``.
 """
 
 from __future__ import annotations
@@ -177,7 +178,15 @@ def apply_safe_fix(finding: dict, root: Path | None = None) -> dict:
     if finding["rule"] not in _SECRET_RULE_NAMES:
         return {"applied": False, "reason": "correctif automatique réservé aux secrets (pas aux patterns dangereux)"}
 
-    root = root or config.BASE_DIR
+    root = (root or config.BASE_DIR).resolve()
+    if (
+        root == Path(config.BASE_DIR).resolve()
+        and str(getattr(config, "SELF_MODIFICATION_MODE", "pr_only")) == "pr_only"
+    ):
+        return {
+            "applied": False,
+            "reason": "mutation directe interdite en mode pr_only ; déléguez via Cursor",
+        }
     path = root / finding["file"]
     if not path.is_file():
         return {"applied": False, "reason": "fichier introuvable"}

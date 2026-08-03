@@ -182,3 +182,29 @@ def test_apply_safe_fix_refuses_untracked_file(tmp_db, tmp_path, monkeypatch):
     result = apply_safe_fix(finding, root=tmp_path)
     assert result["applied"] is False
     assert "git" in result["reason"]
+
+
+def test_apply_safe_fix_refuses_active_checkout_in_pr_only(
+    tmp_db, tmp_path, monkeypatch
+):
+    from database import get_security_findings, upsert_security_finding
+    from scripts.security_audit import apply_safe_fix
+
+    source = tmp_path / "a.py"
+    source.write_text(
+        'API_KEY = "sk-abcdefghijklmnopqrstuvwxyz123456"\n',
+        encoding="utf-8",
+    )
+    _init_git_repo(tmp_path)
+    upsert_security_finding("a.py", 1, "secret_deepseek_key", "high", "x")
+    finding = get_security_findings("open")[0]
+
+    monkeypatch.setattr("config.SECURITY_AUTO_FIX_ENABLED", True)
+    monkeypatch.setattr("config.SELF_MODIFICATION_MODE", "pr_only")
+    monkeypatch.setattr("config.BASE_DIR", tmp_path)
+
+    result = apply_safe_fix(finding)
+
+    assert result["applied"] is False
+    assert "pr_only" in result["reason"]
+    assert "sk-abcdefghijklmnopqrstuvwxyz123456" in source.read_text(encoding="utf-8")

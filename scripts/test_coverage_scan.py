@@ -13,8 +13,9 @@ Pour chaque fonction non couverte, un test pytest est généré par DeepSeek et
 et l'échec est notifié (jamais de test cassé qui entre dans la suite).
 
 Désactivé par défaut (``AUTO_TEST_GEN_ENABLED=false``) et sans cible par
-défaut (``AUTO_TEST_GEN_TARGET_DIRS`` vide) : opt-in explicite à deux
-niveaux, aucune surprise.
+défaut (``AUTO_TEST_GEN_TARGET_DIRS`` vide). Sur JARVIS, l'API et le job
+hebdomadaire délèguent désormais cette tâche à Cursor dans un worktree avec
+PR obligatoire ; la commande directe refuse le mode ``pr_only``.
 """
 
 from __future__ import annotations
@@ -166,12 +167,17 @@ async def generate_test_for_function(fn: FunctionInfo, base_dir: Path = config.B
 
 
 async def run_test_generation() -> dict:
-    """Point d'entrée (scheduler + endpoint). No-op si non configuré."""
+    """Commande directe historique, refusée sur JARVIS en mode PR-only."""
     if not config.AUTO_TEST_GEN_ENABLED:
         return {"ok": False, "reason": "AUTO_TEST_GEN_ENABLED désactivé"}
     target_dirs = [d.strip() for d in config.AUTO_TEST_GEN_TARGET_DIRS.split(",") if d.strip()]
     if not target_dirs:
         return {"ok": False, "reason": "AUTO_TEST_GEN_TARGET_DIRS vide — aucune cible configurée"}
+    if str(getattr(config, "SELF_MODIFICATION_MODE", "pr_only")) == "pr_only":
+        return {
+            "ok": False,
+            "reason": "mutation directe interdite en mode pr_only ; déléguez via Cursor",
+        }
 
     dirs = [config.BASE_DIR / d for d in target_dirs]
     tests_dir = config.BASE_DIR / "tests"
