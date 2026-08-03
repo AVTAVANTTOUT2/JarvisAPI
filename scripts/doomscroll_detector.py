@@ -12,6 +12,7 @@ from __future__ import annotations
 from collections import defaultdict
 
 import config
+from database.time_buckets import utc_bounds_for_local_day
 from jarvis.notification_service import notification_service
 
 
@@ -83,10 +84,13 @@ def check_and_notify_today() -> dict | None:
     if not today_results:
         return None
     today = today_results[0]
+    start_utc, end_utc = utc_bounds_for_local_day(today["date"])
     with get_db() as conn:
         already = conn.execute(
-            "SELECT 1 FROM notifications WHERE title = 'Doomscrolling' AND DATE(created_at) = ?",
-            (today["date"],),
+            """SELECT 1 FROM notifications
+               WHERE title = 'Doomscrolling'
+                 AND created_at >= ? AND created_at < ?""",
+            (start_utc, end_utc),
         ).fetchone()
     if already:
         return None

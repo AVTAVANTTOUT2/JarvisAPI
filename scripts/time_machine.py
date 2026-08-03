@@ -12,16 +12,20 @@ inventée pour combler les trous.
 
 from __future__ import annotations
 
+from database.time_buckets import sqlite_utc_to_local, utc_bounds_for_local_day
+
 
 def build_day_timeline(date: str) -> dict:
     """Reconstruction chronologique d'une date (``YYYY-MM-DD``) — SQL pur."""
     from database import get_db, get_jarvis_journal_entry
 
     events: list[dict] = []
+    start_utc, end_utc = utc_bounds_for_local_day(date)
 
     with get_db() as conn:
         msg_count = conn.execute(
-            "SELECT COUNT(*) FROM messages WHERE DATE(created_at) = ?", (date,)
+            "SELECT COUNT(*) FROM messages WHERE created_at >= ? AND created_at < ?",
+            (start_utc, end_utc),
         ).fetchone()[0]
 
         tasks_done = conn.execute(
@@ -54,27 +58,28 @@ def build_day_timeline(date: str) -> dict:
 
         moods = conn.execute(
             "SELECT mood_score, energy_level, context, created_at FROM mood_log "
-            "WHERE DATE(created_at) = ? ORDER BY created_at",
-            (date,),
+            "WHERE created_at >= ? AND created_at < ? ORDER BY created_at",
+            (start_utc, end_utc),
         ).fetchall()
         for m in moods:
             desc = f"Humeur {m['mood_score']}/10, énergie {m['energy_level']}/10"
             if m["context"]:
                 desc += f" — {m['context']}"
             events.append({
-                "time": (m["created_at"] or "")[11:16],
+                "time": sqlite_utc_to_local(m["created_at"]).strftime("%H:%M"),
                 "type": "mood",
                 "description": desc,
             })
 
         notable = conn.execute(
-            "SELECT app, notable, created_at FROM screen_activity WHERE DATE(created_at) = ? "
+            "SELECT app, notable, created_at FROM screen_activity "
+            "WHERE created_at >= ? AND created_at < ? "
             "AND notable IS NOT NULL AND notable != '' ORDER BY created_at",
-            (date,),
+            (start_utc, end_utc),
         ).fetchall()
         for n in notable:
             events.append({
-                "time": (n["created_at"] or "")[11:16],
+                "time": sqlite_utc_to_local(n["created_at"]).strftime("%H:%M"),
                 "type": "screen_notable",
                 "description": f"[{n['app']}] {n['notable']}",
             })

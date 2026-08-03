@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import config
@@ -52,3 +52,20 @@ def utc_bounds_for_local_dates(
         local_start.astimezone(timezone.utc).strftime(SQLITE_UTC_FORMAT),
         local_end.astimezone(timezone.utc).strftime(SQLITE_UTC_FORMAT),
     )
+
+
+def utc_bounds_for_local_day(value: date | str) -> tuple[str, str]:
+    """Retourne les bornes UTC exclusives d'une journée civile locale."""
+    local_day = date.fromisoformat(value) if isinstance(value, str) else value
+    return utc_bounds_for_local_dates(
+        local_day,
+        local_day + timedelta(days=1),
+    )
+
+
+def sqlite_utc_to_local(value: str | datetime) -> datetime:
+    """Convertit un timestamp SQLite UTC en datetime timezone-aware locale."""
+    parsed = datetime.fromisoformat(value) if isinstance(value, str) else value
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(configured_timezone())

@@ -22,6 +22,7 @@ def tmp_db(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     monkeypatch.setattr("config.DB_PATH", str(db_path))
     monkeypatch.setattr("database.DB_PATH", db_path)
     monkeypatch.setattr("config.RITUALS_TTS", False)
+    monkeypatch.setattr("config.TIMEZONE", "UTC")
     from database import init_db
 
     init_db()

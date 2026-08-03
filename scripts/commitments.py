@@ -17,7 +17,6 @@ import hashlib
 import json
 import logging
 import re
-from datetime import datetime
 
 import config
 import llm
@@ -29,6 +28,7 @@ from database import (
     get_overdue_commitments,
     release_job_run,
 )
+from database.time_buckets import local_datetime, utc_bounds_for_local_day
 from jarvis.notification_service import notification_service
 from jarvis.security.llm_data_boundary import (
     UNTRUSTED_DATA_SYSTEM_RULE,
@@ -42,13 +42,14 @@ _MAX_MESSAGES = 80
 
 
 def _todays_user_messages() -> list[str]:
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = local_datetime().date()
+    start_utc, end_utc = utc_bounds_for_local_day(today)
     with get_db() as conn:
         rows = conn.execute(
             """SELECT content FROM messages
-               WHERE role = 'user' AND DATE(created_at) = ?
+               WHERE role = 'user' AND created_at >= ? AND created_at < ?
                ORDER BY created_at ASC LIMIT ?""",
-            (today, _MAX_MESSAGES),
+            (start_utc, end_utc, _MAX_MESSAGES),
         ).fetchall()
     return [r[0] for r in rows if r[0] and len(r[0]) > 10]
 
@@ -76,7 +77,7 @@ async def extract_today_commitments() -> list[dict]:
 
     raw_corpus = "\n".join(f"- {m[:300]}" for m in messages)
     fingerprint = hashlib.sha256(raw_corpus.encode("utf-8")).hexdigest()
-    day = datetime.now().strftime("%Y-%m-%d")
+    day = local_datetime().date().isoformat()
     claim = claim_job_run("commitments_extract", f"{day}:{fingerprint}")
     if claim is None:
         return []
@@ -140,7 +141,7 @@ def check_overdue_commitments_job() -> dict | None:
     if not overdue:
         return None
 
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = local_datetime().date().isoformat()
     title = f"Promesses en attente — {today}"
     with get_db() as conn:
         dup = conn.execute(

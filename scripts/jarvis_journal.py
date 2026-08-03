@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime
 
 import config
 import llm
@@ -23,6 +22,7 @@ from database import (
     release_job_run,
     upsert_jarvis_journal_entry,
 )
+from database.time_buckets import local_datetime, utc_bounds_for_local_day
 
 logger = logging.getLogger(__name__)
 _JOURNAL_LOCK = asyncio.Lock()
@@ -38,14 +38,16 @@ _SYSTEM_PROMPT = (
 
 
 def _today() -> str:
-    return datetime.now().strftime("%Y-%m-%d")
+    return local_datetime().date().isoformat()
 
 
 def _day_facts(date: str) -> dict:
     """Chiffres bruts de la journée — SQL pur, zéro LLM."""
+    start_utc, end_utc = utc_bounds_for_local_day(date)
     with get_db() as conn:
         messages = conn.execute(
-            "SELECT COUNT(*) FROM messages WHERE DATE(created_at) = ?", (date,)
+            "SELECT COUNT(*) FROM messages WHERE created_at >= ? AND created_at < ?",
+            (start_utc, end_utc),
         ).fetchone()[0]
         tasks_done = [
             r["title"] for r in conn.execute(
@@ -61,15 +63,17 @@ def _day_facts(date: str) -> dict:
             )
         ]
         mood_row = conn.execute(
-            "SELECT mood_score, energy_level FROM mood_log WHERE DATE(created_at) = ? "
+            "SELECT mood_score, energy_level FROM mood_log "
+            "WHERE created_at >= ? AND created_at < ? "
             "ORDER BY created_at DESC LIMIT 1",
-            (date,),
+            (start_utc, end_utc),
         ).fetchone()
         notable = [
             r["notable"] for r in conn.execute(
-                "SELECT notable FROM screen_activity WHERE DATE(created_at) = ? "
+                "SELECT notable FROM screen_activity "
+                "WHERE created_at >= ? AND created_at < ? "
                 "AND notable IS NOT NULL AND notable != '' LIMIT 5",
-                (date,),
+                (start_utc, end_utc),
             )
         ]
     return {

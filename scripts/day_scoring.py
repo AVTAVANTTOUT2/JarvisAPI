@@ -17,7 +17,7 @@ recalculables et vérifiables, jamais présentées comme plus qu'un indice.
 
 from __future__ import annotations
 
-from datetime import datetime
+from database.time_buckets import local_datetime, utc_bounds_for_local_day
 
 
 def _clamp(v: float, lo: float = 0.0, hi: float = 100.0) -> int:
@@ -70,13 +70,14 @@ def compute_day_scores(day_data: dict) -> dict:
 
 
 def _today() -> str:
-    return datetime.now().strftime("%Y-%m-%d")
+    return local_datetime().date().isoformat()
 
 
 def _day_summary_for_scoring(date: str) -> dict:
     """Rassemble les signaux bruts d'une journée depuis la DB (SQL pur)."""
     from database import get_db
 
+    start_utc, end_utc = utc_bounds_for_local_day(date)
     with get_db() as conn:
         tasks_done = conn.execute(
             "SELECT COUNT(*) FROM tasks WHERE status = 'done' AND DATE(completed_at) = ?", (date,)
@@ -87,14 +88,16 @@ def _day_summary_for_scoring(date: str) -> dict:
             (date,),
         ).fetchone()[0]
         mood_row = conn.execute(
-            "SELECT mood_score, energy_level FROM mood_log WHERE DATE(created_at) = ? "
+            "SELECT mood_score, energy_level FROM mood_log "
+            "WHERE created_at >= ? AND created_at < ? "
             "ORDER BY created_at DESC LIMIT 1",
-            (date,),
+            (start_utc, end_utc),
         ).fetchone()
         screen_rows = conn.execute(
-            "SELECT mood, COUNT(*) AS c FROM screen_activity WHERE DATE(created_at) = ? "
+            "SELECT mood, COUNT(*) AS c FROM screen_activity "
+            "WHERE created_at >= ? AND created_at < ? "
             "AND mood IS NOT NULL GROUP BY mood",
-            (date,),
+            (start_utc, end_utc),
         ).fetchall()
     return {
         "tasks_done": tasks_done,
