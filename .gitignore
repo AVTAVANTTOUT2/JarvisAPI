@@ -17,13 +17,31 @@ build/
 
 # ── Données locales ─────────────────────────────────────────
 /data/
+data/private/
+data/voice-tests/
 uploads/
 
 # ── Voix (échantillons personnels, jamais versionnés) ───────
 voices/**/*.wav
 voices/**/*.mp3
 voices/**/*.m4a
+voices/**/*.flac
+voices/**/*.npy
+voices/**/*.npz
+voices/**/*.pt
+voices/**/*.pth
+voices/**/*.safetensors
+voices/**/*tokens*
 voices/**/transcript.txt
+data/voices/**/*.wav
+data/voices/**/*.mp3
+data/voices/**/*.flac
+data/voices/**/*.npy
+data/voices/**/*.npz
+data/voices/**/*.pt
+data/voices/**/*.pth
+data/voices/**/*.safetensors
+data/voices/**/*tokens*
 
 # ── Certificats SSL (ne JAMAIS committer les clés privées) ──
 certs/*.pem
@@ -51,6 +69,7 @@ jarvis-companion.apk
 
 # ── Modèles ML (gros fichiers locaux) ─────────────────────
 models/
+models/fish*/
 # ── Modèles audio locaux (hors Git) ─────────────────────────
 models/kokoro/
 .cache/

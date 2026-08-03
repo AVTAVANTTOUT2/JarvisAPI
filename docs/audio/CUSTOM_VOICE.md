@@ -8,13 +8,36 @@ utile.
 
 ```text
 voices/
-└── jarvis/
+└── jarvis-fr/
     ├── metadata.json      versionné
     ├── reference.wav      optionnel — jamais versionné
+    ├── reference.npy      optionnel — cache float32, jamais versionné
+    ├── reference.npz      optionnel — cache + sample_rate, jamais versionné
     └── transcript.txt     optionnel — jamais versionné
 ```
 
-Configuré par `TTS_VOICE_PATH` (défaut `./voices/jarvis`).
+Configuré par `TTS_VOICE_PATH` (défaut `./voices/jarvis-fr`).
+
+## Migration depuis `voices/jarvis`
+
+Le profil par défaut s'appelait `voices/jarvis`. Les échantillons n'étant
+jamais versionnés, une mise à jour les laisse dans l'ancien répertoire : le
+nouveau profil est vide, et JARVIS repart sur la voix par défaut du modèle.
+Il le dit — un avertissement au démarrage du moteur nomme les deux
+répertoires — mais rien ne se répare tout seul. Deux issues :
+
+```bash
+python scripts/prepare_jarvis_voice.py   # régénère jarvis-fr depuis le master
+                                         # et archive l'ancien profil sous
+                                         # data/private/ (rien n'est supprimé)
+```
+
+ou, pour garder l'échantillon existant tel quel :
+
+```bash
+mv voices/jarvis/reference.wav voices/jarvis/transcript.txt voices/jarvis-fr/
+rmdir voices/jarvis
+```
 
 ## Sans échantillon
 
@@ -36,15 +59,27 @@ devinerait l'alignement et la voix dériverait. JARVIS journalise alors un
 avertissement et reste sur la voix par défaut — plutôt qu'un timbre approximatif
 que vous n'avez pas choisi.
 
-## Procédure
+## Procédure automatique (recommandée)
+
+```bash
+# Placez le master WAV (préféré : VoixJARVIS_source_clonage_24k.wav) puis :
+python scripts/prepare_jarvis_voice.py
+
+# Le script analyse le master, choisit le meilleur extrait (10–30 s),
+# transcrit en local, écrit voices/jarvis-fr/ et le cache reference.npy.
+python scripts/download_tts_model.py   # une fois, ~6,7 Go
+python scripts/demo_jarvis_voice.py    # WAV de démo dans data/voice-tests/
+```
+
+## Procédure manuelle
 
 ```bash
 # 1. Enregistrer 20 s de parole naturelle (voix propre, pièce calme)
 #    Format attendu : WAV mono. Exemple avec ffmpeg à partir d'un autre format :
-ffmpeg -i source.m4a -ac 1 -ar 44100 voices/jarvis/reference.wav
+ffmpeg -i source.m4a -ac 1 -ar 24000 voices/jarvis-fr/reference.wav
 
 # 2. Écrire la transcription exacte
-$EDITOR voices/jarvis/transcript.txt
+$EDITOR voices/jarvis-fr/transcript.txt
 
 # 3. Redémarrer le daemon vocal, puis vérifier
 python scripts/benchmark_tts.py --runs 2

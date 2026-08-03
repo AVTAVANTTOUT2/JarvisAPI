@@ -1,0 +1,11 @@
+{
+  "id": "jarvis-fr",
+  "language": "fr-FR",
+  "gender": "male",
+  "source": "local_reference",
+  "license": "user-provided",
+  "reference_audio": "reference.wav",
+  "reference_text": "transcript.txt",
+  "reference_cache": "reference.npy",
+  "consent": "Voix fournie par le propriétaire de JARVIS pour clonage local exclusif. Aucun fichier audio n'est versionné dans ce dépôt."
+}

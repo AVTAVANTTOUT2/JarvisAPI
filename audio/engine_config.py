@@ -9,7 +9,6 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 FASTER_WHISPER_CACHE = Path.home() / ".cache" / "faster-whisper"
-KOKORO_MODEL_DIR = Path(__file__).resolve().parent.parent / "models" / "kokoro"
 SETUP_SCRIPT = "bash scripts/setup_local_audio.sh"
 
 FASTER_WHISPER_MODELS = frozenset({
@@ -133,7 +132,6 @@ __all__ = [
     "AudioEngineConfig",
     "FASTER_WHISPER_CACHE",
     "FASTER_WHISPER_MODELS",
-    "KOKORO_MODEL_DIR",
     "SETUP_SCRIPT",
     "is_valid_faster_whisper_model",
     "load_audio_engine_config",

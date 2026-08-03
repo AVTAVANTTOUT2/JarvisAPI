@@ -110,16 +110,18 @@ async def test_speculative_invalidated_on_voice_change(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_speculative_invalidated_on_provider_change(monkeypatch):
+async def test_speculative_invalidated_on_model_change(monkeypatch):
+    """Changer de modèle doit vider le cache : sinon JARVIS mélangerait deux
+    moteurs dans la même conversation."""
     from audio.tts_cache import SpeculativeTTS
 
     monkeypatch.setattr("config.SPECULATIVE_TTS_ENABLED", True)
-    monkeypatch.setattr("config.TTS_PROVIDER", "fish_local")
+    monkeypatch.setattr("config.TTS_MODEL_PATH", "mlx-community/fish-audio-s2-pro-8bit")
     spec = SpeculativeTTS()
     await spec.put("Bien, Monsieur.", "neutral", _FakeProvider())
     assert spec.get("Bien, Monsieur.") is not None
 
-    monkeypatch.setattr("config.TTS_PROVIDER", "current_local")
+    monkeypatch.setattr("config.TTS_MODEL_PATH", "mlx-community/fish-audio-s2-pro-bf16")
     assert spec.get("Bien, Monsieur.") is None
     assert spec.stats()["entries"] == 0
 

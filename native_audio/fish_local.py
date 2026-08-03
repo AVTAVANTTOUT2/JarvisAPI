@@ -238,20 +238,44 @@ class FishSpeechServer:
         Sans référence, le modèle parle avec sa voix par défaut. C'est un
         compromis assumé : refuser de parler tant qu'aucune voix personnalisée
         n'est déposée rendrait JARVIS muet à l'installation.
+
+        Ordre de chargement : ``reference.npy`` (pré-encodé au profilage) puis
+        ``reference.wav``. Le tenseur est conservé en mémoire pour toute la
+        vie du sidecar — aucune relecture disque par énoncé.
         """
-        if self._ref_audio_path is None or not self._ref_audio_path.is_file():
+        if self._ref_audio_path is None:
             return
         try:
             import mlx.core as mx
-            import soundfile as sf
+            import numpy as np
 
-            samples, rate = sf.read(str(self._ref_audio_path), dtype="float32")
-            if samples.ndim > 1:
-                samples = samples.mean(axis=1)
+            cache = self._ref_audio_path.with_name("reference.npy")
+            npz = self._ref_audio_path.with_name("reference.npz")
+            samples = None
+            rate = 0
+            if npz.is_file():
+                payload = np.load(npz)
+                samples = np.asarray(payload["samples"], dtype=np.float32).reshape(-1)
+                rate = int(np.asarray(payload["sample_rate"]).item())
+            elif cache.is_file():
+                samples = np.load(cache).astype(np.float32).reshape(-1)
+            elif self._ref_audio_path.is_file():
+                import soundfile as sf
+
+                raw, rate = sf.read(str(self._ref_audio_path), dtype="float32")
+                if raw.ndim > 1:
+                    raw = raw.mean(axis=1)
+                samples = np.asarray(raw, dtype=np.float32).reshape(-1)
+            else:
+                return
+
             self._ref_audio = mx.array(samples)
             print(
                 f"[fish-local] voix de référence chargée "
-                f"({len(samples)} échantillons @ {rate} Hz)",
+                f"({len(samples)} échantillons"
+                + (f" @ {rate} Hz" if rate else "")
+                + (" via cache" if cache.is_file() or npz.is_file() else "")
+                + ")",
                 file=sys.stderr,
             )
         except Exception as exc:  # noqa: BLE001 — voix illisible ≠ panne du moteur

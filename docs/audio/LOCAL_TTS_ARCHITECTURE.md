@@ -15,7 +15,7 @@ TextStreamSegmenter          jarvis/audio/tts/segmenter.py
 LocalTTSProvider             jarvis/audio/tts/base.py      ← le seul contrat connu du reste
     │
     ▼
-Backend local                jarvis/audio/tts/backends/    ← fish_local | current_local
+Backend local                jarvis/audio/tts/backends/    ← fish_local
     │  sidecar chaud, modèle chargé une fois
     ▼
 AudioChunk (PCM16 mono)      jarvis/audio/tts/base.py
@@ -60,7 +60,7 @@ premier son arrive avant la fin de la réponse — mais annoncer « streaming
 natif » serait faux.
 
 **Mesuré** sur une réponse de quatre phrases (Mac mini M4, backend
-`current_local`) : premier son à 184 ms, synthèse complète à 1 316 ms. La
+`fish_local`) : premier son à 184 ms, synthèse complète à 1 316 ms. La
 segmentation fait arriver la voix 7 fois plus tôt qu'une synthèse d'un bloc.
 
 ### Le premier segment obéit à des seuils plus courts
@@ -135,9 +135,9 @@ Erreurs déclarées (`jarvis/audio/tts/errors.py`) : `TTSUnavailableError`,
 Un seul jeu de réglages, quel que soit le backend. Aucune clé, aucune URL.
 
 ```bash
-TTS_PROVIDER=fish_local          # fish_local | current_local
+TTS_PROVIDER=fish_local
 TTS_MODEL_PATH=mlx-community/fish-audio-s2-pro-8bit
-TTS_VOICE_PATH=./voices/jarvis
+TTS_VOICE_PATH=./voices/jarvis-fr
 TTS_DEVICE=auto                  # auto | mlx | cpu — jamais cuda
 TTS_STREAMING=true
 TTS_SAMPLE_RATE=24000            # indicatif : la valeur du modèle fait foi
@@ -174,7 +174,7 @@ python scripts/benchmark_tts.py
 
 Emplacements : les poids vont dans le cache Hugging Face
 (`~/.cache/huggingface/hub`) ou dans le répertoire passé à `--dest` ; la voix
-vit dans `voices/jarvis/`.
+vit dans `voices/jarvis-fr/`.
 
 `resolve_local_model_dir` n'accepte qu'un répertoire existant ou un dépôt déjà
 en cache, et vérifie que les poids sont **complets** — un téléchargement

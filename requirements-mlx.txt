@@ -1,6 +1,6 @@
 # Sidecars audio MLX, installés dans JARVIS_VENV (venv séparé du backend).
-# mlx-audio apporte le runtime importé par native_audio/fish_local.py (moteur
-# vocal cible) et native_audio/kokoro_mlx.py (backend transitoire).
+# mlx-audio apporte le runtime importé par native_audio/fish_local.py, seul
+# moteur vocal du projet.
 # La borne haute est volontaire : le module Fish (`fish_qwen3_omni`) et son
 # codec sont apparus en 0.4 ; une montée de version doit être mesurée avant
 # d'être adoptée (voir scripts/benchmark_tts.py).

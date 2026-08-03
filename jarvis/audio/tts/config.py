@@ -24,7 +24,7 @@ from pathlib import Path
 
 DEFAULT_TTS_PROVIDER = "fish_local"
 DEFAULT_TTS_MODEL_PATH = "mlx-community/fish-audio-s2-pro-8bit"
-DEFAULT_TTS_VOICE_PATH = "./voices/jarvis"
+DEFAULT_TTS_VOICE_PATH = "./voices/jarvis-fr"
 DEFAULT_TTS_DEVICE = "auto"
 DEFAULT_TTS_STREAMING = True
 DEFAULT_TTS_SAMPLE_RATE = 24000
@@ -54,12 +54,14 @@ DEFAULT_TTS_FIRST_CHUNK_MAX_CHARS = 60
 
 # Fournisseurs connus. La fabrique refuse tout autre nom : c'est ce qui rend
 # impossible l'apparition d'un backend distant par simple configuration.
-KNOWN_PROVIDERS: frozenset[str] = frozenset({"fish_local", "current_local"})
+KNOWN_PROVIDERS: frozenset[str] = frozenset({"fish_local"})
 
 # Nom de fichier attendus dans le répertoire de voix.
 VOICE_METADATA_FILE = "metadata.json"
 VOICE_REFERENCE_AUDIO = "reference.wav"
 VOICE_REFERENCE_TEXT = "transcript.txt"
+VOICE_REFERENCE_CACHE = "reference.npy"
+VOICE_REFERENCE_CACHE_NPZ = "reference.npz"
 
 
 @dataclass(frozen=True)
@@ -118,6 +120,21 @@ class TTSSettings:
         except OSError:
             return None
         return content or None
+
+    def reference_cache(self) -> Path | None:
+        """Tenseur float32 pré-encodé, s'il existe.
+
+        Les deux formes écrites par ``scripts/prepare_jarvis_voice.py`` sont
+        acceptées : ``reference.npy`` (échantillons seuls) et ``reference.npz``
+        (échantillons + fréquence). Le sidecar sait lire les deux ; ne détecter
+        que la première ferait perdre le clonage, sans message, à un profil qui
+        n'aurait gardé que le ``.npz``.
+        """
+        for name in (VOICE_REFERENCE_CACHE, VOICE_REFERENCE_CACHE_NPZ):
+            path = self.voice_dir / name
+            if path.is_file():
+                return path
+        return None
 
 
 def _config_value(name: str, fallback: object) -> object:
@@ -256,6 +273,8 @@ __all__ = [
     "TTSSettings",
     "VOICE_METADATA_FILE",
     "VOICE_REFERENCE_AUDIO",
+    "VOICE_REFERENCE_CACHE",
+    "VOICE_REFERENCE_CACHE_NPZ",
     "VOICE_REFERENCE_TEXT",
     "load_tts_settings",
 ]
