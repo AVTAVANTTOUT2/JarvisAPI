@@ -10,14 +10,16 @@ import threading
 import time
 from collections import deque
 from datetime import datetime
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 import auth
 import config
 from api.errors import api_error
 from api.location_models import (
+    LocationBatchRequest,
+    LocationPointRequest,
     NameCurrentLocationRequest,
     PlaceCreateRequest,
     PlaceUpdateRequest,
@@ -141,6 +143,18 @@ def _require_mobile_bearer_device(request: Request) -> dict[str, Any]:
     return device
 
 
+def _authorize_location_ingestion(request: Request) -> str:
+    """Rate-limit et authentifie avant la validation détaillée du corps."""
+    _enforce_location_rate_limit(request)
+    return _require_location_token(request)
+
+
+def _authorize_location_batch(request: Request) -> dict[str, Any]:
+    """Rate-limit et authentifie le batch avant la validation de l'enveloppe."""
+    _enforce_location_rate_limit(request)
+    return _require_mobile_bearer_device(request)
+
+
 def _validate_coordinates(lat: float, lng: float) -> str | None:
     if (
         not math.isfinite(lat)
@@ -166,50 +180,45 @@ def _validate_point_time(pt: datetime | None) -> str | None:
 
 
 @router.post("/api/location")
-async def api_location_receive(body: dict[str, Any], request: Request):
+async def api_location_receive(
+    body: LocationPointRequest,
+    request: Request,
+    auth_method: Annotated[str, Depends(_authorize_location_ingestion)],
+):
     """Réception d'un point GPS (app native, raccourci iOS, etc.)."""
-    _enforce_location_rate_limit(request)
-    auth_method = _require_location_token(request)
-    try:
-        lat = float(body["latitude"])
-        lng = float(body["longitude"])
-    except (KeyError, TypeError, ValueError) as e:
-        raise HTTPException(400, f"latitude/longitude invalides : {e}") from e
-    coord_err = _validate_coordinates(lat, lng)
-    if coord_err:
-        raise HTTPException(400, coord_err)
     from integrations.location import location_manager
 
-    pt = _parse_optional_point_time(body)
+    payload = body.model_dump(exclude_none=True)
+    pt = _parse_optional_point_time(payload)
     result = await location_manager.process_location(
-        lat,
-        lng,
-        altitude=body.get("altitude"),
-        accuracy=body.get("accuracy"),
-        speed=body.get("speed"),
-        heading=body.get("heading") if body.get("heading") is not None else body.get("bearing"),
-        source=str(body.get("source") or "app"),
+        body.latitude,
+        body.longitude,
+        altitude=body.altitude,
+        accuracy=body.accuracy,
+        speed=body.speed,
+        heading=body.heading if body.heading is not None else body.bearing,
+        source=body.source,
         point_time=pt,
-        created_at=body.get("created_at") if isinstance(body.get("created_at"), str) else None,
+        created_at=body.created_at if isinstance(body.created_at, str) else None,
     )
     logger.info(
         "Point GPS accepté client=%s auth=%s source=%r",
         _client_host(request),
         auth_method,
-        str(body.get("source") or "app")[:80],
+        body.source,
     )
     return result
 
 
 @router.post("/api/location/batch")
-async def api_location_batch(body: dict[str, Any], request: Request):
+async def api_location_batch(
+    body: LocationBatchRequest,
+    request: Request,
+    device: Annotated[dict[str, Any], Depends(_authorize_location_batch)],
+):
     """Rattrapage hors ligne Android — Bearer + client_point_id idempotent."""
-    _enforce_location_rate_limit(request)
-    device = _require_mobile_bearer_device(request)
     device_id = str(device["device_id"])
-    points = body.get("points")
-    if not isinstance(points, list):
-        raise HTTPException(400, 'Body attendu : {"points": [...]}')
+    points = body.points
 
     max_points = int(getattr(config, "LOCATION_BATCH_MAX_POINTS", 50) or 50)
     if len(points) > max_points:

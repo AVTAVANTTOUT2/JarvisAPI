@@ -763,8 +763,9 @@ def test_location_post_rejects_invalid_coordinates(
             json={"latitude": latitude, "longitude": longitude},
             headers={"X-Location-Token": "shared-secret-token"},
         )
-    assert r.status_code == 400
-    assert r.json()["detail"] == "invalid_coordinates"
+    assert r.status_code == 422
+    detail = r.json()["detail"]
+    assert any(item["loc"][-1] in {"latitude", "longitude"} for item in detail)
 
 
 def test_location_ingestion_is_rate_limited_before_auth(tmp_db, monkeypatch):

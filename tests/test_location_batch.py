@@ -101,6 +101,26 @@ def test_batch_empty_ok(tmp_db):
     assert body["rejected"] == []
 
 
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {},
+        {"points": "pas-une-liste"},
+        {"points": [], "unexpected": True},
+    ],
+)
+def test_batch_rejects_invalid_envelopes_with_422(tmp_db, payload):
+    with _client() as client:
+        authenticate(client)
+        token = _pair(client)
+        response = client.post(
+            "/api/location/batch",
+            json=payload,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert response.status_code == 422, response.text
+
+
 def test_batch_persists_history_when_tracking_disabled(tmp_db, monkeypatch):
     """LOCATION_TRACKING=false doit quand même écrire location_history."""
     monkeypatch.setattr("config.LOCATION_TRACKING", False)

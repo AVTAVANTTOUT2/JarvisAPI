@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, model_validator
 
 
 class _StrictLocationRequest(BaseModel):
@@ -47,3 +49,31 @@ class PlaceUpdateRequest(_StrictLocationRequest):
 class NameCurrentLocationRequest(_StrictLocationRequest):
     name: str = Field(min_length=1, max_length=200)
     category: str = Field(default="other", min_length=1, max_length=80)
+
+
+class LocationPointRequest(_StrictLocationRequest):
+    """Point unitaire strict ; les alias temporels restent compatibles."""
+
+    latitude: FiniteFloat = Field(ge=-90, le=90)
+    longitude: FiniteFloat = Field(ge=-180, le=180)
+    altitude: FiniteFloat | None = None
+    accuracy: FiniteFloat | None = Field(default=None, ge=0)
+    speed: FiniteFloat | None = Field(default=None, ge=0)
+    heading: FiniteFloat | None = Field(default=None, ge=0, le=360)
+    bearing: FiniteFloat | None = Field(default=None, ge=0, le=360)
+    source: str = Field(default="app", min_length=1, max_length=80)
+    provider: str | None = Field(default=None, max_length=80)
+    captured_at: int | float | str | None = None
+    timestamp: int | float | str | None = None
+    created_at: int | float | str | None = None
+    point_time: int | float | str | None = None
+
+
+class LocationBatchRequest(_StrictLocationRequest):
+    """Enveloppe stricte ; chaque point garde le contrat de rejet partiel.
+
+    Les points sont volontairement validés individuellement dans le routeur :
+    un élément périmé ne doit pas faire rejouer les autres points offline.
+    """
+
+    points: list[Any] = Field(max_length=1_000)
