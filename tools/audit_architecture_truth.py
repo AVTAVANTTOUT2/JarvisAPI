@@ -419,6 +419,10 @@ def _route_reference_pattern(path: str) -> re.Pattern[str]:
         else:
             pieces.append(re.escape(part))
     body = "/" + "/".join(pieces)
+    # Retrofit emploie des chemins relatifs (`@POST("api/...")`) tandis que
+    # fetch/OkHttp et les tests emploient généralement `/api/...`.
+    if body == "/api" or body.startswith("/api/"):
+        body = "/?" + body.lstrip("/")
     return re.compile(
         rf"(?<![A-Za-z0-9_-]){body}(?=$|[?#\s\"'`),;\]])"
     )

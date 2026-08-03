@@ -6,7 +6,7 @@
 
 Runtime SQLite canonique : **90 tables persistantes**, **95 tables physiques avec FTS5**, schéma généré : **91 déclarations de tables**.
 
-Surface API canonique : **260 opérations**, **231 chemins**, **110 consommées et testées**, **57 consommées sans référence de test**, **44 serveur seulement mais testées**, **49 non référencées**.
+Surface API canonique : **260 opérations**, **231 chemins**, **118 consommées et testées**, **57 consommées sans référence de test**, **36 serveur seulement mais testées**, **49 non référencées**.
 
 > Ce document **remplace** les affirmations conflictuelles « 44 tables », « 72 tables », « 73 tables »
 > et les formulations ambiguës sur le « frontend principal ».  
@@ -135,7 +135,7 @@ et aux tests qui le référencent. L'analyse est statique et n'importe pas
 | Next canonique (`frontend/`) | 115 |
 | Vite de repli (`web/`) | 42 |
 | Web mobile (`web_mobile/`) | 28 |
-| Android | 8 |
+| Android | 26 |
 | TV | 8 |
 | SDK auth partagé | 6 |
 | macOS | 0 |
