@@ -13,6 +13,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 import config  # noqa: E402
+from database.time_buckets import local_datetime  # noqa: E402
 
 
 @pytest.fixture
@@ -156,7 +157,7 @@ async def test_commitments_extraction_and_dedupe(tmp_db):
     from database import get_commitments, get_db
     from scripts import commitments as cm
 
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = local_datetime().strftime("%Y-%m-%d")
     with get_db() as conn:
         conn.execute("INSERT INTO conversations (id, agent) VALUES (1, 'orchestrator')")
         conn.execute(

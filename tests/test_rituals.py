@@ -13,6 +13,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 import config  # noqa: E402
+from database.time_buckets import local_datetime  # noqa: E402
 
 
 @pytest.fixture
@@ -49,7 +50,7 @@ def test_productivity_score_deterministic(tmp_db):
     from database import get_db
     from scripts.rituals import compute_productivity_score
 
-    today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    today = local_datetime().strftime("%Y-%m-%d %H:%M:%S")
     with get_db() as conn:
         for i in range(3):  # 3 tâches faites cette semaine
             conn.execute(
@@ -65,7 +66,7 @@ def test_productivity_score_deterministic(tmp_db):
     assert r["done_7d"] == 3 and r["overdue"] == 1
 
     from database import get_daily_ritual
-    row = get_daily_ritual(datetime.now().strftime("%Y-%m-%d"))
+    row = get_daily_ritual(local_datetime().strftime("%Y-%m-%d"))
     assert row["productivity_score"] == 62
 
 
@@ -185,7 +186,7 @@ async def test_daily_roast_stores_and_notifies(tmp_db):
 
     assert "dossier" in r["roast"]
     assert r["overdue"] == 1
-    row = get_daily_ritual(datetime.now().strftime("%Y-%m-%d"))
+    row = get_daily_ritual(local_datetime().strftime("%Y-%m-%d"))
     assert row["roast"] == "Le dossier attend depuis 2020, Monsieur."
     assert any(n["title"] == "Roast du jour" for n in get_unread_notifications(10))
 
@@ -210,7 +211,7 @@ async def test_evening_debrief_persists_score(tmp_db):
         r = await rituals.evening_debrief()
 
     assert r["debrief"] == "Journée correcte, Monsieur."
-    row = get_daily_ritual(datetime.now().strftime("%Y-%m-%d"))
+    row = get_daily_ritual(local_datetime().strftime("%Y-%m-%d"))
     assert row["debrief"] and row["productivity_score"] is not None
 
 
