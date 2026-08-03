@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-03T22:24:28.559185+00:00",
+  "generated_at": "2026-08-03T22:36:47.042105+00:00",
   "repo_root": ".",
   "canonical_formulation": {
     "database": "Le projet crée 90 tables persistantes après init_db() + migrations, plus jusqu'à 5 objets FTS5, soit 95 tables physiques lorsque FTS5 est disponible.",
@@ -468,8 +468,8 @@
       "paths": 231,
       "consumer_and_tested": 118,
       "consumer_without_path_test": 57,
-      "server_only_tested": 36,
-      "unreferenced": 49
+      "owned_non_frontend_and_tested": 36,
+      "owned_non_frontend_without_path_test": 49
     },
     "consumer_surfaces": [
       "android",
@@ -480,6 +480,11 @@
       "shared_auth_sdk",
       "tv"
     ],
+    "ownership_policy": {
+      "path": "Architecture/api_route_ownership.json",
+      "rules": 32,
+      "findings": []
+    },
     "routes": [
       {
         "method": "DELETE",
@@ -510,6 +515,7 @@
           "tests/test_secure_uploads.py",
           "tests/test_web_mobile.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -521,7 +527,13 @@
         "tests": [
           "tests/test_misc_input_contracts.py"
         ],
-        "classification": "server_only_tested"
+        "non_frontend_ownership": {
+          "rule_id": "operator-dnd",
+          "owner": "operations",
+          "audience": "operator",
+          "rationale": "Commande manuelle du mode silence, également piloté directement par les automatisations locales."
+        },
+        "classification": "owned_non_frontend_and_tested"
       },
       {
         "method": "DELETE",
@@ -537,6 +549,7 @@
           "tests/test_food_control.py",
           "tests/test_food_input_contract.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -553,6 +566,7 @@
           "tests/test_food_control.py",
           "tests/test_food_input_contract.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -569,6 +583,7 @@
           "tests/test_crud_not_found.py",
           "tests/test_life_input_contract.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -588,6 +603,7 @@
           "frontend/src/lib/api-logs.test.ts",
           "tests/test_action_log_privacy.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -605,6 +621,7 @@
           "tests/test_lot1_endpoints.py",
           "tests/test_place_input_contract.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -645,6 +662,7 @@
           "tests/test_task_input_contract.py",
           "web/src/lib/offline/queue.test.ts"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -667,6 +685,7 @@
           "tests/test_crud_not_found.py",
           "tests/test_task_input_contract.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -683,6 +702,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -696,6 +716,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -712,6 +733,7 @@
         "tests": [
           "tests/test_security_middleware.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -745,6 +767,7 @@
           "tests/test_mobile_pairing.py",
           "tests/test_security_middleware.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -758,6 +781,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -767,7 +791,13 @@
         "line": 108,
         "consumers": {},
         "tests": [],
-        "classification": "unreferenced"
+        "non_frontend_ownership": {
+          "rule_id": "operator-backups",
+          "owner": "database-operations",
+          "audience": "operator",
+          "rationale": "Surface de sauvegarde et restauration réservée à l'exploitation authentifiée."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "GET",
@@ -795,6 +825,7 @@
           "frontend/e2e/unified.spec.ts",
           "tests/test_mobile_bearer_routes.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -830,6 +861,7 @@
           "tests/test_relationships_input_contract.py",
           "tests/test_web_mobile.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -843,6 +875,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -856,6 +889,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -865,7 +899,13 @@
         "line": 213,
         "consumers": {},
         "tests": [],
-        "classification": "unreferenced"
+        "non_frontend_ownership": {
+          "rule_id": "operator-commitments",
+          "owner": "personal-memory",
+          "audience": "operator",
+          "rationale": "Inspection, correction et contrôle de cohérence des engagements extraits automatiquement."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "GET",
@@ -876,7 +916,13 @@
         "tests": [
           "tests/test_lot1_endpoints.py"
         ],
-        "classification": "server_only_tested"
+        "non_frontend_ownership": {
+          "rule_id": "operator-commitments",
+          "owner": "personal-memory",
+          "audience": "operator",
+          "rationale": "Inspection, correction et contrôle de cohérence des engagements extraits automatiquement."
+        },
+        "classification": "owned_non_frontend_and_tested"
       },
       {
         "method": "GET",
@@ -892,6 +938,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -901,7 +948,13 @@
         "line": 323,
         "consumers": {},
         "tests": [],
-        "classification": "unreferenced"
+        "non_frontend_ownership": {
+          "rule_id": "operator-contact-tools",
+          "owner": "contacts-integrations",
+          "audience": "operator",
+          "rationale": "Diagnostic de résolution et synchronisation manuelle du carnet de contacts."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "GET",
@@ -916,6 +969,7 @@
         "tests": [
           "tests/test_control_plane_auth.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -927,7 +981,13 @@
         "tests": [
           "tests/test_http_error_contract.py"
         ],
-        "classification": "server_only_tested"
+        "non_frontend_ownership": {
+          "rule_id": "operator-service-detail",
+          "owner": "service-control",
+          "audience": "operator",
+          "rationale": "Diagnostic détaillé d'un service supervisé, destiné à l'interface et aux scripts d'exploitation."
+        },
+        "classification": "owned_non_frontend_and_tested"
       },
       {
         "method": "GET",
@@ -940,6 +1000,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -971,6 +1032,7 @@
           "tests/test_mobile_bearer_routes.py",
           "tests/test_web_mobile.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -984,6 +1046,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -1015,6 +1078,7 @@
           "tests/test_secure_uploads.py",
           "tests/test_web_mobile.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -1024,7 +1088,13 @@
         "line": 103,
         "consumers": {},
         "tests": [],
-        "classification": "unreferenced"
+        "non_frontend_ownership": {
+          "rule_id": "operator-costs",
+          "owner": "observability",
+          "audience": "operator",
+          "rationale": "Lecture administrative de la consommation et des coûts des fournisseurs."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "GET",
@@ -1039,6 +1109,7 @@
         "tests": [
           "tests/test_cursor_security_hardening.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -1052,6 +1123,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -1061,7 +1133,13 @@
         "line": 144,
         "consumers": {},
         "tests": [],
-        "classification": "unreferenced"
+        "non_frontend_ownership": {
+          "rule_id": "operator-cursor-control",
+          "owner": "cursor-delegation",
+          "audience": "operator",
+          "rationale": "Commandes de contrôle humain et diagnostic du moteur de délégation Cursor."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "GET",
@@ -1072,7 +1150,13 @@
         "tests": [
           "tests/test_lot1_endpoints.py"
         ],
-        "classification": "server_only_tested"
+        "non_frontend_ownership": {
+          "rule_id": "operator-day-scores",
+          "owner": "personal-analytics",
+          "audience": "operator",
+          "rationale": "Lecture d'analyse personnelle détaillée pour diagnostic et export."
+        },
+        "classification": "owned_non_frontend_and_tested"
       },
       {
         "method": "GET",
@@ -1083,7 +1167,13 @@
         "tests": [
           "tests/test_lot1_endpoints.py"
         ],
-        "classification": "server_only_tested"
+        "non_frontend_ownership": {
+          "rule_id": "operator-day-scores",
+          "owner": "personal-analytics",
+          "audience": "operator",
+          "rationale": "Lecture d'analyse personnelle détaillée pour diagnostic et export."
+        },
+        "classification": "owned_non_frontend_and_tested"
       },
       {
         "method": "GET",
@@ -1092,7 +1182,13 @@
         "line": 27,
         "consumers": {},
         "tests": [],
-        "classification": "unreferenced"
+        "non_frontend_ownership": {
+          "rule_id": "operator-devagent",
+          "owner": "devagent",
+          "audience": "operator",
+          "rationale": "Plan de contrôle explicite de l'agent de développement, utilisable par un opérateur ou une intégration CI."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "GET",
@@ -1101,7 +1197,13 @@
         "line": 180,
         "consumers": {},
         "tests": [],
-        "classification": "unreferenced"
+        "non_frontend_ownership": {
+          "rule_id": "operator-devagent",
+          "owner": "devagent",
+          "audience": "operator",
+          "rationale": "Plan de contrôle explicite de l'agent de développement, utilisable par un opérateur ou une intégration CI."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "GET",
@@ -1126,6 +1228,7 @@
         "tests": [
           "tests/test_remote_device_pairing.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -1137,7 +1240,13 @@
         "tests": [
           "tests/test_remote_device_pairing.py"
         ],
-        "classification": "server_only_tested"
+        "non_frontend_ownership": {
+          "rule_id": "device-agent-protocol",
+          "owner": "device-management",
+          "audience": "device-agent",
+          "rationale": "Protocole machine-à-machine des agents desktop, authentifié par jeton device et non par frontend."
+        },
+        "classification": "owned_non_frontend_and_tested"
       },
       {
         "method": "GET",
@@ -1148,7 +1257,13 @@
         "tests": [
           "tests/test_misc_input_contracts.py"
         ],
-        "classification": "server_only_tested"
+        "non_frontend_ownership": {
+          "rule_id": "operator-dnd",
+          "owner": "operations",
+          "audience": "operator",
+          "rationale": "Commande manuelle du mode silence, également piloté directement par les automatisations locales."
+        },
+        "classification": "owned_non_frontend_and_tested"
       },
       {
         "method": "GET",
@@ -1159,7 +1274,13 @@
         "tests": [
           "tests/test_lot1_endpoints.py"
         ],
-        "classification": "server_only_tested"
+        "non_frontend_ownership": {
+          "rule_id": "operator-behaviour-insights",
+          "owner": "personal-analytics",
+          "audience": "operator",
+          "rationale": "Analyses avancées exposées pour inspection, export et diagnostic, sans écran dédié."
+        },
+        "classification": "owned_non_frontend_and_tested"
       },
       {
         "method": "GET",
@@ -1176,6 +1297,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -1194,6 +1316,7 @@
           "frontend/e2e/unified.spec.ts",
           "tests/test_sse_resume.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -1207,6 +1330,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -1222,6 +1346,7 @@
         "tests": [
           "tests/test_web_mobile.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -1245,6 +1370,7 @@
           "tests/test_fitness_meal_analysis.py",
           "tests/test_fitness_voice.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -1256,7 +1382,13 @@
         "tests": [
           "tests/test_fitness_meal_analysis.py"
         ],
-        "classification": "server_only_tested"
+        "non_frontend_ownership": {
+          "rule_id": "indirect-fitness-photo",
+          "owner": "fitness",
+          "audience": "indirect-client",
+          "rationale": "Ressource liée par l'URL photo produite dans les réponses repas, sans chemin littéral dupliqué dans les vues."
+        },
+        "classification": "owned_non_frontend_and_tested"
       },
       {
         "method": "GET",
@@ -1274,6 +1406,7 @@
         "tests": [
           "tests/test_web_mobile.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -1290,6 +1423,7 @@
           "tests/test_fitness_api.py",
           "tests/test_fitness_voice.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -1301,7 +1435,13 @@
         "tests": [
           "tests/test_fitness_api.py"
         ],
-        "classification": "server_only_tested"
+        "non_frontend_ownership": {
+          "rule_id": "integration-fitness-water",
+          "owner": "fitness",
+          "audience": "integration-client",
+          "rationale": "Contrat de lecture courant destiné aux intégrations Fitness et conservé indépendamment du dashboard agrégé."
+        },
+        "classification": "owned_non_frontend_and_tested"
       },
       {
         "method": "GET",
@@ -1319,6 +1459,7 @@
         "tests": [
           "tests/test_web_mobile.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -1338,6 +1479,7 @@
           "tests/test_fitness_api.py",
           "tests/test_fitness_voice.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -1357,6 +1499,7 @@
           "tests/test_fitness_api.py",
           "tests/test_fitness_voice.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -1373,6 +1516,7 @@
           "tests/test_food_control.py",
           "tests/test_food_input_contract.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -1386,6 +1530,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -1399,6 +1544,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -1415,6 +1561,7 @@
           "tests/test_food_input_contract.py",
           "tests/test_food_intelligence.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -1428,6 +1575,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -1437,7 +1585,13 @@
         "line": 239,
         "consumers": {},
         "tests": [],
-        "classification": "unreferenced"
+        "non_frontend_ownership": {
+          "rule_id": "operator-food-preferences",
+          "owner": "food-automation",
+          "audience": "operator",
+          "rationale": "Inspection des préférences dérivées par l'automatisation alimentaire."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "GET",
@@ -1450,6 +1604,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -1463,6 +1618,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -1479,6 +1635,7 @@
           "tests/test_food_control.py",
           "tests/test_food_input_contract.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -1495,6 +1652,7 @@
           "tests/test_food_control.py",
           "tests/test_food_input_contract.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -1510,6 +1668,7 @@
         "tests": [
           "tests/test_food_intelligence.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -1525,6 +1684,7 @@
         "tests": [
           "tests/test_food_intelligence.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -1534,7 +1694,13 @@
         "line": 133,
         "consumers": {},
         "tests": [],
-        "classification": "unreferenced"
+        "non_frontend_ownership": {
+          "rule_id": "operator-imessage-import",
+          "owner": "imessage-import",
+          "audience": "operator",
+          "rationale": "Déclenchement et suivi manuels d'un import iMessage local."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "GET",
@@ -1543,7 +1709,13 @@
         "line": 330,
         "consumers": {},
         "tests": [],
-        "classification": "unreferenced"
+        "non_frontend_ownership": {
+          "rule_id": "operator-improvement-engine",
+          "owner": "improvement-engine",
+          "audience": "operator",
+          "rationale": "Revue humaine des propositions et déclenchement contrôlé du moteur d'amélioration."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "GET",
@@ -1564,6 +1736,7 @@
         "tests": [
           "tests/test_no_open_interpreter.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -1576,7 +1749,13 @@
           "tests/test_lot1_endpoints.py",
           "tests/test_security_middleware.py"
         ],
-        "classification": "server_only_tested"
+        "non_frontend_ownership": {
+          "rule_id": "automation-jarvis-journal",
+          "owner": "daily-rituals",
+          "audience": "automation",
+          "rationale": "Déclencheur manuel et lecture de secours d'un journal normalement produit par le scheduler."
+        },
+        "classification": "owned_non_frontend_and_tested"
       },
       {
         "method": "GET",
@@ -1594,6 +1773,7 @@
         "tests": [
           "tests/test_life_input_contract.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -1607,7 +1787,13 @@
           "tests/test_life_input_contract.py",
           "tests/test_security_middleware.py"
         ],
-        "classification": "server_only_tested"
+        "non_frontend_ownership": {
+          "rule_id": "operator-life-context",
+          "owner": "personal-memory",
+          "audience": "operator",
+          "rationale": "Administration des périodes de contexte de vie en l'absence d'un écran spécialisé."
+        },
+        "classification": "owned_non_frontend_and_tested"
       },
       {
         "method": "GET",
@@ -1625,6 +1811,7 @@
         "tests": [
           "tests/test_life_input_contract.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -1644,6 +1831,7 @@
           "frontend/e2e/unified.spec.ts",
           "tests/test_name_place_location.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -1659,6 +1847,7 @@
         "tests": [
           "frontend/e2e/unified.spec.ts"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -1678,6 +1867,7 @@
           "frontend/e2e/unified.spec.ts",
           "tests/test_name_place_location.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -1697,6 +1887,7 @@
           "frontend/src/lib/api-logs.test.ts",
           "tests/test_action_log_privacy.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -1706,7 +1897,13 @@
         "line": 228,
         "consumers": {},
         "tests": [],
-        "classification": "unreferenced"
+        "non_frontend_ownership": {
+          "rule_id": "operator-meetings",
+          "owner": "meeting-memory",
+          "audience": "operator",
+          "rationale": "Consultation et export des synthèses de réunion enregistrées."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "GET",
@@ -1722,6 +1919,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -1733,7 +1931,13 @@
         "tests": [
           "tests/test_conversation_memory_endpoints.py"
         ],
-        "classification": "server_only_tested"
+        "non_frontend_ownership": {
+          "rule_id": "operator-semantic-memory",
+          "owner": "personal-memory",
+          "audience": "operator",
+          "rationale": "Outil de diagnostic de la recherche sémantique, distinct de la recherche utilisateur standard."
+        },
+        "classification": "owned_non_frontend_and_tested"
       },
       {
         "method": "GET",
@@ -1742,7 +1946,13 @@
         "line": 133,
         "consumers": {},
         "tests": [],
-        "classification": "unreferenced"
+        "non_frontend_ownership": {
+          "rule_id": "operator-migrations",
+          "owner": "database-operations",
+          "audience": "operator",
+          "rationale": "Diagnostic et rattrapage contrôlé des migrations par l'exploitation."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "GET",
@@ -1755,6 +1965,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -1770,6 +1981,7 @@
         "tests": [
           "tests/test_name_place_location.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -1784,6 +1996,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -1793,7 +2006,13 @@
         "line": 143,
         "consumers": {},
         "tests": [],
-        "classification": "unreferenced"
+        "non_frontend_ownership": {
+          "rule_id": "operator-behaviour-insights",
+          "owner": "personal-analytics",
+          "audience": "operator",
+          "rationale": "Analyses avancées exposées pour inspection, export et diagnostic, sans écran dédié."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "GET",
@@ -1825,6 +2044,7 @@
           "frontend/e2e/unified.spec.ts",
           "tests/test_mobile_bearer_routes.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -1834,7 +2054,13 @@
         "line": 313,
         "consumers": {},
         "tests": [],
-        "classification": "unreferenced"
+        "non_frontend_ownership": {
+          "rule_id": "operator-notification-history",
+          "owner": "notifications",
+          "audience": "operator",
+          "rationale": "Lecture exhaustive pour audit, distincte du flux utilisateur des notifications non lues."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "GET",
@@ -1850,6 +2076,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -1863,6 +2090,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -1879,6 +2107,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -1895,6 +2124,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -1910,6 +2140,7 @@
         "tests": [
           "tests/test_timeline_generator.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -1923,6 +2154,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -1936,6 +2168,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -1951,6 +2184,7 @@
         "tests": [
           "tests/test_timeline_generator.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -1970,6 +2204,7 @@
           "frontend/e2e/unified.spec.ts",
           "tests/test_place_input_contract.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -1981,7 +2216,13 @@
         "tests": [
           "tests/test_lot1_endpoints.py"
         ],
-        "classification": "server_only_tested"
+        "non_frontend_ownership": {
+          "rule_id": "operator-location-intelligence",
+          "owner": "location-intelligence",
+          "audience": "operator",
+          "rationale": "Analyses de localisation et de relations destinées à l'inspection et à l'export avancés."
+        },
+        "classification": "owned_non_frontend_and_tested"
       },
       {
         "method": "GET",
@@ -1992,7 +2233,13 @@
         "tests": [
           "tests/test_lot1_endpoints.py"
         ],
-        "classification": "server_only_tested"
+        "non_frontend_ownership": {
+          "rule_id": "operator-location-intelligence",
+          "owner": "location-intelligence",
+          "audience": "operator",
+          "rationale": "Analyses de localisation et de relations destinées à l'inspection et à l'export avancés."
+        },
+        "classification": "owned_non_frontend_and_tested"
       },
       {
         "method": "GET",
@@ -2005,6 +2252,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -2016,7 +2264,13 @@
         "tests": [
           "tests/test_lot1_endpoints.py"
         ],
-        "classification": "server_only_tested"
+        "non_frontend_ownership": {
+          "rule_id": "operator-behaviour-insights",
+          "owner": "personal-analytics",
+          "audience": "operator",
+          "rationale": "Analyses avancées exposées pour inspection, export et diagnostic, sans écran dédié."
+        },
+        "classification": "owned_non_frontend_and_tested"
       },
       {
         "method": "GET",
@@ -2025,7 +2279,13 @@
         "line": 193,
         "consumers": {},
         "tests": [],
-        "classification": "unreferenced"
+        "non_frontend_ownership": {
+          "rule_id": "operator-location-intelligence",
+          "owner": "location-intelligence",
+          "audience": "operator",
+          "rationale": "Analyses de localisation et de relations destinées à l'inspection et à l'export avancés."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "GET",
@@ -2043,6 +2303,7 @@
           "tests/test_document_privacy.py",
           "tests/test_misc_input_contracts.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -2054,7 +2315,13 @@
         "tests": [
           "tests/test_lot1_endpoints.py"
         ],
-        "classification": "server_only_tested"
+        "non_frontend_ownership": {
+          "rule_id": "operator-behaviour-insights",
+          "owner": "personal-analytics",
+          "audience": "operator",
+          "rationale": "Analyses avancées exposées pour inspection, export et diagnostic, sans écran dédié."
+        },
+        "classification": "owned_non_frontend_and_tested"
       },
       {
         "method": "GET",
@@ -2063,7 +2330,13 @@
         "line": 138,
         "consumers": {},
         "tests": [],
-        "classification": "unreferenced"
+        "non_frontend_ownership": {
+          "rule_id": "operator-behaviour-insights",
+          "owner": "personal-analytics",
+          "audience": "operator",
+          "rationale": "Analyses avancées exposées pour inspection, export et diagnostic, sans écran dédié."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "GET",
@@ -2078,6 +2351,7 @@
         "tests": [
           "tests/test_push_endpoints.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -2087,7 +2361,13 @@
         "line": 52,
         "consumers": {},
         "tests": [],
-        "classification": "unreferenced"
+        "non_frontend_ownership": {
+          "rule_id": "operator-quality-tools",
+          "owner": "quality-automation",
+          "audience": "operator",
+          "rationale": "Boîte à outils de qualité et sécurité réservée au développeur/opérateur authentifié."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "GET",
@@ -2096,7 +2376,13 @@
         "line": 69,
         "consumers": {},
         "tests": [],
-        "classification": "unreferenced"
+        "non_frontend_ownership": {
+          "rule_id": "operator-quality-tools",
+          "owner": "quality-automation",
+          "audience": "operator",
+          "rationale": "Boîte à outils de qualité et sécurité réservée au développeur/opérateur authentifié."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "GET",
@@ -2109,6 +2395,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -2122,6 +2409,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -2133,7 +2421,13 @@
         "tests": [
           "tests/test_conversation_memory_endpoints.py"
         ],
-        "classification": "server_only_tested"
+        "non_frontend_ownership": {
+          "rule_id": "operator-recording-metadata",
+          "owner": "recordings",
+          "audience": "operator",
+          "rationale": "Correction et inspection détaillées de la diarisation d'un enregistrement."
+        },
+        "classification": "owned_non_frontend_and_tested"
       },
       {
         "method": "GET",
@@ -2144,7 +2438,13 @@
         "tests": [
           "tests/test_conversation_memory_endpoints.py"
         ],
-        "classification": "server_only_tested"
+        "non_frontend_ownership": {
+          "rule_id": "operator-recording-metadata",
+          "owner": "recordings",
+          "audience": "operator",
+          "rationale": "Correction et inspection détaillées de la diarisation d'un enregistrement."
+        },
+        "classification": "owned_non_frontend_and_tested"
       },
       {
         "method": "GET",
@@ -2155,7 +2455,13 @@
         "tests": [
           "tests/test_relationship_graph.py"
         ],
-        "classification": "server_only_tested"
+        "non_frontend_ownership": {
+          "rule_id": "operator-location-intelligence",
+          "owner": "location-intelligence",
+          "audience": "operator",
+          "rationale": "Analyses de localisation et de relations destinées à l'inspection et à l'export avancés."
+        },
+        "classification": "owned_non_frontend_and_tested"
       },
       {
         "method": "GET",
@@ -2168,6 +2474,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -2177,7 +2484,13 @@
         "line": 21,
         "consumers": {},
         "tests": [],
-        "classification": "unreferenced"
+        "non_frontend_ownership": {
+          "rule_id": "automation-rituals",
+          "owner": "daily-rituals",
+          "audience": "automation",
+          "rationale": "État et déclencheur manuel de rituels normalement exécutés par le scheduler."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "GET",
@@ -2192,6 +2505,7 @@
         "tests": [
           "tests/test_scheduler_status.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -2207,6 +2521,7 @@
         "tests": [
           "tests/test_scheduler_status.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -2220,6 +2535,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -2233,6 +2549,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -2246,6 +2563,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -2255,7 +2573,13 @@
         "line": 198,
         "consumers": {},
         "tests": [],
-        "classification": "unreferenced"
+        "non_frontend_ownership": {
+          "rule_id": "operator-self-healing",
+          "owner": "self-healing",
+          "audience": "operator",
+          "rationale": "Diagnostic et état du moteur de réparation sous contrôle humain."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "GET",
@@ -2271,6 +2595,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -2280,7 +2605,13 @@
         "line": 208,
         "consumers": {},
         "tests": [],
-        "classification": "unreferenced"
+        "non_frontend_ownership": {
+          "rule_id": "operator-behaviour-insights",
+          "owner": "personal-analytics",
+          "audience": "operator",
+          "rationale": "Analyses avancées exposées pour inspection, export et diagnostic, sans écran dédié."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "GET",
@@ -2297,6 +2628,7 @@
           "frontend/e2e/unified.spec.ts",
           "tests/test_activity_stats.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -2326,6 +2658,7 @@
           "tests/test_audit_architecture_truth.py",
           "tests/test_no_open_interpreter.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -2366,6 +2699,7 @@
           "tests/test_task_input_contract.py",
           "web/src/lib/offline/queue.test.ts"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -2377,7 +2711,13 @@
         "tests": [
           "tests/test_time_machine.py"
         ],
-        "classification": "server_only_tested"
+        "non_frontend_ownership": {
+          "rule_id": "operator-location-intelligence",
+          "owner": "location-intelligence",
+          "audience": "operator",
+          "rationale": "Analyses de localisation et de relations destinées à l'inspection et à l'export avancés."
+        },
+        "classification": "owned_non_frontend_and_tested"
       },
       {
         "method": "GET",
@@ -2395,6 +2735,7 @@
         "tests": [
           "frontend/e2e/unified.spec.ts"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -2410,6 +2751,7 @@
         "tests": [
           "frontend/e2e/unified.spec.ts"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -2426,6 +2768,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -2439,6 +2782,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -2452,6 +2796,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -2465,7 +2810,13 @@
           "tests/test_insights_input_contract.py",
           "tests/test_lot1_endpoints.py"
         ],
-        "classification": "server_only_tested"
+        "non_frontend_ownership": {
+          "rule_id": "operator-commitments",
+          "owner": "personal-memory",
+          "audience": "operator",
+          "rationale": "Inspection, correction et contrôle de cohérence des engagements extraits automatiquement."
+        },
+        "classification": "owned_non_frontend_and_tested"
       },
       {
         "method": "PATCH",
@@ -2496,6 +2847,7 @@
           "tests/test_secure_uploads.py",
           "tests/test_web_mobile.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -2514,6 +2866,7 @@
         "tests": [
           "tests/test_web_mobile.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -2530,6 +2883,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -2546,6 +2900,7 @@
           "tests/test_food_control.py",
           "tests/test_food_input_contract.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -2561,6 +2916,7 @@
         "tests": [
           "tests/test_timeline_generator.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -2577,6 +2933,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -2599,6 +2956,7 @@
           "tests/test_crud_not_found.py",
           "tests/test_task_input_contract.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -2614,6 +2972,7 @@
         "tests": [
           "tests/test_relationships_input_contract.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -2627,6 +2986,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -2640,6 +3000,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -2653,6 +3014,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -2666,6 +3028,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -2682,6 +3045,7 @@
           "tests/test_auth_input_contract.py",
           "tests/test_security_middleware.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -2698,6 +3062,7 @@
           "tests/test_auth_input_contract.py",
           "tests/test_security_middleware.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -2724,6 +3089,7 @@
           "frontend/src/auth-client.test.ts",
           "tests/test_security_middleware.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -2741,6 +3107,7 @@
           "tests/test_crud_not_found.py",
           "tests/test_security_middleware.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -2764,6 +3131,7 @@
           "tests/test_auth_input_contract.py",
           "tests/test_security_middleware.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -2792,6 +3160,7 @@
           "tests/test_auth_input_contract.py",
           "tests/test_security_middleware.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -2812,6 +3181,7 @@
           "frontend/src/auth-client.test.ts",
           "tests/test_web_mobile.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -2821,7 +3191,13 @@
         "line": 113,
         "consumers": {},
         "tests": [],
-        "classification": "unreferenced"
+        "non_frontend_ownership": {
+          "rule_id": "operator-backups",
+          "owner": "database-operations",
+          "audience": "operator",
+          "rationale": "Surface de sauvegarde et restauration réservée à l'exploitation authentifiée."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "POST",
@@ -2830,7 +3206,13 @@
         "line": 118,
         "consumers": {},
         "tests": [],
-        "classification": "unreferenced"
+        "non_frontend_ownership": {
+          "rule_id": "operator-backups",
+          "owner": "database-operations",
+          "audience": "operator",
+          "rationale": "Surface de sauvegarde et restauration réservée à l'exploitation authentifiée."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "POST",
@@ -2839,7 +3221,13 @@
         "line": 302,
         "consumers": {},
         "tests": [],
-        "classification": "unreferenced"
+        "non_frontend_ownership": {
+          "rule_id": "automation-briefing",
+          "owner": "briefings",
+          "audience": "automation",
+          "rationale": "Déclencheur manuel de secours d'un briefing normalement produit par le scheduler."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "POST",
@@ -2874,6 +3262,7 @@
           "tests/test_relationships_input_contract.py",
           "tests/test_web_mobile.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -2883,7 +3272,13 @@
         "line": 403,
         "consumers": {},
         "tests": [],
-        "classification": "unreferenced"
+        "non_frontend_ownership": {
+          "rule_id": "operator-calendar-test",
+          "owner": "calendar-integration",
+          "audience": "operator",
+          "rationale": "Test explicite de l'intégration calendrier lors de la configuration ou du diagnostic."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "POST",
@@ -2896,6 +3291,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -2905,7 +3301,13 @@
         "line": 433,
         "consumers": {},
         "tests": [],
-        "classification": "unreferenced"
+        "non_frontend_ownership": {
+          "rule_id": "operator-contact-tools",
+          "owner": "contacts-integrations",
+          "audience": "operator",
+          "rationale": "Diagnostic de résolution et synchronisation manuelle du carnet de contacts."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "POST",
@@ -2918,6 +3320,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -2931,6 +3334,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -2944,6 +3348,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -2959,6 +3364,7 @@
         "tests": [
           "tests/test_http_error_contract.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -2975,6 +3381,7 @@
           "tests/test_control_plane_auth.py",
           "tests/test_http_error_contract.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -2990,6 +3397,7 @@
         "tests": [
           "tests/test_http_error_contract.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -3009,6 +3417,7 @@
         "tests": [
           "tests/test_crud_not_found.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -3028,6 +3437,7 @@
         "tests": [
           "tests/test_mobile_chat.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -3049,6 +3459,7 @@
           "tests/test_document_privacy.py",
           "tests/test_secure_uploads.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -3064,6 +3475,7 @@
         "tests": [
           "tests/test_cursor_security_hardening.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -3073,7 +3485,13 @@
         "line": 256,
         "consumers": {},
         "tests": [],
-        "classification": "unreferenced"
+        "non_frontend_ownership": {
+          "rule_id": "operator-cursor-control",
+          "owner": "cursor-delegation",
+          "audience": "operator",
+          "rationale": "Commandes de contrôle humain et diagnostic du moteur de délégation Cursor."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "POST",
@@ -3082,7 +3500,13 @@
         "line": 240,
         "consumers": {},
         "tests": [],
-        "classification": "unreferenced"
+        "non_frontend_ownership": {
+          "rule_id": "operator-cursor-control",
+          "owner": "cursor-delegation",
+          "audience": "operator",
+          "rationale": "Commandes de contrôle humain et diagnostic du moteur de délégation Cursor."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "POST",
@@ -3091,7 +3515,13 @@
         "line": 280,
         "consumers": {},
         "tests": [],
-        "classification": "unreferenced"
+        "non_frontend_ownership": {
+          "rule_id": "operator-cursor-control",
+          "owner": "cursor-delegation",
+          "audience": "operator",
+          "rationale": "Commandes de contrôle humain et diagnostic du moteur de délégation Cursor."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "POST",
@@ -3100,7 +3530,13 @@
         "line": 268,
         "consumers": {},
         "tests": [],
-        "classification": "unreferenced"
+        "non_frontend_ownership": {
+          "rule_id": "operator-cursor-control",
+          "owner": "cursor-delegation",
+          "audience": "operator",
+          "rationale": "Commandes de contrôle humain et diagnostic du moteur de délégation Cursor."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "POST",
@@ -3111,7 +3547,13 @@
         "tests": [
           "tests/test_misc_input_contracts.py"
         ],
-        "classification": "server_only_tested"
+        "non_frontend_ownership": {
+          "rule_id": "operator-devagent",
+          "owner": "devagent",
+          "audience": "operator",
+          "rationale": "Plan de contrôle explicite de l'agent de développement, utilisable par un opérateur ou une intégration CI."
+        },
+        "classification": "owned_non_frontend_and_tested"
       },
       {
         "method": "POST",
@@ -3120,7 +3562,13 @@
         "line": 115,
         "consumers": {},
         "tests": [],
-        "classification": "unreferenced"
+        "non_frontend_ownership": {
+          "rule_id": "operator-devagent",
+          "owner": "devagent",
+          "audience": "operator",
+          "rationale": "Plan de contrôle explicite de l'agent de développement, utilisable par un opérateur ou une intégration CI."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "POST",
@@ -3129,7 +3577,13 @@
         "line": 132,
         "consumers": {},
         "tests": [],
-        "classification": "unreferenced"
+        "non_frontend_ownership": {
+          "rule_id": "operator-devagent",
+          "owner": "devagent",
+          "audience": "operator",
+          "rationale": "Plan de contrôle explicite de l'agent de développement, utilisable par un opérateur ou une intégration CI."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "POST",
@@ -3138,7 +3592,13 @@
         "line": 38,
         "consumers": {},
         "tests": [],
-        "classification": "unreferenced"
+        "non_frontend_ownership": {
+          "rule_id": "operator-devagent",
+          "owner": "devagent",
+          "audience": "operator",
+          "rationale": "Plan de contrôle explicite de l'agent de développement, utilisable par un opérateur ou une intégration CI."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "POST",
@@ -3147,7 +3607,13 @@
         "line": 189,
         "consumers": {},
         "tests": [],
-        "classification": "unreferenced"
+        "non_frontend_ownership": {
+          "rule_id": "operator-devagent",
+          "owner": "devagent",
+          "audience": "operator",
+          "rationale": "Plan de contrôle explicite de l'agent de développement, utilisable par un opérateur ou une intégration CI."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "POST",
@@ -3156,7 +3622,13 @@
         "line": 51,
         "consumers": {},
         "tests": [],
-        "classification": "unreferenced"
+        "non_frontend_ownership": {
+          "rule_id": "operator-devagent",
+          "owner": "devagent",
+          "audience": "operator",
+          "rationale": "Plan de contrôle explicite de l'agent de développement, utilisable par un opérateur ou une intégration CI."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "POST",
@@ -3165,7 +3637,13 @@
         "line": 72,
         "consumers": {},
         "tests": [],
-        "classification": "unreferenced"
+        "non_frontend_ownership": {
+          "rule_id": "operator-devagent",
+          "owner": "devagent",
+          "audience": "operator",
+          "rationale": "Plan de contrôle explicite de l'agent de développement, utilisable par un opérateur ou une intégration CI."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "POST",
@@ -3174,7 +3652,13 @@
         "line": 85,
         "consumers": {},
         "tests": [],
-        "classification": "unreferenced"
+        "non_frontend_ownership": {
+          "rule_id": "operator-devagent",
+          "owner": "devagent",
+          "audience": "operator",
+          "rationale": "Plan de contrôle explicite de l'agent de développement, utilisable par un opérateur ou une intégration CI."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "POST",
@@ -3183,7 +3667,13 @@
         "line": 161,
         "consumers": {},
         "tests": [],
-        "classification": "unreferenced"
+        "non_frontend_ownership": {
+          "rule_id": "operator-devagent",
+          "owner": "devagent",
+          "audience": "operator",
+          "rationale": "Plan de contrôle explicite de l'agent de développement, utilisable par un opérateur ou une intégration CI."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "POST",
@@ -3196,7 +3686,13 @@
           "tests/test_remote_device_pairing.py",
           "tests/test_security_middleware.py"
         ],
-        "classification": "server_only_tested"
+        "non_frontend_ownership": {
+          "rule_id": "device-pairing-operations",
+          "owner": "device-management",
+          "audience": "operator",
+          "rationale": "Démarrage du pairage, révocation et rotation de jeton depuis une session opérateur authentifiée."
+        },
+        "classification": "owned_non_frontend_and_tested"
       },
       {
         "method": "POST",
@@ -3209,7 +3705,13 @@
           "tests/test_remote_device_pairing.py",
           "tests/test_security_middleware.py"
         ],
-        "classification": "server_only_tested"
+        "non_frontend_ownership": {
+          "rule_id": "device-agent-protocol",
+          "owner": "device-management",
+          "audience": "device-agent",
+          "rationale": "Protocole machine-à-machine des agents desktop, authentifié par jeton device et non par frontend."
+        },
+        "classification": "owned_non_frontend_and_tested"
       },
       {
         "method": "POST",
@@ -3225,6 +3727,7 @@
           "tests/test_crud_not_found.py",
           "tests/test_security_middleware.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -3238,7 +3741,13 @@
           "tests/test_remote_device_pairing.py",
           "tests/test_security_middleware.py"
         ],
-        "classification": "server_only_tested"
+        "non_frontend_ownership": {
+          "rule_id": "device-agent-protocol",
+          "owner": "device-management",
+          "audience": "device-agent",
+          "rationale": "Protocole machine-à-machine des agents desktop, authentifié par jeton device et non par frontend."
+        },
+        "classification": "owned_non_frontend_and_tested"
       },
       {
         "method": "POST",
@@ -3249,7 +3758,13 @@
         "tests": [
           "tests/test_remote_device_pairing.py"
         ],
-        "classification": "server_only_tested"
+        "non_frontend_ownership": {
+          "rule_id": "device-pairing-operations",
+          "owner": "device-management",
+          "audience": "operator",
+          "rationale": "Démarrage du pairage, révocation et rotation de jeton depuis une session opérateur authentifiée."
+        },
+        "classification": "owned_non_frontend_and_tested"
       },
       {
         "method": "POST",
@@ -3260,7 +3775,13 @@
         "tests": [
           "tests/test_security_middleware.py"
         ],
-        "classification": "server_only_tested"
+        "non_frontend_ownership": {
+          "rule_id": "device-agent-protocol",
+          "owner": "device-management",
+          "audience": "device-agent",
+          "rationale": "Protocole machine-à-machine des agents desktop, authentifié par jeton device et non par frontend."
+        },
+        "classification": "owned_non_frontend_and_tested"
       },
       {
         "method": "POST",
@@ -3271,7 +3792,13 @@
         "tests": [
           "tests/test_remote_device_pairing.py"
         ],
-        "classification": "server_only_tested"
+        "non_frontend_ownership": {
+          "rule_id": "device-pairing-operations",
+          "owner": "device-management",
+          "audience": "operator",
+          "rationale": "Démarrage du pairage, révocation et rotation de jeton depuis une session opérateur authentifiée."
+        },
+        "classification": "owned_non_frontend_and_tested"
       },
       {
         "method": "POST",
@@ -3282,7 +3809,13 @@
         "tests": [
           "tests/test_misc_input_contracts.py"
         ],
-        "classification": "server_only_tested"
+        "non_frontend_ownership": {
+          "rule_id": "operator-dnd",
+          "owner": "operations",
+          "audience": "operator",
+          "rationale": "Commande manuelle du mode silence, également piloté directement par les automatisations locales."
+        },
+        "classification": "owned_non_frontend_and_tested"
       },
       {
         "method": "POST",
@@ -3291,7 +3824,13 @@
         "line": 268,
         "consumers": {},
         "tests": [],
-        "classification": "unreferenced"
+        "non_frontend_ownership": {
+          "rule_id": "operator-email-catchup",
+          "owner": "email-integration",
+          "audience": "operator",
+          "rationale": "Rattrapage manuel du watcher email après indisponibilité."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "POST",
@@ -3306,6 +3845,7 @@
         "tests": [
           "tests/test_web_mobile.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -3329,6 +3869,7 @@
           "tests/test_fitness_meal_analysis.py",
           "tests/test_fitness_voice.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -3344,6 +3885,7 @@
         "tests": [
           "tests/test_fitness_meal_analysis.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -3362,6 +3904,7 @@
         "tests": [
           "tests/test_fitness_meal_analysis.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -3385,6 +3928,7 @@
           "tests/test_fitness_api.py",
           "tests/test_fitness_voice.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -3403,6 +3947,7 @@
         "tests": [
           "tests/test_web_mobile.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -3422,6 +3967,7 @@
           "tests/test_fitness_api.py",
           "tests/test_fitness_voice.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -3441,6 +3987,7 @@
           "tests/test_fitness_api.py",
           "tests/test_fitness_voice.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -3457,6 +4004,7 @@
           "tests/test_food_control.py",
           "tests/test_food_input_contract.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -3472,6 +4020,7 @@
         "tests": [
           "tests/test_food_control.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -3485,6 +4034,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -3501,6 +4051,7 @@
           "tests/test_food_input_contract.py",
           "tests/test_food_intelligence.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -3517,6 +4068,7 @@
           "tests/test_food_input_contract.py",
           "tests/test_food_intelligence.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -3532,6 +4084,7 @@
         "tests": [
           "tests/test_food_control.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -3548,6 +4101,7 @@
           "tests/test_food_control.py",
           "tests/test_food_input_contract.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -3563,6 +4117,7 @@
         "tests": [
           "tests/test_food_control.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -3578,6 +4133,7 @@
         "tests": [
           "tests/test_food_control.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -3591,6 +4147,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -3607,6 +4164,7 @@
           "tests/test_food_input_contract.py",
           "tests/test_food_intelligence.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -3616,7 +4174,13 @@
         "line": 128,
         "consumers": {},
         "tests": [],
-        "classification": "unreferenced"
+        "non_frontend_ownership": {
+          "rule_id": "operator-imessage-import",
+          "owner": "imessage-import",
+          "audience": "operator",
+          "rationale": "Déclenchement et suivi manuels d'un import iMessage local."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "POST",
@@ -3625,7 +4189,13 @@
         "line": 337,
         "consumers": {},
         "tests": [],
-        "classification": "unreferenced"
+        "non_frontend_ownership": {
+          "rule_id": "operator-improvement-engine",
+          "owner": "improvement-engine",
+          "audience": "operator",
+          "rationale": "Revue humaine des propositions et déclenchement contrôlé du moteur d'amélioration."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "POST",
@@ -3637,7 +4207,13 @@
           "tests/test_insights_input_contract.py",
           "tests/test_lot1_endpoints.py"
         ],
-        "classification": "server_only_tested"
+        "non_frontend_ownership": {
+          "rule_id": "automation-jarvis-journal",
+          "owner": "daily-rituals",
+          "audience": "automation",
+          "rationale": "Déclencheur manuel et lecture de secours d'un journal normalement produit par le scheduler."
+        },
+        "classification": "owned_non_frontend_and_tested"
       },
       {
         "method": "POST",
@@ -3655,6 +4231,7 @@
         "tests": [
           "tests/test_life_input_contract.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -3668,7 +4245,13 @@
           "tests/test_life_input_contract.py",
           "tests/test_security_middleware.py"
         ],
-        "classification": "server_only_tested"
+        "non_frontend_ownership": {
+          "rule_id": "operator-life-context",
+          "owner": "personal-memory",
+          "audience": "operator",
+          "rationale": "Administration des périodes de contexte de vie en l'absence d'un écran spécialisé."
+        },
+        "classification": "owned_non_frontend_and_tested"
       },
       {
         "method": "POST",
@@ -3679,7 +4262,13 @@
         "tests": [
           "tests/test_life_context_endpoint.py"
         ],
-        "classification": "server_only_tested"
+        "non_frontend_ownership": {
+          "rule_id": "operator-life-context",
+          "owner": "personal-memory",
+          "audience": "operator",
+          "rationale": "Administration des périodes de contexte de vie en l'absence d'un écran spécialisé."
+        },
+        "classification": "owned_non_frontend_and_tested"
       },
       {
         "method": "POST",
@@ -3697,6 +4286,7 @@
         "tests": [
           "tests/test_life_input_contract.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -3718,6 +4308,7 @@
           "tests/test_mobile_pairing.py",
           "tests/test_security_middleware.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -3738,6 +4329,7 @@
           "tests/test_location_input_contract.py",
           "tests/test_name_place_location.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -3753,6 +4345,7 @@
         "tests": [
           "tests/test_place_input_contract.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -3762,7 +4355,13 @@
         "line": 123,
         "consumers": {},
         "tests": [],
-        "classification": "unreferenced"
+        "non_frontend_ownership": {
+          "rule_id": "operator-maintenance",
+          "owner": "database-operations",
+          "audience": "operator",
+          "rationale": "Déclenchement explicite de la maintenance SQLite par l'exploitation."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "POST",
@@ -3771,7 +4370,13 @@
         "line": 141,
         "consumers": {},
         "tests": [],
-        "classification": "unreferenced"
+        "non_frontend_ownership": {
+          "rule_id": "operator-migrations",
+          "owner": "database-operations",
+          "audience": "operator",
+          "rationale": "Diagnostic et rattrapage contrôlé des migrations par l'exploitation."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "POST",
@@ -3784,6 +4389,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -3799,6 +4405,7 @@
         "tests": [
           "tests/test_mobile_auth_input_contract.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -3814,6 +4421,7 @@
         "tests": [
           "tests/test_mobile_chat.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -3829,6 +4437,7 @@
         "tests": [
           "tests/test_mobile_ws_bearer.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -3845,6 +4454,7 @@
           "tests/test_mobile_chat.py",
           "tests/test_mobile_ws_bearer.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -3863,6 +4473,7 @@
           "tests/test_mobile_chat.py",
           "tests/test_mobile_pairing.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -3885,6 +4496,7 @@
           "tests/test_mobile_ws_bearer.py",
           "tests/test_name_place_location.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -3907,6 +4519,7 @@
           "tests/test_mobile_ws_bearer.py",
           "tests/test_name_place_location.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -3923,6 +4536,7 @@
           "tests/test_mobile_auth_input_contract.py",
           "tests/test_mobile_pairing.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -3938,6 +4552,7 @@
         "tests": [
           "tests/test_mobile_pairing.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -3953,6 +4568,7 @@
         "tests": [
           "tests/test_mobile_voice.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -3966,6 +4582,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -3991,6 +4608,7 @@
         "tests": [
           "tests/test_crud_not_found.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -4007,6 +4625,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -4020,6 +4639,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -4033,6 +4653,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -4046,6 +4667,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -4061,6 +4683,7 @@
         "tests": [
           "tests/test_http_error_contract.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -4074,6 +4697,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -4087,6 +4711,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -4106,6 +4731,7 @@
           "frontend/e2e/unified.spec.ts",
           "tests/test_place_input_contract.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -4121,6 +4747,7 @@
         "tests": [
           "tests/test_push_endpoints.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -4136,6 +4763,7 @@
         "tests": [
           "tests/test_push_endpoints.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -4147,7 +4775,13 @@
         "tests": [
           "tests/test_quality_mutation_policy.py"
         ],
-        "classification": "server_only_tested"
+        "non_frontend_ownership": {
+          "rule_id": "operator-quality-tools",
+          "owner": "quality-automation",
+          "audience": "operator",
+          "rationale": "Boîte à outils de qualité et sécurité réservée au développeur/opérateur authentifié."
+        },
+        "classification": "owned_non_frontend_and_tested"
       },
       {
         "method": "POST",
@@ -4156,7 +4790,13 @@
         "line": 14,
         "consumers": {},
         "tests": [],
-        "classification": "unreferenced"
+        "non_frontend_ownership": {
+          "rule_id": "operator-quality-tools",
+          "owner": "quality-automation",
+          "audience": "operator",
+          "rationale": "Boîte à outils de qualité et sécurité réservée au développeur/opérateur authentifié."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "POST",
@@ -4165,7 +4805,13 @@
         "line": 60,
         "consumers": {},
         "tests": [],
-        "classification": "unreferenced"
+        "non_frontend_ownership": {
+          "rule_id": "operator-quality-tools",
+          "owner": "quality-automation",
+          "audience": "operator",
+          "rationale": "Boîte à outils de qualité et sécurité réservée au développeur/opérateur authentifié."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "POST",
@@ -4174,7 +4820,13 @@
         "line": 77,
         "consumers": {},
         "tests": [],
-        "classification": "unreferenced"
+        "non_frontend_ownership": {
+          "rule_id": "operator-quality-tools",
+          "owner": "quality-automation",
+          "audience": "operator",
+          "rationale": "Boîte à outils de qualité et sécurité réservée au développeur/opérateur authentifié."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "POST",
@@ -4183,7 +4835,13 @@
         "line": 85,
         "consumers": {},
         "tests": [],
-        "classification": "unreferenced"
+        "non_frontend_ownership": {
+          "rule_id": "operator-quality-tools",
+          "owner": "quality-automation",
+          "audience": "operator",
+          "rationale": "Boîte à outils de qualité et sécurité réservée au développeur/opérateur authentifié."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "POST",
@@ -4192,7 +4850,13 @@
         "line": 115,
         "consumers": {},
         "tests": [],
-        "classification": "unreferenced"
+        "non_frontend_ownership": {
+          "rule_id": "operator-quality-tools",
+          "owner": "quality-automation",
+          "audience": "operator",
+          "rationale": "Boîte à outils de qualité et sécurité réservée au développeur/opérateur authentifié."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "POST",
@@ -4203,7 +4867,13 @@
         "tests": [
           "tests/test_conversation_memory_endpoints.py"
         ],
-        "classification": "server_only_tested"
+        "non_frontend_ownership": {
+          "rule_id": "operator-recording-metadata",
+          "owner": "recordings",
+          "audience": "operator",
+          "rationale": "Correction et inspection détaillées de la diarisation d'un enregistrement."
+        },
+        "classification": "owned_non_frontend_and_tested"
       },
       {
         "method": "POST",
@@ -4212,7 +4882,13 @@
         "line": 39,
         "consumers": {},
         "tests": [],
-        "classification": "unreferenced"
+        "non_frontend_ownership": {
+          "rule_id": "automation-rituals",
+          "owner": "daily-rituals",
+          "audience": "automation",
+          "rationale": "État et déclencheur manuel de rituels normalement exécutés par le scheduler."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "POST",
@@ -4227,6 +4903,7 @@
         "tests": [
           "tests/test_scheduler_status.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -4238,7 +4915,13 @@
         "tests": [
           "tests/test_insights_input_contract.py"
         ],
-        "classification": "server_only_tested"
+        "non_frontend_ownership": {
+          "rule_id": "operator-self-healing",
+          "owner": "self-healing",
+          "audience": "operator",
+          "rationale": "Diagnostic et état du moteur de réparation sous contrôle humain."
+        },
+        "classification": "owned_non_frontend_and_tested"
       },
       {
         "method": "POST",
@@ -4278,6 +4961,7 @@
           "tests/test_task_input_contract.py",
           "web/src/lib/offline/queue.test.ts"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -4303,6 +4987,7 @@
           "tests/test_phase4_route_contract.py",
           "tests/test_secure_uploads.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -4319,6 +5004,7 @@
           ]
         },
         "tests": [],
+        "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
       },
       {
@@ -4335,6 +5021,7 @@
           "tests/test_crud_not_found.py",
           "tests/test_life_input_contract.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -4352,6 +5039,7 @@
           "tests/test_lot1_endpoints.py",
           "tests/test_place_input_contract.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -4370,6 +5058,7 @@
           "tests/test_document_privacy.py",
           "tests/test_misc_input_contracts.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       },
       {
@@ -4409,6 +5098,7 @@
           "tests/test_supervisor_frontend.py",
           "tests/test_ws_tv_events.py"
         ],
+        "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
       }
     ]

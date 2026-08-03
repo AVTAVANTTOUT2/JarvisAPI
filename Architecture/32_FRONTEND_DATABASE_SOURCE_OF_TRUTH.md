@@ -6,7 +6,7 @@
 
 Runtime SQLite canonique : **90 tables persistantes**, **95 tables physiques avec FTS5**, schéma généré : **91 déclarations de tables**.
 
-Surface API canonique : **260 opérations**, **231 chemins**, **118 consommées et testées**, **57 consommées sans référence de test**, **36 serveur seulement mais testées**, **49 non référencées**.
+Surface API canonique : **260 opérations**, **231 chemins**, **118 consommées et testées**, **57 consommées sans référence de test**, **36 non-frontend documentées et testées**, **49 non-frontend documentées sans référence de test**, **0 non attribuées**.
 
 > Ce document **remplace** les affirmations conflictuelles « 44 tables », « 72 tables », « 73 tables »
 > et les formulations ambiguës sur le « frontend principal ».  
@@ -142,11 +142,27 @@ et aux tests qui le référencent. L'analyse est statique et n'importe pas
 
 Les références de test couvrent 127 chemins distincts. Les catégories de
 l'artefact sont comptées par opération : `consumer_and_tested`,
-`consumer_without_path_test`, `server_only_tested` et `unreferenced`. Une
-référence de chemin ne prouve pas à elle seule la couverture de chaque verbe ou
-du comportement métier ; les tests gardent cette responsabilité. Les routes
-`unreferenced` constituent la file de décision explicite du lot suivant :
-suppression si elles sont mortes, ou documentation comme surface opérateur.
+`consumer_without_path_test`, `owned_non_frontend_and_tested` et
+`owned_non_frontend_without_path_test`. Une référence de chemin ne prouve pas à
+elle seule la couverture de chaque verbe ou du comportement métier ; les tests
+gardent cette responsabilité.
+
+Les 85 opérations sans client direct sont attribuées par le registre versionné
+`Architecture/api_route_ownership.json`. Chaque règle donne un propriétaire,
+une audience et une justification précises :
+
+| Audience non-frontend | Opérations | Usage |
+|---|---:|---|
+| `operator` | 74 | Exploitation, diagnostic ou contrôle humain authentifié |
+| `device-agent` | 4 | Protocole machine-à-machine des agents desktop |
+| `automation` | 5 | Déclencheur manuel de secours d'un job scheduler |
+| `indirect-client` | 1 | URL de ressource produite indirectement par une réponse API |
+| `integration-client` | 1 | Contrat stable destiné à une intégration sans vue dédiée |
+
+Le contrôle CI exige exactement une règle pour chaque opération sans client,
+rejette toute opération non attribuée, toute règle devenue orpheline et toute
+règle qui masquerait une route désormais consommée par un client. Le registre
+ne sert donc pas d'allowlist générique pour accumuler de nouvelles routes.
 
 Toute modification de route ou de référence client/test rend l'artefact
 obsolète et fait échouer la CI. Régénération :

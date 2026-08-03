@@ -89,6 +89,14 @@ HTTP_ROUTE_METHODS = {
 }
 API_ROUTE_SOURCE_ROOTS = ("api", "app")
 API_ROUTE_SPECIAL_PATHS = {"/upload", "/ws"}
+API_ROUTE_OWNERSHIP_POLICY = "Architecture/api_route_ownership.json"
+NON_FRONTEND_AUDIENCES = {
+    "automation",
+    "device-agent",
+    "indirect-client",
+    "integration-client",
+    "operator",
+}
 SOURCE_SUFFIXES = {
     ".cjs",
     ".html",
@@ -449,6 +457,216 @@ def _reference_map(
     return {path: sorted(files) for path, files in references.items()}
 
 
+def _load_api_ownership_policy(root: Path) -> dict[str, Any] | None:
+    policy = _read_json(root / API_ROUTE_OWNERSHIP_POLICY)
+    if not isinstance(policy, dict):
+        return None
+    return policy
+
+
+def _ownership_for_route(
+    route: ApiRoute,
+    rules: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    matches: list[dict[str, Any]] = []
+    for rule in rules:
+        methods = rule.get("methods")
+        paths = rule.get("paths")
+        if not isinstance(methods, list) or not isinstance(paths, list):
+            continue
+        if route.method in methods and route.path in paths:
+            matches.append(rule)
+    return matches
+
+
+def _validate_ownership_policy(
+    routes: list[ApiRoute],
+    consumers_by_route: dict[ApiRoute, dict[str, list[str]]],
+    policy: dict[str, Any] | None,
+) -> tuple[dict[ApiRoute, dict[str, Any]], list[dict[str, Any]]]:
+    """Exige une attribution exacte pour toute opération sans client direct."""
+    if policy is None:
+        return {}, []
+    raw_rules = policy.get("rules")
+    rules = raw_rules if isinstance(raw_rules, list) else []
+    findings: list[dict[str, Any]] = []
+    if policy.get("schema_version") != 1:
+        findings.append(
+            {
+                "file": API_ROUTE_OWNERSHIP_POLICY,
+                "line": 0,
+                "kind": "invalid_api_ownership_schema",
+                "severity": "error",
+                "excerpt": str(policy.get("schema_version")),
+                "note": "schema_version doit être égal à 1.",
+            }
+        )
+    if not isinstance(raw_rules, list):
+        findings.append(
+            {
+                "file": API_ROUTE_OWNERSHIP_POLICY,
+                "line": 0,
+                "kind": "invalid_api_ownership_schema",
+                "severity": "error",
+                "excerpt": "rules",
+                "note": "rules doit être une liste JSON.",
+            }
+        )
+    valid_rules: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    required_text = ("id", "owner", "audience", "rationale")
+    for index, raw_rule in enumerate(rules):
+        if not isinstance(raw_rule, dict):
+            findings.append(
+                {
+                    "file": API_ROUTE_OWNERSHIP_POLICY,
+                    "line": 0,
+                    "kind": "invalid_api_ownership_rule",
+                    "severity": "error",
+                    "excerpt": f"rules[{index}]",
+                    "note": "Chaque règle doit être un objet JSON.",
+                }
+            )
+            continue
+        missing = [
+            key
+            for key in required_text
+            if not isinstance(raw_rule.get(key), str) or not raw_rule[key].strip()
+        ]
+        methods = raw_rule.get("methods")
+        paths = raw_rule.get("paths")
+        if not isinstance(methods, list) or not methods or not all(
+            isinstance(method, str) and method for method in methods
+        ):
+            missing.append("methods")
+        if not isinstance(paths, list) or not paths or not all(
+            isinstance(path, str) and path.startswith("/") for path in paths
+        ):
+            missing.append("paths")
+        rule_id = str(raw_rule.get("id") or "")
+        if rule_id in seen_ids:
+            missing.append("id unique")
+        if missing:
+            findings.append(
+                {
+                    "file": API_ROUTE_OWNERSHIP_POLICY,
+                    "line": 0,
+                    "kind": "invalid_api_ownership_rule",
+                    "severity": "error",
+                    "excerpt": rule_id or f"rules[{index}]",
+                    "note": "Champs absents ou invalides : " + ", ".join(missing),
+                }
+            )
+            continue
+        if raw_rule["audience"] not in NON_FRONTEND_AUDIENCES:
+            findings.append(
+                {
+                    "file": API_ROUTE_OWNERSHIP_POLICY,
+                    "line": 0,
+                    "kind": "invalid_api_ownership_rule",
+                    "severity": "error",
+                    "excerpt": rule_id,
+                    "note": f"Audience non reconnue : {raw_rule['audience']}",
+                }
+            )
+            continue
+        seen_ids.add(rule_id)
+        valid_rules.append(raw_rule)
+
+    ownership: dict[ApiRoute, dict[str, Any]] = {}
+    used_rule_ids: set[str] = set()
+    for route in routes:
+        matches = _ownership_for_route(route, valid_rules)
+        has_consumers = bool(consumers_by_route[route])
+        operation = f"{route.method} {route.path}"
+        if has_consumers and matches:
+            findings.append(
+                {
+                    "file": API_ROUTE_OWNERSHIP_POLICY,
+                    "line": 0,
+                    "kind": "ownership_rule_masks_client_route",
+                    "severity": "error",
+                    "excerpt": operation,
+                    "note": (
+                        "Une route consommée par un client ne doit pas rester classée "
+                        "comme surface non-frontend."
+                    ),
+                }
+            )
+            continue
+        if has_consumers:
+            continue
+        if len(matches) != 1:
+            findings.append(
+                {
+                    "file": API_ROUTE_OWNERSHIP_POLICY,
+                    "line": 0,
+                    "kind": "unowned_api_operation" if not matches else "ambiguous_api_ownership",
+                    "severity": "error",
+                    "excerpt": operation,
+                    "note": (
+                        "Aucune attribution non-frontend documentée."
+                        if not matches
+                        else "Plusieurs règles attribuent la même opération."
+                    ),
+                }
+            )
+            continue
+        rule = matches[0]
+        used_rule_ids.add(rule["id"])
+        ownership[route] = {
+            "rule_id": rule["id"],
+            "owner": rule["owner"],
+            "audience": rule["audience"],
+            "rationale": rule["rationale"],
+        }
+
+    for rule in valid_rules:
+        matching_routes = [
+            route
+            for route in routes
+            if route.method in rule["methods"] and route.path in rule["paths"]
+        ]
+        stale_paths = sorted(
+            path
+            for path in rule["paths"]
+            if not any(route.path == path for route in matching_routes)
+        )
+        stale_methods = sorted(
+            method
+            for method in rule["methods"]
+            if not any(route.method == method for route in matching_routes)
+        )
+        if stale_paths or stale_methods:
+            details = []
+            if stale_paths:
+                details.append("chemins=" + ", ".join(stale_paths))
+            if stale_methods:
+                details.append("méthodes=" + ", ".join(stale_methods))
+            findings.append(
+                {
+                    "file": API_ROUTE_OWNERSHIP_POLICY,
+                    "line": 0,
+                    "kind": "stale_api_ownership_entry",
+                    "severity": "error",
+                    "excerpt": rule["id"],
+                    "note": "Entrées sans opération correspondante : " + "; ".join(details),
+                }
+            )
+        if rule["id"] not in used_rule_ids:
+            findings.append(
+                {
+                    "file": API_ROUTE_OWNERSHIP_POLICY,
+                    "line": 0,
+                    "kind": "stale_api_ownership_rule",
+                    "severity": "error",
+                    "excerpt": rule["id"],
+                    "note": "La règle ne correspond à aucune opération non-frontend.",
+                }
+            )
+    return ownership, findings
+
+
 def analyze_api_surface(root: Path) -> dict[str, Any]:
     routes = discover_api_routes(root)
     route_paths = {route.path for route in routes}
@@ -462,19 +680,34 @@ def analyze_api_surface(root: Path) -> dict[str, Any]:
         TEST_SOURCE_ROOTS,
         tests=True,
     )
-    inventory: list[dict[str, Any]] = []
-    classification_counts: dict[str, int] = {}
-    for route in routes:
-        consumers = {
+    consumers_by_route = {
+        route: {
             surface: references[route.path]
             for surface, references in surface_references.items()
             if references[route.path]
         }
+        for route in routes
+    }
+    policy = _load_api_ownership_policy(root)
+    ownership_by_route, ownership_findings = _validate_ownership_policy(
+        routes,
+        consumers_by_route,
+        policy,
+    )
+    inventory: list[dict[str, Any]] = []
+    classification_counts: dict[str, int] = {}
+    for route in routes:
+        consumers = consumers_by_route[route]
         tests = test_references[route.path]
+        ownership = ownership_by_route.get(route)
         if consumers and tests:
             classification = "consumer_and_tested"
         elif consumers:
             classification = "consumer_without_path_test"
+        elif ownership and tests:
+            classification = "owned_non_frontend_and_tested"
+        elif ownership:
+            classification = "owned_non_frontend_without_path_test"
         elif tests:
             classification = "server_only_tested"
         else:
@@ -488,6 +721,7 @@ def analyze_api_surface(root: Path) -> dict[str, Any]:
                 "line": route.line,
                 "consumers": consumers,
                 "tests": tests,
+                "non_frontend_ownership": ownership,
                 "classification": classification,
             }
         )
@@ -502,6 +736,15 @@ def analyze_api_surface(root: Path) -> dict[str, Any]:
             **dict(sorted(classification_counts.items())),
         },
         "consumer_surfaces": sorted(CONSUMER_SURFACES),
+        "ownership_policy": (
+            {
+                "path": API_ROUTE_OWNERSHIP_POLICY,
+                "rules": len(policy.get("rules") or []),
+                "findings": ownership_findings,
+            }
+            if policy is not None
+            else {"path": None, "rules": 0, "findings": []}
+        ),
         "routes": inventory,
     }
 
@@ -933,8 +1176,9 @@ def _canonical_api_line(api_surface: dict[str, Any]) -> str:
         f"**{counts['operations']} opérations**, **{counts['paths']} chemins**, "
         f"**{counts.get('consumer_and_tested', 0)} consommées et testées**, "
         f"**{counts.get('consumer_without_path_test', 0)} consommées sans référence de test**, "
-        f"**{counts.get('server_only_tested', 0)} serveur seulement mais testées**, "
-        f"**{counts.get('unreferenced', 0)} non référencées**."
+        f"**{counts.get('owned_non_frontend_and_tested', 0)} non-frontend documentées et testées**, "
+        f"**{counts.get('owned_non_frontend_without_path_test', 0)} non-frontend documentées sans référence de test**, "
+        f"**{counts.get('server_only_tested', 0) + counts.get('unreferenced', 0)} non attribuées**."
     )
 
 
@@ -1094,6 +1338,7 @@ def build_report(root: Path) -> dict[str, Any]:
         "documentation_findings": contradictions
         + scan_canonical_count_docs(root, tables)
         + scan_canonical_api_doc(root, api_surface)
+        + api_surface["ownership_policy"]["findings"]
         + [
             {
                 "file": "supervisor.py",

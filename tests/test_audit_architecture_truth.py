@@ -225,6 +225,62 @@ def test_api_surface_maps_routes_to_consumers_and_tests(fake_repo: Path) -> None
     assert by_path["/ws"]["classification"] == "unreferenced"
 
 
+def test_api_ownership_policy_is_exact_and_rejects_client_masking(
+    fake_repo: Path,
+) -> None:
+    policy_path = fake_repo / "Architecture" / "api_route_ownership.json"
+    policy_path.parent.mkdir()
+    policy = {
+        "schema_version": 1,
+        "rules": [
+            {
+                "id": "operator-tools",
+                "owner": "operations",
+                "audience": "operator",
+                "methods": ["GET"],
+                "paths": ["/api/operator"],
+                "rationale": "Diagnostic manuel.",
+            },
+            {
+                "id": "websocket-client",
+                "owner": "realtime",
+                "audience": "indirect-client",
+                "methods": ["WEBSOCKET"],
+                "paths": ["/ws"],
+                "rationale": "URL construite depuis l'origine serveur.",
+            },
+        ],
+    }
+    policy_path.write_text(json.dumps(policy), encoding="utf-8")
+
+    surface = audit.analyze_api_surface(fake_repo)
+    assert surface["ownership_policy"]["findings"] == []
+    by_path = {route["path"]: route for route in surface["routes"]}
+    assert by_path["/api/operator"]["classification"] == (
+        "owned_non_frontend_and_tested"
+    )
+    assert by_path["/ws"]["classification"] == (
+        "owned_non_frontend_without_path_test"
+    )
+
+    policy["rules"].append(
+        {
+            "id": "masked-client",
+            "owner": "operations",
+            "audience": "operator",
+            "methods": ["GET"],
+            "paths": ["/api/status"],
+            "rationale": "Cette règle est volontairement invalide.",
+        }
+    )
+    policy_path.write_text(json.dumps(policy), encoding="utf-8")
+    findings = audit.analyze_api_surface(fake_repo)["ownership_policy"]["findings"]
+    assert any(
+        finding["kind"] == "ownership_rule_masks_client_route"
+        for finding in findings
+    )
+
+
 def test_doc_scan_flags_readme_errors(fake_repo: Path) -> None:
     tables = audit.analyze_tables(fake_repo)
     findings = audit.scan_doc_contradictions(fake_repo, tables)
@@ -278,6 +334,18 @@ def test_real_repo_smoke_counts_stable() -> None:
     assert resolution["supervisor_priority"] == "frontend/out>web/dist"
     assert resolution["supervisor_uses_shared_resolver"] is True
     assert resolution["priority_findings"] == []
+
+    api_surface = audit.analyze_api_surface(ROOT)
+    assert api_surface["counts"] == {
+        "operations": 260,
+        "paths": 231,
+        "consumer_and_tested": 118,
+        "consumer_without_path_test": 57,
+        "owned_non_frontend_and_tested": 36,
+        "owned_non_frontend_without_path_test": 49,
+    }
+    assert api_surface["ownership_policy"]["rules"] == 32
+    assert api_surface["ownership_policy"]["findings"] == []
 
 
 def test_generated_runtime_schema_replays_a_fresh_database() -> None:
