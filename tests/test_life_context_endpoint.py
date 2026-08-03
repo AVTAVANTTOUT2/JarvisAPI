@@ -59,7 +59,7 @@ def test_create_requires_type_and_description(tmp_db):
     with _client() as client:
         authenticate(client)
         r = client.post("/api/life-context", json={"context_type": "", "description": ""})
-    assert r.status_code == 400
+    assert r.status_code == 422
 
 
 def test_active_only_filters_closed_periods(tmp_db):
