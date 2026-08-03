@@ -91,7 +91,16 @@ def test_provider_construction_loads_no_model(settings):
 
 
 @pytest.mark.asyncio
-async def test_missing_model_raises_an_actionable_error(tmp_path):
+async def test_missing_model_raises_an_actionable_error(tmp_path, monkeypatch):
+    """Poids absents : le diagnostic doit être celui-là, quoi qu'il manque
+    d'autre.
+
+    Sur une machine neuve, ni les poids ni le venv MLX ne sont installés : les
+    deux causes sont vraies, mais une seule est utile. La CI macOS a d'ailleurs
+    échoué exactement là — sans venv MLX, l'erreur générique masquait la
+    commande d'installation.
+    """
+    monkeypatch.setenv("JARVIS_VENV", str(tmp_path / "aucun-venv"))
     absent = replace(
         load_tts_settings(), provider="fish_local", model_path=str(tmp_path / "nope"),
     )
@@ -100,6 +109,25 @@ async def test_missing_model_raises_an_actionable_error(tmp_path):
         await provider.warmup()
     # Un message qui n'indique pas quoi faire oblige à lire le code.
     assert "download_tts_model" in str(failure.value)
+
+
+@pytest.mark.asyncio
+async def test_present_model_without_runtime_reports_the_runtime(tmp_path, monkeypatch):
+    """Poids là, venv MLX absent : là, c'est bien le runtime qu'il faut nommer."""
+    model_dir = tmp_path / "poids"
+    model_dir.mkdir()
+    for name in ("config.json", "tokenizer.json", "codec.safetensors", "model.safetensors"):
+        (model_dir / name).write_bytes(b"x")
+
+    monkeypatch.setenv("JARVIS_VENV", str(tmp_path / "aucun-venv"))
+    settings = replace(
+        load_tts_settings(), provider="fish_local", model_path=str(model_dir),
+    )
+    provider = create_local_tts_provider(settings)
+    with pytest.raises(TTSUnavailableError) as failure:
+        await provider.warmup()
+    assert not isinstance(failure.value, TTSModelNotFoundError)
+    assert "mlx" in str(failure.value).lower()
 
 
 @pytest.mark.asyncio

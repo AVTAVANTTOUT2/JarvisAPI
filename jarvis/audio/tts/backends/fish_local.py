@@ -115,6 +115,13 @@ class FishLocalTTSProvider:
             raise TTSModelNotFoundError(str(exc)) from exc
 
     def _build_client(self) -> SidecarClient:
+        # Les poids d'abord. Sur une machine où ni le venv MLX ni le modèle ne
+        # sont installés, les deux causes sont vraies — mais une seule est
+        # utile : les poids sont ce que l'utilisateur installe en premier, et
+        # `TTSModelNotFoundError` porte la commande exacte. Vérifier le runtime
+        # avant masquerait ce diagnostic derrière une erreur plus vague.
+        model_dir = self._resolve_model()
+
         launcher = sidecar_launcher(LAUNCHER)
         if launcher is None:
             raise TTSUnavailableError(
@@ -128,7 +135,7 @@ class FishLocalTTSProvider:
                 "environnement contenant mlx-audio"
             )
 
-        command = [str(launcher), "--serve", "--model", str(self._resolve_model())]
+        command = [str(launcher), "--serve", "--model", str(model_dir)]
         reference = self._settings.reference_audio()
         if reference is not None:
             transcript = self._settings.reference_text()
