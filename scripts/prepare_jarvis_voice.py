@@ -88,7 +88,11 @@ class PreparationReport:
     candidates_kept: int
 
 
-def find_source(explicit: Path | None = None) -> Path:
+def find_source(
+    explicit: Path | None = None,
+    *,
+    search_roots: tuple[Path, ...] | None = None,
+) -> Path:
     """Localise le master selon l'ordre de priorité du projet."""
     if explicit is not None:
         path = explicit.expanduser().resolve()
@@ -100,13 +104,13 @@ def find_source(explicit: Path | None = None) -> Path:
         if candidate.is_file():
             return candidate.resolve()
 
-    search_roots = (
+    roots = search_roots or (
         REPO_ROOT,
         Path.home() / "Downloads",
         Path.home() / "Desktop",
         Path("/tmp"),
     )
-    for root in search_roots:
+    for root in roots:
         if not root.exists():
             continue
         for name in FALLBACK_NAMES:
@@ -121,7 +125,7 @@ def find_source(explicit: Path | None = None) -> Path:
                     return nested.resolve()
 
     # Dernier recours : le MP3 seulement si aucun WAV n'existe.
-    for root in search_roots:
+    for root in roots:
         if not root.exists():
             continue
         for nested in root.rglob("VoixJARVIS_complet.mp3"):

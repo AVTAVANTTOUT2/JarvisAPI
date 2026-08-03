@@ -106,13 +106,5 @@ def test_find_source_missing_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPa
         "scripts.prepare_jarvis_voice.DEFAULT_SOURCE_CANDIDATES",
         (tmp_path / "absent.wav",),
     )
-    monkeypatch.setattr(
-        "scripts.prepare_jarvis_voice.REPO_ROOT",
-        tmp_path,
-    )
-    monkeypatch.setattr(
-        "scripts.prepare_jarvis_voice.Path.home",
-        lambda: tmp_path,
-    )
     with pytest.raises(FileNotFoundError):
-        find_source(None)
+        find_source(None, search_roots=(tmp_path,))
