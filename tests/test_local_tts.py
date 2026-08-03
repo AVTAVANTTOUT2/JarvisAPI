@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import logging
 import re
 import tempfile
 from dataclasses import replace
@@ -34,7 +35,12 @@ from jarvis.audio.tts import (
     reset_local_tts_provider,
 )
 from jarvis.audio.tts import events
-from jarvis.audio.tts.config import DEFAULT_TTS_PROVIDER, DEFAULT_TTS_VOICE_PATH, KNOWN_PROVIDERS
+from jarvis.audio.tts.config import (
+    DEFAULT_TTS_PROVIDER,
+    DEFAULT_TTS_VOICE_PATH,
+    KNOWN_PROVIDERS,
+    VOICE_METADATA_FILE,
+)
 from tests.local_tts_stub import StubProvider
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -210,15 +216,74 @@ def test_reference_cache_is_detected(tmp_path):
     assert settings.reference_cache() is not None
 
 
+def test_npz_only_cache_is_detected(tmp_path):
+    """Le sidecar lit le ``.npz`` : le détecter est ce qui le lui transmet.
+
+    Sans cela, un profil réduit à son ``.npz`` perdrait le clonage en silence.
+    """
+    (tmp_path / "reference.npz").write_bytes(b"\x00")
+    settings = replace(load_tts_settings(), voice_path=str(tmp_path))
+    cache = settings.reference_cache()
+    assert cache is not None and cache.name == "reference.npz"
+
+
+def test_no_cache_at_all_is_reported_as_absent(tmp_path):
+    settings = replace(load_tts_settings(), voice_path=str(tmp_path))
+    assert settings.reference_cache() is None
+
+
+def test_voice_left_behind_by_the_rename_is_announced(tmp_path, caplog):
+    """Une voix clonée devenue inactive ne doit jamais disparaître en silence."""
+    from jarvis.audio.tts.backends.fish_local import FishLocalTTSProvider
+
+    active = tmp_path / "jarvis-fr"
+    active.mkdir()
+    legacy = tmp_path / "jarvis"
+    legacy.mkdir()
+    (legacy / "reference.wav").write_bytes(b"RIFF")
+
+    provider = FishLocalTTSProvider(
+        replace(load_tts_settings(), voice_path=str(active))
+    )
+    with caplog.at_level(logging.WARNING):
+        provider._warn_if_another_profile_holds_the_voice()
+
+    assert "voix par défaut du modèle" in caplog.text
+    assert str(legacy) in caplog.text
+
+
+def test_a_fresh_install_stays_silent_about_missing_voices(tmp_path, caplog):
+    """Aucun échantillon nulle part : c'est le cas nominal, pas une alerte."""
+    from jarvis.audio.tts.backends.fish_local import FishLocalTTSProvider
+
+    active = tmp_path / "jarvis-fr"
+    active.mkdir()
+    (tmp_path / "autre").mkdir()
+
+    provider = FishLocalTTSProvider(
+        replace(load_tts_settings(), voice_path=str(active))
+    )
+    with caplog.at_level(logging.WARNING):
+        provider._warn_if_another_profile_holds_the_voice()
+
+    assert caplog.text == ""
+
+
 def test_a_single_voice_is_configured(settings):
     """Pas de sélecteur multi-voix : JARVIS est une entité, pas un catalogue."""
     assert KNOWN_PROVIDERS == frozenset({"fish_local"})
     assert DEFAULT_TTS_VOICE_PATH.endswith("jarvis-fr")
     assert Path(DEFAULT_TTS_VOICE_PATH).name == "jarvis-fr"
     assert settings.voice_id == "jarvis-fr"
+    # Un profil est un répertoire portant un `metadata.json` : c'est ce que le
+    # dépôt versionne. Un ancien répertoire laissé sur une machine par des
+    # fichiers non suivis (échantillon, transcript) n'est pas une seconde voix
+    # active et ne doit pas faire échouer la suite pour autant.
     voices_dir = PROJECT_ROOT / "voices"
-    directories = sorted(p.name for p in voices_dir.iterdir() if p.is_dir())
-    assert directories == ["jarvis-fr"]
+    profiles = sorted(
+        p.name for p in voices_dir.iterdir() if (p / VOICE_METADATA_FILE).is_file()
+    )
+    assert profiles == ["jarvis-fr"]
 
 
 def test_legacy_tts_backends_are_gone():

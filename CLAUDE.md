@@ -849,10 +849,12 @@ Quatre décisions structurantes :
   mode `stream`. JARVIS découpe le texte (`segmenter.py`) et joue chaque
   segment pendant que le suivant se génère. Le **premier** segment obéit à des
   seuils plus courts (`TTS_FIRST_CHUNK_*`) : il est le seul dont la longueur se
-  paie en silence pur. Mesuré sur une réponse de quatre phrases (M4,
-  `fish_local`) : premier son à 184 ms, synthèse complète à 1 316 ms — la
-  voix arrive 7 fois plus tôt qu'en un bloc, au prix d'un temps de synthèse
-  total un peu supérieur, masqué par la lecture. Annoncer « streaming natif »
+  paie en silence pur. Mesuré sur une réponse de quatre phrases (M4) avec le
+  backend transitoire depuis retiré : premier son à 184 ms, synthèse complète à
+  1 316 ms — la voix arrive 7 fois plus tôt qu'en un bloc, au prix d'un temps de
+  synthèse total un peu supérieur, masqué par la lecture. Ces chiffres mesurent
+  le découpage, pas Fish : ils n'ont pas été rejoués sur `fish_local`
+  (`python scripts/benchmark_tts.py --runs 2`). Annoncer « streaming natif »
   serait faux.
 - **Aucun repli silencieux.** Un modèle absent ou une synthèse échouée conserve
   la réponse texte, réarme le pipeline et expose un état « TTS indisponible ».

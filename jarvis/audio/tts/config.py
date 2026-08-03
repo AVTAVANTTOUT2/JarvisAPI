@@ -61,6 +61,7 @@ VOICE_METADATA_FILE = "metadata.json"
 VOICE_REFERENCE_AUDIO = "reference.wav"
 VOICE_REFERENCE_TEXT = "transcript.txt"
 VOICE_REFERENCE_CACHE = "reference.npy"
+VOICE_REFERENCE_CACHE_NPZ = "reference.npz"
 
 
 @dataclass(frozen=True)
@@ -121,9 +122,19 @@ class TTSSettings:
         return content or None
 
     def reference_cache(self) -> Path | None:
-        """Tenseur float32 pré-encodé (``reference.npy``), s'il existe."""
-        path = self.voice_dir / VOICE_REFERENCE_CACHE
-        return path if path.is_file() else None
+        """Tenseur float32 pré-encodé, s'il existe.
+
+        Les deux formes écrites par ``scripts/prepare_jarvis_voice.py`` sont
+        acceptées : ``reference.npy`` (échantillons seuls) et ``reference.npz``
+        (échantillons + fréquence). Le sidecar sait lire les deux ; ne détecter
+        que la première ferait perdre le clonage, sans message, à un profil qui
+        n'aurait gardé que le ``.npz``.
+        """
+        for name in (VOICE_REFERENCE_CACHE, VOICE_REFERENCE_CACHE_NPZ):
+            path = self.voice_dir / name
+            if path.is_file():
+                return path
+        return None
 
 
 def _config_value(name: str, fallback: object) -> object:
@@ -263,6 +274,7 @@ __all__ = [
     "VOICE_METADATA_FILE",
     "VOICE_REFERENCE_AUDIO",
     "VOICE_REFERENCE_CACHE",
+    "VOICE_REFERENCE_CACHE_NPZ",
     "VOICE_REFERENCE_TEXT",
     "load_tts_settings",
 ]

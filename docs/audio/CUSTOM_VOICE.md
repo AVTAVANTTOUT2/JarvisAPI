@@ -18,6 +18,27 @@ voices/
 
 Configuré par `TTS_VOICE_PATH` (défaut `./voices/jarvis-fr`).
 
+## Migration depuis `voices/jarvis`
+
+Le profil par défaut s'appelait `voices/jarvis`. Les échantillons n'étant
+jamais versionnés, une mise à jour les laisse dans l'ancien répertoire : le
+nouveau profil est vide, et JARVIS repart sur la voix par défaut du modèle.
+Il le dit — un avertissement au démarrage du moteur nomme les deux
+répertoires — mais rien ne se répare tout seul. Deux issues :
+
+```bash
+python scripts/prepare_jarvis_voice.py   # régénère jarvis-fr depuis le master
+                                         # et archive l'ancien profil sous
+                                         # data/private/ (rien n'est supprimé)
+```
+
+ou, pour garder l'échantillon existant tel quel :
+
+```bash
+mv voices/jarvis/reference.wav voices/jarvis/transcript.txt voices/jarvis-fr/
+rmdir voices/jarvis
+```
+
 ## Sans échantillon
 
 Le modèle parle avec sa voix par défaut. C'est volontaire : une installation

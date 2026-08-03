@@ -29,7 +29,7 @@ from pathlib import Path
 
 from jarvis.audio.tts import events
 from jarvis.audio.tts.base import PCM_S16LE, AudioChunk, ProviderInfo
-from jarvis.audio.tts.config import TTSSettings
+from jarvis.audio.tts.config import VOICE_REFERENCE_AUDIO, TTSSettings
 from jarvis.audio.tts.errors import (
     TTSModelNotFoundError,
     TTSUnavailableError,
@@ -138,8 +138,9 @@ class FishLocalTTSProvider:
         command = [str(launcher), "--serve", "--model", str(model_dir)]
         reference = self._settings.reference_audio()
         cache = self._settings.reference_cache()
-        # Le sidecar accepte un WAV ; le cache ``.npy`` est chargé à côté s'il
-        # existe (même stem). On passe toujours le chemin WAV canonique.
+        # Le sidecar accepte un WAV ; le cache ``.npy`` / ``.npz`` est chargé à
+        # côté s'il existe (même répertoire). On passe toujours le chemin WAV
+        # canonique.
         if reference is not None or cache is not None:
             transcript = self._settings.reference_text()
             ref_path = reference or (self._settings.voice_dir / "reference.wav")
@@ -150,6 +151,8 @@ class FishLocalTTSProvider:
                 )
             else:
                 command += ["--ref-audio", str(ref_path), "--ref-text", transcript]
+        else:
+            self._warn_if_another_profile_holds_the_voice()
 
         return SidecarClient(
             command,
@@ -162,6 +165,44 @@ class FishLocalTTSProvider:
             start_timeout_s=max(120.0, self._settings.timeout_seconds * 10),
             chunk_timeout_s=self._settings.timeout_seconds,
         )
+
+    def _warn_if_another_profile_holds_the_voice(self) -> None:
+        """Dit à voix haute qu'une voix clonée existe mais n'est plus lue.
+
+        Le profil par défaut est passé de ``voices/jarvis`` à
+        ``voices/jarvis-fr``. Les échantillons n'étant jamais versionnés, une
+        installation existante garde son ``reference.wav`` dans l'ancien
+        répertoire : sans ce message, JARVIS repartirait sur la voix par défaut
+        du modèle sans que rien ne le signale — exactement le repli silencieux
+        que l'architecture interdit.
+
+        Le message ne se déclenche que si une autre voix porte réellement un
+        échantillon : une installation neuve reste silencieuse.
+        """
+        voice_dir = self._settings.voice_dir
+        parent = voice_dir.parent
+        if not parent.is_dir():
+            return
+        try:
+            siblings = sorted(p for p in parent.iterdir() if p.is_dir())
+        except OSError:
+            return
+        for sibling in siblings:
+            if sibling == voice_dir:
+                continue
+            if not (sibling / VOICE_REFERENCE_AUDIO).is_file():
+                continue
+            logger.warning(
+                "[fish_local] %s ne contient aucun échantillon alors que %s en "
+                "porte un : JARVIS parle avec la voix par défaut du modèle. "
+                "Régénérez le profil courant "
+                "(python scripts/prepare_jarvis_voice.py) ou pointez "
+                "TTS_VOICE_PATH sur %s.",
+                voice_dir,
+                sibling,
+                sibling,
+            )
+            return
 
     async def warmup(self) -> None:
         """Charge le modèle hors tour de parole. Idempotent."""

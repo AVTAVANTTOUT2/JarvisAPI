@@ -22,6 +22,7 @@ import json
 import logging
 import math
 import shutil
+import time
 import wave
 from array import array
 from dataclasses import asdict, dataclass
@@ -509,13 +510,32 @@ def prepare_voice(
         json.dumps(asdict(report), ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
-    # Ancien profil ``voices/jarvis`` : pointer vers jarvis-fr sans le conserver
-    # comme seconde voix active (le test d'unicité l'exige).
-    legacy = REPO_ROOT / "voices" / "jarvis"
-    if legacy.is_dir() and legacy.resolve() != voice_dir.resolve():
-        shutil.rmtree(legacy)
+    _retire_legacy_profile(voice_dir)
 
     return report
+
+
+def _retire_legacy_profile(voice_dir: Path) -> Path | None:
+    """Écarte l'ancien profil ``voices/jarvis`` sans détruire son échantillon.
+
+    Le ``reference.wav`` d'un profil n'est jamais versionné : le supprimer
+    effacerait la seule copie que possède l'utilisateur. On le déplace donc
+    sous ``data/private/`` — la voix cesse d'être active, rien n'est perdu.
+    """
+    legacy = REPO_ROOT / "voices" / "jarvis"
+    if not legacy.is_dir() or legacy.resolve() == voice_dir.resolve():
+        return None
+
+    archive = REPO_ROOT / "data/private/voice-sources/legacy-jarvis"
+    archive.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if archive.exists():
+        archive = archive.with_name(f"legacy-jarvis-{int(time.time())}")
+    shutil.move(str(legacy), str(archive))
+    logger.warning(
+        "ancien profil voices/jarvis déplacé vers %s (aucun fichier supprimé)",
+        archive,
+    )
+    return archive
 
 
 def build_parser() -> argparse.ArgumentParser:

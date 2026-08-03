@@ -79,7 +79,7 @@ def validate_required_runtime_config() -> None:
         )
 
 
-# ── Audio — STT local (faster-whisper) + TTS local (Kokoro) ──
+# ── Audio — STT local (faster-whisper) + TTS local (Fish) ──
 DEFAULT_STT_ENGINE = "faster-whisper"
 DEFAULT_STT_MODEL = "large-v3-turbo"
 DEFAULT_STT_FALLBACK_MODEL = "large-v3"
