@@ -2,7 +2,9 @@
 
 **Date initiale** : 11 juillet 2026
 
-**Dernière mise à jour** : 21 juillet 2026
+**Dernière mise à jour** : 3 août 2026
+
+Runtime SQLite canonique : **90 tables persistantes**, **95 tables physiques avec FTS5**, schéma généré : **91 déclarations de tables**.
 
 ---
 
@@ -42,7 +44,7 @@ JarvisAPI/
 │   ├── easter_eggs.py         ← Easter eggs
 │   └── devagent/              ← Développement autonome (interview → code → test)
 │
-├── database/                  ← SQLite (75 persistantes, +FTS→80 ; schema.sql dump≈46 ; 25 modules)
+├── database/                  ← SQLite (90 persistantes, +FTS→95 ; schema.sql généré ; 25 modules)
 │   ├── __init__.py            ← Façade rétrocompatible (236 lignes)
 │   ├── core.py                ← Connexions, initialisation et contexte agrégé
 │   ├── schema.py              ← Schéma déclaratif complet
@@ -382,10 +384,11 @@ graph TB
 
 ## 4. Stockage
 
-### 4.1 SQLite — jarvis.db (75 persistantes, 80 avec FTS5)
+### 4.1 SQLite — jarvis.db (90 persistantes, 95 avec FTS5)
 
-> Comptage vérifié le 15/07/2026 — voir `Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md`.
-> Ne pas utiliser le dump `schema.sql` (46) comme chiffre runtime.
+> Comptage généré et vérifié en CI — voir `Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md`.
+> `database/schema.sql` contient 91 déclarations de tables : 90 persistantes et
+> la table virtuelle FTS5 ; ses quatre tables auxiliaires portent le total physique à 95.
 
 ```mermaid
 erDiagram

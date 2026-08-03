@@ -185,6 +185,13 @@ jobs:
           git config --global user.name "JarvisAPI CI"
           git config --global user.email "jarvisapi-ci@users.noreply.github.com"
 
+      - name: Vérifier le schéma et la vérité d'architecture générés
+        run: >-
+          python tools/audit_architecture_truth.py
+          --check
+          --output artifacts/architecture_truth.json
+          --schema-output database/schema.sql
+
       - name: pytest
         run: python -m pytest tests/ jarvis/tests agents/devagent -q
 

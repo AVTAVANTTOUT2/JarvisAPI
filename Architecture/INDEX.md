@@ -2,11 +2,11 @@
 
 **Date initiale** : 11 juillet 2026
 
-**Dernière mise à jour** : 14 juillet 2026
+**Dernière mise à jour** : 3 août 2026
 **Périmètre** : 273 fichiers Python (56 261 lignes), 99 fichiers source frontend (18 770 lignes),
-**85 tables SQLite persistantes** après `init_db()` (+ jusqu’à **5 objets FTS5** → **90** physiques ;
-le dump `schema.sql` historique compte **46** tables applicatives —
-voir [32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md](./32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md))
+90 tables SQLite persistantes après `init_db()` et 95 tables physiques avec FTS5.
+Runtime SQLite canonique : **90 tables persistantes**, **95 tables physiques avec FTS5**, schéma généré : **91 déclarations de tables**.
+Voir [32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md](./32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md).
 **État** : **Documentation officielle — toute modification du code doit rester cohérente avec ce dossier**
 
 ---
@@ -84,7 +84,7 @@ voir [32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md](./32_FRONTEND_DATABASE_SOURCE_OF_
 │  Vues desktop      │ 38 fichiers, 12 940 lignes          │
 │  Vues mobiles      │ 32 fichiers, 4 641 lignes           │
 │  SDK auth partagé  │ 4 fichiers, 373 lignes              │
-│  Base de données   │ 85 persistantes (+FTS→90), mode WAL │
+│  Base de données   │ 90 persistantes (+FTS→95), mode WAL │
 │  Routes API        │ 174 opérations HTTP, 157 chemins    │
 │  WebSocket         │ 1 endpoint, handler dédié           │
 │  Agents LLM        │ 7 agents + orchestrateur            │
@@ -133,7 +133,7 @@ graph TB
     end
 
     subgraph "Database"
-        DB[(SQLite WAL<br/>jarvis.db<br/>85 persistantes<br/>+ FTS → 90)]
+        DB[(SQLite WAL<br/>jarvis.db<br/>90 persistantes<br/>+ FTS → 95)]
     end
 
     subgraph "Données Apple"

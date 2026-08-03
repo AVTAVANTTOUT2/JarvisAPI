@@ -1,8 +1,10 @@
 # 32 — Source de vérité : frontends et base SQLite
 
-**Date** : 24 juillet 2026
+**Date** : 3 août 2026
 **Méthode** : audit du code exécutable sur `main` (pas de la documentation).  
-**Contrôle automatique** : `tools/audit_architecture_truth.py` → `artifacts/architecture_truth.json`
+**Contrôle automatique** : `tools/audit_architecture_truth.py --check --schema-output database/schema.sql`
+
+Runtime SQLite canonique : **90 tables persistantes**, **95 tables physiques avec FTS5**, schéma généré : **91 déclarations de tables**.
 
 > Ce document **remplace** les affirmations conflictuelles « 44 tables », « 72 tables », « 73 tables »
 > et les formulations ambiguës sur le « frontend principal ».  
@@ -20,9 +22,9 @@
 
 | Question | Réponse vérifiée |
 |---|---|
-| Combien de tables après `init_db()` (défaut, FTS5 disponible) ? | **90** entrées `sqlite_master` de type `table` (hors `sqlite_*`) |
-| Combien hors objets FTS5 ? | **85** tables persistantes |
-| D'où vient « **46** » ? | Dump statique `database/schema.sql` (46 tables applicatives + `sqlite_sequence`) — **non exécuté** par `init_db()` |
+| Combien de tables après `init_db()` (défaut, FTS5 disponible) ? | **95** entrées `sqlite_master` de type `table` (hors `sqlite_*`) |
+| Combien hors objets FTS5 ? | **90** tables persistantes |
+| Pourquoi `schema.sql` en déclare 91 ? | Il contient les 90 persistantes et `messages_fts`; SQLite crée les 4 tables auxiliaires FTS5 restantes |
 | D'où vient « **73** » ? | Inventaire Architecture antérieur au chat mobile, à la délégation Cursor et au pairage desktop sécurisé |
 | Frontend canonique (FastAPI 8081) ? | **`frontend/`** — Next.js **15.5.20**, React **19.2.7** (lockfile), export → `frontend/out/` |
 | Fallback racine FastAPI ? | **`web/dist/`** — Vite **6.4.2** + React **19.2.5** |
@@ -34,15 +36,12 @@
 **Formulation canonique (à réutiliser partout) :**
 
 ```text
-Le projet crée 85 tables persistantes après init_db() + migrations
-(Vague 2B : location_point_dedup + mobile_chat_dedup ; délégation Cursor :
-cursor_delegation_jobs ; pairage desktop : device_pairing_codes +
-device_pairing_attempts ; auth : auth_rate_limits ; Fitness : quatre journaux
-historiques + cinq tables de programme, progression, pesée et relances), plus
-jusqu'à 5 objets FTS5 (messages_fts + 4 auxiliaires) lorsque FTS5 est disponible, soit 90 tables physiques sur une
-base neuve avec configuration par défaut. Le dump database/schema.sql
-(46 tables applicatives) est un snapshot historique, pas le schéma
-d'exécution.
+Le projet crée 90 tables persistantes après init_db() + migrations, plus
+5 objets FTS5 (messages_fts + 4 auxiliaires) lorsque FTS5 est disponible,
+soit 95 tables physiques sur une base neuve avec configuration par défaut.
+database/schema.sql est un miroir généré de 91 déclarations : les 90 tables
+persistantes et la table virtuelle messages_fts. Il n'est pas exécuté par
+init_db(), mais la CI interdit toute divergence avec le runtime frais.
 
 Le frontend canonique est frontend/ (Next.js 15 → frontend/out), servi en
 priorité par FastAPI (port 8081) **et** par le supervisor (port 9000).
@@ -198,8 +197,8 @@ Aucune contradiction lockfile ↔ package.json majeure (les caret résolvent une
 
 ```text
 init_db()  [database/core.py]
-  1. executescript(SCHEMA)     ← database/schema.py   (47 CREATE TABLE)
-  2. run_migrations(conn)      ← database/migrations.py (+17 tables uniques + FTS + DevAgent)
+  1. executescript(SCHEMA)     ← database/schema.py   (55 CREATE TABLE)
+  2. run_migrations(conn)      ← database/migrations.py (+29 tables uniques + FTS + DevAgent)
        └─ migrate_devagent_tables()  ← database/devagent.py (6 tables)
 ```
 
@@ -209,31 +208,32 @@ init_db()  [database/core.py]
 
 | ID | Définition | Nombre |
 |---|---|---|
-| A | Tables métier / domaines applicatifs (hors miroir iMessage, hors DevAgent, hors infra devops/auth pure) | **≈ 38** (voir §6) |
-| B | Tables techniques / infra (auth, settings, quality, logs, devices daemon, pairage, schema_migrations…) | **≈ 20** |
+| A | Tables métier estimées (hors miroir iMessage, DevAgent et infra) | **56** (voir artefact JSON) |
+| B | Tables techniques / infra estimées | **19** |
 | C | Tables miroir iMessage (copie locale) | **9** |
 | D | Conditionnelles FTS5 | **5** si FTS5 dispo (`messages_fts` + 4 auxiliaires) ; **0** sinon |
 | E | DevAgent | **6** |
 | F | Tables de tests (fixtures pytest) | **0** dans la base applicative |
-| — | Dump `schema.sql` (snapshot) | **46** applicatives + `sqlite_sequence` |
-| — | `schema.py` seul | **50** |
-| — | Persistantes post-`init_db` (hors FTS) | **85** |
-| — | Physiques post-`init_db` défaut (FTS ON) | **90** |
-| — | Référencées / créées par le code d’init | **85 + condition FTS** |
+| — | `schema.sql` généré | **91** déclarations, dont `messages_fts` |
+| — | `schema.py` seul | **55** |
+| — | Persistantes post-`init_db` (hors FTS) | **90** |
+| — | Physiques post-`init_db` défaut (FTS ON) | **95** |
+| — | Référencées / créées par le code d’init | **90 + 5 objets FTS** |
 
-### Réconciliation 46 vs 85 vs 90
+### Réconciliation des anciens comptages avec 90 / 95
 
 | Affirmation | Origine | Verdict |
 |---|---|---|
-| 46 | Contenu de `database/schema.sql` | Vrai pour ce fichier ; **faux** pour le runtime |
+| 46 | Ancien snapshot de `database/schema.sql` | Dépassé ; le fichier est maintenant généré |
 | 72 | Diagramme README | Obsolete |
 | 73 | Architecture juil. 2026 | Dépassé par les migrations mobile/Cursor/device |
 | 75 | Total avant le limiteur d'authentification par client | Dépassé |
 | 76 | Total avant les extensions auth et Fitness | Dépassé |
 | 78 | Audit intermédiaire de juillet 2026 | Dépassé |
 | 81 | Audit intermédiaire avant le programme Fitness complet | Dépassé |
-| 85 | Total persistant actuel, hors objets FTS5 | **Exact** |
-| 90 | `tests/test_event_bus_integration.py` avec FTS5 disponible | **Exact** |
+| 85 | Total persistant avant les dernières tables runtime | Dépassé |
+| 90 | Total persistant actuel, hors objets FTS5 | **Exact** |
+| 95 | Total physique actuel avec FTS5 | **Exact** |
 
 ---
 
@@ -341,17 +341,17 @@ Statuts : `active` | `technique` | `miroir` | `conditionnelle` | `devagent`
 | `README.md` L100 | « 26+ tables » | non | Corriger → formulation multi-comptage |
 | `README.md` L124 | « 72 tables » | non | Idem |
 | `README.md` / supervisor | « sert le front » sans préciser `web/dist` | ambiguë | Clarifier |
-| `Architecture/*` « 73 tables » | inventaire juil. 2026 | dépassé (76 persistantes / 81 avec FTS) | Pointer vers ce document |
+| `Architecture/*` anciens totaux | inventaires de juillet 2026 | dépassés | Pointer vers ce document |
 | `CLAUDE.md` L32 | « 73e table » = event_log | narratif historique | Nuancer |
 | `CLAUDE.md` § PWA L1515 | « web/ SPA principale » | non (Phase 6) | Corriger |
-| `database/schema.sql` | dump 46 tables | vrai dump, faux runtime | Annoter en tête (recommandé) |
+| `database/schema.sql` | ancien dump manuel | résolu | Généré depuis une base fraîche et vérifié en CI |
 | `CHANGELOG_HISTORIQUE.md` | web/dist = prod | historique | Conserver sans le traiter comme vérité actuelle |
 
 ---
 
 ## 8. Recommandation
 
-1. **Citer toujours** les comptages A/B/C/D + total 76 / 81 — jamais un seul chiffre nu.
+1. **Citer toujours** la formulation canonique 90 persistantes / 95 physiques / 91 déclarations.
 2. **Frontend** : phrase canonique du §1.
 3. **Ne pas** supprimer `web/` ni `front_tv/`, ni fusionner TV dans FastAPI sans plan dédié. (`pwa/` a été supprimé le 31/07 avec un plan dédié — voir `35_CAHIER_DES_CHARGES_WEB_MOBILE.md`.)
 4. **Alignement supervisor / FastAPI** : réalisé le 16/07/2026 (ADR-019,
@@ -362,11 +362,11 @@ Statuts : `active` | `technique` | `miroir` | `conditionnelle` | `devagent`
 | # | Cause | Preuve |
 |---|---|---|
 | 1 | Documentation obsolète (README 26+/72) | `README.md` L100, L124 |
-| 2 | Changement non documenté (tables migrations/FTS/DevAgent) | `migrations.py`, `devagent.py`, test `len==81` |
+| 2 | Changement non documenté (tables migrations/FTS/DevAgent) | Résolu par génération et contrôle CI |
 | 3 | Plusieurs générations frontend encore actives | `api/frontend.py` unifié + Vite (résolu pour `/m/`, supprimé le 31/07) |
 | 4 | Fallback historique volontaire | commentaires Phase 6 + tests `test_phase6_frontend.py` |
-| 5 | Tables conditionnelles / techniques comptées différemment | FTS5 + 76 vs 81 |
-| 6 | Snapshot `schema.sql` ≠ schéma runtime | `core.py` importe `SCHEMA` depuis `schema.py` |
+| 5 | Tables conditionnelles / techniques comptées différemment | FTS5 : 90 persistantes, 95 physiques |
+| 6 | Snapshot `schema.sql` ≠ schéma runtime | Résolu : miroir généré, `init_db()` reste basé sur les sources Python |
 | 7 | Supervisor ≠ FastAPI pour le front | `supervisor.py` `DIST_DIR = web/dist` |
 | 8 | Build PWA absent du checkout | `pwa/out` manquant le jour de l’audit — arbre supprimé depuis |
 

@@ -29,10 +29,10 @@ JARVIS est un assistant personnel multi-agents avec interface vocale + web, tour
 Le bus applicatif est actif et conserve la compatibilité de construction historique `JarvisEvent(type, agent, data, timestamp)`. Le contrat canonique ajoute `event_id`, `event_type`, `version`, `source`, `payload` et un checksum SHA-256 ; les 10 classes typées vivent dans `jarvis/events.py` : notifications, tâches, conversations/messages, personnes/contexte mémoire, épisodes, patterns et faits.
 
 - Les mutations de `database/tasks.py`, `notifications.py`, `conversations.py`, `episodes.py`, `facts.py`, `patterns.py` et `people.py` émettent **après commit**.
-- `database/event_log.py` journalise tous les événements dans la table SQLite `event_log`
- (ajoutée au schéma runtime ; le total post-`init_db` est **90 persistantes**, **95** avec FTS —
- voir `Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md` ; ne pas confondre avec le dump
- historique `database/schema.sql` ≈ 47 tables).
+- `database/event_log.py` journalise tous les événements dans la table SQLite `event_log`.
+  Runtime SQLite canonique : **90 tables persistantes**, **95 tables physiques avec FTS5**, schéma généré : **91 déclarations de tables**.
+  `database/schema.sql` est désormais un miroir généré et contrôlé du schéma frais ;
+  `init_db()` continue d'exécuter exclusivement `schema.py` puis `migrations.py`.
 - `websocket_registry.py` diffuse les événements de domaine aux sockets actives et `scripts/audio_daemon.py` traite les notifications `urgent/high`.
 - `/api/events/stream` diffuse les événements de domaine en SSE ; le polling périodique notifications/tâches a été supprimé.
 - Chaque handler possède une file bornée indépendante ; les callbacks synchrones sont déportés hors de la boucle asyncio et l'échec d'un consommateur n'interrompt pas les autres.

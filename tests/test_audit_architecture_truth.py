@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -25,7 +26,11 @@ def fake_repo(tmp_path: Path) -> Path:
     (fe / "package.json").write_text(
         json.dumps(
             {
-                "dependencies": {"next": "15.5.20", "react": "^19.2.5", "react-dom": "^19.2.5"},
+                "dependencies": {
+                    "next": "15.5.20",
+                    "react": "^19.2.5",
+                    "react-dom": "^19.2.5",
+                },
                 "scripts": {"dev": "next dev", "build": "next build"},
             }
         ),
@@ -81,9 +86,7 @@ def fake_repo(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     (db / "core.py").write_text(
-        "from .schema import SCHEMA\n"
-        "def init_db():\n"
-        "    run_migrations(conn)\n",
+        "from .schema import SCHEMA\n" "def init_db():\n" "    run_migrations(conn)\n",
         encoding="utf-8",
     )
 
@@ -121,7 +124,9 @@ def fake_repo(tmp_path: Path) -> Path:
 
 
 def test_extract_create_tables_ignores_noise() -> None:
-    text = "CREATE TABLE IF NOT EXISTS foo (id);\ncreate virtual table bar using fts5(x);"
+    text = (
+        "CREATE TABLE IF NOT EXISTS foo (id);\ncreate virtual table bar using fts5(x);"
+    )
     assert audit._extract_create_tables(text) == ["bar", "foo"]
 
 
@@ -141,7 +146,9 @@ def test_analyze_tables_counts(fake_repo: Path) -> None:
     tables = audit.analyze_tables(fake_repo)
     assert tables["counts"]["schema_py"] == 2
     assert tables["counts"]["schema_sql_applicatives"] == 1
-    assert tables["counts"]["persistantes_post_init"] == 4  # episodes, conversations, sessions, dev_projects
+    assert (
+        tables["counts"]["persistantes_post_init"] == 4
+    )  # episodes, conversations, sessions, dev_projects
     assert tables["counts"]["fts_objects_if_available"] == 5
     assert tables["counts"]["physiques_max_default_fts_on"] == 9
     assert tables["init_pipeline"]["uses_schema_py"] is True
@@ -168,10 +175,24 @@ def test_build_report_and_cli(fake_repo: Path, tmp_path: Path) -> None:
     assert data["tables"]["counts"]["schema_sql_applicatives"] == 1
 
 
+def test_check_mode_rejects_a_stale_report(fake_repo: Path, tmp_path: Path) -> None:
+    (fake_repo / "README.md").write_text("Mini dépôt de test.\n", encoding="utf-8")
+    out = tmp_path / "architecture_truth.json"
+    args = ["--root", str(fake_repo), "--output", str(out)]
+
+    assert audit.main(args) == 0
+    assert audit.main([*args, "--check"]) == 0
+
+    stale = json.loads(out.read_text(encoding="utf-8"))
+    stale["tables"]["counts"]["persistantes_post_init"] = 999
+    out.write_text(json.dumps(stale), encoding="utf-8")
+    assert audit.main([*args, "--check"]) == 1
+
+
 def test_real_repo_smoke_counts_stable() -> None:
     """Garde-fou : le dépôt réel produit les comptages attendus (code only)."""
     tables = audit.analyze_tables(ROOT)
-    assert tables["counts"]["schema_sql_applicatives"] == 50
+    assert tables["counts"]["schema_sql_applicatives"] == 91
     # Vague 2B + chat + délégation Cursor + pairage desktop sécurisé,
     # neuf tables fitness (journaux + programme interactif), le journal des
     # commandes de repas et les trois tables de suggestion (menus relevés,
@@ -186,3 +207,37 @@ def test_real_repo_smoke_counts_stable() -> None:
     assert resolution["supervisor_priority"] == "frontend/out>web/dist"
     assert resolution["supervisor_uses_shared_resolver"] is True
     assert resolution["priority_findings"] == []
+
+
+def test_generated_runtime_schema_replays_a_fresh_database() -> None:
+    schema = audit.render_runtime_schema(ROOT)
+    assert schema.startswith("-- GENERATED FILE — DO NOT EDIT.")
+    assert len(audit._extract_create_tables(schema)) == 91
+
+    conn = sqlite3.connect(":memory:")
+    try:
+        conn.executescript(schema)
+        table_count = conn.execute("""
+            SELECT COUNT(*) FROM sqlite_master
+            WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
+            """).fetchone()[0]
+    finally:
+        conn.close()
+    assert table_count == 95
+
+
+def test_versioned_architecture_artifacts_match_runtime() -> None:
+    assert (
+        audit.main(
+            [
+                "--root",
+                str(ROOT),
+                "--output",
+                str(ROOT / "artifacts" / "architecture_truth.json"),
+                "--schema-output",
+                str(ROOT / "database" / "schema.sql"),
+                "--check",
+            ]
+        )
+        == 0
+    )

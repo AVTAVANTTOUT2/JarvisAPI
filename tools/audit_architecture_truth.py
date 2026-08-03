@@ -1,23 +1,27 @@
 #!/usr/bin/env python3
-"""Audit non destructif — vérité frontends + schéma SQLite (code only).
+"""Génère et vérifie la vérité frontends + schéma SQLite (code only).
 
-Produit ``artifacts/architecture_truth.json`` sans :
-- modifier de fichiers (hors écriture du rapport demandé) ;
+Produit ``artifacts/architecture_truth.json`` et, sur demande, le schéma
+SQLite déterministe d'une base fraîche, sans :
 - démarrer de services ;
 - ouvrir ``data/jarvis.db`` ;
-- exécuter de migrations sur une base de production.
+- exécuter de migrations ailleurs que dans une base ``:memory:``.
 
 Usage::
 
     python tools/audit_architecture_truth.py
-    python tools/audit_architecture_truth.py --output artifacts/architecture_truth.json
+    python tools/audit_architecture_truth.py --schema-output database/schema.sql
+    python tools/audit_architecture_truth.py --check --schema-output database/schema.sql
 """
 
 from __future__ import annotations
 
 import argparse
+import copy
+import importlib.util
 import json
 import re
+import sqlite3
 import sys
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
@@ -36,7 +40,10 @@ DOC_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("tables_schema_dump", re.compile(r"\b(?:44|46)\s+tables?\b", re.I)),
     ("tables_72", re.compile(r"\b72\s+tables?\b", re.I)),
     ("tables_73", re.compile(r"\b73\s+tables?\b|\b73e\s+table\b", re.I)),
-    ("nextjs_14_as_primary", re.compile(r"frontend\s+canonique[^\n]{0,40}Next\.js\s*14", re.I)),
+    (
+        "nextjs_14_as_primary",
+        re.compile(r"frontend\s+canonique[^\n]{0,40}Next\.js\s*14", re.I),
+    ),
     ("web_as_spa_principale", re.compile(r"`web/`\s*\(SPA principale", re.I)),
     ("schema_sql_as_runtime", re.compile(r"schema\.sql[^\n]{0,60}init_db", re.I)),
     (
@@ -57,6 +64,17 @@ SCAN_DOCS = (
     "Architecture/28_VALIDATION_COHERENCE.md",
     "Architecture/adr/ADR-017-sqlite-base-unique.md",
 )
+
+CANONICAL_COUNT_DOCS = (
+    "CLAUDE.md",
+    "Architecture/INDEX.md",
+    "Architecture/01_CARTOGRAPHIE.md",
+    "Architecture/28_VALIDATION_COHERENCE.md",
+    "Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md",
+    "Architecture/adr/ADR-017-sqlite-base-unique.md",
+)
+
+FTS_SHADOW_SUFFIXES = {"config", "content", "data", "docsize", "idx"}
 
 
 @dataclass
@@ -87,7 +105,9 @@ def _extract_create_tables(text: str) -> list[str]:
     return sorted(set(CREATE_TABLE_RE.findall(text)))
 
 
-def _pnpm_importer_versions(lock_text: str, packages: tuple[str, ...]) -> dict[str, str]:
+def _pnpm_importer_versions(
+    lock_text: str, packages: tuple[str, ...]
+) -> dict[str, str]:
     """Lit les versions résolues dans le bloc importers. de pnpm lockfile v9."""
     found: dict[str, str] = {}
     for pkg in packages:
@@ -103,7 +123,9 @@ def _pnpm_importer_versions(lock_text: str, packages: tuple[str, ...]) -> dict[s
     return found
 
 
-def _npm_lock_versions(lock: dict[str, Any], packages: tuple[str, ...]) -> dict[str, str]:
+def _npm_lock_versions(
+    lock: dict[str, Any], packages: tuple[str, ...]
+) -> dict[str, str]:
     pkgs = lock.get("packages") or {}
     found: dict[str, str] = {}
     for pkg in packages:
@@ -232,12 +254,9 @@ def analyze_frontend_resolution(root: Path) -> dict[str, Any]:
         and "resolve_desktop_frontend" not in supervisor
         and "FRONTEND_RESOLUTION" not in supervisor
     )
-    fastapi_aligned = (
-        "resolve_desktop_frontend_roots" in frontend_py
-        or (
-            "_setup_unified_frontend" in frontend_py
-            and "is_usable_next_build" in frontend_py
-        )
+    fastapi_aligned = "resolve_desktop_frontend_roots" in frontend_py or (
+        "_setup_unified_frontend" in frontend_py
+        and "is_usable_next_build" in frontend_py
     )
     shared_priority_ok = (
         "next_canonical" in shared
@@ -321,7 +340,11 @@ def analyze_tables(root: Path) -> dict[str, Any]:
     persistantes = sorted(set(t_schema) | set(mig_only) | set(t_dev))
     fts_declared = "messages_fts" in t_mig
 
-    imessage_mirror = sorted(t for t in persistantes if t.startswith("imessage_") and t != "imessage_analysis_cache")
+    imessage_mirror = sorted(
+        t
+        for t in persistantes
+        if t.startswith("imessage_") and t != "imessage_analysis_cache"
+    )
     # imessage_analysis_cache is app meta, not mirror of chat.db structure
     imessage_mirror = [
         t
@@ -377,10 +400,14 @@ def analyze_tables(root: Path) -> dict[str, Any]:
             "devagent": len(t_dev),
             "persistantes_post_init": len(persistantes),
             "fts_objects_if_available": 5 if fts_declared else 0,
-            "physiques_max_default_fts_on": len(persistantes) + (5 if fts_declared else 0),
+            "physiques_max_default_fts_on": len(persistantes)
+            + (5 if fts_declared else 0),
             "imessage_mirror": len(imessage_mirror),
             "technique_estime": len(tech),
-            "metier_estime": len(persistantes) - len(imessage_mirror) - len(t_dev) - len(tech),
+            "metier_estime": len(persistantes)
+            - len(imessage_mirror)
+            - len(t_dev)
+            - len(tech),
         },
         "lists": {
             "schema_py": t_schema,
@@ -410,6 +437,127 @@ def analyze_tables(root: Path) -> dict[str, Any]:
             ),
         },
     }
+
+
+def render_runtime_schema(root: Path) -> str:
+    """Construit le DDL déterministe d'une base fraîche entièrement migrée."""
+    schema_namespace: dict[str, Any] = {}
+    schema_path = root / "database" / "schema.py"
+    exec(
+        compile(schema_path.read_text(encoding="utf-8"), str(schema_path), "exec"),
+        schema_namespace,
+    )
+    schema = schema_namespace.get("SCHEMA")
+    if not isinstance(schema, str):
+        raise RuntimeError("database/schema.py ne définit pas SCHEMA")
+
+    migration_path = root / "database" / "migrations.py"
+    spec = importlib.util.spec_from_file_location(
+        "_jarvis_architecture_truth_migrations",
+        migration_path,
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError("Impossible de charger database/migrations.py")
+    migrations = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migrations)
+
+    root_value = str(root)
+    inserted_path = root_value not in sys.path
+    if inserted_path:
+        sys.path.insert(0, root_value)
+    conn = sqlite3.connect(":memory:")
+    try:
+        conn.execute("PRAGMA foreign_keys=ON")
+        conn.executescript(schema)
+        migrations.run_migrations(conn)
+        conn.commit()
+        rows = conn.execute("""
+            SELECT type, name, tbl_name, sql
+            FROM sqlite_master
+            WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%'
+            ORDER BY CASE type
+                WHEN 'table' THEN 0
+                WHEN 'index' THEN 1
+                WHEN 'trigger' THEN 2
+                ELSE 3
+            END, name
+            """).fetchall()
+    finally:
+        conn.close()
+        if inserted_path:
+            sys.path.remove(root_value)
+
+    virtual_tables = {
+        name
+        for type_name, name, _table_name, sql in rows
+        if type_name == "table"
+        and sql.lstrip().upper().startswith("CREATE VIRTUAL TABLE")
+    }
+    shadow_tables = {
+        f"{virtual_name}_{suffix}"
+        for virtual_name in virtual_tables
+        for suffix in FTS_SHADOW_SUFFIXES
+    }
+    statements = [
+        sql.rstrip().rstrip(";") + ";"
+        for type_name, name, table_name, sql in rows
+        if name not in shadow_tables and table_name not in shadow_tables
+    ]
+    return (
+        "-- GENERATED FILE — DO NOT EDIT.\n"
+        "-- Source: database/schema.py + database/migrations.py + database/devagent.py.\n"
+        "-- Regenerate: python tools/audit_architecture_truth.py "
+        "--schema-output database/schema.sql\n"
+        "-- This artifact is not executed by init_db(); it mirrors a fresh runtime schema.\n\n"
+        + "\n\n".join(statements)
+        + "\n"
+    )
+
+
+def _stable_report(report: dict[str, Any]) -> dict[str, Any]:
+    """Retire les seules valeurs propres au checkout ou à l'instant d'exécution."""
+    stable = copy.deepcopy(report)
+    stable.pop("generated_at", None)
+    for frontend in stable.get("frontends", []):
+        frontend.pop("output_present", None)
+    stable.get("resolution", {}).pop("build_presence", None)
+    return stable
+
+
+def _canonical_count_line(tables: dict[str, Any]) -> str:
+    counts = tables["counts"]
+    return (
+        "Runtime SQLite canonique : "
+        f"**{counts['persistantes_post_init']} tables persistantes**, "
+        f"**{counts['physiques_max_default_fts_on']} tables physiques avec FTS5**, "
+        f"schéma généré : **{counts['schema_sql_applicatives']} déclarations de tables**."
+    )
+
+
+def scan_canonical_count_docs(
+    root: Path, tables: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """Exige la formulation calculée dans chaque document de référence courant."""
+    # Les mini dépôts des tests unitaires n'embarquent pas le corpus Architecture.
+    if not (root / "Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md").is_file():
+        return []
+    expected = _canonical_count_line(tables)
+    findings: list[dict[str, Any]] = []
+    for rel in CANONICAL_COUNT_DOCS:
+        path = root / rel
+        text = path.read_text(encoding="utf-8") if path.is_file() else ""
+        if expected not in text:
+            findings.append(
+                {
+                    "file": rel,
+                    "line": 0,
+                    "kind": "canonical_sqlite_counts",
+                    "severity": "error",
+                    "excerpt": "formulation canonique absente ou périmée",
+                    "note": f"Attendu exactement : {expected}",
+                }
+            )
+    return findings
 
 
 def scan_doc_contradictions(root: Path, tables: dict[str, Any]) -> list[dict[str, Any]]:
@@ -456,7 +604,9 @@ def scan_doc_contradictions(root: Path, tables: dict[str, Any]) -> list[dict[str
                     )
                 if kind == "web_as_spa_principale":
                     severity = "error"
-                    note = "`web/` n'est plus le frontend canonique (Phase 6 → frontend/)"
+                    note = (
+                        "`web/` n'est plus le frontend canonique (Phase 6 → frontend/)"
+                    )
                 if kind == "supervisor_vite_only":
                     severity = "error"
                     note = (
@@ -481,6 +631,11 @@ def build_report(root: Path) -> dict[str, Any]:
     resolution = analyze_frontend_resolution(root)
     tables = analyze_tables(root)
     contradictions = scan_doc_contradictions(root, tables)
+    frontend_inventory = [asdict(frontend) for frontend in frontends]
+    for frontend in frontend_inventory:
+        frontend.pop("output_present", None)
+    stable_resolution = copy.deepcopy(resolution)
+    stable_resolution.pop("build_presence", None)
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         # Le rapport est versionné : garder une racine stable, indépendante du
@@ -503,10 +658,11 @@ def build_report(root: Path) -> dict[str, Any]:
                 "puis web/dist en fallback (core.frontend_resolution)."
             ),
         },
-        "frontends": [asdict(f) for f in frontends],
-        "resolution": resolution,
+        "frontends": frontend_inventory,
+        "resolution": stable_resolution,
         "tables": tables,
         "documentation_findings": contradictions
+        + scan_canonical_count_docs(root, tables)
         + [
             {
                 "file": "supervisor.py",
@@ -537,19 +693,71 @@ def main(argv: list[str] | None = None) -> int:
         help="Chemin du rapport JSON",
     )
     parser.add_argument(
+        "--schema-output",
+        type=Path,
+        help="Écrire ou vérifier le miroir DDL du schéma runtime frais",
+    )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Ne rien écrire et échouer si les artefacts ou documents divergent",
+    )
+    parser.add_argument(
         "--stdout",
         action="store_true",
         help="Écrire aussi le JSON sur stdout",
     )
     args = parser.parse_args(argv)
     root = args.root.resolve()
+
+    expected_schema: str | None = None
+    if args.schema_output is not None:
+        expected_schema = render_runtime_schema(root)
+        if not args.check:
+            args.schema_output.parent.mkdir(parents=True, exist_ok=True)
+            args.schema_output.write_text(expected_schema, encoding="utf-8")
+
     report = build_report(root)
-    args.output.parent.mkdir(parents=True, exist_ok=True)
     payload = json.dumps(report, indent=2, ensure_ascii=False) + "\n"
-    args.output.write_text(payload, encoding="utf-8")
     if args.stdout:
         sys.stdout.write(payload)
     errors = [f for f in report["documentation_findings"] if f["severity"] == "error"]
+
+    if args.check:
+        failures: list[str] = []
+        if not args.output.is_file():
+            failures.append(f"artefact absent : {args.output}")
+        else:
+            try:
+                current_report = json.loads(args.output.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as error:
+                failures.append(f"artefact JSON illisible : {error}")
+            else:
+                if _stable_report(current_report) != _stable_report(report):
+                    failures.append(
+                        "artifacts/architecture_truth.json diverge du code runtime"
+                    )
+        if args.schema_output is not None:
+            current_schema = (
+                args.schema_output.read_text(encoding="utf-8")
+                if args.schema_output.is_file()
+                else None
+            )
+            if current_schema != expected_schema:
+                failures.append(f"{args.schema_output} diverge du schéma runtime frais")
+        failures.extend(f"{finding['file']}: {finding['note']}" for finding in errors)
+        if failures:
+            for failure in failures:
+                print(f"[audit_architecture_truth] ERROR {failure}", file=sys.stderr)
+            return 1
+        print(
+            "[audit_architecture_truth] artefacts et documentation synchronisés",
+            file=sys.stderr,
+        )
+        return 0
+
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(payload, encoding="utf-8")
     print(
         f"[audit_architecture_truth] wrote {args.output} "
         f"(persistantes={report['tables']['counts']['persistantes_post_init']}, "
