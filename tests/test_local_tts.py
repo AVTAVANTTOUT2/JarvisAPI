@@ -111,6 +111,51 @@ async def test_missing_model_raises_an_actionable_error(tmp_path, monkeypatch):
     assert "download_tts_model" in str(failure.value)
 
 
+@pytest.mark.parametrize(
+    "spec",
+    [
+        "/chemin/absolu/absent",
+        "./relatif/absent",
+        "~/absent",
+        "organisation/modele-jamais-telecharge",
+    ],
+    ids=["absolu", "relatif", "tilde", "depot_hf"],
+)
+def test_every_missing_model_message_says_what_to_do(spec: str):
+    """Aucun chemin de sortie ne doit perdre la commande d'installation.
+
+    La CI Ubuntu a échoué exactement là : sans `huggingface_hub`, le message
+    partait sans le geste à faire, et l'utilisateur n'avait plus qu'à lire le
+    code pour comprendre.
+    """
+    from native_audio.fish_local import FishModelMissing, resolve_local_model_dir
+
+    with pytest.raises(FishModelMissing) as failure:
+        resolve_local_model_dir(spec)
+    assert "download_tts_model" in str(failure.value)
+
+
+def test_missing_model_message_ignores_huggingface_when_given_a_path(monkeypatch):
+    """Un chemin absent ne doit pas produire un message sur un cache distant."""
+    import builtins
+
+    from native_audio.fish_local import FishModelMissing, resolve_local_model_dir
+
+    real_import = builtins.__import__
+
+    def _no_hub(name, *args, **kwargs):
+        if name.startswith("huggingface_hub"):
+            raise ImportError("simulé : paquet absent")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", _no_hub)
+    with pytest.raises(FishModelMissing) as failure:
+        resolve_local_model_dir("/chemin/absolu/absent")
+    message = str(failure.value)
+    assert "huggingface" not in message.lower()
+    assert "download_tts_model" in message
+
+
 @pytest.mark.asyncio
 async def test_present_model_without_runtime_reports_the_runtime(tmp_path, monkeypatch):
     """Poids là, venv MLX absent : là, c'est bien le runtime qu'il faut nommer."""

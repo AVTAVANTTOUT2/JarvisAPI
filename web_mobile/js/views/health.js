@@ -300,38 +300,64 @@ export default {
       let form = null;
       if (mealFormOpen) {
         const type = select(Object.entries(MEALS), 'dejeuner', { 'aria-label': 'Type de repas' });
-        const description = textarea({ placeholder: 'Ce que vous avez mangé', 'aria-label': 'Description du repas' });
-        const calories = input({ type: 'number', inputmode: 'numeric', min: '0', placeholder: 'kcal', 'aria-label': 'Calories' });
-        const protein = input({ type: 'number', inputmode: 'decimal', min: '0', placeholder: 'protéines g', 'aria-label': 'Protéines' });
-        const feedback = h('p', { class: 'fit-inline-error' });
-        const save = h('button', { class: 'btn primary block', type: 'button' }, 'Enregistrer');
-        save.addEventListener('click', async () => {
-          if (!description.value.trim() || busy) return;
+        const description = textarea({
+          placeholder: 'Ce que vous avez mangé (texte libre ou détail manuel)',
+          'aria-label': 'Description du repas',
+        });
+        const calories = input({
+          type: 'number', inputmode: 'numeric', min: '0',
+          placeholder: 'kcal (manuel)', 'aria-label': 'Calories',
+        });
+        const protein = input({
+          type: 'number', inputmode: 'decimal', min: '0',
+          placeholder: 'protéines g', 'aria-label': 'Protéines',
+        });
+        const analyze = h('button', { class: 'btn ghost', type: 'button' }, 'Analyser (IA)');
+        const save = h('button', { class: 'btn primary', type: 'button' }, 'Manuel');
+
+        async function submitMeal(mode) {
+          const text = description.value.trim();
+          if (!text || busy) return;
           busy = true;
+          analyze.disabled = true;
           save.disabled = true;
           mutationError = null;
           try {
-            await api.post('/api/fitness/meals', {
-              date: dashboard.date,
-              meal_type: type.value,
-              description: description.value.trim(),
-              calories_estimate: calories.value ? Number(calories.value) : null,
-              protein_g: protein.value ? Number(protein.value) : null,
-              source: 'pwa',
-            });
+            if (mode === 'ai') {
+              await api.createMealFromText({
+                date: dashboard.date,
+                text,
+                meal_type: type.value,
+                source: 'pwa',
+                save: true,
+              });
+            } else {
+              await api.createMeal({
+                date: dashboard.date,
+                meal_type: type.value,
+                description: text,
+                calories_estimate: calories.value ? Number(calories.value) : null,
+                protein_g: protein.value ? Number(protein.value) : null,
+                source: 'pwa',
+              });
+            }
             mealFormOpen = false;
           } catch {
-            feedback.textContent = 'Repas non enregistré.';
+            mutationError = mode === 'ai'
+              ? 'Analyse alimentaire impossible.'
+              : 'Repas non enregistré.';
           }
           busy = false;
           await load();
-        });
+        }
+
+        analyze.addEventListener('click', () => { void submitMeal('ai'); });
+        save.addEventListener('click', () => { void submitMeal('manual'); });
         form = h('div', { class: 'fit-form' },
           type,
           description,
           h('div', { class: 'fit-two' }, calories, protein),
-          save,
-          feedback);
+          h('div', { class: 'fit-actions' }, analyze, save));
       }
 
       const meals = dashboard.meals.length

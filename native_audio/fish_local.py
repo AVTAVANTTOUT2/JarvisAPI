@@ -84,42 +84,62 @@ def _missing_pieces(model_dir: Path) -> list[str]:
     return missing
 
 
+def _looks_like_a_path(raw: str) -> bool:
+    """Le réglage désigne-t-il un répertoire plutôt qu'un dépôt distant ?
+
+    Un identifiant Hugging Face s'écrit ``organisation/modele`` ; un chemin
+    commence par une racine, un point ou un tilde. La distinction évite de
+    parler de « huggingface_hub » à quelqu'un qui a simplement écrit un chemin
+    qui n'existe pas.
+    """
+    return raw.startswith(("/", "./", "../", "~")) or raw in {".", ".."}
+
+
+def _missing(reason: str) -> FishModelMissing:
+    """Erreur de poids manquants — **toujours** avec le geste à faire.
+
+    Un message d'erreur qui n'indique pas quoi faire oblige à lire le code.
+    Cette fabrique existe pour qu'aucun chemin de sortie ne puisse l'oublier :
+    la CI a justement échoué sur une branche qui l'avait perdu.
+    """
+    return FishModelMissing(f"{reason} Installation : {INSTALL_HINT}")
+
+
 def resolve_local_model_dir(spec: str) -> Path:
     """Chemin local des poids, sans jamais déclencher de téléchargement.
 
     ``spec`` est soit un répertoire, soit un identifiant de dépôt Hugging Face
-    déjà présent dans le cache local. Tout le reste lève ``FishModelMissing``
-    avec la commande exacte à lancer — un message d'erreur qui n'indique pas
-    quoi faire oblige à lire le code.
+    déjà présent dans le cache local. Tout le reste lève ``FishModelMissing``.
     """
     raw = (spec or DEFAULT_MODEL).strip()
     candidate = Path(raw).expanduser()
     if candidate.is_dir():
         resolved = candidate
+    elif _looks_like_a_path(raw):
+        # Chemin explicite et absent : inutile de parler d'un cache distant.
+        raise _missing(f"répertoire de poids introuvable : {candidate}.")
     else:
         try:
             from huggingface_hub import snapshot_download
             from huggingface_hub.errors import (  # type: ignore[attr-defined]
                 LocalEntryNotFoundError,
             )
-        except ImportError as exc:  # pragma: no cover - dépend de l'environnement
-            raise FishModelMissing(
-                f"huggingface_hub absent : impossible de localiser {raw}"
+        except ImportError as exc:
+            raise _missing(
+                f"modèle « {raw} » introuvable localement, et huggingface_hub "
+                f"n'est pas installé pour consulter le cache."
             ) from exc
 
         try:
             resolved = Path(snapshot_download(raw, local_files_only=True))
         except (LocalEntryNotFoundError, OSError, ValueError) as exc:
-            raise FishModelMissing(
-                f"modèle « {raw} » absent du cache local. "
-                f"Installation (une seule fois, hors conversation) : {INSTALL_HINT}"
-            ) from exc
+            raise _missing(f"modèle « {raw} » absent du cache local.") from exc
 
     missing = _missing_pieces(resolved)
     if missing:
-        raise FishModelMissing(
+        raise _missing(
             f"modèle « {raw} » incomplet dans {resolved} — manque : "
-            f"{', '.join(missing)}. Reprise : {INSTALL_HINT}"
+            f"{', '.join(missing)}."
         )
     return resolved
 

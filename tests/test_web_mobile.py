@@ -385,6 +385,9 @@ def test_mobile_fitness_matches_the_connected_desktop_experience():
         "exercise.sides === 2",
         "À la sensation",
         "meal.calories_estimate ?? '?'",
+        "Analyser (IA)",
+        "createMealFromText",
+        "Analyse alimentaire impossible.",
     ):
         assert contract in health
 
@@ -399,6 +402,6 @@ def test_mobile_fitness_uses_safe_ratios_and_explicit_local_dates():
 def test_mobile_fitness_assets_are_cache_busted_from_the_shell():
     index = _mobile_source("index.html")
     app = _mobile_source("js/app.js")
-    assert "/mobile/app.css?v=20260731" in index
-    assert "/mobile/js/app.js?v=20260731" in index
-    assert "./views/health.js?v=20260731" in app
+    assert "/mobile/app.css?v=20260803" in index
+    assert "/mobile/js/app.js?v=20260803" in index
+    assert "./views/health.js?v=20260803" in app
