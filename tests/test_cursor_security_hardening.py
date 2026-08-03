@@ -355,13 +355,15 @@ async def test_voice_barge_in_cancels_tts(monkeypatch):
 
     from api.chat_context import _send_tts_streaming
 
-    class SlowEngine:
-        available = True
+    from tests.local_tts_stub import StubProvider
 
-        async def synthesize_stream(self, text, emotion="neutral"):
-            for i in range(20):
+    class SlowProvider(StubProvider):
+        async def stream(self, text, *, request_id, utterance_id):
+            from jarvis.audio.tts.base import AudioChunk
+
+            for index in range(20):
                 await asyncio.sleep(0.05)
-                yield b"chunk-%d" % i
+                yield AudioChunk(data=b"chunk-%d" % index, sample_rate=24000)
 
     sent: list = []
 
@@ -378,13 +380,10 @@ async def test_voice_barge_in_cancels_tts(monkeypatch):
         await asyncio.sleep(0.08)
         cancel.set()
 
-    # `audio.tts` est aussi un singleton TTSEngine dans audio/__init__.py —
-    # patcher le vrai module via importlib.
-    tts_mod = importlib.import_module("audio.tts")
-    monkey_engine = SlowEngine()
-    monkeypatch.setattr(tts_mod, "get_tts_by_name", lambda _name: monkey_engine)
-    monkeypatch.setattr(tts_mod, "resolve_tts_engine_name", lambda: "edge")
-    monkeypatch.setattr("audio.audio_format.tts_audio_mime", lambda _n: "audio/mpeg")
+    slow = SlowProvider()
+    monkeypatch.setattr(
+        "jarvis.audio.tts.get_local_tts_provider", lambda *a, **k: slow,
+    )
     cache = importlib.import_module("audio.tts_cache")
     monkeypatch.setattr(cache.speculative_tts, "get", lambda *a, **k: None)
     monkeypatch.setattr(cache.last_tts, "store", lambda *a, **k: None)
@@ -410,15 +409,17 @@ async def test_voice_old_audio_is_discarded(monkeypatch):
 
     from api.chat_context import _send_tts_streaming
 
-    class Engine:
-        available = True
+    from tests.local_tts_stub import StubProvider
 
-        async def synthesize_stream(self, text, emotion="neutral"):
-            yield b"A"
+    class SlicedProvider(StubProvider):
+        async def stream(self, text, *, request_id, utterance_id):
+            from jarvis.audio.tts.base import AudioChunk
+
+            yield AudioChunk(data=b"A", sample_rate=24000)
             await asyncio.sleep(0.01)
-            yield b"B"
+            yield AudioChunk(data=b"B", sample_rate=24000)
             await asyncio.sleep(0.05)
-            yield b"C"
+            yield AudioChunk(data=b"C", sample_rate=24000, is_final=True)
 
     sent_bytes: list[bytes] = []
 
@@ -430,10 +431,10 @@ async def test_voice_old_audio_is_discarded(monkeypatch):
             sent_bytes.append(data)
 
     cancel = asyncio.Event()
-    tts_mod = importlib.import_module("audio.tts")
-    monkeypatch.setattr(tts_mod, "get_tts_by_name", lambda _n: Engine())
-    monkeypatch.setattr(tts_mod, "resolve_tts_engine_name", lambda: "edge")
-    monkeypatch.setattr("audio.audio_format.tts_audio_mime", lambda _n: "audio/mpeg")
+    monkeypatch.setattr(
+        "jarvis.audio.tts.get_local_tts_provider",
+        lambda *a, **k: SlicedProvider(),
+    )
     cache = importlib.import_module("audio.tts_cache")
     monkeypatch.setattr(cache.speculative_tts, "get", lambda *a, **k: None)
     monkeypatch.setattr(cache.last_tts, "store", lambda *a, **k: None)
@@ -451,4 +452,5 @@ async def test_voice_old_audio_is_discarded(monkeypatch):
         cancel_event=cancel,
     )
     assert status == "cancelled"
-    assert b"C" not in sent_bytes or len(sent_bytes) < 3
+    # Le blob n'est jamais envoyé après annulation : le client n'a rien à jeter.
+    assert sent_bytes == []

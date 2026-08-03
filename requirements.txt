@@ -8,9 +8,6 @@ jinja2==3.1.*
 
 # LLM — DeepSeek via httpx (format OpenAI compatible)
 
-# Audio réseau (Edge TTS) et décodage des blobs navigateur par le STT local
-edge-tts==7.*
-
 # Intégrations
 httpx==0.28.*
 aiohttp>=3.12,<4
@@ -26,7 +23,6 @@ pyaudio>=0.2.14           # micro pour wake word + écoute conversation daemon (
 
 # STT local — faster-whisper (gratuit, zero latence reseau) + playback direct
 faster-whisper>=1.2        # transcription locale via CTranslate2 (Apple Silicon natif)
-kokoro-onnx>=0.4           # TTS local Kokoro (modèles dans models/kokoro/, hors Git)
 sounddevice>=0.5           # playback direct CoreAudio (evite afplay subprocess)
 soundfile>=0.13            # decode audio pour sounddevice (WAV/MP3/M4A)
 
@@ -35,7 +31,7 @@ torch>=2.0                 # backend Silero VAD via torch.hub (~2 Go, CPU only)
 torchaudio>=2.0            # compagnon torch
 
 # Dual-LLM (jarvis/ package) — anonymisation PII + backend DeepSeek
-# spaCy 3.8/Thinc 8.3 accepte NumPy 2, requis par kokoro-onnx >= 0.4.
+# spaCy 3.8/Thinc 8.3 accepte NumPy 2, requis par la pile audio locale.
 numpy>=2.0.2,<3
 spacy==3.8.*             # NER PII (modèle : python -m spacy download fr_core_news_sm)
 

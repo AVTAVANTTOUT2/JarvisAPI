@@ -19,6 +19,12 @@ build/
 /data/
 uploads/
 
+# ── Voix (échantillons personnels, jamais versionnés) ───────
+voices/**/*.wav
+voices/**/*.mp3
+voices/**/*.m4a
+voices/**/transcript.txt
+
 # ── Certificats SSL (ne JAMAIS committer les clés privées) ──
 certs/*.pem
 certs/*.key

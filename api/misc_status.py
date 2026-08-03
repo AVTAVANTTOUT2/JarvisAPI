@@ -15,10 +15,32 @@ from integrations import imessage_bridge
 from scripts.email_watcher import email_watcher
 
 try:
-    from audio import stt, tts
+    from audio import stt
 except ImportError:
     stt = None
-    tts = None
+
+
+def _tts_status_payload() -> dict:
+    """État du moteur vocal local, sans le charger.
+
+    ``info()`` n'ouvre ni modèle ni sous-processus : consulter l'état de
+    l'application ne doit pas déclencher le chargement de plusieurs
+    gigaoctets de poids.
+    """
+    from jarvis.audio.tts import get_local_tts_provider, load_tts_settings
+
+    settings = load_tts_settings()
+    try:
+        info = get_local_tts_provider(settings).info()
+    except Exception as exc:  # noqa: BLE001 - un fournisseur inconnu reste lisible
+        return {
+            "tts_provider_configured": settings.provider,
+            "tts_available": False,
+            "tts_error": str(exc),
+        }
+    payload = {f"tts_{key}": value for key, value in info.as_log_fields().items()}
+    payload["tts_provider_configured"] = settings.provider
+    return payload
 
 logger = logging.getLogger("jarvis")
 
@@ -91,17 +113,7 @@ async def api_status():
             "stt_available": stt is not None and getattr(stt, "available", False),
             "stt_engine": stt.get_backend_name() if (stt and getattr(stt, "available", False)) else "none",
             "stt_model": getattr(config, "STT_MODEL", config.DEFAULT_STT_MODEL),
-            "tts_engine_configured": getattr(config, "TTS_ENGINE", config.DEFAULT_TTS_ENGINE),
-            "tts_available": tts is not None and getattr(tts, "available", False),
-            "tts_backend": tts.get_backend_name() if tts else "none",
-            "tts_voice": config.KOKORO_VOICE if config.TTS_ENGINE == "kokoro" else config.TTS_VOICE,
-            "kokoro_lang": config.KOKORO_LANG,
-            "kokoro_backend": getattr(config, "KOKORO_BACKEND", config.DEFAULT_KOKORO_BACKEND),
-            "kokoro_model": getattr(config, "KOKORO_MODEL", config.DEFAULT_KOKORO_MODEL),
-            "kokoro_lang_code": getattr(
-                config, "KOKORO_LANG_CODE", config.DEFAULT_KOKORO_LANG_CODE
-            ),
-            "kokoro_speed": getattr(config, "KOKORO_SPEED", config.DEFAULT_KOKORO_SPEED),
+            **_tts_status_payload(),
         },
         "voice_conversation": {
             "silence_duration_ms": getattr(config, "VOICE_SILENCE_DURATION_MS", 1200),

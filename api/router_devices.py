@@ -202,18 +202,24 @@ async def api_device_screen(device_id: str, body: dict, request: Request):
                 text = (result or {}).get("text") or ""
                 if text and "NULL" not in text.upper():
                     try:
-                        from audio.tts import tts as _tts
+                        from jarvis.audio.tts import get_local_tts_provider
+                        from jarvis.audio.tts.wav import synthesize_wav
 
-                        if _tts:
-                            audio = await _tts.synthesize(text, emotion="neutral")
-                            if audio:
-                                import base64 as _b64x
+                        # L'appareil distant reçoit un fichier complet : il n'a
+                        # pas de canal de diffusion, il joue ce qu'il récupère.
+                        audio = await synthesize_wav(
+                            get_local_tts_provider(),
+                            text,
+                            request_id=f"device:{device_id}",
+                        )
+                        if audio:
+                            import base64 as _b64x
 
-                                queue = _get_device_tts_queue(device_id)
-                                try:
-                                    queue.put_nowait(_b64x.b64encode(audio).decode())
-                                except asyncio.QueueFull:
-                                    logger.debug("[device_screen] TTS queue pleine pour %s", device_id)
+                            queue = _get_device_tts_queue(device_id)
+                            try:
+                                queue.put_nowait(_b64x.b64encode(audio).decode())
+                            except asyncio.QueueFull:
+                                logger.debug("[device_screen] TTS queue pleine pour %s", device_id)
                     except Exception as e:
                         logger.warning("[device_screen] TTS synth : %s", e)
             except Exception as e:

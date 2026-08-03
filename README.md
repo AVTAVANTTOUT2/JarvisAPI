@@ -313,24 +313,17 @@ désélectionnés par défaut (`pytest.ini`).
 |---|---|
 | Suite standard (hors ligne, défaut) | `python -m pytest tests/ jarvis/tests agents/devagent -q` |
 | Tests unitaires seuls, sans intégration locale | `python -m pytest -m "not integration_tts" -q` |
-| Intégrations locales réelles (macOS `say`, moteurs locaux) | `python -m pytest -m integration_tts -v` |
-| Réseau externe réel (TTS Edge → Microsoft) | `python -m pytest -m external_network -v -rs` |
+| Intégrations locales réelles (synthèse vocale réelle) | `python -m pytest -m integration_tts -v` |
 
 Marqueurs déclarés :
 
-- `external_network` — sort réellement sur Internet. Jamais exécuté par la CI
-  de pull request ; le workflow `Tests réseau externes`
-  (`workflow_dispatch` + passage hebdomadaire) s'en charge. Un `-m` passé en
-  ligne de commande remplace la valeur de `addopts`.
-- `integration_tts` — fait réellement produire de l'audio par un moteur TTS.
+- `external_network` — sort réellement sur Internet. **Plus aucun test ne le
+  porte** depuis que la synthèse vocale est locale : il reste déclaré pour que
+  toute future dépendance réseau d'un test soit un choix visible, jamais un
+  effet de bord. Un `-m` passé en ligne de commande remplace `addopts`.
+- `integration_tts` — fait réellement produire de l'audio par le moteur local.
   Hors ligne et déterministe, donc conservé dans la suite standard ; se saute
-  proprement quand le moteur local est absent.
-
-Un scénario réseau n'est ignoré que pour une indisponibilité **identifiée**
-(DNS muet, refus TCP, délai dépassé, interception TLS, proxy qui refuse le
-tunnel), classée par `audio/tts_errors.py`. Tout le reste échoue : 401/403 au
-handshake, voix disparue, réponse inattendue, régression de parsing, format
-audio invalide.
+  proprement quand les poids ne sont pas installés sur la machine.
 
 La CI vérifie également l'installation de production, les intégrations macOS simulées et le frontend historique de repli.
 

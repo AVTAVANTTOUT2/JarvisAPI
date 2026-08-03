@@ -10,11 +10,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from audio.audio_format import (
+    DEFAULT_TTS_MIME,
     detect_upload_format,
     pcm_to_wav,
     playback_file_extension,
     prepare_stt_bytes,
-    tts_audio_mime,
 )
 
 
@@ -72,10 +72,10 @@ def test_playback_file_extension_wav_mp3_m4a() -> None:
     assert playback_file_extension(b"\x00\x00\x00\x1cftypM4A ") == ".m4a"
 
 
-def test_tts_audio_mime_engines() -> None:
-    assert tts_audio_mime("kokoro") == "audio/wav"
-    assert tts_audio_mime("macos") == "audio/mp4"
-    assert tts_audio_mime("edge") == "audio/mpeg"
+def test_tts_mime_is_wav_for_every_caller() -> None:
+    """La pile locale ne produit qu'un conteneur : annoncer autre chose
+    empêcherait la lecture côté client."""
+    assert DEFAULT_TTS_MIME == "audio/wav"
 
 
 # ── Fix #3 : NameError local_stt_available ────────────────────────────────────

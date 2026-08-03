@@ -97,26 +97,32 @@ def test_single_word_command_accepted() -> None:
         assert _is_acceptable_transcript(word, used_local_stt=False, segments=[])
 
 
-def test_native_play_tts_does_not_call_edge() -> None:
-    """_play_tts_native ne doit jamais invoquer un service TTS réseau."""
+def test_native_play_tts_streams_local_chunks() -> None:
+    """Le daemon joue les fragments du fournisseur local, sans autre chemin."""
     from scripts.audio_daemon import AudioDaemon
+    from tests.local_tts_stub import StubProvider
 
     daemon = AudioDaemon()
-    mock_engine = MagicMock()
-    mock_engine.get_backend_name.return_value = "macos"
-    mock_engine.synthesize_native = AsyncMock(return_value=b"RIFF" + b"\x00" * 200)
+    provider = StubProvider()
 
     with (
-        patch("scripts.audio_daemon.get_native_tts_engine", return_value=mock_engine),
+        patch("scripts.audio_daemon.get_local_tts_provider", return_value=provider),
         patch("scripts.audio_daemon.native_audio_output.available", True),
-        patch("scripts.audio_daemon.native_audio_output.play_bytes", new_callable=AsyncMock) as play,
-        patch("audio.tts.get_tts_by_name") as edge_get,
-        patch("audio.tts.tts.synthesize", new_callable=AsyncMock) as edge_synth,
+        patch(
+            "scripts.audio_daemon.native_audio_output.play_stream_from_async",
+            new_callable=AsyncMock,
+        ) as play_stream,
+        patch(
+            "scripts.audio_daemon.native_audio_output.play_bytes",
+            new_callable=AsyncMock,
+        ) as play_bytes,
     ):
         asyncio.run(daemon._play_tts_native("Bonjour Monsieur.", emotion="neutral"))
-        edge_get.assert_not_called()
-        edge_synth.assert_not_called()
-        play.assert_called_once()
+
+    # Diffusion fragment par fragment, jamais un fichier complet après coup.
+    play_stream.assert_awaited_once()
+    play_bytes.assert_not_called()
+    assert play_stream.await_args.kwargs["sample_rate"] == provider.sample_rate
 
 
 @pytest.mark.asyncio
@@ -481,33 +487,6 @@ async def test_critical_voice_request_cancels_current_playback() -> None:
     await asyncio.sleep(0.15)
     assert played == ["Fond", "Urgence"]
     await q.stop()
-
-
-@pytest.mark.asyncio
-async def test_ttskit_stream_yields_pcm_incrementally() -> None:
-    from audio.tts_native import TTSKitEngine
-
-    first_released = asyncio.Event()
-
-    async def _fake_stream(*_a, **_k):
-        first_released.set()
-        yield b"first"
-        await asyncio.sleep(0)
-        yield b"second"
-
-    fake_bus = MagicMock()
-    fake_bus.emit = AsyncMock()
-    with (
-        patch("native_audio.ttskit_bridge.is_ttskit_available", return_value=True),
-        patch("native_audio.ttskit_bridge.stream_pcm16", new=_fake_stream),
-        patch("audio.tts_native.event_bus", fake_bus),
-    ):
-        stream = TTSKitEngine().synthesize_stream("Bonjour Monsieur.")
-        assert await anext(stream) == b"first"
-        assert first_released.is_set()
-        assert await anext(stream) == b"second"
-        with pytest.raises(StopAsyncIteration):
-            await anext(stream)
 
 
 @pytest.mark.asyncio

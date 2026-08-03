@@ -34,7 +34,7 @@ def test_last_tts_store_and_get():
 
     cache = LastTTS()
     assert cache.get() is None
-    cache.store("Bonjour Monsieur.", "warm", b"MP3DATA", "audio/mpeg")
+    cache.store("Bonjour Monsieur.", "warm", b"MP3DATA", "audio/wav")
     entry = cache.get()
     assert entry["text"] == "Bonjour Monsieur." and entry["audio"] == b"MP3DATA"
     cache.store("", "warm", b"x")     # texte vide ignoré
@@ -44,15 +44,35 @@ def test_last_tts_store_and_get():
 
 # ── TTS spéculatif ───────────────────────────────────────────
 
-class _FakeEngine:
-    available = True
+class _FakeProvider:
+    """Fournisseur local minimal conforme au contrat `LocalTTSProvider`."""
 
     def __init__(self):
         self.calls = 0
 
-    async def synthesize(self, text, emotion="neutral"):
+    def info(self):
+        from jarvis.audio.tts.base import ProviderInfo
+
+        return ProviderInfo(
+            provider="fake", backend="fake", device="cpu", model="fake",
+            voice="jarvis", streaming="segmented", sample_rate=24000, channels=1,
+        )
+
+    async def warmup(self) -> None:
+        return None
+
+    async def stream(self, text, *, request_id, utterance_id):
+        from jarvis.audio.tts.base import AudioChunk
+
         self.calls += 1
-        return f"AUDIO:{text}:{emotion}".encode()
+        # PCM16 : deux octets par échantillon, contenu arbitraire mais stable.
+        yield AudioChunk(data=text.encode()[:32].ljust(32, b"\x00"), is_final=True)
+
+    async def cancel(self, request_id: str) -> None:
+        return None
+
+    async def close(self) -> None:
+        return None
 
 
 @pytest.mark.asyncio
@@ -61,11 +81,11 @@ async def test_speculative_put_get_normalized(monkeypatch):
 
     monkeypatch.setattr("config.SPECULATIVE_TTS_ENABLED", True)
     spec = SpeculativeTTS()
-    eng = _FakeEngine()
+    eng = _FakeProvider()
 
     assert await spec.put("Bien, Monsieur.", "neutral", eng) is True
     # correspondance insensible à la casse/accents/ponctuation finale
-    assert spec.get("bien, monsieur", "neutral") == b"AUDIO:Bien, Monsieur.:neutral"
+    assert spec.get("bien, monsieur", "neutral").startswith(b"RIFF")
     assert spec.get("Bien, Monsieur.", "warm") is None      # émotion différente
     # put idempotent : pas de re-synthèse
     assert await spec.put("BIEN, MONSIEUR.", "neutral", eng) is True
@@ -73,34 +93,33 @@ async def test_speculative_put_get_normalized(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_speculative_invalidated_on_voice_change(monkeypatch):
+async def test_speculative_invalidated_on_voice_change(monkeypatch, tmp_path):
+    """Changer de voix doit vider le cache : sinon JARVIS mélangerait deux
+    timbres dans la même conversation."""
     from audio.tts_cache import SpeculativeTTS
 
     monkeypatch.setattr("config.SPECULATIVE_TTS_ENABLED", True)
-    # La signature du cache est par moteur : TTS_VOICE n'invalide que pour edge.
-    monkeypatch.setattr("config.TTS_ENGINE", "edge")
-    monkeypatch.setattr("config.TTS_VOICE", "voix-A")
+    monkeypatch.setattr("config.TTS_VOICE_PATH", str(tmp_path / "voix-A"))
     spec = SpeculativeTTS()
-    await spec.put("Bien, Monsieur.", "neutral", _FakeEngine())
+    await spec.put("Bien, Monsieur.", "neutral", _FakeProvider())
     assert spec.get("Bien, Monsieur.") is not None
 
-    monkeypatch.setattr("config.TTS_VOICE", "voix-B")
+    monkeypatch.setattr("config.TTS_VOICE_PATH", str(tmp_path / "voix-B"))
     assert spec.get("Bien, Monsieur.") is None
     assert spec.stats()["entries"] == 0
 
 
 @pytest.mark.asyncio
-async def test_speculative_invalidated_on_kokoro_voice_change(monkeypatch):
+async def test_speculative_invalidated_on_provider_change(monkeypatch):
     from audio.tts_cache import SpeculativeTTS
 
     monkeypatch.setattr("config.SPECULATIVE_TTS_ENABLED", True)
-    monkeypatch.setattr("config.TTS_ENGINE", "kokoro")
-    monkeypatch.setattr("config.KOKORO_VOICE", "af_nicole")
+    monkeypatch.setattr("config.TTS_PROVIDER", "fish_local")
     spec = SpeculativeTTS()
-    await spec.put("Bien, Monsieur.", "neutral", _FakeEngine())
+    await spec.put("Bien, Monsieur.", "neutral", _FakeProvider())
     assert spec.get("Bien, Monsieur.") is not None
 
-    monkeypatch.setattr("config.KOKORO_VOICE", "af_bella")
+    monkeypatch.setattr("config.TTS_PROVIDER", "current_local")
     assert spec.get("Bien, Monsieur.") is None
     assert spec.stats()["entries"] == 0
 
@@ -111,7 +130,7 @@ async def test_speculative_disabled(monkeypatch):
 
     monkeypatch.setattr("config.SPECULATIVE_TTS_ENABLED", False)
     spec = SpeculativeTTS()
-    assert await spec.put("Bien, Monsieur.", "neutral", _FakeEngine()) is False
+    assert await spec.put("Bien, Monsieur.", "neutral", _FakeProvider()) is False
     assert spec.get("Bien, Monsieur.") is None
 
 
@@ -121,8 +140,12 @@ async def test_speculative_engine_failure_is_silent(monkeypatch):
 
     monkeypatch.setattr("config.SPECULATIVE_TTS_ENABLED", True)
     spec = SpeculativeTTS()
-    broken = _FakeEngine()
-    broken.synthesize = AsyncMock(side_effect=RuntimeError("down"))
+    broken = _FakeProvider()
+
+    def _explode(*_args, **_kwargs):
+        raise RuntimeError("moteur local en panne")
+
+    broken.stream = _explode
     assert await spec.put("Bien, Monsieur.", "neutral", broken) is False
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import uuid
 from typing import Any
 
 from fastapi import WebSocket
@@ -100,18 +101,21 @@ async def _send_tts_streaming(
     arrête d'envoyer des chunks et on signale ``speech_cancelled`` pour que
     le client jette l'audio du ``turn_id`` courant.
 
+    Le navigateur reçoit **un seul blob WAV** : contrairement au MP3, des
+    fragments WAV concaténés ne forment pas un fichier valide, et le client
+    assemble avant de lire. Le chemin qui compte pour la latence — le tour de
+    parole local — passe, lui, par la diffusion fragment par fragment
+    (``jarvis.audio.tts.playback``).
+
     Retourne ``"completed"`` | ``"cancelled"`` | ``"skipped"``.
     """
-    from audio.tts import get_tts_by_name
-    from audio.audio_format import tts_audio_mime
+    from audio.audio_format import DEFAULT_TTS_MIME
     from audio.tts_cache import last_tts, speculative_tts
+    from jarvis.audio.tts import get_local_tts_provider
+    from jarvis.audio.tts.errors import TTSError
+    from jarvis.audio.tts.wav import pcm_to_wav
 
-    engine_name = (
-        __import__("audio.tts", fromlist=["resolve_tts_engine_name"]).resolve_tts_engine_name()
-    )
-    active_engine = get_tts_by_name(engine_name)
-
-    audio_mime = tts_audio_mime(engine_name)
+    audio_mime = DEFAULT_TTS_MIME
     payload: dict[str, Any] = {"type": "speaking", "emotion": emotion, "audio_mime": audio_mime}
     if turn_id:
         payload["turn_id"] = turn_id
@@ -124,7 +128,7 @@ async def _send_tts_streaming(
         await ws.send_json({"type": "speech_cancelled", "turn_id": turn_id})
         return "cancelled"
 
-    if not (text and text.strip()) or active_engine is None or not getattr(active_engine, "available", False):
+    if not (text and text.strip()):
         await ws.send_json({"type": "speech_done", "turn_id": turn_id})
         return "skipped"
 
@@ -146,23 +150,51 @@ async def _send_tts_streaming(
             await ws.send_json({"type": "speech_done", "turn_id": turn_id})
         return "completed"
 
-    collected: list[bytes] = []
+    request_id = turn_id or uuid.uuid4().hex
+    audio = b""
+    provider = None
     try:
-        async for chunk in active_engine.synthesize_stream(text, emotion=emotion):
+        provider = get_local_tts_provider()
+        # On consomme les fragments nous-mêmes plutôt que d'appeler la
+        # synthèse complète : une annulation en cours de route doit arrêter la
+        # génération, pas seulement jeter le résultat à la fin.
+        pcm: list[bytes] = []
+        sample_rate = provider.info().sample_rate
+        channels = provider.info().channels
+        async for chunk in provider.stream(
+            text, request_id=request_id, utterance_id=request_id,
+        ):
             if _cancelled():
-                await ws.send_json({"type": "speech_cancelled", "turn_id": turn_id})
-                return "cancelled"
-            if chunk:
-                collected.append(chunk)
-                await ws.send_bytes(chunk)
+                await provider.cancel(request_id)
+                break
+            if chunk.data:
+                pcm.append(chunk.data)
+                sample_rate = chunk.sample_rate
+                channels = chunk.channels
+        if pcm and not _cancelled():
+            audio = pcm_to_wav(
+                b"".join(pcm), sample_rate=sample_rate, channels=channels,
+            )
     except asyncio.CancelledError:
         await ws.send_json({"type": "speech_cancelled", "turn_id": turn_id})
         raise
+    except TTSError as e:
+        # Pas de repli vers un autre moteur ni vers un service distant : le
+        # client garde la réponse texte et sait que la voix est indisponible.
+        logger.error("[TTS] synthèse locale indisponible : %s", e)
     except Exception as e:
-        logger.error("[TTS] Erreur streaming (%s) : %s", engine_name, e)
-    finally:
-        if collected and not _cancelled():
-            last_tts.store(text, emotion, b"".join(collected), audio_mime)
+        logger.error("[TTS] Erreur de synthèse : %s", e)
+
+    if _cancelled():
+        await ws.send_json({"type": "speech_cancelled", "turn_id": turn_id})
+        return "cancelled"
+
+    if audio:
+        try:
+            await ws.send_bytes(audio)
+            last_tts.store(text, emotion, audio, audio_mime)
+        except Exception as e:
+            logger.error("[TTS] envoi audio : %s", e)
 
     if _cancelled():
         await ws.send_json({"type": "speech_cancelled", "turn_id": turn_id})

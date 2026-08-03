@@ -55,19 +55,20 @@ class AudioEngineConfig:
     vad_silence_ms: int
     vad_min_speech_ms: int
     vad_pre_roll_ms: int
-    tts_engine: str
-    kokoro_backend: str
-    kokoro_model: str
-    kokoro_voice: str
-    kokoro_lang: str
-    kokoro_lang_code: str
-    kokoro_speed: float
-    kokoro_max_tokens: int
+    # Synthèse vocale : un fournisseur local, une voix. Les réglages propres
+    # au moteur vivent derrière l'interface `jarvis.audio.tts`, pas ici.
+    tts_provider: str
+    tts_model_path: str
+    tts_voice: str
+    tts_device: str
 
 
 def load_audio_engine_config() -> AudioEngineConfig:
     import config
 
+    from jarvis.audio.tts.config import load_tts_settings
+
+    tts = load_tts_settings()
     return AudioEngineConfig(
         stt_engine=normalize_stt_engine(getattr(config, "STT_ENGINE", config.DEFAULT_STT_ENGINE)),
         stt_model=getattr(config, "STT_MODEL", config.DEFAULT_STT_MODEL),
@@ -84,23 +85,10 @@ def load_audio_engine_config() -> AudioEngineConfig:
             config, "AUDIO_DAEMON_MIN_SPEECH_MS", config.DEFAULT_AUDIO_DAEMON_MIN_SPEECH_MS)),
         vad_pre_roll_ms=int(getattr(
             config, "AUDIO_DAEMON_PRE_ROLL_MS", config.DEFAULT_AUDIO_DAEMON_PRE_ROLL_MS)),
-        tts_engine=(getattr(config, "TTS_ENGINE", config.DEFAULT_TTS_ENGINE) or config.DEFAULT_TTS_ENGINE).lower(),
-        kokoro_backend=(
-            getattr(config, "KOKORO_BACKEND", config.DEFAULT_KOKORO_BACKEND)
-            or config.DEFAULT_KOKORO_BACKEND
-        ).lower(),
-        kokoro_model=getattr(config, "KOKORO_MODEL", config.DEFAULT_KOKORO_MODEL),
-        kokoro_voice=getattr(config, "KOKORO_VOICE", config.DEFAULT_KOKORO_VOICE),
-        kokoro_lang=getattr(config, "KOKORO_LANG", config.DEFAULT_KOKORO_LANG),
-        kokoro_lang_code=getattr(
-            config, "KOKORO_LANG_CODE", config.DEFAULT_KOKORO_LANG_CODE
-        ),
-        kokoro_speed=float(
-            getattr(config, "KOKORO_SPEED", config.DEFAULT_KOKORO_SPEED)
-        ),
-        kokoro_max_tokens=int(
-            getattr(config, "KOKORO_MAX_TOKENS", config.DEFAULT_KOKORO_MAX_TOKENS)
-        ),
+        tts_provider=tts.provider,
+        tts_model_path=tts.model_path,
+        tts_voice=tts.voice_id,
+        tts_device=tts.device,
     )
 
 
@@ -121,12 +109,10 @@ def log_audio_startup_config(*, active_stt_engine: str | None = None) -> None:
         "VAD daemon: silence=%dms min_speech=%dms pre_roll=%dms",
         cfg.vad_silence_ms, cfg.vad_min_speech_ms, cfg.vad_pre_roll_ms,
     )
-    logger.info("TTS engine: %s", cfg.tts_engine)
-    logger.info("Kokoro backend: %s", cfg.kokoro_backend)
-    logger.info("Kokoro model: %s", cfg.kokoro_model)
-    logger.info("Kokoro voice: %s", cfg.kokoro_voice)
-    logger.info("Kokoro language: %s / %s", cfg.kokoro_lang, cfg.kokoro_lang_code)
-    logger.info("Kokoro speed: %s max_tokens: %s", cfg.kokoro_speed, cfg.kokoro_max_tokens)
+    logger.info("TTS provider: %s", cfg.tts_provider)
+    logger.info("TTS model: %s", cfg.tts_model_path)
+    logger.info("TTS voice: %s", cfg.tts_voice)
+    logger.info("TTS device: %s", cfg.tts_device)
     logger.info("Cloud fallback: disabled")
     if not cfg.stt_allow_download:
         logger.info(

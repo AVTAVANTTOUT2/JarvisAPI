@@ -28,7 +28,6 @@ def test_ci_smoke_imports_risky_production_dependencies():
 
     for module in (
         "faster_whisper",
-        "kokoro_onnx",
         "pyaudio",
         "sentence_transformers",
         "spacy",
@@ -38,12 +37,23 @@ def test_ci_smoke_imports_risky_production_dependencies():
         assert f'"{module}"' in job
 
 
-def test_production_requirements_keep_spacy_and_kokoro_numpy_compatible():
+def test_production_requirements_keep_spacy_numpy_compatible():
     requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8")
 
-    assert "kokoro-onnx>=0.4" in requirements
     assert "numpy>=2.0.2,<3" in requirements
     assert "spacy==3.8.*" in requirements
+
+
+def test_production_requirements_carry_no_speech_engine():
+    """La synthèse tourne dans le venv MLX, pas dans les dépendances du serveur.
+
+    Une dépendance vocale ici la rendrait obligatoire à l'installation — et,
+    pour Edge, réintroduirait une sortie réseau.
+    """
+    requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8").lower()
+
+    for forbidden in ("edge-tts", "kokoro-onnx", "piper", "xtts", "coqui"):
+        assert forbidden not in requirements
 
 
 def test_production_requirements_pin_the_web_core():
