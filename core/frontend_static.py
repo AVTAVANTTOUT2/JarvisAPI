@@ -14,6 +14,7 @@ from core.frontend_resolution import (
     FrontendResolution,
     lookup_desktop_static_file,
 )
+from core.html_security import secure_html_file_response
 
 
 MISSING_PAYLOAD = {
@@ -74,5 +75,7 @@ def register_desktop_frontend_routes(
                 if target.suffix in (".html", ".webmanifest", ".json") or target.name == "sw.js"
                 else {"Cache-Control": "public, max-age=3600"}
             )
+            if target.suffix == ".html":
+                return secure_html_file_response(target, headers=headers)
             return FileResponse(target, headers=headers)
         return JSONResponse(status_code=404, content={"error": "Page introuvable"})

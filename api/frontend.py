@@ -18,6 +18,7 @@ from core.frontend_resolution import (
     is_usable_vite_build,
     resolve_desktop_frontend_roots,
 )
+from core.html_security import secure_html_file_response
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 logger = logging.getLogger("jarvis")
@@ -98,9 +99,8 @@ def _setup_unified_frontend(app: FastAPI) -> bool:
     async def serve_unified_root(request: Request):
         if web_mobile.should_redirect(request):
             return web_mobile.redirect()
-        return web_mobile.remember_desktop_choice(FileResponse(
+        return web_mobile.remember_desktop_choice(secure_html_file_response(
             index_file,
-            media_type="text/html; charset=utf-8",
             headers={"Cache-Control": "no-cache"},
         ), request)
 
@@ -112,9 +112,8 @@ def _setup_unified_frontend(app: FastAPI) -> bool:
         if legacy_redirect:
             return legacy_redirect
         route_index = FRONTEND_DIST / segment / "index.html"
-        return web_mobile.remember_desktop_choice(FileResponse(
+        return web_mobile.remember_desktop_choice(secure_html_file_response(
             route_index if route_index.is_file() else index_file,
-            media_type="text/html; charset=utf-8",
             headers={"Cache-Control": "no-cache"},
         ), request)
 
@@ -124,9 +123,8 @@ def _setup_unified_frontend(app: FastAPI) -> bool:
             raise HTTPException(404)
         if parent not in _UNIFIED_SEGMENTS or child.startswith("api/"):
             raise HTTPException(404)
-        return FileResponse(
+        return secure_html_file_response(
             index_file,
-            media_type="text/html; charset=utf-8",
             headers={"Cache-Control": "no-cache"},
         )
 
@@ -207,9 +205,8 @@ def _setup_frontend(app: FastAPI) -> None:
                 return web_mobile.redirect()
 
             try:
-                return FileResponse(
+                return secure_html_file_response(
                     index_file,
-                    media_type="text/html; charset=utf-8",
                     content_disposition_type="inline",
                 )
             except OSError as e:
@@ -224,9 +221,8 @@ def _setup_frontend(app: FastAPI) -> None:
             if legacy_redirect:
                 return legacy_redirect
             try:
-                return web_mobile.remember_desktop_choice(FileResponse(
+                return web_mobile.remember_desktop_choice(secure_html_file_response(
                     index_file,
-                    media_type="text/html; charset=utf-8",
                     content_disposition_type="inline",
                 ), request)
             except OSError as e:
@@ -241,9 +237,8 @@ def _setup_frontend(app: FastAPI) -> None:
             if parent not in _SPA_SEGMENTS:
                 raise HTTPException(404)
             try:
-                return FileResponse(
+                return secure_html_file_response(
                     index_file,
-                    media_type="text/html; charset=utf-8",
                     content_disposition_type="inline",
                 )
             except OSError as e:

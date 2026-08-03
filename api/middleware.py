@@ -313,7 +313,10 @@ async def _dispatch_with_session_gate(request: Request, call_next) -> Response:
 def _apply_security_headers(response: Response) -> Response:
     """Ajoute la politique HTTP commune, y compris aux erreurs anticipées."""
     for key, value in _SECURITY_HEADERS.items():
-        response.headers[key] = value
+        # Une réponse HTML peut fournir une CSP plus stricte liée par hashes à
+        # son contenu exact. Les autres en-têtes restent globaux et identiques.
+        if key not in response.headers:
+            response.headers[key] = value
     if config.WEB_HTTPS or config.WEB_HTTPS_BEHIND_PROXY:
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response

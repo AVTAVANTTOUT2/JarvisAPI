@@ -341,7 +341,10 @@ def _assert_security_headers(response):
     assert response.headers.get("referrer-policy") == "no-referrer"
     csp = response.headers.get("content-security-policy", "")
     assert "default-src 'self'" in csp
-    assert "script-src 'self' 'unsafe-inline'" in csp
+    assert "script-src 'self'" in csp
+    assert "script-src 'self' 'unsafe-inline'" not in csp
+    assert "connect-src 'self' ws:" not in csp
+    assert "connect-src 'self' wss:" not in csp
     assert "geolocation=(self)" in response.headers.get("permissions-policy", "")
 
 
@@ -407,8 +410,8 @@ def test_proxy_https_sets_hsts_and_secure_session_cookie(tmp_db, monkeypatch):
     assert "secure" in r.headers["set-cookie"].lower()
 
 
-def test_root_spa_includes_next_inline_bootstrap_and_csp_allows_it(tmp_db):
-    """Régression page noire : sans 'unsafe-inline', les scripts RSC inline ne s'exécutent pas."""
+def test_root_spa_binds_next_inline_bootstrap_to_exact_csp_hashes(tmp_db):
+    """Régression page noire : les scripts RSC doivent être autorisés par hash exact."""
     with _client() as client:
         r = client.get("/")
     if r.status_code != 200:
@@ -422,7 +425,13 @@ def test_root_spa_includes_next_inline_bootstrap_and_csp_allows_it(tmp_db):
     # (Le marqueur `jarvis-loading` a été retiré avec le layout mobile client :
     # la détection est côté serveur, cet état de chargement n'existe plus.)
     assert "/_next/static/chunks/" in html
-    assert "script-src 'self' 'unsafe-inline'" in r.headers.get("content-security-policy", "")
+    from security_headers import inline_csp_hashes
+
+    script_hashes, _style_hashes = inline_csp_hashes(html)
+    csp = r.headers.get("content-security-policy", "")
+    assert script_hashes
+    assert all(source in csp for source in script_hashes)
+    assert "script-src 'self' 'unsafe-inline'" not in csp
 
 
 # ── Flux /api/auth/* complet ────────────────────────────────────

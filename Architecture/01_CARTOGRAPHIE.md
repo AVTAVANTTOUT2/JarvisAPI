@@ -690,6 +690,13 @@ MapLibre utilise par ailleurs un Web Worker créé depuis une URL `blob:` :
 `worker-src 'self' blob:` et le fallback `child-src blob:` sont donc présents,
 sans autoriser globalement `https:` ni `*`.
 
+Les scripts et balises `<style>` inline des exports HTML sont autorisés par
+des hashes SHA-256 calculés sur chaque fichier servi. `script-src` et
+`style-src` ne contiennent donc plus `unsafe-inline`. Seuls les attributs
+`style` générés au runtime par React/MapLibre gardent l'exception dédiée
+`style-src-attr 'unsafe-inline'`. Les WebSockets de l'application restent de
+même origine via `'self'` : aucun joker `ws:` ou `wss:` n'est présent.
+
 Un style externe configuré via `VITE_MAP_STYLE_URL` doit rester sur cette
 origine, ou être servi depuis l'origine JARVIS. Pour un nouveau fournisseur
 externe, mettre à jour explicitement `security_headers.py` et le test de

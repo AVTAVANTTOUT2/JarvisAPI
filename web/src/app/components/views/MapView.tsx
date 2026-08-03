@@ -26,6 +26,7 @@ import {
   type CartographyTrip,
 } from '@desktop/app/lib/cartographyGeojson';
 import type { CartographySelection } from '@desktop/app/components/map/CartographyMap';
+import './MapView.css';
 
 // MapLibre touche window/WebGL — chargement différé (SSR Next via DesktopApp ssr:false).
 const CartographyMap = lazy(() =>
@@ -890,21 +891,6 @@ export function MapView() {
         )}
       </div>
 
-      <style>{`
-        @media (max-width: 720px) {
-          .map-layout { flex-direction: column !important; }
-          .map-sidebar { width: 100% !important; max-height: 40vh; border-right: none !important; border-bottom: 1px solid rgba(255,255,255,0.1); }
-          .map-info-panel { top: auto !important; right: 0.5rem !important; bottom: 0.5rem !important; left: 0.5rem !important; width: auto !important; }
-        }
-        .maplibre-ctrl-attrib {
-          font-size: 10px;
-          background: rgba(0,0,0,0.55) !important;
-          color: rgba(255,255,255,0.75) !important;
-        }
-        .maplibre-ctrl-attrib a {
-          color: rgba(255,255,255,0.9) !important;
-        }
-      `}</style>
     </div>
   );
 }
