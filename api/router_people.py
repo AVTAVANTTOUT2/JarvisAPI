@@ -179,23 +179,28 @@ async def api_person_send_imessage(name: str, body: PersonMessageRequest):
     decoded = _decode_person_path(name)
     person = get_person(decoded) or get_person(name.strip())
     if not person:
-        return {"ok": False, "message": f"Contact inconnu : {decoded}"}
+        raise api_error(404, "person_not_found", "Contact non trouvé")
 
     handle = _resolve_handle_with_contacts(person.get("name") or decoded)
     if not handle:
-        return {"ok": False, "message": f"Pas de numéro ou email iMessage pour {person.get('name')}"}
+        raise api_error(
+            409,
+            "imessage_handle_missing",
+            "Aucun numéro ou e-mail iMessage n'est associé à ce contact",
+        )
 
     try:
         loop = asyncio.get_event_loop()
-        ok, msg = await loop.run_in_executor(
+        ok, _message = await loop.run_in_executor(
             None, lambda: send_imessage_to_address(handle, text)
         )
-        if ok:
-            return {"ok": True, "message": f"Message envoyé à {person.get('name')}"}
-        return {"ok": False, "message": msg}
     except Exception as e:
         logger.exception("[api/people/send]")
         raise internal_error("people_message_failed", "Envoi du message impossible") from e
+    if not ok:
+        logger.warning("[api/people/send] échec iMessage signalé par l'intégration")
+        raise api_error(502, "imessage_send_failed", "Envoi du message impossible")
+    return {"ok": True, "message": f"Message envoyé à {person.get('name')}"}
 
 
 @router.post("/api/people/{name}/suggest-message")

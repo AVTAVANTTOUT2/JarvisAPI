@@ -11,9 +11,10 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 
 from api.daemon_support import _audio_daemon_status_payload
-from api.errors import internal_error
+from api.errors import api_error, internal_error
 from api.service_control import (
     INTERNAL_SERVICES,
+    UnknownServiceError,
     _SERVICE_LOG_TAGS,
     _get_all_services_status,
     _start_service,
@@ -25,6 +26,11 @@ from websocket_registry import broadcast_ws
 
 router = APIRouter()
 logger = logging.getLogger("jarvis")
+
+
+def _unknown_service_error(service: str) -> HTTPException:
+    """Traduit l'erreur métier en contrat HTTP stable."""
+    return api_error(404, "service_not_found", f"Service inconnu : {service}")
 
 
 @router.get("/api/audio-daemon/status")
@@ -91,21 +97,28 @@ async def control_list_services():
 @router.get("/api/control/{service}/detail")
 async def control_service_detail(service: str):
     """Detail enrichi (health Ollama, heartbeat Screen Watcher, …)."""
-    return await get_service_detail(service)
+    try:
+        return await get_service_detail(service)
+    except UnknownServiceError as exc:
+        raise _unknown_service_error(service) from exc
 
 
 @router.post("/api/control/{service}/start")
 async def control_start_service(service: str):
     """Demarre un service specifique."""
-    result = await _start_service(service)
-    return result
+    try:
+        return await _start_service(service)
+    except UnknownServiceError as exc:
+        raise _unknown_service_error(service) from exc
 
 
 @router.post("/api/control/{service}/stop")
 async def control_stop_service(service: str):
     """Arrete un service specifique."""
-    result = await _stop_service(service)
-    return result
+    try:
+        return await _stop_service(service)
+    except UnknownServiceError as exc:
+        raise _unknown_service_error(service) from exc
 
 
 @router.post("/api/control/{service}/restart")
@@ -113,9 +126,12 @@ async def control_restart_service(service: str):
     """Redemarre un service (stop + start)."""
     svc = service.strip().lower().replace("-", "_")
     # Restart Ollama : SW s'arrête avec Ollama, pas de relance auto SW
-    await _stop_service(service)
-    await asyncio.sleep(1.0)
-    result = await _start_service(service)
+    try:
+        await _stop_service(service)
+        await asyncio.sleep(1.0)
+        result = await _start_service(service)
+    except UnknownServiceError as exc:
+        raise _unknown_service_error(service) from exc
     if svc == "ollama":
         result = {
             **result,
