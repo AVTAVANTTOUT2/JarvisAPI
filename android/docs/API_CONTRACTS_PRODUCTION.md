@@ -267,7 +267,7 @@ Push FCM natif : enregistrement via `/api/mobile/push-token` ; envoi serveur pou
 | Method | Path | Auth | Request | Réponse |
 |--------|------|------|---------|---------|
 | GET | `/api/calendar` | Session → Bearer | `start`, `end` ISO **requis** | `{ events, count }` |
-| POST | `/api/calendar` | Session → Bearer mutations | `title/summary`, `start`, `end?`, `location?`, `notes?` | `{ ok, ... }` ou `500` |
+| POST | `/api/calendar` | Session → Bearer mutations | `title/summary`, `start` ISO, `end?` ISO postérieur, `location?`, `notes?` ; corps invalide → `422` | `{ ok, ... }` ou erreur structurée `500` |
 | POST | `/api/calendar/test` | Session | — | Event test |
 
 **Event :** `{ id, title, start, end, location, notes, calendar }`.

@@ -5,11 +5,12 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta
 
-from fastapi import Body, HTTPException
+from fastapi import HTTPException
 
 import config
 from api.errors import internal_error
 from api.people_support import _decode_person_path
+from api.relationship_models import AnalyzeContactRequest, CalendarEventCreateRequest
 from database import (
     get_active_patterns,
     get_all_people,
@@ -42,22 +43,17 @@ async def api_calendar_get(start: str = "", end: str = ""):
     return {"events": events, "count": len(events)}
 
 
-async def api_calendar_create(body: dict = Body(default_factory=dict)):
+async def api_calendar_create(body: CalendarEventCreateRequest):
     """Crée un événement dans Calendar.app."""
     if not calendar_client or not calendar_client.is_available():
         raise HTTPException(503, "Calendar.app indisponible")
-    title = (body.get("title") or body.get("summary") or "").strip()
-    start = (body.get("start") or "").strip()
-    end = (body.get("end") or "").strip()
-    if not title or not start:
-        raise HTTPException(400, "title/summary et start sont requis")
     result = await calendar_client.create_event(
-        summary=title,
-        start_date=start,
-        end_date=end,
-        calendar_name=body.get("calendar"),
-        location=body.get("location", ""),
-        notes=body.get("notes", ""),
+        summary=body.title,
+        start_date=body.start,
+        end_date=body.end,
+        calendar_name=body.calendar,
+        location=body.location,
+        notes=body.notes,
     )
     if not result.get("ok"):
         logger.error("[calendar/create] échec : %s", result.get("message", "inconnu"))
@@ -84,17 +80,13 @@ async def api_calendar_test():
 # ── Mémoire profonde : analyse relationnelle ────────────────
 
 
-async def api_analyze_contact(payload: dict):
+async def api_analyze_contact(payload: AnalyzeContactRequest):
     """Lance l'analyse Haiku d'un contact iMessage. Body : {"name": "Bertille"}."""
-    name = (payload.get("name") or "").strip()
-    if not name:
-        raise HTTPException(400, "`name` requis")
-
     try:
         from scripts.relationship_analyzer import analyzer
-        result = await analyzer.analyze_single_contact(name)
+        result = await analyzer.analyze_single_contact(payload.name)
         if result is None:
-            raise HTTPException(404, f"Aucun message trouvé pour '{name}'")
+            raise HTTPException(404, f"Aucun message trouvé pour '{payload.name}'")
         return {"status": "ok", "profile": result}
     except HTTPException:
         raise
