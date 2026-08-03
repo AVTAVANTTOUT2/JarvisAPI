@@ -325,7 +325,9 @@ Marqueurs déclarés :
   Hors ligne et déterministe, donc conservé dans la suite standard ; se saute
   proprement quand les poids ne sont pas installés sur la machine.
 
-La CI vérifie également l'installation de production, les intégrations macOS simulées et le frontend historique de repli.
+La CI vérifie également l'installation de production, les intégrations macOS
+simulées, le build Release de l'app SwiftUI et de son widget, la release Android
+minifiée par R8, ainsi que le frontend historique de repli.
 
 ## Structure du projet
 

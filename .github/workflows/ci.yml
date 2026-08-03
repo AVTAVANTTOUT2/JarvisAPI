@@ -69,8 +69,8 @@ jobs:
           EOF
 
   macos_smoke:
-    name: macOS 14 (Apple contracts)
-    runs-on: macos-14
+    name: macOS 26 (Python + app/widget Release)
+    runs-on: macos-26
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
@@ -83,8 +83,8 @@ jobs:
             requirements.txt
             requirements-dev.txt
 
-      - name: Installer les bibliothèques système audio
-        run: brew install portaudio libsndfile
+      - name: Installer les outils et bibliothèques système
+        run: brew install xcodegen portaudio libsndfile
 
       - name: Installer les dépendances Python
         run: python -m pip install -r requirements-dev.txt
@@ -107,6 +107,27 @@ jobs:
             tests/test_tts_segmenter.py \
             tests/test_screen_watcher_control.py \
             -q
+
+      - name: Vérifier que le projet Xcode versionné est reproductible
+        working-directory: native_mac
+        run: |
+          xcodegen generate
+          git diff --exit-code -- JarvisMac.xcodeproj
+
+      - name: Compiler l'app et le widget en Release sans signature
+        working-directory: native_mac
+        run: |
+          xcodebuild \
+            -project JarvisMac.xcodeproj \
+            -scheme JarvisMac \
+            -configuration Release \
+            -destination 'generic/platform=macOS' \
+            -derivedDataPath build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            build
+          test -d build/DerivedData/Build/Products/Release/Jarvis.app
+          test -d build/DerivedData/Build/Products/Release/Jarvis.app/Contents/PlugIns/JarvisWidget.appex
 
   backend:
     name: Tests Python (pytest)
@@ -226,7 +247,7 @@ jobs:
         run: pnpm test && pnpm typecheck && pnpm build && pnpm test:e2e
 
   android:
-    name: Android (assemble + tests + lint)
+    name: Android (debug + release/R8)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -242,6 +263,22 @@ jobs:
       - uses: gradle/actions/setup-gradle@v6
 
       # Le build fonctionne sans google-services.json (plugin conditionnel)
-      # et sans signing.properties (debug uniquement en CI).
-      - name: Compiler, tester et linter
-        run: ./gradlew assembleDebug testDebugUnitTest lintDebug --no-daemon
+      # et produit alors un APK release non signé, suffisant pour valider R8.
+      - name: Compiler, tester et linter debug + release
+        run: |
+          ./gradlew \
+            assembleDebug testDebugUnitTest lintDebug \
+            assembleRelease testReleaseUnitTest lintRelease \
+            --no-daemon
+
+      - name: Vérifier les artefacts R8 et les DTO conservés
+        run: |
+          test -s app/build/outputs/apk/release/app-release-unsigned.apk
+          test -s app/build/outputs/mapping/release/mapping.txt
+          for dto in \
+            fr.jarvis.companion.network.LocationBatchResponse \
+            fr.jarvis.companion.network.LocationDiagnosticsResponse \
+            fr.jarvis.companion.voice.VoiceTurnResponse
+          do
+            grep -F "$dto -> $dto:" app/build/outputs/mapping/release/mapping.txt
+          done
