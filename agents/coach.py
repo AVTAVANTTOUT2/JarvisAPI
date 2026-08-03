@@ -1,10 +1,8 @@
 """Agent COACH — life coaching, relations, émotions, décisions.
 
-Particularité : escalade automatique vers le modèle principal DeepSeek pour les sujets
-structurants (décisions de carrière, ruptures, déménagement, crises). Détecte les mentions
-de personnes connues et met à jour `last_mentioned` dans la table `people`.
-
-JAMAIS le mode tâche lourde ici — le coaching exige le contexte mémoire JARVIS complet.
+Tous les tours utilisent directement le modèle principal avec le contexte mémoire JARVIS
+complet. Détecte les mentions de personnes connues et met à jour `last_mentioned` dans la
+table `people`.
 """
 
 import asyncio
@@ -15,7 +13,6 @@ from datetime import datetime
 from typing import AsyncGenerator
 
 import config
-import llm
 from agents import BaseAgent
 from database import (
     get_active_patterns,
@@ -71,7 +68,7 @@ def _format_moods(moods: list[dict]) -> str:
 
 
 class CoachAgent(BaseAgent):
-    """Coach personnel : DeepSeek principal, escalade pour les sujets structurants."""
+    """Coach personnel : un seul appel DeepSeek principal par tour."""
 
     name = "coach"
     description = "Life coach — relations, émotions, patterns, décisions"
@@ -94,29 +91,6 @@ class CoachAgent(BaseAgent):
         ctx.setdefault("memory_context", "")
         ctx.setdefault("life_profile", "")
         return ctx
-
-    async def _should_escalate(self, user_message: str) -> bool:
-        """Décide si le sujet est structurant (pré-check via modèle rapide)."""
-        try:
-            res = await llm.chat(
-                messages=[{"role": "user", "content": user_message}],
-                model=config.DEEPSEEK_FAST_MODEL,
-                system=(
-                    "Ce message aborde-t-il un sujet structurant "
-                    "(décision de carrière, rupture amoureuse, déménagement, "
-                    "investissement majeur, crise profonde, conflit impliquant 3+ personnes) ? "
-                    "Réponds OUI ou NON. Un seul mot."
-                ),
-                max_tokens=5,
-                temperature=0.0,
-            )
-            decision = "OUI" in res["content"].strip().upper()
-            if decision:
-                logger.info("[coach] Escalade — sujet structurant (modèle principal)")
-            return decision
-        except Exception as e:
-            logger.error(f"[coach] should_escalate : {e}")
-            return False
 
     def _extract_people_mentions(self, text: str) -> list[str]:
         """Détecte les noms de personnes connues dans le texte (case + accent insensitive).
@@ -146,37 +120,24 @@ class CoachAgent(BaseAgent):
             logger.info(f"[coach] Personnes détectées : {detected}")
         return detected
 
-    async def _call_with_routing(self, user_message: str, conversation_id: int | None,
-                                   context: dict) -> dict:
-        """Appel DeepSeek avec escalade modèle principal si sujet structurant.
-
-        En mode vocal, on bypass l'escalade (coûteuse en latence) et on délègue
-        directement à _call_claude qui forcera le modèle rapide + VOICE_MAX_TOKENS.
-        """
-        if context.get("voice_mode"):
-            return await self._call_claude(
-                user_message, conversation_id=conversation_id,
-                context=context, voice_mode=True,
-            )
-
-        escalate = await self._should_escalate(user_message)
-        model = (
-            config.AGENT_MODELS.get("coach_deep", config.DEEPSEEK_MAIN_MODEL)
-            if escalate
-            else config.DEEPSEEK_MAIN_MODEL
+    async def _call_coach(
+        self,
+        user_message: str,
+        conversation_id: int | None,
+        context: dict,
+    ) -> dict:
+        """Exécute un unique appel ; le chemin vocal garde son budget court dédié."""
+        return await self._call_claude(
+            user_message,
+            conversation_id=conversation_id,
+            context=context,
+            voice_mode=bool(context.get("voice_mode")),
         )
-        result = await self._call_claude(
-            user_message, conversation_id=conversation_id,
-            context=context, model=model,
-        )
-        if escalate:
-            result["escalated"] = True
-        return result
 
     async def handle(self, user_message: str, conversation_id: int = None,
                      context: dict = None) -> dict:
         ctx = self._enrich_context(context)
-        result = await self._call_with_routing(user_message, conversation_id, ctx)
+        result = await self._call_coach(user_message, conversation_id, ctx)
         # Detection des mentions sur le message user (pas la réponse)
         try:
             self._extract_people_mentions(user_message)
@@ -189,7 +150,7 @@ class CoachAgent(BaseAgent):
         yield {"type": "classification", "agent": self.name}
 
         ctx = self._enrich_context(context)
-        result = await self._call_with_routing(user_message, conversation_id, ctx)
+        result = await self._call_coach(user_message, conversation_id, ctx)
         response_text = result.get("response", "")
 
         for i in range(0, len(response_text), STREAM_CHUNK_SIZE):
@@ -203,7 +164,6 @@ class CoachAgent(BaseAgent):
             "tokens_in": result.get("tokens_in", 0),
             "tokens_out": result.get("tokens_out", 0),
             "cost": result.get("cost", 0.0),
-            "escalated": result.get("escalated", False),
         }
 
         # Background : extraction des mentions

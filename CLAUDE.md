@@ -121,7 +121,7 @@ Classifie en: SCHOOL | PRODUCTIVITY | COACH | INFO | JOURNAL | DEVOPS | FOOD
     │
     ├── SCHOOL     → Agent École (Sonnet 4.6)
     ├── PRODUCTIVITY → Agent Productivité (Haiku triage / Sonnet rédaction)
-    ├── COACH      → Agent Life Coach (Sonnet / Opus si décision profonde)
+    ├── COACH      → Agent Life Coach (modèle principal, contexte mémoire complet)
     ├── INFO       → Agent Info (Haiku 4.5)
     ├── JOURNAL    → Agent Journal (Sonnet 4.6)
     ├── DEVOPS     → Agent DevOps (code, infra, délégation Cursor)
@@ -1411,15 +1411,13 @@ system_blocks = [
 
 Le life profile + mémoire (~4000 tokens) est identique entre les appels → cache hit → -90% sur ces tokens input.
 
-## Escalade Opus
+## Coaching structurant
 
-L'agent Coach doit détecter quand escalader vers Opus. Critères :
-- Décision de carrière, rupture, déménagement, investissement
-- L'utilisateur dit explicitement "c'est important" ou "j'ai besoin de réfléchir sérieusement"
-- Le mood_score est < 3 (crise émotionnelle)
-- Le sujet implique plusieurs personnes et des dynamiques complexes
-
-Implémentation : le Coach fait un pre-check rapide (Haiku, 20 tokens) : "Ce sujet nécessite-t-il une analyse profonde ? OUI/NON". Si OUI → Opus.
+L'agent Coach utilise directement le modèle principal et le contexte mémoire complet sur
+chaque tour non vocal. Il ne paie pas de pré-classification supplémentaire : avec la
+configuration DeepSeek actuelle, cette ancienne « escalade » sélectionnait exactement le
+même modèle. Les sujets structurants sont approfondis par les instructions du prompt, sans
+tag technique visible dans la réponse. Le mode vocal conserve son budget court dédié.
 
 ## Variables d'environnement (.env)
 
