@@ -223,8 +223,38 @@ def test_absent_directory_disables_everything(tmp_path, monkeypatch):
     app = FastAPI()
     _setup_frontend(app)
     client = TestClient(app)
+    assert client.get("/mobile").status_code == 404
     assert client.get("/mobile/").status_code == 404
     assert client.get("/", headers={"user-agent": IPHONE}, follow_redirects=False).status_code == 200
+
+
+def test_missing_mobile_bundle_never_falls_back_to_a_desktop_shell(
+    tmp_path,
+    monkeypatch,
+):
+    """`/mobile` reste réservé, sous Next comme sous le repli Vite."""
+    unified = tmp_path / "frontend-out"
+    _write(unified / "index.html", "unified-desktop")
+    _write(unified / "_next" / "static" / "app.js", "asset")
+    vite = tmp_path / "web-dist"
+    _write(vite / "index.html", "vite-desktop")
+    monkeypatch.setattr(web_mobile, "WEB_MOBILE_DIR", tmp_path / "mobile-absent")
+
+    configurations = (
+        (unified, tmp_path / "vite-absent"),
+        (tmp_path / "unified-absent", vite),
+    )
+    for unified_root, vite_root in configurations:
+        monkeypatch.setattr(frontend, "FRONTEND_DIST", unified_root)
+        monkeypatch.setattr(frontend, "WEB_DIST", vite_root)
+        app = FastAPI()
+        _setup_frontend(app)
+        with TestClient(app) as client:
+            assert client.get("/mobile").status_code == 404
+            assert client.get("/mobile/anything").status_code == 404
+
+    assert "mobile" not in frontend._SPA_SEGMENTS
+    assert "mobile" not in frontend._UNIFIED_SEGMENTS
 
 
 def test_mobile_survives_a_missing_desktop_build(tmp_path, monkeypatch):
