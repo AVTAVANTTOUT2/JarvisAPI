@@ -6,7 +6,7 @@
  */
 
 import { api, onAuthLost, setCsrfToken } from './api.js';
-import { requireSession, lock, watchIdle } from './auth.js';
+import { requireSession, lock, persistSoftLock, watchIdle } from './auth.js';
 import * as ws from './ws.js';
 import { h, icon, banner } from './ui.js';
 
@@ -40,6 +40,7 @@ let current = null;      // { id, teardown }
 let stopIdle = () => {};
 let offline = false;
 let relockInFlight = null;
+let logoutInFlight = false;
 
 /* Fail-closed. `hidden` ne fait que masquer : sans ce drapeau, le
  * `hashchange` déclenché par la redirection initiale monterait une vue —
@@ -55,11 +56,15 @@ function makeContext(route) {
     route: route.id,
     /** Remplit l'en-tête. `actions` : [{icon, label, onClick}] */
     setHeader(title, subtitle, actions = []) {
+      const visibleActions = [
+        ...actions,
+        { icon: 'logout', label: 'Se déconnecter', onClick: () => { void logout(); } },
+      ];
       const heading = h('h1', { class: subtitle ? 'sm' : '' }, title);
       if (subtitle) heading.append(h('span', { class: 'sub', text: subtitle }));
       el.topbar.replaceChildren(
         heading,
-        ...actions.map((a) => h('button', {
+        ...visibleActions.map((a) => h('button', {
           class: 'iconbtn', type: 'button', 'aria-label': a.label, onClick: a.onClick,
         }, icon(a.icon))),
       );
@@ -74,6 +79,21 @@ function makeContext(route) {
     },
     navigate,
   };
+}
+
+async function logout() {
+  if (logoutInFlight || relockInFlight) return;
+  logoutInFlight = true;
+  persistSoftLock(true);
+  try {
+    await api.logout();
+  } catch {
+    // L'UI reste fermée même hors ligne ; le verrou persistant empêche un
+    // rechargement de remonter les vues privées avec le cookie encore actif.
+  } finally {
+    logoutInFlight = false;
+    await relock('expired');
+  }
 }
 
 function renderTabs(activeId) {

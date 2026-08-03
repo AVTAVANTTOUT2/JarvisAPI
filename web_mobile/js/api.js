@@ -117,6 +117,7 @@ export const api = {
   // ── Verrou ──
   authStatus: ()  => request('GET', '/api/auth/status'),
   unlock:     (s) => request('POST', '/api/auth/unlock', { secret: s }),
+  verify:     (s) => request('POST', '/api/auth/verify', { secret: s }),
   setup:      (s) => request('POST', '/api/auth/setup', { secret: s }),
   logout:     ()  => request('POST', '/api/auth/logout', {}),
 

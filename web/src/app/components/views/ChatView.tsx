@@ -876,7 +876,6 @@ function MessageBubble({ message, streaming, onConfirmAction, onCancelAction }: 
           {streaming && <span className="inline-block w-0.5 h-4 bg-white/60 ml-0.5 animate-blink" />}
         </div>
         <div className={`flex items-center gap-2 text-xs text-white/20 ${isUser ? 'flex-row-reverse' : ''}`}>
-          {message.agent && <span className="font-mono">{message.agent}</span>}
           {message.meta && <span>{message.meta}</span>}
         </div>
         {message.actionType && (

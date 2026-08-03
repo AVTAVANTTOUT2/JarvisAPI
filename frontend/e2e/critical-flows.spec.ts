@@ -181,6 +181,40 @@ test('@desktop unlocks through the real auth form before showing private content
   health.assertClean()
 })
 
+test('@desktop keeps an idle lock across reload and reauthenticates with verify', async ({ page }) => {
+  let verifyPayload: object | null = null
+  let unlockCalled = false
+  const health = monitorPageHealth(page)
+
+  await page.addInitScript(() => localStorage.setItem('jarvis:soft-lock', '1'))
+  await mockJarvisWebSocket(page)
+  await mockApi(page, {
+    override: async (route, pathname) => {
+      if (pathname === '/api/auth/unlock') {
+        unlockCalled = true
+        await route.fulfill({ json: { ok: true, csrf_token: 'e2e-csrf-token' } })
+        return true
+      }
+      if (pathname !== '/api/auth/verify') return false
+      verifyPayload = route.request().postDataJSON() as object
+      await route.fulfill({ json: { ok: true } })
+      return true
+    },
+  })
+
+  await page.goto('/dashboard')
+  await expect(page.getByText('Application verrouillée')).toBeVisible()
+  await expect(page.getByText('Tours utilisateur')).not.toBeVisible()
+  await page.getByLabel('Code de déverrouillage').fill('passphrase-correcte')
+  await page.getByRole('button', { name: 'Déverrouiller' }).click()
+
+  await expect(page.getByText('Tours utilisateur')).toBeVisible()
+  expect(verifyPayload).toEqual({ secret: 'passphrase-correcte' })
+  expect(unlockCalled).toBe(false)
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('jarvis:soft-lock'))).toBeNull()
+  health.assertClean()
+})
+
 test('@desktop sends a chat turn over WebSocket and renders the response', async ({ page }) => {
   const outgoing: object[] = []
   let chatSocket: WebSocketRoute | null = null
@@ -221,6 +255,7 @@ test('@desktop sends a chat turn over WebSocket and renders the response', async
     agent: 'info',
   }))
   await expect(page.getByText('Réponse WebSocket validée')).toBeVisible()
+  await expect(page.getByText('info', { exact: true })).toHaveCount(0)
   health.assertClean()
 })
 

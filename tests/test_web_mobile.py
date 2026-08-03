@@ -370,6 +370,32 @@ def test_mobile_lock_accepts_variable_length_pin():
     assert "code.length === MAX_PIN" in auth_source
 
 
+def test_mobile_auth_supports_passphrases_and_persists_idle_lock():
+    auth_source = _mobile_source("js/auth.js")
+    api_source = _mobile_source("js/api.js")
+    index_source = _mobile_source("index.html")
+    assert "const MIN_PASSPHRASE = 10" in auth_source
+    assert "data-secret-kind=\"passphrase\"" in index_source
+    assert "lock-passphrase-submit" in index_source
+    assert "localStorage.setItem(SOFT_LOCK_KEY, '1')" in auth_source
+    assert "st.authenticated && !hasPersistedSoftLock()" in auth_source
+    assert "const result = await api.verify(entered)" in auth_source
+    assert "'/api/auth/verify'" in api_source
+
+
+def test_mobile_shell_exposes_a_real_logout_action():
+    app_source = _mobile_source("js/app.js")
+    assert "label: 'Se déconnecter'" in app_source
+    assert "await api.logout()" in app_source
+
+
+def test_user_chat_never_renders_internal_agent_names():
+    chat_source = (REPO_ROOT / "web/src/app/components/views/ChatView.tsx").read_text(
+        encoding="utf-8"
+    )
+    assert "message.agent &&" not in chat_source
+
+
 def test_mobile_fitness_matches_the_connected_desktop_experience():
     """La PWA autonome doit conserver les capacités de la nouvelle vue desktop."""
     health = _mobile_source("js/views/health.js")
