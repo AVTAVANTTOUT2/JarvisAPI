@@ -28,9 +28,10 @@ def test_playwright_covers_the_critical_browser_scenarios():
         for path in sorted(E2E_DIR.glob("*.spec.ts"))
     )
 
-    assert source.count("test('@") == 8
+    assert source.count("test('@") >= 9
     for contract in (
         "unlocks through the real auth form",
+        "keeps an idle lock across reload",
         "chat turn over WebSocket",
         "creates and updates a task",
         "consumes an SSE event",
