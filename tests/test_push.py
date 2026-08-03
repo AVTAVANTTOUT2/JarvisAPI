@@ -195,7 +195,9 @@ def test_send_web_push_success(tmp_db):
     }
 
     fake_response = MagicMock(status_code=201)
-    with patch("httpx.post", return_value=fake_response) as mock_post:
+    with patch("push.validate_web_push_endpoint", side_effect=lambda value: value), patch(
+        "httpx.post", return_value=fake_response
+    ) as mock_post:
         ok, status = push.send_web_push(subscription, {"title": "Salut"})
 
     assert ok is True
@@ -222,7 +224,9 @@ def test_send_web_push_expired_subscription_returns_false(tmp_db):
     }
 
     fake_response = MagicMock(status_code=410)
-    with patch("httpx.post", return_value=fake_response):
+    with patch("push.validate_web_push_endpoint", side_effect=lambda value: value), patch(
+        "httpx.post", return_value=fake_response
+    ):
         ok, status = push.send_web_push(subscription, {"title": "Salut"})
 
     assert ok is False
@@ -246,8 +250,22 @@ def test_send_web_push_network_error_handled(tmp_db):
         },
     }
 
-    with patch("httpx.post", side_effect=httpx.ConnectError("refused")):
+    with patch("push.validate_web_push_endpoint", side_effect=lambda value: value), patch(
+        "httpx.post", side_effect=httpx.ConnectError("refused")
+    ):
         ok, status = push.send_web_push(subscription, {"title": "Salut"})
 
     assert ok is False
     assert status == 0
+
+
+def test_send_web_push_refuses_unapproved_destination_before_http(tmp_db):
+    import push
+
+    subscription = {
+        "endpoint": "http://127.0.0.1:8080/internal",
+        "keys": {"p256dh": "unused", "auth": "unused"},
+    }
+    with patch("httpx.post") as mock_post:
+        assert push.send_web_push(subscription, {"title": "Salut"}) == (False, 0)
+    mock_post.assert_not_called()

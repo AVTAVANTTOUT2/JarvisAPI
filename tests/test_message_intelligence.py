@@ -108,14 +108,17 @@ def test_legacy_boundary_select_from_messages(boundary: DataBoundary) -> None:
 
 # ── Migration DB : table message_insights ──
 
-def test_message_insights_table_exists() -> None:
+def test_message_insights_table_exists(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Verifie que la table message_insights est creee par init_db()."""
     import config
+    import database
     import sqlite3
 
-    db_path = Path(config.DB_PATH)
-    if not db_path.exists():
-        pytest.skip("DB inexistante — test d'integration saute.")
+    db_path = tmp_path / "message-insights.db"
+    monkeypatch.setattr(config, "DB_PATH", str(db_path))
+    monkeypatch.setattr(database, "DB_PATH", db_path)
+    database.init_db()
+
     conn = sqlite3.connect(str(db_path))
     try:
         rows = conn.execute(

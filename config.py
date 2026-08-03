@@ -292,6 +292,10 @@ WEB_USE_HTTPS = WEB_HTTPS and WEB_SSL_AVAILABLE
 # Firebase Cloud Messaging — notifications Android, même application fermée.
 FCM_SERVICE_ACCOUNT_FILE = _get("FCM_SERVICE_ACCOUNT_FILE", "")
 FCM_PROJECT_ID = _get("FCM_PROJECT_ID", "")
+WEB_PUSH_ALLOWED_HOSTS = _get(
+    "WEB_PUSH_ALLOWED_HOSTS",
+    "fcm.googleapis.com,updates.push.services.mozilla.com,web.push.apple.com",
+)
 
 # ── Contrôle ordinateur local (macOS) ────────────────────────
 COMPUTER_ACCESS = _get("COMPUTER_ACCESS", "false").lower() == "true"
@@ -455,6 +459,19 @@ SCREEN_RESIZE_HEIGHT = int(_get("SCREEN_RESIZE_HEIGHT", "800"))
 SCREEN_RESIZE: tuple[int, int] = (SCREEN_RESIZE_WIDTH, SCREEN_RESIZE_HEIGHT)
 SCREEN_MAX_ANALYSIS_WIDTH = int(_get("SCREEN_MAX_ANALYSIS_WIDTH", "768"))
 SCREEN_JPEG_QUALITY = int(_get("SCREEN_JPEG_QUALITY", "55"))
+REMOTE_SCREEN_MAX_IMAGE_BYTES = int(
+    _get("REMOTE_SCREEN_MAX_IMAGE_BYTES", str(5 * 1024 * 1024))
+)
+REMOTE_SCREEN_MAX_PIXELS = int(_get("REMOTE_SCREEN_MAX_PIXELS", str(16 * 1024 * 1024)))
+REMOTE_SCREEN_MAX_DIMENSION = int(_get("REMOTE_SCREEN_MAX_DIMENSION", "8192"))
+# JSON + base64 ajoutent environ 4/3 au binaire. Le petit supplément couvre
+# les métadonnées sans autoriser un corps arbitrairement gros avant parsing.
+REMOTE_SCREEN_MAX_REQUEST_BYTES = int(
+    _get(
+        "REMOTE_SCREEN_MAX_REQUEST_BYTES",
+        str(((REMOTE_SCREEN_MAX_IMAGE_BYTES + 2) // 3) * 4 + 128 * 1024),
+    )
+)
 SCREEN_VISION_MODEL = _get(
     "SCREEN_VISION_MODEL",
     _get("SCREEN_WATCHER_VISION_MODEL", "qwen3-vl:4b"),
@@ -796,6 +813,9 @@ AGENT_MODELS = {
 # ── Conversation vocale Android (push-to-talk) ─────────────────
 MOBILE_VOICE_MAX_BYTES = int(_get("MOBILE_VOICE_MAX_BYTES", str(5 * 1024 * 1024)))
 MOBILE_VOICE_MIN_BYTES = int(_get("MOBILE_VOICE_MIN_BYTES", "1000"))
+MOBILE_VOICE_MAX_REQUEST_BYTES = int(
+    _get("MOBILE_VOICE_MAX_REQUEST_BYTES", str(MOBILE_VOICE_MAX_BYTES + 256 * 1024))
+)
 MOBILE_VOICE_MAX_DURATION_SEC = int(_get("MOBILE_VOICE_MAX_DURATION_SEC", "60"))
 MOBILE_VOICE_STT_TIMEOUT_SEC = float(_get("MOBILE_VOICE_STT_TIMEOUT_SEC", "120"))
 MOBILE_VOICE_LLM_TIMEOUT_SEC = float(_get("MOBILE_VOICE_LLM_TIMEOUT_SEC", "90"))

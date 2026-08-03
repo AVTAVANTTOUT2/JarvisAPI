@@ -4,15 +4,19 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
-
-from fastapi import APIRouter, Body, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, HTTPException
 
 import config
 import llm
 from agents.display_text import strip_leading_emotion
 from api.people_chat import api_people_ask
+from api.errors import api_error, internal_error
+from api.people_models import (
+    PersonCreateRequest,
+    PersonMessageRequest,
+    PersonPatchRequest,
+    PersonReminderRequest,
+)
 from api.people_support import (
     _decode_person_path,
     _generate_person_ai_description,
@@ -69,18 +73,19 @@ async def api_people_detail(name: str):
 
 
 @router.patch("/api/people/{name}")
-async def api_people_patch(name: str, payload: dict[str, Any] = Body(default_factory=dict)):
+async def api_people_patch(name: str, payload: PersonPatchRequest):
     """Met à jour une fiche contact (nom, relation, notes…) — `WHERE LOWER(name) = LOWER(?)`."""
     decoded = _decode_person_path(name)
     try:
-        updated = patch_person(decoded, payload)
+        fields = payload.model_dump(exclude_unset=True)
+        updated = patch_person(decoded, fields)
         if not updated:
-            updated = patch_person(name.strip(), payload)
+            updated = patch_person(name.strip(), fields)
         if not updated:
             raise HTTPException(404, f"Personne inconnue : {decoded}")
         return updated
     except ValueError as e:
-        raise HTTPException(409, str(e)) from e
+        raise api_error(409, "person_name_conflict", "Ce nom de contact est déjà utilisé") from e
 
 
 @router.get("/api/people/{name}/analytics")
@@ -91,7 +96,7 @@ async def api_person_analytics(name: str):
     decoded = _decode_person_path(name)
     person = get_person(decoded) or get_person(name.strip())
     if not person:
-        return JSONResponse(status_code=404, content={"error": "Contact non trouvé"})
+        raise api_error(404, "person_not_found", "Contact non trouvé")
 
     handle = _resolve_handle_with_contacts(person.get("name") or decoded)
     if not handle:
@@ -107,7 +112,7 @@ async def api_person_analytics(name: str):
         return data
     except Exception as e:
         logger.exception("[api/people/analytics]")
-        return JSONResponse(status_code=500, content={"error": str(e)})
+        raise internal_error("people_analytics_failed", "Analyse du contact indisponible") from e
 
 
 @router.get("/api/people/{name}/timeline")
@@ -140,7 +145,7 @@ async def api_person_timeline_haiku(name: str):
         }
     except Exception as e:
         logger.exception("[api/people/timeline]")
-        raise HTTPException(500, str(e)) from e
+        raise internal_error("people_timeline_failed", "Timeline du contact indisponible") from e
 
 
 @router.post("/api/people/{name}/timeline/regenerate")
@@ -162,16 +167,14 @@ async def api_person_timeline_regenerate(name: str):
         }
     except Exception as e:
         logger.exception("[api/people/timeline/regenerate]")
-        raise HTTPException(500, str(e)) from e
+        raise internal_error("people_timeline_regeneration_failed", "Régénération de la timeline impossible") from e
 
 
 @router.post("/api/people/{name}/send")
-async def api_person_send_imessage(name: str, body: dict[str, Any] = Body(default_factory=dict)):
+async def api_person_send_imessage(name: str, body: PersonMessageRequest):
     from integrations.imessage import send_imessage_to_address
 
-    text = (body.get("text") or "").strip()
-    if not text:
-        return {"ok": False, "message": "Texte vide"}
+    text = body.text
 
     decoded = _decode_person_path(name)
     person = get_person(decoded) or get_person(name.strip())
@@ -192,7 +195,7 @@ async def api_person_send_imessage(name: str, body: dict[str, Any] = Body(defaul
         return {"ok": False, "message": msg}
     except Exception as e:
         logger.exception("[api/people/send]")
-        return {"ok": False, "message": str(e)}
+        raise internal_error("people_message_failed", "Envoi du message impossible") from e
 
 
 @router.post("/api/people/{name}/suggest-message")
@@ -258,12 +261,12 @@ Derniers messages (aperçu) : {last_ex!s}""",
         return {"suggestion": out, "model": result.get("model"), "cost": result.get("cost", 0.0)}
     except Exception as e:
         logger.exception("[api/people/suggest-message]")
-        raise HTTPException(500, str(e)) from e
+        raise internal_error("people_suggestion_failed", "Suggestion de message indisponible") from e
 
 
 @router.post("/api/people/{name}/remind")
-async def api_person_remind(name: str, body: dict[str, Any] = Body(default_factory=dict)):
-    when = (body.get("when") or "").strip() or "bientôt"
+async def api_person_remind(name: str, body: PersonReminderRequest):
+    when = body.when
     decoded = _decode_person_path(name)
     person = get_person(decoded) or get_person(name.strip())
     if not person:
@@ -279,7 +282,7 @@ async def api_person_remind(name: str, body: dict[str, Any] = Body(default_facto
         return {"ok": True, "task_id": task_id}
     except Exception as e:
         logger.exception("[api/people/remind]")
-        raise HTTPException(500, str(e)) from e
+        raise internal_error("people_reminder_failed", "Création du rappel impossible") from e
 
 
 
@@ -306,7 +309,7 @@ async def api_person_description(name: str):
         }
     except Exception as e:
         logger.exception("[api/people/description]")
-        raise HTTPException(500, str(e)) from e
+        raise internal_error("people_description_failed", "Description du contact indisponible") from e
 
 
 @router.post("/api/people/{name}/description/refresh")
@@ -330,20 +333,13 @@ async def api_person_description_refresh(name: str):
         }
     except Exception as e:
         logger.exception("[api/people/description/refresh]")
-        raise HTTPException(500, str(e)) from e
+        raise internal_error("people_description_refresh_failed", "Actualisation de la description impossible") from e
 
 
 @router.post("/api/people")
-async def api_people_upsert(payload: dict):
-    name = (payload.get("name") or "").strip()
-    if not name:
-        raise HTTPException(400, "`name` requis")
-
-    fields = {}
-    for k in ("relationship", "personality_notes", "dynamics", "patterns"):
-        v = payload.get(k)
-        if v is not None:
-            fields[k] = v
+async def api_people_upsert(payload: PersonCreateRequest):
+    name = payload.name
+    fields = payload.model_dump(exclude={"name"}, exclude_none=True)
 
     person_id = upsert_person(name, **fields)
     return get_person(name) or {"id": person_id, "name": name}

@@ -9,11 +9,13 @@ from typing import Any
 
 from fastapi import HTTPException, Request
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, ConfigDict, Field
 
 import config
 from agents.orchestrator import orchestrator
 from agents.productivity import productivity_agent
 from api.daemon_support import _audio_daemon_status_payload
+from api.errors import internal_error
 from api.misc_status import _computer_status_payload
 from api.people_support import _decode_person_path, _resolve_handle_with_contacts
 from database import (
@@ -27,6 +29,26 @@ from jarvis.notification_service import notification_service
 from scripts.email_watcher import email_watcher
 
 logger = logging.getLogger("jarvis")
+
+
+class WebPushKeysRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    p256dh: str = Field(min_length=1, max_length=512)
+    auth: str = Field(min_length=1, max_length=256)
+
+
+class WebPushSubscriptionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    endpoint: str = Field(min_length=1, max_length=2048)
+    keys: WebPushKeysRequest
+
+
+class WebPushUnsubscribeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    endpoint: str = Field(min_length=1, max_length=2048)
 
 
 
@@ -169,7 +191,7 @@ async def api_email_watcher_catchup():
         return result
     except Exception as e:
         logger.exception("api_email_watcher_catchup : %s", e)
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise internal_error("email_catchup_failed", "Rattrapage des emails impossible") from e
 
 
 # ── Réglages dynamiques (sans redémarrage) ──────────────────
@@ -187,7 +209,12 @@ async def api_get_tts_setting():
     try:
         info = get_local_tts_provider(settings).info()
     except Exception as exc:  # noqa: BLE001 - configuration invalide reste lisible
-        return {"engine": settings.provider, "available": False, "error": str(exc)}
+        logger.warning("[tts/settings] configuration invalide : %s", exc)
+        return {
+            "engine": settings.provider,
+            "available": False,
+            "error": "tts_configuration_invalid",
+        }
     return {"engine": info.provider, "available": True, **info.as_log_fields()}
 
 
@@ -235,27 +262,34 @@ async def api_push_vapid_public_key():
     return {"key": push.get_vapid_public_key_b64url()}
 
 
-async def api_push_subscribe(body: dict, request: Request):
+async def api_push_subscribe(body: WebPushSubscriptionRequest, request: Request):
     """Enregistre un abonnement Web Push (format `PushSubscription.toJSON()`)."""
     from database import upsert_push_subscription
+    from core.outbound_security import OutboundURLRejected
+    from push import validate_web_push_endpoint
 
-    endpoint = (body.get("endpoint") or "").strip()
-    keys = body.get("keys") or {}
-    if not endpoint or not keys.get("p256dh") or not keys.get("auth"):
-        raise HTTPException(400, "`endpoint` et `keys.{p256dh,auth}` requis")
+    endpoint = body.endpoint.strip()
+    try:
+        await asyncio.to_thread(validate_web_push_endpoint, endpoint)
+    except OutboundURLRejected as exc:
+        raise HTTPException(
+            422,
+            {"code": exc.code, "message": "Endpoint Web Push refusé"},
+        ) from exc
 
     upsert_push_subscription(
-        endpoint, keys["p256dh"], keys["auth"], request.headers.get("user-agent", "")
+        endpoint,
+        body.keys.p256dh,
+        body.keys.auth,
+        request.headers.get("user-agent", ""),
     )
     return {"ok": True}
 
 
-async def api_push_unsubscribe(body: dict):
+async def api_push_unsubscribe(body: WebPushUnsubscribeRequest):
     from database import delete_push_subscription
 
-    endpoint = (body.get("endpoint") or "").strip()
-    if not endpoint:
-        raise HTTPException(400, "`endpoint` requis")
+    endpoint = body.endpoint.strip()
     delete_push_subscription(endpoint)
     return {"ok": True}
 
@@ -313,7 +347,7 @@ async def api_briefing(kind: str = "morning"):
         return {"kind": kind, "content": text}
     except Exception as e:
         logger.exception("Erreur briefing")
-        raise HTTPException(500, f"Briefing impossible : {type(e).__name__}: {e}")
+        raise internal_error("briefing_failed", "Génération du briefing impossible") from e
 
 
 async def api_emails(limit: int = 20):

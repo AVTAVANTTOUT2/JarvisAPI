@@ -8,6 +8,7 @@ from fastapi import HTTPException
 
 import pipeline
 from agents.journal import journal_agent
+from api.errors import internal_error
 from api.llm_logging import _schedule_llm_log
 from database import (
     add_life_profile_entry,
@@ -153,7 +154,7 @@ async def api_journal_post(payload: dict):
         }
     except Exception as e:
         logger.exception("Erreur api_journal_post")
-        raise HTTPException(500, f"Erreur journal : {type(e).__name__}: {e}")
+        raise internal_error("journal_processing_failed", "Traitement du journal impossible") from e
 
 
 async def api_patterns_get():

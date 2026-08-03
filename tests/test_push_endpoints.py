@@ -47,8 +47,9 @@ def test_vapid_public_key_stable_across_calls(tmp_db):
     assert k1 == k2
 
 
-def test_subscribe_then_appears_in_db(tmp_db):
+def test_subscribe_then_appears_in_db(tmp_db, monkeypatch):
     from database import get_all_push_subscriptions
+    monkeypatch.setattr("push.validate_web_push_endpoint", lambda endpoint: endpoint)
 
     with _client() as client:
         authenticate(client)
@@ -66,11 +67,12 @@ def test_subscribe_missing_fields_400(tmp_db):
     with _client() as client:
         authenticate(client)
         r = client.post("/api/push/subscribe", json={"endpoint": "https://x"})
-    assert r.status_code == 400
+    assert r.status_code == 422
 
 
-def test_unsubscribe_removes_subscription(tmp_db):
+def test_unsubscribe_removes_subscription(tmp_db, monkeypatch):
     from database import get_all_push_subscriptions
+    monkeypatch.setattr("push.validate_web_push_endpoint", lambda endpoint: endpoint)
 
     with _client() as client:
         authenticate(client)
@@ -81,6 +83,20 @@ def test_unsubscribe_removes_subscription(tmp_db):
         r = client.post("/api/push/unsubscribe", json={"endpoint": "https://push.example.com/xyz"})
     assert r.status_code == 200
     assert get_all_push_subscriptions() == []
+
+
+def test_subscribe_rejects_non_https_private_endpoint(tmp_db):
+    with _client() as client:
+        authenticate(client)
+        r = client.post(
+            "/api/push/subscribe",
+            json={
+                "endpoint": "http://127.0.0.1:8080/internal",
+                "keys": {"p256dh": "abc", "auth": "def"},
+            },
+        )
+    assert r.status_code == 422
+    assert r.json()["detail"]["code"] == "https_required"
 
 
 def test_push_endpoints_require_session(tmp_db):

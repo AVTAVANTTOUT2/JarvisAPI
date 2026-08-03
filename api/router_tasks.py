@@ -6,6 +6,7 @@ import logging
 
 from fastapi import APIRouter, HTTPException
 
+from api.errors import internal_error
 from database import (
     create_task,
     delete_all_tasks,
@@ -48,8 +49,8 @@ async def api_tasks_create(payload: dict):
             category=payload.get("category"),
         )
     except Exception as e:
-        logger.error(f"Erreur create_task : {e}")
-        raise HTTPException(500, str(e))
+        logger.exception("Erreur create_task : %s", e)
+        raise internal_error("task_create_failed", "Création de la tâche impossible") from e
 
     return {"task": get_task(task_id)}
 

@@ -10,6 +10,7 @@ from fastapi import BackgroundTasks, HTTPException
 
 import config
 from api.daemon_support import _audio_daemon_status_payload
+from api.errors import api_error, internal_error
 from database import count_memory_stats, get_cost_summary, get_daily_activity_stats, get_usage_stats
 from integrations import imessage_bridge
 from scripts.email_watcher import email_watcher
@@ -33,10 +34,11 @@ def _tts_status_payload() -> dict:
     try:
         info = get_local_tts_provider(settings).info()
     except Exception as exc:  # noqa: BLE001 - un fournisseur inconnu reste lisible
+        logger.warning("[status/tts] fournisseur invalide : %s", exc)
         return {
             "tts_provider_configured": settings.provider,
             "tts_available": False,
-            "tts_error": str(exc),
+            "tts_error": "tts_configuration_invalid",
         }
     payload = {f"tts_{key}": value for key, value in info.as_log_fields().items()}
     payload["tts_provider_configured"] = settings.provider
@@ -99,7 +101,7 @@ async def api_status():
         }
     except Exception as e:
         logger.debug("api_status location : %s", e)
-        loc_payload = {"error": str(e)}
+        loc_payload = {"error": "location_status_unavailable"}
 
     return {
         "user": config.USER_NAME,
@@ -207,7 +209,8 @@ async def api_backups_run():
 
     report = await asyncio.to_thread(run_backup)
     if not report.get("ok"):
-        raise HTTPException(500, report.get("error", "Sauvegarde échouée"))
+        logger.error("run_backup : %s", report.get("error", "inconnu"))
+        raise internal_error("backup_failed", "Sauvegarde impossible")
     return report
 
 
@@ -217,7 +220,8 @@ async def api_backups_restore(name: str):
 
     report = await asyncio.to_thread(restore_backup, name)
     if not report.get("ok"):
-        raise HTTPException(400, report.get("error", "Restauration échouée"))
+        logger.error("restore_backup %s : %s", name, report.get("error", "inconnu"))
+        raise api_error(400, "backup_restore_failed", "Restauration impossible")
     return report
 
 

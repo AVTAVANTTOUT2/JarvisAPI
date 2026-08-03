@@ -11,6 +11,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 
 from api.daemon_support import _audio_daemon_status_payload
+from api.errors import internal_error
 from api.service_control import (
     INTERNAL_SERVICES,
     _SERVICE_LOG_TAGS,
@@ -75,8 +76,8 @@ async def api_voice_debug_logs(limit: int = 50):
     try:
         logs = get_voice_debug_logs(limit=limit)
     except Exception as e:
-        logger.error(f"voice_debug_logs : {e}")
-        raise HTTPException(500, str(e))
+        logger.exception("voice_debug_logs : %s", e)
+        raise internal_error("voice_debug_unavailable", "Traces vocales indisponibles") from e
     return {"logs": logs}
 
 
@@ -134,7 +135,8 @@ async def control_restart_all():
             r = await _start_service(svc)
             results[svc] = r
         except Exception as e:
-            results[svc] = {"ok": False, "error": str(e)}
+            logger.exception("[control/restart-all] %s", svc)
+            results[svc] = {"ok": False, "error": "service_restart_failed"}
     return {"results": results}
 
 
@@ -147,7 +149,8 @@ async def control_stop_all():
             r = await _stop_service(svc)
             results[svc] = r
         except Exception as e:
-            results[svc] = {"ok": False, "error": str(e)}
+            logger.exception("[control/stop-all] %s", svc)
+            results[svc] = {"ok": False, "error": "service_stop_failed"}
     return {"results": results}
 
 
@@ -160,7 +163,8 @@ async def control_start_all():
             r = await _start_service(svc)
             results[svc] = r
         except Exception as e:
-            results[svc] = {"ok": False, "error": str(e)}
+            logger.exception("[control/start-all] %s", svc)
+            results[svc] = {"ok": False, "error": "service_start_failed"}
     return {"results": results}
 
 
@@ -182,4 +186,5 @@ async def control_service_logs(service: str, lines: int = 50):
         recent = all_lines[-lines:] if len(all_lines) > lines else all_lines
         return {"logs": [line for line in recent if line.strip()], "count": len(recent)}
     except Exception as e:
-        return {"logs": [], "error": str(e)}
+        logger.exception("[control/logs] %s", service)
+        return {"logs": [], "error": "service_logs_unavailable"}

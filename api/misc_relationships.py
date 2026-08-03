@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from fastapi import Body, HTTPException
 
 import config
+from api.errors import internal_error
 from api.people_support import _decode_person_path
 from database import (
     get_active_patterns,
@@ -59,7 +60,8 @@ async def api_calendar_create(body: dict = Body(default_factory=dict)):
         notes=body.get("notes", ""),
     )
     if not result.get("ok"):
-        raise HTTPException(500, result.get("message", "Erreur création événement"))
+        logger.error("[calendar/create] échec : %s", result.get("message", "inconnu"))
+        raise internal_error("calendar_create_failed", "Création de l'événement impossible")
     return result
 
 
@@ -98,7 +100,7 @@ async def api_analyze_contact(payload: dict):
         raise
     except Exception as e:
         logger.exception("Erreur analyze-contact")
-        raise HTTPException(500, f"Erreur analyse : {e}")
+        raise internal_error("contact_analysis_failed", "Analyse du contact impossible") from e
 
 
 async def api_relationship_detail(name: str):
@@ -167,7 +169,11 @@ async def api_mac_contacts():
         return {"contacts": contacts}
     except Exception as e:
         logger.warning("[api/contacts] %s", e)
-        return {"contacts": [], "error": str(e)}
+        return {
+            "contacts": [],
+            "error": "contacts_unavailable",
+            "message": "Contacts indisponibles",
+        }
 
 
 async def api_contacts_sync():
@@ -179,7 +185,7 @@ async def api_contacts_sync():
         return result
     except Exception as e:
         logger.error("[api/contacts/sync] %s", e)
-        raise HTTPException(500, str(e)) from e
+        raise internal_error("contacts_sync_failed", "Synchronisation des contacts impossible") from e
 
 
 async def api_search(q: str = ""):
@@ -260,4 +266,4 @@ async def api_export_dump(format: str = "json"):
         return payload
     except Exception as e:
         logger.exception("api/export : %s", e)
-        raise HTTPException(500, str(e)) from e
+        raise internal_error("export_failed", "Export des données impossible") from e

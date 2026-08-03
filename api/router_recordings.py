@@ -8,6 +8,7 @@ import logging
 from fastapi import APIRouter, HTTPException
 
 import config
+from api.errors import api_error, internal_error
 from database import get_recording, get_recordings
 
 router = APIRouter()
@@ -22,7 +23,7 @@ async def api_recordings_list(limit: int = 20):
         rows = get_recordings(limit=lim)
     except Exception as e:
         logger.exception("api_recordings_list : %s", e)
-        raise HTTPException(500, str(e)) from e
+        raise internal_error("recordings_unavailable", "Enregistrements indisponibles") from e
     return {"recordings": rows}
 
 
@@ -93,5 +94,6 @@ async def api_memory_search_semantic(q: str, limit: int = 10, source_type: str |
 
         results = await asyncio.to_thread(semantic_search, q.strip(), limit, source_type)
     except SemanticSearchUnavailable as e:
-        raise HTTPException(503, str(e)) from e
+        logger.warning("[semantic-search] indisponible : %s", e)
+        raise api_error(503, "semantic_search_unavailable", "Recherche sémantique indisponible") from e
     return {"results": results}

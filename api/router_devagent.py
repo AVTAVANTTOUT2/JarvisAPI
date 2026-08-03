@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 
 from agents.devagent import lock_spec, next_interview_step, run_loop, slugify, submit_answer
 from agents.devagent.models import InterviewAnswer
+from api.errors import api_error
 from database import devagent as devagent_db
 
 router = APIRouter()
+logger = logging.getLogger("jarvis")
 
 
 @router.get("/api/devagent/{project_id}/deployments")
@@ -100,7 +103,8 @@ async def api_devagent_autorun(payload: dict):
     try:
         return await autorun_project(description, name=(payload or {}).get("name"))
     except RuntimeError as e:
-        raise HTTPException(502, str(e)) from e
+        logger.exception("[devagent/autorun] échec")
+        raise api_error(502, "devagent_autorun_failed", "Démarrage autonome impossible") from e
 
 
 @router.post("/api/devagent/start")

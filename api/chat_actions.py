@@ -272,7 +272,11 @@ async def _check_pending_proposal(
         return await execute_action(action)
     except Exception as e:
         logger.exception("[pending] execute_action : %s", e)
-        return {"ok": False, "message": str(e)}
+        return {
+            "ok": False,
+            "error": "action_execution_failed",
+            "message": "L'action n'a pas pu être exécutée.",
+        }
 
 
 def _format_action_result_for_followup(action: dict, action_result: dict) -> str:

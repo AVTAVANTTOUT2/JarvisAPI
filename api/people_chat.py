@@ -4,15 +4,14 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
-
-from fastapi import Body, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi import HTTPException
 
 import config
 import llm
 import pipeline
 from agents.display_text import strip_leading_emotion
+from api.errors import internal_error
+from api.people_models import PersonQuestionRequest
 from api.people_support import (
     _decode_person_path,
     _format_contact_timeline,
@@ -39,15 +38,12 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 logger = logging.getLogger("jarvis")
 
 
-async def api_people_ask(name: str, payload: dict[str, Any] = Body(default_factory=dict)):
+async def api_people_ask(name: str, payload: PersonQuestionRequest):
     """Pose une question contextualisée sur un contact (Sonnet + chat.db + profil)."""
     path_decoded = _decode_person_path(name)
     try:
-        question = (payload.get("question") or "").strip()
+        question = payload.question
         logger.info("[contact_chat] path=%r decoded=%r question_len=%d", name, path_decoded, len(question))
-        if not question:
-            raise HTTPException(400, "`question` requis")
-
         person = None
         try:
             person = get_person(path_decoded)
@@ -243,4 +239,4 @@ async def api_people_ask(name: str, payload: dict[str, Any] = Body(default_facto
         raise
     except Exception as e:
         logger.exception("[contact_chat] ERREUR : %s", e)
-        return JSONResponse(status_code=500, content={"error": str(e)})
+        raise internal_error("people_question_failed", "Question sur le contact indisponible") from e

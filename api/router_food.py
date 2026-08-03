@@ -11,6 +11,7 @@ import logging
 
 from fastapi import APIRouter, HTTPException
 
+from api.errors import api_error
 from api.food_control import (
     FoodControlError,
     cancel_manual_order,
@@ -160,7 +161,11 @@ async def api_food_menus_refresh(payload: dict | None = None):
         return await refresh_tracked_menus(names)
     except (OSError, RuntimeError, ValueError) as exc:
         logger.error("[food] relevé de menus impossible : %s", exc)
-        raise HTTPException(503, str(exc)) from exc
+        raise api_error(
+            503,
+            "food_menu_refresh_failed",
+            "Actualisation des menus indisponible",
+        ) from exc
 
 
 @router.get("/api/food/menus/{restaurant}")

@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import base64
+import io
 import sys
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
+from PIL import Image
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -50,6 +54,12 @@ def _pair_remote_device(client, device_id: str = "mac-test") -> str:
     )
     assert response.status_code == 200
     return response.json()["token"]
+
+
+def _screen_png_b64(width: int = 16, height: int = 12) -> str:
+    buffer = io.BytesIO()
+    Image.new("RGB", (width, height), color=(20, 40, 60)).save(buffer, format="PNG")
+    return base64.b64encode(buffer.getvalue()).decode("ascii")
 
 
 # ── Verrou de session sur /api/* ──────────────────────────────
@@ -601,6 +611,69 @@ def test_heartbeat_unknown_device_404(tmp_db):
             "/api/devices/never-registered/heartbeat", headers={"X-Device-Token": "x"}
         )
     assert r.status_code == 404
+
+
+def test_remote_screen_uses_public_analysis_api(tmp_db, monkeypatch):
+    from scripts.screen_watcher import screen_watcher
+
+    analyze = AsyncMock(
+        return_value={
+            "app": "Safari",
+            "activity": "lecture documentation",
+            "mood": "focused",
+            "notable": None,
+        }
+    )
+    monkeypatch.setattr(screen_watcher, "analyze_image", analyze)
+    with _client() as client:
+        token = _pair_remote_device(client, "screen-public-api")
+        response = client.post(
+            "/api/devices/screen-public-api/screen",
+            headers={"X-Device-Token": token},
+            json={"image_b64": _screen_png_b64(), "app": "Safari", "change_pct": 12.5},
+        )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["analysis"]["activity"] == "lecture documentation"
+    analyze.assert_awaited_once()
+    assert analyze.await_args.kwargs["app"] == "Safari"
+    assert analyze.await_args.kwargs["window_info"] == {"width": 16, "height": 12}
+
+
+def test_remote_screen_rejects_excessive_pixel_count_before_analysis(tmp_db, monkeypatch):
+    import config
+    from scripts.screen_watcher import screen_watcher
+
+    monkeypatch.setattr(config, "REMOTE_SCREEN_MAX_PIXELS", 50)
+    analyze = AsyncMock()
+    monkeypatch.setattr(screen_watcher, "analyze_image", analyze)
+    with _client() as client:
+        token = _pair_remote_device(client, "screen-pixels")
+        response = client.post(
+            "/api/devices/screen-pixels/screen",
+            headers={"X-Device-Token": token},
+            json={"image_b64": _screen_png_b64(10, 10), "app": "Safari"},
+        )
+
+    assert response.status_code == 413
+    assert response.json()["detail"]["code"] == "image_dimensions_exceeded"
+    analyze.assert_not_awaited()
+
+
+def test_remote_screen_content_length_is_rejected_before_json_parse(tmp_db, monkeypatch):
+    import config
+
+    monkeypatch.setattr(config, "REMOTE_SCREEN_MAX_REQUEST_BYTES", 100)
+    with _client() as client:
+        token = _pair_remote_device(client, "screen-body-limit")
+        response = client.post(
+            "/api/devices/screen-body-limit/screen",
+            headers={"X-Device-Token": token},
+            json={"image_b64": "A" * 500, "app": "Safari"},
+        )
+
+    assert response.status_code == 413
+    assert response.json()["detail"]["code"] == "payload_too_large"
 
 
 def test_activate_device_requires_session_not_device_token(tmp_db):
