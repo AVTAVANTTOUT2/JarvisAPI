@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-03T22:23:17.729251+00:00",
+  "generated_at": "2026-08-03T22:24:28.559185+00:00",
   "repo_root": ".",
   "canonical_formulation": {
     "database": "Le projet crée 90 tables persistantes après init_db() + migrations, plus jusqu'à 5 objets FTS5, soit 95 tables physiques lorsque FTS5 est disponible.",
@@ -497,6 +497,9 @@
           ],
           "android": [
             "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
+          ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift"
           ]
         },
         "tests": [
@@ -626,6 +629,9 @@
             "android/app/src/main/kotlin/fr/jarvis/companion/feature/tasks/TasksScreen.kt",
             "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
           ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift"
+          ],
           "tv": [
             "tv/server.py",
             "tv/static/js/tv-v2.js"
@@ -652,6 +658,9 @@
           ],
           "mobile_web": [
             "web_mobile/js/api.js"
+          ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift"
           ]
         },
         "tests": [
@@ -722,6 +731,10 @@
           "android": [
             "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
           ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift",
+            "native_mac/JarvisWidget/JarvisWidget.swift"
+          ],
           "shared_auth_sdk": [
             "jarvis_auth/src/client.ts"
           ]
@@ -773,6 +786,9 @@
           ],
           "android": [
             "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
+          ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift"
           ]
         },
         "tests": [
@@ -798,6 +814,9 @@
           ],
           "android": [
             "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
+          ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift"
           ],
           "tv": [
             "tv/data_sources/calendar.py",
@@ -942,6 +961,9 @@
           ],
           "android": [
             "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
+          ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift"
           ]
         },
         "tests": [
@@ -980,6 +1002,9 @@
           ],
           "android": [
             "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
+          ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift"
           ]
         },
         "tests": [
@@ -1531,6 +1556,9 @@
           ],
           "frontend_vite": [
             "web/src/app/components/views/MonitoringView.tsx"
+          ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift"
           ]
         },
         "tests": [
@@ -1784,6 +1812,9 @@
           ],
           "android": [
             "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
+          ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift"
           ],
           "tv": [
             "tv/server.py"
@@ -2280,6 +2311,9 @@
           "frontend_vite": [
             "web/src/app/components/views/MonitoringView.tsx"
           ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift"
+          ],
           "tv": [
             "tv/server.py",
             "tv/static/js/tv-v2.js"
@@ -2315,6 +2349,9 @@
             "android/app/src/main/kotlin/fr/jarvis/companion/core/JarvisFeatureFlags.kt",
             "android/app/src/main/kotlin/fr/jarvis/companion/feature/tasks/TasksScreen.kt",
             "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
+          ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift"
           ],
           "tv": [
             "tv/server.py",
@@ -2446,6 +2483,9 @@
           ],
           "android": [
             "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
+          ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift"
           ]
         },
         "tests": [
@@ -2550,6 +2590,9 @@
           ],
           "mobile_web": [
             "web_mobile/js/api.js"
+          ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift"
           ]
         },
         "tests": [
@@ -2670,6 +2713,9 @@
           "mobile_web": [
             "web_mobile/js/api.js"
           ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift"
+          ],
           "shared_auth_sdk": [
             "jarvis_auth/src/client.ts"
           ]
@@ -2706,6 +2752,9 @@
           "mobile_web": [
             "web_mobile/js/api.js"
           ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift"
+          ],
           "shared_auth_sdk": [
             "jarvis_auth/src/client.ts"
           ]
@@ -2728,6 +2777,9 @@
           ],
           "mobile_web": [
             "web_mobile/js/api.js"
+          ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift"
           ],
           "shared_auth_sdk": [
             "jarvis_auth/src/client.ts"
@@ -2806,6 +2858,9 @@
           ],
           "android": [
             "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
+          ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift"
           ],
           "tv": [
             "tv/data_sources/calendar.py",
@@ -3928,6 +3983,9 @@
           "android": [
             "android/app/src/main/kotlin/fr/jarvis/companion/core/JarvisFeatureFlags.kt",
             "android/app/src/main/kotlin/fr/jarvis/companion/feature/notifications/NotificationsScreen.kt"
+          ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift"
           ]
         },
         "tests": [
@@ -4204,6 +4262,9 @@
             "android/app/src/main/kotlin/fr/jarvis/companion/feature/tasks/TasksScreen.kt",
             "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
           ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift"
+          ],
           "tv": [
             "tv/server.py",
             "tv/static/js/tv-v2.js"
@@ -4330,6 +4391,9 @@
           ],
           "android": [
             "android/app/src/main/kotlin/fr/jarvis/companion/core/network/JarvisChatWebSocket.kt"
+          ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift"
           ],
           "tv": [
             "tv/config.py"

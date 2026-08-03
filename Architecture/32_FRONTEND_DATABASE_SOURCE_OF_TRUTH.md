@@ -138,7 +138,7 @@ et aux tests qui le référencent. L'analyse est statique et n'importe pas
 | Android | 26 |
 | TV | 8 |
 | SDK auth partagé | 6 |
-| macOS | 0 |
+| macOS | 15 |
 
 Les références de test couvrent 127 chemins distincts. Les catégories de
 l'artefact sont comptées par opération : `consumer_and_tested`,
