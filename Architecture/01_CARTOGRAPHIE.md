@@ -27,7 +27,7 @@ JarvisAPI/
 ├── push.py                    ← Web Push (VAPID, aes128gcm)
 ├── pipeline.py                ← (créé en Phase 1) Pipeline _process_message
 ├── jarvis/events.py           ← 10 événements de domaine typés (Phase 3)
-├── jarvis/event_bus.py        ← Pub/sub, SSE, handlers concurrents et historique
+├── jarvis/event_bus.py        ← Pub/sub, handlers concurrents et historique court
 │
 ├── agents/                    ← 7 agents LLM + orchestrateur
 │   ├── __init__.py            ← BaseAgent + registry (526 lignes)
@@ -54,7 +54,7 @@ JarvisAPI/
 │   ├── people.py             ← Personnes, contexte de vie et index iMessage
 │   ├── patterns.py           ← Humeurs, patterns et briefings
 │   ├── notifications.py      ← Notifications, Web Push et logs LLM
-│   ├── event_log.py          ← Consommateur du bus et journal SQLite immuable
+│   ├── event_log.py          ← Journal SQLite immuable + curseur de reprise SSE
 │   ├── rituals.py            ← Rituels, engagements, présence et journal
 │   ├── devops.py             ← Migrations versionnées, audits et benchmarks
 │   ├── school.py             ← Documents scolaires
