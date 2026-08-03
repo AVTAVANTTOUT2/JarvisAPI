@@ -313,6 +313,15 @@ async def improvement_run(auto_delegate: bool = False) -> dict[str, Any]:
 async def autonomy_settings() -> dict[str, Any]:
     import config
 
+    cursor_allow_commit = bool(getattr(config, "CURSOR_ALLOW_COMMIT", True))
+    cursor_allow_push = bool(getattr(config, "CURSOR_ALLOW_PUSH", False))
+    cursor_allow_pr = bool(getattr(config, "CURSOR_ALLOW_PR", False))
+    pr_only_capabilities = {
+        "CURSOR_ALLOW_COMMIT": cursor_allow_commit,
+        "CURSOR_ALLOW_PUSH": cursor_allow_push,
+        "CURSOR_ALLOW_PR": cursor_allow_pr,
+    }
+
     return {
         "ok": True,
         "settings": {
@@ -320,8 +329,14 @@ async def autonomy_settings() -> dict[str, Any]:
             "self_improvement_enabled": bool(getattr(config, "SELF_IMPROVEMENT_ENABLED", False)),
             "self_modification_mode": getattr(config, "SELF_MODIFICATION_MODE", "pr_only"),
             "cursor_delegation_enabled": bool(getattr(config, "CURSOR_DELEGATION_ENABLED", True)),
-            "cursor_allow_pr": bool(getattr(config, "CURSOR_ALLOW_PR", False)),
+            "cursor_allow_commit": cursor_allow_commit,
+            "cursor_allow_push": cursor_allow_push,
+            "cursor_allow_pr": cursor_allow_pr,
             "cursor_allow_merge": bool(getattr(config, "CURSOR_ALLOW_MERGE", False)),
+            "cursor_pr_only_ready": all(pr_only_capabilities.values()),
+            "cursor_pr_only_missing": [
+                name for name, enabled in pr_only_capabilities.items() if not enabled
+            ],
             "cursor_max_concurrent_jobs": int(getattr(config, "CURSOR_MAX_CONCURRENT_JOBS", 2)),
         },
     }

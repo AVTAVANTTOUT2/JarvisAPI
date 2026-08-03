@@ -258,6 +258,7 @@ async def handle_crash_loop(crash_tail: str, root: Path | None = None) -> dict:
                     interaction_mode="scheduled",
                     auto_start=True,
                     require_confirmation=False,  # job scheduler autorisé
+                    delivery_mode="pr_only",
                 )
                 notification_service.create(
                     source="system",

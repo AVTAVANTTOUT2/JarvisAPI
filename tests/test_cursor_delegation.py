@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import stat
+import subprocess
 import sys
 from pathlib import Path
 
@@ -17,6 +18,7 @@ from integrations.cursor_cli import CursorCliInfo, build_agent_command  # noqa: 
 from integrations.cursor_delegation import (  # noqa: E402
     CursorDelegationError,
     CursorDelegationService,
+    _job_delivery_mode,
     _redact_secrets,
 )
 from tests.git_repo import git, init_repo_with_commit  # noqa: E402
@@ -88,6 +90,7 @@ def delegation_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(config, "CURSOR_MAX_CONCURRENT_JOBS", 2)
     monkeypatch.setattr(config, "CURSOR_ALLOW_PUSH", False)  # pas de remote
     monkeypatch.setattr(config, "CURSOR_ALLOW_PR", False)
+    monkeypatch.setattr(config, "SELF_MODIFICATION_MODE", "best_effort")
 
     async def _fake_compose(**kwargs):
         return {
@@ -178,6 +181,171 @@ def test_job_completed_with_worktree_and_markers(delegation_env):
     assert "jarvis/cursor/" in branches
     head = git(repo, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
     assert head == "main"
+
+
+def test_autonomous_pr_only_refuses_missing_delivery_capabilities(
+    delegation_env, monkeypatch
+):
+    service, repo = delegation_env["service"], delegation_env["repo"]
+    monkeypatch.setattr(config, "SELF_MODIFICATION_MODE", "pr_only")
+
+    with pytest.raises(CursorDelegationError, match="Mode pr_only impossible") as exc:
+        asyncio.run(
+            service.enqueue(
+                title="Self repair",
+                user_request="corrige app.py",
+                repository=str(repo),
+                auto_start=False,
+                require_confirmation=False,
+            )
+        )
+
+    assert "CURSOR_ALLOW_PUSH" in str(exc.value)
+    assert "CURSOR_ALLOW_PR" in str(exc.value)
+
+
+def test_legacy_scheduled_job_is_resumed_fail_closed(monkeypatch):
+    monkeypatch.setattr(config, "SELF_MODIFICATION_MODE", "auto_merge_low_risk")
+
+    assert (
+        _job_delivery_mode({"interaction_mode": "scheduled", "routing": {}})
+        == "pr_only"
+    )
+
+
+def test_confirmed_job_remains_best_effort_when_global_mode_is_pr_only(
+    delegation_env, monkeypatch
+):
+    service, repo = delegation_env["service"], delegation_env["repo"]
+    monkeypatch.setattr(config, "SELF_MODIFICATION_MODE", "pr_only")
+
+    async def _enqueue():
+        return await service.enqueue(
+            title="Interactive",
+            user_request="corrige app.py",
+            repository=str(repo),
+            auto_start=False,
+            require_confirmation=True,
+        )
+
+    job = asyncio.run(_enqueue())
+    assert job["status"] == "awaiting_confirmation"
+    assert job["routing"]["delivery_mode"] == "best_effort"
+
+
+def test_pr_only_push_failure_is_terminal_and_explicit(delegation_env, monkeypatch):
+    service, repo = delegation_env["service"], delegation_env["repo"]
+    monkeypatch.setattr(config, "CURSOR_ALLOW_PUSH", True)
+    monkeypatch.setattr(config, "CURSOR_ALLOW_PR", True)
+
+    job = _enqueue_and_run(service, repo, delivery_mode="pr_only")
+
+    assert job["status"] == "failed"
+    assert job["pr_url"] is None
+    assert "Push de la branche échoué" in (job["error_message"] or "")
+    assert job["structured_result"]["delivery_mode"] == "pr_only"
+
+
+def test_pr_only_pr_creation_failure_is_terminal_and_explicit(
+    delegation_env, monkeypatch
+):
+    service, repo = delegation_env["service"], delegation_env["repo"]
+    monkeypatch.setattr(config, "CURSOR_ALLOW_PUSH", True)
+    monkeypatch.setattr(config, "CURSOR_ALLOW_PR", True)
+    monkeypatch.setattr(
+        service,
+        "_maybe_open_pr",
+        lambda *_args: (None, "Création de la PR échouée: test contrôlé"),
+    )
+
+    job = _enqueue_and_run(service, repo, delivery_mode="pr_only")
+
+    assert job["status"] == "failed"
+    assert job["pr_url"] is None
+    assert "Création de la PR échouée" in (job["error_message"] or "")
+
+
+def test_pr_creation_command_failure_returns_explicit_reason(
+    delegation_env, monkeypatch
+):
+    service, repo = delegation_env["service"], delegation_env["repo"]
+    monkeypatch.setattr(
+        service,
+        "_git",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess(
+            args=["git", "push"], returncode=0, stdout="", stderr=""
+        ),
+    )
+    monkeypatch.setattr(
+        "integrations.cursor_delegation.subprocess.run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess(
+            args=["gh", "pr", "create"],
+            returncode=1,
+            stdout="",
+            stderr="no commits between branches",
+        ),
+    )
+
+    pr_url, error = service._maybe_open_pr(
+        {
+            "allow_push": True,
+            "title": "PR impossible",
+            "routing": {"base_branch": "main"},
+        },
+        "job-test",
+        repo,
+        "jarvis/cursor/job-test",
+        {"body": "rapport"},
+    )
+
+    assert pr_url is None
+    assert error == "Création de la PR échouée: no commits between branches"
+
+
+def test_pr_only_succeeds_only_with_a_pr_url(delegation_env, monkeypatch):
+    service, repo = delegation_env["service"], delegation_env["repo"]
+    monkeypatch.setattr(config, "CURSOR_ALLOW_PUSH", True)
+    monkeypatch.setattr(config, "CURSOR_ALLOW_PR", True)
+    expected_url = "https://github.com/example/repo/pull/42"
+    monkeypatch.setattr(
+        service,
+        "_maybe_open_pr",
+        lambda *_args: (expected_url, None),
+    )
+
+    job = _enqueue_and_run(service, repo, delivery_mode="pr_only")
+
+    assert job["status"] == "pr_opened"
+    assert job["pr_url"] == expected_url
+    assert job["error_message"] is None
+
+
+def test_pr_only_partial_verdict_fails_without_attempting_pr(
+    delegation_env, monkeypatch
+):
+    service, repo, tmp = (
+        delegation_env["service"],
+        delegation_env["repo"],
+        delegation_env["tmp"],
+    )
+    cli = _make_fake_cli(tmp, no_markers=True)
+    monkeypatch.setattr(config, "CURSOR_CLI_PATH", str(cli))
+    monkeypatch.setattr(config, "CURSOR_ALLOW_PUSH", True)
+    monkeypatch.setattr(config, "CURSOR_ALLOW_PR", True)
+    called = False
+
+    def _unexpected_pr(*_args):
+        nonlocal called
+        called = True
+        return "https://example.invalid/pr/1", None
+
+    monkeypatch.setattr(service, "_maybe_open_pr", _unexpected_pr)
+
+    job = _enqueue_and_run(service, repo, delivery_mode="pr_only")
+
+    assert job["status"] == "failed"
+    assert called is False
+    assert "verdict Cursor PARTIAL" in (job["error_message"] or "")
 
 
 def test_job_failed_on_nonzero_exit(delegation_env, monkeypatch):
@@ -381,3 +549,20 @@ def test_job_ids_are_unique(delegation_env):
     service = delegation_env["service"]
     ids = {service._new_job_id() for _ in range(50)}
     assert len(ids) == 50
+
+
+def test_autonomy_settings_exposes_pr_only_readiness(monkeypatch):
+    from api.router_cognitive import autonomy_settings
+
+    monkeypatch.setattr(config, "CURSOR_ALLOW_COMMIT", True)
+    monkeypatch.setattr(config, "CURSOR_ALLOW_PUSH", False)
+    monkeypatch.setattr(config, "CURSOR_ALLOW_PR", False)
+
+    result = asyncio.run(autonomy_settings())
+    settings = result["settings"]
+
+    assert settings["cursor_pr_only_ready"] is False
+    assert settings["cursor_pr_only_missing"] == [
+        "CURSOR_ALLOW_PUSH",
+        "CURSOR_ALLOW_PR",
+    ]

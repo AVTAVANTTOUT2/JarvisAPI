@@ -34,7 +34,8 @@ SELF_IMPROVEMENT_SCHEDULE (weekly par défaut)
   → collect_evidence()
   → stocke propositions dans STATE_PATH
   → si SELF_IMPROVEMENT_ENABLED && Cursor OK
-       → enqueue low-risk (selon mode)
+       → enqueue avec delivery_mode=pr_only
+       → push + PR obligatoires ; job failed sinon
   → sinon : propositions visibles via API uniquement
 ```
 
@@ -45,6 +46,9 @@ SELF_IMPROVEMENT_ENABLED=true
 SELF_IMPROVEMENT_SCHEDULE=weekly
 SELF_MODIFICATION_MODE=pr_only
 CURSOR_DELEGATION_ENABLED=true
+CURSOR_ALLOW_COMMIT=true
+CURSOR_ALLOW_PUSH=true
+CURSOR_ALLOW_PR=true
 ```
 
 ## Endpoints
@@ -59,6 +63,7 @@ CURSOR_DELEGATION_ENABLED=true
 
 - Sans données dans `voice_debug_log` / `cursor_jobs`, la liste de preuves peut être vide (comportement voulu).
 - Les propositions ne mutent pas le code sans passage Cursor + revue PR.
+- Le cycle autonome échoue explicitement si le commit, le push ou la création de PR ne sont pas autorisés ou exécutables.
 - Le fichier d’état JSON n’est pas une table SQLite versionnée — acceptable pour un solo-user local.
 - Le job scheduler est best-effort : un échec de collecte est journalisé sans faire planter le processus principal.
 

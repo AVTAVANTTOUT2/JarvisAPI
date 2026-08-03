@@ -50,6 +50,9 @@ from jarvis.security.redaction import (
 logger = logging.getLogger(__name__)
 
 PROTECTED_BRANCHES = frozenset({"main", "master"})
+DELIVERY_BEST_EFFORT = "best_effort"
+DELIVERY_PR_ONLY = "pr_only"
+VALID_DELIVERY_MODES = frozenset({DELIVERY_BEST_EFFORT, DELIVERY_PR_ONLY})
 
 # Statuts avant démarrage effectif (confirmation requise).
 PENDING_CONFIRM_STATUSES = frozenset({"proposal", "awaiting_confirmation"})
@@ -65,6 +68,32 @@ def _redact_secrets(text: str) -> str:
 
 class CursorDelegationError(RuntimeError):
     """Erreur de délégation Cursor."""
+
+
+def _pr_only_missing_capabilities(
+    *, allow_commit: bool, allow_push: bool, allow_pr: bool
+) -> list[str]:
+    """Retourne les capacités absentes qui rendent ``pr_only`` impossible."""
+    missing: list[str] = []
+    if not allow_commit:
+        missing.append("CURSOR_ALLOW_COMMIT")
+    if not allow_push:
+        missing.append("CURSOR_ALLOW_PUSH")
+    if not allow_pr:
+        missing.append("CURSOR_ALLOW_PR")
+    return missing
+
+
+def _job_delivery_mode(job: dict[str, Any]) -> str:
+    """Lit le contrat persisté, avec reprise fail-closed des anciens jobs planifiés."""
+    routing = job.get("routing") or {}
+    if isinstance(routing, dict):
+        mode = str(routing.get("delivery_mode") or "").strip().lower()
+        if mode in VALID_DELIVERY_MODES:
+            return mode
+    if job.get("interaction_mode") == "scheduled":
+        return DELIVERY_PR_ONLY
+    return DELIVERY_BEST_EFFORT
 
 
 class CursorDelegationService:
@@ -159,6 +188,7 @@ class CursorDelegationService:
         routing: dict[str, Any] | None = None,
         auto_start: bool = False,
         require_confirmation: bool = True,
+        delivery_mode: str | None = None,
     ) -> dict[str, Any]:
         if not getattr(config, "CURSOR_DELEGATION_ENABLED", True):
             raise CursorDelegationError("CURSOR_DELEGATION_ENABLED=false")
@@ -170,6 +200,36 @@ class CursorDelegationService:
             raise CursorDelegationError(cli.get("error") or "Cursor CLI indisponible")
         if cli.get("authenticated") is False:
             raise CursorDelegationError("Cursor CLI non authentifié — lancer `agent login`")
+
+        requested_delivery_mode = str(delivery_mode or "").strip().lower()
+        if not requested_delivery_mode:
+            autonomous = not require_confirmation
+            configured_mode = str(
+                getattr(config, "SELF_MODIFICATION_MODE", DELIVERY_PR_ONLY)
+            ).strip().lower()
+            requested_delivery_mode = (
+                DELIVERY_PR_ONLY
+                if autonomous and configured_mode == DELIVERY_PR_ONLY
+                else DELIVERY_BEST_EFFORT
+            )
+        if requested_delivery_mode not in VALID_DELIVERY_MODES:
+            raise CursorDelegationError(
+                f"Mode de livraison Cursor invalide: {requested_delivery_mode}"
+            )
+
+        allow_commit = bool(getattr(config, "CURSOR_ALLOW_COMMIT", True))
+        allow_push = bool(getattr(config, "CURSOR_ALLOW_PUSH", False))
+        allow_pr = bool(getattr(config, "CURSOR_ALLOW_PR", False))
+        if requested_delivery_mode == DELIVERY_PR_ONLY:
+            missing = _pr_only_missing_capabilities(
+                allow_commit=allow_commit,
+                allow_push=allow_push,
+                allow_pr=allow_pr,
+            )
+            if missing:
+                raise CursorDelegationError(
+                    "Mode pr_only impossible: activer " + ", ".join(missing)
+                )
 
         repo = Path(repository or config.BASE_DIR).resolve()
         git_dir = self._git(["rev-parse", "--git-dir"], repo)
@@ -198,6 +258,7 @@ class CursorDelegationService:
         routing_meta = dict(routing or {})
         routing_meta["base_branch"] = base_branch
         routing_meta["requires_confirmation"] = bool(require_confirmation)
+        routing_meta["delivery_mode"] = requested_delivery_mode
 
         # Chat/voix : proposition en attente si confirmation requise.
         # Auto-start uniquement si confirmation désactivée ET auto_start=True
@@ -226,9 +287,9 @@ class CursorDelegationService:
                 "acceptance_criteria": acceptance_criteria or [],
                 "required_tests": required_tests or [],
                 "risk_level": risk_level,
-                "allow_commit": bool(getattr(config, "CURSOR_ALLOW_COMMIT", True)),
-                "allow_push": bool(getattr(config, "CURSOR_ALLOW_PUSH", False)),
-                "allow_pr": bool(getattr(config, "CURSOR_ALLOW_PR", False)),
+                "allow_commit": allow_commit,
+                "allow_push": allow_push,
+                "allow_pr": allow_pr,
                 "allow_merge": bool(getattr(config, "CURSOR_ALLOW_MERGE", False)),
                 "interaction_mode": interaction_mode,
                 "routing": routing_meta,
@@ -354,6 +415,31 @@ class CursorDelegationService:
                 f"Job {job_id} en attente de confirmation (status={job['status']})"
             )
 
+        delivery_mode = _job_delivery_mode(job)
+        if delivery_mode == DELIVERY_PR_ONLY:
+            missing = _pr_only_missing_capabilities(
+                allow_commit=bool(job.get("allow_commit")),
+                allow_push=bool(job.get("allow_push")),
+                allow_pr=bool(job.get("allow_pr")),
+            )
+            if missing:
+                reason = (
+                    "Mode pr_only impossible: capacités absentes: "
+                    + ", ".join(missing)
+                )
+                update_cursor_job(
+                    job_id,
+                    status="failed",
+                    structured_result={
+                        "delivery_mode": delivery_mode,
+                        "delivery_error": reason,
+                    },
+                    error_message=reason,
+                    finished_at=datetime.now().isoformat(timespec="seconds"),
+                )
+                self._notify(job_id, "failed", "BLOCKED", None, job["title"])
+                return get_cursor_job(job_id)  # type: ignore[return-value]
+
         repo = Path(job["repository"] or config.BASE_DIR)
         update_cursor_job(job_id, status="preparing", started_at=datetime.now().isoformat(timespec="seconds"))
 
@@ -448,16 +534,32 @@ class CursorDelegationService:
 
             verdict = parsed.get("verdict", "PARTIAL")
             pr_url = None
+            delivery_error = None
             final_status = "completed"
 
             if job.get("allow_pr") and verdict == "COMPLETED" and test_ok:
                 update_cursor_job(job_id, status="reviewing")
-                pr_url = self._maybe_open_pr(job, job_id, wt_resolved, live_branch, parsed)
+                pr_url, delivery_error = self._maybe_open_pr(
+                    job, job_id, wt_resolved, live_branch, parsed
+                )
                 if pr_url:
                     final_status = "pr_opened"
 
             if verdict == "BLOCKED" or (not test_ok and (job.get("required_tests") or [])):
                 final_status = "failed"
+
+            if delivery_mode == DELIVERY_PR_ONLY and not pr_url:
+                final_status = "failed"
+                if not delivery_error:
+                    if verdict != "COMPLETED":
+                        delivery_error = (
+                            "Mode pr_only non livré: verdict Cursor "
+                            f"{verdict}, une PR exige COMPLETED"
+                        )
+                    elif not test_ok:
+                        delivery_error = "Mode pr_only non livré: tests requis échoués"
+                    else:
+                        delivery_error = "Mode pr_only non livré: aucune PR créée"
 
             update_cursor_job(
                 job_id,
@@ -469,12 +571,16 @@ class CursorDelegationService:
                     "cli_returncode": returncode,
                     "test_ok": test_ok,
                     "test_log": test_log[-5000:],
+                    "delivery_mode": delivery_mode,
+                    "delivery_error": delivery_error,
                 },
                 error_message=(
                     None
                     if final_status != "failed"
                     else redact_for_external_llm(
-                        parsed.get("error") or "tests échoués ou verdict BLOCKED",
+                        delivery_error
+                        or parsed.get("error")
+                        or "tests échoués ou verdict BLOCKED",
                         max_chars=1_000,
                     )
                 ),
@@ -522,13 +628,17 @@ class CursorDelegationService:
         wt_path: Path,
         live_branch: str,
         parsed: dict[str, Any],
-    ) -> str | None:
+    ) -> tuple[str | None, str | None]:
         if not job.get("allow_push"):
-            return None
+            return None, "Push interdit par CURSOR_ALLOW_PUSH"
         push = self._git(["push", "-u", "origin", live_branch], wt_path, timeout=120)
         if push.returncode != 0:
             logger.warning("[cursor] push %s échoué : %s", job_id, (push.stderr or "")[:200])
-            return None
+            detail = redact_for_external_llm(
+                (push.stderr or push.stdout or "erreur inconnue").strip(),
+                max_chars=500,
+            )
+            return None, f"Push de la branche échoué: {detail}"
         routing = job.get("routing") or {}
         if isinstance(routing, str):
             try:
@@ -559,9 +669,16 @@ class CursorDelegationService:
         )
         if pr.returncode == 0:
             lines = (pr.stdout or "").strip().splitlines()
-            return lines[-1] if lines else None
+            url = lines[-1].strip() if lines else ""
+            if url.startswith(("https://", "http://")):
+                return url, None
+            return None, "gh pr create a réussi sans renvoyer d'URL de PR"
         logger.warning("[cursor] gh pr create %s : %s", job_id, (pr.stderr or "")[:200])
-        return None
+        detail = redact_for_external_llm(
+            (pr.stderr or pr.stdout or "erreur inconnue").strip(),
+            max_chars=500,
+        )
+        return None, f"Création de la PR échouée: {detail}"
 
     def _notify(
         self, job_id: str, final_status: str, verdict: str, pr_url: str | None, title: str

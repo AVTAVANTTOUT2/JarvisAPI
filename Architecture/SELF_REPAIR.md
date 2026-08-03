@@ -22,7 +22,7 @@ crash / régression détectée (seuil SELF_HEALING_CRASH_THRESHOLD)
   → diagnostic self_healing (report-only par défaut)
   → si SELF_REPAIR_ENABLED && CURSOR_DELEGATION_ENABLED
        → cursor_delegation.enqueue(template_id="self_repair", ...)
-       → job isolé + PR éventuelle
+       → job isolé + PR obligatoire ; échec explicite sinon
   → sinon : log + notification, pas de mutation code
 ```
 
@@ -46,6 +46,8 @@ SELF_MODIFICATION_MODE=pr_only
 - Cooldown entre tentatives (`SELF_HEALING_COOLDOWN_MIN`).
 - Fenêtre de régression : si le même crash revient après patch, rollback / alerte.
 - Pas de travail sur `main` (délégation Cursor).
+- `CURSOR_ALLOW_COMMIT`, `CURSOR_ALLOW_PUSH` et `CURSOR_ALLOW_PR` doivent tous être actifs ; le job est refusé sinon.
+- Un retour Cursor sans push et URL de PR finit en `failed`, jamais en `completed`.
 - Secrets jamais injectés bruts dans le prompt (redaction délégation).
 
 ## Endpoints liés
