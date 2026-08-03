@@ -29,13 +29,14 @@ def build_day_timeline(date: str) -> dict:
         ).fetchone()[0]
 
         tasks_done = conn.execute(
-            "SELECT title, completed_at FROM tasks WHERE status = 'done' AND DATE(completed_at) = ? "
-            "ORDER BY completed_at",
-            (date,),
+            "SELECT title, completed_at FROM tasks WHERE status = 'done' "
+            "AND completed_at >= ? AND completed_at < ? ORDER BY completed_at",
+            (start_utc, end_utc),
         ).fetchall()
         for t in tasks_done:
             events.append({
-                "time": (t["completed_at"] or "")[11:16],
+                "time": sqlite_utc_to_local(t["completed_at"]).strftime("%H:%M"),
+                "_sort_at": t["completed_at"],
                 "type": "task_done",
                 "description": f"Tâche terminée : {t['title']}",
             })
@@ -43,15 +44,16 @@ def build_day_timeline(date: str) -> dict:
         visits = conn.execute(
             """SELECT p.name AS place_name, v.arrived_at, v.departed_at, v.duration_min
                FROM visits v JOIN places p ON p.id = v.place_id
-               WHERE DATE(v.arrived_at) = ? ORDER BY v.arrived_at""",
-            (date,),
+               WHERE v.arrived_at >= ? AND v.arrived_at < ? ORDER BY v.arrived_at""",
+            (start_utc, end_utc),
         ).fetchall()
         for v in visits:
             desc = f"Visite à {v['place_name']}"
             if v["duration_min"]:
                 desc += f" ({round(v['duration_min'])} min)"
             events.append({
-                "time": (v["arrived_at"] or "")[11:16],
+                "time": sqlite_utc_to_local(v["arrived_at"]).strftime("%H:%M"),
+                "_sort_at": v["arrived_at"],
                 "type": "visit",
                 "description": desc,
             })
@@ -67,6 +69,7 @@ def build_day_timeline(date: str) -> dict:
                 desc += f" — {m['context']}"
             events.append({
                 "time": sqlite_utc_to_local(m["created_at"]).strftime("%H:%M"),
+                "_sort_at": m["created_at"],
                 "type": "mood",
                 "description": desc,
             })
@@ -80,11 +83,14 @@ def build_day_timeline(date: str) -> dict:
         for n in notable:
             events.append({
                 "time": sqlite_utc_to_local(n["created_at"]).strftime("%H:%M"),
+                "_sort_at": n["created_at"],
                 "type": "screen_notable",
                 "description": f"[{n['app']}] {n['notable']}",
             })
 
-    events.sort(key=lambda e: e["time"] or "")
+    events.sort(key=lambda event: event["_sort_at"])
+    for event in events:
+        del event["_sort_at"]
     journal = get_jarvis_journal_entry(date)
 
     return {

@@ -9,7 +9,7 @@ import re
 import threading
 import time
 from collections import deque
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -24,6 +24,7 @@ from api.location_models import (
     PlaceCreateRequest,
     PlaceUpdateRequest,
 )
+from database.time_buckets import utc_datetime
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -89,7 +90,7 @@ def _parse_optional_point_time(body: dict[str, Any]) -> datetime | None:
             if x > 1e12:
                 x /= 1000.0
             try:
-                return datetime.fromtimestamp(x)
+                return datetime.fromtimestamp(x, tz=timezone.utc)
             except (OSError, OverflowError, ValueError):
                 continue
         if isinstance(v, str):
@@ -169,12 +170,16 @@ def _validate_coordinates(lat: float, lng: float) -> str | None:
 def _validate_point_time(pt: datetime | None) -> str | None:
     if pt is None:
         return None
-    now = datetime.now(pt.tzinfo) if pt.tzinfo else datetime.now()
+    try:
+        point_utc = utc_datetime(pt)
+    except (TypeError, ValueError):
+        return "invalid_timestamp"
+    now = utc_datetime()
     # Futur incohérent (> 5 min)
-    if (pt - now).total_seconds() > 300:
+    if (point_utc - now).total_seconds() > 300:
         return "invalid_timestamp"
     # Trop ancien (> 30 jours) — aligné sur rétention file Android (spec Vague 2B)
-    if (now - pt).total_seconds() > 30 * 24 * 3600:
+    if (now - point_utc).total_seconds() > 30 * 24 * 3600:
         return "invalid_timestamp"
     return None
 

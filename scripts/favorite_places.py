@@ -13,6 +13,7 @@ from datetime import datetime
 
 import config
 from database.location_helpers import get_all_places
+from database.time_buckets import local_datetime, sqlite_utc_datetime, utc_datetime
 from jarvis.notification_service import notification_service
 
 
@@ -20,7 +21,7 @@ def _parse_dt(raw) -> datetime | None:
     if not raw:
         return None
     try:
-        return datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        return sqlite_utc_datetime(str(raw))
     except ValueError:
         return None
 
@@ -38,7 +39,7 @@ def detect_missed_opportunities(now: datetime | None = None) -> list[dict]:
 
     Exclut la catégorie ``home`` (rentrer chez soi n'est pas une « opportunité »).
     """
-    now = now or datetime.now()
+    now = sqlite_utc_datetime(now) if now is not None else utc_datetime()
     results = []
     for place in get_favorite_places(limit=None):
         if place.get("category") == "home":
@@ -73,7 +74,7 @@ def check_and_notify_weekly() -> list[dict]:
     if not opportunities:
         return []
 
-    week_key = datetime.now().strftime("%G-W%V")
+    week_key = local_datetime().strftime("%G-W%V")
     title = f"Lieux délaissés ({week_key})"
     with get_db() as conn:
         already = conn.execute(

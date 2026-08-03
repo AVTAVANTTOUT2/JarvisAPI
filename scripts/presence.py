@@ -19,10 +19,15 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 import config
 from database import close_presence_session, get_db, open_presence_session
+from database.time_buckets import (
+    local_datetime,
+    sqlite_utc_timestamp,
+    utc_bounds_for_local_day,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +57,7 @@ class PresenceDetector:
             return None
 
         self.present = True
-        self.arrived_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.arrived_at = sqlite_utc_timestamp(datetime.fromtimestamp(now, tz=timezone.utc))
         try:
             self._session_id = open_presence_session(self.arrived_at)
         except Exception as e:
@@ -73,7 +78,9 @@ class PresenceDetector:
             return None
 
         self.present = False
-        left_at = datetime.fromtimestamp(self.last_sound).strftime("%Y-%m-%d %H:%M:%S")
+        left_at = sqlite_utc_timestamp(
+            datetime.fromtimestamp(self.last_sound, tz=timezone.utc)
+        )
         if self._session_id is not None:
             try:
                 close_presence_session(self._session_id, left_at)
@@ -98,12 +105,12 @@ class PresenceDetector:
 
 def get_today_sessions() -> list[dict]:
     """Sessions de présence du jour (la plus récente en premier)."""
-    today = datetime.now().strftime("%Y-%m-%d")
+    start_utc, end_utc = utc_bounds_for_local_day(local_datetime().date())
     with get_db() as conn:
         rows = conn.execute(
             """SELECT id, arrived_at, left_at, duration_min FROM presence_sessions
-               WHERE DATE(arrived_at) = ? ORDER BY arrived_at DESC""",
-            (today,),
+               WHERE arrived_at >= ? AND arrived_at < ? ORDER BY arrived_at DESC""",
+            (start_utc, end_utc),
         ).fetchall()
         return [dict(r) for r in rows]
 

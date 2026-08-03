@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sys
-from datetime import datetime, timedelta
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -25,8 +25,9 @@ def tmp_db(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
 
 
 def _client():
-    import main
     from fastapi.testclient import TestClient
+
+    import main
 
     return TestClient(main.app)
 
@@ -70,8 +71,9 @@ async def test_name_place_refuses_without_location(tmp_db):
 async def test_name_place_creates_when_recent_location(tmp_db):
     import actions
     from database import get_db
+    from database.time_buckets import sqlite_utc_timestamp
 
-    now = datetime.now().isoformat(timespec="seconds")
+    now = sqlite_utc_timestamp()
     with get_db() as conn:
         conn.execute(
             """INSERT INTO location_history
@@ -97,8 +99,9 @@ async def test_name_place_creates_when_recent_location(tmp_db):
 @pytest.mark.asyncio
 async def test_name_place_rejects_stale_location(tmp_db):
     import actions
+    from database.time_buckets import sqlite_utc_timestamp, utc_datetime
 
-    stale = (datetime.now() - timedelta(minutes=30)).isoformat(timespec="seconds")
+    stale = sqlite_utc_timestamp(utc_datetime() - timedelta(minutes=30))
     from database import get_db
 
     with get_db() as conn:
@@ -176,10 +179,11 @@ def test_location_history_endpoint_exposes_android_point_when_tracking_disabled(
     monkeypatch: pytest.MonkeyPatch,
 ):
     from database import get_db
+    from database.time_buckets import sqlite_utc_timestamp
     from tests.conftest import authenticate
 
     monkeypatch.setattr("config.LOCATION_TRACKING", False)
-    captured_at = datetime.now().isoformat(timespec="seconds")
+    captured_at = sqlite_utc_timestamp()
     with get_db() as conn:
         conn.execute(
             """INSERT INTO location_history
@@ -210,7 +214,9 @@ def test_location_status_returns_last_known_even_when_stale_and_tracking_disable
     from tests.conftest import authenticate
 
     monkeypatch.setattr("config.LOCATION_TRACKING", False)
-    stale_at = (datetime.now() - timedelta(minutes=25)).isoformat(timespec="seconds")
+    from database.time_buckets import sqlite_utc_timestamp, utc_datetime
+
+    stale_at = sqlite_utc_timestamp(utc_datetime() - timedelta(minutes=25))
     with get_db() as conn:
         conn.execute(
             """INSERT INTO location_history
@@ -236,10 +242,11 @@ def test_location_status_returns_last_known_even_when_stale_and_tracking_disable
 
 
 def test_get_current_location_still_requires_recent_point_for_name_place(tmp_db):
-    from database.location_helpers import get_current_location, get_last_known_location
     from database import get_db
+    from database.location_helpers import get_current_location, get_last_known_location
+    from database.time_buckets import sqlite_utc_timestamp, utc_datetime
 
-    stale_at = (datetime.now() - timedelta(minutes=25)).isoformat(timespec="seconds")
+    stale_at = sqlite_utc_timestamp(utc_datetime() - timedelta(minutes=25))
     with get_db() as conn:
         conn.execute(
             """INSERT INTO location_history

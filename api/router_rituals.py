@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
+
+from database.time_buckets import local_datetime
 
 router = APIRouter()
 logger = logging.getLogger("jarvis")
@@ -21,13 +22,13 @@ class DndEnableRequest(BaseModel):
 @router.get("/api/rituals/today")
 async def api_rituals_today():
     """Rituels du jour : roast, debrief, citation, score productivité."""
+    from database import get_daily_ritual
     from scripts.rituals import compute_productivity_score
 
-    from database import get_daily_ritual
-
-    row = get_daily_ritual(datetime.now().strftime("%Y-%m-%d")) or {}
+    today = local_datetime().date().isoformat()
+    row = get_daily_ritual(today) or {}
     return {
-        "date": datetime.now().strftime("%Y-%m-%d"),
+        "date": today,
         "roast": row.get("roast"),
         "debrief": row.get("debrief"),
         "quote": row.get("quote"),

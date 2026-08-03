@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-03T22:44:44.121892+00:00",
+  "generated_at": "2026-08-03T23:09:52.960837+00:00",
   "repo_root": ".",
   "canonical_formulation": {
     "database": "Le projet crée 90 tables persistantes après init_db() + migrations, plus jusqu'à 5 objets FTS5, soit 95 tables physiques lorsque FTS5 est disponible.",
@@ -530,7 +530,7 @@
         "method": "DELETE",
         "path": "/api/dnd",
         "source": "api/router_rituals.py",
-        "line": 79,
+        "line": 80,
         "consumers": {},
         "tests": [
           "tests/test_misc_input_contracts.py"
@@ -618,7 +618,7 @@
         "method": "DELETE",
         "path": "/api/places/{place_id}",
         "source": "api/router_location.py",
-        "line": 400,
+        "line": 405,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -1260,7 +1260,7 @@
         "method": "GET",
         "path": "/api/dnd",
         "source": "api/router_rituals.py",
-        "line": 61,
+        "line": 62,
         "consumers": {},
         "tests": [
           "tests/test_misc_input_contracts.py"
@@ -1826,7 +1826,7 @@
         "method": "GET",
         "path": "/api/location/history",
         "source": "api/router_location.py",
-        "line": 426,
+        "line": 431,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -1846,7 +1846,7 @@
         "method": "GET",
         "path": "/api/location/patterns",
         "source": "api/router_location.py",
-        "line": 454,
+        "line": 459,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -1862,7 +1862,7 @@
         "method": "GET",
         "path": "/api/location/status",
         "source": "api/router_location.py",
-        "line": 419,
+        "line": 424,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -1980,7 +1980,7 @@
         "method": "GET",
         "path": "/api/mobile/location/diagnostics",
         "source": "api/router_location.py",
-        "line": 356,
+        "line": 361,
         "consumers": {
           "android": [
             "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
@@ -2199,7 +2199,7 @@
         "method": "GET",
         "path": "/api/places",
         "source": "api/router_location.py",
-        "line": 365,
+        "line": 370,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -2253,7 +2253,7 @@
         "method": "GET",
         "path": "/api/places/{place_id}/stats",
         "source": "api/router_location.py",
-        "line": 410,
+        "line": 415,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -2489,7 +2489,7 @@
         "method": "GET",
         "path": "/api/rituals/today",
         "source": "api/router_rituals.py",
-        "line": 21,
+        "line": 22,
         "consumers": {},
         "tests": [],
         "non_frontend_ownership": {
@@ -2731,7 +2731,7 @@
         "method": "GET",
         "path": "/api/trips",
         "source": "api/router_location.py",
-        "line": 447,
+        "line": 452,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -2750,7 +2750,7 @@
         "method": "GET",
         "path": "/api/visits",
         "source": "api/router_location.py",
-        "line": 433,
+        "line": 438,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -2766,7 +2766,7 @@
         "method": "GET",
         "path": "/api/visits/today",
         "source": "api/router_location.py",
-        "line": 440,
+        "line": 445,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -3812,7 +3812,7 @@
         "method": "POST",
         "path": "/api/dnd",
         "source": "api/router_rituals.py",
-        "line": 69,
+        "line": 70,
         "consumers": {},
         "tests": [
           "tests/test_misc_input_contracts.py"
@@ -4301,7 +4301,7 @@
         "method": "POST",
         "path": "/api/location",
         "source": "api/router_location.py",
-        "line": 182,
+        "line": 187,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -4323,7 +4323,7 @@
         "method": "POST",
         "path": "/api/location/batch",
         "source": "api/router_location.py",
-        "line": 213,
+        "line": 218,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -4344,7 +4344,7 @@
         "method": "POST",
         "path": "/api/location/name-current",
         "source": "api/router_location.py",
-        "line": 461,
+        "line": 466,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -4726,7 +4726,7 @@
         "method": "POST",
         "path": "/api/places",
         "source": "api/router_location.py",
-        "line": 372,
+        "line": 377,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -4887,7 +4887,7 @@
         "method": "POST",
         "path": "/api/rituals/{ritual}/run",
         "source": "api/router_rituals.py",
-        "line": 39,
+        "line": 40,
         "consumers": {},
         "tests": [],
         "non_frontend_ownership": {
@@ -5036,7 +5036,7 @@
         "method": "PUT",
         "path": "/api/places/{place_id}",
         "source": "api/router_location.py",
-        "line": 388,
+        "line": 393,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"

@@ -51,15 +51,17 @@ def _day_facts(date: str) -> dict:
         ).fetchone()[0]
         tasks_done = [
             r["title"] for r in conn.execute(
-                "SELECT title FROM tasks WHERE status = 'done' AND DATE(completed_at) = ?", (date,)
+                "SELECT title FROM tasks WHERE status = 'done' "
+                "AND completed_at >= ? AND completed_at < ?",
+                (start_utc, end_utc),
             )
         ]
         visits = [
             r["place_name"] for r in conn.execute(
                 """SELECT p.name AS place_name FROM visits v
                    JOIN places p ON p.id = v.place_id
-                   WHERE DATE(v.arrived_at) = ? ORDER BY v.arrived_at""",
-                (date,),
+                   WHERE v.arrived_at >= ? AND v.arrived_at < ? ORDER BY v.arrived_at""",
+                (start_utc, end_utc),
             )
         ]
         mood_row = conn.execute(

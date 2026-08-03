@@ -608,6 +608,62 @@ def _migrate_app_settings(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_local_activity_timestamps_to_utc(conn: sqlite3.Connection) -> None:
+    """Convertit une fois les anciens instants locaux naïfs en UTC SQLite.
+
+    Jusqu'à cette migration, la localisation et la présence écrivaient avec
+    ``datetime.now()`` tandis que le reste du schéma reposait principalement
+    sur ``CURRENT_TIMESTAMP`` (UTC). Les valeurs avec offset reçues des clients
+    sont elles aussi canonicalisées. Le marqueur rend la transformation
+    transactionnelle et strictement idempotente.
+    """
+    marker = "timestamp_storage_utc_v1"
+    if conn.execute(
+        "SELECT 1 FROM app_settings WHERE key = ?", (marker,)
+    ).fetchone():
+        return
+
+    from database.time_buckets import sqlite_utc_timestamp
+
+    timestamp_columns = {
+        "location_history": ("created_at",),
+        "visits": ("arrived_at", "departed_at"),
+        "trips": ("started_at", "ended_at"),
+        "presence_sessions": ("arrived_at", "left_at"),
+        "places": ("last_visit",),
+    }
+    for table, columns in timestamp_columns.items():
+        existing_columns = {
+            str(row[1]) for row in conn.execute(f"PRAGMA table_info({table})")
+        }
+        for column in columns:
+            if column not in existing_columns:
+                continue
+            rows = conn.execute(
+                f"SELECT rowid, {column} FROM {table} WHERE {column} IS NOT NULL"
+            ).fetchall()
+            for rowid, raw_value in rows:
+                try:
+                    canonical = sqlite_utc_timestamp(str(raw_value))
+                except (TypeError, ValueError):
+                    logger.warning(
+                        "Timestamp historique invalide ignoré: %s.%s rowid=%s",
+                        table,
+                        column,
+                        rowid,
+                    )
+                    continue
+                conn.execute(
+                    f"UPDATE {table} SET {column} = ? WHERE rowid = ?",
+                    (canonical, rowid),
+                )
+
+    conn.execute(
+        "INSERT INTO app_settings (key, value) VALUES (?, CURRENT_TIMESTAMP)",
+        (marker,),
+    )
+
+
 def _migrate_conversations(conn: sqlite3.Connection) -> None:
     """Ajoute les colonnes enrichies à la table conversations (idempotent)."""
     migrations = [
@@ -1238,6 +1294,7 @@ def run_migrations(conn: sqlite3.Connection) -> None:
     _migrate_conversations(conn)
     _migrate_conversation_document_consent(conn)
     _migrate_app_settings(conn)
+    _migrate_local_activity_timestamps_to_utc(conn)
     _migrate_email_summaries(conn)
     _migrate_message_insights(conn)
     _migrate_devagent(conn)

@@ -80,11 +80,13 @@ def _day_summary_for_scoring(date: str) -> dict:
     start_utc, end_utc = utc_bounds_for_local_day(date)
     with get_db() as conn:
         tasks_done = conn.execute(
-            "SELECT COUNT(*) FROM tasks WHERE status = 'done' AND DATE(completed_at) = ?", (date,)
+            "SELECT COUNT(*) FROM tasks WHERE status = 'done' "
+            "AND completed_at >= ? AND completed_at < ?",
+            (start_utc, end_utc),
         ).fetchone()[0]
         tasks_overdue = conn.execute(
             "SELECT COUNT(*) FROM tasks WHERE status != 'done' AND due_date IS NOT NULL "
-            "AND DATE(due_date) = ?",
+            "AND substr(due_date, 1, 10) = ?",
             (date,),
         ).fetchone()[0]
         mood_row = conn.execute(
