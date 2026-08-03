@@ -22,14 +22,21 @@ CONVERSATION_MUTABLE_FIELDS: frozenset[str] = frozenset(
 )
 
 
-def save_message(conversation_id: int, role: str, content: str,
-                 agent: str = None, model: str = None,
-                 tokens_in: int = 0, tokens_out: int = 0, cost: float = 0.0) -> int:
+def save_message(
+    conversation_id: int,
+    role: str,
+    content: str,
+    agent: str = None,
+    model: str = None,
+    tokens_in: int = 0,
+    tokens_out: int = 0,
+    cost: float = 0.0,
+) -> int:
     with get_db() as conn:
         cur = conn.execute(
             """INSERT INTO messages (conversation_id, role, content, agent, model, tokens_in, tokens_out, cost)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (conversation_id, role, content, agent, model, tokens_in, tokens_out, cost)
+            (conversation_id, role, content, agent, model, tokens_in, tokens_out, cost),
         )
         message_id = int(cur.lastrowid)
     event_bus.emit_nowait(MessageSent(conversation_id, message_id, role, content))
@@ -87,9 +94,7 @@ def update_agentic_workflow(
 
 def create_conversation(agent: str = None) -> int:
     with get_db() as conn:
-        cur = conn.execute(
-            "INSERT INTO conversations (agent) VALUES (?)", (agent,)
-        )
+        cur = conn.execute("INSERT INTO conversations (agent) VALUES (?)", (agent,))
         conversation_id = int(cur.lastrowid)
     event_bus.emit_nowait(
         ConversationUpdated(conversation_id, {"created": True, "agent": agent})
@@ -101,14 +106,15 @@ def end_conversation(conv_id: int, summary: str = None) -> None:
     with get_db() as conn:
         conn.execute(
             "UPDATE conversations SET ended_at = ?, summary = ? WHERE id = ?",
-            (datetime.now().isoformat(), summary, conv_id)
+            (datetime.now().isoformat(), summary, conv_id),
         )
 
 
 def get_conversations(limit: int = 50, archived: bool = False) -> list[dict]:
     """Liste des conversations triées par dernière activité."""
     with get_db() as conn:
-        rows = conn.execute("""
+        rows = conn.execute(
+            """
             SELECT c.*,
                 (SELECT content FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) as last_message,
                 (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id) as msg_count
@@ -116,14 +122,18 @@ def get_conversations(limit: int = 50, archived: bool = False) -> list[dict]:
             WHERE COALESCE(c.archived, 0) = ?
             ORDER BY COALESCE(c.last_message_at, c.started_at) DESC
             LIMIT ?
-        """, (1 if archived else 0, limit)).fetchall()
+        """,
+            (1 if archived else 0, limit),
+        ).fetchall()
         return [dict(r) for r in rows]
 
 
 def get_conversation_detail(conv_id: int) -> dict | None:
     """Retourne la conversation avec ses messages et documents."""
     with get_db() as conn:
-        row = conn.execute("SELECT * FROM conversations WHERE id = ?", (conv_id,)).fetchone()
+        row = conn.execute(
+            "SELECT * FROM conversations WHERE id = ?", (conv_id,)
+        ).fetchone()
         if not row:
             return None
         result = dict(row)
@@ -132,11 +142,10 @@ def get_conversation_detail(conv_id: int) -> dict | None:
             """SELECT id, original_name, file_type, file_size, summary,
                       cloud_consent, created_at
                FROM conversation_documents WHERE conversation_id = ?""",
-            (conv_id,)
+            (conv_id,),
         ).fetchall()
         result["documents"] = [
-            {**dict(d), "cloud_consent": bool(d["cloud_consent"])}
-            for d in docs
+            {**dict(d), "cloud_consent": bool(d["cloud_consent"])} for d in docs
         ]
         return result
 
@@ -163,16 +172,36 @@ def update_conversation(conv_id: int, **kwargs: Any) -> bool:
 def update_conversation_activity(conv_id: int) -> None:
     """Met à jour last_message_at et message_count après chaque message."""
     with get_db() as conn:
-        conn.execute("""
+        conn.execute(
+            """
             UPDATE conversations SET
                 last_message_at = CURRENT_TIMESTAMP,
                 message_count = (SELECT COUNT(*) FROM messages WHERE conversation_id = ?)
             WHERE id = ?
-        """, (conv_id, conv_id))
+        """,
+            (conv_id, conv_id),
+        )
+
+
+def _conversation_event_ids(conn: sqlite3.Connection, conv_id: int) -> list[int]:
+    """Résout les traces contenant encore des données de la conversation."""
+    event_ids: list[int] = []
+    rows = conn.execute("""
+        SELECT id, payload_json FROM event_log
+        WHERE event_type IN ('conversation.updated', 'message.sent')
+        """).fetchall()
+    for row in rows:
+        try:
+            payload = json.loads(row["payload_json"])
+        except (TypeError, json.JSONDecodeError):
+            continue
+        if payload.get("conversation_id") == conv_id:
+            event_ids.append(int(row["id"]))
+    return event_ids
 
 
 def delete_conversation(conv_id: int) -> bool:
-    """Supprime une conversation, ses références DB et ses fichiers gérés."""
+    """Purge transactionnellement toute donnée rattachée à une conversation."""
     document_paths: list[str] = []
     with get_db() as conn:
         exists = conn.execute(
@@ -188,6 +217,28 @@ def delete_conversation(conv_id: int) -> bool:
             ).fetchall()
             if row["file_path"]
         ]
+
+        recording_ids = [
+            int(row["id"])
+            for row in conn.execute(
+                "SELECT id FROM recordings WHERE conversation_id = ?",
+                (conv_id,),
+            ).fetchall()
+        ]
+        if recording_ids:
+            recording_placeholders = ", ".join("?" for _ in recording_ids)
+            conn.execute(
+                f"DELETE FROM conversation_turns "
+                f"WHERE recording_id IN ({recording_placeholders})",
+                recording_ids,
+            )
+        conn.execute("DELETE FROM recordings WHERE conversation_id = ?", (conv_id,))
+        conn.execute(
+            "DELETE FROM agentic_workflows WHERE conversation_id = ?", (conv_id,)
+        )
+        conn.execute(
+            "DELETE FROM mobile_chat_dedup WHERE conversation_id = ?", (conv_id,)
+        )
         conn.execute("DELETE FROM messages WHERE conversation_id = ?", (conv_id,))
         if document_paths:
             placeholders = ", ".join("?" for _ in document_paths)
@@ -197,7 +248,17 @@ def delete_conversation(conv_id: int) -> bool:
                 f"DELETE FROM school_documents WHERE file_path IN ({placeholders})",
                 document_paths,
             )
-        conn.execute("DELETE FROM conversation_documents WHERE conversation_id = ?", (conv_id,))
+        conn.execute(
+            "DELETE FROM conversation_documents WHERE conversation_id = ?", (conv_id,)
+        )
+
+        event_ids = _conversation_event_ids(conn, conv_id)
+        if event_ids:
+            event_placeholders = ", ".join("?" for _ in event_ids)
+            conn.execute(
+                f"DELETE FROM event_log WHERE id IN ({event_placeholders})",
+                event_ids,
+            )
         cursor = conn.execute("DELETE FROM conversations WHERE id = ?", (conv_id,))
         deleted = cursor.rowcount > 0
 
@@ -224,7 +285,8 @@ def search_conversations(query: str, limit: int = 20) -> list[dict]:
         fts_q = _fts_query(q)
         if fts_q and _fts_available(conn):
             try:
-                rows = conn.execute("""
+                rows = conn.execute(
+                    """
                     SELECT c.id, c.title, c.started_at, c.last_message_at, c.message_count,
                            m.content AS matching_message, MAX(m.created_at) AS match_date
                     FROM messages_fts f
@@ -234,25 +296,31 @@ def search_conversations(query: str, limit: int = 20) -> list[dict]:
                     GROUP BY c.id
                     ORDER BY match_date DESC
                     LIMIT ?
-                """, (fts_q, limit)).fetchall()
+                """,
+                    (fts_q, limit),
+                ).fetchall()
             except sqlite3.OperationalError as e:
                 logger.warning("search_conversations FTS (%s) — fallback LIKE", e)
                 rows = []
             if rows:
                 # L'index FTS ne couvre que le contenu — ajoute les matchs de titre.
                 seen = {r["id"] for r in rows}
-                title_rows = conn.execute("""
+                title_rows = conn.execute(
+                    """
                     SELECT c.id, c.title, c.started_at, c.last_message_at, c.message_count,
                            NULL AS matching_message, c.last_message_at AS match_date
                     FROM conversations c
                     WHERE c.title LIKE ?
                     ORDER BY c.last_message_at DESC
                     LIMIT ?
-                """, (f"%{q}%", limit)).fetchall()
+                """,
+                    (f"%{q}%", limit),
+                ).fetchall()
                 rows = list(rows) + [r for r in title_rows if r["id"] not in seen]
                 rows = rows[:limit]
         if not rows:
-            rows = conn.execute("""
+            rows = conn.execute(
+                """
                 SELECT c.id, c.title, c.started_at, c.last_message_at, c.message_count,
                        m.content AS matching_message, MAX(m.created_at) AS match_date
                 FROM conversations c
@@ -261,7 +329,9 @@ def search_conversations(query: str, limit: int = 20) -> list[dict]:
                 GROUP BY c.id
                 ORDER BY match_date DESC
                 LIMIT ?
-            """, (f"%{q}%", f"%{q}%", limit)).fetchall()
+            """,
+                (f"%{q}%", f"%{q}%", limit),
+            ).fetchall()
         return [dict(r) for r in rows]
 
 
@@ -278,15 +348,25 @@ def save_conversation_document(
 ) -> int:
     """Enregistre un document attaché à une conversation."""
     with get_db() as conn:
-        cur = conn.execute("""
+        cur = conn.execute(
+            """
             INSERT INTO conversation_documents
                 (conversation_id, filename, original_name, file_path, file_type,
                  file_size, extracted_text, summary, cloud_consent)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            conv_id, filename, original_name, file_path, file_type, file_size,
-            extracted_text, summary, 1 if cloud_consent else 0,
-        ))
+        """,
+            (
+                conv_id,
+                filename,
+                original_name,
+                file_path,
+                file_type,
+                file_size,
+                extracted_text,
+                summary,
+                1 if cloud_consent else 0,
+            ),
+        )
         return cur.lastrowid
 
 
@@ -295,7 +375,7 @@ def get_conversation_documents(conv_id: int) -> list[dict]:
     with get_db() as conn:
         rows = conn.execute(
             "SELECT * FROM conversation_documents WHERE conversation_id = ? ORDER BY created_at",
-            (conv_id,)
+            (conv_id,),
         ).fetchall()
         return [dict(r) for r in rows]
 
@@ -321,21 +401,17 @@ def get_conversation_history(conv_id: int, limit: int = 50) -> list:
 def get_last_conversation_summary() -> str | None:
     """Résumé textuel de la conversation terminée la plus récente (si présent)."""
     with get_db() as conn:
-        row = conn.execute(
-            """SELECT summary FROM conversations
+        row = conn.execute("""SELECT summary FROM conversations
                WHERE summary IS NOT NULL AND TRIM(summary) != ''
                  AND ended_at IS NOT NULL
-               ORDER BY datetime(ended_at) DESC LIMIT 1"""
-        ).fetchone()
+               ORDER BY datetime(ended_at) DESC LIMIT 1""").fetchone()
     if not row or not row["summary"]:
         return None
     s = str(row["summary"]).strip()
     return s or None
 
 
-def get_messages_since(
-    since_id: int, limit: int = 50
-) -> list[dict[str, Any]]:
+def get_messages_since(since_id: int, limit: int = 50) -> list[dict[str, Any]]:
     """Récupère les messages (table messages) postérieurs à ``since_id``.
 
     Args:
@@ -382,9 +458,7 @@ def save_message_insight(
             _json.loads(raw_response)
         except (_json.JSONDecodeError, ValueError):
             # Enveloppe le texte brut dans un JSON pour éviter les corruptions.
-            raw_response = _json.dumps(
-                {"raw": raw_response}, ensure_ascii=False
-            )
+            raw_response = _json.dumps({"raw": raw_response}, ensure_ascii=False)
 
     with get_db() as conn:
         cur = conn.execute(

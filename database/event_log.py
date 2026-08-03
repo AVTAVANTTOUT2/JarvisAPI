@@ -17,6 +17,15 @@ def _persist_event(event: JarvisEvent) -> None:
     if not _current_db_path().exists():
         return
     with get_db() as conn:
+        conversation_id = event.payload.get("conversation_id")
+        if event.event_type in {"conversation.updated", "message.sent"} and isinstance(
+            conversation_id, int
+        ):
+            exists = conn.execute(
+                "SELECT 1 FROM conversations WHERE id = ?", (conversation_id,)
+            ).fetchone()
+            if exists is None:
+                return
         conn.execute(
             """
             INSERT OR IGNORE INTO event_log
@@ -29,7 +38,9 @@ def _persist_event(event: JarvisEvent) -> None:
                 event.version,
                 event.timestamp,
                 event.source,
-                json.dumps(event.payload, ensure_ascii=False, sort_keys=True, default=str),
+                json.dumps(
+                    event.payload, ensure_ascii=False, sort_keys=True, default=str
+                ),
                 event.checksum,
             ),
         )
