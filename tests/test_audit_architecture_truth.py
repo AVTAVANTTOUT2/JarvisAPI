@@ -127,6 +127,12 @@ def fake_repo(tmp_path: Path) -> Path:
         "client.get('/api/operator')\n",
         encoding="utf-8",
     )
+    android_main = tmp_path / "android" / "app" / "src" / "main"
+    android_main.mkdir(parents=True)
+    (android_main / "Api.kt").write_text(
+        '@POST("api/jobs/{job_id}")\nfun runJob()\n',
+        encoding="utf-8",
+    )
     (tmp_path / "core").mkdir()
     (tmp_path / "core" / "frontend_resolution.py").write_text(
         "def is_usable_next_build(p): ...\n"
@@ -201,7 +207,8 @@ def test_api_surface_maps_routes_to_consumers_and_tests(fake_repo: Path) -> None
     }
     by_path = {route["path"]: route for route in surface["routes"]}
     assert by_path["/api/jobs/{job_id}"]["consumers"] == {
-        "frontend_next": ["frontend/src/api.ts"]
+        "android": ["android/app/src/main/Api.kt"],
+        "frontend_next": ["frontend/src/api.ts"],
     }
     assert by_path["/api/jobs/{job_id}"]["tests"] == ["tests/test_api.py"]
     assert by_path["/api/operator"]["classification"] == "server_only_tested"
