@@ -6,8 +6,10 @@ import logging
 import re
 from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException, Path, Query
+from fastapi import APIRouter, HTTPException, Path, Query, Request
 from pydantic import BaseModel, Field, field_validator
+
+from core.network_security import is_loopback_request
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["cognitive"])
@@ -84,6 +86,28 @@ def _validate_job_id(job_id: str) -> str:
     return job_id
 
 
+def _require_cursor_diagnostic_access(request: Request, *, diagnostic: bool) -> None:
+    """Réserve les vues Cursor détaillées aux sessions ouvertes en local."""
+    if diagnostic and not is_loopback_request(request):
+        raise HTTPException(403, "Diagnostic Cursor autorisé uniquement en local")
+
+
+def _audit_cursor_diagnostic_access(*, scope: str, job_id: str | None = None) -> None:
+    """Trace durable et minimale d'un accès à une vue Cursor détaillée."""
+    from database import log_llm_action
+
+    try:
+        log_llm_action(
+            "cursor",
+            "cursor_diagnostic_access",
+            {"scope": scope, "job_id": job_id},
+            "success",
+        )
+    except Exception:
+        logger.exception("[cursor] impossible de journaliser l'accès diagnostic")
+        raise HTTPException(503, "Journal d'audit Cursor indisponible")
+
+
 @router.post("/cognitive/route")
 async def cognitive_route(body: RouteRequest) -> dict[str, Any]:
     from jarvis.cognitive import route_request
@@ -138,6 +162,7 @@ async def cursor_status() -> dict[str, Any]:
 
 @router.get("/cursor/jobs")
 async def cursor_jobs(
+    request: Request,
     limit: int = Query(50, ge=1, le=200),
     status: str | None = None,
     diagnostic: bool = Query(False, description="Vue diagnostic (toujours redacted)"),
@@ -145,8 +170,11 @@ async def cursor_jobs(
     from database.cursor_jobs import VALID_STATUSES
     from integrations.cursor_delegation import cursor_delegation
 
+    _require_cursor_diagnostic_access(request, diagnostic=diagnostic)
     if status is not None and status not in VALID_STATUSES:
         raise HTTPException(400, f"statut invalide: {status}")
+    if diagnostic:
+        _audit_cursor_diagnostic_access(scope="list")
 
     return {
         "ok": True,
@@ -158,12 +186,16 @@ async def cursor_jobs(
 
 @router.get("/cursor/jobs/{job_id}")
 async def cursor_job_detail(
+    request: Request,
     job_id: str = Path(..., min_length=10, max_length=64),
     diagnostic: bool = Query(False),
 ) -> dict[str, Any]:
     from integrations.cursor_delegation import cursor_delegation
 
     _validate_job_id(job_id)
+    _require_cursor_diagnostic_access(request, diagnostic=diagnostic)
+    if diagnostic:
+        _audit_cursor_diagnostic_access(scope="detail", job_id=job_id)
     job = cursor_delegation.get_job(job_id, public=not diagnostic, diagnostic=diagnostic)
     if not job:
         raise HTTPException(404, f"Job {job_id} introuvable")

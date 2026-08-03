@@ -19,6 +19,24 @@ logger = logging.getLogger(__name__)
 _FAST = lambda: getattr(config, "VOICE_REASONING_MODEL", None) or config.DEEPSEEK_FAST_MODEL
 _MAIN = lambda: getattr(config, "MAIN_REASONING_MODEL", None) or config.DEEPSEEK_MAIN_MODEL
 
+
+def _cursor_available() -> bool:
+    """Capacité Cursor courante, partagée par tous les chemins de routage."""
+    available = bool(getattr(config, "CURSOR_DELEGATION_ENABLED", True))
+    if not available:
+        return False
+    try:
+        from integrations.cursor_delegation import cursor_delegation
+
+        cached = cursor_delegation._cli_info
+        if cached is not None:
+            available = bool(cached.available) and cached.authenticated is not False
+    except Exception:
+        # Cache indisponible : l'enqueue effectue la validation autoritative.
+        pass
+    return available
+
+
 # Signaux techniques FORTS → Cursor directement (action de code explicite)
 _TECH_STRONG_PATTERNS = (
     r"\b(stack\s*trace|traceback|crash\s+loop|exception\s+backend)\b",
@@ -191,20 +209,7 @@ class CognitiveRouter:
 
         # 3) Exécution technique → Cursor (si la capacité est disponible)
         if is_tech:
-            # Lecture directe de la config + cache CLI (pas le singleton du
-            # registre : il peut être rafraîchi après un changement de config).
-            cursor_available = bool(getattr(config, "CURSOR_DELEGATION_ENABLED", True))
-            if cursor_available:
-                try:
-                    from integrations.cursor_delegation import cursor_delegation
-
-                    cached = cursor_delegation._cli_info
-                    if cached is not None:
-                        cursor_available = (
-                            bool(cached.available) and cached.authenticated is not False
-                        )
-                except Exception:  # cache indisponible → optimiste, l'enqueue revalidera
-                    pass
+            cursor_available = _cursor_available()
             template = _detect_template(folded)
             ack = _VOICE_ACK_FEATURE if "feature" in template or "ajoute" in folded else _VOICE_ACK_CURSOR
             if cursor_available:
@@ -312,6 +317,11 @@ class CognitiveRouter:
                 model=_FAST(),
             )
             if label == "CURSOR":
+                if not _cursor_available():
+                    intent.reason = (
+                        "classification LLM Cursor ignorée : capacité indisponible"
+                    )
+                    return intent
                 # Le LLM propose seulement — confirmation toujours requise.
                 intent.execution_type = "cursor"
                 intent.domain = "dev"

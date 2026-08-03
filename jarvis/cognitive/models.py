@@ -7,7 +7,7 @@ from typing import Any, Literal
 
 InteractionMode = Literal["voice", "chat", "imessage", "scheduled", "loop", "android"]
 Complexity = Literal["instant", "standard", "heavy"]
-ExecutionType = Literal["answer", "tool", "cursor", "workflow"]
+ExecutionType = Literal["answer", "tool", "cursor"]
 RiskLevel = Literal["low", "medium", "high", "critical"]
 
 

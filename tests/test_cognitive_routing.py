@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -77,6 +78,24 @@ def test_tech_without_cursor_falls_back_to_honest_answer(monkeypatch):
     assert "indisponible" in intent.reason
 
 
+def test_async_fallback_cannot_offer_unavailable_cursor(monkeypatch):
+    import config
+    import llm
+
+    async def classify_as_cursor(*_args, **_kwargs):
+        return "CURSOR"
+
+    monkeypatch.setattr(config, "CURSOR_DELEGATION_ENABLED", False)
+    monkeypatch.setattr(llm, "quick_classify", classify_as_cursor)
+
+    intent = asyncio.run(
+        CognitiveRouter().route_async("Bonjour Jarvis", use_llm_fallback=True)
+    )
+
+    assert intent.execution_type == "answer"
+    assert "capacité indisponible" in intent.reason
+
+
 def test_tech_explain_stays_on_deepseek():
     intent = route_request(
         "Explique-moi ce que est une migration SQL",
@@ -115,6 +134,14 @@ def test_capability_registry_lists_cursor():
     names = {c["name"] for c in reg.list_all()}
     assert "cursor.delegate" in names
     assert "screen_watcher.vision" in names
+
+
+def test_ollama_capability_mentions_every_business_use():
+    reg = get_capability_registry()
+    reg.refresh()
+    screen = next(c for c in reg.list_all() if c["name"] == "screen_watcher.vision")
+    assert "écran" in screen["description"]
+    assert "photo fitness" in screen["description"]
 
 
 def test_parse_cursor_result_completed():
@@ -166,8 +193,9 @@ def test_ollama_guard_blocks_foreign_caller():
     import inspect
 
     frames = inspect.stack()
-    with pytest.raises(OllamaPolicyError):
+    with pytest.raises(OllamaPolicyError) as exc:
         assert_ollama_caller_allowed(frames)
+    assert "app/fitness/meal_analysis.py" in str(exc.value)
 
 
 def test_ollama_guard_blocks_real_http_entrypoint():

@@ -5,12 +5,12 @@ from __future__ import annotations
 import json
 import secrets
 from datetime import datetime, timedelta, timezone
-from urllib.parse import urlsplit
 
 from fastapi import APIRouter, HTTPException, Request, Response
 
 import auth
 import config
+from core.network_security import is_loopback_request
 
 router = APIRouter()
 
@@ -55,13 +55,8 @@ def _raise_if_rate_limited(
 
 
 def _is_loopback(request: Request) -> bool:
-    if _client_ip(request) not in {"127.0.0.1", "::1"}:
-        return False
-    try:
-        hostname = urlsplit(f"//{request.headers.get('host', '')}").hostname
-    except ValueError:
-        return False
-    return hostname in {"localhost", "127.0.0.1", "::1"}
+    """Compatibilité interne ; la politique commune vit dans ``core``."""
+    return is_loopback_request(request)
 
 
 def _require_browser_session(request: Request) -> dict:

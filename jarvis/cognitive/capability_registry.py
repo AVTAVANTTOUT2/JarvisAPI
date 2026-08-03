@@ -120,7 +120,8 @@ class CapabilityRegistry:
                 "screen_watcher.vision",
                 bool(getattr(config, "SCREEN_WATCHER_ENABLED", True)),
                 "low", False, "system",
-                "Analyse visuelle locale via Ollama (seul usage Ollama autorisé)",
+                "Analyse d'écran locale via Ollama "
+                "(également autorisé pour l'analyse photo fitness)",
                 ("OLLAMA_URL",),
             ),
             "voice.stt": Capability(
