@@ -10,6 +10,38 @@ const MEALS = {
   diner: 'Dîner',
   collation: 'Collation',
 };
+const PROGRAM_NUMBER_FIELDS = [
+  ['calories_min', 'Calories min', 0, 20000],
+  ['calories_max', 'Calories max', 0, 20000],
+  ['protein_min_g', 'Protéines min', 0, 1000],
+  ['protein_max_g', 'Protéines max', 0, 1000],
+  ['weekly_min_sessions', 'Séances minimum', 1, 7],
+  ['reminder_interval_min', 'Rappel toutes les min', 30, 720],
+];
+
+function validateProgramSettings(fields, reminderTime) {
+  const payload = {};
+  for (const [key, label, min, max] of PROGRAM_NUMBER_FIELDS) {
+    const raw = fields.get(key).value.trim();
+    if (!raw) return { error: `${label} est requis.` };
+    const value = Number(raw);
+    if (!Number.isInteger(value) || value < min || value > max) {
+      return { error: `${label} doit être compris entre ${min} et ${max}.` };
+    }
+    payload[key] = value;
+  }
+  if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(reminderTime.value)) {
+    return { error: 'Premier rappel doit contenir une heure valide.' };
+  }
+  if (payload.calories_min > payload.calories_max) {
+    return { error: 'Calories min doit être inférieur ou égal à Calories max.' };
+  }
+  if (payload.protein_min_g > payload.protein_max_g) {
+    return { error: 'Protéines min doit être inférieur ou égal à Protéines max.' };
+  }
+  payload.reminder_time = reminderTime.value;
+  return { payload };
+}
 
 function localIsoDate() {
   const now = new Date();
@@ -454,17 +486,11 @@ export default {
     function settingsModal() {
       if (!settingsOpen) return null;
       const program = dashboard.program;
-      const numeric = [
-        ['calories_min', 'Calories min'],
-        ['calories_max', 'Calories max'],
-        ['protein_min_g', 'Protéines min'],
-        ['protein_max_g', 'Protéines max'],
-        ['weekly_min_sessions', 'Séances minimum'],
-        ['reminder_interval_min', 'Rappel toutes les min'],
-      ];
       const fields = new Map();
-      const fieldNodes = numeric.map(([key, label]) => {
-        const node = input({ type: 'number', value: String(program[key] ?? ''), 'aria-label': label });
+      const fieldNodes = PROGRAM_NUMBER_FIELDS.map(([key, label, min, max]) => {
+        const node = input({
+          type: 'number', value: String(program[key] ?? ''), min, max, 'aria-label': label,
+        });
         fields.set(key, node);
         return h('label', { class: 'fit-label' }, h('span', { text: label }), node);
       });
@@ -475,12 +501,15 @@ export default {
       const save = h('button', { class: 'btn primary block', type: 'button' }, 'Enregistrer les réglages');
       save.addEventListener('click', async () => {
         if (busy) return;
+        const validation = validateProgramSettings(fields, reminderTime);
+        if (validation.error) {
+          feedback.textContent = validation.error;
+          return;
+        }
         busy = true;
         save.disabled = true;
         try {
-          const payload = {};
-          for (const [key, node] of fields) payload[key] = Number(node.value);
-          payload.reminder_time = reminderTime.value;
+          const payload = validation.payload;
           payload.reminders_enabled = reminders.checked;
           payload.meal_tracking_enabled = mealTracking.checked;
           await api.patch('/api/fitness/program', payload);

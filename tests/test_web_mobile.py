@@ -425,6 +425,14 @@ def test_mobile_fitness_uses_safe_ratios_and_explicit_local_dates():
     assert "/api/fitness/advice?date=${encodeURIComponent(dashboard.date)}" in health
 
 
+def test_mobile_fitness_validates_program_settings_before_patch():
+    health = _mobile_source("js/views/health.js")
+    assert "validateProgramSettings(fields, reminderTime)" in health
+    assert "if (!raw) return { error:" in health
+    assert "payload[key] = Number(node.value)" not in health
+    assert "payload.calories_min > payload.calories_max" in health
+
+
 def test_mobile_fitness_assets_are_cache_busted_from_the_shell():
     index = _mobile_source("index.html")
     app = _mobile_source("js/app.js")

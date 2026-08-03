@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -70,6 +71,69 @@ def test_interactive_progress_updates_dashboard_and_summary(program_db: Path) ->
     assert after.weekly_done == 1
 
 
+def test_weekly_count_and_streak_share_the_same_legacy_migration_rule(
+    program_db: Path,
+) -> None:
+    from app.fitness.models import SessionProgressUpdate
+    from app.fitness.services import fitness_service
+    from database import fitness as fitness_repository
+
+    previous_monday = date(2026, 8, 3)
+    current_monday = date(2026, 8, 10)
+    session_id = fitness_service.get_program().sessions[0].id
+    fitness_service.update_session_progress(
+        session_id,
+        SessionProgressUpdate(
+            date=previous_monday,
+            status="done",
+            exercise_results=[],
+        ),
+    )
+    for day in (4, 5, 6):
+        fitness_repository.create_workout(
+            log_date=date(2026, 8, day).isoformat(),
+            workout_type="autre",
+            exercises_json=None,
+            duration_min=45,
+            source="pwa",
+        )
+
+    assert fitness_repository.weekly_done_count(previous_monday.isoformat()) == 4
+    assert fitness_repository.current_week_streak(current_monday.isoformat(), 4) == 1
+
+
+def test_fitness_timezone_comes_from_runtime_config(
+    program_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import config
+    from app.fitness.services import configured_timezone
+
+    monkeypatch.setattr(config, "TIMEZONE", "Pacific/Kiritimati")
+    assert configured_timezone().key == "Pacific/Kiritimati"
+
+
+@pytest.mark.asyncio
+async def test_advice_fallback_is_explicit_and_logged(
+    program_db: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import llm
+    from app.fitness.services import fitness_service
+
+    async def unavailable(*args, **kwargs):
+        raise RuntimeError("provider offline")
+
+    monkeypatch.setattr(llm, "chat", unavailable)
+    caplog.set_level(logging.WARNING, logger="app.fitness.services")
+
+    result = await fitness_service.advice(date(2026, 8, 3))
+
+    assert result.source == "fallback"
+    assert result.text
+    assert "code=FITNESS_ADVICE_FALLBACK" in caplog.text
+
+
 def test_program_and_session_edits_are_persistent(program_db: Path) -> None:
     from app.fitness.models import FitnessProgramUpdate, ProgramSessionUpdate
     from app.fitness.services import fitness_service
@@ -87,9 +151,7 @@ def test_program_and_session_edits_are_persistent(program_db: Path) -> None:
         ProgramSessionUpdate(
             day_of_week=2,
             title="Poussée adaptée",
-            exercises=[
-                {"name": "Pompes tempo", "sets": 4, "reps": "10-12"}
-            ],
+            exercises=[{"name": "Pompes tempo", "sets": 4, "reps": "10-12"}],
         ),
     )
 

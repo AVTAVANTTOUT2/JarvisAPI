@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 from datetime import date, datetime
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+import config
 from database import fitness as fitness_repository
 
 from .models import (
@@ -38,12 +41,25 @@ from .models import (
     WeightRead,
 )
 
-LOCAL_TIMEZONE = ZoneInfo("Europe/Paris")
+logger = logging.getLogger(__name__)
+
+
+def configured_timezone() -> ZoneInfo:
+    """Retourne la timezone IANA configurée, avec un repli UTC observable."""
+    timezone_name = str(getattr(config, "TIMEZONE", "UTC") or "UTC").strip()
+    try:
+        return ZoneInfo(timezone_name)
+    except ZoneInfoNotFoundError:
+        logger.error(
+            "code=FITNESS_INVALID_TIMEZONE timezone=%r fallback=UTC",
+            timezone_name,
+        )
+        return ZoneInfo("UTC")
 
 
 def current_local_date() -> date:
     """Retourne la date civile utilisée par JARVIS sur le Mac Mini."""
-    return datetime.now(LOCAL_TIMEZONE).date()
+    return datetime.now(configured_timezone()).date()
 
 
 def _range_values(
@@ -97,7 +113,7 @@ class FitnessService:
         """Crée un repas."""
         meal_type = payload.meal_type.value if payload.meal_type is not None else None
         if meal_type is None and payload.date == current_local_date():
-            hour = datetime.now(LOCAL_TIMEZONE).hour
+            hour = datetime.now(configured_timezone()).hour
             if 5 <= hour < 11:
                 meal_type = "petit_dej"
             elif 11 <= hour < 16:
@@ -201,7 +217,7 @@ class FitnessService:
         )
         if not payload.save:
             return MealAnalysisPreview(meal=None, analysis=draft, persisted=False)
-        meal = self.create_meal(draft)
+        meal = await asyncio.to_thread(self.create_meal, draft)
         return MealAnalysisPreview(meal=meal, analysis=draft, persisted=True)
 
     async def create_meal_from_photo(
@@ -230,24 +246,29 @@ class FitnessService:
 
         photo_path: str | None = None
         try:
-            import config as app_config
-
-            stored = store_bytes_upload(
+            stored = await asyncio.to_thread(
+                store_bytes_upload,
                 image_bytes,
                 original_name=original_name or "meal.jpg",
                 namespace="fitness/meals",
                 allowed_extensions=MEAL_IMAGE_EXTENSIONS,
                 max_bytes=int(
-                    getattr(app_config, "FITNESS_MEAL_PHOTO_MAX_BYTES", 8_000_000)
+                    getattr(config, "FITNESS_MEAL_PHOTO_MAX_BYTES", 8_000_000)
                 ),
             )
-            photo_path = str(
-                Path("fitness/meals") / stored.stored_name
-            ).replace("\\", "/")
+            photo_path = str(Path("fitness/meals") / stored.stored_name).replace(
+                "\\", "/"
+            )
         except UploadRejected:
             raise
-        except Exception:
+        except Exception as error:
             # L'analyse reste utilisable même si le stockage photo échoue.
+            logger.warning(
+                "code=FITNESS_PHOTO_STORAGE_FAILED filename=%r error_type=%s",
+                original_name,
+                type(error).__name__,
+                exc_info=True,
+            )
             photo_path = None
 
         draft = self._analysis_to_meal_create(
@@ -259,7 +280,7 @@ class FitnessService:
         )
         if not save:
             return MealAnalysisPreview(meal=None, analysis=draft, persisted=False)
-        meal = self.create_meal(draft)
+        meal = await asyncio.to_thread(self.create_meal, draft)
         return MealAnalysisPreview(meal=meal, analysis=draft, persisted=True)
 
     def create_water(self, payload: WaterCreate) -> WaterCreateResponse:
@@ -316,7 +337,9 @@ class FitnessService:
 
     def get_program(self) -> FitnessProgramRead:
         """Retourne le programme actif stocké en SQLite."""
-        return FitnessProgramRead.model_validate(fitness_repository.get_active_program())
+        return FitnessProgramRead.model_validate(
+            fitness_repository.get_active_program()
+        )
 
     def update_program(self, payload: FitnessProgramUpdate) -> FitnessProgramRead:
         values = payload.model_dump(exclude_none=True)
@@ -349,7 +372,9 @@ class FitnessService:
         )
         return SessionProgressRead.model_validate(row)
 
-    def complete_scheduled_session(self, today: date | None = None) -> SessionProgressRead:
+    def complete_scheduled_session(
+        self, today: date | None = None
+    ) -> SessionProgressRead:
         """Marque la séance prévue comme faite, notamment depuis la voix."""
         return self.set_scheduled_session_status("done", today)
 
@@ -456,10 +481,9 @@ class FitnessService:
 
     async def advice(self, target_date: date | None = None) -> FitnessAdvice:
         """Génère un conseil contextuel avec repli déterministe hors ligne."""
-        dashboard = self.dashboard(target_date)
+        dashboard = await asyncio.to_thread(self.dashboard, target_date)
         fallback = self._fallback_advice(dashboard)
         try:
-            import config
             import llm
 
             snapshot = {
@@ -484,7 +508,12 @@ class FitnessService:
                 ),
             }
             result = await llm.chat(
-                messages=[{"role": "user", "content": json.dumps(snapshot, ensure_ascii=False)}],
+                messages=[
+                    {
+                        "role": "user",
+                        "content": json.dumps(snapshot, ensure_ascii=False),
+                    }
+                ],
                 model=config.DEEPSEEK_FAST_MODEL,
                 system=(
                     "Tu es le coach fitness de JARVIS. Donne en français un conseil "
@@ -502,14 +531,19 @@ class FitnessService:
                 return FitnessAdvice(
                     text=text,
                     source="ai",
-                    generated_at=datetime.now(LOCAL_TIMEZONE),
+                    generated_at=datetime.now(configured_timezone()),
                 )
-        except Exception:
-            pass
+            logger.warning("code=FITNESS_ADVICE_EMPTY fallback=deterministic")
+        except Exception as error:
+            logger.warning(
+                "code=FITNESS_ADVICE_FALLBACK error_type=%s",
+                type(error).__name__,
+                exc_info=True,
+            )
         return FitnessAdvice(
             text=fallback,
             source="fallback",
-            generated_at=datetime.now(LOCAL_TIMEZONE),
+            generated_at=datetime.now(configured_timezone()),
         )
 
 
