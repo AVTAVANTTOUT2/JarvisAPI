@@ -6,7 +6,9 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-REQUIREMENTS = tuple(ROOT.glob("requirements*.txt"))
+REQUIREMENTS = tuple(
+    path for path in ROOT.glob("requirements*.txt") if path.name != "requirements-ci.txt"
+)
 
 
 def _declaring_files(package: str) -> list[Path]:

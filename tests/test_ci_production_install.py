@@ -18,7 +18,9 @@ def test_ci_installs_real_production_requirements():
     job = _production_job()
 
     assert "runs-on: ubuntu-latest" in job
-    assert "python -m pip install -r requirements.txt" in job
+    assert "python -m pip install --require-hashes" in job
+    assert "requirements/locks/production-linux-x86_64-py312.txt" in job
+    assert "python tools/update_python_locks.py --check" in job
     assert "python -m pip check" in job
     assert "portaudio19-dev" in job
 

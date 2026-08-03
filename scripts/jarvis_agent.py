@@ -13,7 +13,7 @@ sur le Mac Mini. Cet agent ne fait QUE :
   4. poller la file TTS et jouer l'audio reçu.
 
 Usage :
-  pip install -r requirements-agent.txt
+  pip install --require-hashes -r requirements/locks/agent-macos-arm64-py312.txt
   python jarvis_agent.py --server https://jarvis.tailnet.ts.net --pairing-code 123456
 
 Le jeton reçu au premier pairage est stocké en permissions 0600. Les

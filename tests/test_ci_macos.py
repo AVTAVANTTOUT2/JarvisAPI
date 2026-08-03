@@ -18,7 +18,8 @@ def test_ci_has_a_real_macos_26_job():
     job = _macos_job()
 
     assert "runs-on: macos-26" in job
-    assert "python -m pip install -r requirements-dev.txt" in job
+    assert "python -m pip install --require-hashes" in job
+    assert "requirements/locks/dev-macos-arm64-py312.txt" in job
     assert "python -m pip check" in job
     assert "brew install xcodegen portaudio libsndfile" in job
 

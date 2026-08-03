@@ -176,7 +176,8 @@ cd JarvisAPI
 
 python3.12 -m venv venv
 source venv/bin/activate
-python -m pip install -r requirements.txt
+python -m pip install --require-hashes \
+  -r requirements/locks/production-macos-arm64-py312.txt
 ```
 
 ### 2. Configurer JARVIS

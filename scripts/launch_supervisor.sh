@@ -15,7 +15,7 @@ SUPERVISOR_PORT="${SUPERVISOR_PORT:-9000}"
 # ── Verifications ──────────────────────────────────────────
 if [[ ! -f "venv/bin/python" ]]; then
     echo "[ERREUR] venv/bin/python introuvable — creer l'environnement d'abord :"
-    echo "  python3.12 -m venv venv && source venv/bin/activate && pip install -r requirements.txt"
+    echo "  python3.12 -m venv venv && source venv/bin/activate && pip install --require-hashes -r requirements/locks/production-macos-arm64-py312.txt"
     exit 1
 fi
 

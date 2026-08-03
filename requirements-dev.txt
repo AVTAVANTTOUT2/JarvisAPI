@@ -1,5 +1,5 @@
 # Dev dependencies — tests, lint, etc.
-# Install : pip install -r requirements-dev.txt
+# Install : pip install --require-hashes -r requirements/locks/dev-macos-arm64-py312.txt
 
 -r requirements.txt
 

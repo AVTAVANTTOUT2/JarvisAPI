@@ -5,7 +5,7 @@
 # Installation :
 #   python3 -m venv venv-agent
 #   source venv-agent/bin/activate
-#   pip install -r requirements-agent.txt
+#   pip install --require-hashes -r requirements/locks/agent-macos-arm64-py312.txt
 #
 # Lancement :
 #   python scripts/jarvis_agent.py \

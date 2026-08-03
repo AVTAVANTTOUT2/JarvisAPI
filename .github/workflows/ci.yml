@@ -17,7 +17,10 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: requirements.txt
+          cache-dependency-path: requirements/locks/production-linux-x86_64-py312.txt
+
+      - name: Vérifier les locks Python
+        run: python tools/update_python_locks.py --check
 
       - name: Installer les bibliothèques système audio
         run: |
@@ -25,7 +28,9 @@ jobs:
           sudo apt-get install --yes portaudio19-dev libsndfile1
 
       - name: Installer toutes les dépendances de production
-        run: python -m pip install -r requirements.txt
+        run: >-
+          python -m pip install --require-hashes
+          -r requirements/locks/production-linux-x86_64-py312.txt
 
       # Audit des CVE des dépendances tierces — c'était le seul angle mort du
       # dépôt (audit sécurité, août 2026). L'audit porte sur l'environnement
@@ -80,14 +85,15 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: |
-            requirements.txt
-            requirements-dev.txt
+            requirements/locks/dev-macos-arm64-py312.txt
 
       - name: Installer les outils et bibliothèques système
         run: brew install xcodegen portaudio libsndfile
 
       - name: Installer les dépendances Python
-        run: python -m pip install -r requirements-dev.txt
+        run: >-
+          python -m pip install --require-hashes
+          -r requirements/locks/dev-macos-arm64-py312.txt
 
       - name: Vérifier la cohérence des dépendances
         run: python -m pip check
@@ -139,6 +145,7 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+          cache-dependency-path: requirements/locks/ci-linux-x86_64-py312.txt
 
       - name: Installer les dépendances de test
         # Sous-ensemble léger de requirements.txt : les dépendances lourdes
@@ -147,14 +154,9 @@ jobs:
         # `aiohttp` est explicite depuis le retrait d'edge-tts : il n'arrivait
         # ici que comme dépendance transitive de ce paquet, et l'étape d'import
         # de tous les modules en a besoin (scripts/tv_mcp_server.py).
-        run: |
-          pip install \
-            "fastapi==0.139.*" "uvicorn[standard]==0.34.*" "python-dotenv==1.2.*" \
-            "websockets==15.*" "python-multipart==0.0.*" "jinja2==3.1.*" \
-            "httpx==0.28.*" "aiohttp>=3.12,<4" "apscheduler==3.10.*" "pymupdf==1.25.*" \
-            "Pillow>=10.0" "python-dateutil==2.9.*" \
-            "requests>=2.31" "cryptography>=41.0" "numpy>=1.26,<3" \
-            "pytest==8.*" "pytest-asyncio>=0.24,<0.27"
+        run: >-
+          python -m pip install --require-hashes
+          -r requirements/locks/ci-linux-x86_64-py312.txt
 
       - name: Vérifier que tous les modules s'importent
         run: |
