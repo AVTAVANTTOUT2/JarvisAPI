@@ -11,7 +11,13 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 import auth
 import config
-from api.auth_models import ChangeSecretRequest, SecretRequest
+from api.auth_models import (
+    ChangeSecretRequest,
+    MobileCapabilitiesRequest,
+    MobilePairingCompleteRequest,
+    MobilePushTokenRequest,
+    SecretRequest,
+)
 from core.network_security import is_loopback_request
 
 router = APIRouter()
@@ -295,18 +301,15 @@ async def api_mobile_pairing_start():
 
 
 @router.post("/api/mobile/pairing/complete")
-async def api_mobile_pairing_complete(body: dict, request: Request):
+async def api_mobile_pairing_complete(
+    body: MobilePairingCompleteRequest,
+    request: Request,
+):
     """Échange un code affiché dans l'interface privée contre un jeton natif."""
     from database import consume_mobile_pairing_code, upsert_mobile_device
 
-    code = str(body.get("code") or "").strip()
-    device_id = str(body.get("device_id") or "").strip()[:128]
-    if len(code) != 6 or not code.isdigit():
-        raise HTTPException(400, "Code de pairage invalide")
-    if not device_id:
-        raise HTTPException(400, "device_id requis")
     status, retry_after = consume_mobile_pairing_code(
-        auth.hash_token(f"pair:{code}"),
+        auth.hash_token(f"pair:{body.code}"),
         _client_ip(request) or "unknown",
         max_attempts=config.DEVICE_PAIRING_MAX_ATTEMPTS,
         window_minutes=config.DEVICE_PAIRING_ATTEMPT_WINDOW_MINUTES,
@@ -323,11 +326,11 @@ async def api_mobile_pairing_complete(body: dict, request: Request):
 
     token = secrets.token_urlsafe(48)
     device = upsert_mobile_device(
-        device_id=device_id,
-        name=str(body.get("name") or "Samsung Galaxy")[:120],
-        model=str(body.get("model") or "")[:120],
+        device_id=body.device_id,
+        name=body.name,
+        model=body.model,
         token_hash=auth.hash_token(token),
-        app_version=str(body.get("app_version") or "")[:40],
+        app_version=body.app_version,
     )
     return {
         "token": token,
@@ -357,24 +360,24 @@ async def api_mobile_session(request: Request, response: Response):
 
 
 @router.post("/api/mobile/push-token")
-async def api_mobile_push_token(body: dict, request: Request):
+async def api_mobile_push_token(
+    body: MobilePushTokenRequest,
+    device: Annotated[dict, Depends(_require_mobile_device)],
+):
     from database import update_mobile_push_token
 
-    device = _require_mobile_device(request)
-    fcm_token = str(body.get("token") or "").strip()
-    if not fcm_token:
-        raise HTTPException(400, "Jeton FCM requis")
-    update_mobile_push_token(str(device["device_id"]), fcm_token[:4096])
+    update_mobile_push_token(str(device["device_id"]), body.token)
     return {"ok": True}
 
 
 @router.post("/api/mobile/capabilities")
-async def api_mobile_capabilities(body: dict, request: Request):
+async def api_mobile_capabilities(
+    body: MobileCapabilitiesRequest,
+    device: Annotated[dict, Depends(_require_mobile_device)],
+):
     from database import update_mobile_capabilities
 
-    device = _require_mobile_device(request)
-    allowed = {"push", "background_location", "wake_word"}
-    capabilities = {key: bool(value) for key, value in body.items() if key in allowed}
+    capabilities = body.model_dump(exclude_none=True)
     update_mobile_capabilities(str(device["device_id"]), capabilities)
     return {"ok": True, "capabilities": capabilities}
 
