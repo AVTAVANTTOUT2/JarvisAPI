@@ -5,13 +5,13 @@ from __future__ import annotations
 import hashlib
 import json
 
-EXPECTED_ROUTE_COUNT = 261
-EXPECTED_ROUTE_SIGNATURE = "054e20144878b04fea95f507d80283ec324ed3036f82fab9220d22e10986341f"
-EXPECTED_OPENAPI_PATH_COUNT = 231
+EXPECTED_ROUTE_COUNT = 260
+EXPECTED_ROUTE_SIGNATURE = "954823c99deb8f112c7afe42ac0a2385ddc4ab3ea1929cd48c3e93bb8fd97827"
+EXPECTED_OPENAPI_PATH_COUNT = 230
 # Empreinte stable : chemins + méthodes uniquement (indépendante de la version
 # FastAPI/Pydantic qui fait varier les composants du schéma complet).
 EXPECTED_OPENAPI_PATHS_SIGNATURE = (
-    "a7a589e98a4819a1289a4c0091f310e774f7b9c5cac3a93b2fdace4efe27db55"
+    "ecb296b555c5b05efea5dada298bf6e52225e9a08fbc34158611bbe4c3ee4ed0"
 )
 
 
@@ -75,3 +75,4 @@ def test_phase4_preserves_generated_openapi_contract():
     assert len(schema["paths"]) == EXPECTED_OPENAPI_PATH_COUNT
     assert len(paths_contract) == EXPECTED_OPENAPI_PATH_COUNT
     assert _digest(paths_contract) == EXPECTED_OPENAPI_PATHS_SIGNATURE
+    assert "/api/debug/resolve/{name}" not in paths_contract

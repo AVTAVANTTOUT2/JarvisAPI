@@ -19,12 +19,10 @@ from agents.productivity import productivity_agent
 from api.daemon_support import _audio_daemon_status_payload
 from api.errors import internal_error
 from api.misc_status import _computer_status_payload
-from api.people_support import _decode_person_path, _resolve_handle_with_contacts
 from database import (
     clear_llm_logs,
     get_event_replay_window,
     get_llm_logs,
-    get_person,
 )
 from integrations import calendar_client, imessage_bridge, mail_client, weather
 from jarvis.notification_service import notification_service
@@ -55,29 +53,6 @@ class WebPushUnsubscribeRequest(BaseModel):
 
 
 # ── Productivité : intégrations + tâches + briefings ────────
-
-
-async def api_debug_resolve(name: str):
-    """Debug : résolution du handle iMessage pour un contact."""
-    from database import get_db
-    decoded = _decode_person_path(name)
-    person = get_person(decoded) or get_person(name.strip())
-    handle = _resolve_handle_with_contacts(decoded)
-    steps: dict[str, Any] = {}
-    if person:
-        pid = person.get("id")
-        with get_db() as conn:
-            rp = conn.execute(
-                "SELECT handle FROM relationship_profiles WHERE person_id=? AND handle IS NOT NULL LIMIT 1",
-                (pid,)
-            ).fetchone()
-            steps["relationship_profile_handle"] = rp[0] if rp else None
-    return {
-        "name": decoded,
-        "person_found": person is not None,
-        "resolved_handle": handle,
-        "steps": steps,
-    }
 
 
 async def api_integrations():
