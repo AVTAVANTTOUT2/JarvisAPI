@@ -122,8 +122,31 @@ class TextStreamSegmenter:
         self._min_chars = resolved.min_chunk_chars
         self._target_chars = resolved.target_chunk_chars
         self._max_chars = resolved.max_chunk_chars
+        self._first_min_chars = resolved.first_chunk_min_chars
+        self._first_max_chars = resolved.first_chunk_max_chars
         self._buffer = ""
         self._index = 0
+
+    # ── Seuils courants ─────────────────────────────────────────────────────
+    # Le premier segment est le seul dont la longueur se paie en silence : les
+    # suivants se synthétisent derrière une lecture déjà commencée. Ses seuils
+    # sont donc plus courts, et une virgule y suffit à couper.
+
+    @property
+    def _is_first(self) -> bool:
+        return self._index == 0
+
+    @property
+    def _current_min(self) -> int:
+        return self._first_min_chars if self._is_first else self._min_chars
+
+    @property
+    def _current_target(self) -> int:
+        return self._first_min_chars if self._is_first else self._target_chars
+
+    @property
+    def _current_max(self) -> int:
+        return self._first_max_chars if self._is_first else self._max_chars
 
     # ── État ────────────────────────────────────────────────────────────────
 
@@ -163,7 +186,7 @@ class TextStreamSegmenter:
         prononcer une syllabe isolée.
         """
         candidate = self._buffer.strip()
-        if len(candidate) < self._min_chars or _has_unclosed_group(candidate):
+        if len(candidate) < self._current_min or _has_unclosed_group(candidate):
             return []
         segments = self._drain(final=True)
         remainder = self._buffer.strip()
@@ -210,9 +233,9 @@ class TextStreamSegmenter:
                 continue
 
             length = len(buffer[: index + 1].strip())
-            if length < self._min_chars or length > self._max_chars:
+            if length < self._current_min or length > self._current_max:
                 continue
-            if char in _WEAK_PUNCTUATION and length < self._target_chars:
+            if char in _WEAK_PUNCTUATION and length < self._current_target:
                 continue
             if _has_unclosed_group(buffer[: index + 1]):
                 continue
@@ -226,18 +249,18 @@ class TextStreamSegmenter:
 
         # Aucune ponctuation exploitable et le tampon déborde : on coupe au
         # dernier espace avant le plafond plutôt qu'au milieu d'un mot.
-        if len(buffer.strip()) > self._max_chars:
+        if len(buffer.strip()) > self._current_max:
             return self._hard_cut(buffer, spans)
         return None
 
     def _hard_cut(self, buffer: str, spans: list[tuple[int, int]]) -> int | None:
-        limit = min(self._max_chars, len(buffer))
+        limit = min(self._current_max, len(buffer))
         for index in range(limit - 1, 0, -1):
             if not buffer[index].isspace():
                 continue
             if _is_protected(index - 1, spans):
                 continue
-            if len(buffer[:index].strip()) >= self._min_chars:
+            if len(buffer[:index].strip()) >= self._current_min:
                 return index
         # Un seul « mot » plus long que le plafond (URL géante, jeton anormal) :
         # le couper produirait une prononciation absurde, on le laisse entier.

@@ -27,6 +27,11 @@ def settings():
     )
 
 
+def _rejoin(parts: list[str]) -> str:
+    """Contenu prononcé, indépendamment du découpage."""
+    return " ".join(parts).replace("  ", " ").strip()
+
+
 def _segments(text: str, settings, *, per_char: bool = True) -> list[str]:
     segmenter = TextStreamSegmenter(settings)
     out: list[str] = []
@@ -42,8 +47,14 @@ def _segments(text: str, settings, *, per_char: bool = True) -> list[str]:
 
 
 def test_splits_on_sentence_end(settings):
-    text = "Il fait dix-huit degrés à Lille, couvert. Parapluie cet après-midi."
-    assert _segments(text, settings) == [
+    """Après le premier segment, la phrase entière est l'unité naturelle."""
+    text = (
+        "Bonjour Monsieur. Il fait dix-huit degrés à Lille, couvert. "
+        "Parapluie cet après-midi."
+    )
+    parts = _segments(text, settings)
+    assert parts[0] == "Bonjour Monsieur."
+    assert parts[1:] == [
         "Il fait dix-huit degrés à Lille, couvert.",
         "Parapluie cet après-midi.",
     ]
@@ -68,31 +79,33 @@ def test_question_and_exclamation_are_boundaries(settings):
 
 
 def test_comma_only_splits_past_the_target_size(settings):
-    short = "Bonjour Monsieur, il fait beau."
-    assert _segments(short, settings) == [short]
-
-    long_clause = (
-        "Voici la liste complète des éléments que vous m'avez demandé de "
-        "vérifier ce matin, puis je passerai au reste."
+    """Hors premier segment, une virgule est une respiration, pas une fin."""
+    text = (
+        "Bonjour Monsieur. Voici enfin la liste des éléments, courte, "
+        "que vous m'avez demandée."
     )
-    parts = _segments(long_clause, settings)
-    assert len(parts) == 2
-    assert parts[0].endswith(",")
+    parts = _segments(text, settings)
+    assert parts[0] == "Bonjour Monsieur."
+    # Le reste tient sous la taille cible : aucune coupure sur les virgules.
+    assert parts[1] == "Voici enfin la liste des éléments, courte, que vous m'avez demandée."
 
 
 # ── Régions insécables ───────────────────────────────────────────────────────
 
 
 @pytest.mark.parametrize(
-    "text",
+    ("text", "unbreakable"),
     [
-        "Le total de la commande atteint 18.5 euros ce mois-ci exactement.",
-        "Écrivez à support.technique@exemple.fr dès que possible, merci.",
-        "Le détail complet se trouve sur https://exemple.fr/page.html?a=1 aussi.",
-        "M. Dupont attend une réponse avant la fin de la journée de travail.",
-        "La distance restante est de 12 km avant le prochain arrêt prévu.",
-        "Le fichier fait 4.2 Go et doit être transféré avant ce soir absolument.",
-        "Le rapport (voir p. 12) doit être relu avant la réunion de demain.",
+        ("Le total de la commande atteint 18.5 euros ce mois-ci exactement.", "18.5"),
+        ("Écrivez à support.technique@exemple.fr dès que possible.", "support.technique@exemple.fr"),
+        (
+            "Le détail se trouve sur https://exemple.fr/page.html?a=1 aussi.",
+            "https://exemple.fr/page.html?a=1",
+        ),
+        ("M. Dupont attend une réponse avant la fin de la journée.", "M. Dupont"),
+        ("La distance restante est de 12 km avant le prochain arrêt.", "12 km"),
+        ("Le fichier fait 4.2 Go et doit être transféré ce soir.", "4.2 Go"),
+        ("Le rapport (voir p. 12) doit être relu avant la réunion.", "(voir p. 12)"),
     ],
     ids=[
         "decimal",
@@ -104,15 +117,56 @@ def test_comma_only_splits_past_the_target_size(settings):
         "parenthese_courte",
     ],
 )
-def test_never_splits_inside_an_unbreakable_region(text: str, settings):
-    assert _segments(text, settings) == [text]
+def test_never_splits_inside_an_unbreakable_region(text: str, unbreakable: str, settings):
+    """La coupure peut tomber ailleurs — jamais au milieu de ce groupe."""
+    parts = _segments(text, settings)
+    assert any(unbreakable in part for part in parts), parts
+    assert _rejoin(parts) == text
 
 
 def test_ellipsis_is_not_three_boundaries(settings):
+    """Couper entre deux points produirait deux segments vides à prononcer."""
     text = "Je vérifie votre agenda... puis je vous réponds dans un instant."
     parts = _segments(text, settings)
-    assert all(not part.endswith("..") or part == text for part in parts)
-    assert "" not in parts
+    assert any("agenda..." in part for part in parts), parts
+    assert all(part.strip() for part in parts)
+
+
+# ── Premier segment : le seul dont la longueur se paie en silence ───────────
+
+
+def test_first_segment_is_shorter_than_the_others(settings):
+    """Mesuré : sans cette règle, une phrase de 94 caractères sans point
+    interne fait attendre 564 ms au lieu de ~240 ms."""
+    text = (
+        "Il fait dix-huit degrés à Lille, ciel couvert, et une averse est "
+        "attendue en fin d'après-midi."
+    )
+    parts = _segments(text, settings)
+    assert len(parts) > 1
+    assert len(parts[0]) <= settings.first_chunk_max_chars
+    assert parts[0].endswith(",")
+    assert _rejoin(parts) == text
+
+
+def test_first_segment_still_refuses_a_syllable(settings):
+    """Un fragment d'un mot coûterait une génération complète pour un souffle."""
+    segmenter = TextStreamSegmenter(settings)
+    assert segmenter.feed("Bien.") == []
+    # Le point final n'est pas encore suivi d'un caractère : il peut être le
+    # premier d'une suite de points. On attend la preuve que la phrase est finie.
+    assert segmenter.feed(" Voici la suite de la réponse.") == []
+    assert segmenter.feed(" ") == ["Bien. Voici la suite de la réponse."]
+
+
+def test_only_the_first_segment_uses_the_short_thresholds(settings):
+    text = (
+        "Bonjour Monsieur. Voici un paragraphe long, avec des virgules, "
+        "qui ne doit pas être haché en morceaux minuscules après le début."
+    )
+    parts = _segments(text, settings)
+    assert parts[0] == "Bonjour Monsieur."
+    assert all(len(part) >= settings.min_chunk_chars for part in parts[1:])
 
 
 def test_code_block_stays_whole(settings):

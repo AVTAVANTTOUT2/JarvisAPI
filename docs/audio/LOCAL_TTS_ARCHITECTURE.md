@@ -60,8 +60,29 @@ premier son arrive avant la fin de la réponse — mais annoncer « streaming
 natif » serait faux.
 
 **Mesuré** sur une réponse de quatre phrases (Mac mini M4, backend
-`current_local`) : premier son à 318 ms, synthèse complète à 1 184 ms. La
-segmentation fait arriver la voix 3,7 fois plus tôt qu'une synthèse d'un bloc.
+`current_local`) : premier son à 184 ms, synthèse complète à 1 316 ms. La
+segmentation fait arriver la voix 7 fois plus tôt qu'une synthèse d'un bloc.
+
+### Le premier segment obéit à des seuils plus courts
+
+`TTS_FIRST_CHUNK_MIN_CHARS=15` / `TTS_FIRST_CHUNK_MAX_CHARS=60` — et une
+virgule y suffit à couper, alors qu'elle est refusée ensuite sous la taille
+cible. Ce n'est pas une incohérence : le premier segment est le seul dont la
+longueur se paie en **silence pur**, pendant que l'utilisateur attend. Les
+suivants se synthétisent derrière une lecture déjà commencée, donc leur durée
+ne s'entend pas.
+
+Mesuré sur une phrase de 94 caractères sans point interne (« Il fait dix-huit
+degrés à Lille, ciel couvert, et une averse est attendue en fin d'après-midi. ») :
+
+| Seuils | Premier son | Synthèse totale |
+|---|---:|---:|
+| uniformes (30/80/180) | 564 ms | 583 ms |
+| premier segment court | **242 ms** | 585 ms |
+
+Le coût est réel et assumé : plus de segments = un peu plus de temps de
+synthèse **total** (sur la réponse longue, 1 095 ms → 1 316 ms). Ce temps est
+masqué par la lecture déjà en cours ; le silence initial, lui, ne l'est pas.
 
 ## Contre-pression
 
@@ -127,6 +148,8 @@ TTS_MIN_CHUNK_CHARS=30
 TTS_TARGET_CHUNK_CHARS=80
 TTS_MAX_CHUNK_CHARS=180
 TTS_FLUSH_TIMEOUT_MS=250
+TTS_FIRST_CHUNK_MIN_CHARS=15     # premier segment : seuils plus courts
+TTS_FIRST_CHUNK_MAX_CHARS=60
 ```
 
 Les anciennes variables (`TTS_ENGINE`, `TTS_VOICE`, `EDGE_TTS_*`,

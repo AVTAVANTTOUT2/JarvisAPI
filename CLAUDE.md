@@ -848,10 +848,13 @@ Quatre décisions structurantes :
 - **La diffusion est par segment, et le dit.** `info().streaming` vaut
   `segmented` : l'implémentation MLX de Fish lève `NotImplementedError` sur son
   mode `stream`. JARVIS découpe le texte (`segmenter.py`) et joue chaque
-  segment pendant que le suivant se génère. Mesuré sur une réponse de quatre
-  phrases (M4, `current_local`) : premier son à 318 ms, synthèse complète à
-  1 184 ms — la voix arrive 3,7 fois plus tôt qu'en un bloc. Annoncer
-  « streaming natif » serait faux.
+  segment pendant que le suivant se génère. Le **premier** segment obéit à des
+  seuils plus courts (`TTS_FIRST_CHUNK_*`) : il est le seul dont la longueur se
+  paie en silence pur. Mesuré sur une réponse de quatre phrases (M4,
+  `current_local`) : premier son à 184 ms, synthèse complète à 1 316 ms — la
+  voix arrive 7 fois plus tôt qu'en un bloc, au prix d'un temps de synthèse
+  total un peu supérieur, masqué par la lecture. Annoncer « streaming natif »
+  serait faux.
 - **Aucun repli silencieux.** Un modèle absent ou une synthèse échouée conserve
   la réponse texte, réarme le pipeline et expose un état « TTS indisponible ».
   Faire entendre une voix que l'utilisateur n'a pas choisie, sans le dire,
@@ -1012,6 +1015,8 @@ TTS_WARMUP=true                  # modèle chargé hors tour de parole
 TTS_MIN_CHUNK_CHARS=30           # segmentation : premier son vs prosodie
 TTS_TARGET_CHUNK_CHARS=80
 TTS_MAX_CHUNK_CHARS=180
+TTS_FIRST_CHUNK_MIN_CHARS=15     # premier segment : seuils plus courts
+TTS_FIRST_CHUNK_MAX_CHARS=60
 VOICE_LLM_STREAMING=true         # expose llm.first_token
 AUDIO_DAEMON_SILENCE_MS=500      # fin de phrase : 300-600 ms
 AUDIO_DAEMON_MIN_SPEECH_MS=200   # durée minimale de parole

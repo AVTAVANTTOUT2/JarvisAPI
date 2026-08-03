@@ -171,6 +171,12 @@ DEFAULT_TTS_MIN_CHUNK_CHARS = 30
 DEFAULT_TTS_TARGET_CHUNK_CHARS = 80
 DEFAULT_TTS_MAX_CHUNK_CHARS = 180
 DEFAULT_TTS_FLUSH_TIMEOUT_MS = 250
+# Le premier segment est le seul dont la longueur se paie en silence pur : les
+# suivants se synthétisent derrière une lecture déjà commencée. Mesuré sur ce
+# Mac mini M4 : sans ces seuils courts, une phrase de 94 caractères sans point
+# interne fait attendre 564 ms au lieu de 242 ms.
+DEFAULT_TTS_FIRST_CHUNK_MIN_CHARS = 15
+DEFAULT_TTS_FIRST_CHUNK_MAX_CHARS = 60
 
 TTS_PROVIDER = (_get("TTS_PROVIDER") or DEFAULT_TTS_PROVIDER).strip().lower()
 # Chemin d'un répertoire de poids **déjà installé**, ou identifiant d'un dépôt
@@ -193,6 +199,12 @@ TTS_TARGET_CHUNK_CHARS = _positive_int(
 TTS_MAX_CHUNK_CHARS = _positive_int("TTS_MAX_CHUNK_CHARS", DEFAULT_TTS_MAX_CHUNK_CHARS)
 TTS_FLUSH_TIMEOUT_MS = _positive_int(
     "TTS_FLUSH_TIMEOUT_MS", DEFAULT_TTS_FLUSH_TIMEOUT_MS
+)
+TTS_FIRST_CHUNK_MIN_CHARS = _positive_int(
+    "TTS_FIRST_CHUNK_MIN_CHARS", DEFAULT_TTS_FIRST_CHUNK_MIN_CHARS
+)
+TTS_FIRST_CHUNK_MAX_CHARS = _positive_int(
+    "TTS_FIRST_CHUNK_MAX_CHARS", DEFAULT_TTS_FIRST_CHUNK_MAX_CHARS
 )
 
 # Backend transitoire `current_local` uniquement — voir le bloc de défauts.

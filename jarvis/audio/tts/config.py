@@ -40,6 +40,18 @@ DEFAULT_TTS_TARGET_CHUNK_CHARS = 80
 DEFAULT_TTS_MAX_CHUNK_CHARS = 180
 DEFAULT_TTS_FLUSH_TIMEOUT_MS = 250
 
+# Le **premier** segment obéit à des seuils plus courts que les suivants. Ce
+# n'est pas une incohérence : il est le seul dont la longueur se paie en
+# silence pur, pendant que l'utilisateur attend. Les suivants se synthétisent
+# derrière une lecture déjà commencée, donc leur durée ne s'entend pas.
+#
+# Mesuré sur ce Mac mini M4, phrase de 94 caractères sans point interne :
+# sans ces seuils, le premier son arrive à 564 ms — il faut synthétiser toute
+# la phrase ; avec eux, la coupure tombe à la première virgule et le premier
+# son arrive à ~200 ms.
+DEFAULT_TTS_FIRST_CHUNK_MIN_CHARS = 15
+DEFAULT_TTS_FIRST_CHUNK_MAX_CHARS = 60
+
 # Fournisseurs connus. La fabrique refuse tout autre nom : c'est ce qui rend
 # impossible l'apparition d'un backend distant par simple configuration.
 KNOWN_PROVIDERS: frozenset[str] = frozenset({"fish_local", "current_local"})
@@ -67,6 +79,8 @@ class TTSSettings:
     target_chunk_chars: int
     max_chunk_chars: int
     flush_timeout_ms: int
+    first_chunk_min_chars: int = DEFAULT_TTS_FIRST_CHUNK_MIN_CHARS
+    first_chunk_max_chars: int = DEFAULT_TTS_FIRST_CHUNK_MAX_CHARS
 
     # ── Voix ────────────────────────────────────────────────────────────────
 
@@ -202,6 +216,24 @@ def load_tts_settings() -> TTSSettings:
         flush_timeout_ms=_as_int(
             _config_value("TTS_FLUSH_TIMEOUT_MS", DEFAULT_TTS_FLUSH_TIMEOUT_MS),
             DEFAULT_TTS_FLUSH_TIMEOUT_MS,
+        ),
+        first_chunk_min_chars=min(
+            _as_int(
+                _config_value(
+                    "TTS_FIRST_CHUNK_MIN_CHARS", DEFAULT_TTS_FIRST_CHUNK_MIN_CHARS
+                ),
+                DEFAULT_TTS_FIRST_CHUNK_MIN_CHARS,
+            ),
+            min_chars,
+        ),
+        first_chunk_max_chars=min(
+            _as_int(
+                _config_value(
+                    "TTS_FIRST_CHUNK_MAX_CHARS", DEFAULT_TTS_FIRST_CHUNK_MAX_CHARS
+                ),
+                DEFAULT_TTS_FIRST_CHUNK_MAX_CHARS,
+            ),
+            max_chars,
         ),
     )
 
