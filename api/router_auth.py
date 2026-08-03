@@ -5,11 +5,13 @@ from __future__ import annotations
 import json
 import secrets
 from datetime import datetime, timedelta, timezone
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 import auth
 import config
+from api.auth_models import ChangeSecretRequest, SecretRequest
 from core.network_security import is_loopback_request
 
 router = APIRouter()
@@ -71,6 +73,47 @@ def _require_browser_session(request: Request) -> dict:
     return session
 
 
+def _guard_setup() -> None:
+    """Refuse une seconde initialisation avant de valider son corps."""
+    if auth.is_configured():
+        raise HTTPException(409, "Déjà configuré — utilisez /api/auth/change-secret")
+
+
+def _guard_unlock(request: Request) -> str:
+    """Vérifie configuration et rate-limit avant la validation du secret."""
+    if not auth.is_configured():
+        raise HTTPException(428, "Aucun secret configuré — appelez /api/auth/setup")
+    client_key = _auth_client_key(request)
+    _raise_if_rate_limited(client_key)
+    return client_key
+
+
+def _guard_verify(request: Request) -> str:
+    client_key = _auth_client_key(request)
+    _raise_if_rate_limited(client_key)
+    return client_key
+
+
+def _guard_local_unlock(request: Request) -> str:
+    """Vérifie la récupération locale avant de lire le secret fourni."""
+    if not _is_loopback(request):
+        raise HTTPException(403, "Récupération autorisée uniquement depuis la machine locale")
+    if request.headers.get("x-jarvis-local-recovery") != "1":
+        raise HTTPException(403, "Confirmation locale de récupération requise")
+    if not auth.is_configured():
+        raise HTTPException(428, "Aucun secret configuré — appelez /api/auth/setup")
+    client_key = _auth_client_key(request, channel="recovery")
+    _raise_if_rate_limited(client_key, include_global=False)
+    return client_key
+
+
+def _guard_change_secret(request: Request) -> str:
+    _require_browser_session(request)
+    client_key = _auth_client_key(request)
+    _raise_if_rate_limited(client_key)
+    return client_key
+
+
 def _set_session_cookie(response: Response, token: str, expires_at: datetime) -> None:
     max_age = max(1, int((expires_at - datetime.now()).total_seconds()))
     response.set_cookie(
@@ -109,13 +152,15 @@ async def api_auth_status(request: Request, response: Response):
 
 
 @router.post("/api/auth/setup")
-async def api_auth_setup(body: dict, request: Request, response: Response):
+async def api_auth_setup(
+    body: SecretRequest,
+    request: Request,
+    response: Response,
+    _guard: Annotated[None, Depends(_guard_setup)],
+):
     """Définit le PIN/passphrase initial (une seule fois) et ouvre une session."""
-    if auth.is_configured():
-        raise HTTPException(409, "Déjà configuré — utilisez /api/auth/change-secret")
-    secret = (body.get("secret") or "").strip()
     try:
-        auth.setup_secret(secret)
+        auth.setup_secret(body.secret)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     token, expires_at = auth.create_session(
@@ -126,15 +171,14 @@ async def api_auth_setup(body: dict, request: Request, response: Response):
 
 
 @router.post("/api/auth/unlock")
-async def api_auth_unlock(body: dict, request: Request, response: Response):
+async def api_auth_unlock(
+    body: SecretRequest,
+    request: Request,
+    response: Response,
+    client_key: Annotated[str, Depends(_guard_unlock)],
+):
     """Déverrouille l'app et ouvre une session (cookie httpOnly)."""
-    if not auth.is_configured():
-        raise HTTPException(428, "Aucun secret configuré — appelez /api/auth/setup")
-    client_key = _auth_client_key(request)
-    _raise_if_rate_limited(client_key)
-
-    secret = (body.get("secret") or "").strip()
-    if not auth.verify_only(secret, client_key=client_key, channel="web"):
+    if not auth.verify_only(body.secret, client_key=client_key, channel="web"):
         raise HTTPException(401, "Secret incorrect")
 
     token, expires_at = auth.create_session(
@@ -145,30 +189,24 @@ async def api_auth_unlock(body: dict, request: Request, response: Response):
 
 
 @router.post("/api/auth/verify")
-async def api_auth_verify(body: dict, request: Request):
+async def api_auth_verify(
+    body: SecretRequest,
+    request: Request,
+    client_key: Annotated[str, Depends(_guard_verify)],
+):
     """Ré-authentification de l'écran de verrouillage — ne touche pas à la session existante."""
-    client_key = _auth_client_key(request)
-    _raise_if_rate_limited(client_key)
-    secret = (body.get("secret") or "").strip()
-    return {"ok": auth.verify_only(secret, client_key=client_key, channel="web")}
+    return {"ok": auth.verify_only(body.secret, client_key=client_key, channel="web")}
 
 
 @router.post("/api/auth/local-unlock")
-async def api_auth_local_unlock(body: dict, request: Request, response: Response):
+async def api_auth_local_unlock(
+    body: SecretRequest,
+    request: Request,
+    response: Response,
+    client_key: Annotated[str, Depends(_guard_local_unlock)],
+):
     """Récupère l'accès depuis la machine JARVIS, sans contourner le secret."""
-    if not _is_loopback(request):
-        raise HTTPException(403, "Récupération autorisée uniquement depuis la machine locale")
-    if request.headers.get("x-jarvis-local-recovery") != "1":
-        raise HTTPException(403, "Confirmation locale de récupération requise")
-    if not auth.is_configured():
-        raise HTTPException(428, "Aucun secret configuré — appelez /api/auth/setup")
-
-    client_key = _auth_client_key(request, channel="recovery")
-    # Le canal de récupération ignore le plafond global, mais conserve son
-    # propre délai progressif et son verrou client.
-    _raise_if_rate_limited(client_key, include_global=False)
-    secret = (body.get("secret") or "").strip()
-    if not auth.verify_recovery_secret(secret):
+    if not auth.verify_recovery_secret(body.secret):
         auth.record_failed_attempt(client_key, channel="recovery")
         raise HTTPException(401, "Secret incorrect")
 
@@ -194,15 +232,13 @@ async def api_auth_logout(request: Request, response: Response):
 
 
 @router.post("/api/auth/change-secret")
-async def api_auth_change_secret(body: dict, request: Request):
-    _require_browser_session(request)
-    client_key = _auth_client_key(request)
-    _raise_if_rate_limited(client_key)
-
-    current = (body.get("current") or "").strip()
-    new = (body.get("new") or "").strip()
+async def api_auth_change_secret(
+    body: ChangeSecretRequest,
+    request: Request,
+    client_key: Annotated[str, Depends(_guard_change_secret)],
+):
     try:
-        ok = auth.change_secret(current, new, client_key=client_key)
+        ok = auth.change_secret(body.current, body.new, client_key=client_key)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     if not ok:
