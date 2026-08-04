@@ -485,6 +485,18 @@ class AudioDaemon:
                 except asyncio.QueueEmpty:
                     break
 
+        # Le micro fait partie de l'état résiduel. En half-duplex, l'accusé
+        # anticipé et le TTS arrêtent le flux d'entrée ; seul le chemin de fin
+        # de tour normal le rouvrait. Toutes les sorties anticipées passent
+        # ici — transcription vide, écho post-TTS, transcription rejetée,
+        # interruption — et laissaient donc le daemon définitivement sourd.
+        if self._half_duplex and self._stream is not None and self._running:
+            try:
+                if not self._stream.is_active():
+                    self._stream.start_stream()
+            except Exception as e:  # pragma: no cover — dépend du périphérique
+                logger.debug("[audio_daemon] réouverture micro au réarmement : %s", e)
+
         self.state = self.rearm_state()
         voice_queue.set_user_conversation_active(False)
         if trace is not None:
@@ -565,6 +577,14 @@ class AudioDaemon:
                 self._running = False
                 self._cleanup()
                 await asyncio.sleep(NO_INPUT_DEVICE_POLL_S)
+                # Un arrêt a pu tomber pendant la sonde. Se redéclarer actif
+                # sans le vérifier laissait ``_running`` à True après la sortie
+                # de boucle, et ``start()`` répond « Déjà actif » dans ce
+                # cas — le service devenait irrécupérable sans redémarrer le
+                # processus, précisément quand l'utilisateur tente de le
+                # relancer parce qu'il manque un micro.
+                if not self.enabled:
+                    break
                 self._running = True
                 continue
             except Exception as e:
@@ -1422,6 +1442,13 @@ class AudioDaemon:
             wait=True,
             trace=trace,
         )
+        # L'accusé tourne en tâche concurrente et peut finir **après** que le
+        # tour a été abandonné et le pipeline réarmé. Ne rendre la main à
+        # « processing » que si l'état est toujours celui que cette méthode a
+        # posé : sinon l'interface annonce un traitement en cours alors que le
+        # daemon écoute déjà.
+        if self.state != "speaking":
+            return
         if self._interrupt_event is None or not self._interrupt_event.is_set():
             self.state = "processing"
             await self._broadcast_state()
