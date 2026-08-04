@@ -1842,9 +1842,9 @@ scripts/tv_mcp_server.py (Python, 7 outils MCP)
   ↓ HTTP CDP (localhost:9222)
 ADB forward tcp:9222 → localabstract:chrome_devtools_remote
   ↓
-Kiwi Browser (com.kiwibrowser.browser) sur TV Philips (192.168.3.82)
+Kiwi Browser (com.kiwibrowser.browser) sur une TV Philips configurée localement
   ↓
-Dashboard JARVIS WAR ROOM (http://192.168.3.52:5174/)
+Dashboard JARVIS WAR ROOM (`TV_DASHBOARD_URL`, opt-in local)
 ```
 
 ### Outils MCP
@@ -1896,10 +1896,10 @@ const puppeteer = require('puppeteer-core');
 ### Variables d'env
 
 ```bash
-TV_IP=192.168.3.82        # IP TV Philips
+TV_IP=<adresse-tv>        # IP TV Philips, opt-in local
 TV_ADB_PORT=5555          # Port ADB TV
 CDP_LOCAL_PORT=9222       # Port local bridge CDP
-TV_DASHBOARD_URL=http://192.168.3.52:5174/  # Dashboard URL
+TV_DASHBOARD_URL=<url-dashboard>  # URL locale du dashboard
 ```
 
 ## Canal WebSocket TV — `/ws/tv/events` (lecture seule)

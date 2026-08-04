@@ -320,12 +320,12 @@ LLM_SHELL_MAX_COMMANDS = int(_get("LLM_SHELL_MAX_COMMANDS", "8"))
 LLM_SHELL_MAX_TIMEOUT = int(_get("LLM_SHELL_MAX_TIMEOUT", "120"))
 LLM_SHELL_PLAN_TTL_SECONDS = int(_get("LLM_SHELL_PLAN_TTL_SECONDS", "600"))
 # TV contrôle ADB + Google Cast fallback
-TV_IP = _get("TV_IP", "192.168.3.82")
+TV_IP = _get("TV_IP", "")
 TV_ADB_PORT = _get("TV_ADB_PORT", "5555")
-TV_MAC = _get("TV_MAC", "f0:ed:51:02:16:34")
-TV_CAST_ENABLED = _get("TV_CAST_ENABLED", "true").lower() == "true"
+TV_MAC = _get("TV_MAC", "")
+TV_CAST_ENABLED = _get("TV_CAST_ENABLED", "false").lower() == "true"
 TV_CAST_TIMEOUT = int(_get("TV_CAST_TIMEOUT", "20"))
-TV_DASHBOARD_URL = _get("TV_DASHBOARD_URL", "http://192.168.3.52:5174/")  # URL a ouvrir via Chromecast
+TV_DASHBOARD_URL = _get("TV_DASHBOARD_URL", "")  # URL opt-in ouverte via Chromecast
 
 # ── Canal WebSocket TV — /ws/tv/events (lecture seule) ───────
 # Diffusion descendante vers l'écran mural, authentifiée par le jeton privé du
