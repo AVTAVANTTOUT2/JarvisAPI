@@ -7,6 +7,7 @@ from datetime import date, datetime
 from typing import Any
 
 from .core import get_db
+from .time_buckets import sqlite_utc_timestamp, sqlite_utc_to_local
 
 
 def _decode_row(row: Any, *, exercises: bool = False) -> dict[str, Any]:
@@ -375,9 +376,7 @@ def upsert_session_progress(
 ) -> dict[str, Any]:
     """Crée ou remplace l'état journalier d'une séance."""
     encoded = json.dumps(exercise_results, ensure_ascii=False, separators=(",", ":"))
-    completed_at = (
-        datetime.now().isoformat(timespec="seconds") if status == "done" else None
-    )
+    completed_at = sqlite_utc_timestamp() if status == "done" else None
     with get_db() as conn:
         if (
             conn.execute(
@@ -541,7 +540,9 @@ def get_last_prompt(date_value: str, kind: str, reference: str) -> datetime | No
             """,
             (date_value, kind, reference),
         ).fetchone()
-    return datetime.fromisoformat(row["prompted_at"]) if row is not None else None
+    if row is None:
+        return None
+    return sqlite_utc_to_local(row["prompted_at"]).replace(tzinfo=None)
 
 
 def record_prompt(
@@ -554,17 +555,13 @@ def record_prompt(
         conn.execute(
             """
             INSERT INTO fitness_prompt_log (date, kind, reference, prompted_at)
-            VALUES (?, ?, ?, COALESCE(?, datetime('now', 'localtime')))
+            VALUES (?, ?, ?, ?)
             """,
             (
                 date_value,
                 kind,
                 reference,
-                (
-                    prompted_at.replace(tzinfo=None).isoformat(timespec="seconds")
-                    if prompted_at is not None
-                    else None
-                ),
+                sqlite_utc_timestamp(prompted_at),
             ),
         )
 

@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime
-
 from .core import get_db
+from .time_buckets import sqlite_utc_timestamp
 
 
 def upsert_email_summary(
@@ -84,7 +83,7 @@ def save_email_full(
     category: str = "info",
     priority: str = "low",
 ) -> int:
-    now_iso = datetime.now().isoformat(timespec="seconds")
+    now_iso = sqlite_utc_timestamp()
     with get_db() as conn:
         existing = conn.execute(
             "SELECT id FROM email_summaries WHERE gmail_id = ?", (gmail_id,)

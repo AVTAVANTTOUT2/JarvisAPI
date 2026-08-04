@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
-from datetime import datetime
 from typing import Any
 
 from jarvis.event_bus import event_bus
@@ -13,6 +12,7 @@ from jarvis.events import ConversationUpdated, MessageSent
 
 from .core import get_db
 from .migrations import _fts_available, _fts_query
+from .time_buckets import sqlite_utc_timestamp
 
 logger = logging.getLogger(__name__)
 
@@ -26,8 +26,8 @@ def save_message(
     conversation_id: int,
     role: str,
     content: str,
-    agent: str = None,
-    model: str = None,
+    agent: str | None = None,
+    model: str | None = None,
     tokens_in: int = 0,
     tokens_out: int = 0,
     cost: float = 0.0,
@@ -105,7 +105,7 @@ def update_agentic_workflow(
         )
 
 
-def create_conversation(agent: str = None) -> int:
+def create_conversation(agent: str | None = None) -> int:
     with get_db() as conn:
         cur = conn.execute("INSERT INTO conversations (agent) VALUES (?)", (agent,))
         conversation_id = int(cur.lastrowid)
@@ -115,11 +115,11 @@ def create_conversation(agent: str = None) -> int:
     return conversation_id
 
 
-def end_conversation(conv_id: int, summary: str = None) -> None:
+def end_conversation(conv_id: int, summary: str | None = None) -> None:
     with get_db() as conn:
         conn.execute(
             "UPDATE conversations SET ended_at = ?, summary = ? WHERE id = ?",
-            (datetime.now().isoformat(), summary, conv_id),
+            (sqlite_utc_timestamp(), summary, conv_id),
         )
 
 

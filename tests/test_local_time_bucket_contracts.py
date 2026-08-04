@@ -131,9 +131,7 @@ def test_local_day_consumers_share_exclusive_utc_bounds(paris_db: Path) -> None:
     assert timeline["summary"]["tasks_done"] == 2
     assert timeline["summary"]["visits"] == 2
     assert [
-        event["time"]
-        for event in timeline["timeline"]
-        if event["type"] == "task_done"
+        event["time"] for event in timeline["timeline"] if event["type"] == "task_done"
     ] == ["00:00", "23:59"]
 
     from scripts import rituals
@@ -187,9 +185,7 @@ def test_legacy_local_timestamp_migration_is_idempotent(paris_db: Path) -> None:
     from database.migrations import _migrate_local_activity_timestamps_to_utc
 
     with get_db() as conn:
-        conn.execute(
-            "DELETE FROM app_settings WHERE key = 'timestamp_storage_utc_v1'"
-        )
+        conn.execute("DELETE FROM app_settings WHERE key = 'timestamp_storage_utc_v1'")
         place_id = conn.execute(
             "INSERT INTO places (name, category, latitude, longitude, last_visit) "
             "VALUES ('Legacy', 'other', 1, 1, '2026-07-10 00:30:00')"
@@ -209,6 +205,163 @@ def test_legacy_local_timestamp_migration_is_idempotent(paris_db: Path) -> None:
 
     assert first == "2026-07-09 22:30:00"
     assert second == first
+
+
+def test_application_timestamp_migration_is_idempotent(paris_db: Path) -> None:
+    from database import get_db
+    from database.migrations import _migrate_application_timestamps_to_utc_v2
+
+    local_value = "2026-07-10 00:30:00"
+    with get_db() as conn:
+        conn.execute("DELETE FROM app_settings WHERE key = 'timestamp_storage_utc_v2'")
+        conversation_id = conn.execute(
+            "INSERT INTO conversations (ended_at) VALUES (?)", (local_value,)
+        ).lastrowid
+        conn.execute(
+            """INSERT INTO cursor_delegation_jobs
+               (job_id, title, user_request, created_at, updated_at, started_at)
+               VALUES ('job-time-migration', 'Titre', 'Demande', ?, ?, ?)""",
+            (local_value, local_value, local_value),
+        )
+        suggestion_id = conn.execute(
+            """INSERT INTO food_suggestions
+               (slot, restaurant, items_json, expires_at)
+               VALUES (1, 'Chez Pierre', '[]', ?)""",
+            (local_value,),
+        ).lastrowid
+        conn.execute(
+            """INSERT INTO fitness_prompt_log
+               (date, kind, reference, prompted_at)
+               VALUES ('2026-07-10', 'meal', 'dejeuner', ?)""",
+            (local_value,),
+        )
+
+        _migrate_application_timestamps_to_utc_v2(conn)
+        first = {
+            "conversation": conn.execute(
+                "SELECT ended_at FROM conversations WHERE id = ?",
+                (conversation_id,),
+            ).fetchone()[0],
+            "cursor": tuple(
+                conn.execute(
+                    """SELECT created_at, updated_at, started_at
+                       FROM cursor_delegation_jobs
+                       WHERE job_id = 'job-time-migration'"""
+                ).fetchone()
+            ),
+            "suggestion": conn.execute(
+                "SELECT expires_at FROM food_suggestions WHERE id = ?",
+                (suggestion_id,),
+            ).fetchone()[0],
+            "prompt": conn.execute(
+                """SELECT prompted_at FROM fitness_prompt_log
+                   WHERE reference = 'dejeuner'"""
+            ).fetchone()[0],
+        }
+        _migrate_application_timestamps_to_utc_v2(conn)
+        second = conn.execute(
+            "SELECT ended_at FROM conversations WHERE id = ?",
+            (conversation_id,),
+        ).fetchone()[0]
+
+    assert first == {
+        "conversation": "2026-07-09 22:30:00",
+        "cursor": (
+            "2026-07-09 22:30:00",
+            "2026-07-09 22:30:00",
+            "2026-07-09 22:30:00",
+        ),
+        "suggestion": "2026-07-09 22:30:00",
+        "prompt": "2026-07-09 22:30:00",
+    }
+    assert second == first["conversation"]
+
+
+def test_application_writers_use_the_shared_utc_contract(
+    paris_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from database import (
+        conversations,
+        create_conversation,
+        cursor_jobs,
+        email,
+        fitness,
+        food_intelligence,
+        get_db,
+    )
+    from database.time_buckets import sqlite_utc_timestamp
+
+    fixed_utc = "2026-07-09 22:30:00"
+
+    def fixed_now(value=None):
+        return fixed_utc if value is None else sqlite_utc_timestamp(value)
+
+    monkeypatch.setattr(conversations, "sqlite_utc_timestamp", fixed_now)
+    monkeypatch.setattr(cursor_jobs, "sqlite_utc_timestamp", fixed_now)
+    monkeypatch.setattr(email, "sqlite_utc_timestamp", fixed_now)
+    monkeypatch.setattr(fitness, "sqlite_utc_timestamp", fixed_now)
+    monkeypatch.setattr(
+        food_intelligence,
+        "utc_datetime",
+        lambda: datetime(2026, 7, 9, 22, 30, tzinfo=timezone.utc),
+    )
+    local_prompt = datetime(2026, 7, 10, 0, 30, tzinfo=ZoneInfo("Europe/Paris"))
+
+    conversation_id = create_conversation()
+    conversations.end_conversation(conversation_id, "Terminé")
+    cursor_jobs.create_cursor_job(
+        {
+            "job_id": "job-utc-writer",
+            "title": "Titre",
+            "user_request": "Demande",
+        }
+    )
+    cursor_jobs.update_cursor_job(
+        "job-utc-writer",
+        started_at=local_prompt.replace(tzinfo=None),
+    )
+    email.save_email_full(
+        gmail_id="mail-utc-writer",
+        sender="sender@example.com",
+        subject="Sujet",
+        body="Corps",
+        received_at="2026-07-09 21:00:00",
+        summary="Résumé",
+    )
+    food_intelligence.replace_suggestions(
+        [{"restaurant": "Chez Pierre", "items": [{"name": "Tacos"}]}],
+        ttl_hours=12,
+    )
+    fitness.record_prompt("2026-07-10", "meal", "dejeuner", local_prompt)
+
+    with get_db() as conn:
+        ended_at = conn.execute(
+            "SELECT ended_at FROM conversations WHERE id = ?", (conversation_id,)
+        ).fetchone()[0]
+        cursor_row = conn.execute(
+            """SELECT created_at, updated_at, started_at
+               FROM cursor_delegation_jobs WHERE job_id = 'job-utc-writer'"""
+        ).fetchone()
+        email_created_at = conn.execute(
+            """SELECT created_at FROM email_summaries
+               WHERE gmail_id = 'mail-utc-writer'"""
+        ).fetchone()[0]
+        expires_at = conn.execute(
+            "SELECT expires_at FROM food_suggestions ORDER BY id DESC LIMIT 1"
+        ).fetchone()[0]
+        prompted_at = conn.execute(
+            """SELECT prompted_at FROM fitness_prompt_log
+               WHERE reference = 'dejeuner' ORDER BY id DESC LIMIT 1"""
+        ).fetchone()[0]
+
+    assert ended_at == fixed_utc
+    assert tuple(cursor_row) == (fixed_utc, fixed_utc, fixed_utc)
+    assert email_created_at == fixed_utc
+    assert expires_at == "2026-07-10 10:30:00"
+    assert prompted_at == fixed_utc
+    assert fitness.get_last_prompt(
+        "2026-07-10", "meal", "dejeuner"
+    ) == local_prompt.replace(tzinfo=None)
 
 
 def test_today_location_and_presence_use_configured_local_day(
@@ -247,7 +400,9 @@ def test_today_location_and_presence_use_configured_local_day(
     assert len(presence.get_today_sessions()) == 1
 
 
-def test_presence_epoch_is_persisted_as_utc(paris_db: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_presence_epoch_is_persisted_as_utc(
+    paris_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from database import get_db
     from scripts.presence import PresenceDetector
 
@@ -336,9 +491,12 @@ def test_local_calendar_fields_do_not_depend_on_sqlite_utc_today(
         "today",
     }
     with get_db() as conn:
-        assert conn.execute(
-            "SELECT period_end FROM life_context WHERE id = ?", (context_id,)
-        ).fetchone()[0] == "2026-07-10"
+        assert (
+            conn.execute(
+                "SELECT period_end FROM life_context WHERE id = ?", (context_id,)
+            ).fetchone()[0]
+            == "2026-07-10"
+        )
 
 
 def test_mood_signal_uses_local_night_hours_not_utc_hours(paris_db: Path) -> None:
