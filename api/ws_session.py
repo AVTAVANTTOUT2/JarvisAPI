@@ -41,7 +41,21 @@ def resolve_websocket_auth(ws: WebSocket) -> tuple[Any, dict | None]:
 
 
 def _websocket_cookie_origin_allowed(ws: WebSocket) -> bool:
-    """Exige l'origine HTTP(S) exacte du handshake pour une session cookie."""
+    """Exige l'origine HTTP(S) exacte du handshake pour une session cookie.
+
+    Le superviseur proxifie ce canal, et son client WebSocket réécrit le
+    ``Host`` depuis l'URI de connexion : l'origine du navigateur arrivait donc
+    avec l'hôte du backend, et la comparaison échouait toujours. Le proxy
+    déclare la paire réelle dans des en-têtes dédiés, authentifiés par le jeton
+    privé du superviseur ; la propriété vérifiée est la même, seule sa source
+    change. Sans ce chemin, `/ws` refusait chaque connexion en 403 et le
+    navigateur reconnectait sans fin.
+    """
+    from api.middleware import _proxied_websocket_origin_allowed
+
+    if _proxied_websocket_origin_allowed(ws):
+        return True
+
     candidate = _canonical_origin(ws.headers.get("origin") or "")
     host = ws.headers.get("host") or ""
     if not candidate or not host:
