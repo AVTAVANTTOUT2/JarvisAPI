@@ -197,8 +197,59 @@ def _csrf_origin_allowed(request: Request) -> bool:
     return candidate in configured
 
 
+# En-têtes par lesquels le superviseur déclare l'origine réelle du navigateur.
+#
+# Le proxy WebSocket ne peut pas se contenter de relayer `Host` : la
+# bibliothèque cliente le réécrit systématiquement depuis l'URI de connexion
+# (`websockets/client.py` : `headers["Host"] = build_host(...)`). Le backend
+# recevait donc l'Origin du navigateur (port du superviseur) avec le Host du
+# backend, et refusait en 403 — indéfiniment, puisque le navigateur reconnecte.
+#
+# Le superviseur déclare donc explicitement la paire vue côté navigateur, et
+# prouve son identité par le même jeton privé que `/api/control/*`.
+WS_FORWARDED_ORIGIN_HEADER = "X-Forwarded-Origin"
+WS_FORWARDED_HOST_HEADER = "X-Forwarded-Host"
+
+
+def _proxied_websocket_origin_allowed(ws: WebSocket) -> bool:
+    """Origine déclarée par le superviseur, sur la boucle locale, avec jeton.
+
+    La propriété vérifiée reste la même qu'en direct : l'origine annoncée par
+    le navigateur doit correspondre à l'hôte qu'il a réellement visé. Seule la
+    **source** de ces deux valeurs change — le proxy les rapporte au lieu que
+    le backend les lise. Une page étrangère verrait son Origin rapportée telle
+    quelle, et la comparaison échouerait comme avant.
+    """
+    client = ws.client.host if ws.client else ""
+    if client not in ("127.0.0.1", "::1"):
+        return False
+    if not verify_supervisor_control_token(ws.headers.get(SUPERVISOR_CONTROL_HEADER)):
+        return False
+
+    declared_origin = ws.headers.get(WS_FORWARDED_ORIGIN_HEADER)
+    declared_host = ws.headers.get(WS_FORWARDED_HOST_HEADER)
+    if not declared_origin or not declared_host:
+        return False
+
+    candidate = _canonical_origin(declared_origin)
+    if candidate is None:
+        return False
+
+    # Le schéma est pris dans l'origine déclarée, pas dans la configuration du
+    # backend. Le navigateur a visé le superviseur, dont le schéma peut différer
+    # de celui du backend ; comparer avec une valeur locale ferait échouer un
+    # couple pourtant cohérent. Ce qui doit correspondre, c'est l'hôte et le
+    # port — c'est-à-dire ce que le navigateur a réellement contacté.
+    scheme, _hostname, _port = candidate
+    expected = _canonical_origin(f"{scheme}://{declared_host}")
+    return expected is not None and candidate == expected
+
+
 def browser_websocket_origin_allowed(ws: WebSocket) -> bool:
     """Vérifie l'Origin d'un WebSocket navigateur authentifié par cookie."""
+    if _proxied_websocket_origin_allowed(ws):
+        return True
+
     source = ws.headers.get("origin")
     if not source:
         return False

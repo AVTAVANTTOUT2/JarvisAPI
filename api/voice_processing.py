@@ -166,7 +166,13 @@ async def _process_voice_fast(
 
     response_text = str(result.get("text") or "").strip()
     if not response_text and result.get("agent") != "none":
-        response_text = "Je n'ai pas compris, Monsieur."
+        # Ne pas accuser la compréhension : la transcription est le plus souvent
+        # parfaite, et l'utilisateur reformulait dans le vide en croyant mal
+        # articuler. Le diagnostic des deux causes possibles appartient au
+        # moteur canonique, seul endroit qui voit la réponse brute du modèle et
+        # ses jetons ; il le journalise en WARNING et remonte
+        # ``empty_response_cause``.
+        response_text = "Je n'ai pas obtenu de reponse, Monsieur."
 
     total_cost = float(result.get("cost") or 0.0)
     action = result.get("action")
@@ -197,6 +203,8 @@ async def _process_voice_fast(
         "latency_conversation_turn_ms": turn_ms,
         "latency_total_ms": latency_ms,
     })
+    if result.get("empty_response_cause"):
+        debug_trace["empty_response_cause"] = result["empty_response_cause"]
 
     # /loop conserve sa persistance transactionnelle interne. Tous les autres
     # chemins vocaux écrivent le couple hors boucle, dans l'ordre, après que le

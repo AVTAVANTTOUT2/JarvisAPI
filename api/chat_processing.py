@@ -66,6 +66,7 @@ async def _process_message_internal(
     """
     try:
         confirmation_session_id = confirmation_session_id or f"internal:{conversation_id}"
+        empty_response_cause: str | None = None
         jarvis_patterns = (
             "noté, monsieur",
             "ajouté à l'agenda",
@@ -376,10 +377,35 @@ async def _process_message_internal(
             )
 
         # Nettoyage final
+        raw_display_text = str(display_text or "")
         display_text = re.sub(r'```(?:json|action|save)\s*\{[\s\S]*?\}\s*```', '', display_text).strip()
         display_text = re.sub(r'^\s*\[\w+\]\s*\n?', '', display_text).strip()
         if not display_text:
-            display_text = "Bien noté."
+            # Reponse vide : dire ce qui s'est passe, pas autre chose.
+            #
+            # « Bien noté. » prétend avoir compris et enregistré quelque chose
+            # alors que le moteur n'a rien produit. C'est le même défaut que
+            # « Je n'ai pas compris » côté vocal, en pire : l'un accuse à tort
+            # la compréhension de l'utilisateur, l'autre lui fait croire que sa
+            # demande est prise en compte. Les deux envoyaient chercher la cause
+            # au mauvais endroit, pendant qu'elle restait invisible.
+            #
+            # Deux causes distinctes produisent ce vide, et les confondre
+            # empêche de diagnostiquer :
+            #   - le modele ne renvoie aucun contenu (reseau, quota, coupure) ;
+            #   - il ne renvoie *que* le tag [emotion], que le parseur retire.
+            cause = "aucun_contenu" if not raw_display_text.strip() else "tag_emotion_seul"
+            tokens_out = int(final_meta.get("tokens_out") or 0)
+            logger.warning(
+                "[internal] Reponse vide (%s) — agent=%s tokens_out=%d raw_chars=%d : "
+                "le modele n'a rien produit, la demande de l'utilisateur n'est pas en cause",
+                cause,
+                final_meta.get("agent"),
+                tokens_out,
+                len(raw_display_text.strip()),
+            )
+            empty_response_cause = cause
+            display_text = "Je n'ai pas obtenu de reponse, Monsieur."
 
         if persist_assistant:
             try:
@@ -409,6 +435,9 @@ async def _process_message_internal(
             "agent": final_meta.get("agent"),
             "model": final_meta.get("model"),
             "cost": float(final_meta.get("cost") or 0.0),
+            # Remonté jusqu'aux traces vocales : sans lui, un tour muet est
+            # indiscernable d'un tour normal dans le journal de debug.
+            "empty_response_cause": empty_response_cause,
         }
     except Exception as e:
         logger.exception("[_process_message_internal] %s", e)
