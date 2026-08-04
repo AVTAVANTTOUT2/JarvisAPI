@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-04T09:28:52.256075+00:00",
+  "generated_at": "2026-08-04T09:43:41.970601+00:00",
   "repo_root": ".",
   "canonical_formulation": {
     "database": "Le projet crée 90 tables persistantes après init_db() + migrations, plus jusqu'à 5 objets FTS5, soit 95 tables physiques lorsque FTS5 est disponible.",
@@ -5087,6 +5087,7 @@
           ]
         },
         "tests": [
+          "android/app/src/test/kotlin/fr/jarvis/companion/core/network/JarvisChatWebSocketTest.kt",
           "frontend/e2e/critical-flows.spec.ts",
           "tests/test_audit_architecture_truth.py",
           "tests/test_mobile_ws_bearer.py",

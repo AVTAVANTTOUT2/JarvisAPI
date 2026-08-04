@@ -20,6 +20,7 @@ def test_ci_builds_and_tests_the_release_variant_with_r8():
         "assembleRelease",
         "testReleaseUnitTest",
         "lintRelease",
+        "connectedDebugAndroidTest",
     ):
         assert task in job
     assert "app-release-unsigned.apk" in job
@@ -42,3 +43,16 @@ def test_ci_checks_major_dtos_survive_r8_with_stable_names():
     assert "fr.jarvis.companion.network.**Response" in rules
     assert "fr.jarvis.companion.voice.VoiceTurnResponse" in rules
     assert "RuntimeVisibleAnnotations" in rules
+
+
+def test_ci_runs_android_keystore_and_ui_tests_on_an_emulator():
+    job = _android_job()
+
+    assert "reactivecircus/android-emulator-runner@v2" in job
+    assert "api-level: 35" in job
+    assert "working-directory: android" in job
+    assert "JarvisSecureStoreInstrumentedTest" in (
+        ROOT / "android" / "app" / "src" / "androidTest" / "kotlin" /
+        "fr" / "jarvis" / "companion" / "data" /
+        "JarvisSecureStoreInstrumentedTest.kt"
+    ).read_text(encoding="utf-8")

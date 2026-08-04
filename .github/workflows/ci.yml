@@ -291,3 +291,13 @@ jobs:
           do
             grep -F "$dto -> $dto:" app/build/outputs/mapping/release/mapping.txt
           done
+
+      - name: Tests instrumentés Android (Keystore + UI)
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          working-directory: android
+          script: ./gradlew connectedDebugAndroidTest --no-daemon

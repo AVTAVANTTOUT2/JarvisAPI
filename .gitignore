@@ -58,6 +58,7 @@ web/.vite/
 
 # ── Android ─────────────────────────────────────────────────
 android/.gradle/
+android/.kotlin/
 android/local.properties
 android/app/build/
 android/app/google-services.json
