@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import sys
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -111,6 +112,11 @@ async def run_demos(out_dir: Path) -> list[DemoResult]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Permet `python scripts/demo_jarvis_voice.py` sans exporter PYTHONPATH.
+    repo = str(REPO_ROOT)
+    if repo not in sys.path:
+        sys.path.insert(0, repo)
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--out",
