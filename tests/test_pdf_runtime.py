@@ -29,6 +29,28 @@ def test_pdf_runtime_import_is_clean_with_deprecations_as_errors() -> None:
     assert probe.stderr == ""
 
 
+def test_pdf_runtime_shutdown_is_clean_with_default_deprecations() -> None:
+    """Le binding SWIG réémet son warning après la fin de l'import."""
+    probe = subprocess.run(
+        [
+            sys.executable,
+            "-W",
+            "default::DeprecationWarning",
+            "-c",
+            "from jarvis.pdf_runtime import pymupdf; print(pymupdf.__version__)",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+
+    assert probe.returncode == 0, probe.stderr
+    assert probe.stdout.strip().startswith("1.28.")
+    assert "SwigPy" not in probe.stderr
+    assert "swigvarlink" not in probe.stderr
+
+
 def test_school_pdf_extraction_uses_a_closed_document(tmp_path) -> None:
     path = tmp_path / "cours.pdf"
     with pymupdf.open() as document:
