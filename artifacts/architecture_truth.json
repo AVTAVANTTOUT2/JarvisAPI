@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-04T10:40:48.913609+00:00",
+  "generated_at": "2026-08-04T11:22:04.228596+00:00",
   "repo_root": ".",
   "canonical_formulation": {
     "database": "Le projet crée 90 tables persistantes après init_db() + migrations, plus jusqu'à 5 objets FTS5, soit 95 tables physiques lorsque FTS5 est disponible.",
@@ -1348,7 +1348,7 @@
         "method": "GET",
         "path": "/api/fitness/dashboard",
         "source": "app/fitness/routes.py",
-        "line": 242,
+        "line": 246,
         "consumers": {
           "mobile_web": [
             "web_mobile/js/views/health.js"
@@ -1364,7 +1364,7 @@
         "method": "GET",
         "path": "/api/fitness/meals",
         "source": "app/fitness/routes.py",
-        "line": 154,
+        "line": 158,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -1388,7 +1388,7 @@
         "method": "GET",
         "path": "/api/fitness/meals/{meal_id}/photo",
         "source": "app/fitness/routes.py",
-        "line": 126,
+        "line": 130,
         "consumers": {},
         "tests": [
           "tests/test_fitness_meal_analysis.py"
@@ -1405,7 +1405,7 @@
         "method": "GET",
         "path": "/api/fitness/program",
         "source": "app/fitness/routes.py",
-        "line": 205,
+        "line": 209,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -1424,7 +1424,7 @@
         "method": "GET",
         "path": "/api/fitness/summary/today",
         "source": "app/fitness/routes.py",
-        "line": 199,
+        "line": 203,
         "consumers": {
           "mobile_web": [
             "web_mobile/js/api.js"
@@ -1441,7 +1441,7 @@
         "method": "GET",
         "path": "/api/fitness/water/today",
         "source": "app/fitness/routes.py",
-        "line": 170,
+        "line": 174,
         "consumers": {},
         "tests": [
           "tests/test_fitness_api.py"
@@ -1458,7 +1458,7 @@
         "method": "GET",
         "path": "/api/fitness/weights",
         "source": "app/fitness/routes.py",
-        "line": 264,
+        "line": 268,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -1477,7 +1477,7 @@
         "method": "GET",
         "path": "/api/fitness/wellbeing",
         "source": "app/fitness/routes.py",
-        "line": 186,
+        "line": 190,
         "consumers": {
           "frontend_vite": [
             "web/src/app/components/fitness/FitnessForms.tsx"
@@ -1497,7 +1497,7 @@
         "method": "GET",
         "path": "/api/fitness/workouts",
         "source": "app/fitness/routes.py",
-        "line": 67,
+        "line": 68,
         "consumers": {
           "frontend_vite": [
             "web/src/app/components/fitness/FitnessForms.tsx"
@@ -2863,7 +2863,7 @@
         "method": "PATCH",
         "path": "/api/fitness/program",
         "source": "app/fitness/routes.py",
-        "line": 211,
+        "line": 215,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -2882,7 +2882,7 @@
         "method": "PATCH",
         "path": "/api/fitness/program/sessions/{session_id}",
         "source": "app/fitness/routes.py",
-        "line": 220,
+        "line": 224,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -3844,7 +3844,7 @@
         "method": "POST",
         "path": "/api/fitness/advice",
         "source": "app/fitness/routes.py",
-        "line": 250,
+        "line": 254,
         "consumers": {
           "mobile_web": [
             "web_mobile/js/views/health.js"
@@ -3860,7 +3860,7 @@
         "method": "POST",
         "path": "/api/fitness/meals",
         "source": "app/fitness/routes.py",
-        "line": 80,
+        "line": 81,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -3884,7 +3884,7 @@
         "method": "POST",
         "path": "/api/fitness/meals/from-photo",
         "source": "app/fitness/routes.py",
-        "line": 99,
+        "line": 100,
         "consumers": {
           "mobile_web": [
             "web_mobile/js/api.js"
@@ -3900,7 +3900,7 @@
         "method": "POST",
         "path": "/api/fitness/meals/from-text",
         "source": "app/fitness/routes.py",
-        "line": 90,
+        "line": 91,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -3919,7 +3919,7 @@
         "method": "POST",
         "path": "/api/fitness/water",
         "source": "app/fitness/routes.py",
-        "line": 160,
+        "line": 164,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -3943,7 +3943,7 @@
         "method": "POST",
         "path": "/api/fitness/weights",
         "source": "app/fitness/routes.py",
-        "line": 258,
+        "line": 262,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -3962,7 +3962,7 @@
         "method": "POST",
         "path": "/api/fitness/wellbeing",
         "source": "app/fitness/routes.py",
-        "line": 176,
+        "line": 180,
         "consumers": {
           "frontend_vite": [
             "web/src/app/components/fitness/FitnessForms.tsx"
@@ -3982,7 +3982,7 @@
         "method": "POST",
         "path": "/api/fitness/workouts",
         "source": "app/fitness/routes.py",
-        "line": 57,
+        "line": 58,
         "consumers": {
           "frontend_vite": [
             "web/src/app/components/fitness/FitnessForms.tsx"
@@ -4992,7 +4992,7 @@
         "method": "PUT",
         "path": "/api/fitness/sessions/{session_id}/progress",
         "source": "app/fitness/routes.py",
-        "line": 231,
+        "line": 235,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
