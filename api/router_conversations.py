@@ -5,10 +5,9 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-import fitz
-from fastapi import APIRouter, Body, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Form, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from database import (
     delete_conversation,
@@ -26,6 +25,7 @@ from jarvis.document_privacy import (
     set_document_strict_local,
     summarize_document,
 )
+from jarvis.pdf_runtime import pymupdf
 from jarvis.uploads import (
     CONVERSATION_EXTENSIONS,
     UploadRejected,
@@ -37,8 +37,25 @@ router = APIRouter()
 logger = logging.getLogger("jarvis")
 
 
-class DocumentPrivacyUpdate(BaseModel):
+class _StrictConversationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, str_strip_whitespace=True)
+
+
+class DocumentPrivacyUpdate(_StrictConversationRequest):
     strict_local: bool
+
+
+class ConversationUpdateRequest(_StrictConversationRequest):
+    title: str | None = Field(default=None, max_length=500)
+    pinned: bool | None = None
+    archived: bool | None = None
+    tags: str | None = Field(default=None, max_length=10_000)
+
+    @model_validator(mode="after")
+    def require_update(self) -> "ConversationUpdateRequest":
+        if not self.model_fields_set:
+            raise ValueError("Au moins un champ modifiable est requis")
+        return self
 
 
 # ── Conversations enrichies ──────────────────────────────────
@@ -83,12 +100,9 @@ async def api_conversation_get(conv_id: int):
 
 
 @router.patch("/api/conversations/{conv_id}")
-async def api_conversation_update(conv_id: int, body: dict = Body(default_factory=dict)):
+async def api_conversation_update(conv_id: int, body: ConversationUpdateRequest):
     """Met à jour les métadonnées d'une conversation (titre, pinned, archived…)."""
-    allowed = {"title", "pinned", "archived", "tags"}
-    fields = {k: v for k, v in body.items() if k in allowed}
-    if not fields:
-        raise HTTPException(400, "Aucun champ modifiable fourni")
+    fields = body.model_dump(exclude_unset=True)
     if not update_conversation(conv_id, **fields):
         raise HTTPException(404, "Conversation non trouvée")
     return {"ok": True}
@@ -149,7 +163,7 @@ async def api_conversation_upload(
     try:
         if stored.extension == ".pdf":
             try:
-                with fitz.open(str(stored.path)) as doc:
+                with pymupdf.open(str(stored.path)) as doc:
                     extracted = "\n".join(page.get_text() for page in doc)
             except Exception as exc:
                 raise HTTPException(415, "Document PDF illisible") from exc

@@ -3,12 +3,26 @@
 from __future__ import annotations
 
 import pytest
+from starlette.requests import Request
 
 from core.network_security import (
     is_loopback_host,
+    is_loopback_request,
     validate_network_bind,
     validate_supervisor_network_bind,
 )
+
+
+def _request(*, client: str, host: str) -> Request:
+    return Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/",
+            "headers": [(b"host", host.encode())],
+            "client": (client, 54321),
+        }
+    )
 
 
 @pytest.mark.parametrize("host", ["127.0.0.1", "::1", "[::1]", "localhost"])
@@ -19,6 +33,16 @@ def test_loopback_hosts_are_local(host: str):
 @pytest.mark.parametrize("host", ["0.0.0.0", "::", "192.168.1.10", "jarvis.local"])
 def test_network_hosts_are_not_loopback(host: str):
     assert is_loopback_host(host) is False
+
+
+def test_loopback_request_requires_local_transport_and_host():
+    assert is_loopback_request(_request(client="127.0.0.1", host="localhost:8000"))
+    assert not is_loopback_request(
+        _request(client="203.0.113.20", host="localhost:8000")
+    )
+    assert not is_loopback_request(
+        _request(client="127.0.0.1", host="jarvis.example")
+    )
 
 
 def test_local_http_bind_is_allowed():

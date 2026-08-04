@@ -154,11 +154,14 @@ Les fonctions d'écriture de `tasks`, `notifications`, `conversations`, `episode
 | **Critère** | ✅ Polling notifications/tâches supprimé de la PWA ; suite backend complète à 542 passants, 1 ignoré ; build PWA réussi |
 | **Réversibilité** | Ne pas enregistrer les handlers |
 
-Le journal conserve `processed_by = NULL` tant qu'aucun moteur de rejeu n'existe. Les données sont donc disponibles pour un futur rejeu, mais aucun rejeu automatique au redémarrage n'est revendiqué dans cette phase. `Queue Engine`, `AI Service`, `/health` et `/metrics` restent des travaux Q4/futurs hors Phase 3.
+Le journal est une trace d'observabilité idempotente, pas un outbox. Aucun état
+de consommation ni aucune promesse de rejeu ne sont exposés tant qu'un moteur
+durable complet n'existe pas. `Queue Engine`, `AI Service`, `/health` et
+`/metrics` restent des travaux Q4/futurs hors Phase 3.
 
 ## Phase 4 — Routeurs FastAPI (Jour 5-7)
 
-**État** : ✅ Implémentée et validée le 14/07/2026. La bascule a conservé les 174 opérations HTTP, le WebSocket `/ws` et les 157 chemins OpenAPI. `main.py` contient 175 lignes d'assemblage.
+**État** : ✅ Implémentée et validée le 14/07/2026, puis étendue. Le contrat courant compte 259 opérations HTTP, 2 WebSockets et 230 chemins OpenAPI ; `main.py` reste un assemblage sous 500 lignes.
 
 ### Routeurs créés (12)
 
@@ -180,7 +183,7 @@ Le journal conserve `processed_by = NULL` tant qu'aucun moteur de rejeu n'existe
 | `api/frontend.py` | Montage desktop/PWA et détection mobile | 316 | Bas |
 | `api/middleware.py` | `security_middleware` | 99 | Bas |
 
-### main.py après (175 lignes)
+### main.py après (assemblage sous 500 lignes)
 
 ```python
 from api.router_auth import router as auth_router

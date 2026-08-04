@@ -9,15 +9,13 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
 
 import config
-from app.fitness.services import fitness_service
+from app.fitness.services import configured_timezone, fitness_service
 from database import fitness as fitness_repository
 from jarvis.notification_service import notification_service
 
 logger = logging.getLogger(__name__)
-LOCAL_TIMEZONE = ZoneInfo("Europe/Paris")
 
 
 def _minutes(value: str) -> int:
@@ -25,14 +23,16 @@ def _minutes(value: str) -> int:
     return hour * 60 + minute
 
 
-def _can_prompt(
-    *, now: datetime, kind: str, reference: str, cooldown_min: int
-) -> bool:
+def _can_prompt(*, now: datetime, kind: str, reference: str, cooldown_min: int) -> bool:
     last = fitness_repository.get_last_prompt(now.date().isoformat(), kind, reference)
-    return last is None or now.replace(tzinfo=None) - last >= timedelta(minutes=cooldown_min)
+    return last is None or now.replace(tzinfo=None) - last >= timedelta(
+        minutes=cooldown_min
+    )
 
 
-def _notify(now: datetime, *, kind: str, reference: str, title: str, content: str) -> None:
+def _notify(
+    now: datetime, *, kind: str, reference: str, title: str, content: str
+) -> None:
     notification_service.create(
         source="fitness",
         title=title,
@@ -45,9 +45,12 @@ def _notify(now: datetime, *, kind: str, reference: str, title: str, content: st
 
 def run_fitness_reminders(now: datetime | None = None) -> dict[str, list[str]]:
     """Émet les rappels dus et retourne les catégories déclenchées."""
-    local_now = now or datetime.now(LOCAL_TIMEZONE)
+    timezone = configured_timezone()
+    local_now = now or datetime.now(timezone)
     if local_now.tzinfo is None:
-        local_now = local_now.replace(tzinfo=LOCAL_TIMEZONE)
+        local_now = local_now.replace(tzinfo=timezone)
+    else:
+        local_now = local_now.astimezone(timezone)
     emitted: dict[str, list[str]] = {"workout": [], "meal": []}
     if not getattr(config, "FITNESS_REMINDERS_ENABLED", True):
         return emitted
@@ -68,7 +71,9 @@ def run_fitness_reminders(now: datetime | None = None) -> dict[str, list[str]]:
     if program.reminders_enabled and minute_of_day >= _minutes(program.reminder_time):
         session = fitness_repository.get_scheduled_session(date_value)
         if session is not None:
-            progress = fitness_repository.get_session_progress(int(session["id"]), date_value)
+            progress = fitness_repository.get_session_progress(
+                int(session["id"]), date_value
+            )
             status = progress["status"] if progress else "planned"
             reference = str(session["id"])
             if status not in {"done", "skipped"} and _can_prompt(

@@ -19,7 +19,7 @@ graph TB
     end
 
     subgraph "API Layer"
-        API["FastAPI<br/>12 routeurs par domaine<br/>174 opérations HTTP"]
+        API["FastAPI<br/>18 routeurs montés<br/>259 opérations HTTP"]
         WS["WebSocket /ws<br/>Streaming + Broadcast"]
         AUTH["Auth Middleware<br/>SDK partagé"]
     end
@@ -100,7 +100,7 @@ graph TB
 
 ## Couche 2 — API Layer
 
-**Routeurs FastAPI par domaine** (implémentés : 12 routeurs, 175 lignes dans `main.py`) :
+**Routeurs FastAPI par domaine** (implémentés : 17 routeurs sous `api/` plus Fitness, assemblés dans `main.py`) :
 
 ```
 api/
@@ -227,7 +227,7 @@ graph TB
     PIPELINE["pipeline.py<br/>importe orchestrator, actions"]
     ROUTERS["api/router_*.py<br/>importent services, pipeline"]
 
-    MAIN["main.py<br/>175 lignes<br/>monte les routeurs"]
+    MAIN["main.py<br/>211 lignes<br/>monte 18 routeurs"]
 
     CONFIG --> DB
     CONFIG --> LLM_CLIENT

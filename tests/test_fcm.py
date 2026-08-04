@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import base64
 from unittest.mock import MagicMock, patch
 
 from cryptography.hazmat.primitives import serialization
@@ -63,3 +64,30 @@ def test_fcm_is_disabled_without_service_account(monkeypatch):
 
     monkeypatch.setattr(config, "FCM_SERVICE_ACCOUNT_FILE", "")
     assert send_fcm_notification("token", "title", None, "medium") == (False, 0)
+
+
+def test_fcm_ignores_untrusted_token_uri_from_credentials(tmp_path, monkeypatch):
+    import config
+    from integrations import fcm
+
+    credentials_path = _credentials(tmp_path)
+    credentials = json.loads(credentials_path.read_text(encoding="utf-8"))
+    credentials["token_uri"] = "https://attacker.example/token"
+    credentials_path.write_text(json.dumps(credentials), encoding="utf-8")
+    monkeypatch.setattr(config, "FCM_SERVICE_ACCOUNT_FILE", str(credentials_path))
+    monkeypatch.setattr(config, "FCM_PROJECT_ID", "")
+    fcm.reset_token_cache()
+
+    oauth = MagicMock()
+    oauth.raise_for_status.return_value = None
+    oauth.json.return_value = {"access_token": "access-token", "expires_in": 3600}
+    sent = MagicMock(status_code=200, is_success=True)
+    with patch("httpx.post", side_effect=[oauth, sent]) as post:
+        assert fcm.send_fcm_notification("token", "title", None, "medium") == (True, 200)
+
+    assert post.call_args_list[0].args[0] == "https://oauth2.googleapis.com/token"
+    assertion = post.call_args_list[0].kwargs["data"]["assertion"]
+    encoded_claims = assertion.split(".")[1]
+    encoded_claims += "=" * (-len(encoded_claims) % 4)
+    claims = json.loads(base64.urlsafe_b64decode(encoded_claims))
+    assert claims["aud"] == "https://oauth2.googleapis.com/token"

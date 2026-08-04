@@ -60,8 +60,6 @@ def client(tmp_path, monkeypatch) -> TestClient:
     _write(unified / "chat" / "index.html", "desktop-chat")
     _write(unified / "_next" / "static" / "app.js", "asset")
     monkeypatch.setattr(frontend, "FRONTEND_DIST", unified)
-    monkeypatch.setattr(frontend, "WEB_DIST", tmp_path / "web-dist-absent")
-
     app = FastAPI()
     _setup_frontend(app)
     return TestClient(app)
@@ -105,10 +103,10 @@ def test_desktop_escape_hatch_sets_a_durable_cookie(client):
 
 
 def test_desktop_cookie_alone_disables_the_redirect(client):
+    client.cookies.set(web_mobile.FORCE_DESKTOP_COOKIE, "1")
     response = client.get(
         "/",
         headers={"user-agent": IPHONE},
-        cookies={web_mobile.FORCE_DESKTOP_COOKIE: "1"},
         follow_redirects=False,
     )
     assert response.status_code == 200
@@ -217,14 +215,47 @@ def test_absent_directory_disables_everything(tmp_path, monkeypatch):
     _write(unified / "index.html", "desktop-root")
     _write(unified / "_next" / "static" / "app.js", "asset")
     monkeypatch.setattr(frontend, "FRONTEND_DIST", unified)
-    monkeypatch.setattr(frontend, "WEB_DIST", tmp_path / "web-dist-absent")
     monkeypatch.setattr(web_mobile, "WEB_MOBILE_DIR", tmp_path / "vide")
 
     app = FastAPI()
     _setup_frontend(app)
     client = TestClient(app)
+    assert client.get("/mobile").status_code == 404
     assert client.get("/mobile/").status_code == 404
     assert client.get("/", headers={"user-agent": IPHONE}, follow_redirects=False).status_code == 200
+
+
+def test_missing_mobile_and_desktop_build_returns_explicit_503(tmp_path, monkeypatch):
+    monkeypatch.setattr(frontend, "FRONTEND_DIST", tmp_path / "frontend-absent")
+    monkeypatch.setattr(web_mobile, "WEB_MOBILE_DIR", tmp_path / "mobile-absent")
+
+    app = FastAPI()
+    _setup_frontend(app)
+    response = TestClient(app).get("/", headers={"user-agent": MAC_DESKTOP})
+
+    assert response.status_code == 503
+    assert "Aucun frontend bureau" in response.text
+
+
+def test_missing_mobile_bundle_never_falls_back_to_a_desktop_shell(
+    tmp_path,
+    monkeypatch,
+):
+    """`/mobile` reste réservé par l'unique shell Next."""
+    unified = tmp_path / "frontend-out"
+    _write(unified / "index.html", "unified-desktop")
+    _write(unified / "_next" / "static" / "app.js", "asset")
+    monkeypatch.setattr(web_mobile, "WEB_MOBILE_DIR", tmp_path / "mobile-absent")
+
+    monkeypatch.setattr(frontend, "FRONTEND_DIST", unified)
+    app = FastAPI()
+    _setup_frontend(app)
+    with TestClient(app) as client:
+        assert client.get("/mobile").status_code == 404
+        assert client.get("/mobile/anything").status_code == 404
+
+    assert "mobile" not in frontend._SPA_SEGMENTS
+    assert "mobile" not in frontend._UNIFIED_SEGMENTS
 
 
 def test_mobile_survives_a_missing_desktop_build(tmp_path, monkeypatch):
@@ -234,8 +265,6 @@ def test_mobile_survives_a_missing_desktop_build(tmp_path, monkeypatch):
     frontend n'a pas encore été construit — exactement le cas de la CI.
     """
     monkeypatch.setattr(frontend, "FRONTEND_DIST", tmp_path / "frontend-absent")
-    monkeypatch.setattr(frontend, "WEB_DIST", tmp_path / "web-absent")
-    monkeypatch.setattr(frontend, "WEB_TEMPLATES", tmp_path / "templates-absent")
 
     app = FastAPI()
     _setup_frontend(app)
@@ -370,6 +399,32 @@ def test_mobile_lock_accepts_variable_length_pin():
     assert "code.length === MAX_PIN" in auth_source
 
 
+def test_mobile_auth_supports_passphrases_and_persists_idle_lock():
+    auth_source = _mobile_source("js/auth.js")
+    api_source = _mobile_source("js/api.js")
+    index_source = _mobile_source("index.html")
+    assert "const MIN_PASSPHRASE = 10" in auth_source
+    assert "data-secret-kind=\"passphrase\"" in index_source
+    assert "lock-passphrase-submit" in index_source
+    assert "localStorage.setItem(SOFT_LOCK_KEY, '1')" in auth_source
+    assert "st.authenticated && !hasPersistedSoftLock()" in auth_source
+    assert "const result = await api.verify(entered)" in auth_source
+    assert "'/api/auth/verify'" in api_source
+
+
+def test_mobile_shell_exposes_a_real_logout_action():
+    app_source = _mobile_source("js/app.js")
+    assert "label: 'Se déconnecter'" in app_source
+    assert "await api.logout()" in app_source
+
+
+def test_user_chat_never_renders_internal_agent_names():
+    chat_source = (REPO_ROOT / "web/src/app/components/views/ChatView.tsx").read_text(
+        encoding="utf-8"
+    )
+    assert "message.agent &&" not in chat_source
+
+
 def test_mobile_fitness_matches_the_connected_desktop_experience():
     """La PWA autonome doit conserver les capacités de la nouvelle vue desktop."""
     health = _mobile_source("js/views/health.js")
@@ -388,6 +443,12 @@ def test_mobile_fitness_matches_the_connected_desktop_experience():
         "Analyser (IA)",
         "createMealFromText",
         "Analyse alimentaire impossible.",
+        "createMealFromPhoto",
+        "Analyser la photo (IA)",
+        "capture: 'environment'",
+        "createWellbeing",
+        "Enregistrer mon ressenti",
+        "journal_text: journal.value.trim() || null",
     ):
         assert contract in health
 
@@ -399,9 +460,17 @@ def test_mobile_fitness_uses_safe_ratios_and_explicit_local_dates():
     assert "/api/fitness/advice?date=${encodeURIComponent(dashboard.date)}" in health
 
 
+def test_mobile_fitness_validates_program_settings_before_patch():
+    health = _mobile_source("js/views/health.js")
+    assert "validateProgramSettings(fields, reminderTime)" in health
+    assert "if (!raw) return { error:" in health
+    assert "payload[key] = Number(node.value)" not in health
+    assert "payload.calories_min > payload.calories_max" in health
+
+
 def test_mobile_fitness_assets_are_cache_busted_from_the_shell():
     index = _mobile_source("index.html")
     app = _mobile_source("js/app.js")
-    assert "/mobile/app.css?v=20260803" in index
-    assert "/mobile/js/app.js?v=20260803" in index
-    assert "./views/health.js?v=20260803" in app
+    assert "/mobile/app.css?v=20260804" in index
+    assert "/mobile/js/app.js?v=20260804" in index
+    assert "./views/health.js?v=20260804" in app

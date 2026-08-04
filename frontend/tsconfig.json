@@ -60,7 +60,7 @@
     "next-env.d.ts",
     "src/**/*.ts",
     "src/**/*.tsx",
-    "../web/src/vite-env.d.ts",
+    "../web/src/runtime-env.d.ts",
     "../jarvis_auth/src/**/*.ts",
     "../jarvis_auth/src/**/*.tsx",
     ".next/types/**/*.ts"

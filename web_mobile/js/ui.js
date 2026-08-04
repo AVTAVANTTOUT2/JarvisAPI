@@ -95,15 +95,6 @@ export function dueLabel(value, now = new Date()) {
   return { text: longDate(d).replace(/^./, (c) => c.toUpperCase()), late: false };
 }
 
-export function relativeMinutes(from, now = new Date()) {
-  const mins = Math.max(0, Math.round((now - from) / 60000));
-  if (mins < 1) return "à l'instant";
-  if (mins === 1) return 'il y a 1 minute';
-  if (mins < 60) return `il y a ${mins} minutes`;
-  const hours = Math.round(mins / 60);
-  return hours === 1 ? 'il y a 1 heure' : `il y a ${hours} heures`;
-}
-
 const PRIORITES = { high: ['Haute', 'red'], medium: ['Moyenne', 'amber'], low: ['Basse', 'dim'] };
 
 export function priorityPill(priority) {

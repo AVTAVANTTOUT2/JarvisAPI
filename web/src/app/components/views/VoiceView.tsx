@@ -45,11 +45,13 @@ function pickRecorderMime(): string | undefined {
 }
 
 let _lastVadLogMs = 0
+const IS_DEVELOPMENT = process.env.NODE_ENV === 'development'
+
 function logVadVolumeThrottled(rms: number) {
   const now = performance.now()
   if (now - _lastVadLogMs < 400) return
   _lastVadLogMs = now
-  if (import.meta.env.DEV) console.log(`[VAD] Volume détecté: ${rms.toFixed(5)}`)
+  if (IS_DEVELOPMENT) console.log(`[VAD] Volume détecté: ${rms.toFixed(5)}`)
 }
 
 export function VoiceView() {
@@ -412,13 +414,13 @@ export function VoiceView() {
         }
         const blobType = mime || recorder.mimeType || 'audio/webm'
         const blob = new Blob(chunks, { type: blobType })
-        if (import.meta.env.DEV) console.log(`[VAD] Blob enregistré, type: ${blobType}, taille: ${blob.size} bytes`)
+        if (IS_DEVELOPMENT) console.log(`[VAD] Blob enregistré, type: ${blobType}, taille: ${blob.size} bytes`)
         if (blob.size < 2000) {
           if (activeRef.current && phaseRef.current === 'listening') startRecording()
           return
         }
         blob.arrayBuffer().then((buf) => {
-          if (import.meta.env.DEV) console.log('[WS] Envoi du blob audio…')
+          if (IS_DEVELOPMENT) console.log('[WS] Envoi du blob audio…')
           if (!safeSendBinary(buf, 'blob audio')) {
             updatePhase('listening')
             if (activeRef.current) startRecording()
@@ -486,7 +488,7 @@ export function VoiceView() {
         if (interruptStartRef.current === 0) {
           interruptStartRef.current = performance.now()
         } else if (performance.now() - interruptStartRef.current > INTERRUPT_DURATION_MS) {
-          if (import.meta.env.DEV) console.log('[VAD] Interruption — utilisateur coupe la parole')
+          if (IS_DEVELOPMENT) console.log('[VAD] Interruption — utilisateur coupe la parole')
           interruptStartRef.current = 0
           const player = audioPlayerRef.current
           if (player) {
@@ -512,7 +514,7 @@ export function VoiceView() {
           hasSpokeRef.current = true
           silenceStartRef.current = 0
           speechStartRef.current = 0
-          if (import.meta.env.DEV) console.log(`[VAD] Flush forcé après ${Math.round(recordingElapsed)}ms`)
+          if (IS_DEVELOPMENT) console.log(`[VAD] Flush forcé après ${Math.round(recordingElapsed)}ms`)
           stopRecording()
           rafRef.current = requestAnimationFrame(tick)
           return
@@ -530,12 +532,12 @@ export function VoiceView() {
           } else if (performance.now() - silenceStartRef.current > SILENCE_DURATION_MS) {
             const speechDuration = silenceStartRef.current - speechStartRef.current
             if (speechDuration < MIN_SPEECH_DURATION_MS) {
-              if (import.meta.env.DEV) console.log(`[VAD] Parole trop courte (${Math.round(speechDuration)}ms) — on continue`)
+              if (IS_DEVELOPMENT) console.log(`[VAD] Parole trop courte (${Math.round(speechDuration)}ms) — on continue`)
               silenceStartRef.current = 0
               hasSpokeRef.current = false
               speechStartRef.current = 0
             } else {
-              if (import.meta.env.DEV) console.log(`[VAD] Fin de phrase detectee (parole=${Math.round(speechDuration)}ms, silence=${SILENCE_DURATION_MS}ms)`)
+              if (IS_DEVELOPMENT) console.log(`[VAD] Fin de phrase detectee (parole=${Math.round(speechDuration)}ms, silence=${SILENCE_DURATION_MS}ms)`)
               silenceStartRef.current = 0
               hasSpokeRef.current = false
               speechStartRef.current = 0
@@ -649,9 +651,9 @@ export function VoiceView() {
 
     preferredRecorderMimeRef.current = pickRecorderMime()
     if (preferredRecorderMimeRef.current) {
-      if (import.meta.env.DEV) console.log(`[Voice] MediaRecorder mime: ${preferredRecorderMimeRef.current}`)
+      if (IS_DEVELOPMENT) console.log(`[Voice] MediaRecorder mime: ${preferredRecorderMimeRef.current}`)
     } else {
-      if (import.meta.env.DEV) console.warn('[Voice] Aucun mime enregistrable listé — défaut navigateur')
+      if (IS_DEVELOPMENT) console.warn('[Voice] Aucun mime enregistrable listé — défaut navigateur')
     }
 
     streamRef.current = stream

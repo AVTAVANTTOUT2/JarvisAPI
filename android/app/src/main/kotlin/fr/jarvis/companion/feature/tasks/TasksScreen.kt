@@ -26,7 +26,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import fr.jarvis.companion.core.JarvisFeatureFlags
 import fr.jarvis.companion.core.connectivity.ConnectivityState
 import fr.jarvis.companion.core.database.CachedTaskEntity
 import fr.jarvis.companion.core.ui.components.ErrorCallout
@@ -112,16 +111,13 @@ fun TasksScreen(
                     items(state.tasks, key = { it.serverId }) { task ->
                         TaskCard(task)
                     }
-                    if (!JarvisFeatureFlags.TASKS_MUTATIONS) {
-                        item {
-                            // TODO(JARVIS-FUTURE-TASKS-MUTATIONS): brancher création et
-                            // complétion offline-first (modèle pending_chat_operations)
-                            // quand les mutations /api/tasks Bearer seront disponibles.
-                            JarvisFutureAction(
-                                title = "Créer et terminer des tâches",
-                                description = "Les modifications depuis le téléphone arrivent dans une prochaine version.",
-                            )
-                        }
+                    item {
+                        // TODO(JARVIS-FUTURE-TASKS-MUTATIONS): remplacer ce placeholder
+                        // quand les mutations tâches Bearer seront réellement branchées.
+                        JarvisFutureAction(
+                            title = "Créer et terminer des tâches",
+                            description = "Les modifications depuis le téléphone arrivent dans une prochaine version.",
+                        )
                     }
                 }
             }

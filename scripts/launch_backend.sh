@@ -26,7 +26,7 @@ echo ""
 
 # Verifier que le venv existe
 if [ ! -f venv/bin/python ]; then
-    echo "ERREUR : venv introuvable. Executer : python3 -m venv venv && pip install -r requirements.txt"
+    echo "ERREUR : venv introuvable. Executer : python3.12 -m venv venv && pip install --require-hashes -r requirements/locks/production-macos-arm64-py312.txt"
     exit 1
 fi
 

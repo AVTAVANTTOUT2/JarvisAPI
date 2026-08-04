@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from .core import get_db
+from .time_buckets import local_datetime, sqlite_utc_datetime, utc_datetime
 
 
 def get_device_by_id(device_id: str) -> dict | None:
@@ -85,7 +86,7 @@ def get_current_screen_context(device: str | None = None) -> dict | None:
 def upsert_app_usage(device: str, app: str, seconds: int) -> None:
     if not app or seconds <= 0:
         return
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = local_datetime().date().isoformat()
     with get_db() as conn:
         conn.execute(
             """INSERT INTO app_usage
@@ -99,7 +100,7 @@ def upsert_app_usage(device: str, app: str, seconds: int) -> None:
 
 
 def get_app_usage(date: str | None = None, device: str | None = None) -> list[dict]:
-    target = date or datetime.now().strftime("%Y-%m-%d")
+    target = date or local_datetime().date().isoformat()
     with get_db() as conn:
         if device:
             rows = conn.execute(
@@ -117,19 +118,22 @@ def get_app_usage(date: str | None = None, device: str | None = None) -> list[di
 
 
 def get_app_usage_range(days: int = 7, device: str | None = None) -> list[dict]:
+    cutoff = (
+        local_datetime().date() - timedelta(days=max(1, int(days)) - 1)
+    ).isoformat()
     with get_db() as conn:
         if device:
             rows = conn.execute(
                 """SELECT * FROM app_usage
-                   WHERE date >= date('now', ?) AND device = ?
+                   WHERE date >= ? AND device = ?
                    ORDER BY date DESC, duration_seconds DESC""",
-                (f"-{int(days)} days", device),
+                (cutoff, device),
             ).fetchall()
         else:
             rows = conn.execute(
-                """SELECT * FROM app_usage WHERE date >= date('now', ?)
+                """SELECT * FROM app_usage WHERE date >= ?
                    ORDER BY date DESC, duration_seconds DESC""",
-                (f"-{int(days)} days",),
+                (cutoff,),
             ).fetchall()
     return [dict(row) for row in rows]
 
@@ -371,8 +375,8 @@ def end_work_session(session_id: int, description: str | None = None) -> None:
         if not row:
             return
         try:
-            started = datetime.fromisoformat(row["started_at"].replace("Z", ""))
-            duration = (datetime.now() - started).total_seconds() / 60.0
+            started = sqlite_utc_datetime(row["started_at"])
+            duration = (utc_datetime() - started).total_seconds() / 60.0
         except (AttributeError, TypeError, ValueError):
             duration = None
         conn.execute(

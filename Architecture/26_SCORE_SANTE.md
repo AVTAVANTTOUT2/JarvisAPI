@@ -38,7 +38,7 @@ Score = Σ (dimension_score × poids)
 | Duplication | 7 | Frontend canonique, auth et client API unifiés ; vues carte/date et fallbacks restent dupliqués |
 | Dette technique | 8 | Toutes les dettes critiques recensées sont remboursées ; retrait des fallbacks et dates relatives dupliquées restent ouverts |
 | Dépendances | 9 | Cycle main↔daemons supprimé via `pipeline.py` ; aucun import inverse `api → main` |
-| Taille modules | 9 | `main.py` fait 175 lignes et chaque module `api/` 500 lignes ou moins ; façade database 236 lignes, maximum DB 666 |
+| Taille modules | 9 | `main.py` fait 211 lignes et chaque module `api/` 500 lignes ou moins ; base découpée derrière sa façade |
 | Documentation | 10 | README, CLAUDE.md et Architecture/ synchronisés avec les preuves des six phases |
 | Performance | 6 | SQLite WAL OK, mais pas de cache LLM |
 | Sécurité | 9 | Auth robuste et LockGate fail-closed partagé sur desktop/mobile ; pas de pentest externe |

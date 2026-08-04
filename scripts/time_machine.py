@@ -12,26 +12,31 @@ inventée pour combler les trous.
 
 from __future__ import annotations
 
+from database.time_buckets import sqlite_utc_to_local, utc_bounds_for_local_day
+
 
 def build_day_timeline(date: str) -> dict:
     """Reconstruction chronologique d'une date (``YYYY-MM-DD``) — SQL pur."""
     from database import get_db, get_jarvis_journal_entry
 
     events: list[dict] = []
+    start_utc, end_utc = utc_bounds_for_local_day(date)
 
     with get_db() as conn:
         msg_count = conn.execute(
-            "SELECT COUNT(*) FROM messages WHERE DATE(created_at) = ?", (date,)
+            "SELECT COUNT(*) FROM messages WHERE created_at >= ? AND created_at < ?",
+            (start_utc, end_utc),
         ).fetchone()[0]
 
         tasks_done = conn.execute(
-            "SELECT title, completed_at FROM tasks WHERE status = 'done' AND DATE(completed_at) = ? "
-            "ORDER BY completed_at",
-            (date,),
+            "SELECT title, completed_at FROM tasks WHERE status = 'done' "
+            "AND completed_at >= ? AND completed_at < ? ORDER BY completed_at",
+            (start_utc, end_utc),
         ).fetchall()
         for t in tasks_done:
             events.append({
-                "time": (t["completed_at"] or "")[11:16],
+                "time": sqlite_utc_to_local(t["completed_at"]).strftime("%H:%M"),
+                "_sort_at": t["completed_at"],
                 "type": "task_done",
                 "description": f"Tâche terminée : {t['title']}",
             })
@@ -39,47 +44,53 @@ def build_day_timeline(date: str) -> dict:
         visits = conn.execute(
             """SELECT p.name AS place_name, v.arrived_at, v.departed_at, v.duration_min
                FROM visits v JOIN places p ON p.id = v.place_id
-               WHERE DATE(v.arrived_at) = ? ORDER BY v.arrived_at""",
-            (date,),
+               WHERE v.arrived_at >= ? AND v.arrived_at < ? ORDER BY v.arrived_at""",
+            (start_utc, end_utc),
         ).fetchall()
         for v in visits:
             desc = f"Visite à {v['place_name']}"
             if v["duration_min"]:
                 desc += f" ({round(v['duration_min'])} min)"
             events.append({
-                "time": (v["arrived_at"] or "")[11:16],
+                "time": sqlite_utc_to_local(v["arrived_at"]).strftime("%H:%M"),
+                "_sort_at": v["arrived_at"],
                 "type": "visit",
                 "description": desc,
             })
 
         moods = conn.execute(
             "SELECT mood_score, energy_level, context, created_at FROM mood_log "
-            "WHERE DATE(created_at) = ? ORDER BY created_at",
-            (date,),
+            "WHERE created_at >= ? AND created_at < ? ORDER BY created_at",
+            (start_utc, end_utc),
         ).fetchall()
         for m in moods:
             desc = f"Humeur {m['mood_score']}/10, énergie {m['energy_level']}/10"
             if m["context"]:
                 desc += f" — {m['context']}"
             events.append({
-                "time": (m["created_at"] or "")[11:16],
+                "time": sqlite_utc_to_local(m["created_at"]).strftime("%H:%M"),
+                "_sort_at": m["created_at"],
                 "type": "mood",
                 "description": desc,
             })
 
         notable = conn.execute(
-            "SELECT app, notable, created_at FROM screen_activity WHERE DATE(created_at) = ? "
+            "SELECT app, notable, created_at FROM screen_activity "
+            "WHERE created_at >= ? AND created_at < ? "
             "AND notable IS NOT NULL AND notable != '' ORDER BY created_at",
-            (date,),
+            (start_utc, end_utc),
         ).fetchall()
         for n in notable:
             events.append({
-                "time": (n["created_at"] or "")[11:16],
+                "time": sqlite_utc_to_local(n["created_at"]).strftime("%H:%M"),
+                "_sort_at": n["created_at"],
                 "type": "screen_notable",
                 "description": f"[{n['app']}] {n['notable']}",
             })
 
-    events.sort(key=lambda e: e["time"] or "")
+    events.sort(key=lambda event: event["_sort_at"])
+    for event in events:
+        del event["_sort_at"]
     journal = get_jarvis_journal_entry(date)
 
     return {

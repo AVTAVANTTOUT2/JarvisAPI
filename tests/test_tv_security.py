@@ -14,6 +14,26 @@ from tv import server as tv_server
 
 
 TEST_TOKEN = "test-tv-token-with-at-least-32-bytes"
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_tv_runtime_has_one_template_and_one_script() -> None:
+    templates = sorted(
+        path.name for path in (PROJECT_ROOT / "tv" / "templates").glob("*.html")
+    )
+    scripts = sorted(
+        path.name for path in (PROJECT_ROOT / "tv" / "static" / "js").glob("*.js")
+    )
+    assert templates == ["tv-v2.html"]
+    assert scripts == ["tv-v2.js"]
+    assert not (PROJECT_ROOT / "front_tv").exists()
+
+    html = (PROJECT_ROOT / "tv" / "templates" / "tv-v2.html").read_text(
+        encoding="utf-8"
+    )
+    assert "/static/js/tv-v2.js" in html
+    assert "https://unpkg.com" not in html
+    assert "https://cdnjs.cloudflare.com" not in html
 
 
 @pytest.fixture

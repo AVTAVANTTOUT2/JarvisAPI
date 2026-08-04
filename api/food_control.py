@@ -27,8 +27,10 @@ from typing import Any
 import config
 from integrations.uber_eats import (
     UberEatsError,
+    UberEatsInvalidRequest,
     UberEatsLimitExceeded,
     UberEatsPlanError,
+    UberEatsSessionExpired,
     UberEatsUnavailable,
     get_order_plan,
     revoke_order_plan,
@@ -45,7 +47,9 @@ from integrations.uber_eats_selectors import (
 
 logger = logging.getLogger("jarvis.food")
 
-CAPTURE_SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "uber_eats_capture_session.py"
+CAPTURE_SCRIPT = (
+    Path(__file__).resolve().parent.parent / "scripts" / "uber_eats_capture_session.py"
+)
 #: Au-delà, une capture laissée ouverte est considérée comme abandonnée.
 CAPTURE_TIMEOUT_SECONDS = 900
 
@@ -53,9 +57,16 @@ CAPTURE_TIMEOUT_SECONDS = 900
 class FoodControlError(RuntimeError):
     """Opération de pilotage refusée ; ``status_code`` porte la réponse HTTP."""
 
-    def __init__(self, message: str, *, status_code: int = 400) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int = 400,
+        code: str = "food_control_failed",
+    ) -> None:
         super().__init__(message)
         self.status_code = status_code
+        self.code = code
 
 
 # ── Panier libre en deux passes ─────────────────────────────────────────────
@@ -75,11 +86,27 @@ async def prepare_manual_order(restaurant: object, items: object) -> dict[str, A
     try:
         plan, _ = await uber_eats.prepare_order(restaurant, items)
     except UberEatsUnavailable as exc:
-        raise FoodControlError(str(exc), status_code=503) from exc
+        logger.warning("[food] préparation indisponible : %s", exc)
+        raise FoodControlError(
+            "Intégration Uber Eats indisponible.",
+            status_code=503,
+            code="food_integration_unavailable",
+        ) from exc
     except UberEatsLimitExceeded as exc:
-        raise FoodControlError(str(exc), status_code=409) from exc
+        raise FoodControlError(
+            str(exc), status_code=409, code="food_spending_limit_exceeded"
+        ) from exc
+    except UberEatsInvalidRequest as exc:
+        raise FoodControlError(
+            str(exc), status_code=400, code="food_cart_invalid"
+        ) from exc
     except UberEatsError as exc:
-        raise FoodControlError(str(exc), status_code=400) from exc
+        logger.warning("[food] préparation impossible : %s", exc)
+        raise FoodControlError(
+            "Panier Uber Eats impossible à préparer.",
+            status_code=502,
+            code="food_cart_prepare_failed",
+        ) from exc
 
     view = plan.public_view()
     view["needs_confirmation"] = True
@@ -95,13 +122,39 @@ async def confirm_manual_order(plan_id: object) -> dict[str, Any]:
     """
     identifier = str(plan_id or "").strip()
     if not identifier:
-        raise FoodControlError("Identifiant de panier manquant.", status_code=400)
+        raise FoodControlError(
+            "Identifiant de panier manquant.",
+            status_code=400,
+            code="food_cart_id_missing",
+        )
     try:
         outcome = await uber_eats.confirm_order(identifier)
     except UberEatsPlanError as exc:
-        raise FoodControlError(str(exc), status_code=409) from exc
+        raise FoodControlError(
+            str(exc), status_code=409, code="food_cart_unavailable"
+        ) from exc
     except UberEatsError as exc:
-        raise FoodControlError(str(exc), status_code=502) from exc
+        logger.warning("[food] confirmation impossible : %s", exc)
+        raise FoodControlError(
+            "Confirmation Uber Eats impossible.",
+            status_code=502,
+            code="food_cart_confirm_failed",
+        ) from exc
+
+    if not outcome.ok:
+        logger.warning(
+            "[food] confirmation refusée (%s) : %s",
+            outcome.status,
+            outcome.error,
+        )
+        blocked = outcome.status == "blocked"
+        raise FoodControlError(
+            "Commande refusée par les garde-fous Uber Eats."
+            if blocked
+            else "Commande Uber Eats impossible.",
+            status_code=409 if blocked else 502,
+            code="food_order_blocked" if blocked else "food_order_failed",
+        )
 
     data = outcome.as_dict()
     # `plan_id` ne ressort pas : il est consommé, le renvoyer n'aurait d'usage
@@ -114,7 +167,11 @@ def cancel_manual_order(plan_id: object) -> dict[str, Any]:
     """Révoque un panier en attente. Idempotent."""
     identifier = str(plan_id or "").strip()
     if not identifier:
-        raise FoodControlError("Identifiant de panier manquant.", status_code=400)
+        raise FoodControlError(
+            "Identifiant de panier manquant.",
+            status_code=400,
+            code="food_cart_id_missing",
+        )
     return {"ok": True, "revoked": revoke_order_plan(identifier)}
 
 
@@ -127,7 +184,9 @@ def peek_manual_order(plan_id: object) -> dict[str, Any]:
     try:
         return get_order_plan(str(plan_id or ""))
     except UberEatsPlanError as exc:
-        raise FoodControlError(str(exc), status_code=404) from exc
+        raise FoodControlError(
+            str(exc), status_code=404, code="food_cart_not_found"
+        ) from exc
 
 
 # ── Diagnostic de l'installation ────────────────────────────────────────────
@@ -149,8 +208,7 @@ def selectors_report() -> dict[str, Any]:
         }
 
     roles = {
-        role: len(selector_map.strategies.get(role, ()))
-        for role in sorted(KNOWN_ROLES)
+        role: len(selector_map.strategies.get(role, ())) for role in sorted(KNOWN_ROLES)
     }
     return {
         "ok": True,
@@ -204,8 +262,27 @@ async def probe_session() -> dict[str, Any]:
     try:
         async with uber_eats.authenticated_page() as (page, _selectors):
             return {"ok": True, "url": page.url, "message": "Session valide."}
+    except UberEatsSessionExpired as exc:
+        logger.info("[food] session Uber Eats expirée : %s", exc)
+        raise FoodControlError(
+            "Session Uber Eats expirée ; lancer une nouvelle capture.",
+            status_code=409,
+            code="food_session_expired",
+        ) from exc
+    except UberEatsUnavailable as exc:
+        logger.warning("[food] sonde indisponible : %s", exc)
+        raise FoodControlError(
+            "Sonde Uber Eats indisponible.",
+            status_code=503,
+            code="food_session_probe_unavailable",
+        ) from exc
     except UberEatsError as exc:
-        return {"ok": False, "message": str(exc)}
+        logger.warning("[food] sonde en échec : %s", exc)
+        raise FoodControlError(
+            "Vérification de la session Uber Eats impossible.",
+            status_code=502,
+            code="food_session_probe_failed",
+        ) from exc
 
 
 # ── Capture de session pilotée ──────────────────────────────────────────────
@@ -260,11 +337,15 @@ async def start_capture(mode: str = "session") -> dict[str, Any]:
     """
     if mode not in ("session", "codegen"):
         raise FoodControlError(
-            f"Mode de capture inconnu : {mode!r} (attendu 'session' ou 'codegen')."
+            f"Mode de capture inconnu : {mode!r} (attendu 'session' ou 'codegen').",
+            code="food_capture_mode_invalid",
         )
     if not CAPTURE_SCRIPT.is_file():
+        logger.error("[food] script de capture introuvable : %s", CAPTURE_SCRIPT)
         raise FoodControlError(
-            f"Script de capture introuvable : {CAPTURE_SCRIPT}", status_code=500
+            "Capture Uber Eats indisponible.",
+            status_code=500,
+            code="food_capture_unavailable",
         )
 
     async with _capture_lock:
@@ -272,6 +353,7 @@ async def start_capture(mode: str = "session") -> dict[str, Any]:
             raise FoodControlError(
                 "Une capture est déjà en cours ; terminer la fenêtre ouverte sur le Mac.",
                 status_code=409,
+                code="food_capture_already_running",
             )
         command = [sys.executable, str(CAPTURE_SCRIPT)]
         if mode == "codegen":
@@ -284,8 +366,11 @@ async def start_capture(mode: str = "session") -> dict[str, Any]:
                 stderr=asyncio.subprocess.STDOUT,
             )
         except OSError as exc:
+            logger.error("[food] capture impossible à lancer : %s", exc)
             raise FoodControlError(
-                f"Capture impossible à lancer ({exc}).", status_code=500
+                "Capture Uber Eats impossible à lancer.",
+                status_code=500,
+                code="food_capture_start_failed",
             ) from exc
 
         _capture.process = process

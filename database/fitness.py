@@ -7,6 +7,7 @@ from datetime import date, datetime
 from typing import Any
 
 from .core import get_db
+from .time_buckets import sqlite_utc_timestamp, sqlite_utc_to_local
 
 
 def _decode_row(row: Any, *, exercises: bool = False) -> dict[str, Any]:
@@ -352,13 +353,11 @@ def get_next_session(log_date: str) -> dict[str, Any] | None:
     """Retourne la prochaine séance après la date fournie dans le cycle hebdo."""
     weekday = date.fromisoformat(log_date).weekday()
     with get_db() as conn:
-        rows = conn.execute(
-            """
+        rows = conn.execute("""
             SELECT s.* FROM fitness_program_sessions s
             JOIN fitness_programs p ON p.id = s.program_id
             WHERE p.active = 1 AND s.active = 1 ORDER BY s.day_of_week, s.position
-            """
-        ).fetchall()
+            """).fetchall()
     if not rows:
         return None
     row = next((item for item in rows if int(item["day_of_week"]) > weekday), rows[0])
@@ -377,11 +376,14 @@ def upsert_session_progress(
 ) -> dict[str, Any]:
     """Crée ou remplace l'état journalier d'une séance."""
     encoded = json.dumps(exercise_results, ensure_ascii=False, separators=(",", ":"))
-    completed_at = datetime.now().isoformat(timespec="seconds") if status == "done" else None
+    completed_at = sqlite_utc_timestamp() if status == "done" else None
     with get_db() as conn:
-        if conn.execute(
-            "SELECT 1 FROM fitness_program_sessions WHERE id = ?", (session_id,)
-        ).fetchone() is None:
+        if (
+            conn.execute(
+                "SELECT 1 FROM fitness_program_sessions WHERE id = ?", (session_id,)
+            ).fetchone()
+            is None
+        ):
             raise LookupError("Séance fitness introuvable")
         conn.execute(
             """
@@ -440,39 +442,41 @@ def get_progress_for_date(log_date: str) -> list[dict[str, Any]]:
     return [_decode_progress(row) for row in rows]
 
 
+def _completed_session_count(conn: Any, start: date, end: date) -> int:
+    """Compte uniformément progression moderne et séances legacy sans doublon journalier."""
+    start_value = start.isoformat()
+    end_value = end.isoformat()
+    planned_done = int(
+        conn.execute(
+            """
+            SELECT COUNT(*) FROM fitness_session_progress
+            WHERE date BETWEEN ? AND ? AND status = 'done'
+            """,
+            (start_value, end_value),
+        ).fetchone()[0]
+    )
+    legacy_dates = int(
+        conn.execute(
+            """
+            SELECT COUNT(DISTINCT date) FROM workouts
+            WHERE date BETWEEN ? AND ?
+              AND date NOT IN (
+                SELECT date FROM fitness_session_progress
+                WHERE date BETWEEN ? AND ? AND status = 'done'
+              )
+            """,
+            (start_value, end_value, start_value, end_value),
+        ).fetchone()[0]
+    )
+    return planned_done + legacy_dates
+
+
 def weekly_done_count(log_date: str) -> int:
     target = date.fromisoformat(log_date)
     monday = target.fromordinal(target.toordinal() - target.weekday())
     sunday = target.fromordinal(monday.toordinal() + 6)
     with get_db() as conn:
-        planned_done = int(
-            conn.execute(
-                """
-                SELECT COUNT(*) FROM fitness_session_progress
-                WHERE date BETWEEN ? AND ? AND status = 'done'
-                """,
-                (monday.isoformat(), sunday.isoformat()),
-            ).fetchone()[0]
-        )
-        legacy_dates = int(
-            conn.execute(
-                """
-                SELECT COUNT(DISTINCT date) FROM workouts
-                WHERE date BETWEEN ? AND ?
-                  AND date NOT IN (
-                    SELECT date FROM fitness_session_progress
-                    WHERE date BETWEEN ? AND ? AND status = 'done'
-                  )
-                """,
-                (
-                    monday.isoformat(),
-                    sunday.isoformat(),
-                    monday.isoformat(),
-                    sunday.isoformat(),
-                ),
-            ).fetchone()[0]
-        )
-    return planned_done + legacy_dates
+        return _completed_session_count(conn, monday, sunday)
 
 
 def current_week_streak(log_date: str, weekly_target: int) -> int:
@@ -484,15 +488,7 @@ def current_week_streak(log_date: str, weekly_target: int) -> int:
         for offset in range(1, 53):
             end = monday.fromordinal(monday.toordinal() - 7 * offset + 6)
             start = end.fromordinal(end.toordinal() - 6)
-            count = int(
-                conn.execute(
-                    """
-                    SELECT COUNT(*) FROM fitness_session_progress
-                    WHERE date BETWEEN ? AND ? AND status = 'done'
-                    """,
-                    (start.isoformat(), end.isoformat()),
-                ).fetchone()[0]
-            )
+            count = _completed_session_count(conn, start, end)
             if count < weekly_target:
                 break
             streak += 1
@@ -544,7 +540,9 @@ def get_last_prompt(date_value: str, kind: str, reference: str) -> datetime | No
             """,
             (date_value, kind, reference),
         ).fetchone()
-    return datetime.fromisoformat(row["prompted_at"]) if row is not None else None
+    if row is None:
+        return None
+    return sqlite_utc_to_local(row["prompted_at"]).replace(tzinfo=None)
 
 
 def record_prompt(
@@ -557,15 +555,13 @@ def record_prompt(
         conn.execute(
             """
             INSERT INTO fitness_prompt_log (date, kind, reference, prompted_at)
-            VALUES (?, ?, ?, COALESCE(?, datetime('now', 'localtime')))
+            VALUES (?, ?, ?, ?)
             """,
             (
                 date_value,
                 kind,
                 reference,
-                prompted_at.replace(tzinfo=None).isoformat(timespec="seconds")
-                if prompted_at is not None
-                else None,
+                sqlite_utc_timestamp(prompted_at),
             ),
         )
 

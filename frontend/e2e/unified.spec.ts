@@ -216,6 +216,13 @@ test('@static-csp loads MapLibre workers and OpenFreeMap resources without CSP v
     }
     return target.__jarvisCspViolations ?? []
   })
+  const inlineStyles = await page.locator('style').evaluateAll((elements) =>
+    elements.map((element) => ({
+      html: element.outerHTML,
+      parent: element.parentElement?.tagName ?? null,
+    })),
+  )
+  expect(inlineStyles).toEqual([])
   expect(violations).toEqual([])
   expect(consoleCspErrors).toEqual([])
   await expect(page.getByText(/Tuiles OpenFreeMap indisponibles/)).toHaveCount(0)

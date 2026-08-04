@@ -17,7 +17,10 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: requirements.txt
+          cache-dependency-path: requirements/locks/production-linux-x86_64-py312.txt
+
+      - name: Vérifier les locks Python
+        run: python tools/update_python_locks.py --check
 
       - name: Installer les bibliothèques système audio
         run: |
@@ -25,7 +28,9 @@ jobs:
           sudo apt-get install --yes portaudio19-dev libsndfile1
 
       - name: Installer toutes les dépendances de production
-        run: python -m pip install -r requirements.txt
+        run: >-
+          python -m pip install --require-hashes
+          -r requirements/locks/production-linux-x86_64-py312.txt
 
       # Audit des CVE des dépendances tierces — c'était le seul angle mort du
       # dépôt (audit sécurité, août 2026). L'audit porte sur l'environnement
@@ -69,8 +74,8 @@ jobs:
           EOF
 
   macos_smoke:
-    name: macOS 14 (Apple contracts)
-    runs-on: macos-14
+    name: macOS 26 (Python + app/widget Release)
+    runs-on: macos-26
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
@@ -80,14 +85,15 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: |
-            requirements.txt
-            requirements-dev.txt
+            requirements/locks/dev-macos-arm64-py312.txt
 
-      - name: Installer les bibliothèques système audio
-        run: brew install portaudio libsndfile
+      - name: Installer les outils et bibliothèques système
+        run: brew install xcodegen portaudio libsndfile
 
       - name: Installer les dépendances Python
-        run: python -m pip install -r requirements-dev.txt
+        run: >-
+          python -m pip install --require-hashes
+          -r requirements/locks/dev-macos-arm64-py312.txt
 
       - name: Vérifier la cohérence des dépendances
         run: python -m pip check
@@ -108,6 +114,27 @@ jobs:
             tests/test_screen_watcher_control.py \
             -q
 
+      - name: Vérifier que le projet Xcode versionné est reproductible
+        working-directory: native_mac
+        run: |
+          xcodegen generate
+          git diff --exit-code -- JarvisMac.xcodeproj
+
+      - name: Compiler l'app et le widget en Release sans signature
+        working-directory: native_mac
+        run: |
+          xcodebuild \
+            -project JarvisMac.xcodeproj \
+            -scheme JarvisMac \
+            -configuration Release \
+            -destination 'generic/platform=macOS' \
+            -derivedDataPath build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            build
+          test -d build/DerivedData/Build/Products/Release/Jarvis.app
+          test -d build/DerivedData/Build/Products/Release/Jarvis.app/Contents/PlugIns/JarvisWidget.appex
+
   backend:
     name: Tests Python (pytest)
     runs-on: ubuntu-latest
@@ -118,6 +145,7 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+          cache-dependency-path: requirements/locks/ci-linux-x86_64-py312.txt
 
       - name: Installer les dépendances de test
         # Sous-ensemble léger de requirements.txt : les dépendances lourdes
@@ -126,14 +154,9 @@ jobs:
         # `aiohttp` est explicite depuis le retrait d'edge-tts : il n'arrivait
         # ici que comme dépendance transitive de ce paquet, et l'étape d'import
         # de tous les modules en a besoin (scripts/tv_mcp_server.py).
-        run: |
-          pip install \
-            "fastapi==0.139.*" "uvicorn[standard]==0.34.*" "python-dotenv==1.2.*" \
-            "websockets==15.*" "python-multipart==0.0.*" "jinja2==3.1.*" \
-            "httpx==0.28.*" "aiohttp>=3.12,<4" "apscheduler==3.10.*" "pymupdf==1.25.*" \
-            "Pillow>=10.0" "python-dateutil==2.9.*" \
-            "requests>=2.31" "cryptography>=41.0" "numpy>=1.26,<3" \
-            "pytest==8.*" "pytest-asyncio>=0.24,<0.27"
+        run: >-
+          python -m pip install --require-hashes
+          -r requirements/locks/ci-linux-x86_64-py312.txt
 
       - name: Vérifier que tous les modules s'importent
         run: |
@@ -164,11 +187,18 @@ jobs:
           git config --global user.name "JarvisAPI CI"
           git config --global user.email "jarvisapi-ci@users.noreply.github.com"
 
+      - name: Vérifier le schéma et la vérité d'architecture générés
+        run: >-
+          python tools/audit_architecture_truth.py
+          --check
+          --output artifacts/architecture_truth.json
+          --schema-output database/schema.sql
+
       - name: pytest
         run: python -m pytest tests/ jarvis/tests agents/devagent -q
 
   frontend:
-    name: Frontend (typecheck + build)
+    name: Bibliothèque de vues desktop (tests + typecheck)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -192,8 +222,8 @@ jobs:
       - name: Tests unitaires (vitest)
         run: pnpm run test
 
-      - name: Typecheck + build Vite
-        run: pnpm run build
+      - name: Typecheck de la bibliothèque
+        run: pnpm run typecheck
 
   unified_frontend:
     name: Frontend unifié (tests + build)
@@ -226,7 +256,7 @@ jobs:
         run: pnpm test && pnpm typecheck && pnpm build && pnpm test:e2e
 
   android:
-    name: Android (assemble + tests + lint)
+    name: Android (debug + release/R8)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -241,7 +271,40 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v6
 
+      - name: Activer l’accélération KVM pour l’émulateur
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
       # Le build fonctionne sans google-services.json (plugin conditionnel)
-      # et sans signing.properties (debug uniquement en CI).
-      - name: Compiler, tester et linter
-        run: ./gradlew assembleDebug testDebugUnitTest lintDebug --no-daemon
+      # et produit alors un APK release non signé, suffisant pour valider R8.
+      - name: Compiler, tester et linter debug + release
+        run: |
+          ./gradlew \
+            assembleDebug testDebugUnitTest lintDebug \
+            assembleRelease testReleaseUnitTest lintRelease \
+            --no-daemon
+
+      - name: Vérifier les artefacts R8 et les DTO conservés
+        run: |
+          test -s app/build/outputs/apk/release/app-release-unsigned.apk
+          test -s app/build/outputs/mapping/release/mapping.txt
+          for dto in \
+            fr.jarvis.companion.network.LocationBatchResponse \
+            fr.jarvis.companion.network.LocationDiagnosticsResponse \
+            fr.jarvis.companion.voice.VoiceTurnResponse
+          do
+            grep -F "$dto -> $dto:" app/build/outputs/mapping/release/mapping.txt
+          done
+
+      - name: Tests instrumentés Android (Keystore + UI)
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          working-directory: android
+          script: ./gradlew connectedDebugAndroidTest --no-daemon

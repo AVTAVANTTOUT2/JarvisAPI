@@ -13,7 +13,7 @@ Quand le self-healing détecte une boucle de crash ou une régression récurrent
 | `scripts/self_healing.py` | Diagnostic + branche Cursor si flags OK |
 | `prompts/cursor/self_repair.md` | Cahier des charges réparation |
 | `integrations/cursor_delegation.py` | enqueue job |
-| `config.py` | `SELF_REPAIR_*`, `SELF_HEALING_*`, `SELF_MODIFICATION_MODE` |
+| `config.py` | `SELF_REPAIR_*`, `SELF_HEALING_*`, capacités Cursor |
 
 ## Flux
 
@@ -22,30 +22,27 @@ crash / régression détectée (seuil SELF_HEALING_CRASH_THRESHOLD)
   → diagnostic self_healing (report-only par défaut)
   → si SELF_REPAIR_ENABLED && CURSOR_DELEGATION_ENABLED
        → cursor_delegation.enqueue(template_id="self_repair", ...)
-       → job isolé + PR éventuelle
+       → job isolé + PR obligatoire ; échec explicite sinon
   → sinon : log + notification, pas de mutation code
 ```
 
-`SELF_HEALING_AUTO_APPLY` reste le flag historique pour patches locaux hors dépôt JARVIS / projets DevAgent. Pour le code JARVIS lui-même, la voie canonique est Cursor + `pr_only`.
+Le module de self-healing ne contient plus de chemin d'application locale. Les projets DevAgent disposent de leurs propres worktrees et garde-fous ; ils ne passent pas par ce module.
 
 ## Config
 
 ```bash
 SELF_HEALING_ENABLED=false          # diagnostic seul par défaut
-SELF_HEALING_AUTO_APPLY=false
 SELF_HEALING_CRASH_THRESHOLD=3
-SELF_HEALING_REGRESSION_WINDOW_MIN=15
-SELF_HEALING_COOLDOWN_MIN=60
 SELF_REPAIR_ENABLED=true
 CURSOR_DELEGATION_ENABLED=true
-SELF_MODIFICATION_MODE=pr_only
 ```
 
 ## Garde-fous
 
-- Cooldown entre tentatives (`SELF_HEALING_COOLDOWN_MIN`).
-- Fenêtre de régression : si le même crash revient après patch, rollback / alerte.
-- Pas de travail sur `main` (délégation Cursor).
+- Pas d'écriture, commit ou rollback dans le checkout actif.
+- Pas de travail sur `main` : délégation Cursor uniquement.
+- `CURSOR_ALLOW_COMMIT`, `CURSOR_ALLOW_PUSH` et `CURSOR_ALLOW_PR` doivent tous être actifs ; le job est refusé sinon.
+- Un retour Cursor sans push et URL de PR finit en `failed`, jamais en `completed`.
 - Secrets jamais injectés bruts dans le prompt (redaction délégation).
 
 ## Endpoints liés
@@ -57,9 +54,9 @@ SELF_MODIFICATION_MODE=pr_only
 ## Limites connues
 
 - Self-repair Cursor n’est déclenché que si le CLI est disponible et authentifié.
-- Le diagnostic sans Cursor reste le mode sûr quand `SELF_HEALING_ENABLED=false`.
+- Le diagnostic seul reste le mode sûr quand `SELF_REPAIR_ENABLED=false` ou Cursor indisponible.
 - Aucune garantie qu’un job Cursor « succeeded » corrige la cause racine — validation humaine via PR.
-- Les projets DevAgent isolés peuvent encore utiliser des chemins historiques de staging ; le dépôt JARVIS lui-même reste `pr_only`.
+- Les projets DevAgent isolés utilisent leur propre pipeline ; le dépôt JARVIS reste `pr_only` sans option de repli.
 
 ## Voir aussi
 

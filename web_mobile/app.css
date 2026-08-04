@@ -405,6 +405,12 @@ a { color: inherit; text-decoration: none; }
 .fit-select { flex: none; color-scheme: dark; }
 .fit-area { min-height: 78px; border-radius: 12px; resize: vertical; }
 .fit-area-tall { min-height: 170px; }
+.fit-file-label { display: flex; flex-direction: column; gap: 6px; color: var(--fg-3); font-size: 11px; }
+.fit-file { padding: 9px; color: var(--fg-2); font-size: 16px; }
+.fit-file::file-selector-button {
+  min-height: 34px; margin-right: 9px; padding: 0 10px; border: 1px solid var(--line-2);
+  border-radius: 9px; background: var(--surf-2); color: var(--fg); font: 12px var(--sys);
+}
 .fit-two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .fit-meals { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
 .fit-meal { padding: 10px; border-radius: 10px; background: rgba(0,0,0,.17); }
@@ -422,6 +428,13 @@ a { color: inherit; text-decoration: none; }
 .fit-compact-card .cs { margin-top: 2px; }
 .fit-weight-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; margin-top: 12px; }
 .fit-weight-save { padding: 0 12px; font-size: 12px; }
+.fit-wellbeing .fit-area { margin-top: 12px; }
+.fit-wellbeing > .btn { margin-top: 10px; }
+.fit-range-row { margin-top: 13px; }
+.fit-range {
+  width: 100%; min-height: 28px; padding: 0; border: 0; background: transparent;
+  accent-color: var(--blue);
+}
 .fit-program-intro .btn { margin-top: 14px; }
 .fit-program-name { font-size: 20px; font-weight: 600; letter-spacing: -.025em; }
 .fit-program-card { padding: 17px; }
@@ -492,6 +505,13 @@ a { color: inherit; text-decoration: none; }
 }
 .lock-msg { margin-top: 46px; font-size: 15px; color: var(--fg-2); text-align: center; min-height: 44px; }
 .lock-msg.err { color: var(--red); }
+.lock-methods {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px;
+  width: min(100%, 300px); padding: 4px; margin: 4px 0 18px;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--surf);
+}
+.lock-methods button { min-height: 38px; border-radius: 8px; color: var(--fg-2); font-size: 13px; }
+.lock-methods button[aria-pressed="true"] { background: var(--surf-2); color: var(--fg); }
 .lock-dots { display: flex; gap: 17px; margin-top: 6px; }
 .lock-dot { width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid var(--fg-3); }
 .lock-dot.set { background: var(--fg); border-color: var(--fg); }
@@ -507,6 +527,13 @@ a { color: inherit; text-decoration: none; }
 .lock-key:active { background: var(--surf-2); }
 .lock-key.bare { background: none; border-color: transparent; font-size: 15px; color: var(--fg-2); }
 .lock-key[disabled] { opacity: .3; }
+.lock-passphrase {
+  width: min(100%, 360px); min-height: 50px; margin-top: 8px; padding: 12px 14px;
+  border: 1px solid var(--line-2); border-radius: 12px; background: var(--surf);
+  color: var(--fg); font: 16px var(--sys);
+}
+.lock-passphrase::placeholder { color: var(--fg-3); }
+.lock-passphrase-submit { width: min(100%, 360px); margin-top: 12px; }
 .lock-foot { padding-bottom: 10px; font-size: 13px; color: var(--fg-3); }
 
 /* Écran court (iPhone SE) : le pavé reste entier, les marges cèdent. */

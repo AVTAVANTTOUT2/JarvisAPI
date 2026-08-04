@@ -11,6 +11,15 @@ from typing import Any
 import config
 
 from .core import get_db
+from .time_buckets import (
+    configured_timezone,
+    local_datetime,
+    sqlite_utc_datetime,
+    sqlite_utc_timestamp,
+    sqlite_utc_to_local,
+    utc_bounds_for_local_day,
+    utc_datetime,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +102,7 @@ def count_location_history() -> int:
 
 def get_mobile_location_diagnostics(device_id: str) -> dict[str, Any]:
     """Statistiques GPS reçues pour un appareil mobile (24 h glissantes)."""
-    since = (datetime.now() - timedelta(hours=24)).isoformat(timespec="seconds")
+    since = sqlite_utc_timestamp(utc_datetime() - timedelta(hours=24))
     with get_db() as conn:
         count_row = conn.execute(
             """SELECT COUNT(*) AS c FROM location_point_dedup
@@ -126,7 +135,7 @@ def add_location(
     """Insère un point GPS ; résout le lieu le plus proche."""
     resolved = resolve_place(lat, lng)
     place_id = int(resolved["id"]) if resolved else None
-    ts = created_at or datetime.now().isoformat(timespec="seconds")
+    ts = sqlite_utc_timestamp(created_at)
     with get_db() as conn:
         cur = conn.execute(
             """INSERT INTO location_history
@@ -138,7 +147,7 @@ def add_location(
 
 
 def get_location_history(hours: int = 24) -> list[dict]:
-    since = (datetime.now() - timedelta(hours=max(1, hours))).isoformat(timespec="seconds")
+    since = sqlite_utc_timestamp(utc_datetime() - timedelta(hours=max(1, hours)))
     with get_db() as conn:
         rows = conn.execute(
             """SELECT lh.*, p.name AS place_name FROM location_history lh
@@ -163,8 +172,8 @@ def get_last_known_location() -> dict | None:
 
 def get_current_location(max_age_minutes: int = 10) -> dict | None:
     """Dernier point datant de moins de ``max_age_minutes`` (name_place / actions)."""
-    cutoff = (datetime.now() - timedelta(minutes=max(1, max_age_minutes))).isoformat(
-        timespec="seconds"
+    cutoff = sqlite_utc_timestamp(
+        utc_datetime() - timedelta(minutes=max(1, max_age_minutes))
     )
     with get_db() as conn:
         row = conn.execute(
@@ -245,9 +254,9 @@ def delete_place(place_id: int) -> bool:
 
 
 def start_visit(place_id: int, arrived_at: datetime | None = None) -> int:
-    ts = arrived_at or datetime.now()
-    dow = ts.weekday()
-    ts_s = ts.isoformat(timespec="seconds")
+    ts = utc_datetime(arrived_at)
+    dow = ts.astimezone(configured_timezone()).weekday()
+    ts_s = sqlite_utc_timestamp(ts)
     with get_db() as conn:
         cur = conn.execute(
             """INSERT INTO visits (place_id, arrived_at, day_of_week)
@@ -258,20 +267,20 @@ def start_visit(place_id: int, arrived_at: datetime | None = None) -> int:
 
 
 def end_visit(visit_id: int, ended_at: datetime | None = None) -> dict | None:
-    now = ended_at or datetime.now()
+    now = utc_datetime(ended_at)
     with get_db() as conn:
         row = conn.execute("SELECT * FROM visits WHERE id = ?", (visit_id,)).fetchone()
         if not row:
             return None
         arrived = row["arrived_at"]
         try:
-            t0 = datetime.fromisoformat(str(arrived).replace("Z", "+00:00"))
+            t0 = sqlite_utc_datetime(str(arrived))
         except ValueError:
             t0 = now
         dur_min = max(0.0, (now - t0).total_seconds() / 60.0)
         conn.execute(
             "UPDATE visits SET departed_at = ?, duration_min = ? WHERE id = ?",
-            (now.isoformat(timespec="seconds"), dur_min, visit_id),
+            (sqlite_utc_timestamp(now), dur_min, visit_id),
         )
         place_id = row["place_id"]
         prow = conn.execute(
@@ -285,7 +294,7 @@ def end_visit(visit_id: int, ended_at: datetime | None = None) -> dict | None:
             conn.execute(
                 """UPDATE places SET visit_count = ?, avg_duration_min = ?, last_visit = ?
                    WHERE id = ?""",
-                (n, new_avg, now.isoformat(timespec="seconds"), place_id),
+                (n, new_avg, sqlite_utc_timestamp(now), place_id),
             )
         out = conn.execute(
             """SELECT v.*, p.name AS place_name FROM visits v
@@ -307,7 +316,7 @@ def get_current_visit() -> dict | None:
 
 
 def get_visits_for_place(place_id: int, days: int = 30) -> list[dict]:
-    since = (datetime.now() - timedelta(days=max(1, days))).strftime("%Y-%m-%d %H:%M:%S")
+    since = sqlite_utc_timestamp(utc_datetime() - timedelta(days=max(1, days)))
     with get_db() as conn:
         rows = conn.execute(
             """SELECT v.*, p.name AS place_name FROM visits v
@@ -320,14 +329,14 @@ def get_visits_for_place(place_id: int, days: int = 30) -> list[dict]:
 
 
 def get_today_visits() -> list[dict]:
-    day = datetime.now().strftime("%Y-%m-%d")
+    start_utc, end_utc = utc_bounds_for_local_day(local_datetime().date())
     with get_db() as conn:
         rows = conn.execute(
             """SELECT v.*, p.name AS place_name FROM visits v
                JOIN places p ON p.id = v.place_id
-               WHERE date(v.arrived_at) = ?
+               WHERE v.arrived_at >= ? AND v.arrived_at < ?
                ORDER BY v.arrived_at ASC""",
-            (day,),
+            (start_utc, end_utc),
         ).fetchall()
         return [dict(r) for r in rows]
 
@@ -345,7 +354,7 @@ def get_visits_by_day(day_of_week: int) -> list[dict]:
 
 
 def get_recent_visits(days: int = 7) -> list[dict]:
-    since = (datetime.now() - timedelta(days=max(1, days))).isoformat(timespec="seconds")
+    since = sqlite_utc_timestamp(utc_datetime() - timedelta(days=max(1, days)))
     with get_db() as conn:
         rows = conn.execute(
             """SELECT v.*, p.name AS place_name FROM visits v
@@ -375,7 +384,9 @@ def create_trip(
     distance_km: float | None = None,
     route_points: list | None = None,
 ) -> int:
-    duration_min = max(0.0, (ended_at - started_at).total_seconds() / 60.0)
+    started_utc = utc_datetime(started_at)
+    ended_utc = utc_datetime(ended_at)
+    duration_min = max(0.0, (ended_utc - started_utc).total_seconds() / 60.0)
     speed_kmh = 0.0
     if distance_km is not None and duration_min > 0:
         speed_kmh = float(distance_km) / (duration_min / 60.0)
@@ -389,8 +400,8 @@ def create_trip(
             (
                 from_place_id,
                 to_place_id,
-                started_at.isoformat(timespec="seconds"),
-                ended_at.isoformat(timespec="seconds"),
+                sqlite_utc_timestamp(started_utc),
+                sqlite_utc_timestamp(ended_utc),
                 duration_min,
                 distance_km,
                 mode,
@@ -401,7 +412,7 @@ def create_trip(
 
 
 def get_recent_trips(days: int = 7) -> list[dict]:
-    since = (datetime.now() - timedelta(days=max(1, days))).isoformat(timespec="seconds")
+    since = sqlite_utc_timestamp(utc_datetime() - timedelta(days=max(1, days)))
     with get_db() as conn:
         rows = conn.execute(
             """SELECT * FROM trips WHERE datetime(started_at) >= datetime(?)
@@ -445,13 +456,13 @@ def visits_summary_last_days(days: int = 30) -> list[dict]:
 
 
 def get_trips_for_today() -> list[dict]:
-    day = datetime.now().strftime("%Y-%m-%d")
+    start_utc, end_utc = utc_bounds_for_local_day(local_datetime().date())
     with get_db() as conn:
         rows = conn.execute(
             """SELECT * FROM trips
-               WHERE date(started_at) = ? OR date(ended_at) = ?
+               WHERE started_at < ? AND COALESCE(ended_at, started_at) >= ?
                ORDER BY started_at DESC""",
-            (day, day),
+            (end_utc, start_utc),
         ).fetchall()
         return [dict(r) for r in rows]
 
@@ -476,7 +487,7 @@ def get_place_visit_stats(place_id: int, days: int = 90) -> dict:
         try:
             a = v.get("arrived_at")
             if a:
-                at = datetime.fromisoformat(str(a).replace("Z", "+00:00"))
+                at = sqlite_utc_to_local(str(a))
                 wd[at.weekday()] += 1
                 arr_h.append(at.hour + at.minute / 60.0)
         except (TypeError, ValueError):
@@ -484,7 +495,7 @@ def get_place_visit_stats(place_id: int, days: int = 90) -> dict:
         try:
             d = v.get("departed_at")
             if d:
-                dt = datetime.fromisoformat(str(d).replace("Z", "+00:00"))
+                dt = sqlite_utc_to_local(str(d))
                 dep_h.append(dt.hour + dt.minute / 60.0)
         except (TypeError, ValueError):
             pass

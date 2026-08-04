@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import re
 import sqlite3
 from typing import Any
@@ -11,7 +10,7 @@ from jarvis.event_bus import event_bus
 from jarvis.events import MemoryUpdated, PersonUpserted
 
 from .core import get_db
-
+from .time_buckets import local_datetime
 
 PERSON_UPSERT_MUTABLE_FIELDS: frozenset[str] = frozenset(
     {
@@ -377,10 +376,11 @@ def get_active_life_context() -> list:
 
 
 def close_life_context(context_id: int) -> bool:
+    period_end = local_datetime().date().isoformat()
     with get_db() as conn:
         cur = conn.execute(
-            "UPDATE life_context SET active = 0, period_end = DATE('now') WHERE id = ?",
-            (context_id,),
+            "UPDATE life_context SET active = 0, period_end = ? WHERE id = ?",
+            (period_end, context_id),
         )
         return cur.rowcount > 0
 

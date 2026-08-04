@@ -36,7 +36,7 @@ Le frontend canonique Next.js 15 est **identifié**, **servi aussi par le superv
 ## 3. Mission 1 — Audit de cohérence
 
 ### Demande
-Répondre factuellement : combien de tables réellement après `init_db()` ? quel frontend est servi en priorité ? rôle de `web/`, `pwa/`, `tv/`, `front_tv/` ? corriger la doc conflictuelle ; produire un contrôle automatique.
+Répondre factuellement : combien de tables réellement après `init_db()` ? quel frontend est servi en priorité ? rôle de `web/`, `pwa/`, `tv/` et de la maquette `front_tv/` alors présente ? corriger la doc conflictuelle ; produire un contrôle automatique.
 
 ### Réalisé
 | Fait vérifié | Valeur |
@@ -49,7 +49,7 @@ Répondre factuellement : combien de tables réellement après `init_db()` ? que
 | Fallback desktop | `web/dist` — Vite |
 | PWA historique | `pwa/` sous `/m/` (Next 14) |
 | TV | `tv/` port **5174** (processus séparé) |
-| Orphelin | `front_tv/` non référencé |
+| Orphelin au moment de l'audit | `front_tv/` non référencé — retiré du tree runtime le 03/08/2026 |
 
 ### Livrables M1
 - `Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md`

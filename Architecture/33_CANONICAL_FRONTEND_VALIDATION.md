@@ -185,7 +185,7 @@ Scripts de retest : `frontend/retest_back.cjs`, `frontend/retest_switch.cjs`.
 | 23 routes exportées HTTP direct | 200 + refs `_next/static` |
 | Route inconnue | 404 JSON (pas de faux HTML) |
 | Diagnostic supervisor | `next_canonical` / `frontend/out` |
-| Fallback Vite `web/dist` | toujours présent |
+| Ancien build Vite `web/dist` | retiré du runtime ; un reliquat local est ignoré |
 | Auth LockGate (env isolé) | PASS (6 sous-parcours) |
 | Chat secondaire + switch | PASS |
 | Responsive 768 / 1024 | PASS |

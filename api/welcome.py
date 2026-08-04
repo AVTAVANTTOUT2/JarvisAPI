@@ -11,6 +11,7 @@ from fastapi import WebSocket
 import config
 import llm
 from database import get_recent_moods, get_tasks
+from database.time_buckets import local_datetime
 from integrations import calendar_client, mail_client
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -20,7 +21,7 @@ logger = logging.getLogger("jarvis")
 
 
 def _welcome_already_sent_today() -> bool:
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = local_datetime().date().isoformat()
     try:
         return _WELCOME_MARKER.read_text(encoding="utf-8").strip() == today
     except OSError:
@@ -30,7 +31,7 @@ def _welcome_already_sent_today() -> bool:
 def _mark_welcome_sent() -> None:
     try:
         _WELCOME_MARKER.parent.mkdir(parents=True, exist_ok=True)
-        _WELCOME_MARKER.write_text(datetime.now().strftime("%Y-%m-%d"), encoding="utf-8")
+        _WELCOME_MARKER.write_text(local_datetime().date().isoformat(), encoding="utf-8")
     except OSError as e:
         logger.warning("welcome marker : %s", e)
 
@@ -49,7 +50,8 @@ async def _maybe_send_daily_welcome(ws: WebSocket) -> None:
             mood_line = (
                 f"Dernier mood : {m.get('mood_score')}/10, énergie {m.get('energy_level')}/10."
             )
-        h = datetime.now().hour
+        local_now = local_datetime()
+        h = local_now.hour
         if 5 <= h < 12:
             period = "matin"
         elif 12 <= h < 18:
@@ -57,7 +59,7 @@ async def _maybe_send_daily_welcome(ws: WebSocket) -> None:
         else:
             period = "soir"
         tasks = get_tasks()
-        now = datetime.now()
+        now = local_now.replace(tzinfo=None)
         overdue_n = 0
         for t in tasks:
             dd = t.get("due_date")

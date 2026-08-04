@@ -29,11 +29,21 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 from database import get_setting, set_setting
+import config
+from core.outbound_security import OutboundURLRejected, validate_public_https_url
 
 logger = logging.getLogger(__name__)
 
 _SETTING_VAPID_PRIVATE = "vapid_private_key_pem"
 _VAPID_SUBJECT = "mailto:jarvis@localhost"
+
+
+def validate_web_push_endpoint(endpoint: str) -> str:
+    """Valide une URL Web Push contre les fournisseurs explicitement permis."""
+    return validate_public_https_url(
+        endpoint,
+        allowed_hosts=config.WEB_PUSH_ALLOWED_HOSTS,
+    )
 
 
 def _b64url_encode(data: bytes) -> str:
@@ -138,7 +148,11 @@ def send_web_push(subscription: dict, payload: dict, ttl: int = 60) -> tuple[boo
     `PushSubscription.toJSON()` du navigateur). L'appelant doit supprimer
     l'abonnement si le statut est 404/410 (expiré côté navigateur).
     """
-    endpoint = subscription["endpoint"]
+    try:
+        endpoint = validate_web_push_endpoint(subscription["endpoint"])
+    except OutboundURLRejected as exc:
+        logger.warning("[push] destination refusée (%s)", exc.code)
+        return False, 0
     keys = subscription["keys"]
     body = _encrypt_aes128gcm(json.dumps(payload).encode("utf-8"), keys["p256dh"], keys["auth"])
 

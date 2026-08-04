@@ -4,16 +4,16 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, ConfigDict, Field
 
 from actions import execute_action
 from api.action_confirmations import (
     ProposalError,
     cancel_pending_proposal,
     consume_pending_proposal,
-    is_valid_proposal_id,
 )
 from api.chat_processing import _process_message_internal
 from api.router_auth import _require_mobile_device
@@ -31,14 +31,36 @@ logger = logging.getLogger("jarvis.mobile_chat")
 router = APIRouter()
 
 _CLIENT_MESSAGE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
+_PROPOSAL_ID_RE = re.compile(r"^[A-Za-z0-9_-]{43}$")
+
+
+class _StrictMobileChatRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, str_strip_whitespace=True)
+
+
+class MobileConversationCreateRequest(_StrictMobileChatRequest):
+    title: str | None = Field(default=None, max_length=200)
+
+
+class MobileChatRequest(_StrictMobileChatRequest):
+    content: str = Field(min_length=1, max_length=20_000)
+    conversation_id: int | None = Field(default=None, ge=1)
+    client_message_id: str | None = Field(default=None, pattern=_CLIENT_MESSAGE_ID_RE)
+
+
+class MobileChatConfirmationRequest(_StrictMobileChatRequest):
+    conversation_id: int = Field(ge=1)
+    proposal_id: str = Field(pattern=_PROPOSAL_ID_RE)
+    confirmed: bool
 
 
 @router.post("/api/mobile/conversations")
-async def api_mobile_create_conversation(request: Request, body: dict | None = None) -> dict:
+async def api_mobile_create_conversation(
+    device: Annotated[dict[str, Any], Depends(_require_mobile_device)],
+    body: MobileConversationCreateRequest | None = None,
+) -> dict:
     """Crée une conversation pour le Companion Android."""
-    device = _require_mobile_device(request)
-    payload = body or {}
-    title = str(payload.get("title") or "").strip()[:200] or None
+    title = (body.title or None) if body is not None else None
     conversation_id = create_conversation(agent="android_chat")
     if title:
         update_conversation(conversation_id, title=title)
@@ -55,22 +77,17 @@ async def api_mobile_create_conversation(request: Request, body: dict | None = N
 
 
 @router.post("/api/mobile/chat")
-async def api_mobile_chat(request: Request, body: dict) -> dict:
+async def api_mobile_chat(
+    body: MobileChatRequest,
+    device: Annotated[dict[str, Any], Depends(_require_mobile_device)],
+) -> dict:
     """Envoi texte non-stream (fallback offline / WS indisponible).
 
     Idempotence : ``client_message_id`` + device_id → même réponse si rejoué.
     """
-    device = _require_mobile_device(request)
     device_id = str(device["device_id"])
-    content = str(body.get("content") or "").strip()
-    if not content:
-        raise HTTPException(400, "content requis")
-    if len(content) > 20_000:
-        raise HTTPException(400, "content trop long (max 20000)")
-
-    client_message_id = str(body.get("client_message_id") or "").strip() or None
-    if client_message_id is not None and not _CLIENT_MESSAGE_ID_RE.match(client_message_id):
-        raise HTTPException(400, "client_message_id invalide (8-64, alphanum/_/-)")
+    content = body.content
+    client_message_id = body.client_message_id
 
     if client_message_id:
         cached = get_mobile_chat_dedup(device_id, client_message_id)
@@ -82,12 +99,8 @@ async def api_mobile_chat(request: Request, body: dict) -> dict:
             )
             return {**cached, "idempotent_replay": True}
 
-    conversation_id = body.get("conversation_id")
+    conversation_id = body.conversation_id
     if conversation_id is not None:
-        try:
-            conversation_id = int(conversation_id)
-        except (TypeError, ValueError) as exc:
-            raise HTTPException(400, "conversation_id invalide") from exc
         detail = get_conversation_detail(conversation_id)
         if not detail:
             raise HTTPException(404, "Conversation introuvable")
@@ -134,24 +147,18 @@ async def api_mobile_chat(request: Request, body: dict) -> dict:
 
 
 @router.post("/api/mobile/chat/confirm")
-async def api_mobile_chat_confirm(request: Request, body: dict) -> dict:
+async def api_mobile_chat_confirm(
+    body: MobileChatConfirmationRequest,
+    device: Annotated[dict[str, Any], Depends(_require_mobile_device)],
+) -> dict:
     """Confirme ou refuse une action sensible proposée dans le chat."""
-    device = _require_mobile_device(request)
     confirmation_session_id = f"mobile:{device['device_id']}"
-    conversation_id = body.get("conversation_id")
-    try:
-        conversation_id = int(conversation_id)
-    except (TypeError, ValueError) as exc:
-        raise HTTPException(400, "conversation_id requis") from exc
+    conversation_id = body.conversation_id
     if not get_conversation_detail(conversation_id):
         raise HTTPException(404, "Conversation introuvable")
 
-    confirmed = body.get("confirmed")
-    if type(confirmed) is not bool:
-        raise HTTPException(400, "confirmed doit être un booléen")
-    proposal_id = body.get("proposal_id")
-    if not is_valid_proposal_id(proposal_id):
-        raise HTTPException(400, "proposal_id invalide")
+    confirmed = body.confirmed
+    proposal_id = body.proposal_id
     if not confirmed:
         cancelled = cancel_pending_proposal(
             proposal_id,

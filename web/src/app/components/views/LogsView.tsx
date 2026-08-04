@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { RefreshCw, ShieldCheck, TerminalSquare, Trash2 } from 'lucide-react'
 import { api, type LlmActionLog } from '@unified/lib/api'
+import { parseBackendTimestamp } from '@unified/lib/timeFormat'
 
 function statusCls(status: string) {
   if (status === 'success') return 'text-green-400 border-green-400/30 bg-green-400/10'
@@ -10,14 +11,14 @@ function statusCls(status: string) {
 
 function toTime(v?: string | null): string {
   if (!v) return '--:--:--'
-  const d = new Date(v)
+  const d = new Date(parseBackendTimestamp(v))
   if (Number.isNaN(d.getTime())) return '--:--:--'
   return d.toLocaleTimeString('fr-FR', { hour12: false })
 }
 
 function isToday(v?: string | null): boolean {
   if (!v) return false
-  const d = new Date(v)
+  const d = new Date(parseBackendTimestamp(v))
   const now = new Date()
   return (
     d.getFullYear() === now.getFullYear() &&

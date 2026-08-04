@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import config
@@ -33,6 +33,43 @@ def local_datetime(now: datetime | None = None) -> datetime:
     return now.astimezone(zone)
 
 
+def utc_datetime(value: datetime | str | None = None) -> datetime:
+    """Normalise un instant en UTC timezone-aware.
+
+    Les valeurs naïves sont interprétées dans ``config.TIMEZONE``. Ce choix
+    conserve le contrat des saisies historiques (heure civile locale) tout en
+    garantissant que toute nouvelle persistance peut utiliser un format UTC
+    unique.
+    """
+    if value is None:
+        parsed = datetime.now(timezone.utc)
+    elif isinstance(value, str):
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    else:
+        parsed = value
+    if parsed.tzinfo is None:
+        parsed = local_datetime(parsed)
+    return parsed.astimezone(timezone.utc)
+
+
+def sqlite_utc_timestamp(value: datetime | str | None = None) -> str:
+    """Sérialise un instant au format UTC naïf canonique de SQLite."""
+    return utc_datetime(value).strftime(SQLITE_UTC_FORMAT)
+
+
+def sqlite_utc_datetime(value: str | datetime) -> datetime:
+    """Interprète une valeur persistée SQLite comme un instant UTC.
+
+    À la différence de :func:`utc_datetime`, une valeur naïve est déjà
+    canonicalisée en UTC et ne doit surtout pas être réinterprétée comme une
+    saisie civile locale.
+    """
+    parsed = datetime.fromisoformat(value) if isinstance(value, str) else value
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
 def utc_bounds_for_local_dates(
     start_date: date,
     end_date_exclusive: date,
@@ -52,3 +89,17 @@ def utc_bounds_for_local_dates(
         local_start.astimezone(timezone.utc).strftime(SQLITE_UTC_FORMAT),
         local_end.astimezone(timezone.utc).strftime(SQLITE_UTC_FORMAT),
     )
+
+
+def utc_bounds_for_local_day(value: date | str) -> tuple[str, str]:
+    """Retourne les bornes UTC exclusives d'une journée civile locale."""
+    local_day = date.fromisoformat(value) if isinstance(value, str) else value
+    return utc_bounds_for_local_dates(
+        local_day,
+        local_day + timedelta(days=1),
+    )
+
+
+def sqlite_utc_to_local(value: str | datetime) -> datetime:
+    """Convertit un timestamp SQLite UTC en datetime timezone-aware locale."""
+    return sqlite_utc_datetime(value).astimezone(configured_timezone())

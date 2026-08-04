@@ -93,8 +93,8 @@ Le catalogue technique historique (`voice.*`, `agent.*`, `tts.*`, `system.*`, et
                         ┌─────────────┐            ┌────────────────┐
                         │ event_log   │            │ Action métier   │
                         │ (SQLite)    │            │ (DB write,      │
-                        │             │            │  WS broadcast,  │
-                        │ pour replay │            │  TTS, etc.)     │
+                        │ trace       │            │  WS broadcast,  │
+                        │ observable  │            │  TTS, etc.)     │
                         └─────────────┘            └────────────────┘
 ```
 
@@ -116,13 +116,14 @@ CREATE TABLE IF NOT EXISTS event_log (
     timestamp REAL NOT NULL,
     source TEXT NOT NULL,
     payload_json TEXT NOT NULL,
-    checksum TEXT NOT NULL,
-    processed_by TEXT,  -- NULL = pas encore traité
-    processed_at REAL,
-    error TEXT
+    checksum TEXT NOT NULL
 );
 CREATE INDEX idx_event_log_type ON event_log(event_type);
 CREATE INDEX idx_event_log_timestamp ON event_log(timestamp);
 ```
 
-La Phase 3 écrit chaque événement dans cette table avec `INSERT OR IGNORE`, ce qui rend le journal idempotent par `event_id`. Les lignes `processed_by IS NULL` sont consultables via `get_unprocessed_events()` et fournissent les données nécessaires à un futur rejeu. **Aucun rejeu automatique au redémarrage n'est encore implémenté** ; il relève du futur Queue Engine.
+La Phase 3 écrit chaque événement dans cette table avec `INSERT OR IGNORE`, ce
+qui rend le journal idempotent par `event_id`. Il s'agit strictement d'une trace
+d'observabilité : ce journal ne constitue ni un outbox, ni une promesse de
+livraison ou de rejeu après incident. Un éventuel moteur durable devra définir
+son propre état de consommation et ses garanties avant d'exposer une API.

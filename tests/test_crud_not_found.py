@@ -108,4 +108,4 @@ def test_place_update_rejects_payload_without_mutable_fields(tmp_db):
         authenticate(client)
         response = client.put("/api/places/999999", json={"unknown": "value"})
 
-    assert response.status_code == 400
+    assert response.status_code == 422

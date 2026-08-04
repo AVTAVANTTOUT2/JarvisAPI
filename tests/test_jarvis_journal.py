@@ -17,6 +17,7 @@ def tmp_db(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     db_path = tmp_path / "test_jarvis.db"
     monkeypatch.setattr("config.DB_PATH", str(db_path))
     monkeypatch.setattr("database.DB_PATH", db_path)
+    monkeypatch.setattr("config.TIMEZONE", "UTC")
     from database import init_db
 
     init_db()

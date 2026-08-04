@@ -284,7 +284,7 @@ JOB_SPECS: dict[str, JobSpec] = {
     "test_gen": JobSpec(
         "test_gen",
         "Tests manquants",
-        "Recherche et génération optionnelle de tests manquants.",
+        "Propose via une PR Cursor les tests manquants.",
         "weekly",
         "Samedi 05:30",
         "weekly",

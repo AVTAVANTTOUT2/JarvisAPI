@@ -687,7 +687,7 @@ class OrchestratorAgent(BaseAgent):
 
         Si l'agent ciblé expose `handle_stream()`, on lui délègue (ex : SchoolAgent
         fait du pseudo-streaming car _route_task produit la réponse d'un bloc).
-        Sinon : streaming Claude générique via `llm.chat_stream`.
+        Sinon : streaming DeepSeek générique via `llm.chat_stream`.
 
         ``voice_mode=True`` : même enrichissement que ``handle(..., voice_mode=True)`` ;
         message LLM préfixé ``[VOICE_MODE] `` ; flux générique forcé en Haiku +
@@ -727,9 +727,10 @@ class OrchestratorAgent(BaseAgent):
                 yield event
             return
 
-        # Sinon : streaming Claude classique (ex : InfoAgent qui n'a pas de handle_stream)
+        # Sinon : streaming DeepSeek classique (ex : InfoAgent qui n'a pas de handle_stream)
         system = agent.build_system_prompt(ctx)
         full_response = ""
+        stream_usage: dict = {}
         emotion_tag_stripped = False
         detected_emotion = "neutral"
 
@@ -747,6 +748,7 @@ class OrchestratorAgent(BaseAgent):
             model=eff_model,
             system=system,
             max_tokens=max_tok,
+            on_usage=stream_usage.update,
         ):
             full_response += chunk
 
@@ -774,9 +776,12 @@ class OrchestratorAgent(BaseAgent):
         display_final = finalize_assistant_display_text(full_response)
         yield {
             "type": "done",
-            "tokens_in": 0,
-            "tokens_out": 0,
-            "cost": 0.0,
+            "tokens_in": int(stream_usage.get("tokens_in") or 0),
+            "tokens_out": int(stream_usage.get("tokens_out") or 0),
+            "cache_hit": int(stream_usage.get("cache_hit") or 0),
+            "cost": float(stream_usage.get("cost") or 0.0),
+            "usage_estimated": bool(stream_usage.get("usage_estimated", False)),
+            "stop_reason": stream_usage.get("stop_reason"),
             "model": eff_model,
             "agent": agent.name,
             "emotion": detected_emotion,

@@ -35,6 +35,7 @@ logger = logging.getLogger("jarvis.event_bus")
 
 MAX_HISTORY = 200
 QUEUE_MAXSIZE = 200
+HANDLER_QUEUE_MAXSIZE = 200
 
 # ── Types d'événements ────────────────────────────────────────────────────────
 
@@ -200,15 +201,25 @@ class EventBus:
         "_history",
         "_max_history",
         "_handlers",
+        "_handler_queues",
+        "_handler_tasks",
+        "_handler_queue_size",
+        "_handler_loop",
         "_loop",
         "_pending",
     )
 
-    def __init__(self) -> None:
+    def __init__(self, *, handler_queue_size: int = HANDLER_QUEUE_MAXSIZE) -> None:
+        if handler_queue_size < 1:
+            raise ValueError("handler_queue_size doit être positif")
         self._subscribers: list[asyncio.Queue[JarvisEvent]] = []
         self._history: list[JarvisEvent] = []
         self._max_history: int = MAX_HISTORY
         self._handlers: dict[str, list[EventHandler]] = {}
+        self._handler_queues: dict[EventHandler, asyncio.Queue[JarvisEvent]] = {}
+        self._handler_tasks: dict[EventHandler, asyncio.Task[None]] = {}
+        self._handler_queue_size = handler_queue_size
+        self._handler_loop: asyncio.AbstractEventLoop | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._pending: set[asyncio.Future[None] | ConcurrentFuture[None]] = set()
 
@@ -264,6 +275,37 @@ class EventBus:
         """Oublie la boucle principale lors de l'arrêt applicatif."""
         self._loop = None
 
+    def _activate_handler_loop(
+        self,
+        current_loop: asyncio.AbstractEventLoop,
+    ) -> None:
+        """Prépare les files pour la boucle courante sans réutilisation invalide."""
+        if self._handler_loop is current_loop:
+            return
+
+        queued = sum(queue.qsize() for queue in self._handler_queues.values())
+        active = sum(not task.done() for task in self._handler_tasks.values())
+        unfinished = queued + active
+        previous_loop_closed = (
+            self._handler_loop is None or self._handler_loop.is_closed()
+        )
+        if unfinished and not previous_loop_closed:
+            raise RuntimeError(
+                "EventBus réutilisé sur une autre boucle avec des handlers en attente"
+            )
+        if unfinished:
+            # Une boucle fermée a déjà annulé ses workers : ces éléments ne
+            # sont plus récupérables. Les anciennes queues ne doivent surtout
+            # pas bloquer le drainage de la nouvelle boucle.
+            logger.warning(
+                "EventBus: %d événement(s) abandonné(s) après fermeture de "
+                "leur boucle asyncio",
+                unfinished,
+            )
+        self._handler_queues.clear()
+        self._handler_tasks.clear()
+        self._handler_loop = current_loop
+
     def subscribe(self) -> asyncio.Queue[JarvisEvent]:
         """Crée un nouvel abonnement et retourne la queue associée.
 
@@ -286,12 +328,23 @@ class EventBus:
             pass
 
     async def emit(self, event: JarvisEvent) -> None:
+        await self._emit(event, offload_sync_handlers=True)
+
+    async def _emit(
+        self,
+        event: JarvisEvent,
+        *,
+        offload_sync_handlers: bool,
+    ) -> None:
         """Émet un événement à tous les abonnés.
 
         L'événement est d'abord ajouté à l'historique (max MAX_HISTORY),
         puis distribué à chaque abonné. Les abonnés dont la queue est pleine
         sont retirés automatiquement.
         """
+        current_loop = asyncio.get_running_loop()
+        self._activate_handler_loop(current_loop)
+
         self._history.append(event)
         if len(self._history) > self._max_history:
             self._history = self._history[-self._max_history:]
@@ -322,14 +375,85 @@ class EventBus:
         ):
             if handler not in handlers:
                 handlers.append(handler)
-        if handlers:
-            await asyncio.gather(
-                *(self._invoke_handler(handler, event) for handler in handlers)
+        for handler in handlers:
+            queue = self._handler_queues.setdefault(
+                handler,
+                asyncio.Queue(maxsize=self._handler_queue_size),
             )
+            try:
+                queue.put_nowait(event)
+            except asyncio.QueueFull:
+                logger.error(
+                    "EventBus: file handler pleine — événement abandonné pour ce "
+                    "consommateur. handler=%s type=%s capacité=%d",
+                    getattr(handler, "__qualname__", repr(handler)),
+                    event.type,
+                    self._handler_queue_size,
+                )
+                continue
+            task = self._handler_tasks.get(handler)
+            if task is None or task.done():
+                name = getattr(handler, "__qualname__", "anonymous")
+                self._handler_tasks[handler] = asyncio.create_task(
+                    self._drain_handler(
+                        handler,
+                        queue,
+                        offload_sync_handlers=offload_sync_handlers,
+                    ),
+                    name=f"event_bus:{name}",
+                )
 
-    async def _invoke_handler(self, handler: EventHandler, event: JarvisEvent) -> None:
+    async def _drain_handler(
+        self,
+        handler: EventHandler,
+        queue: asyncio.Queue[JarvisEvent],
+        *,
+        offload_sync_handlers: bool,
+    ) -> None:
+        """Vide séquentiellement la file privée d'un consommateur.
+
+        Les consommateurs sont indépendants : une socket ou une synthèse lente
+        ne retarde ni les autres handlers, ni la coroutine émettrice. Le worker
+        s'arrête dès que sa file est vide et sera recréé à la prochaine émission.
+        """
+        current_task = asyncio.current_task()
         try:
-            result = handler(event)
+            while True:
+                try:
+                    event = queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    return
+                try:
+                    await self._invoke_handler(
+                        handler,
+                        event,
+                        offload_sync_handler=offload_sync_handlers,
+                    )
+                finally:
+                    queue.task_done()
+        finally:
+            if self._handler_tasks.get(handler) is current_task:
+                self._handler_tasks.pop(handler, None)
+
+    async def _invoke_handler(
+        self,
+        handler: EventHandler,
+        event: JarvisEvent,
+        *,
+        offload_sync_handler: bool,
+    ) -> None:
+        try:
+            if inspect.iscoroutinefunction(handler):
+                result = handler(event)
+            elif offload_sync_handler:
+                # Une vraie boucle applicative ne doit jamais exécuter SQLite
+                # ou un autre callback bloquant sur son thread principal.
+                result = await asyncio.to_thread(handler, event)
+            else:
+                # Sans boucle persistante liée, emit_nowait() crée une boucle
+                # temporaire et la draine avant de rendre la main. Déporter le
+                # callback n'apporterait aucune concurrence utile.
+                result = handler(event)
             if inspect.isawaitable(result):
                 await result
         except Exception:
@@ -362,12 +486,19 @@ class EventBus:
         if running_loop is not None:
             return self._track(running_loop.create_task(self.emit(event)))
 
-        asyncio.run(self.emit(event))
+        async def emit_and_drain() -> None:
+            await self._emit(event, offload_sync_handlers=False)
+            await self.wait_until_idle()
+
+        # Sans boucle applicative liée, il n'existe aucun worker durable auquel
+        # déléguer : on crée une boucle temporaire et on la vide avant fermeture.
+        asyncio.run(emit_and_drain())
         return None
 
     async def wait_until_idle(self) -> None:
-        """Attend les émissions fire-and-forget connues, utile au shutdown et aux tests."""
-        while self._pending:
+        """Attend émissions et files consommateurs, utile au shutdown et aux tests."""
+        self._activate_handler_loop(asyncio.get_running_loop())
+        while True:
             pending = tuple(self._pending)
             awaitables: list[Awaitable[Any]] = []
             current_loop = asyncio.get_running_loop()
@@ -377,9 +508,15 @@ class EventBus:
                         awaitables.append(asyncio.shield(future))
                 else:
                     awaitables.append(asyncio.wrap_future(future))
-            if not awaitables:
+            if awaitables:
+                await asyncio.gather(*awaitables, return_exceptions=True)
+
+            queues = tuple(self._handler_queues.values())
+            if queues:
+                await asyncio.gather(*(queue.join() for queue in queues))
+
+            if not self._pending and all(queue.empty() for queue in queues):
                 return
-            await asyncio.gather(*awaitables, return_exceptions=True)
 
     def get_history(self, last_n: int = 50) -> list[dict]:
         """Retourne les N derniers événements sous forme de dicts.

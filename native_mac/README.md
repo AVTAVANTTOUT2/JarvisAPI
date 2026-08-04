@@ -19,3 +19,7 @@ cd native_mac
 ```
 
 Le script génère le projet Xcode avec XcodeGen, compile l’application, applique une signature locale ad hoc et produit le DMG. Une distribution publique nécessitera ensuite un certificat Developer ID et une notarisation Apple.
+
+La CI régénère aussi `JarvisMac.xcodeproj` et refuse tout diff, puis compile en
+configuration Release avec la signature désactivée. Elle vérifie explicitement
+la présence de `Jarvis.app` et du plugin `JarvisWidget.appex` embarqué.

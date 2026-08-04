@@ -26,7 +26,7 @@ Exécuter le travail technique (bugs, features, CI, migrations, audits) via Curs
 4. **Cancel** — kill du process group ; statut mis à jour avant kill.
 5. **Reprise** — jobs `queued`/`running` relancés au startup via lifespan.
 6. **Secrets** — redaction API keys / Bearer / sk- avant envoi au prompt.
-7. **Mode** — `SELF_MODIFICATION_MODE=pr_only` : commit/push/PR autorisés selon flags ; merge sur main désactivé par défaut (`CURSOR_ALLOW_MERGE=false`).
+7. **Mode** — tout job autonome utilise obligatoirement `pr_only` : il est refusé si commit/push/PR ne sont pas tous autorisés, puis ne peut terminer qu'au statut `pr_opened` avec une URL de PR persistée. Un échec de push ou de création de PR est terminal et explicite. Aucun chemin de merge automatique n'existe.
 
 ## Flux
 
@@ -38,8 +38,9 @@ enqueue(user_request, template_id, ...)
   → compose_cursor_prompt(template)
   → agent --print ...
   → parse résultat + tests
-  → update statut (succeeded/failed)
-  → optionnel : commit / push / gh pr create
+  → update statut (completed/failed)
+  → best_effort : PR optionnelle
+  → pr_only : push + gh pr create obligatoires, sinon failed
 ```
 
 ## Templates
@@ -55,10 +56,8 @@ CURSOR_DEFAULT_TIMEOUT_SEC=1800
 CURSOR_MAX_CONCURRENT_JOBS=2
 CURSOR_WORKTREE_ROOT=.jarvis/worktrees
 CURSOR_ALLOW_COMMIT=true
-CURSOR_ALLOW_PUSH=true
-CURSOR_ALLOW_PR=true
-CURSOR_ALLOW_MERGE=false
-SELF_MODIFICATION_MODE=pr_only
+CURSOR_ALLOW_PUSH=true           # obligatoire pour pr_only
+CURSOR_ALLOW_PR=true             # obligatoire pour pr_only
 ```
 
 ## Endpoints
@@ -76,5 +75,7 @@ SELF_MODIFICATION_MODE=pr_only
 ## Limites connues
 
 - Nécessite Cursor CLI installé et authentifié sur la machine hôte.
-- Les tests post-job sont best-effort (commande configurable) ; un échec CLI marque le job `failed`.
+- Les tests post-job requis sont bloquants ; un échec CLI marque le job `failed`.
+- Tout job sans confirmation humaine reçoit automatiquement `delivery_mode="pr_only"`. Les jobs `self_repair` et `self_improvement` le demandent aussi explicitement.
+- `GET /api/autonomy/settings` expose `cursor_pr_only_ready` pour diagnostiquer la configuration avant délégation.
 - Rollback = suppression worktree / reset branche job — ne force pas de revert sur main.

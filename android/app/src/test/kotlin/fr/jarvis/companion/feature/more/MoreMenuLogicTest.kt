@@ -13,7 +13,7 @@ class MoreMenuLogicTest {
 
         assertEquals(6, realTiles.size)
         assertTrue(realTiles.all { it.route != null && it.route.isNotBlank() })
-        assertTrue(realTiles.none { it.futureFlagId != null })
+        assertTrue(realTiles.none { it.backlogId != null })
     }
 
     @Test
@@ -23,7 +23,7 @@ class MoreMenuLogicTest {
 
         assertEquals(3, futureTiles.size)
         assertTrue(futureTiles.all { it.route == null })
-        assertTrue(futureTiles.all { it.futureFlagId != null })
+        assertTrue(futureTiles.all { it.backlogId != null })
     }
 
     @Test
@@ -33,7 +33,7 @@ class MoreMenuLogicTest {
             subtitle = "Vue personnelle JARVIS",
             kind = MoreTileKind.FuturePlaceholder,
             route = null,
-            futureFlagId = "JARVIS-FUTURE-MEMORY-VIEW",
+            backlogId = "JARVIS-FUTURE-MEMORY-VIEW",
         )
 
         assertEquals("Mémoire, bientôt disponible", tile.toAccessibilityHint())

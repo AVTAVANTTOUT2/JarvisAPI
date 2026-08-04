@@ -3,30 +3,35 @@
  * Fail-closed : `mount()` ne résout que lorsque la session est confirmée.
  * Rien de l'application n'est construit avant, pas même en arrière-plan.
  *
- * Le pavé numérique est dessiné plutôt que délégué à un <input>. Le clavier
+ * Le mode PIN utilise un pavé numérique dessiné plutôt qu'un <input>. Le clavier
  * iOS recouvrirait la moitié de l'écran, imposerait 16 px sous peine de zoom,
  * et offrirait des touches deux fois trop petites. Des cibles de 78 px dans
  * le tiers bas règlent les trois d'un coup.
  *
- * Longueur variable : le bureau accepte un PIN à 4 chiffres (ou plus). Le
- * déverrouillage mobile soumet via « OK » dès MIN_PIN chiffres ; la création
- * exige aussi MIN_PIN, sans imposer une longueur fixe de 6.
+ * Une bascule permet d'utiliser exactement le même contrat que le serveur :
+ * PIN de 4 chiffres minimum ou passphrase de 10 caractères minimum.
  */
 
 import { api, ApiError } from './api.js';
 
 const MIN_PIN = 4;
 const MAX_PIN = 12;
+const MIN_PASSPHRASE = 10;
+const SOFT_LOCK_KEY = 'jarvis:soft-lock';
 
 const el = {
   root: document.getElementById('lock'),
   msg:  document.getElementById('lock-msg'),
   dots: document.getElementById('lock-dots'),
   keys: document.getElementById('lock-keys'),
+  methods: document.getElementById('lock-methods'),
+  passphrase: document.getElementById('lock-passphrase'),
+  passphraseSubmit: document.getElementById('lock-passphrase-submit'),
 };
 
 let code = '';
-let mode = 'unlock';   // 'unlock' | 'setup' | 'confirm'
+let mode = 'unlock';   // 'unlock' | 'setup' | 'confirm' | 'verify'
+let secretKind = 'pin';
 let firstEntry = '';   // première saisie en mode création
 let busy = false;
 let countdown = null;
@@ -52,12 +57,41 @@ function say(text, error = false) {
 }
 
 function canSubmit() {
-  return code.length >= MIN_PIN && code.length <= MAX_PIN;
+  if (secretKind === 'passphrase') return code.length >= MIN_PASSPHRASE;
+  return /^\d+$/.test(code) && code.length >= MIN_PIN && code.length <= MAX_PIN;
 }
 
 function syncOkButton() {
   const ok = el.keys.querySelector('[data-action="ok"]');
   if (ok) ok.disabled = busy || !canSubmit();
+  el.passphraseSubmit.disabled = busy || !canSubmit();
+}
+
+function syncSecretMethod() {
+  const usingPin = secretKind === 'pin';
+  el.dots.hidden = !usingPin;
+  el.keys.hidden = !usingPin;
+  el.passphrase.hidden = usingPin;
+  el.passphraseSubmit.hidden = usingPin;
+  for (const button of el.methods.querySelectorAll('[data-secret-kind]')) {
+    button.setAttribute('aria-pressed', String(button.dataset.secretKind === secretKind));
+  }
+  if (!usingPin) {
+    el.passphrase.value = code;
+    el.passphrase.autocomplete = mode === 'setup' || mode === 'confirm' ? 'new-password' : 'current-password';
+    queueMicrotask(() => el.passphrase.focus());
+  }
+  syncOkButton();
+}
+
+function selectSecretKind(kind) {
+  if (busy || kind === secretKind) return;
+  secretKind = kind;
+  code = '';
+  firstEntry = '';
+  if (mode === 'confirm') mode = 'setup';
+  renderDots();
+  syncSecretMethod();
 }
 
 function buildKeys() {
@@ -87,6 +121,20 @@ function buildKeys() {
     b.addEventListener('click', () => press(label));
     return b;
   }));
+  for (const button of el.methods.querySelectorAll('[data-secret-kind]')) {
+    button.addEventListener('click', () => selectSecretKind(button.dataset.secretKind));
+  }
+  el.passphrase.addEventListener('input', () => {
+    code = el.passphrase.value;
+    syncOkButton();
+  });
+  el.passphrase.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && !busy && canSubmit()) submit();
+  });
+  el.passphraseSubmit.addEventListener('click', () => {
+    if (!busy && canSubmit()) submit();
+  });
+  syncSecretMethod();
   syncOkButton();
 }
 
@@ -98,6 +146,9 @@ function setKeysDisabled(disabled) {
     }
     if (!b.classList.contains('bare') || b.textContent === 'Effacer') b.disabled = disabled;
   }
+  el.passphrase.disabled = disabled;
+  el.passphraseSubmit.disabled = disabled || !canSubmit();
+  for (const button of el.methods.querySelectorAll('[data-secret-kind]')) button.disabled = disabled;
 }
 
 function press(digit) {
@@ -122,6 +173,7 @@ async function submit() {
 
   const entered = code;
   code = '';
+  el.passphrase.value = '';
 
   try {
     if (mode === 'setup') {
@@ -142,11 +194,19 @@ async function submit() {
         return;
       }
       await api.setup(entered);
+      persistSoftLock(false);
       unlocked();
       return;
     }
 
-    await api.unlock(entered);
+    if (mode === 'verify') {
+      const result = await api.verify(entered);
+      if (!result || !result.ok) throw new ApiError(401, 'Secret incorrect');
+      persistSoftLock(false);
+    } else {
+      await api.unlock(entered);
+      persistSoftLock(false);
+    }
     unlocked();
   } catch (err) {
     renderDots(true);
@@ -213,14 +273,27 @@ function unlocked() {
   if (done) done();
 }
 
+function hasPersistedSoftLock() {
+  try { return localStorage.getItem(SOFT_LOCK_KEY) === '1'; } catch { return true; }
+}
+
+export function persistSoftLock(locked) {
+  try {
+    if (locked) localStorage.setItem(SOFT_LOCK_KEY, '1');
+    else localStorage.removeItem(SOFT_LOCK_KEY);
+  } catch { /* le verrou courant reste fail-closed */ }
+}
+
 /** Affiche le verrou et ne rend la main qu'une fois la session ouverte. */
 export function lock(reason) {
   document.getElementById('app').hidden = true;
   el.root.hidden = false;
   code = '';
   firstEntry = '';
-  mode = reason === 'unconfigured' ? 'setup' : 'unlock';
+  mode = reason === 'unconfigured' ? 'setup' : reason === 'idle' ? 'verify' : 'unlock';
+  secretKind = 'pin';
   renderDots();
+  syncSecretMethod();
 
   if (reason === 'unconfigured') say('Aucun code défini. Choisissez-en un (4 chiffres min.), puis OK.');
   else if (reason === 'expired') say('Session expirée. Entrez votre code, puis OK.');
@@ -254,9 +327,9 @@ export async function requireSession() {
   }
   setKeysDisabled(false);
 
-  if (st.authenticated) { el.root.hidden = true; return; }
+  if (st.authenticated && !hasPersistedSoftLock()) { el.root.hidden = true; return; }
 
-  const waiting = lock(st.configured ? undefined : 'unconfigured');
+  const waiting = lock(st.authenticated ? 'idle' : st.configured ? undefined : 'unconfigured');
   if (st.configured && st.locked_out) startCountdown(st.lockout_seconds || 0);
   return waiting;
 }
@@ -273,6 +346,7 @@ export function watchIdle(minutes, onIdle) {
     if (fired) return;
     fired = true;
     clearTimeout(timer);
+    persistSoftLock(true);
     onIdle();
   };
   const arm = () => {

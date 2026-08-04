@@ -1,8 +1,14 @@
-# 32 — Source de vérité : frontends et base SQLite
+# 32 — Source de vérité : frontends, API et base SQLite
 
-**Date** : 24 juillet 2026
+**Date** : 3 août 2026
 **Méthode** : audit du code exécutable sur `main` (pas de la documentation).  
-**Contrôle automatique** : `tools/audit_architecture_truth.py` → `artifacts/architecture_truth.json`
+**Contrôle automatique** : `tools/audit_architecture_truth.py --check --schema-output database/schema.sql`
+
+Runtime SQLite canonique : **90 tables persistantes**, **95 tables physiques avec FTS5**, schéma généré : **91 déclarations de tables**.
+
+Surface API canonique : **261 opérations**, **232 chemins**, **124 consommées et testées**, **52 consommées sans référence de test**, **37 non-frontend documentées et testées**, **48 non-frontend documentées sans référence de test**, **0 non attribuées**.
+
+Structure API canonique : **259 opérations HTTP + 2 WebSockets**, **230 chemins OpenAPI**, **17 routeurs api/router_*.py + Fitness = 18 montés**, main.py **211 lignes**.
 
 > Ce document **remplace** les affirmations conflictuelles « 44 tables », « 72 tables », « 73 tables »
 > et les formulations ambiguës sur le « frontend principal ».  
@@ -13,6 +19,10 @@
 > (HTML/CSS/JS vanilla, sans build). Les sections de routage ci-dessous ont été
 > réécrites en conséquence ; les inventaires de paquets datés du 24/07 sont
 > conservés tels quels et ne décrivent plus l'état courant pour la ligne `pwa/`.
+>
+> **Mise à jour du 4 août 2026 — le runtime Vite est retiré.** `web/src`
+> demeure la bibliothèque de vues compilée par Next.js. Il n'a plus d'entrée,
+> de build, de Service Worker, de serveur dev ni de fallback FastAPI/supervisor.
 
 ---
 
@@ -20,35 +30,34 @@
 
 | Question | Réponse vérifiée |
 |---|---|
-| Combien de tables après `init_db()` (défaut, FTS5 disponible) ? | **90** entrées `sqlite_master` de type `table` (hors `sqlite_*`) |
-| Combien hors objets FTS5 ? | **85** tables persistantes |
-| D'où vient « **46** » ? | Dump statique `database/schema.sql` (46 tables applicatives + `sqlite_sequence`) — **non exécuté** par `init_db()` |
+| Combien de tables après `init_db()` (défaut, FTS5 disponible) ? | **95** entrées `sqlite_master` de type `table` (hors `sqlite_*`) |
+| Combien hors objets FTS5 ? | **90** tables persistantes |
+| Pourquoi `schema.sql` en déclare 91 ? | Il contient les 90 persistantes et `messages_fts`; SQLite crée les 4 tables auxiliaires FTS5 restantes |
 | D'où vient « **73** » ? | Inventaire Architecture antérieur au chat mobile, à la délégation Cursor et au pairage desktop sécurisé |
 | Frontend canonique (FastAPI 8081) ? | **`frontend/`** — Next.js **15.5.20**, React **19.2.7** (lockfile), export → `frontend/out/` |
-| Fallback racine FastAPI ? | **`web/dist/`** — Vite **6.4.2** + React **19.2.5** |
+| Fallback racine FastAPI ? | **Aucun** — réponse 503 explicite si `frontend/out` manque |
 | Interface mobile | **`web_mobile/`** — HTML/CSS/JS vanilla, aucun build, servie sous **`/mobile/`** |
 | TV ? | **`tv/`** — FastAPI + vanilla JS, port **5174** (processus séparé) |
-| Orphelin ? | **`front_tv/`** — HTML bundlé non référencé |
-| Supervisor (9000) sert quoi ? | **`frontend/out` en priorité**, puis **`web/dist`** (même politique que FastAPI — ADR-019) |
+| Maquette TV historique | Supprimée du tree runtime le 03/08/2026 ; `tv-v2` est l'unique implémentation |
+| Supervisor (9000) sert quoi ? | **`frontend/out` uniquement** (même politique que FastAPI — ADR-019) |
+| Surface API ? | **261 opérations / 232 chemins**, inventoriés automatiquement avec leurs consommateurs et tests |
 
 **Formulation canonique (à réutiliser partout) :**
 
 ```text
-Le projet crée 85 tables persistantes après init_db() + migrations
-(Vague 2B : location_point_dedup + mobile_chat_dedup ; délégation Cursor :
-cursor_delegation_jobs ; pairage desktop : device_pairing_codes +
-device_pairing_attempts ; auth : auth_rate_limits ; Fitness : quatre journaux
-historiques + cinq tables de programme, progression, pesée et relances), plus
-jusqu'à 5 objets FTS5 (messages_fts + 4 auxiliaires) lorsque FTS5 est disponible, soit 90 tables physiques sur une
-base neuve avec configuration par défaut. Le dump database/schema.sql
-(46 tables applicatives) est un snapshot historique, pas le schéma
-d'exécution.
+Le projet crée 90 tables persistantes après init_db() + migrations, plus
+5 objets FTS5 (messages_fts + 4 auxiliaires) lorsque FTS5 est disponible,
+soit 95 tables physiques sur une base neuve avec configuration par défaut.
+database/schema.sql est un miroir généré de 91 déclarations : les 90 tables
+persistantes et la table virtuelle messages_fts. Il n'est pas exécuté par
+init_db(), mais la CI interdit toute divergence avec le runtime frais.
 
-Le frontend canonique est frontend/ (Next.js 15 → frontend/out), servi en
-priorité par FastAPI (port 8081) **et** par le supervisor (port 9000).
-web/dist reste le repli actif racine. web_mobile/ est l'interface mobile
-autonome servie sous /mobile/, sans build. tv/ (port 5174)
-est le dashboard War Room dédié. Voir ADR-019.
+Le frontend bureau unique est frontend/ (Next.js 15 → frontend/out), servi par
+FastAPI (port 8081) **et** par le supervisor (port 9000). web/src est sa
+bibliothèque de vues, pas une application exécutable. Si frontend/out manque,
+le bureau répond 503. web_mobile/ est l'interface mobile autonome servie sous
+/mobile/, sans build. tv/ (port 5174) est le dashboard War Room dédié.
+Voir ADR-019.
 ```
 
 ---
@@ -58,27 +67,22 @@ est le dashboard War Room dédié. Voir ADR-019.
 | Chemin | Framework | Version déclarée | Version verrouillée | Bundler | Rendu | Dev | Build | Sortie | SW | Manifeste | État |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | `frontend/` | Next.js + React | next `15.5.20`, react `^19.2.5` | next `15.5.20`, react `19.2.7` | Next (webpack) | SSG export (`output: 'export'`) | `pnpm dev` | `pnpm build` | `frontend/out/` | `public/sw.js` | `manifest.webmanifest` | **Actif — canonique FastAPI** |
-| `web/` | React + Vite | react `^19.0.0`, vite `^6.3.0` | react `19.2.5`, vite `6.4.2` | Vite | SPA CSR | `pnpm dev` (:5173) | `pnpm build` | `web/dist/` | `src/sw.ts` → Workbox | `vite-plugin-pwa` | **Fallback actif** + source vues desktop pour `frontend/` |
-| `pwa/` | Next.js + React | next `14.2.29`, react `^18.3.1` | next `14.2.29`, react `18.3.1` | Next | export + `basePath: '/m'` | `npm run dev` | `npm run build` / `scripts/build_pwa.sh` | `pwa/out/` | `public/sw.js` + next-pwa | `manifest.json` | **Fallback historique `/m/`** (build souvent absent) |
+| `web/` | Bibliothèque React | react `^19.0.0` | react `19.2.5` | compilée par Next | composants | — | typecheck/tests seulement | — | — | — | **Source des vues desktop de `frontend/`** |
 | `jarvis_auth/` | React lib | peer `react>=18.3` | N/A | — | package partagé | — | — | — | — | — | **Actif** (SDK LockGate) |
 | `tv/` | FastAPI + Jinja2 + vanilla JS | N/A (Python) | N/A | aucun | SSR templates | `python tv/server.py` | aucun | live | non | non | **Actif — TV 5174** |
-| `front_tv/` | HTML bundlé | N/A | N/A | externe | fichier unique | — | — | — | — | — | **Orphelin / non référencé** |
 
 ### Dépendances structurantes (lockfiles)
 
 | Projet | React | Routing | UI / data | PWA |
 |---|---|---|---|---|
 | `frontend/` | 19.2.7 | react-router-dom 7.18.1 (+ App Router Next) | TanStack Query 5.101.2, Tailwind 4.3.2, Leaflet, Recharts | SW maison `frontend/public/sw.js` |
-| `web/` | 19.2.5 | react-router-dom (lock aligné 7.x) | Tailwind 4.2.4, Recharts, idb | vite-plugin-pwa 1.3.0 + workbox 7.4.x |
-| `pwa/` | 18.3.1 | App Router Next 14 | TanStack Query, Leaflet, Tailwind 3.4.19 | next-pwa 5.6.0 |
+| `web/` | 19.2.5 | react-router-dom (lock aligné 7.x) | Recharts, idb ; compilés par `frontend/` | aucun SW propre |
 
 ### Builds présents dans le checkout audité (15/07/2026)
 
 | Dossier | Présent ? |
 |---|---|
 | `frontend/out/` | oui |
-| `web/dist/` | oui |
-| `pwa/out/` | **non** |
 
 ---
 
@@ -93,9 +97,7 @@ Montage : si web_mobile/index.html : monte /mobile/* (indépendant de la suite)
 
 Requête GET /
 → si UA téléphone ET pas de cookie jarvis_force_desktop : Redirect 302 → /mobile/
-→ sinon si frontend/out/index.html + _next/static/ : sert frontend unifié (PRIORITAIRE)
-→ sinon si web/dist/index.html : sert web/dist SPA
-→ sinon si web/templates/index.html : Jinja legacy
+→ sinon si frontend/out/index.html + _next/static/ : sert frontend unifié
 → sinon si web_mobile présent : racine mobile-seule (bureau → 503)
 → sinon : warning « Aucun frontend »
 
@@ -103,7 +105,8 @@ Requête GET /
 La redirection ne s'applique qu'à la racine : les liens profonds restent ouvrables.
 ```
 
-**Note** : la détection est **serveur** et s'applique à tous les chemins de repli — c'est un changement par rapport à l'audit du 24/07, où elle n'existait que sur le chemin Vite et où le frontend unifié choisissait son layout côté client. `frontend/src/lib/device.ts` ne contient plus de détection.
+**Note** : la détection est **serveur** et s'applique avant l'unique shell
+Next. `frontend/src/lib/device.ts` ne contient plus de détection.
 
 ### `/mobile/`
 
@@ -121,24 +124,70 @@ Toujours le backend FastAPI (main.py) — jamais les builds frontend.
 Auth fail-closed via api/middleware.py (hors allowlist).
 ```
 
+### Inventaire route → consommateur → test
+
+`artifacts/architecture_truth.json`, clé `api_surface.routes`, relie chaque
+opération FastAPI à son fichier serveur, aux clients qui mentionnent son chemin
+et aux tests qui le référencent. L'analyse est statique et n'importe pas
+`main.py`; elle couvre aussi les décorateurs avec préfixe `APIRouter`,
+`add_api_route(...)` et l'enregistrement fonctionnel du WebSocket `/ws`.
+
+| Surface cliente | Chemins référencés |
+|---|---:|
+| Next canonique (`frontend/`) | 115 |
+| Bibliothèque de vues (`web/src`, incluse dans Next) | 42 |
+| Web mobile (`web_mobile/`) | 28 |
+| Android | 26 |
+| TV | 9 |
+| SDK auth partagé | 6 |
+| macOS | 15 |
+
+Les références de test couvrent 128 chemins distincts. Les catégories de
+l'artefact sont comptées par opération : `consumer_and_tested`,
+`consumer_without_path_test`, `owned_non_frontend_and_tested` et
+`owned_non_frontend_without_path_test`. Une référence de chemin ne prouve pas à
+elle seule la couverture de chaque verbe ou du comportement métier ; les tests
+gardent cette responsabilité.
+
+Les 85 opérations sans client direct sont attribuées par le registre versionné
+`Architecture/api_route_ownership.json`. Chaque règle donne un propriétaire,
+une audience et une justification précises :
+
+| Audience non-frontend | Opérations | Usage |
+|---|---:|---|
+| `operator` | 74 | Exploitation, diagnostic ou contrôle humain authentifié |
+| `device-agent` | 4 | Protocole machine-à-machine des agents desktop |
+| `automation` | 5 | Déclencheur manuel de secours d'un job scheduler |
+| `indirect-client` | 1 | URL de ressource produite indirectement par une réponse API |
+| `integration-client` | 1 | Contrat stable destiné à une intégration sans vue dédiée |
+
+Le contrôle CI exige exactement une règle pour chaque opération sans client,
+rejette toute opération non attribuée, toute règle devenue orpheline et toute
+règle qui masquerait une route désormais consommée par un client. Le registre
+ne sert donc pas d'allowlist générique pour accumuler de nouvelles routes.
+
+Toute modification de route ou de référence client/test rend l'artefact
+obsolète et fait échouer la CI. Régénération :
+
+```bash
+python tools/audit_architecture_truth.py --schema-output database/schema.sql
+```
+
 ### Assets
 
-| Préfixe | Source si unifié | Source si fallback Vite |
-|---|---|---|
-| `/_next/static` | `frontend/out/_next/static` | — |
-| `/assets` | — | `web/dist/assets` |
-| `/icons` | `frontend/out/icons` ou `web/dist/icons` | idem |
-| `/sw.js`, manifeste | build servi | build servi |
-| `/static` | `web/static` si présent | idem |
+| Préfixe | Source unique |
+|---|---|
+| `/_next/static` | `frontend/out/_next/static` |
+| `/icons` | `frontend/out/icons` |
+| `/sw.js`, manifeste | `frontend/out` |
 
 ### Supervisor (port 9000)
 
 ```text
 GET /* sur :9000
-→ même priorité desktop que FastAPI (core.frontend_resolution) :
+→ même contrat desktop que FastAPI (core.frontend_resolution) :
    1. frontend/out (Next)
-   2. web/dist (Vite fallback)
-   3. JSON frontend_build_missing (503)
+   2. JSON frontend_build_missing (503)
 → proxy /api/* et /ws/supervisor inchangés
 → diagnostic : GET /api/supervisor/status → { frontend: {...} }
 ```
@@ -159,10 +208,8 @@ GET / sur tv/server.py
 | Service | Port | Rôle |
 |---|---|---|
 | Next `frontend` | 3000 (défaut next) | HMR développement unifié |
-| Vite `web` | 5173 | HMR desktop legacy / vues source |
-| PWA `pwa` | 3000 | HMR mobile historique |
 | Backend | 8081 | API + prod static |
-| Supervisor | 9000 | ops + `web/dist` |
+| Supervisor | 9000 | ops + `frontend/out` |
 | TV | 5174 | War Room |
 
 ---
@@ -178,9 +225,9 @@ GET / sur tv/server.py
 
 | Package | `web/package.json` | `web/pnpm-lock.yaml` | Confiance |
 |---|---|---|---|
-| vite | `^6.3.0` | `6.4.2` | haute |
 | react | `^19.0.0` | `19.2.5` | haute |
-| vite-plugin-pwa | `^1.3.0` | `1.3.0` | haute |
+| typescript | `^5.8.0` | version verrouillée | haute |
+| vitest | `^4.1.10` | version verrouillée | haute |
 | workbox-* | `^7.4.1` | `7.4.1` | haute |
 
 | Package | `pwa/package.json` | `pwa/package-lock.json` | Confiance |
@@ -198,8 +245,8 @@ Aucune contradiction lockfile ↔ package.json majeure (les caret résolvent une
 
 ```text
 init_db()  [database/core.py]
-  1. executescript(SCHEMA)     ← database/schema.py   (47 CREATE TABLE)
-  2. run_migrations(conn)      ← database/migrations.py (+17 tables uniques + FTS + DevAgent)
+  1. executescript(SCHEMA)     ← database/schema.py   (55 CREATE TABLE)
+  2. run_migrations(conn)      ← database/migrations.py (+29 tables uniques + FTS + DevAgent)
        └─ migrate_devagent_tables()  ← database/devagent.py (6 tables)
 ```
 
@@ -209,31 +256,32 @@ init_db()  [database/core.py]
 
 | ID | Définition | Nombre |
 |---|---|---|
-| A | Tables métier / domaines applicatifs (hors miroir iMessage, hors DevAgent, hors infra devops/auth pure) | **≈ 38** (voir §6) |
-| B | Tables techniques / infra (auth, settings, quality, logs, devices daemon, pairage, schema_migrations…) | **≈ 20** |
+| A | Tables métier estimées (hors miroir iMessage, DevAgent et infra) | **56** (voir artefact JSON) |
+| B | Tables techniques / infra estimées | **19** |
 | C | Tables miroir iMessage (copie locale) | **9** |
 | D | Conditionnelles FTS5 | **5** si FTS5 dispo (`messages_fts` + 4 auxiliaires) ; **0** sinon |
 | E | DevAgent | **6** |
 | F | Tables de tests (fixtures pytest) | **0** dans la base applicative |
-| — | Dump `schema.sql` (snapshot) | **46** applicatives + `sqlite_sequence` |
-| — | `schema.py` seul | **50** |
-| — | Persistantes post-`init_db` (hors FTS) | **85** |
-| — | Physiques post-`init_db` défaut (FTS ON) | **90** |
-| — | Référencées / créées par le code d’init | **85 + condition FTS** |
+| — | `schema.sql` généré | **91** déclarations, dont `messages_fts` |
+| — | `schema.py` seul | **55** |
+| — | Persistantes post-`init_db` (hors FTS) | **90** |
+| — | Physiques post-`init_db` défaut (FTS ON) | **95** |
+| — | Référencées / créées par le code d’init | **90 + 5 objets FTS** |
 
-### Réconciliation 46 vs 85 vs 90
+### Réconciliation des anciens comptages avec 90 / 95
 
 | Affirmation | Origine | Verdict |
 |---|---|---|
-| 46 | Contenu de `database/schema.sql` | Vrai pour ce fichier ; **faux** pour le runtime |
+| 46 | Ancien snapshot de `database/schema.sql` | Dépassé ; le fichier est maintenant généré |
 | 72 | Diagramme README | Obsolete |
 | 73 | Architecture juil. 2026 | Dépassé par les migrations mobile/Cursor/device |
 | 75 | Total avant le limiteur d'authentification par client | Dépassé |
 | 76 | Total avant les extensions auth et Fitness | Dépassé |
 | 78 | Audit intermédiaire de juillet 2026 | Dépassé |
 | 81 | Audit intermédiaire avant le programme Fitness complet | Dépassé |
-| 85 | Total persistant actuel, hors objets FTS5 | **Exact** |
-| 90 | `tests/test_event_bus_integration.py` avec FTS5 disponible | **Exact** |
+| 85 | Total persistant avant les dernières tables runtime | Dépassé |
+| 90 | Total persistant actuel, hors objets FTS5 | **Exact** |
+| 95 | Total physique actuel avec FTS5 | **Exact** |
 
 ---
 
@@ -340,20 +388,22 @@ Statuts : `active` | `technique` | `miroir` | `conditionnelle` | `devagent`
 |---|---|---|---|
 | `README.md` L100 | « 26+ tables » | non | Corriger → formulation multi-comptage |
 | `README.md` L124 | « 72 tables » | non | Idem |
-| `README.md` / supervisor | « sert le front » sans préciser `web/dist` | ambiguë | Clarifier |
-| `Architecture/*` « 73 tables » | inventaire juil. 2026 | dépassé (76 persistantes / 81 avec FTS) | Pointer vers ce document |
+| `README.md` / supervisor | « sert le front » sans préciser `frontend/out` | ambiguë | Clarifier |
+| `Architecture/*` anciens totaux | inventaires de juillet 2026 | dépassés | Pointer vers ce document |
 | `CLAUDE.md` L32 | « 73e table » = event_log | narratif historique | Nuancer |
 | `CLAUDE.md` § PWA L1515 | « web/ SPA principale » | non (Phase 6) | Corriger |
-| `database/schema.sql` | dump 46 tables | vrai dump, faux runtime | Annoter en tête (recommandé) |
+| `database/schema.sql` | ancien dump manuel | résolu | Généré depuis une base fraîche et vérifié en CI |
 | `CHANGELOG_HISTORIQUE.md` | web/dist = prod | historique | Conserver sans le traiter comme vérité actuelle |
 
 ---
 
 ## 8. Recommandation
 
-1. **Citer toujours** les comptages A/B/C/D + total 76 / 81 — jamais un seul chiffre nu.
+1. **Citer toujours** la formulation canonique 90 persistantes / 95 physiques / 91 déclarations.
 2. **Frontend** : phrase canonique du §1.
-3. **Ne pas** supprimer `web/` ni `front_tv/`, ni fusionner TV dans FastAPI sans plan dédié. (`pwa/` a été supprimé le 31/07 avec un plan dédié — voir `35_CAHIER_DES_CHARGES_WEB_MOBILE.md`.)
+3. **Conserver** `web/src` comme bibliothèque de vues ; son ancien shell Vite
+   ne doit pas être restauré. La maquette `front_tv/` et le template TV legacy
+   ont été retirés le 03/08. `pwa/` a été supprimé le 31/07.
 4. **Alignement supervisor / FastAPI** : réalisé le 16/07/2026 (ADR-019,
    `core/frontend_resolution.py`). Validation visuelle recommandée sur le port 9000.
 
@@ -362,12 +412,12 @@ Statuts : `active` | `technique` | `miroir` | `conditionnelle` | `devagent`
 | # | Cause | Preuve |
 |---|---|---|
 | 1 | Documentation obsolète (README 26+/72) | `README.md` L100, L124 |
-| 2 | Changement non documenté (tables migrations/FTS/DevAgent) | `migrations.py`, `devagent.py`, test `len==81` |
-| 3 | Plusieurs générations frontend encore actives | `api/frontend.py` unifié + Vite (résolu pour `/m/`, supprimé le 31/07) |
-| 4 | Fallback historique volontaire | commentaires Phase 6 + tests `test_phase6_frontend.py` |
-| 5 | Tables conditionnelles / techniques comptées différemment | FTS5 + 76 vs 81 |
-| 6 | Snapshot `schema.sql` ≠ schéma runtime | `core.py` importe `SCHEMA` depuis `schema.py` |
-| 7 | Supervisor ≠ FastAPI pour le front | `supervisor.py` `DIST_DIR = web/dist` |
+| 2 | Changement non documenté (tables migrations/FTS/DevAgent) | Résolu par génération et contrôle CI |
+| 3 | Plusieurs générations frontend encore actives | Résolu : Next unique, `web/src` bibliothèque seulement |
+| 4 | Fallback historique volontaire | Résolu : absence de build → 503 explicite |
+| 5 | Tables conditionnelles / techniques comptées différemment | FTS5 : 90 persistantes, 95 physiques |
+| 6 | Snapshot `schema.sql` ≠ schéma runtime | Résolu : miroir généré, `init_db()` reste basé sur les sources Python |
+| 7 | Supervisor ≠ FastAPI pour le front | Résolu par le résolveur Next unique partagé |
 | 8 | Build PWA absent du checkout | `pwa/out` manquant le jour de l’audit — arbre supprimé depuis |
 
 ---

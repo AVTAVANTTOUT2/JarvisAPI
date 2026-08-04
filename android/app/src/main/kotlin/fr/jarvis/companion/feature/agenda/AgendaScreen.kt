@@ -31,7 +31,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import fr.jarvis.companion.core.JarvisFeatureFlags
 import fr.jarvis.companion.core.connectivity.ConnectivityState
 import fr.jarvis.companion.core.database.CachedEventEntity
 import fr.jarvis.companion.core.ui.components.ErrorCallout
@@ -100,14 +99,12 @@ fun AgendaScreen(
                 }
             }
 
-            if (!JarvisFeatureFlags.CALENDAR_CREATE) {
-                // TODO(JARVIS-FUTURE-CALENDAR-CREATE): brancher la création rapide
-                // d'événement quand POST /api/calendar/* sera exposé au Bearer mobile.
-                JarvisFutureAction(
-                    title = "Nouvel événement",
-                    description = "La création d'événements sera activée dans une prochaine version.",
-                )
-            }
+            // TODO(JARVIS-FUTURE-CALENDAR-CREATE): remplacer ce placeholder quand
+            // POST /api/calendar/* sera réellement exposé au Bearer mobile.
+            JarvisFutureAction(
+                title = "Nouvel événement",
+                description = "La création d'événements sera activée dans une prochaine version.",
+            )
         }
     }
 }

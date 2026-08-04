@@ -84,11 +84,11 @@ def test_frontend_build_skipped_by_default(tmp_path, monkeypatch):
     assert step_frontend_build(tmp_path) is None
 
 
-def test_frontend_build_skips_without_pnpm_or_web_dir(tmp_path, monkeypatch):
+def test_frontend_build_skips_without_pnpm_or_frontend_dir(tmp_path, monkeypatch):
     from scripts.local_ci import step_frontend_build
 
     monkeypatch.setattr("config.LOCAL_CI_RUN_FRONTEND_BUILD", True)
-    result = step_frontend_build(tmp_path)  # pas de web/package.json ici
+    result = step_frontend_build(tmp_path)  # pas de frontend/package.json ici
     assert result["ok"] is True
     assert "skip" in result["output"]
 

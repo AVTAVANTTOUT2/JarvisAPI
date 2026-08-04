@@ -6,6 +6,8 @@ import logging
 
 from fastapi import APIRouter, HTTPException
 
+from api.errors import internal_error
+from api.task_models import TaskCreateRequest, TaskStatusRequest
 from database import (
     create_task,
     delete_all_tasks,
@@ -30,38 +32,30 @@ async def api_tasks_list(status: str | None = None):
 
 
 @router.post("/api/tasks")
-async def api_tasks_create(payload: dict):
+async def api_tasks_create(payload: TaskCreateRequest):
     """Crée une tâche.
 
     Body JSON : `{title, description?, priority?, due_date?, category?}`.
     """
-    title = (payload.get("title") or "").strip()
-    if not title:
-        raise HTTPException(400, "`title` requis")
-
     try:
         task_id = create_task(
-            title=title,
-            description=payload.get("description"),
-            priority=payload.get("priority", "medium"),
-            due_date=payload.get("due_date"),
-            category=payload.get("category"),
+            title=payload.title,
+            description=payload.description,
+            priority=payload.priority,
+            due_date=payload.due_date,
+            category=payload.category,
         )
     except Exception as e:
-        logger.error(f"Erreur create_task : {e}")
-        raise HTTPException(500, str(e))
+        logger.exception("Erreur create_task : %s", e)
+        raise internal_error("task_create_failed", "Création de la tâche impossible") from e
 
     return {"task": get_task(task_id)}
 
 
 @router.patch("/api/tasks/{task_id}")
-async def api_tasks_update(task_id: int, payload: dict):
+async def api_tasks_update(task_id: int, payload: TaskStatusRequest):
     """Met à jour le status d'une tâche (`todo` → `doing` → `done`)."""
-    status = (payload.get("status") or "").strip().lower()
-    if status not in ("todo", "doing", "done"):
-        raise HTTPException(400, "`status` doit être todo / doing / done")
-
-    if not update_task_status(task_id, status):
+    if not update_task_status(task_id, payload.status):
         raise HTTPException(404, "Tâche introuvable")
 
     return {"task": get_task(task_id)}

@@ -62,7 +62,7 @@
 | # | Blocage | Résolution |
 |---|---|---|
 | 1 | **Couverture frontend partielle** | 28 Vitest et 3 E2E couvrent auth, layout, offline et flux principaux ; toutes les vues ne disposent pas encore d'un test métier dédié. |
-| 2 | **CI automatisée — ✅ production Linux + contrats macOS** | Un job dédié exécute `pip install -r requirements.txt`, `pip check` et les imports lourds ; un runner `macos-14` valide la pile Apple simulée, launchd et CoreAudio ; les autres jobs couvrent pytest, Android et les frontends. |
+| 2 | **CI automatisée — ✅ production Linux + releases clientes** | Un job dédié exécute `pip install -r requirements.txt`, `pip check` et les imports lourds ; un runner `macos-26`/Xcode 26 valide la pile Apple puis régénère et compile l’app SwiftUI avec son widget ; Android exécute debug et release/R8 avec contrôle du mapping. |
 | 3 | **Validation appareils réels** | Le SDK partagé utilise le cookie même origine et le LockGate fail-closed ; installation, reprise après veille et ergonomie restent à vérifier sur iOS/Android physiques. |
 | 4 | **Manque de monitoring** | L'Event Bus et son journal sont actifs, mais `/health` et `/metrics` restent planifiés pour Q4. |
 

@@ -9,7 +9,6 @@ Chaque action type retourne un dict {"ok": bool, "message": str, ...}.
 import asyncio
 import json
 import logging
-import re
 import time
 
 logger = logging.getLogger(__name__)
@@ -163,7 +162,7 @@ async def _action_mail_read() -> dict:
     Les emails sont pré-traités par ``email_watcher`` à leur arrivée
     (contenu intégral + résumé DeepSeek stockés en DB).
     """
-    from database import get_unread_emails_from_db, get_email_stats
+    from database import get_email_stats, get_unread_emails_from_db
 
     stats = get_email_stats()
     emails = get_unread_emails_from_db(limit=12)
@@ -534,8 +533,8 @@ async def _generate_shell_commands(instruction: str) -> list[str] | dict:
     Cette fonction ne possède aucun chemin d'exécution. Même une action déjà
     marquée ``confirmed`` doit passer par un nouveau plan serveur.
     """
-    import llm as llm_module
     import config as cfg
+    import llm as llm_module
 
     try:
         result = await llm_module.chat(
@@ -812,7 +811,6 @@ def _send_wol(mac_address: str, broadcast_ip: str = "255.255.255.255") -> bool:
     envoye en broadcast UDP sur le port 9.
     """
     import socket
-    import struct
 
     # Normaliser la MAC (supprimer separateurs, pad a 2 digits par octet)
     mac_clean = "".join(c for c in mac_address if c.isalnum())
@@ -842,7 +840,6 @@ def _send_wol(mac_address: str, broadcast_ip: str = "255.255.255.255") -> bool:
 
 async def _adb_connect_ensure(tv_ip: str, tv_port: int, timeout: float = 5.0) -> str | None:
     """Assure la connexion ADB a la TV. Retourne None si OK, ou un message d'erreur."""
-    import subprocess
 
     # Verifier si deja connecte
     try:
@@ -1003,11 +1000,11 @@ async def _action_tv(action: dict) -> dict:
     - ``vol_up``, ``vol_down``, ``mute`` : volume
     - ``play``, ``pause``, ``stop``, ``next``, ``prev`` : media
     """
-    import config as cfg
-    import subprocess
     import time as _time
 
-    tv_ip = getattr(cfg, "TV_IP", "192.168.3.82")
+    import config as cfg
+
+    tv_ip = str(getattr(cfg, "TV_IP", "") or "").strip()
     tv_port = int(getattr(cfg, "TV_ADB_PORT", "5555") or "5555")
 
     command = (action.get("command") or action.get("action") or "").strip().lower()
@@ -1033,6 +1030,12 @@ async def _action_tv(action: dict) -> dict:
         if ok:
             return {"ok": True, "message": "Magic packet WoL envoye a la TV. La TV devrait s'allumer d'ici 10-20 secondes.", "command": "wol"}
         return {"ok": False, "message": "Echec de l'envoi du magic packet WoL. Verifie que la TV est sur le meme reseau."}
+
+    if not tv_ip:
+        return {
+            "ok": False,
+            "message": "Adresse IP TV non configuree. Ajoute TV_IP dans .env.",
+        }
 
     # ── Commande "on" / "wake" : WoL d'abord, puis ADB ───────────────────
     if command in ("on", "wake"):
@@ -1068,16 +1071,16 @@ async def _action_tv(action: dict) -> dict:
                 steps.append("WoL echoue")
 
         # Tenter ADB
-        dashboard_url = getattr(cfg, "TV_DASHBOARD_URL", "http://192.168.3.52:5174/")
+        dashboard_url = str(getattr(cfg, "TV_DASHBOARD_URL", "") or "").strip()
         adb_err = await _adb_connect_ensure(tv_ip, tv_port, timeout=8.0)
         if adb_err:
             # WoL + ADB echoue → la TV est probablement en deep standby (>5-10 min d'arret)
             # Fallback : Google Cast (Chromecast integre) qui reste actif meme en deep standby
             steps.append(f"ADB indisponible ({adb_err[:100]})")
-            cast_enabled = getattr(cfg, "TV_CAST_ENABLED", True)
+            cast_enabled = bool(getattr(cfg, "TV_CAST_ENABLED", False))
             cast_timeout = float(getattr(cfg, "TV_CAST_TIMEOUT", "20") or "20")
 
-            if cast_enabled:
+            if cast_enabled and dashboard_url:
                 logger.info("[tv] ADB echoue, tentative Google Cast fallback (deep standby probable)")
                 ok_cast, cast_msg = await _wake_tv_via_cast(tv_ip, dashboard_url, timeout=cast_timeout)
                 steps.append(cast_msg)
@@ -1128,14 +1131,19 @@ async def _action_tv(action: dict) -> dict:
                     }
             else:
                 # Cast desactive → pas de fallback
+                cast_hint = (
+                    "Configure TV_DASHBOARD_URL et active TV_CAST_ENABLED=true"
+                    if cast_enabled
+                    else "Active TV_CAST_ENABLED=true dans .env"
+                )
                 return {
                     "ok": False,
                     "message": (
-                        f"J'ai envoye le signal de reveil a la TV"
+                        "J'ai envoye le signal de reveil a la TV"
                         + (f" ({steps[0]})" if steps else "")
                         + f", mais ADB ne repond pas. "
                         f"La TV est en deep standby (eteinte depuis >10 min). "
-                        f"Active TV_CAST_ENABLED=true dans .env pour le fallback Chromecast, "
+                        f"{cast_hint} pour le fallback Chromecast, "
                         f"ou allume la TV manuellement."
                     ),
                 }

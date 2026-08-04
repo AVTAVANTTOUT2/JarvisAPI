@@ -4,16 +4,17 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import subprocess
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from api.daemon_support import _audio_daemon_status_payload
+from api.errors import api_error, internal_error
 from api.service_control import (
-    INTERNAL_SERVICES,
     _SERVICE_LOG_TAGS,
+    INTERNAL_SERVICES,
+    UnknownServiceError,
     _get_all_services_status,
     _start_service,
     _stop_service,
@@ -24,6 +25,58 @@ from websocket_registry import broadcast_ws
 
 router = APIRouter()
 logger = logging.getLogger("jarvis")
+BACKEND_LOG_FILE = (
+    Path(__file__).resolve().parent.parent / "data" / ".jarvis_restart" / "backend.log"
+)
+
+
+def _unknown_service_error(service: str) -> HTTPException:
+    """Traduit l'erreur métier en contrat HTTP stable."""
+    return api_error(404, "service_not_found", f"Service inconnu : {service}")
+
+
+def _require_service_success(
+    result: dict[str, object],
+    *,
+    action: str,
+) -> dict[str, object]:
+    """Transforme un refus métier en véritable erreur HTTP publique."""
+    if result.get("ok") is False:
+        logger.warning("[control/%s] refus interne : %s", action, result.get("error"))
+        raise api_error(
+            503,
+            f"service_{action}_failed",
+            f"Action {action} impossible sur le service",
+        )
+    return result
+
+
+def _raise_bulk_failure(action: str, failed_services: list[str]) -> None:
+    """Signale un résultat partiel sans exposer les exceptions internes."""
+    if failed_services:
+        raise api_error(
+            503,
+            f"service_bulk_{action}_failed",
+            f"Action groupée {action} partiellement impossible",
+            context={"failed_services": failed_services},
+        )
+
+
+def _read_service_log_lines(
+    log_file: Path,
+    *,
+    tag: str,
+    lines: int,
+) -> dict[str, object]:
+    """Filtre un log en Python, hors de la boucle asyncio."""
+    needle = tag.casefold()
+    matches = [
+        line
+        for line in log_file.read_text(errors="replace").splitlines()
+        if needle in line.casefold()
+    ]
+    recent = matches[-lines:]
+    return {"logs": recent, "count": len(recent)}
 
 
 @router.get("/api/audio-daemon/status")
@@ -36,6 +89,7 @@ async def audio_daemon_status():
 async def audio_daemon_start():
     """Démarre le daemon audio (micro + wake word)."""
     from scripts.audio_daemon import audio_daemon as _ad
+
     if _ad.enabled:
         return {"ok": True, "message": "Déjà actif"}
     _ad.set_broadcast(broadcast_ws)
@@ -47,6 +101,7 @@ async def audio_daemon_start():
 async def audio_daemon_stop():
     """Arrête le daemon audio."""
     from scripts.audio_daemon import audio_daemon as _ad
+
     if not _ad.enabled:
         return {"ok": True, "message": "Déjà inactif"}
     await _ad.stop()
@@ -57,6 +112,7 @@ async def audio_daemon_stop():
 async def audio_daemon_wake_word(body: dict[str, Any]):
     """Active/désactive le wake word. Body: {"enabled": true/false}"""
     from scripts.audio_daemon import audio_daemon as _ad
+
     await _ad.set_wake_word(body.get("enabled", True))
     return {"ok": True, "wake_word_enabled": _ad.wake_word_enabled}
 
@@ -65,6 +121,7 @@ async def audio_daemon_wake_word(body: dict[str, Any]):
 async def audio_daemon_continuous(body: dict[str, Any]):
     """Active/désactive le mode écoute continue. Body: {"enabled": true/false}"""
     from scripts.audio_daemon import audio_daemon as _ad
+
     await _ad.set_continuous_mode(body.get("enabled", True))
     return {"ok": True, "continuous_mode": _ad.continuous_mode}
 
@@ -75,10 +132,11 @@ async def api_voice_debug_logs(limit: int = 50):
     try:
         logs = get_voice_debug_logs(limit=limit)
     except Exception as e:
-        logger.error(f"voice_debug_logs : {e}")
-        raise HTTPException(500, str(e))
+        logger.exception("voice_debug_logs indisponibles")
+        raise internal_error(
+            "voice_debug_unavailable", "Traces vocales indisponibles"
+        ) from e
     return {"logs": logs}
-
 
 
 @router.get("/api/control/services")
@@ -90,21 +148,28 @@ async def control_list_services():
 @router.get("/api/control/{service}/detail")
 async def control_service_detail(service: str):
     """Detail enrichi (health Ollama, heartbeat Screen Watcher, …)."""
-    return await get_service_detail(service)
+    try:
+        return await get_service_detail(service)
+    except UnknownServiceError as exc:
+        raise _unknown_service_error(service) from exc
 
 
 @router.post("/api/control/{service}/start")
 async def control_start_service(service: str):
     """Demarre un service specifique."""
-    result = await _start_service(service)
-    return result
+    try:
+        return _require_service_success(await _start_service(service), action="start")
+    except UnknownServiceError as exc:
+        raise _unknown_service_error(service) from exc
 
 
 @router.post("/api/control/{service}/stop")
 async def control_stop_service(service: str):
     """Arrete un service specifique."""
-    result = await _stop_service(service)
-    return result
+    try:
+        return _require_service_success(await _stop_service(service), action="stop")
+    except UnknownServiceError as exc:
+        raise _unknown_service_error(service) from exc
 
 
 @router.post("/api/control/{service}/restart")
@@ -112,9 +177,14 @@ async def control_restart_service(service: str):
     """Redemarre un service (stop + start)."""
     svc = service.strip().lower().replace("-", "_")
     # Restart Ollama : SW s'arrête avec Ollama, pas de relance auto SW
-    await _stop_service(service)
-    await asyncio.sleep(1.0)
-    result = await _start_service(service)
+    try:
+        _require_service_success(await _stop_service(service), action="restart")
+        await asyncio.sleep(1.0)
+        result = _require_service_success(
+            await _start_service(service), action="restart"
+        )
+    except UnknownServiceError as exc:
+        raise _unknown_service_error(service) from exc
     if svc == "ollama":
         result = {
             **result,
@@ -127,14 +197,18 @@ async def control_restart_service(service: str):
 async def control_restart_all():
     """Redemarre tous les services internes (pas le backend lui-meme)."""
     results: dict[str, object] = {}
+    failed_services: list[str] = []
     for svc in INTERNAL_SERVICES:
         try:
-            await _stop_service(svc)
+            _require_service_success(await _stop_service(svc), action="restart")
             await asyncio.sleep(0.5)
-            r = await _start_service(svc)
+            r = _require_service_success(await _start_service(svc), action="restart")
             results[svc] = r
-        except Exception as e:
-            results[svc] = {"ok": False, "error": str(e)}
+        except Exception:
+            logger.exception("[control/restart-all] %s", svc)
+            results[svc] = {"ok": False, "error": "service_restart_failed"}
+            failed_services.append(svc)
+    _raise_bulk_failure("restart", failed_services)
     return {"results": results}
 
 
@@ -142,12 +216,16 @@ async def control_restart_all():
 async def control_stop_all():
     """Arrete tous les services internes."""
     results: dict[str, object] = {}
+    failed_services: list[str] = []
     for svc in INTERNAL_SERVICES:
         try:
-            r = await _stop_service(svc)
+            r = _require_service_success(await _stop_service(svc), action="stop")
             results[svc] = r
-        except Exception as e:
-            results[svc] = {"ok": False, "error": str(e)}
+        except Exception:
+            logger.exception("[control/stop-all] %s", svc)
+            results[svc] = {"ok": False, "error": "service_stop_failed"}
+            failed_services.append(svc)
+    _raise_bulk_failure("stop", failed_services)
     return {"results": results}
 
 
@@ -155,31 +233,43 @@ async def control_stop_all():
 async def control_start_all():
     """Demarre tous les services internes."""
     results: dict[str, object] = {}
+    failed_services: list[str] = []
     for svc in INTERNAL_SERVICES:
         try:
-            r = await _start_service(svc)
+            r = _require_service_success(await _start_service(svc), action="start")
             results[svc] = r
-        except Exception as e:
-            results[svc] = {"ok": False, "error": str(e)}
+        except Exception:
+            logger.exception("[control/start-all] %s", svc)
+            results[svc] = {"ok": False, "error": "service_start_failed"}
+            failed_services.append(svc)
+    _raise_bulk_failure("start", failed_services)
     return {"results": results}
 
 
 @router.get("/api/control/{service}/logs")
-async def control_service_logs(service: str, lines: int = 50):
+async def control_service_logs(
+    service: str,
+    lines: Annotated[int, Query(ge=1, le=500)] = 50,
+):
     """Retourne les dernieres lignes de log pertinentes pour un service."""
-    tag = _SERVICE_LOG_TAGS.get(service, service)
-    log_file = Path("data/.jarvis_restart/backend.log")
+    try:
+        tag = _SERVICE_LOG_TAGS[service]
+    except KeyError as exc:
+        raise _unknown_service_error(service) from exc
+    log_file = BACKEND_LOG_FILE
 
     if not log_file.exists():
         return {"logs": [], "message": "Pas de fichier de log"}
 
     try:
-        result = subprocess.run(
-            ["grep", "-i", tag, str(log_file)],
-            capture_output=True, text=True, timeout=5,
+        return await asyncio.to_thread(
+            _read_service_log_lines,
+            log_file,
+            tag=tag,
+            lines=lines,
         )
-        all_lines = result.stdout.strip().split("\n")
-        recent = all_lines[-lines:] if len(all_lines) > lines else all_lines
-        return {"logs": [line for line in recent if line.strip()], "count": len(recent)}
     except Exception as e:
-        return {"logs": [], "error": str(e)}
+        logger.exception("[control/logs] %s", service)
+        raise internal_error(
+            "service_logs_unavailable", "Logs du service indisponibles"
+        ) from e

@@ -12,7 +12,11 @@ import pytest
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-import config  # noqa: E402
+from database.time_buckets import (  # noqa: E402
+    local_datetime,
+    sqlite_utc_timestamp,
+    utc_datetime,
+)
 
 
 @pytest.fixture
@@ -156,7 +160,7 @@ async def test_commitments_extraction_and_dedupe(tmp_db):
     from database import get_commitments, get_db
     from scripts import commitments as cm
 
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = local_datetime().strftime("%Y-%m-%d")
     with get_db() as conn:
         conn.execute("INSERT INTO conversations (id, agent) VALUES (1, 'orchestrator')")
         conn.execute(
@@ -175,7 +179,12 @@ async def test_commitments_extraction_and_dedupe(tmp_db):
 
 
 def test_commitments_overdue_notification(tmp_db):
-    from database import add_commitment, get_db, get_unread_notifications, update_commitment_status
+    from database import (
+        add_commitment,
+        get_db,
+        get_unread_notifications,
+        update_commitment_status,
+    )
     from scripts.commitments import check_overdue_commitments_job
 
     cid = add_commitment("Rappeler le garagiste", made_to="garagiste")
@@ -211,7 +220,7 @@ def test_dnd_lifecycle(tmp_db):
 def test_dnd_expires(tmp_db):
     from database import is_dnd_active, set_setting
 
-    past = (datetime.now() - timedelta(minutes=5)).isoformat(timespec="seconds")
+    past = sqlite_utc_timestamp(utc_datetime() - timedelta(minutes=5))
     set_setting("dnd_until", past)
     assert is_dnd_active() is False
 

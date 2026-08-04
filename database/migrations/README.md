@@ -23,7 +23,10 @@ simple — utilisez plutôt une fonction `_migrate_xxx(conn)` idempotente dans
 ```
 
 Numérotées sur 4 chiffres, ordre = ordre d'application. Chaque fichier est du
-SQL brut, exécuté dans une transaction unique via `sqlite3.Connection.executescript`.
+SQL brut, exécuté instruction par instruction dans une transaction unique.
+Les commandes de transaction (`BEGIN`, `COMMIT`, `ROLLBACK`, `SAVEPOINT`, etc.)
+sont interdites dans les fichiers : le moteur doit rester seul propriétaire de
+la transaction qui englobe le SQL et son enregistrement.
 
 ## Fonctionnement
 
@@ -37,8 +40,13 @@ SQL brut, exécuté dans une transaction unique via `sqlite3.Connection.executes
 3. S'il y a des migrations en attente, **sauvegarde automatique** de la base
    (`scripts.db_maintenance.run_backup()`) avant la première d'entre elles.
 4. Applique chaque migration en attente, dans l'ordre, une transaction par
-   fichier. Arrêt immédiat à la première erreur (les migrations suivantes ne
-   sont pas appliquées) — la sauvegarde permet une restauration immédiate.
+   fichier. L'`INSERT` dans `schema_migrations` est validé sur la même connexion
+   et dans la même transaction que le SQL. Arrêt immédiat à la première erreur
+   (les migrations suivantes ne sont pas appliquées) — la sauvegarde permet une
+   restauration immédiate.
+
+Au démarrage, toute erreur de migration est fatale : JARVIS ne sert jamais de
+requêtes avec un schéma dont l'état est ambigu.
 
 Appelée automatiquement au démarrage de JARVIS (après `init_db()`), et
 disponible manuellement via `POST /api/migrations/run` /

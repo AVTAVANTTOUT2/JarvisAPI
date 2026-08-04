@@ -115,3 +115,44 @@ def test_get_timeline_serves_non_empty_cache(tmp_db, monkeypatch):
         assert body["events"] == events
         assert body["from_cache"] is True
         called.assert_not_called()
+
+
+def test_people_timeline_does_not_expose_internal_exception(tmp_db, monkeypatch):
+    from database import upsert_person
+
+    upsert_person("Maman", relationship="famille")
+    monkeypatch.setattr(
+        "scripts.timeline_generator.generate_timeline",
+        AsyncMock(side_effect=RuntimeError("sqlite secret path /Users/private/jarvis.db")),
+    )
+
+    import main
+
+    with TestClient(main.app) as client:
+        authenticate(client)
+        response = client.get("/api/people/Maman/timeline")
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == {
+        "code": "people_timeline_failed",
+        "message": "Timeline du contact indisponible",
+    }
+    assert "sqlite" not in response.text.lower()
+    assert "/users/private" not in response.text.lower()
+
+
+def test_people_patch_rejects_unknown_fields_with_pydantic_contract(tmp_db):
+    from database import upsert_person
+
+    upsert_person("Maman", relationship="famille")
+
+    import main
+
+    with TestClient(main.app) as client:
+        authenticate(client)
+        response = client.patch(
+            "/api/people/Maman",
+            json={"relationship": "famille", "admin": True},
+        )
+
+    assert response.status_code == 422

@@ -119,6 +119,9 @@ export default function FoodView() {
         // Flux partagé : un événement illisible ne concerne pas cette page.
       }
     };
+    source.addEventListener('stream.reset', () => {
+      void loadAll();
+    });
     source.onerror = () => {
       // EventSource se reconnecte seul.
     };

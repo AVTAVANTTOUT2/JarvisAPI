@@ -18,7 +18,9 @@ def test_ci_installs_real_production_requirements():
     job = _production_job()
 
     assert "runs-on: ubuntu-latest" in job
-    assert "python -m pip install -r requirements.txt" in job
+    assert "python -m pip install --require-hashes" in job
+    assert "requirements/locks/production-linux-x86_64-py312.txt" in job
+    assert "python tools/update_python_locks.py --check" in job
     assert "python -m pip check" in job
     assert "portaudio19-dev" in job
 
@@ -61,3 +63,9 @@ def test_production_requirements_pin_the_web_core():
 
     assert "fastapi==0.139.*" in requirements
     assert "uvicorn[standard]==0.34.*" in requirements
+
+
+def test_production_requirements_use_the_python_314_pdf_runtime():
+    requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8")
+
+    assert "pymupdf==1.28.*" in requirements

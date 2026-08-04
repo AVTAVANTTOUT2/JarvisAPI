@@ -2,7 +2,10 @@
 
 **Date initiale** : 11 juillet 2026
 
-**Dernière mise à jour** : 21 juillet 2026
+**Dernière mise à jour** : 3 août 2026
+
+Runtime SQLite canonique : **90 tables persistantes**, **95 tables physiques avec FTS5**, schéma généré : **91 déclarations de tables**.
+Structure API canonique : **259 opérations HTTP + 2 WebSockets**, **230 chemins OpenAPI**, **17 routeurs api/router_*.py + Fitness = 18 montés**, main.py **211 lignes**.
 
 ---
 
@@ -10,9 +13,9 @@
 
 ```
 JarvisAPI/
-├── main.py                    ← Assemblage FastAPI/Uvicorn (175 lignes)
-├── api/                       ← 12 routeurs de domaine + handlers/support API
-│   ├── router_*.py           ← 207 opérations HTTP, 189 chemins OpenAPI
+├── main.py                    ← Assemblage FastAPI/Uvicorn (211 lignes)
+├── api/                       ← 17 routeurs de domaine + handlers/support API
+│   ├── router_*.py           ← participe aux 259 opérations HTTP / 230 chemins OpenAPI
 │   ├── ws_handler.py         ← WebSocket /ws
 │   ├── lifespan.py           ← Cycle de vie des services
 │   ├── middleware.py         ← Sécurité HTTP
@@ -25,7 +28,7 @@ JarvisAPI/
 ├── push.py                    ← Web Push (VAPID, aes128gcm)
 ├── pipeline.py                ← (créé en Phase 1) Pipeline _process_message
 ├── jarvis/events.py           ← 10 événements de domaine typés (Phase 3)
-├── jarvis/event_bus.py        ← Pub/sub, SSE, handlers concurrents et historique
+├── jarvis/event_bus.py        ← Pub/sub, handlers concurrents et historique court
 │
 ├── agents/                    ← 7 agents LLM + orchestrateur
 │   ├── __init__.py            ← BaseAgent + registry (526 lignes)
@@ -42,7 +45,7 @@ JarvisAPI/
 │   ├── easter_eggs.py         ← Easter eggs
 │   └── devagent/              ← Développement autonome (interview → code → test)
 │
-├── database/                  ← SQLite (75 persistantes, +FTS→80 ; schema.sql dump≈46 ; 25 modules)
+├── database/                  ← SQLite (90 persistantes, +FTS→95 ; schema.sql généré ; 25 modules)
 │   ├── __init__.py            ← Façade rétrocompatible (236 lignes)
 │   ├── core.py                ← Connexions, initialisation et contexte agrégé
 │   ├── schema.py              ← Schéma déclaratif complet
@@ -52,7 +55,7 @@ JarvisAPI/
 │   ├── people.py             ← Personnes, contexte de vie et index iMessage
 │   ├── patterns.py           ← Humeurs, patterns et briefings
 │   ├── notifications.py      ← Notifications, Web Push et logs LLM
-│   ├── event_log.py          ← Consommateur du bus et journal SQLite immuable
+│   ├── event_log.py          ← Journal SQLite immuable + curseur de reprise SSE
 │   ├── rituals.py            ← Rituels, engagements, présence et journal
 │   ├── devops.py             ← Migrations versionnées, audits et benchmarks
 │   ├── school.py             ← Documents scolaires
@@ -120,11 +123,10 @@ JarvisAPI/
 │   ├── relationship_graph.py  ← Graphe vivant des relations
 │   ├── time_machine.py        ← Reconstruction chronologique journée
 │   ├── semantic_search.py     ← Recherche sémantique (embeddings locaux)
-│   ├── self_healing.py        ← Diagnostic + patch réversible
+│   ├── self_healing.py        ← Diagnostic + délégation PR-only
 │   ├── db_migrations.py       ← Gestionnaire de migrations
 │   ├── duplicate_scanner.py   ← Scan code dupliqué
 │   ├── security_audit.py      ← Audit sécurité
-│   ├── test_coverage_scan.py  ← Scan couverture tests
 │   ├── local_ci.py            ← CI locale
 │   ├── perf_regression.py     ← Détection régression perf
 │   ├── db_maintenance.py      ← Backup, purge, chiffrement
@@ -200,8 +202,8 @@ graph TB
     INTEG["integrations/*<br/>(importent config)"]
     SCRIPTS["scripts/*<br/>(importent config, llm, db, integ)"]
 
-    MAIN["main.py<br/>ASSEMBLAGE<br/>175 lignes<br/>daemons découplés via pipeline.py"]
-    API["api/<br/>12 routeurs<br/>handlers par responsabilité"]
+    MAIN["main.py<br/>ASSEMBLAGE<br/>211 lignes<br/>daemons découplés via pipeline.py"]
+    API["api/<br/>17 routeurs + Fitness<br/>handlers par responsabilité"]
 
     CONFIG --> LLM
     CONFIG --> DB
@@ -231,8 +233,8 @@ graph TB
 | `llm.py` | Agents, scripts, API | OK |
 | `database/__init__.py` | Agents, scripts, API, integrations | Façade stable de 236 lignes ; implémentation répartie dans 25 modules |
 | `jarvis/event_bus.py` et `jarvis/events.py` | DB, agents, API, daemons | Actif : 10 événements de domaine, 3 consommateurs réels (journal SQLite, WebSocket, TTS) et flux SSE existant |
-| `api/` | `main.py` | 12 routeurs ; tous les modules restent sous 500 lignes et aucun n'importe `main.py` |
-| `main.py` | supervisor | Assemblage stable de 175 lignes ; monte les routeurs, le WebSocket, le frontend et le lifespan |
+| `api/` | `main.py` | 17 routeurs, plus Fitness monté séparément ; tous les modules restent sous 500 lignes et aucun n'importe `main.py` |
+| `main.py` | supervisor | Assemblage stable de 211 lignes ; monte 18 routeurs, 2 WebSockets, le frontend et le lifespan |
 | `agents/orchestrator.py` | API | OK |
 | `scripts/jarvis_daemon.py` | `api/lifespan.py` (cycle de vie), `pipeline.py` (traitement) | Cycle d'import supprimé |
 
@@ -382,10 +384,11 @@ graph TB
 
 ## 4. Stockage
 
-### 4.1 SQLite — jarvis.db (75 persistantes, 80 avec FTS5)
+### 4.1 SQLite — jarvis.db (90 persistantes, 95 avec FTS5)
 
-> Comptage vérifié le 15/07/2026 — voir `Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md`.
-> Ne pas utiliser le dump `schema.sql` (46) comme chiffre runtime.
+> Comptage généré et vérifié en CI — voir `Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md`.
+> `database/schema.sql` contient 91 déclarations de tables : 90 persistantes et
+> la table virtuelle FTS5 ; ses quatre tables auxiliaires portent le total physique à 95.
 
 ```mermaid
 erDiagram
@@ -472,7 +475,7 @@ imessage_analysis_cache → curseur d'analyse par contact
 │             │ - Proxy WebSocket vers 8081            │
 │             │ - Health-check + auto-restart          │
 │  Port 8081  │ Backend FastAPI                       │
-│             │ - 174 opérations HTTP / 157 chemins  │
+│             │ - 259 opérations HTTP / 230 OpenAPI  │
 │             │ - WebSocket /ws                       │
 │             │ - Sert frontend/out en priorité       │
 │             │ - Garde web/dist et /m/ en fallback   │
@@ -649,7 +652,7 @@ https://tiles.openfreemap.org/styles/dark
 | Composant carte | `web/src/app/components/map/CartographyMap.tsx` |
 | Transformations GeoJSON | `web/src/app/lib/cartographyGeojson.ts` |
 | Config style | `web/src/app/lib/mapStyle.ts` |
-| Variable d'environnement | `VITE_MAP_STYLE_URL` (défaut OpenFreeMap Dark) |
+| Variable d'environnement | `NEXT_PUBLIC_MAP_STYLE_URL` (défaut OpenFreeMap Dark) |
 | Dépendance | `maplibre-gl` (web + frontend) — **pas** de clé API |
 | PWA mobile | **Leaflet conservé** (`pwa/src/components/map/MapView.tsx`) — pas migré dans cette PR |
 
@@ -662,9 +665,9 @@ L'attribution OpenStreetMap / OpenFreeMap reste **toujours visible** (contrôle 
 
 ```bash
 # .env / .env.config
-VITE_MAP_STYLE_URL=https://tiles.openfreemap.org/styles/dark
+NEXT_PUBLIC_MAP_STYLE_URL=https://tiles.openfreemap.org/styles/dark
 # ou style auto-hébergé :
-# VITE_MAP_STYLE_URL=https://votre-domaine/styles/dark.json
+# NEXT_PUBLIC_MAP_STYLE_URL=https://votre-domaine/styles/dark.json
 ```
 
 Le service public OpenFreeMap peut être remplacé à tout moment par un style ou des tuiles
@@ -687,7 +690,14 @@ MapLibre utilise par ailleurs un Web Worker créé depuis une URL `blob:` :
 `worker-src 'self' blob:` et le fallback `child-src blob:` sont donc présents,
 sans autoriser globalement `https:` ni `*`.
 
-Un style externe configuré via `VITE_MAP_STYLE_URL` doit rester sur cette
+Les scripts et balises `<style>` inline des exports HTML sont autorisés par
+des hashes SHA-256 calculés sur chaque fichier servi. `script-src` et
+`style-src` ne contiennent donc plus `unsafe-inline`. Seuls les attributs
+`style` générés au runtime par React/MapLibre gardent l'exception dédiée
+`style-src-attr 'unsafe-inline'`. Les WebSockets de l'application restent de
+même origine via `'self'` : aucun joker `ws:` ou `wss:` n'est présent.
+
+Un style externe configuré via `NEXT_PUBLIC_MAP_STYLE_URL` doit rester sur cette
 origine, ou être servi depuis l'origine JARVIS. Pour un nouveau fournisseur
 externe, mettre à jour explicitement `security_headers.py` et le test de
 contrat CSP ; ne pas élargir la directive à toutes les origines HTTPS.
@@ -703,7 +713,7 @@ du worker et d'une tuile sur l'origine OpenFreeMap, et échoue au moindre
 `pmtiles:///maps/europe.pmtiles`. L'enregistrement du protocole MapLibre + la dépendance
 `pmtiles` sont **volontairement reportés** : aucun fichier PMTiles Europe n'est versionné
 dans le dépôt. Prochaine étape : servir un archive local, enregistrer le protocole, pointer
-`VITE_MAP_STYLE_URL` vers un style JSON local.
+`NEXT_PUBLIC_MAP_STYLE_URL` vers un style JSON local.
 
 ### Endpoints consommés (inchangés, auth session)
 
@@ -726,11 +736,11 @@ GPS / lieux restent chargées côté API. Aucune coordonnée n'est envoyée à u
 | Fichiers source frontend | 99 (38 web + 38 pwa + 19 frontend + 4 jarvis_auth) |
 | Lignes frontend | 18 770 |
 | Tables SQLite | 75 applicatives après initialisation et migrations (`sqlite_sequence` exclue) |
-| API | 174 opérations HTTP + 1 WebSocket ; 157 chemins OpenAPI |
+| API | 259 opérations HTTP + 2 WebSockets ; 230 chemins OpenAPI |
 | Tests backend | 565 tests pytest collectés dans 66 fichiers ; 564 passants, 1 ignoré le 14/07/2026 |
 | Agents LLM | 7 + orchestrateur |
 | Jobs APScheduler | 29 |
 | Démons | 5 |
-| God objects API/DB | 0 (`main.py` 175 lignes ; tous les modules `api/` ≤ 500 lignes) |
+| God objects API/DB | 0 (`main.py` 211 lignes ; tous les modules `api/` ≤ 500 lignes) |
 | Dépendance circulaire | 0 |
 | Duplications majeures | 8 |

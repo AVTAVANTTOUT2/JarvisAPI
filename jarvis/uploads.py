@@ -265,6 +265,33 @@ async def store_upload(
         raise
 
 
+async def read_upload_limited(
+    upload: "UploadFile",
+    *,
+    max_bytes: int,
+    chunk_size: int = CHUNK_SIZE,
+) -> bytes:
+    """Lit un ``UploadFile`` par blocs sans allouer un payload hors limite.
+
+    Starlette peut spooler le multipart sur disque, mais ``UploadFile.read()``
+    sans taille recopie ensuite tout le fichier en mémoire. Ce helper garde une
+    borne stricte sur cette seconde allocation.
+    """
+    limit = max(1, int(max_bytes))
+    block_size = max(1, min(int(chunk_size), limit + 1))
+    chunks: list[bytes] = []
+    total = 0
+    while chunk := await upload.read(block_size):
+        total += len(chunk)
+        if total > limit:
+            raise UploadRejected(
+                413,
+                f"Fichier trop volumineux (maximum {limit} octets)",
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 def store_bytes_upload(
     data: bytes,
     *,

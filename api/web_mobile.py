@@ -21,6 +21,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, RedirectResponse, Response
 
 import config
+from core.html_security import secure_html_file_response
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 logger = logging.getLogger("jarvis")
@@ -126,6 +127,8 @@ def _serve(path: Path) -> FileResponse:
     media_type = _MEDIA_TYPES.get(path.suffix.lower(), "application/octet-stream")
     # Fichiers statiques versionnés à la main, sans hachage dans les noms :
     # pas de cache long, sinon une correction ne parviendrait jamais au client.
+    if path.suffix.lower() == ".html":
+        return secure_html_file_response(path, headers={"Cache-Control": "no-cache"})
     return FileResponse(path, media_type=media_type, headers={"Cache-Control": "no-cache"})
 
 

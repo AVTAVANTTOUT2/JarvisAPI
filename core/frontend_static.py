@@ -2,24 +2,21 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from fastapi import FastAPI
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from core.frontend_resolution import (
-    FALLBACK_REL,
     CANONICAL_REL,
     FrontendResolution,
     lookup_desktop_static_file,
 )
-
+from core.html_security import secure_html_file_response
 
 MISSING_PAYLOAD = {
     "error": "frontend_build_missing",
     "message": "No desktop frontend build is available.",
-    "expected": [CANONICAL_REL, FALLBACK_REL],
+    "expected": [CANONICAL_REL],
 }
 
 
@@ -44,24 +41,16 @@ def register_desktop_frontend_routes(
 
     root = resolution.root
 
-    if resolution.kind == "next_canonical":
-        next_static = root / "_next" / "static"
-        if next_static.is_dir():
-            app.mount(
-                "/_next/static",
-                StaticFiles(directory=str(next_static)),
-                name="supervisor_next_static",
-            )
-        icons = root / "icons"
-        if icons.is_dir():
-            app.mount("/icons", StaticFiles(directory=str(icons)), name="supervisor_icons")
-    else:
-        assets = root / "assets"
-        if assets.is_dir():
-            app.mount("/assets", StaticFiles(directory=str(assets)), name="supervisor_vite_assets")
-        icons = root / "icons"
-        if icons.is_dir():
-            app.mount("/icons", StaticFiles(directory=str(icons)), name="supervisor_vite_icons")
+    next_static = root / "_next" / "static"
+    if next_static.is_dir():
+        app.mount(
+            "/_next/static",
+            StaticFiles(directory=str(next_static)),
+            name="supervisor_next_static",
+        )
+    icons = root / "icons"
+    if icons.is_dir():
+        app.mount("/icons", StaticFiles(directory=str(icons)), name="supervisor_icons")
 
     @app.get("/{path:path}", response_model=None)
     async def serve_desktop_frontend(path: str):
@@ -71,8 +60,11 @@ def register_desktop_frontend_routes(
             # chaque build (hash) et un index.html périmé casse l'app.
             headers = (
                 {"Cache-Control": "no-cache"}
-                if target.suffix in (".html", ".webmanifest", ".json") or target.name == "sw.js"
+                if target.suffix in (".html", ".webmanifest", ".json")
+                or target.name == "sw.js"
                 else {"Cache-Control": "public, max-age=3600"}
             )
+            if target.suffix == ".html":
+                return secure_html_file_response(target, headers=headers)
             return FileResponse(target, headers=headers)
         return JSONResponse(status_code=404, content={"error": "Page introuvable"})

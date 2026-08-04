@@ -3,17 +3,22 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import hmac
 import logging
 import re
 import secrets
 from datetime import datetime, timedelta, timezone
+from io import BytesIO
 
 from fastapi import APIRouter, HTTPException, Request
+from PIL import Image, UnidentifiedImageError
 
 import auth
 import config
 import pipeline
+from api.device_models import DeviceRegistrationRequest, RemoteScreenRequest
 from database import (
     consume_device_pairing_code,
     create_device_pairing_code,
@@ -43,6 +48,68 @@ logger = logging.getLogger("jarvis")
 # encodés base64 que l'agent distant viendra chercher via /api/devices/{id}/tts.
 _device_tts_queues: dict[str, asyncio.Queue] = {}
 _DEVICE_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
+_REMOTE_IMAGE_FORMATS = frozenset({"JPEG", "PNG", "WEBP"})
+
+
+def _decode_remote_image(image_b64: object) -> Image.Image:
+    """Décode une capture distante sans allocation ni décompression non bornée."""
+    if not isinstance(image_b64, str) or not image_b64:
+        raise HTTPException(
+            400,
+            {"code": "missing_image", "message": "Capture d'écran manquante"},
+        )
+
+    max_bytes = max(1, int(config.REMOTE_SCREEN_MAX_IMAGE_BYTES))
+    max_encoded = ((max_bytes + 2) // 3) * 4
+    if len(image_b64) > max_encoded:
+        raise HTTPException(
+            413,
+            {"code": "image_too_large", "message": "Capture d'écran trop volumineuse"},
+        )
+
+    try:
+        image_bytes = base64.b64decode(image_b64, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise HTTPException(
+            415,
+            {"code": "invalid_image", "message": "Encodage base64 invalide"},
+        ) from exc
+    if len(image_bytes) > max_bytes:
+        raise HTTPException(
+            413,
+            {"code": "image_too_large", "message": "Capture d'écran trop volumineuse"},
+        )
+
+    try:
+        with Image.open(BytesIO(image_bytes)) as source:
+            if (source.format or "").upper() not in _REMOTE_IMAGE_FORMATS:
+                raise HTTPException(
+                    415,
+                    {"code": "unsupported_image", "message": "Format d'image non pris en charge"},
+                )
+            width, height = source.size
+            max_dimension = max(1, int(config.REMOTE_SCREEN_MAX_DIMENSION))
+            max_pixels = max(1, int(config.REMOTE_SCREEN_MAX_PIXELS))
+            if (
+                width <= 0
+                or height <= 0
+                or width > max_dimension
+                or height > max_dimension
+                or width * height > max_pixels
+            ):
+                raise HTTPException(
+                    413,
+                    {"code": "image_dimensions_exceeded", "message": "Dimensions d'image excessives"},
+                )
+            source.load()
+            return source.convert("RGB")
+    except HTTPException:
+        raise
+    except (Image.DecompressionBombError, UnidentifiedImageError, OSError, ValueError) as exc:
+        raise HTTPException(
+            415,
+            {"code": "invalid_image", "message": "Capture d'écran invalide"},
+        ) from exc
 
 
 def _get_device_tts_queue(device_id: str) -> asyncio.Queue:
@@ -86,17 +153,17 @@ async def api_start_device_pairing():
 
 
 @router.post("/api/devices/register")
-async def api_register_device(body: dict, request: Request):
+async def api_register_device(body: DeviceRegistrationRequest, request: Request):
     """Échange un code de pairage à usage unique contre un jeton retourné une fois."""
-    device_id = (body.get("device_id") or "").strip()
-    device_name = (body.get("device_name") or "").strip() or device_id
+    device_id = body.device_id
+    device_name = body.device_name or device_id
     if not _DEVICE_ID_RE.fullmatch(device_id):
         raise HTTPException(
             400,
             "`device_id` requis (1-128 caractères : lettres, chiffres, point, tiret ou underscore)",
         )
 
-    pairing_code = str(body.get("pairing_code") or "").strip()
+    pairing_code = body.pairing_code
     code_hash = auth.hash_token(f"device-pair:{pairing_code}")
     client_key = request.client.host if request.client else "unknown"
     status, retry_after = consume_device_pairing_code(
@@ -119,8 +186,8 @@ async def api_register_device(body: dict, request: Request):
     created = register_remote_device(
         device_id=device_id,
         device_name=device_name[:120],
-        device_type=str(body.get("device_type") or "desktop")[:40],
-        ip_tailscale=str(body.get("ip_tailscale") or "")[:64] or None,
+        device_type=body.device_type,
+        ip_tailscale=body.ip_tailscale,
         token_hash=auth.hash_token(token),
     )
     if not created:
@@ -139,39 +206,33 @@ async def api_device_heartbeat(device_id: str, request: Request):
 
 
 @router.post("/api/devices/{device_id}/screen")
-async def api_device_screen(device_id: str, body: dict, request: Request):
+async def api_device_screen(device_id: str, body: RemoteScreenRequest, request: Request):
     """Reçoit un screenshot d'un agent distant et l'analyse localement (Ollama).
 
     Si l'analyse retourne un `notable`, on demande à Claude une notification
     courte qui est ensuite renvoyée au device via la file TTS dédiée.
     """
     _require_device_token(device_id, request)
-    image_b64 = body.get("image_b64")
-    declared_app = body.get("app", "unknown")
-    change_pct = float(body.get("change_pct") or 0.0)
-
-    if not image_b64:
-        return {"ok": False, "message": "Pas d'image"}
+    image_b64 = body.image_b64
+    declared_app = body.app
+    change_pct = body.change_pct
 
     try:
-        import base64 as _b64
-        from io import BytesIO
-
-        from PIL import Image as _Image
-
-        img_bytes = _b64.b64decode(image_b64)
-        img = _Image.open(BytesIO(img_bytes))
-        img.load()
-    except Exception as e:
-        logger.warning("[device_screen] décodage image : %s", e)
-        return {"ok": False, "message": "Image invalide"}
+        img = _decode_remote_image(image_b64)
+    except HTTPException as exc:
+        logger.warning("[device_screen] image refusée : %s", exc.detail)
+        raise
 
     # Analyse Ollama vision locale (sur le Mac Mini)
     analysis: dict | None = None
     try:
         from scripts.screen_watcher import screen_watcher as _sw
 
-        analysis = await _sw._analyze_with_ollama(img)
+        analysis = await _sw.analyze_image(
+            img,
+            app=str(declared_app)[:200],
+            window_info={"width": img.width, "height": img.height},
+        )
     except Exception as e:
         logger.warning("[device_screen] analyse Ollama : %s", e)
 

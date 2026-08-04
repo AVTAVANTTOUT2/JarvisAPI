@@ -3,6 +3,26 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { AuthClient, AuthError, authClient, type AuthStatus } from './client'
 
 const INACTIVITY_EVENTS = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'] as const
+const SOFT_LOCK_STORAGE_KEY = 'jarvis:soft-lock'
+
+function readPersistedSoftLock(): boolean {
+  if (typeof window === 'undefined') return false
+  try {
+    return window.localStorage.getItem(SOFT_LOCK_STORAGE_KEY) === '1'
+  } catch {
+    return true
+  }
+}
+
+function persistSoftLock(locked: boolean): void {
+  if (typeof window === 'undefined') return
+  try {
+    if (locked) window.localStorage.setItem(SOFT_LOCK_STORAGE_KEY, '1')
+    else window.localStorage.removeItem(SOFT_LOCK_STORAGE_KEY)
+  } catch {
+    // Le verrou en mémoire reste fail-closed si le stockage navigateur est indisponible.
+  }
+}
 
 export interface UseLockGateOptions {
   client?: AuthClient
@@ -29,7 +49,7 @@ export function useLockGate(options: UseLockGateOptions = {}): LockGateState {
   const [status, setStatus] = useState<AuthStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [connectionError, setConnectionError] = useState(false)
-  const [softLocked, setSoftLocked] = useState(false)
+  const [softLocked, setSoftLocked] = useState(readPersistedSoftLock)
   const [lockoutSeconds, setLockoutSeconds] = useState(0)
   const inactivityTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastActivityAt = useRef(Date.now())
@@ -40,7 +60,10 @@ export function useLockGate(options: UseLockGateOptions = {}): LockGateState {
       setStatus(nextStatus)
       setLockoutSeconds(nextStatus.lockout_seconds)
       setConnectionError(false)
-      if (!nextStatus.authenticated) setSoftLocked(false)
+      if (!nextStatus.authenticated) {
+        persistSoftLock(false)
+        setSoftLocked(false)
+      }
     } catch {
       setStatus(null)
       setSoftLocked(true)
@@ -53,18 +76,29 @@ export function useLockGate(options: UseLockGateOptions = {}): LockGateState {
   useEffect(() => {
     void refresh()
     const onAuthRequired = () => void refresh()
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === SOFT_LOCK_STORAGE_KEY && event.newValue === '1') setSoftLocked(true)
+    }
     window.addEventListener('jarvis:auth-required', onAuthRequired)
-    return () => window.removeEventListener('jarvis:auth-required', onAuthRequired)
+    window.addEventListener('storage', onStorage)
+    return () => {
+      window.removeEventListener('jarvis:auth-required', onAuthRequired)
+      window.removeEventListener('storage', onStorage)
+    }
   }, [refresh])
 
   useEffect(() => {
     if (!status?.authenticated || softLocked) return
     const durationMs = Math.max(1, status.auto_lock_minutes || 5) * 60_000
 
+    const engageSoftLock = () => {
+      persistSoftLock(true)
+      setSoftLocked(true)
+    }
     const armTimer = () => {
       if (inactivityTimer.current) clearTimeout(inactivityTimer.current)
       const remaining = Math.max(0, durationMs - (Date.now() - lastActivityAt.current))
-      inactivityTimer.current = setTimeout(() => setSoftLocked(true), remaining)
+      inactivityTimer.current = setTimeout(engageSoftLock, remaining)
     }
     const recordActivity = () => {
       lastActivityAt.current = Date.now()
@@ -72,7 +106,7 @@ export function useLockGate(options: UseLockGateOptions = {}): LockGateState {
     }
     const onVisibilityChange = () => {
       if (document.visibilityState !== 'visible') return
-      if (Date.now() - lastActivityAt.current >= durationMs) setSoftLocked(true)
+      if (Date.now() - lastActivityAt.current >= durationMs) engageSoftLock()
       else armTimer()
     }
 
@@ -116,6 +150,7 @@ export function useLockGate(options: UseLockGateOptions = {}): LockGateState {
     if (softLocked && status?.authenticated) {
       const result = await client.verify(secret)
       if (!result.ok) throw new AuthError('Secret incorrect', 401)
+      persistSoftLock(false)
       setSoftLocked(false)
       lastActivityAt.current = Date.now()
       return
@@ -126,6 +161,7 @@ export function useLockGate(options: UseLockGateOptions = {}): LockGateState {
 
   const localUnlock = useCallback(async (secret: string) => {
     await client.localUnlock(secret)
+    persistSoftLock(false)
     setSoftLocked(false)
     lastActivityAt.current = Date.now()
     await refresh()
@@ -133,6 +169,7 @@ export function useLockGate(options: UseLockGateOptions = {}): LockGateState {
 
   const logout = useCallback(async () => {
     await client.logout()
+    persistSoftLock(false)
     setSoftLocked(false)
     await refresh()
   }, [client, refresh])

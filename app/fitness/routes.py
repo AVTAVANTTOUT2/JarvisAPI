@@ -8,7 +8,8 @@ from typing import Annotated
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse
 
-from jarvis.uploads import UploadRejected, resolve_managed_upload
+import config
+from jarvis.uploads import UploadRejected, read_upload_limited, resolve_managed_upload
 
 from .meal_analysis import MealAnalysisError
 from .models import (
@@ -31,15 +32,15 @@ from .models import (
     WaterCreate,
     WaterCreateResponse,
     WaterToday,
+    WeightCreate,
+    WeightHistory,
+    WeightRead,
     WellbeingCreate,
     WellbeingHistory,
     WellbeingRead,
     WorkoutCreate,
     WorkoutHistory,
     WorkoutRead,
-    WeightCreate,
-    WeightHistory,
-    WeightRead,
 )
 from .services import fitness_service
 
@@ -105,9 +106,12 @@ async def create_meal_from_photo(
     note: Annotated[str | None, Form()] = None,
     save: Annotated[bool, Form()] = True,
 ) -> MealAnalysisPreview:
-    """Analyse une photo d'assiette (vision locale + estimation macros) et enregistre."""
+    """Analyse une photo d'assiette puis enregistre son estimation nutritionnelle."""
     try:
-        image_bytes = await photo.read()
+        image_bytes = await read_upload_limited(
+            photo,
+            max_bytes=config.FITNESS_MEAL_PHOTO_MAX_BYTES,
+        )
         return await fitness_service.create_meal_from_photo(
             log_date=log_date,
             image_bytes=image_bytes,

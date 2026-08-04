@@ -31,7 +31,8 @@ def get_cost_summary(*, now: datetime | None = None) -> dict:
                 """SELECT COUNT(*) AS msg_count,
                            COALESCE(SUM(cost), 0.0) AS cost,
                            COALESCE(SUM(tokens_in), 0) AS tokens_in,
-                           COALESCE(SUM(tokens_out), 0) AS tokens_out
+                           COALESCE(SUM(tokens_out), 0) AS tokens_out,
+                           COALESCE(SUM(usage_estimated), 0) AS estimated_usage_count
                     FROM messages
                     WHERE created_at >= ? AND created_at < ?""",
                 bounds,
@@ -42,7 +43,9 @@ def get_cost_summary(*, now: datetime | None = None) -> dict:
             dict(row)
             for row in conn.execute(
                 """SELECT COALESCE(model, 'inconnu') AS model,
-                          COUNT(*) AS msg_count, COALESCE(SUM(cost), 0) AS cost
+                          COUNT(*) AS msg_count,
+                          COALESCE(SUM(cost), 0) AS cost,
+                          COALESCE(SUM(usage_estimated), 0) AS estimated_usage_count
                    FROM messages
                    WHERE created_at >= ? AND created_at < ?
                      AND model IS NOT NULL
@@ -89,7 +92,8 @@ def get_daily_activity_stats(
                       COALESCE(SUM(CASE WHEN m.role = 'user' THEN 1 ELSE 0 END), 0) AS turn_count,
                       COALESCE(SUM(m.tokens_in), 0) AS tokens_in,
                       COALESCE(SUM(m.tokens_out), 0) AS tokens_out,
-                      COALESCE(SUM(m.cost), 0.0) AS cost
+                      COALESCE(SUM(m.cost), 0.0) AS cost,
+                      COALESCE(SUM(m.usage_estimated), 0) AS estimated_usage_count
                FROM day_bounds
                LEFT JOIN messages m
                  ON m.created_at >= day_bounds.start_utc

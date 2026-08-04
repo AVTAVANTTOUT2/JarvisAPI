@@ -12,6 +12,7 @@ import {
   X,
 } from 'lucide-react';
 import { api } from '@unified/lib/api';
+import { formatRelativeTime } from '@unified/lib/timeFormat';
 import { enqueueWrite, isNetworkError } from '@desktop/lib/offline/queue';
 
 // ── Types ────────────────────────────────────────────────────
@@ -31,28 +32,6 @@ interface Task {
 }
 
 type FilterStatus = 'all' | 'todo' | 'doing' | 'done';
-
-// ── Helpers ──────────────────────────────────────────────────
-
-function relativeDate(iso: string | null | undefined): string {
-  if (!iso) return '';
-  try {
-    const d = new Date(iso + (iso.endsWith('Z') ? '' : 'Z'));
-    if (isNaN(d.getTime())) return iso.slice(0, 10);
-    const now = Date.now();
-    const diff = now - d.getTime();
-    const mins = Math.floor(diff / 60000);
-    if (mins < 1) return "à l'instant";
-    if (mins < 60) return `il y a ${mins} min`;
-    const hours = Math.floor(mins / 60);
-    if (hours < 24) return `il y a ${hours} h`;
-    const days = Math.floor(hours / 24);
-    if (days < 7) return `il y a ${days} j`;
-    return iso.slice(0, 10);
-  } catch {
-    return (iso || '').slice(0, 10);
-  }
-}
 
 const PRIORITY_CONFIG: Record<string, { label: string; color: string; bg: string; border: string; dot: string }> = {
   high:   { label: 'Haute',   color: 'text-red-400',    bg: 'bg-red-400/10',    border: 'border-l-red-400',   dot: 'bg-red-400' },
@@ -447,7 +426,7 @@ export function TasksView() {
                         {task.due_date && (
                           <span className="inline-flex items-center gap-1 text-[11px] text-white/30 shrink-0">
                             <Calendar size={11} />
-                            {relativeDate(task.due_date)}
+                            {formatRelativeTime(task.due_date)}
                           </span>
                         )}
                       </div>

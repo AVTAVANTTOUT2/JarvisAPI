@@ -137,7 +137,7 @@ def test_mobile_confirmation_requires_boolean_and_refusal_consumes_proposal(tmp_
                 "confirmed": "false",
             },
         )
-        assert string_false.status_code == 400
+        assert string_false.status_code == 422
 
         refused = client.post(
             "/api/mobile/chat/confirm",

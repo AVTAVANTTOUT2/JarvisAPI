@@ -71,12 +71,12 @@ Preuves : 4 tests Phase 3 passants ; suite backend complète à 542 passants et 
 
 ### Phase 4 — implémentée et validée le 14/07/2026
 
-Preuves : 6 tests ciblés passants ; signatures des 174 opérations HTTP et du WebSocket inchangées ; hash des 157 chemins OpenAPI inchangé ; exactement 12 routeurs ; `main.py` à 175 lignes ; aucun import `api → main`. Suite complète : 548 passants, 1 ignoré ; `compileall`, Ruff et `git diff --check` réussis. Aucun serveur réel n'a été lancé pour une campagne `curl`, donc aucune validation opérationnelle 24 h n'est revendiquée.
+Preuves courantes : signatures de 259 opérations HTTP et 2 WebSockets inventoriées ; hash des 230 chemins OpenAPI ; 17 routeurs `api/router_*.py` plus Fitness ; `main.py` sous 500 lignes ; aucun import `api → main`. Les suites CI actuelles remplacent les totaux pytest historiques. Aucune validation opérationnelle 24 h n'est revendiquée.
 
 | Fichier | Contenu |
 |---|---|
 | `tests/test_phase4_route_contract.py` | Snapshot déterministe des signatures de routes et du schéma OpenAPI avant/après extraction |
-| `tests/test_phase4_architecture.py` | 12 `APIRouter`, limites de taille, absence d'import inverse et montage explicite du lifespan |
+| `tests/test_phase4_architecture.py` | 17 `APIRouter` sous `api/` plus Fitness, limites de taille, absence d'import inverse et montage explicite du lifespan |
 | Suite existante | Tests `TestClient`, WebSocket et métiers assurant la non-régression comportementale |
 
 ### Phase 5 — implémentée et validée le 14/07/2026
@@ -116,6 +116,13 @@ Preuves : 5 contrats dédiés, plus les suites de régression des producteurs, W
 | `tests/test_csrf.py` | Vérification Origin/Referer |
 | `tests/test_injection.py` | SQL, XSS, path traversal |
 | `tests/test_device_token.py` | Usurpation device_id sans token |
+
+Le job `Frontend unifié` construit `frontend/out` avant Playwright. Le serveur
+`serve-static-csp.py` échoue avec un statut non nul si cet artefact manque, puis
+les scénarios `@static-csp` chargent réellement l'export avec les en-têtes de
+production. Aucun test backend ne transforme désormais l'absence du build en
+skip silencieux. Le job macOS possède par ailleurs une liste exacte, contrôlée,
+des contrats Apple/audio qu'il exécute.
 
 ## Métriques de couverture
 

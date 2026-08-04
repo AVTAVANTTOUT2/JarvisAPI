@@ -2,11 +2,12 @@
 
 **Date initiale** : 11 juillet 2026
 
-**Dernière mise à jour** : 14 juillet 2026
+**Dernière mise à jour** : 3 août 2026
 **Périmètre** : 273 fichiers Python (56 261 lignes), 99 fichiers source frontend (18 770 lignes),
-**85 tables SQLite persistantes** après `init_db()` (+ jusqu’à **5 objets FTS5** → **90** physiques ;
-le dump `schema.sql` historique compte **46** tables applicatives —
-voir [32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md](./32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md))
+90 tables SQLite persistantes après `init_db()` et 95 tables physiques avec FTS5.
+Runtime SQLite canonique : **90 tables persistantes**, **95 tables physiques avec FTS5**, schéma généré : **91 déclarations de tables**.
+Structure API canonique : **259 opérations HTTP + 2 WebSockets**, **230 chemins OpenAPI**, **17 routeurs api/router_*.py + Fitness = 18 montés**, main.py **211 lignes**.
+Voir [32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md](./32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md).
 **État** : **Documentation officielle — toute modification du code doit rester cohérente avec ce dossier**
 
 ---
@@ -62,7 +63,8 @@ voir [32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md](./32_FRONTEND_DATABASE_SOURCE_OF_
 | [28_VALIDATION_COHERENCE.md](./28_VALIDATION_COHERENCE.md) | Vérification de cohérence entre documentation et code |
 | [29_JARVIS_ANDROID_H24.md](./29_JARVIS_ANDROID_H24.md) | Architecture du compagnon Android permanent |
 | [30_PLAN_STABILISATION_AUDIO.md](./30_PLAN_STABILISATION_AUDIO.md) | Phases de stabilisation audio après la PR #17 |
-| [32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md](./32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md) | **Source de vérité** frontends + comptages SQLite (audit 15/07/2026) |
+| [32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md](./32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md) | **Source de vérité** frontends + surface API + comptages SQLite |
+| [api_route_ownership.json](./api_route_ownership.json) | Attribution contrôlée des opérations sans client direct |
 | [36_CANAL_WEBSOCKET_TV.md](./36_CANAL_WEBSOCKET_TV.md) | Canal `/ws/tv/events` — authentifié, lecture seule, séparé du chat |
 | [adr/](./adr/) | ADR individuels — ADR-016 à ADR-022 |
 | [diagrams/](./diagrams/) | Diagrammes Mermaid source |
@@ -84,8 +86,8 @@ voir [32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md](./32_FRONTEND_DATABASE_SOURCE_OF_
 │  Vues desktop      │ 38 fichiers, 12 940 lignes          │
 │  Vues mobiles      │ 32 fichiers, 4 641 lignes           │
 │  SDK auth partagé  │ 4 fichiers, 373 lignes              │
-│  Base de données   │ 85 persistantes (+FTS→90), mode WAL │
-│  Routes API        │ 174 opérations HTTP, 157 chemins    │
+│  Base de données   │ 90 persistantes (+FTS→95), mode WAL │
+│  Routes API        │ 259 HTTP + 2 WS, 230 OpenAPI        │
 │  WebSocket         │ 1 endpoint, handler dédié           │
 │  Agents LLM        │ 7 agents + orchestrateur            │
 │  Jobs schedulés    │ 30 (APScheduler)                    │
@@ -93,7 +95,7 @@ voir [32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md](./32_FRONTEND_DATABASE_SOURCE_OF_
 │  Tests backend     │ 565 pytest, 66 fichiers             │
 │  Tests frontend    │ 28 Vitest + 3 Playwright            │
 ├─────────────────────────────────────────────────────────┤
-│  Couche API        │ main.py 175 lignes, 12 routeurs     │
+│  Couche API        │ main.py 211 lignes, 18 routeurs     │
 │  Database          │ façade 236 lignes, 25 modules       │
 │  Event bus         │ 10 événements, 3 consommateurs      │
 │  Frontend          │ 1 cible canonique + 2 fallbacks     │
@@ -122,8 +124,8 @@ graph TB
     end
 
     subgraph "Backend (port 8081)"
-        MAIN["main.py — 175 lignes<br/>assemblage FastAPI<br/>12 routeurs de domaine<br/>WebSocket /ws<br/>sert frontend/out en priorité"]
-        API["api/<br/>174 opérations HTTP<br/>157 chemins OpenAPI<br/>handlers et support"]
+        MAIN["main.py — 211 lignes<br/>assemblage FastAPI<br/>18 routeurs montés<br/>2 WebSockets<br/>sert frontend/out en priorité"]
+        API["api/<br/>259 opérations HTTP<br/>230 chemins OpenAPI<br/>handlers et support"]
         BUS["Event Bus actif<br/>10 événements de domaine<br/>SSE + WebSocket + TTS"]
     end
 
@@ -133,7 +135,7 @@ graph TB
     end
 
     subgraph "Database"
-        DB[(SQLite WAL<br/>jarvis.db<br/>85 persistantes<br/>+ FTS → 90)]
+        DB[(SQLite WAL<br/>jarvis.db<br/>90 persistantes<br/>+ FTS → 95)]
     end
 
     subgraph "Données Apple"
@@ -179,7 +181,7 @@ graph TB
 | 2 | 3 curseurs ROWID indépendants sur chat.db | CRITIQUE | Messages traités 2-3 fois | ✅ Résolu — Phase 1 |
 | 3 | Race condition sur le set WebSocket | CRITIQUE | Crash potentiel (`Set changed size during iteration`) | ✅ Résolu — Phase 1 |
 | 4 | SQLite sans `busy_timeout` | CRITIQUE | Écritures silencieusement perdues | ✅ Résolu — Phase 1 |
-| 5 | main.py : 7 197 lignes, 40+ responsabilités (état historique) | MAJEURE | Impossible à tester, toute modification risquée | ✅ Résolu — Phase 4 (`main.py` 175 lignes, 12 routeurs) |
+| 5 | main.py : 7 197 lignes, 40+ responsabilités (état historique) | MAJEURE | Impossible à tester, toute modification risquée | ✅ Résolu — assemblage sous 500 lignes, 18 routeurs montés |
 
 ### Plan de migration — 6 phases, 15 jours
 

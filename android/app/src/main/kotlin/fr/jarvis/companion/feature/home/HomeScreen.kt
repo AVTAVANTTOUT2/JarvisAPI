@@ -24,7 +24,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.TextUnitType
-import fr.jarvis.companion.core.JarvisFeatureFlags
 import fr.jarvis.companion.core.database.CachedBriefingEntity
 import fr.jarvis.companion.core.database.CachedEventEntity
 import fr.jarvis.companion.core.database.CachedNotificationEntity
@@ -99,14 +98,12 @@ fun HomeScreen(
                 error = state.notificationsError,
             )
 
-            if (!JarvisFeatureFlags.DASHBOARD_CUSTOM) {
-                // TODO(JARVIS-FUTURE-DASHBOARD-CUSTOM): brancher la personnalisation
-                // des cartes d'accueil (ordre, masquage) sans refonte visuelle.
-                JarvisFutureAction(
-                    title = "Personnaliser le tableau de bord",
-                    description = "Réorganisation des cartes — bientôt disponible.",
-                )
-            }
+            // TODO(JARVIS-FUTURE-DASHBOARD-CUSTOM): remplacer ce placeholder quand
+            // la personnalisation des cartes d'accueil sera réellement branchée.
+            JarvisFutureAction(
+                title = "Personnaliser le tableau de bord",
+                description = "Réorganisation des cartes — bientôt disponible.",
+            )
 
             state.lastSyncMessage?.let { message ->
                 Text(

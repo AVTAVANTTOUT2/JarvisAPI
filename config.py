@@ -299,7 +299,7 @@ WEB_HTTPS_BEHIND_PROXY = (
 )
 # Origines supplémentaires exactes autorisées pour les mutations par cookie.
 # Vide en production : la même origine schéma+hôte+port reste toujours admise.
-# Le proxy Vite doit être ajouté explicitement (ex. https://localhost:5173).
+# Toute origine de développement supplémentaire doit être ajoutée explicitement.
 CSRF_ALLOWED_ORIGINS = _get("CSRF_ALLOWED_ORIGINS", "")
 SSL_CERT_PATH = _config_path("WEB_SSL_CERT_PATH", "certs/cert.pem")
 SSL_KEY_PATH = _config_path("WEB_SSL_KEY_PATH", "certs/key.pem")
@@ -309,6 +309,10 @@ WEB_USE_HTTPS = WEB_HTTPS and WEB_SSL_AVAILABLE
 # Firebase Cloud Messaging — notifications Android, même application fermée.
 FCM_SERVICE_ACCOUNT_FILE = _get("FCM_SERVICE_ACCOUNT_FILE", "")
 FCM_PROJECT_ID = _get("FCM_PROJECT_ID", "")
+WEB_PUSH_ALLOWED_HOSTS = _get(
+    "WEB_PUSH_ALLOWED_HOSTS",
+    "fcm.googleapis.com,updates.push.services.mozilla.com,web.push.apple.com",
+)
 
 # ── Contrôle ordinateur local (macOS) ────────────────────────
 COMPUTER_ACCESS = _get("COMPUTER_ACCESS", "false").lower() == "true"
@@ -333,12 +337,12 @@ LLM_SHELL_MAX_COMMANDS = int(_get("LLM_SHELL_MAX_COMMANDS", "8"))
 LLM_SHELL_MAX_TIMEOUT = int(_get("LLM_SHELL_MAX_TIMEOUT", "120"))
 LLM_SHELL_PLAN_TTL_SECONDS = int(_get("LLM_SHELL_PLAN_TTL_SECONDS", "600"))
 # TV contrôle ADB + Google Cast fallback
-TV_IP = _get("TV_IP", "192.168.3.82")
+TV_IP = _get("TV_IP", "")
 TV_ADB_PORT = _get("TV_ADB_PORT", "5555")
-TV_MAC = _get("TV_MAC", "f0:ed:51:02:16:34")
-TV_CAST_ENABLED = _get("TV_CAST_ENABLED", "true").lower() == "true"
+TV_MAC = _get("TV_MAC", "")
+TV_CAST_ENABLED = _get("TV_CAST_ENABLED", "false").lower() == "true"
 TV_CAST_TIMEOUT = int(_get("TV_CAST_TIMEOUT", "20"))
-TV_DASHBOARD_URL = _get("TV_DASHBOARD_URL", "http://192.168.3.52:5174/")  # URL a ouvrir via Chromecast
+TV_DASHBOARD_URL = _get("TV_DASHBOARD_URL", "")  # URL opt-in ouverte via Chromecast
 
 # ── Canal WebSocket TV — /ws/tv/events (lecture seule) ───────
 # Diffusion descendante vers l'écran mural, authentifiée par le jeton privé du
@@ -472,6 +476,19 @@ SCREEN_RESIZE_HEIGHT = int(_get("SCREEN_RESIZE_HEIGHT", "800"))
 SCREEN_RESIZE: tuple[int, int] = (SCREEN_RESIZE_WIDTH, SCREEN_RESIZE_HEIGHT)
 SCREEN_MAX_ANALYSIS_WIDTH = int(_get("SCREEN_MAX_ANALYSIS_WIDTH", "768"))
 SCREEN_JPEG_QUALITY = int(_get("SCREEN_JPEG_QUALITY", "55"))
+REMOTE_SCREEN_MAX_IMAGE_BYTES = int(
+    _get("REMOTE_SCREEN_MAX_IMAGE_BYTES", str(5 * 1024 * 1024))
+)
+REMOTE_SCREEN_MAX_PIXELS = int(_get("REMOTE_SCREEN_MAX_PIXELS", str(16 * 1024 * 1024)))
+REMOTE_SCREEN_MAX_DIMENSION = int(_get("REMOTE_SCREEN_MAX_DIMENSION", "8192"))
+# JSON + base64 ajoutent environ 4/3 au binaire. Le petit supplément couvre
+# les métadonnées sans autoriser un corps arbitrairement gros avant parsing.
+REMOTE_SCREEN_MAX_REQUEST_BYTES = int(
+    _get(
+        "REMOTE_SCREEN_MAX_REQUEST_BYTES",
+        str(((REMOTE_SCREEN_MAX_IMAGE_BYTES + 2) // 3) * 4 + 128 * 1024),
+    )
+)
 SCREEN_VISION_MODEL = _get(
     "SCREEN_VISION_MODEL",
     _get("SCREEN_WATCHER_VISION_MODEL", "qwen3-vl:4b"),
@@ -617,6 +634,12 @@ FITNESS_MEAL_VISION_TIMEOUT_S = float(_get("FITNESS_MEAL_VISION_TIMEOUT_S", "90"
 FITNESS_MEAL_VISION_MAX_TOKENS = int(_get("FITNESS_MEAL_VISION_MAX_TOKENS", "800"))
 FITNESS_MEAL_ANALYSIS_MAX_TOKENS = int(_get("FITNESS_MEAL_ANALYSIS_MAX_TOKENS", "2048"))
 FITNESS_MEAL_PHOTO_MAX_BYTES = int(_get("FITNESS_MEAL_PHOTO_MAX_BYTES", "8000000"))
+FITNESS_MEAL_PHOTO_MAX_PIXELS = int(
+    _get("FITNESS_MEAL_PHOTO_MAX_PIXELS", "12000000")
+)
+FITNESS_MEAL_PHOTO_MAX_DIMENSION = int(
+    _get("FITNESS_MEAL_PHOTO_MAX_DIMENSION", "8192")
+)
 
 # ── Debrief hebdo vocal + mood tracking discret ──────────────
 WEEKLY_DEBRIEF_TIME = _get("WEEKLY_DEBRIEF_TIME", "21:00")   # dimanche soir
@@ -687,7 +710,6 @@ SECURITY_AUTO_FIX_ENABLED = _get("SECURITY_AUTO_FIX_ENABLED", "false").lower() =
 # ── Génération auto de tests manquants (opt-in, coûte des tokens) ──
 AUTO_TEST_GEN_ENABLED = _get("AUTO_TEST_GEN_ENABLED", "false").lower() == "true"
 AUTO_TEST_GEN_TARGET_DIRS = _get("AUTO_TEST_GEN_TARGET_DIRS", "")  # vide = aucune cible, opt-in explicite
-AUTO_TEST_GEN_MAX_PER_RUN = int(_get("AUTO_TEST_GEN_MAX_PER_RUN", "5"))
 
 # ── DevAgent : PR auto, déploiement staging ─────────────────
 DEVAGENT_AUTO_PR = _get("DEVAGENT_AUTO_PR", "true").lower() == "true"
@@ -697,12 +719,9 @@ DEVAGENT_AUTORUN_MAX_INTERVIEW_ROUNDS = int(_get("DEVAGENT_AUTORUN_MAX_INTERVIEW
 # ── CI locale (pré-commit) ───────────────────────────────────
 LOCAL_CI_RUN_FRONTEND_BUILD = _get("LOCAL_CI_RUN_FRONTEND_BUILD", "false").lower() == "true"
 
-# ── Self-healing (diagnostic + patch réversible, désactivé par défaut) ──
+# ── Self-healing (diagnostic + délégation PR-only, désactivé par défaut) ──
 SELF_HEALING_ENABLED = _get("SELF_HEALING_ENABLED", "false").lower() == "true"
-SELF_HEALING_AUTO_APPLY = _get("SELF_HEALING_AUTO_APPLY", "false").lower() == "true"
 SELF_HEALING_CRASH_THRESHOLD = int(_get("SELF_HEALING_CRASH_THRESHOLD", "3"))
-SELF_HEALING_REGRESSION_WINDOW_MIN = int(_get("SELF_HEALING_REGRESSION_WINDOW_MIN", "15"))
-SELF_HEALING_COOLDOWN_MIN = int(_get("SELF_HEALING_COOLDOWN_MIN", "60"))
 
 # ── Autonomie cognitive (Cursor / auto-réparation / auto-amélioration) ──
 CURSOR_DELEGATION_ENABLED = _get("CURSOR_DELEGATION_ENABLED", "true").lower() == "true"
@@ -714,12 +733,10 @@ CURSOR_ALLOW_COMMIT = _get("CURSOR_ALLOW_COMMIT", "true").lower() == "true"
 # Fail-closed : push/PR off par défaut — opt-in explicite dans .env
 CURSOR_ALLOW_PUSH = _get("CURSOR_ALLOW_PUSH", "false").lower() == "true"
 CURSOR_ALLOW_PR = _get("CURSOR_ALLOW_PR", "false").lower() == "true"
-CURSOR_ALLOW_MERGE = _get("CURSOR_ALLOW_MERGE", "false").lower() == "true"
 
 # Fail-closed : autonomie off par défaut
 SELF_REPAIR_ENABLED = _get("SELF_REPAIR_ENABLED", "false").lower() == "true"
 SELF_IMPROVEMENT_ENABLED = _get("SELF_IMPROVEMENT_ENABLED", "false").lower() == "true"
-SELF_MODIFICATION_MODE = _get("SELF_MODIFICATION_MODE", "pr_only")  # pr_only | auto_merge_low_risk
 SELF_IMPROVEMENT_SCHEDULE = _get("SELF_IMPROVEMENT_SCHEDULE", "weekly")
 
 # ── Prédiction du prochain message ───────────────────────────
@@ -796,12 +813,10 @@ BACKUP_ENCRYPTION_KEY_FILE = _get(
     "./data/.backup_encryption.key",
 )
 
-# Répertoire du build web SPA (Vite) — utilisé comme fallback sur desktop
 # Interface mobile autonome (HTML/CSS/JS vanilla, servie sous /mobile/).
 WEB_MOBILE_DIR = _get("WEB_MOBILE_DIR", str(BASE_DIR / "web_mobile"))
 
-WEB_DIST_DIR = _get("WEB_DIST_DIR", str(BASE_DIR / "web" / "dist"))
-# Frontend responsive unifié (Next.js 15) — prioritaire lorsqu'il est construit.
+# Frontend bureau unique (Next.js 15).
 FRONTEND_DIST_DIR = _get("FRONTEND_DIST_DIR", str(BASE_DIR / "frontend" / "out"))
 
 # ── Mapping modèles par agent ───────────────────────────────
@@ -821,6 +836,9 @@ AGENT_MODELS = {
 # ── Conversation vocale Android (push-to-talk) ─────────────────
 MOBILE_VOICE_MAX_BYTES = int(_get("MOBILE_VOICE_MAX_BYTES", str(5 * 1024 * 1024)))
 MOBILE_VOICE_MIN_BYTES = int(_get("MOBILE_VOICE_MIN_BYTES", "1000"))
+MOBILE_VOICE_MAX_REQUEST_BYTES = int(
+    _get("MOBILE_VOICE_MAX_REQUEST_BYTES", str(MOBILE_VOICE_MAX_BYTES + 256 * 1024))
+)
 MOBILE_VOICE_MAX_DURATION_SEC = int(_get("MOBILE_VOICE_MAX_DURATION_SEC", "60"))
 MOBILE_VOICE_STT_TIMEOUT_SEC = float(_get("MOBILE_VOICE_STT_TIMEOUT_SEC", "120"))
 MOBILE_VOICE_LLM_TIMEOUT_SEC = float(_get("MOBILE_VOICE_LLM_TIMEOUT_SEC", "90"))

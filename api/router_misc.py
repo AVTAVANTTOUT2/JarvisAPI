@@ -43,7 +43,6 @@ from api.misc_files import (
     api_outputs_download,
 )
 from api.misc_integrations import (
-    api_debug_resolve,
     api_integrations,
     events_stream,
     mission_prompt,
@@ -249,11 +248,6 @@ router.add_api_route(
 router.add_api_route(
     "/api/outputs/{filepath:path}",
     api_outputs_download,
-    methods=["GET"],
-)
-router.add_api_route(
-    "/api/debug/resolve/{name}",
-    api_debug_resolve,
     methods=["GET"],
 )
 router.add_api_route(

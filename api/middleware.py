@@ -58,6 +58,50 @@ _MOBILE_BEARER_GET_EXACT = frozenset(
 _MOBILE_BEARER_MUTATION_METHODS = frozenset({"PATCH", "DELETE", "POST"})
 
 
+def _request_size_limit(method: str, path: str) -> int | None:
+    """Plafond du corps pour les routes qui transportent de gros blobs."""
+    if method != "POST":
+        return None
+    if path == "/api/mobile/voice/turn":
+        return max(1, int(config.MOBILE_VOICE_MAX_REQUEST_BYTES))
+    if re.fullmatch(r"/api/devices/[^/]+/screen", path):
+        return max(1, int(config.REMOTE_SCREEN_MAX_REQUEST_BYTES))
+    return None
+
+
+def _content_length_error(request: Request) -> JSONResponse | None:
+    """Refuse un Content-Length excessif avant parsing multipart/JSON."""
+    limit = _request_size_limit(request.method, request.url.path)
+    if limit is None:
+        return None
+    raw_length = request.headers.get("content-length")
+    if raw_length is None:
+        return None
+    try:
+        declared = int(raw_length)
+    except ValueError:
+        return JSONResponse(
+            {"detail": {"code": "invalid_content_length", "message": "Content-Length invalide"}},
+            status_code=400,
+        )
+    if declared < 0:
+        return JSONResponse(
+            {"detail": {"code": "invalid_content_length", "message": "Content-Length invalide"}},
+            status_code=400,
+        )
+    if declared > limit:
+        return JSONResponse(
+            {
+                "detail": {
+                    "code": "payload_too_large",
+                    "message": f"Corps de requête trop volumineux (maximum {limit} octets)",
+                }
+            },
+            status_code=413,
+        )
+    return None
+
+
 def _mobile_bearer_allows(method: str, path: str) -> bool:
     """True si un Bearer mobile valide peut ouvrir cette route."""
     if method == "GET":
@@ -269,7 +313,10 @@ async def _dispatch_with_session_gate(request: Request, call_next) -> Response:
 def _apply_security_headers(response: Response) -> Response:
     """Ajoute la politique HTTP commune, y compris aux erreurs anticipées."""
     for key, value in _SECURITY_HEADERS.items():
-        response.headers[key] = value
+        # Une réponse HTML peut fournir une CSP plus stricte liée par hashes à
+        # son contenu exact. Les autres en-têtes restent globaux et identiques.
+        if key not in response.headers:
+            response.headers[key] = value
     if config.WEB_HTTPS or config.WEB_HTTPS_BEHIND_PROXY:
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
@@ -287,5 +334,7 @@ async def security_middleware(request: Request, call_next):
     anticipées 401, 403 et 428 reçoivent ainsi exactement la même politique que
     les réponses produites par les routeurs.
     """
-    response = await _dispatch_with_session_gate(request, call_next)
+    response = _content_length_error(request)
+    if response is None:
+        response = await _dispatch_with_session_gate(request, call_next)
     return _apply_security_headers(response)

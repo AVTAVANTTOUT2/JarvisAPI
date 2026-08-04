@@ -21,6 +21,11 @@ export default function MissionControl() {
       const evt: JarvisEvent = JSON.parse(msg.data);
       setEvents((prev) => [...prev.slice(-500), evt]);
     };
+    es.addEventListener("stream.reset", () => {
+      // Le serveur a borné un retard extrême ou détecté un curseur obsolète :
+      // la fenêtre rejouée qui suit redevient l'unique vérité de l'écran.
+      setEvents([]);
+    });
     es.onerror = () => {
       // SSE reconnecte automatiquement — rien a faire
     };

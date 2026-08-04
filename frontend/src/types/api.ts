@@ -30,6 +30,8 @@ export interface DailyActivity {
   turn_count: number
   tokens_in: number
   tokens_out: number
+  /** Nombre de réponses dont les jetons ont été estimés localement. */
+  estimated_usage_count: number
   cost: number
 }
 
@@ -49,6 +51,7 @@ export interface WeeklyStats {
     turn_count: number
     tokens_in: number
     tokens_out: number
+    estimated_usage_count: number
     cost: number
   }
 }

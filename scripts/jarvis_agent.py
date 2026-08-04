@@ -13,11 +13,13 @@ sur le Mac Mini. Cet agent ne fait QUE :
   4. poller la file TTS et jouer l'audio reçu.
 
 Usage :
-  pip install -r requirements-agent.txt
-  python jarvis_agent.py --server http://100.123.50.38:8081 --pairing-code 123456
+  pip install --require-hashes -r requirements/locks/agent-macos-arm64-py312.txt
+  python jarvis_agent.py --server https://jarvis.tailnet.ts.net --pairing-code 123456
 
 Le jeton reçu au premier pairage est stocké en permissions 0600. Les
 démarrages suivants ne nécessitent plus de secret sur la ligne de commande.
+HTTP est limité au loopback local ; toute machine distante exige HTTPS avec
+validation du certificat et du nom du serveur.
 """
 
 from __future__ import annotations
@@ -25,6 +27,7 @@ from __future__ import annotations
 import argparse
 import base64
 import hashlib
+import ipaddress
 import io
 import os
 import subprocess
@@ -32,9 +35,64 @@ import tempfile
 import threading
 import time
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 import requests
 from PIL import Image
+
+
+_TAILSCALE_NETWORK = ipaddress.ip_network("100.64.0.0/10")
+
+
+def validate_server_url(raw_url: str) -> str:
+    """Valide et normalise la racine du serveur sans autoriser de downgrade TLS."""
+    value = str(raw_url or "").strip()
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError("URL serveur invalide") from exc
+
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("Le serveur doit utiliser une URL http(s) absolue")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("Les identifiants sont interdits dans l'URL serveur")
+    if parsed.query or parsed.fragment:
+        raise ValueError("Query et fragment sont interdits dans l'URL serveur")
+    if parsed.path not in {"", "/"}:
+        raise ValueError("L'URL serveur doit pointer vers la racine")
+    if port is not None and not 1 <= port <= 65535:
+        raise ValueError("Port serveur invalide")
+
+    hostname = parsed.hostname.rstrip(".").lower()
+    is_loopback = hostname == "localhost"
+    if not is_loopback:
+        try:
+            is_loopback = ipaddress.ip_address(hostname).is_loopback
+        except ValueError:
+            is_loopback = False
+    if parsed.scheme == "http" and not is_loopback:
+        raise ValueError(
+            "HTTP est interdit hors loopback; utilisez HTTPS avec un certificat valide"
+        )
+
+    return urlunsplit((parsed.scheme, parsed.netloc, "", "", ""))
+
+
+def detect_tailscale_ip() -> str | None:
+    """Retourne uniquement une IPv4 appartenant réellement au CGNAT Tailscale."""
+    try:
+        raw = subprocess.check_output(
+            ["tailscale", "ip", "-4"],
+            timeout=3,
+            stderr=subprocess.DEVNULL,
+        ).decode().strip().splitlines()[0]
+        address = ipaddress.ip_address(raw)
+    except (OSError, subprocess.SubprocessError, ValueError, IndexError):
+        return None
+    if address.version == 4 and address in _TAILSCALE_NETWORK:
+        return str(address)
+    return None
 
 
 class JarvisAgent:
@@ -46,8 +104,12 @@ class JarvisAgent:
         *,
         pairing_code: str | None = None,
         token_file: Path | None = None,
+        ca_bundle: Path | None = None,
     ) -> None:
-        self.server = server_url.rstrip("/")
+        self.server = validate_server_url(server_url)
+        if ca_bundle is not None and not ca_bundle.is_file():
+            raise ValueError(f"Bundle CA introuvable: {ca_bundle}")
+        self.tls_verify: bool | str = str(ca_bundle) if ca_bundle else True
         try:
             default_id = (
                 subprocess.check_output(["scutil", "--get", "LocalHostName"])
@@ -65,6 +127,7 @@ class JarvisAgent:
             )
         except Exception:
             self.device_name = self.device_id
+        self.ip_tailscale = detect_tailscale_ip()
 
         token_filename = hashlib.sha256(self.device_id.encode("utf-8")).hexdigest()[:16] + ".token"
         self.token_file = token_file or (
@@ -81,6 +144,34 @@ class JarvisAgent:
 
         print(f"[agent] device : {self.device_name} ({self.device_id})")
         print(f"[agent] server : {self.server}")
+
+    def _post(self, path: str, **kwargs):
+        response = requests.post(
+            f"{self.server}{path}",
+            allow_redirects=False,
+            verify=self.tls_verify,
+            **kwargs,
+        )
+        self._reject_redirect(response)
+        return response
+
+    def _get(self, path: str, **kwargs):
+        response = requests.get(
+            f"{self.server}{path}",
+            allow_redirects=False,
+            verify=self.tls_verify,
+            **kwargs,
+        )
+        self._reject_redirect(response)
+        return response
+
+    @staticmethod
+    def _reject_redirect(response) -> None:
+        status = getattr(response, "status_code", 0)
+        if isinstance(status, int) and 300 <= status < 400:
+            raise RuntimeError(
+                "Redirection serveur refusée: configurez directement l'URL HTTPS finale"
+            )
 
     # ── Cycle de vie ──────────────────────────────────────────────────────────
 
@@ -148,12 +239,13 @@ class JarvisAgent:
 
     def _register(self, pairing_code: str) -> None:
         try:
-            response = requests.post(
-                f"{self.server}/api/devices/register",
+            response = self._post(
+                "/api/devices/register",
                 json={
                     "device_id": self.device_id,
                     "device_name": self.device_name,
                     "device_type": "laptop",
+                    "ip_tailscale": self.ip_tailscale,
                     "pairing_code": pairing_code,
                 },
                 timeout=10,
@@ -178,8 +270,8 @@ class JarvisAgent:
 
     def _verify_credentials(self) -> None:
         try:
-            response = requests.post(
-                f"{self.server}/api/devices/{self.device_id}/heartbeat",
+            response = self._post(
+                f"/api/devices/{self.device_id}/heartbeat",
                 headers=self.headers,
                 timeout=5,
             )
@@ -194,8 +286,8 @@ class JarvisAgent:
     def _heartbeat_loop(self) -> None:
         while self.running:
             try:
-                requests.post(
-                    f"{self.server}/api/devices/{self.device_id}/heartbeat",
+                self._post(
+                    f"/api/devices/{self.device_id}/heartbeat",
                     headers=self.headers,
                     timeout=5,
                 )
@@ -246,8 +338,8 @@ class JarvisAgent:
                         app = "unknown"
 
                     try:
-                        requests.post(
-                            f"{self.server}/api/devices/{self.device_id}/screen",
+                        self._post(
+                            f"/api/devices/{self.device_id}/screen",
                             json={
                                 "image_b64": img_b64,
                                 "app": app,
@@ -307,8 +399,8 @@ class JarvisAgent:
     def _tts_poll_loop(self) -> None:
         while self.running:
             try:
-                r = requests.get(
-                    f"{self.server}/api/devices/{self.device_id}/tts",
+                r = self._get(
+                    f"/api/devices/{self.device_id}/tts",
                     headers=self.headers,
                     timeout=5,
                 )
@@ -341,7 +433,7 @@ def main() -> None:
     parser.add_argument(
         "--server",
         required=True,
-        help="URL du serveur JARVIS (ex: http://100.123.50.38:8081)",
+        help="URL HTTPS du serveur JARVIS (HTTP accepté uniquement sur loopback)",
     )
     credentials = parser.add_mutually_exclusive_group()
     credentials.add_argument("--token", help="Jeton existant ou nouvellement tourné")
@@ -360,6 +452,12 @@ def main() -> None:
         default=None,
         help="Chemin de stockage 0600 du jeton (défaut : Application Support/JARVIS)",
     )
+    parser.add_argument(
+        "--ca-bundle",
+        type=Path,
+        default=None,
+        help="CA privée PEM explicite; aucun mode insecure n'est disponible",
+    )
     args = parser.parse_args()
 
     agent = JarvisAgent(
@@ -368,6 +466,7 @@ def main() -> None:
         args.device_id,
         pairing_code=args.pairing_code,
         token_file=args.token_file,
+        ca_bundle=args.ca_bundle,
     )
     agent.start()
 

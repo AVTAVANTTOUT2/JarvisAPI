@@ -8,9 +8,12 @@ peut pas dépendre d'une simple requête portant un cookie.
 from __future__ import annotations
 
 import logging
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Path
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from api.errors import api_error
 from api.food_control import (
     FoodControlError,
     cancel_manual_order,
@@ -55,6 +58,74 @@ logger = logging.getLogger("jarvis")
 
 MAX_HISTORY = 100
 
+RestaurantName = Annotated[str, Field(min_length=1, max_length=120)]
+
+
+class _StrictFoodRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, str_strip_whitespace=True)
+
+
+class FoodQuickOrderRequest(_StrictFoodRequest):
+    accepted_price: float = Field(gt=0, allow_inf_nan=False)
+
+
+class FoodRatingRequest(_StrictFoodRequest):
+    rating: int = Field(ge=1, le=5)
+
+
+class FoodMenuRefreshRequest(_StrictFoodRequest):
+    restaurants: list[RestaurantName] | None = Field(default=None, max_length=50)
+
+
+class FoodSettingsUpdateRequest(_StrictFoodRequest):
+    enabled: bool | None = None
+    dry_run: bool | None = None
+    menu_scrape_enabled: bool | None = None
+    suggestions_enabled: bool | None = None
+    headless: bool | None = None
+    max_order_price: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    max_daily_spend: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    max_daily_orders: int | None = Field(default=None, ge=0)
+    max_items: int | None = Field(default=None, ge=1)
+    max_item_quantity: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def require_non_null_update(self) -> FoodSettingsUpdateRequest:
+        if not self.model_fields_set:
+            raise ValueError("Au moins un réglage est requis")
+        if any(getattr(self, field) is None for field in self.model_fields_set):
+            raise ValueError("Un réglage fourni ne peut pas être null")
+        return self
+
+
+class FoodCartItemRequest(_StrictFoodRequest):
+    name: str = Field(min_length=1, max_length=120)
+    quantity: int = Field(default=1, ge=1, le=100)
+    notes: str = Field(default="", max_length=200)
+
+
+class FoodCartPrepareRequest(_StrictFoodRequest):
+    restaurant: RestaurantName
+    items: list[FoodCartItemRequest] = Field(min_length=1, max_length=100)
+
+
+class FoodCaptureRequest(_StrictFoodRequest):
+    mode: Literal["session", "codegen"] = "session"
+
+
+def _food_control_http_error(exc: FoodControlError):
+    return api_error(exc.status_code, exc.code, str(exc))
+
+
+def _quick_order_error_code(exc: QuickOrderError) -> str:
+    return {
+        400: "food_order_invalid",
+        404: "food_suggestion_not_found",
+        409: "food_order_conflict",
+        502: "food_order_failed",
+        503: "food_order_unavailable",
+    }.get(exc.status_code, "food_order_failed")
+
 
 @router.get("/api/food/status")
 async def api_food_status():
@@ -95,18 +166,21 @@ async def api_food_suggestions_generate():
 
 
 @router.post("/api/food/suggestions/{slot}/order")
-async def api_food_quick_order(slot: int, payload: dict):
+async def api_food_quick_order(
+    payload: FoodQuickOrderRequest,
+    slot: Annotated[int, Path(ge=1)],
+):
     """Commande la suggestion d'un emplacement, dans la limite affichée.
 
     Body JSON : `{accepted_price}` — le montant lu sur le bouton. Il doit
     correspondre au montant figé à la génération, sinon rien n'est engagé.
     """
-    if slot < 1:
-        raise HTTPException(400, "`slot` doit être supérieur ou égal à 1")
     try:
-        return await quick_order(slot, payload.get("accepted_price"))
+        return await quick_order(slot, payload.accepted_price)
     except QuickOrderError as exc:
-        raise HTTPException(exc.status_code, str(exc)) from exc
+        raise api_error(
+            exc.status_code, _quick_order_error_code(exc), str(exc)
+        ) from exc
 
 
 @router.get("/api/food/orders")
@@ -117,14 +191,17 @@ async def api_food_orders(limit: int = 30):
 
 
 @router.post("/api/food/orders/{order_id}/rating")
-async def api_food_rate_order(order_id: int, payload: dict):
+async def api_food_rate_order(
+    payload: FoodRatingRequest,
+    order_id: Annotated[int, Path(gt=0)],
+):
     """Note un repas déjà commandé. Body JSON : `{rating}` de 1 à 5."""
     try:
-        order = rate_food_order(order_id, payload.get("rating"))
+        order = rate_food_order(order_id, payload.rating)
     except FoodOrderError as exc:
-        raise HTTPException(400, str(exc)) from exc
+        raise api_error(400, "food_rating_invalid", str(exc)) from exc
     if not order:
-        raise HTTPException(404, f"Commande {order_id} introuvable")
+        raise api_error(404, "food_order_not_found", "Commande introuvable")
     return {"order": order}
 
 
@@ -147,20 +224,23 @@ async def api_food_menus():
 
 
 @router.post("/api/food/menus/refresh")
-async def api_food_menus_refresh(payload: dict | None = None):
+async def api_food_menus_refresh(payload: FoodMenuRefreshRequest | None = None):
     """Relève les menus des restaurants les plus commandés.
 
     Body JSON optionnel : `{restaurants: [...]}` pour cibler un relevé précis.
     """
     from scripts.food_menu_refresh import refresh_tracked_menus
 
-    requested = (payload or {}).get("restaurants")
-    names = [str(name) for name in requested] if isinstance(requested, list) else None
+    names = payload.restaurants if payload is not None else None
     try:
         return await refresh_tracked_menus(names)
     except (OSError, RuntimeError, ValueError) as exc:
         logger.error("[food] relevé de menus impossible : %s", exc)
-        raise HTTPException(503, str(exc)) from exc
+        raise api_error(
+            503,
+            "food_menu_refresh_failed",
+            "Actualisation des menus indisponible",
+        ) from exc
 
 
 @router.get("/api/food/menus/{restaurant}")
@@ -168,7 +248,7 @@ async def api_food_menu_items(restaurant: str):
     """Articles connus d'un restaurant, pour composer un panier à la main."""
     items = get_menu_items(restaurant)
     if not items:
-        raise HTTPException(404, f"Aucun menu en cache pour « {restaurant} »")
+        raise api_error(404, "food_menu_not_found", "Aucun menu en cache")
     return {"restaurant": restaurant, "items": items}
 
 
@@ -188,12 +268,12 @@ async def api_food_settings():
 
 
 @router.patch("/api/food/settings")
-async def api_food_settings_update(payload: dict):
+async def api_food_settings_update(payload: FoodSettingsUpdateRequest):
     """Modifie les réglages. Une valeur au-dessus de la borne `.env` est refusée."""
     try:
-        settings = update_settings(payload)
+        settings = update_settings(payload.model_dump(exclude_unset=True))
     except FoodSettingsError as exc:
-        raise HTTPException(400, str(exc)) from exc
+        raise api_error(400, "food_settings_invalid", str(exc)) from exc
     return {"settings": settings.as_dict(), "ceilings": get_ceilings()}
 
 
@@ -207,15 +287,18 @@ async def api_food_settings_reset():
 
 
 @router.post("/api/food/cart/prepare")
-async def api_food_cart_prepare(payload: dict):
+async def api_food_cart_prepare(payload: FoodCartPrepareRequest):
     """Construit un panier et retourne le total réel. N'engage aucune dépense.
 
     Body JSON : `{restaurant, items: [{name, quantity?, notes?}]}`.
     """
     try:
-        return await prepare_manual_order(payload.get("restaurant"), payload.get("items"))
+        return await prepare_manual_order(
+            payload.restaurant,
+            [item.model_dump() for item in payload.items],
+        )
     except FoodControlError as exc:
-        raise HTTPException(exc.status_code, str(exc)) from exc
+        raise _food_control_http_error(exc) from exc
 
 
 @router.get("/api/food/cart/{plan_id}")
@@ -224,7 +307,7 @@ async def api_food_cart_peek(plan_id: str):
     try:
         return peek_manual_order(plan_id)
     except FoodControlError as exc:
-        raise HTTPException(exc.status_code, str(exc)) from exc
+        raise _food_control_http_error(exc) from exc
 
 
 @router.post("/api/food/cart/{plan_id}/confirm")
@@ -233,7 +316,7 @@ async def api_food_cart_confirm(plan_id: str):
     try:
         return await confirm_manual_order(plan_id)
     except FoodControlError as exc:
-        raise HTTPException(exc.status_code, str(exc)) from exc
+        raise _food_control_http_error(exc) from exc
 
 
 @router.delete("/api/food/cart/{plan_id}")
@@ -242,7 +325,7 @@ async def api_food_cart_cancel(plan_id: str):
     try:
         return cancel_manual_order(plan_id)
     except FoodControlError as exc:
-        raise HTTPException(exc.status_code, str(exc)) from exc
+        raise _food_control_http_error(exc) from exc
 
 
 # ── Diagnostic et réparation ────────────────────────────────────────────────
@@ -257,7 +340,14 @@ async def api_food_selectors():
 @router.post("/api/food/selectors/reload")
 async def api_food_selectors_reload():
     """Relit le fichier de sélecteurs après une modification manuelle."""
-    return reload_selectors()
+    report = reload_selectors()
+    if not report.get("ok"):
+        raise api_error(
+            503,
+            "food_selectors_invalid",
+            "Sélecteurs Uber Eats invalides",
+        )
+    return report
 
 
 @router.get("/api/food/session")
@@ -269,19 +359,22 @@ async def api_food_session():
 @router.post("/api/food/session/probe")
 async def api_food_session_probe():
     """Vérifie en conditions réelles qu'Uber reconnaît encore la session."""
-    return await probe_session()
+    try:
+        return await probe_session()
+    except FoodControlError as exc:
+        raise _food_control_http_error(exc) from exc
 
 
 @router.post("/api/food/session/capture")
-async def api_food_session_capture(payload: dict | None = None):
+async def api_food_session_capture(payload: FoodCaptureRequest | None = None):
     """Ouvre une fenêtre de capture sur la machine hôte.
 
     Body JSON optionnel : `{mode}` — `session` (défaut) ou `codegen`.
     """
     try:
-        return await start_capture(str((payload or {}).get("mode") or "session"))
+        return await start_capture(payload.mode if payload is not None else "session")
     except FoodControlError as exc:
-        raise HTTPException(exc.status_code, str(exc)) from exc
+        raise _food_control_http_error(exc) from exc
 
 
 @router.delete("/api/food/session/capture")

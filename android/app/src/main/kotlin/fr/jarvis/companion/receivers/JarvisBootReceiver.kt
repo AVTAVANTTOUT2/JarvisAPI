@@ -13,21 +13,28 @@ import fr.jarvis.companion.services.JarvisLocationService
 /** Restaure GPS et sync location après redémarrage. */
 class JarvisBootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
+        if (!isSupportedBootAction(intent?.action)) return
         JarvisNotifications.createChannels(context)
 
-        if (JarvisSettings.nativeToken(context).isNotEmpty()) {
+        val plan = bootRecoveryPlan(
+            hasNativeToken = JarvisSettings.nativeToken(context).isNotEmpty(),
+            locationEnabled = JarvisSettings.isLocationEnabled(context),
+            hasLocationPermission = context.checkSelfPermission(
+                Manifest.permission.ACCESS_FINE_LOCATION,
+            ) == PackageManager.PERMISSION_GRANTED,
+            wakeWordEnabled = JarvisSettings.isWakeWordEnabled(context),
+        )
+
+        if (plan.scheduleLocationSync) {
             LocationSyncWorker.schedule(context)
             LocationSyncWorker.enqueueNow(context)
         }
 
-        val locationEnabled = JarvisSettings.isLocationEnabled(context)
-        val hasFine = context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) ==
-            PackageManager.PERMISSION_GRANTED
-        if (locationEnabled && hasFine) {
+        if (plan.startLocationService) {
             context.startForegroundService(Intent(context, JarvisLocationService::class.java))
         }
 
-        if (JarvisSettings.isWakeWordEnabled(context)) {
+        if (plan.showWakeWordReminder) {
             JarvisNotifications.show(
                 context,
                 JarvisNotifications.DEFAULT,

@@ -2,27 +2,29 @@
 
 Chaque entrée correspond à un emplacement visuel/technique préparé pendant la refonte
 `feat/android-ui-redesign`. Règle absolue : un placeholder ne simule jamais une
-fonctionnalité active et n'affiche jamais de donnée mockée. Les flags vivent dans
-`core/JarvisFeatureFlags.kt` ; les TODO code portent l'identifiant stable ci-dessous.
+fonctionnalité active et n'affiche jamais de donnée mockée. Il n'existe aucun
+commutateur runtime pour ces fonctions absentes : le placeholder doit être remplacé
+par une implémentation testée lorsqu'elle est livrée. Les TODO code portent
+l'identifiant de backlog stable ci-dessous.
 
-| ID | Écran | Placeholder | Flag | Statut |
-|---|---|---|---|---|
-| JARVIS-FUTURE-VOICE-CONTINUOUS | Voix | Bouton secondaire désactivé + badge « Bientôt » | `CONTINUOUS_VOICE` | UI prête, logique absente |
-| JARVIS-FUTURE-WAKE-ADVANCED | Réglages · Voix | Ligne descriptive sous le toggle Porcupine | `WAKE_WORD_ADVANCED` | UI prête |
-| JARVIS-FUTURE-LIVE-MAP | Localisation | `JarvisComingSoonCard` | `LIVE_MAP` | UI prête |
-| JARVIS-FUTURE-TRIPS-HISTORY | Localisation | `JarvisComingSoonCard` | `TRIPS_HISTORY` | UI prête |
-| JARVIS-FUTURE-CALENDAR-CREATE | Agenda | Bouton création désactivé + badge | `CALENDAR_CREATE` | UI prête |
-| JARVIS-FUTURE-TASKS-MUTATIONS | Tâches | Bouton création désactivé + badge | `TASKS_MUTATIONS` | UI prête |
-| JARVIS-FUTURE-CHAT-ATTACHMENTS | Chat (composer) | Icône trombone désactivée | `CHAT_ATTACHMENTS` | UI prête |
-| JARVIS-FUTURE-SLASH-COMMANDS | Chat (composer) | Détection `/` → note « Bientôt » | `SLASH_COMMANDS` | UI prête |
-| JARVIS-FUTURE-NOTIFICATIONS-ACTIONS | Plus → Notifications | Écran état préparé (liste cache lecture seule) | `NOTIFICATIONS_ACTIONS` | Lecture cache OK, actions absentes |
-| JARVIS-FUTURE-MULTI-DEVICE | Réglages · Connexion | Ligne désactivée + badge | `MULTI_DEVICE` | UI prête |
-| JARVIS-FUTURE-OFFLINE-DETAIL | Diagnostics | Section repliée « File hors ligne détaillée » | `OFFLINE_DETAIL` | UI prête |
-| JARVIS-FUTURE-MEMORY-VIEW | Plus | Tuile « Bientôt » | `MEMORY_VIEW` | UI prête |
-| JARVIS-FUTURE-CONTACTS | Plus | Tuile « Bientôt » | `CONTACTS_VIEW` | UI prête |
-| JARVIS-FUTURE-AUTOMATIONS | Plus | Tuile « Bientôt » | `AUTOMATIONS` | UI prête |
-| JARVIS-FUTURE-WIDGETS | Réglages · Apparence | Ligne désactivée + badge | `HOME_WIDGETS` | UI prête |
-| JARVIS-FUTURE-DASHBOARD-CUSTOM | Accueil | `JarvisFutureAction` inerte | `DASHBOARD_CUSTOM` | UI prête |
+| ID | Écran | Placeholder | Statut |
+|---|---|---|---|
+| JARVIS-FUTURE-VOICE-CONTINUOUS | Voix | Bouton secondaire désactivé + badge « Bientôt » | Logique absente |
+| JARVIS-FUTURE-WAKE-ADVANCED | Réglages · Voix | Ligne descriptive sous le toggle Porcupine | Logique absente |
+| JARVIS-FUTURE-LIVE-MAP | Localisation | `JarvisComingSoonCard` | Logique absente |
+| JARVIS-FUTURE-TRIPS-HISTORY | Localisation | `JarvisComingSoonCard` | Logique absente |
+| JARVIS-FUTURE-CALENDAR-CREATE | Agenda | Bouton création désactivé + badge | Logique absente |
+| JARVIS-FUTURE-TASKS-MUTATIONS | Tâches | Bouton création désactivé + badge | Logique absente |
+| JARVIS-FUTURE-CHAT-ATTACHMENTS | Chat (composer) | Icône trombone désactivée | Logique absente |
+| JARVIS-FUTURE-SLASH-COMMANDS | Chat (composer) | Détection `/` → note « Bientôt » | Logique absente |
+| JARVIS-FUTURE-NOTIFICATIONS-ACTIONS | Plus → Notifications | Liste cache en lecture seule | Actions absentes |
+| JARVIS-FUTURE-MULTI-DEVICE | Réglages · Connexion | Ligne désactivée + badge | Logique absente |
+| JARVIS-FUTURE-OFFLINE-DETAIL | Diagnostics | Section « File hors ligne détaillée » | Logique absente |
+| JARVIS-FUTURE-MEMORY-VIEW | Plus | Tuile « Bientôt » | Écran absent |
+| JARVIS-FUTURE-CONTACTS | Plus | Tuile « Bientôt » | Écran absent |
+| JARVIS-FUTURE-AUTOMATIONS | Plus | Tuile « Bientôt » | Écran absent |
+| JARVIS-FUTURE-WIDGETS | Réglages · Apparence | Ligne désactivée + badge | Logique absente |
+| JARVIS-FUTURE-DASHBOARD-CUSTOM | Accueil | `JarvisFutureAction` inerte | Logique absente |
 
 ## Détails et contrats attendus
 
@@ -59,7 +61,6 @@ fonctionnalité active et n'affiche jamais de donnée mockée. Les flags vivent 
 ### JARVIS-FUTURE-NOTIFICATIONS-ACTIONS
 - Point de branchement : `feature/notifications/NotificationsScreen.kt` (créé — liste
   le cache `cached_notifications` en lecture seule, actions marquer-lu absentes).
-- Flag code : `JarvisFeatureFlags.NOTIFICATIONS_ACTIONS`.
 - Backend : `POST /api/notifications/{id}/read` + `read-all` en Bearer mobile.
 
 ### JARVIS-FUTURE-MULTI-DEVICE
@@ -72,7 +73,7 @@ fonctionnalité active et n'affiche jamais de donnée mockée. Les flags vivent 
 - Backend : `/api/memory`, `/api/people`, automatisations (à définir).
 
 ### JARVIS-FUTURE-WAKE-ADVANCED / HOME_WIDGETS / DASHBOARD_CUSTOM
-- Réservations de flags ; aucun engagement UI au-delà d'une ligne descriptive
+- Entrées de backlog ; aucun engagement UI au-delà d'une ligne descriptive
   désactivée.
 
 ## Composants placeholder du design system
@@ -84,6 +85,6 @@ fonctionnalité active et n'affiche jamais de donnée mockée. Les flags vivent 
 - `JarvisFeatureDisabledState` — état plein écran « fonctionnalité non disponible ».
 
 Validation : tous les placeholders listés sont inertes (aucun `onClick` actif), texte
-explicite (« Bientôt disponible » / « sera activée dans une prochaine version »), et
-compilent avec leur flag à `false`. Basculer un flag à `true` sans implémentation ne
-doit rien casser : les écrans vérifient le flag ET la disponibilité réelle du service.
+explicite (« Bientôt disponible » / « sera activée dans une prochaine version »). Il
+n'existe aucun flag permettant de les masquer ou de les présenter comme activés sans
+implémentation.

@@ -8,6 +8,13 @@ from fastapi import HTTPException
 
 import pipeline
 from agents.journal import journal_agent
+from api.errors import internal_error
+from api.life_models import (
+    JournalEntryRequest,
+    LifeContextCreateRequest,
+    LifeProfileCreateRequest,
+    LifeProfileUpdateRequest,
+)
 from api.llm_logging import _schedule_llm_log
 from database import (
     add_life_profile_entry,
@@ -38,25 +45,19 @@ async def api_life_profile_get():
     }
 
 
-async def api_life_profile_create(payload: dict):
-    category = (payload.get("category") or "").strip()
-    content = (payload.get("content") or "").strip()
-    if not category or not content:
-        raise HTTPException(400, "`category` et `content` requis")
-    if category not in ("values", "goals", "fears", "patterns", "strengths"):
-        raise HTTPException(400, "Catégorie invalide")
-
-    entry_id = add_life_profile_entry(category, content)
-    return {"id": entry_id, "category": category, "content": content}
+async def api_life_profile_create(payload: LifeProfileCreateRequest):
+    entry_id = add_life_profile_entry(payload.category, payload.content)
+    return {
+        "id": entry_id,
+        "category": payload.category,
+        "content": payload.content,
+    }
 
 
-async def api_life_profile_update(entry_id: int, payload: dict):
-    content = (payload.get("content") or "").strip()
-    if not content:
-        raise HTTPException(400, "`content` requis")
-    if not update_life_profile_entry(entry_id, content):
+async def api_life_profile_update(entry_id: int, payload: LifeProfileUpdateRequest):
+    if not update_life_profile_entry(entry_id, payload.content):
         raise HTTPException(404, "Entrée introuvable")
-    return {"id": entry_id, "content": content}
+    return {"id": entry_id, "content": payload.content}
 
 
 async def api_life_profile_delete(entry_id: int):
@@ -78,22 +79,22 @@ async def api_life_context_list(active_only: bool = False):
     }
 
 
-async def api_life_context_create(payload: dict):
+async def api_life_context_create(payload: LifeContextCreateRequest):
     from database import add_life_context
 
-    context_type = (payload.get("context_type") or "").strip()
-    description = (payload.get("description") or "").strip()
-    if not context_type or not description:
-        raise HTTPException(400, "`context_type` et `description` requis")
-
     context_id = add_life_context(
-        context_type, description,
-        period_start=payload.get("period_start"),
-        period_end=payload.get("period_end"),
-        impact_on_mood=payload.get("impact_on_mood"),
-        impact_on_productivity=payload.get("impact_on_productivity"),
+        payload.context_type,
+        payload.description,
+        period_start=payload.period_start,
+        period_end=payload.period_end,
+        impact_on_mood=payload.impact_on_mood,
+        impact_on_productivity=payload.impact_on_productivity,
     )
-    return {"id": context_id, "context_type": context_type, "description": description}
+    return {
+        "id": context_id,
+        "context_type": payload.context_type,
+        "description": payload.description,
+    }
 
 
 async def api_life_context_close(context_id: int):
@@ -112,20 +113,16 @@ async def api_journal_get():
     }
 
 
-async def api_journal_post(payload: dict):
+async def api_journal_post(payload: JournalEntryRequest):
     """Envoie une entrée de journal via le pipeline unifié. Retourne réponse + extraction."""
-    content = (payload.get("content") or "").strip()
-    if not content:
-        raise HTTPException(400, "`content` requis")
-
     try:
         # Créer une conversation temporaire pour le journal
         conv_id = create_conversation(agent="journal")
-        save_message(conv_id, "user", content)
+        save_message(conv_id, "user", payload.content)
         update_conversation_activity(conv_id)
 
         # Passer par le pipeline unifié — l'orchestrateur route vers JOURNAL automatiquement
-        result = await pipeline.process_message_internal(content, conv_id)
+        result = await pipeline.process_message_internal(payload.content, conv_id)
 
         # Extraction JSON des insights via le journal_agent (traitement des données structurées)
         extracted = None
@@ -153,7 +150,7 @@ async def api_journal_post(payload: dict):
         }
     except Exception as e:
         logger.exception("Erreur api_journal_post")
-        raise HTTPException(500, f"Erreur journal : {type(e).__name__}: {e}")
+        raise internal_error("journal_processing_failed", "Traitement du journal impossible") from e
 
 
 async def api_patterns_get():

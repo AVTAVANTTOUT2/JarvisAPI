@@ -12,7 +12,7 @@ data class ServerSaveEvaluation(
 data class FutureSettingOption(
     val title: String,
     val description: String,
-    val futureFlagId: String,
+    val backlogId: String,
 )
 
 fun evaluateServerSave(
@@ -50,19 +50,19 @@ fun buildFutureSettingsOptions(): List<FutureSettingOption> = listOf(
     FutureSettingOption(
         title = "Multi-device",
         description = "Gestion de plusieurs téléphones et priorités d'appareil.",
-        futureFlagId = "JARVIS-FUTURE-MULTI-DEVICE",
+        backlogId = "JARVIS-FUTURE-MULTI-DEVICE",
     ),
     // TODO(JARVIS-FUTURE-WAKE-ADVANCED): exposer sensibilité/modèle wake word.
     FutureSettingOption(
         title = "Wake word avancé",
         description = "Réglages avancés de sensibilité et profils vocaux.",
-        futureFlagId = "JARVIS-FUTURE-WAKE-ADVANCED",
+        backlogId = "JARVIS-FUTURE-WAKE-ADVANCED",
     ),
     // TODO(JARVIS-FUTURE-WIDGETS): widgets Android inertes tant que le backend
     // de personnalisation dashboard n'est pas disponible.
     FutureSettingOption(
         title = "Widgets d'accueil",
         description = "Widgets Android pour le briefing et les alertes urgentes.",
-        futureFlagId = "JARVIS-FUTURE-WIDGETS",
+        backlogId = "JARVIS-FUTURE-WIDGETS",
     ),
 )

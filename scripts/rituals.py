@@ -27,6 +27,15 @@ from database import (
     release_job_run,
     set_daily_ritual,
 )
+from database.time_buckets import (
+    local_datetime,
+    sqlite_utc_datetime,
+    sqlite_utc_timestamp,
+    sqlite_utc_to_local,
+    utc_bounds_for_local_dates,
+    utc_bounds_for_local_day,
+    utc_datetime,
+)
 from jarvis.notification_service import notification_service
 
 logger = logging.getLogger(__name__)
@@ -76,7 +85,7 @@ def _speak(text: str, emotion: str = "neutral") -> None:
 
 
 def _today() -> str:
-    return datetime.now().strftime("%Y-%m-%d")
+    return local_datetime().date().isoformat()
 
 
 # ═══════════════════════════════════════════════════════════
@@ -85,7 +94,7 @@ def _today() -> str:
 
 def _pending_tasks_snapshot() -> tuple[list[dict], list[dict]]:
     """(tâches en retard, tâches en attente) — listes de dicts légers."""
-    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    now = local_datetime().strftime("%Y-%m-%d %H:%M")
     with get_db() as conn:
         rows = conn.execute(
             """SELECT title, priority, due_date, category FROM tasks
@@ -173,12 +182,17 @@ async def _generate_daily_roast() -> dict:
 def _day_snapshot() -> dict:
     """Chiffres bruts de la journée pour le debrief (SQL pur, zéro LLM)."""
     today = _today()
+    start_utc, end_utc = utc_bounds_for_local_day(today)
     with get_db() as conn:
         msg = conn.execute(
-            "SELECT COUNT(*) FROM messages WHERE DATE(created_at) = ?", (today,)
+            "SELECT COUNT(*) FROM messages WHERE created_at >= ? AND created_at < ?",
+            (start_utc, end_utc),
         ).fetchone()[0]
         done = [dict(r) for r in conn.execute(
-            "SELECT title FROM tasks WHERE status = 'done' AND DATE(completed_at) = ?", (today,))]
+            "SELECT title FROM tasks WHERE status = 'done' "
+            "AND completed_at >= ? AND completed_at < ?",
+            (start_utc, end_utc),
+        )]
         apps = [dict(r) for r in conn.execute(
             """SELECT app, SUM(duration_seconds) AS s FROM app_usage
                WHERE date = ? GROUP BY app ORDER BY s DESC LIMIT 3""", (today,))]
@@ -271,12 +285,17 @@ def compute_productivity_score(persist: bool = False) -> dict:
 
     50 + 8 x tâches terminées (7 j) − 12 x tâches en retard, borné [0, 100].
     """
-    week_start = (datetime.now().date() - timedelta(days=6)).isoformat()
-    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    local_now = local_datetime()
+    week_start_date = local_now.date() - timedelta(days=6)
+    start_utc, end_utc = utc_bounds_for_local_dates(
+        week_start_date, local_now.date() + timedelta(days=1)
+    )
+    now = local_now.strftime("%Y-%m-%d %H:%M")
     with get_db() as conn:
         done = conn.execute(
-            "SELECT COUNT(*) FROM tasks WHERE status = 'done' AND DATE(completed_at) >= ?",
-            (week_start,),
+            "SELECT COUNT(*) FROM tasks WHERE status = 'done' "
+            "AND completed_at >= ? AND completed_at < ?",
+            (start_utc, end_utc),
         ).fetchone()[0]
         overdue = conn.execute(
             "SELECT COUNT(*) FROM tasks WHERE status != 'done' AND due_date IS NOT NULL "
@@ -310,7 +329,8 @@ def compute_productivity_score(persist: bool = False) -> dict:
 def check_birthdays() -> list[dict]:
     """Notifie les anniversaires du jour (une notification par contact et par an)."""
     found = get_todays_birthdays()
-    year = datetime.now().year
+    local_now = local_datetime()
+    year = local_now.year
     notified = []
     for p in found:
         title = f"Anniversaire de {p['name']} — {year}"
@@ -334,7 +354,7 @@ def check_birthdays() -> list[dict]:
                 title=f"Souhaiter l'anniversaire de {p['name']}",
                 priority="medium",
                 category="relation",
-                due_date=datetime.now().strftime("%Y-%m-%d 20:00"),
+                due_date=local_now.strftime("%Y-%m-%d 20:00"),
             )
         except Exception as e:
             logger.debug("[rituals] tâche anniversaire : %s", e)
@@ -356,10 +376,9 @@ def _continuous_screen_minutes(rows: list[str], gap_minutes: int) -> float:
     """
     if not rows:
         return 0.0
-    fmt = "%Y-%m-%d %H:%M:%S"
-    start = prev = datetime.strptime(rows[0][:19], fmt)
+    start = prev = sqlite_utc_datetime(rows[0])
     for ts in rows[1:]:
-        cur = datetime.strptime(ts[:19], fmt)
+        cur = sqlite_utc_datetime(ts)
         if (cur - prev).total_seconds() > gap_minutes * 60:
             start = cur
         prev = cur
@@ -374,11 +393,13 @@ def check_coffee_break() -> dict | None:
     """
     if config.BREAK_ALERT_MINUTES <= 0:
         return None
-    lookback = datetime.now() - timedelta(minutes=config.BREAK_ALERT_MINUTES * 3)
+    lookback = sqlite_utc_timestamp(
+        utc_datetime() - timedelta(minutes=config.BREAK_ALERT_MINUTES * 3)
+    )
     with get_db() as conn:
         rows = [r[0] for r in conn.execute(
             "SELECT created_at FROM screen_activity WHERE created_at >= ? ORDER BY created_at ASC",
-            (lookback.strftime("%Y-%m-%d %H:%M:%S"),),
+            (lookback,),
         )]
         last_alert = conn.execute(
             """SELECT created_at FROM notifications
@@ -389,8 +410,7 @@ def check_coffee_break() -> dict | None:
     if minutes < config.BREAK_ALERT_MINUTES:
         return None
     if last_alert:
-        fmt = "%Y-%m-%d %H:%M:%S"
-        elapsed = datetime.utcnow() - datetime.strptime(str(last_alert[0])[:19], fmt)
+        elapsed = utc_datetime() - sqlite_utc_datetime(str(last_alert[0]))
         if elapsed.total_seconds() < config.BREAK_COOLDOWN_MINUTES * 60:
             return None
 
@@ -416,7 +436,9 @@ def check_streaming_binge() -> dict | None:
     """
     if config.BINGE_ALERT_MINUTES <= 0:
         return None
-    lookback = datetime.now() - timedelta(minutes=config.BINGE_ALERT_MINUTES * 3)
+    lookback = sqlite_utc_timestamp(
+        utc_datetime() - timedelta(minutes=config.BINGE_ALERT_MINUTES * 3)
+    )
     like_clauses = " OR ".join(
         ["LOWER(COALESCE(app, '')) LIKE ? OR LOWER(COALESCE(activity, '')) LIKE ?"]
         * len(config.STREAMING_APPS)
@@ -429,7 +451,7 @@ def check_streaming_binge() -> dict | None:
             f"""SELECT created_at FROM screen_activity
                 WHERE created_at >= ? AND ({like_clauses})
                 ORDER BY created_at ASC""",  # noqa: S608 — clauses générées, valeurs bindées
-            [lookback.strftime("%Y-%m-%d %H:%M:%S"), *params],
+            [lookback, *params],
         )]
         last_alert = conn.execute(
             """SELECT created_at FROM notifications
@@ -440,8 +462,7 @@ def check_streaming_binge() -> dict | None:
     if minutes < config.BINGE_ALERT_MINUTES:
         return None
     if last_alert:
-        fmt = "%Y-%m-%d %H:%M:%S"
-        elapsed = datetime.utcnow() - datetime.strptime(str(last_alert[0])[:19], fmt)
+        elapsed = utc_datetime() - sqlite_utc_datetime(str(last_alert[0]))
         if elapsed.total_seconds() < 4 * 3600:
             return None
 
@@ -472,7 +493,7 @@ def check_late_return(now: datetime | None = None) -> dict | None:
     """
     if not config.LATE_RETURN_ENABLED:
         return None
-    now = now or datetime.now()
+    now = local_datetime(now)
     if not (now.hour >= config.LATE_RETURN_HOUR or now.hour < 4):
         return None
 
@@ -528,24 +549,35 @@ def check_late_return(now: datetime | None = None) -> dict | None:
 
 def _week_snapshot() -> dict:
     """Chiffres bruts des 7 derniers jours (SQL pur)."""
-    week_start = (datetime.now().date() - timedelta(days=6)).isoformat()
+    today = local_datetime().date()
+    week_start_date = today - timedelta(days=6)
+    week_start = week_start_date.isoformat()
+    start_utc, end_utc = utc_bounds_for_local_dates(
+        week_start_date, today + timedelta(days=1)
+    )
     with get_db() as conn:
         done = [r[0] for r in conn.execute(
-            "SELECT title FROM tasks WHERE status = 'done' AND DATE(completed_at) >= ?",
-            (week_start,))]
+            "SELECT title FROM tasks WHERE status = 'done' "
+            "AND completed_at >= ? AND completed_at < ?",
+            (start_utc, end_utc),
+        )]
         msg = conn.execute(
-            "SELECT COUNT(*) FROM messages WHERE DATE(created_at) >= ?", (week_start,)
+            "SELECT COUNT(*) FROM messages WHERE created_at >= ? AND created_at < ?",
+            (start_utc, end_utc),
         ).fetchone()[0]
         voice = conn.execute(
             """SELECT COUNT(*) FROM messages m JOIN conversations c ON c.id = m.conversation_id
-               WHERE c.agent = 'voice' AND DATE(m.created_at) >= ?""", (week_start,)
+               WHERE c.agent = 'voice' AND m.created_at >= ? AND m.created_at < ?""",
+            (start_utc, end_utc),
         ).fetchone()[0]
         apps = [dict(r) for r in conn.execute(
             """SELECT app, SUM(duration_seconds) AS s FROM app_usage
                WHERE date >= ? GROUP BY app ORDER BY s DESC LIMIT 5""", (week_start,))]
         moods = [dict(r) for r in conn.execute(
             """SELECT mood_score, energy_level FROM mood_log
-               WHERE DATE(created_at) >= ?""", (week_start,))]
+               WHERE created_at >= ? AND created_at < ?""",
+            (start_utc, end_utc),
+        )]
     overdue, pending = _pending_tasks_snapshot()
     return {
         "tasks_done": done,
@@ -656,34 +688,49 @@ def compute_mood_signal(date: str | None = None) -> dict:
     import json as _json
 
     day = date or _today()
+    target_date = datetime.fromisoformat(day).date()
+    start_utc, end_utc = utc_bounds_for_local_day(target_date)
+    history_start_utc, _ = utc_bounds_for_local_dates(
+        target_date - timedelta(days=14), target_date
+    )
     with get_db() as conn:
         msg_count = conn.execute(
-            "SELECT COUNT(*) FROM messages WHERE DATE(created_at) = ? AND role = 'user'",
-            (day,),
+            """SELECT COUNT(*) FROM messages
+               WHERE role = 'user' AND created_at >= ? AND created_at < ?""",
+            (start_utc, end_utc),
         ).fetchone()[0]
-        avg_row = conn.execute(
-            """SELECT AVG(c) FROM (
-                   SELECT COUNT(*) AS c FROM messages
-                   WHERE role = 'user' AND DATE(created_at) < ?
-                     AND DATE(created_at) >= DATE(?, '-14 days')
-                   GROUP BY DATE(created_at))""",
-            (day, day),
-        ).fetchone()
-        msg_avg = float(avg_row[0] or 0.0)
+        history_rows = conn.execute(
+            """SELECT created_at FROM messages
+               WHERE role = 'user' AND created_at >= ? AND created_at < ?""",
+            (history_start_utc, start_utc),
+        ).fetchall()
+        history_counts: dict[str, int] = {}
+        for row in history_rows:
+            local_day = sqlite_utc_to_local(row["created_at"]).date().isoformat()
+            history_counts[local_day] = history_counts.get(local_day, 0) + 1
+        msg_avg = (
+            sum(history_counts.values()) / len(history_counts)
+            if history_counts
+            else 0.0
+        )
         voice_count = conn.execute(
             """SELECT COUNT(*) FROM messages m JOIN conversations c ON c.id = m.conversation_id
-               WHERE c.agent = 'voice' AND DATE(m.created_at) = ?""", (day,)
+               WHERE c.agent = 'voice' AND m.created_at >= ? AND m.created_at < ?""",
+            (start_utc, end_utc),
         ).fetchone()[0]
         screen_minutes = (conn.execute(
             "SELECT COALESCE(SUM(duration_seconds), 0) FROM app_usage WHERE date = ?", (day,)
         ).fetchone()[0] or 0) / 60
-        late_night = conn.execute(
-            """SELECT COUNT(*) FROM screen_activity
-               WHERE DATE(created_at) = ?
-                 AND (CAST(strftime('%H', created_at) AS INTEGER) >= 23
-                      OR CAST(strftime('%H', created_at) AS INTEGER) < 5)""",
-            (day,),
-        ).fetchone()[0]
+        screen_rows = conn.execute(
+            """SELECT created_at FROM screen_activity
+               WHERE created_at >= ? AND created_at < ?""",
+            (start_utc, end_utc),
+        ).fetchall()
+        late_night = sum(
+            1
+            for row in screen_rows
+            if (hour := sqlite_utc_to_local(row["created_at"]).hour) >= 23 or hour < 5
+        )
 
     deviation = None
     if msg_avg > 0:
@@ -778,7 +825,7 @@ async def _generate_daily_quote() -> dict:
         quote = result["content"].strip().strip('"').splitlines()[0]
     except Exception as e:
         logger.warning("[rituals] citation LLM indisponible : %s", e)
-        idx = datetime.now().toordinal() % len(_FALLBACK_QUOTES)
+        idx = local_datetime().toordinal() % len(_FALLBACK_QUOTES)
         quote = _FALLBACK_QUOTES[idx]
 
     set_daily_ritual(_today(), "quote", quote)
