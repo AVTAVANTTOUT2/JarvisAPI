@@ -22,7 +22,7 @@ class ConversationRepository(
     private val pendingOpDao: PendingChatOperationDao,
     private val repository: JarvisRepository,
     private val gson: Gson = Gson(),
-) {
+) : ConversationSyncApplier {
     fun observeConversations(): Flow<List<ChatConversationEntity>> = conversationDao.observeActive()
 
     fun searchConversations(query: String): Flow<List<ChatConversationEntity>> =
@@ -125,7 +125,7 @@ class ConversationRepository(
         enqueueOp(localId, conv.serverId, PendingChatOpType.DELETE, emptyMap())
     }
 
-    suspend fun applyServerConversationCreated(localId: Long, serverId: Long, title: String?) =
+    override suspend fun applyServerConversationCreated(localId: Long, serverId: Long, title: String?) =
         withContext(Dispatchers.IO) {
             val conv = conversationDao.getByLocalId(localId) ?: return@withContext
             val now = System.currentTimeMillis()

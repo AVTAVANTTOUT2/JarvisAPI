@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Build
 import com.google.gson.JsonObject
 import fr.jarvis.companion.BuildConfig
+import fr.jarvis.companion.data.chat.ChatSyncRemote
 import fr.jarvis.companion.network.CapabilitiesRequest
 import fr.jarvis.companion.network.ConversationPatchRequest
 import fr.jarvis.companion.network.JarvisApiResult
@@ -23,7 +24,7 @@ import org.json.JSONObject
 import retrofit2.Response
 
 /** Accès réseau suspendu — ViewModel et services passent par cette couche. */
-class JarvisRepository(context: Context) {
+class JarvisRepository(context: Context) : ChatSyncRemote {
     private val appContext = context.applicationContext
     private val http = JarvisHttpClient(appContext)
 
@@ -208,38 +209,43 @@ class JarvisRepository(context: Context) {
             .getOrElse { JarvisApiResult.failure(it.message ?: "erreur réseau") }
     }
 
-    suspend fun patchConversation(id: Long, title: String? = null, pinned: Boolean? = null, archived: Boolean? = null): JarvisApiResult =
+    override suspend fun patchConversation(
+        id: Long,
+        title: String?,
+        pinned: Boolean?,
+        archived: Boolean?,
+    ): JarvisApiResult =
         withContext(Dispatchers.IO) {
             val body = ConversationPatchRequest(title = title, pinned = pinned, archived = archived)
             runCatching { toResult(api().patchConversation(bearer(), id, body)) }
                 .getOrElse { JarvisApiResult.failure(it.message ?: "erreur réseau") }
         }
 
-    suspend fun deleteConversation(id: Long): JarvisApiResult = withContext(Dispatchers.IO) {
+    override suspend fun deleteConversation(id: Long): JarvisApiResult = withContext(Dispatchers.IO) {
         runCatching { toResult(api().deleteConversation(bearer(), id)) }
             .getOrElse { JarvisApiResult.failure(it.message ?: "erreur réseau") }
     }
 
-    suspend fun pinConversation(id: Long): JarvisApiResult = withContext(Dispatchers.IO) {
+    override suspend fun pinConversation(id: Long): JarvisApiResult = withContext(Dispatchers.IO) {
         runCatching { toResult(api().pinConversation(bearer(), id)) }
             .getOrElse { JarvisApiResult.failure(it.message ?: "erreur réseau") }
     }
 
-    suspend fun archiveConversation(id: Long): JarvisApiResult = withContext(Dispatchers.IO) {
+    override suspend fun archiveConversation(id: Long): JarvisApiResult = withContext(Dispatchers.IO) {
         runCatching { toResult(api().archiveConversation(bearer(), id)) }
             .getOrElse { JarvisApiResult.failure(it.message ?: "erreur réseau") }
     }
 
-    suspend fun createMobileConversation(title: String? = null): JarvisApiResult = withContext(Dispatchers.IO) {
+    override suspend fun createMobileConversation(title: String?): JarvisApiResult = withContext(Dispatchers.IO) {
         runCatching {
             toResult(api().createMobileConversation(bearer(), MobileCreateConversationRequest(title = title)))
         }.getOrElse { JarvisApiResult.failure(it.message ?: "erreur réseau") }
     }
 
-    suspend fun sendMobileChat(
+    override suspend fun sendMobileChat(
         content: String,
-        conversationId: Long? = null,
-        clientMessageId: String? = null,
+        conversationId: Long?,
+        clientMessageId: String?,
     ): JarvisApiResult = withContext(Dispatchers.IO) {
         val body = MobileChatRequest(
             content = content,
