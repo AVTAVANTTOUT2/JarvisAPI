@@ -22,7 +22,6 @@ def test_real_registry_covers_the_consolidated_audit_and_matches_the_document():
     assert {item["id"] for item in items} == audit.EXPECTED_IDS
     assert {item["id"] for item in items if item["status"] == "active"} == {
         "TD-P0-01",
-        "TD-P1-04",
         "TD-P1-06",
         "TD-P1-07",
     }

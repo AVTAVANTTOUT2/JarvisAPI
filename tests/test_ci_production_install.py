@@ -32,6 +32,7 @@ def test_ci_smoke_imports_risky_production_dependencies():
         "faster_whisper",
         "pyaudio",
         "sentence_transformers",
+        "silero_vad",
         "spacy",
         "torch",
         "torchaudio",
@@ -44,6 +45,15 @@ def test_production_requirements_keep_spacy_numpy_compatible():
 
     assert "numpy>=2.0.2,<3" in requirements
     assert "spacy==3.8.*" in requirements
+
+
+def test_production_requirements_ship_silero_model_locally():
+    requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8")
+
+    assert "silero-vad==6.2.1" in requirements
+    assert "torch.hub" not in (ROOT / "audio" / "vad_silero.py").read_text(
+        encoding="utf-8"
+    )
 
 
 def test_production_requirements_carry_no_speech_engine():

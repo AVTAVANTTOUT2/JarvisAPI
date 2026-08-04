@@ -95,11 +95,10 @@
     {
       "id": "TD-P1-04",
       "severity": "P1",
-      "status": "active",
+      "status": "resolved",
       "summary": "Silero VAD peut télécharger du code via torch.hub au runtime",
-      "owner": "lot audio/STT coordonné avec Claude",
-      "next_action": "Versionner le modèle local, interdire le réseau au chargement et retirer torch.hub du runtime",
-      "evidence": ["audio/vad_silero.py", "requirements.txt"]
+      "resolution": "Le wheel officiel Silero 6.2.1 embarque le modèle TorchScript, le chargeur runtime n’utilise plus torch.hub et la CI installe puis importe le paquet verrouillé",
+      "evidence": ["audio/vad_silero.py", "tests/test_vad_silero_local.py", "tests/test_ci_production_install.py"]
     },
     {
       "id": "TD-P1-05",

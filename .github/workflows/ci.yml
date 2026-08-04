@@ -62,6 +62,7 @@ jobs:
               "pyaudio",
               "pvporcupine",
               "sentence_transformers",
+              "silero_vad",
               "sounddevice",
               "soundfile",
               "spacy",

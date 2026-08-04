@@ -37,9 +37,9 @@ BUFFER_MAX_BYTES_16K = SILERO_SAMPLE_RATE * 2 * 2  # 64000 bytes
 class SileroVAD:
     """Wrapper Silero VAD pour le daemon audio JARVIS.
 
-    Charge le modele neural Silero (~1 Mo) via torch.hub. Si le chargement
-    echoue (torch absent, reseau indisponible), le VAD reste indisponible
-    et le daemon doit utiliser le fallback RMS.
+    Charge le modele neural Silero embarque dans le paquet ``silero-vad``.
+    Aucun depot ni poids n'est telecharge au runtime. Si le paquet ou Torch
+    manque, le VAD reste indisponible et le daemon utilise le fallback RMS.
 
     Le modele tourne en <1ms par chunk sur Apple Silicon M4.
 
@@ -68,25 +68,24 @@ class SileroVAD:
         self._load_model()
 
     def _load_model(self) -> None:
-        """Charge le modele Silero VAD via torch.hub (lazy, une fois)."""
+        """Charge le modele TorchScript distribue dans le wheel officiel."""
         try:
-            import torch  # noqa: F401
+            from silero_vad import load_silero_vad
         except ImportError:
             logger.warning(
-                "[silero_vad] torch non installe — pip install torch. Fallback RMS actif."
+                "[silero_vad] paquet silero-vad absent — "
+                "pip install -r requirements.txt. Fallback RMS actif."
             )
             return
 
         try:
-            self._model, _ = torch.hub.load(
-                repo_or_dir="snakers4/silero-vad",
-                model="silero_vad",
-                force_reload=False,
-                trust_repo=True,
-            )
+            self._model = load_silero_vad()
             self._model.eval()
             self._available = True
-            logger.info("[silero_vad] Modele charge (threshold=%.2f)", self.threshold)
+            logger.info(
+                "[silero_vad] Modele embarque charge (threshold=%.2f)",
+                self.threshold,
+            )
         except Exception as e:
             logger.warning("[silero_vad] Chargement echoue : %s — fallback RMS", e)
             self._available = False
