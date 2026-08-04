@@ -1,5 +1,8 @@
 # 35 — Cahier des charges : `web_mobile/`
 
+> **Cahier historique livré.** Pour l'état runtime courant, consulter
+> `Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md`.
+
 Interface mobile JARVIS refaite de zéro, isolée, servie par FastAPI.
 Rédigé le 30/07/2026. **Statut : implémenté, corrigé et audité le 31/07/2026.**
 

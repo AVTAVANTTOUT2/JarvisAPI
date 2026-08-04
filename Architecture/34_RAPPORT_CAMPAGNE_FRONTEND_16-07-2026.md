@@ -1,5 +1,9 @@
 # Rapport de campagne — Cohérence architecture & frontend canonique
 
+> **Archive de campagne (15–16 juillet 2026).** Les topologies et fallbacks
+> décrits ci-dessous sont historiques. L'état courant vit dans
+> `Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md`.
+
 **Période** : 15–16 juillet 2026  
 **Dépôt** : `AVTAVANTTOUT2/JarvisAPI` (workspace local `/Users/zeldris/JARVIS`)  
 **Périmètre** : quatre missions successives demandées dans la même campagne  

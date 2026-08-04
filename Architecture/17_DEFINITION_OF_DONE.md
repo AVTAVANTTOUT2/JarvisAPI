@@ -1,5 +1,8 @@
 # 17 — Definition of Done
 
+> **Archive des phases de refactoring de juillet 2026.** Les preuves restent
+> utiles, mais les fallbacks cités ont depuis été retirés.
+
 **Date** : 11 juillet 2026
 **Statut** : Règle de gouvernance
 

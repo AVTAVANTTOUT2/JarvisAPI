@@ -31,7 +31,7 @@ Le dossier `Architecture/` reflète l'état du code après l'implémentation de 
 | 565 tests pytest (66 fichiers) | Collecte complète après ajout de NotificationService ; 564 passants, 1 ignoré | ✅ Actualisé |
 | Couche API modulaire | `main.py` 211 lignes, 17 routeurs `api/` + Fitness, chaque module `api/` ≤ 500 lignes, aucun import `api → main` | ✅ Validé par les contrats Phase 4 et l'audit généré |
 | AppleDataService | ouverture read-only et conversion Apple centralisées ; consommateurs iMessage migrés | ✅ Validé par 6 contrats et garde-fou AST Phase 5 |
-| Frontend unifié | Next.js 15/React 19, 25 pages statiques, wrapper API unique et fallbacks conservés | ✅ 10 Vitest, 3 Playwright, 4 contrats FastAPI et 3 builds |
+| Frontend canonique | Next.js 15/React 19, wrapper API unique, `web/` bibliothèque et mobile autonome | ✅ tests/typecheck web, tests/typecheck/build/E2E Next et contrats FastAPI |
 
 ## 2. Composants cibles restant à implémenter
 
@@ -48,7 +48,7 @@ Ces trois composants sont documentés comme appartenant à l'architecture cible.
 ## 3. PWA LockGate — résolu en Phase 6
 
 Vérification complète par 4 méthodes :
-- **Code** : `pwa/src/app/client-layout.tsx` et `web/src/App.tsx` importent `LockGate` depuis `jarvis_auth/`
+- **Code** : le bureau importe `LockGate` depuis `jarvis_auth/` ; le mobile autonome applique sa frontière fail-closed dans `web_mobile/js/auth.js`
 - **Fail-closed** : le hook efface l'état et masque les enfants si `/api/auth/status` échoue
 - **Cookie** : `AuthClient` et le wrapper API transmettent `credentials: 'include'`
 - **E2E** : le scénario mobile non authentifié ne trouve aucun contenu privé
@@ -141,7 +141,7 @@ Tous les diagrammes sont cohérents avec leur contexte (actuel vs cible).
 >
 > Il est cohérent avec le code réel. Les écarts identifiés sont soit des cibles futures documentées comme telles, soit des métriques mineures qui viennent d'être corrigées.
 >
-> **Prochaine action : CI Phase 6, validation sur appareils physiques, puis retrait progressif des fallbacks.**
+> **Prochaine action : solder les dettes voix actives du registre canonique puis valider la chaîne intégrée sur matériel réel.**
 
 ---
 

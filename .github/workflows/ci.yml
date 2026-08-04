@@ -194,6 +194,9 @@ jobs:
           --output artifacts/architecture_truth.json
           --schema-output database/schema.sql
 
+      - name: Vérifier le registre canonique de dette technique
+        run: python tools/audit_technical_debt.py --check
+
       - name: pytest
         run: python -m pytest tests/ jarvis/tests agents/devagent -q
 

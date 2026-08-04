@@ -1,5 +1,8 @@
 # 04 — Architecture Decision Records
 
+> Les sections « problème » et alternatives conservent le contexte historique.
+> L'état runtime courant est inventorié dans `Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md`.
+
 **Date** : 11 juillet 2026
 **Total** : 10 ADR
 

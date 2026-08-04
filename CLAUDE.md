@@ -14,7 +14,7 @@ JARVIS est un assistant personnel multi-agents avec interface vocale + web, tour
 ## Stack technique
 
 - **Backend** : Python 3.12 + FastAPI + WebSocket
-- **Frontend** : bureau en Next.js 15 + React 19 + Tailwind v4 (`frontend/out` prioritaire, vues `web/src` réutilisées, `web/dist` en repli) ; mobile en HTML/CSS/JS vanilla autonome (`web_mobile/`, servi sous `/mobile/`)
+- **Frontend** : bureau en Next.js 15 + React 19 + Tailwind v4 (`frontend/out`, vues `web/src` réutilisées, aucun fallback desktop) ; mobile en HTML/CSS/JS vanilla autonome (`web_mobile/`, servi sous `/mobile/`)
 - **Base de données** : SQLite (fichier local `data/jarvis.db`)
 - **LLM** : DeepSeek API (format OpenAI, `llm.py`) — routing fast/main, mode « tâche lourde » (max_tokens élevé) pour les productions longues
 - **STT** : local multi-moteurs (`faster-whisper`, WhisperKit ou whisper.cpp), sans repli cloud
@@ -53,13 +53,13 @@ Depuis du code async, utiliser `await event_bus.emit(event)`. Depuis un chemin s
 
 ## Frontend unifié et SDK Auth — Phase 6
 
-`frontend/` est l'application canonique Next.js 15/React 19. `UnifiedApp` choisit le layout mobile avec User-Agent + viewport, sinon le layout desktop, puis importe directement les vues existantes sans les recopier. L'export statique produit 26 segments métier et FastAPI le sert avant les fallbacks.
+`frontend/` est l'application bureau canonique Next.js 15/React 19. Il importe directement les vues de `web/src` sans les recopier. FastAPI et le supervisor servent exclusivement son export statique ; si `frontend/out` manque, ils répondent 503. Les téléphones sont redirigés vers l'application autonome `web_mobile/`.
 
 - `jarvis_auth/` est l'unique implémentation de `AuthClient`, `useLockGate()` et `LockGate`. Le rendu est fail-closed et ne monte jamais les enfants privés avant confirmation de session.
 - `frontend/src/lib/api.ts` est l'unique appel direct à `fetch()` dans les trois arbres frontend ; il inclut toujours le cookie, y compris pour uploads, GPS et file hors-ligne.
-- `web/dist` reste le repli racine si `frontend/out` manque. Les téléphones ne voient ni l'un ni l'autre : ils sont redirigés vers `/mobile/`.
+- `web/` est uniquement une bibliothèque de vues : aucun serveur dev, build, manifest ou Service Worker propre.
 - `frontend/public/sw.js` ne cache que `/_next/static` et `/icons`, jamais `/api`, HTML ou données personnelles.
-- Validation actuelle au 24/07/2026 : 18 Vitest, typecheck/build Next.js 15, 9 scénarios Playwright, 4 contrats FastAPI, 50 tests web et builds des deux fallbacks. La suite vérifie notamment l'arrêt des services privés lors du verrouillage automatique, le déverrouillage réel, le chat WebSocket, les tâches avec CSRF, les événements SSE et le chargement de MapLibre sous la CSP de production. Les parcours critiques échouent aussi sur erreur console, exception de page, requête réseau échouée ou réponse HTTP en erreur. GitHub Actions exécute ces scénarios navigateur dans le job dédié au frontend unifié, à côté du build Vite historique.
+- La CI exécute séparément les tests/typecheck de la bibliothèque `web/` et les tests, typecheck, build et scénarios Playwright de `frontend/`. Les parcours critiques échouent aussi sur erreur console, exception de page, requête réseau échouée ou réponse HTTP en erreur.
 - La CI possède un job séparé d'installation de production depuis les locks Python 3.12 hashés par plateforme (`pip --require-hashes`), suivi de `pip check` et des imports de fumée de Torch, PyAudio, spaCy et faster-whisper. Un job `macos-26` rejoue en plus les contrats Apple simulés et les smoke tests natifs (`osascript`, dictionnaires Mail/Calendar/Contacts/Messages, plist launchd, `say`, CoreAudio, iMessage, capture et audio). Les appareils physiques et l'observation 24 h ne sont pas vérifiés.
 - `frontend/package.json`, `web/package.json` et les deux jobs frontend GitHub Actions épinglent tous `pnpm 11.11.0`. Les deux lockfiles v9 sont installés avec `--frozen-lockfile`, et un contrat pytest interdit désormais toute dérive de version.
 
@@ -2131,16 +2131,16 @@ BACKUP_ENCRYPTION_PASSPHRASE=
 
 ## PWA offline-first — Service Worker, file d'écriture, push (mai 2026)
 
-> **État actuel (juil. 2026)** : cette section décrit le **bureau** uniquement.
-> Le frontend canonique est `frontend/` (Next.js 15 → `frontend/out`), `web/`
-> reste le repli Vite et la source des vues bureau, et le Service Worker unifié
+> **État actuel (août 2026)** : cette section conserve l'historique du lot de
+> mai. Le frontend canonique est `frontend/` (Next.js 15 → `frontend/out`),
+> `web/` est seulement sa bibliothèque de vues, et l'unique Service Worker
 > vit dans `frontend/public/sw.js`. Le téléphone ne passe plus par là du tout :
 > voir « Interface mobile autonome — `web_mobile/` ». Rien de ce lot (Service
 > Worker, file d'écriture hors ligne, push) n'est encore porté côté mobile.
 
-`web/` (SPA Vite + React, repli et source bureau) a reçu une PWA installable et
-utilisable hors ligne — c’était l’interface qui portait déjà le LockGate au
-moment du lot mai 2026.
+L'ancienne SPA Vite avait reçu une PWA installable et utilisable hors ligne.
+Son shell et son Service Worker sont retirés ; les sources de vues et la logique
+offline encore consommée vivent dans `web/src`.
 
 ### Service Worker (Workbox, mode injectManifest)
 
@@ -2241,9 +2241,8 @@ moment du lot mai 2026.
   hors ligne des listes tâches/notifications) — l'app shell fonctionne hors
   ligne, mais les données déjà chargées ne persistent pas automatiquement
   entre sessions sans réseau pour l'instant.
-- Limite historique de ce lot désormais partiellement levée : la Phase 6
-  fournit le LockGate partagé et un Service Worker unifié sans cache privé.
-  Les Service Workers des deux fallbacks restent jusqu'à leur retrait.
+- Limite historique levée : le LockGate est partagé et un seul Service Worker
+  unifié subsiste, sans cache privé.
 - Vérification faite dans un navigateur headless en sandbox (pas de vrai
   téléphone) — conso batterie/CPU réelle et comportement d'installation
   natif à valider sur device physique.
@@ -2345,7 +2344,6 @@ web_mobile/
 |---|---|---|
 | `WEB_MOBILE_DIR` | `./web_mobile` | Répertoire servi sous `/mobile/` |
 | `FRONTEND_DIST_DIR` | `./frontend/out` | Build bureau Next.js 15 |
-| `WEB_DIST_DIR` | `./web/dist` | Repli Vite bureau |
 
 Si `web_mobile/` est absent : pas de redirection, pas d'erreur, le bureau est
 servi normalement.

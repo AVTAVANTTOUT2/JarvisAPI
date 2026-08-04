@@ -1,5 +1,9 @@
 # 03 — Audit Technique
 
+> **Audit historique de juillet 2026.** Les états de migration décrits dans ce
+> rapport ne remplacent pas la vérité runtime générée dans
+> `Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md`.
+
 **Date initiale** : 11 juillet 2026
 **Dernière mise à jour** : 14 juillet 2026
 

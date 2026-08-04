@@ -55,7 +55,8 @@ Voir [32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md](./32_FRONTEND_DATABASE_SOURCE_OF_
 | [20_CONTRATS_INTERNES.md](./20_CONTRATS_INTERNES.md) | Contrats internes — interfaces entre services |
 | [21_DEPENDENCY_RULES.md](./21_DEPENDENCY_RULES.md) | Règles de dépendances autorisées et interdites |
 | [22_FITNESS_FUNCTIONS.md](./22_FITNESS_FUNCTIONS.md) | Architecture Fitness Functions — règles CI |
-| [23_TECHNICAL_DEBT.md](./23_TECHNICAL_DEBT.md) | Stratégie de gestion de la dette technique |
+| [23_TECHNICAL_DEBT.md](./23_TECHNICAL_DEBT.md) | Registre canonique des 41 dettes techniques et preuves de résolution |
+| [technical_debt_registry.json](./technical_debt_registry.json) | Source structurée validée en CI du registre de dette |
 | [24_GOUVERNANCE_ADR.md](./24_GOUVERNANCE_ADR.md) | Gouvernance du cycle de vie des ADR |
 | [25_REVUE_ARCHITECTURE.md](./25_REVUE_ARCHITECTURE.md) | Checklist de revue d'architecture |
 | [26_SCORE_SANTE.md](./26_SCORE_SANTE.md) | Score de santé — mesure qualité architecture |
@@ -98,7 +99,7 @@ Voir [32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md](./32_FRONTEND_DATABASE_SOURCE_OF_
 │  Couche API        │ main.py 211 lignes, 18 routeurs     │
 │  Database          │ façade 236 lignes, 25 modules       │
 │  Event bus         │ 10 événements, 3 consommateurs      │
-│  Frontend          │ 1 cible canonique + 2 fallbacks     │
+│  Frontend          │ 1 bureau + bibliothèque + mobile    │
 │  Partage           │ auth, client API, types et vues     │
 │                    │ 0 lecteur direct hors AppleDataService│
 │                    │ 1 conversion Apple canonique         │
@@ -113,14 +114,15 @@ Voir [32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md](./32_FRONTEND_DATABASE_SOURCE_OF_
 graph TB
     subgraph "Clients"
         FRONT["Frontend unifié<br/>Next.js 15 + React 19<br/>frontend/out/"]
-        LEGACY["Repli bureau<br/>web/dist"]
+        VIEWS["Bibliothèque de vues<br/>web/src<br/>non exécutable"]
+        MOBILE["Mobile autonome<br/>web_mobile<br/>/mobile/"]
         TV["TV Dashboard<br/>port 5174"]
         IMESSAGE["iPhone<br/>iMessage bridge"]
         AGENT["MacBook Agent<br/>jarvis_agent.py"]
     end
 
     subgraph "Supervisor (port 9000)"
-        SUP["Supervisor 24/7<br/>frontend/out puis web/dist<br/>proxy WS<br/>auto-restart backend"]
+        SUP["Supervisor 24/7<br/>frontend/out uniquement<br/>proxy WS<br/>auto-restart backend"]
     end
 
     subgraph "Backend (port 8081)"
@@ -151,7 +153,8 @@ graph TB
     end
 
     FRONT --> SUP
-    LEGACY --> MAIN
+    VIEWS --> FRONT
+    MOBILE --> MAIN
     TV --> MAIN
     IMESSAGE --> MAIN
     AGENT --> MAIN
@@ -249,7 +252,9 @@ Chaque phase est **indépendante**, **réversible**, **testée**, et **sans inte
 
 **Dossier Architecture/ : 35 fichiers Markdown + 3 sous-répertoires — source de vérité officielle du projet**
 
-**Prochaine étape** : valider sur appareils physiques, aligner éventuellement le supervisor (9000) sur `frontend/out`, puis retirer progressivement les fallbacks historiques.
+**Prochaine étape** : solder les dettes voix actives du
+[`23_TECHNICAL_DEBT.md`](./23_TECHNICAL_DEBT.md), puis valider les parcours audio,
+Android et macOS sur les appareils physiques ciblés.
 
 ---
 

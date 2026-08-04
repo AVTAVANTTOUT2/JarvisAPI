@@ -294,6 +294,44 @@ def test_doc_scan_flags_readme_errors(fake_repo: Path) -> None:
     assert any(f["severity"] == "error" for f in findings)
 
 
+@pytest.mark.parametrize(
+    ("token", "kind"),
+    [
+        ("web/dist", "retired_web_dist"),
+        ("pwa/out", "retired_pwa_out"),
+        ("vite_dev", "retired_vite_dev"),
+        ("Vite Dev", "retired_vite_dev"),
+        ("localhost:5173", "retired_vite_port"),
+        ("127.0.0.1:5173", "retired_vite_port"),
+    ],
+)
+def test_frontend_doc_scan_rejects_retired_runtime(
+    tmp_path: Path,
+    token: str,
+    kind: str,
+) -> None:
+    (tmp_path / "README.md").write_text(
+        f"Instruction frontend obsolète : {token}\n",
+        encoding="utf-8",
+    )
+
+    findings = audit.scan_canonical_frontend_docs(tmp_path)
+
+    assert [(finding["file"], finding["kind"]) for finding in findings] == [
+        ("README.md", kind)
+    ]
+
+
+def test_frontend_doc_scan_accepts_current_runtime(tmp_path: Path) -> None:
+    (tmp_path / "README.md").write_text(
+        "frontend/out sert le bureau ; web/src est une bibliothèque ; "
+        "web_mobile est servi sous /mobile/.\n",
+        encoding="utf-8",
+    )
+
+    assert audit.scan_canonical_frontend_docs(tmp_path) == []
+
+
 def test_build_report_and_cli(fake_repo: Path, tmp_path: Path) -> None:
     out = tmp_path / "out" / "architecture_truth.json"
     rc = audit.main(["--root", str(fake_repo), "--output", str(out)])

@@ -1,5 +1,9 @@
 # 19 — Validation Finale
 
+> **Rapport historique de juillet 2026.** Les prochaines actions et nombres de
+> tests de ce document sont figés ; consulter le registre de dette canonique et
+> les artefacts générés pour l'état courant.
+
 **Date** : 11 juillet 2026
 **Statut** : Synthèse actualisée après les Phases 1 à 6 et NotificationService
 

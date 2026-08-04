@@ -1,88 +1,68 @@
-# 23 — Gestion de la Dette Technique
+# 23 — Registre canonique de dette technique
 
-**Date** : 11 juillet 2026
-**Statut** : Processus — toute nouvelle dette doit être enregistrée
+<!-- Généré par tools/audit_technical_debt.py ; modifier le JSON source. -->
 
----
+**Mise à jour :** 2026-08-04 — **État :** 37 résolues, 4 actives, 41 suivies.
 
-## Définition
+La source de vérité est [`Architecture/technical_debt_registry.json`](technical_debt_registry.json). La CI valide les identifiants, les statuts, les preuves et ce rendu avec `python tools/audit_technical_debt.py --check`. Il n'existe pas de table SQLite `technical_debt` : la consigne historique correspondante est retirée.
 
-Une dette technique est un choix d'implémentation qui sacrifie la qualité long terme pour un bénéfice court terme. Elle doit être **consciente, documentée, et planifiée** pour remboursement.
+Les anciens identifiants `TD-001` à `TD-013`, tous soldés, restent dans l'historique Git. Le présent registre couvre exactement l'audit consolidé P0/P1/P2 postérieur aux audits P01–P18.
 
-## Inventaire actuel
+## Dettes actives
 
-| ID | Description | Sévérité | Localisation | Estimé (h) | Planifié |
-|---|---|---|---|---|---|
-| TD-001 | God object main.py (7 197 lignes) | RÉSOLUE | `main.py` sous 500 lignes + 18 routeurs montés | 0h | Phase 4 — 14/07/2026 |
-| TD-002 | God object database/__init__.py | RÉSOLUE | Façade 236 lignes, 25 modules | 0h | Phase 2 — 14/07/2026 |
-| TD-003 | PWA sans LockGate | RÉSOLUE | `jarvis_auth/` partagé | 0h | Phase 6 — 14/07/2026 |
-| TD-004 | 3 curseurs ROWID indépendants | RÉSOLUE | `imessage_cursor.py` | 0h | Phase 1 — 11/07/2026 |
-| TD-005 | Producteurs directs de `create_notification()` | RÉSOLUE | `jarvis/notification_service.py` + 16 producteurs migrés | 0h | 14/07/2026 |
-| TD-006 | 2 frontends, 0 composants partagés | RÉSOLUE pour le chemin canonique | `frontend/` + sources réutilisées | 0h | Phase 6 — 14/07/2026 |
-| TD-007 | 25+ connexions directes chat.db | RÉSOLUE | `integrations/apple_data.py` + consommateurs migrés | 0h | Phase 5 — 14/07/2026 |
-| TD-008 | Event bus sans consommateurs métiers | RÉSOLUE | 10 événements, 3 consommateurs | 0h | Phase 3 — 14/07/2026 |
-| TD-009 | 4 conversions Apple timestamp | RÉSOLUE | `apple_epoch_to_datetime()` / `datetime_to_apple_epoch()` | 0h | Phase 5 — 14/07/2026 |
-| TD-010 | Cycle main↔daemon | RÉSOLUE | `pipeline.py` | 0h | Phase 1 — 11/07/2026 |
-| TD-011 | 42 imports concentrés dans main.py | RÉSOLUE | Dépendances réparties dans `api/` | 0h | Phase 4 — 14/07/2026 |
-| TD-012 | Service Workers des fallbacks conservés | MINEURE | frontend/ + web/ + pwa/ | 2h | Retrait des fallbacks |
-| TD-013 | Dates relatives dupliquées | MINEURE | sources desktop/mobile | 1h | Backlog frontend |
+| ID | Dette | Propriétaire | Prochaine action | Preuves |
+|---|---|---|---|---|
+| TD-P0-01 | Latence micro-vers-premier-son encore supérieure à la cible de 2 s | lot audio/STT coordonné avec Claude | Mesurer la chaîne intégrée, réduire le STT temps réel et borner la variance du premier token | [`audio/voice_latency.py`](../audio/voice_latency.py), [`tests/test_voice_latency.py`](../tests/test_voice_latency.py) |
+| TD-P1-04 | Silero VAD peut télécharger du code via torch.hub au runtime | lot audio/STT coordonné avec Claude | Versionner le modèle local, interdire le réseau au chargement et retirer torch.hub du runtime | [`audio/vad_silero.py`](../audio/vad_silero.py), [`requirements.txt`](../requirements.txt) |
+| TD-P1-06 | Le tour vocal conserve une orchestration distincte du moteur conversationnel canonique | lot audio/STT coordonné avec Claude | Partager un moteur de tour unique et rendre les actions explicites dans le protocole streamé | [`api/voice_processing.py`](../api/voice_processing.py), [`api/chat_cognitive.py`](../api/chat_cognitive.py) |
+| TD-P1-07 | La file vocale jette encore un énoncé sous pression et le filtre d’écho n’est pas partagé | lot audio/STT coordonné avec Claude | Appliquer une backpressure observable et le même filtre STT à tous les canaux natifs et mobiles | [`scripts/audio_daemon.py`](../scripts/audio_daemon.py), [`audio/stt_daemon.py`](../audio/stt_daemon.py) |
 
-## Dettes critiques remboursées
+## Dettes résolues
 
-| Description | Résolution | Date |
-|---|---|---|
-| SQLite sans `busy_timeout` | `PRAGMA busy_timeout = 5000` sur chaque connexion applicative | 11/07/2026 |
-| Race condition sur le set WebSocket | Verrou sur les mutations et snapshot avant diffusion | 11/07/2026 |
-| Curseurs ROWID uniquement en mémoire | Registre SQLite central avec offset monotone par consommateur | 11/07/2026 |
-| Cycle d'import `main.py` ↔ daemons | Contrat `pipeline.py` configuré par injection | 11/07/2026 |
-| Producteurs directs de notifications | `NotificationService`, façade compatible et garde-fou statique sur 16 producteurs | 14/07/2026 |
-| Event bus sans consommateurs métiers | 10 événements typés, journal SQLite, WebSocket, TTS et PWA SSE | 14/07/2026 |
-| God object API | `main.py` maintenu sous 500 lignes, 18 routeurs montés et handlers/support spécialisés sous 500 lignes | 14/07/2026 |
-| Imports concentrés dans `main.py` | Dépendances déplacées avec leur responsabilité, sans import inverse `api → main` | 14/07/2026 |
-| Lecteurs directs de `chat.db` et conversions Apple dupliquées | `AppleDataService` read-only centralisé et garde-fou AST | 14/07/2026 |
-| PWA sans écran de verrouillage | SDK `jarvis_auth/` commun, LockGate fail-closed et tests mobile | 14/07/2026 |
-| Frontends sans réutilisation et wrappers API concurrents | Application Next.js 15 responsive, vues sources réutilisées et unique client réseau authentifié | 14/07/2026 |
+| ID | Dette | Résolution vérifiable | Preuves |
+|---|---|---|---|
+| TD-P0-02 | Moteur TTS cible non validé sur la machine de production | Fish a été retiré et remplacé par Qwen3 local, mesuré et validé avec une référence française versionnée | [`docs/audio/QWEN3_LOCAL_STATUS.md`](../docs/audio/QWEN3_LOCAL_STATUS.md), [`tests/test_local_tts.py`](../tests/test_local_tts.py) |
+| TD-P0-03 | Analyse des captures d’écran distantes appelée avec un contrat incomplet | Le routeur fournit désormais application et dimensions à l’API d’analyse publique stable | [`api/router_devices.py`](../api/router_devices.py), [`tests/test_security_middleware.py`](../tests/test_security_middleware.py) |
+| TD-P0-04 | SQL de migration et journal schema_migrations non atomiques | Chaque migration et son enregistrement s’exécutent dans une transaction unique sur la même connexion | [`database/migrations.py`](../database/migrations.py), [`tests/test_db_migrations.py`](../tests/test_db_migrations.py) |
+| TD-P0-05 | I/O SQLite et TTS bloquantes dans la coroutine émettrice du bus | Persistance, diffusion et consommateurs lents sont découplés avec files et politiques de dépassement testées | [`jarvis/event_bus.py`](../jarvis/event_bus.py), [`tests/test_event_bus_contract.py`](../tests/test_event_bus_contract.py) |
+| TD-P0-06 | Release Android et conservation des DTO sous R8 non validées | La CI construit debug et release, exécute tests/lint, vérifie le mapping R8 et lance les tests instrumentés | [`.github/workflows/ci.yml`](../.github/workflows/ci.yml), [`tests/test_ci_android_release.py`](../tests/test_ci_android_release.py) |
+| TD-P0-07 | Application macOS et widget absents de la CI | Le job macOS régénère le projet et compile app plus WidgetKit en Release sans signature | [`.github/workflows/ci.yml`](../.github/workflows/ci.yml), [`tests/test_ci_macos.py`](../tests/test_ci_macos.py) |
+| TD-P0-08 | Uploads audio et image bornés seulement après allocation complète | Les lectures sont bornées en flux et les images sont contrôlées en octets, dimensions et pixels avant décodage complet | [`jarvis/uploads.py`](../jarvis/uploads.py), [`tests/test_security_middleware.py`](../tests/test_security_middleware.py) |
+| TD-P1-01 | Exceptions internes et réponses de mutation sans contrat stable | Les routes utilisent des erreurs publiques codées et des modèles d’entrée/sortie stricts, avec détails réservés aux logs | [`api/errors.py`](../api/errors.py), [`tests/test_http_error_contract.py`](../tests/test_http_error_contract.py) |
+| TD-P1-02 | Authentification mobile limitée à un pavé numérique | Le mobile accepte PIN variable ou passphrase et suit le même contrat de validation que le serveur | [`web_mobile/js/auth.js`](../web_mobile/js/auth.js), [`tests/test_web_mobile.py`](../tests/test_web_mobile.py) |
+| TD-P1-03 | Verrouillage mobile d’inactivité uniquement cosmétique | L’état de verrouillage est persistant et impose une vérification avant remontage des vues et canaux temps réel | [`web_mobile/js/auth.js`](../web_mobile/js/auth.js), [`tests/test_web_mobile.py`](../tests/test_web_mobile.py) |
+| TD-P1-05 | Usage et coût des réponses LLM streamées enregistrés à zéro | L’usage fournisseur final est propagé, avec estimation locale explicitement marquée lorsque nécessaire | [`llm.py`](../llm.py), [`tests/test_llm_stream_usage.py`](../tests/test_llm_stream_usage.py) |
+| TD-P1-08 | Écritures et agrégations Fitness bloquantes dans les coroutines | Les accès repository sont déportés hors de la boucle async et couverts par les contrats service | [`app/fitness/services.py`](../app/fitness/services.py), [`tests/test_fitness_program.py`](../tests/test_fitness_program.py) |
+| TD-P1-09 | Erreurs Fitness absorbées et timezone Europe/Paris codée en dur | Les replis sont journalisés, les erreurs structurées et les bornes de jour utilisent la timezone configurée | [`app/fitness/meal_analysis.py`](../app/fitness/meal_analysis.py), [`tests/test_fitness_meal_analysis.py`](../tests/test_fitness_meal_analysis.py) |
+| TD-P1-10 | Schéma SQLite et nombres de tables avec plusieurs sources de vérité | Une commande génère schéma et inventaire, et la CI échoue dès qu’un artefact diverge du runtime frais | [`tools/audit_architecture_truth.py`](../tools/audit_architecture_truth.py), [`tests/test_audit_architecture_truth.py`](../tests/test_audit_architecture_truth.py) |
+| TD-P1-11 | Next et Vite restaient deux applications desktop exécutables | Next est l’unique runtime ; web est une bibliothèque sans dev/build, fallback ni Service Worker | [`core/frontend_resolution.py`](../core/frontend_resolution.py), [`tests/test_phase6_frontend.py`](../tests/test_phase6_frontend.py) |
+| TD-P1-12 | Noms d’agents internes visibles dans le chat utilisateur | Le rendu utilisateur présente uniquement JARVIS et réserve les identifiants internes au diagnostic | [`web/src/app/components/views/ChatView.tsx`](../web/src/app/components/views/ChatView.tsx), [`tests/test_web_mobile.py`](../tests/test_web_mobile.py) |
+| TD-P1-13 | Sorties Web Push et FCM sans allowlist stricte | Schémas, ports, hôtes et plages privées sont validés, et le token FCM est borné à l’hôte Google attendu | [`core/outbound_security.py`](../core/outbound_security.py), [`tests/test_outbound_security.py`](../tests/test_outbound_security.py) |
+| TD-P1-14 | Installations Python non reproductibles | Des locks hashés par plateforme et profil sont générés par une commande contrôlée et vérifiés en CI | [`tools/update_python_locks.py`](../tools/update_python_locks.py), [`tests/test_python_locks.py`](../tests/test_python_locks.py) |
+| TD-P1-15 | Mode autonome pr_only pouvant se terminer sans PR | Le contrat échoue explicitement si commit, push ou création de PR ne peuvent pas être prouvés | [`integrations/cursor_delegation.py`](../integrations/cursor_delegation.py), [`tests/test_cursor_delegation.py`](../tests/test_cursor_delegation.py) |
+| TD-P1-16 | Séparation des secrets entre fichiers env uniquement documentaire | Le chargeur refuse les clés sensibles mal placées et contrôle les permissions des fichiers | [`env_loader.py`](../env_loader.py), [`tests/test_env_loader.py`](../tests/test_env_loader.py) |
+| TD-P1-17 | CSP autorisant inline généralisé et tous les WebSockets | La CSP est générée avec nonces et origines connect-src explicitement bornées | [`core/html_security.py`](../core/html_security.py), [`tests/test_html_security.py`](../tests/test_html_security.py) |
+| TD-P1-18 | Agent distant autorisant HTTP avec jetons et captures | HTTP est limité à la boucle locale et toute cible distante exige HTTPS validé | [`scripts/jarvis_agent.py`](../scripts/jarvis_agent.py), [`tests/test_jarvis_agent_device_auth.py`](../tests/test_jarvis_agent_device_auth.py) |
+| TD-P1-19 | Valeurs d’infrastructure personnelle versionnées comme défauts | Les paramètres TV et réseau utilisent des valeurs vides ou locales et exigent une configuration explicite | [`config.py`](../config.py), [`tests/test_tv_configuration.py`](../tests/test_tv_configuration.py) |
+| TD-P2-01 | Stockage UTC et bornes de journée locale incohérents | Les écritures sont UTC et les requêtes convertissent les bornes locales en UTC, y compris aux transitions DST | [`database/time_buckets.py`](../database/time_buckets.py), [`tests/test_local_time_bucket_contracts.py`](../tests/test_local_time_bucket_contracts.py) |
+| TD-P2-02 | Suppression de conversation laissant des objets liés orphelins | Une purge transactionnelle couvre messages, documents, voix et workflows avec test d’absence d’orphelins | [`database/conversations.py`](../database/conversations.py), [`tests/test_conversation_purge.py`](../tests/test_conversation_purge.py) |
+| TD-P2-03 | Faux contrat de replay durable dans le journal d’événements | Le contrat de consommation durable est explicite, atomique et testé au lieu d’exposer une API aspirante | [`database/event_log.py`](../database/event_log.py), [`tests/test_event_bus_contract.py`](../tests/test_event_bus_contract.py) |
+| TD-P2-04 | SSE sans reprise durable pour les clients lents | Les événements ont un identifiant monotone, Last-Event-ID et une reprise bornée depuis le journal | [`jarvis/event_bus.py`](../jarvis/event_bus.py), [`tests/test_sse_resume.py`](../tests/test_sse_resume.py) |
+| TD-P2-05 | Interface mobile incomplète et affordances mortes | Déconnexion, Fitness, verrouillage et interactions réellement supportées sont branchés et testés | [`web_mobile/js/app.js`](../web_mobile/js/app.js), [`tests/test_web_mobile.py`](../tests/test_web_mobile.py) |
+| TD-P2-06 | Validation Fitness convertissant les champs vides et calculs hebdomadaires divergents | La validation refuse les valeurs vides invalides et le comptage utilise une règle unique avec compatibilité migrée | [`web/src/app/components/fitness/programSettings.ts`](../web/src/app/components/fitness/programSettings.ts), [`tests/test_fitness_program.py`](../tests/test_fitness_program.py) |
+| TD-P2-07 | Escalade coach_deep sans différence de modèle ni budget | Le pré-routage mort a été supprimé et chaque chemin restant possède un budget effectif | [`agents/coach.py`](../agents/coach.py), [`tests/test_coach_routing.py`](../tests/test_coach_routing.py) |
+| TD-P2-08 | Capacités et options aspirantes ou mortes | Les drapeaux, mutateurs et capacités non opérationnels ont été retirés ou rendus explicitement inertes et testés | [`tests/test_android_future_contract.py`](../tests/test_android_future_contract.py), [`tests/test_quality_mutation_policy.py`](../tests/test_quality_mutation_policy.py) |
+| TD-P2-09 | Bundle front_tv orphelin et template TV legacy | Le bundle orphelin et l’ancien runtime TV ont été supprimés, la configuration canonique restant testée | [`tv/README.md`](../tv/README.md), [`tests/test_tv_configuration.py`](../tests/test_tv_configuration.py) |
+| TD-P2-10 | Automatisation Uber Eats fragile présentée comme dépendance fiable | Le flux est explicitement expérimental, désactivé ou dry-run et borné par des confirmations sans achat automatique | [`api/food_control.py`](../api/food_control.py), [`tests/test_food_control.py`](../tests/test_food_control.py) |
+| TD-P2-11 | Erreurs API mélangeant statuts HTTP et objets ok:false en 200 | Les domaines utilisent une enveloppe d’erreur structurée et des statuts HTTP cohérents testés | [`api/errors.py`](../api/errors.py), [`tests/test_http_error_contract.py`](../tests/test_http_error_contract.py) |
+| TD-P2-12 | Routes API sans inventaire de consommateur ou de test | L’audit génère route, propriétaire, consommateurs et couverture, avec policy exacte contrôlée en CI | [`Architecture/api_route_ownership.json`](../Architecture/api_route_ownership.json), [`tests/test_audit_architecture_truth.py`](../tests/test_audit_architecture_truth.py) |
+| TD-P2-13 | Contrats Android TLS, WebSocket, offline, services, Keystore et R8 incomplets | Tests JVM et instrumentés couvrent ces briques, et un émulateur API 35 exécute la porte de release en CI | [`android/app/src/androidTest/kotlin/fr/jarvis/companion/data/JarvisSecureStoreInstrumentedTest.kt`](../android/app/src/androidTest/kotlin/fr/jarvis/companion/data/JarvisSecureStoreInstrumentedTest.kt), [`tests/test_ci_android_release.py`](../tests/test_ci_android_release.py) |
+| TD-P2-14 | Service Workers, MapLibre et dates relatives dupliqués | Un seul Service Worker, constructeur MapLibre et module de temps runtime sont imposés par contrat | [`frontend/src/lib/timeFormat.ts`](../frontend/src/lib/timeFormat.ts), [`tests/test_frontend_runtime_uniqueness.py`](../tests/test_frontend_runtime_uniqueness.py) |
 
-## Comment identifier une nouvelle dette
+## Règles de gouvernance
 
-Lors d'une code review, si l'un des critères suivants est détecté, une entrée de dette DOIT être créée :
-
-- Duplication de code (>10 lignes identiques)
-- Fonction >100 lignes sans raison valable
-- Module >500 lignes ajouté sans split
-- Nouveau lazy import non justifié
-- Nouvel accès direct à chat.db
-- Nouvel appel direct au LLM hors ai_service
-- Test manquant pour une fonction critique
-
-## Comment documenter une dette
-
-Créer une entrée dans la table `technical_debt` et dans ce document :
-
-```sql
-INSERT INTO technical_debt (id, description, severity, location, estimated_hours, created_at, status)
-VALUES ('TD-XXX', 'Description claire', 'CRITICAL|MAJOR|MODERATE|MINOR', 'fichier.py', 8, datetime('now'), 'OPEN');
-```
-
-## Comment prioriser
-
-| Sévérité | Critère | Délai max de résolution |
-|---|---|---|
-| CRITIQUE | Risque sécurité, perte de données, instabilité | Prochaine phase |
-| MAJEURE | Duplication massive, god object, couplage fort | 2 phases |
-| MODÉRÉE | Duplication localisée, code mort, warning | 4 phases |
-| MINEURE | Cosmétique, convention, optimisation | Backlog |
-
-## Comment suivre la résolution
-
-- Chaque phase de refactoring résout un ensemble de dettes planifiées
-- À la fin de chaque phase, les dettes résolues passent à `RESOLVED`
-- Les nouvelles dettes introduites (involontairement) sont ajoutées avec le tag `REGRESSION`
-- Un rapport de dette est généré à chaque fin de phase
-
-## Règles
-
-1. **Toute nouvelle dette doit être enregistrée** — pas de « on nettoiera plus tard » sans trace
-2. **La dette critique bloque les nouvelles features** — règle d'or
-3. **Le remboursement est planifié** — une dette sans échéance est une fuite
-4. **La dette est visible** — ce document est la source de vérité
+1. Une dette nouvelle reçoit un identifiant, un propriétaire, une action et au moins une preuve de code ou de test.
+2. `resolved` signifie qu'un contrat automatique existe ; une intention, une PR seule ou un test manuel non consigné ne suffisent pas.
+3. Toute dette P0 active bloque l'ajout de fonctionnalités sans rapport.
+4. Le registre JSON et ce document doivent être mis à jour dans le même commit.
+5. Les nombres de tables, routes et frontends viennent exclusivement de `artifacts/architecture_truth.json`.

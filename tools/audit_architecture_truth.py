@@ -84,6 +84,25 @@ CANONICAL_API_DOCS = (
     "Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md",
 )
 
+CANONICAL_FRONTEND_DOCS = (
+    "README.md",
+    "CLAUDE.md",
+    "STARTUP_PROTOCOL.md",
+    "Architecture/INDEX.md",
+    "prompts/cursor/release_build.md",
+    "prompts/cursor/frontend_feature.md",
+)
+
+RETIRED_FRONTEND_DOC_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("retired_web_dist", re.compile(r"web/dist", re.I)),
+    ("retired_pwa_out", re.compile(r"pwa/out", re.I)),
+    ("retired_vite_dev", re.compile(r"\bvite(?:_|[ -])dev\b", re.I)),
+    (
+        "retired_vite_port",
+        re.compile(r"(?:localhost|127\.0\.0\.1):5173", re.I),
+    ),
+)
+
 STALE_API_DOC_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\b12\s+routeurs?\b", re.I),
     re.compile(r"\b12\s+`?APIRouter", re.I),
@@ -1375,6 +1394,38 @@ def scan_api_structure_docs(
     return findings
 
 
+def scan_canonical_frontend_docs(root: Path) -> list[dict[str, Any]]:
+    """Interdit les anciens runtimes frontend dans les documents courants.
+
+    Les rapports historiques datés ne font volontairement pas partie de ce
+    périmètre. Ils peuvent conserver leur photographie si elle est explicitement
+    marquée comme archive.
+    """
+    findings: list[dict[str, Any]] = []
+    for relative in CANONICAL_FRONTEND_DOCS:
+        path = root / relative
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8")
+        for kind, pattern in RETIRED_FRONTEND_DOC_PATTERNS:
+            for match in pattern.finditer(text):
+                findings.append(
+                    {
+                        "file": relative,
+                        "line": text.count("\n", 0, match.start()) + 1,
+                        "kind": kind,
+                        "severity": "error",
+                        "excerpt": match.group(0),
+                        "note": (
+                            "Runtime frontend retiré dans un document courant ; "
+                            "attendu : frontend/out uniquement pour le bureau, "
+                            "web/src comme bibliothèque et web_mobile sous /mobile/."
+                        ),
+                    }
+                )
+    return findings
+
+
 def scan_doc_contradictions(root: Path, tables: dict[str, Any]) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
     expected_physical = tables["counts"]["physiques_max_default_fts_on"]
@@ -1484,6 +1535,7 @@ def build_report(root: Path) -> dict[str, Any]:
         + scan_canonical_count_docs(root, tables)
         + scan_canonical_api_doc(root, api_surface)
         + scan_api_structure_docs(root, api_surface)
+        + scan_canonical_frontend_docs(root)
         + api_surface["ownership_policy"]["findings"]
         + [
             {

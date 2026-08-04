@@ -343,7 +343,7 @@ JarvisAPI/
 ├── audio/              # transcription, VAD et synthèse vocale
 ├── scripts/            # daemons, scheduler, maintenance et installation
 ├── frontend/           # application Next.js canonique
-├── web/                # composants React partagés et frontend de repli Vite
+├── web/                # bibliothèque de vues React partagée (non exécutable)
 ├── web_mobile/         # interface mobile autonome
 ├── android/            # application Android native
 ├── tv/                 # tableau de bord grand écran

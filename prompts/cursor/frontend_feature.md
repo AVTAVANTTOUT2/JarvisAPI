@@ -14,7 +14,7 @@ variables: user_request,acceptance_criteria,required_tests,context_files,extra_c
 # Contexte
 Date: {{date}}
 Template version: {{template_version}}
-Trois arbres frontend : `frontend/` = application canonique Next.js 15 / React 19 en EXPORT STATIQUE (`frontend/out`, servi en priorité par FastAPI, layout mobile/desktop choisi par `UnifiedApp`) ; `web/` = fallback Vite ET source des vues desktop importées par le frontend unifié ; `jarvis_auth/` = SDK partagé `AuthClient` + `useLockGate()` + `LockGate`, rendu fail-closed (jamais monter les enfants privés avant confirmation de session).
+Quatre frontières frontend : `frontend/` = application bureau canonique Next.js 15 / React 19 en EXPORT STATIQUE (`frontend/out`, seul build desktop servi) ; `web/` = bibliothèque des vues desktop importées par Next, sans runtime propre ; `web_mobile/` = application téléphone autonome sans build ; `jarvis_auth/` = SDK partagé `AuthClient` + `useLockGate()` + `LockGate`, rendu fail-closed (jamais monter les enfants privés avant confirmation de session).
 
 Contexte JARVIS :
 {{extra_context}}
@@ -33,12 +33,12 @@ Contexte JARVIS :
 # Hors périmètre
 - Nouveau state manager, nouvelle lib UI ou refonte du design system non demandés.
 - Modification du Service Worker (`frontend/public/sw.js`) : il ne doit jamais cacher `/api`, HTML ou données personnelles — tout changement SW est hors périmètre sauf demande explicite.
-- Toucher aux anciens builds (`web/dist`, `pwa/out`) : ce sont des artefacts.
+- Réintroduire un second shell desktop, un build ou un Service Worker sous `web/`.
 
 # Fichiers probables
 {{context_files}}
 - Client API et types : `frontend/src/lib/api.ts` ; détection device : `frontend/src/lib/device.ts` ; vues desktop : `web/src/app/components/views/` ; auth : `jarvis_auth/src/`.
-- Serving FastAPI : `api/frontend.py` (ordre frontend/out → web/dist → pwa/out).
+- Serving FastAPI : `api/frontend.py` (`frontend/out` uniquement, 503 explicite s'il manque ; `/mobile/` est monté séparément).
 
 # Règles d'architecture
 {{repo_rules}}
@@ -46,7 +46,7 @@ Contexte JARVIS :
 
 # Critères d'acceptation
 {{acceptance_criteria}}
-- `pnpm build` passe dans `frontend/` (typecheck inclus) ET dans `web/` si `web/src` a été touché.
+- `pnpm build` passe dans `frontend/` (typecheck inclus) ; `pnpm test` et `pnpm typecheck` passent dans `web/` si `web/src` a été touché.
 - Aucun `fetch()` direct introduit hors `frontend/src/lib/api.ts` (grep de vérification).
 
 # Tests obligatoires
@@ -54,7 +54,7 @@ Contexte JARVIS :
 - Vitest existants verts (`pnpm test` dans l'arbre touché) ; ajouter des tests pour la logique non triviale introduite.
 
 # Validation réelle
-- Builds : `pnpm build` dans `frontend/` (export statique 25 pages attendu) et dans `web/` si modifié — inclure les sorties dans le rapport.
+- Validation : `pnpm build` dans `frontend/`, puis `pnpm test` et `pnpm typecheck` dans `web/` si modifié — inclure les sorties dans le rapport.
 - Grep final : `fetch(` ne doit apparaître dans aucun nouveau composant (uniquement `lib/api.ts`).
 - Vérifier le comportement fail-closed : l'écran ajouté n'apparaît pas sans session (lecture du montage sous LockGate, ou test Playwright si disponible).
 

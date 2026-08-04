@@ -984,7 +984,7 @@ CREATE TABLE visits (
 
 CREATE TABLE voice_debug_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    created_at TEXT DEFAULT (datetime('now', 'localtime')),
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     input_text TEXT,
     system_prompt TEXT,
     messages_json TEXT,

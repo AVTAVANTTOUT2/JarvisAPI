@@ -1,0 +1,339 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-08-04",
+  "source": "Audit consolidé JarvisAPI postérieur aux audits P01–P18",
+  "items": [
+    {
+      "id": "TD-P0-01",
+      "severity": "P0",
+      "status": "active",
+      "summary": "Latence micro-vers-premier-son encore supérieure à la cible de 2 s",
+      "owner": "lot audio/STT coordonné avec Claude",
+      "next_action": "Mesurer la chaîne intégrée, réduire le STT temps réel et borner la variance du premier token",
+      "evidence": ["audio/voice_latency.py", "tests/test_voice_latency.py"]
+    },
+    {
+      "id": "TD-P0-02",
+      "severity": "P0",
+      "status": "resolved",
+      "summary": "Moteur TTS cible non validé sur la machine de production",
+      "resolution": "Fish a été retiré et remplacé par Qwen3 local, mesuré et validé avec une référence française versionnée",
+      "evidence": ["docs/audio/QWEN3_LOCAL_STATUS.md", "tests/test_local_tts.py"]
+    },
+    {
+      "id": "TD-P0-03",
+      "severity": "P0",
+      "status": "resolved",
+      "summary": "Analyse des captures d’écran distantes appelée avec un contrat incomplet",
+      "resolution": "Le routeur fournit désormais application et dimensions à l’API d’analyse publique stable",
+      "evidence": ["api/router_devices.py", "tests/test_security_middleware.py"]
+    },
+    {
+      "id": "TD-P0-04",
+      "severity": "P0",
+      "status": "resolved",
+      "summary": "SQL de migration et journal schema_migrations non atomiques",
+      "resolution": "Chaque migration et son enregistrement s’exécutent dans une transaction unique sur la même connexion",
+      "evidence": ["database/migrations.py", "tests/test_db_migrations.py"]
+    },
+    {
+      "id": "TD-P0-05",
+      "severity": "P0",
+      "status": "resolved",
+      "summary": "I/O SQLite et TTS bloquantes dans la coroutine émettrice du bus",
+      "resolution": "Persistance, diffusion et consommateurs lents sont découplés avec files et politiques de dépassement testées",
+      "evidence": ["jarvis/event_bus.py", "tests/test_event_bus_contract.py"]
+    },
+    {
+      "id": "TD-P0-06",
+      "severity": "P0",
+      "status": "resolved",
+      "summary": "Release Android et conservation des DTO sous R8 non validées",
+      "resolution": "La CI construit debug et release, exécute tests/lint, vérifie le mapping R8 et lance les tests instrumentés",
+      "evidence": [".github/workflows/ci.yml", "tests/test_ci_android_release.py"]
+    },
+    {
+      "id": "TD-P0-07",
+      "severity": "P0",
+      "status": "resolved",
+      "summary": "Application macOS et widget absents de la CI",
+      "resolution": "Le job macOS régénère le projet et compile app plus WidgetKit en Release sans signature",
+      "evidence": [".github/workflows/ci.yml", "tests/test_ci_macos.py"]
+    },
+    {
+      "id": "TD-P0-08",
+      "severity": "P0",
+      "status": "resolved",
+      "summary": "Uploads audio et image bornés seulement après allocation complète",
+      "resolution": "Les lectures sont bornées en flux et les images sont contrôlées en octets, dimensions et pixels avant décodage complet",
+      "evidence": ["jarvis/uploads.py", "tests/test_security_middleware.py"]
+    },
+    {
+      "id": "TD-P1-01",
+      "severity": "P1",
+      "status": "resolved",
+      "summary": "Exceptions internes et réponses de mutation sans contrat stable",
+      "resolution": "Les routes utilisent des erreurs publiques codées et des modèles d’entrée/sortie stricts, avec détails réservés aux logs",
+      "evidence": ["api/errors.py", "tests/test_http_error_contract.py"]
+    },
+    {
+      "id": "TD-P1-02",
+      "severity": "P1",
+      "status": "resolved",
+      "summary": "Authentification mobile limitée à un pavé numérique",
+      "resolution": "Le mobile accepte PIN variable ou passphrase et suit le même contrat de validation que le serveur",
+      "evidence": ["web_mobile/js/auth.js", "tests/test_web_mobile.py"]
+    },
+    {
+      "id": "TD-P1-03",
+      "severity": "P1",
+      "status": "resolved",
+      "summary": "Verrouillage mobile d’inactivité uniquement cosmétique",
+      "resolution": "L’état de verrouillage est persistant et impose une vérification avant remontage des vues et canaux temps réel",
+      "evidence": ["web_mobile/js/auth.js", "tests/test_web_mobile.py"]
+    },
+    {
+      "id": "TD-P1-04",
+      "severity": "P1",
+      "status": "active",
+      "summary": "Silero VAD peut télécharger du code via torch.hub au runtime",
+      "owner": "lot audio/STT coordonné avec Claude",
+      "next_action": "Versionner le modèle local, interdire le réseau au chargement et retirer torch.hub du runtime",
+      "evidence": ["audio/vad_silero.py", "requirements.txt"]
+    },
+    {
+      "id": "TD-P1-05",
+      "severity": "P1",
+      "status": "resolved",
+      "summary": "Usage et coût des réponses LLM streamées enregistrés à zéro",
+      "resolution": "L’usage fournisseur final est propagé, avec estimation locale explicitement marquée lorsque nécessaire",
+      "evidence": ["llm.py", "tests/test_llm_stream_usage.py"]
+    },
+    {
+      "id": "TD-P1-06",
+      "severity": "P1",
+      "status": "active",
+      "summary": "Le tour vocal conserve une orchestration distincte du moteur conversationnel canonique",
+      "owner": "lot audio/STT coordonné avec Claude",
+      "next_action": "Partager un moteur de tour unique et rendre les actions explicites dans le protocole streamé",
+      "evidence": ["api/voice_processing.py", "api/chat_cognitive.py"]
+    },
+    {
+      "id": "TD-P1-07",
+      "severity": "P1",
+      "status": "active",
+      "summary": "La file vocale jette encore un énoncé sous pression et le filtre d’écho n’est pas partagé",
+      "owner": "lot audio/STT coordonné avec Claude",
+      "next_action": "Appliquer une backpressure observable et le même filtre STT à tous les canaux natifs et mobiles",
+      "evidence": ["scripts/audio_daemon.py", "audio/stt_daemon.py"]
+    },
+    {
+      "id": "TD-P1-08",
+      "severity": "P1",
+      "status": "resolved",
+      "summary": "Écritures et agrégations Fitness bloquantes dans les coroutines",
+      "resolution": "Les accès repository sont déportés hors de la boucle async et couverts par les contrats service",
+      "evidence": ["app/fitness/services.py", "tests/test_fitness_program.py"]
+    },
+    {
+      "id": "TD-P1-09",
+      "severity": "P1",
+      "status": "resolved",
+      "summary": "Erreurs Fitness absorbées et timezone Europe/Paris codée en dur",
+      "resolution": "Les replis sont journalisés, les erreurs structurées et les bornes de jour utilisent la timezone configurée",
+      "evidence": ["app/fitness/meal_analysis.py", "tests/test_fitness_meal_analysis.py"]
+    },
+    {
+      "id": "TD-P1-10",
+      "severity": "P1",
+      "status": "resolved",
+      "summary": "Schéma SQLite et nombres de tables avec plusieurs sources de vérité",
+      "resolution": "Une commande génère schéma et inventaire, et la CI échoue dès qu’un artefact diverge du runtime frais",
+      "evidence": ["tools/audit_architecture_truth.py", "tests/test_audit_architecture_truth.py"]
+    },
+    {
+      "id": "TD-P1-11",
+      "severity": "P1",
+      "status": "resolved",
+      "summary": "Next et Vite restaient deux applications desktop exécutables",
+      "resolution": "Next est l’unique runtime ; web est une bibliothèque sans dev/build, fallback ni Service Worker",
+      "evidence": ["core/frontend_resolution.py", "tests/test_phase6_frontend.py"]
+    },
+    {
+      "id": "TD-P1-12",
+      "severity": "P1",
+      "status": "resolved",
+      "summary": "Noms d’agents internes visibles dans le chat utilisateur",
+      "resolution": "Le rendu utilisateur présente uniquement JARVIS et réserve les identifiants internes au diagnostic",
+      "evidence": ["web/src/app/components/views/ChatView.tsx", "tests/test_web_mobile.py"]
+    },
+    {
+      "id": "TD-P1-13",
+      "severity": "P1",
+      "status": "resolved",
+      "summary": "Sorties Web Push et FCM sans allowlist stricte",
+      "resolution": "Schémas, ports, hôtes et plages privées sont validés, et le token FCM est borné à l’hôte Google attendu",
+      "evidence": ["core/outbound_security.py", "tests/test_outbound_security.py"]
+    },
+    {
+      "id": "TD-P1-14",
+      "severity": "P1",
+      "status": "resolved",
+      "summary": "Installations Python non reproductibles",
+      "resolution": "Des locks hashés par plateforme et profil sont générés par une commande contrôlée et vérifiés en CI",
+      "evidence": ["tools/update_python_locks.py", "tests/test_python_locks.py"]
+    },
+    {
+      "id": "TD-P1-15",
+      "severity": "P1",
+      "status": "resolved",
+      "summary": "Mode autonome pr_only pouvant se terminer sans PR",
+      "resolution": "Le contrat échoue explicitement si commit, push ou création de PR ne peuvent pas être prouvés",
+      "evidence": ["integrations/cursor_delegation.py", "tests/test_cursor_delegation.py"]
+    },
+    {
+      "id": "TD-P1-16",
+      "severity": "P1",
+      "status": "resolved",
+      "summary": "Séparation des secrets entre fichiers env uniquement documentaire",
+      "resolution": "Le chargeur refuse les clés sensibles mal placées et contrôle les permissions des fichiers",
+      "evidence": ["env_loader.py", "tests/test_env_loader.py"]
+    },
+    {
+      "id": "TD-P1-17",
+      "severity": "P1",
+      "status": "resolved",
+      "summary": "CSP autorisant inline généralisé et tous les WebSockets",
+      "resolution": "La CSP est générée avec nonces et origines connect-src explicitement bornées",
+      "evidence": ["core/html_security.py", "tests/test_html_security.py"]
+    },
+    {
+      "id": "TD-P1-18",
+      "severity": "P1",
+      "status": "resolved",
+      "summary": "Agent distant autorisant HTTP avec jetons et captures",
+      "resolution": "HTTP est limité à la boucle locale et toute cible distante exige HTTPS validé",
+      "evidence": ["scripts/jarvis_agent.py", "tests/test_jarvis_agent_device_auth.py"]
+    },
+    {
+      "id": "TD-P1-19",
+      "severity": "P1",
+      "status": "resolved",
+      "summary": "Valeurs d’infrastructure personnelle versionnées comme défauts",
+      "resolution": "Les paramètres TV et réseau utilisent des valeurs vides ou locales et exigent une configuration explicite",
+      "evidence": ["config.py", "tests/test_tv_configuration.py"]
+    },
+    {
+      "id": "TD-P2-01",
+      "severity": "P2",
+      "status": "resolved",
+      "summary": "Stockage UTC et bornes de journée locale incohérents",
+      "resolution": "Les écritures sont UTC et les requêtes convertissent les bornes locales en UTC, y compris aux transitions DST",
+      "evidence": ["database/time_buckets.py", "tests/test_local_time_bucket_contracts.py"]
+    },
+    {
+      "id": "TD-P2-02",
+      "severity": "P2",
+      "status": "resolved",
+      "summary": "Suppression de conversation laissant des objets liés orphelins",
+      "resolution": "Une purge transactionnelle couvre messages, documents, voix et workflows avec test d’absence d’orphelins",
+      "evidence": ["database/conversations.py", "tests/test_conversation_purge.py"]
+    },
+    {
+      "id": "TD-P2-03",
+      "severity": "P2",
+      "status": "resolved",
+      "summary": "Faux contrat de replay durable dans le journal d’événements",
+      "resolution": "Le contrat de consommation durable est explicite, atomique et testé au lieu d’exposer une API aspirante",
+      "evidence": ["database/event_log.py", "tests/test_event_bus_contract.py"]
+    },
+    {
+      "id": "TD-P2-04",
+      "severity": "P2",
+      "status": "resolved",
+      "summary": "SSE sans reprise durable pour les clients lents",
+      "resolution": "Les événements ont un identifiant monotone, Last-Event-ID et une reprise bornée depuis le journal",
+      "evidence": ["jarvis/event_bus.py", "tests/test_sse_resume.py"]
+    },
+    {
+      "id": "TD-P2-05",
+      "severity": "P2",
+      "status": "resolved",
+      "summary": "Interface mobile incomplète et affordances mortes",
+      "resolution": "Déconnexion, Fitness, verrouillage et interactions réellement supportées sont branchés et testés",
+      "evidence": ["web_mobile/js/app.js", "tests/test_web_mobile.py"]
+    },
+    {
+      "id": "TD-P2-06",
+      "severity": "P2",
+      "status": "resolved",
+      "summary": "Validation Fitness convertissant les champs vides et calculs hebdomadaires divergents",
+      "resolution": "La validation refuse les valeurs vides invalides et le comptage utilise une règle unique avec compatibilité migrée",
+      "evidence": ["web/src/app/components/fitness/programSettings.ts", "tests/test_fitness_program.py"]
+    },
+    {
+      "id": "TD-P2-07",
+      "severity": "P2",
+      "status": "resolved",
+      "summary": "Escalade coach_deep sans différence de modèle ni budget",
+      "resolution": "Le pré-routage mort a été supprimé et chaque chemin restant possède un budget effectif",
+      "evidence": ["agents/coach.py", "tests/test_coach_routing.py"]
+    },
+    {
+      "id": "TD-P2-08",
+      "severity": "P2",
+      "status": "resolved",
+      "summary": "Capacités et options aspirantes ou mortes",
+      "resolution": "Les drapeaux, mutateurs et capacités non opérationnels ont été retirés ou rendus explicitement inertes et testés",
+      "evidence": ["tests/test_android_future_contract.py", "tests/test_quality_mutation_policy.py"]
+    },
+    {
+      "id": "TD-P2-09",
+      "severity": "P2",
+      "status": "resolved",
+      "summary": "Bundle front_tv orphelin et template TV legacy",
+      "resolution": "Le bundle orphelin et l’ancien runtime TV ont été supprimés, la configuration canonique restant testée",
+      "evidence": ["tv/README.md", "tests/test_tv_configuration.py"]
+    },
+    {
+      "id": "TD-P2-10",
+      "severity": "P2",
+      "status": "resolved",
+      "summary": "Automatisation Uber Eats fragile présentée comme dépendance fiable",
+      "resolution": "Le flux est explicitement expérimental, désactivé ou dry-run et borné par des confirmations sans achat automatique",
+      "evidence": ["api/food_control.py", "tests/test_food_control.py"]
+    },
+    {
+      "id": "TD-P2-11",
+      "severity": "P2",
+      "status": "resolved",
+      "summary": "Erreurs API mélangeant statuts HTTP et objets ok:false en 200",
+      "resolution": "Les domaines utilisent une enveloppe d’erreur structurée et des statuts HTTP cohérents testés",
+      "evidence": ["api/errors.py", "tests/test_http_error_contract.py"]
+    },
+    {
+      "id": "TD-P2-12",
+      "severity": "P2",
+      "status": "resolved",
+      "summary": "Routes API sans inventaire de consommateur ou de test",
+      "resolution": "L’audit génère route, propriétaire, consommateurs et couverture, avec policy exacte contrôlée en CI",
+      "evidence": ["Architecture/api_route_ownership.json", "tests/test_audit_architecture_truth.py"]
+    },
+    {
+      "id": "TD-P2-13",
+      "severity": "P2",
+      "status": "resolved",
+      "summary": "Contrats Android TLS, WebSocket, offline, services, Keystore et R8 incomplets",
+      "resolution": "Tests JVM et instrumentés couvrent ces briques, et un émulateur API 35 exécute la porte de release en CI",
+      "evidence": ["android/app/src/androidTest/kotlin/fr/jarvis/companion/data/JarvisSecureStoreInstrumentedTest.kt", "tests/test_ci_android_release.py"]
+    },
+    {
+      "id": "TD-P2-14",
+      "severity": "P2",
+      "status": "resolved",
+      "summary": "Service Workers, MapLibre et dates relatives dupliqués",
+      "resolution": "Un seul Service Worker, constructeur MapLibre et module de temps runtime sont imposés par contrat",
+      "evidence": ["frontend/src/lib/timeFormat.ts", "tests/test_frontend_runtime_uniqueness.py"]
+    }
+  ]
+}
