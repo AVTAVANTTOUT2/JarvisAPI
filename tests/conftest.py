@@ -87,6 +87,7 @@ def _isolate_app_lifespan(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(scheduler_module, "shutdown_scheduler", lambda: None)
     monkeypatch.setattr(email_watcher, "start", _noop_start)
     monkeypatch.setattr(email_watcher, "stop", lambda: None)
+    monkeypatch.setattr("api.lifespan._calendar_subprocess_run", lambda *_a, **_k: None)
 
 
 @pytest.fixture(autouse=True)

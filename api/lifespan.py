@@ -32,6 +32,29 @@ from websocket_registry import broadcast_ws
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 logger = logging.getLogger("jarvis")
+_calendar_subprocess_run = subprocess.run
+
+
+def _run_calendar_open() -> None:
+    _calendar_subprocess_run(
+        ["open", "-gj", "-b", "com.apple.iCal"],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        timeout=15,
+    )
+
+
+async def _wake_calendar_background() -> None:
+    """Réveille Calendar sans bloquer la boucle ni abandonner le lanceur ``open``."""
+
+    try:
+        await asyncio.to_thread(_run_calendar_open)
+        logger.info("[startup] Calendar.app lancé en arrière-plan (sans focus)")
+    except Exception as exc:
+        logger.warning(
+            "[startup] Impossible de lancer Calendar.app en arrière-plan : %s", exc
+        )
 
 
 async def _auto_pull_ollama(model: str) -> None:
@@ -127,15 +150,7 @@ async def lifespan(app: FastAPI):
 
     # Calendar.app : réveil arrière-plan uniquement (-g/-j) pour éviter les -600
     # AppleScript SANS voler le focus (open -a Calendar ramenait Calendrier au 1er plan).
-    try:
-        subprocess.Popen(
-            ["open", "-gj", "-b", "com.apple.iCal"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        logger.info("[startup] Calendar.app lancé en arrière-plan (sans focus)")
-    except Exception as e:
-        logger.warning("[startup] Impossible de lancer Calendar.app en arrière-plan : %s", e)
+    await _wake_calendar_background()
 
     # ── Daemon iMessage ──
     _imessage_daemon_process = None
