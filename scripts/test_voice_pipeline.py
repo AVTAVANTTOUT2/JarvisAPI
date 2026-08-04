@@ -31,6 +31,10 @@ os.chdir(str(_PROJECT_ROOT))
 # ── Lazy imports (DB init au moment de l'import) ──────────────
 import config
 
+# Outil de validation interactif : même si ce fichier est explicitement passé
+# à pytest, ses scénarios réels ne doivent jamais être collectés automatiquement.
+__test__ = False
+
 # ── Constants ─────────────────────────────────────────────────
 TEST_CONV_ID: int = 99990001
 MAX_LATENCY_DIRECT_MS: float = 5000.0      # 5s max reponse directe
