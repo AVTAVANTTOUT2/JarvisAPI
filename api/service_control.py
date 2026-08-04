@@ -45,6 +45,10 @@ def _get_all_services_status() -> list[dict[str, object]]:
             "category": "audio",
             "running": audio_daemon.enabled,
             "state": audio_daemon.state,
+            # La cause voyage avec l'état. Sans elle, l'interface ne peut
+            # afficher que « ERROR » et l'utilisateur doit ouvrir les journaux
+            # du serveur pour apprendre qu'il manque un micro.
+            "error": getattr(audio_daemon, "_error_reason", None),
             "can_control": True,
         })
     except Exception:
