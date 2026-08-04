@@ -45,6 +45,9 @@ importers:
       '@testing-library/react':
         specifier: ^16.3.2
         version: 16.3.2(@testing-library/dom@10.4.1)(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.20.1
       '@types/react':
         specifier: ^19.0.0
         version: 19.2.14
@@ -62,7 +65,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^4.1.10
-        version: 4.1.10(jsdom@27.4.0)(vite@6.4.2(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.48.0))
+        version: 4.1.10(@types/node@22.20.1)(jsdom@27.4.0)(vite@6.4.2(@types/node@22.20.1)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.48.0))
 
 packages:
 
@@ -556,6 +559,9 @@ packages:
 
   '@types/geojson@7946.0.16':
     resolution: {integrity: sha512-6C8nqWur3j98U6+lXDfTUWIfgvZU+EumvpHKcYjujKH7woYyLj2sUmff0tRhrqM7BohUw7Pz3ZB1jj2gW9Fvmg==}
+
+  '@types/node@22.20.1':
+    resolution: {integrity: sha512-EANqOCF9QFyra+4pfxUcX9STKJpCLjMbObVzljIJomAWSnuSIEAvyzEU53GaajbXJEgdh0iEcPL+DGvpUd4k1Q==}
 
   '@types/react-dom@19.2.3':
     resolution: {integrity: sha512-jp2L/eY6fn+KgVVQAOqYItbF0VY/YApe5Mz2F0aykSO8gx31bYCZyvSeYxCHKvzHG5eZjc+zyaS5BrBWya2+kQ==}
@@ -1196,6 +1202,9 @@ packages:
     engines: {node: '>=14.17'}
     hasBin: true
 
+  undici-types@6.21.0:
+    resolution: {integrity: sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ==}
+
   victory-vendor@36.9.2:
     resolution: {integrity: sha512-PnpQQMuxlwYdocC8fIJqVXvkeViHYzotI+NJrCuav0ZYFoq912ZHBk3mCeuj+5/VpodOjPe1z0Fk2ihgzlXqjQ==}
 
@@ -1674,6 +1683,10 @@ snapshots:
 
   '@types/geojson@7946.0.16': {}
 
+  '@types/node@22.20.1':
+    dependencies:
+      undici-types: 6.21.0
+
   '@types/react-dom@19.2.3(@types/react@19.2.14)':
     dependencies:
       '@types/react': 19.2.14
@@ -1691,13 +1704,13 @@ snapshots:
       chai: 6.2.2
       tinyrainbow: 3.1.0
 
-  '@vitest/mocker@4.1.10(vite@6.4.2(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.48.0))':
+  '@vitest/mocker@4.1.10(vite@6.4.2(@types/node@22.20.1)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.48.0))':
     dependencies:
       '@vitest/spy': 4.1.10
       estree-walker: 3.0.3
       magic-string: 0.30.21
     optionalDependencies:
-      vite: 6.4.2(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.48.0)
+      vite: 6.4.2(@types/node@22.20.1)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.48.0)
 
   '@vitest/pretty-format@4.1.10':
     dependencies:
@@ -2302,6 +2315,8 @@ snapshots:
 
   typescript@5.9.3: {}
 
+  undici-types@6.21.0: {}
+
   victory-vendor@36.9.2:
     dependencies:
       '@types/d3-array': 3.2.2
@@ -2319,7 +2334,7 @@ snapshots:
       d3-time: 3.1.0
       d3-timer: 3.0.1
 
-  vite@6.4.2(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.48.0):
+  vite@6.4.2(@types/node@22.20.1)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.48.0):
     dependencies:
       esbuild: 0.25.12
       fdir: 6.5.0(picomatch@4.0.4)
@@ -2328,15 +2343,16 @@ snapshots:
       rollup: 4.60.3
       tinyglobby: 0.2.16
     optionalDependencies:
+      '@types/node': 22.20.1
       fsevents: 2.3.3
       jiti: 2.6.1
       lightningcss: 1.32.0
       terser: 5.48.0
 
-  vitest@4.1.10(jsdom@27.4.0)(vite@6.4.2(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.48.0)):
+  vitest@4.1.10(@types/node@22.20.1)(jsdom@27.4.0)(vite@6.4.2(@types/node@22.20.1)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.48.0)):
     dependencies:
       '@vitest/expect': 4.1.10
-      '@vitest/mocker': 4.1.10(vite@6.4.2(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.48.0))
+      '@vitest/mocker': 4.1.10(vite@6.4.2(@types/node@22.20.1)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.48.0))
       '@vitest/pretty-format': 4.1.10
       '@vitest/runner': 4.1.10
       '@vitest/snapshot': 4.1.10
@@ -2353,9 +2369,10 @@ snapshots:
       tinyexec: 1.2.4
       tinyglobby: 0.2.16
       tinyrainbow: 3.1.0
-      vite: 6.4.2(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.48.0)
+      vite: 6.4.2(@types/node@22.20.1)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.48.0)
       why-is-node-running: 2.3.0
     optionalDependencies:
+      '@types/node': 22.20.1
       jsdom: 27.4.0
     transitivePeerDependencies:
       - msw

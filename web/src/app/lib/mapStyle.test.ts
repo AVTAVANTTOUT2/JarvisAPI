@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   OPENFREEMAP_DARK_STYLE_URL,
@@ -7,6 +7,10 @@ import {
 } from './mapStyle';
 
 describe('resolveMapStyleUrl', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it('falls back to OpenFreeMap Dark when env is empty', () => {
     expect(resolveMapStyleUrl(undefined)).toBe(OPENFREEMAP_DARK_STYLE_URL);
     expect(resolveMapStyleUrl(null)).toBe(OPENFREEMAP_DARK_STYLE_URL);
@@ -18,6 +22,12 @@ describe('resolveMapStyleUrl', () => {
     expect(resolveMapStyleUrl('https://example.local/styles/dark.json')).toBe(
       'https://example.local/styles/dark.json',
     );
+  });
+
+  it('reads the native Next public environment variable by default', () => {
+    vi.stubEnv('NEXT_PUBLIC_MAP_STYLE_URL', 'https://example.local/styles/next.json');
+
+    expect(resolveMapStyleUrl()).toBe('https://example.local/styles/next.json');
   });
 
   it('preserves pmtiles:// URLs for future local hosting', () => {

@@ -652,7 +652,7 @@ https://tiles.openfreemap.org/styles/dark
 | Composant carte | `web/src/app/components/map/CartographyMap.tsx` |
 | Transformations GeoJSON | `web/src/app/lib/cartographyGeojson.ts` |
 | Config style | `web/src/app/lib/mapStyle.ts` |
-| Variable d'environnement | `VITE_MAP_STYLE_URL` (défaut OpenFreeMap Dark) |
+| Variable d'environnement | `NEXT_PUBLIC_MAP_STYLE_URL` (défaut OpenFreeMap Dark) |
 | Dépendance | `maplibre-gl` (web + frontend) — **pas** de clé API |
 | PWA mobile | **Leaflet conservé** (`pwa/src/components/map/MapView.tsx`) — pas migré dans cette PR |
 
@@ -665,9 +665,9 @@ L'attribution OpenStreetMap / OpenFreeMap reste **toujours visible** (contrôle 
 
 ```bash
 # .env / .env.config
-VITE_MAP_STYLE_URL=https://tiles.openfreemap.org/styles/dark
+NEXT_PUBLIC_MAP_STYLE_URL=https://tiles.openfreemap.org/styles/dark
 # ou style auto-hébergé :
-# VITE_MAP_STYLE_URL=https://votre-domaine/styles/dark.json
+# NEXT_PUBLIC_MAP_STYLE_URL=https://votre-domaine/styles/dark.json
 ```
 
 Le service public OpenFreeMap peut être remplacé à tout moment par un style ou des tuiles
@@ -697,7 +697,7 @@ des hashes SHA-256 calculés sur chaque fichier servi. `script-src` et
 `style-src-attr 'unsafe-inline'`. Les WebSockets de l'application restent de
 même origine via `'self'` : aucun joker `ws:` ou `wss:` n'est présent.
 
-Un style externe configuré via `VITE_MAP_STYLE_URL` doit rester sur cette
+Un style externe configuré via `NEXT_PUBLIC_MAP_STYLE_URL` doit rester sur cette
 origine, ou être servi depuis l'origine JARVIS. Pour un nouveau fournisseur
 externe, mettre à jour explicitement `security_headers.py` et le test de
 contrat CSP ; ne pas élargir la directive à toutes les origines HTTPS.
@@ -713,7 +713,7 @@ du worker et d'une tuile sur l'origine OpenFreeMap, et échoue au moindre
 `pmtiles:///maps/europe.pmtiles`. L'enregistrement du protocole MapLibre + la dépendance
 `pmtiles` sont **volontairement reportés** : aucun fichier PMTiles Europe n'est versionné
 dans le dépôt. Prochaine étape : servir un archive local, enregistrer le protocole, pointer
-`VITE_MAP_STYLE_URL` vers un style JSON local.
+`NEXT_PUBLIC_MAP_STYLE_URL` vers un style JSON local.
 
 ### Endpoints consommés (inchangés, auth session)
 
