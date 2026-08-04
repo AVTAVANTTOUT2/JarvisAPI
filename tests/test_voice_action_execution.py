@@ -78,9 +78,27 @@ async def test_school_agent_preserves_open_app_action():
 
 @pytest.mark.asyncio
 async def test_voice_confirmation_consumes_pending_action_without_llm(monkeypatch):
+    """Un « oui » vocal consomme le plan en attente et l'exécute une seule fois.
+
+    Cette propriété était vérifiée sur ``_maybe_execute_pending_voice_action``,
+    un raccourci propre à la pile vocale. L'unification du moteur l'a retiré du
+    chemin d'exécution : la confirmation est désormais consommée par le moteur
+    canonique, avant toute construction de contexte. Le test vise donc le
+    chemin réellement emprunté — viser l'ancien laissait une fonction morte
+    sous couverture, la forme la plus trompeuse de dette, puisque la propriété
+    semblait tenue alors que plus personne n'exécutait ce code.
+
+    Ce qui est asserté a changé avec l'architecture. L'ancien raccourci ne
+    rappelait jamais le modèle ; le moteur unifié fait au contraire une seconde
+    passe de reformulation pour les types listés dans ``ACTIONS_WITH_FOLLOWUP``,
+    dont ``terminal``. « Aucun appel LLM » n'est donc plus une propriété du
+    chemin de confirmation, et l'affirmer reviendrait à figer l'inverse du
+    contrat. Reste ce qui compte réellement, et qui est déterministe : le plan
+    serveur est consommé, exécuté exactement une fois, avec ``confirmed``.
+    """
     import api.chat_actions as chat_actions
     from api.action_confirmations import reset_pending_proposals_for_tests
-    from api.voice_support import _maybe_execute_pending_voice_action
+    from api.chat_processing import _process_message_internal
 
     reset_pending_proposals_for_tests()
     chat_actions._maybe_store_pending_proposal(
@@ -90,23 +108,35 @@ async def test_voice_confirmation_consumes_pending_action_without_llm(monkeypatc
     )
     execute = AsyncMock(return_value={"ok": True, "output": "done"})
 
-    with patch("actions.execute_action", execute), patch(
-        "api.voice_support._save_voice_messages"
+    with (
+        patch("api.chat_processing.execute_action", execute),
+        patch("api.chat_processing.save_message"),
+        patch("api.chat_processing.update_conversation_activity"),
     ):
-        result = await _maybe_execute_pending_voice_action(
+        result = await _process_message_internal(
             "oui",
             7,
-            started_at=0.0,
+            voice_mode=True,
             confirmation_session_id="voice:test",
         )
 
-    assert result is not None
-    assert result["debug_trace"]["model"] == "pending_confirmation"
     execute.assert_awaited_once_with({
         "type": "terminal",
         "shell_plan_id": "server-plan",
         "confirmed": True,
     })
+    assert result["action_result"] == {"ok": True, "output": "done"}
+
+    # Le plan est à usage unique : un second « oui » ne doit rien réexécuter.
+    with patch("api.chat_processing.execute_action", execute):
+        again = await _process_message_internal(
+            "oui",
+            7,
+            voice_mode=True,
+            confirmation_session_id="voice:test",
+        )
+    assert execute.await_count == 1, "un plan confirmé ne se rejoue pas"
+    assert again["action_result"] != {"ok": True, "output": "done"}
 
 
 def test_computer_patterns_route_open_app_to_productivity():
