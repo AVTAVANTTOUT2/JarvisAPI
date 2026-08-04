@@ -260,7 +260,11 @@ jobs:
         run: pnpm test && pnpm typecheck && pnpm build && pnpm test:e2e
 
   android:
-    name: Android (debug + release/R8)
+    # Ce nom est le contexte exigé par la protection de branche `main`.
+    # Le renommer casse la fusion de toute PR : GitHub attend indéfiniment un
+    # contexte qui ne sera jamais publié. Le job fait bien assemble (debug +
+    # release/R8), tests et lint — le nom reste exact.
+    name: Android (assemble + tests + lint)
     runs-on: ubuntu-latest
     defaults:
       run:
