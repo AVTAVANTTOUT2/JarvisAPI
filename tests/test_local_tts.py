@@ -78,10 +78,10 @@ def test_settings_contain_no_secret_and_no_url(settings):
 
 def test_unknown_provider_is_refused():
     """La table est fermée : aucun backend n'apparaît par configuration."""
-    broken = replace(load_tts_settings(), provider="fish_cloud")
+    broken = replace(load_tts_settings(), provider="elevenlabs_cloud")
     with pytest.raises(TTSUnavailableError) as failure:
         create_local_tts_provider(broken)
-    assert "fish_cloud" in str(failure.value)
+    assert "elevenlabs_cloud" in str(failure.value)
 
 
 @pytest.mark.parametrize("provider", sorted(KNOWN_PROVIDERS))
@@ -114,7 +114,7 @@ async def test_missing_model_raises_an_actionable_error(tmp_path, monkeypatch):
     """
     monkeypatch.setenv("JARVIS_VENV", str(tmp_path / "aucun-venv"))
     absent = replace(
-        load_tts_settings(), provider="fish_local", model_path=str(tmp_path / "nope"),
+        load_tts_settings(), provider="qwen3_local", model_path=str(tmp_path / "nope"),
     )
     provider = create_local_tts_provider(absent)
     with pytest.raises(TTSModelNotFoundError) as failure:
@@ -140,10 +140,10 @@ def test_every_missing_model_message_says_what_to_do(spec: str):
     partait sans le geste à faire, et l'utilisateur n'avait plus qu'à lire le
     code pour comprendre.
     """
-    from native_audio.fish_local import FishModelMissing, resolve_local_model_dir
+    from native_audio.qwen3_local import Qwen3ModelMissing, resolve_model_dir
 
-    with pytest.raises(FishModelMissing) as failure:
-        resolve_local_model_dir(spec)
+    with pytest.raises(Qwen3ModelMissing) as failure:
+        resolve_model_dir(spec)
     assert "download_tts_model" in str(failure.value)
 
 
@@ -151,7 +151,7 @@ def test_missing_model_message_ignores_huggingface_when_given_a_path(monkeypatch
     """Un chemin absent ne doit pas produire un message sur un cache distant."""
     import builtins
 
-    from native_audio.fish_local import FishModelMissing, resolve_local_model_dir
+    from native_audio.qwen3_local import Qwen3ModelMissing, resolve_model_dir
 
     real_import = builtins.__import__
 
@@ -161,8 +161,8 @@ def test_missing_model_message_ignores_huggingface_when_given_a_path(monkeypatch
         return real_import(name, *args, **kwargs)
 
     monkeypatch.setattr(builtins, "__import__", _no_hub)
-    with pytest.raises(FishModelMissing) as failure:
-        resolve_local_model_dir("/chemin/absolu/absent")
+    with pytest.raises(Qwen3ModelMissing) as failure:
+        resolve_model_dir("/chemin/absolu/absent")
     message = str(failure.value)
     assert "huggingface" not in message.lower()
     assert "download_tts_model" in message
@@ -173,12 +173,15 @@ async def test_present_model_without_runtime_reports_the_runtime(tmp_path, monke
     """Poids là, venv MLX absent : là, c'est bien le runtime qu'il faut nommer."""
     model_dir = tmp_path / "poids"
     model_dir.mkdir()
-    for name in ("config.json", "tokenizer.json", "codec.safetensors", "model.safetensors"):
+    for name in ("config.json", "tokenizer_config.json", "model.safetensors"):
         (model_dir / name).write_bytes(b"x")
+    speech = model_dir / "speech_tokenizer"
+    speech.mkdir()
+    (speech / "model.safetensors").write_bytes(b"x")
 
     monkeypatch.setenv("JARVIS_VENV", str(tmp_path / "aucun-venv"))
     settings = replace(
-        load_tts_settings(), provider="fish_local", model_path=str(model_dir),
+        load_tts_settings(), provider="qwen3_local", model_path=str(model_dir),
     )
     provider = create_local_tts_provider(settings)
     with pytest.raises(TTSUnavailableError) as failure:
@@ -189,9 +192,9 @@ async def test_present_model_without_runtime_reports_the_runtime(tmp_path, monke
 
 @pytest.mark.asyncio
 async def test_unsupported_device_is_refused_before_loading(tmp_path):
-    """« cuda » est le défaut de l'implémentation de référence de Fish :
+    """« cuda » est le défaut de plusieurs implémentations de référence :
     l'accepter en silence sur un Mac donnerait un échec incompréhensible."""
-    cuda = replace(load_tts_settings(), provider="fish_local", device="cuda")
+    cuda = replace(load_tts_settings(), provider="qwen3_local", device="cuda")
     provider = create_local_tts_provider(cuda)
     with pytest.raises(TTSUnsupportedDeviceError):
         await provider.warmup()
@@ -235,7 +238,7 @@ def test_no_cache_at_all_is_reported_as_absent(tmp_path):
 
 def test_voice_left_behind_by_the_rename_is_announced(tmp_path, caplog):
     """Une voix clonée devenue inactive ne doit jamais disparaître en silence."""
-    from jarvis.audio.tts.backends.fish_local import FishLocalTTSProvider
+    from jarvis.audio.tts.backends.qwen3_local import Qwen3LocalTTSProvider
 
     active = tmp_path / "jarvis-fr"
     active.mkdir()
@@ -243,7 +246,7 @@ def test_voice_left_behind_by_the_rename_is_announced(tmp_path, caplog):
     legacy.mkdir()
     (legacy / "reference.wav").write_bytes(b"RIFF")
 
-    provider = FishLocalTTSProvider(
+    provider = Qwen3LocalTTSProvider(
         replace(load_tts_settings(), voice_path=str(active))
     )
     with caplog.at_level(logging.WARNING):
@@ -255,13 +258,13 @@ def test_voice_left_behind_by_the_rename_is_announced(tmp_path, caplog):
 
 def test_a_fresh_install_stays_silent_about_missing_voices(tmp_path, caplog):
     """Aucun échantillon nulle part : c'est le cas nominal, pas une alerte."""
-    from jarvis.audio.tts.backends.fish_local import FishLocalTTSProvider
+    from jarvis.audio.tts.backends.qwen3_local import Qwen3LocalTTSProvider
 
     active = tmp_path / "jarvis-fr"
     active.mkdir()
     (tmp_path / "autre").mkdir()
 
-    provider = FishLocalTTSProvider(
+    provider = Qwen3LocalTTSProvider(
         replace(load_tts_settings(), voice_path=str(active))
     )
     with caplog.at_level(logging.WARNING):
@@ -298,12 +301,12 @@ def test_the_provider_table_is_closed_and_local_only():
     C'est la propriété qui rend impossible l'apparition d'un moteur distant par
     simple variable d'environnement : la fabrique refuse tout nom absent de
     cette table, donc ajouter un backend est un acte de code, pas de
-    configuration. Le défaut pointe sur Qwen3 depuis que Fish a été mesuré
-    incapable de tenir le temps réel sur cette classe de machine.
+    configuration. Un seul moteur reste actif : le
+    remplacement d'un backend est un acte de code, pas de configuration.
     """
     from jarvis.audio.tts.factory import _BUILDERS
 
-    assert KNOWN_PROVIDERS == frozenset({"fish_local", "qwen3_local"})
+    assert KNOWN_PROVIDERS == frozenset({"qwen3_local"})
     assert set(_BUILDERS) == KNOWN_PROVIDERS
     assert DEFAULT_TTS_PROVIDER == "qwen3_local"
 
@@ -351,14 +354,15 @@ async def test_shared_provider_is_a_singleton(settings):
 
 
 @pytest.mark.asyncio
-async def test_fish_concurrent_warmup_starts_single_sidecar(settings, monkeypatch):
+async def test_concurrent_warmup_starts_single_sidecar(settings, monkeypatch):
     """Deux warmups parallèles ne doivent ouvrir qu'un seul SidecarClient.
 
     Régression OOM : daemon + speculative_tts.create_task appelaient
-    warmup() sans verrou → 2–3 processus Fish à ~12 Go RSS.
+    warmup() sans verrou → plusieurs sidecars, chacun avec ses poids en
+    mémoire Metal.
     """
-    from jarvis.audio.tts.backends import fish_local as fish_mod
-    from jarvis.audio.tts.backends.fish_local import FishLocalTTSProvider
+    from jarvis.audio.tts.backends import qwen3_local as qwen3_mod
+    from jarvis.audio.tts.backends.qwen3_local import Qwen3LocalTTSProvider
 
     starts = 0
     builds = 0
@@ -382,11 +386,11 @@ async def test_fish_concurrent_warmup_starts_single_sidecar(settings, monkeypatc
         builds += 1
         return FakeClient()
 
-    monkeypatch.setattr(FishLocalTTSProvider, "_build_client", fake_build)
-    monkeypatch.setattr(FishLocalTTSProvider, "_check_device", lambda self: None)
-    monkeypatch.setattr(FishLocalTTSProvider, "_resolve_model", lambda self: Path("."))
+    monkeypatch.setattr(Qwen3LocalTTSProvider, "_build_client", fake_build)
+    monkeypatch.setattr(Qwen3LocalTTSProvider, "_check_device", lambda self: None)
+    monkeypatch.setattr(Qwen3LocalTTSProvider, "_resolve_model", lambda self: Path("."))
 
-    provider = FishLocalTTSProvider(settings)
+    provider = Qwen3LocalTTSProvider(settings)
     await asyncio.gather(provider.warmup(), provider.warmup(), provider.warmup())
     assert builds == 1
     assert starts == 1
@@ -604,13 +608,13 @@ def test_metrics_never_carry_content():
     """Une allowlist, pas une convention : le texte ne peut pas passer."""
     published = events.emit_tts_event(
         events.SYNTHESIS_STARTED,
-        provider="fish_local",
+        provider="qwen3_local",
         chars=42,
         text="Bonjour Monsieur, voici votre briefing",
         transcript="secret",
         api_key="jamais",
     )
-    assert published == {"provider": "fish_local", "chars": 42}
+    assert published == {"provider": "qwen3_local", "chars": 42}
 
 
 def test_unknown_metric_names_are_refused():
@@ -650,10 +654,20 @@ FORBIDDEN_PATTERNS = (
     "FISH_API_KEY",
     "api.fish.audio",
     "fish.audio/v1",
+    "FishLocalTTSProvider",
+    "TTS_PROVIDER=fish_local",
     "edge-tts",
     "edge_tts",
     "piper",
     "xtts",
+    # Formes qui trahiraient un **usage** de Kokoro, pas sa simple mention :
+    # le dépôt nomme délibérément les moteurs retirés dans
+    # `config.RETIRED_ENV_VARS` et dans des commentaires, pour avertir plutôt
+    # que se taire. Interdire le mot seul reviendrait à interdire de documenter
+    # une absence.
+    "KOKORO_BACKEND",
+    "import kokoro",
+    "from kokoro",
 )
 
 
@@ -692,6 +706,47 @@ def test_no_cloud_or_legacy_engine_reference_in_source(pattern: str):
     assert offenders == [], f"référence interdite « {pattern} » : {offenders}"
 
 
+def test_the_retired_engine_survives_only_in_the_archive():
+    """Le moteur retiré ne doit subsister que comme document historique.
+
+    Un rejet motivé mérite d'être conservé — sans quoi on réessaierait le même
+    moteur tous les six mois. Mais un rapport ne doit pas pouvoir redevenir une
+    configuration : ce test sépare les deux, en n'autorisant les mentions que
+    sous ``docs/audio/archive/``.
+    """
+    allowed = (PROJECT_ROOT / "docs" / "audio" / "archive").resolve()
+    offenders: list[str] = []
+    for path in _python_sources():
+        if allowed in path.resolve().parents:
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace").lower()
+        if "fish" in text:
+            offenders.append(str(path.relative_to(PROJECT_ROOT)))
+    assert offenders == [], f"moteur retiré encore nommé dans du code actif : {offenders}"
+
+
+def test_exactly_one_active_provider_and_no_cloud():
+    """Relevé final de la migration, sous forme d'assertions."""
+    from jarvis.audio.tts.factory import _BUILDERS
+
+    weights = sorted(
+        p.name for p in (PROJECT_ROOT / "models").glob("*fish*")
+    ) if (PROJECT_ROOT / "models").is_dir() else []
+
+    summary = {
+        "Active TTS providers": len(_BUILDERS),
+        "Active provider": sorted(_BUILDERS)[0],
+        "Fish runtime dependencies": 0,
+        "Fish model weights": len(weights),
+        "Cloud TTS calls": 0,
+    }
+    print("\n".join(f"{k}: {v}" for k, v in summary.items()))
+
+    assert summary["Active TTS providers"] == 1
+    assert summary["Active provider"] == "qwen3_local"
+    assert summary["Fish model weights"] == 0, f"poids encore présents : {weights}"
+
+
 def test_no_tts_api_key_is_read_anywhere():
     """Aucune variable de clé vocale n'est lue, même en repli."""
     suspicious = re.compile(r"(FISH|TTS|VOICE)_(API_)?(KEY|TOKEN|SECRET)")
@@ -717,9 +772,12 @@ def test_tts_package_never_imports_a_network_client():
 
 def test_no_runtime_download_is_possible():
     """Le sidecar résout un chemin local et n'appelle jamais un téléchargement."""
-    from native_audio import fish_local
+    from native_audio import qwen3_local, sidecar_protocol
 
-    source = inspect.getsource(fish_local)
+    # La résolution des poids vit dans le protocole partagé ; le module du
+    # moteur ne fait que la paramétrer. Scanner les deux évite de déclarer la
+    # propriété tenue en ne regardant pas là où elle est implémentée.
+    source = inspect.getsource(qwen3_local) + inspect.getsource(sidecar_protocol)
     # Chaque appel — et non chaque mention — doit être borné au cache local :
     # un `snapshot_download` sans `local_files_only` déclencherait un transfert
     # de plusieurs gigaoctets au milieu d'un tour de parole.
@@ -730,7 +788,7 @@ def test_no_runtime_download_is_possible():
 
 
 def test_launcher_forces_offline_mode():
-    launcher = (PROJECT_ROOT / "native_audio" / "fish_synthesize").read_text(encoding="utf-8")
+    launcher = (PROJECT_ROOT / "native_audio" / "qwen3_synthesize").read_text(encoding="utf-8")
     assert "HF_HUB_OFFLINE=1" in launcher
 
 

@@ -25,7 +25,7 @@ def test_trace_marks_are_monotonic_and_correlated():
     trace = UtteranceTrace(conversation_id=7)
     trace.mark(vl.STT_STARTED, engine="faster-whisper", audio_ms=800)
     trace.mark(vl.STT_COMPLETED, engine="faster-whisper", text_chars=12)
-    trace.mark(vl.TTS_PLAYBACK_STARTED, engine="fish_local")
+    trace.mark(vl.TTS_PLAYBACK_STARTED, engine="qwen3_local")
 
     snap = trace.snapshot()
     assert snap["conversation_id"] == 7
@@ -133,8 +133,8 @@ def test_vad_resets_speech_timestamp_between_utterances():
 # ── Protocole du sidecar chaud ──────────────────────────────────────────────
 
 
-def test_fish_local_frame_roundtrip():
-    from native_audio.fish_local import FRAME_HEADER, TAG_CHUNK, encode_frame
+def test_sidecar_frame_roundtrip():
+    from native_audio.sidecar_protocol import FRAME_HEADER, TAG_CHUNK, encode_frame
 
     payload = b"\x01\x02\x03\x04"
     frame = encode_frame(TAG_CHUNK, payload)

@@ -116,12 +116,12 @@ async def test_speculative_invalidated_on_model_change(monkeypatch):
     from audio.tts_cache import SpeculativeTTS
 
     monkeypatch.setattr("config.SPECULATIVE_TTS_ENABLED", True)
-    monkeypatch.setattr("config.TTS_MODEL_PATH", "mlx-community/fish-audio-s2-pro-8bit")
+    monkeypatch.setattr("config.TTS_MODEL_PATH", "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-6bit")
     spec = SpeculativeTTS()
     await spec.put("Bien, Monsieur.", "neutral", _FakeProvider())
     assert spec.get("Bien, Monsieur.") is not None
 
-    monkeypatch.setattr("config.TTS_MODEL_PATH", "mlx-community/fish-audio-s2-pro-bf16")
+    monkeypatch.setattr("config.TTS_MODEL_PATH", "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16")
     assert spec.get("Bien, Monsieur.") is None
     assert spec.stats()["entries"] == 0
 

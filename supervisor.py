@@ -271,11 +271,10 @@ def _kill_process_tree(pid: int, *, sig: int = signal.SIGTERM) -> None:
         pass
 
 
-# Sidecars de synthèse du dépôt. La liste doit couvrir **tous** les moteurs
-# installables, pas seulement celui en production : un poste qui vient de
-# basculer garde des processus de l'ancien moteur, et c'est précisément
-# l'orphelin le plus coûteux à laisser en mémoire.
-_TTS_SIDECAR_SCRIPTS: tuple[str, ...] = ("qwen3_local.py", "fish_local.py")
+# Sidecars de synthèse du dépôt. Le tuple existe pour que l'ajout d'un moteur
+# n'oublie pas son nettoyage : un sidecar orphelin garde ses poids en mémoire
+# Metal jusqu'au redémarrage de la machine.
+_TTS_SIDECAR_SCRIPTS: tuple[str, ...] = ("qwen3_local.py",)
 
 
 def _kill_orphan_tts_sidecars() -> int:

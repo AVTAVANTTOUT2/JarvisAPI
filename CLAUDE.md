@@ -840,8 +840,7 @@ qui rend impossible l'apparition d'un service distant par configuration.
 
 | Fournisseur | Rôle |
 |---|---|
-| `qwen3_local` | Qwen3-TTS 12 Hz Base 6 bits via `mlx-audio`, GPU Metal — **moteur de production** |
-| `fish_local` | Fish Audio S2 Pro — conservé pour comparaison, plafonné par le matériel |
+| `qwen3_local` | Qwen3-TTS 12 Hz Base 6 bits via `mlx-audio`, GPU Metal — seul moteur TTS |
 
 Quatre décisions structurantes :
 
@@ -854,13 +853,11 @@ Quatre décisions structurantes :
   longueur se paie en silence pur. Mesuré sur Mac mini M4, voix `jarvis-fr`,
   trois passages par phrase : **premier son 523 ms, facteur temps réel 0,564**
   (`python scripts/benchmark_tts.py --provider qwen3_local --runs 3`).
-- **Fish est abandonné pour une raison mesurée, pas esthétique.** Son codec
-  impose 21,53 trames par seconde d'audio, et la seule passe de son backbone de
-  4 G paramètres prend 54,7 ms — soit déjà les 70-78 Go/s que cette machine
-  sait soutenir. Même avec un décodeur audio gratuit il plafonnerait à
-  18,3 trames/s. Facteur temps réel constaté : 4 à 5,7. Aucun chemin logiciel
-  ne mène sous 1 ; il faudrait une machine de classe M4 Max. Détail dans
-  `docs/audio/FISH_LOCAL_STATUS.md`.
+- **Le moteur précédent a été retiré sur mesure, pas par goût.** Il exigeait
+  189 Go/s de bande passante mémoire soutenue pour parler en temps réel, contre
+  environ 70 Go/s disponibles ici. Le rapport de rejet est archivé dans
+  `docs/audio/archive/FISH_M4_VALIDATION.md` ; aucun code actif ne le
+  référence.
 - **Aucun repli silencieux.** Un modèle absent ou une synthèse échouée conserve
   la réponse texte, réarme le pipeline et expose un état « TTS indisponible ».
   Faire entendre une voix que l'utilisateur n'a pas choisie, sans le dire,
@@ -882,8 +879,8 @@ Instrumentation : douze événements (`events.py`) sous allowlist de champs —
 longueurs, moteurs, durées, identifiants de corrélation, jamais un texte.
 
 Documentation : `docs/audio/LOCAL_TTS_ARCHITECTURE.md`,
-`docs/audio/QWEN3_LOCAL_STATUS.md`, `docs/audio/FISH_LOCAL_STATUS.md`,
-`docs/audio/CUSTOM_VOICE.md`.
+`docs/audio/QWEN3_LOCAL_STATUS.md`, `docs/audio/CUSTOM_VOICE.md`.
+Rapport de rejet archivé : `docs/audio/archive/FISH_M4_VALIDATION.md`.
 Tests : `tests/test_local_tts.py`, `tests/test_tts_segmenter.py`.
 Banc de mesure : `python scripts/benchmark_tts.py`.
 

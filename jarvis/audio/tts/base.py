@@ -2,7 +2,7 @@
 
 Le pipeline vocal (daemon, file de parole, sortie CoreAudio, API mobile) ne
 nomme aucun moteur : il crée un fournisseur par la fabrique et consomme des
-``AudioChunk``. Changer de backend — Fish Audio local aujourd'hui, autre chose
+``AudioChunk``. Changer de backend — Qwen3-TTS local aujourd'hui, autre chose
 demain — revient à écrire un module qui satisfait ce protocole.
 
 Trois propriétés de ce contrat sont structurantes :

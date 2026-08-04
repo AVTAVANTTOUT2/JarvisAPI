@@ -9,7 +9,7 @@
 3. transcrit l'extrait en local (faster-whisper, lecture seule) ;
 4. écrit ``voices/jarvis-fr/{metadata.json,reference.wav,transcript.txt}`` ;
 5. met en cache un tenseur float32 ``data/voices/jarvis-fr/reference.npy``
-   pour un chargement rapide au warmup du sidecar Fish.
+   pour un chargement rapide au warmup du sidecar.
 
 Aucun appel réseau. Aucune modification du moteur STT : on importe seulement
 le modèle déjà installé pour produire le transcript de référence.
@@ -371,7 +371,7 @@ def transcribe_local(wav_path: Path, language: str = "fr") -> str:
 
 
 def write_npy_cache(wav_path: Path, cache_path: Path) -> Path:
-    """Pré-encode la référence en float32 pour un warmup Fish immédiat."""
+    """Pré-encode la référence en float32 pour un warmup immédiat."""
     import numpy as np
 
     samples, rate = _read_mono_pcm16(wav_path)
@@ -418,7 +418,7 @@ def prepare_voice(
     skip_transcribe: bool = False,
     transcript_override: str | None = None,
 ) -> PreparationReport:
-    """Pipeline complet : source → profil ``jarvis-fr`` prêt pour Fish."""
+    """Pipeline complet : source → profil ``jarvis-fr`` prêt à l'emploi."""
     resolved_source = find_source(source)
     master = ensure_master(
         resolved_source,

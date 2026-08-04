@@ -61,15 +61,17 @@ echo ""
 echo "→ Moteur vocal local"
 python - <<'VOICEPY'
 from jarvis.audio.tts import load_tts_settings
-from native_audio.fish_local import FishModelMissing, resolve_local_model_dir
 
 settings = load_tts_settings()
 print(f"  fournisseur : {settings.provider}")
 print(f"  modele      : {settings.model_path}")
 print(f"  voix        : {settings.voice_path}")
+
+from native_audio.qwen3_local import Qwen3ModelMissing, resolve_model_dir
+
 try:
-    print(f"  OK — poids presents : {resolve_local_model_dir(settings.model_path)}")
-except FishModelMissing as exc:
+    print(f"  OK — poids presents : {resolve_model_dir(settings.model_path)}")
+except Qwen3ModelMissing as exc:
     print(f"  MANQUANT — {exc}")
     print("  Installation : python scripts/download_tts_model.py")
 VOICEPY
@@ -111,8 +113,8 @@ echo ""
 echo "Configuration par défaut attendue (.env.config) :"
 echo "  STT_ENGINE=faster-whisper"
 echo "  STT_MODEL=large-v3-turbo"
-echo "  TTS_PROVIDER=fish_local"
-echo "  TTS_MODEL_PATH=mlx-community/fish-audio-s2-pro-8bit"
-echo "  TTS_VOICE_PATH=./voices/jarvis"
+echo "  TTS_PROVIDER=qwen3_local"
+echo "  TTS_MODEL_PATH=mlx-community/Qwen3-TTS-12Hz-0.6B-Base-6bit"
+echo "  TTS_VOICE_PATH=./voices/jarvis-fr"
 echo ""
 echo "Terminé."

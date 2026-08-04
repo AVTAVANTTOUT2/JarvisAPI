@@ -7,7 +7,6 @@ explicite, il se relance et il reprend là où il s'est arrêté.
 
     python scripts/download_tts_model.py                # moteur par défaut
     python scripts/download_tts_model.py --check        # vérifie sans rien écrire
-    python scripts/download_tts_model.py --engine fish  # l'ancien moteur
     python scripts/download_tts_model.py --dest ~/models/voix
 
 Sur une liaison lente, laissez-le tourner : chaque relance reprend les octets
@@ -55,21 +54,6 @@ ENGINES: dict[str, Engine] = {
         size_hint="environ 1,9 Go",
         resolver="native_audio.qwen3_local",
     ),
-    # Conservé pour comparaison de qualité vocale et usages hors temps réel.
-    # Mesuré sur ce Mac mini M4 : facteur temps réel entre 4 et 5,7, plancher
-    # théorique 2,6 — voir docs/audio/FISH_LOCAL_STATUS.md.
-    "fish": Engine(
-        name="fish",
-        repos={
-            "8bit": "mlx-community/fish-audio-s2-pro-8bit",
-            "bf16": "mlx-community/fish-audio-s2-pro-bf16",
-        },
-        default_precision="8bit",
-        license_label="recherche / usage non commercial",
-        license_url="https://huggingface.co/fishaudio/s2-pro/blob/main/LICENSE",
-        size_hint="environ 6,7 Go en 8 bits, 11 Go en bf16",
-        resolver="native_audio.fish_local",
-    ),
 }
 
 DEFAULT_ENGINE = "qwen3"
@@ -82,22 +66,16 @@ def _repo_for(engine: Engine, precision: str) -> str:
 def check_installed(engine: Engine, model: str) -> Path | None:
     """Retourne le répertoire local des poids, sans rien télécharger.
 
-    Chaque moteur vérifie ses **propres** fichiers requis : un répertoire qui
-    satisferait Fish peut être incomplet pour Qwen3, dont le tokenizer de
-    parole vit dans un sous-répertoire et porte l'encodeur de locuteur.
+    La vérification appartient au moteur : le tokenizer de parole vit dans un
+    sous-répertoire et porte l'encodeur de locuteur, donc un répertoire qui
+    semble complet à première vue peut avoir perdu la voix clonée.
     """
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
     module = __import__(engine.resolver, fromlist=["*"])
-    resolve = getattr(module, "resolve_model_dir", None) or getattr(
-        module, "resolve_local_model_dir"
-    )
-    missing_cls = getattr(module, "Qwen3ModelMissing", None) or getattr(
-        module, "FishModelMissing"
-    )
 
     try:
-        return resolve(model)
-    except missing_cls:
+        return module.resolve_model_dir(model)
+    except module.Qwen3ModelMissing:
         return None
 
 
@@ -131,12 +109,8 @@ def download(model: str, dest: Path | None) -> Path:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--engine", choices=sorted(ENGINES), default=DEFAULT_ENGINE,
-        help=f"moteur à installer (défaut : {DEFAULT_ENGINE})",
-    )
-    parser.add_argument(
         "--precision", default="",
-        help="6bit (qwen3) ; 8bit ou bf16 (fish). Défaut : selon le moteur.",
+        help=f"précision des poids. Défaut : {ENGINES[DEFAULT_ENGINE].default_precision}.",
     )
     parser.add_argument("--model", default="", help="Dépôt ou chemin explicite")
     parser.add_argument("--dest", default="", help="Répertoire cible (défaut : cache HF)")
@@ -145,7 +119,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    engine = ENGINES[args.engine]
+    engine = ENGINES[DEFAULT_ENGINE]
     precision = args.precision.strip() or engine.default_precision
     if not args.model.strip() and precision not in engine.repos:
         print(

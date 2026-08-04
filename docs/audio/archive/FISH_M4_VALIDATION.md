@@ -1,11 +1,21 @@
-# Fish Audio local sur Apple Silicon — verdict
+# Fish Audio S2 Pro sur Mac mini M4 — rapport de validation archivé
 
-**Statut au 4 août 2026 : abandonné comme moteur de production sur Mac mini M4.
-Conservé sélectionnable (`TTS_PROVIDER=fish_local`) pour comparaison de qualité
-vocale et usages hors temps réel. Aucune optimisation supplémentaire n'est
-poursuivie.**
+```text
+Status:      rejected for production on Mac mini M4
+Reason:      physical throughput limit
+Replacement: Qwen3-TTS-12Hz-0.6B-Base-6bit
+Date:        2026-08-04
+```
 
-Le moteur de production est [Qwen3-TTS](QWEN3_LOCAL_STATUS.md).
+> Document **historique**. Aucun code actif du dépôt ne référence ce moteur ;
+> un test structurel l'interdit hors de `docs/audio/archive/`. Il est conservé
+> parce qu'un rejet motivé vaut mieux qu'un moteur qu'on réessaierait tous les
+> six mois faute de trace.
+
+**Le backend, son sidecar, ses lanceurs, sa configuration et ses poids ont été
+retirés du dépôt.** Ce document conserve la mesure qui a motivé le retrait.
+
+Le moteur de production est [Qwen3-TTS](../QWEN3_LOCAL_STATUS.md).
 
 ## Pourquoi : un plafond matériel, pas un défaut d'implémentation
 
@@ -74,13 +84,6 @@ premier son.
 
 Autrement dit : Fish demande une classe de machine supérieure, pas un meilleur
 code.
-
-## Installation, si besoin de comparer
-
-```bash
-python scripts/download_tts_model.py --engine fish   # ~6,7 Go
-TTS_PROVIDER=fish_local
-```
 
 ## Licence des poids
 

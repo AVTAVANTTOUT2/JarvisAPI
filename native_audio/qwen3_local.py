@@ -4,30 +4,26 @@ Exécuté par ``native_audio/qwen3_synthesize`` sous ``JARVIS_VENV`` (le venv qu
 porte ``mlx-audio``), jamais dans l'interpréteur de JARVIS : les deux
 environnements n'ont ni la même version de Python ni les mêmes dépendances.
 
-Ce moteur remplace Fish Audio S2 Pro pour une raison mesurée, pas esthétique.
-Fish produit **21,53 trames par seconde** d'audio, et chaque trame coûte une
-passe complète d'un backbone de 4 milliards de paramètres (4,26 Go lus) plus
-dix passes de son décodeur de profondeur (4,51 Go). Sur ce Mac mini M4, dont la
-bande passante mémoire soutenue mesurée est d'environ 70 Go/s, la seule passe
-du backbone prend 54,7 ms : même avec un décodeur audio gratuit, le moteur
-plafonne à 18,3 trames/s là où il en faut 21,53. Le temps réel y est
-inatteignable, quelle que soit la qualité de l'implémentation.
+Le choix de ce modèle repose sur un rapport mesuré, pas sur une préférence. Le
+temps réel exige de produire une seconde d'audio en moins d'une seconde de
+calcul ; ce qui décide, c'est le nombre de trames à générer par seconde d'audio
+multiplié par le coût d'une trame. Ici : **12,5 trames par seconde** pour un
+talker de 0,6 milliard de paramètres, soit environ 3,4 Go de poids lus par
+trame — quand ce Mac mini M4 soutient environ 70 Go/s. Le budget par trame est
+de 80 ms ; la dépense réelle tient largement dessous.
 
-Qwen3-TTS déplace les deux termes du rapport : **12,5 trames par seconde** au
-lieu de 21,53, et un talker de 0,6 milliard de paramètres au lieu de 4. Le
-budget par trame passe de 46 ms à 80 ms pendant que le coût s'effondre.
-
-Deux différences de nature avec le sidecar Fish méritent d'être explicites :
+Deux propriétés du sidecar méritent d'être explicites :
 
 - **La diffusion est native.** ``generate(stream=True)`` rend l'audio au fil de
   la génération, par blocs de ``streaming_interval × 12,5`` trames, décodés
-  incrémentalement par ``speech_tokenizer.streaming_decode``. Fish levait
-  ``NotImplementedError`` sur ce mode et obligeait JARVIS à découper le texte
-  lui-même. Le découpage côté JARVIS reste utile, mais il n'est plus la seule
-  source de fragments.
+  incrémentalement par ``speech_tokenizer.streaming_decode``. Le découpage du
+  texte côté JARVIS reste utile — il borne le premier énoncé et donne une
+  frontière d'annulation propre — mais il n'est plus la seule source de
+  fragments.
 - **La voix est un vecteur, pas un préfixe.** Le modèle Base encode
-  l'échantillon de référence par son encodeur de locuteur, au lieu de préfixer
-  toute la référence dans le contexte à chaque énoncé.
+  l'échantillon de référence par son encodeur de locuteur ; lorsqu'un
+  transcript accompagne l'échantillon, mlx-audio emprunte en plus la voie
+  *in-context learning*.
 
 **Aucun téléchargement.** ``resolve_model_dir`` n'accepte qu'un chemin existant
 ou un dépôt déjà présent dans le cache Hugging Face local ; l'appel part avec
@@ -56,9 +52,8 @@ from native_audio.sidecar_protocol import (
 
 DEFAULT_MODEL = "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-6bit"
 
-# Le modèle rend son audio à 24 kHz — c'est aussi le défaut du pipeline JARVIS,
-# donc aucun rééchantillonnage n'est nécessaire en sortie (Fish sortait à
-# 44,1 kHz et imposait une conversion).
+# Le modèle rend son audio à 24 kHz — c'est aussi le défaut du pipeline JARVIS
+# et la fréquence du profil vocal, donc aucun rééchantillonnage nulle part.
 DEFAULT_SAMPLE_RATE = 24000
 
 # Débit de trames du tokenizer de parole. Sert à convertir un intervalle de

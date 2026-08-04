@@ -1,28 +1,22 @@
-"""Qwen3-TTS 12 Hz, en local, sur Apple Silicon — backend de production.
+"""Qwen3-TTS 12 Hz, en local, sur Apple Silicon — moteur vocal de JARVIS.
 
 Ce backend n'appelle **jamais** d'API distante. Il pilote le modèle
 ``qwen3_tts`` fourni par ``mlx-audio``, exécuté par un sidecar dans le venv
 MLX, sur le GPU Metal de la machine. Aucune clé, aucune URL, aucun jeton : ce
 qui n'est pas sur le disque n'existe pas pour lui.
 
-Il remplace ``fish_local`` pour une raison mesurée sur cette machine, pas par
-préférence. Le détail du calcul vit dans ``native_audio/qwen3_local.py`` ; le
-résultat tient en une ligne : Fish demande 189 Go/s de bande passante mémoire
-soutenue pour parler en temps réel, ce Mac mini M4 en délivre environ 70.
-
-Trois différences avec le backend Fish sont visibles depuis l'extérieur :
+Trois propriétés sont visibles depuis l'extérieur :
 
 - **``info().streaming`` vaut ``native``.** Le modèle rend l'audio au fil de la
-  génération ; JARVIS n'est plus obligé de découper le texte pour obtenir un
+  génération ; JARVIS n'a pas besoin de découper le texte pour obtenir un
   premier son tôt. Le segmenteur reste en place et reste utile, mais il n'est
   plus la seule source de fragments, et l'annonce faite au reste du système
-  décrit maintenant ce qui se passe réellement.
-- **La fréquence native est 24 kHz**, celle du pipeline JARVIS. Fish sortait à
-  44,1 kHz et imposait une conversion à chaque fragment.
-- **Le transcript de la voix ne transite plus par la ligne de commande.** Le
+  décrit ce qui se passe réellement.
+- **La fréquence native est 24 kHz**, celle du pipeline et du profil vocal :
+  aucune conversion, ni en sortie ni sur la référence.
+- **Le transcript de la voix ne transite pas par la ligne de commande.** Le
   sidecar reçoit le répertoire du profil et lit lui-même ``transcript.txt`` ;
-  l'ancien ``--ref-text`` exposait le texte de référence dans la sortie de
-  ``ps``.
+  le passer en argument l'exposerait dans la sortie de ``ps``.
 """
 
 from __future__ import annotations
@@ -53,8 +47,8 @@ PROVIDER_NAME = "qwen3_local"
 BACKEND_NAME = "mlx-audio/qwen3_tts"
 LAUNCHER = "qwen3_synthesize"
 
-# Le modèle diffuse l'audio pendant qu'il le génère : contrairement à Fish, ce
-# n'est pas le découpage du texte par JARVIS qui produit les fragments.
+# Le modèle diffuse l'audio pendant qu'il le génère : ce n'est pas le découpage
+# du texte par JARVIS qui produit les fragments.
 STREAMING_MODE = "native"
 
 # Accélérateurs acceptés. « cuda » n'est pas une valeur exotique : c'est le
@@ -155,6 +149,21 @@ class Qwen3LocalTTSProvider:
 
     def _build_client(self) -> SidecarClient:
         """Construit le client du sidecar — sans le démarrer."""
+        # Les poids d'abord. Sur une machine neuve, ni les poids ni le venv MLX
+        # ne sont installés : les deux causes sont vraies, mais une seule est
+        # utile. Les poids sont ce que l'utilisateur installe en premier, et
+        # `TTSModelNotFoundError` porte la commande exacte. Vérifier le runtime
+        # avant masquerait ce diagnostic derrière une erreur plus vague — la CI
+        # macOS a déjà échoué exactement là.
+        model_dir = self._resolve_model()
+
+        launcher = sidecar_launcher(LAUNCHER)
+        if launcher is None:
+            raise TTSUnavailableError(
+                f"sidecar {LAUNCHER} introuvable ou non exécutable "
+                f"(native_audio/{LAUNCHER})"
+            )
+
         python = mlx_python()
         if python is None:
             raise TTSUnavailableError(
@@ -163,13 +172,6 @@ class Qwen3LocalTTSProvider:
                 "python -m pip install -r requirements-mlx.txt"
             )
 
-        launcher = sidecar_launcher(LAUNCHER)
-        if launcher is None:
-            raise TTSUnavailableError(
-                f"lanceur {LAUNCHER} introuvable dans native_audio/."
-            )
-
-        model_dir = self._resolve_model()
         command = [
             str(launcher), "--serve", "--model", str(model_dir),
             "--language", _model_language(),

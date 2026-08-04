@@ -54,12 +54,8 @@ DEFAULT_TTS_FIRST_CHUNK_MAX_CHARS = 60
 
 # Fournisseurs connus. La fabrique refuse tout autre nom : c'est ce qui rend
 # impossible l'apparition d'un backend distant par simple configuration.
-#
-# ``qwen3_local`` est le défaut : 12,5 trames par seconde d'audio pour un
-# talker de 0,6 milliard de paramètres, là où ``fish_local`` en demande 21,53
-# pour un backbone de 4 milliards. Le second reste sélectionnable — sa qualité
-# vocale n'est pas en cause, seulement sa vitesse sur cette classe de machine.
-KNOWN_PROVIDERS: frozenset[str] = frozenset({"fish_local", "qwen3_local"})
+# Un seul moteur est actif ; en ajouter un est un acte de code.
+KNOWN_PROVIDERS: frozenset[str] = frozenset({"qwen3_local"})
 
 # Nom de fichier attendus dans le répertoire de voix.
 VOICE_METADATA_FILE = "metadata.json"

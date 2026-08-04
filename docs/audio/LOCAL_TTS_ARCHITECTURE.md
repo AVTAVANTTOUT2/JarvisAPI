@@ -54,11 +54,11 @@ async for chunk in provider.stream(text, request_id=rid, utterance_id=uid):
 - **`segmented`** — JARVIS découpe le texte et joue chaque segment dès qu'il
   est synthétisé pendant que le suivant se génère.
 
-Le backend de production `qwen3_local` est `native` : le modèle rend l'audio
-par blocs de `streaming_interval × 12,5` trames, décodés incrémentalement par
-le tokenizer de parole. Le backend `fish_local`, conservé pour comparaison, est
-`segmented` — l'implémentation MLX lève explicitement `NotImplementedError` sur
-son mode `stream`, et annoncer « streaming natif » aurait été faux.
+Le backend `qwen3_local` est `native` : le modèle rend l'audio par blocs de
+`streaming_interval × 12,5` trames, décodés incrémentalement par le tokenizer
+de parole. La valeur `segmented` reste déclarable — le moteur précédent l'était,
+son implémentation levant `NotImplementedError` sur `stream` — et annoncer
+« natif » à sa place aurait été faux.
 
 Le segmenteur reste en place et reste utile avec un backend natif : il borne la
 longueur du premier énoncé envoyé au moteur et permet d'annuler à une frontière
@@ -66,9 +66,9 @@ propre. Il n'est simplement plus la seule source de fragments.
 
 **Mesuré** sur Mac mini M4, voix `jarvis-fr`, trois passages par phrase :
 premier son à **523 ms** (médiane à chaud), facteur temps réel **0,564**. Le
-détail est dans [QWEN3_LOCAL_STATUS.md](QWEN3_LOCAL_STATUS.md) ; le verdict sur
-Fish, plafonné par la bande passante mémoire de la machine, dans
-[FISH_LOCAL_STATUS.md](FISH_LOCAL_STATUS.md).
+détail est dans [QWEN3_LOCAL_STATUS.md](QWEN3_LOCAL_STATUS.md) ; le rapport de
+rejet du moteur précédent, plafonné par la bande passante mémoire de la
+machine, dans [archive/FISH_M4_VALIDATION.md](archive/FISH_M4_VALIDATION.md).
 
 ### Le premier segment obéit à des seuils plus courts
 

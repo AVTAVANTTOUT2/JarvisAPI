@@ -498,7 +498,7 @@ class AudioDaemon:
 
         # Un seul chemin de préchauffage : le cache spéculatif appelle aussi
         # ``provider.warmup()``. Deux ``create_task`` concurrents ouvraient
-        # deux sidecars Fish (~12 Go RSS chacun) avant le verrou provider —
+        # deux sidecars de synthèse, chacun avec ses poids, avant le verrou —
         # on sérialise ici pour que le moteur charge une seule fois, puis
         # éventuellement pré-génère les phrases.
         asyncio.create_task(self._warmup_tts_pipeline(), name="tts_engine_warmup")

@@ -95,7 +95,7 @@ class SidecarClient:
             try:
                 # Session / process group dédié : à l'arrêt, killpg couvre le
                 # launcher et d'éventuels enfants MLX. Sans ça, un restart du
-                # backend laisse des sidecars Fish orphelins (~12 Go chacun).
+                # backend laisse des sidecars orphelins, poids compris.
                 self._proc = await asyncio.create_subprocess_exec(
                     *self._command,
                     stdin=asyncio.subprocess.PIPE,
