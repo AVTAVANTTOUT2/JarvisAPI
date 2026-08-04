@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-import fitz
 from fastapi import APIRouter, Form, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -26,6 +25,7 @@ from jarvis.document_privacy import (
     set_document_strict_local,
     summarize_document,
 )
+from jarvis.pdf_runtime import pymupdf
 from jarvis.uploads import (
     CONVERSATION_EXTENSIONS,
     UploadRejected,
@@ -163,7 +163,7 @@ async def api_conversation_upload(
     try:
         if stored.extension == ".pdf":
             try:
-                with fitz.open(str(stored.path)) as doc:
+                with pymupdf.open(str(stored.path)) as doc:
                     extracted = "\n".join(page.get_text() for page in doc)
             except Exception as exc:
                 raise HTTPException(415, "Document PDF illisible") from exc

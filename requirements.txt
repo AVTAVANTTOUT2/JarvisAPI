@@ -14,7 +14,7 @@ aiohttp>=3.12,<4
 apscheduler==3.10.*
 
 # PDF
-pymupdf==1.25.*
+pymupdf==1.28.*
 
 # Daemon JARVIS — screen watcher + wake word
 Pillow>=10.0

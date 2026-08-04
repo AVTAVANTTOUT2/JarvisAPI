@@ -4,7 +4,7 @@
 # python-platform: aarch64-apple-darwin
 # uv-version: 0.11.29
 # sources: requirements.txt,requirements-dev.txt
-# source-sha256: dfafbc7e0e53efb4dcf5f89fa92198ac7497c705edff38ce076bbba71434d3c3
+# source-sha256: 4cf28011efcbc9d22ae330dff80dc808281f46757648b7be254631a40ccab2e8
 # update: python tools/update_python_locks.py
 
 aiohappyeyeballs==2.7.1 \
@@ -1887,15 +1887,17 @@ pygments==2.20.0 \
     # via
     #   pytest
     #   rich
-pymupdf==1.25.5 \
-    --hash=sha256:5a35e2725fae0ab57f058dff77615c15eb5961eac50ba04f41ebc792cd8facad \
-    --hash=sha256:5f96311cacd13254c905f6654a004a0a2025b71cabc04fda667f5472f72c15a0 \
-    --hash=sha256:65e18ddb37fe8ec4edcdbebe9be3a8486b6a2f42609d0a142677e42f3a0614f8 \
-    --hash=sha256:6ed7fc25271004d6d3279c20a80cb2bb4cda3efa9f9088dcc07cd790eca0bc63 \
-    --hash=sha256:7f44bc3d03ea45b2f68c96464f96105e8c7908896f2fb5e8c04f1fb8dae7981e \
-    --hash=sha256:cde4e1c9cfb09c0e1e9c2b7f4b787dd6bb34a32cfe141a4675e24af7c0c25dd3 \
-    --hash=sha256:d94b800e9501929c42283d39bc241001dd87fdeea297b5cb40d5b5714534452f \
-    --hash=sha256:ee22155d3a634642d76553204867d862ae1bdd9f7cf70c0797d8127ebee6bed5
+pymupdf==1.28.0 \
+    --hash=sha256:44f0973f5e5edbaec95bc34b64e71d1959d4ee90b1328de1b4f4f5b4fa78673f \
+    --hash=sha256:47a5c29ed4eb0744de9c4e37bb49b1259b18d4d75fcc8a7c130f7c9fa15956f6 \
+    --hash=sha256:4d61ec323a706e153a12e262e51febfb43eeaa20977785ace135d18d48bcdc83 \
+    --hash=sha256:4d692dcf44d3566ae96bc6f6346c6ad432274a29ba617bf7a9fe18009e24adb4 \
+    --hash=sha256:74c6d00ba2a9aad3a635db73b07c15db462b480741d831a34a75a56535ebc22b \
+    --hash=sha256:892b89ba88e8f98b53133b62877a9dc9b5e7dc6a4aeb837b612db56a8d2e03ac \
+    --hash=sha256:b3e1399c7a64c6914239116a369efcdaac4cfb9e838bde2656d7accc4a85c72d \
+    --hash=sha256:caea2b3b67347fd79e5d15ed7929b0e886aac594ea228073b6d39de0078189da \
+    --hash=sha256:e01e90fd86abfeb37ceb921eddb951f988a11d45ff6ce6b7664f2039849068ec \
+    --hash=sha256:e53f3567403a92da15caa9e7ae0164327fff48817e9f40175367fb9de524258d
     # via -r requirements.txt
 pytest==8.4.2 \
     --hash=sha256:86c0d0b93306b961d58d62a4db4879f27fe25513d4b969df351abdddb3c30e01 \

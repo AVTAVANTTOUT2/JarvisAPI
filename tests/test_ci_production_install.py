@@ -63,3 +63,9 @@ def test_production_requirements_pin_the_web_core():
 
     assert "fastapi==0.139.*" in requirements
     assert "uvicorn[standard]==0.34.*" in requirements
+
+
+def test_production_requirements_use_the_python_314_pdf_runtime():
+    requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8")
+
+    assert "pymupdf==1.28.*" in requirements
