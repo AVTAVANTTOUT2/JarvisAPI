@@ -175,19 +175,24 @@ async def test_voice_json_example_outside_action_fence_is_never_executed():
 
     raw = 'Exemple seulement : {"type":"open_app","name":"Calculator"}'
     execute = AsyncMock(return_value={"ok": True})
+    canonical = AsyncMock(return_value={
+        "response": raw,
+        "agent": "info",
+        "model": "deepseek-v4-flash",
+        "tokens_in": 1,
+        "tokens_out": 1,
+        "cost": 0.0,
+        "emotion": "neutral",
+    })
     with patch(
         "api.voice_cognitive.maybe_handle_cognitive_voice",
         AsyncMock(return_value=None),
     ), patch(
-        "api.voice_processing.llm.chat",
-        AsyncMock(return_value={
-            "content": raw,
-            "tokens_in": 1,
-            "tokens_out": 1,
-            "cost": 0.0,
-        }),
+        "api.chat_processing.orchestrator.handle", canonical,
     ), patch(
-        "api.voice_processing.execute_action", execute,
+        "api.chat_processing.execute_action", execute,
+    ), patch(
+        "api.chat_processing._build_enriched_context", AsyncMock(return_value={}),
     ), patch(
         "api.voice_fastpath._save_voice_messages",
     ), patch(
@@ -199,4 +204,5 @@ async def test_voice_json_example_outside_action_fence_is_never_executed():
 
     assert result["action"] is None
     assert result["text"] == raw
+    canonical.assert_awaited_once()
     execute.assert_not_awaited()

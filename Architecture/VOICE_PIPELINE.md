@@ -1,6 +1,6 @@
 # Pipeline vocal cognitif
 
-Dernière mise à jour : 2026-07-16
+Dernière mise à jour : 2026-08-04
 
 ## Rôle
 
@@ -10,7 +10,8 @@ Réponses vocales instantanées (Flash), avec délégation Cursor ou raisonnemen
 
 | Fichier | Rôle |
 |---------|------|
-| `api/voice_processing.py` | STT → traitement → TTS ; barge-in ; latences |
+| `api/voice_processing.py` | Adaptateur voix : fast-paths déterministes, latences, délégation au moteur canonique |
+| `api/chat_processing.py` | Moteur canonique : contexte, LLM, confirmations, actions, suivi et réponse structurée |
 | `api/voice_cognitive.py` | Briefings variants, ack Cursor/heavy, follow-up Main |
 | `api/ws_handsfree.py` | Mode mains libres WebSocket |
 | `api/mobile_voice_service.py` | Android → `_process_voice_fast` |
@@ -26,7 +27,10 @@ audio → STT local
        ├ briefing → BriefingEngine (voice_text)
        ├ cursor → ack Flash + enqueue job
        ├ heavy → ack + tâche Main async + résumé Flash + notif high
-       └ sinon → pipeline Flash court (VOICE_MAX_TOKENS)
+       └ sinon → `_process_message_internal(..., voice_mode=True)`
+                    ├ contexte et routage canoniques
+                    ├ DeepSeek Flash court (`VOICE_MAX_TOKENS`)
+                    └ action + action_result structurés
   → TTS → playback
 ```
 
@@ -55,14 +59,18 @@ Table `voice_debug_log` : latences STT / routing / LLM / TTS / total.
 VOICE_MAX_TOKENS=500
 VOICE_SILENCE_DURATION_MS=1200
 VOICE_MIN_SPEECH_MS=400
-TTS_ENGINE=edge   # ou ttskit | kokoro | macos
-AUDIO_DAEMON_STT_ENGINE=local
+TTS_PROVIDER=qwen3_local
+STT_ENGINE=local
 VOICE_REASONING_MODEL=   # défaut = DeepSeek Flash
 ```
 
 ## Android
 
-`api/mobile_voice_service.py` appelle le même chemin `_process_voice_fast` que le web — pas de pipeline parallèle « lite » sans routeur.
+`api/mobile_voice_service.py`, `api/ws_handsfree.py` et le daemon appellent le
+même adaptateur `_process_voice_fast`. Celui-ci délègue tout tour non
+déterministe à `_process_message_internal` : il n'existe plus de prompts,
+budgets, parsing ou exécution d'action propres à la voix. Les transports
+publient `action` et `action_result` séparément du texte prononcé.
 
 ## Limites connues
 

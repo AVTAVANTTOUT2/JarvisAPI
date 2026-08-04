@@ -246,15 +246,20 @@ def test_voice_turn_preserves_conversation_context(
     assert second_call.args[1] == conv_id
 
 
-def test_mobile_voice_service_uses_fast_voice_pipeline():
-    """Contrat : Android partage le pipeline vocal Flash (pas l'orchestrateur)."""
+def test_mobile_voice_service_uses_unified_voice_adapter():
+    """Contrat : Android partage l'adaptateur du moteur vocal canonique."""
     import inspect
 
-    import api.mobile_voice_service as svc
+    from api import mobile_voice_service as svc
+    from api import voice_processing
 
     source = inspect.getsource(svc)
+    voice_source = inspect.getsource(voice_processing)
     assert "_process_voice_fast" in source
     assert "_process_message_internal" not in source
+    assert "_process_message_internal" in voice_source
+    assert "llm.chat(" not in voice_source
+    assert "execute_action(" not in voice_source
 
 
 def test_voice_fixture_wav_integration_smoke(tmp_db, monkeypatch):

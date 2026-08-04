@@ -106,7 +106,7 @@ async def _handle_barge_in_blob(
 async def _handle_hands_free_blob(
     ws: WebSocket, audio_bytes: bytes, conv_session: dict,
 ) -> None:
-    """Mains libres : STT → pipeline vocal rapide (`_process_voice_fast`) + TTS."""
+    """Mains libres : STT → moteur conversationnel vocal unique + TTS."""
     # Barge-in pendant parole
     if conv_session.get("is_speaking"):
         await _handle_barge_in_blob(ws, audio_bytes, conv_session)
@@ -177,12 +177,27 @@ async def _handle_hands_free_blob(
                 return
             display_text = finalize_assistant_display_text(result.get("text", ""))
             emotion = result.get("emotion", "neutral") or "neutral"
+            action = result.get("action")
+            action_result = result.get("action_result")
+            if action is not None or action_result is not None:
+                await ws.send_json({
+                    "type": (
+                        "action_pending"
+                        if isinstance(action_result, dict)
+                        and action_result.get("needs_confirmation")
+                        else "action_result"
+                    ),
+                    "action": action.get("type") if isinstance(action, dict) else None,
+                    "action_payload": action,
+                    "result": action_result,
+                    "turn_id": turn_id,
+                })
             await ws.send_json({
                 "type": "response",
-                "agent": "voice",
+                "agent": result.get("agent") or "voice",
                 "category": "VOICE",
                 "content": display_text,
-                "model": config.DEEPSEEK_FAST_MODEL,
+                "model": result.get("model") or config.DEEPSEEK_FAST_MODEL,
                 "tokens_in": 0,
                 "tokens_out": 0,
                 "cost": float(result.get("cost") or 0.0),

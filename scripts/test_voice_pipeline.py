@@ -563,13 +563,12 @@ def _contains_malformed_action(text: str) -> bool:
 
 
 def _deduce_action_type(result: dict) -> Optional[str]:
-    """Tente de deduire le type d'action a partir du resultat d'execution.
+    """Lit le type d'action explicite, avec repli pour les anciennes traces."""
+    action = result.get("action")
+    if isinstance(action, dict) and action.get("type"):
+        return str(action["type"])
 
-    L'action_result dans le retour de _process_voice_fast contient
-    les donnees de sortie de execute_action(), pas le type original.
-    On tente une deduction heuristique.
-    """
-    action_result = result.get("action")
+    action_result = result.get("action_result")
     if action_result is None:
         return None
 
@@ -658,8 +657,8 @@ async def run_test(tc: TestCase) -> TestResult:
             result.latency_ms = elapsed
             result.has_action = r.get("action") is not None
             result.action_ok = (
-                r.get("action", {}).get("ok", False)
-                if isinstance(r.get("action"), dict)
+                r.get("action_result", {}).get("ok", False)
+                if isinstance(r.get("action_result"), dict)
                 else None
             )
 

@@ -655,6 +655,7 @@ class DaemonSTT:
             )
         return {
             "text": clean_text,
+            "raw_text": raw_text,
             "segments": result.segments,
             "language": result.language,
             "duration": result.duration,
@@ -718,7 +719,21 @@ class DaemonSTT:
             language=language,
         )
         meta = await asyncio.wait_for(operation, timeout=timeout) if timeout else await operation
-        return str((meta or {}).get("text") or "").strip()
+        if not meta:
+            return ""
+
+        # ``transcribe_with_metadata`` est la façade canonique, mais ce garde
+        # reste volontairement à la frontière texte : il préserve le contrat
+        # même lorsqu'un backend est remplacé par un double, un plugin local ou
+        # une future implémentation qui ne renseigne pas encore ``prompt_echo``.
+        raw_text = str(meta.get("raw_text") or meta.get("text") or "").strip()
+        prompt_echo = bool(meta.get("prompt_echo")) or bool(
+            raw_text and is_stt_prompt_echo(raw_text)
+        )
+        clean_text = "" if prompt_echo else str(meta.get("text") or raw_text).strip()
+        self.last_raw_text = raw_text
+        self.last_clean_text = clean_text
+        return clean_text
 
     async def transcribe_with_diarization(
         self,

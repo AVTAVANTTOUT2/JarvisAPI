@@ -111,11 +111,10 @@
     {
       "id": "TD-P1-06",
       "severity": "P1",
-      "status": "active",
+      "status": "resolved",
       "summary": "Le tour vocal conserve une orchestration distincte du moteur conversationnel canonique",
-      "owner": "lot audio/STT coordonné avec Claude",
-      "next_action": "Partager un moteur de tour unique et rendre les actions explicites dans le protocole streamé",
-      "evidence": ["api/voice_processing.py", "api/chat_cognitive.py"]
+      "resolution": "L’adaptateur vocal conserve seulement les fast-paths déterministes puis délègue contexte, LLM, confirmations, actions et suivi au moteur interne canonique ; les transports diffusent action et action_result comme champs structurés",
+      "evidence": ["api/voice_processing.py", "api/chat_processing.py", "tests/test_voice_unified_engine.py"]
     },
     {
       "id": "TD-P1-07",

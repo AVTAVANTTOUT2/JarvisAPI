@@ -2,7 +2,7 @@
 
 Pipeline :
   Thread pyaudio → asyncio.Queue → VAD (Silero + ring pre-roll) → STT local
-  → _process_voice_fast → file vocale prioritaire → moteur TTS local
+  → moteur conversationnel vocal unique → file vocale prioritaire → moteur TTS local
   → sounddevice PCM streaming.
 
 Half-duplex par défaut (micro coupé pendant TTS) — voir AUDIO_DAEMON_HALF_DUPLEX.
@@ -1338,10 +1338,10 @@ class AudioDaemon:
     async def _process_single_utterance_active(
         self, pcm_bytes: bytes, stt_available: bool, *, trace: UtteranceTrace,
     ) -> None:
-        """Traitement complet d'une phrase : STT → _process_voice_fast → TTS → playback + purge post-TTS.
+        """Traitement complet d'une phrase : STT → moteur vocal unique → TTS → playback + purge post-TTS.
 
-        Utilise le pipeline vocal rapide (_process_voice_fast) qui bypass l'orchestrateur
-        et appelle DeepSeek flash directement. Cible : < 2s entre fin de phrase et debut TTS.
+        Utilise l'adaptateur vocal rapide du moteur conversationnel canonique.
+        Cible : < 2s entre fin de phrase et debut TTS.
         Envoie des events WebSocket de debug : voice_debug_stt et voice_debug_tts.
         """
         import time as _time
@@ -1519,7 +1519,7 @@ class AudioDaemon:
             await self._rearm(reason="interrupted_before_llm", trace=trace)
             return
 
-        # 3. Pipeline vocal rapide (bypass orchestrateur, DeepSeek flash direct)
+        # 3. Moteur conversationnel vocal canonique + adaptateur de latence
         self._last_interaction = time.time()
 
         if self._conv_id is None:
@@ -1548,8 +1548,13 @@ class AudioDaemon:
         latency_ms = (result or {}).get("latency_ms", 0)
         logger.info("[audio_daemon] Voice fast : %.0fms", latency_ms)
 
-        # Broadcast response
-        await self._broadcast_state({"response": response_text, "emotion": emotion})
+        # Le protocole local transporte l'action séparément du texte prononcé.
+        state_payload: dict[str, Any] = {"response": response_text, "emotion": emotion}
+        if (result or {}).get("action") is not None:
+            state_payload["action"] = result["action"]
+        if (result or {}).get("action_result") is not None:
+            state_payload["action_result"] = result["action_result"]
+        await self._broadcast_state(state_payload)
 
         # Vérifier interruption avant TTS
         if interrupt_event.is_set():
