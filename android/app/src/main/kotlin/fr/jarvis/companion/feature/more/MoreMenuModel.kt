@@ -12,7 +12,7 @@ data class MoreTileModel(
     val subtitle: String,
     val kind: MoreTileKind,
     val route: String?,
-    val futureFlagId: String?,
+    val backlogId: String?,
 )
 
 fun MoreTileModel.isNavigable(): Boolean = kind == MoreTileKind.RealRoute && !route.isNullOrBlank()
@@ -29,42 +29,42 @@ fun buildMoreMenuTiles(): List<MoreTileModel> = listOf(
         subtitle = "Liste complète et priorités",
         kind = MoreTileKind.RealRoute,
         route = JarvisDestination.TASKS,
-        futureFlagId = null,
+        backlogId = null,
     ),
     MoreTileModel(
         title = "Localisation",
         subtitle = "Présence GPS et synchronisation",
         kind = MoreTileKind.RealRoute,
         route = JarvisDestination.LOCATION,
-        futureFlagId = null,
+        backlogId = null,
     ),
     MoreTileModel(
         title = "Notifications",
         subtitle = "Alertes JARVIS",
         kind = MoreTileKind.RealRoute,
         route = JarvisDestination.NOTIFICATIONS,
-        futureFlagId = null,
+        backlogId = null,
     ),
     MoreTileModel(
         title = "Diagnostics",
         subtitle = "État technique local",
         kind = MoreTileKind.RealRoute,
         route = JarvisDestination.DIAGNOSTICS,
-        futureFlagId = null,
+        backlogId = null,
     ),
     MoreTileModel(
         title = "Réglages",
         subtitle = "Connexion, voix et sécurité",
         kind = MoreTileKind.RealRoute,
         route = JarvisDestination.SETTINGS,
-        futureFlagId = null,
+        backlogId = null,
     ),
     MoreTileModel(
         title = "Réparation",
         subtitle = "Réappairage et récupération",
         kind = MoreTileKind.RealRoute,
         route = JarvisDestination.REPAIR,
-        futureFlagId = null,
+        backlogId = null,
     ),
     // TODO(JARVIS-FUTURE-MEMORY-VIEW): activer la vue mémoire mobile.
     MoreTileModel(
@@ -72,7 +72,7 @@ fun buildMoreMenuTiles(): List<MoreTileModel> = listOf(
         subtitle = "Vue personnelle JARVIS",
         kind = MoreTileKind.FuturePlaceholder,
         route = null,
-        futureFlagId = "JARVIS-FUTURE-MEMORY-VIEW",
+        backlogId = "JARVIS-FUTURE-MEMORY-VIEW",
     ),
     // TODO(JARVIS-FUTURE-CONTACTS): activer la vue Contacts mobile.
     MoreTileModel(
@@ -80,7 +80,7 @@ fun buildMoreMenuTiles(): List<MoreTileModel> = listOf(
         subtitle = "Relations et timeline iMessage",
         kind = MoreTileKind.FuturePlaceholder,
         route = null,
-        futureFlagId = "JARVIS-FUTURE-CONTACTS",
+        backlogId = "JARVIS-FUTURE-CONTACTS",
     ),
     // TODO(JARVIS-FUTURE-AUTOMATIONS): activer le centre d'automatisations.
     MoreTileModel(
@@ -88,6 +88,6 @@ fun buildMoreMenuTiles(): List<MoreTileModel> = listOf(
         subtitle = "Routines et actions programmées",
         kind = MoreTileKind.FuturePlaceholder,
         route = null,
-        futureFlagId = "JARVIS-FUTURE-AUTOMATIONS",
+        backlogId = "JARVIS-FUTURE-AUTOMATIONS",
     ),
 )

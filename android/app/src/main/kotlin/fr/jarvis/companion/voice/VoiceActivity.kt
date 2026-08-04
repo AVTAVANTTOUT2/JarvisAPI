@@ -41,7 +41,6 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import fr.jarvis.companion.core.JarvisFeatureFlags
 import fr.jarvis.companion.core.ui.components.ErrorCallout
 import fr.jarvis.companion.core.ui.components.GlassVariant
 import fr.jarvis.companion.core.ui.components.JarvisBackground
@@ -116,7 +115,6 @@ fun VoiceScreen(
     onMicTap: () -> Unit,
     onMicCancel: () -> Unit,
     onStopPlayback: () -> Unit,
-    continuousVoiceEnabled: Boolean = JarvisFeatureFlags.CONTINUOUS_VOICE,
 ) {
     val view = LocalView.current
     val visual = state.toVisualState()
@@ -267,14 +265,12 @@ fun VoiceScreen(
                     )
                 }
 
-                if (!continuousVoiceEnabled) {
-                    // TODO(JARVIS-FUTURE-VOICE-CONTINUOUS): brancher le mode
-                    // conversation continue quand le pipeline VAD/anti-écho Android sera prêt.
-                    JarvisComingSoonCard(
-                        title = "Conversation continue",
-                        description = "Bientôt disponible derrière un service audio dédié.",
-                    )
-                }
+                // TODO(JARVIS-FUTURE-VOICE-CONTINUOUS): remplacer ce placeholder
+                // quand le pipeline VAD/anti-écho Android sera réellement branché.
+                JarvisComingSoonCard(
+                    title = "Conversation continue",
+                    description = "Bientôt disponible derrière un service audio dédié.",
+                )
 
                 JarvisSectionLabel(text = "Transcription et réponse")
 

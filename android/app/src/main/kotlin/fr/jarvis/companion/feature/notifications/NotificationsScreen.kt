@@ -21,7 +21,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import fr.jarvis.companion.app.appContainer
-import fr.jarvis.companion.core.JarvisFeatureFlags
 import fr.jarvis.companion.core.connectivity.ConnectivityState
 import fr.jarvis.companion.core.database.CachedNotificationEntity
 import fr.jarvis.companion.core.ui.components.JarvisEmptyState
@@ -79,16 +78,13 @@ fun NotificationsScreen(modifier: Modifier = Modifier) {
                 items(notifications, key = { it.serverId }) { notif ->
                     NotificationCard(notif)
                 }
-                if (!JarvisFeatureFlags.NOTIFICATIONS_ACTIONS) {
-                    item {
-                        // TODO(JARVIS-FUTURE-NOTIFICATIONS-CENTER): brancher
-                        // « marquer lu » quand POST /api/notifications/{id}/read
-                        // sera exposé au Bearer mobile.
-                        JarvisFutureAction(
-                            title = "Marquer comme lu",
-                            description = "La gestion des notifications depuis le téléphone arrive dans une prochaine version.",
-                        )
-                    }
+                item {
+                    // TODO(JARVIS-FUTURE-NOTIFICATIONS-ACTIONS): remplacer ce
+                    // placeholder quand « marquer lu » sera exposé au Bearer mobile.
+                    JarvisFutureAction(
+                        title = "Marquer comme lu",
+                        description = "La gestion des notifications depuis le téléphone arrive dans une prochaine version.",
+                    )
                 }
             }
         }

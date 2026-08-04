@@ -57,7 +57,6 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import fr.jarvis.companion.core.JarvisFeatureFlags
 import fr.jarvis.companion.core.database.ChatMessageEntity
 import fr.jarvis.companion.core.database.DeliveryState
 import fr.jarvis.companion.core.ui.components.ErrorCallout
@@ -339,7 +338,7 @@ private fun Composer(
     onSend: () -> Unit,
     onVoice: () -> Unit,
 ) {
-    val showSlashHint = JarvisFeatureFlags.SLASH_COMMANDS.not() && text.startsWith("/")
+    val showSlashHint = text.startsWith("/")
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -368,16 +367,14 @@ private fun Composer(
                     tint = JarvisColors.Cyan,
                 )
             }
-            if (!JarvisFeatureFlags.CHAT_ATTACHMENTS) {
-                // TODO(JARVIS-FUTURE-CHAT-ATTACHMENTS): brancher l'upload de pièces
-                // jointes quand POST /api/conversations/{id}/upload existera en Bearer.
-                IconButton(onClick = {}, enabled = false) {
-                    Icon(
-                        Icons.Outlined.AttachFile,
-                        contentDescription = "Pièces jointes — bientôt disponible",
-                        tint = JarvisColors.TextTertiary,
-                    )
-                }
+            // TODO(JARVIS-FUTURE-CHAT-ATTACHMENTS): remplacer ce placeholder quand
+            // l'upload Bearer de pièces jointes sera réellement branché.
+            IconButton(onClick = {}, enabled = false) {
+                Icon(
+                    Icons.Outlined.AttachFile,
+                    contentDescription = "Pièces jointes — bientôt disponible",
+                    tint = JarvisColors.TextTertiary,
+                )
             }
             OutlinedTextField(
                 value = text,
