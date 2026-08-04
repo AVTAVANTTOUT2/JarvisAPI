@@ -5,7 +5,8 @@ import {
   Bar,
   PieChart,
   Pie,
-  Cell,
+  Rectangle,
+  Sector,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -15,6 +16,7 @@ import {
   ComposedChart,
   Line,
 } from 'recharts';
+import type { BarShapeProps, PieSectorShapeProps } from 'recharts';
 import {
   MessageSquare,
   Users,
@@ -76,6 +78,38 @@ type Period = '7' | '30' | '90' | 'all';
 // ── Helpers ───────────────────────────────────────────────────
 
 const GREY = { white: '#ffffff', light: '#a1a1a1', mid: '#6b7280', dark: '#374151' };
+
+export function DataColoredSector({
+  cx,
+  cy,
+  innerRadius,
+  outerRadius,
+  startAngle,
+  endAngle,
+  cornerRadius,
+  payload,
+}: PieSectorShapeProps) {
+  const color = (payload as { color?: string } | undefined)?.color ?? GREY.white;
+  return (
+    <Sector
+      cx={cx}
+      cy={cy}
+      innerRadius={innerRadius}
+      outerRadius={outerRadius}
+      startAngle={startAngle}
+      endAngle={endAngle}
+      cornerRadius={cornerRadius}
+      fill={color}
+      opacity={0.85}
+      stroke="none"
+    />
+  );
+}
+
+export function DataColoredBar({ x, y, width, height, radius, payload }: BarShapeProps) {
+  const fill = (payload as { fill?: string } | undefined)?.fill ?? GREY.white;
+  return <Rectangle x={x} y={y} width={width} height={height} radius={radius} fill={fill} />;
+}
 
 function fmtDate(dateStr: string): string {
   const d = new Date(dateStr);
@@ -438,11 +472,8 @@ export function AnalyticsView() {
                       innerRadius={60} outerRadius={88}
                       dataKey="value"
                       strokeWidth={0}
-                    >
-                      {contactsByType.map((entry, i) => (
-                        <Cell key={i} fill={entry.color} opacity={0.85} />
-                      ))}
-                    </Pie>
+                      shape={DataColoredSector}
+                    />
                     <Tooltip content={<CustomTooltip />} />
                   </PieChart>
                   <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
@@ -481,9 +512,7 @@ export function AnalyticsView() {
                   <XAxis dataKey="name" stroke="#6b7280" fontSize={10} tick={{ fontFamily: 'JetBrains Mono' }} />
                   <YAxis stroke="#6b7280" fontSize={10} tick={{ fontFamily: 'JetBrains Mono' }} />
                   <Tooltip content={<CustomTooltip />} />
-                  <Bar dataKey="value" name="Tâches" radius={[4, 4, 0, 0]}>
-                    {tasksByStatus.map((entry, i) => <Cell key={i} fill={entry.fill} />)}
-                  </Bar>
+                  <Bar dataKey="value" name="Tâches" radius={[4, 4, 0, 0]} shape={DataColoredBar} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -496,9 +525,7 @@ export function AnalyticsView() {
                   <XAxis dataKey="name" stroke="#6b7280" fontSize={10} tick={{ fontFamily: 'JetBrains Mono' }} />
                   <YAxis stroke="#6b7280" fontSize={10} tick={{ fontFamily: 'JetBrains Mono' }} />
                   <Tooltip content={<CustomTooltip />} />
-                  <Bar dataKey="value" name="Tâches" radius={[4, 4, 0, 0]}>
-                    {tasksByPriority.map((entry, i) => <Cell key={i} fill={entry.fill} />)}
-                  </Bar>
+                  <Bar dataKey="value" name="Tâches" radius={[4, 4, 0, 0]} shape={DataColoredBar} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
