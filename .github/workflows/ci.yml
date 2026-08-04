@@ -271,6 +271,17 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v6
 
+      # Robolectric télécharge ses images Android instrumentées dans ~/.m2 via
+      # MavenArtifactFetcher, hors du cache Gradle. Sans ce cache dédié, une
+      # panne Maven transitoire peut faire tomber tous les tests Room ensemble.
+      - name: Restaurer les images Android Robolectric
+        uses: actions/cache@v6
+        with:
+          path: ~/.m2/repository/org/robolectric/android-all-instrumented
+          key: robolectric-${{ runner.os }}-${{ hashFiles('android/app/build.gradle', 'android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            robolectric-${{ runner.os }}-
+
       - name: Activer l’accélération KVM pour l’émulateur
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \

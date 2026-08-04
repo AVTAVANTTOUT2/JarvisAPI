@@ -58,3 +58,13 @@ def test_ci_runs_android_keystore_and_ui_tests_on_an_emulator():
         "fr" / "jarvis" / "companion" / "data" /
         "JarvisSecureStoreInstrumentedTest.kt"
     ).read_text(encoding="utf-8")
+
+
+def test_ci_caches_robolectric_images_outside_gradle_home():
+    job = _android_job()
+
+    assert "actions/cache@v6" in job
+    assert "~/.m2/repository/org/robolectric/android-all-instrumented" in job
+    assert "robolectric-${{ runner.os }}-" in job
+    assert "android/app/build.gradle" in job
+    assert "android/gradle/wrapper/gradle-wrapper.properties" in job
