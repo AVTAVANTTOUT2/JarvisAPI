@@ -51,27 +51,36 @@ class JarvisLocationService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
-            ACTION_STOP -> {
+        return when (
+            locationServiceDecision(
+                action = intent?.action,
+                hasNativeToken = JarvisSettings.nativeToken(this).isNotEmpty(),
+                hasLocationPermission = hasLocationPermission(),
+            )
+        ) {
+            LocationServiceDecision.STOP -> {
                 JarvisSettings.setLocationEnabled(this, false)
                 stopSelf()
-                return START_NOT_STICKY
+                START_NOT_STICKY
             }
-            ACTION_SYNC -> {
+
+            LocationServiceDecision.SYNC_CACHED -> {
                 container.locationSyncCoordinator.requestImmediateSync(this)
-                return START_STICKY
+                START_STICKY
+            }
+
+            LocationServiceDecision.REJECT_MISSING_PREREQUISITE -> {
+                LocationRuntimeDiagnostics.logWarn("Location service stopping: permission or token missing")
+                stopSelf()
+                START_NOT_STICKY
+            }
+
+            LocationServiceDecision.START_CAPTURE -> {
+                applyCadenceFromSettings()
+                startEngineOnMain()
+                START_STICKY
             }
         }
-
-        if (!hasLocationPermission() || JarvisSettings.nativeToken(this).isEmpty()) {
-            LocationRuntimeDiagnostics.logWarn("Location service stopping: permission or token missing")
-            stopSelf()
-            return START_NOT_STICKY
-        }
-
-        applyCadenceFromSettings()
-        startEngineOnMain()
-        return START_STICKY
     }
 
     private fun applyCadenceFromSettings() {
