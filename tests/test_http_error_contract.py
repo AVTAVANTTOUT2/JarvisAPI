@@ -79,3 +79,85 @@ def test_imessage_transport_rejection_is_a_structured_502(api_client, monkeypatc
     response = api_client.post("/api/people/Ada/send", json={"text": "Bonjour"})
     _assert_error(response, 502, "imessage_send_failed")
     assert "détail interne" not in response.text
+
+
+def test_people_analytics_without_handle_is_a_structured_409(api_client, monkeypatch):
+    from database import upsert_person
+
+    upsert_person("Ada")
+    monkeypatch.setattr("api.router_people._resolve_handle_with_contacts", lambda _name: None)
+
+    response = api_client.get("/api/people/Ada/analytics")
+    _assert_error(response, 409, "imessage_handle_missing")
+
+
+def test_calendar_test_unavailable_is_a_structured_503(api_client, monkeypatch):
+    monkeypatch.setattr("api.misc_relationships.calendar_client", None)
+
+    response = api_client.post("/api/calendar/test")
+    _assert_error(response, 503, "calendar_unavailable")
+
+
+def test_calendar_test_rejection_is_a_structured_502(api_client, monkeypatch):
+    class RejectingCalendar:
+        @staticmethod
+        def is_available() -> bool:
+            return True
+
+        @staticmethod
+        async def create_event(**_kwargs):
+            return {"ok": False, "message": "détail AppleScript privé"}
+
+    monkeypatch.setattr(
+        "api.misc_relationships.calendar_client", RejectingCalendar()
+    )
+
+    response = api_client.post("/api/calendar/test")
+    _assert_error(response, 502, "calendar_test_failed")
+    assert "AppleScript privé" not in response.text
+
+
+def test_calendar_read_exception_is_a_structured_502(api_client, monkeypatch):
+    class BrokenCalendar:
+        @staticmethod
+        def is_available() -> bool:
+            return True
+
+        @staticmethod
+        async def get_events(_start: str, _end: str):
+            raise RuntimeError("détail Calendar privé")
+
+    monkeypatch.setattr("api.misc_relationships.calendar_client", BrokenCalendar())
+
+    response = api_client.get(
+        "/api/calendar",
+        params={"start": "2026-08-03", "end": "2026-08-04"},
+    )
+    _assert_error(response, 502, "calendar_read_failed")
+    assert "Calendar privé" not in response.text
+
+
+def test_contacts_failure_is_a_structured_503(api_client, monkeypatch):
+    from integrations.imessage_reader import IMessageReader
+
+    def fail_contacts(_self):
+        raise RuntimeError("chat.db détail privé")
+
+    monkeypatch.setattr(IMessageReader, "get_all_contacts", fail_contacts)
+
+    response = api_client.get("/api/contacts")
+    _assert_error(response, 503, "contacts_unavailable")
+    assert "chat.db détail privé" not in response.text
+
+
+def test_misc_relationship_validation_errors_are_structured(api_client):
+    _assert_error(
+        api_client.get("/api/time-machine/pas-une-date"),
+        400,
+        "invalid_calendar_date",
+    )
+    _assert_error(
+        api_client.get("/api/export", params={"format": "xml"}),
+        400,
+        "unsupported_export_format",
+    )

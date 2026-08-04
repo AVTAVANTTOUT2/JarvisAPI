@@ -343,10 +343,10 @@ def test_real_repo_smoke_counts_stable() -> None:
     assert api_surface["counts"] == {
         "operations": 261,
         "paths": 232,
-        "consumer_and_tested": 119,
-        "consumer_without_path_test": 57,
-        "owned_non_frontend_and_tested": 36,
-        "owned_non_frontend_without_path_test": 49,
+        "consumer_and_tested": 122,
+        "consumer_without_path_test": 54,
+        "owned_non_frontend_and_tested": 37,
+        "owned_non_frontend_without_path_test": 48,
     }
     assert api_surface["structure"] == {
         "http_operations": 259,

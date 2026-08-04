@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-03T23:09:52.960837+00:00",
+  "generated_at": "2026-08-04T09:05:35.674484+00:00",
   "repo_root": ".",
   "canonical_formulation": {
     "database": "Le projet crée 90 tables persistantes après init_db() + migrations, plus jusqu'à 5 objets FTS5, soit 95 tables physiques lorsque FTS5 est disponible.",
@@ -466,10 +466,10 @@
     "counts": {
       "operations": 261,
       "paths": 232,
-      "consumer_and_tested": 119,
-      "consumer_without_path_test": 57,
-      "owned_non_frontend_and_tested": 36,
-      "owned_non_frontend_without_path_test": 49
+      "consumer_and_tested": 122,
+      "consumer_without_path_test": 54,
+      "owned_non_frontend_and_tested": 37,
+      "owned_non_frontend_without_path_test": 48
     },
     "consumer_surfaces": [
       "android",
@@ -865,6 +865,7 @@
         },
         "tests": [
           "frontend/e2e/unified.spec.ts",
+          "tests/test_http_error_contract.py",
           "tests/test_mobile_bearer_routes.py",
           "tests/test_relationships_input_contract.py",
           "tests/test_web_mobile.py"
@@ -945,9 +946,11 @@
             "web/src/app/components/views/MonitoringView.tsx"
           ]
         },
-        "tests": [],
+        "tests": [
+          "tests/test_http_error_contract.py"
+        ],
         "non_frontend_ownership": null,
-        "classification": "consumer_without_path_test"
+        "classification": "consumer_and_tested"
       },
       {
         "method": "GET",
@@ -1337,9 +1340,11 @@
             "frontend/src/lib/api.ts"
           ]
         },
-        "tests": [],
+        "tests": [
+          "tests/test_http_error_contract.py"
+        ],
         "non_frontend_ownership": null,
-        "classification": "consumer_without_path_test"
+        "classification": "consumer_and_tested"
       },
       {
         "method": "GET",
@@ -2122,7 +2127,7 @@
         "method": "GET",
         "path": "/api/people",
         "source": "api/router_people.py",
-        "line": 61,
+        "line": 62,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -2139,7 +2144,7 @@
         "method": "GET",
         "path": "/api/people/{name}",
         "source": "api/router_people.py",
-        "line": 66,
+        "line": 67,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -2155,21 +2160,23 @@
         "method": "GET",
         "path": "/api/people/{name}/analytics",
         "source": "api/router_people.py",
-        "line": 91,
+        "line": 92,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
           ]
         },
-        "tests": [],
+        "tests": [
+          "tests/test_http_error_contract.py"
+        ],
         "non_frontend_ownership": null,
-        "classification": "consumer_without_path_test"
+        "classification": "consumer_and_tested"
       },
       {
         "method": "GET",
         "path": "/api/people/{name}/description",
         "source": "api/router_people.py",
-        "line": 294,
+        "line": 296,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -2183,7 +2190,7 @@
         "method": "GET",
         "path": "/api/people/{name}/timeline",
         "source": "api/router_people.py",
-        "line": 118,
+        "line": 120,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -2717,6 +2724,7 @@
         "line": 423,
         "consumers": {},
         "tests": [
+          "tests/test_http_error_contract.py",
           "tests/test_time_machine.py"
         ],
         "non_frontend_ownership": {
@@ -2915,7 +2923,7 @@
         "method": "PATCH",
         "path": "/api/people/{name}",
         "source": "api/router_people.py",
-        "line": 75,
+        "line": 76,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -3266,6 +3274,7 @@
         },
         "tests": [
           "frontend/e2e/unified.spec.ts",
+          "tests/test_http_error_contract.py",
           "tests/test_mobile_bearer_routes.py",
           "tests/test_relationships_input_contract.py",
           "tests/test_web_mobile.py"
@@ -3279,14 +3288,16 @@
         "source": "api/router_misc.py",
         "line": 403,
         "consumers": {},
-        "tests": [],
+        "tests": [
+          "tests/test_http_error_contract.py"
+        ],
         "non_frontend_ownership": {
           "rule_id": "operator-calendar-test",
           "owner": "calendar-integration",
           "audience": "operator",
           "rationale": "Test explicite de l'intégration calendrier lors de la configuration ou du diagnostic."
         },
-        "classification": "owned_non_frontend_without_path_test"
+        "classification": "owned_non_frontend_and_tested"
       },
       {
         "method": "POST",
@@ -4623,7 +4634,7 @@
         "method": "POST",
         "path": "/api/people",
         "source": "api/router_people.py",
-        "line": 344,
+        "line": 346,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -4640,7 +4651,7 @@
         "method": "POST",
         "path": "/api/people/{name}/ask",
         "source": "api/router_people.py",
-        "line": 354,
+        "line": 356,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -4654,7 +4665,7 @@
         "method": "POST",
         "path": "/api/people/{name}/description/refresh",
         "source": "api/router_people.py",
-        "line": 320,
+        "line": 322,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -4668,7 +4679,7 @@
         "method": "POST",
         "path": "/api/people/{name}/remind",
         "source": "api/router_people.py",
-        "line": 272,
+        "line": 274,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -4682,7 +4693,7 @@
         "method": "POST",
         "path": "/api/people/{name}/send",
         "source": "api/router_people.py",
-        "line": 173,
+        "line": 175,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -4698,7 +4709,7 @@
         "method": "POST",
         "path": "/api/people/{name}/suggest-message",
         "source": "api/router_people.py",
-        "line": 206,
+        "line": 208,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -4712,7 +4723,7 @@
         "method": "POST",
         "path": "/api/people/{name}/timeline/regenerate",
         "source": "api/router_people.py",
-        "line": 151,
+        "line": 153,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"

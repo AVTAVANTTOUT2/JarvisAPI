@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+
 from fastapi import APIRouter, HTTPException
 
 import config
 import llm
 from agents.display_text import strip_leading_emotion
-from api.people_chat import api_people_ask
 from api.errors import api_error, internal_error
+from api.people_chat import api_people_ask
 from api.people_models import (
     PersonCreateRequest,
     PersonMessageRequest,
@@ -22,11 +23,6 @@ from api.people_support import (
     _generate_person_ai_description,
     _resolve_handle_with_contacts,
 )
-from jarvis.security.llm_data_boundary import (
-    UNTRUSTED_DATA_SYSTEM_RULE,
-    redact_for_external_llm,
-    wrap_untrusted_data,
-)
 from database import (
     clear_person_ai_description,
     create_task,
@@ -37,6 +33,11 @@ from database import (
     set_person_ai_description,
     upsert_person,
 )
+from jarvis.security.llm_data_boundary import (
+    UNTRUSTED_DATA_SYSTEM_RULE,
+    redact_for_external_llm,
+    wrap_untrusted_data,
+)
 
 router = APIRouter()
 logger = logging.getLogger("jarvis")
@@ -44,11 +45,11 @@ logger = logging.getLogger("jarvis")
 
 async def _generate_and_store_timeline(key: str, handle: str | None) -> list[dict]:
     """Génère la timeline et ne persiste que les résultats non vides."""
-    from scripts.timeline_generator import generate_timeline
     from database import (
         clear_person_timeline_cache,
         update_person_timeline_cache,
     )
+    from scripts.timeline_generator import generate_timeline
 
     events = await generate_timeline(key, handle_override=handle)
     if events:
@@ -100,10 +101,11 @@ async def api_person_analytics(name: str):
 
     handle = _resolve_handle_with_contacts(person.get("name") or decoded)
     if not handle:
-        return {
-            "error": "Aucun handle iMessage (profil, numéro ou Contacts)",
-            "proximity_score": {"score": 0},
-        }
+        raise api_error(
+            409,
+            "imessage_handle_missing",
+            "Aucune adresse iMessage exploitable pour ce contact",
+        )
 
     try:
         data = contact_analytics.compute_all(
