@@ -943,6 +943,33 @@ async def proxy_to_backend(request: Request, path: str):
 # ── Passthrough WebSocket /ws → backend (chat, voix) ─────────────────────
 # Contrat inchangé : simple relais binaire/texte, aucune inspection.
 
+# En-têtes relayés au backend sur le canal WebSocket.
+#
+# Le cookie seul ne suffit pas. Le backend applique
+# ``browser_websocket_origin_allowed()``, qui compare ``Origin`` à ``Host`` et
+# **refuse toute connexion sans Origin**. En n'envoyant que le cookie, le proxy
+# produisait donc un 403 systématique, et le navigateur — qui reconnecte sans
+# se lasser — enchaînait les tentatives : 6 640 refus relevés dans un seul
+# journal de backend, et une boucle serrée qui disputait le CPU au moteur vocal
+# local.
+#
+# On relaie donc les deux, exactement comme le proxy HTTP conserve le ``Host``
+# d'origine. Ce n'est pas un affaiblissement : une page étrangère enverrait son
+# propre ``Origin`` avec le ``Host`` du superviseur, et la comparaison
+# échouerait toujours. Le contrôle redevient effectif au lieu d'être
+# inconditionnellement faux.
+_WS_FORWARDED_HEADERS = ("cookie", "origin", "host")
+
+
+def _build_ws_proxy_headers(incoming: Any) -> dict[str, str]:
+    """En-têtes transmis au backend pour un WebSocket proxifié."""
+    headers: dict[str, str] = {}
+    for name in _WS_FORWARDED_HEADERS:
+        value = incoming.get(name)
+        if value:
+            headers[name.title() if name != "host" else "Host"] = value
+    return headers
+
 @app.websocket("/ws")
 async def ws_passthrough(client_ws: WebSocket):
     import ssl
@@ -958,8 +985,7 @@ async def ws_passthrough(client_ws: WebSocket):
         ssl_ctx = ssl.create_default_context(cafile=str(CERT_PATH))
         ssl_ctx.check_hostname = False
 
-    cookie = client_ws.headers.get("cookie", "")
-    extra_headers = {"Cookie": cookie} if cookie else {}
+    extra_headers = _build_ws_proxy_headers(client_ws.headers)
 
     try:
         async with _wslib.connect(

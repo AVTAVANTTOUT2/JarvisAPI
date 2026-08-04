@@ -222,13 +222,33 @@ async def _process_voice_fast(
         debug_trace["response_clean"] = response_text
         debug_trace["latency_total_ms"] = round((_time.time() - _t0) * 1000)
 
-        # ── Fallback reponse vide : DeepSeek peut ne rien produire sur des
-        # transcriptions courtes/ambigues ("Oui ou non ?", bruit). On evite
-        # le silence vocal en injectant une reponse minimale.
+        # ── Reponse vide : dire ce qui s'est passe, pas autre chose ──────────
+        #
+        # L'ancien repli annoncait « Je n'ai pas compris, Monsieur. ». C'est
+        # faux et c'est couteux : la transcription etait souvent parfaite, et
+        # l'utilisateur reformulait dans le vide en croyant mal articuler. Ce
+        # n'est pas la comprehension qui echoue, c'est le modele qui ne rend
+        # rien.
+        #
+        # Deux causes distinctes produisent ce vide, et les confondre empeche
+        # de diagnostiquer :
+        #   - le modele ne renvoie aucun contenu (reseau, quota, coupure) ;
+        #   - il ne renvoie *que* le tag [emotion], que le parseur retire.
+        # Le journal passe donc en WARNING avec de quoi trancher — nombre de
+        # jetons produits et longueur brute — au lieu d'un DEBUG invisible.
         if not response_text:
-            response_text = "Je n'ai pas compris, Monsieur."
+            raw_len = len(raw_response.strip())
+            tokens_out = int(debug_trace.get("tokens_out", 0))
+            cause = "aucun_contenu" if raw_len == 0 else "tag_emotion_seul"
+            debug_trace["empty_response_cause"] = cause
+            logger.warning(
+                "[voice_fast] Reponse vide (%s) — tokens_out=%d raw_chars=%d "
+                "latence=%dms : le modele n'a rien produit, la transcription "
+                "n'est pas en cause",
+                cause, tokens_out, raw_len, debug_trace["latency_total_ms"],
+            )
+            response_text = "Je n'ai pas obtenu de reponse, Monsieur."
             emotion = "concerned"
-            logger.debug("[voice_fast] Reponse LLM vide — fallback injecte")
 
         _persist_voice_messages_async(conversation_id, text, response_text, total_cost, trace)
         asyncio.create_task(_broadcast_voice_debug(debug_trace))
