@@ -62,6 +62,40 @@ STREAMING_MODE = "native"
 # sur un Mac produirait un échec incompréhensible au premier énoncé.
 SUPPORTED_DEVICES = frozenset({"auto", "mlx", "metal", "gpu", "cpu"})
 
+# Le modèle nomme ses langues en toutes lettres, JARVIS les code sur deux
+# lettres. Sans cette table, ``LANGUAGE=fr`` serait transmis tel quel, ne
+# figurerait pas dans ``codec_language_id``, et le conditionnement de langue
+# disparaîtrait **sans aucun avertissement** — le modèle devinerait la langue
+# à partir du texte, ce qui marche souvent et rate sur les phrases courtes.
+LANGUAGE_CODES: dict[str, str] = {
+    "fr": "french",
+    "en": "english",
+    "de": "german",
+    "es": "spanish",
+    "it": "italian",
+    "pt": "portuguese",
+    "ru": "russian",
+    "ja": "japanese",
+    "ko": "korean",
+    "zh": "chinese",
+}
+DEFAULT_LANGUAGE = "french"
+
+
+def _model_language() -> str:
+    """Langue à transmettre au modèle, dérivée de ``config.LANGUAGE``."""
+    try:
+        import config as app_config
+
+        raw = str(getattr(app_config, "LANGUAGE", "") or "").strip().lower()
+    except Exception:  # pragma: no cover - dépend de l'environnement d'import
+        raw = ""
+    if not raw:
+        return DEFAULT_LANGUAGE
+    # Un réglage déjà écrit en toutes lettres (« french ») passe tel quel ; le
+    # sidecar valide de toute façon contre la table du modèle.
+    return LANGUAGE_CODES.get(raw[:2], raw)
+
 
 class Qwen3LocalTTSProvider:
     """Fournisseur local Qwen3-TTS — modèle chaud, sortie PCM16 mono 24 kHz."""
@@ -136,7 +170,10 @@ class Qwen3LocalTTSProvider:
             )
 
         model_dir = self._resolve_model()
-        command = [str(launcher), "--serve", "--model", str(model_dir)]
+        command = [
+            str(launcher), "--serve", "--model", str(model_dir),
+            "--language", _model_language(),
+        ]
 
         # Le répertoire du profil suffit : le sidecar y lit lui-même
         # reference.wav et transcript.txt. Passer le transcript en argument
@@ -249,6 +286,21 @@ class Qwen3LocalTTSProvider:
                 logger.warning(
                     "[qwen3_local] moteur prêt sans voix clonée — JARVIS parlera "
                     "avec la voix par défaut du modèle."
+                )
+            else:
+                # `voice_cloned: true` ne disait pas *comment* la voix est
+                # reproduite. Ces quatre valeurs déterminent le timbre obtenu
+                # et doivent apparaître dans les journaux de démarrage.
+                logger.info(
+                    "[qwen3_local] Qwen3 voice ready — voice=%s clone_mode=%s "
+                    "reference_duration_ms=%s reference_text_used=%s "
+                    "language=%s streaming=%s",
+                    self._settings.voice_id,
+                    metadata.get("clone_mode"),
+                    metadata.get("reference_duration_ms"),
+                    "true" if metadata.get("reference_text_used") else "false",
+                    metadata.get("language"),
+                    metadata.get("streaming"),
                 )
 
             events.emit_tts_event(

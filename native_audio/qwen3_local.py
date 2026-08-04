@@ -81,6 +81,13 @@ DEFAULT_REPETITION_PENALTY = 1.05
 DEFAULT_STREAMING_INTERVAL = 0.4
 DEFAULT_STREAMING_CONTEXT = 25
 
+# Langue transmise au modèle. ``auto`` n'est pas neutre : mlx-audio ne résout
+# alors **aucun** identifiant de langue et le conditionnement disparaît. JARVIS
+# parle français, donc on le dit. Les dix langues connues du modèle sont dans
+# ``talker_config.codec_language_id`` ; un code absent de cette table serait
+# ignoré silencieusement, d'où la validation au chargement.
+DEFAULT_LANGUAGE = "french"
+
 WARMUP_TEXT = "Bonjour."
 
 INSTALL_HINT = "python scripts/download_tts_model.py"
@@ -129,14 +136,17 @@ class Qwen3TTSServer:
         ref_audio: Path | None = None,
         ref_text: str | None = None,
         streaming_interval: float = DEFAULT_STREAMING_INTERVAL,
+        language: str = DEFAULT_LANGUAGE,
     ) -> None:
         self._model_dir = model_dir
         self._ref_audio_path = ref_audio
         self._ref_text = ref_text
         self._streaming_interval = max(0.08, float(streaming_interval))
+        self._language = (language or DEFAULT_LANGUAGE).strip().lower()
         self._model: Any = None
         self._ref_audio: Any = None
         self._sample_rate = DEFAULT_SAMPLE_RATE
+        self._reference_ms = 0.0
 
     # ── Chargement ──────────────────────────────────────────────────────────
 
@@ -153,12 +163,84 @@ class Qwen3TTSServer:
         declared = int(getattr(self._model, "sample_rate", 0) or 0)
         if declared > 0:
             self._sample_rate = declared
+        self._check_language()
         self._load_reference()
         try:
             for _ in self._generate(WARMUP_TEXT):
                 break
         except Exception as exc:  # noqa: BLE001 — le warmup ne tue pas le serveur
             print(f"[qwen3-local] warmup ignoré: {exc}", file=sys.stderr)
+        self._report_voice_ready()
+
+    def _check_language(self) -> None:
+        """Refuse en clair une langue que le modèle ignorerait en silence.
+
+        mlx-audio ne résout un identifiant de langue que si le code figure dans
+        ``codec_language_id`` ; sinon il n'émet aucun avertissement et le
+        conditionnement disparaît. Une faute de frappe coûterait la prosodie
+        sans le moindre symptôme.
+        """
+        known = self._known_languages()
+        if not known or self._language in known:
+            return
+        print(
+            f"[qwen3-local] langue « {self._language} » inconnue du modèle "
+            f"(connues : {', '.join(sorted(known))}) — repli sur "
+            f"{DEFAULT_LANGUAGE}",
+            file=sys.stderr,
+        )
+        self._language = DEFAULT_LANGUAGE if DEFAULT_LANGUAGE in known else "auto"
+
+    def _known_languages(self) -> set[str]:
+        talker = getattr(getattr(self._model, "config", None), "talker_config", None)
+        table = getattr(talker, "codec_language_id", None) or {}
+        return {str(k).lower() for k in table}
+
+    def _report_voice_ready(self) -> None:
+        """État vocal effectif, en clair, une fois le moteur réellement prêt.
+
+        ``voice_cloned: true`` ne disait pas *comment* la voix est reproduite.
+        Ces lignes nomment le chemin réellement emprunté, la durée de la
+        référence et la langue transmise — les trois choses dont dépend le
+        timbre obtenu, et qu'aucun booléen ne peut porter.
+        """
+        for line in (
+            "Qwen3 voice ready",
+            f"voice={self._voice_id()}",
+            f"clone_mode={self.clone_mode}",
+            f"reference_duration_ms={int(self._reference_ms)}",
+            f"reference_text_used={'true' if self._ref_text else 'false'}",
+            f"language={self._language}",
+            "streaming=native",
+            f"streaming_interval_s={self._streaming_interval}",
+            f"frame_rate_hz={FRAME_RATE_HZ}",
+            f"sample_rate={self._sample_rate}",
+        ):
+            print(f"[qwen3-local] {line}", file=sys.stderr)
+
+    def _voice_id(self) -> str:
+        return self._ref_audio_path.parent.name if self._ref_audio_path else "default"
+
+    @property
+    def clone_mode(self) -> str:
+        """Chemin de clonage réellement emprunté par mlx-audio.
+
+        Trois valeurs possibles, et la nuance compte : ``icl+speaker_embedding``
+        est le cas nominal ici. mlx-audio prend la voie *in-context learning*
+        dès que la référence **et** son transcript sont fournis et que le
+        tokenizer de parole porte un encodeur ; cette voie appelle en plus
+        ``extract_speaker_embedding`` sur la référence. Les deux mécanismes
+        opèrent donc ensemble — l'annoncer comme un choix binaire entre
+        « speaker_embedding » et « icl » serait faux.
+        """
+        if self._ref_audio is None:
+            return "none"
+        if not self._ref_text:
+            return "speaker_embedding"
+        tokenizer = getattr(self._model, "speech_tokenizer", None)
+        if getattr(tokenizer, "has_encoder", False):
+            return "icl+speaker_embedding"
+        return "speaker_embedding"
 
     def _load_reference(self) -> None:
         """Charge l'échantillon de voix et le ramène à la fréquence du modèle.
@@ -199,9 +281,10 @@ class Qwen3TTSServer:
 
             self._ref_audio = load_audio(str(wav), sample_rate=self._sample_rate)
             samples = int(getattr(self._ref_audio, "size", 0) or 0)
+            self._reference_ms = samples * 1000.0 / max(1, self._sample_rate)
             print(
                 f"[qwen3-local] voix de référence chargée ({samples} échantillons "
-                f"@ {self._sample_rate} Hz après conversion)",
+                f"@ {self._sample_rate} Hz, {self._reference_ms / 1000:.2f} s)",
                 file=sys.stderr,
             )
         except Exception as exc:  # noqa: BLE001 — voix illisible ≠ panne du moteur
@@ -229,6 +312,7 @@ class Qwen3TTSServer:
         cloned = self.voice_cloned
         return self._model.generate(
             text=text,
+            lang_code=self._language,
             ref_audio=self._ref_audio if cloned else None,
             ref_text=self._ref_text if cloned else None,
             max_tokens=int(overrides.get("max_tokens", DEFAULT_MAX_TOKENS)),
@@ -287,7 +371,12 @@ class Qwen3TTSServer:
             "sample_format": "pcm_s16le",
             "device": "mlx",
             "voice_cloned": self.voice_cloned,
+            "clone_mode": self.clone_mode,
+            "reference_duration_ms": int(self._reference_ms),
+            "reference_text_used": bool(self._ref_text),
+            "language": self._language,
             "streaming": "native",
+            "streaming_interval_s": self._streaming_interval,
             "frame_rate_hz": FRAME_RATE_HZ,
         }).encode("utf-8")
         out.write(encode_frame(TAG_READY, ready))
@@ -305,6 +394,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--probe", action="store_true")
     parser.add_argument(
         "--streaming-interval", type=float, default=DEFAULT_STREAMING_INTERVAL
+    )
+    parser.add_argument(
+        "--language", default=DEFAULT_LANGUAGE,
+        help="langue transmise au modèle (défaut : french ; « auto » la retire)",
     )
     return parser
 
@@ -344,6 +437,7 @@ def main(argv: list[str] | None = None) -> int:
         ref_audio=ref_audio,
         ref_text=ref_text,
         streaming_interval=args.streaming_interval,
+        language=args.language,
     )
 
     if args.serve:
