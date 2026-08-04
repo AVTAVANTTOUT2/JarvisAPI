@@ -9,6 +9,7 @@ import pytest
 from audio.audio_format import is_encoded_audio_container, is_mpeg4_container
 from audio.stt_daemon import (
     DEFAULT_INITIAL_PROMPT,
+    TranscriptionResult,
     build_initial_prompt,
     is_stt_prompt_echo,
 )
@@ -44,6 +45,52 @@ def test_is_stt_prompt_echo_allows_real_french():
     assert is_stt_prompt_echo("Quel temps fait-il à Lille aujourd'hui ?") is False
     assert is_stt_prompt_echo("Ouvre Messages et Mail") is False
     assert is_stt_prompt_echo("bonjour") is False
+
+
+@pytest.mark.asyncio
+async def test_shared_stt_facade_filters_prompt_echo_for_every_channel():
+    from audio.stt_daemon import DaemonSTT
+
+    instance = DaemonSTT()
+    instance._preload_attempted = True
+    instance.available = True
+    ghost = "JARVIS, DeepSeek, Messages, Mail, Calendar, Visual Studio Code"
+    instance._backend.transcribe_pcm = AsyncMock(
+        return_value=TranscriptionResult(text=ghost, engine="faster-whisper")
+    )
+
+    meta = await instance.transcribe_with_metadata(
+        b"\x00\x00" * 512,
+        sample_rate=16000,
+    )
+
+    assert meta is not None
+    assert meta["text"] == ""
+    assert meta["prompt_echo"] is True
+    assert instance.last_raw_text == ghost
+    assert instance.last_clean_text == ""
+
+
+@pytest.mark.asyncio
+async def test_shared_stt_facade_preserves_real_speech():
+    from audio.stt_daemon import DaemonSTT
+
+    instance = DaemonSTT()
+    instance._preload_attempted = True
+    instance.available = True
+    transcript = "Quel temps fait-il à Lille aujourd'hui ?"
+    instance._backend.transcribe_pcm = AsyncMock(
+        return_value=TranscriptionResult(text=transcript, engine="faster-whisper")
+    )
+
+    meta = await instance.transcribe_with_metadata(
+        b"\x00\x00" * 512,
+        sample_rate=16000,
+    )
+
+    assert meta is not None
+    assert meta["text"] == transcript
+    assert meta["prompt_echo"] is False
 
 
 def test_mpeg4_container_detected():

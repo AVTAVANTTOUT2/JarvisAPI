@@ -2,7 +2,7 @@
 
 <!-- Généré par tools/audit_technical_debt.py ; modifier le JSON source. -->
 
-**Mise à jour :** 2026-08-04 — **État :** 38 résolues, 3 actives, 41 suivies.
+**Mise à jour :** 2026-08-04 — **État :** 39 résolues, 2 actives, 41 suivies.
 
 La source de vérité est [`Architecture/technical_debt_registry.json`](technical_debt_registry.json). La CI valide les identifiants, les statuts, les preuves et ce rendu avec `python tools/audit_technical_debt.py --check`. Il n'existe pas de table SQLite `technical_debt` : la consigne historique correspondante est retirée.
 
@@ -14,7 +14,6 @@ Les anciens identifiants `TD-001` à `TD-013`, tous soldés, restent dans l'hist
 |---|---|---|---|---|
 | TD-P0-01 | Latence micro-vers-premier-son encore supérieure à la cible de 2 s | lot audio/STT coordonné avec Claude | Mesurer la chaîne intégrée, réduire le STT temps réel et borner la variance du premier token | [`audio/voice_latency.py`](../audio/voice_latency.py), [`tests/test_voice_latency.py`](../tests/test_voice_latency.py) |
 | TD-P1-06 | Le tour vocal conserve une orchestration distincte du moteur conversationnel canonique | lot audio/STT coordonné avec Claude | Partager un moteur de tour unique et rendre les actions explicites dans le protocole streamé | [`api/voice_processing.py`](../api/voice_processing.py), [`api/chat_cognitive.py`](../api/chat_cognitive.py) |
-| TD-P1-07 | La file vocale jette encore un énoncé sous pression et le filtre d’écho n’est pas partagé | lot audio/STT coordonné avec Claude | Appliquer une backpressure observable et le même filtre STT à tous les canaux natifs et mobiles | [`scripts/audio_daemon.py`](../scripts/audio_daemon.py), [`audio/stt_daemon.py`](../audio/stt_daemon.py) |
 
 ## Dettes résolues
 
@@ -32,6 +31,7 @@ Les anciens identifiants `TD-001` à `TD-013`, tous soldés, restent dans l'hist
 | TD-P1-03 | Verrouillage mobile d’inactivité uniquement cosmétique | L’état de verrouillage est persistant et impose une vérification avant remontage des vues et canaux temps réel | [`web_mobile/js/auth.js`](../web_mobile/js/auth.js), [`tests/test_web_mobile.py`](../tests/test_web_mobile.py) |
 | TD-P1-04 | Silero VAD peut télécharger du code via torch.hub au runtime | Le wheel officiel Silero 6.2.1 embarque le modèle TorchScript, le chargeur runtime n’utilise plus torch.hub et la CI installe puis importe le paquet verrouillé | [`audio/vad_silero.py`](../audio/vad_silero.py), [`tests/test_vad_silero_local.py`](../tests/test_vad_silero_local.py), [`tests/test_ci_production_install.py`](../tests/test_ci_production_install.py) |
 | TD-P1-05 | Usage et coût des réponses LLM streamées enregistrés à zéro | L’usage fournisseur final est propagé, avec estimation locale explicitement marquée lorsque nécessaire | [`llm.py`](../llm.py), [`tests/test_llm_stream_usage.py`](../tests/test_llm_stream_usage.py) |
+| TD-P1-07 | La file vocale jette encore un énoncé sous pression et le filtre d’écho n’est pas partagé | La file bornée attend désormais une place avec une latence observable, et la façade STT applique le filtre d’écho avant tous les canaux natif, WebSocket et mobile | [`scripts/audio_daemon.py`](../scripts/audio_daemon.py), [`audio/stt_daemon.py`](../audio/stt_daemon.py), [`tests/test_voice_backpressure.py`](../tests/test_voice_backpressure.py), [`tests/test_stt_prompt_echo.py`](../tests/test_stt_prompt_echo.py) |
 | TD-P1-08 | Écritures et agrégations Fitness bloquantes dans les coroutines | Les accès repository sont déportés hors de la boucle async et couverts par les contrats service | [`app/fitness/services.py`](../app/fitness/services.py), [`tests/test_fitness_program.py`](../tests/test_fitness_program.py) |
 | TD-P1-09 | Erreurs Fitness absorbées et timezone Europe/Paris codée en dur | Les replis sont journalisés, les erreurs structurées et les bornes de jour utilisent la timezone configurée | [`app/fitness/meal_analysis.py`](../app/fitness/meal_analysis.py), [`tests/test_fitness_meal_analysis.py`](../tests/test_fitness_meal_analysis.py) |
 | TD-P1-10 | Schéma SQLite et nombres de tables avec plusieurs sources de vérité | Une commande génère schéma et inventaire, et la CI échoue dès qu’un artefact diverge du runtime frais | [`tools/audit_architecture_truth.py`](../tools/audit_architecture_truth.py), [`tests/test_audit_architecture_truth.py`](../tests/test_audit_architecture_truth.py) |

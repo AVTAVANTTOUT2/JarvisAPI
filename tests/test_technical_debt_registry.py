@@ -23,7 +23,6 @@ def test_real_registry_covers_the_consolidated_audit_and_matches_the_document():
     assert {item["id"] for item in items if item["status"] == "active"} == {
         "TD-P0-01",
         "TD-P1-06",
-        "TD-P1-07",
     }
     assert audit.DOCUMENT_PATH.read_text(encoding="utf-8") == audit.render_document(
         data,

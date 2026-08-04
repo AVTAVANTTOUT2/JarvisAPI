@@ -637,11 +637,24 @@ class DaemonSTT:
         if not self.available:
             return None
         sr = sample_rate or int(getattr(config, "AUDIO_DAEMON_SAMPLE_RATE", 16000))
+        self.last_raw_text = ""
+        self.last_clean_text = ""
         result = await self._backend.transcribe_pcm(pcm_bytes, sample_rate=sr, language=language)
         if result is None:
             return None
+        raw_text = str(result.text or "").strip()
+        prompt_echo = bool(raw_text and is_stt_prompt_echo(raw_text))
+        clean_text = "" if prompt_echo else raw_text
+        self.last_raw_text = raw_text
+        self.last_clean_text = clean_text
+        if prompt_echo:
+            logger.warning(
+                "[stt_daemon] echo du prompt rejete engine=%s transcript=%r",
+                result.engine,
+                raw_text[:120],
+            )
         return {
-            "text": result.text,
+            "text": clean_text,
             "segments": result.segments,
             "language": result.language,
             "duration": result.duration,
@@ -649,6 +662,7 @@ class DaemonSTT:
             "inference_ms": result.inference_ms,
             "audio_ms": result.audio_ms,
             "real_time_factor": result.real_time_factor,
+            "prompt_echo": prompt_echo,
         }
 
     @staticmethod
@@ -680,6 +694,8 @@ class DaemonSTT:
         timeout: float | None = None,
     ) -> str:
         """Transcrit du PCM ou un conteneur WebM/Opus, WAV, MP3 ou OGG localement."""
+        self.last_raw_text = ""
+        self.last_clean_text = ""
         if len(audio_bytes) < 1000:
             return ""
 
@@ -702,10 +718,7 @@ class DaemonSTT:
             language=language,
         )
         meta = await asyncio.wait_for(operation, timeout=timeout) if timeout else await operation
-        text = str((meta or {}).get("text") or "").strip()
-        self.last_raw_text = text
-        self.last_clean_text = text
-        return text
+        return str((meta or {}).get("text") or "").strip()
 
     async def transcribe_with_diarization(
         self,

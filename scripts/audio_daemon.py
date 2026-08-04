@@ -79,6 +79,20 @@ FALLBACK_WAKE_CHUNKS = int(FALLBACK_WAKE_DURATION_MS / CHUNK_MS)
 # Timeout subprocess audio (afplay / say)
 AFPLAY_TIMEOUT_S = 30.0
 
+
+async def _enqueue_utterance_with_backpressure(
+    queue: asyncio.Queue[tuple[UtteranceTrace, bytes]],
+    item: tuple[UtteranceTrace, bytes],
+) -> int:
+    """Attend une place au lieu de perdre une phrase complète.
+
+    La file reste bornée en mémoire. Le temps d'attente retourné est injecté
+    dans la trace de latence afin que toute pression soit mesurable.
+    """
+    started = time.perf_counter()
+    await queue.put(item)
+    return round((time.perf_counter() - started) * 1000)
+
 # Son de confirmation
 WAKE_SOUND_PATH = Path(__file__).resolve().parent.parent / "data" / "sounds" / "wake.wav"
 END_SOUND_PATH = Path(__file__).resolve().parent.parent / "data" / "sounds" / "end.wav"
@@ -328,7 +342,9 @@ class AudioDaemon:
         self._porcupine: Any = None
         self._wake_thread_future: Any = None
         self._audio_queue: asyncio.Queue[bytes] = asyncio.Queue(maxsize=300)   # frames brutes micro — surchargé dans start()
-        self._utterance_queue: asyncio.Queue[bytes] = asyncio.Queue(maxsize=3)  # phrases complètes — surchargé dans start()
+        self._utterance_queue: asyncio.Queue[
+            tuple[UtteranceTrace, bytes]
+        ] = asyncio.Queue(maxsize=3)  # phrases complètes — surchargé dans start()
         self._wake_event: asyncio.Event | None = None
         self._vad_task: asyncio.Task[Any] | None = None
         self._process_task: asyncio.Task[Any] | None = None
@@ -1156,13 +1172,25 @@ class AudioDaemon:
                         audio_ms=audio_ms,
                         engine="silero" if USE_SILERO_VAD else "rms",
                     )
-                    try:
-                        utterance_queue.put_nowait((trace, completed))
-                        trace.mark(
-                            vl.STT_QUEUE_ENTERED, queue_depth=utterance_queue.qsize(),
+                    queue_wait_ms = await _enqueue_utterance_with_backpressure(
+                        utterance_queue,
+                        (trace, completed),
+                    )
+                    trace.mark(
+                        vl.STT_QUEUE_ENTERED,
+                        queue_depth=utterance_queue.qsize(),
+                        backpressure_wait_ms=queue_wait_ms,
+                    )
+                    if queue_wait_ms:
+                        logger.warning(
+                            "[audio_daemon] backpressure file utterance : %dms",
+                            queue_wait_ms,
                         )
-                    except asyncio.QueueFull:
-                        logger.warning("[audio_daemon] utterance_queue pleine — utterance jetée")
+                        await self._broadcast_state({
+                            "type": "voice_backpressure",
+                            "queue_depth": utterance_queue.qsize(),
+                            "wait_ms": queue_wait_ms,
+                        })
                     if USE_SILERO_VAD:
                         _vad_silero.reset()
                     try:

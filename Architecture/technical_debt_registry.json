@@ -120,11 +120,10 @@
     {
       "id": "TD-P1-07",
       "severity": "P1",
-      "status": "active",
+      "status": "resolved",
       "summary": "La file vocale jette encore un énoncé sous pression et le filtre d’écho n’est pas partagé",
-      "owner": "lot audio/STT coordonné avec Claude",
-      "next_action": "Appliquer une backpressure observable et le même filtre STT à tous les canaux natifs et mobiles",
-      "evidence": ["scripts/audio_daemon.py", "audio/stt_daemon.py"]
+      "resolution": "La file bornée attend désormais une place avec une latence observable, et la façade STT applique le filtre d’écho avant tous les canaux natif, WebSocket et mobile",
+      "evidence": ["scripts/audio_daemon.py", "audio/stt_daemon.py", "tests/test_voice_backpressure.py", "tests/test_stt_prompt_echo.py"]
     },
     {
       "id": "TD-P1-08",
