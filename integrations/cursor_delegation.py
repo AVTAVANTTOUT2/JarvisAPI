@@ -205,16 +205,14 @@ class CursorDelegationService:
             raise CursorDelegationError("Cursor CLI non authentifié — lancer `agent login`")
 
         requested_delivery_mode = str(delivery_mode or "").strip().lower()
-        if not requested_delivery_mode:
-            autonomous = not require_confirmation
-            configured_mode = str(
-                getattr(config, "SELF_MODIFICATION_MODE", DELIVERY_PR_ONLY)
-            ).strip().lower()
-            requested_delivery_mode = (
-                DELIVERY_PR_ONLY
-                if autonomous and configured_mode == DELIVERY_PR_ONLY
-                else DELIVERY_BEST_EFFORT
-            )
+        if not require_confirmation:
+            if requested_delivery_mode not in ("", DELIVERY_PR_ONLY):
+                raise CursorDelegationError(
+                    "Un job autonome doit utiliser le mode pr_only"
+                )
+            requested_delivery_mode = DELIVERY_PR_ONLY
+        elif not requested_delivery_mode:
+            requested_delivery_mode = DELIVERY_BEST_EFFORT
         if requested_delivery_mode not in VALID_DELIVERY_MODES:
             raise CursorDelegationError(
                 f"Mode de livraison Cursor invalide: {requested_delivery_mode}"

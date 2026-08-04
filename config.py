@@ -695,12 +695,9 @@ DEVAGENT_AUTORUN_MAX_INTERVIEW_ROUNDS = int(_get("DEVAGENT_AUTORUN_MAX_INTERVIEW
 # ── CI locale (pré-commit) ───────────────────────────────────
 LOCAL_CI_RUN_FRONTEND_BUILD = _get("LOCAL_CI_RUN_FRONTEND_BUILD", "false").lower() == "true"
 
-# ── Self-healing (diagnostic + patch réversible, désactivé par défaut) ──
+# ── Self-healing (diagnostic + délégation PR-only, désactivé par défaut) ──
 SELF_HEALING_ENABLED = _get("SELF_HEALING_ENABLED", "false").lower() == "true"
-SELF_HEALING_AUTO_APPLY = _get("SELF_HEALING_AUTO_APPLY", "false").lower() == "true"
 SELF_HEALING_CRASH_THRESHOLD = int(_get("SELF_HEALING_CRASH_THRESHOLD", "3"))
-SELF_HEALING_REGRESSION_WINDOW_MIN = int(_get("SELF_HEALING_REGRESSION_WINDOW_MIN", "15"))
-SELF_HEALING_COOLDOWN_MIN = int(_get("SELF_HEALING_COOLDOWN_MIN", "60"))
 
 # ── Autonomie cognitive (Cursor / auto-réparation / auto-amélioration) ──
 CURSOR_DELEGATION_ENABLED = _get("CURSOR_DELEGATION_ENABLED", "true").lower() == "true"
@@ -716,7 +713,6 @@ CURSOR_ALLOW_PR = _get("CURSOR_ALLOW_PR", "false").lower() == "true"
 # Fail-closed : autonomie off par défaut
 SELF_REPAIR_ENABLED = _get("SELF_REPAIR_ENABLED", "false").lower() == "true"
 SELF_IMPROVEMENT_ENABLED = _get("SELF_IMPROVEMENT_ENABLED", "false").lower() == "true"
-SELF_MODIFICATION_MODE = _get("SELF_MODIFICATION_MODE", "pr_only")
 SELF_IMPROVEMENT_SCHEDULE = _get("SELF_IMPROVEMENT_SCHEDULE", "weekly")
 
 # ── Prédiction du prochain message ───────────────────────────

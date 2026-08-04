@@ -90,7 +90,6 @@ def delegation_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(config, "CURSOR_MAX_CONCURRENT_JOBS", 2)
     monkeypatch.setattr(config, "CURSOR_ALLOW_PUSH", False)  # pas de remote
     monkeypatch.setattr(config, "CURSOR_ALLOW_PR", False)
-    monkeypatch.setattr(config, "SELF_MODIFICATION_MODE", "best_effort")
 
     async def _fake_compose(**kwargs):
         return {
@@ -111,13 +110,13 @@ def delegation_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 def _enqueue_and_run(service: CursorDelegationService, repo: Path, **kwargs):
     async def _run():
-        # Tests unitaires : contournent la confirmation (chemin loop/scheduler).
+        # Les tests de moteur simulent une confirmation interactive explicite.
         job = await service.enqueue(
             title=kwargs.get("title", "Test job"),
             user_request=kwargs.get("user_request", "corrige app.py"),
             repository=str(repo),
             auto_start=False,
-            require_confirmation=False,
+            require_confirmation=True,
             **{
                 k: v
                 for k, v in kwargs.items()
@@ -187,7 +186,6 @@ def test_autonomous_pr_only_refuses_missing_delivery_capabilities(
     delegation_env, monkeypatch
 ):
     service, repo = delegation_env["service"], delegation_env["repo"]
-    monkeypatch.setattr(config, "SELF_MODIFICATION_MODE", "pr_only")
 
     with pytest.raises(CursorDelegationError, match="Mode pr_only impossible") as exc:
         asyncio.run(
@@ -204,20 +202,31 @@ def test_autonomous_pr_only_refuses_missing_delivery_capabilities(
     assert "CURSOR_ALLOW_PR" in str(exc.value)
 
 
-def test_legacy_scheduled_job_is_resumed_fail_closed(monkeypatch):
-    monkeypatch.setattr(config, "SELF_MODIFICATION_MODE", "auto_merge_low_risk")
+def test_autonomous_job_rejects_best_effort_override(delegation_env):
+    service, repo = delegation_env["service"], delegation_env["repo"]
 
+    with pytest.raises(CursorDelegationError, match="doit utiliser le mode pr_only"):
+        asyncio.run(
+            service.enqueue(
+                title="Self repair",
+                user_request="corrige app.py",
+                repository=str(repo),
+                auto_start=False,
+                require_confirmation=False,
+                delivery_mode="best_effort",
+            )
+        )
+
+
+def test_legacy_scheduled_job_is_resumed_fail_closed():
     assert (
         _job_delivery_mode({"interaction_mode": "scheduled", "routing": {}})
         == "pr_only"
     )
 
 
-def test_confirmed_job_remains_best_effort_when_global_mode_is_pr_only(
-    delegation_env, monkeypatch
-):
+def test_confirmed_job_remains_best_effort(delegation_env):
     service, repo = delegation_env["service"], delegation_env["repo"]
-    monkeypatch.setattr(config, "SELF_MODIFICATION_MODE", "pr_only")
 
     async def _enqueue():
         return await service.enqueue(
@@ -558,9 +567,12 @@ def test_cancel_kills_running_process(delegation_env, monkeypatch):
             user_request="long",
             repository=str(repo),
             auto_start=False,
-            require_confirmation=False,
+            require_confirmation=True,
         )
         job_id = job["job_id"]
+        from database.cursor_jobs import update_cursor_job
+
+        update_cursor_job(job_id, status="queued")
         task = asyncio.create_task(service.run_job(job_id))
         # attendre que le process démarre
         for _ in range(100):
@@ -625,6 +637,8 @@ def test_autonomy_settings_exposes_pr_only_readiness(monkeypatch):
     settings = result["settings"]
 
     assert "cursor_allow_merge" not in settings
+    assert "self_modification_mode" not in settings
+    assert settings["self_modification_delivery"] == "pr_only"
     assert settings["cursor_pr_only_ready"] is False
     assert settings["cursor_pr_only_missing"] == [
         "CURSOR_ALLOW_PUSH",

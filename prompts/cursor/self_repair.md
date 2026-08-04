@@ -14,7 +14,7 @@ variables: user_request,acceptance_criteria,required_tests,context_files,extra_c
 # Contexte
 Date: {{date}}
 Template version: {{template_version}}
-Job d'auto-réparation : JARVIS répare SON PROPRE code après détection d'un crash ou d'une boucle d'échec. Mode `pr_only` OBLIGATOIRE (`SELF_MODIFICATION_MODE`) : le correctif part en branche + PR, il n'est JAMAIS mergé ni appliqué automatiquement sur l'instance qui tourne. L'utilisateur relit et merge.
+Job d'auto-réparation : JARVIS répare SON PROPRE code après détection d'un crash ou d'une boucle d'échec. La livraison `pr_only` est obligatoire : le correctif part en branche + PR, il n'est JAMAIS mergé ni appliqué automatiquement sur l'instance qui tourne. L'utilisateur relit et merge.
 
 Contexte JARVIS :
 {{extra_context}}

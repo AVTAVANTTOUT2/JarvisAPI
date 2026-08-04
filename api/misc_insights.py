@@ -12,7 +12,12 @@ from api.insight_models import (
     JarvisJournalGenerateRequest,
     SelfHealingDiagnoseRequest,
 )
-from database import get_all_people, get_life_profile, get_recent_episodes, get_school_documents
+from database import (
+    get_all_people,
+    get_life_profile,
+    get_recent_episodes,
+    get_school_documents,
+)
 
 logger = logging.getLogger("jarvis")
 
@@ -112,18 +117,16 @@ async def api_presence():
 
 
 async def api_self_healing_status():
-    """État du self-healing : activé ?, dernier patch, cooldown."""
-    from scripts.self_healing import _load_state
-
+    """État du self-healing report-only / PR-only."""
     return {
         "enabled": config.SELF_HEALING_ENABLED,
-        "auto_apply": config.SELF_HEALING_AUTO_APPLY,
-        "state": _load_state(),
+        "self_repair_enabled": config.SELF_REPAIR_ENABLED,
+        "delivery_mode": "pr_only",
     }
 
 
 async def api_self_healing_diagnose(body: SelfHealingDiagnoseRequest):
-    """Déclenche un diagnostic (+ patch si auto-apply) à la demande, sur un log fourni."""
+    """Déclenche un diagnostic et, si autorisé, une proposition Cursor en PR."""
     from scripts.self_healing import handle_crash_loop
 
     return await handle_crash_loop(body.log_tail)

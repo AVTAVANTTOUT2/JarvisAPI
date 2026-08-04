@@ -178,7 +178,7 @@ Ollama         = Screen Watcher uniquement (vision locale)
  Templates versionnés dans `prompts/cursor/*.md`.
 - Auto-réparation (`scripts/self_healing.py`) et auto-amélioration
  (`scripts/self_improvement.py`, job scheduler dim 06:00) délèguent à Cursor en
- mode `SELF_MODIFICATION_MODE=pr_only`.
+ mode `pr_only` obligatoire.
 - Briefings : `agents/briefing_engine.py` (morning / evening / delta, version
  vocale 30-60 s, dédup, priorités critique / aujourd'hui / surveiller / info).
 - Latences vocales p50/p95 : `GET /api/voice/metrics` (table `voice_debug_log`).
@@ -1291,9 +1291,8 @@ worktree avec livraison PR-only. **Application + validation automatique
 réservée aux projets DevAgent** (isolés, versionnés, testés → rollback
 trivial).
 Self-healing est le plus encadré : diagnostic seul par défaut
-(`SELF_HEALING_ENABLED=false`), patch encore plus explicitement opt-in
-(`SELF_HEALING_AUTO_APPLY=false`), rollback automatique si la même
-boucle de crash revient sous `SELF_HEALING_REGRESSION_WINDOW_MIN`.
+(`SELF_HEALING_ENABLED=false`) ; si la réparation est activée, elle passe
+exclusivement par un worktree Cursor avec livraison PR-only.
 - `GET /api/journal` → historique du journal
 - `POST /api/journal` → nouvelle entrée journal
 

@@ -15,22 +15,19 @@ et l'échec est notifié (jamais de test cassé qui entre dans la suite).
 Désactivé par défaut (``AUTO_TEST_GEN_ENABLED=false``) et sans cible par
 défaut (``AUTO_TEST_GEN_TARGET_DIRS`` vide). Sur JARVIS, l'API et le job
 hebdomadaire délèguent désormais cette tâche à Cursor dans un worktree avec
-PR obligatoire ; la commande directe refuse le mode ``pr_only``.
+PR obligatoire ; la commande directe refuse toute écriture dans le checkout.
 """
 
 from __future__ import annotations
 
 import ast
-import logging
 import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 import config
-from jarvis.notification_service import notification_service
 
-logger = logging.getLogger(__name__)
 
 @dataclass
 class FunctionInfo:
@@ -167,41 +164,13 @@ async def generate_test_for_function(fn: FunctionInfo, base_dir: Path = config.B
 
 
 async def run_test_generation() -> dict:
-    """Commande directe historique, refusée sur JARVIS en mode PR-only."""
+    """Commande directe historique, toujours refusée sur le checkout JARVIS."""
     if not config.AUTO_TEST_GEN_ENABLED:
         return {"ok": False, "reason": "AUTO_TEST_GEN_ENABLED désactivé"}
     target_dirs = [d.strip() for d in config.AUTO_TEST_GEN_TARGET_DIRS.split(",") if d.strip()]
     if not target_dirs:
         return {"ok": False, "reason": "AUTO_TEST_GEN_TARGET_DIRS vide — aucune cible configurée"}
-    if str(getattr(config, "SELF_MODIFICATION_MODE", "pr_only")) == "pr_only":
-        return {
-            "ok": False,
-            "reason": "mutation directe interdite en mode pr_only ; déléguez via Cursor",
-        }
-
-    dirs = [config.BASE_DIR / d for d in target_dirs]
-    tests_dir = config.BASE_DIR / "tests"
-    uncovered = find_uncovered_functions(dirs, tests_dir)
-
-    generated: list[str] = []
-    failed: list[dict] = []
-    for fn in uncovered[:config.AUTO_TEST_GEN_MAX_PER_RUN]:
-        outcome = await generate_test_for_function(fn)
-        if outcome["ok"]:
-            generated.append(f"{fn.module_path.name}::{fn.name}")
-        else:
-            failed.append({"function": f"{fn.module_path.name}::{fn.name}", "reason": outcome["reason"]})
-
-    if generated or failed:
-        content = f"{len(generated)} test(s) généré(s) et validé(s)"
-        if failed:
-            content += f", {len(failed)} échec(s) de génération"
-        notification_service.create(
-            source="system", title="Génération de tests manquants", content=content, priority="low",
-        )
-    logger.info("[test-gen] %d généré(s), %d échoué(s), %d fonction(s) non couverte(s) au total",
-               len(generated), len(failed), len(uncovered))
     return {
-        "ok": True, "generated": generated, "failed": failed,
-        "uncovered_total": len(uncovered),
+        "ok": False,
+        "reason": "mutation directe interdite ; déléguez via Cursor en PR-only",
     }

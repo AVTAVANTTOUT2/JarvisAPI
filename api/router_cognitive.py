@@ -359,7 +359,7 @@ async def autonomy_settings() -> dict[str, Any]:
         "settings": {
             "self_repair_enabled": bool(getattr(config, "SELF_REPAIR_ENABLED", False)),
             "self_improvement_enabled": bool(getattr(config, "SELF_IMPROVEMENT_ENABLED", False)),
-            "self_modification_mode": getattr(config, "SELF_MODIFICATION_MODE", "pr_only"),
+            "self_modification_delivery": "pr_only",
             "cursor_delegation_enabled": bool(getattr(config, "CURSOR_DELEGATION_ENABLED", True)),
             "cursor_allow_commit": cursor_allow_commit,
             "cursor_allow_push": cursor_allow_push,

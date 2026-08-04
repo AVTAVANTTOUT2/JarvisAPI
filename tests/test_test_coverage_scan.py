@@ -139,14 +139,12 @@ async def test_run_test_generation_requires_target_dirs(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_run_test_generation_refuses_direct_pr_only_mutation(monkeypatch):
+async def test_run_test_generation_refuses_direct_mutation(monkeypatch):
     from scripts.test_coverage_scan import run_test_generation
 
     monkeypatch.setattr("config.AUTO_TEST_GEN_ENABLED", True)
     monkeypatch.setattr("config.AUTO_TEST_GEN_TARGET_DIRS", "api")
-    monkeypatch.setattr("config.SELF_MODIFICATION_MODE", "pr_only")
-
     result = await run_test_generation()
 
     assert result["ok"] is False
-    assert "pr_only" in result["reason"]
+    assert "mutation directe interdite" in result["reason"]

@@ -26,7 +26,7 @@ Exécuter le travail technique (bugs, features, CI, migrations, audits) via Curs
 4. **Cancel** — kill du process group ; statut mis à jour avant kill.
 5. **Reprise** — jobs `queued`/`running` relancés au startup via lifespan.
 6. **Secrets** — redaction API keys / Bearer / sk- avant envoi au prompt.
-7. **Mode** — `SELF_MODIFICATION_MODE=pr_only` : un job autonome est refusé si commit/push/PR ne sont pas tous autorisés, puis ne peut terminer qu'au statut `pr_opened` avec une URL de PR persistée. Un échec de push ou de création de PR est terminal et explicite. Aucun chemin de merge automatique n'existe.
+7. **Mode** — tout job autonome utilise obligatoirement `pr_only` : il est refusé si commit/push/PR ne sont pas tous autorisés, puis ne peut terminer qu'au statut `pr_opened` avec une URL de PR persistée. Un échec de push ou de création de PR est terminal et explicite. Aucun chemin de merge automatique n'existe.
 
 ## Flux
 
@@ -58,7 +58,6 @@ CURSOR_WORKTREE_ROOT=.jarvis/worktrees
 CURSOR_ALLOW_COMMIT=true
 CURSOR_ALLOW_PUSH=true           # obligatoire pour pr_only
 CURSOR_ALLOW_PR=true             # obligatoire pour pr_only
-SELF_MODIFICATION_MODE=pr_only
 ```
 
 ## Endpoints
@@ -77,6 +76,6 @@ SELF_MODIFICATION_MODE=pr_only
 
 - Nécessite Cursor CLI installé et authentifié sur la machine hôte.
 - Les tests post-job requis sont bloquants ; un échec CLI marque le job `failed`.
-- Un job autonome hérite de `SELF_MODIFICATION_MODE`. Les jobs `self_repair` et `self_improvement` demandent explicitement `delivery_mode="pr_only"`.
+- Tout job sans confirmation humaine reçoit automatiquement `delivery_mode="pr_only"`. Les jobs `self_repair` et `self_improvement` le demandent aussi explicitement.
 - `GET /api/autonomy/settings` expose `cursor_pr_only_ready` pour diagnostiquer la configuration avant délégation.
 - Rollback = suppression worktree / reset branche job — ne force pas de revert sur main.
