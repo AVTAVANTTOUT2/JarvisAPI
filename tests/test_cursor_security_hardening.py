@@ -454,3 +454,40 @@ async def test_voice_old_audio_is_discarded(monkeypatch):
     assert status == "cancelled"
     # Le blob n'est jamais envoyé après annulation : le client n'a rien à jeter.
     assert sent_bytes == []
+
+
+@pytest.mark.asyncio
+async def test_cached_tts_task_cancellation_is_never_swallowed(monkeypatch):
+    """Un ``return`` de nettoyage ne doit pas convertir CancelledError en succès."""
+    import importlib
+
+    from api.chat_context import _send_tts_streaming
+
+    sent: list[dict] = []
+    cancel = asyncio.Event()
+
+    class CancellingWs:
+        async def send_json(self, data):
+            sent.append(data)
+
+        async def send_bytes(self, data):
+            cancel.set()
+            raise asyncio.CancelledError
+
+    cache = importlib.import_module("audio.tts_cache")
+    monkeypatch.setattr(cache.speculative_tts, "get", lambda *a, **k: b"cached")
+    monkeypatch.setattr(cache.last_tts, "store", lambda *a, **k: None)
+
+    with pytest.raises(asyncio.CancelledError):
+        await _send_tts_streaming(
+            CancellingWs(),  # type: ignore[arg-type]
+            "réponse déjà synthétisée",
+            "neutral",
+            turn_id="turn-cancelled-task",
+            cancel_event=cancel,
+        )
+
+    assert sent[-1] == {
+        "type": "speech_cancelled",
+        "turn_id": "turn-cancelled-task",
+    }
