@@ -22,8 +22,8 @@ from pathlib import Path
 # fichier local. Ces valeurs sont donc la source de vérité, et `.env` ne fait
 # que les surcharger.
 
-DEFAULT_TTS_PROVIDER = "fish_local"
-DEFAULT_TTS_MODEL_PATH = "mlx-community/fish-audio-s2-pro-8bit"
+DEFAULT_TTS_PROVIDER = "qwen3_local"
+DEFAULT_TTS_MODEL_PATH = "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-6bit"
 DEFAULT_TTS_VOICE_PATH = "./voices/jarvis-fr"
 DEFAULT_TTS_DEVICE = "auto"
 DEFAULT_TTS_STREAMING = True
@@ -52,9 +52,32 @@ DEFAULT_TTS_FLUSH_TIMEOUT_MS = 250
 DEFAULT_TTS_FIRST_CHUNK_MIN_CHARS = 15
 DEFAULT_TTS_FIRST_CHUNK_MAX_CHARS = 60
 
+# Secondes d'audio par bloc diffusé. Le moteur produit 12,5 trames par seconde,
+# donc 0,4 s = 5 trames : assez court pour que le premier son parte vite, assez
+# long pour que le décodeur incrémental garde un contexte exploitable.
+DEFAULT_TTS_STREAMING_INTERVAL = 0.4
+
+# Comment la voix de référence est reproduite. Ce n'est pas un détail de
+# réglage : les deux modes ne coûtent pas la même chose et ne rendent pas le
+# même timbre.
+#
+#   icl    — la référence **et** son transcript sont fournis au modèle, qui
+#            emprunte la voie « in-context learning » (et calcule en plus le
+#            vecteur de locuteur). Mesuré : premier son ~520 ms.
+#   speaker_embedding — seule la référence est fournie ; le modèle n'en tire
+#            qu'un vecteur de locuteur. Mesuré : premier son ~215 ms.
+#
+# Le choix se tranche à l'oreille, pas au chronomètre : les deux tiennent
+# largement les seuils de temps réel. Voir docs/audio/VOICE_REPLACEMENT.md.
+CLONE_MODE_ICL = "icl"
+CLONE_MODE_EMBEDDING = "speaker_embedding"
+KNOWN_CLONE_MODES: frozenset[str] = frozenset({CLONE_MODE_ICL, CLONE_MODE_EMBEDDING})
+DEFAULT_TTS_CLONE_MODE = CLONE_MODE_ICL
+
 # Fournisseurs connus. La fabrique refuse tout autre nom : c'est ce qui rend
 # impossible l'apparition d'un backend distant par simple configuration.
-KNOWN_PROVIDERS: frozenset[str] = frozenset({"fish_local"})
+# Un seul moteur est actif ; en ajouter un est un acte de code.
+KNOWN_PROVIDERS: frozenset[str] = frozenset({"qwen3_local"})
 
 # Nom de fichier attendus dans le répertoire de voix.
 VOICE_METADATA_FILE = "metadata.json"
@@ -83,6 +106,8 @@ class TTSSettings:
     flush_timeout_ms: int
     first_chunk_min_chars: int = DEFAULT_TTS_FIRST_CHUNK_MIN_CHARS
     first_chunk_max_chars: int = DEFAULT_TTS_FIRST_CHUNK_MAX_CHARS
+    streaming_interval: float = DEFAULT_TTS_STREAMING_INTERVAL
+    clone_mode: str = DEFAULT_TTS_CLONE_MODE
 
     # ── Voix ────────────────────────────────────────────────────────────────
 
@@ -173,6 +198,19 @@ def _as_float(value: object, fallback: float, *, minimum: float = 0.0) -> float:
     return parsed if parsed > minimum else fallback
 
 
+def _clone_mode() -> str:
+    """Mode de clonage validé, ou le défaut si la valeur est inconnue.
+
+    Un mode mal orthographié ne doit pas décider silencieusement du timbre :
+    on retombe sur le défaut plutôt que d'inventer un troisième comportement.
+    """
+    raw = str(
+        _config_value("TTS_CLONE_MODE", DEFAULT_TTS_CLONE_MODE)
+        or DEFAULT_TTS_CLONE_MODE
+    ).strip().lower()
+    return raw if raw in KNOWN_CLONE_MODES else DEFAULT_TTS_CLONE_MODE
+
+
 def load_tts_settings() -> TTSSettings:
     """Résout les réglages TTS depuis ``config`` (donc ``.env``) et les défauts.
 
@@ -243,6 +281,11 @@ def load_tts_settings() -> TTSSettings:
             ),
             min_chars,
         ),
+        streaming_interval=_as_float(
+            _config_value("TTS_STREAMING_INTERVAL", DEFAULT_TTS_STREAMING_INTERVAL),
+            DEFAULT_TTS_STREAMING_INTERVAL,
+        ),
+        clone_mode=_clone_mode(),
         first_chunk_max_chars=min(
             _as_int(
                 _config_value(
@@ -269,6 +312,11 @@ __all__ = [
     "DEFAULT_TTS_TIMEOUT_SECONDS",
     "DEFAULT_TTS_VOICE_PATH",
     "DEFAULT_TTS_WARMUP",
+    "DEFAULT_TTS_STREAMING_INTERVAL",
+    "DEFAULT_TTS_CLONE_MODE",
+    "CLONE_MODE_ICL",
+    "CLONE_MODE_EMBEDDING",
+    "KNOWN_CLONE_MODES",
     "KNOWN_PROVIDERS",
     "TTSSettings",
     "VOICE_METADATA_FILE",

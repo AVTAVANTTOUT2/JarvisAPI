@@ -79,7 +79,7 @@ def validate_required_runtime_config() -> None:
         )
 
 
-# ── Audio — STT local (faster-whisper) + TTS local (Fish) ──
+# ── Audio — STT local (faster-whisper) + TTS local (Qwen3-TTS) ──
 DEFAULT_STT_ENGINE = "faster-whisper"
 DEFAULT_STT_MODEL = "large-v3-turbo"
 DEFAULT_STT_FALLBACK_MODEL = "large-v3"
@@ -147,8 +147,8 @@ STT_ALLOW_MODEL_DOWNLOAD = (
 # réclamerait ne pourrait pas être configuré ici.
 # Les valeurs par défaut vivent dans `jarvis/audio/tts/config.py` ; elles sont
 # répétées ici parce que `config` reste la façade lue par le reste du dépôt.
-DEFAULT_TTS_PROVIDER = "fish_local"
-DEFAULT_TTS_MODEL_PATH = "mlx-community/fish-audio-s2-pro-8bit"
+DEFAULT_TTS_PROVIDER = "qwen3_local"
+DEFAULT_TTS_MODEL_PATH = "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-6bit"
 DEFAULT_TTS_VOICE_PATH = "./voices/jarvis-fr"
 DEFAULT_TTS_DEVICE = "auto"
 DEFAULT_TTS_STREAMING = True
@@ -166,6 +166,11 @@ DEFAULT_TTS_FLUSH_TIMEOUT_MS = 250
 # interne fait attendre 564 ms au lieu de 242 ms.
 DEFAULT_TTS_FIRST_CHUNK_MIN_CHARS = 15
 DEFAULT_TTS_FIRST_CHUNK_MAX_CHARS = 60
+# Secondes d'audio par bloc diffusé (12,5 trames/s : 0,4 s = 5 trames).
+DEFAULT_TTS_STREAMING_INTERVAL = 0.4
+# `icl` (référence + transcript) ou `speaker_embedding` (référence seule).
+# Les deux tiennent le temps réel ; le choix se tranche à l'oreille.
+DEFAULT_TTS_CLONE_MODE = "icl"
 
 TTS_PROVIDER = (_get("TTS_PROVIDER") or DEFAULT_TTS_PROVIDER).strip().lower()
 # Chemin d'un répertoire de poids **déjà installé**, ou identifiant d'un dépôt
@@ -174,6 +179,10 @@ TTS_PROVIDER = (_get("TTS_PROVIDER") or DEFAULT_TTS_PROVIDER).strip().lower()
 TTS_MODEL_PATH = _get("TTS_MODEL_PATH", DEFAULT_TTS_MODEL_PATH)
 TTS_VOICE_PATH = _get("TTS_VOICE_PATH", DEFAULT_TTS_VOICE_PATH)
 TTS_DEVICE = _get("TTS_DEVICE", DEFAULT_TTS_DEVICE).strip().lower()
+TTS_STREAMING_INTERVAL = float(
+    _get("TTS_STREAMING_INTERVAL", str(DEFAULT_TTS_STREAMING_INTERVAL))
+)
+TTS_CLONE_MODE = _get("TTS_CLONE_MODE", DEFAULT_TTS_CLONE_MODE).strip().lower()
 TTS_STREAMING = _get("TTS_STREAMING", str(DEFAULT_TTS_STREAMING)).lower() in (
     "true", "1", "yes",
 )
@@ -632,6 +641,14 @@ LATE_RETURN_HOUR = int(_get("LATE_RETURN_HOUR", "23"))         # à partir de ce
 # ── Voix : rejeu, session persistante, TTS spéculatif ─────────
 SPECULATIVE_TTS_ENABLED = _get("SPECULATIVE_TTS_ENABLED", "false").lower() == "true"
 VOICE_SESSION_GRACE_S = int(_get("VOICE_SESSION_GRACE_S", "180"))  # reprise après coupure courte
+if SPECULATIVE_TTS_ENABLED:
+    # Le préchauffage est sérialisé côté daemon, mais chaque phrase
+    # pré-générée occupe quand même le GPU hors tour de parole.
+    logger.warning(
+        "SPECULATIVE_TTS_ENABLED=true : le préchauffage est sérialisé, mais "
+        "chaque phrase pré-générée charge encore le GPU. Désactivez-le si la "
+        "RAM est serrée."
+    )
 
 # ── Auto-résumé de réunions (micro daemon audio) ──────────────
 # Opt-in : capture les transcriptions ambiantes du micro pour détecter une
@@ -816,7 +833,7 @@ _RETIRED_EDGE = (
 
 _RETIRED_KOKORO = (
     "Kokoro et le backend transitoire `current_local` ont été retirés ; "
-    "Fish local (`fish_local`) est le seul moteur TTS."
+    "Qwen3-TTS local (`qwen3_local`) est le seul moteur TTS."
 )
 
 RETIRED_ENV_VARS: dict[str, str] = {

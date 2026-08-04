@@ -107,7 +107,7 @@ champ `license` et un champ `consent` : renseignez-les, ils servent à vous — 
 à quelqu'un d'autre — six mois plus tard.
 
 Les poids du modèle ont leur propre licence, distincte de celle de la voix :
-voir `FISH_LOCAL_STATUS.md`.
+voir `QWEN3_LOCAL_STATUS.md`.
 
 ## Retirer une voix
 

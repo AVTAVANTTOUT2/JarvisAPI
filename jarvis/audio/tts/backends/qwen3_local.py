@@ -1,27 +1,27 @@
-"""Fish Audio S2 Pro, en local, sur Apple Silicon — backend cible.
+"""Qwen3-TTS 12 Hz, en local, sur Apple Silicon — moteur vocal de JARVIS.
 
-Ce backend n'appelle **jamais** l'API Fish Audio. Il pilote le modèle
-`fish_qwen3_omni` fourni par ``mlx-audio``, exécuté par un sidecar dans le venv
+Ce backend n'appelle **jamais** d'API distante. Il pilote le modèle
+``qwen3_tts`` fourni par ``mlx-audio``, exécuté par un sidecar dans le venv
 MLX, sur le GPU Metal de la machine. Aucune clé, aucune URL, aucun jeton : ce
 qui n'est pas sur le disque n'existe pas pour lui.
 
-Trois réalités qu'il serait malhonnête de maquiller :
+Trois propriétés sont visibles depuis l'extérieur :
 
-- **La diffusion est par segment, pas par jeton.** L'implémentation MLX de Fish
-  lève explicitement ``NotImplementedError`` sur son mode ``stream``. JARVIS
-  découpe donc le texte (``jarvis.audio.tts.segmenter``) et joue chaque segment
-  dès qu'il est synthétisé pendant que le suivant se génère. C'est du streaming
-  au sens perçu — le premier son arrive avant la fin de la réponse — mais pas
-  du streaming natif du modèle, et ``info().streaming`` le dit.
-- **L'annulation prend effet à la frontière d'un segment.** La génération d'un
-  segment déjà lancé n'est pas interruptible ; la lecture, elle, s'arrête
-  immédiatement. C'est ce que l'utilisateur perçoit comme un barge-in.
-- **Le modèle doit être installé.** Aucun téléchargement au démarrage ni au
-  runtime : poids absents = erreur explicite avec la commande d'installation.
+- **``info().streaming`` vaut ``native``.** Le modèle rend l'audio au fil de la
+  génération ; JARVIS n'a pas besoin de découper le texte pour obtenir un
+  premier son tôt. Le segmenteur reste en place et reste utile, mais il n'est
+  plus la seule source de fragments, et l'annonce faite au reste du système
+  décrit ce qui se passe réellement.
+- **La fréquence native est 24 kHz**, celle du pipeline et du profil vocal :
+  aucune conversion, ni en sortie ni sur la référence.
+- **Le transcript de la voix ne transite pas par la ligne de commande.** Le
+  sidecar reçoit le répertoire du profil et lit lui-même ``transcript.txt`` ;
+  le passer en argument l'exposerait dans la sortie de ``ps``.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from collections.abc import AsyncIterator
@@ -43,22 +43,56 @@ from jarvis.audio.tts.backends.sidecar import (
 
 logger = logging.getLogger(__name__)
 
-PROVIDER_NAME = "fish_local"
-BACKEND_NAME = "mlx-audio/fish_qwen3_omni"
-LAUNCHER = "fish_synthesize"
+PROVIDER_NAME = "qwen3_local"
+BACKEND_NAME = "mlx-audio/qwen3_tts"
+LAUNCHER = "qwen3_synthesize"
 
-# Le modèle rend son audio par lot ; le pipeline lui donne des segments déjà
-# courts. Voir le module `segmenter` pour la façon dont ces segments naissent.
-STREAMING_MODE = "segmented"
+# Le modèle diffuse l'audio pendant qu'il le génère : ce n'est pas le découpage
+# du texte par JARVIS qui produit les fragments.
+STREAMING_MODE = "native"
 
 # Accélérateurs acceptés. « cuda » n'est pas une valeur exotique : c'est le
-# défaut de l'implémentation de référence de Fish, et l'accepter en silence sur
-# un Mac produirait un échec incompréhensible au premier énoncé.
+# défaut de plusieurs implémentations de référence, et l'accepter en silence
+# sur un Mac produirait un échec incompréhensible au premier énoncé.
 SUPPORTED_DEVICES = frozenset({"auto", "mlx", "metal", "gpu", "cpu"})
 
+# Le modèle nomme ses langues en toutes lettres, JARVIS les code sur deux
+# lettres. Sans cette table, ``LANGUAGE=fr`` serait transmis tel quel, ne
+# figurerait pas dans ``codec_language_id``, et le conditionnement de langue
+# disparaîtrait **sans aucun avertissement** — le modèle devinerait la langue
+# à partir du texte, ce qui marche souvent et rate sur les phrases courtes.
+LANGUAGE_CODES: dict[str, str] = {
+    "fr": "french",
+    "en": "english",
+    "de": "german",
+    "es": "spanish",
+    "it": "italian",
+    "pt": "portuguese",
+    "ru": "russian",
+    "ja": "japanese",
+    "ko": "korean",
+    "zh": "chinese",
+}
+DEFAULT_LANGUAGE = "french"
 
-class FishLocalTTSProvider:
-    """Fournisseur local Fish Audio — modèle chaud, sortie PCM16 mono."""
+
+def _model_language() -> str:
+    """Langue à transmettre au modèle, dérivée de ``config.LANGUAGE``."""
+    try:
+        import config as app_config
+
+        raw = str(getattr(app_config, "LANGUAGE", "") or "").strip().lower()
+    except Exception:  # pragma: no cover - dépend de l'environnement d'import
+        raw = ""
+    if not raw:
+        return DEFAULT_LANGUAGE
+    # Un réglage déjà écrit en toutes lettres (« french ») passe tel quel ; le
+    # sidecar valide de toute façon contre la table du modèle.
+    return LANGUAGE_CODES.get(raw[:2], raw)
+
+
+class Qwen3LocalTTSProvider:
+    """Fournisseur local Qwen3-TTS — modèle chaud, sortie PCM16 mono 24 kHz."""
 
     def __init__(self, settings: TTSSettings) -> None:
         self._settings = settings
@@ -66,6 +100,10 @@ class FishLocalTTSProvider:
         self._sample_rate = settings.sample_rate
         self._warmup_ms: float | None = None
         self._voice_cloned = False
+        # Sans ce verrou, deux warmups concurrents (daemon + cache spéculatif)
+        # construisent chacun un SidecarClient et chargent le modèle deux fois
+        # en mémoire Metal.
+        self._warmup_lock = asyncio.Lock()
 
     # ── Identité ────────────────────────────────────────────────────────────
 
@@ -87,12 +125,7 @@ class FishLocalTTSProvider:
         return "mlx" if device in {"auto", "metal", "gpu"} else device
 
     def _model_label(self) -> str:
-        """Nom court du modèle — jamais un chemin absolu dans les logs.
-
-        On nomme le modèle **tel qu'il est configuré**, pas tel qu'il est rangé
-        sur le disque : un chemin de cache Hugging Face donnerait un journal du
-        genre « snapshots/c8d4481… », qui n'identifie rien pour un humain.
-        """
+        """Nom court du modèle — jamais un chemin absolu dans les logs."""
         return self._settings.model_path.rstrip("/").rsplit("/", 1)[-1]
 
     # ── Préparation ─────────────────────────────────────────────────────────
@@ -102,24 +135,26 @@ class FishLocalTTSProvider:
         if device not in SUPPORTED_DEVICES:
             raise TTSUnsupportedDeviceError(
                 f"TTS_DEVICE={device!r} n'existe pas sur cette machine : "
-                f"Fish tourne ici via MLX (Metal). Valeurs acceptées : "
+                f"Qwen3-TTS tourne ici via MLX (Metal). Valeurs acceptées : "
                 f"{', '.join(sorted(SUPPORTED_DEVICES))}."
             )
 
     def _resolve_model(self) -> Path:
-        from native_audio.fish_local import FishModelMissing, resolve_local_model_dir
+        from native_audio.qwen3_local import Qwen3ModelMissing, resolve_model_dir
 
         try:
-            return resolve_local_model_dir(self._settings.model_path)
-        except FishModelMissing as exc:
+            return resolve_model_dir(self._settings.model_path)
+        except Qwen3ModelMissing as exc:
             raise TTSModelNotFoundError(str(exc)) from exc
 
     def _build_client(self) -> SidecarClient:
-        # Les poids d'abord. Sur une machine où ni le venv MLX ni le modèle ne
-        # sont installés, les deux causes sont vraies — mais une seule est
-        # utile : les poids sont ce que l'utilisateur installe en premier, et
+        """Construit le client du sidecar — sans le démarrer."""
+        # Les poids d'abord. Sur une machine neuve, ni les poids ni le venv MLX
+        # ne sont installés : les deux causes sont vraies, mais une seule est
+        # utile. Les poids sont ce que l'utilisateur installe en premier, et
         # `TTSModelNotFoundError` porte la commande exacte. Vérifier le runtime
-        # avant masquerait ce diagnostic derrière une erreur plus vague.
+        # avant masquerait ce diagnostic derrière une erreur plus vague — la CI
+        # macOS a déjà échoué exactement là.
         model_dir = self._resolve_model()
 
         launcher = sidecar_launcher(LAUNCHER)
@@ -128,29 +163,32 @@ class FishLocalTTSProvider:
                 f"sidecar {LAUNCHER} introuvable ou non exécutable "
                 f"(native_audio/{LAUNCHER})"
             )
+
         python = mlx_python()
         if python is None:
             raise TTSUnavailableError(
-                "venv MLX introuvable — JARVIS_VENV doit pointer sur un "
-                "environnement contenant mlx-audio"
+                "venv MLX introuvable (JARVIS_VENV, défaut ~/mlx-env). "
+                "Installez mlx-audio : "
+                "python -m pip install -r requirements-mlx.txt"
             )
 
-        command = [str(launcher), "--serve", "--model", str(model_dir)]
-        reference = self._settings.reference_audio()
-        cache = self._settings.reference_cache()
-        # Le sidecar accepte un WAV ; le cache ``.npy`` / ``.npz`` est chargé à
-        # côté s'il existe (même répertoire). On passe toujours le chemin WAV
-        # canonique.
-        if reference is not None or cache is not None:
-            transcript = self._settings.reference_text()
-            ref_path = reference or (self._settings.voice_dir / "reference.wav")
-            if not transcript:
+        command = [
+            str(launcher), "--serve", "--model", str(model_dir),
+            "--language", _model_language(),
+            "--streaming-interval", str(self._settings.streaming_interval),
+            "--clone-mode", self._settings.clone_mode,
+        ]
+
+        # Le répertoire du profil suffit : le sidecar y lit lui-même
+        # reference.wav et transcript.txt. Passer le transcript en argument
+        # l'exposerait dans la sortie de `ps`.
+        if self._settings.reference_audio() is not None:
+            if not self._settings.reference_text():
                 logger.warning(
-                    "[fish_local] référence présente sans transcript — voix par "
+                    "[qwen3_local] référence présente sans transcript — voix par "
                     "défaut utilisée (le clonage a besoin des deux)",
                 )
-            else:
-                command += ["--ref-audio", str(ref_path), "--ref-text", transcript]
+            command += ["--voice-dir", str(self._settings.voice_dir)]
         else:
             self._warn_if_another_profile_holds_the_voice()
 
@@ -169,15 +207,11 @@ class FishLocalTTSProvider:
     def _warn_if_another_profile_holds_the_voice(self) -> None:
         """Dit à voix haute qu'une voix clonée existe mais n'est plus lue.
 
-        Le profil par défaut est passé de ``voices/jarvis`` à
-        ``voices/jarvis-fr``. Les échantillons n'étant jamais versionnés, une
-        installation existante garde son ``reference.wav`` dans l'ancien
-        répertoire : sans ce message, JARVIS repartirait sur la voix par défaut
-        du modèle sans que rien ne le signale — exactement le repli silencieux
-        que l'architecture interdit.
-
-        Le message ne se déclenche que si une autre voix porte réellement un
-        échantillon : une installation neuve reste silencieuse.
+        Les échantillons n'étant jamais versionnés, une installation existante
+        peut garder son ``reference.wav`` dans un autre répertoire de profil :
+        sans ce message, JARVIS repartirait sur la voix par défaut du modèle
+        sans que rien ne le signale — exactement le repli silencieux que
+        l'architecture interdit.
         """
         voice_dir = self._settings.voice_dir
         parent = voice_dir.parent
@@ -193,7 +227,7 @@ class FishLocalTTSProvider:
             if not (sibling / VOICE_REFERENCE_AUDIO).is_file():
                 continue
             logger.warning(
-                "[fish_local] %s ne contient aucun échantillon alors que %s en "
+                "[qwen3_local] %s ne contient aucun échantillon alors que %s en "
                 "porte un : JARVIS parle avec la voix par défaut du modèle. "
                 "Régénérez le profil courant "
                 "(python scripts/prepare_jarvis_voice.py) ou pointez "
@@ -205,51 +239,82 @@ class FishLocalTTSProvider:
             return
 
     async def warmup(self) -> None:
-        """Charge le modèle hors tour de parole. Idempotent."""
+        """Charge le modèle hors tour de parole. Idempotent et sérialisé."""
         if self._client is not None and self._client.ready:
             return
 
-        self._check_device()
-        started = time.perf_counter()
-        events.emit_tts_event(
-            events.WARMUP_STARTED,
-            provider=PROVIDER_NAME,
-            backend=BACKEND_NAME,
-            device=self._resolved_device(),
-        )
+        async with self._warmup_lock:
+            if self._client is not None and self._client.ready:
+                return
 
-        client = self._build_client()
-        try:
-            metadata = await client.start()
-        except TTSUnavailableError:
+            self._check_device()
+            started = time.perf_counter()
             events.emit_tts_event(
-                events.FAILED, provider=PROVIDER_NAME, reason="warmup_failed",
+                events.WARMUP_STARTED,
+                provider=PROVIDER_NAME,
+                backend=BACKEND_NAME,
+                device=self._resolved_device(),
             )
-            raise
 
-        declared = int(metadata.get("sample_rate") or 0)
-        if declared > 0:
-            if declared != self._settings.sample_rate:
-                logger.info(
-                    "[fish_local] fréquence du modèle %d Hz (TTS_SAMPLE_RATE=%d) "
-                    "— la valeur du modèle fait foi",
-                    declared, self._settings.sample_rate,
+            # Remplace un client mort ou partiel avant d'en ouvrir un neuf —
+            # sinon un restart laisse un sidecar orphelin en mémoire Metal.
+            previous = self._client
+            self._client = None
+            if previous is not None:
+                await previous.stop()
+
+            client = self._build_client()
+            try:
+                metadata = await client.start()
+            except TTSUnavailableError:
+                await client.stop()
+                events.emit_tts_event(
+                    events.FAILED, provider=PROVIDER_NAME, reason="warmup_failed",
                 )
-            self._sample_rate = declared
-        self._voice_cloned = bool(metadata.get("voice_cloned"))
-        self._client = client
-        self._warmup_ms = (time.perf_counter() - started) * 1000.0
+                raise
 
-        events.emit_tts_event(
-            events.WARMUP_COMPLETED,
-            provider=PROVIDER_NAME,
-            backend=BACKEND_NAME,
-            device=self._resolved_device(),
-            model=self._model_label(),
-            voice=self._settings.voice_id,
-            sample_rate=self._sample_rate,
-            warmup_ms=round(self._warmup_ms, 1),
-        )
+            declared = int(metadata.get("sample_rate") or 0)
+            if declared > 0:
+                if declared != self._settings.sample_rate:
+                    logger.info(
+                        "[qwen3_local] fréquence du modèle %d Hz (TTS_SAMPLE_RATE=%d) "
+                        "— la valeur du modèle fait foi",
+                        declared, self._settings.sample_rate,
+                    )
+                self._sample_rate = declared
+            self._voice_cloned = bool(metadata.get("voice_cloned"))
+            self._client = client
+            self._warmup_ms = (time.perf_counter() - started) * 1000.0
+
+            if not self._voice_cloned:
+                logger.warning(
+                    "[qwen3_local] moteur prêt sans voix clonée — JARVIS parlera "
+                    "avec la voix par défaut du modèle."
+                )
+            else:
+                # `voice_cloned: true` ne disait pas *comment* la voix est
+                # reproduite. Ces quatre valeurs déterminent le timbre obtenu
+                # et doivent apparaître dans les journaux de démarrage.
+                logger.info(
+                    "[qwen3_local] Qwen3 voice ready — voice=%s clone_mode=%s "
+                    "reference_duration_ms=%s reference_text_used=%s "
+                    "language=%s streaming=%s",
+                    self._settings.voice_id,
+                    metadata.get("clone_mode"),
+                    metadata.get("reference_duration_ms"),
+                    "true" if metadata.get("reference_text_used") else "false",
+                    metadata.get("language"),
+                    metadata.get("streaming"),
+                )
+
+            events.emit_tts_event(
+                events.WARMUP_COMPLETED,
+                provider=PROVIDER_NAME,
+                backend=BACKEND_NAME,
+                device=self._resolved_device(),
+                warmup_ms=round(self._warmup_ms, 1),
+                sample_rate=self._sample_rate,
+            )
 
     # ── Synthèse ────────────────────────────────────────────────────────────
 
@@ -268,7 +333,7 @@ class FishLocalTTSProvider:
         await self.warmup()
         client = self._client
         if client is None:  # pragma: no cover - warmup lève avant
-            raise TTSUnavailableError("fish_local : moteur non initialisé")
+            raise TTSUnavailableError("qwen3_local : moteur non initialisé")
 
         started = time.perf_counter()
         events.emit_tts_event(
@@ -285,7 +350,7 @@ class FishLocalTTSProvider:
         previous: bytes | None = None
         try:
             async for pcm in client.stream(
-                {"text": cleaned, "max_tokens": 1024}, request_id=request_id,
+                {"text": cleaned}, request_id=request_id,
             ):
                 if previous is not None:
                     yield self._chunk(previous, is_final=False)
@@ -358,4 +423,4 @@ class FishLocalTTSProvider:
             await client.stop()
 
 
-__all__ = ["BACKEND_NAME", "PROVIDER_NAME", "FishLocalTTSProvider"]
+__all__ = ["BACKEND_NAME", "PROVIDER_NAME", "Qwen3LocalTTSProvider"]

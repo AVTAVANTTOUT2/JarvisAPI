@@ -8,7 +8,7 @@
 - ``demo_03_long.wav``
 - ``demo_report.json`` — latences de premier fragment et synthèse
 
-Requiert les poids Fish installés (``python scripts/download_tts_model.py``).
+Requiert les poids Qwen3 installés (``python scripts/download_tts_model.py``).
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import sys
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -93,7 +94,7 @@ async def run_demos(out_dir: Path) -> list[DemoResult]:
     await reset_local_tts_provider()
     settings = replace(
         load_tts_settings(),
-        provider="fish_local",
+        provider="qwen3_local",
         voice_path=str(REPO_ROOT / "voices" / "jarvis-fr"),
     )
     provider = create_local_tts_provider(settings)
@@ -111,6 +112,11 @@ async def run_demos(out_dir: Path) -> list[DemoResult]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Permet `python scripts/demo_jarvis_voice.py` sans exporter PYTHONPATH.
+    repo = str(REPO_ROOT)
+    if repo not in sys.path:
+        sys.path.insert(0, repo)
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--out",
@@ -122,7 +128,7 @@ def main(argv: list[str] | None = None) -> int:
 
     results = asyncio.run(run_demos(out_dir))
     report = {
-        "provider": "fish_local",
+        "provider": "qwen3_local",
         "voice": "jarvis-fr",
         "demos": [asdict(item) for item in results],
     }

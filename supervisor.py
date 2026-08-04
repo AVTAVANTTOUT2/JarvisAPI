@@ -249,6 +249,92 @@ def _force_kill_port(port: int) -> None:
     time.sleep(1)
 
 
+def _child_pids(pid: int) -> list[int]:
+    """Enfants directs d'un PID (macOS / Linux via ``pgrep -P``)."""
+    try:
+        r = subprocess.run(
+            ["pgrep", "-P", str(pid)],
+            capture_output=True, text=True, timeout=3,
+        )
+    except Exception:
+        return []
+    return [int(p) for p in r.stdout.strip().split() if p.isdigit()]
+
+
+def _kill_process_tree(pid: int, *, sig: int = signal.SIGTERM) -> None:
+    """Tue un processus et toute sa descendance (enfants avant parent)."""
+    for child in _child_pids(pid):
+        _kill_process_tree(child, sig=sig)
+    try:
+        os.kill(pid, sig)
+    except ProcessLookupError:
+        pass
+
+
+# Sidecars de synthèse du dépôt. Le tuple existe pour que l'ajout d'un moteur
+# n'oublie pas son nettoyage : un sidecar orphelin garde ses poids en mémoire
+# Metal jusqu'au redémarrage de la machine.
+_TTS_SIDECAR_SCRIPTS: tuple[str, ...] = ("qwen3_local.py",)
+
+
+def _kill_orphan_tts_sidecars() -> int:
+    """Tue les sidecars de synthèse orphelins du dépôt (hors arbre géré).
+
+    Un restart du backend qui ne propageait pas le signal laissait des
+    instances chargées en mémoire Metal — plusieurs Go chacune. On cible
+    uniquement nos propres launchers, jamais un processus tiers.
+    """
+    pids: list[str] = []
+    for script in _TTS_SIDECAR_SCRIPTS:
+        marker = str(PROJECT_DIR / "native_audio" / script)
+        try:
+            r = subprocess.run(
+                ["pgrep", "-f", marker],
+                capture_output=True, text=True, timeout=3,
+            )
+        except Exception:
+            continue
+        pids.extend(r.stdout.strip().split())
+
+    managed = _managed_pids()
+    killed = 0
+    for raw in pids:
+        if not raw.isdigit():
+            continue
+        pid = int(raw)
+        if pid in managed or pid == os.getpid():
+            continue
+        # Ne pas tuer un sidecar encore rattaché au backend géré.
+        try:
+            ppid = int(
+                subprocess.check_output(
+                    ["ps", "-o", "ppid=", "-p", str(pid)],
+                    text=True, timeout=2,
+                ).strip()
+                or "0"
+            )
+        except Exception:
+            ppid = 0
+        if ppid in managed:
+            continue
+        log.warning("Sidecar TTS orphelin — SIGTERM PID %d", pid)
+        _kill_process_tree(pid, sig=signal.SIGTERM)
+        killed += 1
+    if killed:
+        time.sleep(0.8)
+        for raw in r.stdout.strip().split():
+            if not raw.isdigit():
+                continue
+            pid = int(raw)
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                continue
+            log.warning("Sidecar TTS résistant — SIGKILL PID %d", pid)
+            _kill_process_tree(pid, sig=signal.SIGKILL)
+    return killed
+
+
 def _tail_log(log_name: str, lines: int = 5) -> str:
     """Lit les N dernieres lignes d'un fichier de log pour forensics au crash."""
     fpath = LOGS_DIR / log_name
@@ -425,6 +511,10 @@ def _start_sync(sid: str) -> dict:
         else:
             # Port libre mais on nettoie par precaution
             _kill_port(BACKEND_PORT)
+        # Sidecars TTS orphelins d'un crash précédent (hors arbre main.py).
+        orphan_tts = _kill_orphan_tts_sidecars()
+        if orphan_tts:
+            log.warning("Nettoyage pre-start : %d sidecar(s) TTS orphelin(s)", orphan_tts)
         (LOGS_DIR / "backend.log").parent.mkdir(parents=True, exist_ok=True)
         backend_env = {**os.environ, "PYTHONUNBUFFERED": "1"}
         if config.WEB_HTTPS:
@@ -494,12 +584,19 @@ def _stop_sync(sid: str) -> dict:
     if sid == "backend":
         proc = _managed.get("backend")
         if proc and proc.poll() is None:
-            proc.terminate()
+            # Enfants d'abord (sidecar TTS) : terminate() sur main.py seul
+            # laissait des processus MLX orphelins qui empilaient la RAM.
+            _kill_process_tree(proc.pid, sig=signal.SIGTERM)
             try:
                 proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
-                proc.kill()
+                _kill_process_tree(proc.pid, sig=signal.SIGKILL)
+                try:
+                    proc.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
         _managed["backend"] = None
+        _kill_orphan_tts_sidecars()
         _kill_port(BACKEND_PORT)
         log.info("Backend arrete")
         return {"ok": True, "message": "Backend arrete"}

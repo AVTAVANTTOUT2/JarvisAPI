@@ -15,7 +15,7 @@ TextStreamSegmenter          jarvis/audio/tts/segmenter.py
 LocalTTSProvider             jarvis/audio/tts/base.py      ← le seul contrat connu du reste
     │
     ▼
-Backend local                jarvis/audio/tts/backends/    ← fish_local
+Backend local                jarvis/audio/tts/backends/    ← qwen3_local
     │  sidecar chaud, modèle chargé une fois
     ▼
 AudioChunk (PCM16 mono)      jarvis/audio/tts/base.py
@@ -25,7 +25,7 @@ Lecteur CoreAudio            jarvis/audio/tts/playback.py → audio/audio_output
 ```
 
 Le reste de JARVIS — daemon vocal, WebSocket, API mobile, appareils distants —
-ne connaît ni Fish, ni MLX, ni aucun moteur. Il appelle :
+ne connaît ni Qwen3, ni MLX, ni aucun moteur. Il appelle :
 
 ```python
 from jarvis.audio.tts import get_local_tts_provider
@@ -54,14 +54,21 @@ async for chunk in provider.stream(text, request_id=rid, utterance_id=uid):
 - **`segmented`** — JARVIS découpe le texte et joue chaque segment dès qu'il
   est synthétisé pendant que le suivant se génère.
 
-Le backend Fish est `segmented` : l'implémentation MLX lève explicitement
-`NotImplementedError` sur son mode `stream`. Le résultat perçu est le même — le
-premier son arrive avant la fin de la réponse — mais annoncer « streaming
-natif » serait faux.
+Le backend `qwen3_local` est `native` : le modèle rend l'audio par blocs de
+`streaming_interval × 12,5` trames, décodés incrémentalement par le tokenizer
+de parole. La valeur `segmented` reste déclarable — le moteur précédent l'était,
+son implémentation levant `NotImplementedError` sur `stream` — et annoncer
+« natif » à sa place aurait été faux.
 
-**Mesuré** sur une réponse de quatre phrases (Mac mini M4, backend
-`fish_local`) : premier son à 184 ms, synthèse complète à 1 316 ms. La
-segmentation fait arriver la voix 7 fois plus tôt qu'une synthèse d'un bloc.
+Le segmenteur reste en place et reste utile avec un backend natif : il borne la
+longueur du premier énoncé envoyé au moteur et permet d'annuler à une frontière
+propre. Il n'est simplement plus la seule source de fragments.
+
+**Mesuré** sur Mac mini M4, voix `jarvis-fr`, trois passages par phrase :
+premier son à **445 ms** (médiane à chaud), facteur temps réel **0,524**. Le
+détail est dans [QWEN3_LOCAL_STATUS.md](QWEN3_LOCAL_STATUS.md) ; le rapport de
+rejet du moteur précédent, plafonné par la bande passante mémoire de la
+machine, dans [archive/FISH_M4_VALIDATION.md](archive/FISH_M4_VALIDATION.md).
 
 ### Le premier segment obéit à des seuils plus courts
 
@@ -120,7 +127,7 @@ un autre moteur ni vers un service distant. La réponse texte est conservée, le
 pipeline se réarme, et l'état est visible :
 
 ```json
-GET /api/status → { "audio": { "tts_provider": "fish_local", "tts_offline": true, … } }
+GET /api/status → { "audio": { "tts_provider": "qwen3_local", "tts_offline": true, … } }
 ```
 
 Faire parler l'utilisateur avec une voix qu'il n'a pas choisie, sans le lui
@@ -135,8 +142,8 @@ Erreurs déclarées (`jarvis/audio/tts/errors.py`) : `TTSUnavailableError`,
 Un seul jeu de réglages, quel que soit le backend. Aucune clé, aucune URL.
 
 ```bash
-TTS_PROVIDER=fish_local
-TTS_MODEL_PATH=mlx-community/fish-audio-s2-pro-8bit
+TTS_PROVIDER=qwen3_local
+TTS_MODEL_PATH=mlx-community/Qwen3-TTS-12Hz-0.6B-Base-6bit
 TTS_VOICE_PATH=./voices/jarvis-fr
 TTS_DEVICE=auto                  # auto | mlx | cpu — jamais cuda
 TTS_STREAMING=true
@@ -164,7 +171,7 @@ avertissement au démarrage plutôt qu'un silence trompeur.
 python3.12 -m venv ~/mlx-env && source ~/mlx-env/bin/activate
 pip install mlx-audio soundfile
 
-# 2. Poids (≈ 6,7 Go en 8 bits) — jamais déclenché par JARVIS
+# 2. Poids (≈ 1,9 Go) — jamais déclenché par JARVIS
 python scripts/download_tts_model.py
 python scripts/download_tts_model.py --check   # vérifie sans rien écrire
 

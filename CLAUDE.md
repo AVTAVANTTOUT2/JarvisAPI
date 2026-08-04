@@ -18,7 +18,7 @@ JARVIS est un assistant personnel multi-agents avec interface vocale + web, tour
 - **Base de données** : SQLite (fichier local `data/jarvis.db`)
 - **LLM** : DeepSeek API (format OpenAI, `llm.py`) — routing fast/main, mode « tâche lourde » (max_tokens élevé) pour les productions longues
 - **STT** : local multi-moteurs (`faster-whisper`, WhisperKit ou whisper.cpp), sans repli cloud
-- **TTS** : 100 % local, hors ligne — interface `jarvis/audio/tts`, backend Fish Audio S2 Pro via MLX (`fish_local`), aucun service réseau
+- **TTS** : 100 % local, hors ligne — interface `jarvis/audio/tts`, backend Qwen3-TTS 12 Hz via MLX (`qwen3_local`), diffusion native, aucun service réseau
 - **VAD** : côté client uniquement (Web Audio API `AnalyserNode`)
 - **Embeddings** : `all-MiniLM-L6-v2` via `sentence-transformers` (local, pour RAG)
 - **Recherche web** : Tavily API ou SearXNG local
@@ -840,22 +840,24 @@ qui rend impossible l'apparition d'un service distant par configuration.
 
 | Fournisseur | Rôle |
 |---|---|
-| `fish_local` | Fish Audio S2 Pro via `mlx-audio`, GPU Metal, sans CUDA — seul moteur TTS |
+| `qwen3_local` | Qwen3-TTS 12 Hz Base 6 bits via `mlx-audio`, GPU Metal — seul moteur TTS |
 
 Quatre décisions structurantes :
 
-- **La diffusion est par segment, et le dit.** `info().streaming` vaut
-  `segmented` : l'implémentation MLX de Fish lève `NotImplementedError` sur son
-  mode `stream`. JARVIS découpe le texte (`segmenter.py`) et joue chaque
-  segment pendant que le suivant se génère. Le **premier** segment obéit à des
-  seuils plus courts (`TTS_FIRST_CHUNK_*`) : il est le seul dont la longueur se
-  paie en silence pur. Mesuré sur une réponse de quatre phrases (M4) avec le
-  backend transitoire depuis retiré : premier son à 184 ms, synthèse complète à
-  1 316 ms — la voix arrive 7 fois plus tôt qu'en un bloc, au prix d'un temps de
-  synthèse total un peu supérieur, masqué par la lecture. Ces chiffres mesurent
-  le découpage, pas Fish : ils n'ont pas été rejoués sur `fish_local`
-  (`python scripts/benchmark_tts.py --runs 2`). Annoncer « streaming natif »
-  serait faux.
+- **La diffusion est native, et le dit.** `info().streaming` vaut `native` sur
+  `qwen3_local` : le modèle rend l'audio par blocs de `streaming_interval ×
+  12,5` trames, décodés incrémentalement. Le segmenteur (`segmenter.py`) reste
+  utile — il borne le premier énoncé et donne une frontière d'annulation propre
+  — mais il n'est plus la seule source de fragments. Le **premier** segment
+  obéit à des seuils plus courts (`TTS_FIRST_CHUNK_*`) : il est le seul dont la
+  longueur se paie en silence pur. Mesuré sur Mac mini M4, voix `jarvis-fr`,
+  trois passages par phrase : **premier son 445 ms, facteur temps réel 0,524**
+  (`python scripts/benchmark_tts.py --provider qwen3_local --runs 3`).
+- **Le moteur précédent a été retiré sur mesure, pas par goût.** Il exigeait
+  189 Go/s de bande passante mémoire soutenue pour parler en temps réel, contre
+  environ 70 Go/s disponibles ici. Le rapport de rejet est archivé dans
+  `docs/audio/archive/FISH_M4_VALIDATION.md` ; aucun code actif ne le
+  référence.
 - **Aucun repli silencieux.** Un modèle absent ou une synthèse échouée conserve
   la réponse texte, réarme le pipeline et expose un état « TTS indisponible ».
   Faire entendre une voix que l'utilisateur n'a pas choisie, sans le dire,
@@ -877,7 +879,8 @@ Instrumentation : douze événements (`events.py`) sous allowlist de champs —
 longueurs, moteurs, durées, identifiants de corrélation, jamais un texte.
 
 Documentation : `docs/audio/LOCAL_TTS_ARCHITECTURE.md`,
-`docs/audio/FISH_LOCAL_STATUS.md`, `docs/audio/CUSTOM_VOICE.md`.
+`docs/audio/QWEN3_LOCAL_STATUS.md`, `docs/audio/CUSTOM_VOICE.md`.
+Rapport de rejet archivé : `docs/audio/archive/FISH_M4_VALIDATION.md`.
 Tests : `tests/test_local_tts.py`, `tests/test_tts_segmenter.py`.
 Banc de mesure : `python scripts/benchmark_tts.py`.
 
@@ -941,8 +944,8 @@ Flux historique encore possible depuis le composer chat : `conversation_mode` + 
 ### Config
 
 ```bash
-TTS_PROVIDER=fish_local
-TTS_MODEL_PATH=mlx-community/fish-audio-s2-pro-8bit
+TTS_PROVIDER=qwen3_local
+TTS_MODEL_PATH=mlx-community/Qwen3-TTS-12Hz-0.6B-Base-6bit
 TTS_VOICE_PATH=./voices/jarvis-fr
 AUDIO_DAEMON_STT_ENGINE=local       # local | whisperkit | whispercpp
 AUDIO_DAEMON_STT_MODEL=small
@@ -1429,8 +1432,8 @@ DEEPSEEK_BASE_URL=https://api.deepseek.com
 DEEPSEEK_FAST_MODEL=deepseek-v4-flash   # classification, triage, extraction
 DEEPSEEK_MAIN_MODEL=deepseek-v4-pro     # rédaction, coaching, raisonnement
 HEAVY_TASK_MAX_TOKENS=8192              # plafond tokens des productions longues
-TTS_PROVIDER=fish_local
-TTS_MODEL_PATH=mlx-community/fish-audio-s2-pro-8bit
+TTS_PROVIDER=qwen3_local
+TTS_MODEL_PATH=mlx-community/Qwen3-TTS-12Hz-0.6B-Base-6bit
 TTS_VOICE_PATH=./voices/jarvis-fr
 AUDIO_DAEMON_STT_ENGINE=local
 AUDIO_DAEMON_STT_MODEL=small

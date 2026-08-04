@@ -390,6 +390,20 @@ class AudioDaemon:
             self._tts_unavailable_reason = str(e)
             logger.exception("[audio_daemon] Préchauffage TTS : %s", e)
 
+    async def _warmup_tts_pipeline(self) -> None:
+        """Moteur d'abord, phrases spéculatives ensuite — jamais en parallèle."""
+        await self._warmup_tts()
+        if not getattr(config, "SPECULATIVE_TTS_ENABLED", False):
+            return
+        if self._tts_unavailable_reason:
+            return
+        try:
+            from audio.tts_cache import speculative_tts
+
+            await speculative_tts.warmup()
+        except Exception as e:
+            logger.debug("[audio_daemon] warmup TTS spéculatif : %s", e)
+
     # ── Réarmement du pipeline ────────────────────────────────────────────────
 
     def conversation_open(self) -> bool:
@@ -482,18 +496,12 @@ class AudioDaemon:
         except Exception as e:
             logger.warning("[audio_daemon] Génération sons échouée : %s", e)
 
-        # Préchauffage TTS : charger le modèle ici plutôt qu'au premier tour de
-        # parole, où il s'ajoutait intégralement à la latence perçue.
-        asyncio.create_task(self._warmup_tts(), name="tts_engine_warmup")
-
-        # TTS spéculatif (optionnel, désactivé par défaut pour le pipeline natif)
-        if getattr(config, "SPECULATIVE_TTS_ENABLED", False):
-            try:
-                from audio.tts_cache import speculative_tts
-
-                asyncio.create_task(speculative_tts.warmup(), name="tts_warmup")
-            except Exception as e:
-                logger.debug("[audio_daemon] warmup TTS spéculatif : %s", e)
+        # Un seul chemin de préchauffage : le cache spéculatif appelle aussi
+        # ``provider.warmup()``. Deux ``create_task`` concurrents ouvraient
+        # deux sidecars de synthèse, chacun avec ses poids, avant le verrou —
+        # on sérialise ici pour que le moteur charge une seule fois, puis
+        # éventuellement pré-génère les phrases.
+        asyncio.create_task(self._warmup_tts_pipeline(), name="tts_engine_warmup")
 
         backoff_s = 3.0
         max_backoff_s = 30.0

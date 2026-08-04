@@ -23,6 +23,7 @@ import asyncio
 import json
 import logging
 import os
+import signal
 import struct
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -92,12 +93,16 @@ class SidecarClient:
             env = os.environ.copy()
             env.update(self._env)
             try:
+                # Session / process group dédié : à l'arrêt, killpg couvre le
+                # launcher et d'éventuels enfants MLX. Sans ça, un restart du
+                # backend laisse des sidecars orphelins, poids compris.
                 self._proc = await asyncio.create_subprocess_exec(
                     *self._command,
                     stdin=asyncio.subprocess.PIPE,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                     env=env,
+                    start_new_session=True,
                 )
             except OSError as exc:
                 self._proc = None
@@ -134,17 +139,46 @@ class SidecarClient:
         self._metadata = {}
         if proc is None or proc.returncode is not None:
             return
-        try:
-            proc.terminate()
-        except ProcessLookupError:
-            return
+        self._signal_process_group(proc, signal.SIGTERM)
         try:
             await asyncio.wait_for(proc.wait(), timeout=5.0)
         except asyncio.TimeoutError:
+            self._signal_process_group(proc, signal.SIGKILL)
             try:
-                proc.kill()
-            except ProcessLookupError:
-                pass
+                await asyncio.wait_for(proc.wait(), timeout=2.0)
+            except asyncio.TimeoutError:
+                logger.warning("[%s] sidecar toujours vivant après SIGKILL", self._label)
+
+    @staticmethod
+    def _signal_process_group(
+        proc: asyncio.subprocess.Process, sig: signal.Signals,
+    ) -> None:
+        """Envoie le signal au groupe ; repli sur le PID seul si pas de session."""
+        pid = proc.pid
+        if pid is None:
+            return
+        try:
+            os.killpg(pid, sig)
+            return
+        except ProcessLookupError:
+            return
+        except (PermissionError, OSError):
+            pass
+        try:
+            proc.send_signal(sig)
+        except ProcessLookupError:
+            return
+        except (AttributeError, OSError):
+            if sig == signal.SIGTERM:
+                try:
+                    proc.terminate()
+                except ProcessLookupError:
+                    return
+            elif sig == signal.SIGKILL:
+                try:
+                    proc.kill()
+                except ProcessLookupError:
+                    return
 
     async def _drain_stderr(self, limit: int = 600) -> str:
         """Sortie d'erreur du sidecar, tronquée — pour un message actionnable."""

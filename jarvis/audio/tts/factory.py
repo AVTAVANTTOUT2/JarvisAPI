@@ -24,16 +24,16 @@ logger = logging.getLogger(__name__)
 _provider: LocalTTSProvider | None = None
 
 
-def _fish_local(settings: TTSSettings) -> LocalTTSProvider:
-    from jarvis.audio.tts.backends.fish_local import FishLocalTTSProvider
+def _qwen3_local(settings: TTSSettings) -> LocalTTSProvider:
+    from jarvis.audio.tts.backends.qwen3_local import Qwen3LocalTTSProvider
 
-    return FishLocalTTSProvider(settings)
+    return Qwen3LocalTTSProvider(settings)
 
 
 # Import différé : construire un fournisseur ne doit charger ni MLX, ni les
 # poids, ni le sidecar.
 _BUILDERS: dict[str, Callable[[TTSSettings], LocalTTSProvider]] = {
-    "fish_local": _fish_local,
+    "qwen3_local": _qwen3_local,
 }
 
 
