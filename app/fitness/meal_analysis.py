@@ -16,8 +16,11 @@ import base64
 import json
 import logging
 import re
+from io import BytesIO
 from pathlib import Path
 from typing import Any
+
+from PIL import Image, UnidentifiedImageError
 
 import config
 from integrations.ollama_client import ollama_generate
@@ -29,6 +32,7 @@ _PROMPTS_DIR = Path(__file__).resolve().parents[2] / "prompts"
 _MEAL_TYPES = frozenset({"petit_dej", "dejeuner", "diner", "collation"})
 
 MEAL_IMAGE_EXTENSIONS = frozenset({".png", ".jpg", ".jpeg", ".webp"})
+_MEAL_IMAGE_FORMATS = frozenset({"JPEG", "PNG", "WEBP"})
 
 
 class MealAnalysisError(ValueError):
@@ -38,6 +42,41 @@ class MealAnalysisError(ValueError):
         super().__init__(detail)
         self.detail = detail
         self.status_code = status_code
+
+
+def _validate_meal_image(image_bytes: bytes) -> None:
+    """Valide format et dimensions avant toute décompression ou conversion base64."""
+    try:
+        with Image.open(BytesIO(image_bytes)) as source:
+            if (source.format or "").upper() not in _MEAL_IMAGE_FORMATS:
+                raise MealAnalysisError(
+                    "Format de photo non pris en charge",
+                    status_code=415,
+                )
+            width, height = source.size
+            max_dimension = max(1, int(config.FITNESS_MEAL_PHOTO_MAX_DIMENSION))
+            max_pixels = max(1, int(config.FITNESS_MEAL_PHOTO_MAX_PIXELS))
+            if (
+                width <= 0
+                or height <= 0
+                or width > max_dimension
+                or height > max_dimension
+                or width * height > max_pixels
+            ):
+                raise MealAnalysisError(
+                    "Dimensions de photo excessives",
+                    status_code=413,
+                )
+            source.verify()
+    except MealAnalysisError:
+        raise
+    except Image.DecompressionBombError as exc:
+        raise MealAnalysisError(
+            "Dimensions de photo excessives",
+            status_code=413,
+        ) from exc
+    except (UnidentifiedImageError, OSError, ValueError) as exc:
+        raise MealAnalysisError("Photo invalide", status_code=415) from exc
 
 
 def _load_prompt(name: str) -> str:
@@ -256,7 +295,10 @@ async def analyze_meal_text(
 
 async def _vision_identify_foods(image_b64: str) -> dict[str, Any]:
     prompt = _load_prompt("fitness_meal_vision.txt")
-    model = getattr(config, "FITNESS_MEAL_VISION_MODEL", None) or config.SCREEN_VISION_MODEL
+    model = (
+        getattr(config, "FITNESS_MEAL_VISION_MODEL", None)
+        or config.SCREEN_VISION_MODEL
+    )
     try:
         response = await ollama_generate(
             config.OLLAMA_URL,
@@ -303,6 +345,7 @@ async def analyze_meal_photo(
             f"Photo trop lourde (max {max_bytes} octets)",
             status_code=413,
         )
+    _validate_meal_image(image_bytes)
 
     image_b64 = base64.b64encode(image_bytes).decode("ascii")
     vision = await _vision_identify_foods(image_b64)
@@ -337,9 +380,8 @@ async def analyze_meal_photo(
     vision_conf = _clamp_float(vision.get("confidence"), low=0, high=1, default=0.6)
     analysis["confidence"] = round(min(float(analysis["confidence"]), vision_conf), 3)
     analysis["analysis_source"] = "photo_ai"
-    analysis["raw_input"] = (note or vision.get("meal_guess") or analysis["description"])[
-        :8_000
-    ]
+    raw_input = note or vision.get("meal_guess") or analysis["description"]
+    analysis["raw_input"] = raw_input[:8_000]
     if vision.get("notes"):
         extra = str(vision["notes"]).strip()
         if extra:

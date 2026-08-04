@@ -344,8 +344,19 @@ export default {
           type: 'number', inputmode: 'decimal', min: '0',
           placeholder: 'protéines g', 'aria-label': 'Protéines',
         });
+        const photoInput = input({
+          class: 'field fit-input fit-file',
+          type: 'file',
+          accept: 'image/jpeg,image/png,image/webp',
+          capture: 'environment',
+          'aria-label': "Photo de l'assiette",
+        });
         const analyze = h('button', { class: 'btn ghost', type: 'button' }, 'Analyser (IA)');
         const save = h('button', { class: 'btn primary', type: 'button' }, 'Manuel');
+        const analyzePhoto = h('button', {
+          class: 'btn ghost block',
+          type: 'button',
+        }, 'Analyser la photo (IA)');
 
         async function submitMeal(mode) {
           const text = description.value.trim();
@@ -353,6 +364,7 @@ export default {
           busy = true;
           analyze.disabled = true;
           save.disabled = true;
+          analyzePhoto.disabled = true;
           mutationError = null;
           try {
             if (mode === 'ai') {
@@ -383,13 +395,51 @@ export default {
           await load();
         }
 
+        async function submitPhoto() {
+          const photo = photoInput.files && photoInput.files[0];
+          if (!photo || busy) {
+            mutationError = 'Choisissez une photo du repas.';
+            render();
+            return;
+          }
+          busy = true;
+          analyze.disabled = true;
+          save.disabled = true;
+          analyzePhoto.disabled = true;
+          mutationError = null;
+          const formData = new FormData();
+          formData.append('photo', photo, photo.name);
+          formData.append('date', dashboard.date);
+          formData.append('meal_type', type.value);
+          formData.append('source', 'pwa');
+          formData.append('save', 'true');
+          if (description.value.trim()) {
+            formData.append('note', description.value.trim());
+          }
+          try {
+            await api.createMealFromPhoto(formData);
+            mealFormOpen = false;
+          } catch (error) {
+            mutationError = error instanceof ApiError && error.status === 413
+              ? 'Photo trop volumineuse.'
+              : 'Analyse de la photo impossible.';
+          }
+          busy = false;
+          await load();
+        }
+
         analyze.addEventListener('click', () => { void submitMeal('ai'); });
         save.addEventListener('click', () => { void submitMeal('manual'); });
+        analyzePhoto.addEventListener('click', () => { void submitPhoto(); });
         form = h('div', { class: 'fit-form' },
           type,
           description,
           h('div', { class: 'fit-two' }, calories, protein),
-          h('div', { class: 'fit-actions' }, analyze, save));
+          h('div', { class: 'fit-actions' }, analyze, save),
+          h('label', { class: 'fit-file-label' },
+            h('span', { text: 'Ou photographiez directement votre assiette' }),
+            photoInput),
+          analyzePhoto);
       }
 
       const meals = dashboard.meals.length
@@ -466,6 +516,72 @@ export default {
         feedback);
     }
 
+    function wellbeingCard() {
+      const current = dashboard.summary.wellbeing;
+      const rating = input({
+        class: 'fit-range',
+        type: 'range',
+        min: '1',
+        max: '10',
+        step: '1',
+        value: String((current && current.rating) || 7),
+        'aria-label': 'Note de bien-être',
+      });
+      const ratingValue = h('strong', {
+        class: 'num',
+        text: `${rating.value}/10`,
+      });
+      const journal = textarea({
+        maxlength: '8000',
+        placeholder: 'Énergie, sommeil, humeur… (optionnel)',
+        'aria-label': 'Journal de bien-être',
+      });
+      const feedback = h('p', { class: 'fit-inline-error' });
+      const save = h('button', {
+        class: 'btn primary block',
+        type: 'button',
+        disabled: busy,
+      }, 'Enregistrer mon ressenti');
+      rating.addEventListener('input', () => {
+        ratingValue.textContent = `${rating.value}/10`;
+      });
+      save.addEventListener('click', async () => {
+        if (busy) return;
+        busy = true;
+        save.disabled = true;
+        try {
+          await api.createWellbeing({
+            date: dashboard.date,
+            rating: Number(rating.value),
+            journal_text: journal.value.trim() || null,
+            source: 'pwa',
+          });
+          mutationError = null;
+          busy = false;
+          await load();
+        } catch {
+          busy = false;
+          save.disabled = false;
+          feedback.textContent = 'Ressenti non enregistré.';
+        }
+      });
+      return h('section', { class: 'card fit-wellbeing' },
+        h('div', { class: 'fit-card-head' },
+          h('div', {},
+            h('p', { class: 'ct', text: 'Bien-être' }),
+            h('p', {
+              class: 'cs',
+              text: current && current.rating
+                ? `Dernier ressenti : ${current.rating}/10`
+                : 'Note rapide et journal libre',
+            })),
+          ratingValue),
+        h('div', { class: 'fit-range-row' }, rating),
+        journal,
+        save,
+        feedback);
+    }
+
     function todayView() {
       const program = dashboard.program;
       const summary = dashboard.summary;
@@ -479,6 +595,7 @@ export default {
         sessionCard(),
         adviceCard(),
         mealCard(),
+        wellbeingCard(),
         h('div', { class: 'fit-compact-grid' }, waterCard(), weightCard()),
       ];
     }

@@ -444,6 +444,12 @@ def test_mobile_fitness_matches_the_connected_desktop_experience():
         "Analyser (IA)",
         "createMealFromText",
         "Analyse alimentaire impossible.",
+        "createMealFromPhoto",
+        "Analyser la photo (IA)",
+        "capture: 'environment'",
+        "createWellbeing",
+        "Enregistrer mon ressenti",
+        "journal_text: journal.value.trim() || null",
     ):
         assert contract in health
 
@@ -466,6 +472,6 @@ def test_mobile_fitness_validates_program_settings_before_patch():
 def test_mobile_fitness_assets_are_cache_busted_from_the_shell():
     index = _mobile_source("index.html")
     app = _mobile_source("js/app.js")
-    assert "/mobile/app.css?v=20260803" in index
-    assert "/mobile/js/app.js?v=20260803" in index
-    assert "./views/health.js?v=20260803" in app
+    assert "/mobile/app.css?v=20260804" in index
+    assert "/mobile/js/app.js?v=20260804" in index
+    assert "./views/health.js?v=20260804" in app

@@ -15,7 +15,7 @@ import voice from './views/voice.js';
 import today from './views/today.js';
 import tasks from './views/tasks.js';
 import mails from './views/mails.js';
-import health from './views/health.js?v=20260803';
+import health from './views/health.js?v=20260804';
 
 const ROUTES = [
   { id: 'chat',       label: 'Chat',        icon: 'chat',  view: chat },

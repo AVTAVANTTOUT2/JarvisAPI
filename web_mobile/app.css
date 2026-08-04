@@ -405,6 +405,12 @@ a { color: inherit; text-decoration: none; }
 .fit-select { flex: none; color-scheme: dark; }
 .fit-area { min-height: 78px; border-radius: 12px; resize: vertical; }
 .fit-area-tall { min-height: 170px; }
+.fit-file-label { display: flex; flex-direction: column; gap: 6px; color: var(--fg-3); font-size: 11px; }
+.fit-file { padding: 9px; color: var(--fg-2); font-size: 16px; }
+.fit-file::file-selector-button {
+  min-height: 34px; margin-right: 9px; padding: 0 10px; border: 1px solid var(--line-2);
+  border-radius: 9px; background: var(--surf-2); color: var(--fg); font: 12px var(--sys);
+}
 .fit-two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .fit-meals { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
 .fit-meal { padding: 10px; border-radius: 10px; background: rgba(0,0,0,.17); }
@@ -422,6 +428,13 @@ a { color: inherit; text-decoration: none; }
 .fit-compact-card .cs { margin-top: 2px; }
 .fit-weight-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; margin-top: 12px; }
 .fit-weight-save { padding: 0 12px; font-size: 12px; }
+.fit-wellbeing .fit-area { margin-top: 12px; }
+.fit-wellbeing > .btn { margin-top: 10px; }
+.fit-range-row { margin-top: 13px; }
+.fit-range {
+  width: 100%; min-height: 28px; padding: 0; border: 0; background: transparent;
+  accent-color: var(--blue);
+}
 .fit-program-intro .btn { margin-top: 14px; }
 .fit-program-name { font-size: 20px; font-weight: 600; letter-spacing: -.025em; }
 .fit-program-card { padding: 17px; }

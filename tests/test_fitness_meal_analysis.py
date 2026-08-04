@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import io
 import logging
 import threading
@@ -40,6 +41,15 @@ def _client():
 def _tiny_jpeg() -> bytes:
     buffer = io.BytesIO()
     Image.new("RGB", (32, 32), color=(180, 90, 40)).save(buffer, format="JPEG")
+    return buffer.getvalue()
+
+
+def _jpeg(width: int, height: int) -> bytes:
+    buffer = io.BytesIO()
+    Image.new("RGB", (width, height), color=(180, 90, 40)).save(
+        buffer,
+        format="JPEG",
+    )
     return buffer.getvalue()
 
 
@@ -259,6 +269,64 @@ def test_create_meal_from_photo_stores_image_and_meal(
         photo = client.get(f"/api/fitness/meals/{meal_id}/photo")
         assert photo.status_code == 200
         assert photo.headers["content-type"].startswith("image/")
+
+
+def test_oversized_photo_upload_is_rejected(
+    fitness_db: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("config.FITNESS_MEAL_PHOTO_MAX_BYTES", 100)
+    with _client() as client:
+        authenticate(client)
+        response = client.post(
+            "/api/fitness/meals/from-photo",
+            data={"date": date.today().isoformat(), "save": "true"},
+            files={"photo": ("assiette.jpg", b"x" * 101, "image/jpeg")},
+        )
+
+    assert response.status_code == 413
+
+
+def test_photo_route_uses_bounded_upload_reader() -> None:
+    from app.fitness.routes import create_meal_from_photo
+
+    source = inspect.getsource(create_meal_from_photo)
+    assert "await read_upload_limited(" in source
+    assert "await photo.read()" not in source
+
+
+@pytest.mark.asyncio
+async def test_photo_dimensions_are_rejected_before_vision(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.fitness.meal_analysis import MealAnalysisError, analyze_meal_photo
+
+    async def fail_if_called(*args, **kwargs):
+        raise AssertionError("La vision ne doit pas recevoir une image hors limites")
+
+    monkeypatch.setattr("config.FITNESS_MEAL_PHOTO_MAX_PIXELS", 100)
+    monkeypatch.setattr("config.FITNESS_MEAL_PHOTO_MAX_DIMENSION", 100)
+    monkeypatch.setattr(
+        "app.fitness.meal_analysis._vision_identify_foods",
+        fail_if_called,
+    )
+
+    with pytest.raises(MealAnalysisError) as error:
+        await analyze_meal_photo(_jpeg(11, 10))
+
+    assert error.value.status_code == 413
+    assert error.value.detail == "Dimensions de photo excessives"
+
+
+@pytest.mark.asyncio
+async def test_invalid_photo_is_rejected_before_vision() -> None:
+    from app.fitness.meal_analysis import MealAnalysisError, analyze_meal_photo
+
+    with pytest.raises(MealAnalysisError) as error:
+        await analyze_meal_photo(b"not-an-image")
+
+    assert error.value.status_code == 415
+    assert error.value.detail == "Photo invalide"
 
 
 @pytest.mark.asyncio
