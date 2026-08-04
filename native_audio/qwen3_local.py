@@ -61,9 +61,24 @@ DEFAULT_SAMPLE_RATE = 24000
 FRAME_RATE_HZ = 12.5
 
 DEFAULT_MAX_TOKENS = 4096
-DEFAULT_TEMPERATURE = 0.9
-DEFAULT_TOP_P = 1.0
-DEFAULT_TOP_K = 50
+
+# Ces trois valeurs décident de la **stabilité du locuteur**, pas seulement de
+# l'expressivité. Mesuré sur ce Mac mini M4, dérive de F0 entre le premier et le
+# dernier tiers d'une réponse de trois phrases : 0.9/1.0/50 donne -20,5 Hz,
+# 0.5/0.9/30 donne -4,2 Hz. Sur une voix dont la médiane est à 151 Hz, la
+# première valeur produit des fins de phrase en registre féminin.
+DEFAULT_TEMPERATURE = 0.5
+DEFAULT_TOP_P = 0.9
+DEFAULT_TOP_K = 30
+
+# Queue de décodeur. En diffusion, mlx-audio appelle `streaming_step()` sans le
+# « trim to valid length » que font ses deux chemins non streamés : les jetons
+# excédentaires générés après la fin de l'énoncé sont décodés tels quels et
+# s'entendent comme un souffle bref. On coupe donc la traîne du **dernier**
+# fragment, sous un seuil relatif au pic de l'énoncé.
+TAIL_SILENCE_RATIO = 0.05      # 5 % du pic : franchement sous le niveau de parole
+TAIL_RELEASE_MS = 60           # extinction naturelle conservée après le dernier son
+TAIL_MAX_TRIM_MS = 500         # borne de sécurité : jamais plus que ça
 
 # Le chemin ICL (voix de référence) impose déjà un minimum de 1,5 côté
 # mlx-audio pour éviter la dégénérescence des codes sur un préfixe long. On
@@ -143,6 +158,9 @@ class Qwen3TTSServer:
         streaming_interval: float = DEFAULT_STREAMING_INTERVAL,
         language: str = DEFAULT_LANGUAGE,
         clone_mode: str = DEFAULT_CLONE_MODE,
+        temperature: float = DEFAULT_TEMPERATURE,
+        top_p: float = DEFAULT_TOP_P,
+        top_k: int = DEFAULT_TOP_K,
     ) -> None:
         self._model_dir = model_dir
         self._ref_audio_path = ref_audio
@@ -150,6 +168,9 @@ class Qwen3TTSServer:
         self._streaming_interval = max(0.08, float(streaming_interval))
         self._language = (language or DEFAULT_LANGUAGE).strip().lower()
         self._clone_mode = (clone_mode or DEFAULT_CLONE_MODE).strip().lower()
+        self._temperature = float(temperature)
+        self._top_p = float(top_p)
+        self._top_k = int(top_k)
         self._model: Any = None
         self._ref_audio: Any = None
         self._sample_rate = DEFAULT_SAMPLE_RATE
@@ -332,9 +353,9 @@ class Qwen3TTSServer:
             ref_audio=self._ref_audio,
             ref_text=self._ref_text if self._use_transcript else None,
             max_tokens=int(overrides.get("max_tokens", DEFAULT_MAX_TOKENS)),
-            temperature=float(overrides.get("temperature", DEFAULT_TEMPERATURE)),
-            top_p=float(overrides.get("top_p", DEFAULT_TOP_P)),
-            top_k=int(overrides.get("top_k", DEFAULT_TOP_K)),
+            temperature=float(overrides.get("temperature", self._temperature)),
+            top_p=float(overrides.get("top_p", self._top_p)),
+            top_k=int(overrides.get("top_k", self._top_k)),
             repetition_penalty=float(
                 overrides.get("repetition_penalty", DEFAULT_REPETITION_PENALTY)
             ),
@@ -356,9 +377,9 @@ class Qwen3TTSServer:
         for result in self._generate(
             text,
             max_tokens=request.get("max_tokens", DEFAULT_MAX_TOKENS),
-            temperature=request.get("temperature", DEFAULT_TEMPERATURE),
-            top_p=request.get("top_p", DEFAULT_TOP_P),
-            top_k=request.get("top_k", DEFAULT_TOP_K),
+            temperature=request.get("temperature", self._temperature),
+            top_p=request.get("top_p", self._top_p),
+            top_k=request.get("top_k", self._top_k),
             repetition_penalty=request.get(
                 "repetition_penalty", DEFAULT_REPETITION_PENALTY
             ),
@@ -411,6 +432,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--streaming-interval", type=float, default=DEFAULT_STREAMING_INTERVAL
     )
+    parser.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
+    parser.add_argument("--top-p", type=float, default=DEFAULT_TOP_P)
+    parser.add_argument("--top-k", type=int, default=DEFAULT_TOP_K)
     parser.add_argument(
         "--clone-mode", default=DEFAULT_CLONE_MODE,
         choices=(CLONE_MODE_ICL, CLONE_MODE_EMBEDDING),
@@ -460,6 +484,9 @@ def main(argv: list[str] | None = None) -> int:
         streaming_interval=args.streaming_interval,
         language=args.language,
         clone_mode=args.clone_mode,
+        temperature=args.temperature,
+        top_p=args.top_p,
+        top_k=args.top_k,
     )
 
     if args.serve:

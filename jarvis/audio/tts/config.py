@@ -74,6 +74,22 @@ CLONE_MODE_EMBEDDING = "speaker_embedding"
 KNOWN_CLONE_MODES: frozenset[str] = frozenset({CLONE_MODE_ICL, CLONE_MODE_EMBEDDING})
 DEFAULT_TTS_CLONE_MODE = CLONE_MODE_ICL
 
+# Échantillonnage acoustique. Ces trois valeurs décident de la **stabilité du
+# locuteur**, pas seulement de l'expressivité : plus la distribution est large,
+# plus le modèle s'éloigne du timbre de la référence au fil d'un énoncé.
+#
+# Mesuré sur ce Mac mini M4, voix jarvis-fr, dérive de F0 entre le premier et le
+# dernier tiers d'une réponse de trois phrases :
+#
+#   temperature 0.9 / top_p 1.0 / top_k 50   ->  -20,5 Hz
+#   temperature 0.5 / top_p 0.9 / top_k 30   ->   -4,2 Hz
+#
+# Une dérive de 20 Hz sur une voix dont la médiane est à 151 Hz s'entend : elle
+# a produit des fins de phrase en registre féminin.
+DEFAULT_TTS_TEMPERATURE = 0.5
+DEFAULT_TTS_TOP_P = 0.9
+DEFAULT_TTS_TOP_K = 30
+
 # Fournisseurs connus. La fabrique refuse tout autre nom : c'est ce qui rend
 # impossible l'apparition d'un backend distant par simple configuration.
 # Un seul moteur est actif ; en ajouter un est un acte de code.
@@ -108,6 +124,9 @@ class TTSSettings:
     first_chunk_max_chars: int = DEFAULT_TTS_FIRST_CHUNK_MAX_CHARS
     streaming_interval: float = DEFAULT_TTS_STREAMING_INTERVAL
     clone_mode: str = DEFAULT_TTS_CLONE_MODE
+    temperature: float = DEFAULT_TTS_TEMPERATURE
+    top_p: float = DEFAULT_TTS_TOP_P
+    top_k: int = DEFAULT_TTS_TOP_K
 
     # ── Voix ────────────────────────────────────────────────────────────────
 
@@ -286,6 +305,16 @@ def load_tts_settings() -> TTSSettings:
             DEFAULT_TTS_STREAMING_INTERVAL,
         ),
         clone_mode=_clone_mode(),
+        temperature=_as_float(
+            _config_value("TTS_TEMPERATURE", DEFAULT_TTS_TEMPERATURE),
+            DEFAULT_TTS_TEMPERATURE,
+        ),
+        top_p=_as_float(
+            _config_value("TTS_TOP_P", DEFAULT_TTS_TOP_P), DEFAULT_TTS_TOP_P
+        ),
+        top_k=_as_int(
+            _config_value("TTS_TOP_K", DEFAULT_TTS_TOP_K), DEFAULT_TTS_TOP_K
+        ),
         first_chunk_max_chars=min(
             _as_int(
                 _config_value(
@@ -317,6 +346,9 @@ __all__ = [
     "CLONE_MODE_ICL",
     "CLONE_MODE_EMBEDDING",
     "KNOWN_CLONE_MODES",
+    "DEFAULT_TTS_TEMPERATURE",
+    "DEFAULT_TTS_TOP_P",
+    "DEFAULT_TTS_TOP_K",
     "KNOWN_PROVIDERS",
     "TTSSettings",
     "VOICE_METADATA_FILE",

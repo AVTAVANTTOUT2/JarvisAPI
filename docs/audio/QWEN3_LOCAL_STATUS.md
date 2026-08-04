@@ -76,9 +76,9 @@ croire à une source de vérité qui n'en est plus une.
 ## Paramètres d'inférence
 
 ```
-temperature          0.9
-top_k                50
-top_p                1.0
+temperature          0.5
+top_k                30
+top_p                0.9
 max_tokens           4096
 repetition_penalty   1.05 demandée -> 1.5 imposée par la voie ICL
 streaming_interval   0.4 s
@@ -110,6 +110,52 @@ constant, pèse proportionnellement plus sur un énoncé bref.
 Un RTF de 0,524 signifie qu'une seconde d'audio se produit en 0,52 s : la
 synthèse prend de l'avance sur la lecture au lieu d'accumuler du retard. C'est
 la condition de la conversation continue.
+
+## Stabilité du locuteur
+
+Ces trois paramètres décident de la **stabilité du timbre**, pas seulement de
+l'expressivité : plus la distribution d'échantillonnage est large, plus le
+modèle s'éloigne de la référence au fil d'un énoncé.
+
+Mesuré — dérive de F0 entre le premier et le dernier tiers d'une réponse de
+trois phrases, référence 16 s :
+
+| Réglage | Dérive |
+|---|---:|
+| `temperature 0.9 / top_p 1.0 / top_k 50` | −20,5 Hz |
+| **`temperature 0.5 / top_p 0.9 / top_k 30`** | **−4,2 Hz** |
+
+Sur une voix dont la médiane est à 151 Hz, 20 Hz s'entendent : la valeur
+d'origine produisait des fins de phrase en registre nettement plus aigu.
+
+**Deux limites restent ouvertes, et elles ne se règlent pas par configuration.**
+
+Le modèle **surélève systématiquement la référence d'environ 11 %** : médiane
+150,9 Hz sur l'échantillon, 166 à 170 Hz en sortie, avec des pointes à 196 Hz.
+Aucun réglage d'échantillonnage ne corrige un biais de l'encodeur de locuteur.
+
+Et la dérive n'est pas éliminée, seulement réduite en moyenne : sur trois
+générations du même texte après correctif, on relève −2,6, +17,8 et −30,2 Hz.
+Une référence plus grave et plus monotone conditionnerait probablement mieux le
+modèle que l'échantillon actuel, qui est expressif et couvre 117 à 185 Hz.
+
+## Queue de décodeur
+
+En diffusion, mlx-audio appelle `decoder.streaming_step()` sans le « trim to
+valid length » que font ses deux chemins non streamés. Les jetons excédentaires
+générés après la fin de l'énoncé sont donc décodés tels quels et s'entendent
+comme un bref souffle.
+
+La coupe se fait dans le fournisseur, et non dans le sidecar : le fragment de
+retard nécessaire pour savoir lequel est le **dernier** y existe déjà. Le faire
+en amont ajouterait un second retard — mesuré, cela avait fait passer le premier
+son de 445 à 749 ms.
+
+Retiré en pratique : 20 à 170 ms selon l'énoncé. Un fondu de 15 ms évite de
+remplacer un souffle par un clic. L'échantillonnage n'étant pas déterministe, le
+dernier bloc est **parfois entièrement** de la traîne ; le marqueur de fin part
+alors avec un fragment vide, car sans lui la sortie audio attendrait un délai de
+garde en croyant l'énoncé inachevé.
 
 ## Chaîne vocale complète
 

@@ -75,6 +75,64 @@ LANGUAGE_CODES: dict[str, str] = {
 }
 DEFAULT_LANGUAGE = "french"
 
+# Queue de décodeur. En diffusion, mlx-audio appelle `streaming_step()` sans le
+# « trim to valid length » que font ses deux chemins non streamés : les jetons
+# excédentaires générés après la fin de l'énoncé sont décodés tels quels et
+# s'entendent comme un bref souffle. La coupe se fait ici, et non dans le
+# sidecar, parce que le fragment de retard nécessaire pour savoir lequel est le
+# **dernier** existe déjà à cet endroit — le faire en amont ajouterait un second
+# retard et doublerait le temps avant le premier son.
+TAIL_SILENCE_RATIO = 0.05      # 5 % du pic : franchement sous le niveau de parole
+TAIL_RELEASE_MS = 60           # extinction naturelle conservée après le dernier son
+TAIL_MAX_TRIM_MS = 500         # borne de sécurité
+TAIL_FADE_MS = 15              # évite le clic qu'une coupe nette produirait
+
+
+def _trim_tail(pcm: bytes, *, peak: float, sample_rate: int, channels: int) -> bytes:
+    """Coupe la traîne de décodeur d'un dernier fragment, avec fondu.
+
+    Ne touche qu'à ce qui est franchement sous le niveau de parole de l'énoncé,
+    garde une extinction naturelle, et ne retire jamais plus que
+    ``TAIL_MAX_TRIM_MS`` : une fin de phrase chuchotée doit sortir intacte
+    plutôt qu'amputée. Le fondu final évite de remplacer un souffle par un clic,
+    ce qui serait un moins bon échange.
+    """
+    if not pcm or peak <= 0 or channels != 1:
+        return pcm
+    import numpy as np
+
+    x = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768.0
+    win = max(1, int(0.01 * sample_rate))
+    frames = len(x) // win
+    if frames < 3:
+        return pcm
+
+    rms = np.sqrt(np.mean(x[: frames * win].reshape(frames, win) ** 2, axis=1))
+    speech = np.where(rms > peak * TAIL_SILENCE_RATIO)[0]
+    if len(speech) == 0:
+        return b""  # fragment entièrement sous le seuil : traîne pure
+
+    keep = (speech[-1] + 1) * win + int(TAIL_RELEASE_MS / 1000 * sample_rate)
+    floor = len(x) - int(TAIL_MAX_TRIM_MS / 1000 * sample_rate)
+    keep = max(min(len(x), keep), floor, win)
+    if keep >= len(x):
+        return pcm
+
+    out = x[:keep].copy()
+    fade = min(int(TAIL_FADE_MS / 1000 * sample_rate), len(out))
+    if fade > 1:
+        out[-fade:] *= np.linspace(1.0, 0.0, fade, dtype=np.float32)
+    return (out * 32767.0).astype(np.int16).tobytes()
+
+
+def _chunk_peak(pcm: bytes) -> float:
+    """Amplitude crête d'un fragment PCM16, pour calibrer le seuil de traîne."""
+    import numpy as np
+
+    if not pcm:
+        return 0.0
+    return float(np.abs(np.frombuffer(pcm, dtype=np.int16)).max()) / 32768.0
+
 
 def _model_language() -> str:
     """Langue à transmettre au modèle, dérivée de ``config.LANGUAGE``."""
@@ -177,6 +235,9 @@ class Qwen3LocalTTSProvider:
             "--language", _model_language(),
             "--streaming-interval", str(self._settings.streaming_interval),
             "--clone-mode", self._settings.clone_mode,
+            "--temperature", str(self._settings.temperature),
+            "--top-p", str(self._settings.top_p),
+            "--top-k", str(self._settings.top_k),
         ]
 
         # Le répertoire du profil suffit : le sidecar y lit lui-même
@@ -348,6 +409,7 @@ class Qwen3LocalTTSProvider:
         total_bytes = 0
         index = 0
         previous: bytes | None = None
+        peak = 0.0
         try:
             async for pcm in client.stream(
                 {"text": cleaned}, request_id=request_id,
@@ -365,6 +427,7 @@ class Qwen3LocalTTSProvider:
                         utterance_id=utterance_id,
                     )
                 previous = pcm
+                peak = max(peak, _chunk_peak(pcm))
                 total_bytes += len(pcm)
                 index += 1
         except Exception:
@@ -378,9 +441,19 @@ class Qwen3LocalTTSProvider:
             raise
 
         # Le dernier fragment porte le marqueur de fin : la sortie audio peut
-        # fermer son flux sans délai de garde.
+        # fermer son flux sans délai de garde. C'est aussi le seul dont la
+        # traîne de décodeur doit être coupée.
         if previous is not None:
-            yield self._chunk(previous, is_final=True)
+            tail = _trim_tail(
+                previous,
+                peak=peak,
+                sample_rate=self._sample_rate,
+                channels=self._settings.channels,
+            )
+            # Le marqueur de fin part **toujours**, même si la coupe n'a rien
+            # laissé : sans lui la sortie audio ignore que l'énoncé est terminé
+            # et attend un délai de garde. Un fragment vide reste une fin valide.
+            yield self._chunk(tail, is_final=True)
 
         events.emit_tts_event(
             events.SYNTHESIS_COMPLETED,
