@@ -185,6 +185,33 @@ async def test_lowering_a_limit_blocks_a_cart_already_prepared(
 
 
 @pytest.mark.asyncio
+async def test_manual_confirmation_turns_a_blocked_outcome_into_an_error(
+    control_env, fake_playwright  # noqa: F811
+) -> None:
+    """La frontière HTTP ne doit jamais sérialiser un ``ok:false`` métier."""
+    import config
+    from api.food_control import (
+        FoodControlError,
+        confirm_manual_order,
+        prepare_manual_order,
+    )
+    from integrations.uber_eats_settings import update_settings
+
+    fake_playwright["page"] = make_checkout_page("Total 30,00 €")
+    config.UBER_EATS_DRY_RUN = False
+    try:
+        plan = await prepare_manual_order("Chez Pierre", [{"name": "Tacos"}])
+        update_settings({"max_order_price": 10})
+        with pytest.raises(FoodControlError) as excinfo:
+            await confirm_manual_order(plan["plan_id"])
+    finally:
+        config.UBER_EATS_DRY_RUN = True
+
+    assert excinfo.value.status_code == 409
+    assert excinfo.value.code == "food_order_blocked"
+
+
+@pytest.mark.asyncio
 async def test_a_cart_prepared_in_simulation_stays_simulated(
     control_env, fake_playwright  # noqa: F811
 ) -> None:
@@ -393,15 +420,17 @@ async def test_probe_reports_a_valid_session(control_env, fake_playwright) -> No
 
 @pytest.mark.asyncio
 async def test_probe_reports_an_expired_session(control_env, fake_playwright) -> None:  # noqa: F811
-    from api.food_control import probe_session
+    from api.food_control import FoodControlError, probe_session
 
     # Écran de connexion visible : la session n'est plus authentifiée.
     fake_playwright["page"] = FakePage(visible={"login-form"})
 
-    result = await probe_session()
+    with pytest.raises(FoodControlError) as excinfo:
+        await probe_session()
 
-    assert result["ok"] is False
-    assert "expirée" in result["message"]
+    assert excinfo.value.status_code == 409
+    assert excinfo.value.code == "food_session_expired"
+    assert "expirée" in str(excinfo.value)
 
 
 # ── Capture pilotée ─────────────────────────────────────────────────────────

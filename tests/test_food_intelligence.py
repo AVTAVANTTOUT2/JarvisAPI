@@ -455,6 +455,7 @@ async def test_quick_order_refuses_to_pay_above_the_displayed_amount(
 
     result = await quick_order(1, suggestion["max_price"])
 
+    assert result["ok"] is True
     assert result["status"] == "confirmation_required"
     assert result["total_price"] == 38.0
     assert result["authorised_price"] == 23.0

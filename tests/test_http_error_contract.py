@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -40,7 +41,9 @@ def _assert_error(response, status: int, code: str) -> None:
         ("post", "/api/control/service-absent/restart"),
     ],
 )
-def test_unknown_control_service_is_a_structured_404(api_client, method: str, path: str):
+def test_unknown_control_service_is_a_structured_404(
+    api_client, method: str, path: str
+):
     response = getattr(api_client, method)(path)
     _assert_error(response, 404, "service_not_found")
 
@@ -57,7 +60,9 @@ def test_imessage_contact_without_handle_is_a_structured_409(api_client, monkeyp
     from database import upsert_person
 
     upsert_person("Ada")
-    monkeypatch.setattr("api.router_people._resolve_handle_with_contacts", lambda _name: None)
+    monkeypatch.setattr(
+        "api.router_people._resolve_handle_with_contacts", lambda _name: None
+    )
 
     response = api_client.post("/api/people/Ada/send", json={"text": "Bonjour"})
     _assert_error(response, 409, "imessage_handle_missing")
@@ -85,7 +90,9 @@ def test_people_analytics_without_handle_is_a_structured_409(api_client, monkeyp
     from database import upsert_person
 
     upsert_person("Ada")
-    monkeypatch.setattr("api.router_people._resolve_handle_with_contacts", lambda _name: None)
+    monkeypatch.setattr(
+        "api.router_people._resolve_handle_with_contacts", lambda _name: None
+    )
 
     response = api_client.get("/api/people/Ada/analytics")
     _assert_error(response, 409, "imessage_handle_missing")
@@ -108,9 +115,7 @@ def test_calendar_test_rejection_is_a_structured_502(api_client, monkeypatch):
         async def create_event(**_kwargs):
             return {"ok": False, "message": "détail AppleScript privé"}
 
-    monkeypatch.setattr(
-        "api.misc_relationships.calendar_client", RejectingCalendar()
-    )
+    monkeypatch.setattr("api.misc_relationships.calendar_client", RejectingCalendar())
 
     response = api_client.post("/api/calendar/test")
     _assert_error(response, 502, "calendar_test_failed")
@@ -161,3 +166,72 @@ def test_misc_relationship_validation_errors_are_structured(api_client):
         400,
         "unsupported_export_format",
     )
+
+
+def test_food_session_probe_failure_is_a_structured_409(api_client, monkeypatch):
+    from api.food_control import FoodControlError
+
+    monkeypatch.setattr(
+        "api.router_food.probe_session",
+        AsyncMock(
+            side_effect=FoodControlError(
+                "Session Uber Eats expirée ; lancer une nouvelle capture.",
+                status_code=409,
+                code="food_session_expired",
+            )
+        ),
+    )
+
+    response = api_client.post("/api/food/session/probe")
+    _assert_error(response, 409, "food_session_expired")
+    assert "detail AppleScript" not in response.text
+
+
+def test_control_service_refusal_is_not_returned_as_http_200(api_client, monkeypatch):
+    monkeypatch.setattr(
+        "api.router_daemon._start_service",
+        AsyncMock(return_value={"ok": False, "error": "detail interne Ollama"}),
+    )
+
+    response = api_client.post("/api/control/ollama/start")
+    _assert_error(response, 503, "service_start_failed")
+    assert "detail interne" not in response.text
+
+
+def test_bulk_control_failure_reports_only_failed_service_ids(api_client, monkeypatch):
+    monkeypatch.setattr("api.router_daemon.INTERNAL_SERVICES", ["scheduler"])
+    monkeypatch.setattr(
+        "api.router_daemon._start_service",
+        AsyncMock(side_effect=RuntimeError("detail système privé")),
+    )
+
+    response = api_client.post("/api/control/start-all")
+    _assert_error(response, 503, "service_bulk_start_failed")
+    assert response.json()["detail"]["context"] == {"failed_services": ["scheduler"]}
+    assert "detail système privé" not in response.text
+
+
+def test_control_logs_failure_is_a_structured_500(api_client, monkeypatch, tmp_path):
+    log_file = tmp_path / "data" / ".jarvis_restart" / "backend.log"
+    log_file.parent.mkdir(parents=True)
+    log_file.write_text("scheduler démarré", encoding="utf-8")
+    monkeypatch.setattr("api.router_daemon.BACKEND_LOG_FILE", log_file)
+
+    def fail_read(*_args, **_kwargs):
+        raise RuntimeError("detail grep privé")
+
+    monkeypatch.setattr("api.router_daemon._read_service_log_lines", fail_read)
+
+    response = api_client.get("/api/control/scheduler/logs")
+    _assert_error(response, 500, "service_logs_unavailable")
+    assert "detail grep privé" not in response.text
+
+
+def test_control_logs_reject_unknown_service_and_unbounded_limit(api_client):
+    _assert_error(
+        api_client.get("/api/control/inconnu/logs"),
+        404,
+        "service_not_found",
+    )
+    response = api_client.get("/api/control/scheduler/logs", params={"lines": 501})
+    assert response.status_code == 422

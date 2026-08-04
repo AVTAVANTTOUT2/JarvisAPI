@@ -6,7 +6,7 @@
 
 Runtime SQLite canonique : **90 tables persistantes**, **95 tables physiques avec FTS5**, schéma généré : **91 déclarations de tables**.
 
-Surface API canonique : **261 opérations**, **232 chemins**, **122 consommées et testées**, **54 consommées sans référence de test**, **37 non-frontend documentées et testées**, **48 non-frontend documentées sans référence de test**, **0 non attribuées**.
+Surface API canonique : **261 opérations**, **232 chemins**, **124 consommées et testées**, **52 consommées sans référence de test**, **37 non-frontend documentées et testées**, **48 non-frontend documentées sans référence de test**, **0 non attribuées**.
 
 Structure API canonique : **259 opérations HTTP + 2 WebSockets**, **230 chemins OpenAPI**, **17 routeurs api/router_*.py + Fitness = 18 montés**, main.py **211 lignes**.
 

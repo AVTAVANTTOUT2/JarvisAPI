@@ -91,6 +91,19 @@ export class ApiError extends Error {
   }
 }
 
+function publicApiErrorMessage(status: number, body: string): string {
+  try {
+    const payload = JSON.parse(body) as {
+      detail?: { message?: unknown }
+    }
+    const message = payload.detail?.message
+    if (typeof message === 'string' && message.trim()) return message.trim()
+  } catch {
+    // Réponse non JSON : ne pas afficher un corps de proxy ou une stack HTML.
+  }
+  return `API ${status}`
+}
+
 /** Compat imports existants (`lib/api.ts`). */
 export const API_BASE = ''
 
@@ -120,7 +133,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
         window.dispatchEvent(new CustomEvent('jarvis:auth-required'))
       }
     }
-    throw new ApiError(`API ${res.status}`, res.status, text)
+    throw new ApiError(publicApiErrorMessage(res.status, text), res.status, text)
   }
   if (!text) return {} as T
   try {

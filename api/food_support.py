@@ -55,7 +55,9 @@ def _emit(payload: dict[str, Any]) -> None:
     """Pousse une mise à jour vers les clients connectés, sans jamais lever."""
     try:
         event_bus.emit_nowait(
-            JarvisEvent(type=FOOD_EVENT_TYPE, agent="food", data=payload, source="api.food")
+            JarvisEvent(
+                type=FOOD_EVENT_TYPE, agent="food", data=payload, source="api.food"
+            )
         )
     except (RuntimeError, ValueError) as exc:
         logger.debug("[food] événement non diffusé : %s", exc)
@@ -145,10 +147,21 @@ async def quick_order(slot: int, accepted_price: object) -> dict[str, Any]:
         plan, _ = await uber_eats.prepare_order(
             suggestion["restaurant"], suggestion["items"]
         )
+    except UberEatsUnavailable as exc:
+        release_suggestion(int(suggestion["id"]))
+        logger.warning("[food] commande rapide indisponible : %s", exc)
+        raise QuickOrderError(
+            "Intégration Uber Eats indisponible.", status_code=503
+        ) from exc
+    except UberEatsLimitExceeded as exc:
+        release_suggestion(int(suggestion["id"]))
+        raise QuickOrderError(str(exc), status_code=409) from exc
     except UberEatsError as exc:
         release_suggestion(int(suggestion["id"]))
-        status = 503 if isinstance(exc, UberEatsUnavailable) else 409
-        raise QuickOrderError(str(exc), status_code=status) from exc
+        logger.warning("[food] panier rapide impossible : %s", exc)
+        raise QuickOrderError(
+            "Panier Uber Eats impossible à préparer.", status_code=502
+        ) from exc
 
     if plan.total_price > authorised + PRICE_MATCH_TOLERANCE_EUR:
         # Le panier coûte plus cher que ce que l'utilisateur a validé du regard.
@@ -161,7 +174,9 @@ async def quick_order(slot: int, accepted_price: object) -> dict[str, Any]:
         )
         release_suggestion(int(suggestion["id"]))
         payload = {
-            "ok": False,
+            # La requête a réussi : le garde-fou demande simplement une
+            # confirmation distincte du nouveau montant.
+            "ok": True,
             "status": "confirmation_required",
             "slot": suggestion["slot"],
             "suggestion_id": suggestion["id"],
@@ -183,11 +198,27 @@ async def quick_order(slot: int, accepted_price: object) -> dict[str, Any]:
     except UberEatsError as exc:
         revoke_order_plan(plan.plan_id)
         release_suggestion(int(suggestion["id"]))
-        status = 409 if isinstance(exc, UberEatsLimitExceeded) else 502
-        raise QuickOrderError(str(exc), status_code=status) from exc
+        logger.warning("[food] confirmation rapide impossible : %s", exc)
+        if isinstance(exc, UberEatsLimitExceeded):
+            raise QuickOrderError(str(exc), status_code=409) from exc
+        raise QuickOrderError(
+            "Confirmation Uber Eats impossible.", status_code=502
+        ) from exc
 
     if not outcome.ok:
         release_suggestion(int(suggestion["id"]))
+        logger.warning(
+            "[food] commande rapide refusée (%s) : %s",
+            outcome.status,
+            outcome.error,
+        )
+        blocked = outcome.status == "blocked"
+        raise QuickOrderError(
+            "Commande refusée par les garde-fous Uber Eats."
+            if blocked
+            else "Commande Uber Eats impossible.",
+            status_code=409 if blocked else 502,
+        )
 
     result = _public_outcome(outcome, suggestion)
     _emit(result)
@@ -215,7 +246,9 @@ async def refresh_delivery_progress() -> dict[str, Any]:
             progress = await uber_eats_discovery.read_delivery_progress(tracking_url)
         except UberEatsError as exc:
             logger.warning(
-                "[food] suivi indisponible pour la commande %s : %s", order.get("id"), exc
+                "[food] suivi indisponible pour la commande %s : %s",
+                order.get("id"),
+                exc,
             )
             continue
         if progress.status is None:
