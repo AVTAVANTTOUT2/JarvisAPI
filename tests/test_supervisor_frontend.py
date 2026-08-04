@@ -6,7 +6,8 @@ import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from fastapi import FastAPI
+import pytest
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from core.frontend_resolution import resolve_desktop_frontend
@@ -217,9 +218,14 @@ def test_proxy_closes_stream_when_read_fails() -> None:
     ):
         http.build_request = MagicMock(return_value=MagicMock(extensions={}))
         http.send = AsyncMock(return_value=resp)
-        out = asyncio.run(proxy_to_backend(FakeReq(), "tasks"))  # type: ignore[arg-type]
+        with pytest.raises(HTTPException) as error:
+            asyncio.run(proxy_to_backend(FakeReq(), "tasks"))  # type: ignore[arg-type]
 
-    assert out.status_code == 502
+    assert error.value.status_code == 502
+    assert error.value.detail == {
+        "code": "backend_proxy_failed",
+        "message": "Le backend est inaccessible",
+    }
     assert closed["n"] == 1
 
 
@@ -231,4 +237,4 @@ def test_websockets_connect_accepts_additional_headers() -> None:
 
     sig = inspect.signature(websockets.connect)
     assert "additional_headers" in sig.parameters
-    assert websockets.__version__.startswith("15.")
+    assert int(websockets.__version__.split(".", 1)[0]) >= 15

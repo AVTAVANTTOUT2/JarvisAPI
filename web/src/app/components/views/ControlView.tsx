@@ -23,11 +23,25 @@ import {
   TerminalSquare, Server, Cpu,
 } from 'lucide-react'
 import {
+  ApiError,
   api,
   type ServiceInfo,
   type SupervisorService,
   supervisorWsUrl,
 } from '@unified/lib/api'
+
+function publicControlError(error: unknown, fallback: string): string {
+  if (!(error instanceof ApiError)) return fallback
+  try {
+    const payload = JSON.parse(error.body ?? '') as {
+      detail?: { message?: unknown }
+    }
+    const message = payload.detail?.message
+    return typeof message === 'string' && message.trim() ? message.trim() : fallback
+  } catch {
+    return fallback
+  }
+}
 
 // ── Constantes ────────────────────────────────────────────────
 
@@ -238,6 +252,7 @@ export default function ControlView() {
         await fetchAll()
       } catch (e) {
         console.error(`[ControlView] Echec ${action} ${serviceId}`, e)
+        setError(publicControlError(e, `Impossible de ${action} ${serviceId}`))
       } finally {
         setActionLoading((prev) => ({ ...prev, [serviceId]: false }))
       }
@@ -274,6 +289,19 @@ export default function ControlView() {
         await fetchSubServices()
       } catch (e) {
         console.error(`[ControlView] Echec ${action} ${serviceId}`, e)
+        const msg = publicControlError(e, `Impossible de ${action} ${serviceId}`)
+        if (serviceId === 'screen_watcher' && action === 'start' && /ollama/i.test(msg)) {
+          const startOllama = window.confirm(
+            `${msg}\n\nDémarrer Ollama maintenant ?`,
+          )
+          if (startOllama) {
+            await api.supervisorStart('ollama')
+            await fetchAll()
+            return
+          }
+        }
+        setError(msg)
+        window.alert(msg)
       } finally {
         setActionLoading((prev) => ({ ...prev, [serviceId]: false }))
       }
@@ -291,6 +319,7 @@ export default function ControlView() {
         await fetchAll()
       } catch (e) {
         console.error(`[ControlView] Echec ${action}`, e)
+        setError(publicControlError(e, `Action ${action} impossible`))
       } finally {
         setGlobalLoading(null)
       }
