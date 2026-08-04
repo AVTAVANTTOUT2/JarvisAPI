@@ -710,7 +710,7 @@ def _create_voice_debug_table(conn: sqlite3.Connection) -> None:
     conn.execute("""
         CREATE TABLE IF NOT EXISTS voice_debug_log (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            created_at TEXT DEFAULT (datetime('now', 'localtime')),
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             input_text TEXT,
             system_prompt TEXT,
             messages_json TEXT,
@@ -734,6 +734,44 @@ def _create_voice_debug_table(conn: sqlite3.Connection) -> None:
     """)
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_vdebug_created ON voice_debug_log(created_at)"
+    )
+
+
+def _migrate_voice_debug_timestamps_to_utc(conn: sqlite3.Connection) -> None:
+    """Convertit une fois les traces vocales locales historiques en UTC."""
+    marker = "voice_debug_timestamp_utc_v1"
+    if conn.execute(
+        "SELECT 1 FROM app_settings WHERE key = ?", (marker,)
+    ).fetchone():
+        return
+
+    from datetime import datetime, timezone
+
+    from database.time_buckets import SQLITE_UTC_FORMAT, configured_timezone
+
+    zone = configured_timezone()
+    rows = conn.execute(
+        "SELECT id, created_at FROM voice_debug_log WHERE created_at IS NOT NULL"
+    ).fetchall()
+    for trace_id, raw_value in rows:
+        try:
+            parsed = datetime.fromisoformat(str(raw_value).replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=zone)
+            canonical = parsed.astimezone(timezone.utc).strftime(SQLITE_UTC_FORMAT)
+        except (TypeError, ValueError):
+            logger.warning(
+                "Timestamp voice_debug_log invalide ignoré: id=%s", trace_id
+            )
+            continue
+        conn.execute(
+            "UPDATE voice_debug_log SET created_at = ? WHERE id = ?",
+            (canonical, trace_id),
+        )
+
+    conn.execute(
+        "INSERT INTO app_settings (key, value) VALUES (?, CURRENT_TIMESTAMP)",
+        (marker,),
     )
 
 
@@ -1243,6 +1281,7 @@ def run_migrations(conn: sqlite3.Connection) -> None:
     _migrate_devagent(conn)
     _migrate_private_action_logs(conn)
     _create_voice_debug_table(conn)
+    _migrate_voice_debug_timestamps_to_utc(conn)
     _migrate_messages_fts(conn)
     _migrate_daily_rituals(conn)
     _migrate_people_birthday(conn)

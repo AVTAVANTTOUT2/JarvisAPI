@@ -130,11 +130,11 @@ def _save_voice_debug_trace(trace: dict[str, Any]) -> int | None:
         with get_db() as conn:
             cur = conn.execute(
                 """INSERT INTO voice_debug_log
-                   (input_text, system_prompt, messages_json, raw_response, response_clean,
+                   (created_at, input_text, system_prompt, messages_json, raw_response, response_clean,
                     emotion, action_json, model, tokens_in, tokens_out, cost,
                     latency_stt_ms, latency_llm1_ms, latency_llm2_ms, latency_tts_ms,
                     latency_total_ms, stt_engine, tts_engine, audio_duration_ms)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     str(trace.get("input_text", ""))[:3000] if trace.get("input_text") else "",
                     str(trace.get("system_prompt", ""))[:50000] if trace.get("system_prompt") else "",
@@ -212,7 +212,7 @@ def get_voice_latency_metrics(days: int = 7) -> dict[str, Any]:
             """SELECT latency_stt_ms, latency_llm1_ms, latency_llm2_ms,
                       latency_tts_ms, latency_total_ms
                FROM voice_debug_log
-               WHERE created_at >= datetime('now', 'localtime', ?)""",
+               WHERE created_at >= datetime('now', ?)""",
             (f"-{days} days",),
         ).fetchall()
     stages = {
