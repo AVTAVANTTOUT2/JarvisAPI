@@ -171,6 +171,11 @@ DEFAULT_TTS_STREAMING_INTERVAL = 0.4
 # `icl` (référence + transcript) ou `speaker_embedding` (référence seule).
 # Les deux tiennent le temps réel ; le choix se tranche à l'oreille.
 DEFAULT_TTS_CLONE_MODE = "icl"
+# Échantillonnage acoustique : décide de la stabilité du locuteur. Mesuré —
+# 0.9/1.0/50 dérive de 20,5 Hz sur trois phrases, 0.5/0.9/30 de 4,2 Hz.
+DEFAULT_TTS_TEMPERATURE = 0.5
+DEFAULT_TTS_TOP_P = 0.9
+DEFAULT_TTS_TOP_K = 30
 
 TTS_PROVIDER = (_get("TTS_PROVIDER") or DEFAULT_TTS_PROVIDER).strip().lower()
 # Chemin d'un répertoire de poids **déjà installé**, ou identifiant d'un dépôt
@@ -183,6 +188,9 @@ TTS_STREAMING_INTERVAL = float(
     _get("TTS_STREAMING_INTERVAL", str(DEFAULT_TTS_STREAMING_INTERVAL))
 )
 TTS_CLONE_MODE = _get("TTS_CLONE_MODE", DEFAULT_TTS_CLONE_MODE).strip().lower()
+TTS_TEMPERATURE = float(_get("TTS_TEMPERATURE", str(DEFAULT_TTS_TEMPERATURE)))
+TTS_TOP_P = float(_get("TTS_TOP_P", str(DEFAULT_TTS_TOP_P)))
+TTS_TOP_K = int(_get("TTS_TOP_K", str(DEFAULT_TTS_TOP_K)))
 TTS_STREAMING = _get("TTS_STREAMING", str(DEFAULT_TTS_STREAMING)).lower() in (
     "true", "1", "yes",
 )
