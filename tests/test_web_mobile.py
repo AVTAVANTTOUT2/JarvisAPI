@@ -103,10 +103,10 @@ def test_desktop_escape_hatch_sets_a_durable_cookie(client):
 
 
 def test_desktop_cookie_alone_disables_the_redirect(client):
+    client.cookies.set(web_mobile.FORCE_DESKTOP_COOKIE, "1")
     response = client.get(
         "/",
         headers={"user-agent": IPHONE},
-        cookies={web_mobile.FORCE_DESKTOP_COOKIE: "1"},
         follow_redirects=False,
     )
     assert response.status_code == 200
