@@ -4,7 +4,7 @@
 # python-platform: host-macos-arm64-14plus
 # uv-version: 0.11.29
 # sources: requirements-mlx.txt
-# source-sha256: 1bc7872f533ffe001400524aa988d1d0f78e378cfb7f4194a6fb9f0e27a86bf4
+# source-sha256: 305322696e2279802fd14b7f1bf93fa190f721dc020f97227843df16ac3942b4
 # update: python tools/update_python_locks.py
 
 annotated-doc==0.0.5 \
