@@ -9,7 +9,7 @@ import {
   Mail, Calendar, Cloud, Smartphone, Bell, Mic, Volume2, Monitor, SlidersHorizontal,
 } from 'lucide-react';
 import { api } from '@unified/lib/api';
-import { formatRelativeTime } from '@desktop/app/lib/timeFormat';
+import { formatRelativeTime } from '@unified/lib/timeFormat';
 
 // ── Types ─────────────────────────────────────────────────────
 

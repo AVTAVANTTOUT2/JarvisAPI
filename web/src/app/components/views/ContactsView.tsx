@@ -12,7 +12,11 @@ import {
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { api, ApiError } from '@unified/lib/api';
 import type { ApiPerson, RelationshipProfile } from '@unified/types/jarvis';
-import { formatRelativeTime, formatHoursFromMinutes } from '@desktop/app/lib/timeFormat';
+import {
+  formatHoursFromMinutes,
+  formatRelativeTime,
+  parseBackendTimestamp,
+} from '@unified/lib/timeFormat';
 
 /** Placeholder vide — ne jamais présenter de série inventée comme données réelles. */
 const INTERACTION_HISTORY_EMPTY: Array<{ date: string; messages: number }> = [];
@@ -167,7 +171,7 @@ export function ContactsView() {
       if (!a.last_mentioned && !b.last_mentioned) return 0;
       if (!a.last_mentioned) return 1;
       if (!b.last_mentioned) return -1;
-      return new Date(b.last_mentioned).getTime() - new Date(a.last_mentioned).getTime();
+      return parseBackendTimestamp(b.last_mentioned) - parseBackendTimestamp(a.last_mentioned);
     });
   }, [people]);
 
@@ -986,7 +990,7 @@ export function ContactsView() {
                       <h3 className="mb-1">Timeline relationnelle</h3>
                       {timelineUpdatedAt ? (
                         <p className="text-xs text-muted-foreground font-mono">
-                          Cache du {new Date(timelineUpdatedAt).toLocaleString('fr-FR', {
+                          Cache du {new Date(parseBackendTimestamp(timelineUpdatedAt)).toLocaleString('fr-FR', {
                             day: '2-digit', month: '2-digit', year: 'numeric',
                             hour: '2-digit', minute: '2-digit',
                           })}

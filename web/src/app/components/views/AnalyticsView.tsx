@@ -32,7 +32,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { api } from '@unified/lib/api';
-import { timeAgo } from '@desktop/app/lib/timeFormat';
+import { formatRelativeTime, parseBackendTimestamp } from '@unified/lib/timeFormat';
 
 // ── Types locaux ──────────────────────────────────────────────
 
@@ -112,7 +112,7 @@ export function DataColoredBar({ x, y, width, height, radius, payload }: BarShap
 }
 
 function fmtDate(dateStr: string): string {
-  const d = new Date(dateStr);
+  const d = new Date(parseBackendTimestamp(dateStr));
   return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
 }
 
@@ -239,10 +239,10 @@ export function AnalyticsView() {
   function filterByPeriod<T extends { created_at?: string }>(items: T[]): T[] {
     if (period === 'all') return items;
     const days = parseInt(period);
-    const cutoff = new Date(Date.now() - days * 86400000);
+    const cutoff = Date.now() - days * 86400000;
     return items.filter((item) => {
-      const d = item.created_at ? new Date(item.created_at) : null;
-      return d ? d >= cutoff : true;
+      const timestamp = item.created_at ? parseBackendTimestamp(item.created_at) : null;
+      return timestamp === null ? true : Number.isFinite(timestamp) && timestamp >= cutoff;
     });
   }
 
@@ -253,10 +253,12 @@ export function AnalyticsView() {
   const filteredPatterns = useMemo(() => {
     if (period === 'all') return patterns;
     const days = parseInt(period);
-    const cutoff = new Date(Date.now() - days * 86400000);
+    const cutoff = Date.now() - days * 86400000;
     return patterns.filter((p) => {
       const d = p.first_seen ?? p.created_at;
-      return d ? new Date(d) >= cutoff : true;
+      if (!d) return true;
+      const timestamp = parseBackendTimestamp(d);
+      return Number.isFinite(timestamp) && timestamp >= cutoff;
     });
   }, [patterns, period]);
 
@@ -264,8 +266,12 @@ export function AnalyticsView() {
 
   const activePeople = useMemo(() => {
     if (period === 'all') return people;
-    const cutoff = new Date(Date.now() - parseInt(period) * 86400000);
-    return people.filter((p) => p.last_mentioned && new Date(p.last_mentioned) >= cutoff);
+    const cutoff = Date.now() - parseInt(period) * 86400000;
+    return people.filter(
+      (person) =>
+        person.last_mentioned
+        && parseBackendTimestamp(person.last_mentioned) >= cutoff,
+    );
   }, [people, period]);
 
   // ── Données graphiques ────────────────────────────────────
@@ -273,7 +279,10 @@ export function AnalyticsView() {
   // Mood chart — 14 derniers jours
   const moodChartData = useMemo(() => {
     const sorted = [...filteredMoods]
-      .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+      .sort(
+        (a, b) =>
+          parseBackendTimestamp(a.created_at) - parseBackendTimestamp(b.created_at),
+      )
       .slice(-14);
     return sorted.map((m) => ({
       date: fmtDate(m.created_at),
@@ -326,14 +335,23 @@ export function AnalyticsView() {
   // Activité conversations par jour (7 derniers jours)
   const convActivityData = useMemo(() => {
     const days: { date: string; messages: number }[] = [];
+    const today = new Date();
     for (let i = 6; i >= 0; i--) {
-      const d = new Date(Date.now() - i * 86400000);
+      const d = new Date(
+        today.getFullYear(),
+        today.getMonth(),
+        today.getDate() - i,
+      );
       const label = d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
       const start = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-      const end = new Date(start.getTime() + 86400000);
+      const end = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
       const msgs = conversations
         .filter((c) => {
-          const cd = new Date(c.last_message_at ?? c.started_at ?? c.created_at ?? '');
+          const cd = new Date(
+            parseBackendTimestamp(
+              c.last_message_at ?? c.started_at ?? c.created_at ?? '',
+            ),
+          );
           return cd >= start && cd < end;
         })
         .reduce((sum, c) => sum + (c.message_count ?? 1), 0);
@@ -341,8 +359,10 @@ export function AnalyticsView() {
     }
     // Aujourd'hui : on override avec la valeur réelle de status
     if (status?.today.msg_count && days.length > 0) {
-      const today = days[days.length - 1];
-      if (today) today.messages = Math.max(today.messages, status.today.msg_count);
+      const todayBucket = days[days.length - 1];
+      if (todayBucket) {
+        todayBucket.messages = Math.max(todayBucket.messages, status.today.msg_count);
+      }
     }
     return days;
   }, [conversations, status]);
@@ -603,10 +623,10 @@ export function AnalyticsView() {
                   <p className="text-xs leading-snug">{pat.description}</p>
                   <div className="flex items-center gap-2 mt-1.5">
                     {pat.first_seen && (
-                      <span className="font-mono text-xs text-muted-foreground/60">depuis {timeAgo(pat.first_seen)}</span>
+                      <span className="font-mono text-xs text-muted-foreground/60">depuis {formatRelativeTime(pat.first_seen)}</span>
                     )}
                     {pat.last_seen && (
-                      <span className="font-mono text-xs text-muted-foreground/60">· {timeAgo(pat.last_seen)}</span>
+                      <span className="font-mono text-xs text-muted-foreground/60">· {formatRelativeTime(pat.last_seen)}</span>
                     )}
                   </div>
                 </div>

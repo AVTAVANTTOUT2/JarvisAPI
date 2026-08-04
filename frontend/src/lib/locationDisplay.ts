@@ -1,3 +1,5 @@
+import { parseBackendTimestamp } from './timeFormat';
+
 export interface LocationPoint {
   id: number;
   latitude: number;
@@ -18,29 +20,8 @@ export interface LocationDisplayStatus {
 
 const RECENT_LOCATION_MS = 5 * 60_000;
 
-/** Parse un timestamp backend (souvent sans fuseau = heure locale serveur). */
-export function parseLocationTimestamp(value: string): number {
-  const trimmed = value.trim();
-  if (!trimmed) return Number.NaN;
-  // ISO avec Z ou offset explicite → parse natif.
-  if (/[zZ]|[+-]\d{2}:\d{2}$/.test(trimmed)) {
-    return Date.parse(trimmed);
-  }
-  // Sans fuseau : forcer une lecture locale (évite UTC implicite selon moteur).
-  const m = trimmed.match(
-    /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/,
-  );
-  if (!m) return Date.parse(trimmed);
-  const [, y, mo, d, h, mi, s] = m;
-  return new Date(
-    Number(y),
-    Number(mo) - 1,
-    Number(d),
-    Number(h),
-    Number(mi),
-    Number(s ?? '0'),
-  ).getTime();
-}
+/** Alias métier vers le parseur UTC canonique du frontend unifié. */
+export const parseLocationTimestamp = parseBackendTimestamp;
 
 function elapsedLabel(elapsedMs: number): string {
   const seconds = Math.max(0, Math.floor(elapsedMs / 1_000));

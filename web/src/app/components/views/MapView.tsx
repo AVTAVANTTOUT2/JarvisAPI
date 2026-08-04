@@ -17,7 +17,11 @@ import {
   resolveDisplayLocationPoint,
   type LocationPoint,
 } from '@unified/lib/locationDisplay';
-import { timeAgo, formatDurationMin } from '@desktop/app/lib/timeFormat';
+import {
+  formatDurationMin,
+  formatRelativeTime,
+  parseBackendTimestamp,
+} from '@unified/lib/timeFormat';
 import {
   filterPointsByLocalDate,
   filterTripsByLocalDate,
@@ -93,7 +97,7 @@ function groupVisitsByDay(visits: Visit[]): { day: string; count: number; totalM
   const days = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
   const groups = days.map((d) => ({ day: d, count: 0, totalMin: 0 }));
   visits.forEach((v) => {
-    const dayIdx = new Date(v.arrived_at).getDay();
+    const dayIdx = new Date(parseBackendTimestamp(v.arrived_at)).getDay();
     const adjusted = dayIdx === 0 ? 6 : dayIdx - 1;
     groups[adjusted].count++;
     groups[adjusted].totalMin += v.duration_min ?? 0;
@@ -502,7 +506,7 @@ export function MapView() {
                           )}
                         </div>
                         <p className="font-mono text-xs text-muted-foreground/60 mt-0.5">
-                          {timeAgo(place.last_visit ?? undefined)}
+                          {formatRelativeTime(place.last_visit)}
                         </p>
                       </div>
                     </div>
@@ -677,7 +681,7 @@ export function MapView() {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground font-mono">Dernière visite</span>
-                  <span className="font-mono">{timeAgo(selectedPlace.last_visit ?? undefined)}</span>
+                  <span className="font-mono">{formatRelativeTime(selectedPlace.last_visit)}</span>
                 </div>
                 {selectedPlace.address && (
                   <div className="flex justify-between gap-2">

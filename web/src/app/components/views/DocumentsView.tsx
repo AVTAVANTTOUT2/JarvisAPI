@@ -16,7 +16,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { api } from '@unified/lib/api';
-import { timeAgo, formatDurationSec } from '@desktop/app/lib/timeFormat';
+import { formatDurationSec, formatRelativeTime } from '@unified/lib/timeFormat';
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -402,7 +402,7 @@ export function DocumentsView() {
                     </span>
                   )}
                   <span className="font-mono text-xs text-muted-foreground">{formatSize(file.size_kb)}</span>
-                  <span className="font-mono text-xs text-muted-foreground ml-auto">{timeAgo(file.created_at)}</span>
+                  <span className="font-mono text-xs text-muted-foreground ml-auto">{formatRelativeTime(file.created_at)}</span>
                 </div>
               </div>
             ))}
@@ -434,7 +434,7 @@ export function DocumentsView() {
                       )}
                     </td>
                     <td className="px-4 py-2.5 text-right font-mono text-xs text-muted-foreground">{formatSize(file.size_kb)}</td>
-                    <td className="px-4 py-2.5 text-right font-mono text-xs text-muted-foreground hidden sm:table-cell">{timeAgo(file.created_at)}</td>
+                    <td className="px-4 py-2.5 text-right font-mono text-xs text-muted-foreground hidden sm:table-cell">{formatRelativeTime(file.created_at)}</td>
                     <td className="px-4 py-2.5">
                       <a
                         href={api.getOutputUrl(file.path)}
@@ -477,7 +477,7 @@ export function DocumentsView() {
                       {doc.content_length.toLocaleString('fr-FR')} chars
                     </span>
                   )}
-                  <span className="font-mono text-xs text-muted-foreground ml-auto">{timeAgo(doc.created_at)}</span>
+                  <span className="font-mono text-xs text-muted-foreground ml-auto">{formatRelativeTime(doc.created_at)}</span>
                 </div>
               </div>
             ))}
@@ -510,7 +510,7 @@ export function DocumentsView() {
                     <td className="px-4 py-2.5 text-right font-mono text-xs text-muted-foreground hidden sm:table-cell">
                       {doc.content_length ? `${doc.content_length.toLocaleString('fr-FR')} ch` : '—'}
                     </td>
-                    <td className="px-4 py-2.5 text-right font-mono text-xs text-muted-foreground">{timeAgo(doc.created_at)}</td>
+                    <td className="px-4 py-2.5 text-right font-mono text-xs text-muted-foreground">{formatRelativeTime(doc.created_at)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -549,7 +549,7 @@ export function DocumentsView() {
                           {formatDurationSec(rec.duration_seconds)}
                         </span>
                         <span className="font-mono text-xs text-muted-foreground">
-                          {timeAgo(rec.created_at)}
+                          {formatRelativeTime(rec.created_at)}
                         </span>
                         {rec.summary && (
                           <span className="text-xs text-muted-foreground truncate hidden sm:block">

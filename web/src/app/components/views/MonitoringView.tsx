@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { api } from '@unified/lib/api';
 import { ws } from '@desktop/services/websocket';
-import { formatRelativeTime } from '@desktop/app/lib/timeFormat';
+import { formatRelativeTime, parseBackendTimestamp } from '@unified/lib/timeFormat';
 
 // ─────────────────────────────────────────────────────────────
 // Types
@@ -140,7 +140,7 @@ const ENDPOINTS: EndpointSpec[] = [
     description: 'Événements du jour', call: () => {
       const now = new Date();
       const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      const end = new Date(start.getTime() + 24 * 3600 * 1000);
+      const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
       return api.getCalendarEvents(start.toISOString(), end.toISOString());
     }
   },
@@ -204,7 +204,7 @@ const FEATURES: FeatureSpec[] = [
       const ok = !!cal?.available;
       const now = new Date();
       const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      const end = new Date(start.getTime() + 24 * 3600 * 1000);
+      const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
       let count = 0;
       try {
         const events = (await api.getCalendarEvents(start.toISOString(), end.toISOString())) as { count?: number };
@@ -937,7 +937,7 @@ function LiveTab({ wsConnected }: { wsConnected: boolean }) {
                 <span className={`shrink-0 ${l.status === 'success' ? 'text-green-400' : l.status === 'error' ? 'text-red-400' : 'text-yellow-400'}`}>
                   {l.status === 'success' ? '✓' : l.status === 'error' ? '✗' : '…'}
                 </span>
-                <span className="text-white/40 shrink-0">{new Date(l.created_at).toLocaleTimeString('fr-FR')}</span>
+                <span className="text-white/40 shrink-0">{new Date(parseBackendTimestamp(l.created_at)).toLocaleTimeString('fr-FR')}</span>
                 <span className="text-blue-400 shrink-0">{l.agent || '—'}</span>
                 <span className="text-white/60 truncate flex-1">{l.action_type || '—'}</span>
                 {l.execution_time_ms != null && (
@@ -956,7 +956,7 @@ function LiveTab({ wsConnected }: { wsConnected: boolean }) {
             ) : wsEvents.map((e, i) => (
               <div key={i} className="py-0.5">
                 <div className="flex items-center gap-2">
-                  <span className="text-white/40 shrink-0">{new Date(e.t).toLocaleTimeString('fr-FR')}</span>
+                  <span className="text-white/40 shrink-0">{new Date(parseBackendTimestamp(e.t)).toLocaleTimeString('fr-FR')}</span>
                   <span className="text-purple-400 shrink-0">{e.type}</span>
                 </div>
                 <div className="text-white/40 pl-[88px] truncate">{e.preview}</div>
