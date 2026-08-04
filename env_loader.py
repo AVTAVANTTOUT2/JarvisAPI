@@ -12,7 +12,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv
+
+from core.file_security import ensure_private_file
 
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_ENV_FILE = BASE_DIR / ".env.config"
@@ -33,6 +35,16 @@ SECRET_ENV_KEYS: frozenset[str] = frozenset(
 )
 
 
+class EnvironmentPolicyError(RuntimeError):
+    """Un fichier local viole la séparation ou les permissions attendues."""
+
+
+def _prepare_env_file(path: Path) -> dict[str, str | None]:
+    """Refuse les liens, force 0600 et parse sans publier les valeurs."""
+    ensure_private_file(path)
+    return dict(dotenv_values(path))
+
+
 def load_jarvis_env(*, force: bool = False) -> None:
     """Charge ``.env.config`` puis ``.env`` (idempotent).
 
@@ -46,7 +58,16 @@ def load_jarvis_env(*, force: bool = False) -> None:
     if _ENV_LOADED and not force:
         return
     if CONFIG_ENV_FILE.is_file():
+        config_values = _prepare_env_file(CONFIG_ENV_FILE)
+        misplaced = sorted(SECRET_ENV_KEYS.intersection(config_values))
+        if misplaced:
+            names = ", ".join(misplaced)
+            raise EnvironmentPolicyError(
+                "Secrets interdits dans .env.config : "
+                f"{names}. Déplacez-les dans .env."
+            )
         load_dotenv(CONFIG_ENV_FILE, override=True)
     if SECRETS_ENV_FILE.is_file():
+        _prepare_env_file(SECRETS_ENV_FILE)
         load_dotenv(SECRETS_ENV_FILE, override=True)
     _ENV_LOADED = True
