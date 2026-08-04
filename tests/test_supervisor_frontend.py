@@ -25,7 +25,7 @@ def _make_next(root: Path) -> None:
     (out / "_next" / "static" / "chunks" / "main.js").write_text("/* next */", encoding="utf-8")
 
 
-def _make_vite(root: Path) -> None:
+def _make_retired_vite_build(root: Path) -> None:
     dist = root / "web" / "dist"
     (dist / "assets").mkdir(parents=True)
     (dist / "index.html").write_text("<html>VITE</html>", encoding="utf-8")
@@ -77,14 +77,12 @@ def test_http_next_root_and_routes(tmp_path: Path) -> None:
     assert r.status_code == 404
 
 
-def test_http_vite_fallback(tmp_path: Path) -> None:
-    _make_vite(tmp_path)
+def test_http_retired_vite_build_is_ignored(tmp_path: Path) -> None:
+    _make_retired_vite_build(tmp_path)
     client = TestClient(_app_with_frontend(tmp_path))
-    assert "VITE" in client.get("/").text
-    assert client.get("/chat").status_code == 200
-    assert "VITE" in client.get("/chat").text
-    assert client.get("/assets/app.js").status_code == 200
-    assert client.get("/assets/nope.js").status_code == 404
+    assert client.get("/").status_code == 503
+    assert client.get("/chat").status_code == 503
+    assert client.get("/assets/app.js").status_code == 503
 
 
 def test_http_missing_frontend_explicit_error(tmp_path: Path) -> None:
@@ -94,7 +92,7 @@ def test_http_missing_frontend_explicit_error(tmp_path: Path) -> None:
     body = r.json()
     assert body["error"] == "frontend_build_missing"
     assert "frontend/out" in body["expected"]
-    assert "web/dist" in body["expected"]
+    assert "web/dist" not in body["expected"]
     # Santé / API toujours OK
     assert client.get("/health").json()["status"] == "ok"
     assert client.get("/api/ping").json()["ok"] is True
@@ -102,13 +100,12 @@ def test_http_missing_frontend_explicit_error(tmp_path: Path) -> None:
 
 def test_http_diagnostic_frontend(tmp_path: Path) -> None:
     _make_next(tmp_path)
-    _make_vite(tmp_path)
+    _make_retired_vite_build(tmp_path)
     client = TestClient(_app_with_frontend(tmp_path))
     data = client.get("/api/supervisor/status").json()
     assert data["frontend"]["selected"] == "next_canonical"
     assert data["frontend"]["path"] == "frontend/out"
-    assert data["frontend"]["canonical_available"] is True
-    assert data["frontend"]["fallback_available"] is True
+    assert data["frontend"]["available"] is True
     # Pas de chemin absolu utilisateur
     assert data["frontend"]["path"].startswith("frontend/")
     assert "/Users/" not in str(data["frontend"])
@@ -142,8 +139,6 @@ def test_real_checkout_integration() -> None:
         assert asset.status_code == 200
         chat = client.get("/chat")
         assert chat.status_code == 200
-    elif res.kind == "vite_fallback":
-        assert client.get("/").status_code == 200
     else:
         assert client.get("/").status_code == 503
 
@@ -231,4 +226,4 @@ def test_websockets_connect_accepts_additional_headers() -> None:
 
     sig = inspect.signature(websockets.connect)
     assert "additional_headers" in sig.parameters
-    assert websockets.__version__.startswith("15.")
+    assert int(websockets.__version__.split(".", 1)[0]) >= 15

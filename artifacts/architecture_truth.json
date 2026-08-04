@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-08-04T11:22:04.228596+00:00",
+  "generated_at": "2026-08-04T11:46:46.660260+00:00",
   "repo_root": ".",
   "canonical_formulation": {
     "database": "Le projet crée 90 tables persistantes après init_db() + migrations, plus jusqu'à 5 objets FTS5, soit 95 tables physiques lorsque FTS5 est disponible.",
-    "frontends": "Le frontend canonique est frontend/ (Next.js 15 → frontend/out). web/dist reste le fallback actif. web_mobile/ est l'interface mobile autonome servie sous /mobile/, sans build. tv/ (5174) est réservé à la TV. FastAPI (8081) et le supervisor (9000) servent frontend/out en priorité, puis web/dist en fallback (core.frontend_resolution)."
+    "frontends": "Le frontend canonique est frontend/ (Next.js 15 → frontend/out). web/src est uniquement sa bibliothèque de vues et n'est plus une application exécutable. web_mobile/ est l'interface mobile autonome servie sous /mobile/, sans build. Si frontend/out manque, le bureau répond explicitement 503. tv/ (5174) est réservé à la TV. FastAPI (8081) et le supervisor (9000) servent uniquement frontend/out via core.frontend_resolution."
   },
   "frontends": [
     {
@@ -40,33 +40,26 @@
     },
     {
       "path": "web",
-      "framework": "vite",
+      "framework": "react-component-library",
       "package_versions": {
         "react": "^19.0.0",
         "react-dom": "^19.0.0",
-        "vite": "^6.3.0",
         "typescript": "^5.8.0",
-        "vite-plugin-pwa": "^1.3.0",
-        "workbox-precaching": "^7.4.1",
         "react-router-dom": "^7.6.0"
       },
       "locked_versions": {
         "react": "19.2.5",
         "react-dom": "19.2.5",
-        "vite": "6.4.2",
         "typescript": "5.9.3"
       },
       "scripts": {
-        "dev": "vite",
-        "build": "tsc --noEmit && vite build",
         "typecheck": "tsc --noEmit",
-        "preview": "vite preview",
         "test": "vitest run"
       },
-      "output_dir": "web/dist",
-      "has_service_worker": true,
+      "output_dir": null,
+      "has_service_worker": false,
       "has_manifest": false,
-      "status": "fallback_actif",
+      "status": "bibliotheque_vues_desktop",
       "notes": []
     },
     {
@@ -101,24 +94,20 @@
   "resolution": {
     "canonical_order": [
       "web_mobile/ monté sous /mobile/, téléphones redirigés",
-      "frontend/out prioritaire (Next.js 15 bureau)",
-      "web/dist fallback Vite",
-      "web/templates Jinja legacy",
-      "warning aucun frontend"
+      "frontend/out (Next.js 15 bureau)",
+      "503 explicite si le build bureau manque"
     ],
     "fastapi_uses_unified_first": true,
-    "supervisor_priority": "frontend/out>web/dist",
+    "supervisor_priority": "frontend/out_only",
     "supervisor_uses_shared_resolver": true,
     "shared_resolution_module": true,
     "priority_findings": [],
     "paths": {
       "FRONTEND_DIST_DIR_default": "frontend/out",
-      "WEB_DIST_DIR_default": "web/dist",
       "WEB_MOBILE_DIR_default": "web_mobile",
       "TV_PORT_default": 5174,
       "BACKEND_PORT_typical": 8081,
-      "SUPERVISOR_PORT_default": 9000,
-      "VITE_DEV_PORT": 5173
+      "SUPERVISOR_PORT_default": 9000
     }
   },
   "tables": {
@@ -4975,9 +4964,6 @@
           "frontend_next": [
             "frontend/public/sw.js",
             "frontend/src/lib/api.ts"
-          ],
-          "frontend_vite": [
-            "web/vite.config.ts"
           ]
         },
         "tests": [
@@ -5069,9 +5055,7 @@
             "frontend/public/sw.js"
           ],
           "frontend_vite": [
-            "web/src/services/websocket.ts",
-            "web/src/sw.ts",
-            "web/vite.config.ts"
+            "web/src/services/websocket.ts"
           ],
           "mobile_web": [
             "web_mobile/js/ws.js"

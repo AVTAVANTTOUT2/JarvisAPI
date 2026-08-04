@@ -60,8 +60,6 @@ def client(tmp_path, monkeypatch) -> TestClient:
     _write(unified / "chat" / "index.html", "desktop-chat")
     _write(unified / "_next" / "static" / "app.js", "asset")
     monkeypatch.setattr(frontend, "FRONTEND_DIST", unified)
-    monkeypatch.setattr(frontend, "WEB_DIST", tmp_path / "web-dist-absent")
-
     app = FastAPI()
     _setup_frontend(app)
     return TestClient(app)
@@ -217,7 +215,6 @@ def test_absent_directory_disables_everything(tmp_path, monkeypatch):
     _write(unified / "index.html", "desktop-root")
     _write(unified / "_next" / "static" / "app.js", "asset")
     monkeypatch.setattr(frontend, "FRONTEND_DIST", unified)
-    monkeypatch.setattr(frontend, "WEB_DIST", tmp_path / "web-dist-absent")
     monkeypatch.setattr(web_mobile, "WEB_MOBILE_DIR", tmp_path / "vide")
 
     app = FastAPI()
@@ -228,30 +225,34 @@ def test_absent_directory_disables_everything(tmp_path, monkeypatch):
     assert client.get("/", headers={"user-agent": IPHONE}, follow_redirects=False).status_code == 200
 
 
+def test_missing_mobile_and_desktop_build_returns_explicit_503(tmp_path, monkeypatch):
+    monkeypatch.setattr(frontend, "FRONTEND_DIST", tmp_path / "frontend-absent")
+    monkeypatch.setattr(web_mobile, "WEB_MOBILE_DIR", tmp_path / "mobile-absent")
+
+    app = FastAPI()
+    _setup_frontend(app)
+    response = TestClient(app).get("/", headers={"user-agent": MAC_DESKTOP})
+
+    assert response.status_code == 503
+    assert "Aucun frontend bureau" in response.text
+
+
 def test_missing_mobile_bundle_never_falls_back_to_a_desktop_shell(
     tmp_path,
     monkeypatch,
 ):
-    """`/mobile` reste réservé, sous Next comme sous le repli Vite."""
+    """`/mobile` reste réservé par l'unique shell Next."""
     unified = tmp_path / "frontend-out"
     _write(unified / "index.html", "unified-desktop")
     _write(unified / "_next" / "static" / "app.js", "asset")
-    vite = tmp_path / "web-dist"
-    _write(vite / "index.html", "vite-desktop")
     monkeypatch.setattr(web_mobile, "WEB_MOBILE_DIR", tmp_path / "mobile-absent")
 
-    configurations = (
-        (unified, tmp_path / "vite-absent"),
-        (tmp_path / "unified-absent", vite),
-    )
-    for unified_root, vite_root in configurations:
-        monkeypatch.setattr(frontend, "FRONTEND_DIST", unified_root)
-        monkeypatch.setattr(frontend, "WEB_DIST", vite_root)
-        app = FastAPI()
-        _setup_frontend(app)
-        with TestClient(app) as client:
-            assert client.get("/mobile").status_code == 404
-            assert client.get("/mobile/anything").status_code == 404
+    monkeypatch.setattr(frontend, "FRONTEND_DIST", unified)
+    app = FastAPI()
+    _setup_frontend(app)
+    with TestClient(app) as client:
+        assert client.get("/mobile").status_code == 404
+        assert client.get("/mobile/anything").status_code == 404
 
     assert "mobile" not in frontend._SPA_SEGMENTS
     assert "mobile" not in frontend._UNIFIED_SEGMENTS
@@ -264,8 +265,6 @@ def test_mobile_survives_a_missing_desktop_build(tmp_path, monkeypatch):
     frontend n'a pas encore été construit — exactement le cas de la CI.
     """
     monkeypatch.setattr(frontend, "FRONTEND_DIST", tmp_path / "frontend-absent")
-    monkeypatch.setattr(frontend, "WEB_DIST", tmp_path / "web-absent")
-    monkeypatch.setattr(frontend, "WEB_TEMPLATES", tmp_path / "templates-absent")
 
     app = FastAPI()
     _setup_frontend(app)

@@ -282,7 +282,7 @@ WEB_HTTPS_BEHIND_PROXY = (
 )
 # Origines supplémentaires exactes autorisées pour les mutations par cookie.
 # Vide en production : la même origine schéma+hôte+port reste toujours admise.
-# Le proxy Vite doit être ajouté explicitement (ex. https://localhost:5173).
+# Toute origine de développement supplémentaire doit être ajoutée explicitement.
 CSRF_ALLOWED_ORIGINS = _get("CSRF_ALLOWED_ORIGINS", "")
 SSL_CERT_PATH = _config_path("WEB_SSL_CERT_PATH", "certs/cert.pem")
 SSL_KEY_PATH = _config_path("WEB_SSL_KEY_PATH", "certs/key.pem")
@@ -794,12 +794,10 @@ BACKUP_ENCRYPTION_KEY_FILE = _get(
     "./data/.backup_encryption.key",
 )
 
-# Répertoire du build web SPA (Vite) — utilisé comme fallback sur desktop
 # Interface mobile autonome (HTML/CSS/JS vanilla, servie sous /mobile/).
 WEB_MOBILE_DIR = _get("WEB_MOBILE_DIR", str(BASE_DIR / "web_mobile"))
 
-WEB_DIST_DIR = _get("WEB_DIST_DIR", str(BASE_DIR / "web" / "dist"))
-# Frontend responsive unifié (Next.js 15) — prioritaire lorsqu'il est construit.
+# Frontend bureau unique (Next.js 15).
 FRONTEND_DIST_DIR = _get("FRONTEND_DIST_DIR", str(BASE_DIR / "frontend" / "out"))
 
 # ── Mapping modèles par agent ───────────────────────────────

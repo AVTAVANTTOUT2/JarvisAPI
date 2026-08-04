@@ -19,6 +19,10 @@ Structure API canonique : **259 opérations HTTP + 2 WebSockets**, **230 chemins
 > (HTML/CSS/JS vanilla, sans build). Les sections de routage ci-dessous ont été
 > réécrites en conséquence ; les inventaires de paquets datés du 24/07 sont
 > conservés tels quels et ne décrivent plus l'état courant pour la ligne `pwa/`.
+>
+> **Mise à jour du 4 août 2026 — le runtime Vite est retiré.** `web/src`
+> demeure la bibliothèque de vues compilée par Next.js. Il n'a plus d'entrée,
+> de build, de Service Worker, de serveur dev ni de fallback FastAPI/supervisor.
 
 ---
 
@@ -31,11 +35,11 @@ Structure API canonique : **259 opérations HTTP + 2 WebSockets**, **230 chemins
 | Pourquoi `schema.sql` en déclare 91 ? | Il contient les 90 persistantes et `messages_fts`; SQLite crée les 4 tables auxiliaires FTS5 restantes |
 | D'où vient « **73** » ? | Inventaire Architecture antérieur au chat mobile, à la délégation Cursor et au pairage desktop sécurisé |
 | Frontend canonique (FastAPI 8081) ? | **`frontend/`** — Next.js **15.5.20**, React **19.2.7** (lockfile), export → `frontend/out/` |
-| Fallback racine FastAPI ? | **`web/dist/`** — Vite **6.4.2** + React **19.2.5** |
+| Fallback racine FastAPI ? | **Aucun** — réponse 503 explicite si `frontend/out` manque |
 | Interface mobile | **`web_mobile/`** — HTML/CSS/JS vanilla, aucun build, servie sous **`/mobile/`** |
 | TV ? | **`tv/`** — FastAPI + vanilla JS, port **5174** (processus séparé) |
 | Maquette TV historique | Supprimée du tree runtime le 03/08/2026 ; `tv-v2` est l'unique implémentation |
-| Supervisor (9000) sert quoi ? | **`frontend/out` en priorité**, puis **`web/dist`** (même politique que FastAPI — ADR-019) |
+| Supervisor (9000) sert quoi ? | **`frontend/out` uniquement** (même politique que FastAPI — ADR-019) |
 | Surface API ? | **261 opérations / 232 chemins**, inventoriés automatiquement avec leurs consommateurs et tests |
 
 **Formulation canonique (à réutiliser partout) :**
@@ -48,11 +52,12 @@ database/schema.sql est un miroir généré de 91 déclarations : les 90 tables
 persistantes et la table virtuelle messages_fts. Il n'est pas exécuté par
 init_db(), mais la CI interdit toute divergence avec le runtime frais.
 
-Le frontend canonique est frontend/ (Next.js 15 → frontend/out), servi en
-priorité par FastAPI (port 8081) **et** par le supervisor (port 9000).
-web/dist reste le repli actif racine. web_mobile/ est l'interface mobile
-autonome servie sous /mobile/, sans build. tv/ (port 5174)
-est le dashboard War Room dédié. Voir ADR-019.
+Le frontend bureau unique est frontend/ (Next.js 15 → frontend/out), servi par
+FastAPI (port 8081) **et** par le supervisor (port 9000). web/src est sa
+bibliothèque de vues, pas une application exécutable. Si frontend/out manque,
+le bureau répond 503. web_mobile/ est l'interface mobile autonome servie sous
+/mobile/, sans build. tv/ (port 5174) est le dashboard War Room dédié.
+Voir ADR-019.
 ```
 
 ---
@@ -62,8 +67,7 @@ est le dashboard War Room dédié. Voir ADR-019.
 | Chemin | Framework | Version déclarée | Version verrouillée | Bundler | Rendu | Dev | Build | Sortie | SW | Manifeste | État |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | `frontend/` | Next.js + React | next `15.5.20`, react `^19.2.5` | next `15.5.20`, react `19.2.7` | Next (webpack) | SSG export (`output: 'export'`) | `pnpm dev` | `pnpm build` | `frontend/out/` | `public/sw.js` | `manifest.webmanifest` | **Actif — canonique FastAPI** |
-| `web/` | React + Vite | react `^19.0.0`, vite `^6.3.0` | react `19.2.5`, vite `6.4.2` | Vite | SPA CSR | `pnpm dev` (:5173) | `pnpm build` | `web/dist/` | `src/sw.ts` → Workbox | `vite-plugin-pwa` | **Fallback actif** + source vues desktop pour `frontend/` |
-| `pwa/` | Next.js + React | next `14.2.29`, react `^18.3.1` | next `14.2.29`, react `18.3.1` | Next | export + `basePath: '/m'` | `npm run dev` | `npm run build` / `scripts/build_pwa.sh` | `pwa/out/` | `public/sw.js` + next-pwa | `manifest.json` | **Fallback historique `/m/`** (build souvent absent) |
+| `web/` | Bibliothèque React | react `^19.0.0` | react `19.2.5` | compilée par Next | composants | — | typecheck/tests seulement | — | — | — | **Source des vues desktop de `frontend/`** |
 | `jarvis_auth/` | React lib | peer `react>=18.3` | N/A | — | package partagé | — | — | — | — | — | **Actif** (SDK LockGate) |
 | `tv/` | FastAPI + Jinja2 + vanilla JS | N/A (Python) | N/A | aucun | SSR templates | `python tv/server.py` | aucun | live | non | non | **Actif — TV 5174** |
 
@@ -72,16 +76,13 @@ est le dashboard War Room dédié. Voir ADR-019.
 | Projet | React | Routing | UI / data | PWA |
 |---|---|---|---|---|
 | `frontend/` | 19.2.7 | react-router-dom 7.18.1 (+ App Router Next) | TanStack Query 5.101.2, Tailwind 4.3.2, Leaflet, Recharts | SW maison `frontend/public/sw.js` |
-| `web/` | 19.2.5 | react-router-dom (lock aligné 7.x) | Tailwind 4.2.4, Recharts, idb | vite-plugin-pwa 1.3.0 + workbox 7.4.x |
-| `pwa/` | 18.3.1 | App Router Next 14 | TanStack Query, Leaflet, Tailwind 3.4.19 | next-pwa 5.6.0 |
+| `web/` | 19.2.5 | react-router-dom (lock aligné 7.x) | Recharts, idb ; compilés par `frontend/` | aucun SW propre |
 
 ### Builds présents dans le checkout audité (15/07/2026)
 
 | Dossier | Présent ? |
 |---|---|
 | `frontend/out/` | oui |
-| `web/dist/` | oui |
-| `pwa/out/` | **non** |
 
 ---
 
@@ -96,9 +97,7 @@ Montage : si web_mobile/index.html : monte /mobile/* (indépendant de la suite)
 
 Requête GET /
 → si UA téléphone ET pas de cookie jarvis_force_desktop : Redirect 302 → /mobile/
-→ sinon si frontend/out/index.html + _next/static/ : sert frontend unifié (PRIORITAIRE)
-→ sinon si web/dist/index.html : sert web/dist SPA
-→ sinon si web/templates/index.html : Jinja legacy
+→ sinon si frontend/out/index.html + _next/static/ : sert frontend unifié
 → sinon si web_mobile présent : racine mobile-seule (bureau → 503)
 → sinon : warning « Aucun frontend »
 
@@ -106,7 +105,8 @@ Requête GET /
 La redirection ne s'applique qu'à la racine : les liens profonds restent ouvrables.
 ```
 
-**Note** : la détection est **serveur** et s'applique à tous les chemins de repli — c'est un changement par rapport à l'audit du 24/07, où elle n'existait que sur le chemin Vite et où le frontend unifié choisissait son layout côté client. `frontend/src/lib/device.ts` ne contient plus de détection.
+**Note** : la détection est **serveur** et s'applique avant l'unique shell
+Next. `frontend/src/lib/device.ts` ne contient plus de détection.
 
 ### `/mobile/`
 
@@ -135,7 +135,7 @@ et aux tests qui le référencent. L'analyse est statique et n'importe pas
 | Surface cliente | Chemins référencés |
 |---|---:|
 | Next canonique (`frontend/`) | 115 |
-| Vite de repli (`web/`) | 42 |
+| Bibliothèque de vues (`web/src`, incluse dans Next) | 42 |
 | Web mobile (`web_mobile/`) | 28 |
 | Android | 26 |
 | TV | 9 |
@@ -175,22 +175,19 @@ python tools/audit_architecture_truth.py --schema-output database/schema.sql
 
 ### Assets
 
-| Préfixe | Source si unifié | Source si fallback Vite |
-|---|---|---|
-| `/_next/static` | `frontend/out/_next/static` | — |
-| `/assets` | — | `web/dist/assets` |
-| `/icons` | `frontend/out/icons` ou `web/dist/icons` | idem |
-| `/sw.js`, manifeste | build servi | build servi |
-| `/static` | `web/static` si présent | idem |
+| Préfixe | Source unique |
+|---|---|
+| `/_next/static` | `frontend/out/_next/static` |
+| `/icons` | `frontend/out/icons` |
+| `/sw.js`, manifeste | `frontend/out` |
 
 ### Supervisor (port 9000)
 
 ```text
 GET /* sur :9000
-→ même priorité desktop que FastAPI (core.frontend_resolution) :
+→ même contrat desktop que FastAPI (core.frontend_resolution) :
    1. frontend/out (Next)
-   2. web/dist (Vite fallback)
-   3. JSON frontend_build_missing (503)
+   2. JSON frontend_build_missing (503)
 → proxy /api/* et /ws/supervisor inchangés
 → diagnostic : GET /api/supervisor/status → { frontend: {...} }
 ```
@@ -211,10 +208,8 @@ GET / sur tv/server.py
 | Service | Port | Rôle |
 |---|---|---|
 | Next `frontend` | 3000 (défaut next) | HMR développement unifié |
-| Vite `web` | 5173 | HMR desktop legacy / vues source |
-| PWA `pwa` | 3000 | HMR mobile historique |
 | Backend | 8081 | API + prod static |
-| Supervisor | 9000 | ops + `web/dist` |
+| Supervisor | 9000 | ops + `frontend/out` |
 | TV | 5174 | War Room |
 
 ---
@@ -230,9 +225,9 @@ GET / sur tv/server.py
 
 | Package | `web/package.json` | `web/pnpm-lock.yaml` | Confiance |
 |---|---|---|---|
-| vite | `^6.3.0` | `6.4.2` | haute |
 | react | `^19.0.0` | `19.2.5` | haute |
-| vite-plugin-pwa | `^1.3.0` | `1.3.0` | haute |
+| typescript | `^5.8.0` | version verrouillée | haute |
+| vitest | `^4.1.10` | version verrouillée | haute |
 | workbox-* | `^7.4.1` | `7.4.1` | haute |
 
 | Package | `pwa/package.json` | `pwa/package-lock.json` | Confiance |
@@ -393,7 +388,7 @@ Statuts : `active` | `technique` | `miroir` | `conditionnelle` | `devagent`
 |---|---|---|---|
 | `README.md` L100 | « 26+ tables » | non | Corriger → formulation multi-comptage |
 | `README.md` L124 | « 72 tables » | non | Idem |
-| `README.md` / supervisor | « sert le front » sans préciser `web/dist` | ambiguë | Clarifier |
+| `README.md` / supervisor | « sert le front » sans préciser `frontend/out` | ambiguë | Clarifier |
 | `Architecture/*` anciens totaux | inventaires de juillet 2026 | dépassés | Pointer vers ce document |
 | `CLAUDE.md` L32 | « 73e table » = event_log | narratif historique | Nuancer |
 | `CLAUDE.md` § PWA L1515 | « web/ SPA principale » | non (Phase 6) | Corriger |
@@ -406,7 +401,9 @@ Statuts : `active` | `technique` | `miroir` | `conditionnelle` | `devagent`
 
 1. **Citer toujours** la formulation canonique 90 persistantes / 95 physiques / 91 déclarations.
 2. **Frontend** : phrase canonique du §1.
-3. **Ne pas** supprimer `web/` ni fusionner TV dans FastAPI sans plan dédié. La maquette `front_tv/` et le template TV legacy ont été retirés le 03/08 après vérification de l'unique route `tv-v2`. (`pwa/` a été supprimé le 31/07 avec un plan dédié — voir `35_CAHIER_DES_CHARGES_WEB_MOBILE.md`.)
+3. **Conserver** `web/src` comme bibliothèque de vues ; son ancien shell Vite
+   ne doit pas être restauré. La maquette `front_tv/` et le template TV legacy
+   ont été retirés le 03/08. `pwa/` a été supprimé le 31/07.
 4. **Alignement supervisor / FastAPI** : réalisé le 16/07/2026 (ADR-019,
    `core/frontend_resolution.py`). Validation visuelle recommandée sur le port 9000.
 
@@ -416,11 +413,11 @@ Statuts : `active` | `technique` | `miroir` | `conditionnelle` | `devagent`
 |---|---|---|
 | 1 | Documentation obsolète (README 26+/72) | `README.md` L100, L124 |
 | 2 | Changement non documenté (tables migrations/FTS/DevAgent) | Résolu par génération et contrôle CI |
-| 3 | Plusieurs générations frontend encore actives | `api/frontend.py` unifié + Vite (résolu pour `/m/`, supprimé le 31/07) |
-| 4 | Fallback historique volontaire | commentaires Phase 6 + tests `test_phase6_frontend.py` |
+| 3 | Plusieurs générations frontend encore actives | Résolu : Next unique, `web/src` bibliothèque seulement |
+| 4 | Fallback historique volontaire | Résolu : absence de build → 503 explicite |
 | 5 | Tables conditionnelles / techniques comptées différemment | FTS5 : 90 persistantes, 95 physiques |
 | 6 | Snapshot `schema.sql` ≠ schéma runtime | Résolu : miroir généré, `init_db()` reste basé sur les sources Python |
-| 7 | Supervisor ≠ FastAPI pour le front | `supervisor.py` `DIST_DIR = web/dist` |
+| 7 | Supervisor ≠ FastAPI pour le front | Résolu par le résolveur Next unique partagé |
 | 8 | Build PWA absent du checkout | `pwa/out` manquant le jour de l’audit — arbre supprimé depuis |
 
 ---

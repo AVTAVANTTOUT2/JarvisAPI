@@ -52,22 +52,19 @@ def fake_repo(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
 
-    # web Vite
+    # bibliothèque de vues desktop (compilée uniquement par Next)
     web = tmp_path / "web"
     (web / "src").mkdir(parents=True)
-    (web / "dist").mkdir(parents=True)
     (web / "package.json").write_text(
         json.dumps(
             {
                 "dependencies": {"react": "^19.0.0", "react-dom": "^19.0.0"},
-                "devDependencies": {"vite": "^6.3.0", "typescript": "^5.8.0"},
-                "scripts": {"dev": "vite", "build": "vite build"},
+                "devDependencies": {"typescript": "^5.8.0", "vitest": "^4.1.10"},
+                "scripts": {"typecheck": "tsc --noEmit", "test": "vitest run"},
             }
         ),
         encoding="utf-8",
     )
-    (web / "src" / "sw.ts").write_text("// sw\n", encoding="utf-8")
-    (web / "dist" / "index.html").write_text("<html></html>", encoding="utf-8")
 
     # schema sources
     db = tmp_path / "database"
@@ -146,7 +143,7 @@ def fake_repo(tmp_path: Path) -> Path:
     (tmp_path / "core" / "frontend_resolution.py").write_text(
         "def is_usable_next_build(p): ...\n"
         "next_canonical = 'next_canonical'\n"
-        "vite_fallback = 'vite_fallback'\n",
+        "def resolve_desktop_frontend(p): ...\n",
         encoding="utf-8",
     )
     (tmp_path / "supervisor.py").write_text(
@@ -154,7 +151,7 @@ def fake_repo(tmp_path: Path) -> Path:
         "from core.frontend_static import register_desktop_frontend_routes\n"
         "FRONTEND_RESOLUTION = resolve_desktop_frontend(PROJECT_DIR)\n"
         "register_desktop_frontend_routes(app, FRONTEND_RESOLUTION)\n"
-        "# frontend/out prioritaire, web/dist fallback\n",
+        "# frontend/out uniquement\n",
         encoding="utf-8",
     )
     (tmp_path / "tv").mkdir()
@@ -179,7 +176,9 @@ def test_discover_frontends_classifies_projects(fake_repo: Path) -> None:
     assert projects["frontend"].locked_versions["next"] == "15.5.20"
     assert projects["frontend"].locked_versions["react"] == "19.2.7"
     assert projects["frontend"].output_present is True
-    assert projects["web"].status == "fallback_actif"
+    assert projects["web"].status == "bibliotheque_vues_desktop"
+    assert projects["web"].output_dir is None
+    assert projects["web"].has_service_worker is False
     assert "pwa" not in projects
     assert projects["tv"].status == "actif_tv_5174"
     assert "front_tv" not in projects
@@ -301,7 +300,7 @@ def test_build_report_and_cli(fake_repo: Path, tmp_path: Path) -> None:
     assert rc == 0
     data = json.loads(out.read_text(encoding="utf-8"))
     assert "canonical_formulation" in data
-    assert data["resolution"]["supervisor_priority"] == "frontend/out>web/dist"
+    assert data["resolution"]["supervisor_priority"] == "frontend/out_only"
     assert data["resolution"]["fastapi_uses_unified_first"] is True
     assert data["tables"]["counts"]["schema_sql_applicatives"] == 1
 
@@ -335,7 +334,7 @@ def test_real_repo_smoke_counts_stable() -> None:
 
     resolution = audit.analyze_frontend_resolution(ROOT)
     assert resolution["fastapi_uses_unified_first"] is True
-    assert resolution["supervisor_priority"] == "frontend/out>web/dist"
+    assert resolution["supervisor_priority"] == "frontend/out_only"
     assert resolution["supervisor_uses_shared_resolver"] is True
     assert resolution["priority_findings"] == []
 

@@ -872,7 +872,7 @@ def _npm_lock_versions(
 def discover_frontends(root: Path) -> list[FrontendProject]:
     interest = [
         ("frontend", "next", "frontend/out", "actif_canonique_fastapi"),
-        ("web", "vite", "web/dist", "fallback_actif"),
+        ("web", "react-component-library", None, "bibliotheque_vues_desktop"),
         ("jarvis_auth", "react-lib", None, "sdk_partage"),
     ]
     results: list[FrontendProject] = []
@@ -978,14 +978,14 @@ def analyze_frontend_resolution(root: Path) -> dict[str, Any]:
         and "resolve_desktop_frontend" not in supervisor
         and "FRONTEND_RESOLUTION" not in supervisor
     )
-    fastapi_aligned = "resolve_desktop_frontend_roots" in frontend_py or (
+    fastapi_aligned = "resolve_desktop_frontend_roots" in frontend_py and (
         "_setup_unified_frontend" in frontend_py
         and "is_usable_next_build" in frontend_py
     )
     shared_priority_ok = (
         "next_canonical" in shared
-        and "vite_fallback" in shared
         and "is_usable_next_build" in shared
+        and "vite_fallback" not in shared
     )
 
     findings: list[dict[str, str]] = []
@@ -1017,14 +1017,12 @@ def analyze_frontend_resolution(root: Path) -> dict[str, Any]:
     return {
         "canonical_order": [
             "web_mobile/ monté sous /mobile/, téléphones redirigés",
-            "frontend/out prioritaire (Next.js 15 bureau)",
-            "web/dist fallback Vite",
-            "web/templates Jinja legacy",
-            "warning aucun frontend",
+            "frontend/out (Next.js 15 bureau)",
+            "503 explicite si le build bureau manque",
         ],
         "fastapi_uses_unified_first": fastapi_aligned,
         "supervisor_priority": (
-            "frontend/out>web/dist"
+            "frontend/out_only"
             if supervisor_uses_resolver and not supervisor_vite_only
             else ("web/dist_only" if supervisor_vite_only else "unknown")
         ),
@@ -1033,16 +1031,13 @@ def analyze_frontend_resolution(root: Path) -> dict[str, Any]:
         "priority_findings": findings,
         "paths": {
             "FRONTEND_DIST_DIR_default": "frontend/out",
-            "WEB_DIST_DIR_default": "web/dist",
             "WEB_MOBILE_DIR_default": "web_mobile",
             "TV_PORT_default": 5174,
             "BACKEND_PORT_typical": 8081,
             "SUPERVISOR_PORT_default": 9000,
-            "VITE_DEV_PORT": 5173,
         },
         "build_presence": {
             "frontend/out": (root / "frontend" / "out" / "index.html").is_file(),
-            "web/dist": (root / "web" / "dist" / "index.html").is_file(),
             "web_mobile": (root / "web_mobile" / "index.html").is_file(),
         },
     }
@@ -1431,7 +1426,7 @@ def scan_doc_contradictions(root: Path, tables: dict[str, Any]) -> list[dict[str
                     severity = "error"
                     note = (
                         "La documentation affirme encore que le supervisor sert "
-                        "uniquement web/dist — attendu : frontend/out > web/dist"
+                        "uniquement web/dist — attendu : frontend/out uniquement"
                     )
                 findings.append(
                     {
@@ -1472,11 +1467,13 @@ def build_report(root: Path) -> dict[str, Any]:
             ),
             "frontends": (
                 "Le frontend canonique est frontend/ (Next.js 15 → frontend/out). "
-                "web/dist reste le fallback actif. web_mobile/ est l'interface mobile "
-                "autonome servie sous /mobile/, sans build. "
+                "web/src est uniquement sa bibliothèque de vues et n'est plus "
+                "une application exécutable. web_mobile/ est l'interface mobile "
+                "autonome servie sous /mobile/, sans build. Si frontend/out manque, "
+                "le bureau répond explicitement 503. "
                 "tv/ (5174) est réservé à la TV. "
-                "FastAPI (8081) et le supervisor (9000) servent frontend/out en priorité, "
-                "puis web/dist en fallback (core.frontend_resolution)."
+                "FastAPI (8081) et le supervisor (9000) servent uniquement frontend/out "
+                "via core.frontend_resolution."
             ),
         },
         "frontends": frontend_inventory,

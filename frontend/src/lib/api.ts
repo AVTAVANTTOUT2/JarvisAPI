@@ -1,5 +1,5 @@
 /**
- * Service REST central — BASE vide : même origine (FastAPI prod) ou proxy Vite (/api → backend).
+ * Service REST central — BASE vide : même origine que FastAPI ou le supervisor.
  */
 import type { ApiPerson, NotificationItem } from '@unified/types/jarvis'
 import { authClient, getCsrfToken } from '@jarvis/auth'
@@ -628,6 +628,6 @@ export function supervisorWsUrl(): string {
   if (window.location.port === '9000') {
     return `${p}//${window.location.host}/ws/supervisor`
   }
-  // Page FastAPI (8081) / Vite (5173) → joindre le port dédié du supervisor.
+  // Page FastAPI (8081) → joindre le port dédié du supervisor.
   return `${p}//${window.location.hostname}:9000/ws/supervisor`
 }

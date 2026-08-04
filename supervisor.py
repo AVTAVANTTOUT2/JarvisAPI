@@ -3,7 +3,7 @@
 JARVIS Supervisor — processus permanent qui controle tous les services.
 Port 9000 — toujours actif, sert le frontend desktop, proxy vers le backend.
 
-Priorité frontend : frontend/out (Next) puis web/dist (Vite fallback).
+Frontend bureau unique : export statique frontend/out (Next.js).
 Ce processus ne s'arrete JAMAIS depuis l'UI.
 """
 
@@ -52,10 +52,10 @@ from core.supervisor_auth import (
 PROJECT_DIR = Path(__file__).parent.resolve()
 VENV_PYTHON = str(PROJECT_DIR / "venv" / "bin" / "python")
 
-from env_loader import load_jarvis_env
+from env_loader import load_jarvis_env  # noqa: E402
 
 load_jarvis_env()
-import config
+import config  # noqa: E402
 
 SUPERVISOR_PORT = int(os.getenv("SUPERVISOR_PORT", "9000"))
 BACKEND_PORT = config.WEB_PORT
@@ -81,8 +81,6 @@ def _backend_http_verify() -> str | bool:
 BACKEND_URL = _backend_url()
 # Résolution basée sur PROJECT_DIR (fichier), pas sur os.getcwd()
 FRONTEND_RESOLUTION = resolve_desktop_frontend(PROJECT_DIR)
-# Alias historique : pointe vers web/dist si présent, sinon None — ne définit plus la priorité
-DIST_DIR = PROJECT_DIR / "web" / "dist"
 LOGS_DIR = PROJECT_DIR / "data" / "logs"
 LOCK_PATH = "/tmp/jarvis_supervisor.lock"
 
@@ -108,7 +106,7 @@ app.middleware("http")(security_middleware)
 # ── Etat global ─────────────────────────────────────────────────────────
 _start_time = time.time()
 _managed: dict[str, subprocess.Popen | None] = {
-    "backend": None, "tv_dashboard": None, "ollama": None, "vite_dev": None,
+    "backend": None, "tv_dashboard": None, "ollama": None,
 }
 _caffeinate_proc: subprocess.Popen | None = None
 _ws_clients: set[WebSocket] = set()
@@ -280,7 +278,6 @@ SERVICES = [
     {"id": "backend", "name": "Backend JARVIS", "description": "FastAPI principal (agents, LLM, daemons)", "category": "core", "port": BACKEND_PORT, "can_control": True},
     {"id": "tv_dashboard", "name": "TV Dashboard", "description": "Dashboard War Room (port 5174)", "category": "external", "port": 5174, "can_control": True},
     {"id": "ollama", "name": "Ollama", "description": "LLM local (qwen2.5-vl, triage)", "category": "external", "port": 11434, "can_control": True},
-    {"id": "vite_dev", "name": "Vite Dev Server", "description": "Frontend dev HMR (port 5173)", "category": "dev", "port": 5173, "can_control": True},
 ]
 
 
@@ -473,20 +470,6 @@ def _start_sync(sid: str) -> dict:
             log.info("Ollama healthy")
         return result
 
-    if sid == "vite_dev":
-        if _port_open(5173):
-            return {"ok": True, "message": "Vite deja actif"}
-        _kill_port(5173)
-        proc = subprocess.Popen(
-            ["pnpm", "dev"],
-            cwd=str(PROJECT_DIR / "web"),
-            stdout=open(str(LOGS_DIR / "vite.log"), "a"),
-            stderr=subprocess.STDOUT,
-        )
-        _managed["vite_dev"] = proc
-        log.info("Vite demarre (PID %d)", proc.pid)
-        return {"ok": True, "message": f"Vite demarre (PID {proc.pid})"}
-
     return {"ok": False, "error": f"Service inconnu : {sid}"}
 
 
@@ -508,8 +491,10 @@ def _stop_sync(sid: str) -> dict:
         proc = _managed.get("tv_dashboard")
         if proc and proc.poll() is None:
             proc.terminate()
-            try: proc.wait(timeout=3)
-            except subprocess.TimeoutExpired: proc.kill()
+            try:
+                proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                proc.kill()
         _managed["tv_dashboard"] = None
         _kill_port(5174)
         log.info("TV dashboard arrete")
@@ -522,15 +507,6 @@ def _stop_sync(sid: str) -> dict:
         _managed["ollama"] = None
         result = stop_ollama()
         return result
-
-    if sid == "vite_dev":
-        proc = _managed.get("vite_dev")
-        if proc and proc.poll() is None:
-            proc.terminate()
-        _managed["vite_dev"] = None
-        _kill_port(5173)
-        log.info("Vite arrete")
-        return {"ok": True, "message": "Vite arrete"}
 
     return {"ok": False, "error": f"Service inconnu : {sid}"}
 
@@ -611,7 +587,7 @@ async def api_start_all():
 async def api_stop_all():
     results = {}
     await _stop_screen_watcher_via_backend()
-    for sid in ["tv_dashboard", "ollama", "vite_dev", "backend"]:
+    for sid in ["tv_dashboard", "ollama", "backend"]:
         results[sid] = await asyncio.to_thread(_stop_sync, sid)
     await _broadcast({"type": "bulk_update", "action": "stop-all", "results": results})
     return {"results": results}
@@ -620,7 +596,7 @@ async def api_stop_all():
 @app.post("/api/supervisor/restart-all")
 async def api_restart_all():
     await _stop_screen_watcher_via_backend()
-    for sid in ["tv_dashboard", "ollama", "vite_dev", "backend"]:
+    for sid in ["tv_dashboard", "ollama", "backend"]:
         await asyncio.to_thread(_stop_sync, sid)
     await asyncio.sleep(2)
     results = {}
@@ -636,7 +612,7 @@ async def api_restart_all():
 
 @app.get("/api/supervisor/{sid}/logs")
 async def api_logs(sid: str, lines: int = 50):
-    log_map = {"backend": LOGS_DIR / "backend.log", "tv_dashboard": LOGS_DIR / "tv.log", "vite_dev": LOGS_DIR / "vite.log"}
+    log_map = {"backend": LOGS_DIR / "backend.log", "tv_dashboard": LOGS_DIR / "tv.log"}
     f = log_map.get(sid)
     if not f or not f.exists():
         return {"logs": [], "message": "Pas de logs disponibles"}
@@ -908,7 +884,7 @@ async def ws_passthrough(client_ws: WebSocket):
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# FRONTEND — frontend/out prioritaire, web/dist en fallback
+# FRONTEND — export Next.js canonique uniquement
 # ══════════════════════════════════════════════════════════════════════════
 
 register_desktop_frontend_routes(app, FRONTEND_RESOLUTION)
@@ -1088,7 +1064,7 @@ async def lifespan(_app: FastAPI):
             pass
 
     # Arreter les services geres (ordre : dependants d'abord, backend en dernier)
-    for sid in ("vite_dev", "tv_dashboard", "ollama", "backend"):
+    for sid in ("tv_dashboard", "ollama", "backend"):
         try:
             _stop_sync(sid)
         except Exception:

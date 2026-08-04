@@ -11,7 +11,7 @@ un échec de pipeline) :
    régression de perf déclenche une alerte (jamais de modification
    automatique du code de l'assistant, voir ``scripts/self_healing.py``
    pour la version supervisée).
-3. **Build frontend** : ``pnpm run build`` (typecheck + Vite) si
+3. **Build frontend** : ``pnpm run build`` dans l'application Next.js si
    ``LOCAL_CI_RUN_FRONTEND_BUILD=true`` — désactivé par défaut car trop
    lent pour tourner à *chaque* commit ; à réserver au hook ``pre-push`` ou
    à un lancement manuel.
@@ -79,8 +79,8 @@ def step_tests(root: Path) -> dict:
     ok = result["returncode"] == 0
 
     try:
-        from scripts.perf_regression import alert_regression, record_and_check
         from agents.devagent.executor import git_current_sha
+        from scripts.perf_regression import alert_regression, record_and_check
 
         sha = git_current_sha(root)
         regression = record_and_check("jarvis", sha, result["duration_ms"])
@@ -96,13 +96,18 @@ def step_tests(root: Path) -> dict:
 
 
 def step_frontend_build(root: Path) -> dict | None:
-    """pnpm run build (typecheck + Vite) — seulement si activé (lent)."""
+    """Build de l'unique frontend Next.js — seulement si activé (lent)."""
     if not config.LOCAL_CI_RUN_FRONTEND_BUILD:
         return None
-    web_dir = root / "web"
-    if not (web_dir / "package.json").is_file() or not shutil.which("pnpm"):
-        return {"name": "frontend_build", "ok": True, "output": "skip (pnpm ou web/ absent)", "duration_ms": 0}
-    result = _run(["pnpm", "run", "build"], web_dir, timeout=180)
+    frontend_dir = root / "frontend"
+    if not (frontend_dir / "package.json").is_file() or not shutil.which("pnpm"):
+        return {
+            "name": "frontend_build",
+            "ok": True,
+            "output": "skip (pnpm ou frontend/ absent)",
+            "duration_ms": 0,
+        }
+    result = _run(["pnpm", "run", "build"], frontend_dir, timeout=180)
     return {
         "name": "frontend_build", "ok": result["returncode"] == 0,
         "output": (result["stdout"] + result["stderr"])[-2000:], "duration_ms": result["duration_ms"],

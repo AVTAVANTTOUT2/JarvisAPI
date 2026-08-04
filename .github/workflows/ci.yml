@@ -198,7 +198,7 @@ jobs:
         run: python -m pytest tests/ jarvis/tests agents/devagent -q
 
   frontend:
-    name: Frontend (typecheck + build)
+    name: Bibliothèque de vues desktop (tests + typecheck)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -222,8 +222,8 @@ jobs:
       - name: Tests unitaires (vitest)
         run: pnpm run test
 
-      - name: Typecheck + build Vite
-        run: pnpm run build
+      - name: Typecheck de la bibliothèque
+        run: pnpm run typecheck
 
   unified_frontend:
     name: Frontend unifié (tests + build)

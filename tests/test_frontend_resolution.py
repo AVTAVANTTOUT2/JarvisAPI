@@ -24,7 +24,7 @@ def _make_next(root: Path) -> Path:
     return out
 
 
-def _make_vite(root: Path) -> Path:
+def _make_retired_vite_build(root: Path) -> Path:
     dist = root / "web" / "dist"
     (dist / "assets").mkdir(parents=True)
     (dist / "index.html").write_text("<html>vite-root</html>", encoding="utf-8")
@@ -32,44 +32,35 @@ def _make_vite(root: Path) -> Path:
     return dist
 
 
-def test_both_builds_selects_next(tmp_path: Path) -> None:
+def test_legacy_build_does_not_change_next_selection(tmp_path: Path) -> None:
     _make_next(tmp_path)
-    _make_vite(tmp_path)
+    _make_retired_vite_build(tmp_path)
     res = resolve_desktop_frontend(tmp_path)
     assert res.kind == "next_canonical"
     assert res.relative_path == "frontend/out"
-    assert res.canonical_available is True
-    assert res.fallback_available is True
+    assert res.available is True
 
 
-def test_next_absent_vite_present(tmp_path: Path) -> None:
-    _make_vite(tmp_path)
+def test_retired_vite_build_is_never_selected(tmp_path: Path) -> None:
+    _make_retired_vite_build(tmp_path)
     res = resolve_desktop_frontend(tmp_path)
-    assert res.kind == "vite_fallback"
-    assert res.relative_path == "web/dist"
-    assert "fallback" in res.reason.lower() or "missing" in res.reason.lower()
+    assert res.kind == "missing"
+    assert res.root is None
+    assert res.available is False
 
 
-def test_next_empty_vite_valid(tmp_path: Path) -> None:
-    (tmp_path / "frontend" / "out").mkdir(parents=True)
-    _make_vite(tmp_path)
-    res = resolve_desktop_frontend(tmp_path)
-    assert res.kind == "vite_fallback"
-    assert res.canonical_available is False
-
-
-def test_next_valid_vite_absent(tmp_path: Path) -> None:
+def test_next_valid(tmp_path: Path) -> None:
     _make_next(tmp_path)
     res = resolve_desktop_frontend(tmp_path)
     assert res.kind == "next_canonical"
-    assert res.fallback_available is False
+    assert res.available is True
 
 
 def test_none_missing(tmp_path: Path) -> None:
     res = resolve_desktop_frontend(tmp_path)
     assert res.kind == "missing"
     assert res.root is None
-    assert res.checked == ("frontend/out", "web/dist")
+    assert res.checked == ("frontend/out",)
 
 
 def test_resolution_independent_of_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -99,13 +90,6 @@ def test_lookup_next_routes(tmp_path: Path) -> None:
     assert missing_asset is None
     unknown = lookup_desktop_static_file(res, "not-a-route")
     assert unknown is None
-
-
-def test_lookup_vite_spa_fallback(tmp_path: Path) -> None:
-    _make_vite(tmp_path)
-    res = resolve_desktop_frontend(tmp_path)
-    assert lookup_desktop_static_file(res, "chat") is not None
-    assert lookup_desktop_static_file(res, "assets/missing.js") is None
 
 
 def test_lookup_rejects_path_traversal(tmp_path: Path) -> None:
