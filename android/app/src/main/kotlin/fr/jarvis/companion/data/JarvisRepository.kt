@@ -54,10 +54,10 @@ class JarvisRepository(context: Context) : ChatSyncRemote {
             .getOrElse { JarvisApiResult.failure(it.message ?: "erreur réseau") }
     }
 
-    suspend fun registerPushToken(fcmToken: String): JarvisApiResult = withContext(Dispatchers.IO) {
-        if (fcmToken.isBlank()) return@withContext JarvisApiResult.failure("token FCM vide")
+    suspend fun registerPushToken(pushIdentifier: String): JarvisApiResult = withContext(Dispatchers.IO) {
+        if (pushIdentifier.isBlank()) return@withContext JarvisApiResult.failure("identifiant push vide")
         runCatching {
-            toResult(api().registerPushToken(bearer(), PushTokenRequest(fcmToken)))
+            toResult(api().registerPushToken(bearer(), PushTokenRequest(pushIdentifier)))
         }.getOrElse { JarvisApiResult.failure(it.message ?: "erreur réseau") }
     }
 

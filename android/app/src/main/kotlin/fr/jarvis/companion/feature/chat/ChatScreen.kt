@@ -53,10 +53,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import fr.jarvis.companion.core.database.ChatMessageEntity
 import fr.jarvis.companion.core.database.DeliveryState
 import fr.jarvis.companion.core.ui.components.ErrorCallout

@@ -16,10 +16,9 @@ class JarvisMessagingService : FirebaseMessagingService() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val repository by lazy { JarvisRepository(this) }
 
-    @Suppress("OVERRIDE_DEPRECATION")
-    override fun onNewToken(token: String) {
+    override fun onRegistered(installationId: String) {
         if (JarvisSettings.nativeToken(this).isNotEmpty()) {
-            scope.launch { repository.registerPushToken(token) }
+            scope.launch { repository.registerPushToken(installationId) }
         }
     }
 

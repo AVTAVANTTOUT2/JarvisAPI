@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.FirebaseApp
@@ -208,10 +209,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun initializeFcmIfNeeded() {
         if (!BuildConfig.FIREBASE_CONFIGURED) return
         if (FirebaseApp.initializeApp(app) == null) return
-        FirebaseMessaging.getInstance().token.addOnSuccessListener { token ->
-            if (!token.isNullOrEmpty()) {
-                viewModelScope.launch { repository.registerPushToken(token) }
-            }
+        FirebaseMessaging.getInstance().register().addOnFailureListener { error ->
+            Log.w(TAG, "Enregistrement FCM impossible", error)
         }
     }
 
@@ -222,6 +221,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     companion object {
+        private const val TAG = "JarvisMainViewModel"
+
         fun isOnline(context: Context): Boolean {
             val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
                 ?: return false

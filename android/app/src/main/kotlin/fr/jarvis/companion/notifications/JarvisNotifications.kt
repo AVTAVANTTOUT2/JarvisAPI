@@ -6,7 +6,6 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import fr.jarvis.companion.R
 import fr.jarvis.companion.services.JarvisLocationService
 import fr.jarvis.companion.ui.MainActivity
@@ -20,7 +19,6 @@ object JarvisNotifications {
     private const val LOCATION_NOTIFICATION_ID = 4101
 
     fun createChannels(context: Context) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
         manager.createNotificationChannel(
             NotificationChannel(DEFAULT, "JARVIS", NotificationManager.IMPORTANCE_DEFAULT),
@@ -94,12 +92,7 @@ object JarvisNotifications {
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            Notification.Builder(context, channel)
-        } else {
-            Notification.Builder(context)
-        }
-        return builder
+        return Notification.Builder(context, channel)
             .setSmallIcon(R.drawable.ic_launcher)
             .setContentTitle(title)
             .setContentText(body)
