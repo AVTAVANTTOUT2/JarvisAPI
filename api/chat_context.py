@@ -141,13 +141,15 @@ async def _send_tts_streaming(
         try:
             await ws.send_bytes(cached)
             last_tts.store(text, emotion, cached, audio_mime)
+        except asyncio.CancelledError:
+            await ws.send_json({"type": "speech_cancelled", "turn_id": turn_id})
+            raise
         except Exception as e:
             logger.error("[TTS] envoi cache spéculatif : %s", e)
-        finally:
-            if _cancelled():
-                await ws.send_json({"type": "speech_cancelled", "turn_id": turn_id})
-                return "cancelled"
-            await ws.send_json({"type": "speech_done", "turn_id": turn_id})
+        if _cancelled():
+            await ws.send_json({"type": "speech_cancelled", "turn_id": turn_id})
+            return "cancelled"
+        await ws.send_json({"type": "speech_done", "turn_id": turn_id})
         return "completed"
 
     request_id = turn_id or uuid.uuid4().hex
