@@ -310,13 +310,26 @@ async def _dispatch_with_session_gate(request: Request, call_next) -> Response:
     return await call_next(request)
 
 
+# Seul en-tête qu'une réponse a le droit de porter elle-même : une page HTML
+# statique fournit une CSP liée par hashes à son contenu exact, donc plus
+# stricte que la politique globale. Tout le reste est imposé ici.
+#
+# La frontière est nommée plutôt qu'implicite : accepter n'importe quel en-tête
+# déjà présent laisserait une route affaiblir silencieusement `X-Frame-Options`
+# ou `Referrer-Policy` en les posant avant le middleware. Un en-tête de sécurité
+# global qu'un handler peut désactiver n'en est plus un.
+_ROUTE_OVERRIDABLE_SECURITY_HEADERS = frozenset({"Content-Security-Policy"})
+
+
 def _apply_security_headers(response: Response) -> Response:
     """Ajoute la politique HTTP commune, y compris aux erreurs anticipées."""
     for key, value in _SECURITY_HEADERS.items():
-        # Une réponse HTML peut fournir une CSP plus stricte liée par hashes à
-        # son contenu exact. Les autres en-têtes restent globaux et identiques.
-        if key not in response.headers:
-            response.headers[key] = value
+        if (
+            key in _ROUTE_OVERRIDABLE_SECURITY_HEADERS
+            and key in response.headers
+        ):
+            continue
+        response.headers[key] = value
     if config.WEB_HTTPS or config.WEB_HTTPS_BEHIND_PROXY:
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
