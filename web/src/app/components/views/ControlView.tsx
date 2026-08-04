@@ -24,6 +24,8 @@ import {
 } from 'lucide-react'
 import {
   api,
+  isServedBySupervisor,
+  supervisorOrigin,
   type ServiceInfo,
   type SupervisorService,
   supervisorWsUrl,
@@ -81,6 +83,9 @@ export default function ControlView() {
   const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({})
   const [globalLoading, setGlobalLoading] = useState<GlobalAction>(null)
   const [error, setError] = useState<string | null>(null)
+  // Page ouverte ailleurs que sur le superviseur : ce n'est pas une panne,
+  // c'est une mauvaise adresse. Les deux etats meritent des messages opposes.
+  const [offOrigin, setOffOrigin] = useState(false)
 
   // Logs panel
   const [logsPanel, setLogsPanel] = useState<{
@@ -106,24 +111,33 @@ export default function ControlView() {
   }, [])
 
   const fetchTopServices = useCallback(async () => {
+    // Le plan de controle n'existe que sur le processus superviseur, et le
+    // serveur y impose Origin == Host. Depuis une page servie par le backend,
+    // la route n'existe pas et le WebSocket est ferme en 4403 : appeler quand
+    // meme produirait un echec qu'on ne saurait pas distinguer d'une panne.
+    if (!isServedBySupervisor()) {
+      if (mountedRef.current) setOffOrigin(true)
+      return
+    }
     try {
       const data = await api.getSupervisorStatus()
       if (!mountedRef.current) return
       setTopServices(data.services)
       setSupervisorInfo(data.supervisor)
       // Status supervisor embarque deja les sous-services — source de verite
-      // meme si /api/supervisor/sub-services echoue (ex. page ouverte sur :8081).
+      // meme si /api/supervisor/sub-services echoue.
       hydrateSubServicesFromTop(data.services)
+      setOffOrigin(false)
       setError(null)
     } catch {
-      // Supervisor indisponible — fallback silencieux
       if (mountedRef.current) {
-        setError("Superviseur inaccessible — demarrez-le : ./scripts/launch_supervisor.sh")
+        setError("Superviseur injoignable sur cette origine — verifiez qu'il tourne : ./scripts/launch_supervisor.sh")
       }
     }
   }, [hydrateSubServicesFromTop])
 
   const fetchSubServices = useCallback(async () => {
+    if (!isServedBySupervisor()) return
     try {
       const data = await api.getSubServices()
       if (!mountedRef.current) return
@@ -146,6 +160,7 @@ export default function ControlView() {
     if (!mountedRef.current) return
 
     try {
+      if (!isServedBySupervisor()) return
       const url = supervisorWsUrl()
       const ws = new WebSocket(url)
       wsRef.current = ws
@@ -396,8 +411,17 @@ export default function ControlView() {
                   uptime {formatUptime(supervisorInfo.uptime_s)}
                 </span>
               )}
-              {error && (
-                <span className="text-[10px] text-amber-400/70 font-mono">{error}</span>
+              {offOrigin ? (
+                <a
+                  href={`${supervisorOrigin()}/control`}
+                  className="text-[10px] text-amber-400/90 font-mono underline underline-offset-2"
+                >
+                  Plan de controle indisponible ici — ouvrir sur {supervisorOrigin()}
+                </a>
+              ) : (
+                error && (
+                  <span className="text-[10px] text-amber-400/70 font-mono">{error}</span>
+                )
               )}
             </div>
           </div>

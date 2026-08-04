@@ -284,6 +284,13 @@ LANGUAGE = _get("LANGUAGE", "fr")
 TIMEZONE = _get("TIMEZONE", "Europe/Paris")
 USER_NAME = _get("USER_NAME", "Nolann")
 WEB_PORT = int(_get("WEB_PORT", "8080"))
+# Port du superviseur. Il sert le frontend bureau **et** proxifie /api/* vers le
+# backend : c'est le point d'entrée complet de l'application. Le plan de
+# contrôle (`/api/supervisor/*`, `/ws/supervisor`) n'existe que là, et le
+# serveur exige `Origin == Host` dessus — il n'est donc joignable qu'en même
+# origine. La valeur vit ici, et non dans le seul `supervisor.py`, pour que le
+# backend puisse dire à l'utilisateur où se trouve le plan de contrôle.
+SUPERVISOR_PORT = _positive_int("SUPERVISOR_PORT", 9000)
 # Sécurité par défaut : l'UI et l'API ne sont accessibles que depuis ce Mac.
 # Toute adresse non loopback exige WEB_ALLOW_NETWORK_BIND=true et des
 # protections supplémentaires vérifiées au démarrage.

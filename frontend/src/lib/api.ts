@@ -615,19 +615,47 @@ export const api = {
     ),
 }
 
-/** URL WebSocket vers le superviseur (port 9000). */
+/**
+ * Port du superviseur. Doit rester aligné sur `config.SUPERVISOR_PORT` ; un
+ * test Python le vérifie, parce qu'une divergence ne se verrait qu'à l'usage,
+ * sous la forme d'un plan de contrôle qui se dit injoignable.
+ */
+export const SUPERVISOR_PORT = 9000
+
+/**
+ * La page est-elle servie par le superviseur lui-même ?
+ *
+ * Le plan de contrôle (`/api/supervisor/*`, `/ws/supervisor`) n'existe que sur
+ * le processus superviseur, et le serveur y exige `Origin == Host` : une page
+ * servie par le backend ne peut donc **pas** l'atteindre, ni en REST (la route
+ * n'existe pas) ni en WebSocket (fermeture 4403). Le savoir avant d'appeler
+ * évite d'afficher une panne inexistante.
+ */
+export function isServedBySupervisor(): boolean {
+  if (typeof window === 'undefined') return false
+  return window.location.port === String(SUPERVISOR_PORT)
+}
+
+/** Origine du superviseur, pour proposer le bon lien à l'utilisateur. */
+export function supervisorOrigin(): string {
+  if (typeof window === 'undefined') return `http://127.0.0.1:${SUPERVISOR_PORT}`
+  const { protocol, hostname } = window.location
+  return `${protocol}//${hostname}:${SUPERVISOR_PORT}`
+}
+
+/**
+ * URL WebSocket du superviseur — **toujours en même origine**.
+ *
+ * Une version antérieure visait `hostname:9000` depuis une page servie par le
+ * backend. Le serveur refuse ce flux (`browser_websocket_origin_allowed`, code
+ * 4403) : la connexion échouait en silence et l'interface l'interprétait comme
+ * un superviseur arrêté. Pointer ailleurs qu'en même origine ne peut pas
+ * marcher tant que le contrôle d'origine tient — et il doit tenir.
+ */
 export function supervisorWsUrl(): string {
-  const p =
-    typeof window !== 'undefined' && window.location.protocol === 'https:'
-      ? 'wss:'
-      : 'ws:'
   if (typeof window === 'undefined') {
-    return 'ws://127.0.0.1:9000/ws/supervisor'
+    return `ws://127.0.0.1:${SUPERVISOR_PORT}/ws/supervisor`
   }
-  // Déjà servi par le supervisor → même origine (pas de :9000 forcé).
-  if (window.location.port === '9000') {
-    return `${p}//${window.location.host}/ws/supervisor`
-  }
-  // Page FastAPI (8081) / Vite (5173) → joindre le port dédié du supervisor.
-  return `${p}//${window.location.hostname}:9000/ws/supervisor`
+  const p = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  return `${p}//${window.location.host}/ws/supervisor`
 }

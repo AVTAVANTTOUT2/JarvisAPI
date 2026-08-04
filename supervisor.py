@@ -57,7 +57,10 @@ from env_loader import load_jarvis_env
 load_jarvis_env()
 import config
 
-SUPERVISOR_PORT = int(os.getenv("SUPERVISOR_PORT", "9000"))
+# Source unique : `config.SUPERVISOR_PORT`. Le backend a besoin de la même
+# valeur pour indiquer où vit le plan de contrôle, et deux lectures
+# indépendantes finiraient par diverger.
+SUPERVISOR_PORT = config.SUPERVISOR_PORT
 BACKEND_PORT = config.WEB_PORT
 CERT_PATH = config.SSL_CERT_PATH
 KEY_PATH = config.SSL_KEY_PATH
