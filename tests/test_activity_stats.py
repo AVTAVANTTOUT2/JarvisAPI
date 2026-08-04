@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 import sys
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
@@ -32,11 +33,22 @@ def _insert_message(
     tokens_out: int = 20,
     cost: float = 0.001,
     role: str = "assistant",
+    usage_estimated: bool = False,
 ) -> None:
     conn.execute(
-        """INSERT INTO messages (conversation_id, role, content, tokens_in, tokens_out, cost, created_at)
-           VALUES (?, ?, 'x', ?, ?, ?, ?)""",
-        (conv_id, role, tokens_in, tokens_out, cost, created_at),
+        """INSERT INTO messages (
+               conversation_id, role, content, tokens_in, tokens_out,
+               cost, usage_estimated, created_at
+           ) VALUES (?, ?, 'x', ?, ?, ?, ?, ?)""",
+        (
+            conv_id,
+            role,
+            tokens_in,
+            tokens_out,
+            cost,
+            int(usage_estimated),
+            created_at,
+        ),
     )
 
 
@@ -51,6 +63,58 @@ def test_daily_stats_fills_missing_days(tmp_db):
     dates = [d["date"] for d in stats]
     assert dates == sorted(dates)
     assert dates[-1] == now.date().isoformat()
+
+
+def test_usage_estimation_migration_is_idempotent() -> None:
+    from database.migrations import _migrate_message_usage_estimation
+
+    conn = sqlite3.connect(":memory:")
+    try:
+        conn.execute(
+            """CREATE TABLE messages (
+                   id INTEGER PRIMARY KEY,
+                   content TEXT NOT NULL
+               )"""
+        )
+        conn.execute("INSERT INTO messages (content) VALUES ('historique')")
+
+        _migrate_message_usage_estimation(conn)
+        _migrate_message_usage_estimation(conn)
+
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(messages)")}
+        assert "usage_estimated" in columns
+        assert conn.execute(
+            "SELECT usage_estimated FROM messages"
+        ).fetchone()[0] == 0
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                "INSERT INTO messages (content, usage_estimated) VALUES ('invalide', 2)"
+            )
+    finally:
+        conn.close()
+
+
+def test_save_message_persists_usage_estimation(tmp_db) -> None:
+    from database import create_conversation, get_db, save_message
+
+    conversation_id = create_conversation()
+    message_id = save_message(
+        conversation_id,
+        "assistant",
+        "Réponse comptabilisée localement",
+        tokens_in=12,
+        tokens_out=6,
+        cost=0.001,
+        usage_estimated=True,
+    )
+
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT usage_estimated FROM messages WHERE id = ?",
+            (message_id,),
+        ).fetchone()
+    assert row is not None
+    assert row["usage_estimated"] == 1
 
 
 def test_daily_stats_aggregates_and_splits_voice(tmp_db):
@@ -70,7 +134,14 @@ def test_daily_stats_aggregates_and_splits_voice(tmp_db):
             tokens_out=50,
             role="user",
         )
-        _insert_message(conn, 2, f"{today} 11:00:00", tokens_in=5, tokens_out=5)
+        _insert_message(
+            conn,
+            2,
+            f"{today} 11:00:00",
+            tokens_in=5,
+            tokens_out=5,
+            usage_estimated=True,
+        )
         _insert_message(conn, 1, f"{yesterday} 09:00:00", role="user")
 
     stats = get_daily_activity_stats(7, now=now)
@@ -81,6 +152,7 @@ def test_daily_stats_aggregates_and_splits_voice(tmp_db):
     assert last["turn_count"] == 1
     assert last["tokens_in"] == 105
     assert last["tokens_out"] == 55
+    assert last["estimated_usage_count"] == 1
     assert prev["msg_count"] == 1
     assert prev["voice_count"] == 0
     assert prev["turn_count"] == 1
@@ -107,7 +179,12 @@ def test_daily_stats_respect_paris_dst_boundaries(
     start_utc: str,
     end_utc: str,
 ):
-    from database import get_cost_summary, get_daily_activity_stats, get_db, get_usage_stats
+    from database import (
+        get_cost_summary,
+        get_daily_activity_stats,
+        get_db,
+        get_usage_stats,
+    )
 
     monkeypatch.setattr("config.TIMEZONE", "Europe/Paris")
     start = datetime.strptime(start_utc, "%Y-%m-%d %H:%M:%S")
@@ -138,13 +215,17 @@ def test_daily_stats_respect_paris_dst_boundaries(
     assert usage["msg_count"] == 2
     assert usage["turn_count"] == 2
     assert costs["today"]["msg_count"] == 2
+    assert daily[0]["estimated_usage_count"] == 0
+    assert usage["estimated_usage_count"] == 0
+    assert costs["today"]["estimated_usage_count"] == 0
 
 
 def test_stats_weekly_endpoint(tmp_db, monkeypatch: pytest.MonkeyPatch):
     """L'endpoint calcule variations jour/jour et totaux."""
+    from fastapi.testclient import TestClient
+
     import main
     from database import get_db
-    from fastapi.testclient import TestClient
 
     now = datetime(2026, 7, 24, 12, tzinfo=ZoneInfo("Europe/Paris"))
     monkeypatch.setattr("database.stats.local_datetime", lambda value=None: now)
@@ -168,7 +249,14 @@ def test_stats_weekly_endpoint(tmp_db, monkeypatch: pytest.MonkeyPatch):
             tokens_out=20,
             role="user",
         )
-        _insert_message(conn, 1, f"{today} 09:00:01", tokens_in=20, tokens_out=20)
+        _insert_message(
+            conn,
+            1,
+            f"{today} 09:00:01",
+            tokens_in=20,
+            tokens_out=20,
+            usage_estimated=True,
+        )
         _insert_message(
             conn,
             1,
@@ -189,6 +277,7 @@ def test_stats_weekly_endpoint(tmp_db, monkeypatch: pytest.MonkeyPatch):
     assert len(body["days"]) == 7
     assert body["totals"]["msg_count"] == 5
     assert body["totals"]["turn_count"] == 3
+    assert body["totals"]["estimated_usage_count"] == 1
     # 4 messages aujourd'hui vs 1 hier → +300 %
     assert body["change"]["messages_pct"] == 300.0
     # 2 messages utilisateur aujourd'hui vs 1 hier → +100 % de tours.

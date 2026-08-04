@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS messages (
     tokens_in INTEGER,
     tokens_out INTEGER,
     cost REAL,
+    usage_estimated INTEGER NOT NULL DEFAULT 0 CHECK(usage_estimated IN (0, 1)),
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 

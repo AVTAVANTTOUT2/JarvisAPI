@@ -456,6 +456,7 @@ async def _process_message(
                     tokens_in=final_meta.get("tokens_in", 0),
                     tokens_out=final_meta.get("tokens_out", 0),
                     cost=final_meta.get("cost", 0.0),
+                    usage_estimated=final_meta.get("usage_estimated", False),
                 )
             except Exception as e:
                 logger.error("Erreur save assistant message : %s", e)

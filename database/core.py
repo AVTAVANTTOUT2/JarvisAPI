@@ -144,7 +144,8 @@ def get_usage_stats(*, now: datetime | None = None) -> dict:
                       COALESCE(SUM(CASE WHEN role = 'user' THEN 1 ELSE 0 END), 0) as turn_count,
                       COALESCE(SUM(tokens_in), 0) as total_in,
                       COALESCE(SUM(tokens_out), 0) as total_out,
-                      COALESCE(SUM(cost), 0) as total_cost
+                      COALESCE(SUM(cost), 0) as total_cost,
+                      COALESCE(SUM(usage_estimated), 0) as estimated_usage_count
                FROM messages
                WHERE created_at >= ? AND created_at < ?""",
             (start_utc, end_utc),

@@ -31,12 +31,25 @@ def save_message(
     tokens_in: int = 0,
     tokens_out: int = 0,
     cost: float = 0.0,
+    usage_estimated: bool = False,
 ) -> int:
     with get_db() as conn:
         cur = conn.execute(
-            """INSERT INTO messages (conversation_id, role, content, agent, model, tokens_in, tokens_out, cost)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (conversation_id, role, content, agent, model, tokens_in, tokens_out, cost),
+            """INSERT INTO messages (
+                   conversation_id, role, content, agent, model,
+                   tokens_in, tokens_out, cost, usage_estimated
+               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                conversation_id,
+                role,
+                content,
+                agent,
+                model,
+                tokens_in,
+                tokens_out,
+                cost,
+                int(bool(usage_estimated)),
+            ),
         )
         message_id = int(cur.lastrowid)
     event_bus.emit_nowait(MessageSent(conversation_id, message_id, role, content))

@@ -681,6 +681,16 @@ def _migrate_conversations(conn: sqlite3.Connection) -> None:
             pass
 
 
+def _migrate_message_usage_estimation(conn: sqlite3.Connection) -> None:
+    """Marque les comptages LLM estimés sans altérer les messages historiques."""
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(messages)").fetchall()}
+    if "usage_estimated" not in columns:
+        conn.execute(
+            "ALTER TABLE messages ADD COLUMN usage_estimated INTEGER NOT NULL "
+            "DEFAULT 0 CHECK(usage_estimated IN (0, 1))"
+        )
+
+
 def _migrate_conversation_document_consent(conn: sqlite3.Connection) -> None:
     """Les documents historiques restent exclus du cloud par défaut."""
     columns = {
@@ -1292,6 +1302,7 @@ def run_migrations(conn: sqlite3.Connection) -> None:
     _migrate_people_imessage_count(conn)
     _migrate_people_timeline_cache(conn)
     _migrate_conversations(conn)
+    _migrate_message_usage_estimation(conn)
     _migrate_conversation_document_consent(conn)
     _migrate_app_settings(conn)
     _migrate_local_activity_timestamps_to_utc(conn)

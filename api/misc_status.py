@@ -74,7 +74,13 @@ async def api_status():
         stats = get_usage_stats()
     except Exception as e:
         logger.error(f"Erreur get_usage_stats : {e}")
-        stats = {"msg_count": 0, "total_in": 0, "total_out": 0, "total_cost": 0.0}
+        stats = {
+            "msg_count": 0,
+            "total_in": 0,
+            "total_out": 0,
+            "total_cost": 0.0,
+            "estimated_usage_count": 0,
+        }
 
     loc_payload: dict[str, Any] = {}
     try:
@@ -177,6 +183,7 @@ async def api_stats_weekly(days: int = 7):
         "turn_count": sum(d["turn_count"] for d in daily),
         "tokens_in": sum(d["tokens_in"] for d in daily),
         "tokens_out": sum(d["tokens_out"] for d in daily),
+        "estimated_usage_count": sum(d["estimated_usage_count"] for d in daily),
         "cost": round(sum(d["cost"] for d in daily), 6),
     }
     return {"days": daily, "change": change, "totals": totals}
