@@ -25,6 +25,20 @@ OSASCRIPT_TIMEOUT_LONG = 60.0
 # `is_available` active Mail puis interroge les comptes (premier lancement lent).
 MAIL_IS_AVAILABLE_TIMEOUT = 90.0
 _FAILURE_COOLDOWN = 120.0  # secondes avant de retenter après un échec
+
+# Disjoncteur sur timeouts consécutifs.
+#
+# Un `osascript` qui expire à 30 s n'a aucune raison de répondre au coup
+# suivant : Mail.app est bloqué, pas lent. L'ancien comportement retentait
+# immédiatement, donc chaque appel coûtait 2 × 30 s de travail bloqué — toutes
+# les deux minutes, puisque le watcher rappelle à `EMAIL_CHECK_INTERVAL`. La
+# machine passait ainsi la moitié de son temps à attendre un processus mort,
+# au détriment du moteur vocal local qui partage le même CPU.
+#
+# Après ce seuil, on cesse d'appeler pendant la fenêtre de repos. On ne perd
+# rien : ces appels échouaient déjà.
+_TIMEOUT_BREAKER_THRESHOLD = 2
+_TIMEOUT_BREAKER_COOLDOWN = 600.0  # 10 minutes
 PREVIEW_MAX_CHARS = 1000
 BODY_MAX_CHARS = 3000
 MSG_SEPARATOR = "---MSG---"
@@ -36,6 +50,8 @@ class AppleMailClient:
     def __init__(self):
         self._available: bool | None = None
         self._last_failed_check: float = 0.0
+        self._consecutive_timeouts: int = 0
+        self._breaker_open_until: float = 0.0
         logger.info("[Mail] Init AppleMailClient (AppleScript)")
 
     # ── Helpers ────────────────────────────────────────────────
@@ -46,16 +62,44 @@ class AppleMailClient:
         return escape_applescript_string(text)
 
     def _run_applescript(self, script: str, timeout: float | None = None) -> str | None:
-        """Exécute un AppleScript via osascript. Retourne stdout ou None. Une retry si timeout."""
+        """Exécute un AppleScript via osascript. Retourne stdout ou None.
+
+        Une seule reprise sur timeout, et un disjoncteur au-delà : Mail.app qui
+        n'a pas répondu en 30 s ne répondra pas davantage à la tentative
+        suivante, et chaque essai immobilise un thread pendant tout le délai.
+        """
+        now = time.time()
+        if now < self._breaker_open_until:
+            return None
+
         eff_timeout = timeout or OSASCRIPT_TIMEOUT
         for attempt in range(2):
             result = run_applescript(script, timeout=eff_timeout)
             if result.ok:
+                if self._consecutive_timeouts:
+                    logger.info(
+                        "[Mail] osascript répond de nouveau après %d timeout(s)",
+                        self._consecutive_timeouts,
+                    )
+                self._consecutive_timeouts = 0
                 return result.stdout
 
             if result.reason == "timeout":
-                logger.error("[Mail] osascript timeout (tentative %s/2, timeout=%.0fs)",
-                             attempt + 1, eff_timeout)
+                self._consecutive_timeouts += 1
+                if self._consecutive_timeouts >= _TIMEOUT_BREAKER_THRESHOLD:
+                    self._breaker_open_until = time.time() + _TIMEOUT_BREAKER_COOLDOWN
+                    self._available = None  # forcera un vrai test à la reprise
+                    logger.error(
+                        "[Mail] %d timeouts consécutifs — Mail.app ne répond pas. "
+                        "Appels suspendus %.0f min. Vérifiez que Mail.app est "
+                        "lancé et que l'autorisation Automation est accordée.",
+                        self._consecutive_timeouts, _TIMEOUT_BREAKER_COOLDOWN / 60,
+                    )
+                    return None
+                logger.warning(
+                    "[Mail] osascript timeout (tentative %s/2, timeout=%.0fs)",
+                    attempt + 1, eff_timeout,
+                )
                 if attempt == 0:
                     continue
                 return None
