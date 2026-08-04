@@ -25,17 +25,16 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 # ── 1. Proxy WebSocket ───────────────────────────────────────────────────────
 
 
-def test_ws_proxy_forwards_origin_and_host():
-    """Sans ``Origin``, le contrôle du backend est inconditionnellement faux.
+def test_ws_proxy_declares_the_browser_pair_with_a_token():
+    """Relayer ``Host`` ne suffit pas : la bibliothèque cliente le réécrit.
 
-    ``browser_websocket_origin_allowed()`` refuse toute connexion dont l'Origin
-    est absente. Un proxy qui ne la relaie pas transforme donc un contrôle de
-    sécurité en refus systématique — et le client, lui, reconnecte.
+    `websockets/client.py` fait `headers["Host"] = build_host(...)` depuis l'URI
+    de connexion, donc toute valeur passée en en-tête additionnel est écrasée en
+    silence. Le backend recevait l'Origin du navigateur avec le Host du backend
+    et refusait en 403 — indéfiniment. La paire réelle est donc **déclarée**,
+    et authentifiée par le jeton privé du superviseur.
     """
     import supervisor
-
-    forwarded = {name.lower() for name in supervisor._WS_FORWARDED_HEADERS}
-    assert {"origin", "host", "cookie"} <= forwarded
 
     built = supervisor._build_ws_proxy_headers(
         {
@@ -45,22 +44,89 @@ def test_ws_proxy_forwards_origin_and_host():
         }
     )
     assert built["Origin"] == "https://127.0.0.1:9000"
-    assert built["Host"] == "127.0.0.1:9000"
     assert built["Cookie"] == "jarvis_session=abc"
+    assert built["X-Forwarded-Origin"] == "https://127.0.0.1:9000"
+    assert built["X-Forwarded-Host"] == "127.0.0.1:9000"
+    # Sans preuve d'identité, n'importe quel client local pourrait déclarer
+    # l'origine de son choix.
+    assert "X-Jarvis-Control-Token" in built
+
+    # `Host` n'est pas relayé : le poser donnerait l'illusion d'un contrôle.
+    assert "Host" not in built
 
 
-def test_ws_proxy_omits_absent_headers():
-    """Un en-tête absent ne doit pas devenir une chaîne vide.
+def test_ws_proxy_declares_nothing_without_a_complete_pair():
+    """Une déclaration incomplète ne doit pas être signée.
 
-    Une ``Origin: ''`` serait transmise, puis rejetée par la canonicalisation —
-    même symptôme qu'avant, pour une raison différente.
+    Signer un couple partiel reviendrait à demander au backend de faire
+    confiance à une valeur manquante.
     """
     import supervisor
 
     built = supervisor._build_ws_proxy_headers({"host": "127.0.0.1:9000"})
-    assert "Origin" not in built
-    assert "Cookie" not in built
-    assert built["Host"] == "127.0.0.1:9000"
+    assert "X-Forwarded-Origin" not in built
+    assert "X-Jarvis-Control-Token" not in built
+
+
+def test_backend_refuses_a_declared_origin_without_token(monkeypatch):
+    """Le jeton est la seule chose qui distingue le proxy d'un client local."""
+    from api import middleware
+
+    class _WS:
+        def __init__(self, headers):
+            self.headers = headers
+            self.client = type("C", (), {"host": "127.0.0.1"})()
+
+    forged = _WS({
+        "X-Forwarded-Origin": "https://evil.example",
+        "X-Forwarded-Host": "evil.example",
+    })
+    assert middleware._proxied_websocket_origin_allowed(forged) is False
+
+
+def test_backend_refuses_a_declared_pair_that_does_not_match(monkeypatch):
+    """La propriété vérifiée reste « origine == hôte visé ».
+
+    Le proxy rapporte les valeurs ; il ne décide pas à la place du backend.
+    """
+    from api import middleware
+
+    monkeypatch.setattr(
+        middleware, "verify_supervisor_control_token", lambda token: True
+    )
+
+    class _WS:
+        def __init__(self, headers):
+            self.headers = headers
+            self.client = type("C", (), {"host": "127.0.0.1"})()
+
+    mismatched = _WS({
+        middleware.SUPERVISOR_CONTROL_HEADER: "jeton",
+        "X-Forwarded-Origin": "https://evil.example",
+        "X-Forwarded-Host": "127.0.0.1:9000",
+    })
+    assert middleware._proxied_websocket_origin_allowed(mismatched) is False
+
+
+def test_backend_refuses_a_declared_origin_from_a_remote_peer(monkeypatch):
+    """Hors boucle locale, la déclaration n'a aucune valeur."""
+    from api import middleware
+
+    monkeypatch.setattr(
+        middleware, "verify_supervisor_control_token", lambda token: True
+    )
+
+    class _WS:
+        def __init__(self, headers):
+            self.headers = headers
+            self.client = type("C", (), {"host": "192.168.1.50"})()
+
+    remote = _WS({
+        middleware.SUPERVISOR_CONTROL_HEADER: "jeton",
+        "X-Forwarded-Origin": "https://127.0.0.1:9000",
+        "X-Forwarded-Host": "127.0.0.1:9000",
+    })
+    assert middleware._proxied_websocket_origin_allowed(remote) is False
 
 
 def test_ws_proxy_does_not_invent_an_origin():
@@ -76,6 +142,66 @@ def test_ws_proxy_does_not_invent_an_origin():
         assert suspicious not in source, (
             f"le proxy semble fabriquer une origine ({suspicious!r})"
         )
+
+
+def test_chat_ws_origin_check_accepts_the_declared_pair(monkeypatch):
+    """C'est `ws_session`, pas `middleware`, qui garde `/ws`.
+
+    Deux contrôles d'origine coexistent : `browser_websocket_origin_allowed`
+    protège `/ws/tv/events`, et `_websocket_cookie_origin_allowed` protège le
+    chat. Corriger le premier ne corrigeait rien pour le second — cette
+    duplication est ce qui a rendu le défaut si long à cerner.
+    """
+    from starlette.datastructures import Headers
+
+    from api import middleware
+    from api.ws_session import _websocket_cookie_origin_allowed
+
+    # Le jeton réel vit à côté de la base, que la suite isole. On double sa
+    # vérification : ce test porte sur la logique d'origine, pas sur le stockage
+    # du secret — celui-ci est couvert par les tests du plan de contrôle.
+    monkeypatch.setattr(
+        middleware, "verify_supervisor_control_token", lambda token: bool(token)
+    )
+
+    def supervisor_control_headers():
+        return {middleware.SUPERVISOR_CONTROL_HEADER: "jeton-de-test"}
+
+    class _WS:
+        def __init__(self, headers):
+            self.headers = headers
+            self.client = type("C", (), {"host": "127.0.0.1"})()
+            self.url = type("U", (), {"scheme": "wss"})()
+
+    def _mk(mapping):
+        return _WS(
+            Headers(raw=[(k.lower().encode(), v.encode()) for k, v in mapping.items()])
+        )
+
+    # Le proxy annonce l'origine du navigateur ; le `Host` réel est celui du
+    # backend, réécrit par la bibliothèque cliente.
+    proxied = {
+        "Origin": "https://127.0.0.1:9000",
+        "Host": "127.0.0.1:8081",
+        "X-Forwarded-Origin": "https://127.0.0.1:9000",
+        "X-Forwarded-Host": "127.0.0.1:9000",
+    }
+    proxied.update(supervisor_control_headers())
+    assert _websocket_cookie_origin_allowed(_mk(proxied)) is True
+
+    # Une déclaration incohérente reste refusée : le proxy rapporte, il ne
+    # décide pas.
+    forged = dict(proxied)
+    forged["X-Forwarded-Origin"] = "https://evil.example"
+    assert _websocket_cookie_origin_allowed(_mk(forged)) is False
+
+    # Sans jeton, la déclaration ne vaut rien.
+    unsigned = {k: v for k, v in proxied.items() if "Token" not in k}
+    assert _websocket_cookie_origin_allowed(_mk(unsigned)) is False
+
+    # Le chemin direct, même origine, n'est pas modifié.
+    direct = {"Origin": "https://127.0.0.1:8081", "Host": "127.0.0.1:8081"}
+    assert _websocket_cookie_origin_allowed(_mk(direct)) is True
 
 
 # ── 2. Réponse vide du modèle ────────────────────────────────────────────────

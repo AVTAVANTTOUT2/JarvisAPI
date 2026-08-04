@@ -958,16 +958,36 @@ async def proxy_to_backend(request: Request, path: str):
 # propre ``Origin`` avec le ``Host`` du superviseur, et la comparaison
 # échouerait toujours. Le contrôle redevient effectif au lieu d'être
 # inconditionnellement faux.
-_WS_FORWARDED_HEADERS = ("cookie", "origin", "host")
+_WS_FORWARDED_HEADERS = ("cookie", "origin")
 
 
 def _build_ws_proxy_headers(incoming: Any) -> dict[str, str]:
-    """En-têtes transmis au backend pour un WebSocket proxifié."""
+    """En-têtes transmis au backend pour un WebSocket proxifié.
+
+    ``Host`` n'est **pas** relayé tel quel : la bibliothèque cliente le réécrit
+    depuis l'URI de connexion (`headers["Host"] = build_host(...)`), donc toute
+    valeur passée ici serait écrasée en silence. Le backend recevait ainsi
+    l'Origin du navigateur avec le Host du backend, refusait en 403, et le
+    navigateur reconnectait sans fin.
+
+    La paire réellement vue par le navigateur est donc **déclarée** dans des
+    en-têtes dédiés, et le superviseur prouve son identité par le même jeton
+    privé que ``/api/control/*``. La propriété vérifiée côté backend est
+    inchangée — origine et hôte doivent correspondre — seule leur source
+    diffère.
+    """
     headers: dict[str, str] = {}
     for name in _WS_FORWARDED_HEADERS:
         value = incoming.get(name)
         if value:
-            headers[name.title() if name != "host" else "Host"] = value
+            headers[name.title()] = value
+
+    origin = incoming.get("origin")
+    host = incoming.get("host")
+    if origin and host:
+        headers["X-Forwarded-Origin"] = origin
+        headers["X-Forwarded-Host"] = host
+        headers.update(supervisor_control_headers())
     return headers
 
 @app.websocket("/ws")
