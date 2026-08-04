@@ -64,8 +64,8 @@ Banc du dépôt, voix `jarvis-fr`, trois passages par phrase :
 | | Fish S2 Pro | Qwen3-TTS |
 |---|---:|---:|
 | Chargement | 3 340 ms | 1 469 ms |
-| Premier son (chaud, médiane) | 4 886 ms | 523 ms |
-| Facteur temps réel | 5,75 | 0,564 |
+| Premier son (chaud, médiane) | 4 886 ms | 445 ms |
+| Facteur temps réel | 5,75 | 0,524 |
 | Poids sur disque | 6,7 Go | 1,7 Go |
 | Diffusion | segmentée | native |
 | Licence | recherche / non commercial | Apache 2.0 |

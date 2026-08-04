@@ -851,7 +851,7 @@ Quatre décisions structurantes :
   — mais il n'est plus la seule source de fragments. Le **premier** segment
   obéit à des seuils plus courts (`TTS_FIRST_CHUNK_*`) : il est le seul dont la
   longueur se paie en silence pur. Mesuré sur Mac mini M4, voix `jarvis-fr`,
-  trois passages par phrase : **premier son 523 ms, facteur temps réel 0,564**
+  trois passages par phrase : **premier son 445 ms, facteur temps réel 0,524**
   (`python scripts/benchmark_tts.py --provider qwen3_local --runs 3`).
 - **Le moteur précédent a été retiré sur mesure, pas par goût.** Il exigeait
   189 Go/s de bande passante mémoire soutenue pour parler en temps réel, contre

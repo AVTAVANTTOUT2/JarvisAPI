@@ -65,7 +65,7 @@ longueur du premier énoncé envoyé au moteur et permet d'annuler à une fronti
 propre. Il n'est simplement plus la seule source de fragments.
 
 **Mesuré** sur Mac mini M4, voix `jarvis-fr`, trois passages par phrase :
-premier son à **523 ms** (médiane à chaud), facteur temps réel **0,564**. Le
+premier son à **445 ms** (médiane à chaud), facteur temps réel **0,524**. Le
 détail est dans [QWEN3_LOCAL_STATUS.md](QWEN3_LOCAL_STATUS.md) ; le rapport de
 rejet du moteur précédent, plafonné par la bande passante mémoire de la
 machine, dans [archive/FISH_M4_VALIDATION.md](archive/FISH_M4_VALIDATION.md).

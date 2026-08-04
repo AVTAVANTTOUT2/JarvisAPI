@@ -29,8 +29,8 @@ code :
 |---|---|
 | `clone_mode` | **`icl+speaker_embedding`** |
 | Fichier de référence | `voices/jarvis-fr/reference.wav` |
-| Durée de la référence | **16 020 ms** (384 480 échantillons à 24 kHz) |
-| Transcript | `voices/jarvis-fr/transcript.txt` — 313 caractères |
+| Durée de la référence | **6 960 ms** (167 062 échantillons à 24 kHz) |
+| Transcript | `voices/jarvis-fr/transcript.txt` — 133 caractères, texte humain vérifié |
 | `reference_text_used` | `true` |
 | Langue transmise | `french` |
 | Diffusion | `native`, intervalle 0,4 s (5 trames) |
@@ -44,6 +44,34 @@ mécanismes opèrent ensemble.
 La voie ICL relève d'office la pénalité de répétition à 1,5 pour éviter la
 dégénérescence des codes sur un préfixe long — la valeur demandée (1,05) est
 donc ignorée, volontairement, côté mlx-audio.
+
+## Pourquoi une référence de 7 s et non de 16
+
+Le profil a d'abord porté 16,02 s d'échantillon. Quatre variantes ont été
+générées avec le même texte, la même graine et les mêmes paramètres, puis
+écoutées ; le propriétaire de la voix a retenu le mode ICL avec référence
+courte. La référence a donc été recoupée sur une **fin de phrase** — 6,84 s,
+plus 120 ms pour ne pas rogner la consonne finale — au lieu d'une coupe
+arbitraire au milieu d'un mot.
+
+Le gain n'est pas seulement subjectif : le prefill ICL est proportionnel à la
+longueur de la référence.
+
+| Référence | Premier son (médiane) | RTF |
+|---|---:|---:|
+| 16,02 s | 523 ms | 0,564 |
+| **6,96 s** | **445 ms** | **0,524** |
+
+Un détail a été corrigé au passage, et il comptait. La transcription de la
+variante courte avait été produite automatiquement et comportait une erreur :
+« Je lui ai volontiers de préparer un café » au lieu de « J'aurais volontiers
+préparé un café ». En mode ICL, c'est la transcription qui aligne le texte sur
+l'audio — une erreur y fait dériver la voix au lieu de l'affiner. Le transcript
+de production est repris **mot pour mot** du texte humain vérifié.
+
+Les caches `reference.npy` / `.npz` ont été supprimés du profil : ils portaient
+les 16 s d'origine, ce backend ne les lit pas, et les conserver aurait laissé
+croire à une source de vérité qui n'en est plus une.
 
 ## Paramètres d'inférence
 
@@ -61,21 +89,25 @@ lang_code            french
 ## Mesures — Mac mini M4, trois passages par phrase
 
 ```
-Chargement du modèle        1 494 ms   (moteur 1 960 Mo résidents)
-Premier son (chaud, médiane)  523 ms   cible < 1 500, idéal < 800
-Facteur temps réel (médiane)   0,564   cible < 1, idéal < 0,6
+Chargement du modèle        1 223 ms   (moteur 1 957 Mo résidents)
+Premier son (chaud, médiane)  445 ms   cible < 1 500, idéal < 800
+Facteur temps réel (médiane)   0,524   cible < 1, idéal < 0,6
 ```
 
 | Phrase | Premier son | RTF |
 |---|---:|---:|
-| courte (20 car.) | 519–528 ms | 0,72–0,74 |
-| moyenne (100 car.) | 517–534 ms | 0,556–0,569 |
-| longue (multi-phrases) | 520–523 ms | 0,547–0,551 |
+| courte (20 car.) | 442–450 ms | 0,548 |
+| moyenne (100 car.) | 444–445 ms | 0,513–0,525 |
+| longue (multi-phrases) | 443–445 ms | 0,511–0,523 |
 
-Le RTF plus élevé des phrases courtes n'est pas une anomalie : les ~520 ms
-d'amorçage, constants, pèsent proportionnellement plus sur un énoncé bref.
+Le premier son ne dépend plus de la longueur de l'énoncé : 442 à 450 ms sur les
+trois phrases. C'est le signe que le coût fixe — prefill de la référence, puis
+premier bloc de diffusion — domine, et qu'il est court.
 
-Un RTF de 0,564 signifie qu'une seconde d'audio se produit en 0,56 s : la
+Le RTF plus élevé des phrases courtes n'est pas une anomalie : l'amorçage,
+constant, pèse proportionnellement plus sur un énoncé bref.
+
+Un RTF de 0,524 signifie qu'une seconde d'audio se produit en 0,52 s : la
 synthèse prend de l'avance sur la lecture au lieu d'accumuler du retard. C'est
 la condition de la conversation continue.
 
@@ -88,8 +120,8 @@ Mesuré sur parole humaine réelle (5,96 s de français) et sur le vrai moteur :
 | STT `large-v3-turbo` | 5 052 ms | **2 631 ms** | mesuré |
 | Orchestration + file | — | 25 ms | mesuré |
 | Premier token LLM DeepSeek | — | 2 218 ms | mesuré, variance 1 270–9 323 ms |
-| Premier PCM | 1 433 ms (warmup) | **536 ms** | mesuré |
-| **Fin de parole → premier son** | — | **≈ 5 410 ms** | **composition** |
+| Premier PCM | 1 223 ms (warmup) | **445 ms** | mesuré |
+| **Fin de parole → premier son** | — | **≈ 5 320 ms** | **composition** |
 
 La dernière ligne est une composition arithmétique, **pas** une mesure unique
 de bout en bout : piloter le VAD et le micro demande une intervention humaine,
@@ -100,10 +132,10 @@ Ce que le changement de moteur déplace :
 
 ```
 avant  2631 + 25 + 2218 + 4886  ≈  9 760 ms   TTS = 50 % du total
-après  2631 + 25 + 2218 +  536  ≈  5 410 ms   TTS = 10 % du total
+après  2631 + 25 + 2218 +  445  ≈  5 320 ms   TTS =  8 % du total
 ```
 
-Environ 4,35 secondes retirées, et le goulot change de nature : le TTS n'est
+Environ 4,44 secondes retirées, et le goulot change de nature : le TTS n'est
 plus le maillon dominant, le **STT** l'est. Le passage du modèle STT à `small`
 le ramènerait à ~600 ms pour une transcription identique sur les énoncés de
 test — c'est le prochain gain évident, et il est hors de ce lot.
@@ -133,7 +165,7 @@ Le warmup publie l'état vocal effectif, côté sidecar comme côté fournisseur
 [qwen3-local] Qwen3 voice ready
 [qwen3-local] voice=jarvis-fr
 [qwen3-local] clone_mode=icl+speaker_embedding
-[qwen3-local] reference_duration_ms=16020
+[qwen3-local] reference_duration_ms=6960
 [qwen3-local] reference_text_used=true
 [qwen3-local] language=french
 [qwen3-local] streaming=native

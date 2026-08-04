@@ -29,9 +29,11 @@ Trois contraintes qui ne se devinent pas :
   fréquence dans l'en-tête ; un tableau d'échantillons passé directement serait
   cru sur parole et produirait une voix transposée, sans aucune exception.
 - **Une durée de référence plus longue n'améliore pas mécaniquement le
-  résultat.** Mesuré : entre 6 s et 16 s, l'écart de latence est marginal
-  (203 → 232 ms en `speaker_embedding`, 503 → 521 ms en `icl`) et la
-  ressemblance ne suit pas une règle simple. Écoutez avant de trancher.
+  résultat, et elle se paie.** En mode `icl`, le prefill est proportionnel à la
+  longueur de la référence : passer de 16,02 s à 6,96 s a fait tomber le premier
+  son de 523 à 445 ms et le RTF de 0,564 à 0,524. La ressemblance, elle, ne suit
+  aucune règle simple — écoutez avant de trancher, puis coupez sur une **fin de
+  phrase** pour que la transcription reste exacte.
 
 ## Choisir le mode de clonage
 
@@ -53,6 +55,12 @@ Mesuré sur Mac mini M4, même texte, même graine, mêmes paramètres :
 | `speaker_embedding` | 16,02 s | 232 ms | 0,508 | 19 |
 | `icl` | 5,96 s | 503 ms | 0,553 | 17 |
 | `icl` | 16,02 s | 521 ms | 0,591 | 15 |
+
+**Choix retenu en production : `icl`, référence recoupée à 6,96 s** sur une fin
+de phrase, avec la transcription humaine exacte. Mesuré ensuite sur le banc :
+premier son 445 ms, RTF 0,524 — meilleur que les quatre variantes ci-dessus,
+parce que le prefill ICL est proportionnel à la longueur de la référence et que
+la transcription auto de la variante 6 s comportait une erreur.
 
 Les quatre passent largement les seuils de temps réel (premier son < 1,5 s,
 RTF < 1). Le mode par vecteur de locuteur est 2,4 fois plus rapide au premier
