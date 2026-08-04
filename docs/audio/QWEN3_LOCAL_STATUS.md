@@ -79,6 +79,35 @@ Un RTF de 0,564 signifie qu'une seconde d'audio se produit en 0,56 s : la
 synthèse prend de l'avance sur la lecture au lieu d'accumuler du retard. C'est
 la condition de la conversation continue.
 
+## Chaîne vocale complète
+
+Mesuré sur parole humaine réelle (5,96 s de français) et sur le vrai moteur :
+
+| Maillon | À froid | À chaud | Nature |
+|---|---:|---:|---|
+| STT `large-v3-turbo` | 5 052 ms | **2 631 ms** | mesuré |
+| Orchestration + file | — | 25 ms | mesuré |
+| Premier token LLM DeepSeek | — | 2 218 ms | mesuré, variance 1 270–9 323 ms |
+| Premier PCM | 1 433 ms (warmup) | **536 ms** | mesuré |
+| **Fin de parole → premier son** | — | **≈ 5 410 ms** | **composition** |
+
+La dernière ligne est une composition arithmétique, **pas** une mesure unique
+de bout en bout : piloter le VAD et le micro demande une intervention humaine,
+et le maillon LLM est un appel distant que la suite de tests bloque
+délibérément. Présenter une somme comme une mesure serait malhonnête.
+
+Ce que le changement de moteur déplace :
+
+```
+avant  2631 + 25 + 2218 + 4886  ≈  9 760 ms   TTS = 50 % du total
+après  2631 + 25 + 2218 +  536  ≈  5 410 ms   TTS = 10 % du total
+```
+
+Environ 4,35 secondes retirées, et le goulot change de nature : le TTS n'est
+plus le maillon dominant, le **STT** l'est. Le passage du modèle STT à `small`
+le ramènerait à ~600 ms pour une transcription identique sur les énoncés de
+test — c'est le prochain gain évident, et il est hors de ce lot.
+
 ## Deux pièges désamorcés
 
 **La langue doit être nommée.** `lang_code="auto"` — le défaut de mlx-audio —
