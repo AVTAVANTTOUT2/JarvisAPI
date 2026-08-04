@@ -31,8 +31,11 @@ SCAN_PATHS = (
 
 def test_canonical_builtin_defaults():
     """Constantes intégrées — indépendantes du .env utilisateur."""
-    assert config.DEFAULT_TTS_PROVIDER == "fish_local"
-    assert config.DEFAULT_TTS_MODEL_PATH == "mlx-community/fish-audio-s2-pro-8bit"
+    assert config.DEFAULT_TTS_PROVIDER == "qwen3_local"
+    assert (
+        config.DEFAULT_TTS_MODEL_PATH
+        == "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-6bit"
+    )
     assert config.DEFAULT_TTS_VOICE_PATH == "./voices/jarvis-fr"
     assert config.DEFAULT_TTS_DEVICE == "auto"
     assert config.DEFAULT_STT_ENGINE == "faster-whisper"

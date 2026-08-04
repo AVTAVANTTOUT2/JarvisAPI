@@ -1,56 +1,86 @@
-# Fish Audio local sur Apple Silicon — état réel
+# Fish Audio local sur Apple Silicon — verdict
 
-**Statut au 3 août 2026 : moteur unique `fish_local`, voix `jarvis-fr`
-préparée, poids en cours d'installation sur cette machine.**
+**Statut au 4 août 2026 : abandonné comme moteur de production sur Mac mini M4.
+Conservé sélectionnable (`TTS_PROVIDER=fish_local`) pour comparaison de qualité
+vocale et usages hors temps réel. Aucune optimisation supplémentaire n'est
+poursuivie.**
 
-## Ce qui est en place
+Le moteur de production est [Qwen3-TTS](QWEN3_LOCAL_STATUS.md).
 
-| Élément | État |
-|---|---|
-| Backend unique | `fish_local` — `current_local` / Kokoro retirés |
-| Voix active | `voices/jarvis-fr/` (metadata versionnée) |
-| Préparation auto | `scripts/prepare_jarvis_voice.py` |
-| Démos | `scripts/demo_jarvis_voice.py` → `data/voice-tests/` |
-| Sidecar | `native_audio/fish_local.py` + `fish_synthesize` |
-| Cache de référence | `reference.npy` / `.npz` chargé au warmup |
-| CUDA / cloud | aucun |
-| Clé API TTS | aucune |
+## Pourquoi : un plafond matériel, pas un défaut d'implémentation
 
-## Voix `jarvis-fr`
+Le codec de Fish (`fish_s1_dac`, `encoder_rates=[2,4,8,8]` puis
+`downsample_factor=(2,2)`) impose **21,53 trames par seconde d'audio** — valeur
+dérivée de la configuration puis confirmée par la mesure.
 
-Profil créé automatiquement depuis
-`VoixJARVIS_source_clonage_24k.wav` (master privé sous
-`data/private/voice-sources/jarvis-fr/`) :
+Chaque trame demande :
 
-- extrait choisi par score (énergie, stabilité, absence de clipping) ;
-- ~16 s de parole masculine française, phrases complètes ;
-- transcript local (faster-whisper, hors modification du moteur STT) ;
-- tenseur float32 pré-encodé pour un chargement immédiat.
+| Étape | Poids lus | Passes par trame | Total |
+|---|---:|---:|---:|
+| Backbone `fish_qwen3` (36 couches, dim 2560, ~4 G paramètres) | 4,26 Go | 1 | 4,26 Go |
+| Décodeur de profondeur (4 couches, 10 codebooks) | 0,451 Go | 10 | 4,51 Go |
+| **Par trame** | | | **8,77 Go** |
 
-## Installation des poids
+Bande passante mémoire soutenue mesurée sur cette machine, avec l'opération
+exacte du décodage (`mx.quantized_matmul` 8 bits, 8192×8192) : **68 à 74 Go/s**,
+contre 120 Go/s de pic théorique.
 
-```bash
-python scripts/download_tts_model.py            # ~6,7 Go, reprenable
-python scripts/download_tts_model.py --check
-# ou chemin local :
-# TTS_MODEL_PATH=./models/fish-audio-s2-pro-8bit
+Atteindre le temps réel demanderait `8,77 Go × 21,53 = 189 Go/s` soutenus.
+
+## La mesure qui clôt le débat
+
+Passe de backbone isolée, modèle réellement chargé, cache chaud :
+
+```
+backbone 1 passe : 54,71 ms
 ```
 
-Sur une liaison lente, le transfert peut prendre plusieurs heures. Ce n'est
-pas un défaut de l'intégration.
+Soit 4,26 Go / 54,7 ms = **78 Go/s** — le backbone tourne déjà au plafond de la
+machine. Il n'y a rien à y optimiser.
 
-## Validation une fois les poids présents
+Or `1 / 0,0547 = 18,3 trames/s`, alors qu'il en faut 21,53.
+
+> **Même avec un décodeur audio de coût nul, Fish ne peut pas descendre sous un
+> facteur temps réel de 1,18 sur cette machine.** Le décodeur ne peut pas être
+> nul : ses dix passes coûtent 0,451 Go chacune.
+
+Plancher réel avec une implémentation parfaite : `54,7 + 64 = 119 ms` par trame,
+soit **RTF ≈ 2,6**. Mesuré en pratique : **4,0 à 5,7**.
+
+## Mesures
+
+Banc du dépôt, voix `jarvis-fr`, trois passages par phrase :
+
+| | Fish S2 Pro | Qwen3-TTS |
+|---|---:|---:|
+| Chargement | 3 340 ms | 1 469 ms |
+| Premier son (chaud, médiane) | 4 886 ms | 523 ms |
+| Facteur temps réel | 5,75 | 0,564 |
+| Poids sur disque | 6,7 Go | 1,7 Go |
+| Diffusion | segmentée | native |
+| Licence | recherche / non commercial | Apache 2.0 |
+
+Sur les trois démos identiques : **18,2×, 17,9× et 26,3×** plus rapide au
+premier son.
+
+## Ce qui rendrait Fish viable
+
+| Piste | RTF attendu | Verdict |
+|---|---:|---|
+| Optimisation logicielle parfaite | ~2,6 | insuffisant |
+| Quantification 4 bits | ~1,35 | insuffisant, qualité dégradée |
+| Mac mini M4 **Pro** (~160 Go/s réels) | ~1,2 | insuffisant |
+| Mac Studio M4 **Max** (~330 Go/s réels) | ~0,57 | fonctionnerait |
+
+Autrement dit : Fish demande une classe de machine supérieure, pas un meilleur
+code.
+
+## Installation, si besoin de comparer
 
 ```bash
-python scripts/benchmark_tts.py --runs 4 --json data/voice-tests/fish.json
-python scripts/demo_jarvis_voice.py
+python scripts/download_tts_model.py --engine fish   # ~6,7 Go
+TTS_PROVIDER=fish_local
 ```
-
-## Diffusion
-
-L'implémentation MLX ne diffuse pas au jeton (`NotImplementedError` sur
-`stream=True`). JARVIS déclare `streaming="segmented"` et joue chaque segment
-dès qu'il est prêt. Le premier son arrive avant la fin de la réponse.
 
 ## Licence des poids
 
