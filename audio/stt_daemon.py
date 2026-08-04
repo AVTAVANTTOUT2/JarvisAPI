@@ -567,17 +567,27 @@ class FallbackSTTBackend(DaemonSTTBackend):
                         result.avg_logprob,
                         quality_backend._model_size,
                     )
-                    if on_quality_fallback is not None:
-                        notice_task = asyncio.create_task(
-                            on_quality_fallback(),
-                            name="stt-quality-fallback-notice",
-                        )
-                        notice_task.add_done_callback(_log_quality_notice_failure)
+                    # L'accusé ne part **qu'une fois** la disponibilité du
+                    # modèle lourd établie. Le faire avant, c'était parler pour
+                    # couvrir un travail qui pouvait ne jamais avoir lieu : sur
+                    # une machine dont les poids qualité sont absents ou
+                    # incomplets — et le runtime interdit tout téléchargement —
+                    # `preload_sync` échoue, la transcription primaire est
+                    # rendue telle quelle, et l'utilisateur a entendu « Bien,
+                    # Monsieur. » pour rien. Le chargement est justement la
+                    # partie qui peut échouer ; l'accusé couvre la
+                    # transcription, qui est garantie de suivre.
                     loop = asyncio.get_running_loop()
                     quality_ready = quality_backend._loaded or await loop.run_in_executor(
                         None, quality_backend.preload_sync,
                     )
                     if quality_ready:
+                        if on_quality_fallback is not None:
+                            notice_task = asyncio.create_task(
+                                on_quality_fallback(),
+                                name="stt-quality-fallback-notice",
+                            )
+                            notice_task.add_done_callback(_log_quality_notice_failure)
                         quality_result = await quality_backend.transcribe_pcm(
                             pcm_bytes,
                             sample_rate=sample_rate,
@@ -605,12 +615,21 @@ def _needs_quality_fallback(result: TranscriptionResult) -> bool:
     ))
     if result.avg_logprob is not None and result.text.strip():
         return result.avg_logprob < threshold
-    # Un résultat vide avec forte probabilité de non-parole est un silence, pas
-    # une raison de charger le modèle lourd. Sans indicateur, l'échec normal de
-    # backend conserve le comportement de repli historique.
-    if not result.text.strip() and (result.max_no_speech_prob or 0.0) < 0.5:
-        return True
-    return False
+    if result.text.strip():
+        return False
+
+    # Transcription vide : il faut une **preuve** que de la parole a été perdue
+    # avant de payer le modèle lourd.
+    #
+    # faster-whisper ne rend aucun segment sur du silence ou du bruit — les
+    # deux indicateurs valent alors ``None``. Les lire comme « 0.0 », donc
+    # comme « certainement parlé », escaladait sur chaque bruit de fond : le
+    # modèle lourd était chargé, et l'accusé vocal qui couvre son temps de
+    # chargement faisait répondre JARVIS à personne. L'absence d'indicateur
+    # n'est pas une présomption de parole, c'est une absence de signal.
+    if result.max_no_speech_prob is None:
+        return False
+    return result.max_no_speech_prob < 0.5
 
 
 def _log_quality_notice_failure(task: asyncio.Task[None]) -> None:
