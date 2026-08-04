@@ -271,7 +271,21 @@ def test_pr_only_pr_creation_failure_is_terminal_and_explicit(
 
     assert job["status"] == "failed"
     assert job["pr_url"] is None
-    assert "Création de la PR échouée" in (job["error_message"] or "")
+
+    # ``update_cursor_job`` fait passer tout ``error_message`` par le rédacteur
+    # de persistance, qui inclut un NER français. Sur cette machine il étiquette
+    # « PR » comme une organisation et rend « Création de la [ORG_1] échouée ».
+    # Le sigle n'est donc pas assertable : le résultat dépendrait de la version
+    # du modèle spaCy installée, et la CI (qui ne résout pas le même modèle)
+    # verdissait pendant que la machine cible échouait.
+    #
+    # Ce qui est réellement contractuel — et vrai dans les deux environnements —
+    # c'est que l'échec est terminal et porte une cause identifiable.
+    message = job["error_message"] or ""
+    assert "échouée" in message
+    assert "test contrôlé" in message, (
+        "la cause précise doit survivre à la persistance, pas seulement le statut"
+    )
 
 
 def test_pr_creation_command_failure_returns_explicit_reason(

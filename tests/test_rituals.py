@@ -12,7 +12,7 @@ import pytest
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from database.time_buckets import local_datetime  # noqa: E402
+from database.time_buckets import local_datetime, sqlite_utc_timestamp  # noqa: E402
 
 
 @pytest.fixture
@@ -49,12 +49,19 @@ def test_productivity_score_deterministic(tmp_db):
     from database import get_db
     from scripts.rituals import compute_productivity_score
 
-    today = local_datetime().strftime("%Y-%m-%d %H:%M:%S")
+    # ``tasks.completed_at`` est rempli en production par ``CURRENT_TIMESTAMP``,
+    # donc en **UTC** (voir ``database/tasks.py``). Écrire ici l'heure locale
+    # rendait le test dépendant de l'heure de la journée : la fenêtre du score
+    # est bornée par la fin de journée locale convertie en UTC (22:00 UTC en
+    # CEST), si bien qu'après 22 h locales les tâches « faites » tombaient hors
+    # fenêtre et le score valait 38 au lieu de 62. La CI tourne en UTC, où local
+    # et UTC coïncident : elle ne pouvait pas voir cet échec.
+    completed_utc = sqlite_utc_timestamp()
     with get_db() as conn:
         for i in range(3):  # 3 tâches faites cette semaine
             conn.execute(
                 "INSERT INTO tasks (title, status, completed_at) VALUES (?, 'done', ?)",
-                (f"faite {i}", today),
+                (f"faite {i}", completed_utc),
             )
         conn.execute(  # 1 tâche en retard
             "INSERT INTO tasks (title, status, due_date) VALUES ('ratée', 'todo', '2020-01-01 10:00')")
