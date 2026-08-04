@@ -1,31 +1,22 @@
-"""Audit sécurité — secrets exposés et patterns dangereux, avec correction
-directe limitée aux cas mécaniquement sûrs.
+"""Audit sécurité report-only — secrets exposés et patterns dangereux.
 
 Deux catégories de constats :
 
 - **Secrets exposés** (sévérité high) : clés API / tokens en dur dans le
-  code source. Le correctif direct (opt-in, ``SECURITY_AUTO_FIX_ENABLED``)
-  remplace UNIQUEMENT le littéral détecté par un placeholder — jamais de
-  tentative de deviner comment le câbler correctement (trop risqué). Le
-  résultat : le secret n'est plus live dans le dépôt, et si le code
-  l'utilisait vraiment, il échoue bruyamment (auth error) plutôt que de
-  continuer à fuiter silencieusement.
+  code source. L'endpoint de correction délègue la remédiation à Cursor dans
+  un worktree avec PR obligatoire.
 - **Patterns dangereux** (sévérité medium) : ``eval``/``exec``,
   ``shell=True``, SQL construit par concaténation/f-string, ``pickle.loads``.
   Jamais de correctif automatique — corriger correctement exige de
   comprendre l'intention du code, ce qui n'est pas du ressort d'un scanner.
 
-Le scan périodique (job hebdomadaire) ne fait JAMAIS de correctif. L'endpoint
-API délègue toute correction à Cursor dans un worktree avec PR obligatoire.
-La fonction directe reste disponible pour un dépôt explicitement en mode
-``best_effort``, mais refuse le checkout JARVIS en mode ``pr_only``.
+Le scan périodique (job hebdomadaire) ne fait JAMAIS de correctif.
 """
 
 from __future__ import annotations
 
 import logging
 import re
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -152,58 +143,3 @@ def scan_and_report(root: Path | None = None) -> dict:
 
 def list_open_findings(limit: int = 200) -> list[dict]:
     return get_security_findings(status="open", limit=limit)
-
-
-def _is_git_tracked(path: Path, root: Path) -> bool:
-    try:
-        result = subprocess.run(
-            ["git", "ls-files", "--error-unmatch", str(path.relative_to(root))],
-            cwd=root, capture_output=True, text=True, timeout=10,
-        )
-        return result.returncode == 0
-    except (OSError, subprocess.SubprocessError):
-        return False
-
-
-def apply_safe_fix(finding: dict, root: Path | None = None) -> dict:
-    """Redaction mécanique d'un secret détecté — jamais pour les patterns dangereux.
-
-    Remplace le littéral quoté détecté par ``"REDACTED_BY_SECURITY_AUDIT"`` sur
-    la ligne exacte. N'agit que si ``SECURITY_AUTO_FIX_ENABLED`` est activé,
-    que la règle est une catégorie 'secret_*', et que le fichier est suivi par
-    git (donc trivialement réversible via ``git diff`` / ``git checkout``).
-    """
-    if not config.SECURITY_AUTO_FIX_ENABLED:
-        return {"applied": False, "reason": "SECURITY_AUTO_FIX_ENABLED désactivé"}
-    if finding["rule"] not in _SECRET_RULE_NAMES:
-        return {"applied": False, "reason": "correctif automatique réservé aux secrets (pas aux patterns dangereux)"}
-
-    root = (root or config.BASE_DIR).resolve()
-    if root == Path(config.BASE_DIR).resolve():
-        return {
-            "applied": False,
-            "reason": "mutation directe interdite ; déléguez via Cursor en PR-only",
-        }
-    path = root / finding["file"]
-    if not path.is_file():
-        return {"applied": False, "reason": "fichier introuvable"}
-    if not _is_git_tracked(path, root):
-        return {"applied": False, "reason": "fichier non suivi par git — correctif refusé par sécurité"}
-
-    lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
-    idx = finding["line"] - 1
-    if idx < 0 or idx >= len(lines):
-        return {"applied": False, "reason": "numéro de ligne invalide (fichier modifié depuis le scan)"}
-
-    original = lines[idx]
-    fixed = re.sub(r"""(['"])[^'"]{6,}\1""", r'\1REDACTED_BY_SECURITY_AUDIT\1', original)
-    if fixed == original:
-        return {"applied": False, "reason": "aucun littéral trouvé à cette ligne (déjà corrigé ?)"}
-
-    lines[idx] = fixed
-    path.write_text("".join(lines), encoding="utf-8")
-    from database import update_security_finding_status
-
-    update_security_finding_status(finding["id"], "fixed")
-    logger.warning("[security-audit] secret redacté : %s:%d", finding["file"], finding["line"])
-    return {"applied": True, "file": finding["file"], "line": finding["line"]}

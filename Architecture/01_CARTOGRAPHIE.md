@@ -123,11 +123,10 @@ JarvisAPI/
 │   ├── relationship_graph.py  ← Graphe vivant des relations
 │   ├── time_machine.py        ← Reconstruction chronologique journée
 │   ├── semantic_search.py     ← Recherche sémantique (embeddings locaux)
-│   ├── self_healing.py        ← Diagnostic + patch réversible
+│   ├── self_healing.py        ← Diagnostic + délégation PR-only
 │   ├── db_migrations.py       ← Gestionnaire de migrations
 │   ├── duplicate_scanner.py   ← Scan code dupliqué
 │   ├── security_audit.py      ← Audit sécurité
-│   ├── test_coverage_scan.py  ← Scan couverture tests
 │   ├── local_ci.py            ← CI locale
 │   ├── perf_regression.py     ← Détection régression perf
 │   ├── db_maintenance.py      ← Backup, purge, chiffrement

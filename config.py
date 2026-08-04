@@ -685,7 +685,6 @@ SECURITY_AUTO_FIX_ENABLED = _get("SECURITY_AUTO_FIX_ENABLED", "false").lower() =
 # ── Génération auto de tests manquants (opt-in, coûte des tokens) ──
 AUTO_TEST_GEN_ENABLED = _get("AUTO_TEST_GEN_ENABLED", "false").lower() == "true"
 AUTO_TEST_GEN_TARGET_DIRS = _get("AUTO_TEST_GEN_TARGET_DIRS", "")  # vide = aucune cible, opt-in explicite
-AUTO_TEST_GEN_MAX_PER_RUN = int(_get("AUTO_TEST_GEN_MAX_PER_RUN", "5"))
 
 # ── DevAgent : PR auto, déploiement staging ─────────────────
 DEVAGENT_AUTO_PR = _get("DEVAGENT_AUTO_PR", "true").lower() == "true"

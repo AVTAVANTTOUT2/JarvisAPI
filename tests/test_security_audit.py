@@ -1,16 +1,10 @@
-"""Tests de l'audit sécurité (détection + correctif mécanique opt-in)."""
+"""Tests de l'audit sécurité report-only."""
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import pytest
-
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
-
-from tests.git_repo import init_repo_with_commit  # noqa: E402  (dépend de sys.path)
 
 
 @pytest.fixture
@@ -114,96 +108,3 @@ def test_scan_disabled(tmp_db, tmp_path, monkeypatch):
 
     monkeypatch.setattr("config.SECURITY_AUDIT_ENABLED", False)
     assert scan_and_report(root=tmp_path) == {"ok": False, "reason": "disabled"}
-
-
-def _init_git_repo(path: Path) -> None:
-    init_repo_with_commit(path)
-
-
-def test_apply_safe_fix_redacts_secret_only(tmp_db, tmp_path, monkeypatch):
-    from database import get_security_findings, upsert_security_finding
-    from scripts.security_audit import apply_safe_fix
-
-    (tmp_path / "a.py").write_text('API_KEY = "sk-abcdefghijklmnopqrstuvwxyz123456"\n', encoding="utf-8")
-    _init_git_repo(tmp_path)
-
-    upsert_security_finding("a.py", 1, "secret_deepseek_key", "high", "redacted")
-    finding = get_security_findings("open")[0]
-
-    monkeypatch.setattr("config.SECURITY_AUTO_FIX_ENABLED", True)
-    result = apply_safe_fix(finding, root=tmp_path)
-    assert result["applied"] is True
-
-    content = (tmp_path / "a.py").read_text(encoding="utf-8")
-    assert "sk-abcdefghijklmnopqrstuvwxyz123456" not in content
-    assert "REDACTED_BY_SECURITY_AUDIT" in content
-    assert get_security_findings("open") == []  # marqué 'fixed'
-
-
-def test_apply_safe_fix_refuses_dangerous_pattern(tmp_db, tmp_path, monkeypatch):
-    from database import get_security_findings, upsert_security_finding
-    from scripts.security_audit import apply_safe_fix
-
-    (tmp_path / "a.py").write_text("eval(x)\n", encoding="utf-8")
-    _init_git_repo(tmp_path)
-    upsert_security_finding("a.py", 1, "eval_usage", "medium", "eval(x)")
-    finding = get_security_findings("open")[0]
-
-    monkeypatch.setattr("config.SECURITY_AUTO_FIX_ENABLED", True)
-    result = apply_safe_fix(finding, root=tmp_path)
-    assert result["applied"] is False
-    assert "secrets" in result["reason"]
-
-
-def test_apply_safe_fix_disabled_by_default(tmp_db, tmp_path):
-    from database import get_security_findings, upsert_security_finding
-    from scripts.security_audit import apply_safe_fix
-
-    (tmp_path / "a.py").write_text('API_KEY = "sk-abcdefghijklmnopqrstuvwxyz123456"\n', encoding="utf-8")
-    _init_git_repo(tmp_path)
-    upsert_security_finding("a.py", 1, "secret_deepseek_key", "high", "x")
-    finding = get_security_findings("open")[0]
-
-    result = apply_safe_fix(finding, root=tmp_path)
-    assert result["applied"] is False
-    assert "SECURITY_AUTO_FIX_ENABLED" in result["reason"]
-
-
-def test_apply_safe_fix_refuses_untracked_file(tmp_db, tmp_path, monkeypatch):
-    from database import get_security_findings, upsert_security_finding
-    from scripts.security_audit import apply_safe_fix
-
-    (tmp_path / "a.py").write_text('API_KEY = "sk-abcdefghijklmnopqrstuvwxyz123456"\n', encoding="utf-8")
-    # pas de dépôt git ici : le fichier n'est pas "tracké"
-    upsert_security_finding("a.py", 1, "secret_deepseek_key", "high", "x")
-    finding = get_security_findings("open")[0]
-
-    monkeypatch.setattr("config.SECURITY_AUTO_FIX_ENABLED", True)
-    result = apply_safe_fix(finding, root=tmp_path)
-    assert result["applied"] is False
-    assert "git" in result["reason"]
-
-
-def test_apply_safe_fix_refuses_active_checkout(
-    tmp_db, tmp_path, monkeypatch
-):
-    from database import get_security_findings, upsert_security_finding
-    from scripts.security_audit import apply_safe_fix
-
-    source = tmp_path / "a.py"
-    source.write_text(
-        'API_KEY = "sk-abcdefghijklmnopqrstuvwxyz123456"\n',
-        encoding="utf-8",
-    )
-    _init_git_repo(tmp_path)
-    upsert_security_finding("a.py", 1, "secret_deepseek_key", "high", "x")
-    finding = get_security_findings("open")[0]
-
-    monkeypatch.setattr("config.SECURITY_AUTO_FIX_ENABLED", True)
-    monkeypatch.setattr("config.BASE_DIR", tmp_path)
-
-    result = apply_safe_fix(finding)
-
-    assert result["applied"] is False
-    assert "mutation directe interdite" in result["reason"]
-    assert "sk-abcdefghijklmnopqrstuvwxyz123456" in source.read_text(encoding="utf-8")
