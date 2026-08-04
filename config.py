@@ -81,8 +81,12 @@ def validate_required_runtime_config() -> None:
 
 # ── Audio — STT local (faster-whisper) + TTS local (Qwen3-TTS) ──
 DEFAULT_STT_ENGINE = "faster-whisper"
-DEFAULT_STT_MODEL = "large-v3-turbo"
-DEFAULT_STT_FALLBACK_MODEL = "large-v3"
+# Mesure reproductible M4 (3 phrases FR, 1,4–3,9 s, deux passages chauds) :
+# small médiane 706 ms / similarité 0,894 ; large-v3-turbo 2 259 ms / 0,909.
+# Le petit modèle tient le budget temps réel. Le turbo ne s'exécute que lorsque
+# la confiance du premier passage est insuffisante.
+DEFAULT_STT_MODEL = "small"
+DEFAULT_STT_FALLBACK_MODEL = "large-v3-turbo"
 DEFAULT_STT_LANGUAGE = "fr"
 DEFAULT_STT_DEVICE = "auto"
 # Mesuré sur Apple Silicon (large-v3-turbo, 2,66 s de parole FR, CPU) :
@@ -93,6 +97,7 @@ DEFAULT_STT_DEVICE = "auto"
 DEFAULT_STT_COMPUTE_TYPE = "float32"
 DEFAULT_STT_BEAM_SIZE = 1
 DEFAULT_STT_VAD_FILTER = False
+DEFAULT_STT_QUALITY_FALLBACK_LOGPROB = -0.30
 
 # ── Segmentation VAD du daemon audio ────────────────────────
 # Ces trois valeurs déterminent le délai entre la dernière syllabe et le
@@ -127,10 +132,17 @@ STT_COMPUTE_TYPE = _get("STT_COMPUTE_TYPE", DEFAULT_STT_COMPUTE_TYPE)
 # Décodage temps réel : un seul faisceau, et pas de second VAD interne — le
 # daemon segmente déjà l'énoncé avant d'appeler le moteur.
 STT_BEAM_SIZE = int(_get("STT_BEAM_SIZE", str(DEFAULT_STT_BEAM_SIZE)))
+STT_QUALITY_FALLBACK_LOGPROB = float(_get(
+    "STT_QUALITY_FALLBACK_LOGPROB",
+    str(DEFAULT_STT_QUALITY_FALLBACK_LOGPROB),
+))
 # Appel Flash streamé pour la voix : donne l'instant du premier token. La
 # lecture ne démarre pas pour autant avant la fin de la passe 1 (un bloc
 # ``action`` remplacerait le texte prononcé).
 VOICE_LLM_STREAMING = _get("VOICE_LLM_STREAMING", "true").lower() in ("true", "1", "yes")
+VOICE_ANTICIPATORY_ACK_ENABLED = _get(
+    "VOICE_ANTICIPATORY_ACK_ENABLED", "true",
+).lower() in ("true", "1", "yes")
 STT_VAD_FILTER = _get("STT_VAD_FILTER", str(DEFAULT_STT_VAD_FILTER)).lower() in (
     "true", "1", "yes",
 )

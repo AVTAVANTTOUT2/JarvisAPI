@@ -22,12 +22,15 @@ Réponses vocales instantanées (Flash), avec délégation Cursor ou raisonnemen
 
 ```
 audio → STT local
+  ├ `small` confiant → résultat immédiat
+  └ confiance faible → accusé Qwen3 local + relecture qualité en parallèle
   → route_request(..., interaction_mode="voice")
   → maybe_handle_cognitive_voice()
        ├ briefing → BriefingEngine (voice_text)
        ├ cursor → ack Flash + enqueue job
        ├ heavy → ack + tâche Main async + résumé Flash + notif high
        └ sinon → `_process_message_internal(..., voice_mode=True)`
+                    ├ accusé local concurrent si le STT ne l'a pas déjà lancé
                     ├ contexte et routage canoniques
                     ├ DeepSeek Flash court (`VOICE_MAX_TOKENS`)
                     └ action + action_result structurés
@@ -51,6 +54,12 @@ Phrases de contrôle dans `voice_processing` (stop / silence / annule) interromp
 
 Table `voice_debug_log` : latences STT / routing / LLM / TTS / total.
 
+La métrique de référence est `end_of_speech_to_first_audio_ms`. La trace
+matérielle du 4 août 2026 mesure **1 483,4 ms** sur le pire chemin exercé
+(`small` peu confiant, modèle qualité froid, Qwen3 Base et vraie écriture
+CoreAudio), sous la cible de 2 000 ms. Voir
+[`docs/audio/QWEN3_LOCAL_STATUS.md`](../docs/audio/QWEN3_LOCAL_STATUS.md).
+
 `GET /api/voice/metrics` → agrégats (moyenne, p50, p95) sur fenêtre récente.
 
 ## Config
@@ -61,6 +70,10 @@ VOICE_SILENCE_DURATION_MS=1200
 VOICE_MIN_SPEECH_MS=400
 TTS_PROVIDER=qwen3_local
 STT_ENGINE=local
+STT_MODEL=small
+STT_FALLBACK_MODEL=large-v3-turbo
+STT_QUALITY_FALLBACK_LOGPROB=-0.3
+VOICE_ANTICIPATORY_ACK_ENABLED=true
 VOICE_REASONING_MODEL=   # défaut = DeepSeek Flash
 ```
 

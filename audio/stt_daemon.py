@@ -9,6 +9,7 @@ import struct
 import time
 import wave
 from abc import ABC, abstractmethod
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -56,6 +57,10 @@ class TranscriptionResult:
     # ou si l'énoncé capturé était long.
     inference_ms: int = 0
     audio_ms: int = 0
+    model: str | None = None
+    avg_logprob: float | None = None
+    max_no_speech_prob: float | None = None
+    quality_fallback_used: bool = False
 
     @property
     def real_time_factor(self) -> float | None:
@@ -269,6 +274,16 @@ class FasterWhisperBackend(DaemonSTTBackend):
                     engine=self.name,
                     inference_ms=round((time.perf_counter() - started) * 1000),
                     audio_ms=audio_ms,
+                    model=self._model_size,
+                    avg_logprob=(
+                        sum(float(getattr(segment, "avg_logprob", 0.0)) for segment in segments_list)
+                        / len(segments_list)
+                        if segments_list else None
+                    ),
+                    max_no_speech_prob=(
+                        max(float(getattr(segment, "no_speech_prob", 0.0)) for segment in segments_list)
+                        if segments_list else None
+                    ),
                 )
                 logger.debug(
                     "[stt_daemon] %s audio=%dms inference=%dms rtf=%s beam=%d vad=%s",
@@ -491,6 +506,41 @@ class FallbackSTTBackend(DaemonSTTBackend):
         sample_rate: int,
         language: str = "fr",
     ) -> TranscriptionResult | None:
+        return await self._transcribe_pcm(
+            pcm_bytes,
+            sample_rate=sample_rate,
+            language=language,
+            on_quality_fallback=None,
+        )
+
+    async def transcribe_pcm_with_quality_callback(
+        self,
+        pcm_bytes: bytes,
+        *,
+        sample_rate: int,
+        language: str = "fr",
+        on_quality_fallback: Callable[[], Awaitable[None]],
+    ) -> TranscriptionResult | None:
+        """Transcrit et signale le départ d'une relecture lourde.
+
+        Le callback part comme tâche concurrente : le daemon peut faire
+        entendre son accusé local pendant que la relecture qualité s'exécute.
+        """
+        return await self._transcribe_pcm(
+            pcm_bytes,
+            sample_rate=sample_rate,
+            language=language,
+            on_quality_fallback=on_quality_fallback,
+        )
+
+    async def _transcribe_pcm(
+        self,
+        pcm_bytes: bytes,
+        *,
+        sample_rate: int,
+        language: str,
+        on_quality_fallback: Callable[[], Awaitable[None]] | None,
+    ) -> TranscriptionResult | None:
         if not self.preload_sync() or self._active_index is None:
             return None
 
@@ -502,11 +552,75 @@ class FallbackSTTBackend(DaemonSTTBackend):
                 pcm_bytes, sample_rate=sample_rate, language=language,
             )
             if result is not None:
+                if (
+                    index == 0
+                    and len(self._backends) > 1
+                    and isinstance(backend, FasterWhisperBackend)
+                    and isinstance(self._backends[1], FasterWhisperBackend)
+                    and _needs_quality_fallback(result)
+                ):
+                    quality_backend = self._backends[1]
+                    logger.info(
+                        "[stt_daemon] confiance faible model=%s logprob=%s — "
+                        "relecture qualité locale model=%s",
+                        result.model,
+                        result.avg_logprob,
+                        quality_backend._model_size,
+                    )
+                    if on_quality_fallback is not None:
+                        notice_task = asyncio.create_task(
+                            on_quality_fallback(),
+                            name="stt-quality-fallback-notice",
+                        )
+                        notice_task.add_done_callback(_log_quality_notice_failure)
+                    loop = asyncio.get_running_loop()
+                    quality_ready = quality_backend._loaded or await loop.run_in_executor(
+                        None, quality_backend.preload_sync,
+                    )
+                    if quality_ready:
+                        quality_result = await quality_backend.transcribe_pcm(
+                            pcm_bytes,
+                            sample_rate=sample_rate,
+                            language=language,
+                        )
+                        if quality_result is not None and quality_result.text.strip():
+                            quality_result.quality_fallback_used = True
+                            return quality_result
+                    # La relecture qualité est une optimisation : si elle est
+                    # indisponible, la transcription primaire reste utilisable.
+                    return result
                 self._active_index = index
                 self.name = backend.name
                 return result
             logger.warning("[stt_daemon] %s a échoué — essai du repli local", backend.name)
         return None
+
+
+def _needs_quality_fallback(result: TranscriptionResult) -> bool:
+    """Décide une seule relecture lourde sur confiance faible, jamais sur silence."""
+    threshold = float(getattr(
+        config,
+        "STT_QUALITY_FALLBACK_LOGPROB",
+        config.DEFAULT_STT_QUALITY_FALLBACK_LOGPROB,
+    ))
+    if result.avg_logprob is not None and result.text.strip():
+        return result.avg_logprob < threshold
+    # Un résultat vide avec forte probabilité de non-parole est un silence, pas
+    # une raison de charger le modèle lourd. Sans indicateur, l'échec normal de
+    # backend conserve le comportement de repli historique.
+    if not result.text.strip() and (result.max_no_speech_prob or 0.0) < 0.5:
+        return True
+    return False
+
+
+def _log_quality_notice_failure(task: asyncio.Task[None]) -> None:
+    """Consomme l'exception du callback sans faire échouer la transcription."""
+    if task.cancelled():
+        return
+    try:
+        task.result()
+    except Exception:
+        logger.warning("[stt_daemon] notification de relecture qualité échouée", exc_info=True)
 
 
 def _pcm16_to_wav(pcm_bytes: bytes, sample_rate: int) -> bytes:
@@ -630,6 +744,7 @@ class DaemonSTT:
         *,
         sample_rate: int | None = None,
         language: str = "fr",
+        on_quality_fallback: Callable[[], Awaitable[None]] | None = None,
     ) -> dict | None:
         if not self._preload_attempted:
             loop = asyncio.get_running_loop()
@@ -639,7 +754,20 @@ class DaemonSTT:
         sr = sample_rate or int(getattr(config, "AUDIO_DAEMON_SAMPLE_RATE", 16000))
         self.last_raw_text = ""
         self.last_clean_text = ""
-        result = await self._backend.transcribe_pcm(pcm_bytes, sample_rate=sr, language=language)
+        if (
+            on_quality_fallback is not None
+            and isinstance(self._backend, FallbackSTTBackend)
+        ):
+            result = await self._backend.transcribe_pcm_with_quality_callback(
+                pcm_bytes,
+                sample_rate=sr,
+                language=language,
+                on_quality_fallback=on_quality_fallback,
+            )
+        else:
+            result = await self._backend.transcribe_pcm(
+                pcm_bytes, sample_rate=sr, language=language,
+            )
         if result is None:
             return None
         raw_text = str(result.text or "").strip()
@@ -663,6 +791,10 @@ class DaemonSTT:
             "inference_ms": result.inference_ms,
             "audio_ms": result.audio_ms,
             "real_time_factor": result.real_time_factor,
+            "model": result.model,
+            "avg_logprob": result.avg_logprob,
+            "max_no_speech_prob": result.max_no_speech_prob,
+            "quality_fallback_used": result.quality_fallback_used,
             "prompt_echo": prompt_echo,
         }
 

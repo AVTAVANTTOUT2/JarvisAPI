@@ -51,6 +51,7 @@ class AudioEngineConfig:
     # démarrage et les diagnostics montrent ce qui est réellement appliqué.
     stt_beam_size: int
     stt_vad_filter: bool
+    stt_quality_fallback_logprob: float
     vad_silence_ms: int
     vad_min_speech_ms: int
     vad_pre_roll_ms: int
@@ -78,6 +79,11 @@ def load_audio_engine_config() -> AudioEngineConfig:
         stt_allow_download=bool(getattr(config, "STT_ALLOW_MODEL_DOWNLOAD", False)),
         stt_beam_size=int(getattr(config, "STT_BEAM_SIZE", config.DEFAULT_STT_BEAM_SIZE)),
         stt_vad_filter=bool(getattr(config, "STT_VAD_FILTER", config.DEFAULT_STT_VAD_FILTER)),
+        stt_quality_fallback_logprob=float(getattr(
+            config,
+            "STT_QUALITY_FALLBACK_LOGPROB",
+            config.DEFAULT_STT_QUALITY_FALLBACK_LOGPROB,
+        )),
         vad_silence_ms=int(getattr(
             config, "AUDIO_DAEMON_SILENCE_MS", config.DEFAULT_AUDIO_DAEMON_SILENCE_MS)),
         vad_min_speech_ms=int(getattr(
@@ -101,8 +107,11 @@ def log_audio_startup_config(*, active_stt_engine: str | None = None) -> None:
     logger.info("STT model: %s", cfg.stt_model)
     logger.info("STT language: %s", cfg.stt_language)
     logger.info(
-        "STT temps réel: compute=%s beam=%d vad_filter=%s",
-        cfg.stt_compute_type, cfg.stt_beam_size, cfg.stt_vad_filter,
+        "STT temps réel: compute=%s beam=%d vad_filter=%s quality_fallback<%.2f",
+        cfg.stt_compute_type,
+        cfg.stt_beam_size,
+        cfg.stt_vad_filter,
+        cfg.stt_quality_fallback_logprob,
     )
     logger.info(
         "VAD daemon: silence=%dms min_speech=%dms pre_roll=%dms",

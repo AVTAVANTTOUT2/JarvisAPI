@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import config
@@ -72,6 +73,7 @@ async def _process_voice_fast(
     stt_ms: int = 0,
     confirmation_session_id: str | None = None,
     trace: Any | None = None,
+    on_canonical_turn_started: Callable[[], Awaitable[None]] | None = None,
 ) -> dict[str, Any]:
     """Traite un tour vocal avec le moteur conversationnel unique.
 
@@ -130,14 +132,36 @@ async def _process_voice_fast(
     })
 
     turn_started = time.time()
-    result = await _process_message_internal(
-        text,
-        conversation_id,
-        voice_mode=True,
-        confirmation_session_id=confirmation_session_id,
-        persist_assistant=False,
-        trace=trace,
+    canonical_task = asyncio.create_task(
+        _process_message_internal(
+            text,
+            conversation_id,
+            voice_mode=True,
+            confirmation_session_id=confirmation_session_id,
+            persist_assistant=False,
+            trace=trace,
+        ),
+        name="voice-canonical-turn",
     )
+
+    async def _run_anticipatory_speech() -> None:
+        if on_canonical_turn_started is None:
+            return
+        try:
+            await on_canonical_turn_started()
+        except Exception:
+            # L'accusé améliore la latence perçue mais ne doit jamais empêcher
+            # le moteur canonique de rendre la vraie réponse.
+            logger.warning("[voice] parole anticipée indisponible", exc_info=True)
+
+    if on_canonical_turn_started is None:
+        result = await canonical_task
+    else:
+        anticipatory_task = asyncio.create_task(
+            _run_anticipatory_speech(),
+            name="voice-anticipatory-speech",
+        )
+        result, _ = await asyncio.gather(canonical_task, anticipatory_task)
     turn_ms = round((time.time() - turn_started) * 1000)
 
     response_text = str(result.get("text") or "").strip()

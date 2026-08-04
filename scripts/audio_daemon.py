@@ -23,7 +23,7 @@ import time
 import uuid
 import wave
 from pathlib import Path
-from typing import Any, Callable, Coroutine
+from typing import Any, Awaitable, Callable, Coroutine
 
 import config
 from audio import voice_latency as vl
@@ -1335,6 +1335,45 @@ class AudioDaemon:
         finally:
             voice_queue.set_user_conversation_active(False)
 
+    async def _play_anticipatory_ack(self, trace: UtteranceTrace) -> None:
+        """Fait entendre un accusé local pendant que le moteur prépare la réponse.
+
+        Ce chemin n'est déclenché qu'après les fast-paths/cas cognitifs : une
+        interpellation, une commande de contrôle, Fitness, Cursor ou un briefing
+        ne reçoit donc jamais deux réponses. Le TTS et le tour canonique tournent
+        en parallèle ; la file vocale sérialise ensuite la réponse finale.
+        """
+        if not getattr(config, "VOICE_ANTICIPATORY_ACK_ENABLED", True):
+            return
+        if self._tts_unavailable_reason:
+            return
+        if self._interrupt_event is not None and self._interrupt_event.is_set():
+            return
+
+        ack = "Bien, Monsieur."
+        self.state = "speaking"
+        await self._broadcast_state({
+            "type": "voice_anticipatory_ack",
+            "response": ack,
+            "emotion": "neutral",
+        })
+        if self._half_duplex and self._stream:
+            try:
+                self._stream.stop_stream()
+            except Exception as exc:
+                logger.debug("[audio_daemon] stop stream avant accusé : %s", exc)
+
+        await self._play_tts(
+            ack,
+            emotion="neutral",
+            priority=VoicePriority.USER_RESPONSE,
+            wait=True,
+            trace=trace,
+        )
+        if self._interrupt_event is None or not self._interrupt_event.is_set():
+            self.state = "processing"
+            await self._broadcast_state()
+
     async def _process_single_utterance_active(
         self, pcm_bytes: bytes, stt_available: bool, *, trace: UtteranceTrace,
     ) -> None:
@@ -1364,6 +1403,13 @@ class AudioDaemon:
         _t_stt_start = _time.time()
 
         meta: dict | None = None
+        quality_ack_started = False
+
+        def _quality_fallback_ack() -> Awaitable[None]:
+            nonlocal quality_ack_started
+            quality_ack_started = True
+            return self._play_anticipatory_ack(trace)
+
         if stt_available:
             try:
                 from audio.stt_local import stt_local as _stt_local
@@ -1372,6 +1418,7 @@ class AudioDaemon:
                     pcm_bytes,
                     sample_rate=SAMPLE_RATE,
                     language=getattr(config, "LANGUAGE", "fr"),
+                    on_quality_fallback=_quality_fallback_ack,
                 )
                 if meta:
                     text = str(meta.get("text") or "").strip()
@@ -1534,8 +1581,15 @@ class AudioDaemon:
         trace.set_conversation(self._conv_id)
 
         try:
+            turn_callback = None if quality_ack_started else (
+                lambda: self._play_anticipatory_ack(trace)
+            )
             result = await process_voice_fast(
-                text, self._conv_id, stt_ms=stt_latency_ms, trace=trace,
+                text,
+                self._conv_id,
+                stt_ms=stt_latency_ms,
+                trace=trace,
+                on_canonical_turn_started=turn_callback,
             )
         except Exception as e:
             logger.exception("[audio_daemon] _process_voice_fast : %s", e)

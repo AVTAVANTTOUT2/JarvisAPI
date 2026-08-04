@@ -86,6 +86,88 @@ async def test_short_command_adds_no_fixed_delay():
 
 
 @pytest.mark.asyncio
+async def test_native_turn_plays_ack_while_canonical_engine_is_running(monkeypatch):
+    daemon = _daemon()
+    trace = UtteranceTrace()
+    spoken: list[str] = []
+
+    async def _play(text, **kwargs):
+        spoken.append(text)
+        if text == "Bien, Monsieur.":
+            kwargs["trace"].mark(vl.TTS_PLAYBACK_STARTED, engine="test-ack")
+
+    async def _canonical(*_args, **kwargs):
+        callback = kwargs.get("on_canonical_turn_started")
+        assert callback is not None
+        await callback()
+        trace.mark(vl.LLM_COMPLETED, model="fake", pass_index=1)
+        return {"text": "Réponse finale.", "emotion": "neutral", "latency_ms": 4}
+
+    monkeypatch.setattr("config.VOICE_ANTICIPATORY_ACK_ENABLED", True)
+    with (
+        patch("scripts.audio_daemon.create_conversation", return_value=42),
+        patch("scripts.audio_daemon.process_voice_fast", side_effect=_canonical),
+        patch.object(type(daemon), "_play_tts", side_effect=_play),
+        patch.object(type(daemon), "_broadcast_state", new_callable=AsyncMock),
+        patch(
+            "audio.stt_daemon.stt_daemon.transcribe_with_metadata",
+            new_callable=AsyncMock,
+        ) as stt,
+    ):
+        stt.return_value = _stt("explique-moi la météo")
+        await daemon._process_single_utterance_active(
+            b"\x00\x01" * 4000,
+            True,
+            trace=trace,
+        )
+
+    assert spoken == ["Bien, Monsieur.", "Réponse finale."]
+    events = [mark.event for mark in trace.marks]
+    assert events.index(vl.TTS_PLAYBACK_STARTED) < events.index(vl.LLM_COMPLETED)
+
+
+@pytest.mark.asyncio
+async def test_quality_replay_ack_is_not_repeated_at_canonical_start(monkeypatch):
+    daemon = _daemon()
+    trace = UtteranceTrace()
+    spoken: list[str] = []
+
+    async def _stt_with_quality_notice(*_args, **kwargs):
+        callback = kwargs.get("on_quality_fallback")
+        assert callback is not None
+        await callback()
+        return _stt("Quel temps fait-il à Lille ?")
+
+    async def _play(text, **kwargs):
+        spoken.append(text)
+        if text == "Bien, Monsieur.":
+            kwargs["trace"].mark(vl.TTS_PLAYBACK_STARTED, engine="test-ack")
+
+    async def _canonical(*_args, **kwargs):
+        assert kwargs.get("on_canonical_turn_started") is None
+        return {"text": "Dix-huit degrés.", "emotion": "neutral", "latency_ms": 4}
+
+    monkeypatch.setattr("config.VOICE_ANTICIPATORY_ACK_ENABLED", True)
+    with (
+        patch("scripts.audio_daemon.create_conversation", return_value=42),
+        patch("scripts.audio_daemon.process_voice_fast", side_effect=_canonical),
+        patch.object(type(daemon), "_play_tts", side_effect=_play),
+        patch.object(type(daemon), "_broadcast_state", new_callable=AsyncMock),
+        patch(
+            "audio.stt_daemon.stt_daemon.transcribe_with_metadata",
+            side_effect=_stt_with_quality_notice,
+        ),
+    ):
+        await daemon._process_single_utterance_active(
+            b"\x00\x01" * 4000,
+            True,
+            trace=trace,
+        )
+
+    assert spoken == ["Bien, Monsieur.", "Dix-huit degrés."]
+
+
+@pytest.mark.asyncio
 async def test_long_command_adds_no_fixed_delay():
     daemon = _daemon()
     long_text = " ".join(["explique-moi la mondialisation en détail"] * 12)

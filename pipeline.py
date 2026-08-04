@@ -15,6 +15,7 @@ from typing import Any
 MessageProcessor = Callable[[str, int, bool], Awaitable[dict[str, Any]]]
 VoiceProcessor = Callable[..., Awaitable[dict[str, Any]]]
 ContextBuilder = Callable[[str, int], Awaitable[dict[str, Any]]]
+CanonicalTurnCallback = Callable[[], Awaitable[None]]
 
 
 class PipelineNotConfiguredError(RuntimeError):
@@ -71,6 +72,7 @@ async def process_voice_fast(
     *,
     stt_ms: int = 0,
     trace: Any | None = None,
+    on_canonical_turn_started: CanonicalTurnCallback | None = None,
 ) -> dict[str, Any]:
     """Traite une phrase vocale via l'implémentation enregistrée.
 
@@ -78,9 +80,10 @@ async def process_voice_fast(
     facultative pour que les producteurs qui n'en tiennent pas (tests, API)
     restent inchangés.
     """
-    return await _configured_handlers().process_voice(
-        text, conversation_id, stt_ms=stt_ms, trace=trace,
-    )
+    kwargs: dict[str, Any] = {"stt_ms": stt_ms, "trace": trace}
+    if on_canonical_turn_started is not None:
+        kwargs["on_canonical_turn_started"] = on_canonical_turn_started
+    return await _configured_handlers().process_voice(text, conversation_id, **kwargs)
 
 
 async def build_enriched_context(

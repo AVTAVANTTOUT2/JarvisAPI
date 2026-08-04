@@ -20,7 +20,7 @@ def test_real_registry_covers_the_consolidated_audit_and_matches_the_document():
 
     assert len(items) == 41
     assert {item["id"] for item in items} == audit.EXPECTED_IDS
-    assert {item["id"] for item in items if item["status"] == "active"} == {"TD-P0-01"}
+    assert {item["id"] for item in items if item["status"] == "active"} == set()
     assert audit.DOCUMENT_PATH.read_text(encoding="utf-8") == audit.render_document(
         data,
         items,
@@ -37,8 +37,11 @@ def test_registry_rejects_a_resolution_without_existing_evidence():
 
 def test_registry_rejects_an_active_debt_without_owner_or_next_action():
     data = deepcopy(audit.load_registry())
-    active = next(item for item in data["items"] if item["status"] == "active")
-    active.pop("owner")
+    active = data["items"][0]
+    active["status"] = "active"
+    active["next_action"] = "Reproduire et corriger"
+    active.pop("resolution", None)
+    active.pop("owner", None)
 
     with pytest.raises(audit.RegistryError, match="owner est obligatoire"):
         audit.validate_registry(data)
