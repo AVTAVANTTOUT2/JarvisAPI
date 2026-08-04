@@ -121,7 +121,6 @@ CREATE TABLE cursor_delegation_jobs (
     allow_commit INTEGER DEFAULT 1,
     allow_push INTEGER DEFAULT 1,
     allow_pr INTEGER DEFAULT 1,
-    allow_merge INTEGER DEFAULT 0,
     commit_sha TEXT,
     pr_url TEXT,
     error_message TEXT,

@@ -227,7 +227,6 @@ _PUBLIC_JOB_KEYS = frozenset(
         "allow_commit",
         "allow_push",
         "allow_pr",
-        "allow_merge",
     }
 )
 

@@ -72,7 +72,6 @@ def ensure_cursor_jobs_table() -> None:
                 allow_commit INTEGER DEFAULT 1,
                 allow_push INTEGER DEFAULT 1,
                 allow_pr INTEGER DEFAULT 1,
-                allow_merge INTEGER DEFAULT 0,
                 commit_sha TEXT,
                 pr_url TEXT,
                 error_message TEXT,
@@ -124,9 +123,9 @@ def _insert_cursor_job_row(conn: Any, record: dict[str, Any], now: str) -> None:
             job_id, title, user_request, status, repository, working_directory,
             worktree_path, branch_name, prompt_template, template_version,
             prompt_sent, acceptance_criteria, required_tests, risk_level,
-            allow_commit, allow_push, allow_pr, allow_merge,
+            allow_commit, allow_push, allow_pr,
             interaction_mode, routing_json, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             record["job_id"],
@@ -146,7 +145,6 @@ def _insert_cursor_job_row(conn: Any, record: dict[str, Any], now: str) -> None:
             1 if record.get("allow_commit", True) else 0,
             1 if record.get("allow_push", True) else 0,
             1 if record.get("allow_pr", True) else 0,
-            1 if record.get("allow_merge", False) else 0,
             record.get("interaction_mode"),
             json.dumps(safe_routing, ensure_ascii=False),
             now,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 import stat
 import subprocess
 import sys
@@ -22,7 +23,6 @@ from integrations.cursor_delegation import (  # noqa: E402
     _redact_secrets,
 )
 from tests.git_repo import git, init_repo_with_commit  # noqa: E402
-
 
 # ── Helpers ──────────────────────────────────────────────────
 
@@ -430,8 +430,8 @@ def test_create_cursor_job_within_capacity_atomic(tmp_path, monkeypatch):
     from database import init_db
     from database.cursor_jobs import (
         ACTIVE_SLOT_STATUSES,
-        create_cursor_job_within_capacity,
         count_active_cursor_jobs,
+        create_cursor_job_within_capacity,
     )
 
     db_path = tmp_path / "atomic.db"
@@ -451,6 +451,69 @@ def test_create_cursor_job_within_capacity_atomic(tmp_path, monkeypatch):
     assert second is None
     assert count_active_cursor_jobs() == 1
     assert ACTIVE_SLOT_STATUSES  # constante exportée pour doc
+
+
+def test_legacy_allow_merge_column_is_removed_without_losing_jobs(
+    tmp_path,
+    monkeypatch,
+):
+    from database import init_db
+
+    db_path = tmp_path / "legacy-cursor.db"
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE cursor_delegation_jobs (
+                job_id TEXT UNIQUE,
+                title TEXT,
+                status TEXT,
+                created_at DATETIME,
+                allow_merge INTEGER DEFAULT 0
+            )
+            """
+        )
+        conn.execute(
+            """INSERT INTO cursor_delegation_jobs
+               (job_id, title, status, created_at, allow_merge)
+               VALUES ('legacy-job', 'préservé', 'completed', CURRENT_TIMESTAMP, 0)"""
+        )
+
+    monkeypatch.setattr("config.DB_PATH", str(db_path))
+    monkeypatch.setattr("database.DB_PATH", db_path)
+    init_db()
+
+    with sqlite3.connect(db_path) as conn:
+        columns = {
+            row[1]
+            for row in conn.execute(
+                "PRAGMA table_info(cursor_delegation_jobs)"
+            ).fetchall()
+        }
+        row = conn.execute(
+            "SELECT title, status FROM cursor_delegation_jobs WHERE job_id = ?",
+            ("legacy-job",),
+        ).fetchone()
+
+    assert "allow_merge" not in columns
+    assert row == ("préservé", "completed")
+
+
+def test_new_cursor_jobs_expose_no_merge_capability(delegation_env):
+    from database.cursor_jobs import create_cursor_job
+    from jarvis.security.redaction import public_cursor_job_view
+
+    job = create_cursor_job(
+        {
+            "job_id": "job-with-retired-input",
+            "title": "sans merge",
+            "user_request": "test",
+            "status": "completed",
+            "allow_merge": True,
+        }
+    )
+
+    assert "allow_merge" not in job
+    assert "allow_merge" not in public_cursor_job_view(job)
 
 
 def test_jobs_persist_and_resume_after_restart(delegation_env):
@@ -561,6 +624,7 @@ def test_autonomy_settings_exposes_pr_only_readiness(monkeypatch):
     result = asyncio.run(autonomy_settings())
     settings = result["settings"]
 
+    assert "cursor_allow_merge" not in settings
     assert settings["cursor_pr_only_ready"] is False
     assert settings["cursor_pr_only_missing"] == [
         "CURSOR_ALLOW_PUSH",

@@ -34,7 +34,10 @@ from database.cursor_jobs import (
 )
 from integrations.cursor_cli import build_agent_command, inspect_cursor_cli
 from integrations.cursor_env import build_cursor_safe_env
-from integrations.cursor_prompt_composer import compose_cursor_prompt, parse_cursor_result
+from integrations.cursor_prompt_composer import (
+    compose_cursor_prompt,
+    parse_cursor_result,
+)
 from integrations.cursor_required_tests import parse_and_run_required_tests
 from jarvis.security.llm_data_boundary import (
     redact_external_value,
@@ -290,7 +293,6 @@ class CursorDelegationService:
                 "allow_commit": allow_commit,
                 "allow_push": allow_push,
                 "allow_pr": allow_pr,
-                "allow_merge": bool(getattr(config, "CURSOR_ALLOW_MERGE", False)),
                 "interaction_mode": interaction_mode,
                 "routing": routing_meta,
             },

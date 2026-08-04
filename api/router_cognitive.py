@@ -279,9 +279,9 @@ async def cursor_rollback(job_id: str = Path(..., min_length=10, max_length=64))
 
 @router.post("/cursor/jobs/{job_id}/retry")
 async def cursor_retry(job_id: str = Path(..., min_length=10, max_length=64)) -> dict[str, Any]:
+    from database.cursor_jobs import get_cursor_job
     from integrations.cursor_delegation import cursor_delegation
     from jarvis.security.redaction import public_cursor_job_view
-    from database.cursor_jobs import get_cursor_job
 
     _validate_job_id(job_id)
     # Lecture brute DB (redacted ensuite) — la vue publique n'a pas user_request
@@ -364,7 +364,6 @@ async def autonomy_settings() -> dict[str, Any]:
             "cursor_allow_commit": cursor_allow_commit,
             "cursor_allow_push": cursor_allow_push,
             "cursor_allow_pr": cursor_allow_pr,
-            "cursor_allow_merge": bool(getattr(config, "CURSOR_ALLOW_MERGE", False)),
             "cursor_pr_only_ready": all(pr_only_capabilities.values()),
             "cursor_pr_only_missing": [
                 name for name, enabled in pr_only_capabilities.items() if not enabled

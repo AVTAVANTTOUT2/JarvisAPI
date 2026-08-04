@@ -383,6 +383,20 @@ def _migrate_schema_migrations_table(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _migrate_cursor_jobs_remove_merge_capability(conn: sqlite3.Connection) -> None:
+    """Retire le flag de merge automatique abandonné sans perdre les jobs."""
+    columns = {
+        row[1]
+        for row in conn.execute(
+            "PRAGMA table_info(cursor_delegation_jobs)"
+        ).fetchall()
+    }
+    if "allow_merge" in columns:
+        conn.execute(
+            "ALTER TABLE cursor_delegation_jobs DROP COLUMN allow_merge"
+        )
+
+
 def _migrate_perf_benchmarks(conn: sqlite3.Connection) -> None:
     """Historique des temps d'exécution (suite de tests) — détection de régression."""
     conn.execute("""
@@ -1309,6 +1323,7 @@ def run_migrations(conn: sqlite3.Connection) -> None:
     _migrate_email_summaries(conn)
     _migrate_message_insights(conn)
     _migrate_devagent(conn)
+    _migrate_cursor_jobs_remove_merge_capability(conn)
     _migrate_private_action_logs(conn)
     _create_voice_debug_table(conn)
     _migrate_messages_fts(conn)

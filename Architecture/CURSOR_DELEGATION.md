@@ -26,7 +26,7 @@ Exécuter le travail technique (bugs, features, CI, migrations, audits) via Curs
 4. **Cancel** — kill du process group ; statut mis à jour avant kill.
 5. **Reprise** — jobs `queued`/`running` relancés au startup via lifespan.
 6. **Secrets** — redaction API keys / Bearer / sk- avant envoi au prompt.
-7. **Mode** — `SELF_MODIFICATION_MODE=pr_only` : un job autonome est refusé si commit/push/PR ne sont pas tous autorisés, puis ne peut terminer qu'au statut `pr_opened` avec une URL de PR persistée. Un échec de push ou de création de PR est terminal et explicite. Le merge sur main reste désactivé (`CURSOR_ALLOW_MERGE=false`).
+7. **Mode** — `SELF_MODIFICATION_MODE=pr_only` : un job autonome est refusé si commit/push/PR ne sont pas tous autorisés, puis ne peut terminer qu'au statut `pr_opened` avec une URL de PR persistée. Un échec de push ou de création de PR est terminal et explicite. Aucun chemin de merge automatique n'existe.
 
 ## Flux
 
@@ -58,7 +58,6 @@ CURSOR_WORKTREE_ROOT=.jarvis/worktrees
 CURSOR_ALLOW_COMMIT=true
 CURSOR_ALLOW_PUSH=true           # obligatoire pour pr_only
 CURSOR_ALLOW_PR=true             # obligatoire pour pr_only
-CURSOR_ALLOW_MERGE=false
 SELF_MODIFICATION_MODE=pr_only
 ```
 

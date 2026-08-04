@@ -712,12 +712,11 @@ CURSOR_ALLOW_COMMIT = _get("CURSOR_ALLOW_COMMIT", "true").lower() == "true"
 # Fail-closed : push/PR off par défaut — opt-in explicite dans .env
 CURSOR_ALLOW_PUSH = _get("CURSOR_ALLOW_PUSH", "false").lower() == "true"
 CURSOR_ALLOW_PR = _get("CURSOR_ALLOW_PR", "false").lower() == "true"
-CURSOR_ALLOW_MERGE = _get("CURSOR_ALLOW_MERGE", "false").lower() == "true"
 
 # Fail-closed : autonomie off par défaut
 SELF_REPAIR_ENABLED = _get("SELF_REPAIR_ENABLED", "false").lower() == "true"
 SELF_IMPROVEMENT_ENABLED = _get("SELF_IMPROVEMENT_ENABLED", "false").lower() == "true"
-SELF_MODIFICATION_MODE = _get("SELF_MODIFICATION_MODE", "pr_only")  # pr_only | auto_merge_low_risk
+SELF_MODIFICATION_MODE = _get("SELF_MODIFICATION_MODE", "pr_only")
 SELF_IMPROVEMENT_SCHEDULE = _get("SELF_IMPROVEMENT_SCHEDULE", "weekly")
 
 # ── Prédiction du prochain message ───────────────────────────
