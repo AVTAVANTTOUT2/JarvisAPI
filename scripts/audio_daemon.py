@@ -270,6 +270,22 @@ def _generate_end_sound() -> None:
 # ── Classe AudioDaemon ────────────────────────────────────────────────────────
 
 
+# Intervalle de sonde quand aucun micro n'est présent. Assez court pour que
+# rebrancher un micro reprenne tout seul, assez long pour ne rien coûter :
+# l'attente ne fait qu'énumérer les périphériques.
+NO_INPUT_DEVICE_POLL_S = 20.0
+
+
+class NoInputDeviceError(RuntimeError):
+    """Aucun périphérique d'entrée n'est présenté par le système.
+
+    Ce n'est **pas** un plantage : c'est une précondition non remplie. Un Mac
+    mini n'a pas de micro intégré, et débrancher un micro USB suffit à produire
+    cet état. Le distinguer d'un crash change tout le comportement en aval —
+    relancer ne peut pas faire apparaître du matériel, et une trace complète par
+    tentative ne fait que remplir le journal.
+    """
+
 class AudioDaemon:
     """Daemon audio natif — wake word + conversation mains libres sur le Mac Mini."""
 
@@ -310,7 +326,7 @@ class AudioDaemon:
         "_last_frame_time",
         "_sleep_mode",
         "_half_duplex",
-        "_tts_unavailable_reason",
+        "_tts_unavailable_reason", "_error_reason",
     )
 
     def __init__(self) -> None:
@@ -357,6 +373,7 @@ class AudioDaemon:
         # Renseigné quand le moteur local n'a pas pu se charger : l'API expose
         # un état « indisponible » explicite plutôt qu'un silence inexpliqué.
         self._tts_unavailable_reason: str | None = None
+        self._error_reason: str | None = None
 
     # ── Préchauffage des moteurs ──────────────────────────────────────────────
 
@@ -486,6 +503,7 @@ class AudioDaemon:
         self._running = True
         self.enabled = True
         self._sleep_detected = False
+        self._error_reason = None
         self._loop = asyncio.get_running_loop()
         logger.info("[audio_daemon] Démarrage (boucle immortelle)…")
 
@@ -516,6 +534,23 @@ class AudioDaemon:
             except asyncio.CancelledError:
                 logger.info("[audio_daemon] Annulé (shutdown)")
                 break
+            except NoInputDeviceError as e:
+                # Attente, pas relance. Le compteur de crashes n'est pas
+                # incrémenté et le backoff n'est pas escaladé : rien n'a
+                # échoué, il manque du matériel. On sonde à intervalle fixe
+                # pour reprendre tout seul dès qu'un micro réapparaît, et on
+                # ne journalise qu'au changement d'état — sinon le journal
+                # gagne une trace complète toutes les trois secondes.
+                if self._error_reason != str(e):
+                    logger.warning("[audio_daemon] %s", e)
+                self._error_reason = str(e)
+                self.state = "no_input_device"
+                self._schedule_state_broadcast("no_input_device")
+                self._running = False
+                self._cleanup()
+                await asyncio.sleep(NO_INPUT_DEVICE_POLL_S)
+                self._running = True
+                continue
             except Exception as e:
                 consecutive_crashes += 1
                 crash_type = type(e).__name__
@@ -599,6 +634,19 @@ class AudioDaemon:
         self._input_future = None
 
         self._pa = pyaudio.PyAudio()
+
+        # Précondition matérielle, vérifiée **avant** de lancer quoi que ce
+        # soit. Sans ce contrôle, le daemon démarrait ses trois boucles, ouvrait
+        # un stream sur un périphérique inexistant, et mourait dans le thread
+        # pyaudio — ce que la boucle de relance interprétait comme un crash.
+        if self._resolve_input_device_index(self._pa) is None:
+            self._cleanup()
+            raise NoInputDeviceError(
+                "Aucun micro détecté. Branchez un périphérique d'entrée, ou "
+                "renseignez AUDIO_DAEMON_INPUT_DEVICE si le vôtre existe sous "
+                "un autre nom."
+            )
+
         self._audio_queue = asyncio.Queue(maxsize=300)
         self._utterance_queue = asyncio.Queue(maxsize=3)
 
@@ -872,6 +920,10 @@ class AudioDaemon:
             "tts": tts_info,
             "tts_available": self._tts_unavailable_reason is None,
             "tts_error": self._tts_unavailable_reason,
+            # Cause lisible de l'état courant. Un état « error » sans raison
+            # oblige à lire les journaux du serveur pour découvrir qu'il
+            # manque simplement un micro.
+            "error": self._error_reason,
             "has_porcupine": self._porcupine is not None,
         }
 
