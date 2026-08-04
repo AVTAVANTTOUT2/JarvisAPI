@@ -83,6 +83,16 @@ DEFAULT_STREAMING_CONTEXT = 25
 # ignoré silencieusement, d'où la validation au chargement.
 DEFAULT_LANGUAGE = "french"
 
+# Comment la référence est reproduite. ``icl`` fournit la référence **et** son
+# transcript, ce qui fait emprunter à mlx-audio la voie « in-context learning »
+# en plus du vecteur de locuteur ; ``speaker_embedding`` ne fournit que
+# l'audio, donc seul le vecteur est calculé. Mesuré sur ce Mac mini M4 :
+# environ 520 ms contre 215 ms avant le premier son. Les deux tiennent le
+# temps réel ; le choix se tranche à l'oreille.
+CLONE_MODE_ICL = "icl"
+CLONE_MODE_EMBEDDING = "speaker_embedding"
+DEFAULT_CLONE_MODE = CLONE_MODE_ICL
+
 WARMUP_TEXT = "Bonjour."
 
 INSTALL_HINT = "python scripts/download_tts_model.py"
@@ -132,12 +142,14 @@ class Qwen3TTSServer:
         ref_text: str | None = None,
         streaming_interval: float = DEFAULT_STREAMING_INTERVAL,
         language: str = DEFAULT_LANGUAGE,
+        clone_mode: str = DEFAULT_CLONE_MODE,
     ) -> None:
         self._model_dir = model_dir
         self._ref_audio_path = ref_audio
         self._ref_text = ref_text
         self._streaming_interval = max(0.08, float(streaming_interval))
         self._language = (language or DEFAULT_LANGUAGE).strip().lower()
+        self._clone_mode = (clone_mode or DEFAULT_CLONE_MODE).strip().lower()
         self._model: Any = None
         self._ref_audio: Any = None
         self._sample_rate = DEFAULT_SAMPLE_RATE
@@ -204,7 +216,7 @@ class Qwen3TTSServer:
             f"voice={self._voice_id()}",
             f"clone_mode={self.clone_mode}",
             f"reference_duration_ms={int(self._reference_ms)}",
-            f"reference_text_used={'true' if self._ref_text else 'false'}",
+            f"reference_text_used={'true' if self._use_transcript else 'false'}",
             f"language={self._language}",
             "streaming=native",
             f"streaming_interval_s={self._streaming_interval}",
@@ -230,12 +242,12 @@ class Qwen3TTSServer:
         """
         if self._ref_audio is None:
             return "none"
-        if not self._ref_text:
-            return "speaker_embedding"
+        if self._clone_mode == CLONE_MODE_EMBEDDING or not self._ref_text:
+            return CLONE_MODE_EMBEDDING
         tokenizer = getattr(self._model, "speech_tokenizer", None)
         if getattr(tokenizer, "has_encoder", False):
             return "icl+speaker_embedding"
-        return "speaker_embedding"
+        return CLONE_MODE_EMBEDDING
 
     def _load_reference(self) -> None:
         """Charge l'échantillon de voix et le ramène à la fréquence du modèle.
@@ -291,6 +303,16 @@ class Qwen3TTSServer:
         return self._sample_rate
 
     @property
+    def _use_transcript(self) -> bool:
+        """Le transcript n'est transmis qu'en mode ICL.
+
+        C'est lui, et lui seul, qui fait basculer mlx-audio sur la voie
+        in-context : le retirer suffit à obtenir le mode par vecteur de
+        locuteur, sans toucher au profil vocal sur le disque.
+        """
+        return self._clone_mode == CLONE_MODE_ICL and bool(self._ref_text)
+
+    @property
     def voice_cloned(self) -> bool:
         """Vrai seulement si la référence **et** son transcript sont présents.
 
@@ -304,12 +326,11 @@ class Qwen3TTSServer:
     def _generate(self, text: str, **overrides: Any) -> Any:
         if self._model is None:
             raise RuntimeError("modèle non chargé")
-        cloned = self.voice_cloned
         return self._model.generate(
             text=text,
             lang_code=self._language,
-            ref_audio=self._ref_audio if cloned else None,
-            ref_text=self._ref_text if cloned else None,
+            ref_audio=self._ref_audio,
+            ref_text=self._ref_text if self._use_transcript else None,
             max_tokens=int(overrides.get("max_tokens", DEFAULT_MAX_TOKENS)),
             temperature=float(overrides.get("temperature", DEFAULT_TEMPERATURE)),
             top_p=float(overrides.get("top_p", DEFAULT_TOP_P)),
@@ -368,7 +389,7 @@ class Qwen3TTSServer:
             "voice_cloned": self.voice_cloned,
             "clone_mode": self.clone_mode,
             "reference_duration_ms": int(self._reference_ms),
-            "reference_text_used": bool(self._ref_text),
+            "reference_text_used": self._use_transcript,
             "language": self._language,
             "streaming": "native",
             "streaming_interval_s": self._streaming_interval,
@@ -389,6 +410,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--probe", action="store_true")
     parser.add_argument(
         "--streaming-interval", type=float, default=DEFAULT_STREAMING_INTERVAL
+    )
+    parser.add_argument(
+        "--clone-mode", default=DEFAULT_CLONE_MODE,
+        choices=(CLONE_MODE_ICL, CLONE_MODE_EMBEDDING),
+        help="icl (référence + transcript) ou speaker_embedding (référence seule)",
     )
     parser.add_argument(
         "--language", default=DEFAULT_LANGUAGE,
@@ -433,6 +459,7 @@ def main(argv: list[str] | None = None) -> int:
         ref_text=ref_text,
         streaming_interval=args.streaming_interval,
         language=args.language,
+        clone_mode=args.clone_mode,
     )
 
     if args.serve:

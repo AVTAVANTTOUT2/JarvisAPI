@@ -175,6 +175,8 @@ class Qwen3LocalTTSProvider:
         command = [
             str(launcher), "--serve", "--model", str(model_dir),
             "--language", _model_language(),
+            "--streaming-interval", str(self._settings.streaming_interval),
+            "--clone-mode", self._settings.clone_mode,
         ]
 
         # Le répertoire du profil suffit : le sidecar y lit lui-même

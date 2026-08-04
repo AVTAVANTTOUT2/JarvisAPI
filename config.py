@@ -166,6 +166,11 @@ DEFAULT_TTS_FLUSH_TIMEOUT_MS = 250
 # interne fait attendre 564 ms au lieu de 242 ms.
 DEFAULT_TTS_FIRST_CHUNK_MIN_CHARS = 15
 DEFAULT_TTS_FIRST_CHUNK_MAX_CHARS = 60
+# Secondes d'audio par bloc diffusé (12,5 trames/s : 0,4 s = 5 trames).
+DEFAULT_TTS_STREAMING_INTERVAL = 0.4
+# `icl` (référence + transcript) ou `speaker_embedding` (référence seule).
+# Les deux tiennent le temps réel ; le choix se tranche à l'oreille.
+DEFAULT_TTS_CLONE_MODE = "icl"
 
 TTS_PROVIDER = (_get("TTS_PROVIDER") or DEFAULT_TTS_PROVIDER).strip().lower()
 # Chemin d'un répertoire de poids **déjà installé**, ou identifiant d'un dépôt
@@ -174,6 +179,10 @@ TTS_PROVIDER = (_get("TTS_PROVIDER") or DEFAULT_TTS_PROVIDER).strip().lower()
 TTS_MODEL_PATH = _get("TTS_MODEL_PATH", DEFAULT_TTS_MODEL_PATH)
 TTS_VOICE_PATH = _get("TTS_VOICE_PATH", DEFAULT_TTS_VOICE_PATH)
 TTS_DEVICE = _get("TTS_DEVICE", DEFAULT_TTS_DEVICE).strip().lower()
+TTS_STREAMING_INTERVAL = float(
+    _get("TTS_STREAMING_INTERVAL", str(DEFAULT_TTS_STREAMING_INTERVAL))
+)
+TTS_CLONE_MODE = _get("TTS_CLONE_MODE", DEFAULT_TTS_CLONE_MODE).strip().lower()
 TTS_STREAMING = _get("TTS_STREAMING", str(DEFAULT_TTS_STREAMING)).lower() in (
     "true", "1", "yes",
 )
