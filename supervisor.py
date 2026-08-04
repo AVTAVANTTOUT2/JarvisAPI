@@ -271,23 +271,35 @@ def _kill_process_tree(pid: int, *, sig: int = signal.SIGTERM) -> None:
         pass
 
 
-def _kill_orphan_fish_sidecars() -> int:
-    """Tue les ``fish_local.py --serve`` orphelins du dépôt (hors arbre géré).
+# Sidecars de synthèse du dépôt. La liste doit couvrir **tous** les moteurs
+# installables, pas seulement celui en production : un poste qui vient de
+# basculer garde des processus de l'ancien moteur, et c'est précisément
+# l'orphelin le plus coûteux à laisser en mémoire.
+_TTS_SIDECAR_SCRIPTS: tuple[str, ...] = ("qwen3_local.py", "fish_local.py")
+
+
+def _kill_orphan_tts_sidecars() -> int:
+    """Tue les sidecars de synthèse orphelins du dépôt (hors arbre géré).
 
     Un restart du backend qui ne propageait pas le signal laissait des
-    instances Fish à ~12 Go RSS. On cible uniquement notre launcher.
+    instances chargées en mémoire Metal — plusieurs Go chacune. On cible
+    uniquement nos propres launchers, jamais un processus tiers.
     """
-    marker = str(PROJECT_DIR / "native_audio" / "fish_local.py")
-    try:
-        r = subprocess.run(
-            ["pgrep", "-f", marker],
-            capture_output=True, text=True, timeout=3,
-        )
-    except Exception:
-        return 0
+    pids: list[str] = []
+    for script in _TTS_SIDECAR_SCRIPTS:
+        marker = str(PROJECT_DIR / "native_audio" / script)
+        try:
+            r = subprocess.run(
+                ["pgrep", "-f", marker],
+                capture_output=True, text=True, timeout=3,
+            )
+        except Exception:
+            continue
+        pids.extend(r.stdout.strip().split())
+
     managed = _managed_pids()
     killed = 0
-    for raw in r.stdout.strip().split():
+    for raw in pids:
         if not raw.isdigit():
             continue
         pid = int(raw)
@@ -306,7 +318,7 @@ def _kill_orphan_fish_sidecars() -> int:
             ppid = 0
         if ppid in managed:
             continue
-        log.warning("Sidecar Fish orphelin — SIGTERM PID %d", pid)
+        log.warning("Sidecar TTS orphelin — SIGTERM PID %d", pid)
         _kill_process_tree(pid, sig=signal.SIGTERM)
         killed += 1
     if killed:
@@ -319,7 +331,7 @@ def _kill_orphan_fish_sidecars() -> int:
                 os.kill(pid, 0)
             except ProcessLookupError:
                 continue
-            log.warning("Sidecar Fish résistant — SIGKILL PID %d", pid)
+            log.warning("Sidecar TTS résistant — SIGKILL PID %d", pid)
             _kill_process_tree(pid, sig=signal.SIGKILL)
     return killed
 
@@ -500,10 +512,10 @@ def _start_sync(sid: str) -> dict:
         else:
             # Port libre mais on nettoie par precaution
             _kill_port(BACKEND_PORT)
-        # Sidecars Fish orphelins d'un crash précédent (hors arbre main.py).
-        orphan_fish = _kill_orphan_fish_sidecars()
-        if orphan_fish:
-            log.warning("Nettoyage pre-start : %d sidecar(s) Fish orphelin(s)", orphan_fish)
+        # Sidecars TTS orphelins d'un crash précédent (hors arbre main.py).
+        orphan_tts = _kill_orphan_tts_sidecars()
+        if orphan_tts:
+            log.warning("Nettoyage pre-start : %d sidecar(s) TTS orphelin(s)", orphan_tts)
         (LOGS_DIR / "backend.log").parent.mkdir(parents=True, exist_ok=True)
         backend_env = {**os.environ, "PYTHONUNBUFFERED": "1"}
         if config.WEB_HTTPS:
@@ -573,7 +585,7 @@ def _stop_sync(sid: str) -> dict:
     if sid == "backend":
         proc = _managed.get("backend")
         if proc and proc.poll() is None:
-            # Enfants d'abord (sidecar Fish) : terminate() sur main.py seul
+            # Enfants d'abord (sidecar TTS) : terminate() sur main.py seul
             # laissait des processus MLX orphelins qui empilaient la RAM.
             _kill_process_tree(proc.pid, sig=signal.SIGTERM)
             try:
@@ -585,7 +597,7 @@ def _stop_sync(sid: str) -> dict:
                 except subprocess.TimeoutExpired:
                     proc.kill()
         _managed["backend"] = None
-        _kill_orphan_fish_sidecars()
+        _kill_orphan_tts_sidecars()
         _kill_port(BACKEND_PORT)
         log.info("Backend arrete")
         return {"ok": True, "message": "Backend arrete"}
