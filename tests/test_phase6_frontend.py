@@ -175,8 +175,11 @@ def test_desktop_views_are_not_a_second_executable_app():
         "core/frontend_resolution.py",
         "core/frontend_static.py",
         "supervisor.py",
+        "web/src/app/components/views/ControlView.tsx",
     )
     for source in runtime_sources:
         text = (REPO_ROOT / source).read_text(encoding="utf-8")
         assert "vite_fallback" not in text
+        assert "vite_dev" not in text
+        assert "Vite Dev" not in text
         assert "web/dist" not in text

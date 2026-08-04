@@ -2,7 +2,7 @@
  * ControlView — gestion hierarchique de tous les services JARVIS.
  *
  * Niveau 1 — Processus principaux (supervisor, port 9000) :
- *   Backend JARVIS, TV Dashboard, Ollama, Vite Dev
+ *   Backend JARVIS, TV Dashboard, Ollama
  *   Controle via /api/supervisor/{id}/start|stop|restart
  *   Etat temps reel via WebSocket /ws/supervisor
  *
@@ -18,7 +18,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Activity, Brain, Clock, Mic, Mail, MessageSquare,
-  Monitor, RefreshCw, Search, Settings2, Terminal,
+  Monitor, RefreshCw, Search, Settings2,
   Tv, Play, Square, RotateCw,
   TerminalSquare, Server, Cpu,
 } from 'lucide-react'
@@ -68,7 +68,6 @@ const SERVICE_ICONS: Record<string, React.ComponentType<{ size?: number; classNa
   backend: Server,
   tv_dashboard: Tv,
   ollama: Cpu,
-  vite_dev: Terminal,
   audio_daemon: Mic,
   email_watcher: Mail,
   jarvis_daemon: Brain,
@@ -373,7 +372,7 @@ export default function ControlView() {
   const subGrouped = useMemo(() => {
     // Ollama / TV sont pilotés au niveau supervisor — éviter le doublon
     const filtered = subServices.filter(
-      (s) => s.id !== 'ollama' && s.id !== 'tv_dashboard' && s.id !== 'vite_dev',
+      (s) => s.id !== 'ollama' && s.id !== 'tv_dashboard',
     )
     const result: { category: string; services: ServiceInfo[] }[] = []
     for (const cat of SUB_CATEGORY_ORDER) {
