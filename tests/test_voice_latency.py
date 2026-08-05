@@ -9,8 +9,10 @@ ni étape bloquante, ni état résiduel, et que la chronologie reste corrélée 
 from __future__ import annotations
 
 import asyncio
+import sys
 import threading
 import time
+from types import ModuleType
 
 import pytest
 
@@ -357,8 +359,6 @@ def test_quality_model_cache_check_requires_complete_ctranslate_weights(
     tmp_path,
 ):
     """Un snapshot partiel ne doit jamais autoriser l'accusé anticipé."""
-    from faster_whisper import utils as faster_whisper_utils
-
     from audio.stt_daemon import FasterWhisperBackend
 
     snapshot = tmp_path / "snapshot"
@@ -367,10 +367,18 @@ def test_quality_model_cache_check_requires_complete_ctranslate_weights(
     weights = snapshot / "model.bin"
     weights.write_bytes(b"weights")
     (snapshot / "tokenizer.json").write_text("{}", encoding="utf-8")
-    monkeypatch.setattr(
+
+    faster_whisper = ModuleType("faster_whisper")
+    faster_whisper.__path__ = []
+    faster_whisper_utils = ModuleType("faster_whisper.utils")
+    faster_whisper_utils.download_model = (
+        lambda *_args, **_kwargs: str(snapshot)
+    )
+    monkeypatch.setitem(sys.modules, "faster_whisper", faster_whisper)
+    monkeypatch.setitem(
+        sys.modules,
+        "faster_whisper.utils",
         faster_whisper_utils,
-        "download_model",
-        lambda *_args, **_kwargs: str(snapshot),
     )
 
     backend = FasterWhisperBackend("large-v3-turbo")
