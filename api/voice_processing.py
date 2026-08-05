@@ -120,6 +120,7 @@ async def _process_voice_fast(
         conversation_id,
         t0=started_at,
         stt_ms=stt_ms,
+        confirmation_session_id=confirmation_session_id,
     )
     if early and not early.get("__continue__"):
         return early

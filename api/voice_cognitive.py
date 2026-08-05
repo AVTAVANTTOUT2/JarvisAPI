@@ -109,6 +109,7 @@ async def maybe_handle_cognitive_voice(
     *,
     t0: float,
     stt_ms: int = 0,
+    confirmation_session_id: str | None = None,
 ) -> dict[str, Any] | None:
     """Gère Cursor / briefing / heavy. Retourne une réponse finale ou None."""
     t_route = time.time()
@@ -116,11 +117,21 @@ async def maybe_handle_cognitive_voice(
     routing_ms = round((time.time() - t_route) * 1000)
     debug_trace = build_voice_debug_trace(text, intent, routing_ms)
     debug_trace["latency_stt_ms"] = int(stt_ms or 0)
+    confirmation_session_id = confirmation_session_id or f"local-voice:{conversation_id}"
 
     # ── Confirmation vocale d'une délégation en attente (« lance », « vas-y ») ──
+    from api.action_confirmations import peek_pending_proposal
     from api.chat_cognitive import is_cursor_confirmation_phrase
 
     if is_cursor_confirmation_phrase(text):
+        # Une proposition shell/food/terminal liée à cette session prime sur un
+        # job Cursor global : « lance » doit confirmer l'action en attente, pas
+        # démarrer un worktree à la place.
+        if peek_pending_proposal(
+            conversation_id=conversation_id,
+            session_id=confirmation_session_id,
+        ):
+            return None
         try:
             from integrations.cursor_delegation import cursor_delegation
             from database.cursor_jobs import list_jobs_by_statuses
