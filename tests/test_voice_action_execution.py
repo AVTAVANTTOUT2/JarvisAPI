@@ -243,3 +243,45 @@ async def test_voice_json_example_outside_action_fence_is_never_executed():
     assert result["text"] == raw
     canonical.assert_awaited_once()
     execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_voice_lance_confirms_pending_shell_not_cursor_job():
+    """« lance » vocal doit confirmer le plan shell en attente, pas un job Cursor."""
+    from unittest.mock import AsyncMock, patch
+
+    from api.action_confirmations import reset_pending_proposals_for_tests, store_pending_proposal
+    from api.voice_cognitive import maybe_handle_cognitive_voice
+
+    reset_pending_proposals_for_tests()
+    store_pending_proposal(
+        {"type": "terminal", "shell_plan_id": "server-plan"},
+        conversation_id=9,
+        session_id="local-voice:9",
+    )
+
+    mock_confirm = AsyncMock(return_value={"job_id": "cursor-1", "status": "running"})
+
+    with (
+        patch("integrations.cursor_delegation.cursor_delegation") as cd,
+        patch(
+            "database.cursor_jobs.list_jobs_by_statuses",
+            return_value=[
+                {
+                    "job_id": "cursor-1",
+                    "interaction_mode": "voice",
+                    "status": "awaiting_confirmation",
+                }
+            ],
+        ),
+    ):
+        cd.confirm = mock_confirm
+        result = await maybe_handle_cognitive_voice(
+            "lance",
+            9,
+            t0=0.0,
+            confirmation_session_id="local-voice:9",
+        )
+
+    assert result is None, "le préambule cognitif doit céder au plan shell en attente"
+    mock_confirm.assert_not_awaited()
