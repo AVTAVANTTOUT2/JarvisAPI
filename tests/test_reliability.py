@@ -336,6 +336,54 @@ def test_maintenance_purges_by_retention(tmp_db):
     assert titles == ["NON lue ancienne"]
 
 
+def test_maintenance_purges_scheduler_job_runs_on_same_connection(tmp_db, monkeypatch):
+    """La purge des runs scheduler doit rester dans la connexion ouverte.
+
+    Un appel imbriqué à ``get_db()`` / ``purge_scheduler_runs`` pendant
+    ``run_maintenance`` deadlock SQLite (même thread, connexion déjà tenue).
+    """
+    from database import get_db
+    from scripts.db_maintenance import run_maintenance
+
+    monkeypatch.setattr("config.RETENTION_SCHEDULER_RUNS_DAYS", 7)
+    nested_calls: list[int] = []
+
+    def _must_not_nest(days: int) -> int:
+        nested_calls.append(days)
+        raise AssertionError(
+            "purge_scheduler_runs ne doit plus être appelé depuis run_maintenance"
+        )
+
+    monkeypatch.setattr(
+        "database.scheduler_runs.purge_scheduler_runs",
+        _must_not_nest,
+    )
+
+    with get_db() as conn:
+        conn.execute(
+            """INSERT INTO scheduler_job_runs
+               (job_id, trigger, status, started_at)
+               VALUES ('morning_briefing', 'cron', 'ok',
+                       datetime('now', '-30 days'))"""
+        )
+        conn.execute(
+            """INSERT INTO scheduler_job_runs
+               (job_id, trigger, status, started_at)
+               VALUES ('morning_briefing', 'cron', 'ok',
+                       datetime('now', '-1 days'))"""
+        )
+
+    report = run_maintenance()
+    assert nested_calls == []
+    assert report["purged"]["scheduler_job_runs"] == 1
+
+    with get_db() as conn:
+        remaining = conn.execute(
+            "SELECT COUNT(*) FROM scheduler_job_runs"
+        ).fetchone()[0]
+    assert remaining == 1
+
+
 def test_maintenance_zero_days_keeps_everything(tmp_db, monkeypatch):
     from database import get_db
     from scripts.db_maintenance import run_maintenance
