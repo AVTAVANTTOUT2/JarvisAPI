@@ -175,10 +175,11 @@ def check_ollama_health(
                     )
             return result
     except Exception as exc:
+        logger.debug("[ollama] health indisponible: %s", exc)
         result["latency_ms"] = round((time.perf_counter() - started) * 1000, 1)
         result["status"] = "stopped"
         result["healthy"] = False
-        result["error"] = str(exc)
+        result["error"] = "Ollama est indisponible"
         return result
 
 
@@ -287,20 +288,23 @@ def start_ollama(*, wait_s: float = START_WAIT_S) -> dict[str, Any]:
     except FileNotFoundError:
         return {
             "ok": False,
+            "code": "ollama_binary_missing",
             "service": "ollama",
             "status": "error",
             "healthy": False,
             "error": "Binaire 'ollama' introuvable dans le PATH",
             "message": "Binaire ollama introuvable",
         }
-    except Exception as exc:
+    except Exception:
+        logger.exception("[ollama] échec du lancement du processus")
         return {
             "ok": False,
+            "code": "ollama_start_failed",
             "service": "ollama",
             "status": "error",
             "healthy": False,
-            "error": str(exc),
-            "message": f"Échec démarrage Ollama : {exc}",
+            "error": "Le processus Ollama n'a pas pu démarrer",
+            "message": "Échec du démarrage d'Ollama",
         }
 
     deadline = time.time() + wait_s
@@ -320,9 +324,10 @@ def start_ollama(*, wait_s: float = START_WAIT_S) -> dict[str, Any]:
             return {
                 **last,
                 "ok": False,
+                "code": "ollama_start_failed",
                 "status": "error",
                 "message": "Ollama s'est arrêté pendant le démarrage",
-                "error": last.get("error") or "process exited",
+                "error": "Le processus Ollama s'est arrêté prématurément",
             }
         time.sleep(0.5)
 
@@ -330,9 +335,10 @@ def start_ollama(*, wait_s: float = START_WAIT_S) -> dict[str, Any]:
     return {
         **last,
         "ok": False,
+        "code": "ollama_start_timeout",
         "status": "error",
         "message": f"Timeout health Ollama ({wait_s:.0f}s)",
-        "error": last.get("error") or "timeout",
+        "error": "Ollama n'est pas devenu disponible à temps",
     }
 
 

@@ -4,7 +4,7 @@ import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { api } from '@unified/lib/api';
 import type { ApiPerson, NotificationItem } from '@unified/types/jarvis';
 import type { DeviceInfo, AudioDaemonStatus, WeeklyStats } from '@unified/lib/api';
-import { formatRelativeTime } from '@desktop/app/lib/timeFormat';
+import { formatRelativeTime } from '@unified/lib/timeFormat';
 
 const DAY_LABELS = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
 

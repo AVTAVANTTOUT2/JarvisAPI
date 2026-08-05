@@ -70,8 +70,8 @@ async def check_overdue_tasks():
     """Notifications pour les tâches non terminées dont l’échéance est dépassée."""
     if not config.OVERDUE_TASKS_ENABLED:
         return skipped("OVERDUE_TASKS_ENABLED=false")
-    from integrations.notifications_macos import mac_notifier
     from database import get_tasks
+    from integrations.notifications_macos import mac_notifier
 
     if not config.DESKTOP_NOTIFICATIONS:
         return skipped("DESKTOP_NOTIFICATIONS=false")
@@ -364,10 +364,7 @@ async def _self_improvement_job():
         return skipped("SELF_IMPROVEMENT_ENABLED=false")
     from scripts.self_improvement import propose_improvements
 
-    auto = (
-        getattr(config, "SELF_MODIFICATION_MODE", "pr_only") in ("pr_only", "auto_merge_low_risk")
-        and getattr(config, "CURSOR_DELEGATION_ENABLED", True)
-    )
+    auto = bool(getattr(config, "CURSOR_DELEGATION_ENABLED", True))
     result = await propose_improvements(auto_delegate=auto)
     n = len(result.get("proposals") or [])
     if n:
@@ -468,13 +465,17 @@ async def _security_audit_job():
 
 @tracked("test_gen")
 async def _test_gen_job():
-    """Génération de tests manquants (opt-in, no-op si non configuré)."""
+    """Délègue les tests manquants à Cursor, uniquement via une PR."""
     if not config.AUTO_TEST_GEN_ENABLED:
         return skipped("AUTO_TEST_GEN_ENABLED=false")
-    from scripts.test_coverage_scan import run_test_generation
+    from scripts.quality_delegation import delegate_missing_tests
 
-    result = await run_test_generation()
-    return ok(result if result is not None else "Génération de tests terminée")
+    job = await delegate_missing_tests(
+        interaction_mode="scheduled",
+        auto_start=True,
+        require_confirmation=False,
+    )
+    return ok(f"Tests délégués via PR-only : {job.get('job_id')}")
 
 
 @tracked("commitments_overdue")

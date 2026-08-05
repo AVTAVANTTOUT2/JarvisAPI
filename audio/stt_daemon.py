@@ -9,6 +9,7 @@ import struct
 import time
 import wave
 from abc import ABC, abstractmethod
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -56,6 +57,10 @@ class TranscriptionResult:
     # ou si l'énoncé capturé était long.
     inference_ms: int = 0
     audio_ms: int = 0
+    model: str | None = None
+    avg_logprob: float | None = None
+    max_no_speech_prob: float | None = None
+    quality_fallback_used: bool = False
 
     @property
     def real_time_factor(self) -> float | None:
@@ -176,6 +181,38 @@ class FasterWhisperBackend(DaemonSTTBackend):
         self._load_failed = False
         self._load_lock = asyncio.Lock()
 
+    def is_available_locally(self) -> bool:
+        """Vérifie les artefacts CTranslate2 sans charger les poids ni le réseau."""
+        if self._loaded:
+            return True
+
+        candidate = Path(self._model_size).expanduser()
+        try:
+            if not candidate.is_dir():
+                from faster_whisper.utils import download_model
+
+                candidate = Path(download_model(
+                    self._model_size,
+                    cache_dir=str(FASTER_WHISPER_CACHE),
+                    local_files_only=True,
+                ))
+        except Exception:
+            return False
+
+        required = (candidate / "config.json", candidate / "model.bin")
+        tokenizer = (
+            candidate / "tokenizer.json",
+            candidate / "vocabulary.json",
+            candidate / "vocabulary.txt",
+        )
+        try:
+            return (
+                all(path.is_file() and path.stat().st_size > 0 for path in required)
+                and any(path.is_file() and path.stat().st_size > 0 for path in tokenizer)
+            )
+        except OSError:
+            return False
+
     def preload_sync(self) -> bool:
         if self._loaded:
             return True
@@ -269,6 +306,16 @@ class FasterWhisperBackend(DaemonSTTBackend):
                     engine=self.name,
                     inference_ms=round((time.perf_counter() - started) * 1000),
                     audio_ms=audio_ms,
+                    model=self._model_size,
+                    avg_logprob=(
+                        sum(float(getattr(segment, "avg_logprob", 0.0)) for segment in segments_list)
+                        / len(segments_list)
+                        if segments_list else None
+                    ),
+                    max_no_speech_prob=(
+                        max(float(getattr(segment, "no_speech_prob", 0.0)) for segment in segments_list)
+                        if segments_list else None
+                    ),
                 )
                 logger.debug(
                     "[stt_daemon] %s audio=%dms inference=%dms rtf=%s beam=%d vad=%s",
@@ -491,6 +538,41 @@ class FallbackSTTBackend(DaemonSTTBackend):
         sample_rate: int,
         language: str = "fr",
     ) -> TranscriptionResult | None:
+        return await self._transcribe_pcm(
+            pcm_bytes,
+            sample_rate=sample_rate,
+            language=language,
+            on_quality_fallback=None,
+        )
+
+    async def transcribe_pcm_with_quality_callback(
+        self,
+        pcm_bytes: bytes,
+        *,
+        sample_rate: int,
+        language: str = "fr",
+        on_quality_fallback: Callable[[], Awaitable[None]],
+    ) -> TranscriptionResult | None:
+        """Transcrit et signale le départ d'une relecture lourde.
+
+        Le callback part comme tâche concurrente : le daemon peut faire
+        entendre son accusé local pendant que la relecture qualité s'exécute.
+        """
+        return await self._transcribe_pcm(
+            pcm_bytes,
+            sample_rate=sample_rate,
+            language=language,
+            on_quality_fallback=on_quality_fallback,
+        )
+
+    async def _transcribe_pcm(
+        self,
+        pcm_bytes: bytes,
+        *,
+        sample_rate: int,
+        language: str,
+        on_quality_fallback: Callable[[], Awaitable[None]] | None,
+    ) -> TranscriptionResult | None:
         if not self.preload_sync() or self._active_index is None:
             return None
 
@@ -502,11 +584,100 @@ class FallbackSTTBackend(DaemonSTTBackend):
                 pcm_bytes, sample_rate=sample_rate, language=language,
             )
             if result is not None:
+                if (
+                    index == 0
+                    and len(self._backends) > 1
+                    and isinstance(backend, FasterWhisperBackend)
+                    and isinstance(self._backends[1], FasterWhisperBackend)
+                    and _needs_quality_fallback(result)
+                ):
+                    quality_backend = self._backends[1]
+                    logger.info(
+                        "[stt_daemon] confiance faible model=%s logprob=%s — "
+                        "relecture qualité locale model=%s",
+                        result.model,
+                        result.avg_logprob,
+                        quality_backend._model_size,
+                    )
+                    # La présence des artefacts est vérifiée sans charger les
+                    # poids. L'accusé peut ainsi couvrir aussi le chargement
+                    # froid sans faire parler JARVIS si le cache est absent ou
+                    # incomplet. Attendre `preload_sync` ici ferait dépasser le
+                    # budget de deux secondes précisément sur le pire chemin.
+                    if not quality_backend.is_available_locally():
+                        logger.warning(
+                            "[stt_daemon] relecture qualité ignorée : cache local "
+                            "incomplet model=%s",
+                            quality_backend._model_size,
+                        )
+                        return result
+
+                    notice_task: asyncio.Task[None] | None = None
+                    if on_quality_fallback is not None:
+                        notice_task = asyncio.create_task(
+                            on_quality_fallback(),
+                            name="stt-quality-fallback-notice",
+                        )
+                        notice_task.add_done_callback(_log_quality_notice_failure)
+                    loop = asyncio.get_running_loop()
+                    quality_ready = quality_backend._loaded or await loop.run_in_executor(
+                        None, quality_backend.preload_sync,
+                    )
+                    if quality_ready:
+                        quality_result = await quality_backend.transcribe_pcm(
+                            pcm_bytes,
+                            sample_rate=sample_rate,
+                            language=language,
+                        )
+                        if quality_result is not None and quality_result.text.strip():
+                            quality_result.quality_fallback_used = True
+                            return quality_result
+                    elif notice_task is not None and not notice_task.done():
+                        notice_task.cancel()
+                    # La relecture qualité est une optimisation : si elle est
+                    # indisponible, la transcription primaire reste utilisable.
+                    return result
                 self._active_index = index
                 self.name = backend.name
                 return result
             logger.warning("[stt_daemon] %s a échoué — essai du repli local", backend.name)
         return None
+
+
+def _needs_quality_fallback(result: TranscriptionResult) -> bool:
+    """Décide une seule relecture lourde sur confiance faible, jamais sur silence."""
+    threshold = float(getattr(
+        config,
+        "STT_QUALITY_FALLBACK_LOGPROB",
+        config.DEFAULT_STT_QUALITY_FALLBACK_LOGPROB,
+    ))
+    if result.avg_logprob is not None and result.text.strip():
+        return result.avg_logprob < threshold
+    if result.text.strip():
+        return False
+
+    # Transcription vide : il faut une **preuve** que de la parole a été perdue
+    # avant de payer le modèle lourd.
+    #
+    # faster-whisper ne rend aucun segment sur du silence ou du bruit — les
+    # deux indicateurs valent alors ``None``. Les lire comme « 0.0 », donc
+    # comme « certainement parlé », escaladait sur chaque bruit de fond : le
+    # modèle lourd était chargé, et l'accusé vocal qui couvre son temps de
+    # chargement faisait répondre JARVIS à personne. L'absence d'indicateur
+    # n'est pas une présomption de parole, c'est une absence de signal.
+    if result.max_no_speech_prob is None:
+        return False
+    return result.max_no_speech_prob < 0.5
+
+
+def _log_quality_notice_failure(task: asyncio.Task[None]) -> None:
+    """Consomme l'exception du callback sans faire échouer la transcription."""
+    if task.cancelled():
+        return
+    try:
+        task.result()
+    except Exception:
+        logger.warning("[stt_daemon] notification de relecture qualité échouée", exc_info=True)
 
 
 def _pcm16_to_wav(pcm_bytes: bytes, sample_rate: int) -> bytes:
@@ -630,6 +801,7 @@ class DaemonSTT:
         *,
         sample_rate: int | None = None,
         language: str = "fr",
+        on_quality_fallback: Callable[[], Awaitable[None]] | None = None,
     ) -> dict | None:
         if not self._preload_attempted:
             loop = asyncio.get_running_loop()
@@ -637,11 +809,38 @@ class DaemonSTT:
         if not self.available:
             return None
         sr = sample_rate or int(getattr(config, "AUDIO_DAEMON_SAMPLE_RATE", 16000))
-        result = await self._backend.transcribe_pcm(pcm_bytes, sample_rate=sr, language=language)
+        self.last_raw_text = ""
+        self.last_clean_text = ""
+        if (
+            on_quality_fallback is not None
+            and isinstance(self._backend, FallbackSTTBackend)
+        ):
+            result = await self._backend.transcribe_pcm_with_quality_callback(
+                pcm_bytes,
+                sample_rate=sr,
+                language=language,
+                on_quality_fallback=on_quality_fallback,
+            )
+        else:
+            result = await self._backend.transcribe_pcm(
+                pcm_bytes, sample_rate=sr, language=language,
+            )
         if result is None:
             return None
+        raw_text = str(result.text or "").strip()
+        prompt_echo = bool(raw_text and is_stt_prompt_echo(raw_text))
+        clean_text = "" if prompt_echo else raw_text
+        self.last_raw_text = raw_text
+        self.last_clean_text = clean_text
+        if prompt_echo:
+            logger.warning(
+                "[stt_daemon] echo du prompt rejete engine=%s transcript=%r",
+                result.engine,
+                raw_text[:120],
+            )
         return {
-            "text": result.text,
+            "text": clean_text,
+            "raw_text": raw_text,
             "segments": result.segments,
             "language": result.language,
             "duration": result.duration,
@@ -649,6 +848,11 @@ class DaemonSTT:
             "inference_ms": result.inference_ms,
             "audio_ms": result.audio_ms,
             "real_time_factor": result.real_time_factor,
+            "model": result.model,
+            "avg_logprob": result.avg_logprob,
+            "max_no_speech_prob": result.max_no_speech_prob,
+            "quality_fallback_used": result.quality_fallback_used,
+            "prompt_echo": prompt_echo,
         }
 
     @staticmethod
@@ -680,6 +884,8 @@ class DaemonSTT:
         timeout: float | None = None,
     ) -> str:
         """Transcrit du PCM ou un conteneur WebM/Opus, WAV, MP3 ou OGG localement."""
+        self.last_raw_text = ""
+        self.last_clean_text = ""
         if len(audio_bytes) < 1000:
             return ""
 
@@ -702,10 +908,21 @@ class DaemonSTT:
             language=language,
         )
         meta = await asyncio.wait_for(operation, timeout=timeout) if timeout else await operation
-        text = str((meta or {}).get("text") or "").strip()
-        self.last_raw_text = text
-        self.last_clean_text = text
-        return text
+        if not meta:
+            return ""
+
+        # ``transcribe_with_metadata`` est la façade canonique, mais ce garde
+        # reste volontairement à la frontière texte : il préserve le contrat
+        # même lorsqu'un backend est remplacé par un double, un plugin local ou
+        # une future implémentation qui ne renseigne pas encore ``prompt_echo``.
+        raw_text = str(meta.get("raw_text") or meta.get("text") or "").strip()
+        prompt_echo = bool(meta.get("prompt_echo")) or bool(
+            raw_text and is_stt_prompt_echo(raw_text)
+        )
+        clean_text = "" if prompt_echo else str(meta.get("text") or raw_text).strip()
+        self.last_raw_text = raw_text
+        self.last_clean_text = clean_text
+        return clean_text
 
     async def transcribe_with_diarization(
         self,

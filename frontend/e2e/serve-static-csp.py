@@ -13,7 +13,10 @@ PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 3107
 
 sys.path.insert(0, str(ROOT))
 
-from security_headers import CONTENT_SECURITY_POLICY  # noqa: E402
+from security_headers import (  # noqa: E402
+    CONTENT_SECURITY_POLICY,
+    content_security_policy_for_html,
+)
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -21,7 +24,18 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         super().__init__(*args, directory=str(OUT), **kwargs)
 
     def end_headers(self) -> None:
-        self.send_header("Content-Security-Policy", CONTENT_SECURITY_POLICY)
+        policy = CONTENT_SECURITY_POLICY
+        request_path = self.path.split("?", 1)[0].split("#", 1)[0].lstrip("/")
+        target = (OUT / (request_path or "index.html")).resolve()
+        try:
+            target.relative_to(OUT.resolve())
+        except ValueError:
+            target = OUT / "__invalid__"
+        if target.is_dir():
+            target = target / "index.html"
+        if target.suffix == ".html" and target.is_file():
+            policy = content_security_policy_for_html(target.read_bytes())
+        self.send_header("Content-Security-Policy", policy)
         self.send_header("X-Content-Type-Options", "nosniff")
         super().end_headers()
 

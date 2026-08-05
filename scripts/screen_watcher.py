@@ -642,6 +642,16 @@ class ScreenWatcher:
 
     # ── Analyse Ollama ─────────────────────────────────────────────────────
 
+    async def analyze_image(
+        self,
+        img: Image.Image,
+        *,
+        app: str | None = None,
+        window_info: dict | None = None,
+    ) -> dict | None:
+        """API publique stable pour analyser une capture locale ou distante."""
+        return await self._analyze_with_ollama(img, app, window_info)
+
     async def _analyze_with_ollama(
         self, img: Image.Image, app: str | None, window_info: dict | None
     ) -> dict | None:

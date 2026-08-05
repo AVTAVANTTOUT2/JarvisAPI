@@ -24,6 +24,9 @@ if str(ROOT_DIR) not in sys.path:
 
 from integrations.apple_data import apple_data
 
+# Diagnostic matériel autonome, volontairement hors de la collecte pytest.
+__test__ = False
+
 BOLD = "\033[1m"
 RESET = "\033[0m"
 GREEN = "\033[92m"

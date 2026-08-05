@@ -33,6 +33,29 @@ class FakeLLMClient:
         return json.dumps(self.calls, ensure_ascii=False, default=str)
 
 
+class FakeConversationEngine:
+    """Faux orchestrateur du moteur de tour canonique."""
+
+    def __init__(self, contents: Iterable[str]):
+        self._contents = iter(contents)
+        self.calls: list[dict] = []
+
+    async def handle(self, content: str, **kwargs) -> dict:
+        self.calls.append({"content": copy.deepcopy(content), **copy.deepcopy(kwargs)})
+        return {
+            "response": next(self._contents),
+            "agent": "fake",
+            "model": "fake-llm",
+            "tokens_in": 1,
+            "tokens_out": 1,
+            "cost": 0.0,
+            "emotion": "neutral",
+        }
+
+    def serialized_calls(self) -> str:
+        return json.dumps(self.calls, ensure_ascii=False, default=str)
+
+
 def _isolate_db(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     db_path = tmp_path / "llm-boundary.db"
     monkeypatch.setattr("config.DB_PATH", str(db_path))
@@ -44,9 +67,7 @@ def _isolate_db(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
 
 
 def _patch_voice_dependencies(monkeypatch: pytest.MonkeyPatch) -> None:
-    import api.voice_cognitive as voice_cognitive
-    import api.voice_fastpath as voice_fastpath
-    import api.voice_processing as voice_processing
+    from api import chat_processing, voice_cognitive, voice_fastpath, voice_processing
 
     async def _continue(*_args, **_kwargs):
         return {"__continue__": True, "debug_trace": {"seed": True}, "intent": None}
@@ -56,11 +77,11 @@ def _patch_voice_dependencies(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(voice_cognitive, "maybe_handle_cognitive_voice", _continue)
     monkeypatch.setattr(voice_processing, "maybe_handle_fitness_voice", lambda *_a, **_k: None)
-    monkeypatch.setattr(voice_processing, "get_conversation_history", lambda *_a, **_k: [])
-    monkeypatch.setattr(voice_processing, "get_current_screen_context", lambda: None)
     monkeypatch.setattr(voice_fastpath, "_save_voice_messages", lambda *_a, **_k: None)
     monkeypatch.setattr(voice_processing, "_save_voice_debug_trace", lambda *_a, **_k: 1)
     monkeypatch.setattr(voice_processing, "_broadcast_voice_debug", _noop)
+    monkeypatch.setattr(chat_processing, "update_conversation_activity", lambda *_a, **_k: None)
+    monkeypatch.setattr(chat_processing, "_maybe_title_conversation", _noop)
 
 
 @pytest.mark.asyncio
@@ -100,21 +121,23 @@ async def test_history_token_never_reaches_fake_llm_prompt(monkeypatch):
 async def test_terminal_stdout_token_is_redacted_before_second_fake_llm_pass(
     monkeypatch,
 ):
-    import api.voice_fastpath as voice_fastpath
-    import api.voice_processing as voice_processing
+    from api import voice_processing
 
     _patch_voice_dependencies(monkeypatch)
     secret = "sk-stdoutBoundary123456789"
-    fake = FakeLLMClient(
+    fake = FakeConversationEngine(
         [
             '[neutral]\n```action\n{"type":"terminal","command":"pwd"}\n```',
             "[neutral] Commande terminée.",
         ]
     )
-    monkeypatch.setattr(voice_processing.llm, "chat", fake.chat)
+    monkeypatch.setattr("api.chat_processing.orchestrator.handle", fake.handle)
     monkeypatch.setattr(
-        voice_processing,
-        "execute_action",
+        "api.chat_processing._build_enriched_context",
+        AsyncMock(return_value={}),
+    )
+    monkeypatch.setattr(
+        "api.chat_processing.execute_action",
         AsyncMock(
             return_value={
                 "ok": True,
@@ -135,18 +158,20 @@ async def test_terminal_stdout_token_is_redacted_before_second_fake_llm_pass(
 
 @pytest.mark.asyncio
 async def test_clipboard_token_never_triggers_a_second_fake_llm_pass(monkeypatch):
-    import api.voice_fastpath as voice_fastpath
-    import api.voice_processing as voice_processing
+    from api import voice_processing
 
     _patch_voice_dependencies(monkeypatch)
     secret = "sk-clipboardBoundary123456789"
-    fake = FakeLLMClient(
+    fake = FakeConversationEngine(
         ['[neutral]\n```action\n{"type":"clipboard","action":"get"}\n```']
     )
-    monkeypatch.setattr(voice_processing.llm, "chat", fake.chat)
+    monkeypatch.setattr("api.chat_processing.orchestrator.handle", fake.handle)
     monkeypatch.setattr(
-        voice_processing,
-        "execute_action",
+        "api.chat_processing._build_enriched_context",
+        AsyncMock(return_value={}),
+    )
+    monkeypatch.setattr(
+        "api.chat_processing.execute_action",
         AsyncMock(return_value={"ok": True, "content": secret, "action": "get"}),
     )
 
@@ -157,7 +182,9 @@ async def test_clipboard_token_never_triggers_a_second_fake_llm_pass(monkeypatch
     assert len(fake.calls) == 1
     assert secret not in fake.serialized_calls()
     assert secret not in response["text"]
-    assert response["debug_trace"]["pass2_skipped"] == "clipboard_local_only"
+    assert response["debug_trace"]["action_result"] == "[LOCAL_ONLY]"
+    assert response["action_result"] == {"ok": True}
+    assert secret not in repr(response)
 
 
 @pytest.mark.asyncio

@@ -7,7 +7,17 @@ import logging
 from fastapi import HTTPException
 
 import config
-from database import get_all_people, get_life_profile, get_recent_episodes, get_school_documents
+from api.insight_models import (
+    CommitmentStatusRequest,
+    JarvisJournalGenerateRequest,
+    SelfHealingDiagnoseRequest,
+)
+from database import (
+    get_all_people,
+    get_life_profile,
+    get_recent_episodes,
+    get_school_documents,
+)
 
 logger = logging.getLogger("jarvis")
 
@@ -69,12 +79,12 @@ async def api_jarvis_journal(days: int = 7):
     return {"entries": get_jarvis_journal_entries(days=days)}
 
 
-async def api_jarvis_journal_generate(payload: dict | None = None):
+async def api_jarvis_journal_generate(payload: JarvisJournalGenerateRequest | None = None):
     """Force la génération de l'entrée du jour (ou d'une date donnée)."""
     from scripts.jarvis_journal import generate_journal_entry
 
-    date = (payload or {}).get("date")
-    return await generate_journal_entry(date=date)
+    target_date = payload.date if payload else None
+    return await generate_journal_entry(date=target_date)
 
 
 async def api_day_scores(metric: str = "exceptional_score", limit: int = 10, days: int = 90):
@@ -107,24 +117,19 @@ async def api_presence():
 
 
 async def api_self_healing_status():
-    """État du self-healing : activé ?, dernier patch, cooldown."""
-    from scripts.self_healing import _load_state
-
+    """État du self-healing report-only / PR-only."""
     return {
         "enabled": config.SELF_HEALING_ENABLED,
-        "auto_apply": config.SELF_HEALING_AUTO_APPLY,
-        "state": _load_state(),
+        "self_repair_enabled": config.SELF_REPAIR_ENABLED,
+        "delivery_mode": "pr_only",
     }
 
 
-async def api_self_healing_diagnose(body: dict = None):
-    """Déclenche un diagnostic (+ patch si auto-apply) à la demande, sur un log fourni."""
+async def api_self_healing_diagnose(body: SelfHealingDiagnoseRequest):
+    """Déclenche un diagnostic et, si autorisé, une proposition Cursor en PR."""
     from scripts.self_healing import handle_crash_loop
 
-    log_tail = (body or {}).get("log_tail", "")
-    if not log_tail.strip():
-        raise HTTPException(400, "Le champ 'log_tail' est requis.")
-    return await handle_crash_loop(log_tail)
+    return await handle_crash_loop(body.log_tail)
 
 
 
@@ -144,16 +149,13 @@ async def api_commitments_list(status: str = "open"):
     return {"commitments": get_commitments(status)}
 
 
-async def api_commitments_update(commitment_id: int, body: dict):
+async def api_commitments_update(commitment_id: int, body: CommitmentStatusRequest):
     """Marque un engagement tenu ('kept') ou abandonné ('dropped')."""
     from database import update_commitment_status
 
-    status = (body or {}).get("status")
-    if status not in ("open", "kept", "dropped"):
-        raise HTTPException(400, "status ∈ {open, kept, dropped}")
-    if not update_commitment_status(commitment_id, status):
+    if not update_commitment_status(commitment_id, body.status):
         raise HTTPException(404, f"Engagement #{commitment_id} introuvable")
-    return {"ok": True, "id": commitment_id, "status": status}
+    return {"ok": True, "id": commitment_id, "status": body.status}
 
 
 async def api_commitments_consistency(days: int = 90):

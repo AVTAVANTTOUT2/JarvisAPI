@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
 
 from jarvis.event_bus import event_bus
 from jarvis.events import PatternDetected
 
 from .core import get_db
+from .time_buckets import local_datetime, utc_bounds_for_local_day
 
 
 def create_pattern(pattern_type: str, description: str) -> int:
@@ -79,14 +79,15 @@ def get_daily_messages(date: str = None) -> list:
 
     Utilisé par `productivity.evening_summary()` pour résumer la journée.
     """
-    target = date or datetime.now().strftime("%Y-%m-%d")
+    target = date or local_datetime().date().isoformat()
+    start_utc, end_utc = utc_bounds_for_local_day(target)
     with get_db() as conn:
         rows = conn.execute(
             """SELECT role, content, agent, model, created_at
                FROM messages
-               WHERE DATE(created_at) = ?
+               WHERE created_at >= ? AND created_at < ?
                ORDER BY created_at""",
-            (target,),
+            (start_utc, end_utc),
         ).fetchall()
         return [dict(r) for r in rows]
 

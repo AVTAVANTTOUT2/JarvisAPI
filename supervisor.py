@@ -3,7 +3,7 @@
 JARVIS Supervisor — processus permanent qui controle tous les services.
 Port 9000 — toujours actif, sert le frontend desktop, proxy vers le backend.
 
-Priorité frontend : frontend/out (Next) puis web/dist (Vite fallback).
+Frontend bureau unique : export statique frontend/out (Next.js).
 Ce processus ne s'arrete JAMAIS depuis l'UI.
 """
 
@@ -19,15 +19,15 @@ import sqlite3
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
 import httpx
 import uvicorn
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from starlette.requests import Request
 from starlette.responses import Response
 
@@ -52,10 +52,10 @@ from core.supervisor_auth import (
 PROJECT_DIR = Path(__file__).parent.resolve()
 VENV_PYTHON = str(PROJECT_DIR / "venv" / "bin" / "python")
 
-from env_loader import load_jarvis_env
+from env_loader import load_jarvis_env  # noqa: E402
 
 load_jarvis_env()
-import config
+import config  # noqa: E402
 
 # Source unique : `config.SUPERVISOR_PORT`. Le backend a besoin de la même
 # valeur pour indiquer où vit le plan de contrôle, et deux lectures
@@ -84,8 +84,6 @@ def _backend_http_verify() -> str | bool:
 BACKEND_URL = _backend_url()
 # Résolution basée sur PROJECT_DIR (fichier), pas sur os.getcwd()
 FRONTEND_RESOLUTION = resolve_desktop_frontend(PROJECT_DIR)
-# Alias historique : pointe vers web/dist si présent, sinon None — ne définit plus la priorité
-DIST_DIR = PROJECT_DIR / "web" / "dist"
 LOGS_DIR = PROJECT_DIR / "data" / "logs"
 LOCK_PATH = "/tmp/jarvis_supervisor.lock"
 
@@ -111,7 +109,7 @@ app.middleware("http")(security_middleware)
 # ── Etat global ─────────────────────────────────────────────────────────
 _start_time = time.time()
 _managed: dict[str, subprocess.Popen | None] = {
-    "backend": None, "tv_dashboard": None, "ollama": None, "vite_dev": None,
+    "backend": None, "tv_dashboard": None, "ollama": None,
 }
 _caffeinate_proc: subprocess.Popen | None = None
 _ws_clients: set[WebSocket] = set()
@@ -126,6 +124,90 @@ _http = httpx.AsyncClient(
     limits=httpx.Limits(max_keepalive_connections=5, max_connections=20),
     verify=_backend_http_verify(),
 )
+
+
+def _supervisor_error(
+    status_code: int,
+    code: str,
+    message: str,
+    *,
+    context: dict[str, str] | None = None,
+) -> HTTPException:
+    """Construit une erreur publique stable sans détail d'exception interne."""
+    detail: dict[str, Any] = {"code": code, "message": message}
+    if context:
+        detail["context"] = context
+    return HTTPException(status_code=status_code, detail=detail)
+
+
+def _control_result_or_error(
+    result: dict[str, Any],
+    *,
+    service: str,
+    action: str,
+) -> dict[str, Any]:
+    """Transforme les échecs historiques ``ok:false`` en statut HTTP réel."""
+    if result.get("ok") is not False:
+        return result
+
+    declared_code = result.get("code")
+    declared_message = result.get("message")
+    internal_error = result.get("error")
+    if (
+        service == "screen_watcher"
+        and action == "start"
+        and isinstance(internal_error, str)
+        and "ollama" in internal_error.casefold()
+    ):
+        declared_code = "ollama_required"
+        declared_message = "Ollama doit être démarré avant Screen Watcher"
+    code = (
+        str(declared_code)
+        if isinstance(declared_code, str) and declared_code
+        else f"service_{action}_failed"
+    )
+    if code == "service_not_found":
+        status_code = 404
+    else:
+        status_code = 503
+
+    if (
+        isinstance(declared_message, str)
+        and declared_message.strip()
+        and isinstance(declared_code, str)
+    ):
+        message = declared_message.strip()
+    else:
+        action_label = {
+            "start": "démarrer",
+            "stop": "arrêter",
+            "restart": "redémarrer",
+        }.get(action, "contrôler")
+        message = f"Impossible de {action_label} le service {service}"
+    raise _supervisor_error(
+        status_code,
+        code,
+        message,
+        context={"service": service, "action": action},
+    )
+
+
+async def _run_sync_control(
+    operation: Callable[[str], dict[str, Any]],
+    service: str,
+    action: str,
+) -> dict[str, Any]:
+    try:
+        result = await asyncio.to_thread(operation, service)
+    except Exception:
+        log.exception("Échec inattendu contrôle %s/%s", service, action)
+        raise _supervisor_error(
+            500,
+            "supervisor_control_failed",
+            "Le superviseur n'a pas pu exécuter cette action",
+            context={"service": service, "action": action},
+        ) from None
+    return _control_result_or_error(result, service=service, action=action)
 
 
 def _validate_supervisor_startup_security() -> None:
@@ -369,7 +451,6 @@ SERVICES = [
     {"id": "backend", "name": "Backend JARVIS", "description": "FastAPI principal (agents, LLM, daemons)", "category": "core", "port": BACKEND_PORT, "can_control": True},
     {"id": "tv_dashboard", "name": "TV Dashboard", "description": "Dashboard War Room (port 5174)", "category": "external", "port": 5174, "can_control": True},
     {"id": "ollama", "name": "Ollama", "description": "LLM local (qwen2.5-vl, triage)", "category": "external", "port": 11434, "can_control": True},
-    {"id": "vite_dev", "name": "Vite Dev Server", "description": "Frontend dev HMR (port 5173)", "category": "dev", "port": 5173, "can_control": True},
 ]
 
 
@@ -420,10 +501,31 @@ async def _stop_screen_watcher_via_backend() -> dict:
             timeout=20,
             headers=supervisor_control_headers(),
         )
-        return resp.json() if resp.status_code < 500 else {"ok": False, "error": resp.text}
-    except Exception as exc:
-        log.warning("Echec stop Screen Watcher avant Ollama : %s", exc)
-        return {"ok": False, "error": str(exc)}
+        if resp.status_code >= 400:
+            log.warning(
+                "Backend refuse le stop Screen Watcher avant Ollama: HTTP %d",
+                resp.status_code,
+            )
+            return {
+                "ok": False,
+                "code": "screen_watcher_stop_failed",
+                "message": "Screen Watcher n'a pas pu être arrêté",
+            }
+        result = resp.json()
+        if result.get("ok") is False:
+            return {
+                "ok": False,
+                "code": "screen_watcher_stop_failed",
+                "message": "Screen Watcher n'a pas pu être arrêté",
+            }
+        return result
+    except Exception:
+        log.exception("Echec stop Screen Watcher avant Ollama")
+        return {
+            "ok": False,
+            "code": "screen_watcher_stop_failed",
+            "message": "Screen Watcher n'a pas pu être arrêté",
+        }
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -484,10 +586,8 @@ def _start_sync(sid: str) -> dict:
         if config.WEB_HTTPS and not config.WEB_SSL_AVAILABLE:
             return {
                 "ok": False,
-                "error": (
-                    "WEB_HTTPS=true mais certificats manquants — "
-                    f"attendu {CERT_PATH} et {KEY_PATH}"
-                ),
+                "code": "service_tls_unavailable",
+                "message": "Les certificats HTTPS du backend sont manquants",
             }
         if _backend_protocol_mismatch():
             log.warning(
@@ -510,7 +610,11 @@ def _start_sync(sid: str) -> dict:
                 _force_kill_port(BACKEND_PORT)
                 time.sleep(1)
                 if _port_open(BACKEND_PORT):
-                    return {"ok": False, "error": f"Impossible de liberer le port {BACKEND_PORT} (processus resistant)"}
+                    return {
+                        "ok": False,
+                        "code": "service_start_failed",
+                        "message": "Le port du backend reste occupé",
+                    }
         else:
             # Port libre mais on nettoie par precaution
             _kill_port(BACKEND_PORT)
@@ -566,21 +670,11 @@ def _start_sync(sid: str) -> dict:
             log.info("Ollama healthy")
         return result
 
-    if sid == "vite_dev":
-        if _port_open(5173):
-            return {"ok": True, "message": "Vite deja actif"}
-        _kill_port(5173)
-        proc = subprocess.Popen(
-            ["pnpm", "dev"],
-            cwd=str(PROJECT_DIR / "web"),
-            stdout=open(str(LOGS_DIR / "vite.log"), "a"),
-            stderr=subprocess.STDOUT,
-        )
-        _managed["vite_dev"] = proc
-        log.info("Vite demarre (PID %d)", proc.pid)
-        return {"ok": True, "message": f"Vite demarre (PID {proc.pid})"}
-
-    return {"ok": False, "error": f"Service inconnu : {sid}"}
+    return {
+        "ok": False,
+        "code": "service_not_found",
+        "message": f"Service inconnu : {sid}",
+    }
 
 
 def _stop_sync(sid: str) -> dict:
@@ -608,8 +702,10 @@ def _stop_sync(sid: str) -> dict:
         proc = _managed.get("tv_dashboard")
         if proc and proc.poll() is None:
             proc.terminate()
-            try: proc.wait(timeout=3)
-            except subprocess.TimeoutExpired: proc.kill()
+            try:
+                proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                proc.kill()
         _managed["tv_dashboard"] = None
         _kill_port(5174)
         log.info("TV dashboard arrete")
@@ -623,16 +719,11 @@ def _stop_sync(sid: str) -> dict:
         result = stop_ollama()
         return result
 
-    if sid == "vite_dev":
-        proc = _managed.get("vite_dev")
-        if proc and proc.poll() is None:
-            proc.terminate()
-        _managed["vite_dev"] = None
-        _kill_port(5173)
-        log.info("Vite arrete")
-        return {"ok": True, "message": "Vite arrete"}
-
-    return {"ok": False, "error": f"Service inconnu : {sid}"}
+    return {
+        "ok": False,
+        "code": "service_not_found",
+        "message": f"Service inconnu : {sid}",
+    }
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -659,7 +750,7 @@ async def api_status():
 
 @app.post("/api/supervisor/{sid}/start")
 async def api_start(sid: str):
-    result = await asyncio.to_thread(_start_sync, sid)
+    result = await _run_sync_control(_start_sync, sid, "start")
     await _broadcast({"type": "service_update", "service": sid, "action": "start", **result})
     return result
 
@@ -669,7 +760,7 @@ async def api_stop(sid: str):
     sw_result = None
     if sid == "ollama":
         sw_result = await _stop_screen_watcher_via_backend()
-    result = await asyncio.to_thread(_stop_sync, sid)
+    result = await _run_sync_control(_stop_sync, sid, "stop")
     if sw_result is not None:
         result = {**result, "screen_watcher": sw_result}
     await _broadcast({"type": "service_update", "service": sid, "action": "stop", **result})
@@ -681,9 +772,9 @@ async def api_restart(sid: str):
     # Restart Ollama seul : SW arrêté avec Ollama, NON relancé automatiquement
     if sid == "ollama":
         await _stop_screen_watcher_via_backend()
-    await asyncio.to_thread(_stop_sync, sid)
+    await _run_sync_control(_stop_sync, sid, "stop")
     await asyncio.sleep(2)
-    result = await asyncio.to_thread(_start_sync, sid)
+    result = await _run_sync_control(_start_sync, sid, "restart")
     if sid == "ollama":
         result = {
             **result,
@@ -698,7 +789,7 @@ async def api_start_all():
     results = {}
     # Ollama d'abord (health), puis backend (autostart SW via daemon)
     for sid in ["ollama", "tv_dashboard", "backend"]:
-        results[sid] = await asyncio.to_thread(_start_sync, sid)
+        results[sid] = await _run_sync_control(_start_sync, sid, "start")
         if sid == "ollama":
             await asyncio.sleep(1)
         if sid == "backend":
@@ -711,8 +802,8 @@ async def api_start_all():
 async def api_stop_all():
     results = {}
     await _stop_screen_watcher_via_backend()
-    for sid in ["tv_dashboard", "ollama", "vite_dev", "backend"]:
-        results[sid] = await asyncio.to_thread(_stop_sync, sid)
+    for sid in ["tv_dashboard", "ollama", "backend"]:
+        results[sid] = await _run_sync_control(_stop_sync, sid, "stop")
     await _broadcast({"type": "bulk_update", "action": "stop-all", "results": results})
     return {"results": results}
 
@@ -720,12 +811,12 @@ async def api_stop_all():
 @app.post("/api/supervisor/restart-all")
 async def api_restart_all():
     await _stop_screen_watcher_via_backend()
-    for sid in ["tv_dashboard", "ollama", "vite_dev", "backend"]:
-        await asyncio.to_thread(_stop_sync, sid)
+    for sid in ["tv_dashboard", "ollama", "backend"]:
+        await _run_sync_control(_stop_sync, sid, "stop")
     await asyncio.sleep(2)
     results = {}
     for sid in ["ollama", "tv_dashboard", "backend"]:
-        results[sid] = await asyncio.to_thread(_start_sync, sid)
+        results[sid] = await _run_sync_control(_start_sync, sid, "restart")
         if sid == "ollama":
             await asyncio.sleep(1)
         if sid == "backend":
@@ -736,13 +827,30 @@ async def api_restart_all():
 
 @app.get("/api/supervisor/{sid}/logs")
 async def api_logs(sid: str, lines: int = 50):
-    log_map = {"backend": LOGS_DIR / "backend.log", "tv_dashboard": LOGS_DIR / "tv.log", "vite_dev": LOGS_DIR / "vite.log"}
+    log_map = {"backend": LOGS_DIR / "backend.log", "tv_dashboard": LOGS_DIR / "tv.log"}
     f = log_map.get(sid)
-    if not f or not f.exists():
+    if f is None:
+        raise _supervisor_error(
+            404,
+            "service_not_found",
+            f"Service inconnu : {sid}",
+            context={"service": sid},
+        )
+    if not f.exists():
         return {"logs": [], "message": "Pas de logs disponibles"}
-    content = f.read_text(errors="replace")
+    bounded_lines = max(1, min(int(lines), 500))
+    try:
+        content = await asyncio.to_thread(f.read_text, errors="replace")
+    except OSError:
+        log.exception("Lecture du journal impossible: %s", f)
+        raise _supervisor_error(
+            500,
+            "service_logs_unavailable",
+            "Les journaux du service sont indisponibles",
+            context={"service": sid},
+        ) from None
     all_lines = content.splitlines()
-    return {"logs": all_lines[-lines:]}
+    return {"logs": all_lines[-bounded_lines:]}
 
 
 # ── Sous-services ────────────────────────────────────────────────────────
@@ -756,26 +864,70 @@ async def api_sub_services(request: Request):
             f"{BACKEND_URL}/api/control/services",
             headers=supervisor_control_headers(),
         )
+        if resp.status_code >= 400:
+            log.warning("Inventaire sous-services refusé: HTTP %d", resp.status_code)
+            raise _supervisor_error(
+                502,
+                "backend_control_unavailable",
+                "Le contrôle du backend est indisponible",
+            )
         return {"available": True, **resp.json()}
-    except Exception as exc:
-        return {"available": False, "services": [], "error": str(exc)}
+    except HTTPException:
+        raise
+    except Exception:
+        log.exception("Inventaire des sous-services indisponible")
+        raise _supervisor_error(
+            502,
+            "backend_control_unavailable",
+            "Le contrôle du backend est indisponible",
+        ) from None
 
 
 @app.post("/api/supervisor/sub/{sid}/{action}")
 async def api_sub_action(sid: str, action: str, request: Request):
     if not _port_open(BACKEND_PORT):
-        return {"ok": False, "error": "Backend arrete"}
+        raise _supervisor_error(
+            503,
+            "backend_unavailable",
+            "Le backend est arrêté",
+        )
     if action not in ("start", "stop", "restart"):
-        return {"ok": False, "error": f"Action invalide : {action}"}
+        raise _supervisor_error(
+            400,
+            "invalid_service_action",
+            f"Action invalide : {action}",
+        )
     try:
         resp = await _http.post(
             f"{BACKEND_URL}/api/control/{sid}/{action}",
             timeout=30,
             headers=supervisor_control_headers(),
         )
-        return resp.json()
-    except Exception as exc:
-        return {"ok": False, "error": str(exc)}
+        if resp.status_code >= 400:
+            log.warning(
+                "Action backend %s/%s refusée: HTTP %d",
+                sid,
+                action,
+                resp.status_code,
+            )
+            raise _supervisor_error(
+                502,
+                "backend_control_failed",
+                "Le backend n'a pas pu exécuter cette action",
+                context={"service": sid, "action": action},
+            )
+        result = resp.json()
+        return _control_result_or_error(result, service=sid, action=action)
+    except HTTPException:
+        raise
+    except Exception:
+        log.exception("Action backend %s/%s indisponible", sid, action)
+        raise _supervisor_error(
+            502,
+            "backend_control_failed",
+            "Le backend n'a pas pu exécuter cette action",
+            context={"service": sid, "action": action},
+        ) from None
 
 
 @app.get("/api/supervisor/services/ollama")
@@ -789,7 +941,11 @@ async def api_ollama_detail():
 @app.post("/api/supervisor/services/ollama/{action}")
 async def api_ollama_action(action: str):
     if action not in ("start", "stop", "restart"):
-        return {"ok": False, "error": f"Action invalide : {action}"}
+        raise _supervisor_error(
+            400,
+            "invalid_service_action",
+            f"Action invalide : {action}",
+        )
     if action == "start":
         return await api_start("ollama")
     if action == "stop":
@@ -800,16 +956,39 @@ async def api_ollama_action(action: str):
 @app.get("/api/supervisor/services/screen-watcher")
 async def api_screen_watcher_detail(request: Request):
     if not _port_open(BACKEND_PORT):
-        return {"ok": False, "status": "stopped", "error": "Backend arrete"}
+        raise _supervisor_error(
+            503,
+            "backend_unavailable",
+            "Le backend est arrêté",
+        )
     try:
         resp = await _http.get(
             f"{BACKEND_URL}/api/control/screen_watcher/detail",
             headers=supervisor_control_headers(),
             timeout=10,
         )
-        return resp.json()
-    except Exception as exc:
-        return {"ok": False, "error": str(exc)}
+        if resp.status_code >= 400:
+            log.warning("Détail Screen Watcher refusé: HTTP %d", resp.status_code)
+            raise _supervisor_error(
+                502,
+                "screen_watcher_unavailable",
+                "Screen Watcher est indisponible",
+            )
+        result = resp.json()
+        return _control_result_or_error(
+            result,
+            service="screen_watcher",
+            action="inspect",
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        log.exception("Détail Screen Watcher indisponible")
+        raise _supervisor_error(
+            502,
+            "screen_watcher_unavailable",
+            "Screen Watcher est indisponible",
+        ) from None
 
 
 @app.post("/api/supervisor/services/screen-watcher/{action}")
@@ -879,7 +1058,11 @@ def _build_proxy_headers(incoming: dict[str, str]) -> dict[str, str]:
 @app.api_route("/api/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
 async def proxy_to_backend(request: Request, path: str):
     if not _port_open(BACKEND_PORT):
-        return JSONResponse(status_code=503, content={"error": "Backend arrete", "hint": "POST /api/supervisor/backend/start"})
+        raise _supervisor_error(
+            503,
+            "backend_unavailable",
+            "Le backend est arrêté",
+        )
 
     body = None
     try:
@@ -934,7 +1117,12 @@ async def proxy_to_backend(request: Request, path: str):
         resp = None
         return Response(content=content, status_code=status_code, headers=resp_headers)
     except Exception:
-        return JSONResponse(status_code=502, content={"error": "Backend inaccessible"})
+        log.exception("Proxy backend inaccessible pour /api/%s", path)
+        raise _supervisor_error(
+            502,
+            "backend_proxy_failed",
+            "Le backend est inaccessible",
+        ) from None
     finally:
         if resp is not None:
             await resp.aclose()
@@ -1054,7 +1242,7 @@ async def ws_passthrough(client_ws: WebSocket):
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# FRONTEND — frontend/out prioritaire, web/dist en fallback
+# FRONTEND — export Next.js canonique uniquement
 # ══════════════════════════════════════════════════════════════════════════
 
 register_desktop_frontend_routes(app, FRONTEND_RESOLUTION)
@@ -1234,7 +1422,7 @@ async def lifespan(_app: FastAPI):
             pass
 
     # Arreter les services geres (ordre : dependants d'abord, backend en dernier)
-    for sid in ("vite_dev", "tv_dashboard", "ollama", "backend"):
+    for sid in ("tv_dashboard", "ollama", "backend"):
         try:
             _stop_sync(sid)
         except Exception:

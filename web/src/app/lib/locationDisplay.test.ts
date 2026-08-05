@@ -72,14 +72,9 @@ describe('mapLocationHistory', () => {
 });
 
 describe('parseLocationTimestamp', () => {
-  it('parses timezone-less backend timestamps as local wall clock', () => {
+  it('parses timezone-less backend timestamps as canonical UTC', () => {
     const ms = parseLocationTimestamp('2026-07-16T17:23:50');
-    const d = new Date(ms);
-    expect(d.getFullYear()).toBe(2026);
-    expect(d.getMonth()).toBe(6);
-    expect(d.getDate()).toBe(16);
-    expect(d.getHours()).toBe(17);
-    expect(d.getMinutes()).toBe(23);
+    expect(ms).toBe(Date.parse('2026-07-16T17:23:50Z'));
   });
 });
 

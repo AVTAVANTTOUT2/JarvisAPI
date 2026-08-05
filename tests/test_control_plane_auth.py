@@ -197,6 +197,132 @@ def test_supervisor_cookie_mutation_requires_csrf_and_origin(control_plane_db):
     assert start.call_count == 1
 
 
+def _authenticated_supervisor_client() -> TestClient:
+    import auth
+    import config
+    import supervisor
+
+    auth.setup_secret(TEST_AUTH_SECRET)
+    token, _expires_at = auth.create_session(user_agent="pytest", ip="127.0.0.1")
+    client = TestClient(supervisor.app)
+    client.cookies.set(config.SESSION_COOKIE_NAME, token)
+    client.headers["X-CSRF-Token"] = auth.csrf_token_for_session(token)
+    client.headers["Origin"] = "http://testserver"
+    return client
+
+
+def test_supervisor_control_failures_use_http_status_and_hide_internal_details(
+    control_plane_db,
+):
+    client = _authenticated_supervisor_client()
+    with patch(
+        "supervisor._start_sync",
+        return_value={"ok": False, "error": "secret-internal-path"},
+    ):
+        response = client.post("/api/supervisor/backend/start")
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": {
+            "code": "service_start_failed",
+            "message": "Impossible de démarrer le service backend",
+            "context": {"service": "backend", "action": "start"},
+        }
+    }
+    assert "secret-internal-path" not in response.text
+
+
+def test_supervisor_unknown_service_is_a_structured_404(control_plane_db):
+    client = _authenticated_supervisor_client()
+    response = client.post("/api/supervisor/inconnu/start")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == {
+        "code": "service_not_found",
+        "message": "Service inconnu : inconnu",
+        "context": {"service": "inconnu", "action": "start"},
+    }
+
+
+def test_supervisor_upstream_failure_never_exposes_exception(control_plane_db):
+    client = _authenticated_supervisor_client()
+    with (
+        patch("supervisor._port_open", return_value=True),
+        patch(
+            "supervisor._http.post",
+            new=AsyncMock(side_effect=RuntimeError("token-secret")),
+        ),
+    ):
+        response = client.post("/api/supervisor/sub/screen_watcher/start")
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == {
+        "code": "backend_control_failed",
+        "message": "Le backend n'a pas pu exécuter cette action",
+        "context": {"service": "screen_watcher", "action": "start"},
+    }
+    assert "token-secret" not in response.text
+
+
+def test_supervisor_preserves_public_ollama_prerequisite(control_plane_db):
+    upstream = httpx.Response(
+        200,
+        json={"ok": False, "error": "Ollama connection refused at secret-host"},
+    )
+    client = _authenticated_supervisor_client()
+    with (
+        patch("supervisor._port_open", return_value=True),
+        patch("supervisor._http.post", new=AsyncMock(return_value=upstream)),
+    ):
+        response = client.post("/api/supervisor/sub/screen_watcher/start")
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == {
+        "code": "ollama_required",
+        "message": "Ollama doit être démarré avant Screen Watcher",
+        "context": {"service": "screen_watcher", "action": "start"},
+    }
+    assert "secret-host" not in response.text
+
+
+def test_supervisor_proxy_unavailable_uses_shared_error_shape(control_plane_db):
+    client = _authenticated_supervisor_client()
+    with patch("supervisor._port_open", return_value=False):
+        response = client.get("/api/tasks")
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == {
+        "code": "backend_unavailable",
+        "message": "Le backend est arrêté",
+    }
+
+
+def test_supervisor_log_reads_are_bounded(control_plane_db, tmp_path):
+    import supervisor
+
+    logs_dir = tmp_path / "logs"
+    logs_dir.mkdir()
+    (logs_dir / "backend.log").write_text(
+        "\n".join(f"line-{index}" for index in range(600)),
+        encoding="utf-8",
+    )
+    client = _authenticated_supervisor_client()
+    with patch.object(supervisor, "LOGS_DIR", logs_dir):
+        response = client.get("/api/supervisor/backend/logs?lines=100000")
+
+    assert response.status_code == 200
+    assert len(response.json()["logs"]) == 500
+    assert response.json()["logs"][0] == "line-100"
+
+
+def test_supervisor_unknown_log_service_is_a_structured_404(control_plane_db):
+    client = _authenticated_supervisor_client()
+    response = client.get("/api/supervisor/inconnu/logs")
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "service_not_found"
+
+
 def test_supervisor_websocket_requires_session_and_valid_origin(control_plane_db):
     import auth
     import config

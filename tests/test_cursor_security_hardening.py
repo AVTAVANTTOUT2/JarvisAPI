@@ -10,6 +10,9 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+from fastapi import FastAPI, HTTPException
+from fastapi.testclient import TestClient
+from starlette.requests import Request
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -279,6 +282,120 @@ def test_jobs_api_redacts_secrets():
     assert "ghp_ABCDEFGHIJKLMNOPQRST" not in str(diag)
 
 
+def _diagnostic_request(*, client: str, host: str) -> Request:
+    return Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/api/cursor/jobs",
+            "headers": [(b"host", host.encode())],
+            "client": (client, 54321),
+        }
+    )
+
+
+def test_cursor_diagnostic_requires_real_loopback():
+    from api.router_cognitive import _require_cursor_diagnostic_access
+
+    _require_cursor_diagnostic_access(
+        _diagnostic_request(client="127.0.0.1", host="localhost:8000"),
+        diagnostic=True,
+    )
+    with pytest.raises(HTTPException) as exc:
+        _require_cursor_diagnostic_access(
+            _diagnostic_request(client="203.0.113.20", host="localhost:8000"),
+            diagnostic=True,
+        )
+    assert exc.value.status_code == 403
+
+    with pytest.raises(HTTPException):
+        _require_cursor_diagnostic_access(
+            _diagnostic_request(client="127.0.0.1", host="jarvis.example"),
+            diagnostic=True,
+        )
+
+
+def test_cursor_diagnostic_endpoint_enforces_boundary_before_read(monkeypatch):
+    from api import router_cognitive
+    from integrations.cursor_delegation import cursor_delegation
+
+    reads: list[bool] = []
+    audits: list[str] = []
+    monkeypatch.setattr(
+        cursor_delegation,
+        "list_jobs",
+        lambda **kwargs: reads.append(kwargs["public"]) or [],
+    )
+    monkeypatch.setattr(
+        router_cognitive,
+        "_audit_cursor_diagnostic_access",
+        lambda *, scope, job_id=None: audits.append(scope),
+    )
+    app = FastAPI()
+    app.include_router(router_cognitive.router)
+
+    with TestClient(
+        app,
+        base_url="http://localhost:8000",
+        client=("203.0.113.20", 54321),
+    ) as remote:
+        rejected = remote.get("/api/cursor/jobs?diagnostic=true")
+    assert rejected.status_code == 403
+    assert reads == []
+    assert audits == []
+
+    with TestClient(
+        app,
+        base_url="http://localhost:8000",
+        client=("127.0.0.1", 54321),
+    ) as local:
+        accepted = local.get("/api/cursor/jobs?diagnostic=true")
+    assert accepted.status_code == 200
+    assert reads == [False]
+    assert audits == ["list"]
+
+
+def test_cursor_diagnostic_access_is_durably_audited(tmp_path, monkeypatch):
+    import database
+    from api.router_cognitive import _audit_cursor_diagnostic_access
+
+    db_path = tmp_path / "diagnostic-audit.db"
+    monkeypatch.setattr(config, "DB_PATH", str(db_path))
+    monkeypatch.setattr(database, "DB_PATH", db_path)
+    database.init_db()
+
+    _audit_cursor_diagnostic_access(scope="detail", job_id="job-safe")
+
+    with database.get_db() as conn:
+        row = conn.execute(
+            "SELECT agent, action_type, payload, status "
+            "FROM llm_action_logs ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+    assert row is not None
+    assert row["agent"] == "cursor"
+    assert row["action_type"] == "cursor_diagnostic_access"
+    assert '"scope":"detail"' in row["payload"]
+    assert '"job_id":"job-safe"' in row["payload"]
+    assert row["status"] == "success"
+
+
+def test_cursor_diagnostic_access_fails_closed_when_audit_is_unavailable(
+    monkeypatch,
+):
+    import database
+
+    from api.router_cognitive import _audit_cursor_diagnostic_access
+
+    def fail_audit(*_args, **_kwargs):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(database, "log_llm_action", fail_audit)
+
+    with pytest.raises(HTTPException) as exc:
+        _audit_cursor_diagnostic_access(scope="list")
+    assert exc.value.status_code == 503
+
+
 def test_redact_sensitive_mapping_nested():
     data = {
         "ok": True,
@@ -454,3 +571,40 @@ async def test_voice_old_audio_is_discarded(monkeypatch):
     assert status == "cancelled"
     # Le blob n'est jamais envoyé après annulation : le client n'a rien à jeter.
     assert sent_bytes == []
+
+
+@pytest.mark.asyncio
+async def test_cached_tts_task_cancellation_is_never_swallowed(monkeypatch):
+    """Un ``return`` de nettoyage ne doit pas convertir CancelledError en succès."""
+    import importlib
+
+    from api.chat_context import _send_tts_streaming
+
+    sent: list[dict] = []
+    cancel = asyncio.Event()
+
+    class CancellingWs:
+        async def send_json(self, data):
+            sent.append(data)
+
+        async def send_bytes(self, data):
+            cancel.set()
+            raise asyncio.CancelledError
+
+    cache = importlib.import_module("audio.tts_cache")
+    monkeypatch.setattr(cache.speculative_tts, "get", lambda *a, **k: b"cached")
+    monkeypatch.setattr(cache.last_tts, "store", lambda *a, **k: None)
+
+    with pytest.raises(asyncio.CancelledError):
+        await _send_tts_streaming(
+            CancellingWs(),  # type: ignore[arg-type]
+            "réponse déjà synthétisée",
+            "neutral",
+            turn_id="turn-cancelled-task",
+            cancel_event=cancel,
+        )
+
+    assert sent[-1] == {
+        "type": "speech_cancelled",
+        "turn_id": "turn-cancelled-task",
+    }

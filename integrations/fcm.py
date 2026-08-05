@@ -18,6 +18,7 @@ import config
 logger = logging.getLogger(__name__)
 
 _SCOPE = "https://www.googleapis.com/auth/firebase.messaging"
+_TOKEN_URI = "https://oauth2.googleapis.com/token"
 _token_lock = threading.Lock()
 _cached_access_token = ""
 _cached_access_token_expiry = 0.0
@@ -48,7 +49,7 @@ def _service_account_assertion(credentials: dict, now: int) -> str:
             {
                 "iss": credentials["client_email"],
                 "scope": _SCOPE,
-                "aud": credentials.get("token_uri", "https://oauth2.googleapis.com/token"),
+                "aud": _TOKEN_URI,
                 "iat": now,
                 "exp": now + 3600,
             },
@@ -73,7 +74,7 @@ def _access_token(credentials: dict) -> str:
 
         assertion = _service_account_assertion(credentials, int(now))
         response = httpx.post(
-            credentials.get("token_uri", "https://oauth2.googleapis.com/token"),
+            _TOKEN_URI,
             data={
                 "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
                 "assertion": assertion,

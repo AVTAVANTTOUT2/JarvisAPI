@@ -1,8 +1,11 @@
 # 28 — Validation de Cohérence Finale
 
 **Date initiale** : 11 juillet 2026
-**Dernière validation** : 14 juillet 2026
+**Dernière validation** : 3 août 2026
 **Statut** : Rapport de vérification doc vs code — Phases 1 à 6 et NotificationService implémentés
+
+Runtime SQLite canonique : **90 tables persistantes**, **95 tables physiques avec FTS5**, schéma généré : **91 déclarations de tables**.
+Structure API canonique : **259 opérations HTTP + 2 WebSockets**, **230 chemins OpenAPI**, **17 routeurs api/router_*.py + Fitness = 18 montés**, main.py **211 lignes**.
 
 ---
 
@@ -16,8 +19,8 @@ Le dossier `Architecture/` reflète l'état du code après l'implémentation de 
 
 | Affirmation dans Architecture/ | Réalité code | Statut |
 |---|---|---|
-| 207 opérations HTTP + 1 WebSocket, 189 chemins OpenAPI | Inventaire FastAPI et snapshot déterministe, pairage device inclus | ✅ Contrat actualisé |
-| 75 persistantes / 80 avec FTS5 après `init_db()` | Vérifié 24/07/2026 (`tools/audit_architecture_truth.py`, pairage desktop sécurisé inclus) ; hors `sqlite_*` | ✅ Source actuelle ; dump `schema.sql` = 46 (non exécuté) |
+| 259 opérations HTTP + 2 WebSockets, 230 chemins OpenAPI | Inventaire FastAPI et snapshot déterministe, canal TV inclus | ✅ Contrat actualisé |
+| 90 persistantes / 95 physiques avec FTS5 après `init_db()` | Vérifié par `tools/audit_architecture_truth.py --check` sur une base `:memory:` fraîche ; hors `sqlite_*` | ✅ `schema.sql` généré = 91 déclarations, dont la table virtuelle FTS5 |
 | 7 agents LLM + orchestrateur | 12 fichiers dans agents/ | ✅ Exact (dont 5 utilitaires) |
 | 29 jobs APScheduler | 102 références dans scheduler.py | ✅ Exact |
 | 5 démons | screen, audio, email, imessage, supervisor | ✅ Exact |
@@ -26,9 +29,9 @@ Le dossier `Architecture/` reflète l'état du code après l'implémentation de 
 | LockGate desktop/mobile | SDK `jarvis_auth/` importé par les trois chemins, rendu fail-closed | ✅ P0-1 résolu |
 | Event bus actif | 10 types de domaine, 11 émetteurs de production, 3 fichiers avec handlers réels | ✅ Validé par 4 tests Phase 3 |
 | 565 tests pytest (66 fichiers) | Collecte complète après ajout de NotificationService ; 564 passants, 1 ignoré | ✅ Actualisé |
-| Couche API modulaire | `main.py` 175 lignes, 12 routeurs, chaque module `api/` ≤ 500 lignes, aucun import `api → main` | ✅ Validé par 6 tests Phase 4 |
+| Couche API modulaire | `main.py` 211 lignes, 17 routeurs `api/` + Fitness, chaque module `api/` ≤ 500 lignes, aucun import `api → main` | ✅ Validé par les contrats Phase 4 et l'audit généré |
 | AppleDataService | ouverture read-only et conversion Apple centralisées ; consommateurs iMessage migrés | ✅ Validé par 6 contrats et garde-fou AST Phase 5 |
-| Frontend unifié | Next.js 15/React 19, 25 pages statiques, wrapper API unique et fallbacks conservés | ✅ 10 Vitest, 3 Playwright, 4 contrats FastAPI et 3 builds |
+| Frontend canonique | Next.js 15/React 19, wrapper API unique, `web/` bibliothèque et mobile autonome | ✅ tests/typecheck web, tests/typecheck/build/E2E Next et contrats FastAPI |
 
 ## 2. Composants cibles restant à implémenter
 
@@ -45,7 +48,7 @@ Ces trois composants sont documentés comme appartenant à l'architecture cible.
 ## 3. PWA LockGate — résolu en Phase 6
 
 Vérification complète par 4 méthodes :
-- **Code** : `pwa/src/app/client-layout.tsx` et `web/src/App.tsx` importent `LockGate` depuis `jarvis_auth/`
+- **Code** : le bureau importe `LockGate` depuis `jarvis_auth/` ; le mobile autonome applique sa frontière fail-closed dans `web_mobile/js/auth.js`
 - **Fail-closed** : le hook efface l'état et masque les enfants si `/api/auth/status` échoue
 - **Cookie** : `AuthClient` et le wrapper API transmettent `credentials: 'include'`
 - **E2E** : le scénario mobile non authentifié ne trouve aucun contenu privé
@@ -68,7 +71,7 @@ Tous les diagrammes sont cohérents avec leur contexte (actuel vs cible).
 
 | Document | Avant | Après |
 |---|---|---|
-| INDEX.md, 01_CARTOGRAPHIE.md, ADR-017, README | Anciens comptages `44/45/46/70/71/72/73` | **75 persistantes / 80 avec FTS** — source : `32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md` |
+| INDEX.md, 01_CARTOGRAPHIE.md, ADR-017, README | Anciens comptages statiques | **90 persistantes / 95 physiques avec FTS5** — contrôle automatique en CI |
 | Plusieurs documents | Comptages historiques (`174`, puis `486/53`, `536/59`, `540/61`) | **565 tests pytest, 66 fichiers, 564 passants et 1 ignoré après NotificationService** |
 | Plusieurs documents | « Event bus : 0 abonné » puis « usage minimal » | **Bus actif : 10 événements de domaine, 3 consommateurs réels** |
 | INDEX.md | Comptages historiques variables | **35 fichiers Markdown + 3 sous-répertoires** |
@@ -138,7 +141,7 @@ Tous les diagrammes sont cohérents avec leur contexte (actuel vs cible).
 >
 > Il est cohérent avec le code réel. Les écarts identifiés sont soit des cibles futures documentées comme telles, soit des métriques mineures qui viennent d'être corrigées.
 >
-> **Prochaine action : CI Phase 6, validation sur appareils physiques, puis retrait progressif des fallbacks.**
+> **Prochaine action : solder les dettes voix actives du registre canonique puis valider la chaîne intégrée sur matériel réel.**
 
 ---
 

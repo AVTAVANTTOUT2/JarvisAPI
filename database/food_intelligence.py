@@ -19,10 +19,11 @@ import json
 import logging
 import sqlite3
 from collections.abc import Mapping, Sequence
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Any
 
 from .core import get_db
+from .time_buckets import sqlite_utc_timestamp, utc_datetime
 
 logger = logging.getLogger(__name__)
 
@@ -122,14 +123,18 @@ def replace_menu_items(
         )
 
     with get_db() as conn:
-        conn.execute("DELETE FROM food_menu_cache WHERE restaurant = ?", (clean_restaurant,))
+        conn.execute(
+            "DELETE FROM food_menu_cache WHERE restaurant = ?", (clean_restaurant,)
+        )
         conn.executemany(
             """INSERT INTO food_menu_cache
                (restaurant, item_name, category, price, currency, cuisine_type, available)
                VALUES (?, ?, ?, ?, ?, ?, ?)""",
             rows,
         )
-    logger.info("[food] menu de %s rafraîchi : %d article(s)", clean_restaurant, len(rows))
+    logger.info(
+        "[food] menu de %s rafraîchi : %d article(s)", clean_restaurant, len(rows)
+    )
     return len(rows)
 
 
@@ -185,7 +190,9 @@ def set_food_preference(
         )
 
     serialised = (
-        value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, sort_keys=True)
+        value
+        if isinstance(value, str)
+        else json.dumps(value, ensure_ascii=False, sort_keys=True)
     )
     with get_db() as conn:
         conn.execute(
@@ -252,8 +259,8 @@ def replace_suggestions(
         raise FoodIntelligenceError(
             f"{len(suggestions)} suggestions proposées, maximum {MAX_SUGGESTION_SLOTS}"
         )
-    expires_at = (datetime.now() + timedelta(hours=max(1, int(ttl_hours)))).isoformat(
-        timespec="seconds"
+    expires_at = sqlite_utc_timestamp(
+        utc_datetime() + timedelta(hours=max(1, int(ttl_hours)))
     )
 
     created: list[int] = []
@@ -286,7 +293,9 @@ def replace_suggestions(
                     _clean(suggestion.get("reasoning"), MAX_REASONING_CHARS) or None,
                     round(float(suggestion.get("score") or 0.0), 4),
                     json.dumps(
-                        suggestion.get("factors") or {}, ensure_ascii=False, sort_keys=True
+                        suggestion.get("factors") or {},
+                        ensure_ascii=False,
+                        sort_keys=True,
                     ),
                     expires_at,
                 ),
@@ -362,6 +371,7 @@ def release_suggestion(suggestion_id: int) -> bool:
     """Rend une suggestion à nouveau cliquable après un échec de commande."""
     with get_db() as conn:
         cursor = conn.execute(
-            "UPDATE food_suggestions SET ordered = 0 WHERE id = ?", (int(suggestion_id),)
+            "UPDATE food_suggestions SET ordered = 0 WHERE id = ?",
+            (int(suggestion_id),),
         )
         return cursor.rowcount > 0

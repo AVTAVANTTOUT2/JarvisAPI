@@ -6,12 +6,20 @@ import asyncio
 import logging
 
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, ConfigDict, Field
 
 import config
+from api.errors import api_error, internal_error
 from database import get_recording, get_recordings
 
 router = APIRouter()
 logger = logging.getLogger("jarvis")
+
+
+class SpeakerAssignmentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, str_strip_whitespace=True)
+
+    name: str = Field(min_length=1, max_length=200)
 
 
 @router.get("/api/recordings")
@@ -22,7 +30,7 @@ async def api_recordings_list(limit: int = 20):
         rows = get_recordings(limit=lim)
     except Exception as e:
         logger.exception("api_recordings_list : %s", e)
-        raise HTTPException(500, str(e)) from e
+        raise internal_error("recordings_unavailable", "Enregistrements indisponibles") from e
     return {"recordings": rows}
 
 
@@ -58,14 +66,16 @@ async def api_recording_unlabeled_speakers(recording_id: int):
 
 
 @router.post("/api/recordings/{recording_id}/speakers/{label}/assign")
-async def api_recording_assign_speaker(recording_id: int, label: str, body: dict):
+async def api_recording_assign_speaker(
+    recording_id: int,
+    label: str,
+    body: SpeakerAssignmentRequest,
+):
     """Répond à « qui était la personne {label} ? » — associe le label à une personne
     (existante ou nouvellement créée par nom)."""
     from database import assign_speaker_to_person, get_db, get_person
 
-    name = (body.get("name") or "").strip()
-    if not name:
-        raise HTTPException(400, "`name` requis")
+    name = body.name
     if not get_recording(recording_id):
         raise HTTPException(404, "Enregistrement introuvable")
 
@@ -93,5 +103,6 @@ async def api_memory_search_semantic(q: str, limit: int = 10, source_type: str |
 
         results = await asyncio.to_thread(semantic_search, q.strip(), limit, source_type)
     except SemanticSearchUnavailable as e:
-        raise HTTPException(503, str(e)) from e
+        logger.warning("[semantic-search] indisponible : %s", e)
+        raise api_error(503, "semantic_search_unavailable", "Recherche sémantique indisponible") from e
     return {"results": results}

@@ -205,10 +205,10 @@ Deux directions possibles pour le fond, à arbitrer :
 
 ---
 
-## 3. Interpolation HTML non échappée dans les widgets TV — Faible
+## 3. Interpolation HTML legacy dans les widgets TV — Résolu par retrait
 
-**Fichiers :** `tv/static/js/notifications.js` (l. 9-10),
-`tv/static/js/tasks.js` (l. 10)
+**Fichiers retirés :** `tv/static/js/notifications.js`,
+`tv/static/js/tasks.js`
 
 ```js
 h+='<div class="notif-item '+p+'">';        // p = n.priority, non échappé
@@ -223,12 +223,10 @@ interpolations d'attribut ne le font pas.
 155) et normalisé par `notification_service._normalize_priority()`. La sécurité
 reposait donc entièrement sur une contrainte située à deux couches de distance.
 
-**Corrigé** : les trois interpolations passent désormais par `TV.esc()`. La
-dépendance à la contrainte de schéma disparaît.
-
-`automations.js` interpole également `color` et `dc` sans échappement, mais les
-deux proviennent de tables de correspondance codées en dur avec valeur de repli
-— aucune donnée externe n'y entre. Rien à corriger.
+**Résolu le 03/08/2026** : le template `tv.html`, ses modules JS et sa feuille
+CSS ont été supprimés après vérification de la route active. Le dashboard ne
+sert plus que `tv-v2.html` et `tv-v2.js`, qui échappent le contenu dynamique et
+n'utilisent aucun CDN tiers.
 
 ---
 

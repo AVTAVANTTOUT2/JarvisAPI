@@ -127,3 +127,47 @@ async def test_daemon_waits_instead_of_spinning(monkeypatch):
     assert attempts >= 3, "la boucle doit retenter, pas abandonner"
     assert daemon.state == "no_input_device"
     assert daemon._error_reason and "micro" in daemon._error_reason.lower()
+
+
+@pytest.mark.asyncio
+async def test_stop_during_the_wait_leaves_the_daemon_restartable(monkeypatch):
+    """Arrêter le daemon pendant l'attente ne doit pas le condamner.
+
+    L'attente sans micro repositionnait ``_running = True`` juste avant de
+    reboucler. Si l'arrêt tombait pendant la sonde, la boucle sortait sur
+    ``enabled = False`` en laissant ``_running`` à True — et ``start()``, qui
+    répond « Déjà actif » dans ce cas, refusait ensuite tout redémarrage
+    jusqu'au prochain lancement du processus.
+
+    C'est l'état exact où l'utilisateur touche le plan de contrôle : le micro
+    manque, donc il arrête et relance le service.
+    """
+    module = __import__("scripts.audio_daemon", fromlist=["x"])
+    daemon = module.AudioDaemon()
+
+    async def fake_run(self=daemon):
+        raise module.NoInputDeviceError("aucun micro (test)")
+
+    async def _no_warmup(self):
+        return None
+
+    monkeypatch.setattr(module.AudioDaemon, "_run", fake_run)
+    monkeypatch.setattr(module.AudioDaemon, "_cleanup", lambda self: None)
+    monkeypatch.setattr(module, "NO_INPUT_DEVICE_POLL_S", 0.05)
+    monkeypatch.setattr(module.AudioDaemon, "_warmup_tts_pipeline", _no_warmup)
+    monkeypatch.setattr(module, "_generate_wake_sound", lambda: None)
+    monkeypatch.setattr(module, "_generate_end_sound", lambda: None)
+    monkeypatch.setattr(
+        module.AudioDaemon, "_schedule_state_broadcast", lambda self, s: None
+    )
+
+    loop_task = asyncio.create_task(daemon.start())
+    await asyncio.sleep(0.02)          # la boucle est dans sa sonde
+
+    daemon.enabled = False             # ce que fait stop() en premier
+    daemon._running = False
+    await asyncio.wait_for(loop_task, timeout=5)
+
+    assert daemon._running is False, (
+        "un daemon arrêté doit se déclarer arrêté, sinon start() refuse de le relancer"
+    )

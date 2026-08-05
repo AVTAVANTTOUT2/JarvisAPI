@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -64,7 +65,14 @@ def test_bearer_can_read_tasks_without_cookie(tmp_db):
     assert "tasks" in response.json()
 
 
-def test_bearer_can_read_briefing_notifications_calendar(tmp_db):
+def test_bearer_can_read_briefing_notifications_calendar(tmp_db, monkeypatch):
+    # Ce test valide la frontière d'authentification, pas les intégrations
+    # externes. Un calendrier ou un LLM réel rendrait la suite non hermétique.
+    monkeypatch.setattr(
+        "api.misc_integrations.productivity_agent.morning_briefing",
+        AsyncMock(return_value="Briefing local de test"),
+    )
+    monkeypatch.setattr("api.misc_relationships.calendar_client", None)
     with _client() as client:
         authenticate(client)
         token = _pair(client)

@@ -58,8 +58,9 @@ class JarvisHttpClient(context: Context) {
         private const val READ_TIMEOUT_SEC = 20L
 
         fun normalizeBaseUrl(url: String): String {
-            val trimmed = url.trim().trimEnd('/')
-            return "$trimmed/"
+            val canonical = ServerUrlNormalizer.normalize(url)
+                ?: throw IllegalArgumentException("Le serveur JARVIS doit utiliser HTTPS")
+            return "$canonical/"
         }
     }
 }

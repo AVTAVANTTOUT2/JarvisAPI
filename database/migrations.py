@@ -55,11 +55,15 @@ def _migrate_sessions(conn: sqlite3.Connection) -> None:
             revoked INTEGER DEFAULT 0
         )
     """)
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash)")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash)"
+    )
     columns = {row[1] for row in conn.execute("PRAGMA table_info(sessions)").fetchall()}
     if "mobile_device_id" not in columns:
         conn.execute("ALTER TABLE sessions ADD COLUMN mobile_device_id TEXT")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_mobile_device ON sessions(mobile_device_id)")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_sessions_mobile_device ON sessions(mobile_device_id)"
+    )
     conn.execute("""
         CREATE TABLE IF NOT EXISTS auth_rate_limits (
             client_key TEXT PRIMARY KEY,
@@ -100,8 +104,12 @@ def _migrate_mobile_devices(conn: sqlite3.Connection) -> None:
             revoked INTEGER DEFAULT 0
         )
     """)
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_mobile_token_hash ON mobile_devices(token_hash)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_mobile_fcm_token ON mobile_devices(fcm_token)")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_mobile_token_hash ON mobile_devices(token_hash)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_mobile_fcm_token ON mobile_devices(fcm_token)"
+    )
     conn.execute("""
         CREATE TABLE IF NOT EXISTS mobile_pairing_codes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -143,7 +151,9 @@ def _migrate_remote_devices(conn: sqlite3.Connection) -> None:
                    WHERE id = ?""",
                 (token_hash, row[0]),
             )
-        conn.execute("UPDATE devices SET auth_token = NULL WHERE auth_token IS NOT NULL")
+        conn.execute(
+            "UPDATE devices SET auth_token = NULL WHERE auth_token IS NOT NULL"
+        )
 
     conn.execute(
         """CREATE UNIQUE INDEX IF NOT EXISTS idx_devices_token_hash
@@ -200,8 +210,12 @@ def _migrate_imessage_import(conn: sqlite3.Connection) -> None:
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     """)
-    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_imessage_handles_apple ON imessage_handles(apple_handle_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_imessage_handles_value ON imessage_handles(handle)")
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_imessage_handles_apple ON imessage_handles(apple_handle_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_imessage_handles_value ON imessage_handles(handle)"
+    )
 
     conn.execute("""
         CREATE TABLE IF NOT EXISTS imessage_chats (
@@ -216,7 +230,9 @@ def _migrate_imessage_import(conn: sqlite3.Connection) -> None:
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     """)
-    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_imessage_chats_apple ON imessage_chats(apple_chat_id)")
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_imessage_chats_apple ON imessage_chats(apple_chat_id)"
+    )
 
     conn.execute("""
         CREATE TABLE IF NOT EXISTS imessage_chat_handles (
@@ -226,7 +242,9 @@ def _migrate_imessage_import(conn: sqlite3.Connection) -> None:
             UNIQUE(chat_id, handle_id)
         )
     """)
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_imessage_ch_handle ON imessage_chat_handles(handle_id)")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_imessage_ch_handle ON imessage_chat_handles(handle_id)"
+    )
 
     conn.execute("""
         CREATE TABLE IF NOT EXISTS imessage_messages (
@@ -249,13 +267,27 @@ def _migrate_imessage_import(conn: sqlite3.Connection) -> None:
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     """)
-    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_imessage_msg_rowid ON imessage_messages(apple_rowid)")
-    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_imessage_msg_guid ON imessage_messages(guid)")
-    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_imessage_msg_hash ON imessage_messages(content_hash)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_imessage_msg_chat ON imessage_messages(chat_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_imessage_msg_handle ON imessage_messages(handle_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_imessage_msg_date ON imessage_messages(date)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_imessage_msg_associated ON imessage_messages(associated_message_guid)")
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_imessage_msg_rowid ON imessage_messages(apple_rowid)"
+    )
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_imessage_msg_guid ON imessage_messages(guid)"
+    )
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_imessage_msg_hash ON imessage_messages(content_hash)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_imessage_msg_chat ON imessage_messages(chat_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_imessage_msg_handle ON imessage_messages(handle_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_imessage_msg_date ON imessage_messages(date)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_imessage_msg_associated ON imessage_messages(associated_message_guid)"
+    )
 
     conn.execute("""
         CREATE TABLE IF NOT EXISTS imessage_attachments (
@@ -272,8 +304,12 @@ def _migrate_imessage_import(conn: sqlite3.Connection) -> None:
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     """)
-    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_imessage_att_apple ON imessage_attachments(apple_attachment_id)")
-    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_imessage_att_guid ON imessage_attachments(guid)")
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_imessage_att_apple ON imessage_attachments(apple_attachment_id)"
+    )
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_imessage_att_guid ON imessage_attachments(guid)"
+    )
 
     conn.execute("""
         CREATE TABLE IF NOT EXISTS imessage_message_attachments (
@@ -283,7 +319,9 @@ def _migrate_imessage_import(conn: sqlite3.Connection) -> None:
             UNIQUE(message_id, attachment_id)
         )
     """)
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_imessage_ma_msg ON imessage_message_attachments(message_id)")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_imessage_ma_msg ON imessage_message_attachments(message_id)"
+    )
 
     conn.execute("""
         CREATE TABLE IF NOT EXISTS imessage_reactions (
@@ -296,7 +334,9 @@ def _migrate_imessage_import(conn: sqlite3.Connection) -> None:
             UNIQUE(message_id, reactor_handle_id)
         )
     """)
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_imessage_reactions_msg ON imessage_reactions(message_id)")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_imessage_reactions_msg ON imessage_reactions(message_id)"
+    )
 
     conn.execute("""
         CREATE TABLE IF NOT EXISTS imessage_sync_cursor (
@@ -383,6 +423,16 @@ def _migrate_schema_migrations_table(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _migrate_cursor_jobs_remove_merge_capability(conn: sqlite3.Connection) -> None:
+    """Retire le flag de merge automatique abandonné sans perdre les jobs."""
+    columns = {
+        row[1]
+        for row in conn.execute("PRAGMA table_info(cursor_delegation_jobs)").fetchall()
+    }
+    if "allow_merge" in columns:
+        conn.execute("ALTER TABLE cursor_delegation_jobs DROP COLUMN allow_merge")
+
+
 def _migrate_perf_benchmarks(conn: sqlite3.Connection) -> None:
     """Historique des temps d'exécution (suite de tests) — détection de régression."""
     conn.execute("""
@@ -395,7 +445,8 @@ def _migrate_perf_benchmarks(conn: sqlite3.Connection) -> None:
         )
     """)
     conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_perf_scope ON perf_benchmarks(scope, created_at DESC)")
+        "CREATE INDEX IF NOT EXISTS idx_perf_scope ON perf_benchmarks(scope, created_at DESC)"
+    )
 
 
 def _migrate_security_findings(conn: sqlite3.Connection) -> None:
@@ -451,7 +502,9 @@ def _migrate_commitments(conn: sqlite3.Connection) -> None:
             resolved_at DATETIME
         )
     """)
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_commitments_status ON commitments(status)")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_commitments_status ON commitments(status)"
+    )
 
 
 def _migrate_daily_rituals(conn: sqlite3.Connection) -> None:
@@ -468,7 +521,9 @@ def _migrate_daily_rituals(conn: sqlite3.Connection) -> None:
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     """)
-    cols = {row[1] for row in conn.execute("PRAGMA table_info(daily_rituals)").fetchall()}
+    cols = {
+        row[1] for row in conn.execute("PRAGMA table_info(daily_rituals)").fetchall()
+    }
     if "weekly_debrief" not in cols:
         conn.execute("ALTER TABLE daily_rituals ADD COLUMN weekly_debrief TEXT")
 
@@ -503,7 +558,8 @@ def _migrate_presence_sessions(conn: sqlite3.Connection) -> None:
         )
     """)
     conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_presence_arrived ON presence_sessions(arrived_at)")
+        "CREATE INDEX IF NOT EXISTS idx_presence_arrived ON presence_sessions(arrived_at)"
+    )
 
 
 def _migrate_people_birthday(conn: sqlite3.Connection) -> None:
@@ -608,6 +664,118 @@ def _migrate_app_settings(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_local_activity_timestamps_to_utc(conn: sqlite3.Connection) -> None:
+    """Convertit une fois les anciens instants locaux naïfs en UTC SQLite.
+
+    Jusqu'à cette migration, la localisation et la présence écrivaient avec
+    ``datetime.now()`` tandis que le reste du schéma reposait principalement
+    sur ``CURRENT_TIMESTAMP`` (UTC). Les valeurs avec offset reçues des clients
+    sont elles aussi canonicalisées. Le marqueur rend la transformation
+    transactionnelle et strictement idempotente.
+    """
+    marker = "timestamp_storage_utc_v1"
+    if conn.execute("SELECT 1 FROM app_settings WHERE key = ?", (marker,)).fetchone():
+        return
+
+    from database.time_buckets import sqlite_utc_timestamp
+
+    timestamp_columns = {
+        "location_history": ("created_at",),
+        "visits": ("arrived_at", "departed_at"),
+        "trips": ("started_at", "ended_at"),
+        "presence_sessions": ("arrived_at", "left_at"),
+        "places": ("last_visit",),
+    }
+    for table, columns in timestamp_columns.items():
+        existing_columns = {
+            str(row[1]) for row in conn.execute(f"PRAGMA table_info({table})")
+        }
+        for column in columns:
+            if column not in existing_columns:
+                continue
+            rows = conn.execute(
+                f"SELECT rowid, {column} FROM {table} WHERE {column} IS NOT NULL"
+            ).fetchall()
+            for rowid, raw_value in rows:
+                try:
+                    canonical = sqlite_utc_timestamp(str(raw_value))
+                except (TypeError, ValueError):
+                    logger.warning(
+                        "Timestamp historique invalide ignoré: %s.%s rowid=%s",
+                        table,
+                        column,
+                        rowid,
+                    )
+                    continue
+                conn.execute(
+                    f"UPDATE {table} SET {column} = ? WHERE rowid = ?",
+                    (canonical, rowid),
+                )
+
+    conn.execute(
+        "INSERT INTO app_settings (key, value) VALUES (?, CURRENT_TIMESTAMP)",
+        (marker,),
+    )
+
+
+def _migrate_application_timestamps_to_utc_v2(conn: sqlite3.Connection) -> None:
+    """Canonicalise les écrivains applicatifs historiquement locaux.
+
+    Ces colonnes étaient toujours alimentées par ``datetime.now()`` naïf ou
+    ``datetime('now', 'localtime')``. Contrairement aux colonnes mixtes issues
+    de sources externes, elles peuvent donc être converties sans heuristique.
+    La migration s'exécute après la création de toutes les tables concernées.
+    """
+    marker = "timestamp_storage_utc_v2"
+    if conn.execute("SELECT 1 FROM app_settings WHERE key = ?", (marker,)).fetchone():
+        return
+
+    from database.time_buckets import sqlite_utc_timestamp
+
+    timestamp_columns = {
+        "conversations": ("ended_at",),
+        "cursor_delegation_jobs": (
+            "created_at",
+            "updated_at",
+            "started_at",
+            "finished_at",
+        ),
+        "food_suggestions": ("expires_at",),
+        "fitness_session_progress": ("completed_at",),
+        "fitness_prompt_log": ("prompted_at",),
+    }
+    for table, columns in timestamp_columns.items():
+        existing_columns = {
+            str(row[1]) for row in conn.execute(f"PRAGMA table_info({table})")
+        }
+        for column in columns:
+            if column not in existing_columns:
+                continue
+            rows = conn.execute(
+                f"SELECT rowid, {column} FROM {table} WHERE {column} IS NOT NULL"
+            ).fetchall()
+            for rowid, raw_value in rows:
+                try:
+                    canonical = sqlite_utc_timestamp(str(raw_value))
+                except (TypeError, ValueError):
+                    logger.warning(
+                        "Timestamp applicatif invalide ignoré: %s.%s rowid=%s",
+                        table,
+                        column,
+                        rowid,
+                    )
+                    continue
+                conn.execute(
+                    f"UPDATE {table} SET {column} = ? WHERE rowid = ?",
+                    (canonical, rowid),
+                )
+
+    conn.execute(
+        "INSERT INTO app_settings (key, value) VALUES (?, CURRENT_TIMESTAMP)",
+        (marker,),
+    )
+
+
 def _migrate_conversations(conn: sqlite3.Connection) -> None:
     """Ajoute les colonnes enrichies à la table conversations (idempotent)."""
     migrations = [
@@ -621,8 +789,18 @@ def _migrate_conversations(conn: sqlite3.Connection) -> None:
     for sql in migrations:
         try:
             conn.execute(sql)
-        except Exception:
+        except sqlite3.OperationalError:
             pass
+
+
+def _migrate_message_usage_estimation(conn: sqlite3.Connection) -> None:
+    """Marque les comptages LLM estimés sans altérer les messages historiques."""
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(messages)").fetchall()}
+    if "usage_estimated" not in columns:
+        conn.execute(
+            "ALTER TABLE messages ADD COLUMN usage_estimated INTEGER NOT NULL "
+            "DEFAULT 0 CHECK(usage_estimated IN (0, 1))"
+        )
 
 
 def _migrate_conversation_document_consent(conn: sqlite3.Connection) -> None:
@@ -658,7 +836,7 @@ def _migrate_email_summaries(conn: sqlite3.Connection) -> None:
     for sql in migrations:
         try:
             conn.execute(sql)
-        except Exception:
+        except sqlite3.OperationalError:
             pass
 
 
@@ -710,7 +888,7 @@ def _create_voice_debug_table(conn: sqlite3.Connection) -> None:
     conn.execute("""
         CREATE TABLE IF NOT EXISTS voice_debug_log (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            created_at TEXT DEFAULT (datetime('now', 'localtime')),
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             input_text TEXT,
             system_prompt TEXT,
             messages_json TEXT,
@@ -734,6 +912,44 @@ def _create_voice_debug_table(conn: sqlite3.Connection) -> None:
     """)
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_vdebug_created ON voice_debug_log(created_at)"
+    )
+
+
+def _migrate_voice_debug_timestamps_to_utc(conn: sqlite3.Connection) -> None:
+    """Convertit une fois les traces vocales locales historiques en UTC."""
+    marker = "voice_debug_timestamp_utc_v1"
+    if conn.execute(
+        "SELECT 1 FROM app_settings WHERE key = ?", (marker,)
+    ).fetchone():
+        return
+
+    from datetime import datetime, timezone
+
+    from database.time_buckets import SQLITE_UTC_FORMAT, configured_timezone
+
+    zone = configured_timezone()
+    rows = conn.execute(
+        "SELECT id, created_at FROM voice_debug_log WHERE created_at IS NOT NULL"
+    ).fetchall()
+    for trace_id, raw_value in rows:
+        try:
+            parsed = datetime.fromisoformat(str(raw_value).replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=zone)
+            canonical = parsed.astimezone(timezone.utc).strftime(SQLITE_UTC_FORMAT)
+        except (TypeError, ValueError):
+            logger.warning(
+                "Timestamp voice_debug_log invalide ignoré: id=%s", trace_id
+            )
+            continue
+        conn.execute(
+            "UPDATE voice_debug_log SET created_at = ? WHERE id = ?",
+            (canonical, trace_id),
+        )
+
+    conn.execute(
+        "INSERT INTO app_settings (key, value) VALUES (?, CURRENT_TIMESTAMP)",
+        (marker,),
     )
 
 
@@ -922,7 +1138,9 @@ def _migrate_fitness(conn: sqlite3.Connection) -> None:
         """
     )
 
-    meal_columns = {row[1] for row in conn.execute("PRAGMA table_info(meals)").fetchall()}
+    meal_columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(meals)").fetchall()
+    }
     if "protein_g" not in meal_columns:
         conn.execute(
             "ALTER TABLE meals ADD COLUMN protein_g REAL "
@@ -936,13 +1154,20 @@ def _migrate_fitness(conn: sqlite3.Connection) -> None:
         ("photo_path", "TEXT"),
         (
             "analysis_source",
-            "TEXT NOT NULL DEFAULT 'manual' "
-            "CHECK(analysis_source IN ('manual', 'text_ai', 'photo_ai'))",
+            (
+                "TEXT NOT NULL DEFAULT 'manual' "
+                "CHECK(analysis_source IN ('manual', 'text_ai', 'photo_ai'))"
+            ),
         ),
-        ("confidence", "REAL CHECK(confidence IS NULL OR (confidence >= 0 AND confidence <= 1))"),
+        (
+            "confidence",
+            "REAL CHECK(confidence IS NULL OR (confidence >= 0 AND confidence <= 1))",
+        ),
         ("raw_input", "TEXT"),
     )
-    meal_columns = {row[1] for row in conn.execute("PRAGMA table_info(meals)").fetchall()}
+    meal_columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(meals)").fetchall()
+    }
     for column_name, column_ddl in meal_enrichments:
         if column_name not in meal_columns:
             conn.execute(f"ALTER TABLE meals ADD COLUMN {column_name} {column_ddl}")
@@ -978,15 +1203,48 @@ def _migrate_fitness(conn: sqlite3.Connection) -> None:
                 {"name": "Pompes inclinées faciles", "sets": 1, "reps": "10"},
             ],
             "exercises": [
-                {"name": "Pompes", "sets": 4, "reps": "8-15", "progression": "Standard → pieds surélevés → tempo lent → sac à dos"},
-                {"name": "Pike push-ups", "sets": 3, "reps": "8-12", "progression": "Surélever progressivement les pieds"},
-                {"name": "Dips entre deux chaises", "sets": 3, "reps": "8-12", "progression": "Amplitude contrôlée, chaises parfaitement stables"},
-                {"name": "Pompes diamant", "sets": 3, "reps": "max propre", "progression": "Arrêter avant la dégradation technique"},
-                {"name": "Planche", "sets": 3, "duration_sec": "30-60", "progression": "Ajouter 5 à 10 secondes"},
+                {
+                    "name": "Pompes",
+                    "sets": 4,
+                    "reps": "8-15",
+                    "progression": "Standard → pieds surélevés → tempo lent → sac à dos",
+                },
+                {
+                    "name": "Pike push-ups",
+                    "sets": 3,
+                    "reps": "8-12",
+                    "progression": "Surélever progressivement les pieds",
+                },
+                {
+                    "name": "Dips entre deux chaises",
+                    "sets": 3,
+                    "reps": "8-12",
+                    "progression": "Amplitude contrôlée, chaises parfaitement stables",
+                },
+                {
+                    "name": "Pompes diamant",
+                    "sets": 3,
+                    "reps": "max propre",
+                    "progression": "Arrêter avant la dégradation technique",
+                },
+                {
+                    "name": "Planche",
+                    "sets": 3,
+                    "duration_sec": "30-60",
+                    "progression": "Ajouter 5 à 10 secondes",
+                },
             ],
             "stretches": [
-                {"name": "Étirement pectoral contre un mur", "duration_sec": 30, "sides": 2},
-                {"name": "Triceps au-dessus de la tête", "duration_sec": 30, "sides": 2},
+                {
+                    "name": "Étirement pectoral contre un mur",
+                    "duration_sec": 30,
+                    "sides": 2,
+                },
+                {
+                    "name": "Triceps au-dessus de la tête",
+                    "duration_sec": 30,
+                    "sides": 2,
+                },
                 {"name": "Posture de l'enfant", "duration_sec": 45},
             ],
             "notes": "Dès que 12 à 15 répétitions sont propres, choisir une variante plus difficile, ralentir le tempo ou ajouter du volume.",
@@ -1002,11 +1260,36 @@ def _migrate_fitness(conn: sqlite3.Connection) -> None:
                 {"name": "Suspensions scapulaires légères", "sets": 2, "reps": "6-8"},
             ],
             "exercises": [
-                {"name": "Tractions pronation", "sets": 4, "reps": "max propre", "progression": "Si nécessaire: 4×5 négatives de 3-5 s ou pied au sol; à 8-10 reps, ajouter du volume"},
-                {"name": "Tractions supination", "sets": 3, "reps": "max propre", "progression": "Contrôler la descente"},
-                {"name": "Suspension active", "sets": 3, "duration_sec": "20-30", "progression": "Ajouter 5 secondes"},
-                {"name": "Rows sous table", "sets": 3, "reps": "12-15", "progression": "Avancer les pieds pour augmenter l'angle"},
-                {"name": "Relevés de jambes suspendu", "sets": 3, "reps": "10-15", "progression": "Genoux fléchis puis jambes tendues"},
+                {
+                    "name": "Tractions pronation",
+                    "sets": 4,
+                    "reps": "max propre",
+                    "progression": "Si nécessaire: 4×5 négatives de 3-5 s ou pied au sol; à 8-10 reps, ajouter du volume",
+                },
+                {
+                    "name": "Tractions supination",
+                    "sets": 3,
+                    "reps": "max propre",
+                    "progression": "Contrôler la descente",
+                },
+                {
+                    "name": "Suspension active",
+                    "sets": 3,
+                    "duration_sec": "20-30",
+                    "progression": "Ajouter 5 secondes",
+                },
+                {
+                    "name": "Rows sous table",
+                    "sets": 3,
+                    "reps": "12-15",
+                    "progression": "Avancer les pieds pour augmenter l'angle",
+                },
+                {
+                    "name": "Relevés de jambes suspendu",
+                    "sets": 3,
+                    "reps": "10-15",
+                    "progression": "Genoux fléchis puis jambes tendues",
+                },
             ],
             "stretches": [
                 {"name": "Étirement du grand dorsal", "duration_sec": 40, "sides": 2},
@@ -1026,11 +1309,36 @@ def _migrate_fitness(conn: sqlite3.Connection) -> None:
                 {"name": "Squats contrôlés", "sets": 2, "reps": "10"},
             ],
             "exercises": [
-                {"name": "Squats bulgares ou pistol squat progressif", "sets": 4, "reps": "12-20", "progression": "Réduire progressivement l'assistance"},
-                {"name": "Fentes marchées", "sets": 3, "reps": "12/jambe", "progression": "Tempo 3 secondes en descente"},
-                {"name": "Hip thrust pied surélevé", "sets": 3, "reps": "15-20", "progression": "Passer en unilatéral"},
-                {"name": "Mollets sur marche", "sets": 4, "reps": "20-25", "progression": "Pause de 2 secondes en haut"},
-                {"name": "Wall sit", "sets": 3, "duration_sec": "30-45", "progression": "Ajouter 5 secondes"},
+                {
+                    "name": "Squats bulgares ou pistol squat progressif",
+                    "sets": 4,
+                    "reps": "12-20",
+                    "progression": "Réduire progressivement l'assistance",
+                },
+                {
+                    "name": "Fentes marchées",
+                    "sets": 3,
+                    "reps": "12/jambe",
+                    "progression": "Tempo 3 secondes en descente",
+                },
+                {
+                    "name": "Hip thrust pied surélevé",
+                    "sets": 3,
+                    "reps": "15-20",
+                    "progression": "Passer en unilatéral",
+                },
+                {
+                    "name": "Mollets sur marche",
+                    "sets": 4,
+                    "reps": "20-25",
+                    "progression": "Pause de 2 secondes en haut",
+                },
+                {
+                    "name": "Wall sit",
+                    "sets": 3,
+                    "duration_sec": "30-45",
+                    "progression": "Ajouter 5 secondes",
+                },
             ],
             "stretches": [
                 {"name": "Fléchisseurs de hanche", "duration_sec": 40, "sides": 2},
@@ -1050,11 +1358,36 @@ def _migrate_fitness(conn: sqlite3.Connection) -> None:
                 {"name": "Montées de genoux légères", "duration_sec": 45},
             ],
             "exercises": [
-                {"name": "Pompes", "sets": 4, "reps": "8-15", "progression": "Variante adaptée au niveau"},
-                {"name": "Squats", "sets": 4, "reps": "15-25", "progression": "Tempo lent ou variante unilatérale"},
-                {"name": "Rows sous table", "sets": 4, "reps": "10-15", "progression": "Augmenter l'inclinaison"},
-                {"name": "Fentes", "sets": 3, "reps": "12/jambe", "progression": "Tempo contrôlé"},
-                {"name": "Gainage", "sets": 3, "duration_sec": "30-60", "progression": "Variante plus difficile"},
+                {
+                    "name": "Pompes",
+                    "sets": 4,
+                    "reps": "8-15",
+                    "progression": "Variante adaptée au niveau",
+                },
+                {
+                    "name": "Squats",
+                    "sets": 4,
+                    "reps": "15-25",
+                    "progression": "Tempo lent ou variante unilatérale",
+                },
+                {
+                    "name": "Rows sous table",
+                    "sets": 4,
+                    "reps": "10-15",
+                    "progression": "Augmenter l'inclinaison",
+                },
+                {
+                    "name": "Fentes",
+                    "sets": 3,
+                    "reps": "12/jambe",
+                    "progression": "Tempo contrôlé",
+                },
+                {
+                    "name": "Gainage",
+                    "sets": 3,
+                    "duration_sec": "30-60",
+                    "progression": "Variante plus difficile",
+                },
             ],
             "stretches": [
                 {"name": "Étirement global du dos", "duration_sec": 45},
@@ -1151,8 +1484,10 @@ def _migrate_food_orders(conn: sqlite3.Connection) -> None:
 _FOOD_ORDER_TRACKING_COLUMNS: tuple[tuple[str, str], ...] = (
     (
         "delivery_status",
-        "TEXT CHECK(delivery_status IS NULL OR delivery_status IN "
-        "('placed', 'preparing', 'picked_up', 'on_the_way', 'delivered', 'cancelled'))",
+        (
+            "TEXT CHECK(delivery_status IS NULL OR delivery_status IN "
+            "('placed', 'preparing', 'picked_up', 'on_the_way', 'delivered', 'cancelled'))"
+        ),
     ),
     ("eta_minutes", "INTEGER CHECK(eta_minutes IS NULL OR eta_minutes >= 0)"),
     ("delivered_at", "DATETIME"),
@@ -1236,13 +1571,17 @@ def run_migrations(conn: sqlite3.Connection) -> None:
     _migrate_people_imessage_count(conn)
     _migrate_people_timeline_cache(conn)
     _migrate_conversations(conn)
+    _migrate_message_usage_estimation(conn)
     _migrate_conversation_document_consent(conn)
     _migrate_app_settings(conn)
+    _migrate_local_activity_timestamps_to_utc(conn)
     _migrate_email_summaries(conn)
     _migrate_message_insights(conn)
     _migrate_devagent(conn)
+    _migrate_cursor_jobs_remove_merge_capability(conn)
     _migrate_private_action_logs(conn)
     _create_voice_debug_table(conn)
+    _migrate_voice_debug_timestamps_to_utc(conn)
     _migrate_messages_fts(conn)
     _migrate_daily_rituals(conn)
     _migrate_people_birthday(conn)
@@ -1270,3 +1609,4 @@ def run_migrations(conn: sqlite3.Connection) -> None:
     _migrate_scheduler_job_runs(conn)
     _migrate_food_orders(conn)
     _migrate_food_intelligence(conn)
+    _migrate_application_timestamps_to_utc_v2(conn)

@@ -19,17 +19,31 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 import sqlite3
+from collections.abc import Iterator
 from pathlib import Path
 
 import config
-from database import get_applied_migrations, get_connection, record_migration
+from database import get_applied_migrations, get_connection
 
 logger = logging.getLogger(__name__)
 
 
 class MigrationIntegrityError(RuntimeError):
     """Le contenu d'une migration déjà appliquée a changé depuis son application."""
+
+
+class MigrationStartupError(RuntimeError):
+    """Une migration requise n'a pas pu être appliquée au démarrage."""
+
+
+_TRANSACTION_CONTROL_RE = re.compile(
+    r"""\A\s*(?:(?:--[^\n]*(?:\n|\Z))|(?:/\*.*?\*/\s*))*
+        (?:BEGIN|COMMIT|END|ROLLBACK|SAVEPOINT|RELEASE)\b
+    """,
+    re.IGNORECASE | re.DOTALL | re.VERBOSE,
+)
 
 
 def _migrations_dir() -> Path:
@@ -88,6 +102,53 @@ def migration_status() -> dict:
     }
 
 
+def _iter_sql_statements(script: str) -> Iterator[str]:
+    """Découpe un script avec le parseur SQLite, y compris les triggers.
+
+    ``Connection.executescript`` force implicitement un COMMIT avant le script.
+    Exécuter chaque instruction avec ``execute`` permet de conserver la
+    transaction ouverte jusqu'à l'enregistrement dans ``schema_migrations``.
+    """
+    buffer: list[str] = []
+    for character in script:
+        buffer.append(character)
+        if character == ";" and sqlite3.complete_statement("".join(buffer)):
+            statement = "".join(buffer).strip()
+            buffer.clear()
+            if statement:
+                yield statement
+
+    trailing = "".join(buffer).strip()
+    if trailing:
+        # SQLite accepte une dernière instruction sans point-virgule.
+        yield trailing
+
+
+def _apply_migration_atomically(
+    conn: sqlite3.Connection,
+    *,
+    filename: str,
+    content: str,
+) -> None:
+    """Applique le SQL et sa preuve d'application dans une transaction unique."""
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        for statement in _iter_sql_statements(content):
+            if _TRANSACTION_CONTROL_RE.match(statement):
+                raise sqlite3.OperationalError(
+                    "les commandes de transaction sont interdites dans une migration"
+                )
+            conn.execute(statement)
+        conn.execute(
+            "INSERT INTO schema_migrations (filename, checksum) VALUES (?, ?)",
+            (filename, _checksum(content)),
+        )
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
+
+
 def apply_pending_migrations() -> dict:
     """Applique les migrations en attente, sauvegarde préalable si nécessaire.
 
@@ -118,16 +179,17 @@ def apply_pending_migrations() -> dict:
         content = path.read_text(encoding="utf-8")
         conn = get_connection()
         try:
-            conn.executescript(content)
-            conn.commit()
+            _apply_migration_atomically(
+                conn,
+                filename=path.name,
+                content=content,
+            )
         except sqlite3.Error as e:
-            conn.rollback()
-            conn.close()
             msg = f"Migration '{path.name}' échouée : {e}"
             logger.error("[migrations] %s", msg)
             return {"ok": False, "applied": applied, "backup": backup_report, "error": msg}
-        conn.close()
-        record_migration(path.name, _checksum(content))
+        finally:
+            conn.close()
         applied.append(path.name)
         logger.info("[migrations] appliquée : %s", path.name)
 
@@ -135,20 +197,17 @@ def apply_pending_migrations() -> dict:
 
 
 def run_startup_migrations() -> None:
-    """Point d'entrée au démarrage (lifespan) — n'échoue jamais bruyamment.
-
-    Une migration cassée ne doit pas empêcher JARVIS de démarrer avec le
-    schéma existant ; elle est loguée en erreur critique pour intervention
-    manuelle (la sauvegarde préalable reste disponible pour investiguer).
-    """
+    """Applique les migrations requises ou refuse un démarrage ambigu."""
     if not config.DB_MIGRATIONS_AUTO_APPLY:
         return
-    try:
-        report = apply_pending_migrations()
-        if report["applied"]:
-            logger.info("[migrations] %d migration(s) appliquée(s) au démarrage : %s",
-                       len(report["applied"]), report["applied"])
-        if not report["ok"]:
-            logger.critical("[migrations] échec au démarrage : %s", report["error"])
-    except Exception as e:
-        logger.critical("[migrations] erreur inattendue au démarrage : %s", e)
+    report = apply_pending_migrations()
+    if report["applied"]:
+        logger.info(
+            "[migrations] %d migration(s) appliquée(s) au démarrage : %s",
+            len(report["applied"]),
+            report["applied"],
+        )
+    if not report["ok"]:
+        message = f"Échec des migrations au démarrage : {report['error']}"
+        logger.critical("[migrations] %s", message)
+        raise MigrationStartupError(message)

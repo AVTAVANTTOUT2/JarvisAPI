@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import ai.picovoice.porcupine.Porcupine
 import ai.picovoice.porcupine.PorcupineManager
 import fr.jarvis.companion.data.JarvisSettings
@@ -39,9 +40,9 @@ class JarvisWakeWordService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val accessKey = JarvisSettings.porcupineAccessKey(this)
-        if (accessKey.isEmpty() ||
-            checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED
-        ) {
+        val hasAudioPermission = checkSelfPermission(Manifest.permission.RECORD_AUDIO) ==
+            PackageManager.PERMISSION_GRANTED
+        if (!canStartWakeWord(accessKey, hasAudioPermission)) {
             stopSelf()
             return START_NOT_STICKY
         }
@@ -85,15 +86,21 @@ class JarvisWakeWordService : Service() {
         manager?.let {
             try {
                 it.stop()
-            } catch (_: Exception) {
+            } catch (error: Exception) {
+                Log.w(TAG, "Arrêt de Porcupine impossible", error)
             }
-            it.delete()
+            try {
+                it.delete()
+            } catch (error: Exception) {
+                Log.w(TAG, "Libération de Porcupine impossible", error)
+            }
         }
         manager = null
         super.onDestroy()
     }
 
     companion object {
+        private const val TAG = "JarvisWakeWord"
         private const val NOTIFICATION_ID = 4102
     }
 }

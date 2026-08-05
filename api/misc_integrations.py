@@ -5,55 +5,54 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
+from collections.abc import AsyncIterator
 from typing import Any
 
 from fastapi import HTTPException, Request
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, ConfigDict, Field
 
 import config
 from agents.orchestrator import orchestrator
 from agents.productivity import productivity_agent
 from api.daemon_support import _audio_daemon_status_payload
+from api.errors import internal_error
 from api.misc_status import _computer_status_payload
-from api.people_support import _decode_person_path, _resolve_handle_with_contacts
 from database import (
     clear_llm_logs,
+    get_event_replay_window,
     get_llm_logs,
-    get_person,
 )
 from integrations import calendar_client, imessage_bridge, mail_client, weather
-from jarvis.event_bus import JarvisEvent, event_bus
 from jarvis.notification_service import notification_service
 from scripts.email_watcher import email_watcher
 
 logger = logging.getLogger("jarvis")
 
 
+class WebPushKeysRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    p256dh: str = Field(min_length=1, max_length=512)
+    auth: str = Field(min_length=1, max_length=256)
+
+
+class WebPushSubscriptionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    endpoint: str = Field(min_length=1, max_length=2048)
+    keys: WebPushKeysRequest
+
+
+class WebPushUnsubscribeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    endpoint: str = Field(min_length=1, max_length=2048)
+
+
 
 # ── Productivité : intégrations + tâches + briefings ────────
-
-
-async def api_debug_resolve(name: str):
-    """Debug : résolution du handle iMessage pour un contact."""
-    from database import get_db
-    decoded = _decode_person_path(name)
-    person = get_person(decoded) or get_person(name.strip())
-    handle = _resolve_handle_with_contacts(decoded)
-    steps: dict[str, Any] = {}
-    if person:
-        pid = person.get("id")
-        with get_db() as conn:
-            rp = conn.execute(
-                "SELECT handle FROM relationship_profiles WHERE person_id=? AND handle IS NOT NULL LIMIT 1",
-                (pid,)
-            ).fetchone()
-            steps["relationship_profile_handle"] = rp[0] if rp else None
-    return {
-        "name": decoded,
-        "person_found": person is not None,
-        "resolved_handle": handle,
-        "steps": steps,
-    }
 
 
 async def api_integrations():
@@ -94,32 +93,118 @@ async def api_integrations():
 # ── Mission Control ──────────────────────────────────────────
 
 
-async def events_stream():
+SSE_INITIAL_HISTORY = 30
+SSE_REPLAY_LIMIT = 1000
+SSE_POLL_INTERVAL_SECONDS = 0.5
+SSE_HEARTBEAT_SECONDS = 15.0
+
+
+def _parse_last_event_id(raw: str | None) -> tuple[int | None, str | None]:
+    if raw is None or not raw.strip():
+        return None, None
+    try:
+        value = int(raw.strip())
+    except ValueError:
+        return None, "invalid_last_event_id"
+    if value < 0:
+        return None, "invalid_last_event_id"
+    return value, None
+
+
+def _format_sse_event(event: dict[str, Any]) -> str:
+    event_id = int(event["sse_id"])
+    return (
+        f"id: {event_id}\n"
+        f"data: {json.dumps(event, ensure_ascii=False, separators=(',', ':'))}\n\n"
+    )
+
+
+def _format_stream_reset(
+    *,
+    reason: str,
+    requested_after: int | None,
+    resume_after: int,
+    skipped: int,
+) -> str:
+    payload = {
+        "type": "stream.reset",
+        "event_type": "stream.reset",
+        "reason": reason,
+        "requested_after": requested_after,
+        "resume_after": resume_after,
+        "skipped": skipped,
+    }
+    return (
+        "event: stream.reset\n"
+        f"id: {resume_after}\n"
+        f"data: {json.dumps(payload, ensure_ascii=False, separators=(',', ':'))}\n\n"
+    )
+
+
+async def _durable_event_stream(
+    last_event_id: int | None,
+    invalid_reason: str | None = None,
+) -> AsyncIterator[str]:
+    """Lit le journal durable sans file mémoire propre au client.
+
+    La contre-pression du transport ralentit uniquement ce générateur. À la
+    prochaine lecture, son curseur SQLite reprend les événements manquants.
+    Si le retard excède ``SSE_REPLAY_LIMIT``, un ``stream.reset`` annonce le
+    saut vers la fenêtre récente au lieu de faire croître la mémoire.
+    """
+    cursor = last_event_id
+    initial = True
+    pending_reset_reason = invalid_reason
+    last_heartbeat = time.monotonic()
+
+    while True:
+        window = await asyncio.to_thread(
+            get_event_replay_window,
+            cursor if not initial or cursor is not None else None,
+            initial_limit=SSE_INITIAL_HISTORY,
+            replay_limit=SSE_REPLAY_LIMIT,
+        )
+        reset_reason = pending_reset_reason or window.reset_reason
+        if reset_reason:
+            yield _format_stream_reset(
+                reason=reset_reason,
+                requested_after=window.requested_after,
+                resume_after=window.resume_after,
+                skipped=window.skipped,
+            )
+            cursor = window.resume_after
+            pending_reset_reason = None
+
+        for event in window.events:
+            event_id = int(event["sse_id"])
+            if cursor is not None and event_id <= cursor:
+                continue
+            yield _format_sse_event(event)
+            cursor = event_id
+
+        initial = False
+        now = time.monotonic()
+        if now - last_heartbeat >= SSE_HEARTBEAT_SECONDS:
+            yield ": keepalive\n\n"
+            last_heartbeat = now
+        await asyncio.sleep(SSE_POLL_INTERVAL_SECONDS)
+
+
+async def events_stream(request: Request) -> StreamingResponse:
     """SSE — flux temps réel de tous les événements JARVIS.
 
     Le frontend MissionControl.tsx consomme ce flux pour afficher
     l'activité en temps réel (pipeline vocal, orchestration, agents, TTS).
     """
-    queue: asyncio.Queue[JarvisEvent] = event_bus.subscribe()
-
-    async def generate():
-        try:
-            # Envoyer l'historique récent au connect
-            for evt in event_bus.get_history(30):
-                yield f"data: {json.dumps(evt, ensure_ascii=False)}\n\n"
-            while True:
-                event = await queue.get()
-                yield event.to_sse()
-        except asyncio.CancelledError:
-            pass
-        finally:
-            event_bus.unsubscribe(queue)
+    last_event_id, invalid_reason = _parse_last_event_id(
+        request.headers.get("last-event-id")
+    )
 
     return StreamingResponse(
-        generate(),
+        _durable_event_stream(last_event_id, invalid_reason),
         media_type="text/event-stream",
         headers={
-            "Cache-Control": "no-cache",
+            "Cache-Control": "no-cache, no-transform",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
         },
@@ -169,7 +254,7 @@ async def api_email_watcher_catchup():
         return result
     except Exception as e:
         logger.exception("api_email_watcher_catchup : %s", e)
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise internal_error("email_catchup_failed", "Rattrapage des emails impossible") from e
 
 
 # ── Réglages dynamiques (sans redémarrage) ──────────────────
@@ -187,7 +272,12 @@ async def api_get_tts_setting():
     try:
         info = get_local_tts_provider(settings).info()
     except Exception as exc:  # noqa: BLE001 - configuration invalide reste lisible
-        return {"engine": settings.provider, "available": False, "error": str(exc)}
+        logger.warning("[tts/settings] configuration invalide : %s", exc)
+        return {
+            "engine": settings.provider,
+            "available": False,
+            "error": "tts_configuration_invalid",
+        }
     return {"engine": info.provider, "available": True, **info.as_log_fields()}
 
 
@@ -235,27 +325,34 @@ async def api_push_vapid_public_key():
     return {"key": push.get_vapid_public_key_b64url()}
 
 
-async def api_push_subscribe(body: dict, request: Request):
+async def api_push_subscribe(body: WebPushSubscriptionRequest, request: Request):
     """Enregistre un abonnement Web Push (format `PushSubscription.toJSON()`)."""
     from database import upsert_push_subscription
+    from core.outbound_security import OutboundURLRejected
+    from push import validate_web_push_endpoint
 
-    endpoint = (body.get("endpoint") or "").strip()
-    keys = body.get("keys") or {}
-    if not endpoint or not keys.get("p256dh") or not keys.get("auth"):
-        raise HTTPException(400, "`endpoint` et `keys.{p256dh,auth}` requis")
+    endpoint = body.endpoint.strip()
+    try:
+        await asyncio.to_thread(validate_web_push_endpoint, endpoint)
+    except OutboundURLRejected as exc:
+        raise HTTPException(
+            422,
+            {"code": exc.code, "message": "Endpoint Web Push refusé"},
+        ) from exc
 
     upsert_push_subscription(
-        endpoint, keys["p256dh"], keys["auth"], request.headers.get("user-agent", "")
+        endpoint,
+        body.keys.p256dh,
+        body.keys.auth,
+        request.headers.get("user-agent", ""),
     )
     return {"ok": True}
 
 
-async def api_push_unsubscribe(body: dict):
+async def api_push_unsubscribe(body: WebPushUnsubscribeRequest):
     from database import delete_push_subscription
 
-    endpoint = (body.get("endpoint") or "").strip()
-    if not endpoint:
-        raise HTTPException(400, "`endpoint` requis")
+    endpoint = body.endpoint.strip()
     delete_push_subscription(endpoint)
     return {"ok": True}
 
@@ -313,7 +410,7 @@ async def api_briefing(kind: str = "morning"):
         return {"kind": kind, "content": text}
     except Exception as e:
         logger.exception("Erreur briefing")
-        raise HTTPException(500, f"Briefing impossible : {type(e).__name__}: {e}")
+        raise internal_error("briefing_failed", "Génération du briefing impossible") from e
 
 
 async def api_emails(limit: int = 20):

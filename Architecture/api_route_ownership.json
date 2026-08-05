@@ -1,0 +1,315 @@
+{
+  "schema_version": 1,
+  "description": "Attribution explicite des opérations API sans consommateur frontend ou natif direct. Toute opération doit correspondre à exactement une règle; les routes clientes sont interdites dans ce registre.",
+  "rules": [
+    {
+      "id": "operator-dnd",
+      "owner": "operations",
+      "audience": "operator",
+      "methods": ["DELETE", "GET", "POST"],
+      "paths": ["/api/dnd"],
+      "rationale": "Commande manuelle du mode silence, également piloté directement par les automatisations locales."
+    },
+    {
+      "id": "operator-backups",
+      "owner": "database-operations",
+      "audience": "operator",
+      "methods": ["GET", "POST"],
+      "paths": ["/api/backups", "/api/backups/run", "/api/backups/{name}/restore"],
+      "rationale": "Surface de sauvegarde et restauration réservée à l'exploitation authentifiée."
+    },
+    {
+      "id": "operator-commitments",
+      "owner": "personal-memory",
+      "audience": "operator",
+      "methods": ["GET", "PATCH"],
+      "paths": ["/api/commitments", "/api/commitments/consistency", "/api/commitments/{commitment_id}"],
+      "rationale": "Inspection, correction et contrôle de cohérence des engagements extraits automatiquement."
+    },
+    {
+      "id": "operator-contact-tools",
+      "owner": "contacts-integrations",
+      "audience": "operator",
+      "methods": ["GET", "POST"],
+      "paths": ["/api/contacts/resolve", "/api/contacts/sync"],
+      "rationale": "Diagnostic de résolution et synchronisation manuelle du carnet de contacts."
+    },
+    {
+      "id": "operator-service-detail",
+      "owner": "service-control",
+      "audience": "operator",
+      "methods": ["GET"],
+      "paths": ["/api/control/{service}/detail"],
+      "rationale": "Diagnostic détaillé d'un service supervisé, destiné à l'interface et aux scripts d'exploitation."
+    },
+    {
+      "id": "operator-costs",
+      "owner": "observability",
+      "audience": "operator",
+      "methods": ["GET"],
+      "paths": ["/api/costs"],
+      "rationale": "Lecture administrative de la consommation et des coûts des fournisseurs."
+    },
+    {
+      "id": "operator-cursor-control",
+      "owner": "cursor-delegation",
+      "audience": "operator",
+      "methods": ["GET", "POST"],
+      "paths": [
+        "/api/cursor/status",
+        "/api/cursor/jobs/{job_id}/cancel",
+        "/api/cursor/jobs/{job_id}/confirm",
+        "/api/cursor/jobs/{job_id}/retry",
+        "/api/cursor/jobs/{job_id}/rollback"
+      ],
+      "rationale": "Commandes de contrôle humain et diagnostic du moteur de délégation Cursor."
+    },
+    {
+      "id": "operator-day-scores",
+      "owner": "personal-analytics",
+      "audience": "operator",
+      "methods": ["GET"],
+      "paths": ["/api/day-scores", "/api/day-scores/{date}"],
+      "rationale": "Lecture d'analyse personnelle détaillée pour diagnostic et export."
+    },
+    {
+      "id": "operator-devagent",
+      "owner": "devagent",
+      "audience": "operator",
+      "methods": ["GET", "POST"],
+      "paths": [
+        "/api/devagent/autorun",
+        "/api/devagent/start",
+        "/api/devagent/{project_id}/answer",
+        "/api/devagent/{project_id}/deploy",
+        "/api/devagent/{project_id}/deployments",
+        "/api/devagent/{project_id}/pause",
+        "/api/devagent/{project_id}/pr",
+        "/api/devagent/{project_id}/rebase",
+        "/api/devagent/{project_id}/refactor",
+        "/api/devagent/{project_id}/run",
+        "/api/devagent/{project_id}/status"
+      ],
+      "rationale": "Plan de contrôle explicite de l'agent de développement, utilisable par un opérateur ou une intégration CI."
+    },
+    {
+      "id": "device-pairing-operations",
+      "owner": "device-management",
+      "audience": "operator",
+      "methods": ["POST"],
+      "paths": [
+        "/api/devices/pairing/start",
+        "/api/devices/{device_id}/revoke",
+        "/api/devices/{device_id}/token/rotate"
+      ],
+      "rationale": "Démarrage du pairage, révocation et rotation de jeton depuis une session opérateur authentifiée."
+    },
+    {
+      "id": "device-agent-protocol",
+      "owner": "device-management",
+      "audience": "device-agent",
+      "methods": ["GET", "POST"],
+      "paths": [
+        "/api/devices/register",
+        "/api/devices/{device_id}/heartbeat",
+        "/api/devices/{device_id}/screen",
+        "/api/devices/{device_id}/tts"
+      ],
+      "rationale": "Protocole machine-à-machine des agents desktop, authentifié par jeton device et non par frontend."
+    },
+    {
+      "id": "operator-behaviour-insights",
+      "owner": "personal-analytics",
+      "audience": "operator",
+      "methods": ["GET"],
+      "paths": [
+        "/api/doomscroll",
+        "/api/mood/signals",
+        "/api/predictions/messages",
+        "/api/procrastination/cost",
+        "/api/productivity/score",
+        "/api/stats/compare"
+      ],
+      "rationale": "Analyses avancées exposées pour inspection, export et diagnostic, sans écran dédié."
+    },
+    {
+      "id": "indirect-fitness-photo",
+      "owner": "fitness",
+      "audience": "indirect-client",
+      "methods": ["GET"],
+      "paths": ["/api/fitness/meals/{meal_id}/photo"],
+      "rationale": "Ressource liée par l'URL photo produite dans les réponses repas, sans chemin littéral dupliqué dans les vues."
+    },
+    {
+      "id": "integration-fitness-water",
+      "owner": "fitness",
+      "audience": "integration-client",
+      "methods": ["GET"],
+      "paths": ["/api/fitness/water/today"],
+      "rationale": "Contrat de lecture courant destiné aux intégrations Fitness et conservé indépendamment du dashboard agrégé."
+    },
+    {
+      "id": "operator-food-preferences",
+      "owner": "food-automation",
+      "audience": "operator",
+      "methods": ["GET"],
+      "paths": ["/api/food/preferences"],
+      "rationale": "Inspection des préférences dérivées par l'automatisation alimentaire."
+    },
+    {
+      "id": "operator-imessage-import",
+      "owner": "imessage-import",
+      "audience": "operator",
+      "methods": ["GET", "POST"],
+      "paths": ["/api/imessage-import/run", "/api/imessage-import/status"],
+      "rationale": "Déclenchement et suivi manuels d'un import iMessage local."
+    },
+    {
+      "id": "operator-improvement-engine",
+      "owner": "improvement-engine",
+      "audience": "operator",
+      "methods": ["GET", "POST"],
+      "paths": ["/api/improvements/proposals", "/api/improvements/run"],
+      "rationale": "Revue humaine des propositions et déclenchement contrôlé du moteur d'amélioration."
+    },
+    {
+      "id": "automation-jarvis-journal",
+      "owner": "daily-rituals",
+      "audience": "automation",
+      "methods": ["GET", "POST"],
+      "paths": ["/api/jarvis-journal", "/api/jarvis-journal/generate"],
+      "rationale": "Déclencheur manuel et lecture de secours d'un journal normalement produit par le scheduler."
+    },
+    {
+      "id": "operator-life-context",
+      "owner": "personal-memory",
+      "audience": "operator",
+      "methods": ["GET", "POST"],
+      "paths": ["/api/life-context", "/api/life-context/{context_id}/close"],
+      "rationale": "Administration des périodes de contexte de vie en l'absence d'un écran spécialisé."
+    },
+    {
+      "id": "operator-meetings",
+      "owner": "meeting-memory",
+      "audience": "operator",
+      "methods": ["GET"],
+      "paths": ["/api/meetings"],
+      "rationale": "Consultation et export des synthèses de réunion enregistrées."
+    },
+    {
+      "id": "operator-semantic-memory",
+      "owner": "personal-memory",
+      "audience": "operator",
+      "methods": ["GET"],
+      "paths": ["/api/memory/search-semantic"],
+      "rationale": "Outil de diagnostic de la recherche sémantique, distinct de la recherche utilisateur standard."
+    },
+    {
+      "id": "operator-migrations",
+      "owner": "database-operations",
+      "audience": "operator",
+      "methods": ["GET", "POST"],
+      "paths": ["/api/migrations/run", "/api/migrations/status"],
+      "rationale": "Diagnostic et rattrapage contrôlé des migrations par l'exploitation."
+    },
+    {
+      "id": "operator-notification-history",
+      "owner": "notifications",
+      "audience": "operator",
+      "methods": ["GET"],
+      "paths": ["/api/notifications/all"],
+      "rationale": "Lecture exhaustive pour audit, distincte du flux utilisateur des notifications non lues."
+    },
+    {
+      "id": "operator-location-intelligence",
+      "owner": "location-intelligence",
+      "audience": "operator",
+      "methods": ["GET"],
+      "paths": [
+        "/api/places/favorites",
+        "/api/places/missed-opportunities",
+        "/api/presence",
+        "/api/relationship-graph",
+        "/api/time-machine/{date}"
+      ],
+      "rationale": "Analyses de localisation et de relations destinées à l'inspection et à l'export avancés."
+    },
+    {
+      "id": "operator-recording-metadata",
+      "owner": "recordings",
+      "audience": "operator",
+      "methods": ["GET", "POST"],
+      "paths": [
+        "/api/recordings/{recording_id}/speakers",
+        "/api/recordings/{recording_id}/speakers/{label}/assign",
+        "/api/recordings/{recording_id}/turns"
+      ],
+      "rationale": "Correction et inspection détaillées de la diarisation d'un enregistrement."
+    },
+    {
+      "id": "automation-rituals",
+      "owner": "daily-rituals",
+      "audience": "automation",
+      "methods": ["GET", "POST"],
+      "paths": ["/api/rituals/today", "/api/rituals/{ritual}/run"],
+      "rationale": "État et déclencheur manuel de rituels normalement exécutés par le scheduler."
+    },
+    {
+      "id": "operator-self-healing",
+      "owner": "self-healing",
+      "audience": "operator",
+      "methods": ["GET", "POST"],
+      "paths": ["/api/self-healing/diagnose", "/api/self-healing/status"],
+      "rationale": "Diagnostic et état du moteur de réparation sous contrôle humain."
+    },
+    {
+      "id": "operator-quality-tools",
+      "owner": "quality-automation",
+      "audience": "operator",
+      "methods": ["GET", "POST"],
+      "paths": [
+        "/api/quality/ci/install-hook",
+        "/api/quality/ci/run",
+        "/api/quality/duplicates",
+        "/api/quality/duplicates/scan",
+        "/api/quality/security",
+        "/api/quality/security/scan",
+        "/api/quality/security/{finding_id}/fix",
+        "/api/quality/tests/generate"
+      ],
+      "rationale": "Boîte à outils de qualité et sécurité réservée au développeur/opérateur authentifié."
+    },
+    {
+      "id": "automation-briefing",
+      "owner": "briefings",
+      "audience": "automation",
+      "methods": ["POST"],
+      "paths": ["/api/briefings/generate"],
+      "rationale": "Déclencheur manuel de secours d'un briefing normalement produit par le scheduler."
+    },
+    {
+      "id": "operator-calendar-test",
+      "owner": "calendar-integration",
+      "audience": "operator",
+      "methods": ["POST"],
+      "paths": ["/api/calendar/test"],
+      "rationale": "Test explicite de l'intégration calendrier lors de la configuration ou du diagnostic."
+    },
+    {
+      "id": "operator-email-catchup",
+      "owner": "email-integration",
+      "audience": "operator",
+      "methods": ["POST"],
+      "paths": ["/api/email-watcher/catchup"],
+      "rationale": "Rattrapage manuel du watcher email après indisponibilité."
+    },
+    {
+      "id": "operator-maintenance",
+      "owner": "database-operations",
+      "audience": "operator",
+      "methods": ["POST"],
+      "paths": ["/api/maintenance/run"],
+      "rationale": "Déclenchement explicite de la maintenance SQLite par l'exploitation."
+    }
+  ]
+}

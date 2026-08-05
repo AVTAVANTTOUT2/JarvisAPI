@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import inspect
 import io
+import logging
+import threading
 from datetime import date
 from pathlib import Path
 
@@ -38,6 +41,15 @@ def _client():
 def _tiny_jpeg() -> bytes:
     buffer = io.BytesIO()
     Image.new("RGB", (32, 32), color=(180, 90, 40)).save(buffer, format="JPEG")
+    return buffer.getvalue()
+
+
+def _jpeg(width: int, height: int) -> bytes:
+    buffer = io.BytesIO()
+    Image.new("RGB", (width, height), color=(180, 90, 40)).save(
+        buffer,
+        format="JPEG",
+    )
     return buffer.getvalue()
 
 
@@ -175,6 +187,49 @@ def test_create_meal_from_text_persists_structured_items(
     assert body["meal"]["items"][0]["name"]
 
 
+@pytest.mark.asyncio
+async def test_text_meal_persistence_runs_outside_the_event_loop_thread(
+    fitness_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.fitness.meal_analysis import normalize_analysis_payload
+    from app.fitness.models import MealTextAnalyze
+    from app.fitness.services import fitness_service
+
+    async def fake_analyze(text: str, *, meal_type_hint: str | None = None):
+        normalized = normalize_analysis_payload(
+            SAMPLE_ANALYSIS, meal_type_hint=meal_type_hint
+        )
+        normalized["analysis_source"] = "text_ai"
+        normalized["raw_input"] = text
+        return normalized
+
+    event_loop_thread = threading.get_ident()
+    persistence_threads: list[int] = []
+    original_create = fitness_service.create_meal
+
+    def observed_create(payload):
+        persistence_threads.append(threading.get_ident())
+        return original_create(payload)
+
+    monkeypatch.setattr("app.fitness.meal_analysis.analyze_meal_text", fake_analyze)
+    monkeypatch.setattr(fitness_service, "create_meal", observed_create)
+
+    result = await fitness_service.create_meal_from_text(
+        MealTextAnalyze.model_validate(
+            {
+                "date": date.today().isoformat(),
+                "text": "Poulet et riz",
+                "meal_type": "dejeuner",
+                "source": "pwa",
+                "save": True,
+            }
+        )
+    )
+
+    assert result.persisted is True
+    assert persistence_threads and persistence_threads[0] != event_loop_thread
+
+
 def test_create_meal_from_photo_stores_image_and_meal(
     fitness_db: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -214,6 +269,103 @@ def test_create_meal_from_photo_stores_image_and_meal(
         photo = client.get(f"/api/fitness/meals/{meal_id}/photo")
         assert photo.status_code == 200
         assert photo.headers["content-type"].startswith("image/")
+
+
+def test_oversized_photo_upload_is_rejected(
+    fitness_db: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("config.FITNESS_MEAL_PHOTO_MAX_BYTES", 100)
+    with _client() as client:
+        authenticate(client)
+        response = client.post(
+            "/api/fitness/meals/from-photo",
+            data={"date": date.today().isoformat(), "save": "true"},
+            files={"photo": ("assiette.jpg", b"x" * 101, "image/jpeg")},
+        )
+
+    assert response.status_code == 413
+
+
+def test_photo_route_uses_bounded_upload_reader() -> None:
+    from app.fitness.routes import create_meal_from_photo
+
+    source = inspect.getsource(create_meal_from_photo)
+    assert "await read_upload_limited(" in source
+    assert "await photo.read()" not in source
+
+
+@pytest.mark.asyncio
+async def test_photo_dimensions_are_rejected_before_vision(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.fitness.meal_analysis import MealAnalysisError, analyze_meal_photo
+
+    async def fail_if_called(*args, **kwargs):
+        raise AssertionError("La vision ne doit pas recevoir une image hors limites")
+
+    monkeypatch.setattr("config.FITNESS_MEAL_PHOTO_MAX_PIXELS", 100)
+    monkeypatch.setattr("config.FITNESS_MEAL_PHOTO_MAX_DIMENSION", 100)
+    monkeypatch.setattr(
+        "app.fitness.meal_analysis._vision_identify_foods",
+        fail_if_called,
+    )
+
+    with pytest.raises(MealAnalysisError) as error:
+        await analyze_meal_photo(_jpeg(11, 10))
+
+    assert error.value.status_code == 413
+    assert error.value.detail == "Dimensions de photo excessives"
+
+
+@pytest.mark.asyncio
+async def test_invalid_photo_is_rejected_before_vision() -> None:
+    from app.fitness.meal_analysis import MealAnalysisError, analyze_meal_photo
+
+    with pytest.raises(MealAnalysisError) as error:
+        await analyze_meal_photo(b"not-an-image")
+
+    assert error.value.status_code == 415
+    assert error.value.detail == "Photo invalide"
+
+
+@pytest.mark.asyncio
+async def test_photo_storage_failure_is_logged_and_exposed_as_no_photo(
+    fitness_db: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from app.fitness.meal_analysis import normalize_analysis_payload
+    from app.fitness.services import fitness_service
+
+    async def fake_photo(image_bytes: bytes, *, meal_type_hint=None, note=None):
+        normalized = normalize_analysis_payload(
+            SAMPLE_ANALYSIS, meal_type_hint=meal_type_hint
+        )
+        normalized["analysis_source"] = "photo_ai"
+        normalized["raw_input"] = note or "photo"
+        return normalized
+
+    def fail_storage(*args, **kwargs):
+        raise OSError("volume indisponible")
+
+    monkeypatch.setattr("app.fitness.meal_analysis.analyze_meal_photo", fake_photo)
+    monkeypatch.setattr("jarvis.uploads.store_bytes_upload", fail_storage)
+    caplog.set_level(logging.WARNING, logger="app.fitness.services")
+
+    result = await fitness_service.create_meal_from_photo(
+        log_date=date.today(),
+        image_bytes=_tiny_jpeg(),
+        original_name="assiette.jpg",
+        meal_type=None,
+        note=None,
+        source_value="pwa",
+        save=False,
+    )
+
+    assert result.persisted is False
+    assert result.analysis.photo_path is None
+    assert "code=FITNESS_PHOTO_STORAGE_FAILED" in caplog.text
 
 
 def test_ollama_allowlist_includes_meal_analysis() -> None:

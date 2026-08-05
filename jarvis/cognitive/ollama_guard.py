@@ -142,9 +142,9 @@ def assert_ollama_caller_allowed(stack: list[inspect.FrameInfo] | None = None) -
     callers = [
         f"{f.filename}:{f.lineno}:{f.function}" for f in frames[:8]
     ]
+    allowed = ", ".join(sorted(OLLAMA_ALLOWED_MODULES))
     raise OllamaPolicyError(
-        "Appel Ollama interdit hors Screen Watcher / ollama_control. "
-        f"Pile: {callers}"
+        f"Appel Ollama interdit hors allowlist ({allowed}). Pile: {callers}"
     )
 
 

@@ -1,10 +1,11 @@
-"""Contrats de routage du frontend bureau et de ses replis.
+"""Contrats de routage de l'unique frontend bureau.
 
 L'interface mobile ne figure plus ici : elle est autonome et couverte par
 ``tests/test_web_mobile.py``. C'est précisément le but — casser le mobile ne
 doit plus pouvoir casser le bureau, ni l'inverse.
 """
 
+import json
 import re
 from pathlib import Path
 
@@ -29,8 +30,6 @@ def test_unified_frontend_is_prioritized_and_routes_are_static(tmp_path, monkeyp
     _write(unified / "manifest.webmanifest", "{}")
 
     monkeypatch.setattr(frontend, "FRONTEND_DIST", unified)
-    monkeypatch.setattr(frontend, "WEB_DIST", tmp_path / "missing-web")
-
     app = FastAPI()
     frontend._setup_frontend(app)
 
@@ -49,8 +48,6 @@ def test_cognitive_route_is_served(tmp_path, monkeypatch):
     _write(unified / "_next" / "static" / "app.js", "asset")
 
     monkeypatch.setattr(frontend, "FRONTEND_DIST", unified)
-    monkeypatch.setattr(frontend, "WEB_DIST", tmp_path / "missing-web")
-
     app = FastAPI()
     frontend._setup_frontend(app)
 
@@ -70,8 +67,6 @@ def test_food_route_is_served(tmp_path, monkeypatch):
     _write(unified / "_next" / "static" / "app.js", "asset")
 
     monkeypatch.setattr(frontend, "FRONTEND_DIST", unified)
-    monkeypatch.setattr(frontend, "WEB_DIST", tmp_path / "missing-web")
-
     app = FastAPI()
     frontend._setup_frontend(app)
 
@@ -87,8 +82,6 @@ def test_fitness_route_is_served(tmp_path, monkeypatch):
     _write(unified / "_next" / "static" / "app.js", "asset")
 
     monkeypatch.setattr(frontend, "FRONTEND_DIST", unified)
-    monkeypatch.setattr(frontend, "WEB_DIST", tmp_path / "missing-web")
-
     app = FastAPI()
     frontend._setup_frontend(app)
 
@@ -96,18 +89,19 @@ def test_fitness_route_is_served(tmp_path, monkeypatch):
         assert client.get("/fitness").text == "unified-fitness"
 
 
-def test_vite_frontend_remains_fallback_without_unified_build(tmp_path, monkeypatch):
+def test_retired_vite_build_is_not_a_runtime_fallback(tmp_path, monkeypatch):
     web = tmp_path / "web"
-    _write(web / "index.html", "vite-fallback")
+    _write(web / "index.html", "retired-vite-build")
 
     monkeypatch.setattr(frontend, "FRONTEND_DIST", tmp_path / "missing-unified")
-    monkeypatch.setattr(frontend, "WEB_DIST", web)
 
     app = FastAPI()
     frontend._setup_frontend(app)
 
     with TestClient(app) as client:
-        assert client.get("/").text == "vite-fallback"
+        response = client.get("/")
+        assert response.status_code == 503
+        assert "retired-vite-build" not in response.text
 
 
 def test_the_historical_pwa_mount_redirects_without_being_served(tmp_path, monkeypatch):
@@ -117,8 +111,6 @@ def test_the_historical_pwa_mount_redirects_without_being_served(tmp_path, monke
     _write(unified / "_next" / "static" / "app.js", "asset")
 
     monkeypatch.setattr(frontend, "FRONTEND_DIST", unified)
-    monkeypatch.setattr(frontend, "WEB_DIST", tmp_path / "missing-web")
-
     app = FastAPI()
     frontend._setup_frontend(app)
 
@@ -155,3 +147,39 @@ def test_unified_bundle_no_longer_compiles_a_mobile_layout():
         text = (REPO_ROOT / config_file).read_text(encoding="utf-8")
         assert "@mobile" not in text
         assert "pwa/src" not in text
+
+
+def test_desktop_views_are_not_a_second_executable_app():
+    package = json.loads((REPO_ROOT / "web/package.json").read_text(encoding="utf-8"))
+    scripts = package.get("scripts", {})
+    dependencies = {
+        **package.get("dependencies", {}),
+        **package.get("devDependencies", {}),
+    }
+
+    assert "dev" not in scripts
+    assert "build" not in scripts
+    assert "preview" not in scripts
+    assert "vite" not in dependencies
+    assert "vite-plugin-pwa" not in dependencies
+    for retired_entry in (
+        "web/index.html",
+        "web/vite.config.ts",
+        "web/src/main.tsx",
+        "web/src/sw.ts",
+    ):
+        assert not (REPO_ROOT / retired_entry).exists()
+
+    runtime_sources = (
+        "api/frontend.py",
+        "core/frontend_resolution.py",
+        "core/frontend_static.py",
+        "supervisor.py",
+        "web/src/app/components/views/ControlView.tsx",
+    )
+    for source in runtime_sources:
+        text = (REPO_ROOT / source).read_text(encoding="utf-8")
+        assert "vite_fallback" not in text
+        assert "vite_dev" not in text
+        assert "Vite Dev" not in text
+        assert "web/dist" not in text

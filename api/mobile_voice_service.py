@@ -145,8 +145,8 @@ async def process_mobile_voice_turn(
             transcript[:160],
         )
 
-        # Pipeline vocal unifié : même chemin Flash que la voix desktop
-        # (routage cognitif, ack immédiat, actions, délégation Cursor).
+        # Pipeline vocal unifié : même moteur de tour que les autres surfaces,
+        # enveloppé par les fast-paths et l'instrumentation de la voix desktop.
         try:
             llm_result = await asyncio.wait_for(
                 _process_voice_fast(
@@ -224,6 +224,12 @@ async def process_mobile_voice_turn(
         }
         if tts_error:
             payload["tts_error"] = tts_error
-        if llm_result.get("pending_action"):
-            payload["pending_action"] = llm_result["pending_action"]
+        action = llm_result.get("action")
+        action_result = llm_result.get("action_result")
+        if action is not None:
+            payload["action"] = action
+        if action_result is not None:
+            payload["action_result"] = action_result
+        if isinstance(action_result, dict) and action_result.get("needs_confirmation"):
+            payload["pending_action"] = action
         return payload

@@ -30,7 +30,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import fr.jarvis.companion.BuildConfig
 import fr.jarvis.companion.app.appContainer
-import fr.jarvis.companion.core.JarvisFeatureFlags
 import fr.jarvis.companion.core.connectivity.ConnectivityState
 import fr.jarvis.companion.core.database.CachedNotificationEntity
 import fr.jarvis.companion.core.database.PendingLocationSyncState
@@ -207,15 +206,12 @@ fun DiagnosticsScreen(modifier: Modifier = Modifier) {
             DiagnosticsSectionCard(section = section)
         }
 
-        if (!JarvisFeatureFlags.OFFLINE_DETAIL) {
-            // TODO(JARVIS-FUTURE-OFFLINE-DETAIL): brancher la vue détaillée de la file
-            // hors ligne (pending_location + pending_chat_operations) lorsque le flag
-            // OFFLINE_DETAIL passera à true — métriques agrégées déjà disponibles ci-dessus.
-            JarvisComingSoonCard(
-                title = "File hors ligne détaillée",
-                description = "Inspection point par point des files de synchronisation — bientôt disponible.",
-            )
-        }
+        // TODO(JARVIS-FUTURE-OFFLINE-DETAIL): remplacer ce placeholder quand la vue
+        // détaillée des files hors ligne sera réellement branchée.
+        JarvisComingSoonCard(
+            title = "File hors ligne détaillée",
+            description = "Inspection point par point des files de synchronisation — bientôt disponible.",
+        )
 
         Row(
             modifier = Modifier.fillMaxWidth(),

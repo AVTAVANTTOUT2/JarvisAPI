@@ -5,10 +5,12 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta
 
-from fastapi import Body, HTTPException
+from fastapi import HTTPException
 
 import config
+from api.errors import api_error, internal_error
 from api.people_support import _decode_person_path
+from api.relationship_models import AnalyzeContactRequest, CalendarEventCreateRequest
 from database import (
     get_active_patterns,
     get_all_people,
@@ -22,6 +24,7 @@ from database import (
     get_school_documents,
     get_tasks,
 )
+from database.time_buckets import local_datetime, sqlite_utc_timestamp
 from integrations import calendar_client
 
 logger = logging.getLogger("jarvis")
@@ -34,71 +37,89 @@ logger = logging.getLogger("jarvis")
 async def api_calendar_get(start: str = "", end: str = ""):
     """Récupère les événements Calendar.app entre deux dates ISO."""
     if not calendar_client or not calendar_client.is_available():
-        raise HTTPException(503, "Calendar.app indisponible")
+        raise api_error(503, "calendar_unavailable", "Calendar.app indisponible")
     if not start or not end:
-        raise HTTPException(400, "Paramètres start et end requis (ISO 8601)")
-    events = await calendar_client.get_events(start, end)
+        raise api_error(
+            400,
+            "calendar_range_required",
+            "Paramètres start et end requis (ISO 8601)",
+        )
+    try:
+        events = await calendar_client.get_events(start, end)
+    except Exception as exc:
+        logger.exception("[calendar/list] échec")
+        raise api_error(
+            502, "calendar_read_failed", "Lecture du calendrier impossible"
+        ) from exc
     return {"events": events, "count": len(events)}
 
 
-async def api_calendar_create(body: dict = Body(default_factory=dict)):
+async def api_calendar_create(body: CalendarEventCreateRequest):
     """Crée un événement dans Calendar.app."""
     if not calendar_client or not calendar_client.is_available():
-        raise HTTPException(503, "Calendar.app indisponible")
-    title = (body.get("title") or body.get("summary") or "").strip()
-    start = (body.get("start") or "").strip()
-    end = (body.get("end") or "").strip()
-    if not title or not start:
-        raise HTTPException(400, "title/summary et start sont requis")
-    result = await calendar_client.create_event(
-        summary=title,
-        start_date=start,
-        end_date=end,
-        calendar_name=body.get("calendar"),
-        location=body.get("location", ""),
-        notes=body.get("notes", ""),
-    )
+        raise api_error(503, "calendar_unavailable", "Calendar.app indisponible")
+    try:
+        result = await calendar_client.create_event(
+            summary=body.title,
+            start_date=body.start,
+            end_date=body.end,
+            calendar_name=body.calendar,
+            location=body.location,
+            notes=body.notes,
+        )
+    except Exception as exc:
+        logger.exception("[calendar/create] échec")
+        raise api_error(
+            502, "calendar_create_failed", "Création de l'événement impossible"
+        ) from exc
     if not result.get("ok"):
-        raise HTTPException(500, result.get("message", "Erreur création événement"))
+        logger.error("[calendar/create] échec : %s", result.get("message", "inconnu"))
+        raise api_error(
+            502, "calendar_create_failed", "Création de l'événement impossible"
+        )
     return result
 
 
 async def api_calendar_test():
     """Crée un événement de test pour vérifier le pipeline Calendar."""
-    if not calendar_client:
-        return {"ok": False, "error": "calendar_client non initialisé"}
-    if not calendar_client.is_available():
-        return {"ok": False, "error": "Calendar non disponible"}
+    if not calendar_client or not calendar_client.is_available():
+        raise api_error(503, "calendar_unavailable", "Calendar.app indisponible")
 
-    start = datetime.now() + timedelta(hours=1)
+    start = local_datetime() + timedelta(hours=1)
     end = start + timedelta(minutes=30)
-    return await calendar_client.create_event(
-        summary="TEST JARVIS — à supprimer",
-        start_date=start.strftime("%Y-%m-%d %H:%M"),
-        end_date=end.strftime("%Y-%m-%d %H:%M"),
-    )
+    try:
+        result = await calendar_client.create_event(
+            summary="TEST JARVIS — à supprimer",
+            start_date=start.strftime("%Y-%m-%d %H:%M"),
+            end_date=end.strftime("%Y-%m-%d %H:%M"),
+        )
+    except Exception as exc:
+        logger.exception("[calendar/test] échec")
+        raise api_error(
+            502, "calendar_test_failed", "Test du calendrier impossible"
+        ) from exc
+    if not result.get("ok"):
+        logger.error("[calendar/test] refus : %s", result.get("message", "inconnu"))
+        raise api_error(502, "calendar_test_failed", "Test du calendrier impossible")
+    return result
 
 
 # ── Mémoire profonde : analyse relationnelle ────────────────
 
 
-async def api_analyze_contact(payload: dict):
+async def api_analyze_contact(payload: AnalyzeContactRequest):
     """Lance l'analyse Haiku d'un contact iMessage. Body : {"name": "Bertille"}."""
-    name = (payload.get("name") or "").strip()
-    if not name:
-        raise HTTPException(400, "`name` requis")
-
     try:
         from scripts.relationship_analyzer import analyzer
-        result = await analyzer.analyze_single_contact(name)
+        result = await analyzer.analyze_single_contact(payload.name)
         if result is None:
-            raise HTTPException(404, f"Aucun message trouvé pour '{name}'")
+            raise api_error(404, "contact_messages_not_found", "Aucun message trouvé")
         return {"status": "ok", "profile": result}
     except HTTPException:
         raise
     except Exception as e:
         logger.exception("Erreur analyze-contact")
-        raise HTTPException(500, f"Erreur analyse : {e}")
+        raise internal_error("contact_analysis_failed", "Analyse du contact impossible") from e
 
 
 async def api_relationship_detail(name: str):
@@ -106,7 +127,7 @@ async def api_relationship_detail(name: str):
     decoded = _decode_person_path(name)
     person = get_person(decoded) or get_person(name.strip())
     if not person:
-        raise HTTPException(404, f"Personne inconnue : {decoded}")
+        raise api_error(404, "person_not_found", "Contact non trouvé")
 
     profile = get_relationship_profile(person["id"]) if person.get("id") else None
     timeline = get_relationship_timeline(person["id"], limit=30) if person.get("id") else []
@@ -132,7 +153,9 @@ async def api_time_machine(date: str):
     try:
         datetime.strptime(date, "%Y-%m-%d")
     except ValueError:
-        raise HTTPException(400, "Format de date invalide, attendu YYYY-MM-DD")
+        raise api_error(
+            400, "invalid_calendar_date", "Format de date invalide, attendu YYYY-MM-DD"
+        ) from None
 
     return build_day_timeline(date)
 
@@ -167,7 +190,7 @@ async def api_mac_contacts():
         return {"contacts": contacts}
     except Exception as e:
         logger.warning("[api/contacts] %s", e)
-        return {"contacts": [], "error": str(e)}
+        raise api_error(503, "contacts_unavailable", "Contacts indisponibles") from e
 
 
 async def api_contacts_sync():
@@ -179,7 +202,7 @@ async def api_contacts_sync():
         return result
     except Exception as e:
         logger.error("[api/contacts/sync] %s", e)
-        raise HTTPException(500, str(e)) from e
+        raise internal_error("contacts_sync_failed", "Synchronisation des contacts impossible") from e
 
 
 async def api_search(q: str = ""):
@@ -239,13 +262,13 @@ async def api_search(q: str = ""):
 async def api_export_dump(format: str = "json"):
     """Dump JSON agrégé pour sauvegarde locale (pas de secrets tiers)."""
     if format.lower() != "json":
-        raise HTTPException(400, "Seul format=json est supporté")
+        raise api_error(400, "unsupported_export_format", "Seul format=json est supporté")
 
     try:
         from database.location_helpers import get_all_places
 
         payload = {
-            "exported_at": datetime.now().isoformat(timespec="seconds"),
+            "exported_at": sqlite_utc_timestamp(),
             "user": config.USER_NAME,
             "life_profile": get_life_profile(),
             "life_profile_entries": get_life_profile_entries(),
@@ -260,4 +283,4 @@ async def api_export_dump(format: str = "json"):
         return payload
     except Exception as e:
         logger.exception("api/export : %s", e)
-        raise HTTPException(500, str(e)) from e
+        raise internal_error("export_failed", "Export des données impossible") from e

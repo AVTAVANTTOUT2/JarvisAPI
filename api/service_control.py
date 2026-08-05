@@ -11,6 +11,10 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 logger = logging.getLogger(__name__)
 
 
+class UnknownServiceError(LookupError):
+    """Identifiant absent du registre des services contrôlables."""
+
+
 # ── Service Control ──────────────────────────────────────────
 
 # Services internes contrôlables via /api/control/
@@ -96,7 +100,7 @@ def _get_all_services_status() -> list[dict[str, object]]:
             "can_control": True,
             "category": "monitoring",
             "description": "Analyse ecran Ollama vision",
-            "detail": str(exc),
+            "detail": "screen_watcher_status_unavailable",
         })
 
     # ── Scheduler ──
@@ -150,10 +154,11 @@ def _get_all_services_status() -> list[dict[str, object]]:
             "vision_model": health.get("vision_model"),
             "vision_model_resolved": health.get("vision_model_resolved"),
             "vision_model_available": health.get("vision_model_available"),
-            "error": health.get("error"),
+            "error": "ollama_unavailable" if health.get("error") else None,
             "can_control": True,
         })
     except Exception as exc:
+        logger.debug("ollama status: %s", exc)
         services.append({
             "id": "ollama",
             "name": "Ollama",
@@ -163,7 +168,7 @@ def _get_all_services_status() -> list[dict[str, object]]:
             "status": "error",
             "healthy": False,
             "can_control": True,
-            "error": str(exc),
+            "error": "ollama_status_unavailable",
         })
 
     # ── TV Dashboard (port 5174) ──
@@ -248,7 +253,7 @@ async def _start_service(service: str) -> dict[str, object]:
         )
         return {"ok": True, "message": "TV dashboard lance"}
 
-    return {"ok": False, "error": f"Service inconnu : {service}"}
+    raise UnknownServiceError(service)
 
 
 async def _stop_service(service: str) -> dict[str, object]:
@@ -325,7 +330,7 @@ async def _stop_service(service: str) -> dict[str, object]:
                 subprocess.run(["kill", "-TERM", pid], capture_output=True)
         return {"ok": True, "message": "TV dashboard arrete"}
 
-    return {"ok": False, "error": f"Service inconnu : {service}"}
+    raise UnknownServiceError(service)
 
 
 async def get_service_detail(service: str) -> dict[str, object]:
@@ -352,7 +357,7 @@ async def get_service_detail(service: str) -> dict[str, object]:
     for item in _get_all_services_status():
         if item.get("id") == svc:
             return {"ok": True, **item}
-    return {"ok": False, "error": f"Service inconnu : {service}"}
+    raise UnknownServiceError(service)
 
 
 # TAG_MAP pour les logs : un tag par service pour filtrer backend.log

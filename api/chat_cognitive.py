@@ -135,7 +135,7 @@ async def maybe_delegate_chat_to_cursor(
         logger.warning("[chat_cognitive] délégation Cursor impossible : %s", exc)
         return {
             "handled": False,
-            "error": str(exc),
+            "error": "cursor_delegation_failed",
             "routing": intent.to_diagnostic(),
         }
 

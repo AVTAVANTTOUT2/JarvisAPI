@@ -159,32 +159,57 @@ garde en croyant l'énoncé inachevé.
 
 ## Chaîne vocale complète
 
-Mesuré sur parole humaine réelle (5,96 s de français) et sur le vrai moteur :
+Le 4 août 2026, la chaîne a été remesurée avec les poids déjà présents sur la
+machine, sans aucun téléchargement. Trois phrases françaises reproductibles
+ont été générées avec la voix macOS Thomas puis converties en PCM16 mono
+16 kHz. Deux passages chauds par phrase donnent :
 
-| Maillon | À froid | À chaud | Nature |
+| STT | Médiane inférence | Similarité médiane | Usage |
 |---|---:|---:|---|
-| STT `large-v3-turbo` | 5 052 ms | **2 631 ms** | mesuré |
-| Orchestration + file | — | 25 ms | mesuré |
-| Premier token LLM DeepSeek | — | 2 218 ms | mesuré, variance 1 270–9 323 ms |
-| Premier PCM | 1 223 ms (warmup) | **445 ms** | mesuré |
-| **Fin de parole → premier son** | — | **≈ 5 320 ms** | **composition** |
+| `small` | **706 ms** | 0,894 | passage temps réel systématique |
+| `large-v3-turbo` | 2 259 ms | **0,909** | relecture seulement si `avg_logprob < -0,35` |
 
-La dernière ligne est une composition arithmétique, **pas** une mesure unique
-de bout en bout : piloter le VAD et le micro demande une intervention humaine,
-et le maillon LLM est un appel distant que la suite de tests bloque
-délibérément. Présenter une somme comme une mesure serait malhonnête.
+Le seuil a été recalibré le 5 août sur huit enregistrements français connus.
+Les six transcriptions correctes (similarité ≥ 0,85) occupent l'intervalle
+`-0,3244…-0,2005` ; les deux sorties réellement dégradées sont à `-0,4378` et
+`-0,6470`, puis passent respectivement de 0,8395 à 1,0 et de 0,8412 à 0,9610
+après relecture. `-0,35` évite donc l'escalade observée sur une phrase correcte
+à `-0,3244` tout en conservant les deux corrections utiles.
 
-Ce que le changement de moteur déplace :
+### Trace matérielle intégrée — pire chemin qualité
 
-```
-avant  2631 + 25 + 2218 + 4886  ≈  9 760 ms   TTS = 50 % du total
-après  2631 + 25 + 2218 +  445  ≈  5 320 ms   TTS =  8 % du total
-```
+La trace suivante emploie le vrai PCM français
+`data/voice-tests/demo_01_greeting.wav` (1 904 ms), le vrai STT, le vrai Qwen3
+Base cloné `jarvis-fr` et la première écriture sur les haut-parleurs Mac mini
+via CoreAudio. STT primaire et TTS sont préchauffés comme au démarrage du
+daemon ; l'objet modèle qualité est volontairement froid. L'origine est la fin
+de parole, pas la fin du silence VAD.
 
-Environ 4,44 secondes retirées, et le goulot change de nature : le TTS n'est
-plus le maillon dominant, le **STT** l'est. Le passage du modèle STT à `small`
-le ramènerait à ~600 ms pour une transcription identique sur les énoncés de
-test — c'est le prochain gain évident, et il est hors de ce lot.
+| Événement | Depuis fin de parole |
+|---|---:|
+| `small` termine (`avg_logprob=-0,4378`) | 664,5 ms |
+| cache qualité complet vérifié et tâches lancées | 664,9 ms |
+| premier PCM Qwen3 | 1 757,9 ms |
+| **première écriture CoreAudio** | **1 758,3 ms** |
+| modèle qualité chargé | 2 455,2 ms |
+| transcription qualité froide terminée | 4 783,2 ms |
+
+La cible **fin de parole → premier son < 2 000 ms** passe donc avec **241,7 ms
+de marge**, y compris lorsque la relecture qualité doit charger ses poids. Le
+LLM distant peut encore varier de plusieurs secondes, mais il ne se trouve plus
+sur le chemin du premier son : le tour canonique et l'accusé tournent en
+parallèle. Les fast-paths déterministes répondent directement et ne jouent pas
+deux accusés ; si la relecture STT a déjà lancé l'accusé, le moteur canonique ne
+le relance pas.
+
+Le banc TTS exécuté dans le même état mesure par ailleurs **512,9 ms** de
+médiane chaude au premier PCM et un facteur temps réel médian de **0,566** sur
+les trois longueurs. Ces chiffres sont plus conservateurs que la campagne
+historique à 445 ms et restent largement dans le budget. La preuve structurée
+est versionnée dans
+[`artifacts/voice_latency_2026-08-05.json`](../../artifacts/voice_latency_2026-08-05.json)
+et se reproduit avec `scripts/benchmark_voice_first_sound.py` en lui donnant le
+WAV, le chemin du modèle Base local et le profil `jarvis-fr`.
 
 ## Deux pièges désamorcés
 

@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Clock3, Play, RefreshCw, Timer } from 'lucide-react';
 import { jarvisFetch } from '@unified/lib/api';
+import { parseBackendTimestamp } from '@unified/lib/timeFormat';
 
 type JobLastRun = {
   started_at?: string | null;
@@ -98,16 +99,14 @@ function StatusBadge({ status }: { status: string }) {
 
 function formatWhen(value?: string | null): string {
   if (!value) return '—';
-  try {
-    return new Date(value).toLocaleString('fr-FR', {
-      day: '2-digit',
-      month: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  } catch {
-    return value;
-  }
+  const timestamp = parseBackendTimestamp(value);
+  if (!Number.isFinite(timestamp)) return value;
+  return new Date(timestamp).toLocaleString('fr-FR', {
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 export default function SchedulerView() {

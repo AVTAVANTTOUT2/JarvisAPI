@@ -176,7 +176,8 @@ cd JarvisAPI
 
 python3.12 -m venv venv
 source venv/bin/activate
-python -m pip install -r requirements.txt
+python -m pip install --require-hashes \
+  -r requirements/locks/production-macos-arm64-py312.txt
 ```
 
 ### 2. Configurer JARVIS
@@ -325,7 +326,9 @@ Marqueurs déclarés :
   Hors ligne et déterministe, donc conservé dans la suite standard ; se saute
   proprement quand les poids ne sont pas installés sur la machine.
 
-La CI vérifie également l'installation de production, les intégrations macOS simulées et le frontend historique de repli.
+La CI vérifie également l'installation de production, les intégrations macOS
+simulées, le build Release de l'app SwiftUI et de son widget, la release Android
+minifiée par R8, ainsi que le frontend historique de repli.
 
 ## Structure du projet
 
@@ -340,7 +343,7 @@ JarvisAPI/
 ├── audio/              # transcription, VAD et synthèse vocale
 ├── scripts/            # daemons, scheduler, maintenance et installation
 ├── frontend/           # application Next.js canonique
-├── web/                # composants React partagés et frontend de repli Vite
+├── web/                # bibliothèque de vues React partagée (non exécutable)
 ├── web_mobile/         # interface mobile autonome
 ├── android/            # application Android native
 ├── tv/                 # tableau de bord grand écran

@@ -7,14 +7,19 @@ from pathlib import Path
 
 import config
 from audio.engine_config import FASTER_WHISPER_MODELS, is_valid_faster_whisper_model
-from audio.stt_daemon import create_daemon_stt_backend, FasterWhisperBackend, FallbackSTTBackend
-
+from audio.stt_daemon import (
+    FallbackSTTBackend,
+    FasterWhisperBackend,
+    create_daemon_stt_backend,
+)
 
 ROOT = Path(__file__).resolve().parent.parent
 
 FORBIDDEN_DEFAULT_PATTERNS = (
-    re.compile(r'(?<!DEFAULT_)AUDIO_DAEMON_STT_MODEL\s*=\s*["\']small["\']'),
-    re.compile(r'_get\(\s*["\']AUDIO_DAEMON_STT_MODEL["\']\s*,\s*["\']small["\']'),
+    re.compile(r'(?<!FALLBACK_)AUDIO_DAEMON_STT_MODEL\s*=\s*["\']large-v3(?:-turbo)?["\']'),
+    re.compile(
+        r'_get\(\s*["\']AUDIO_DAEMON_STT_MODEL["\']\s*,\s*["\']large-v3(?:-turbo)?["\']'
+    ),
 )
 
 SCAN_PATHS = (
@@ -39,8 +44,8 @@ def test_canonical_builtin_defaults():
     assert config.DEFAULT_TTS_VOICE_PATH == "./voices/jarvis-fr"
     assert config.DEFAULT_TTS_DEVICE == "auto"
     assert config.DEFAULT_STT_ENGINE == "faster-whisper"
-    assert config.DEFAULT_STT_MODEL == "large-v3-turbo"
-    assert config.DEFAULT_STT_FALLBACK_MODEL == "large-v3"
+    assert config.DEFAULT_STT_MODEL == "small"
+    assert config.DEFAULT_STT_FALLBACK_MODEL == "large-v3-turbo"
 
 
 def test_stt_engine_local_alias():
@@ -64,14 +69,14 @@ def test_large_v3_turbo_accepted_in_validation():
 
 def test_faster_whisper_default_backend_chain(monkeypatch):
     monkeypatch.setattr("config.STT_ENGINE", "faster-whisper")
-    monkeypatch.setattr("config.STT_MODEL", "large-v3-turbo")
-    monkeypatch.setattr("config.STT_FALLBACK_MODEL", "large-v3")
+    monkeypatch.setattr("config.STT_MODEL", "small")
+    monkeypatch.setattr("config.STT_FALLBACK_MODEL", "large-v3-turbo")
 
     backend = create_daemon_stt_backend()
     assert isinstance(backend, FallbackSTTBackend)
     assert isinstance(backend._backends[0], FasterWhisperBackend)
-    assert backend._backends[0]._model_size == "large-v3-turbo"
-    assert backend._backends[1]._model_size == "large-v3"
+    assert backend._backends[0]._model_size == "small"
+    assert backend._backends[1]._model_size == "large-v3-turbo"
 
 
 def test_local_alias_maps_to_faster_whisper(monkeypatch):

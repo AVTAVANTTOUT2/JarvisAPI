@@ -8,7 +8,7 @@
 
 ```text
 JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home
-cd android && ./gradlew assembleDebug testDebugUnitTest lintDebug
+cd android && ./gradlew assembleDebug testDebugUnitTest lintDebug assembleRelease testReleaseUnitTest lintRelease
 → BUILD SUCCESSFUL — 15 tests unitaires, 0 failure, lintDebug OK
 ```
 
@@ -127,9 +127,9 @@ L’application 1.2.0 est un **compagnon de services** : pairage, GPS foreground
 
 | Critère | État |
 |---------|------|
-| **Code** | Job CI `assembleDebug testDebugUnitTest lintDebug` ; R8 `minifyEnabled` release ; `signing.properties.example` |
-| **Tests** | 15 unitaires ; 1 instrumentation superficielle |
-| **Limite** | `assembleRelease` non signé sans keystore local ; pas d’`assembleRelease` en CI |
+| **Code** | CI debug + `assembleRelease testReleaseUnitTest lintRelease` ; R8 `minifyEnabled` ; règles explicites Retrofit/Gson/DTO ; `signing.properties.example` |
+| **Tests** | Tests unitaires des contrats de sérialisation majeurs ; contrôle du mapping R8 et de l’APK release |
+| **Limite** | Sans keystore local, l’APK CI reste volontairement non signé et non distribuable ; la signature de publication demeure une étape protégée |
 
 ---
 

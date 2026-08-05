@@ -170,6 +170,7 @@ async def propose_improvements(*, auto_delegate: bool = False) -> dict[str, Any]
                 interaction_mode="scheduled",
                 auto_start=True,
                 require_confirmation=False,  # cycle scheduler opt-in via auto_delegate
+                delivery_mode="pr_only",
             )
             p["status"] = "delegated"
             p["job_id"] = job.get("job_id")

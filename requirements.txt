@@ -14,7 +14,7 @@ aiohttp>=3.12,<4
 apscheduler==3.10.*
 
 # PDF
-pymupdf==1.25.*
+pymupdf==1.28.*
 
 # Daemon JARVIS — screen watcher + wake word
 Pillow>=10.0
@@ -26,8 +26,9 @@ faster-whisper>=1.2        # transcription locale via CTranslate2 (Apple Silicon
 sounddevice>=0.5           # playback direct CoreAudio (evite afplay subprocess)
 soundfile>=0.13            # decode audio pour sounddevice (WAV/MP3/M4A)
 
-# VAD neural — Silero VAD (1 Mo, <1ms par chunk, distingue parole/bruit)
-torch>=2.0                 # backend Silero VAD via torch.hub (~2 Go, CPU only)
+# VAD neural — modèle TorchScript embarqué dans le wheel, aucun réseau runtime
+silero-vad==6.2.1          # poids officiels locaux (~2 Mo), chargeur sans torch.hub
+torch>=2.0                 # backend CPU Silero VAD (~2 Go)
 torchaudio>=2.0            # compagnon torch
 
 # Dual-LLM (jarvis/ package) — anonymisation PII + backend DeepSeek

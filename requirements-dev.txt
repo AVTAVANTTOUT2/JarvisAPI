@@ -1,7 +1,8 @@
 # Dev dependencies — tests, lint, etc.
-# Install : pip install -r requirements-dev.txt
+# Install : pip install --require-hashes -r requirements/locks/dev-macos-arm64-py312.txt
 
 -r requirements.txt
 
 pytest==8.*
 pytest-asyncio>=0.24,<0.27   # >=0.24 requis pour asyncio_default_fixture_loop_scope (pytest.ini)
+httpx2==2.9.*                # transport maintenu de starlette.testclient (tests uniquement)

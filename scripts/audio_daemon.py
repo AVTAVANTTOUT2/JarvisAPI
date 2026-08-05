@@ -2,7 +2,7 @@
 
 Pipeline :
   Thread pyaudio → asyncio.Queue → VAD (Silero + ring pre-roll) → STT local
-  → _process_voice_fast → file vocale prioritaire → moteur TTS local
+  → moteur conversationnel vocal unique → file vocale prioritaire → moteur TTS local
   → sounddevice PCM streaming.
 
 Half-duplex par défaut (micro coupé pendant TTS) — voir AUDIO_DAEMON_HALF_DUPLEX.
@@ -23,7 +23,7 @@ import time
 import uuid
 import wave
 from pathlib import Path
-from typing import Any, Callable, Coroutine
+from typing import Any, Awaitable, Callable, Coroutine
 
 import config
 from audio import voice_latency as vl
@@ -78,6 +78,20 @@ FALLBACK_WAKE_CHUNKS = int(FALLBACK_WAKE_DURATION_MS / CHUNK_MS)
 
 # Timeout subprocess audio (afplay / say)
 AFPLAY_TIMEOUT_S = 30.0
+
+
+async def _enqueue_utterance_with_backpressure(
+    queue: asyncio.Queue[tuple[UtteranceTrace, bytes]],
+    item: tuple[UtteranceTrace, bytes],
+) -> int:
+    """Attend une place au lieu de perdre une phrase complète.
+
+    La file reste bornée en mémoire. Le temps d'attente retourné est injecté
+    dans la trace de latence afin que toute pression soit mesurable.
+    """
+    started = time.perf_counter()
+    await queue.put(item)
+    return round((time.perf_counter() - started) * 1000)
 
 # Son de confirmation
 WAKE_SOUND_PATH = Path(__file__).resolve().parent.parent / "data" / "sounds" / "wake.wav"
@@ -344,7 +358,9 @@ class AudioDaemon:
         self._porcupine: Any = None
         self._wake_thread_future: Any = None
         self._audio_queue: asyncio.Queue[bytes] = asyncio.Queue(maxsize=300)   # frames brutes micro — surchargé dans start()
-        self._utterance_queue: asyncio.Queue[bytes] = asyncio.Queue(maxsize=3)  # phrases complètes — surchargé dans start()
+        self._utterance_queue: asyncio.Queue[
+            tuple[UtteranceTrace, bytes]
+        ] = asyncio.Queue(maxsize=3)  # phrases complètes — surchargé dans start()
         self._wake_event: asyncio.Event | None = None
         self._vad_task: asyncio.Task[Any] | None = None
         self._process_task: asyncio.Task[Any] | None = None
@@ -469,6 +485,18 @@ class AudioDaemon:
                 except asyncio.QueueEmpty:
                     break
 
+        # Le micro fait partie de l'état résiduel. En half-duplex, l'accusé
+        # anticipé et le TTS arrêtent le flux d'entrée ; seul le chemin de fin
+        # de tour normal le rouvrait. Toutes les sorties anticipées passent
+        # ici — transcription vide, écho post-TTS, transcription rejetée,
+        # interruption — et laissaient donc le daemon définitivement sourd.
+        if self._half_duplex and self._stream is not None and self._running:
+            try:
+                if not self._stream.is_active():
+                    self._stream.start_stream()
+            except Exception as e:  # pragma: no cover — dépend du périphérique
+                logger.debug("[audio_daemon] réouverture micro au réarmement : %s", e)
+
         self.state = self.rearm_state()
         voice_queue.set_user_conversation_active(False)
         if trace is not None:
@@ -549,6 +577,14 @@ class AudioDaemon:
                 self._running = False
                 self._cleanup()
                 await asyncio.sleep(NO_INPUT_DEVICE_POLL_S)
+                # Un arrêt a pu tomber pendant la sonde. Se redéclarer actif
+                # sans le vérifier laissait ``_running`` à True après la sortie
+                # de boucle, et ``start()`` répond « Déjà actif » dans ce
+                # cas — le service devenait irrécupérable sans redémarrer le
+                # processus, précisément quand l'utilisateur tente de le
+                # relancer parce qu'il manque un micro.
+                if not self.enabled:
+                    break
                 self._running = True
                 continue
             except Exception as e:
@@ -1208,13 +1244,25 @@ class AudioDaemon:
                         audio_ms=audio_ms,
                         engine="silero" if USE_SILERO_VAD else "rms",
                     )
-                    try:
-                        utterance_queue.put_nowait((trace, completed))
-                        trace.mark(
-                            vl.STT_QUEUE_ENTERED, queue_depth=utterance_queue.qsize(),
+                    queue_wait_ms = await _enqueue_utterance_with_backpressure(
+                        utterance_queue,
+                        (trace, completed),
+                    )
+                    trace.mark(
+                        vl.STT_QUEUE_ENTERED,
+                        queue_depth=utterance_queue.qsize(),
+                        backpressure_wait_ms=queue_wait_ms,
+                    )
+                    if queue_wait_ms:
+                        logger.warning(
+                            "[audio_daemon] backpressure file utterance : %dms",
+                            queue_wait_ms,
                         )
-                    except asyncio.QueueFull:
-                        logger.warning("[audio_daemon] utterance_queue pleine — utterance jetée")
+                        await self._broadcast_state({
+                            "type": "voice_backpressure",
+                            "queue_depth": utterance_queue.qsize(),
+                            "wait_ms": queue_wait_ms,
+                        })
                     if USE_SILERO_VAD:
                         _vad_silero.reset()
                     try:
@@ -1359,13 +1407,59 @@ class AudioDaemon:
         finally:
             voice_queue.set_user_conversation_active(False)
 
+    async def _play_anticipatory_ack(self, trace: UtteranceTrace) -> None:
+        """Fait entendre un accusé local pendant que le moteur prépare la réponse.
+
+        Ce chemin n'est déclenché qu'après les fast-paths/cas cognitifs : une
+        interpellation, une commande de contrôle, Fitness, Cursor ou un briefing
+        ne reçoit donc jamais deux réponses. Le TTS et le tour canonique tournent
+        en parallèle ; la file vocale sérialise ensuite la réponse finale.
+        """
+        if not getattr(config, "VOICE_ANTICIPATORY_ACK_ENABLED", True):
+            return
+        if self._tts_unavailable_reason:
+            return
+        if self._interrupt_event is not None and self._interrupt_event.is_set():
+            return
+
+        ack = "Bien, Monsieur."
+        self.state = "speaking"
+        await self._broadcast_state({
+            "type": "voice_anticipatory_ack",
+            "response": ack,
+            "emotion": "neutral",
+        })
+        if self._half_duplex and self._stream:
+            try:
+                self._stream.stop_stream()
+            except Exception as exc:
+                logger.debug("[audio_daemon] stop stream avant accusé : %s", exc)
+
+        await self._play_tts(
+            ack,
+            emotion="neutral",
+            priority=VoicePriority.USER_RESPONSE,
+            wait=True,
+            trace=trace,
+        )
+        # L'accusé tourne en tâche concurrente et peut finir **après** que le
+        # tour a été abandonné et le pipeline réarmé. Ne rendre la main à
+        # « processing » que si l'état est toujours celui que cette méthode a
+        # posé : sinon l'interface annonce un traitement en cours alors que le
+        # daemon écoute déjà.
+        if self.state != "speaking":
+            return
+        if self._interrupt_event is None or not self._interrupt_event.is_set():
+            self.state = "processing"
+            await self._broadcast_state()
+
     async def _process_single_utterance_active(
         self, pcm_bytes: bytes, stt_available: bool, *, trace: UtteranceTrace,
     ) -> None:
-        """Traitement complet d'une phrase : STT → _process_voice_fast → TTS → playback + purge post-TTS.
+        """Traitement complet d'une phrase : STT → moteur vocal unique → TTS → playback + purge post-TTS.
 
-        Utilise le pipeline vocal rapide (_process_voice_fast) qui bypass l'orchestrateur
-        et appelle DeepSeek flash directement. Cible : < 2s entre fin de phrase et debut TTS.
+        Utilise l'adaptateur vocal rapide du moteur conversationnel canonique.
+        Cible : < 2s entre fin de phrase et debut TTS.
         Envoie des events WebSocket de debug : voice_debug_stt et voice_debug_tts.
         """
         import time as _time
@@ -1388,6 +1482,13 @@ class AudioDaemon:
         _t_stt_start = _time.time()
 
         meta: dict | None = None
+        quality_ack_started = False
+
+        def _quality_fallback_ack() -> Awaitable[None]:
+            nonlocal quality_ack_started
+            quality_ack_started = True
+            return self._play_anticipatory_ack(trace)
+
         if stt_available:
             try:
                 from audio.stt_local import stt_local as _stt_local
@@ -1396,6 +1497,7 @@ class AudioDaemon:
                     pcm_bytes,
                     sample_rate=SAMPLE_RATE,
                     language=getattr(config, "LANGUAGE", "fr"),
+                    on_quality_fallback=_quality_fallback_ack,
                 )
                 if meta:
                     text = str(meta.get("text") or "").strip()
@@ -1543,7 +1645,7 @@ class AudioDaemon:
             await self._rearm(reason="interrupted_before_llm", trace=trace)
             return
 
-        # 3. Pipeline vocal rapide (bypass orchestrateur, DeepSeek flash direct)
+        # 3. Moteur conversationnel vocal canonique + adaptateur de latence
         self._last_interaction = time.time()
 
         if self._conv_id is None:
@@ -1558,8 +1660,15 @@ class AudioDaemon:
         trace.set_conversation(self._conv_id)
 
         try:
+            turn_callback = None if quality_ack_started else (
+                lambda: self._play_anticipatory_ack(trace)
+            )
             result = await process_voice_fast(
-                text, self._conv_id, stt_ms=stt_latency_ms, trace=trace,
+                text,
+                self._conv_id,
+                stt_ms=stt_latency_ms,
+                trace=trace,
+                on_canonical_turn_started=turn_callback,
             )
         except Exception as e:
             logger.exception("[audio_daemon] _process_voice_fast : %s", e)
@@ -1572,8 +1681,13 @@ class AudioDaemon:
         latency_ms = (result or {}).get("latency_ms", 0)
         logger.info("[audio_daemon] Voice fast : %.0fms", latency_ms)
 
-        # Broadcast response
-        await self._broadcast_state({"response": response_text, "emotion": emotion})
+        # Le protocole local transporte l'action séparément du texte prononcé.
+        state_payload: dict[str, Any] = {"response": response_text, "emotion": emotion}
+        if (result or {}).get("action") is not None:
+            state_payload["action"] = result["action"]
+        if (result or {}).get("action_result") is not None:
+            state_payload["action_result"] = result["action_result"]
+        await self._broadcast_state(state_payload)
 
         # Vérifier interruption avant TTS
         if interrupt_event.is_set():

@@ -32,6 +32,29 @@ from websocket_registry import broadcast_ws
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 logger = logging.getLogger("jarvis")
+_calendar_subprocess_run = subprocess.run
+
+
+def _run_calendar_open() -> None:
+    _calendar_subprocess_run(
+        ["open", "-gj", "-b", "com.apple.iCal"],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        timeout=15,
+    )
+
+
+async def _wake_calendar_background() -> None:
+    """Réveille Calendar sans bloquer la boucle ni abandonner le lanceur ``open``."""
+
+    try:
+        await asyncio.to_thread(_run_calendar_open)
+        logger.info("[startup] Calendar.app lancé en arrière-plan (sans focus)")
+    except Exception as exc:
+        logger.warning(
+            "[startup] Impossible de lancer Calendar.app en arrière-plan : %s", exc
+        )
 
 
 async def _auto_pull_ollama(model: str) -> None:
@@ -60,14 +83,12 @@ async def lifespan(app: FastAPI):
         logger.critical("[startup] Configuration invalide : %s", exc)
         raise
     init_db()
+    from scripts.db_migrations import run_startup_migrations
+
+    # Une migration partiellement appliquée rendrait le schéma ambigu. Le
+    # processus doit donc échouer avant de lier les consommateurs runtime.
+    run_startup_migrations()
     event_bus.bind_loop(asyncio.get_running_loop())
-
-    try:
-        from scripts.db_migrations import run_startup_migrations
-
-        run_startup_migrations()
-    except Exception as e:
-        logger.critical("Erreur migrations au démarrage : %s", e)
 
     # Cache Contacts.app (résolution numéro / email → nom affiché)
     # build_cache() est synchrone et peut bloquer >20s : lancé en background
@@ -129,15 +150,7 @@ async def lifespan(app: FastAPI):
 
     # Calendar.app : réveil arrière-plan uniquement (-g/-j) pour éviter les -600
     # AppleScript SANS voler le focus (open -a Calendar ramenait Calendrier au 1er plan).
-    try:
-        subprocess.Popen(
-            ["open", "-gj", "-b", "com.apple.iCal"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        logger.info("[startup] Calendar.app lancé en arrière-plan (sans focus)")
-    except Exception as e:
-        logger.warning("[startup] Impossible de lancer Calendar.app en arrière-plan : %s", e)
+    await _wake_calendar_background()
 
     # ── Daemon iMessage ──
     _imessage_daemon_process = None

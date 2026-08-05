@@ -213,21 +213,41 @@ def test_empty_response_does_not_blame_comprehension():
     Le message envoyait reformuler alors que le texte reconnu était juste ; la
     cause réelle — un modèle qui ne rend rien — restait invisible.
     """
-    source = (PROJECT_ROOT / "api" / "voice_processing.py").read_text(encoding="utf-8")
+    # L'unification du moteur vocal a déplacé le repli : l'adaptateur vocal
+    # pose encore le sien, mais le tour passe désormais par le moteur canonique,
+    # qui substituait « Bien noté. » à une réponse vide — un mensonge pire que
+    # le précédent, puisqu'il prétend avoir enregistré la demande. Les deux
+    # sites sont donc vérifiés ensemble.
+    sources = {
+        name: (PROJECT_ROOT / "api" / name).read_text(encoding="utf-8")
+        for name in ("voice_processing.py", "chat_processing.py")
+    }
 
     # On vise l'**affectation**, pas la mention : le commentaire cite
     # volontairement l'ancienne phrase pour expliquer pourquoi elle est partie,
     # et interdire la citation reviendrait à interdire de documenter la
     # correction.
-    assigned = [
-        line.strip()
+    for name, source in sources.items():
+        assigned = [
+            line.strip()
+            for line in source.splitlines()
+            if ("response_text =" in line or "display_text =" in line)
+            and not line.strip().startswith("#")
+        ]
+        assert not any("Je n'ai pas compris" in line for line in assigned), (
+            f"{name} : la phrase qui accuse la compréhension est de nouveau assignée"
+        )
+        assert not any('= "Bien noté."' in line for line in assigned), (
+            f"{name} : « Bien noté. » prétend avoir enregistré une demande "
+            "que le modèle n'a jamais traitée"
+        )
+
+    assert any(
+        "Je n'ai pas obtenu de reponse" in line
+        for source in sources.values()
         for line in source.splitlines()
-        if "response_text =" in line and not line.strip().startswith("#")
-    ]
-    assert not any("Je n'ai pas compris" in line for line in assigned), (
-        "la phrase qui accuse la compréhension est de nouveau assignée"
+        if not line.strip().startswith("#")
     )
-    assert any("Je n'ai pas obtenu de reponse" in line for line in assigned)
 
 
 def test_empty_response_is_logged_visibly_with_its_cause():
@@ -236,9 +256,13 @@ def test_empty_response_is_logged_visibly_with_its_cause():
     Les données du diagnostic existaient déjà dans la trace ; elles
     n'atteignaient simplement jamais le journal.
     """
-    source = (PROJECT_ROOT / "api" / "voice_processing.py").read_text(encoding="utf-8")
+    # Le diagnostic vit maintenant dans le moteur canonique : c'est le seul
+    # endroit qui voit la réponse brute du modèle et ses jetons. L'adaptateur
+    # vocal, lui, ne reçoit qu'un texte déjà nettoyé — il ne peut plus
+    # distinguer « rien du tout » de « seulement le tag [emotion] ».
+    source = (PROJECT_ROOT / "api" / "chat_processing.py").read_text(encoding="utf-8")
     block = source[source.index("Reponse vide : dire ce qui"):]
-    block = block[: block.index("_persist_voice_messages_async")]
+    block = block[: block.index("if persist_assistant")]
 
     assert "logger.warning" in block
     assert "logger.debug" not in block

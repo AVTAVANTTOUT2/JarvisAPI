@@ -20,6 +20,11 @@ import {
   X,
 } from 'lucide-react';
 import { api } from '@unified/lib/api';
+import {
+  parseProgramNumber,
+  PROGRAM_NUMBER_FIELDS,
+  validateProgramSettings,
+} from '@desktop/app/components/fitness/programSettings';
 
 type SessionStatus = 'planned' | 'in_progress' | 'done' | 'skipped';
 
@@ -350,7 +355,13 @@ export function FitnessView() {
   }
 
   async function saveSettings() {
+    const validationError = validateProgramSettings(settings as Record<string, unknown>);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
     setSaving(true);
+    setError(null);
     try {
       await api.updateFitnessProgram(settings as Record<string, unknown>);
       setSettingsOpen(false);
@@ -591,7 +602,7 @@ export function FitnessView() {
           <div className="w-full max-w-xl rounded-2xl border border-white/12 bg-[#111116] p-5 max-h-[90vh] overflow-auto">
             <div className="flex items-center justify-between"><h2 className="text-xl">Objectifs et rappels</h2><button onClick={() => setSettingsOpen(false)}><X size={18} /></button></div>
             <div className="mt-5 grid grid-cols-2 gap-3">
-              {([['calories_min', 'Calories min'], ['calories_max', 'Calories max'], ['protein_min_g', 'Protéines min'], ['protein_max_g', 'Protéines max'], ['weekly_min_sessions', 'Séances minimum'], ['reminder_interval_min', 'Rappel toutes les min']] as const).map(([key, label]) => <label key={key} className="text-xs text-white/45">{label}<input type="number" value={String(settings[key] ?? '')} onChange={event => setSettings(value => ({ ...value, [key]: Number(event.target.value) }))} className="mt-1 w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-sm text-white" /></label>)}
+              {PROGRAM_NUMBER_FIELDS.map(({ key, label, min, max }) => <label key={key} className="text-xs text-white/45">{label}<input type="number" min={min} max={max} value={String(settings[key] ?? '')} onChange={event => setSettings(value => ({ ...value, [key]: parseProgramNumber(event.target.value) }))} className="mt-1 w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-sm text-white" /></label>)}
               <label className="text-xs text-white/45">Premier rappel<input type="time" value={String(settings.reminder_time ?? '')} onChange={event => setSettings(value => ({ ...value, reminder_time: event.target.value }))} className="mt-1 w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-sm text-white" /></label>
             </div>
             <div className="mt-4 space-y-2">{([['reminders_enabled', 'Relances séance à voix haute'], ['meal_tracking_enabled', 'Questions sur les repas']] as const).map(([key, label]) => <label key={key} className="flex items-center justify-between rounded-lg border border-white/8 px-3 py-3 text-sm"><span>{label}</span><input type="checkbox" checked={Boolean(settings[key])} onChange={event => setSettings(value => ({ ...value, [key]: event.target.checked }))} /></label>)}</div>

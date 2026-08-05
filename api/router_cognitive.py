@@ -6,8 +6,10 @@ import logging
 import re
 from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException, Path, Query
+from fastapi import APIRouter, HTTPException, Path, Query, Request
 from pydantic import BaseModel, Field, field_validator
+
+from core.network_security import is_loopback_request
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["cognitive"])
@@ -84,6 +86,28 @@ def _validate_job_id(job_id: str) -> str:
     return job_id
 
 
+def _require_cursor_diagnostic_access(request: Request, *, diagnostic: bool) -> None:
+    """Réserve les vues Cursor détaillées aux sessions ouvertes en local."""
+    if diagnostic and not is_loopback_request(request):
+        raise HTTPException(403, "Diagnostic Cursor autorisé uniquement en local")
+
+
+def _audit_cursor_diagnostic_access(*, scope: str, job_id: str | None = None) -> None:
+    """Trace durable et minimale d'un accès à une vue Cursor détaillée."""
+    from database import log_llm_action
+
+    try:
+        log_llm_action(
+            "cursor",
+            "cursor_diagnostic_access",
+            {"scope": scope, "job_id": job_id},
+            "success",
+        )
+    except Exception:
+        logger.exception("[cursor] impossible de journaliser l'accès diagnostic")
+        raise HTTPException(503, "Journal d'audit Cursor indisponible")
+
+
 @router.post("/cognitive/route")
 async def cognitive_route(body: RouteRequest) -> dict[str, Any]:
     from jarvis.cognitive import route_request
@@ -138,6 +162,7 @@ async def cursor_status() -> dict[str, Any]:
 
 @router.get("/cursor/jobs")
 async def cursor_jobs(
+    request: Request,
     limit: int = Query(50, ge=1, le=200),
     status: str | None = None,
     diagnostic: bool = Query(False, description="Vue diagnostic (toujours redacted)"),
@@ -145,8 +170,11 @@ async def cursor_jobs(
     from database.cursor_jobs import VALID_STATUSES
     from integrations.cursor_delegation import cursor_delegation
 
+    _require_cursor_diagnostic_access(request, diagnostic=diagnostic)
     if status is not None and status not in VALID_STATUSES:
         raise HTTPException(400, f"statut invalide: {status}")
+    if diagnostic:
+        _audit_cursor_diagnostic_access(scope="list")
 
     return {
         "ok": True,
@@ -158,12 +186,16 @@ async def cursor_jobs(
 
 @router.get("/cursor/jobs/{job_id}")
 async def cursor_job_detail(
+    request: Request,
     job_id: str = Path(..., min_length=10, max_length=64),
     diagnostic: bool = Query(False),
 ) -> dict[str, Any]:
     from integrations.cursor_delegation import cursor_delegation
 
     _validate_job_id(job_id)
+    _require_cursor_diagnostic_access(request, diagnostic=diagnostic)
+    if diagnostic:
+        _audit_cursor_diagnostic_access(scope="detail", job_id=job_id)
     job = cursor_delegation.get_job(job_id, public=not diagnostic, diagnostic=diagnostic)
     if not job:
         raise HTTPException(404, f"Job {job_id} introuvable")
@@ -247,9 +279,9 @@ async def cursor_rollback(job_id: str = Path(..., min_length=10, max_length=64))
 
 @router.post("/cursor/jobs/{job_id}/retry")
 async def cursor_retry(job_id: str = Path(..., min_length=10, max_length=64)) -> dict[str, Any]:
+    from database.cursor_jobs import get_cursor_job
     from integrations.cursor_delegation import cursor_delegation
     from jarvis.security.redaction import public_cursor_job_view
-    from database.cursor_jobs import get_cursor_job
 
     _validate_job_id(job_id)
     # Lecture brute DB (redacted ensuite) — la vue publique n'a pas user_request
@@ -313,15 +345,29 @@ async def improvement_run(auto_delegate: bool = False) -> dict[str, Any]:
 async def autonomy_settings() -> dict[str, Any]:
     import config
 
+    cursor_allow_commit = bool(getattr(config, "CURSOR_ALLOW_COMMIT", True))
+    cursor_allow_push = bool(getattr(config, "CURSOR_ALLOW_PUSH", False))
+    cursor_allow_pr = bool(getattr(config, "CURSOR_ALLOW_PR", False))
+    pr_only_capabilities = {
+        "CURSOR_ALLOW_COMMIT": cursor_allow_commit,
+        "CURSOR_ALLOW_PUSH": cursor_allow_push,
+        "CURSOR_ALLOW_PR": cursor_allow_pr,
+    }
+
     return {
         "ok": True,
         "settings": {
             "self_repair_enabled": bool(getattr(config, "SELF_REPAIR_ENABLED", False)),
             "self_improvement_enabled": bool(getattr(config, "SELF_IMPROVEMENT_ENABLED", False)),
-            "self_modification_mode": getattr(config, "SELF_MODIFICATION_MODE", "pr_only"),
+            "self_modification_delivery": "pr_only",
             "cursor_delegation_enabled": bool(getattr(config, "CURSOR_DELEGATION_ENABLED", True)),
-            "cursor_allow_pr": bool(getattr(config, "CURSOR_ALLOW_PR", False)),
-            "cursor_allow_merge": bool(getattr(config, "CURSOR_ALLOW_MERGE", False)),
+            "cursor_allow_commit": cursor_allow_commit,
+            "cursor_allow_push": cursor_allow_push,
+            "cursor_allow_pr": cursor_allow_pr,
+            "cursor_pr_only_ready": all(pr_only_capabilities.values()),
+            "cursor_pr_only_missing": [
+                name for name, enabled in pr_only_capabilities.items() if not enabled
+            ],
             "cursor_max_concurrent_jobs": int(getattr(config, "CURSOR_MAX_CONCURRENT_JOBS", 2)),
         },
     }

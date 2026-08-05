@@ -1,0 +1,23 @@
+# Dépendances légères du job backend Linux.
+#
+# Ce profil garde volontairement les piles ML/audio hors du job pytest général,
+# mais il est résolu et hashé comme les environnements de production.
+
+fastapi==0.139.*
+uvicorn[standard]==0.34.*
+python-dotenv==1.2.*
+websockets==15.*
+python-multipart==0.0.*
+jinja2==3.1.*
+httpx==0.28.*
+aiohttp>=3.12,<4
+apscheduler==3.10.*
+pymupdf==1.28.*
+Pillow>=10.0
+python-dateutil==2.9.*
+requests>=2.31
+cryptography>=41.0
+numpy>=1.26,<3
+pytest==8.*
+pytest-asyncio>=0.24,<0.27
+httpx2==2.9.*

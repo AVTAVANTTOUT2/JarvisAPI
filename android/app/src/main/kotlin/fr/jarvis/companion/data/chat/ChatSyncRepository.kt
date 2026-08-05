@@ -8,7 +8,6 @@ import fr.jarvis.companion.core.database.DeliveryState
 import fr.jarvis.companion.core.database.PendingChatOpState
 import fr.jarvis.companion.core.database.PendingChatOpType
 import fr.jarvis.companion.core.database.PendingChatOperationDao
-import fr.jarvis.companion.data.JarvisRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -17,9 +16,9 @@ class ChatSyncRepository(
     private val pendingOpDao: PendingChatOperationDao,
     private val conversationDao: ChatConversationDao,
     private val messageDao: ChatMessageDao,
-    private val conversationRepository: ConversationRepository,
-    private val chatRepository: ChatRepository,
-    private val repository: JarvisRepository,
+    private val conversationRepository: ConversationSyncApplier,
+    private val chatRepository: ChatResponseSyncApplier,
+    private val repository: ChatSyncRemote,
     private val gson: Gson = Gson(),
 ) {
     suspend fun processPendingOperations(): SyncChatResult = withContext(Dispatchers.IO) {
@@ -53,14 +52,18 @@ class ChatSyncRepository(
         val inFlight = op.copy(state = PendingChatOpState.IN_FLIGHT)
         pendingOpDao.update(inFlight)
 
-        return when (op.type) {
-            PendingChatOpType.CREATE_CONVERSATION -> processCreateConversation(inFlight)
-            PendingChatOpType.SEND_MESSAGE -> processSendMessage(inFlight)
-            PendingChatOpType.RENAME -> processRename(inFlight)
-            PendingChatOpType.PIN, PendingChatOpType.UNPIN -> processPin(inFlight)
-            PendingChatOpType.ARCHIVE -> processArchive(inFlight)
-            PendingChatOpType.DELETE -> processDelete(inFlight)
-            else -> OpResult(error = "Type inconnu : ${op.type}")
+        return try {
+            when (op.type) {
+                PendingChatOpType.CREATE_CONVERSATION -> processCreateConversation(inFlight)
+                PendingChatOpType.SEND_MESSAGE -> processSendMessage(inFlight)
+                PendingChatOpType.RENAME -> processRename(inFlight)
+                PendingChatOpType.PIN, PendingChatOpType.UNPIN -> processPin(inFlight)
+                PendingChatOpType.ARCHIVE -> processArchive(inFlight)
+                PendingChatOpType.DELETE -> processDelete(inFlight)
+                else -> deleteInvalid(inFlight, "Type inconnu : ${op.type}")
+            }
+        } catch (error: Exception) {
+            markRetry(inFlight, error.message ?: "Opération chat invalide")
         }
     }
 
@@ -68,7 +71,7 @@ class ChatSyncRepository(
         val payload = JSONObject(op.payloadJson)
         val title = payload.optString("title").takeIf { it.isNotBlank() }
         val result = repository.createMobileConversation(title)
-        if (result.status == 401) return OpResult(unauthorized = true)
+        if (result.status == 401) return markUnauthorized(op)
         if (!result.ok) return markRetry(op, result.error)
 
         val serverId = result.json.optLong("conversation_id", -1)
@@ -91,7 +94,7 @@ class ChatSyncRepository(
             conversationId = serverId,
             clientMessageId = clientRequestId.takeIf { it.isNotBlank() },
         )
-        if (result.status == 401) return OpResult(unauthorized = true)
+        if (result.status == 401) return markUnauthorized(op)
         if (!result.ok) {
             if (userMessageLocalId > 0) {
                 messageDao.updateDeliveryState(
@@ -121,7 +124,7 @@ class ChatSyncRepository(
         val payload = JSONObject(op.payloadJson)
         val title = payload.optString("title")
         val result = repository.patchConversation(serverId, title = title)
-        if (result.status == 401) return OpResult(unauthorized = true)
+        if (result.status == 401) return markUnauthorized(op)
         if (!result.ok) return markRetry(op, result.error)
         markConversationSynced(op.conversationLocalId)
         pendingOpDao.delete(op.id)
@@ -131,7 +134,7 @@ class ChatSyncRepository(
     private suspend fun processPin(op: fr.jarvis.companion.core.database.PendingChatOperationEntity): OpResult {
         val serverId = op.conversationServerId ?: return deleteInvalid(op)
         val result = repository.pinConversation(serverId)
-        if (result.status == 401) return OpResult(unauthorized = true)
+        if (result.status == 401) return markUnauthorized(op)
         if (!result.ok) return markRetry(op, result.error)
         markConversationSynced(op.conversationLocalId)
         pendingOpDao.delete(op.id)
@@ -141,7 +144,7 @@ class ChatSyncRepository(
     private suspend fun processArchive(op: fr.jarvis.companion.core.database.PendingChatOperationEntity): OpResult {
         val serverId = op.conversationServerId ?: return deleteInvalid(op)
         val result = repository.archiveConversation(serverId)
-        if (result.status == 401) return OpResult(unauthorized = true)
+        if (result.status == 401) return markUnauthorized(op)
         if (!result.ok) return markRetry(op, result.error)
         markConversationSynced(op.conversationLocalId)
         pendingOpDao.delete(op.id)
@@ -151,7 +154,7 @@ class ChatSyncRepository(
     private suspend fun processDelete(op: fr.jarvis.companion.core.database.PendingChatOperationEntity): OpResult {
         val serverId = op.conversationServerId ?: return deleteInvalid(op)
         val result = repository.deleteConversation(serverId)
-        if (result.status == 401) return OpResult(unauthorized = true)
+        if (result.status == 401) return markUnauthorized(op)
         if (!result.ok) return markRetry(op, result.error)
         messageDao.deleteByConversation(op.conversationLocalId)
         conversationDao.deleteByLocalId(op.conversationLocalId)
@@ -180,9 +183,25 @@ class ChatSyncRepository(
         return OpResult(error = error)
     }
 
-    private suspend fun deleteInvalid(op: fr.jarvis.companion.core.database.PendingChatOperationEntity): OpResult {
+    private suspend fun markUnauthorized(
+        op: fr.jarvis.companion.core.database.PendingChatOperationEntity,
+    ): OpResult {
+        pendingOpDao.update(
+            op.copy(
+                state = PendingChatOpState.FAILED,
+                lastError = "Non autorisé",
+                nextAttemptAtMillis = System.currentTimeMillis(),
+            ),
+        )
+        return OpResult(unauthorized = true)
+    }
+
+    private suspend fun deleteInvalid(
+        op: fr.jarvis.companion.core.database.PendingChatOperationEntity,
+        error: String = "Opération sans serverId",
+    ): OpResult {
         pendingOpDao.delete(op.id)
-        return OpResult(error = "Opération sans serverId")
+        return OpResult(error = error)
     }
 
     data class SyncChatResult(

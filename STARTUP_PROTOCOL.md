@@ -52,12 +52,12 @@ macOS affiche les boites **Automation** et certaines alertes sur l'**application
 **Pour tout declencher et tout voir en une passe (recommande une fois apres install ou gros changement de droits)** :
 
 1. Ouvre **Terminal.app** (pas un sous-shell invisible), garde la fenetre au premier plan.
-2. Arrete tout ce qui ecoute deja sur `WEB_PORT` (souvent `8081`) et sur `5173` si tu utilises Vite, pour eviter les doublons.
+2. Arrete tout ce qui ecoute deja sur `WEB_PORT` (souvent `8081`) pour eviter les doublons.
 3. Lance **sans daemon** (premier plan) :
    ```bash
    cd /chemin/absolu/vers/JarvisAPI
    source venv/bin/activate
-   ./scripts/jarvis_full_restart.sh --dev
+   ./scripts/jarvis_full_restart.sh
    ```
    Le backend reste attache a ce terminal : les prompts **Automation** (Messages, Mail, Calendar, Contacts, System Events) apparaissent ici lors des premiers appels AppleScript.
 4. Ouvre une fois **Messages**, **Mail**, **Calendar**, **Contacts** (reduit la fenetre si besoin) pour reduire les erreurs `-600` au demarrage.
@@ -66,7 +66,7 @@ macOS affiche les boites **Automation** et certaines alertes sur l'**application
    - **Enregistrement de l'ecran** : Terminal + Cursor (daemon / screen watcher).
    - **Microphone** : Terminal + Cursor (page `/voice`, STT).
    - **Notifications** : activer pour l'app qui affiche les alertes JARVIS si besoin.
-6. Dans le navigateur : ouvre `https://127.0.0.1:8081` (ou `https://localhost:5173` en dev Vite) et **accepte le certificat local** une fois.
+6. Dans le navigateur : ouvre l'URL du backend, par exemple `https://127.0.0.1:8081`, et **accepte le certificat local** une fois.
 
 **Liste des autorisations que JARVIS peut te demander (selon ce que tu actives)** :
 
@@ -82,7 +82,7 @@ macOS affiche les boites **Automation** et certaines alertes sur l'**application
 | 8 | Microphone | STT WebSocket, wake word si active |
 | 9 | Notifications | Centre de notifications macOS pour alertes JARVIS |
 
-Quand tout est regle, tu peux repasser en arriere-plan : `./scripts/jarvis_full_restart.sh --daemon --dev`.
+Quand tout est regle, tu peux repasser en arriere-plan : `./scripts/jarvis_full_restart.sh --daemon`.
 
 ## 3) Demarrage quotidien propre (sequence recommandee)
 
@@ -99,25 +99,17 @@ source venv/bin/activate
 ./scripts/jarvis_full_restart.sh
 ```
 
-Option dev frontend live:
-
-```bash
-./scripts/jarvis_full_restart.sh --dev
-```
-
 Option daemon (background):
 
 ```bash
 ./scripts/jarvis_full_restart.sh --daemon
-./scripts/jarvis_full_restart.sh --daemon --dev
 ```
 
 ## Etape C - Verifier l'UI
 
 - Ouvrir `https://127.0.0.1:WEB_PORT` (souvent `8081`).
-- Verifier que la route ouvre l'app React (`/chat`) sans telechargement de fichier.
+- Verifier que la route ouvre l'export Next.js (`/chat`) sans telechargement de fichier.
 - Si le navigateur affiche une alerte certificat local, accepter l'exception locale.
-- En mode dev Vite, utiliser `https://localhost:5173`.
 
 ## 4) Verification de sante apres demarrage
 
@@ -188,7 +180,6 @@ Cause classique: URL en `http` alors que le backend tourne en `https`.
 
 - Mauvais: `http://localhost:8081`
 - Correct: `https://localhost:8081` ou `https://127.0.0.1:8081`
-- Front dev: `https://localhost:5173`
 
 ## Cas 2 - AppleScript bloque (Mail/Messages/Calendar)
 

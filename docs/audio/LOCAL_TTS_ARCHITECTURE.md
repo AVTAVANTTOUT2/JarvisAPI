@@ -169,7 +169,7 @@ avertissement au démarrage plutôt qu'un silence trompeur.
 ```bash
 # 1. Runtime MLX (une fois)
 python3.12 -m venv ~/mlx-env && source ~/mlx-env/bin/activate
-pip install mlx-audio soundfile
+pip install --require-hashes -r requirements/locks/mlx-macos-arm64-py312.txt
 
 # 2. Poids (≈ 1,9 Go) — jamais déclenché par JARVIS
 python scripts/download_tts_model.py

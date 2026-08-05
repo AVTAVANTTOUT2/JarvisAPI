@@ -17,14 +17,14 @@ export const MAP_ATTRIBUTION_HTML =
 
 /**
  * Résout l'URL du style MapLibre depuis une valeur d'environnement
- * (Vite: `VITE_MAP_STYLE_URL`, Next DefinePlugin: même clé).
+ * publique injectée nativement par Next (`NEXT_PUBLIC_MAP_STYLE_URL`).
  *
  * Accepte déjà les préfixes futurs `pmtiles://` et les chemins locaux
  * `/styles/...` servis par le backend — sans enregistrer encore le
  * protocole PMTiles (dépendances reportées à une PR dédiée).
  */
 export function resolveMapStyleUrl(
-  envValue: string | undefined | null = readViteMapStyleEnv(),
+  envValue: string | undefined | null = process.env.NEXT_PUBLIC_MAP_STYLE_URL,
 ): string {
   const raw = typeof envValue === 'string' ? envValue.trim() : '';
   if (!raw) return OPENFREEMAP_DARK_STYLE_URL;
@@ -34,14 +34,4 @@ export function resolveMapStyleUrl(
 /** Indique si l'URL cible un protocole PMTiles (préparation future). */
 export function isPmtilesStyleUrl(styleUrl: string): boolean {
   return styleUrl.trim().toLowerCase().startsWith('pmtiles://');
-}
-
-function readViteMapStyleEnv(): string | undefined {
-  try {
-    // Garder l'accès direct : Vite le résout nativement et le DefinePlugin
-    // Next remplace exactement cette expression lors du build statique.
-    return import.meta.env.VITE_MAP_STYLE_URL;
-  } catch {
-    return undefined;
-  }
 }

@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-07-31T16:24:25.734663+00:00",
+  "generated_at": "2026-08-04T22:50:21.495268+00:00",
   "repo_root": ".",
   "canonical_formulation": {
-    "database": "Le projet crée 86 tables persistantes après init_db() + migrations, plus jusqu'à 5 objets FTS5, soit 91 tables physiques lorsque FTS5 est disponible.",
-    "frontends": "Le frontend canonique est frontend/ (Next.js 15 → frontend/out). web/dist reste le fallback actif. web_mobile/ est l'interface mobile autonome servie sous /mobile/, sans build. tv/ (5174) est réservé à la TV. FastAPI (8081) et le supervisor (9000) servent frontend/out en priorité, puis web/dist en fallback (core.frontend_resolution)."
+    "database": "Le projet crée 90 tables persistantes après init_db() + migrations, plus jusqu'à 5 objets FTS5, soit 95 tables physiques lorsque FTS5 est disponible.",
+    "frontends": "Le frontend canonique est frontend/ (Next.js 15 → frontend/out). web/src est uniquement sa bibliothèque de vues et n'est plus une application exécutable. web_mobile/ est l'interface mobile autonome servie sous /mobile/, sans build. Si frontend/out manque, le bureau répond explicitement 503. tv/ (5174) est réservé à la TV. FastAPI (8081) et le supervisor (9000) servent uniquement frontend/out via core.frontend_resolution."
   },
   "frontends": [
     {
@@ -33,7 +33,6 @@
         "test:e2e": "playwright test"
       },
       "output_dir": "frontend/out",
-      "output_present": false,
       "has_service_worker": true,
       "has_manifest": true,
       "status": "actif_canonique_fastapi",
@@ -41,34 +40,26 @@
     },
     {
       "path": "web",
-      "framework": "vite",
+      "framework": "react-component-library",
       "package_versions": {
         "react": "^19.0.0",
         "react-dom": "^19.0.0",
-        "vite": "^6.3.0",
         "typescript": "^5.8.0",
-        "vite-plugin-pwa": "^1.3.0",
-        "workbox-precaching": "^7.4.1",
         "react-router-dom": "^7.6.0"
       },
       "locked_versions": {
         "react": "19.2.5",
         "react-dom": "19.2.5",
-        "vite": "6.4.2",
         "typescript": "5.9.3"
       },
       "scripts": {
-        "dev": "vite",
-        "build": "tsc --noEmit && vite build",
         "typecheck": "tsc --noEmit",
-        "preview": "vite preview",
         "test": "vitest run"
       },
-      "output_dir": "web/dist",
-      "output_present": false,
-      "has_service_worker": true,
+      "output_dir": null,
+      "has_service_worker": false,
       "has_manifest": false,
-      "status": "fallback_actif",
+      "status": "bibliotheque_vues_desktop",
       "notes": []
     },
     {
@@ -78,7 +69,6 @@
       "locked_versions": {},
       "scripts": {},
       "output_dir": null,
-      "output_present": false,
       "has_service_worker": false,
       "has_manifest": false,
       "status": "sdk_partage",
@@ -93,56 +83,31 @@
         "dev": "python tv/server.py"
       },
       "output_dir": null,
-      "output_present": true,
       "has_service_worker": false,
       "has_manifest": false,
       "status": "actif_tv_5174",
       "notes": [
         "Processus séparé (port 5174), hors api/frontend.py"
       ]
-    },
-    {
-      "path": "front_tv",
-      "framework": "html_bundle",
-      "package_versions": {},
-      "locked_versions": {},
-      "scripts": {},
-      "output_dir": null,
-      "output_present": false,
-      "has_service_worker": false,
-      "has_manifest": false,
-      "status": "orphelin",
-      "notes": [
-        "Aucune référence runtime dans le dépôt"
-      ]
     }
   ],
   "resolution": {
     "canonical_order": [
       "web_mobile/ monté sous /mobile/, téléphones redirigés",
-      "frontend/out prioritaire (Next.js 15 bureau)",
-      "web/dist fallback Vite",
-      "web/templates Jinja legacy",
-      "warning aucun frontend"
+      "frontend/out (Next.js 15 bureau)",
+      "503 explicite si le build bureau manque"
     ],
     "fastapi_uses_unified_first": true,
-    "supervisor_priority": "frontend/out>web/dist",
+    "supervisor_priority": "frontend/out_only",
     "supervisor_uses_shared_resolver": true,
     "shared_resolution_module": true,
     "priority_findings": [],
     "paths": {
       "FRONTEND_DIST_DIR_default": "frontend/out",
-      "WEB_DIST_DIR_default": "web/dist",
       "WEB_MOBILE_DIR_default": "web_mobile",
       "TV_PORT_default": 5174,
       "BACKEND_PORT_typical": 8081,
-      "SUPERVISOR_PORT_default": 9000,
-      "VITE_DEV_PORT": 5173
-    },
-    "build_presence": {
-      "frontend/out": false,
-      "web/dist": false,
-      "web_mobile": true
+      "SUPERVISOR_PORT_default": 9000
     }
   },
   "tables": {
@@ -152,16 +117,16 @@
       "does_not_execute_schema_sql": true
     },
     "counts": {
-      "schema_py": 51,
-      "schema_sql_applicatives": 46,
+      "schema_py": 55,
+      "schema_sql_applicatives": 91,
       "migrations_unique_excluding_schema_and_fts": 29,
       "devagent": 6,
-      "persistantes_post_init": 86,
+      "persistantes_post_init": 90,
       "fts_objects_if_available": 5,
-      "physiques_max_default_fts_on": 91,
+      "physiques_max_default_fts_on": 95,
       "imessage_mirror": 9,
       "technique_estime": 19,
-      "metier_estime": 52
+      "metier_estime": 56
     },
     "lists": {
       "schema_py": [
@@ -179,6 +144,10 @@
         "email_summaries",
         "episodes",
         "event_log",
+        "food_menu_cache",
+        "food_orders",
+        "food_preferences",
+        "food_suggestions",
         "imessage_analysis_cache",
         "imessage_attachments",
         "imessage_chat_handles",
@@ -221,49 +190,94 @@
         "agentic_workflows",
         "app_settings",
         "app_usage",
+        "auth_rate_limits",
+        "commitments",
         "conversation_documents",
+        "conversation_turns",
         "conversations",
         "cross_insights",
+        "cursor_delegation_jobs",
         "daily_briefings",
+        "daily_rituals",
+        "day_scores",
+        "dev_deployments",
+        "dev_interview_sessions",
+        "dev_loop_log",
+        "dev_loop_state",
+        "dev_projects",
+        "dev_spec",
         "device_pairing_attempts",
         "device_pairing_codes",
         "devices",
+        "duplicate_findings",
         "email_summaries",
         "episodes",
+        "event_log",
+        "fitness_program_sessions",
+        "fitness_programs",
+        "fitness_prompt_log",
+        "fitness_session_progress",
+        "fitness_weight_logs",
+        "food_menu_cache",
+        "food_orders",
+        "food_preferences",
+        "food_suggestions",
         "imessage_analysis_cache",
         "imessage_attachments",
         "imessage_chat_handles",
         "imessage_chats",
+        "imessage_consumer_cursors",
         "imessage_handles",
         "imessage_message_attachments",
         "imessage_messages",
         "imessage_reactions",
         "imessage_sync_cursor",
+        "jarvis_journal",
         "life_context",
         "life_profile",
         "llm_action_logs",
         "location_history",
         "location_patterns",
+        "location_point_dedup",
+        "meals",
+        "memory_embeddings",
+        "message_insights",
         "messages",
+        "messages_fts",
+        "mobile_chat_dedup",
+        "mobile_devices",
+        "mobile_pairing_codes",
         "mood_log",
+        "mood_signals",
         "notifications",
         "patterns",
         "people",
         "people_events",
+        "perf_benchmarks",
         "places",
+        "presence_sessions",
+        "push_subscriptions",
         "recordings",
         "relationship_events",
         "relationship_profiles",
+        "scheduler_job_runs",
+        "schema_migrations",
         "school_documents",
         "school_flashcards",
         "school_subjects",
         "screen_activity",
+        "security_findings",
+        "sessions",
         "tasks",
         "trips",
         "user_facts",
         "visits",
+        "voice_debug_log",
+        "water_intake",
         "weekly_summaries",
-        "work_sessions"
+        "wellbeing_logs",
+        "work_sessions",
+        "workouts"
       ],
       "migrations_only": [
         "auth_rate_limits",
@@ -336,6 +350,10 @@
         "fitness_prompt_log",
         "fitness_session_progress",
         "fitness_weight_logs",
+        "food_menu_cache",
+        "food_orders",
+        "food_preferences",
+        "food_suggestions",
         "imessage_analysis_cache",
         "imessage_attachments",
         "imessage_chat_handles",
@@ -426,29 +444,4674 @@
       ]
     },
     "explanations": {
-      "schema_sql": "46 tables applicatives dans database/schema.sql (dump non exécuté), hors sqlite_sequence.",
-      "persistantes": "86 tables créées par schema.py + migrations + DevAgent, hors objets FTS.",
-      "physiques_fts": "91 entrées sqlite_master avec les cinq objets FTS5 disponibles.",
+      "schema_sql": "91 tables applicatives dans database/schema.sql (dump non exécuté), hors sqlite_sequence.",
+      "persistantes": "90 tables créées par schema.py + migrations + DevAgent, hors objets FTS.",
+      "physiques_fts": "95 entrées sqlite_master avec les cinq objets FTS5 disponibles.",
       "historique": "Les totaux 44, 70, 71, 72, 73, 75, 76 et 78 décrivent des snapshots antérieurs, pas le runtime courant."
     }
   },
-  "documentation_findings": [
-    {
-      "file": "CLAUDE.md",
-      "line": 35,
-      "kind": "tables_schema_dump",
-      "severity": "info",
-      "excerpt": "46 tables",
-      "note": "46 tables — cohérent avec schema.sql=46 si contextualisé"
+  "api_surface": {
+    "coverage_scope": "Références statiques par chemin : la méthode HTTP et les assertions comportementales restent vérifiées par les suites de tests.",
+    "counts": {
+      "operations": 261,
+      "paths": 232,
+      "consumer_and_tested": 124,
+      "consumer_without_path_test": 52,
+      "owned_non_frontend_and_tested": 37,
+      "owned_non_frontend_without_path_test": 48
     },
-    {
-      "file": "Architecture/adr/ADR-017-sqlite-base-unique.md",
-      "line": 16,
-      "kind": "tables_schema_dump",
-      "severity": "info",
-      "excerpt": "46 tables",
-      "note": "46 tables — cohérent avec schema.sql=46 si contextualisé"
-    }
-  ],
+    "consumer_surfaces": [
+      "android",
+      "frontend_next",
+      "frontend_vite",
+      "macos",
+      "mobile_web",
+      "shared_auth_sdk",
+      "tv"
+    ],
+    "structure": {
+      "http_operations": 259,
+      "websocket_operations": 2,
+      "openapi_paths": 230,
+      "domain_router_modules": 17,
+      "mounted_routers": 18,
+      "main_lines": 211
+    },
+    "ownership_policy": {
+      "path": "Architecture/api_route_ownership.json",
+      "rules": 32,
+      "findings": []
+    },
+    "routes": [
+      {
+        "method": "DELETE",
+        "path": "/api/conversations/{conv_id}",
+        "source": "api/router_conversations.py",
+        "line": 111,
+        "consumers": {
+          "frontend_next": [
+            "frontend/complement_validation.cjs",
+            "frontend/retest_switch.cjs",
+            "frontend/src/lib/api.ts"
+          ],
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ],
+          "android": [
+            "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
+          ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift"
+          ]
+        },
+        "tests": [
+          "tests/test_crud_not_found.py",
+          "tests/test_misc_input_contracts.py",
+          "tests/test_mobile_bearer_routes.py",
+          "tests/test_mobile_chat.py",
+          "tests/test_secure_uploads.py",
+          "tests/test_web_mobile.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "DELETE",
+        "path": "/api/dnd",
+        "source": "api/router_rituals.py",
+        "line": 80,
+        "consumers": {},
+        "tests": [
+          "tests/test_misc_input_contracts.py"
+        ],
+        "non_frontend_ownership": {
+          "rule_id": "operator-dnd",
+          "owner": "operations",
+          "audience": "operator",
+          "rationale": "Commande manuelle du mode silence, également piloté directement par les automatisations locales."
+        },
+        "classification": "owned_non_frontend_and_tested"
+      },
+      {
+        "method": "DELETE",
+        "path": "/api/food/cart/{plan_id}",
+        "source": "api/router_food.py",
+        "line": 322,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_food_control.py",
+          "tests/test_food_input_contract.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "DELETE",
+        "path": "/api/food/session/capture",
+        "source": "api/router_food.py",
+        "line": 380,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_food_control.py",
+          "tests/test_food_input_contract.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "DELETE",
+        "path": "/api/life-profile/{entry_id}",
+        "source": "api/router_misc.py",
+        "line": 358,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_crud_not_found.py",
+          "tests/test_life_input_contract.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "DELETE",
+        "path": "/api/logs",
+        "source": "api/router_misc.py",
+        "line": 308,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ]
+        },
+        "tests": [
+          "frontend/src/lib/api-logs.test.ts",
+          "tests/test_action_log_privacy.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "DELETE",
+        "path": "/api/places/{place_id}",
+        "source": "api/router_location.py",
+        "line": 405,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_crud_not_found.py",
+          "tests/test_lot1_endpoints.py",
+          "tests/test_place_input_contract.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "DELETE",
+        "path": "/api/tasks",
+        "source": "api/router_tasks.py",
+        "line": 72,
+        "consumers": {
+          "frontend_next": [
+            "frontend/complement_validation.cjs",
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx",
+            "web/src/app/components/views/TasksView.tsx"
+          ],
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ],
+          "android": [
+            "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
+          ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift"
+          ],
+          "tv": [
+            "tv/server.py",
+            "tv/static/js/tv-v2.js"
+          ]
+        },
+        "tests": [
+          "frontend/e2e/critical-flows.spec.ts",
+          "frontend/e2e/unified.spec.ts",
+          "tests/test_control_plane_auth.py",
+          "tests/test_mobile_bearer_routes.py",
+          "tests/test_mobile_chat.py",
+          "tests/test_task_input_contract.py",
+          "web/src/lib/offline/queue.test.ts"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "DELETE",
+        "path": "/api/tasks/{task_id}",
+        "source": "api/router_tasks.py",
+        "line": 64,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift"
+          ]
+        },
+        "tests": [
+          "tests/test_crud_not_found.py",
+          "tests/test_task_input_contract.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/app-usage",
+        "source": "api/router_devices.py",
+        "line": 357,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/audio-daemon/status",
+        "source": "api/router_daemon.py",
+        "line": 82,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/auth/sessions",
+        "source": "api/router_auth.py",
+        "line": 261,
+        "consumers": {
+          "frontend_next": [
+            "frontend/complement_validation.cjs",
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_security_middleware.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/auth/status",
+        "source": "api/router_auth.py",
+        "line": 136,
+        "consumers": {
+          "frontend_next": [
+            "frontend/complement_validation.cjs",
+            "frontend/src/types/api.ts"
+          ],
+          "mobile_web": [
+            "web_mobile/js/api.js",
+            "web_mobile/js/auth.js"
+          ],
+          "android": [
+            "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
+          ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift",
+            "native_mac/JarvisWidget/JarvisWidget.swift"
+          ],
+          "shared_auth_sdk": [
+            "jarvis_auth/src/client.ts"
+          ]
+        },
+        "tests": [
+          "frontend/e2e/critical-flows.spec.ts",
+          "frontend/e2e/unified.spec.ts",
+          "tests/test_mobile_pairing.py",
+          "tests/test_security_middleware.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/autonomy/settings",
+        "source": "api/router_cognitive.py",
+        "line": 344,
+        "consumers": {
+          "frontend_vite": [
+            "web/src/app/components/views/CognitiveView.tsx"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/backups",
+        "source": "api/router_misc.py",
+        "line": 108,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-backups",
+          "owner": "database-operations",
+          "audience": "operator",
+          "rationale": "Surface de sauvegarde et restauration réservée à l'exploitation authentifiée."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/briefing",
+        "source": "api/router_misc.py",
+        "line": 328,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ],
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ],
+          "android": [
+            "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
+          ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift"
+          ]
+        },
+        "tests": [
+          "frontend/e2e/unified.spec.ts",
+          "tests/test_mobile_bearer_routes.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/calendar",
+        "source": "api/router_misc.py",
+        "line": 393,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ],
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ],
+          "android": [
+            "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
+          ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift"
+          ],
+          "tv": [
+            "tv/data_sources/calendar.py",
+            "tv/server.py",
+            "tv/static/js/tv-v2.js"
+          ]
+        },
+        "tests": [
+          "frontend/e2e/unified.spec.ts",
+          "tests/test_http_error_contract.py",
+          "tests/test_mobile_bearer_routes.py",
+          "tests/test_relationships_input_contract.py",
+          "tests/test_web_mobile.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/cognitive/capabilities",
+        "source": "api/router_cognitive.py",
+        "line": 119,
+        "consumers": {
+          "frontend_vite": [
+            "web/src/app/components/views/CognitiveView.tsx"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/cognitive/llm-policy",
+        "source": "api/router_cognitive.py",
+        "line": 128,
+        "consumers": {
+          "frontend_vite": [
+            "web/src/app/components/views/CognitiveView.tsx"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/commitments",
+        "source": "api/router_misc.py",
+        "line": 213,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-commitments",
+          "owner": "personal-memory",
+          "audience": "operator",
+          "rationale": "Inspection, correction et contrôle de cohérence des engagements extraits automatiquement."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/commitments/consistency",
+        "source": "api/router_misc.py",
+        "line": 223,
+        "consumers": {},
+        "tests": [
+          "tests/test_lot1_endpoints.py"
+        ],
+        "non_frontend_ownership": {
+          "rule_id": "operator-commitments",
+          "owner": "personal-memory",
+          "audience": "operator",
+          "rationale": "Inspection, correction et contrôle de cohérence des engagements extraits automatiquement."
+        },
+        "classification": "owned_non_frontend_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/contacts",
+        "source": "api/router_misc.py",
+        "line": 428,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ]
+        },
+        "tests": [
+          "tests/test_http_error_contract.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/contacts/resolve",
+        "source": "api/router_cognitive.py",
+        "line": 323,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-contact-tools",
+          "owner": "contacts-integrations",
+          "audience": "operator",
+          "rationale": "Diagnostic de résolution et synchronisation manuelle du carnet de contacts."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/control/services",
+        "source": "api/router_daemon.py",
+        "line": 142,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_control_plane_auth.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/control/{service}/detail",
+        "source": "api/router_daemon.py",
+        "line": 148,
+        "consumers": {},
+        "tests": [
+          "tests/test_http_error_contract.py"
+        ],
+        "non_frontend_ownership": {
+          "rule_id": "operator-service-detail",
+          "owner": "service-control",
+          "audience": "operator",
+          "rationale": "Diagnostic détaillé d'un service supervisé, destiné à l'interface et aux scripts d'exploitation."
+        },
+        "classification": "owned_non_frontend_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/control/{service}/logs",
+        "source": "api/router_daemon.py",
+        "line": 249,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_http_error_contract.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/conversations",
+        "source": "api/router_conversations.py",
+        "line": 86,
+        "consumers": {
+          "frontend_next": [
+            "frontend/complement_validation.cjs",
+            "frontend/retest_back.cjs",
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ],
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ],
+          "android": [
+            "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
+          ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift"
+          ]
+        },
+        "tests": [
+          "frontend/e2e/critical-flows.spec.ts",
+          "tests/test_mobile_bearer_routes.py",
+          "tests/test_web_mobile.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/conversations/search",
+        "source": "api/router_conversations.py",
+        "line": 77,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/conversations/{conv_id}",
+        "source": "api/router_conversations.py",
+        "line": 93,
+        "consumers": {
+          "frontend_next": [
+            "frontend/complement_validation.cjs",
+            "frontend/retest_switch.cjs",
+            "frontend/src/lib/api.ts"
+          ],
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ],
+          "android": [
+            "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
+          ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift"
+          ]
+        },
+        "tests": [
+          "tests/test_crud_not_found.py",
+          "tests/test_misc_input_contracts.py",
+          "tests/test_mobile_bearer_routes.py",
+          "tests/test_mobile_chat.py",
+          "tests/test_secure_uploads.py",
+          "tests/test_web_mobile.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/costs",
+        "source": "api/router_misc.py",
+        "line": 103,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-costs",
+          "owner": "observability",
+          "audience": "operator",
+          "rationale": "Lecture administrative de la consommation et des coûts des fournisseurs."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/cursor/jobs",
+        "source": "api/router_cognitive.py",
+        "line": 163,
+        "consumers": {
+          "frontend_vite": [
+            "web/src/app/components/views/CognitiveView.tsx"
+          ]
+        },
+        "tests": [
+          "tests/test_cursor_security_hardening.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/cursor/jobs/{job_id}",
+        "source": "api/router_cognitive.py",
+        "line": 187,
+        "consumers": {
+          "frontend_vite": [
+            "web/src/app/components/views/CognitiveView.tsx"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/cursor/status",
+        "source": "api/router_cognitive.py",
+        "line": 144,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-cursor-control",
+          "owner": "cursor-delegation",
+          "audience": "operator",
+          "rationale": "Commandes de contrôle humain et diagnostic du moteur de délégation Cursor."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/day-scores",
+        "source": "api/router_misc.py",
+        "line": 183,
+        "consumers": {},
+        "tests": [
+          "tests/test_lot1_endpoints.py"
+        ],
+        "non_frontend_ownership": {
+          "rule_id": "operator-day-scores",
+          "owner": "personal-analytics",
+          "audience": "operator",
+          "rationale": "Lecture d'analyse personnelle détaillée pour diagnostic et export."
+        },
+        "classification": "owned_non_frontend_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/day-scores/{date}",
+        "source": "api/router_misc.py",
+        "line": 188,
+        "consumers": {},
+        "tests": [
+          "tests/test_lot1_endpoints.py"
+        ],
+        "non_frontend_ownership": {
+          "rule_id": "operator-day-scores",
+          "owner": "personal-analytics",
+          "audience": "operator",
+          "rationale": "Lecture d'analyse personnelle détaillée pour diagnostic et export."
+        },
+        "classification": "owned_non_frontend_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/devagent/{project_id}/deployments",
+        "source": "api/router_devagent.py",
+        "line": 27,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-devagent",
+          "owner": "devagent",
+          "audience": "operator",
+          "rationale": "Plan de contrôle explicite de l'agent de développement, utilisable par un opérateur ou une intégration CI."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/devagent/{project_id}/status",
+        "source": "api/router_devagent.py",
+        "line": 180,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-devagent",
+          "owner": "devagent",
+          "audience": "operator",
+          "rationale": "Plan de contrôle explicite de l'agent de développement, utilisable par un opérateur ou une intégration CI."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/devices",
+        "source": "api/router_devices.py",
+        "line": 340,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ],
+          "android": [
+            "android/app/src/main/kotlin/fr/jarvis/companion/feature/settings/SettingsPresentation.kt"
+          ],
+          "tv": [
+            "tv/server.py",
+            "tv/static/js/tv-v2.js"
+          ]
+        },
+        "tests": [
+          "tests/test_remote_device_pairing.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/devices/{device_id}/tts",
+        "source": "api/router_devices.py",
+        "line": 303,
+        "consumers": {},
+        "tests": [
+          "tests/test_remote_device_pairing.py"
+        ],
+        "non_frontend_ownership": {
+          "rule_id": "device-agent-protocol",
+          "owner": "device-management",
+          "audience": "device-agent",
+          "rationale": "Protocole machine-à-machine des agents desktop, authentifié par jeton device et non par frontend."
+        },
+        "classification": "owned_non_frontend_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/dnd",
+        "source": "api/router_rituals.py",
+        "line": 62,
+        "consumers": {},
+        "tests": [
+          "tests/test_misc_input_contracts.py"
+        ],
+        "non_frontend_ownership": {
+          "rule_id": "operator-dnd",
+          "owner": "operations",
+          "audience": "operator",
+          "rationale": "Commande manuelle du mode silence, également piloté directement par les automatisations locales."
+        },
+        "classification": "owned_non_frontend_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/doomscroll",
+        "source": "api/router_misc.py",
+        "line": 163,
+        "consumers": {},
+        "tests": [
+          "tests/test_lot1_endpoints.py"
+        ],
+        "non_frontend_ownership": {
+          "rule_id": "operator-behaviour-insights",
+          "owner": "personal-analytics",
+          "audience": "operator",
+          "rationale": "Analyses avancées exposées pour inspection, export et diagnostic, sans écran dédié."
+        },
+        "classification": "owned_non_frontend_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/emails",
+        "source": "api/router_misc.py",
+        "line": 333,
+        "consumers": {
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ],
+          "tv": [
+            "tv/server.py",
+            "tv/static/js/tv-v2.js"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/events/stream",
+        "source": "api/router_misc.py",
+        "line": 258,
+        "consumers": {
+          "frontend_vite": [
+            "web/src/app/components/views/FoodView.tsx",
+            "web/src/pages/MissionControl.tsx"
+          ]
+        },
+        "tests": [
+          "frontend/e2e/critical-flows.spec.ts",
+          "frontend/e2e/unified.spec.ts",
+          "tests/test_sse_resume.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/export",
+        "source": "api/router_misc.py",
+        "line": 443,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_http_error_contract.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/fitness/dashboard",
+        "source": "app/fitness/routes.py",
+        "line": 246,
+        "consumers": {
+          "mobile_web": [
+            "web_mobile/js/views/health.js"
+          ]
+        },
+        "tests": [
+          "tests/test_web_mobile.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/fitness/meals",
+        "source": "app/fitness/routes.py",
+        "line": 158,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/fitness/FitnessForms.tsx"
+          ],
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ]
+        },
+        "tests": [
+          "tests/test_fitness_api.py",
+          "tests/test_fitness_meal_analysis.py",
+          "tests/test_fitness_voice.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/fitness/meals/{meal_id}/photo",
+        "source": "app/fitness/routes.py",
+        "line": 130,
+        "consumers": {},
+        "tests": [
+          "tests/test_fitness_meal_analysis.py"
+        ],
+        "non_frontend_ownership": {
+          "rule_id": "indirect-fitness-photo",
+          "owner": "fitness",
+          "audience": "indirect-client",
+          "rationale": "Ressource liée par l'URL photo produite dans les réponses repas, sans chemin littéral dupliqué dans les vues."
+        },
+        "classification": "owned_non_frontend_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/fitness/program",
+        "source": "app/fitness/routes.py",
+        "line": 209,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "mobile_web": [
+            "web_mobile/js/views/health.js"
+          ]
+        },
+        "tests": [
+          "tests/test_web_mobile.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/fitness/summary/today",
+        "source": "app/fitness/routes.py",
+        "line": 203,
+        "consumers": {
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ]
+        },
+        "tests": [
+          "tests/test_fitness_api.py",
+          "tests/test_fitness_voice.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/fitness/water/today",
+        "source": "app/fitness/routes.py",
+        "line": 174,
+        "consumers": {},
+        "tests": [
+          "tests/test_fitness_api.py"
+        ],
+        "non_frontend_ownership": {
+          "rule_id": "integration-fitness-water",
+          "owner": "fitness",
+          "audience": "integration-client",
+          "rationale": "Contrat de lecture courant destiné aux intégrations Fitness et conservé indépendamment du dashboard agrégé."
+        },
+        "classification": "owned_non_frontend_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/fitness/weights",
+        "source": "app/fitness/routes.py",
+        "line": 268,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "mobile_web": [
+            "web_mobile/js/views/health.js"
+          ]
+        },
+        "tests": [
+          "tests/test_web_mobile.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/fitness/wellbeing",
+        "source": "app/fitness/routes.py",
+        "line": 190,
+        "consumers": {
+          "frontend_vite": [
+            "web/src/app/components/fitness/FitnessForms.tsx"
+          ],
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ]
+        },
+        "tests": [
+          "tests/test_fitness_api.py",
+          "tests/test_fitness_voice.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/fitness/workouts",
+        "source": "app/fitness/routes.py",
+        "line": 68,
+        "consumers": {
+          "frontend_vite": [
+            "web/src/app/components/fitness/FitnessForms.tsx"
+          ],
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ]
+        },
+        "tests": [
+          "tests/test_fitness_api.py",
+          "tests/test_fitness_voice.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/food/cart/{plan_id}",
+        "source": "api/router_food.py",
+        "line": 304,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_food_control.py",
+          "tests/test_food_input_contract.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/food/delivery",
+        "source": "api/router_food.py",
+        "line": 208,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/food/menus",
+        "source": "api/router_food.py",
+        "line": 220,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/food/menus/{restaurant}",
+        "source": "api/router_food.py",
+        "line": 246,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_food_input_contract.py",
+          "tests/test_food_intelligence.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/food/orders",
+        "source": "api/router_food.py",
+        "line": 186,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/food/preferences",
+        "source": "api/router_food.py",
+        "line": 255,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-food-preferences",
+          "owner": "food-automation",
+          "audience": "operator",
+          "rationale": "Inspection des préférences dérivées par l'automatisation alimentaire."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/food/selectors",
+        "source": "api/router_food.py",
+        "line": 334,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/food/session",
+        "source": "api/router_food.py",
+        "line": 353,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/food/session/capture",
+        "source": "api/router_food.py",
+        "line": 386,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_food_control.py",
+          "tests/test_food_input_contract.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/food/settings",
+        "source": "api/router_food.py",
+        "line": 264,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_food_control.py",
+          "tests/test_food_input_contract.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/food/status",
+        "source": "api/router_food.py",
+        "line": 130,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_food_intelligence.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/food/suggestions",
+        "source": "api/router_food.py",
+        "line": 136,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_food_intelligence.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/imessage-import/status",
+        "source": "api/router_misc.py",
+        "line": 133,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-imessage-import",
+          "owner": "imessage-import",
+          "audience": "operator",
+          "rationale": "Déclenchement et suivi manuels d'un import iMessage local."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/improvements/proposals",
+        "source": "api/router_cognitive.py",
+        "line": 330,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-improvement-engine",
+          "owner": "improvement-engine",
+          "audience": "operator",
+          "rationale": "Revue humaine des propositions et déclenchement contrôlé du moteur d'amélioration."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/integrations",
+        "source": "api/router_misc.py",
+        "line": 253,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift"
+          ]
+        },
+        "tests": [
+          "tests/test_no_open_interpreter.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/jarvis-journal",
+        "source": "api/router_misc.py",
+        "line": 173,
+        "consumers": {},
+        "tests": [
+          "tests/test_lot1_endpoints.py",
+          "tests/test_security_middleware.py"
+        ],
+        "non_frontend_ownership": {
+          "rule_id": "automation-jarvis-journal",
+          "owner": "daily-rituals",
+          "audience": "automation",
+          "rationale": "Déclencheur manuel et lecture de secours d'un journal normalement produit par le scheduler."
+        },
+        "classification": "owned_non_frontend_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/journal",
+        "source": "api/router_misc.py",
+        "line": 378,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ]
+        },
+        "tests": [
+          "tests/test_life_input_contract.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/life-context",
+        "source": "api/router_misc.py",
+        "line": 363,
+        "consumers": {},
+        "tests": [
+          "tests/test_life_context_endpoint.py",
+          "tests/test_life_input_contract.py",
+          "tests/test_security_middleware.py"
+        ],
+        "non_frontend_ownership": {
+          "rule_id": "operator-life-context",
+          "owner": "personal-memory",
+          "audience": "operator",
+          "rationale": "Administration des périodes de contexte de vie en l'absence d'un écran spécialisé."
+        },
+        "classification": "owned_non_frontend_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/life-profile",
+        "source": "api/router_misc.py",
+        "line": 343,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ]
+        },
+        "tests": [
+          "tests/test_life_input_contract.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/location/history",
+        "source": "api/router_location.py",
+        "line": 431,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "frontend/e2e/unified.spec.ts",
+          "tests/test_name_place_location.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/location/patterns",
+        "source": "api/router_location.py",
+        "line": 459,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "frontend/e2e/unified.spec.ts"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/location/status",
+        "source": "api/router_location.py",
+        "line": 424,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ]
+        },
+        "tests": [
+          "frontend/e2e/unified.spec.ts",
+          "tests/test_name_place_location.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/logs",
+        "source": "api/router_misc.py",
+        "line": 303,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ]
+        },
+        "tests": [
+          "frontend/src/lib/api-logs.test.ts",
+          "tests/test_action_log_privacy.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/meetings",
+        "source": "api/router_misc.py",
+        "line": 228,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-meetings",
+          "owner": "meeting-memory",
+          "audience": "operator",
+          "rationale": "Consultation et export des synthèses de réunion enregistrées."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/memory",
+        "source": "api/router_misc.py",
+        "line": 233,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/memory/search-semantic",
+        "source": "api/router_recordings.py",
+        "line": 96,
+        "consumers": {},
+        "tests": [
+          "tests/test_conversation_memory_endpoints.py"
+        ],
+        "non_frontend_ownership": {
+          "rule_id": "operator-semantic-memory",
+          "owner": "personal-memory",
+          "audience": "operator",
+          "rationale": "Outil de diagnostic de la recherche sémantique, distinct de la recherche utilisateur standard."
+        },
+        "classification": "owned_non_frontend_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/migrations/status",
+        "source": "api/router_quality.py",
+        "line": 133,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-migrations",
+          "owner": "database-operations",
+          "audience": "operator",
+          "rationale": "Diagnostic et rattrapage contrôlé des migrations par l'exploitation."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/mobile/devices",
+        "source": "api/router_auth.py",
+        "line": 385,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/mobile/location/diagnostics",
+        "source": "api/router_location.py",
+        "line": 361,
+        "consumers": {
+          "android": [
+            "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
+          ]
+        },
+        "tests": [
+          "tests/test_name_place_location.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/mood",
+        "source": "api/router_misc.py",
+        "line": 338,
+        "consumers": {
+          "tv": [
+            "tv/server.py",
+            "tv/static/js/tv-v2.js"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/mood/signals",
+        "source": "api/router_misc.py",
+        "line": 143,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-behaviour-insights",
+          "owner": "personal-analytics",
+          "audience": "operator",
+          "rationale": "Analyses avancées exposées pour inspection, export et diagnostic, sans écran dédié."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/notifications",
+        "source": "api/router_misc.py",
+        "line": 283,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ],
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ],
+          "android": [
+            "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
+          ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift"
+          ],
+          "tv": [
+            "tv/server.py"
+          ]
+        },
+        "tests": [
+          "frontend/e2e/critical-flows.spec.ts",
+          "frontend/e2e/unified.spec.ts",
+          "tests/test_mobile_bearer_routes.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/notifications/all",
+        "source": "api/router_misc.py",
+        "line": 313,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-notification-history",
+          "owner": "notifications",
+          "audience": "operator",
+          "rationale": "Lecture exhaustive pour audit, distincte du flux utilisateur des notifications non lues."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/outputs",
+        "source": "api/router_misc.py",
+        "line": 243,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/outputs/{filepath:path}",
+        "source": "api/router_misc.py",
+        "line": 248,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/patterns",
+        "source": "api/router_misc.py",
+        "line": 388,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/people",
+        "source": "api/router_people.py",
+        "line": 62,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/people/{name}",
+        "source": "api/router_people.py",
+        "line": 67,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_timeline_generator.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/people/{name}/analytics",
+        "source": "api/router_people.py",
+        "line": 92,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_http_error_contract.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/people/{name}/description",
+        "source": "api/router_people.py",
+        "line": 296,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/people/{name}/timeline",
+        "source": "api/router_people.py",
+        "line": 120,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_timeline_generator.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/places",
+        "source": "api/router_location.py",
+        "line": 370,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ]
+        },
+        "tests": [
+          "frontend/e2e/unified.spec.ts",
+          "tests/test_place_input_contract.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/places/favorites",
+        "source": "api/router_misc.py",
+        "line": 153,
+        "consumers": {},
+        "tests": [
+          "tests/test_lot1_endpoints.py"
+        ],
+        "non_frontend_ownership": {
+          "rule_id": "operator-location-intelligence",
+          "owner": "location-intelligence",
+          "audience": "operator",
+          "rationale": "Analyses de localisation et de relations destinées à l'inspection et à l'export avancés."
+        },
+        "classification": "owned_non_frontend_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/places/missed-opportunities",
+        "source": "api/router_misc.py",
+        "line": 158,
+        "consumers": {},
+        "tests": [
+          "tests/test_lot1_endpoints.py"
+        ],
+        "non_frontend_ownership": {
+          "rule_id": "operator-location-intelligence",
+          "owner": "location-intelligence",
+          "audience": "operator",
+          "rationale": "Analyses de localisation et de relations destinées à l'inspection et à l'export avancés."
+        },
+        "classification": "owned_non_frontend_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/places/{place_id}/stats",
+        "source": "api/router_location.py",
+        "line": 415,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/predictions/messages",
+        "source": "api/router_misc.py",
+        "line": 148,
+        "consumers": {},
+        "tests": [
+          "tests/test_lot1_endpoints.py"
+        ],
+        "non_frontend_ownership": {
+          "rule_id": "operator-behaviour-insights",
+          "owner": "personal-analytics",
+          "audience": "operator",
+          "rationale": "Analyses avancées exposées pour inspection, export et diagnostic, sans écran dédié."
+        },
+        "classification": "owned_non_frontend_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/presence",
+        "source": "api/router_misc.py",
+        "line": 193,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-location-intelligence",
+          "owner": "location-intelligence",
+          "audience": "operator",
+          "rationale": "Analyses de localisation et de relations destinées à l'inspection et à l'export avancés."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/privacy/documents",
+        "source": "api/router_conversations.py",
+        "line": 64,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "frontend/e2e/critical-flows.spec.ts",
+          "frontend/src/auth-client.test.ts",
+          "tests/test_document_privacy.py",
+          "tests/test_misc_input_contracts.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/procrastination/cost",
+        "source": "api/router_misc.py",
+        "line": 168,
+        "consumers": {},
+        "tests": [
+          "tests/test_lot1_endpoints.py"
+        ],
+        "non_frontend_ownership": {
+          "rule_id": "operator-behaviour-insights",
+          "owner": "personal-analytics",
+          "audience": "operator",
+          "rationale": "Analyses avancées exposées pour inspection, export et diagnostic, sans écran dédié."
+        },
+        "classification": "owned_non_frontend_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/productivity/score",
+        "source": "api/router_misc.py",
+        "line": 138,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-behaviour-insights",
+          "owner": "personal-analytics",
+          "audience": "operator",
+          "rationale": "Analyses avancées exposées pour inspection, export et diagnostic, sans écran dédié."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/push/vapid-public-key",
+        "source": "api/router_misc.py",
+        "line": 288,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_push_endpoints.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/quality/duplicates",
+        "source": "api/router_quality.py",
+        "line": 52,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-quality-tools",
+          "owner": "quality-automation",
+          "audience": "operator",
+          "rationale": "Boîte à outils de qualité et sécurité réservée au développeur/opérateur authentifié."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/quality/security",
+        "source": "api/router_quality.py",
+        "line": 69,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-quality-tools",
+          "owner": "quality-automation",
+          "audience": "operator",
+          "rationale": "Boîte à outils de qualité et sécurité réservée au développeur/opérateur authentifié."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/recordings",
+        "source": "api/router_recordings.py",
+        "line": 25,
+        "consumers": {
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/recordings/{recording_id}",
+        "source": "api/router_recordings.py",
+        "line": 37,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/recordings/{recording_id}/speakers",
+        "source": "api/router_recordings.py",
+        "line": 58,
+        "consumers": {},
+        "tests": [
+          "tests/test_conversation_memory_endpoints.py"
+        ],
+        "non_frontend_ownership": {
+          "rule_id": "operator-recording-metadata",
+          "owner": "recordings",
+          "audience": "operator",
+          "rationale": "Correction et inspection détaillées de la diarisation d'un enregistrement."
+        },
+        "classification": "owned_non_frontend_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/recordings/{recording_id}/turns",
+        "source": "api/router_recordings.py",
+        "line": 48,
+        "consumers": {},
+        "tests": [
+          "tests/test_conversation_memory_endpoints.py"
+        ],
+        "non_frontend_ownership": {
+          "rule_id": "operator-recording-metadata",
+          "owner": "recordings",
+          "audience": "operator",
+          "rationale": "Correction et inspection détaillées de la diarisation d'un enregistrement."
+        },
+        "classification": "owned_non_frontend_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/relationship-graph",
+        "source": "api/router_misc.py",
+        "line": 418,
+        "consumers": {},
+        "tests": [
+          "tests/test_relationship_graph.py"
+        ],
+        "non_frontend_ownership": {
+          "rule_id": "operator-location-intelligence",
+          "owner": "location-intelligence",
+          "audience": "operator",
+          "rationale": "Analyses de localisation et de relations destinées à l'inspection et à l'export avancés."
+        },
+        "classification": "owned_non_frontend_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/relationship/{name}",
+        "source": "api/router_misc.py",
+        "line": 413,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/rituals/today",
+        "source": "api/router_rituals.py",
+        "line": 22,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "automation-rituals",
+          "owner": "daily-rituals",
+          "audience": "automation",
+          "rationale": "État et déclencheur manuel de rituels normalement exécutés par le scheduler."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/scheduler/jobs",
+        "source": "api/router_scheduler.py",
+        "line": 13,
+        "consumers": {
+          "frontend_vite": [
+            "web/src/app/components/views/SchedulerView.tsx"
+          ]
+        },
+        "tests": [
+          "tests/test_scheduler_status.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/scheduler/jobs/{job_id}/runs",
+        "source": "api/router_scheduler.py",
+        "line": 21,
+        "consumers": {
+          "frontend_vite": [
+            "web/src/app/components/views/SchedulerView.tsx"
+          ]
+        },
+        "tests": [
+          "tests/test_scheduler_status.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/screen-activity",
+        "source": "api/router_devices.py",
+        "line": 345,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/screen-activity/current",
+        "source": "api/router_devices.py",
+        "line": 351,
+        "consumers": {
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/search",
+        "source": "api/router_misc.py",
+        "line": 438,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/self-healing/status",
+        "source": "api/router_misc.py",
+        "line": 198,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-self-healing",
+          "owner": "self-healing",
+          "audience": "operator",
+          "rationale": "Diagnostic et état du moteur de réparation sous contrôle humain."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/settings/tts",
+        "source": "api/router_misc.py",
+        "line": 273,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/stats/compare",
+        "source": "api/router_misc.py",
+        "line": 208,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-behaviour-insights",
+          "owner": "personal-analytics",
+          "audience": "operator",
+          "rationale": "Analyses avancées exposées pour inspection, export et diagnostic, sans écran dédié."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/stats/weekly",
+        "source": "api/router_misc.py",
+        "line": 98,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "frontend/e2e/critical-flows.spec.ts",
+          "frontend/e2e/unified.spec.ts",
+          "tests/test_activity_stats.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/status",
+        "source": "api/router_misc.py",
+        "line": 93,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift"
+          ],
+          "tv": [
+            "tv/server.py",
+            "tv/static/js/tv-v2.js"
+          ]
+        },
+        "tests": [
+          "android/app/src/test/kotlin/fr/jarvis/companion/feature/diagnostics/DiagnosticsPresentationLogicTest.kt",
+          "frontend/e2e/critical-flows.spec.ts",
+          "frontend/e2e/unified.spec.ts",
+          "tests/test_audit_architecture_truth.py",
+          "tests/test_no_open_interpreter.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/tasks",
+        "source": "api/router_tasks.py",
+        "line": 24,
+        "consumers": {
+          "frontend_next": [
+            "frontend/complement_validation.cjs",
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx",
+            "web/src/app/components/views/TasksView.tsx"
+          ],
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ],
+          "android": [
+            "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
+          ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift"
+          ],
+          "tv": [
+            "tv/server.py",
+            "tv/static/js/tv-v2.js"
+          ]
+        },
+        "tests": [
+          "frontend/e2e/critical-flows.spec.ts",
+          "frontend/e2e/unified.spec.ts",
+          "tests/test_control_plane_auth.py",
+          "tests/test_mobile_bearer_routes.py",
+          "tests/test_mobile_chat.py",
+          "tests/test_task_input_contract.py",
+          "web/src/lib/offline/queue.test.ts"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/time-machine/{date}",
+        "source": "api/router_misc.py",
+        "line": 423,
+        "consumers": {},
+        "tests": [
+          "tests/test_http_error_contract.py",
+          "tests/test_time_machine.py"
+        ],
+        "non_frontend_ownership": {
+          "rule_id": "operator-location-intelligence",
+          "owner": "location-intelligence",
+          "audience": "operator",
+          "rationale": "Analyses de localisation et de relations destinées à l'inspection et à l'export avancés."
+        },
+        "classification": "owned_non_frontend_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/trips",
+        "source": "api/router_location.py",
+        "line": 452,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ]
+        },
+        "tests": [
+          "frontend/e2e/unified.spec.ts"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/visits",
+        "source": "api/router_location.py",
+        "line": 438,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "frontend/e2e/unified.spec.ts"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/visits/today",
+        "source": "api/router_location.py",
+        "line": 445,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/voice-debug",
+        "source": "api/router_daemon.py",
+        "line": 129,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/voice/metrics",
+        "source": "api/router_cognitive.py",
+        "line": 315,
+        "consumers": {
+          "frontend_vite": [
+            "web/src/app/components/views/CognitiveView.tsx"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "PATCH",
+        "path": "/api/commitments/{commitment_id}",
+        "source": "api/router_misc.py",
+        "line": 218,
+        "consumers": {},
+        "tests": [
+          "tests/test_crud_not_found.py",
+          "tests/test_insights_input_contract.py",
+          "tests/test_lot1_endpoints.py"
+        ],
+        "non_frontend_ownership": {
+          "rule_id": "operator-commitments",
+          "owner": "personal-memory",
+          "audience": "operator",
+          "rationale": "Inspection, correction et contrôle de cohérence des engagements extraits automatiquement."
+        },
+        "classification": "owned_non_frontend_and_tested"
+      },
+      {
+        "method": "PATCH",
+        "path": "/api/conversations/{conv_id}",
+        "source": "api/router_conversations.py",
+        "line": 102,
+        "consumers": {
+          "frontend_next": [
+            "frontend/complement_validation.cjs",
+            "frontend/retest_switch.cjs",
+            "frontend/src/lib/api.ts"
+          ],
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ],
+          "android": [
+            "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
+          ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift"
+          ]
+        },
+        "tests": [
+          "tests/test_crud_not_found.py",
+          "tests/test_misc_input_contracts.py",
+          "tests/test_mobile_bearer_routes.py",
+          "tests/test_mobile_chat.py",
+          "tests/test_secure_uploads.py",
+          "tests/test_web_mobile.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "PATCH",
+        "path": "/api/fitness/program",
+        "source": "app/fitness/routes.py",
+        "line": 215,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "mobile_web": [
+            "web_mobile/js/views/health.js"
+          ]
+        },
+        "tests": [
+          "tests/test_web_mobile.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "PATCH",
+        "path": "/api/fitness/program/sessions/{session_id}",
+        "source": "app/fitness/routes.py",
+        "line": 224,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "mobile_web": [
+            "web_mobile/js/views/health.js"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "PATCH",
+        "path": "/api/food/settings",
+        "source": "api/router_food.py",
+        "line": 270,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_food_control.py",
+          "tests/test_food_input_contract.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "PATCH",
+        "path": "/api/people/{name}",
+        "source": "api/router_people.py",
+        "line": 76,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_timeline_generator.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "PATCH",
+        "path": "/api/settings/tts",
+        "source": "api/router_misc.py",
+        "line": 278,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "PATCH",
+        "path": "/api/tasks/{task_id}",
+        "source": "api/router_tasks.py",
+        "line": 55,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift"
+          ]
+        },
+        "tests": [
+          "tests/test_crud_not_found.py",
+          "tests/test_task_input_contract.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/analyze-contact",
+        "source": "api/router_misc.py",
+        "line": 408,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_relationships_input_contract.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/audio-daemon/continuous",
+        "source": "api/router_daemon.py",
+        "line": 120,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/audio-daemon/start",
+        "source": "api/router_daemon.py",
+        "line": 88,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/audio-daemon/stop",
+        "source": "api/router_daemon.py",
+        "line": 100,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/audio-daemon/wake-word",
+        "source": "api/router_daemon.py",
+        "line": 111,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/auth/change-secret",
+        "source": "api/router_auth.py",
+        "line": 240,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_auth_input_contract.py",
+          "tests/test_security_middleware.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/auth/local-unlock",
+        "source": "api/router_auth.py",
+        "line": 207,
+        "consumers": {
+          "shared_auth_sdk": [
+            "jarvis_auth/src/client.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_auth_input_contract.py",
+          "tests/test_security_middleware.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/auth/logout",
+        "source": "api/router_auth.py",
+        "line": 231,
+        "consumers": {
+          "frontend_next": [
+            "frontend/complement_validation.cjs",
+            "frontend/retest_back.cjs"
+          ],
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift"
+          ],
+          "shared_auth_sdk": [
+            "jarvis_auth/src/client.ts"
+          ]
+        },
+        "tests": [
+          "frontend/src/auth-client.test.ts",
+          "tests/test_security_middleware.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/auth/sessions/{session_id}/revoke",
+        "source": "api/router_auth.py",
+        "line": 280,
+        "consumers": {
+          "frontend_next": [
+            "frontend/complement_validation.cjs",
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_crud_not_found.py",
+          "tests/test_security_middleware.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/auth/setup",
+        "source": "api/router_auth.py",
+        "line": 160,
+        "consumers": {
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift"
+          ],
+          "shared_auth_sdk": [
+            "jarvis_auth/src/client.ts"
+          ]
+        },
+        "tests": [
+          "frontend/src/auth-client.test.ts",
+          "tests/test_auth_input_contract.py",
+          "tests/test_security_middleware.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/auth/unlock",
+        "source": "api/router_auth.py",
+        "line": 179,
+        "consumers": {
+          "frontend_next": [
+            "frontend/complement_validation.cjs"
+          ],
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift"
+          ],
+          "shared_auth_sdk": [
+            "jarvis_auth/src/client.ts"
+          ]
+        },
+        "tests": [
+          "frontend/e2e/critical-flows.spec.ts",
+          "frontend/src/auth-client.test.ts",
+          "tests/conftest.py",
+          "tests/test_auth_input_contract.py",
+          "tests/test_security_middleware.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/auth/verify",
+        "source": "api/router_auth.py",
+        "line": 197,
+        "consumers": {
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ],
+          "shared_auth_sdk": [
+            "jarvis_auth/src/client.ts"
+          ]
+        },
+        "tests": [
+          "frontend/e2e/critical-flows.spec.ts",
+          "frontend/src/auth-client.test.ts",
+          "tests/test_web_mobile.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/backups/run",
+        "source": "api/router_misc.py",
+        "line": 113,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-backups",
+          "owner": "database-operations",
+          "audience": "operator",
+          "rationale": "Surface de sauvegarde et restauration réservée à l'exploitation authentifiée."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/backups/{name}/restore",
+        "source": "api/router_misc.py",
+        "line": 118,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-backups",
+          "owner": "database-operations",
+          "audience": "operator",
+          "rationale": "Surface de sauvegarde et restauration réservée à l'exploitation authentifiée."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/briefings/generate",
+        "source": "api/router_cognitive.py",
+        "line": 302,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "automation-briefing",
+          "owner": "briefings",
+          "audience": "automation",
+          "rationale": "Déclencheur manuel de secours d'un briefing normalement produit par le scheduler."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/calendar",
+        "source": "api/router_misc.py",
+        "line": 398,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ],
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ],
+          "android": [
+            "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
+          ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift"
+          ],
+          "tv": [
+            "tv/data_sources/calendar.py",
+            "tv/server.py",
+            "tv/static/js/tv-v2.js"
+          ]
+        },
+        "tests": [
+          "frontend/e2e/unified.spec.ts",
+          "tests/test_http_error_contract.py",
+          "tests/test_mobile_bearer_routes.py",
+          "tests/test_relationships_input_contract.py",
+          "tests/test_web_mobile.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/calendar/test",
+        "source": "api/router_misc.py",
+        "line": 403,
+        "consumers": {},
+        "tests": [
+          "tests/test_http_error_contract.py"
+        ],
+        "non_frontend_ownership": {
+          "rule_id": "operator-calendar-test",
+          "owner": "calendar-integration",
+          "audience": "operator",
+          "rationale": "Test explicite de l'intégration calendrier lors de la configuration ou du diagnostic."
+        },
+        "classification": "owned_non_frontend_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/cognitive/route",
+        "source": "api/router_cognitive.py",
+        "line": 111,
+        "consumers": {
+          "frontend_vite": [
+            "web/src/app/components/views/CognitiveView.tsx"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/contacts/sync",
+        "source": "api/router_misc.py",
+        "line": 433,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-contact-tools",
+          "owner": "contacts-integrations",
+          "audience": "operator",
+          "rationale": "Diagnostic de résolution et synchronisation manuelle du carnet de contacts."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/control/restart-all",
+        "source": "api/router_daemon.py",
+        "line": 196,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/control/start-all",
+        "source": "api/router_daemon.py",
+        "line": 232,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_http_error_contract.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/control/stop-all",
+        "source": "api/router_daemon.py",
+        "line": 215,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/control/{service}/restart",
+        "source": "api/router_daemon.py",
+        "line": 175,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_http_error_contract.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/control/{service}/start",
+        "source": "api/router_daemon.py",
+        "line": 157,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_control_plane_auth.py",
+          "tests/test_http_error_contract.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/control/{service}/stop",
+        "source": "api/router_daemon.py",
+        "line": 166,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_http_error_contract.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/conversations/{conv_id}/archive",
+        "source": "api/router_conversations.py",
+        "line": 119,
+        "consumers": {
+          "frontend_next": [
+            "frontend/complement_validation.cjs",
+            "frontend/src/lib/api.ts"
+          ],
+          "android": [
+            "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
+          ]
+        },
+        "tests": [
+          "tests/test_crud_not_found.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/conversations/{conv_id}/pin",
+        "source": "api/router_conversations.py",
+        "line": 127,
+        "consumers": {
+          "frontend_next": [
+            "frontend/complement_validation.cjs",
+            "frontend/src/lib/api.ts"
+          ],
+          "android": [
+            "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
+          ]
+        },
+        "tests": [
+          "tests/test_mobile_chat.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/conversations/{conv_id}/upload",
+        "source": "api/router_conversations.py",
+        "line": 138,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "frontend/src/auth-client.test.ts",
+          "tests/test_document_privacy.py",
+          "tests/test_secure_uploads.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/cursor/jobs",
+        "source": "api/router_cognitive.py",
+        "line": 205,
+        "consumers": {
+          "frontend_vite": [
+            "web/src/app/components/views/CognitiveView.tsx"
+          ]
+        },
+        "tests": [
+          "tests/test_cursor_security_hardening.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/cursor/jobs/{job_id}/cancel",
+        "source": "api/router_cognitive.py",
+        "line": 256,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-cursor-control",
+          "owner": "cursor-delegation",
+          "audience": "operator",
+          "rationale": "Commandes de contrôle humain et diagnostic du moteur de délégation Cursor."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/cursor/jobs/{job_id}/confirm",
+        "source": "api/router_cognitive.py",
+        "line": 240,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-cursor-control",
+          "owner": "cursor-delegation",
+          "audience": "operator",
+          "rationale": "Commandes de contrôle humain et diagnostic du moteur de délégation Cursor."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/cursor/jobs/{job_id}/retry",
+        "source": "api/router_cognitive.py",
+        "line": 280,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-cursor-control",
+          "owner": "cursor-delegation",
+          "audience": "operator",
+          "rationale": "Commandes de contrôle humain et diagnostic du moteur de délégation Cursor."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/cursor/jobs/{job_id}/rollback",
+        "source": "api/router_cognitive.py",
+        "line": 268,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-cursor-control",
+          "owner": "cursor-delegation",
+          "audience": "operator",
+          "rationale": "Commandes de contrôle humain et diagnostic du moteur de délégation Cursor."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/devagent/autorun",
+        "source": "api/router_devagent.py",
+        "line": 100,
+        "consumers": {},
+        "tests": [
+          "tests/test_misc_input_contracts.py"
+        ],
+        "non_frontend_ownership": {
+          "rule_id": "operator-devagent",
+          "owner": "devagent",
+          "audience": "operator",
+          "rationale": "Plan de contrôle explicite de l'agent de développement, utilisable par un opérateur ou une intégration CI."
+        },
+        "classification": "owned_non_frontend_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/devagent/start",
+        "source": "api/router_devagent.py",
+        "line": 115,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-devagent",
+          "owner": "devagent",
+          "audience": "operator",
+          "rationale": "Plan de contrôle explicite de l'agent de développement, utilisable par un opérateur ou une intégration CI."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/devagent/{project_id}/answer",
+        "source": "api/router_devagent.py",
+        "line": 132,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-devagent",
+          "owner": "devagent",
+          "audience": "operator",
+          "rationale": "Plan de contrôle explicite de l'agent de développement, utilisable par un opérateur ou une intégration CI."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/devagent/{project_id}/deploy",
+        "source": "api/router_devagent.py",
+        "line": 38,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-devagent",
+          "owner": "devagent",
+          "audience": "operator",
+          "rationale": "Plan de contrôle explicite de l'agent de développement, utilisable par un opérateur ou une intégration CI."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/devagent/{project_id}/pause",
+        "source": "api/router_devagent.py",
+        "line": 189,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-devagent",
+          "owner": "devagent",
+          "audience": "operator",
+          "rationale": "Plan de contrôle explicite de l'agent de développement, utilisable par un opérateur ou une intégration CI."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/devagent/{project_id}/pr",
+        "source": "api/router_devagent.py",
+        "line": 51,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-devagent",
+          "owner": "devagent",
+          "audience": "operator",
+          "rationale": "Plan de contrôle explicite de l'agent de développement, utilisable par un opérateur ou une intégration CI."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/devagent/{project_id}/rebase",
+        "source": "api/router_devagent.py",
+        "line": 72,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-devagent",
+          "owner": "devagent",
+          "audience": "operator",
+          "rationale": "Plan de contrôle explicite de l'agent de développement, utilisable par un opérateur ou une intégration CI."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/devagent/{project_id}/refactor",
+        "source": "api/router_devagent.py",
+        "line": 85,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-devagent",
+          "owner": "devagent",
+          "audience": "operator",
+          "rationale": "Plan de contrôle explicite de l'agent de développement, utilisable par un opérateur ou une intégration CI."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/devagent/{project_id}/run",
+        "source": "api/router_devagent.py",
+        "line": 161,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-devagent",
+          "owner": "devagent",
+          "audience": "operator",
+          "rationale": "Plan de contrôle explicite de l'agent de développement, utilisable par un opérateur ou une intégration CI."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/devices/pairing/start",
+        "source": "api/router_devices.py",
+        "line": 138,
+        "consumers": {},
+        "tests": [
+          "tests/test_mobile_pairing.py",
+          "tests/test_remote_device_pairing.py",
+          "tests/test_security_middleware.py"
+        ],
+        "non_frontend_ownership": {
+          "rule_id": "device-pairing-operations",
+          "owner": "device-management",
+          "audience": "operator",
+          "rationale": "Démarrage du pairage, révocation et rotation de jeton depuis une session opérateur authentifiée."
+        },
+        "classification": "owned_non_frontend_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/devices/register",
+        "source": "api/router_devices.py",
+        "line": 155,
+        "consumers": {},
+        "tests": [
+          "tests/test_mobile_pairing.py",
+          "tests/test_remote_device_pairing.py",
+          "tests/test_security_middleware.py"
+        ],
+        "non_frontend_ownership": {
+          "rule_id": "device-agent-protocol",
+          "owner": "device-management",
+          "audience": "device-agent",
+          "rationale": "Protocole machine-à-machine des agents desktop, authentifié par jeton device et non par frontend."
+        },
+        "classification": "owned_non_frontend_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/devices/{device_id}/activate",
+        "source": "api/router_devices.py",
+        "line": 315,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_crud_not_found.py",
+          "tests/test_security_middleware.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/devices/{device_id}/heartbeat",
+        "source": "api/router_devices.py",
+        "line": 201,
+        "consumers": {},
+        "tests": [
+          "tests/test_jarvis_agent_device_auth.py",
+          "tests/test_remote_device_pairing.py",
+          "tests/test_security_middleware.py"
+        ],
+        "non_frontend_ownership": {
+          "rule_id": "device-agent-protocol",
+          "owner": "device-management",
+          "audience": "device-agent",
+          "rationale": "Protocole machine-à-machine des agents desktop, authentifié par jeton device et non par frontend."
+        },
+        "classification": "owned_non_frontend_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/devices/{device_id}/revoke",
+        "source": "api/router_devices.py",
+        "line": 332,
+        "consumers": {},
+        "tests": [
+          "tests/test_remote_device_pairing.py"
+        ],
+        "non_frontend_ownership": {
+          "rule_id": "device-pairing-operations",
+          "owner": "device-management",
+          "audience": "operator",
+          "rationale": "Démarrage du pairage, révocation et rotation de jeton depuis une session opérateur authentifiée."
+        },
+        "classification": "owned_non_frontend_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/devices/{device_id}/screen",
+        "source": "api/router_devices.py",
+        "line": 208,
+        "consumers": {},
+        "tests": [
+          "tests/test_security_middleware.py"
+        ],
+        "non_frontend_ownership": {
+          "rule_id": "device-agent-protocol",
+          "owner": "device-management",
+          "audience": "device-agent",
+          "rationale": "Protocole machine-à-machine des agents desktop, authentifié par jeton device et non par frontend."
+        },
+        "classification": "owned_non_frontend_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/devices/{device_id}/token/rotate",
+        "source": "api/router_devices.py",
+        "line": 323,
+        "consumers": {},
+        "tests": [
+          "tests/test_remote_device_pairing.py"
+        ],
+        "non_frontend_ownership": {
+          "rule_id": "device-pairing-operations",
+          "owner": "device-management",
+          "audience": "operator",
+          "rationale": "Démarrage du pairage, révocation et rotation de jeton depuis une session opérateur authentifiée."
+        },
+        "classification": "owned_non_frontend_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/dnd",
+        "source": "api/router_rituals.py",
+        "line": 70,
+        "consumers": {},
+        "tests": [
+          "tests/test_misc_input_contracts.py"
+        ],
+        "non_frontend_ownership": {
+          "rule_id": "operator-dnd",
+          "owner": "operations",
+          "audience": "operator",
+          "rationale": "Commande manuelle du mode silence, également piloté directement par les automatisations locales."
+        },
+        "classification": "owned_non_frontend_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/email-watcher/catchup",
+        "source": "api/router_misc.py",
+        "line": 268,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-email-catchup",
+          "owner": "email-integration",
+          "audience": "operator",
+          "rationale": "Rattrapage manuel du watcher email après indisponibilité."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/fitness/advice",
+        "source": "app/fitness/routes.py",
+        "line": 254,
+        "consumers": {
+          "mobile_web": [
+            "web_mobile/js/views/health.js"
+          ]
+        },
+        "tests": [
+          "tests/test_web_mobile.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/fitness/meals",
+        "source": "app/fitness/routes.py",
+        "line": 81,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/fitness/FitnessForms.tsx"
+          ],
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ]
+        },
+        "tests": [
+          "tests/test_fitness_api.py",
+          "tests/test_fitness_meal_analysis.py",
+          "tests/test_fitness_voice.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/fitness/meals/from-photo",
+        "source": "app/fitness/routes.py",
+        "line": 100,
+        "consumers": {
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ]
+        },
+        "tests": [
+          "tests/test_fitness_meal_analysis.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/fitness/meals/from-text",
+        "source": "app/fitness/routes.py",
+        "line": 91,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ]
+        },
+        "tests": [
+          "tests/test_fitness_meal_analysis.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/fitness/water",
+        "source": "app/fitness/routes.py",
+        "line": 164,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/fitness/FitnessForms.tsx"
+          ],
+          "mobile_web": [
+            "web_mobile/js/api.js",
+            "web_mobile/js/views/health.js"
+          ]
+        },
+        "tests": [
+          "tests/test_fitness_api.py",
+          "tests/test_fitness_voice.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/fitness/weights",
+        "source": "app/fitness/routes.py",
+        "line": 262,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "mobile_web": [
+            "web_mobile/js/views/health.js"
+          ]
+        },
+        "tests": [
+          "tests/test_web_mobile.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/fitness/wellbeing",
+        "source": "app/fitness/routes.py",
+        "line": 180,
+        "consumers": {
+          "frontend_vite": [
+            "web/src/app/components/fitness/FitnessForms.tsx"
+          ],
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ]
+        },
+        "tests": [
+          "tests/test_fitness_api.py",
+          "tests/test_fitness_voice.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/fitness/workouts",
+        "source": "app/fitness/routes.py",
+        "line": 58,
+        "consumers": {
+          "frontend_vite": [
+            "web/src/app/components/fitness/FitnessForms.tsx"
+          ],
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ]
+        },
+        "tests": [
+          "tests/test_fitness_api.py",
+          "tests/test_fitness_voice.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/food/cart/prepare",
+        "source": "api/router_food.py",
+        "line": 289,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_food_control.py",
+          "tests/test_food_input_contract.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/food/cart/{plan_id}/confirm",
+        "source": "api/router_food.py",
+        "line": 313,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_food_control.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/food/delivery/refresh",
+        "source": "api/router_food.py",
+        "line": 214,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/food/menus/refresh",
+        "source": "api/router_food.py",
+        "line": 226,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_food_input_contract.py",
+          "tests/test_food_intelligence.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/food/orders/{order_id}/rating",
+        "source": "api/router_food.py",
+        "line": 193,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_food_input_contract.py",
+          "tests/test_food_intelligence.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/food/selectors/reload",
+        "source": "api/router_food.py",
+        "line": 340,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_food_control.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/food/session/capture",
+        "source": "api/router_food.py",
+        "line": 368,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_food_control.py",
+          "tests/test_food_input_contract.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/food/session/probe",
+        "source": "api/router_food.py",
+        "line": 359,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_food_control.py",
+          "tests/test_http_error_contract.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/food/settings/reset",
+        "source": "api/router_food.py",
+        "line": 280,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_food_control.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/food/suggestions/generate",
+        "source": "api/router_food.py",
+        "line": 158,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/food/suggestions/{slot}/order",
+        "source": "api/router_food.py",
+        "line": 168,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_food_input_contract.py",
+          "tests/test_food_intelligence.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/imessage-import/run",
+        "source": "api/router_misc.py",
+        "line": 128,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-imessage-import",
+          "owner": "imessage-import",
+          "audience": "operator",
+          "rationale": "Déclenchement et suivi manuels d'un import iMessage local."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/improvements/run",
+        "source": "api/router_cognitive.py",
+        "line": 337,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-improvement-engine",
+          "owner": "improvement-engine",
+          "audience": "operator",
+          "rationale": "Revue humaine des propositions et déclenchement contrôlé du moteur d'amélioration."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/jarvis-journal/generate",
+        "source": "api/router_misc.py",
+        "line": 178,
+        "consumers": {},
+        "tests": [
+          "tests/test_insights_input_contract.py",
+          "tests/test_lot1_endpoints.py"
+        ],
+        "non_frontend_ownership": {
+          "rule_id": "automation-jarvis-journal",
+          "owner": "daily-rituals",
+          "audience": "automation",
+          "rationale": "Déclencheur manuel et lecture de secours d'un journal normalement produit par le scheduler."
+        },
+        "classification": "owned_non_frontend_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/journal",
+        "source": "api/router_misc.py",
+        "line": 383,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ]
+        },
+        "tests": [
+          "tests/test_life_input_contract.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/life-context",
+        "source": "api/router_misc.py",
+        "line": 368,
+        "consumers": {},
+        "tests": [
+          "tests/test_life_context_endpoint.py",
+          "tests/test_life_input_contract.py",
+          "tests/test_security_middleware.py"
+        ],
+        "non_frontend_ownership": {
+          "rule_id": "operator-life-context",
+          "owner": "personal-memory",
+          "audience": "operator",
+          "rationale": "Administration des périodes de contexte de vie en l'absence d'un écran spécialisé."
+        },
+        "classification": "owned_non_frontend_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/life-context/{context_id}/close",
+        "source": "api/router_misc.py",
+        "line": 373,
+        "consumers": {},
+        "tests": [
+          "tests/test_life_context_endpoint.py"
+        ],
+        "non_frontend_ownership": {
+          "rule_id": "operator-life-context",
+          "owner": "personal-memory",
+          "audience": "operator",
+          "rationale": "Administration des périodes de contexte de vie en l'absence d'un écran spécialisé."
+        },
+        "classification": "owned_non_frontend_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/life-profile",
+        "source": "api/router_misc.py",
+        "line": 348,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ]
+        },
+        "tests": [
+          "tests/test_life_input_contract.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/location",
+        "source": "api/router_location.py",
+        "line": 187,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "android": [
+            "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
+          ]
+        },
+        "tests": [
+          "tests/test_location_batch.py",
+          "tests/test_location_input_contract.py",
+          "tests/test_mobile_pairing.py",
+          "tests/test_security_middleware.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/location/batch",
+        "source": "api/router_location.py",
+        "line": 218,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "android": [
+            "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
+          ]
+        },
+        "tests": [
+          "tests/test_location_batch.py",
+          "tests/test_location_input_contract.py",
+          "tests/test_name_place_location.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/location/name-current",
+        "source": "api/router_location.py",
+        "line": 466,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_place_input_contract.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/maintenance/run",
+        "source": "api/router_misc.py",
+        "line": 123,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-maintenance",
+          "owner": "database-operations",
+          "audience": "operator",
+          "rationale": "Déclenchement explicite de la maintenance SQLite par l'exploitation."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/migrations/run",
+        "source": "api/router_quality.py",
+        "line": 141,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-migrations",
+          "owner": "database-operations",
+          "audience": "operator",
+          "rationale": "Diagnostic et rattrapage contrôlé des migrations par l'exploitation."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/mission/prompt",
+        "source": "api/router_misc.py",
+        "line": 263,
+        "consumers": {
+          "frontend_vite": [
+            "web/src/pages/MissionControl.tsx"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/mobile/capabilities",
+        "source": "api/router_auth.py",
+        "line": 373,
+        "consumers": {
+          "android": [
+            "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
+          ]
+        },
+        "tests": [
+          "tests/test_mobile_auth_input_contract.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/mobile/chat",
+        "source": "api/router_mobile_chat.py",
+        "line": 79,
+        "consumers": {
+          "android": [
+            "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
+          ]
+        },
+        "tests": [
+          "tests/test_mobile_chat.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/mobile/chat/confirm",
+        "source": "api/router_mobile_chat.py",
+        "line": 149,
+        "consumers": {
+          "android": [
+            "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
+          ]
+        },
+        "tests": [
+          "tests/test_mobile_ws_bearer.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/mobile/conversations",
+        "source": "api/router_mobile_chat.py",
+        "line": 57,
+        "consumers": {
+          "android": [
+            "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
+          ]
+        },
+        "tests": [
+          "tests/test_mobile_chat.py",
+          "tests/test_mobile_ws_bearer.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/mobile/devices/{device_id}/revoke",
+        "source": "api/router_auth.py",
+        "line": 400,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_crud_not_found.py",
+          "tests/test_mobile_bearer_routes.py",
+          "tests/test_mobile_chat.py",
+          "tests/test_mobile_pairing.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/mobile/pairing/complete",
+        "source": "api/router_auth.py",
+        "line": 303,
+        "consumers": {
+          "android": [
+            "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
+          ]
+        },
+        "tests": [
+          "tests/test_location_batch.py",
+          "tests/test_mobile_auth_input_contract.py",
+          "tests/test_mobile_bearer_routes.py",
+          "tests/test_mobile_chat.py",
+          "tests/test_mobile_pairing.py",
+          "tests/test_mobile_voice.py",
+          "tests/test_mobile_ws_bearer.py",
+          "tests/test_name_place_location.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/mobile/pairing/start",
+        "source": "api/router_auth.py",
+        "line": 290,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_location_batch.py",
+          "tests/test_mobile_auth_input_contract.py",
+          "tests/test_mobile_bearer_routes.py",
+          "tests/test_mobile_chat.py",
+          "tests/test_mobile_pairing.py",
+          "tests/test_mobile_voice.py",
+          "tests/test_mobile_ws_bearer.py",
+          "tests/test_name_place_location.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/mobile/push-token",
+        "source": "api/router_auth.py",
+        "line": 362,
+        "consumers": {
+          "android": [
+            "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
+          ]
+        },
+        "tests": [
+          "tests/test_mobile_auth_input_contract.py",
+          "tests/test_mobile_pairing.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/mobile/session",
+        "source": "api/router_auth.py",
+        "line": 345,
+        "consumers": {
+          "android": [
+            "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
+          ]
+        },
+        "tests": [
+          "tests/test_mobile_pairing.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/mobile/voice/turn",
+        "source": "api/router_mobile_voice.py",
+        "line": 19,
+        "consumers": {
+          "android": [
+            "android/app/src/main/kotlin/fr/jarvis/companion/voice/VoiceRepository.kt"
+          ]
+        },
+        "tests": [
+          "tests/test_mobile_voice.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/notifications/read-all",
+        "source": "api/router_misc.py",
+        "line": 323,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/notifications/{notif_id}/read",
+        "source": "api/router_misc.py",
+        "line": 318,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift"
+          ]
+        },
+        "tests": [
+          "tests/test_crud_not_found.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/people",
+        "source": "api/router_people.py",
+        "line": 346,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/people/{name}/ask",
+        "source": "api/router_people.py",
+        "line": 356,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/people/{name}/description/refresh",
+        "source": "api/router_people.py",
+        "line": 322,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/people/{name}/remind",
+        "source": "api/router_people.py",
+        "line": 274,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/people/{name}/send",
+        "source": "api/router_people.py",
+        "line": 175,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_http_error_contract.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/people/{name}/suggest-message",
+        "source": "api/router_people.py",
+        "line": 208,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/people/{name}/timeline/regenerate",
+        "source": "api/router_people.py",
+        "line": 153,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/places",
+        "source": "api/router_location.py",
+        "line": 377,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx"
+          ]
+        },
+        "tests": [
+          "frontend/e2e/unified.spec.ts",
+          "tests/test_place_input_contract.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/push/subscribe",
+        "source": "api/router_misc.py",
+        "line": 293,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_push_endpoints.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/push/unsubscribe",
+        "source": "api/router_misc.py",
+        "line": 298,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_push_endpoints.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/quality/ci/install-hook",
+        "source": "api/router_quality.py",
+        "line": 22,
+        "consumers": {},
+        "tests": [
+          "tests/test_quality_mutation_policy.py"
+        ],
+        "non_frontend_ownership": {
+          "rule_id": "operator-quality-tools",
+          "owner": "quality-automation",
+          "audience": "operator",
+          "rationale": "Boîte à outils de qualité et sécurité réservée au développeur/opérateur authentifié."
+        },
+        "classification": "owned_non_frontend_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/quality/ci/run",
+        "source": "api/router_quality.py",
+        "line": 14,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-quality-tools",
+          "owner": "quality-automation",
+          "audience": "operator",
+          "rationale": "Boîte à outils de qualité et sécurité réservée au développeur/opérateur authentifié."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/quality/duplicates/scan",
+        "source": "api/router_quality.py",
+        "line": 60,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-quality-tools",
+          "owner": "quality-automation",
+          "audience": "operator",
+          "rationale": "Boîte à outils de qualité et sécurité réservée au développeur/opérateur authentifié."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/quality/security/scan",
+        "source": "api/router_quality.py",
+        "line": 77,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-quality-tools",
+          "owner": "quality-automation",
+          "audience": "operator",
+          "rationale": "Boîte à outils de qualité et sécurité réservée au développeur/opérateur authentifié."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/quality/security/{finding_id}/fix",
+        "source": "api/router_quality.py",
+        "line": 85,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-quality-tools",
+          "owner": "quality-automation",
+          "audience": "operator",
+          "rationale": "Boîte à outils de qualité et sécurité réservée au développeur/opérateur authentifié."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/quality/tests/generate",
+        "source": "api/router_quality.py",
+        "line": 115,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-quality-tools",
+          "owner": "quality-automation",
+          "audience": "operator",
+          "rationale": "Boîte à outils de qualité et sécurité réservée au développeur/opérateur authentifié."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/recordings/{recording_id}/speakers/{label}/assign",
+        "source": "api/router_recordings.py",
+        "line": 68,
+        "consumers": {},
+        "tests": [
+          "tests/test_conversation_memory_endpoints.py"
+        ],
+        "non_frontend_ownership": {
+          "rule_id": "operator-recording-metadata",
+          "owner": "recordings",
+          "audience": "operator",
+          "rationale": "Correction et inspection détaillées de la diarisation d'un enregistrement."
+        },
+        "classification": "owned_non_frontend_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/rituals/{ritual}/run",
+        "source": "api/router_rituals.py",
+        "line": 40,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "automation-rituals",
+          "owner": "daily-rituals",
+          "audience": "automation",
+          "rationale": "État et déclencheur manuel de rituels normalement exécutés par le scheduler."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/scheduler/jobs/{job_id}/run",
+        "source": "api/router_scheduler.py",
+        "line": 36,
+        "consumers": {
+          "frontend_vite": [
+            "web/src/app/components/views/SchedulerView.tsx"
+          ]
+        },
+        "tests": [
+          "tests/test_scheduler_status.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/self-healing/diagnose",
+        "source": "api/router_misc.py",
+        "line": 203,
+        "consumers": {},
+        "tests": [
+          "tests/test_insights_input_contract.py"
+        ],
+        "non_frontend_ownership": {
+          "rule_id": "operator-self-healing",
+          "owner": "self-healing",
+          "audience": "operator",
+          "rationale": "Diagnostic et état du moteur de réparation sous contrôle humain."
+        },
+        "classification": "owned_non_frontend_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/tasks",
+        "source": "api/router_tasks.py",
+        "line": 34,
+        "consumers": {
+          "frontend_next": [
+            "frontend/complement_validation.cjs",
+            "frontend/src/lib/api.ts"
+          ],
+          "frontend_vite": [
+            "web/src/app/components/views/MonitoringView.tsx",
+            "web/src/app/components/views/TasksView.tsx"
+          ],
+          "mobile_web": [
+            "web_mobile/js/api.js"
+          ],
+          "android": [
+            "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
+          ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift"
+          ],
+          "tv": [
+            "tv/server.py",
+            "tv/static/js/tv-v2.js"
+          ]
+        },
+        "tests": [
+          "frontend/e2e/critical-flows.spec.ts",
+          "frontend/e2e/unified.spec.ts",
+          "tests/test_control_plane_auth.py",
+          "tests/test_mobile_bearer_routes.py",
+          "tests/test_mobile_chat.py",
+          "tests/test_task_input_contract.py",
+          "web/src/lib/offline/queue.test.ts"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/upload",
+        "source": "api/router_misc.py",
+        "line": 238,
+        "consumers": {
+          "frontend_next": [
+            "frontend/public/sw.js",
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_document_privacy.py",
+          "tests/test_phase4_route_contract.py",
+          "tests/test_secure_uploads.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "PUT",
+        "path": "/api/fitness/sessions/{session_id}/progress",
+        "source": "app/fitness/routes.py",
+        "line": 235,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ],
+          "mobile_web": [
+            "web_mobile/js/views/health.js"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "PUT",
+        "path": "/api/life-profile/{entry_id}",
+        "source": "api/router_misc.py",
+        "line": 353,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_crud_not_found.py",
+          "tests/test_life_input_contract.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "PUT",
+        "path": "/api/places/{place_id}",
+        "source": "api/router_location.py",
+        "line": 393,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_crud_not_found.py",
+          "tests/test_lot1_endpoints.py",
+          "tests/test_place_input_contract.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "PUT",
+        "path": "/api/privacy/documents",
+        "source": "api/router_conversations.py",
+        "line": 70,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "frontend/e2e/critical-flows.spec.ts",
+          "frontend/src/auth-client.test.ts",
+          "tests/test_document_privacy.py",
+          "tests/test_misc_input_contracts.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "WEBSOCKET",
+        "path": "/ws",
+        "source": "main.py",
+        "line": 117,
+        "consumers": {
+          "frontend_next": [
+            "frontend/public/sw.js"
+          ],
+          "frontend_vite": [
+            "web/src/services/websocket.ts"
+          ],
+          "mobile_web": [
+            "web_mobile/js/ws.js"
+          ],
+          "android": [
+            "android/app/src/main/kotlin/fr/jarvis/companion/core/network/JarvisChatWebSocket.kt"
+          ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift"
+          ],
+          "tv": [
+            "tv/config.py"
+          ]
+        },
+        "tests": [
+          "android/app/src/test/kotlin/fr/jarvis/companion/core/network/JarvisChatWebSocketTest.kt",
+          "frontend/e2e/critical-flows.spec.ts",
+          "tests/test_audit_architecture_truth.py",
+          "tests/test_mobile_ws_bearer.py",
+          "tests/test_no_open_interpreter.py",
+          "tests/test_phase4_route_contract.py",
+          "tests/test_runtime_degradation.py",
+          "tests/test_security_middleware.py",
+          "tests/test_supervisor_frontend.py",
+          "tests/test_ws_tv_events.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "WEBSOCKET",
+        "path": "/ws/tv/events",
+        "source": "main.py",
+        "line": 120,
+        "consumers": {
+          "tv": [
+            "tv/config.py"
+          ]
+        },
+        "tests": [
+          "tests/test_runtime_degradation.py",
+          "tests/test_ws_tv_events.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      }
+    ]
+  },
+  "documentation_findings": [],
   "source_of_truth_doc": "Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md"
 }

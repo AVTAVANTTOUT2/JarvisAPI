@@ -33,7 +33,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import fr.jarvis.companion.app.appContainer
-import fr.jarvis.companion.core.JarvisFeatureFlags
 import fr.jarvis.companion.core.connectivity.ConnectivityState
 import fr.jarvis.companion.core.location.CaptureCadenceMode
 import fr.jarvis.companion.core.ui.components.ErrorCallout
@@ -283,21 +282,13 @@ fun LocationScreen(modifier: Modifier = Modifier) {
         // TODO(JARVIS-FUTURE-LIVE-MAP): brancher la carte live quand l'API mobile sera validée.
         JarvisComingSoonCard(
             title = "Carte live",
-            description = if (JarvisFeatureFlags.LIVE_MAP) {
-                "Activation en cours — disponibilité côté mobile en validation."
-            } else {
-                "Affichage live des zones visitées bientôt disponible."
-            },
+            description = "Affichage live des zones visitées bientôt disponible.",
         )
 
         // TODO(JARVIS-FUTURE-TRIPS-HISTORY): brancher l'historique de trajets détaillé.
         JarvisComingSoonCard(
             title = "Historique des trajets",
-            description = if (JarvisFeatureFlags.TRIPS_HISTORY) {
-                "Activation en cours — consolidation des trajets en préparation."
-            } else {
-                "Consulte bientôt les trajets consolidés et leur durée."
-            },
+            description = "Consulte bientôt les trajets consolidés et leur durée.",
         )
 
         state.message?.let { msg ->

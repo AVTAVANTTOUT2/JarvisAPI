@@ -1,5 +1,9 @@
 # 03 — Audit Technique
 
+> **Audit historique de juillet 2026.** Les états de migration décrits dans ce
+> rapport ne remplacent pas la vérité runtime générée dans
+> `Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md`.
+
 **Date initiale** : 11 juillet 2026
 **Dernière mise à jour** : 14 juillet 2026
 
@@ -9,8 +13,10 @@
 
 | Aspect | Évaluation | Note |
 |---|---|---|
-| Taille | ✅ `main.py` 175 lignes | Tous les modules `api/*.py` restent à 500 lignes ou moins |
-| Routes | ✅ 174 opérations HTTP + 1 WebSocket | Réparties dans exactement 12 `APIRouter`; 157 chemins OpenAPI |
+Structure API canonique : **259 opérations HTTP + 2 WebSockets**, **230 chemins OpenAPI**, **17 routeurs api/router_*.py + Fitness = 18 montés**, main.py **211 lignes**.
+
+| Taille | ✅ `main.py` 211 lignes | Tous les modules `api/*.py` restent à 500 lignes ou moins |
+| Routes | ✅ 259 opérations HTTP + 2 WebSockets | Réparties dans 18 `APIRouter` montés ; 230 chemins OpenAPI |
 | Responsabilités | ✅ Assemblage séparé | Routeurs, WS, pipeline, frontend, auth, middleware et lifespan isolés |
 | Imports | ✅ Dépendances distribuées | Aucun module `api/` n'importe `main.py` |
 | Middleware | ✅ Correct | CORS configuré, security_middleware fonctionnel |
@@ -351,4 +357,4 @@ L'état initial (7 197 lignes, 40+ responsabilités et 42 imports concentrés)
 
 ### 7.3 Event Bus — état après Phase 3
 
-Le bus est actif avec 10 contrats de domaine immuables, un checksum SHA-256 et trois consommateurs réels. Les handlers sont exécutés concurremment et l'échec de l'un n'interrompt pas les autres. Le journal `event_log` rend chaque événement auditable et idempotent par `event_id`; le rejeu automatique reste une capacité future. La PWA invalide les requêtes notifications et tâches via SSE, sans polling périodique sur ces vues.
+Le bus est actif avec 10 contrats de domaine immuables, un checksum SHA-256 et trois consommateurs réels. Les handlers sont exécutés concurremment et l'échec de l'un n'interrompt pas les autres. Le journal `event_log` rend chaque événement auditable et idempotent par `event_id`. Le flux SSE utilise désormais l'identifiant SQLite monotone comme champ `id`, honore `Last-Event-ID` et reprend depuis ce journal après reconnexion ou redémarrage. Il ne crée aucune file mémoire par client. Un retard supérieur à 1 000 événements produit `stream.reset`, annonce le nombre de lignes sautées et reprend sur la fenêtre récente ; Mission Control vide alors sa vue avant le rejeu. Le journal reste un flux d'observabilité/reprise SSE, pas un outbox de retraitement métier.

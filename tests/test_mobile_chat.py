@@ -122,6 +122,43 @@ def test_mobile_chat_unknown_conversation_404(tmp_db):
     assert response.status_code == 404
 
 
+def test_mobile_chat_bodies_are_strict_and_forbid_unknown_fields(tmp_db):
+    with _client() as client:
+        authenticate(client)
+        token = _pair(client)
+        client.cookies.clear()
+        headers = {"Authorization": f"Bearer {token}"}
+
+        coerced_title = client.post(
+            "/api/mobile/conversations",
+            headers=headers,
+            json={"title": 123},
+        )
+        coerced_content = client.post(
+            "/api/mobile/chat",
+            headers=headers,
+            json={"content": 123},
+        )
+        unknown = client.post(
+            "/api/mobile/chat",
+            headers=headers,
+            json={"content": "Bonjour", "debug": True},
+        )
+
+    assert coerced_title.status_code == 422
+    assert coerced_content.status_code == 422
+    assert unknown.status_code == 422
+
+
+def test_mobile_chat_auth_precedes_body_validation(tmp_db):
+    with _client() as client:
+        authenticate(client)
+        client.cookies.clear()
+        response = client.post("/api/mobile/chat", json={"content": 123})
+
+    assert response.status_code == 401
+
+
 def test_bearer_can_pin_and_rename_conversation(tmp_db):
     with _client() as client:
         authenticate(client)

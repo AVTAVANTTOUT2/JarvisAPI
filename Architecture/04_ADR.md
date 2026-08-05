@@ -1,5 +1,8 @@
 # 04 — Architecture Decision Records
 
+> Les sections « problème » et alternatives conservent le contexte historique.
+> L'état runtime courant est inventorié dans `Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md`.
+
 **Date** : 11 juillet 2026
 **Total** : 10 ADR
 
@@ -111,12 +114,12 @@
 **Problème** : 40+ responsabilités et l'ensemble des routes dans un seul fichier.
 
 **Solutions** :
-- A. Routeurs APIRouter FastAPI par domaine — 12 routeurs. main.py → ~200 lignes.
+- A. Routeurs APIRouter FastAPI par domaine — assemblage sous 500 lignes.
 - B. Extraction progressive (1 domaine/semaine) — trop lent.
 
 **Recommandation** : Solution A. Extraction mécanique, groupe par groupe. Effort : 3 jours.
 
-**Statut** : Implémenté et validé le 14 juillet 2026. `main.py` est réduit à 175 lignes ; exactement 12 modules `api/router_*.py` exposent des `APIRouter`, tous les modules `api/` restent à 500 lignes ou moins et aucun n'importe `main.py`. Les 174 opérations HTTP, le WebSocket `/ws` et les 157 chemins OpenAPI sont inchangés. Preuves : `tests/test_phase4_route_contract.py`, `tests/test_phase4_architecture.py`, suite complète à 548 passants et 1 ignoré.
+**Statut** : Implémenté et validé le 14 juillet 2026, puis étendu. `main.py` reste sous 500 lignes ; 17 modules `api/router_*.py` exposent des `APIRouter` et Fitness fournit le 18e routeur monté. Tous les modules `api/` restent à 500 lignes ou moins et aucun n'importe `main.py`. Le contrat courant (259 opérations HTTP, 2 WebSockets, 230 chemins OpenAPI) est verrouillé par `tests/test_phase4_route_contract.py`, `tests/test_phase4_architecture.py` et l'inventaire généré.
 
 ---
 
@@ -159,6 +162,6 @@
 | 005 | Event bus à usage minimal | ✅ 10 événements + 3 consommateurs | Fait | ADR-009 |
 | 006 | 25+ lecteurs chat.db | AppleDataService | 3j | ADR-002 |
 | 007 | Deux frontends | ✅ App Next.js unifiée et fallbacks | Fait | ADR-001 |
-| 008 | main.py monolithe | ✅ 12 routeurs par domaine, `main.py` 175 lignes | Fait | ADR-009 |
+| 008 | main.py monolithe | ✅ 18 routeurs montés, `main.py` sous 500 lignes | Fait | ADR-009 |
 | 009 | database god object | Modules par domaine | 1j | Aucun |
 | 010 | Cycle main↔daemon | pipeline.py | 4h | Aucun |

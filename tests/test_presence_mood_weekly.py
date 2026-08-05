@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -13,15 +13,13 @@ import pytest
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-import config  # noqa: E402
-
-
 @pytest.fixture
 def tmp_db(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     db_path = tmp_path / "test_jarvis.db"
     monkeypatch.setattr("config.DB_PATH", str(db_path))
     monkeypatch.setattr("database.DB_PATH", db_path)
     monkeypatch.setattr("config.RITUALS_TTS", False)
+    monkeypatch.setattr("config.TIMEZONE", "UTC")
     from database import init_db
 
     init_db()
@@ -36,7 +34,11 @@ def test_presence_arrival_then_departure_after_timeout(tmp_db, monkeypatch):
     monkeypatch.setattr("config.PRESENCE_ENABLED", True)
     monkeypatch.setattr("config.PRESENCE_TIMEOUT_MIN", 60)
     det = PresenceDetector()
-    t0 = datetime.now().timestamp()
+    # Milieu de journée UTC : les sauts artificiels du test restent dans la
+    # même journée civile et ne dépendent pas de l'heure réelle de la CI.
+    t0 = datetime.now(timezone.utc).replace(
+        hour=10, minute=0, second=0, microsecond=0
+    ).timestamp()
 
     # premier son → arrivée (une seule fois)
     assert det.on_sound(t0) == "arrived"
@@ -99,13 +101,14 @@ def _seed_messages(conn, day: str, count: int, role: str = "user"):
 
 def test_mood_signal_deviation_and_flags(tmp_db):
     from database import get_db, get_mood_signals
+    from database.time_buckets import local_datetime
     from scripts.rituals import compute_mood_signal
 
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = local_datetime().date().isoformat()
     with get_db() as conn:
         # 14 jours d'historique à ~10 messages/jour
         for d in range(1, 15):
-            day = (datetime.now().date() - timedelta(days=d)).isoformat()
+            day = (local_datetime().date() - timedelta(days=d)).isoformat()
             _seed_messages(conn, day, 10)
         # aujourd'hui : 20 messages (+100 %) + activité nocturne
         _seed_messages(conn, today, 20)
@@ -137,9 +140,10 @@ def test_mood_signal_deviation_and_flags(tmp_db):
 
 def test_mood_signal_quiet_day_no_flags(tmp_db):
     from database import get_db, get_unread_notifications
+    from database.time_buckets import local_datetime
     from scripts.rituals import compute_mood_signal
 
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = local_datetime().date().isoformat()
     with get_db() as conn:
         _seed_messages(conn, today, 3)  # pas d'historique → pas de déviation
 
@@ -151,12 +155,13 @@ def test_mood_signal_quiet_day_no_flags(tmp_db):
 
 def test_mood_signal_silence_flag(tmp_db):
     from database import get_db
+    from database.time_buckets import local_datetime
     from scripts.rituals import compute_mood_signal
 
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = local_datetime().date().isoformat()
     with get_db() as conn:
         for d in range(1, 15):
-            day = (datetime.now().date() - timedelta(days=d)).isoformat()
+            day = (local_datetime().date() - timedelta(days=d)).isoformat()
             _seed_messages(conn, day, 10)
         _seed_messages(conn, today, 2)  # -80 %
 
@@ -169,9 +174,10 @@ def test_mood_signal_silence_flag(tmp_db):
 @pytest.mark.asyncio
 async def test_weekly_debrief_stores_and_notifies(tmp_db):
     from database import get_daily_ritual, get_db, get_unread_notifications
+    from database.time_buckets import local_datetime, sqlite_utc_timestamp
     from scripts import rituals
 
-    today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    today = sqlite_utc_timestamp()
     with get_db() as conn:
         conn.execute(
             "INSERT INTO tasks (title, status, completed_at) VALUES ('dossier BTS', 'done', ?)",
@@ -183,7 +189,7 @@ async def test_weekly_debrief_stores_and_notifies(tmp_db):
 
     assert r["weekly_debrief"].startswith("Semaine correcte")
     assert r["score"] == 58  # 50 + 8×1
-    row = get_daily_ritual(datetime.now().strftime("%Y-%m-%d"))
+    row = get_daily_ritual(local_datetime().date().isoformat())
     assert row["weekly_debrief"] == r["weekly_debrief"]
     assert any(n["title"] == "Debrief de la semaine" for n in get_unread_notifications(10))
 

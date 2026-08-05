@@ -78,9 +78,26 @@ async def test_school_agent_preserves_open_app_action():
 
 @pytest.mark.asyncio
 async def test_voice_confirmation_consumes_pending_action_without_llm(monkeypatch):
+    """Un « oui » vocal consomme le plan en attente et l'exécute une seule fois.
+
+    Cette propriété était vérifiée sur ``_maybe_execute_pending_voice_action``,
+    un raccourci propre à la pile vocale. L'unification du moteur l'a retiré du
+    chemin d'exécution : la confirmation est désormais consommée par le moteur
+    canonique, avant toute construction de contexte. Le test vise donc le
+    chemin réellement emprunté — viser l'ancien laissait une fonction morte
+    sous couverture, la forme la plus trompeuse de dette, puisque la propriété
+    semblait tenue alors que plus personne n'exécutait ce code.
+
+    Le moteur unifié fait une passe de reformulation pour les types listés dans
+    ``ACTIONS_WITH_FOLLOWUP``, dont ``terminal``. Elle est doublée ici : la suite
+    standard est hors ligne et ne doit jamais transformer une connexion refusée
+    puis avalée par le chemin de repli en faux test vert. Reste ce qui compte
+    réellement : le plan serveur est consommé et exécuté exactement une fois,
+    avec ``confirmed``.
+    """
     import api.chat_actions as chat_actions
     from api.action_confirmations import reset_pending_proposals_for_tests
-    from api.voice_support import _maybe_execute_pending_voice_action
+    from api.chat_processing import _process_message_internal
 
     reset_pending_proposals_for_tests()
     chat_actions._maybe_store_pending_proposal(
@@ -89,24 +106,44 @@ async def test_voice_confirmation_consumes_pending_action_without_llm(monkeypatc
         confirmation_session_id="voice:test",
     )
     execute = AsyncMock(return_value={"ok": True, "output": "done"})
+    followup = AsyncMock(return_value={
+        "response": "Action exécutée.",
+        "emotion": "neutral",
+        "agent": "orchestrator",
+        "model": "test-double",
+        "tokens_in": 0,
+        "tokens_out": 0,
+        "cost": 0.0,
+    })
 
-    with patch("actions.execute_action", execute), patch(
-        "api.voice_support._save_voice_messages"
+    with (
+        patch("api.chat_processing.execute_action", execute),
+        patch("api.chat_processing.orchestrator.handle", followup),
+        patch("api.chat_processing.save_message"),
+        patch("api.chat_processing.update_conversation_activity"),
     ):
-        result = await _maybe_execute_pending_voice_action(
+        result = await _process_message_internal(
             "oui",
             7,
-            started_at=0.0,
+            voice_mode=True,
+            confirmation_session_id="voice:test",
+        )
+        # Le plan est à usage unique : un second « oui » ne doit rien réexécuter.
+        again = await _process_message_internal(
+            "oui",
+            7,
+            voice_mode=True,
             confirmation_session_id="voice:test",
         )
 
-    assert result is not None
-    assert result["debug_trace"]["model"] == "pending_confirmation"
     execute.assert_awaited_once_with({
         "type": "terminal",
         "shell_plan_id": "server-plan",
         "confirmed": True,
     })
+    assert result["action_result"] == {"ok": True, "output": "done"}
+    assert execute.await_count == 1, "un plan confirmé ne se rejoue pas"
+    assert again["action_result"] != {"ok": True, "output": "done"}
 
 
 def test_computer_patterns_route_open_app_to_productivity():
@@ -175,19 +212,24 @@ async def test_voice_json_example_outside_action_fence_is_never_executed():
 
     raw = 'Exemple seulement : {"type":"open_app","name":"Calculator"}'
     execute = AsyncMock(return_value={"ok": True})
+    canonical = AsyncMock(return_value={
+        "response": raw,
+        "agent": "info",
+        "model": "deepseek-v4-flash",
+        "tokens_in": 1,
+        "tokens_out": 1,
+        "cost": 0.0,
+        "emotion": "neutral",
+    })
     with patch(
         "api.voice_cognitive.maybe_handle_cognitive_voice",
         AsyncMock(return_value=None),
     ), patch(
-        "api.voice_processing.llm.chat",
-        AsyncMock(return_value={
-            "content": raw,
-            "tokens_in": 1,
-            "tokens_out": 1,
-            "cost": 0.0,
-        }),
+        "api.chat_processing.orchestrator.handle", canonical,
     ), patch(
-        "api.voice_processing.execute_action", execute,
+        "api.chat_processing.execute_action", execute,
+    ), patch(
+        "api.chat_processing._build_enriched_context", AsyncMock(return_value={}),
     ), patch(
         "api.voice_fastpath._save_voice_messages",
     ), patch(
@@ -199,4 +241,5 @@ async def test_voice_json_example_outside_action_fence_is_never_executed():
 
     assert result["action"] is None
     assert result["text"] == raw
+    canonical.assert_awaited_once()
     execute.assert_not_awaited()

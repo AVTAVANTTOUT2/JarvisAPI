@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from typing import Any
 
 import config
 from actions import execute_action
@@ -30,11 +31,26 @@ from database import save_message, update_conversation_activity
 logger = logging.getLogger("jarvis")
 
 
+def _mark_voice_trace(trace: Any | None, event_name: str, **fields: Any) -> None:
+    """Instrumente un tour vocal sans coupler le moteur aux transports."""
+    if trace is None:
+        return
+    try:
+        from audio import voice_latency as vl
+
+        trace.mark(getattr(vl, event_name), **fields)
+    except Exception:
+        logger.debug("[internal] trace vocale ignorée", exc_info=True)
+
+
 async def _process_message_internal(
     text: str,
     conversation_id: int,
     voice_mode: bool = False,
     confirmation_session_id: str | None = None,
+    *,
+    persist_assistant: bool = True,
+    trace: Any | None = None,
 ) -> dict:
     """Pipeline JARVIS sans WebSocket — pour les endpoints REST (journal, contacts, etc.).
 
@@ -42,9 +58,15 @@ async def _process_message_internal(
     exécute les actions avec 2e passe si nécessaire, sauvegarde le message assistant.
 
     Retourne {text, emotion, action, action_result, agent, model, cost}.
+
+    ``persist_assistant=False`` est réservé à l'adaptateur vocal natif : il
+    permet à celui-ci d'écrire le couple user/assistant hors de la boucle
+    asyncio, sans dupliquer le moteur de tour ni ajouter SQLite à la latence
+    micro-vers-enceinte.
     """
     try:
         confirmation_session_id = confirmation_session_id or f"internal:{conversation_id}"
+        empty_response_cause: str | None = None
         jarvis_patterns = (
             "noté, monsieur",
             "ajouté à l'agenda",
@@ -127,11 +149,22 @@ async def _process_message_internal(
             confirmation_session_id,
         )
         if confirmed_action is not None:
+            _mark_voice_trace(
+                trace,
+                "ACTION_STARTED",
+                action_type=confirmed_action.get("type") or "?",
+            )
             try:
                 action_result = await execute_action(confirmed_action)
             except Exception as e:
                 logger.exception("[internal-pending] execute_action : %s", e)
                 action_result = {"ok": False, "message": str(e)}
+            _mark_voice_trace(
+                trace,
+                "ACTION_COMPLETED",
+                action_type=confirmed_action.get("type") or "?",
+                ok=bool(action_result.get("ok")),
+            )
 
             display_text = str(action_result.get("message", "Action exécutée."))
             emotion = "neutral"
@@ -169,17 +202,18 @@ async def _process_message_internal(
                 r'```(?:json|action|save)\s*\{[\s\S]*?\}\s*```', '', display_text
             ).strip() or display_text
 
-            try:
-                save_message(
-                    conversation_id, "assistant", display_text,
-                    agent=final_meta.get("agent"),
-                    model=final_meta.get("model"),
-                    tokens_in=final_meta.get("tokens_in", 0),
-                    tokens_out=final_meta.get("tokens_out", 0),
-                    cost=final_meta.get("cost", 0.0),
-                )
-            except Exception as e:
-                logger.error("[internal-pending] save assistant : %s", e)
+            if persist_assistant:
+                try:
+                    save_message(
+                        conversation_id, "assistant", display_text,
+                        agent=final_meta.get("agent"),
+                        model=final_meta.get("model"),
+                        tokens_in=final_meta.get("tokens_in", 0),
+                        tokens_out=final_meta.get("tokens_out", 0),
+                        cost=final_meta.get("cost", 0.0),
+                    )
+                except Exception as e:
+                    logger.error("[internal-pending] save assistant : %s", e)
 
             return {
                 "text": display_text,
@@ -191,7 +225,9 @@ async def _process_message_internal(
                 "cost": float(final_meta.get("cost") or 0.0),
             }
 
+        _mark_voice_trace(trace, "CONTEXT_BUILD_STARTED")
         context = await _build_enriched_context(text, conversation_id)
+        _mark_voice_trace(trace, "CONTEXT_BUILD_COMPLETED")
 
         if voice_mode:
             context["voice_mode"] = True
@@ -201,8 +237,18 @@ async def _process_message_internal(
         if "documents_context" in context:
             text = context.pop("documents_context") + "\n\n" + text
 
+        llm_model = config.DEEPSEEK_FAST_MODEL if voice_mode else None
+        _mark_voice_trace(trace, "LLM_QUEUE_ENTERED", model=llm_model)
+        _mark_voice_trace(trace, "LLM_REQUEST_STARTED", model=llm_model, pass_index=1)
         result = await orchestrator.handle(
             text, conversation_id=conversation_id, voice_mode=voice_mode, context=context
+        )
+        _mark_voice_trace(
+            trace,
+            "LLM_COMPLETED",
+            model=result.get("model") or llm_model,
+            pass_index=1,
+            text_chars=len(result.get("response") or ""),
         )
         full_response = result.get("response", "")
         emotion_raw, _ = extract_leading_emotion(full_response)
@@ -216,6 +262,11 @@ async def _process_message_internal(
         action_for_client = action
 
         if action:
+            _mark_voice_trace(
+                trace,
+                "ACTION_STARTED",
+                action_type=action.get("type") or "?",
+            )
             _schedule_llm_log(
                 agent=str(result.get("agent") or "orchestrator"),
                 action_type=str(action.get("type") or "unknown"),
@@ -318,23 +369,56 @@ async def _process_message_internal(
                     except Exception as e:
                         logger.exception("[internal-followup] %s", e)
 
+            _mark_voice_trace(
+                trace,
+                "ACTION_COMPLETED",
+                action_type=action.get("type") or "?",
+                ok=bool(action_result and action_result.get("ok")),
+            )
+
         # Nettoyage final
+        raw_display_text = str(display_text or "")
         display_text = re.sub(r'```(?:json|action|save)\s*\{[\s\S]*?\}\s*```', '', display_text).strip()
         display_text = re.sub(r'^\s*\[\w+\]\s*\n?', '', display_text).strip()
         if not display_text:
-            display_text = "Bien noté."
-
-        try:
-            save_message(
-                conversation_id, "assistant", display_text,
-                agent=final_meta.get("agent"),
-                model=final_meta.get("model"),
-                tokens_in=final_meta.get("tokens_in", 0),
-                tokens_out=final_meta.get("tokens_out", 0),
-                cost=final_meta.get("cost", 0.0),
+            # Reponse vide : dire ce qui s'est passe, pas autre chose.
+            #
+            # « Bien noté. » prétend avoir compris et enregistré quelque chose
+            # alors que le moteur n'a rien produit. C'est le même défaut que
+            # « Je n'ai pas compris » côté vocal, en pire : l'un accuse à tort
+            # la compréhension de l'utilisateur, l'autre lui fait croire que sa
+            # demande est prise en compte. Les deux envoyaient chercher la cause
+            # au mauvais endroit, pendant qu'elle restait invisible.
+            #
+            # Deux causes distinctes produisent ce vide, et les confondre
+            # empêche de diagnostiquer :
+            #   - le modele ne renvoie aucun contenu (reseau, quota, coupure) ;
+            #   - il ne renvoie *que* le tag [emotion], que le parseur retire.
+            cause = "aucun_contenu" if not raw_display_text.strip() else "tag_emotion_seul"
+            tokens_out = int(final_meta.get("tokens_out") or 0)
+            logger.warning(
+                "[internal] Reponse vide (%s) — agent=%s tokens_out=%d raw_chars=%d : "
+                "le modele n'a rien produit, la demande de l'utilisateur n'est pas en cause",
+                cause,
+                final_meta.get("agent"),
+                tokens_out,
+                len(raw_display_text.strip()),
             )
-        except Exception as e:
-            logger.error("[internal] save assistant message : %s", e)
+            empty_response_cause = cause
+            display_text = "Je n'ai pas obtenu de reponse, Monsieur."
+
+        if persist_assistant:
+            try:
+                save_message(
+                    conversation_id, "assistant", display_text,
+                    agent=final_meta.get("agent"),
+                    model=final_meta.get("model"),
+                    tokens_in=final_meta.get("tokens_in", 0),
+                    tokens_out=final_meta.get("tokens_out", 0),
+                    cost=final_meta.get("cost", 0.0),
+                )
+            except Exception as e:
+                logger.error("[internal] save assistant message : %s", e)
 
         try:
             update_conversation_activity(conversation_id)
@@ -351,6 +435,9 @@ async def _process_message_internal(
             "agent": final_meta.get("agent"),
             "model": final_meta.get("model"),
             "cost": float(final_meta.get("cost") or 0.0),
+            # Remonté jusqu'aux traces vocales : sans lui, un tour muet est
+            # indiscernable d'un tour normal dans le journal de debug.
+            "empty_response_cause": empty_response_cause,
         }
     except Exception as e:
         logger.exception("[_process_message_internal] %s", e)

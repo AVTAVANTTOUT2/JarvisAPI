@@ -3,7 +3,8 @@
 import asyncio
 import json
 import logging
-from typing import AsyncGenerator, Callable
+from collections.abc import AsyncGenerator, Callable
+from typing import Any
 
 import httpx
 
@@ -47,7 +48,12 @@ def _check_api_key() -> None:
         )
 
 
-def estimate_cost(model: str, tokens_in: int, tokens_out: int, cache_hit: int = 0) -> float:
+def estimate_cost(
+    model: str,
+    tokens_in: int,
+    tokens_out: int,
+    cache_hit: int = 0,
+) -> float:
     """Calcule le coût estimé en dollars pour un appel LLM.
 
     Args:
@@ -60,10 +66,66 @@ def estimate_cost(model: str, tokens_in: int, tokens_out: int, cache_hit: int = 
         Coût total estimé en dollars (float).
     """
     costs = MODEL_COSTS.get(model, (3.0, 15.0, 0.3))
-    input_cost = (tokens_in - cache_hit) * costs[0] / 1_000_000
-    cache_cost = cache_hit * costs[2] / 1_000_000
-    output_cost = tokens_out * costs[1] / 1_000_000
+    safe_tokens_in = max(int(tokens_in), 0)
+    safe_tokens_out = max(int(tokens_out), 0)
+    safe_cache_hit = min(max(int(cache_hit), 0), safe_tokens_in)
+    input_cost = (safe_tokens_in - safe_cache_hit) * costs[0] / 1_000_000
+    cache_cost = safe_cache_hit * costs[2] / 1_000_000
+    output_cost = safe_tokens_out * costs[1] / 1_000_000
     return input_cost + cache_cost + output_cost
+
+
+def _estimated_tokens(content: Any) -> int:
+    """Estimation non nulle pour un contenu non vide (~4 caractères/token)."""
+    if isinstance(content, str):
+        length = len(content)
+    else:
+        try:
+            length = len(json.dumps(content, ensure_ascii=False))
+        except (TypeError, ValueError):
+            length = len(str(content))
+    return (length + 3) // 4 if length else 0
+
+
+def _stream_usage_summary(
+    *,
+    model: str,
+    api_messages: list[dict],
+    content: str,
+    usage: dict,
+    stop_reason: str | None,
+) -> dict:
+    """Normalise l'usage final d'un flux, avec repli mesuré champ par champ."""
+    tokens_in = max(int(usage.get("prompt_tokens") or 0), 0)
+    tokens_out = max(int(usage.get("completion_tokens") or 0), 0)
+    cache_hit = max(int(usage.get("prompt_cache_hit_tokens") or 0), 0)
+    estimated = False
+
+    if not tokens_in:
+        estimated = True
+        tokens_in = sum(
+            _estimated_tokens(message.get("content")) for message in api_messages
+        )
+    if content and not tokens_out:
+        estimated = True
+        tokens_out = _estimated_tokens(content)
+
+    if estimated:
+        logger.warning(
+            "[llm] usage incomplet du flux %s — coût estimé depuis la longueur",
+            model,
+        )
+
+    cache_hit = min(cache_hit, tokens_in)
+    return {
+        "tokens_in": tokens_in,
+        "tokens_out": tokens_out,
+        "cache_hit": cache_hit,
+        "cost": estimate_cost(model, tokens_in, tokens_out, cache_hit),
+        "model": model,
+        "stop_reason": stop_reason,
+        "usage_estimated": estimated,
+    }
 
 
 async def chat(
@@ -88,7 +150,8 @@ async def chat(
         use_cache: Ignoré — conservé pour compatibilité ascendante.
 
     Returns:
-        dict avec clés: content, tokens_in, tokens_out, cache_hit, cost, model, stop_reason.
+        dict avec clés: content, tokens_in, tokens_out, cache_hit, cost, model,
+        stop_reason.
     """
     model = model or config.DEEPSEEK_MAIN_MODEL
 
@@ -166,8 +229,9 @@ async def chat_stream(
     system: str = "",
     max_tokens: int = 4096,
     temperature: float = 0.7,
+    on_usage: Callable[[dict], None] | None = None,
 ) -> AsyncGenerator[str, None]:
-    """Appel DeepSeek API en streaming SSE via httpx. Yield chaque chunk de texte.
+    """Appel DeepSeek API en streaming SSE avec comptabilité finale obligatoire.
 
     Args:
         messages: Liste de messages au format [{"role": "user", "content": "..."}, ...].
@@ -175,6 +239,8 @@ async def chat_stream(
         system: System prompt optionnel.
         max_tokens: Nombre maximum de tokens à générer.
         temperature: Température d'échantillonnage.
+        on_usage: Callback appelé une fois le flux épuisé avec compteurs/coût exacts
+            ou explicitement estimés lorsque le fournisseur omet ``usage``.
 
     Yields:
         str: Chunk de texte généré par le modèle.
@@ -197,10 +263,14 @@ async def chat_stream(
         "max_tokens": max_tokens,
         "temperature": temperature,
         "stream": True,
+        "stream_options": {"include_usage": True},
     }
 
     _check_api_key()
     client = _get_http_client()
+    parts: list[str] = []
+    usage: dict = {}
+    stop_reason: str | None = None
     async with client.stream("POST", url, json=payload, headers=headers) as response:
         response.raise_for_status()
         async for line in response.aiter_lines():
@@ -211,12 +281,33 @@ async def chat_stream(
                 break
             try:
                 data = json.loads(data_str)
-                delta = data.get("choices", [{}])[0].get("delta", {})
+                if data.get("usage"):
+                    usage = data["usage"]
+                choices = data.get("choices") or []
+                if not choices:
+                    continue
+                if choices[0].get("finish_reason"):
+                    stop_reason = choices[0]["finish_reason"]
+                delta = choices[0].get("delta") or {}
                 chunk_content = delta.get("content", "")
                 if chunk_content:
+                    parts.append(chunk_content)
                     yield chunk_content
             except json.JSONDecodeError:
                 continue
+
+    summary = _stream_usage_summary(
+        model=model,
+        api_messages=api_messages,
+        content="".join(parts),
+        usage=usage,
+        stop_reason=stop_reason,
+    )
+    if on_usage is not None:
+        try:
+            on_usage(summary)
+        except Exception:
+            logger.exception("[llm] callback de comptabilité streaming en échec")
 
 
 async def chat_stream_collect(
@@ -295,28 +386,15 @@ async def chat_stream_collect(
                 parts.append(chunk_content)
 
     content = "".join(parts)
-    tokens_in = int(usage.get("prompt_tokens") or 0)
-    tokens_out = int(usage.get("completion_tokens") or 0)
-    cache_hit = int(usage.get("prompt_cache_hit_tokens") or 0)
-    estimated = False
-    if not tokens_in and not tokens_out:
-        # Repli grossier mais explicite : ~4 caractères par token.
-        estimated = True
-        tokens_in = sum(len(m.get("content") or "") for m in api_messages) // 4
-        tokens_out = len(content) // 4
-        logger.warning(
-            "[llm] usage absent du flux %s — coût estimé depuis la longueur", model,
-        )
-
     return {
         "content": content,
-        "tokens_in": tokens_in,
-        "tokens_out": tokens_out,
-        "cache_hit": cache_hit,
-        "cost": estimate_cost(model, tokens_in, tokens_out, cache_hit),
-        "model": model,
-        "stop_reason": stop_reason,
-        "usage_estimated": estimated,
+        **_stream_usage_summary(
+            model=model,
+            api_messages=api_messages,
+            content=content,
+            usage=usage,
+            stop_reason=stop_reason,
+        ),
     }
 
 
@@ -337,7 +415,11 @@ async def quick_classify(text: str, categories: list[str], model: str = None) ->
     response = await chat(
         messages=[{"role": "user", "content": text}],
         model=model,
-        system=f"Classifie ce message dans UNE seule catégorie parmi : {cats}. Réponds UNIQUEMENT avec le nom de la catégorie en majuscules, rien d'autre.",
+        system=(
+            f"Classifie ce message dans UNE seule catégorie parmi : {cats}. "
+            "Réponds UNIQUEMENT avec le nom de la catégorie en majuscules, "
+            "rien d'autre."
+        ),
         max_tokens=20,
         temperature=0.0,
     )

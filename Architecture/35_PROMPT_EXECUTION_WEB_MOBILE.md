@@ -1,5 +1,8 @@
 # Prompt d'exécution — `web_mobile/`
 
+> **ARCHIVÉ — NE PAS RÉEXÉCUTER.** Ce prompt décrit la migration déjà livrée et
+> conserve volontairement des chemins supprimés comme preuves historiques.
+
 Brief autonome. L'exécutant n'a accès à aucune conversation préalable : tout ce
 qui est nécessaire est ici ou dans le cahier des charges référencé.
 

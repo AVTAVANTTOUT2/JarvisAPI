@@ -1,6 +1,6 @@
 import { fireEvent, screen, waitFor } from '@testing-library/dom'
-import { act, render } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { act, cleanup, render } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { LockGate, type AuthClient, type AuthStatus } from '@jarvis/auth'
 
@@ -25,6 +25,29 @@ function fakeClient(statuses: AuthStatus[]): AuthClient {
     logout: vi.fn(async () => ({ ok: true })),
   } as unknown as AuthClient
 }
+
+const storageValues = new Map<string, string>()
+const localStorageMock: Storage = {
+  get length() { return storageValues.size },
+  clear: () => storageValues.clear(),
+  getItem: (key) => storageValues.get(key) ?? null,
+  key: (index) => [...storageValues.keys()][index] ?? null,
+  removeItem: (key) => { storageValues.delete(key) },
+  setItem: (key, value) => { storageValues.set(key, String(value)) },
+}
+
+beforeEach(() => {
+  Object.defineProperty(window, 'localStorage', {
+    configurable: true,
+    value: localStorageMock,
+  })
+  localStorageMock.clear()
+})
+
+afterEach(() => {
+  cleanup()
+  window.localStorage.clear()
+})
 
 describe('shared LockGate', () => {
   it('fails closed when the server status cannot be verified', async () => {
@@ -145,5 +168,30 @@ describe('shared LockGate', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('keeps an auto-lock closed across reload and verifies the secret before remounting', async () => {
+    window.localStorage.setItem('jarvis:soft-lock', '1')
+    const authenticated = { ...lockedStatus, authenticated: true }
+    const client = fakeClient([authenticated])
+
+    render(
+      <LockGate client={client}>
+        <div>Données privées</div>
+      </LockGate>,
+    )
+
+    expect(await screen.findByText('Application verrouillée')).toBeInTheDocument()
+    expect(screen.queryByText('Données privées')).not.toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('Code de déverrouillage'), {
+      target: { value: 'correct-secret' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Déverrouiller' }))
+
+    await waitFor(() => expect(screen.getByText('Données privées')).toBeInTheDocument())
+    expect(client.verify).toHaveBeenCalledWith('correct-secret')
+    expect(client.unlock).not.toHaveBeenCalled()
+    expect(window.localStorage.getItem('jarvis:soft-lock')).toBeNull()
   })
 })

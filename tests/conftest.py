@@ -87,6 +87,16 @@ def _isolate_app_lifespan(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(scheduler_module, "shutdown_scheduler", lambda: None)
     monkeypatch.setattr(email_watcher, "start", _noop_start)
     monkeypatch.setattr(email_watcher, "stop", lambda: None)
+    monkeypatch.setattr("api.lifespan._calendar_subprocess_run", lambda *_a, **_k: None)
+
+
+@pytest.fixture(autouse=True)
+async def _drain_event_bus_consumers():
+    """Ne ferme jamais une boucle de test avec des consommateurs encore actifs."""
+    yield
+    from jarvis.event_bus import event_bus
+
+    await event_bus.wait_until_idle()
 
 
 def authenticate(client):

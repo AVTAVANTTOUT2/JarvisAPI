@@ -1,7 +1,7 @@
 ---
 id: voice_pipeline
-version: 2.0.0
-date: 2026-07-16
+version: 2.1.0
+date: 2026-08-04
 domain: voice
 variables: user_request,acceptance_criteria,required_tests,context_files,extra_context,repo_rules,result_format,date,template_version
 ---
@@ -14,7 +14,7 @@ variables: user_request,acceptance_criteria,required_tests,context_files,extra_c
 # Contexte
 Date: {{date}}
 Template version: {{template_version}}
-Pipeline vocal JARVIS, sensible à la latence de bout en bout : `api/voice_processing.py` (`_process_voice_fast`, réponses immédiates DeepSeek Flash) ; `api/voice_cognitive.py` (préambule cognitif : routage cursor / briefing / heavy, ack vocal immédiat puis suivi en arrière-plan) ; `audio/stt_daemon.py` (façade STT locale multi-moteurs) ; `audio/tts.py` (TTS Edge/local, streaming). Chaque échange trace ses latences segment par segment dans la table `voice_debug_log` (STT, route, LLM pass1/pass2, TTS, total).
+Pipeline vocal JARVIS, sensible à la latence de bout en bout : `api/voice_processing.py` (`_process_voice_fast`, adaptateur de fast-paths et de latence) ; `api/chat_processing.py` (moteur canonique unique pour contexte, LLM, confirmations, actions et suivi) ; `api/voice_cognitive.py` (préambule cognitif : routage cursor / briefing / heavy, ack vocal immédiat puis suivi en arrière-plan) ; `audio/stt_daemon.py` (façade STT locale multi-moteurs) ; `jarvis/audio/tts/` (TTS Qwen3 local, streaming). Chaque échange trace ses latences segment par segment dans la table `voice_debug_log` (STT, route, tour conversationnel, TTS, total).
 
 Contexte JARVIS :
 {{extra_context}}
@@ -22,10 +22,10 @@ Contexte JARVIS :
 # Symptômes / preuve disponible
 - Point de départ obligatoire : les traces `voice_debug_log` (lecture via `database.get_voice_debug_logs()` ou export `scripts/export_voice_debug.py`) — identifie le segment fautif (STT ? routage ? LLM ? TTS ?) avant de toucher au code.
 - Reproduis sur le chemin réel : un texte injecté dans le pipeline (sans micro) suffit pour la logique ; ne conclus rien sur la latence sans mesure tracée.
-- Vérifie l'architecture avant modification : il existe UN pipeline vocal (préambule cognitif → `_process_voice_fast` → TTS) ; toute divergence constatée entre `api/mobile_voice_service.py`, `api/ws_handsfree.py` et le pipeline principal doit être signalée, pas aggravée.
+- Vérifie l'architecture avant modification : il existe UN moteur de tour (`_process_message_internal`) enveloppé par l'adaptateur voix (`_process_voice_fast`) ; toute logique de prompt, d'action ou de seconde passe ajoutée à l'adaptateur est interdite.
 
 # Périmètre
-- Modifications à l'intérieur du pipeline existant : préambule dans `api/voice_cognitive.py`, réponse rapide dans `api/voice_processing.py`, moteurs dans `audio/`.
+- Modifications à l'intérieur du pipeline existant : préambule dans `api/voice_cognitive.py`, orchestration dans `api/chat_processing.py`, adaptation/latence dans `api/voice_processing.py`, moteurs dans `audio/` et `jarvis/audio/tts/`.
 - Toute nouvelle étape DOIT tracer sa latence dans `voice_debug_log` (compléter `build_voice_debug_trace` si un champ manque).
 - Préserver l'anti-écho : binaire ignoré tant que `is_speaking`/`is_processing`, buffers micro vidés quand JARVIS parle — tout changement du cycle écoute/parole doit maintenir ces invariants.
 
@@ -36,11 +36,11 @@ Contexte JARVIS :
 
 # Fichiers probables
 {{context_files}}
-- `api/voice_processing.py` (_process_voice_fast), `api/voice_cognitive.py` (préambule cursor/briefing/heavy), `api/ws_handsfree.py` (session mains libres), `api/mobile_voice_service.py` (chemin mobile), `audio/stt_daemon.py`, `audio/tts.py`, `audio/vad_*.py` ; traces : `database/devops.py` (voice_debug_log).
+- `api/voice_processing.py` (_process_voice_fast), `api/chat_processing.py` (moteur canonique), `api/voice_cognitive.py` (préambule cursor/briefing/heavy), `api/ws_handsfree.py` (session mains libres), `api/mobile_voice_service.py` (chemin mobile), `audio/stt_daemon.py`, `jarvis/audio/tts/`, `audio/vad_*.py` ; traces : `database/devops.py` (voice_debug_log).
 
 # Règles d'architecture
 {{repo_rules}}
-- Le routage cognitif (`jarvis/cognitive/router.py`) décide Flash/Main/Cursor ; le pipeline vocal ne court-circuite pas ce routage.
+- Le routage cognitif (`jarvis/cognitive/router.py`) décide Flash/Main/Cursor ; l'adaptateur vocal ne court-circuite pas ce routage et ne parse jamais un bloc action.
 
 # Critères d'acceptation
 {{acceptance_criteria}}

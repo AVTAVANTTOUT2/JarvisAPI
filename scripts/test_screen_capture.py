@@ -25,6 +25,9 @@ from pathlib import Path
 # Ajouter la racine du projet au path pour les imports internes
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+# Diagnostic matériel autonome, volontairement hors de la collecte pytest.
+__test__ = False
+
 
 def green(text: str) -> str:
     return f"\033[32m{text}\033[0m"

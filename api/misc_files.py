@@ -6,12 +6,12 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-import fitz
 from fastapi import HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
 import config
 from database import save_school_document
+from jarvis.pdf_runtime import pymupdf
 from jarvis.uploads import (
     SCHOOL_EXTENSIONS,
     UploadRejected,
@@ -34,9 +34,8 @@ def _extract_text_from_upload(filepath: Path) -> tuple[str, str]:
 
     if ext in PDF_EXT:
         try:
-            doc = fitz.open(str(filepath))
-            text = "\n\n".join(page.get_text() for page in doc)
-            doc.close()
+            with pymupdf.open(str(filepath)) as doc:
+                text = "\n\n".join(page.get_text() for page in doc)
             return text.strip(), "cours"
         except Exception as e:
             logger.error(f"Erreur extraction PDF {filepath.name} : {e}")
@@ -59,7 +58,7 @@ def _extract_text_from_upload(filepath: Path) -> tuple[str, str]:
 async def upload(file: UploadFile):
     """Upload d'un document scolaire.
 
-    - PDF : extraction texte via pymupdf (`fitz`)
+    - PDF : extraction texte via PyMuPDF
     - .txt / .md : lecture directe
     - images : sauvegarde brute (OCR à venir)
 

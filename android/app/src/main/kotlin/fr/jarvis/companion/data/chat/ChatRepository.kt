@@ -48,7 +48,7 @@ class ChatRepository(
     private val repository: JarvisRepository,
     private val webSocket: JarvisChatWebSocket,
     private val gson: Gson = Gson(),
-) : ChatWebSocketListener {
+) : ChatWebSocketListener, ChatResponseSyncApplier {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val streamMutex = Mutex()
     private var streamLocalId: Long? = null
@@ -358,7 +358,7 @@ class ChatRepository(
         }
     }
 
-    suspend fun applyHttpChatResponse(
+    override suspend fun applyHttpChatResponse(
         conversationLocalId: Long,
         userMessageLocalId: Long,
         clientRequestId: String,

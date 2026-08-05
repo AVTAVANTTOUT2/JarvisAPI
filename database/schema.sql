@@ -1,397 +1,56 @@
-|-- SNAPSHOT HISTORIQUE — NE PAS UTILISER COMME SCHÉMA D'EXÉCUTION.
-|-- init_db() exécute database/schema.py + database/migrations.py (+ DevAgent).
-|-- Ce dump comptait ~44 tables applicatives ; le runtime crée 70 persistantes
-|-- (+ jusqu'à 5 objets FTS5 → 75). Voir Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md.
-|--
-CREATE TABLE episodes (
+-- GENERATED FILE — DO NOT EDIT.
+-- Source: database/schema.py + database/migrations.py + database/devagent.py.
+-- Regenerate: python tools/audit_architecture_truth.py --schema-output database/schema.sql
+-- This artifact is not executed by init_db(); it mirrors a fresh runtime schema.
+
+CREATE TABLE agentic_workflows (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    agent TEXT NOT NULL,
-    content TEXT NOT NULL,
-    summary TEXT,
-    importance INTEGER DEFAULT 5 CHECK(importance BETWEEN 1 AND 10),
-    tags TEXT,                   -- JSON array
-    embedding BLOB,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-CREATE TABLE sqlite_sequence(name,seq);
-CREATE TABLE conversations (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    conversation_id INTEGER NOT NULL REFERENCES conversations(id),
+    user_message TEXT NOT NULL,
+    steps_json TEXT NOT NULL,
+    final_synthesis TEXT,
+    status TEXT DEFAULT 'running' CHECK(status IN ('running','completed','failed','partial')),
     started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    ended_at DATETIME,
-    agent TEXT,
-    summary TEXT,
-    mood_start INTEGER,
-    mood_end INTEGER
-, title TEXT, pinned BOOLEAN DEFAULT 0, archived BOOLEAN DEFAULT 0, tags TEXT, last_message_at DATETIME, message_count INTEGER DEFAULT 0);
-CREATE TABLE messages (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    conversation_id INTEGER REFERENCES conversations(id),
-    role TEXT NOT NULL CHECK(role IN ('user', 'assistant', 'system')),
-    content TEXT NOT NULL,
-    agent TEXT,
-    model TEXT,
-    tokens_in INTEGER,
-    tokens_out INTEGER,
-    cost REAL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    completed_at DATETIME,
+    total_steps INTEGER DEFAULT 0,
+    total_output_chars INTEGER DEFAULT 0
 );
-CREATE TABLE life_profile (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    category TEXT NOT NULL,       -- values, goals, fears, patterns, strengths
-    content TEXT NOT NULL,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+
+CREATE TABLE app_settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
 );
-CREATE TABLE people (
+
+CREATE TABLE app_usage (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE,
-    relationship TEXT,
-    personality_notes TEXT,
-    dynamics TEXT,
-    patterns TEXT,
-    last_mentioned DATETIME,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-, ai_description TEXT, imessage_count INTEGER DEFAULT 0, timeline_cache TEXT, timeline_updated_at DATETIME);
-CREATE TABLE people_events (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    person_id INTEGER REFERENCES people(id) ON DELETE CASCADE,
-    event_type TEXT,
-    content TEXT NOT NULL,
-    lesson_learned TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-CREATE TABLE mood_log (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    mood_score INTEGER CHECK(mood_score BETWEEN 1 AND 10),
-    energy_level INTEGER CHECK(energy_level BETWEEN 1 AND 10),
-    context TEXT,
-    triggers TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-CREATE TABLE patterns (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    pattern_type TEXT,
-    description TEXT NOT NULL,
-    occurrences INTEGER DEFAULT 1,
-    first_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
-    last_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
-    status TEXT DEFAULT 'active' CHECK(status IN ('active', 'resolved', 'monitoring'))
-);
-CREATE TABLE school_subjects (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE,
-    teacher TEXT,
-    schedule TEXT,
-    notes TEXT
-);
-CREATE TABLE school_documents (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    subject_id INTEGER REFERENCES school_subjects(id),
-    title TEXT NOT NULL,
-    content TEXT,
-    doc_type TEXT,
-    file_path TEXT,
-    embedding BLOB,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-CREATE TABLE school_flashcards (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    subject_id INTEGER REFERENCES school_subjects(id),
-    question TEXT NOT NULL,
-    answer TEXT NOT NULL,
-    next_review DATETIME DEFAULT CURRENT_TIMESTAMP,
-    ease_factor REAL DEFAULT 2.5,
-    interval_days INTEGER DEFAULT 1,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-CREATE TABLE tasks (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    title TEXT NOT NULL,
-    description TEXT,
-    priority TEXT DEFAULT 'medium' CHECK(priority IN ('high', 'medium', 'low')),
-    status TEXT DEFAULT 'todo' CHECK(status IN ('todo', 'doing', 'done')),
-    due_date DATETIME,
-    category TEXT,
+    device TEXT NOT NULL DEFAULT 'mac_mini',
+    app TEXT NOT NULL,
+    date DATE NOT NULL,
+    duration_seconds INTEGER DEFAULT 0,
+    session_count INTEGER DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    completed_at DATETIME
+    UNIQUE(device, app, date)
 );
-CREATE TABLE email_summaries (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    gmail_id TEXT UNIQUE,
-    sender TEXT,
-    subject TEXT,
-    summary TEXT,
-    action_needed BOOLEAN DEFAULT 0,
-    priority TEXT,
-    processed_at DATETIME DEFAULT CURRENT_TIMESTAMP
-, body TEXT DEFAULT '', received_at TEXT DEFAULT '', category TEXT DEFAULT 'info', is_read INTEGER DEFAULT 0, created_at TEXT DEFAULT '');
-CREATE TABLE daily_briefings (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    date DATE UNIQUE,
-    morning_briefing TEXT,
-    evening_summary TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-CREATE TABLE food_orders (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    plan_id TEXT,
-    restaurant TEXT NOT NULL,
-    items_json TEXT NOT NULL,
-    total_price REAL CHECK(total_price IS NULL OR total_price >= 0),
-    currency TEXT NOT NULL DEFAULT 'EUR',
-    dry_run INTEGER NOT NULL DEFAULT 1 CHECK(dry_run IN (0, 1)),
-    status TEXT NOT NULL CHECK(
-        status IN ('planned', 'simulated', 'placed', 'blocked', 'failed')
-    ),
-    error TEXT,
-    screenshot_path TEXT,
-    delivery_status TEXT CHECK(
-        delivery_status IS NULL OR delivery_status IN (
-            'placed', 'preparing', 'picked_up', 'on_the_way', 'delivered', 'cancelled'
-        )
-    ),
-    eta_minutes INTEGER CHECK(eta_minutes IS NULL OR eta_minutes >= 0),
-    delivered_at DATETIME,
-    tracking_url TEXT,
-    rating INTEGER CHECK(rating IS NULL OR rating BETWEEN 1 AND 5),
-    suggestion_id INTEGER REFERENCES food_suggestions(id) ON DELETE SET NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX idx_food_orders_created ON food_orders(created_at DESC);
-CREATE INDEX idx_food_orders_status_created ON food_orders(status, created_at DESC);
-CREATE UNIQUE INDEX idx_food_orders_placed_plan
-    ON food_orders(plan_id) WHERE status = 'placed' AND plan_id IS NOT NULL;
-CREATE INDEX idx_food_orders_delivery
-    ON food_orders(delivery_status) WHERE delivery_status IS NOT NULL;
-CREATE TABLE food_menu_cache (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    restaurant TEXT NOT NULL,
-    item_name TEXT NOT NULL,
-    category TEXT,
-    price REAL CHECK(price IS NULL OR price >= 0),
-    currency TEXT NOT NULL DEFAULT 'EUR',
-    cuisine_type TEXT,
-    available INTEGER NOT NULL DEFAULT 1 CHECK(available IN (0, 1)),
-    scraped_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(restaurant, item_name)
-);
-CREATE INDEX idx_food_menu_restaurant ON food_menu_cache(restaurant, available);
-CREATE TABLE food_preferences (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    key TEXT UNIQUE NOT NULL,
-    value TEXT NOT NULL,
-    confidence REAL NOT NULL DEFAULT 0.5
-        CHECK(confidence >= 0.0 AND confidence <= 1.0),
-    sample_size INTEGER NOT NULL DEFAULT 0 CHECK(sample_size >= 0),
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-CREATE TABLE food_suggestions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    slot INTEGER NOT NULL CHECK(slot >= 1),
-    restaurant TEXT NOT NULL,
-    items_json TEXT NOT NULL,
-    estimated_price REAL CHECK(estimated_price IS NULL OR estimated_price >= 0),
-    max_price REAL CHECK(max_price IS NULL OR max_price >= 0),
-    currency TEXT NOT NULL DEFAULT 'EUR',
-    reasoning TEXT,
-    score REAL NOT NULL DEFAULT 0.0,
-    factors_json TEXT,
-    generated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    expires_at DATETIME,
-    ordered INTEGER NOT NULL DEFAULT 0 CHECK(ordered IN (0, 1))
-);
-CREATE INDEX idx_food_suggestions_active
-    ON food_suggestions(ordered, expires_at, slot);
-CREATE TABLE weekly_summaries (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    week_start DATE,
-    summary TEXT,
-    patterns_spotted TEXT,
-    recommendations TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX idx_episodes_agent ON episodes(agent);
-CREATE INDEX idx_episodes_created ON episodes(created_at);
-CREATE INDEX idx_messages_conv ON messages(conversation_id);
-CREATE INDEX idx_messages_created ON messages(created_at);
-CREATE INDEX idx_people_name ON people(name);
-CREATE INDEX idx_mood_created ON mood_log(created_at);
-CREATE INDEX idx_tasks_status ON tasks(status);
-CREATE INDEX idx_flashcards_review ON school_flashcards(next_review);
-CREATE TABLE notifications (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    source TEXT NOT NULL,          -- email, pattern, calendar, system…
-    title TEXT NOT NULL,
-    content TEXT,
-    priority TEXT DEFAULT 'medium' CHECK(priority IN ('urgent', 'high', 'medium', 'low')),
-    read BOOLEAN DEFAULT 0,
-    email_id TEXT,                 -- lien vers gmail_id si source=email
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX idx_notif_read ON notifications(read);
-CREATE INDEX idx_notif_created ON notifications(created_at);
-CREATE INDEX idx_email_summaries_gmail ON email_summaries(gmail_id);
-CREATE TABLE user_facts (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    category TEXT NOT NULL,
-    content TEXT NOT NULL,
-    source TEXT NOT NULL DEFAULT 'conversation',
-    confidence TEXT DEFAULT 'medium',
-    is_current BOOLEAN DEFAULT 1,
-    superseded_by INTEGER REFERENCES user_facts(id),
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX idx_facts_category ON user_facts(category);
-CREATE INDEX idx_facts_current ON user_facts(is_current);
-CREATE TABLE relationship_profiles (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    person_id INTEGER REFERENCES people(id) ON DELETE CASCADE,
-    handle TEXT,
-    communication_style TEXT,
-    response_pattern TEXT,
-    topics TEXT,
-    sentiment TEXT,
-    power_dynamic TEXT,
-    attachment_style TEXT,
-    trust_level TEXT,
-    interaction_frequency TEXT,
-    last_analyzed DATETIME,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX idx_relprofile_person ON relationship_profiles(person_id);
-CREATE TABLE relationship_events (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    person_id INTEGER REFERENCES people(id) ON DELETE CASCADE,
-    event_date DATE,
-    event_type TEXT,
-    summary TEXT NOT NULL,
-    impact_on_user TEXT,
-    lessons TEXT,
-    source TEXT DEFAULT 'imessage',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX idx_relevents_person ON relationship_events(person_id);
-CREATE INDEX idx_relevents_date ON relationship_events(event_date);
-CREATE TABLE cross_insights (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    insight_type TEXT,
-    content TEXT NOT NULL,
-    people_involved TEXT,
-    evidence TEXT,
-    actionable TEXT,
-    occurrences INTEGER DEFAULT 1,
-    first_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
-    last_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
-    status TEXT DEFAULT 'active'
-);
-CREATE INDEX idx_crossinsights_type ON cross_insights(insight_type);
-CREATE TABLE life_context (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    period_start DATE,
-    period_end DATE,
-    context_type TEXT,
-    description TEXT NOT NULL,
-    impact_on_mood TEXT,
-    impact_on_productivity TEXT,
-    active BOOLEAN DEFAULT 1,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX idx_lifecontext_active ON life_context(active);
-CREATE TABLE imessage_analysis_cache (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    handle TEXT NOT NULL,
-    last_analyzed_rowid INTEGER DEFAULT 0,
-    last_analyzed_at DATETIME,
-    total_messages_analyzed INTEGER DEFAULT 0
-);
-CREATE UNIQUE INDEX idx_imcache_handle ON imessage_analysis_cache(handle);
-CREATE TABLE recordings (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    conversation_id INTEGER REFERENCES conversations(id),
-    label TEXT,
-    title TEXT,
-    duration_seconds INTEGER,
-    transcription TEXT,
-    summary TEXT,
-    synthesis TEXT,
-    actions_taken TEXT,
-    audio_size_kb INTEGER,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX idx_recordings_date ON recordings(created_at);
-CREATE TABLE places (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    category TEXT CHECK(category IN (
-        'home', 'school', 'work', 'gym', 'restaurant', 'shop',
-        'friend', 'family', 'medical', 'transport', 'leisure', 'other'
-    )),
-    latitude REAL NOT NULL,
-    longitude REAL NOT NULL,
-    radius_meters REAL DEFAULT 100,
-    address TEXT,
-    notes TEXT,
-    visit_count INTEGER DEFAULT 0,
-    avg_duration_min REAL,
-    last_visit DATETIME,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX idx_places_name ON places(name);
-CREATE INDEX idx_places_category ON places(category);
-CREATE TABLE location_history (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    latitude REAL NOT NULL,
-    longitude REAL NOT NULL,
-    altitude REAL,
-    accuracy REAL,
-    speed REAL,
-    heading REAL,
-    source TEXT DEFAULT 'app',
-    place_id INTEGER REFERENCES places(id),
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX idx_location_date ON location_history(created_at);
-CREATE INDEX idx_location_place ON location_history(place_id);
-CREATE TABLE visits (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    place_id INTEGER NOT NULL REFERENCES places(id),
-    arrived_at DATETIME NOT NULL,
-    departed_at DATETIME,
-    duration_min REAL,
-    day_of_week INTEGER,
-    notes TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX idx_visits_place ON visits(place_id);
-CREATE INDEX idx_visits_date ON visits(arrived_at);
-CREATE INDEX idx_visits_day ON visits(day_of_week);
-CREATE TABLE trips (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    from_place_id INTEGER REFERENCES places(id),
-    to_place_id INTEGER REFERENCES places(id),
-    started_at DATETIME,
-    ended_at DATETIME,
-    duration_min REAL,
-    distance_km REAL,
-    transport_mode TEXT,
-    route_points TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX idx_trips_date ON trips(started_at);
-CREATE TABLE location_patterns (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    pattern_type TEXT CHECK(pattern_type IN (
-        'routine', 'absence', 'new_place', 'frequency_change',
-        'timing_change', 'unusual_visit', 'long_stay', 'short_stay'
-    )),
-    description TEXT NOT NULL,
-    place_id INTEGER REFERENCES places(id),
-    occurrences INTEGER DEFAULT 1,
-    first_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
-    last_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
-    status TEXT DEFAULT 'active' CHECK(status IN ('active', 'acknowledged', 'resolved'))
-);
+
+CREATE TABLE auth_rate_limits (
+            client_key TEXT PRIMARY KEY,
+            failed_attempts INTEGER NOT NULL DEFAULT 0,
+            window_started_at TEXT NOT NULL,
+            blocked_until TEXT,
+            updated_at TEXT NOT NULL
+        );
+
+CREATE TABLE commitments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            content TEXT NOT NULL,
+            made_to TEXT,
+            due_hint TEXT,
+            source TEXT DEFAULT 'conversation',
+            status TEXT DEFAULT 'open' CHECK(status IN ('open', 'kept', 'dropped')),
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            resolved_at DATETIME
+        );
+
 CREATE TABLE conversation_documents (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
@@ -405,47 +64,176 @@ CREATE TABLE conversation_documents (
     cloud_consent BOOLEAN NOT NULL DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
-CREATE INDEX idx_convdocs_conv ON conversation_documents(conversation_id);
-CREATE TABLE llm_action_logs (
+
+CREATE TABLE conversation_turns (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            recording_id INTEGER NOT NULL REFERENCES recordings(id) ON DELETE CASCADE,
+            turn_order INTEGER NOT NULL,
+            speaker_label TEXT NOT NULL,
+            person_id INTEGER REFERENCES people(id),
+            text TEXT NOT NULL,
+            start_ms INTEGER,
+            end_ms INTEGER,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+CREATE TABLE conversations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    ended_at DATETIME,
     agent TEXT,
-    action_type TEXT,
-    payload TEXT,
-    status TEXT CHECK(status IN ('success', 'error', 'pending')),
-    execution_time_ms INTEGER
-);
-CREATE INDEX idx_llm_logs_created ON llm_action_logs(created_at);
-CREATE INDEX idx_llm_logs_action_type ON llm_action_logs(action_type);
-CREATE TABLE app_settings (
-    key   TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-);
-CREATE TABLE screen_activity (
+    summary TEXT,
+    mood_start INTEGER,
+    mood_end INTEGER
+, title TEXT, pinned BOOLEAN DEFAULT 0, archived BOOLEAN DEFAULT 0, tags TEXT, last_message_at DATETIME, message_count INTEGER DEFAULT 0);
+
+CREATE TABLE cross_insights (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    device TEXT NOT NULL DEFAULT 'mac_mini',
-    app TEXT,
-    activity TEXT,
-    mood TEXT CHECK(mood IN ('focused', 'idle', 'distracted', 'stuck', 'browsing', 'unknown')),
-    notable TEXT,
-    screenshot_hash TEXT,
-    change_pct REAL,
+    insight_type TEXT,
+    content TEXT NOT NULL,
+    people_involved TEXT,
+    evidence TEXT,
+    actionable TEXT,
+    occurrences INTEGER DEFAULT 1,
+    first_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
+    last_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
+    status TEXT DEFAULT 'active'
+);
+
+CREATE TABLE cursor_delegation_jobs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id TEXT NOT NULL UNIQUE,
+    title TEXT NOT NULL,
+    user_request TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'queued',
+    repository TEXT,
+    working_directory TEXT,
+    worktree_path TEXT,
+    branch_name TEXT,
+    prompt_template TEXT,
+    template_version TEXT,
+    prompt_sent TEXT,
+    raw_output TEXT,
+    structured_result TEXT,
+    acceptance_criteria TEXT,
+    required_tests TEXT,
+    risk_level TEXT DEFAULT 'medium',
+    allow_commit INTEGER DEFAULT 1,
+    allow_push INTEGER DEFAULT 1,
+    allow_pr INTEGER DEFAULT 1,
+    commit_sha TEXT,
+    pr_url TEXT,
+    error_message TEXT,
+    interaction_mode TEXT,
+    routing_json TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    started_at DATETIME,
+    finished_at DATETIME
+);
+
+CREATE TABLE daily_briefings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date DATE UNIQUE,
+    morning_briefing TEXT,
+    evening_summary TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
-CREATE INDEX idx_screen_date ON screen_activity(created_at);
-CREATE INDEX idx_screen_device ON screen_activity(device);
-CREATE INDEX idx_screen_app ON screen_activity(app);
-CREATE TABLE app_usage (
+
+CREATE TABLE daily_rituals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT UNIQUE NOT NULL,
+            roast TEXT,
+            debrief TEXT,
+            quote TEXT,
+            productivity_score INTEGER,
+            score_detail TEXT,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        , weekly_debrief TEXT);
+
+CREATE TABLE day_scores (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT UNIQUE NOT NULL,
+            exceptional_score INTEGER,
+            luck_score INTEGER,
+            factors_json TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+CREATE TABLE dev_deployments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    device TEXT NOT NULL DEFAULT 'mac_mini',
-    app TEXT NOT NULL,
-    date DATE NOT NULL,
-    duration_seconds INTEGER DEFAULT 0,
-    session_count INTEGER DEFAULT 0,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(device, app, date)
+    project_id INTEGER REFERENCES dev_projects(id),
+    commit_sha TEXT,
+    status TEXT NOT NULL CHECK(status IN ('success', 'failed')),
+    staging_path TEXT,
+    log TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-CREATE INDEX idx_appusage_date ON app_usage(date);
+
+CREATE TABLE dev_interview_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER REFERENCES dev_projects(id),
+    context_json TEXT NOT NULL DEFAULT '{}',
+    questions_asked INTEGER DEFAULT 0,
+    status TEXT DEFAULT 'active',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE dev_loop_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER REFERENCES dev_projects(id),
+    iteration INTEGER,
+    phase TEXT,
+    content TEXT,
+    success BOOLEAN,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE dev_loop_state (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER REFERENCES dev_projects(id),
+    iteration INTEGER DEFAULT 0,
+    phase TEXT,
+    last_error TEXT,
+    consecutive_failures INTEGER DEFAULT 0,
+    tokens_used INTEGER DEFAULT 0,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE dev_projects (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    slug TEXT UNIQUE NOT NULL,
+    name TEXT NOT NULL,
+    project_type TEXT,
+    status TEXT DEFAULT 'interviewing',
+    isolation_path TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE dev_spec (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER REFERENCES dev_projects(id),
+    spec_json TEXT NOT NULL,
+    locked_at TIMESTAMP,
+    version INTEGER DEFAULT 1
+);
+
+CREATE TABLE device_pairing_attempts (
+    client_key TEXT PRIMARY KEY,
+    failed_attempts INTEGER NOT NULL DEFAULT 0,
+    window_started_at DATETIME NOT NULL,
+    blocked_until DATETIME
+);
+
+CREATE TABLE device_pairing_codes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    code_hash TEXT UNIQUE NOT NULL,
+    expires_at DATETIME NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    used_at DATETIME
+);
+
 CREATE TABLE devices (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     device_id TEXT UNIQUE NOT NULL,
@@ -462,61 +250,217 @@ CREATE TABLE devices (
     token_rotated_at DATETIME,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
-CREATE UNIQUE INDEX idx_devices_id ON devices(device_id);
-CREATE TABLE device_pairing_codes (
+
+CREATE TABLE duplicate_findings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            file_a TEXT NOT NULL, start_a INTEGER NOT NULL, end_a INTEGER NOT NULL,
+            file_b TEXT NOT NULL, start_b INTEGER NOT NULL, end_b INTEGER NOT NULL,
+            lines_count INTEGER NOT NULL,
+            status TEXT DEFAULT 'open' CHECK(status IN ('open', 'refactored', 'ignored')),
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(file_a, start_a, file_b, start_b)
+        );
+
+CREATE TABLE email_summaries (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    code_hash TEXT UNIQUE NOT NULL,
-    expires_at DATETIME NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    used_at DATETIME
-);
-CREATE TABLE device_pairing_attempts (
-    client_key TEXT PRIMARY KEY,
-    failed_attempts INTEGER NOT NULL DEFAULT 0,
-    window_started_at DATETIME NOT NULL,
-    blocked_until DATETIME
-);
-CREATE TABLE work_sessions (
+    gmail_id TEXT UNIQUE,
+    sender TEXT,
+    subject TEXT,
+    summary TEXT,
+    action_needed BOOLEAN DEFAULT 0,
+    priority TEXT,
+    processed_at DATETIME DEFAULT CURRENT_TIMESTAMP
+, body TEXT DEFAULT '', received_at TEXT DEFAULT '', category TEXT DEFAULT 'info', is_read INTEGER DEFAULT 0, created_at TEXT DEFAULT '');
+
+CREATE TABLE episodes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    device TEXT,
-    app TEXT,
-    started_at DATETIME NOT NULL,
-    ended_at DATETIME,
-    duration_min REAL,
-    description TEXT,
+    agent TEXT NOT NULL,
+    content TEXT NOT NULL,
+    summary TEXT,
+    importance INTEGER DEFAULT 5 CHECK(importance BETWEEN 1 AND 10),
+    tags TEXT,                   -- JSON array
+    embedding BLOB,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
-CREATE INDEX idx_worksessions_date ON work_sessions(started_at);
-CREATE TABLE agentic_workflows (
+
+CREATE TABLE event_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    conversation_id INTEGER NOT NULL REFERENCES conversations(id),
-    user_message TEXT NOT NULL,
-    steps_json TEXT NOT NULL,
-    final_synthesis TEXT,
-    status TEXT DEFAULT 'running' CHECK(status IN ('running','completed','failed','partial')),
-    started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    completed_at DATETIME,
-    total_steps INTEGER DEFAULT 0,
-    total_output_chars INTEGER DEFAULT 0
+    event_id TEXT UNIQUE NOT NULL,
+    event_type TEXT NOT NULL,
+    version INTEGER NOT NULL DEFAULT 1,
+    timestamp REAL NOT NULL,
+    source TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    checksum TEXT NOT NULL
 );
-CREATE INDEX idx_agentic_conv ON agentic_workflows(conversation_id);
-CREATE INDEX idx_agentic_status ON agentic_workflows(status);
 
--- ═══════════════════════════════════════════════════════════
--- IMPORT iMessage — données brutes depuis chat.db
--- ═══════════════════════════════════════════════════════════
+CREATE TABLE fitness_program_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            program_id INTEGER NOT NULL REFERENCES fitness_programs(id) ON DELETE CASCADE,
+            position INTEGER NOT NULL,
+            day_of_week INTEGER NOT NULL CHECK(day_of_week BETWEEN 0 AND 6),
+            type TEXT NOT NULL CHECK(
+                type IN ('poussee', 'tirage', 'jambes', 'full_body', 'natation', 'autre')
+            ),
+            title TEXT NOT NULL,
+            description TEXT,
+            warmup_json TEXT NOT NULL DEFAULT '[]',
+            exercises_json TEXT NOT NULL DEFAULT '[]',
+            stretches_json TEXT NOT NULL DEFAULT '[]',
+            notes TEXT,
+            active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0, 1)),
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(program_id, position)
+        );
 
-CREATE TABLE imessage_handles (
+CREATE TABLE fitness_programs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            goal TEXT NOT NULL,
+            active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0, 1)),
+            weekly_min_sessions INTEGER NOT NULL DEFAULT 3 CHECK(weekly_min_sessions BETWEEN 1 AND 7),
+            calories_min INTEGER NOT NULL DEFAULT 3000 CHECK(calories_min >= 0),
+            calories_max INTEGER NOT NULL DEFAULT 3500 CHECK(calories_max >= calories_min),
+            protein_min_g INTEGER NOT NULL DEFAULT 120 CHECK(protein_min_g >= 0),
+            protein_max_g INTEGER NOT NULL DEFAULT 145 CHECK(protein_max_g >= protein_min_g),
+            reminders_enabled INTEGER NOT NULL DEFAULT 1 CHECK(reminders_enabled IN (0, 1)),
+            reminder_time TEXT NOT NULL DEFAULT '18:00',
+            reminder_interval_min INTEGER NOT NULL DEFAULT 120 CHECK(reminder_interval_min BETWEEN 30 AND 720),
+            meal_tracking_enabled INTEGER NOT NULL DEFAULT 1 CHECK(meal_tracking_enabled IN (0, 1)),
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+CREATE TABLE fitness_prompt_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT NOT NULL,
+            kind TEXT NOT NULL CHECK(kind IN ('workout', 'meal')),
+            reference TEXT NOT NULL,
+            prompted_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(date, kind, reference, prompted_at)
+        );
+
+CREATE TABLE fitness_session_progress (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            program_session_id INTEGER NOT NULL REFERENCES fitness_program_sessions(id) ON DELETE CASCADE,
+            date TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'planned' CHECK(status IN ('planned', 'in_progress', 'done', 'skipped')),
+            exercise_results_json TEXT NOT NULL DEFAULT '[]',
+            duration_min INTEGER CHECK(duration_min IS NULL OR duration_min > 0),
+            perceived_effort INTEGER CHECK(perceived_effort IS NULL OR perceived_effort BETWEEN 1 AND 10),
+            notes TEXT,
+            completed_at TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(program_session_id, date)
+        );
+
+CREATE TABLE fitness_weight_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT NOT NULL UNIQUE,
+            weight_kg REAL NOT NULL CHECK(weight_kg BETWEEN 20 AND 500),
+            notes TEXT,
+            source TEXT NOT NULL CHECK(source IN ('voice', 'pwa')),
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+CREATE TABLE food_menu_cache (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    apple_handle_id INTEGER UNIQUE NOT NULL,
+    restaurant TEXT NOT NULL,
+    item_name TEXT NOT NULL,
+    category TEXT,
+    price REAL CHECK(price IS NULL OR price >= 0),
+    currency TEXT NOT NULL DEFAULT 'EUR',
+    cuisine_type TEXT,
+    available INTEGER NOT NULL DEFAULT 1 CHECK(available IN (0, 1)),
+    scraped_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(restaurant, item_name)
+);
+
+CREATE TABLE food_orders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    plan_id TEXT,
+    restaurant TEXT NOT NULL,
+    items_json TEXT NOT NULL,
+    total_price REAL CHECK(total_price IS NULL OR total_price >= 0),
+    currency TEXT NOT NULL DEFAULT 'EUR',
+    dry_run INTEGER NOT NULL DEFAULT 1 CHECK(dry_run IN (0, 1)),
+    status TEXT NOT NULL CHECK(
+        status IN ('planned', 'simulated', 'placed', 'blocked', 'failed')
+    ),
+    error TEXT,
+    screenshot_path TEXT,
+    -- Avancement de la livraison, distinct de `status` qui décrit l'issue de
+    -- la tentative de commande. Une commande peut être 'placed' côté JARVIS
+    -- et encore 'preparing' côté restaurant.
+    delivery_status TEXT CHECK(
+        delivery_status IS NULL OR delivery_status IN (
+            'placed', 'preparing', 'picked_up', 'on_the_way', 'delivered', 'cancelled'
+        )
+    ),
+    eta_minutes INTEGER CHECK(eta_minutes IS NULL OR eta_minutes >= 0),
+    delivered_at DATETIME,
+    tracking_url TEXT,
+    rating INTEGER CHECK(rating IS NULL OR rating BETWEEN 1 AND 5),
+    suggestion_id INTEGER REFERENCES food_suggestions(id) ON DELETE SET NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE food_preferences (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    key TEXT UNIQUE NOT NULL,
+    value TEXT NOT NULL,
+    confidence REAL NOT NULL DEFAULT 0.5
+        CHECK(confidence >= 0.0 AND confidence <= 1.0),
+    sample_size INTEGER NOT NULL DEFAULT 0 CHECK(sample_size >= 0),
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE food_suggestions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    slot INTEGER NOT NULL CHECK(slot >= 1),
+    restaurant TEXT NOT NULL,
+    items_json TEXT NOT NULL,
+    estimated_price REAL CHECK(estimated_price IS NULL OR estimated_price >= 0),
+    max_price REAL CHECK(max_price IS NULL OR max_price >= 0),
+    currency TEXT NOT NULL DEFAULT 'EUR',
+    reasoning TEXT,
+    score REAL NOT NULL DEFAULT 0.0,
+    factors_json TEXT,
+    generated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    expires_at DATETIME,
+    ordered INTEGER NOT NULL DEFAULT 0 CHECK(ordered IN (0, 1))
+);
+
+CREATE TABLE imessage_analysis_cache (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
     handle TEXT NOT NULL,
-    country TEXT,
-    service TEXT DEFAULT 'iMessage',
-    uncanonicalized_id TEXT,
+    last_analyzed_rowid INTEGER DEFAULT 0,
+    last_analyzed_at DATETIME,
+    total_messages_analyzed INTEGER DEFAULT 0
+);
+
+CREATE TABLE imessage_attachments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    apple_attachment_id INTEGER UNIQUE NOT NULL,
+    guid TEXT UNIQUE,
+    filename TEXT,
+    mime_type TEXT,
+    transfer_name TEXT,
+    total_bytes INTEGER,
+    is_outgoing INTEGER DEFAULT 0,
+    hide_attachment INTEGER DEFAULT 0,
+    created_date INTEGER,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
-CREATE UNIQUE INDEX idx_imessage_handles_apple ON imessage_handles(apple_handle_id);
-CREATE INDEX idx_imessage_handles_value ON imessage_handles(handle);
+
+CREATE TABLE imessage_chat_handles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id INTEGER NOT NULL REFERENCES imessage_chats(id),
+    handle_id INTEGER NOT NULL REFERENCES imessage_handles(id),
+    UNIQUE(chat_id, handle_id)
+);
 
 CREATE TABLE imessage_chats (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -529,17 +473,29 @@ CREATE TABLE imessage_chats (
     last_message_at DATETIME,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
-CREATE UNIQUE INDEX idx_imessage_chats_apple ON imessage_chats(apple_chat_id);
-CREATE INDEX idx_imessage_chats_identifier ON imessage_chats(chat_identifier);
 
-CREATE TABLE imessage_chat_handles (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    chat_id INTEGER NOT NULL REFERENCES imessage_chats(id),
-    handle_id INTEGER NOT NULL REFERENCES imessage_handles(id),
-    UNIQUE(chat_id, handle_id)
+CREATE TABLE imessage_consumer_cursors (
+    consumer TEXT PRIMARY KEY,
+    last_apple_rowid INTEGER NOT NULL DEFAULT 0,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
-CREATE INDEX idx_imessage_ch_handle ON imessage_chat_handles(handle_id);
-CREATE INDEX idx_imessage_ch_chat ON imessage_chat_handles(chat_id);
+
+CREATE TABLE imessage_handles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    apple_handle_id INTEGER UNIQUE NOT NULL,
+    handle TEXT NOT NULL,
+    country TEXT,
+    service TEXT DEFAULT 'iMessage',
+    uncanonicalized_id TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE imessage_message_attachments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    message_id INTEGER NOT NULL REFERENCES imessage_messages(id),
+    attachment_id INTEGER NOT NULL REFERENCES imessage_attachments(id),
+    UNIQUE(message_id, attachment_id)
+);
 
 CREATE TABLE imessage_messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -560,38 +516,6 @@ CREATE TABLE imessage_messages (
     content_hash TEXT UNIQUE,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
-CREATE UNIQUE INDEX idx_imessage_msg_rowid ON imessage_messages(apple_rowid);
-CREATE UNIQUE INDEX idx_imessage_msg_guid ON imessage_messages(guid);
-CREATE UNIQUE INDEX idx_imessage_msg_hash ON imessage_messages(content_hash);
-CREATE INDEX idx_imessage_msg_chat ON imessage_messages(chat_id);
-CREATE INDEX idx_imessage_msg_handle ON imessage_messages(handle_id);
-CREATE INDEX idx_imessage_msg_date ON imessage_messages(date);
-CREATE INDEX idx_imessage_msg_associated ON imessage_messages(associated_message_guid);
-
-CREATE TABLE imessage_attachments (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    apple_attachment_id INTEGER UNIQUE NOT NULL,
-    guid TEXT UNIQUE,
-    filename TEXT,
-    mime_type TEXT,
-    transfer_name TEXT,
-    total_bytes INTEGER,
-    is_outgoing INTEGER DEFAULT 0,
-    hide_attachment INTEGER DEFAULT 0,
-    created_date INTEGER,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-CREATE UNIQUE INDEX idx_imessage_att_apple ON imessage_attachments(apple_attachment_id);
-CREATE UNIQUE INDEX idx_imessage_att_guid ON imessage_attachments(guid);
-
-CREATE TABLE imessage_message_attachments (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    message_id INTEGER NOT NULL REFERENCES imessage_messages(id),
-    attachment_id INTEGER NOT NULL REFERENCES imessage_attachments(id),
-    UNIQUE(message_id, attachment_id)
-);
-CREATE INDEX idx_imessage_ma_msg ON imessage_message_attachments(message_id);
-CREATE INDEX idx_imessage_ma_att ON imessage_message_attachments(attachment_id);
 
 CREATE TABLE imessage_reactions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -602,7 +526,6 @@ CREATE TABLE imessage_reactions (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(message_id, reactor_handle_id)
 );
-CREATE INDEX idx_imessage_reactions_msg ON imessage_reactions(message_id);
 
 CREATE TABLE imessage_sync_cursor (
     id INTEGER PRIMARY KEY CHECK(id = 1),
@@ -617,3 +540,735 @@ CREATE TABLE imessage_sync_cursor (
     status TEXT DEFAULT 'idle' CHECK(status IN ('importing', 'idle', 'error')),
     error_message TEXT
 );
+
+CREATE TABLE jarvis_journal (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT UNIQUE NOT NULL,
+            entry TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+CREATE TABLE life_context (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    period_start DATE,
+    period_end DATE,
+    context_type TEXT,
+    description TEXT NOT NULL,
+    impact_on_mood TEXT,
+    impact_on_productivity TEXT,
+    active BOOLEAN DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE life_profile (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    category TEXT NOT NULL,       -- values, goals, fears, patterns, strengths
+    content TEXT NOT NULL,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE llm_action_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    agent TEXT,
+    action_type TEXT,
+    payload TEXT,
+    status TEXT CHECK(status IN ('success', 'error', 'pending')),
+    execution_time_ms INTEGER
+);
+
+CREATE TABLE location_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    latitude REAL NOT NULL,
+    longitude REAL NOT NULL,
+    altitude REAL,
+    accuracy REAL,
+    speed REAL,
+    heading REAL,
+    source TEXT DEFAULT 'app',
+    place_id INTEGER REFERENCES places(id),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE location_patterns (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pattern_type TEXT CHECK(pattern_type IN (
+        'routine', 'absence', 'new_place', 'frequency_change',
+        'timing_change', 'unusual_visit', 'long_stay', 'short_stay'
+    )),
+    description TEXT NOT NULL,
+    place_id INTEGER REFERENCES places(id),
+    occurrences INTEGER DEFAULT 1,
+    first_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
+    last_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
+    status TEXT DEFAULT 'active' CHECK(status IN ('active', 'acknowledged', 'resolved'))
+);
+
+CREATE TABLE location_point_dedup (
+            device_id TEXT NOT NULL,
+            client_point_id TEXT NOT NULL,
+            location_history_id INTEGER,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (device_id, client_point_id)
+        );
+
+CREATE TABLE meals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT NOT NULL,
+            meal_type TEXT CHECK(
+                meal_type IS NULL OR
+                meal_type IN ('petit_dej', 'dejeuner', 'diner', 'collation')
+            ),
+            description TEXT NOT NULL,
+            calories_estimate INTEGER CHECK(
+                calories_estimate IS NULL OR calories_estimate >= 0
+            ),
+            source TEXT NOT NULL CHECK(source IN ('voice', 'pwa')),
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        , protein_g REAL CHECK(protein_g IS NULL OR protein_g >= 0), carbs_g REAL CHECK(carbs_g IS NULL OR carbs_g >= 0), fat_g REAL CHECK(fat_g IS NULL OR fat_g >= 0), fiber_g REAL CHECK(fiber_g IS NULL OR fiber_g >= 0), items_json TEXT, photo_path TEXT, analysis_source TEXT NOT NULL DEFAULT 'manual' CHECK(analysis_source IN ('manual', 'text_ai', 'photo_ai')), confidence REAL CHECK(confidence IS NULL OR (confidence >= 0 AND confidence <= 1)), raw_input TEXT);
+
+CREATE TABLE memory_embeddings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_type TEXT NOT NULL CHECK(source_type IN ('recording', 'episode')),
+            source_id INTEGER NOT NULL,
+            text_preview TEXT,
+            embedding BLOB NOT NULL,
+            model TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(source_type, source_id)
+        );
+
+CREATE TABLE message_insights (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            since_message_id INTEGER NOT NULL,
+            message_count INTEGER NOT NULL,
+            result_json TEXT NOT NULL,
+            created_at TEXT DEFAULT (datetime('now')),
+            acknowledged INTEGER DEFAULT 0
+        );
+
+CREATE TABLE messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    conversation_id INTEGER REFERENCES conversations(id),
+    role TEXT NOT NULL CHECK(role IN ('user', 'assistant', 'system')),
+    content TEXT NOT NULL,
+    agent TEXT,
+    model TEXT,
+    tokens_in INTEGER,
+    tokens_out INTEGER,
+    cost REAL,
+    usage_estimated INTEGER NOT NULL DEFAULT 0 CHECK(usage_estimated IN (0, 1)),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE VIRTUAL TABLE messages_fts USING fts5(
+                content,
+                content='messages', content_rowid='id',
+                tokenize='unicode61 remove_diacritics 2'
+            );
+
+CREATE TABLE mobile_chat_dedup (
+            device_id TEXT NOT NULL,
+            client_message_id TEXT NOT NULL,
+            conversation_id INTEGER NOT NULL,
+            response_json TEXT NOT NULL,
+            created_at TEXT DEFAULT (datetime('now')),
+            PRIMARY KEY (device_id, client_message_id)
+        );
+
+CREATE TABLE mobile_devices (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_id TEXT UNIQUE NOT NULL,
+            name TEXT NOT NULL,
+            model TEXT,
+            token_hash TEXT UNIQUE,
+            fcm_token TEXT,
+            app_version TEXT,
+            capabilities_json TEXT DEFAULT '{}',
+            paired_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            last_seen_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            revoked INTEGER DEFAULT 0
+        );
+
+CREATE TABLE mobile_pairing_codes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            code_hash TEXT UNIQUE NOT NULL,
+            expires_at DATETIME NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            used_at DATETIME
+        );
+
+CREATE TABLE mood_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    mood_score INTEGER CHECK(mood_score BETWEEN 1 AND 10),
+    energy_level INTEGER CHECK(energy_level BETWEEN 1 AND 10),
+    context TEXT,
+    triggers TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE mood_signals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT UNIQUE NOT NULL,
+            msg_count INTEGER DEFAULT 0,
+            msg_avg_14d REAL DEFAULT 0,
+            deviation_pct REAL,
+            voice_count INTEGER DEFAULT 0,
+            screen_minutes REAL DEFAULT 0,
+            late_night_points INTEGER DEFAULT 0,
+            flags TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+CREATE TABLE notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source TEXT NOT NULL,          -- email, pattern, calendar, system…
+    title TEXT NOT NULL,
+    content TEXT,
+    priority TEXT DEFAULT 'medium' CHECK(priority IN ('urgent', 'high', 'medium', 'low')),
+    read BOOLEAN DEFAULT 0,
+    email_id TEXT,                 -- lien vers gmail_id si source=email
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE patterns (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pattern_type TEXT,
+    description TEXT NOT NULL,
+    occurrences INTEGER DEFAULT 1,
+    first_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
+    last_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
+    status TEXT DEFAULT 'active' CHECK(status IN ('active', 'resolved', 'monitoring'))
+);
+
+CREATE TABLE people (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    relationship TEXT,
+    personality_notes TEXT,
+    dynamics TEXT,
+    patterns TEXT,
+    last_mentioned DATETIME,
+    ai_description TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+, imessage_count INTEGER DEFAULT 0, timeline_cache TEXT, timeline_updated_at DATETIME, birthday TEXT, running_gags TEXT);
+
+CREATE TABLE people_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    person_id INTEGER REFERENCES people(id) ON DELETE CASCADE,
+    event_type TEXT,
+    content TEXT NOT NULL,
+    lesson_learned TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE perf_benchmarks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            scope TEXT NOT NULL,
+            commit_sha TEXT,
+            duration_ms REAL NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+CREATE TABLE places (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    category TEXT CHECK(category IN (
+        'home', 'school', 'work', 'gym', 'restaurant', 'shop',
+        'friend', 'family', 'medical', 'transport', 'leisure', 'other'
+    )),
+    latitude REAL NOT NULL,
+    longitude REAL NOT NULL,
+    radius_meters REAL DEFAULT 100,
+    address TEXT,
+    notes TEXT,
+    visit_count INTEGER DEFAULT 0,
+    avg_duration_min REAL,
+    last_visit DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE presence_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            arrived_at DATETIME NOT NULL,
+            left_at DATETIME,
+            duration_min REAL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+CREATE TABLE push_subscriptions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            endpoint TEXT UNIQUE NOT NULL,
+            p256dh TEXT NOT NULL,
+            auth TEXT NOT NULL,
+            user_agent TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+CREATE TABLE recordings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    conversation_id INTEGER REFERENCES conversations(id),
+    label TEXT,
+    title TEXT,
+    duration_seconds INTEGER,
+    transcription TEXT,
+    summary TEXT,
+    synthesis TEXT,
+    actions_taken TEXT,
+    audio_size_kb INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE relationship_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    person_id INTEGER REFERENCES people(id) ON DELETE CASCADE,
+    event_date DATE,
+    event_type TEXT,
+    summary TEXT NOT NULL,
+    impact_on_user TEXT,
+    lessons TEXT,
+    source TEXT DEFAULT 'imessage',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE relationship_profiles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    person_id INTEGER REFERENCES people(id) ON DELETE CASCADE,
+    handle TEXT,
+    communication_style TEXT,
+    response_pattern TEXT,
+    topics TEXT,
+    sentiment TEXT,
+    power_dynamic TEXT,
+    attachment_style TEXT,
+    trust_level TEXT,
+    interaction_frequency TEXT,
+    last_analyzed DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE scheduler_job_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id TEXT NOT NULL,
+    trigger TEXT NOT NULL DEFAULT 'cron'
+        CHECK(trigger IN ('cron', 'manual')),
+    status TEXT NOT NULL DEFAULT 'running'
+        CHECK(status IN ('running', 'ok', 'skipped', 'silent', 'error')),
+    started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    finished_at DATETIME,
+    duration_ms INTEGER,
+    output TEXT,
+    error TEXT
+);
+
+CREATE TABLE schema_migrations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            filename TEXT UNIQUE NOT NULL,
+            checksum TEXT NOT NULL,
+            applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+CREATE TABLE school_documents (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    subject_id INTEGER REFERENCES school_subjects(id),
+    title TEXT NOT NULL,
+    content TEXT,
+    doc_type TEXT,
+    file_path TEXT,
+    embedding BLOB,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE school_flashcards (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    subject_id INTEGER REFERENCES school_subjects(id),
+    question TEXT NOT NULL,
+    answer TEXT NOT NULL,
+    next_review DATETIME DEFAULT CURRENT_TIMESTAMP,
+    ease_factor REAL DEFAULT 2.5,
+    interval_days INTEGER DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE school_subjects (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    teacher TEXT,
+    schedule TEXT,
+    notes TEXT
+);
+
+CREATE TABLE screen_activity (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    device TEXT NOT NULL DEFAULT 'mac_mini',
+    app TEXT,
+    activity TEXT,
+    mood TEXT CHECK(mood IN ('focused', 'idle', 'distracted', 'stuck', 'browsing', 'unknown')),
+    notable TEXT,
+    screenshot_hash TEXT,
+    change_pct REAL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE security_findings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            file TEXT NOT NULL,
+            line INTEGER NOT NULL,
+            rule TEXT NOT NULL,
+            severity TEXT NOT NULL CHECK(severity IN ('high', 'medium', 'low')),
+            snippet TEXT,
+            status TEXT DEFAULT 'open' CHECK(status IN ('open', 'fixed', 'ignored')),
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(file, line, rule)
+        );
+
+CREATE TABLE sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            token_hash TEXT UNIQUE NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            expires_at DATETIME NOT NULL,
+            last_seen_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            user_agent TEXT,
+            ip TEXT,
+            revoked INTEGER DEFAULT 0
+        , mobile_device_id TEXT);
+
+CREATE TABLE tasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    description TEXT,
+    priority TEXT DEFAULT 'medium' CHECK(priority IN ('high', 'medium', 'low')),
+    status TEXT DEFAULT 'todo' CHECK(status IN ('todo', 'doing', 'done')),
+    due_date DATETIME,
+    category TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    completed_at DATETIME
+);
+
+CREATE TABLE trips (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    from_place_id INTEGER REFERENCES places(id),
+    to_place_id INTEGER REFERENCES places(id),
+    started_at DATETIME,
+    ended_at DATETIME,
+    duration_min REAL,
+    distance_km REAL,
+    transport_mode TEXT,
+    route_points TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE user_facts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    category TEXT NOT NULL,
+    content TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT 'conversation',
+    confidence TEXT DEFAULT 'medium',
+    is_current BOOLEAN DEFAULT 1,
+    superseded_by INTEGER REFERENCES user_facts(id),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE visits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    place_id INTEGER NOT NULL REFERENCES places(id),
+    arrived_at DATETIME NOT NULL,
+    departed_at DATETIME,
+    duration_min REAL,
+    day_of_week INTEGER,
+    notes TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE voice_debug_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    input_text TEXT,
+    system_prompt TEXT,
+    messages_json TEXT,
+    raw_response TEXT,
+    response_clean TEXT,
+    emotion TEXT,
+    action_json TEXT,
+    model TEXT,
+    tokens_in INTEGER DEFAULT 0,
+    tokens_out INTEGER DEFAULT 0,
+    cost REAL DEFAULT 0,
+    latency_stt_ms INTEGER DEFAULT 0,
+    latency_llm1_ms INTEGER DEFAULT 0,
+    latency_llm2_ms INTEGER DEFAULT 0,
+    latency_tts_ms INTEGER DEFAULT 0,
+    latency_total_ms INTEGER DEFAULT 0,
+    stt_engine TEXT,
+    tts_engine TEXT,
+    audio_duration_ms INTEGER DEFAULT 0
+);
+
+CREATE TABLE water_intake (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT NOT NULL,
+            amount_ml INTEGER NOT NULL CHECK(amount_ml > 0),
+            source TEXT NOT NULL CHECK(source IN ('voice', 'pwa')),
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+CREATE TABLE weekly_summaries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    week_start DATE,
+    summary TEXT,
+    patterns_spotted TEXT,
+    recommendations TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE wellbeing_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT NOT NULL,
+            rating INTEGER CHECK(rating BETWEEN 1 AND 10),
+            journal_text TEXT,
+            source TEXT NOT NULL CHECK(source IN ('voice', 'pwa')),
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            CHECK(
+                rating IS NOT NULL OR
+                (journal_text IS NOT NULL AND length(trim(journal_text)) > 0)
+            )
+        );
+
+CREATE TABLE work_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    device TEXT,
+    app TEXT,
+    started_at DATETIME NOT NULL,
+    ended_at DATETIME,
+    duration_min REAL,
+    description TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE workouts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT NOT NULL,
+            type TEXT NOT NULL CHECK(
+                type IN ('poussee', 'tirage', 'jambes', 'full_body', 'natation', 'autre')
+            ),
+            exercises_json TEXT,
+            duration_min INTEGER CHECK(duration_min IS NULL OR duration_min > 0),
+            source TEXT NOT NULL CHECK(source IN ('voice', 'pwa')),
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+CREATE INDEX idx_agentic_conv ON agentic_workflows(conversation_id);
+
+CREATE INDEX idx_agentic_status ON agentic_workflows(status);
+
+CREATE INDEX idx_appusage_date ON app_usage(date);
+
+CREATE INDEX idx_auth_rate_limits_updated ON auth_rate_limits(updated_at);
+
+CREATE INDEX idx_commitments_status ON commitments(status);
+
+CREATE INDEX idx_convdocs_conv ON conversation_documents(conversation_id);
+
+CREATE INDEX idx_crossinsights_type ON cross_insights(insight_type);
+
+CREATE INDEX idx_cursor_jobs_created ON cursor_delegation_jobs(created_at);
+
+CREATE INDEX idx_cursor_jobs_status ON cursor_delegation_jobs(status);
+
+CREATE INDEX idx_dev_deployments_project ON dev_deployments(project_id, created_at DESC);
+
+CREATE INDEX idx_dev_loop_log_project ON dev_loop_log(project_id, created_at DESC);
+
+CREATE INDEX idx_dev_projects_status ON dev_projects(status);
+
+CREATE UNIQUE INDEX idx_devices_id ON devices(device_id);
+
+CREATE UNIQUE INDEX idx_devices_token_hash
+           ON devices(token_hash) WHERE token_hash IS NOT NULL;
+
+CREATE INDEX idx_email_summaries_gmail ON email_summaries(gmail_id);
+
+CREATE INDEX idx_episodes_agent ON episodes(agent);
+
+CREATE INDEX idx_episodes_created ON episodes(created_at);
+
+CREATE INDEX idx_event_log_timestamp ON event_log(timestamp);
+
+CREATE INDEX idx_event_log_type ON event_log(event_type);
+
+CREATE INDEX idx_facts_category ON user_facts(category);
+
+CREATE INDEX idx_facts_current ON user_facts(is_current);
+
+CREATE INDEX idx_fitness_program_active ON fitness_programs(active);
+
+CREATE INDEX idx_fitness_progress_date ON fitness_session_progress(date, status);
+
+CREATE INDEX idx_fitness_prompt_date ON fitness_prompt_log(date, kind);
+
+CREATE INDEX idx_fitness_sessions_day ON fitness_program_sessions(program_id, day_of_week);
+
+CREATE INDEX idx_fitness_weight_date ON fitness_weight_logs(date);
+
+CREATE INDEX idx_flashcards_review ON school_flashcards(next_review);
+
+CREATE INDEX idx_food_menu_restaurant
+    ON food_menu_cache(restaurant, available);
+
+CREATE INDEX idx_food_orders_created
+    ON food_orders(created_at DESC);
+
+CREATE INDEX idx_food_orders_delivery
+    ON food_orders(delivery_status) WHERE delivery_status IS NOT NULL;
+
+CREATE UNIQUE INDEX idx_food_orders_placed_plan
+    ON food_orders(plan_id) WHERE status = 'placed' AND plan_id IS NOT NULL;
+
+CREATE INDEX idx_food_orders_status_created
+    ON food_orders(status, created_at DESC);
+
+CREATE INDEX idx_food_suggestions_active
+    ON food_suggestions(ordered, expires_at, slot);
+
+CREATE UNIQUE INDEX idx_imcache_handle ON imessage_analysis_cache(handle);
+
+CREATE UNIQUE INDEX idx_imessage_att_apple ON imessage_attachments(apple_attachment_id);
+
+CREATE UNIQUE INDEX idx_imessage_att_guid ON imessage_attachments(guid);
+
+CREATE INDEX idx_imessage_ch_chat ON imessage_chat_handles(chat_id);
+
+CREATE INDEX idx_imessage_ch_handle ON imessage_chat_handles(handle_id);
+
+CREATE UNIQUE INDEX idx_imessage_chats_apple ON imessage_chats(apple_chat_id);
+
+CREATE INDEX idx_imessage_chats_identifier ON imessage_chats(chat_identifier);
+
+CREATE UNIQUE INDEX idx_imessage_handles_apple ON imessage_handles(apple_handle_id);
+
+CREATE INDEX idx_imessage_handles_value ON imessage_handles(handle);
+
+CREATE INDEX idx_imessage_ma_att ON imessage_message_attachments(attachment_id);
+
+CREATE INDEX idx_imessage_ma_msg ON imessage_message_attachments(message_id);
+
+CREATE INDEX idx_imessage_msg_associated ON imessage_messages(associated_message_guid);
+
+CREATE INDEX idx_imessage_msg_chat ON imessage_messages(chat_id);
+
+CREATE INDEX idx_imessage_msg_date ON imessage_messages(date);
+
+CREATE UNIQUE INDEX idx_imessage_msg_guid ON imessage_messages(guid);
+
+CREATE INDEX idx_imessage_msg_handle ON imessage_messages(handle_id);
+
+CREATE UNIQUE INDEX idx_imessage_msg_hash ON imessage_messages(content_hash);
+
+CREATE UNIQUE INDEX idx_imessage_msg_rowid ON imessage_messages(apple_rowid);
+
+CREATE INDEX idx_imessage_reactions_msg ON imessage_reactions(message_id);
+
+CREATE INDEX idx_lifecontext_active ON life_context(active);
+
+CREATE INDEX idx_llm_logs_action_type ON llm_action_logs(action_type);
+
+CREATE INDEX idx_llm_logs_created ON llm_action_logs(created_at);
+
+CREATE INDEX idx_location_date ON location_history(created_at);
+
+CREATE INDEX idx_location_place ON location_history(place_id);
+
+CREATE INDEX idx_location_point_dedup_created ON location_point_dedup(created_at);
+
+CREATE INDEX idx_meals_date ON meals(date);
+
+CREATE INDEX idx_messages_conv ON messages(conversation_id);
+
+CREATE INDEX idx_messages_created ON messages(created_at);
+
+CREATE INDEX idx_mobile_chat_dedup_created ON mobile_chat_dedup(created_at);
+
+CREATE INDEX idx_mobile_fcm_token ON mobile_devices(fcm_token);
+
+CREATE INDEX idx_mobile_token_hash ON mobile_devices(token_hash);
+
+CREATE INDEX idx_mood_created ON mood_log(created_at);
+
+CREATE INDEX idx_notif_created ON notifications(created_at);
+
+CREATE INDEX idx_notif_dedup ON notifications(source, title, email_id, created_at DESC);
+
+CREATE INDEX idx_notif_read ON notifications(read);
+
+CREATE INDEX idx_people_name ON people(name);
+
+CREATE INDEX idx_perf_scope ON perf_benchmarks(scope, created_at DESC);
+
+CREATE INDEX idx_places_category ON places(category);
+
+CREATE INDEX idx_places_name ON places(name);
+
+CREATE INDEX idx_presence_arrived ON presence_sessions(arrived_at);
+
+CREATE INDEX idx_recordings_date ON recordings(created_at);
+
+CREATE INDEX idx_relevents_date ON relationship_events(event_date);
+
+CREATE INDEX idx_relevents_person ON relationship_events(person_id);
+
+CREATE INDEX idx_relprofile_person ON relationship_profiles(person_id);
+
+CREATE INDEX idx_scheduler_runs_job_started
+    ON scheduler_job_runs(job_id, started_at DESC);
+
+CREATE INDEX idx_scheduler_runs_started
+    ON scheduler_job_runs(started_at DESC);
+
+CREATE INDEX idx_screen_app ON screen_activity(app);
+
+CREATE INDEX idx_screen_date ON screen_activity(created_at);
+
+CREATE INDEX idx_screen_device ON screen_activity(device);
+
+CREATE INDEX idx_sessions_mobile_device ON sessions(mobile_device_id);
+
+CREATE INDEX idx_sessions_token_hash ON sessions(token_hash);
+
+CREATE INDEX idx_tasks_status ON tasks(status);
+
+CREATE INDEX idx_trips_date ON trips(started_at);
+
+CREATE INDEX idx_turns_recording ON conversation_turns(recording_id);
+
+CREATE INDEX idx_vdebug_created ON voice_debug_log(created_at);
+
+CREATE INDEX idx_visits_date ON visits(arrived_at);
+
+CREATE INDEX idx_visits_day ON visits(day_of_week);
+
+CREATE INDEX idx_visits_place ON visits(place_id);
+
+CREATE INDEX idx_water_date ON water_intake(date);
+
+CREATE INDEX idx_wellbeing_date ON wellbeing_logs(date);
+
+CREATE INDEX idx_workouts_date ON workouts(date);
+
+CREATE INDEX idx_worksessions_date ON work_sessions(started_at);
+
+CREATE TRIGGER messages_fts_ad AFTER DELETE ON messages BEGIN
+            INSERT INTO messages_fts(messages_fts, rowid, content)
+            VALUES ('delete', old.id, old.content);
+        END;
+
+CREATE TRIGGER messages_fts_ai AFTER INSERT ON messages BEGIN
+            INSERT INTO messages_fts(rowid, content) VALUES (new.id, new.content);
+        END;
+
+CREATE TRIGGER messages_fts_au AFTER UPDATE OF content ON messages BEGIN
+            INSERT INTO messages_fts(messages_fts, rowid, content)
+            VALUES ('delete', old.id, old.content);
+            INSERT INTO messages_fts(rowid, content) VALUES (new.id, new.content);
+        END;

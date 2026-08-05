@@ -14,7 +14,7 @@ JARVIS est un assistant personnel multi-agents avec interface vocale + web, tour
 ## Stack technique
 
 - **Backend** : Python 3.12 + FastAPI + WebSocket
-- **Frontend** : bureau en Next.js 15 + React 19 + Tailwind v4 (`frontend/out` prioritaire, vues `web/src` réutilisées, `web/dist` en repli) ; mobile en HTML/CSS/JS vanilla autonome (`web_mobile/`, servi sous `/mobile/`)
+- **Frontend** : bureau en Next.js 15 + React 19 + Tailwind v4 (`frontend/out`, vues `web/src` réutilisées, aucun fallback desktop) ; mobile en HTML/CSS/JS vanilla autonome (`web_mobile/`, servi sous `/mobile/`)
 - **Base de données** : SQLite (fichier local `data/jarvis.db`)
 - **LLM** : DeepSeek API (format OpenAI, `llm.py`) — routing fast/main, mode « tâche lourde » (max_tokens élevé) pour les productions longues
 - **STT** : local multi-moteurs (`faster-whisper`, WhisperKit ou whisper.cpp), sans repli cloud
@@ -29,22 +29,23 @@ JARVIS est un assistant personnel multi-agents avec interface vocale + web, tour
 Le bus applicatif est actif et conserve la compatibilité de construction historique `JarvisEvent(type, agent, data, timestamp)`. Le contrat canonique ajoute `event_id`, `event_type`, `version`, `source`, `payload` et un checksum SHA-256 ; les 10 classes typées vivent dans `jarvis/events.py` : notifications, tâches, conversations/messages, personnes/contexte mémoire, épisodes, patterns et faits.
 
 - Les mutations de `database/tasks.py`, `notifications.py`, `conversations.py`, `episodes.py`, `facts.py`, `patterns.py` et `people.py` émettent **après commit**.
-- `database/event_log.py` journalise tous les événements dans la table SQLite `event_log`
- (ajoutée au schéma runtime ; le total post-`init_db` est **90 persistantes**, **95** avec FTS —
- voir `Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md` ; ne pas confondre avec le dump
- historique `database/schema.sql` ≈ 47 tables).
+- `database/event_log.py` journalise tous les événements dans la table SQLite `event_log`.
+  Runtime SQLite canonique : **90 tables persistantes**, **95 tables physiques avec FTS5**, schéma généré : **91 déclarations de tables**.
+  Structure API canonique : **259 opérations HTTP + 2 WebSockets**, **230 chemins OpenAPI**, **17 routeurs api/router_*.py + Fitness = 18 montés**, main.py **211 lignes**.
+  `database/schema.sql` est désormais un miroir généré et contrôlé du schéma frais ;
+  `init_db()` continue d'exécuter exclusivement `schema.py` puis `migrations.py`.
 - `websocket_registry.py` diffuse les événements de domaine aux sockets actives et `scripts/audio_daemon.py` traite les notifications `urgent/high`.
 - `/api/events/stream` diffuse les événements de domaine en SSE ; le polling périodique notifications/tâches a été supprimé.
-- Les handlers d'un même événement s'exécutent concurremment ; l'échec de l'un est journalisé sans interrompre les autres.
+- Chaque handler possède une file bornée indépendante ; les callbacks synchrones sont déportés hors de la boucle asyncio et l'échec d'un consommateur n'interrompt pas les autres.
 - `jarvis/__init__.py` charge `JARVISRouter` à la demande : importer le bus ou la base ne charge aucun backend LLM.
 
-Depuis du code async, utiliser `await event_bus.emit(event)`. Depuis un chemin synchrone ou un thread scheduler, utiliser `event_bus.emit_nowait(event)` ; `api/lifespan.py` lie le bus à la boucle applicative au démarrage. Ne jamais émettre un événement de fait avant la persistance. `get_unprocessed_events()` prépare un futur rejeu, mais aucun rejeu automatique au redémarrage n'est implémenté à ce stade.
+Depuis du code async, utiliser `await event_bus.emit(event)`. Depuis un chemin synchrone ou un thread scheduler, utiliser `event_bus.emit_nowait(event)` ; `api/lifespan.py` lie le bus à la boucle applicative au démarrage. Ne jamais émettre un événement de fait avant la persistance. `event_log` est une trace d'observabilité idempotente, pas un outbox et ne revendique aucun rejeu après crash.
 
 ## Couche API — Phase 4
 
-`main.py` est un point d'assemblage : configuration FastAPI/CORS, montage des 17 `APIRouter`, branchement du WebSocket, configuration de `pipeline.py`, frontend et lancement Uvicorn. Les 261 opérations HTTP et le WebSocket `/ws` sont verrouillés par empreinte ; l'OpenAPI expose 231 chemins.
+`main.py` est un point d'assemblage : configuration FastAPI/CORS, montage de 17 `APIRouter` sous `api/router_*.py` plus Fitness, branchement des WebSockets de chat et de TV, configuration de `pipeline.py`, frontend et lancement Uvicorn. Le contrat public compte 259 opérations HTTP et 2 WebSockets ; l'OpenAPI expose 230 chemins.
 
-- `api/router_*.py` contient exactement 17 routeurs par domaine ; aucun ne dépasse 467 lignes.
+- `api/router_*.py` contient exactement 17 routeurs par domaine ; Fitness porte le 18e routeur monté et aucun routeur ne dépasse 478 lignes.
 - `api/lifespan.py`, `api/middleware.py` et `api/frontend.py` portent le cycle de vie, la sécurité HTTP et le serving des frontends.
 - `api/ws_handler.py`, `api/ws_messages.py`, `api/chat_*.py` et `api/voice_*.py` séparent le transport WebSocket, le contexte, les actions et les pipelines texte/vocal.
 - Tous les modules `api/*.py` restent sous 500 lignes et aucun n'importe `main.py`.
@@ -52,14 +53,14 @@ Depuis du code async, utiliser `await event_bus.emit(event)`. Depuis un chemin s
 
 ## Frontend unifié et SDK Auth — Phase 6
 
-`frontend/` est l'application canonique Next.js 15/React 19. `UnifiedApp` choisit le layout mobile avec User-Agent + viewport, sinon le layout desktop, puis importe directement les vues existantes sans les recopier. L'export statique produit 26 segments métier et FastAPI le sert avant les fallbacks.
+`frontend/` est l'application bureau canonique Next.js 15/React 19. Il importe directement les vues de `web/src` sans les recopier. FastAPI et le supervisor servent exclusivement son export statique ; si `frontend/out` manque, ils répondent 503. Les téléphones sont redirigés vers l'application autonome `web_mobile/`.
 
 - `jarvis_auth/` est l'unique implémentation de `AuthClient`, `useLockGate()` et `LockGate`. Le rendu est fail-closed et ne monte jamais les enfants privés avant confirmation de session.
 - `frontend/src/lib/api.ts` est l'unique appel direct à `fetch()` dans les trois arbres frontend ; il inclut toujours le cookie, y compris pour uploads, GPS et file hors-ligne.
-- `web/dist` reste le repli racine si `frontend/out` manque. Les téléphones ne voient ni l'un ni l'autre : ils sont redirigés vers `/mobile/`.
+- `web/` est uniquement une bibliothèque de vues : aucun serveur dev, build, manifest ou Service Worker propre.
 - `frontend/public/sw.js` ne cache que `/_next/static` et `/icons`, jamais `/api`, HTML ou données personnelles.
-- Validation actuelle au 24/07/2026 : 18 Vitest, typecheck/build Next.js 15, 9 scénarios Playwright, 4 contrats FastAPI, 50 tests web et builds des deux fallbacks. La suite vérifie notamment l'arrêt des services privés lors du verrouillage automatique, le déverrouillage réel, le chat WebSocket, les tâches avec CSRF, les événements SSE et le chargement de MapLibre sous la CSP de production. Les parcours critiques échouent aussi sur erreur console, exception de page, requête réseau échouée ou réponse HTTP en erreur. GitHub Actions exécute ces scénarios navigateur dans le job dédié au frontend unifié, à côté du build Vite historique.
-- La CI possède un job séparé d'installation de production : bibliothèques système audio, `pip install -r requirements.txt`, `pip check`, puis imports de fumée de Torch, PyAudio, spaCy et faster-whisper. Un job `macos-14` rejoue en plus les contrats Apple simulés et les smoke tests natifs (`osascript`, dictionnaires Mail/Calendar/Contacts/Messages, plist launchd, `say`, CoreAudio, iMessage, capture et audio). Les appareils physiques et l'observation 24 h ne sont pas vérifiés.
+- La CI exécute séparément les tests/typecheck de la bibliothèque `web/` et les tests, typecheck, build et scénarios Playwright de `frontend/`. Les parcours critiques échouent aussi sur erreur console, exception de page, requête réseau échouée ou réponse HTTP en erreur.
+- La CI possède un job séparé d'installation de production depuis les locks Python 3.12 hashés par plateforme (`pip --require-hashes`), suivi de `pip check` et des imports de fumée de Torch, PyAudio, spaCy et faster-whisper. Un job `macos-26` rejoue en plus les contrats Apple simulés et les smoke tests natifs (`osascript`, dictionnaires Mail/Calendar/Contacts/Messages, plist launchd, `say`, CoreAudio, iMessage, capture et audio). Les appareils physiques et l'observation 24 h ne sont pas vérifiés.
 - `frontend/package.json`, `web/package.json` et les deux jobs frontend GitHub Actions épinglent tous `pnpm 11.11.0`. Les deux lockfiles v9 sont installés avec `--frozen-lockfile`, et un contrat pytest interdit désormais toute dérive de version.
 
 ## Personnalité JARVIS
@@ -121,7 +122,7 @@ Classifie en: SCHOOL | PRODUCTIVITY | COACH | INFO | JOURNAL | DEVOPS | FOOD
     │
     ├── SCHOOL     → Agent École (Sonnet 4.6)
     ├── PRODUCTIVITY → Agent Productivité (Haiku triage / Sonnet rédaction)
-    ├── COACH      → Agent Life Coach (Sonnet / Opus si décision profonde)
+    ├── COACH      → Agent Life Coach (modèle principal, contexte mémoire complet)
     ├── INFO       → Agent Info (Haiku 4.5)
     ├── JOURNAL    → Agent Journal (Sonnet 4.6)
     ├── DEVOPS     → Agent DevOps (code, infra, délégation Cursor)
@@ -177,7 +178,7 @@ Ollama         = Screen Watcher uniquement (vision locale)
  Templates versionnés dans `prompts/cursor/*.md`.
 - Auto-réparation (`scripts/self_healing.py`) et auto-amélioration
  (`scripts/self_improvement.py`, job scheduler dim 06:00) délèguent à Cursor en
- mode `SELF_MODIFICATION_MODE=pr_only`.
+ mode `pr_only` obligatoire.
 - Briefings : `agents/briefing_engine.py` (morning / evening / delta, version
  vocale 30-60 s, dédup, priorités critique / aujourd'hui / surveiller / info).
 - Latences vocales p50/p95 : `GET /api/voice/metrics` (table `voice_debug_log`).
@@ -1071,8 +1072,8 @@ seconde passe LLM comprises.
 
 ```
 jarvis/
-├── main.py                  # Assemblage FastAPI/Uvicorn (175 lignes)
-├── api/                     # 17 routeurs + lifespan, middleware, frontend et pipeline WebSocket
+├── main.py                  # Assemblage FastAPI/Uvicorn (211 lignes)
+├── api/                     # 17 routeurs (+ Fitness monté séparément) + support API
 ├── config.py                # Charge .env, expose tous les settings
 ├── llm.py                   # Client DeepSeek API (chat, stream, classify)
 ├── actions.py               # execute_action : tâches, mails, terminal, ordinateur…
@@ -1276,8 +1277,8 @@ doivent jamais appliquer directement `DATE(created_at)` avec une date locale :
 | Migrations SQLite | `GET/POST /api/migrations/status\|run` | `scripts/db_migrations.py`, `database/migrations/` |
 | Perf + rollback | (interne, hook loop.py) | `scripts/perf_regression.py` |
 | Code dupliqué | `GET /api/quality/duplicates`, `POST .../scan` | `scripts/duplicate_scanner.py` |
-| Audit sécurité | `GET /api/quality/security`, `POST .../scan`, `POST .../{id}/fix` | `scripts/security_audit.py` |
-| Tests manquants | `POST /api/quality/tests/generate` | `scripts/test_coverage_scan.py` |
+| Audit sécurité | `GET /api/quality/security`, `POST .../scan`, `POST .../{id}/fix` (proposition Cursor PR-only) | `scripts/security_audit.py`, `scripts/quality_delegation.py` |
+| Tests manquants | `POST /api/quality/tests/generate` (proposition Cursor PR-only) | `scripts/quality_delegation.py` |
 | CI locale | `POST /api/quality/ci/run`, `POST .../install-hook` | `scripts/local_ci.py`, `scripts/install_git_hooks.py` |
 | Self-healing | `GET /api/self-healing/status`, `POST .../diagnose` | `scripts/self_healing.py` (hook `supervisor.py`) |
 | DevAgent — PR auto | `POST /api/devagent/{id}/pr` | `agents/devagent/pr.py` |
@@ -1287,14 +1288,14 @@ doivent jamais appliquer directement `DATE(created_at)` avec une date locale :
 | DevAgent — autorun | `POST /api/devagent/autorun` | `agents/devagent/autorun.py` |
 
 Détails et garde-fous de chaque feature dans les docstrings de tête de
-chaque module — tous suivent le principe : **report-only sur la codebase
-JARVIS elle-même** (jamais de mutation auto du code de l'assistant sans
-opt-in explicite), **application + validation automatique réservée aux
-projets DevAgent** (isolés, versionnés, testés → rollback trivial).
+chaque module — tous suivent le principe : **report-only dans le checkout
+JARVIS actif** ; les mutations de code opt-in passent par Cursor dans un
+worktree avec livraison PR-only. **Application + validation automatique
+réservée aux projets DevAgent** (isolés, versionnés, testés → rollback
+trivial).
 Self-healing est le plus encadré : diagnostic seul par défaut
-(`SELF_HEALING_ENABLED=false`), patch encore plus explicitement opt-in
-(`SELF_HEALING_AUTO_APPLY=false`), rollback automatique si la même
-boucle de crash revient sous `SELF_HEALING_REGRESSION_WINDOW_MIN`.
+(`SELF_HEALING_ENABLED=false`) ; si la réparation est activée, elle passe
+exclusivement par un worktree Cursor avec livraison PR-only.
 - `GET /api/journal` → historique du journal
 - `POST /api/journal` → nouvelle entrée journal
 
@@ -1414,15 +1415,13 @@ system_blocks = [
 
 Le life profile + mémoire (~4000 tokens) est identique entre les appels → cache hit → -90% sur ces tokens input.
 
-## Escalade Opus
+## Coaching structurant
 
-L'agent Coach doit détecter quand escalader vers Opus. Critères :
-- Décision de carrière, rupture, déménagement, investissement
-- L'utilisateur dit explicitement "c'est important" ou "j'ai besoin de réfléchir sérieusement"
-- Le mood_score est < 3 (crise émotionnelle)
-- Le sujet implique plusieurs personnes et des dynamiques complexes
-
-Implémentation : le Coach fait un pre-check rapide (Haiku, 20 tokens) : "Ce sujet nécessite-t-il une analyse profonde ? OUI/NON". Si OUI → Opus.
+L'agent Coach utilise directement le modèle principal et le contexte mémoire complet sur
+chaque tour non vocal. Il ne paie pas de pré-classification supplémentaire : avec la
+configuration DeepSeek actuelle, cette ancienne « escalade » sélectionnait exactement le
+même modèle. Les sujets structurants sont approfondis par les instructions du prompt, sans
+tag technique visible dans la réponse. Le mode vocal conserve son budget court dédié.
 
 ## Variables d'environnement (.env)
 
@@ -1846,9 +1845,9 @@ scripts/tv_mcp_server.py (Python, 7 outils MCP)
   ↓ HTTP CDP (localhost:9222)
 ADB forward tcp:9222 → localabstract:chrome_devtools_remote
   ↓
-Kiwi Browser (com.kiwibrowser.browser) sur TV Philips (192.168.3.82)
+Kiwi Browser (com.kiwibrowser.browser) sur une TV Philips configurée localement
   ↓
-Dashboard JARVIS WAR ROOM (http://192.168.3.52:5174/)
+Dashboard JARVIS WAR ROOM (`TV_DASHBOARD_URL`, opt-in local)
 ```
 
 ### Outils MCP
@@ -1900,10 +1899,10 @@ const puppeteer = require('puppeteer-core');
 ### Variables d'env
 
 ```bash
-TV_IP=192.168.3.82        # IP TV Philips
+TV_IP=<adresse-tv>        # IP TV Philips, opt-in local
 TV_ADB_PORT=5555          # Port ADB TV
 CDP_LOCAL_PORT=9222       # Port local bridge CDP
-TV_DASHBOARD_URL=http://192.168.3.52:5174/  # Dashboard URL
+TV_DASHBOARD_URL=<url-dashboard>  # URL locale du dashboard
 ```
 
 ## Canal WebSocket TV — `/ws/tv/events` (lecture seule)
@@ -2042,7 +2041,7 @@ tous les endpoints `/api/*` (hors `/api/auth/*`) répondent `428`.
 
 | Fichier | Rôle |
 |---|---|
-| `auth.py` | PIN 6 chiffres/passphrase 10 caractères (hash `scrypt`, jamais en clair), sessions DB-backed (jeton opaque, seul le hash SHA-256 est stocké), délai progressif et verrou par client haché, plafond global secondaire |
+| `auth.py` | PIN de 4 chiffres minimum/passphrase de 10 caractères minimum (hash `scrypt`, jamais en clair), sessions DB-backed (jeton opaque, seul le hash SHA-256 est stocké), délai progressif et verrou par client haché, plafond global secondaire |
 | `security_headers.py` | Source unique des en-têtes statiques et de la CSP partagée par FastAPI et le serveur E2E ; OpenFreeMap limité à son origine exacte et worker MapLibre limité à `blob:` |
 | `api/middleware.py` (`security_middleware`) | Application des en-têtes de sécurité à toutes les réponses, y compris les sorties anticipées 401/403/428 ; verrou de session sur `/api/*` (routes auth publiques exactes, ingestion device/localisation qui s'authentifient autrement) ; mutations par cookie protégées par origine exacte et jeton `X-CSRF-Token` lié à la session |
 | `core/supervisor_auth.py` | Canal supervisor → backend limité au loopback et authentifié par un jeton aléatoire privé `0600` placé à côté de la base ; le header booléen historique est refusé |
@@ -2132,16 +2131,16 @@ BACKUP_ENCRYPTION_PASSPHRASE=
 
 ## PWA offline-first — Service Worker, file d'écriture, push (mai 2026)
 
-> **État actuel (juil. 2026)** : cette section décrit le **bureau** uniquement.
-> Le frontend canonique est `frontend/` (Next.js 15 → `frontend/out`), `web/`
-> reste le repli Vite et la source des vues bureau, et le Service Worker unifié
+> **État actuel (août 2026)** : cette section conserve l'historique du lot de
+> mai. Le frontend canonique est `frontend/` (Next.js 15 → `frontend/out`),
+> `web/` est seulement sa bibliothèque de vues, et l'unique Service Worker
 > vit dans `frontend/public/sw.js`. Le téléphone ne passe plus par là du tout :
 > voir « Interface mobile autonome — `web_mobile/` ». Rien de ce lot (Service
 > Worker, file d'écriture hors ligne, push) n'est encore porté côté mobile.
 
-`web/` (SPA Vite + React, repli et source bureau) a reçu une PWA installable et
-utilisable hors ligne — c’était l’interface qui portait déjà le LockGate au
-moment du lot mai 2026.
+L'ancienne SPA Vite avait reçu une PWA installable et utilisable hors ligne.
+Son shell et son Service Worker sont retirés ; les sources de vues et la logique
+offline encore consommée vivent dans `web/src`.
 
 ### Service Worker (Workbox, mode injectManifest)
 
@@ -2242,9 +2241,8 @@ moment du lot mai 2026.
   hors ligne des listes tâches/notifications) — l'app shell fonctionne hors
   ligne, mais les données déjà chargées ne persistent pas automatiquement
   entre sessions sans réseau pour l'instant.
-- Limite historique de ce lot désormais partiellement levée : la Phase 6
-  fournit le LockGate partagé et un Service Worker unifié sans cache privé.
-  Les Service Workers des deux fallbacks restent jusqu'à leur retrait.
+- Limite historique levée : le LockGate est partagé et un seul Service Worker
+  unifié subsiste, sans cache privé.
 - Vérification faite dans un navigateur headless en sandbox (pas de vrai
   téléphone) — conso batterie/CPU réelle et comportement d'installation
   natif à valider sur device physique.
@@ -2346,7 +2344,6 @@ web_mobile/
 |---|---|---|
 | `WEB_MOBILE_DIR` | `./web_mobile` | Répertoire servi sous `/mobile/` |
 | `FRONTEND_DIST_DIR` | `./frontend/out` | Build bureau Next.js 15 |
-| `WEB_DIST_DIR` | `./web/dist` | Repli Vite bureau |
 
 Si `web_mobile/` est absent : pas de redirection, pas d'erreur, le bureau est
 servi normalement.

@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime
 from typing import Any
 
 from database.core import get_db
+from database.time_buckets import sqlite_utc_timestamp
 from jarvis.security.redaction import (
     redact_persisted_mapping,
     redact_persisted_text,
@@ -72,7 +72,6 @@ def ensure_cursor_jobs_table() -> None:
                 allow_commit INTEGER DEFAULT 1,
                 allow_push INTEGER DEFAULT 1,
                 allow_pr INTEGER DEFAULT 1,
-                allow_merge INTEGER DEFAULT 0,
                 commit_sha TEXT,
                 pr_url TEXT,
                 error_message TEXT,
@@ -124,9 +123,9 @@ def _insert_cursor_job_row(conn: Any, record: dict[str, Any], now: str) -> None:
             job_id, title, user_request, status, repository, working_directory,
             worktree_path, branch_name, prompt_template, template_version,
             prompt_sent, acceptance_criteria, required_tests, risk_level,
-            allow_commit, allow_push, allow_pr, allow_merge,
+            allow_commit, allow_push, allow_pr,
             interaction_mode, routing_json, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             record["job_id"],
@@ -146,7 +145,6 @@ def _insert_cursor_job_row(conn: Any, record: dict[str, Any], now: str) -> None:
             1 if record.get("allow_commit", True) else 0,
             1 if record.get("allow_push", True) else 0,
             1 if record.get("allow_pr", True) else 0,
-            1 if record.get("allow_merge", False) else 0,
             record.get("interaction_mode"),
             json.dumps(safe_routing, ensure_ascii=False),
             now,
@@ -157,7 +155,7 @@ def _insert_cursor_job_row(conn: Any, record: dict[str, Any], now: str) -> None:
 
 def create_cursor_job(record: dict[str, Any]) -> dict[str, Any]:
     ensure_cursor_jobs_table()
-    now = datetime.now().isoformat(timespec="seconds")
+    now = sqlite_utc_timestamp()
     with get_db() as conn:
         _insert_cursor_job_row(conn, record, now)
         conn.commit()
@@ -175,7 +173,7 @@ def create_cursor_job_within_capacity(
     """
     ensure_cursor_jobs_table()
     limit = max(1, int(max_concurrent))
-    now = datetime.now().isoformat(timespec="seconds")
+    now = sqlite_utc_timestamp()
     placeholders = ",".join("?" * len(ACTIVE_SLOT_STATUSES))
     with get_db() as conn:
         conn.execute("BEGIN IMMEDIATE")
@@ -220,9 +218,19 @@ def update_cursor_job(job_id: str, **fields: Any) -> dict[str, Any] | None:
         )
         raise
     allowed = {
-        "status", "worktree_path", "branch_name", "prompt_sent", "raw_output",
-        "structured_result", "template_version", "prompt_template",
-        "commit_sha", "pr_url", "error_message", "started_at", "finished_at",
+        "status",
+        "worktree_path",
+        "branch_name",
+        "prompt_sent",
+        "raw_output",
+        "structured_result",
+        "template_version",
+        "prompt_template",
+        "commit_sha",
+        "pr_url",
+        "error_message",
+        "started_at",
+        "finished_at",
     }
     cols = []
     vals: list[Any] = []
@@ -231,10 +239,12 @@ def update_cursor_job(job_id: str, **fields: Any) -> dict[str, Any] | None:
             continue
         if k == "structured_result" and not isinstance(v, str):
             v = json.dumps(v, ensure_ascii=False)
+        if k in {"started_at", "finished_at"} and v is not None:
+            v = sqlite_utc_timestamp(v)
         cols.append(f"{k} = ?")
         vals.append(v)
     cols.append("updated_at = ?")
-    vals.append(datetime.now().isoformat(timespec="seconds"))
+    vals.append(sqlite_utc_timestamp())
     vals.append(job_id)
     with get_db() as conn:
         conn.execute(
@@ -254,7 +264,9 @@ def get_cursor_job(job_id: str) -> dict[str, Any] | None:
     return _row_to_dict(row) if row else None
 
 
-def list_cursor_jobs(limit: int = 50, status: str | None = None) -> list[dict[str, Any]]:
+def list_cursor_jobs(
+    limit: int = 50, status: str | None = None
+) -> list[dict[str, Any]]:
     ensure_cursor_jobs_table()
     limit = max(1, min(int(limit), 200))
     with get_db() as conn:
@@ -300,7 +312,12 @@ def count_active_cursor_jobs() -> int:
 
 def _row_to_dict(row: Any) -> dict[str, Any]:
     d = dict(row)
-    for key in ("acceptance_criteria", "required_tests", "routing_json", "structured_result"):
+    for key in (
+        "acceptance_criteria",
+        "required_tests",
+        "routing_json",
+        "structured_result",
+    ):
         raw = d.get(key)
         if isinstance(raw, str) and raw:
             try:

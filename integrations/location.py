@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime
+from datetime import datetime
 from typing import Any
 
 import config
@@ -12,7 +12,6 @@ from database.location_helpers import (
     create_trip,
     end_visit,
     get_all_places,
-    get_current_location,
     get_current_visit,
     get_last_known_location,
     get_location_history,
@@ -22,6 +21,12 @@ from database.location_helpers import (
     haversine,
     resolve_place,
     start_visit,
+)
+from database.time_buckets import (
+    local_datetime,
+    sqlite_utc_datetime,
+    sqlite_utc_timestamp,
+    utc_datetime,
 )
 
 logger = logging.getLogger(__name__)
@@ -61,13 +66,12 @@ class LocationManager:
         ts = point_time
         if ts is None and created_at:
             try:
-                ts = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+                ts = utc_datetime(created_at)
             except ValueError:
                 ts = None
-        if ts is None:
-            ts = datetime.now()
+        ts = utc_datetime(ts)
 
-        created_iso = ts.isoformat(timespec="seconds")
+        created_iso = sqlite_utc_timestamp(ts)
         # Toujours persister le point brut (companion Android / Shortcuts).
         # LOCATION_TRACKING=false désactive seulement les transitions lieux/visites.
         location_history_id = add_location(
@@ -209,8 +213,8 @@ class LocationManager:
         since_min = None
         if visit and visit.get("arrived_at"):
             try:
-                at = datetime.fromisoformat(str(visit["arrived_at"]).replace("Z", "+00:00"))
-                since_min = round((datetime.now() - at).total_seconds() / 60.0, 1)
+                at = sqlite_utc_datetime(str(visit["arrived_at"]))
+                since_min = round((utc_datetime() - at).total_seconds() / 60.0, 1)
             except ValueError:
                 since_min = None
         recent_points = get_location_history(hours=24)
@@ -249,7 +253,7 @@ class LocationManager:
                 except (TypeError, ValueError):
                     pass
         return {
-            "date": date.today().isoformat(),
+            "date": local_datetime().date().isoformat(),
             "visits": visits_today,
             "duration_by_place_min": duration_by_place,
             "trips": trips_today,

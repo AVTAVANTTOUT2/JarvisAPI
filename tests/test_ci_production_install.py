@@ -18,7 +18,9 @@ def test_ci_installs_real_production_requirements():
     job = _production_job()
 
     assert "runs-on: ubuntu-latest" in job
-    assert "python -m pip install -r requirements.txt" in job
+    assert "python -m pip install --require-hashes" in job
+    assert "requirements/locks/production-linux-x86_64-py312.txt" in job
+    assert "python tools/update_python_locks.py --check" in job
     assert "python -m pip check" in job
     assert "portaudio19-dev" in job
 
@@ -30,6 +32,7 @@ def test_ci_smoke_imports_risky_production_dependencies():
         "faster_whisper",
         "pyaudio",
         "sentence_transformers",
+        "silero_vad",
         "spacy",
         "torch",
         "torchaudio",
@@ -42,6 +45,15 @@ def test_production_requirements_keep_spacy_numpy_compatible():
 
     assert "numpy>=2.0.2,<3" in requirements
     assert "spacy==3.8.*" in requirements
+
+
+def test_production_requirements_ship_silero_model_locally():
+    requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8")
+
+    assert "silero-vad==6.2.1" in requirements
+    assert "torch.hub" not in (ROOT / "audio" / "vad_silero.py").read_text(
+        encoding="utf-8"
+    )
 
 
 def test_production_requirements_carry_no_speech_engine():
@@ -61,3 +73,9 @@ def test_production_requirements_pin_the_web_core():
 
     assert "fastapi==0.139.*" in requirements
     assert "uvicorn[standard]==0.34.*" in requirements
+
+
+def test_production_requirements_use_the_python_314_pdf_runtime():
+    requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8")
+
+    assert "pymupdf==1.28.*" in requirements

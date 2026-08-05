@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS messages (
     tokens_in INTEGER,
     tokens_out INTEGER,
     cost REAL,
+    usage_estimated INTEGER NOT NULL DEFAULT 0 CHECK(usage_estimated IN (0, 1)),
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -280,10 +281,7 @@ CREATE TABLE IF NOT EXISTS event_log (
     timestamp REAL NOT NULL,
     source TEXT NOT NULL,
     payload_json TEXT NOT NULL,
-    checksum TEXT NOT NULL,
-    processed_by TEXT,
-    processed_at REAL,
-    error TEXT
+    checksum TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_event_log_type ON event_log(event_type);
 CREATE INDEX IF NOT EXISTS idx_event_log_timestamp ON event_log(timestamp);
@@ -638,7 +636,7 @@ CREATE INDEX IF NOT EXISTS idx_worksessions_date ON work_sessions(started_at);
 
 CREATE TABLE IF NOT EXISTS voice_debug_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    created_at TEXT DEFAULT (datetime('now', 'localtime')),
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     input_text TEXT,
     system_prompt TEXT,
     messages_json TEXT,
@@ -827,7 +825,6 @@ CREATE TABLE IF NOT EXISTS cursor_delegation_jobs (
     allow_commit INTEGER DEFAULT 1,
     allow_push INTEGER DEFAULT 1,
     allow_pr INTEGER DEFAULT 1,
-    allow_merge INTEGER DEFAULT 0,
     commit_sha TEXT,
     pr_url TEXT,
     error_message TEXT,

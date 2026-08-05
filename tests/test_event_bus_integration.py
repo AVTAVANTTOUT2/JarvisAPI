@@ -56,6 +56,11 @@ async def test_database_mutations_emit_log_and_push_all_phase3_events(
     assert "cursor_delegation_jobs" in table_names
     assert "device_pairing_codes" in table_names
     assert "device_pairing_attempts" in table_names
+    with database.get_db() as conn:
+        event_log_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(event_log)").fetchall()
+        }
+    assert {"processed_by", "processed_at", "error"}.isdisjoint(event_log_columns)
 
     queue = event_bus.subscribe()
     socket = _FakeWebSocket()

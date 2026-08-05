@@ -14,7 +14,7 @@ variables: user_request,acceptance_criteria,required_tests,context_files,extra_c
 # Contexte
 Date: {{date}}
 Template version: {{template_version}}
-Artefacts de release JARVIS : frontend Next.js 15 (`pnpm build` dans `frontend/` → `frontend/out`), fallback Vite (`pnpm build` dans `web/` → `web/dist`), app Android (`./gradlew assembleRelease` dans `android/`, signature via `signing.properties`). La checklist officielle vit dans `RELEASE_CHECKLIST.md` à la racine.
+Artefacts de release JARVIS : frontend Next.js 15 (`pnpm build` dans `frontend/` → `frontend/out`) et app Android (`./gradlew assembleRelease` dans `android/`, signature via `signing.properties`). `web/` est une bibliothèque validée par tests et typecheck, sans artefact propre. La checklist officielle vit dans `RELEASE_CHECKLIST.md` à la racine.
 
 Contexte JARVIS :
 {{extra_context}}
@@ -25,7 +25,7 @@ Contexte JARVIS :
 - Vérifie les versions déclarées (versionCode/versionName Android, versions des package.json) et leur cohérence avant de builder.
 
 # Périmètre
-- Builds dans l'ordre : backend (suite pytest verte), `pnpm build` dans `frontend/`, `pnpm build` dans `web/`, `cd android && ./gradlew assembleRelease`.
+- Portes dans l'ordre : backend (suite pytest verte), tests/typecheck dans `web/`, tests/typecheck/build dans `frontend/`, `cd android && ./gradlew assembleRelease`.
 - Consigner pour chaque build : commande exacte, durée, résultat, chemin et taille de l'artefact produit.
 - Tagger UNIQUEMENT si la demande l'exige explicitement, au format déjà utilisé par le dépôt (vérifier `git tag --list` avant d'inventer un format).
 
@@ -45,7 +45,7 @@ Contexte JARVIS :
 # Critères d'acceptation
 {{acceptance_criteria}}
 - Chaque item de `RELEASE_CHECKLIST.md` a un verdict explicite (OK / KO / non applicable + raison).
-- Tous les artefacts listés existent aux chemins attendus (`frontend/out`, `web/dist`, APK sous `android/app/build/outputs/`).
+- Tous les artefacts listés existent aux chemins attendus (`frontend/out`, APK sous `android/app/build/outputs/`).
 
 # Tests obligatoires
 {{required_tests}}

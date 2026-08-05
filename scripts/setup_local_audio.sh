@@ -35,7 +35,7 @@ if missing:
     raise SystemExit(
         "Paquets manquants : "
         + ", ".join(missing)
-        + "\nInstallez : pip install -r requirements.txt"
+        + "\nInstallez : pip install --require-hashes -r requirements/locks/production-macos-arm64-py312.txt"
     )
 print("  OK — dépendances Python présentes")
 PY

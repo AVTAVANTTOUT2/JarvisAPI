@@ -1,5 +1,8 @@
 # 35 — Cahier des charges : `web_mobile/`
 
+> **Cahier historique livré.** Pour l'état runtime courant, consulter
+> `Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md`.
+
 Interface mobile JARVIS refaite de zéro, isolée, servie par FastAPI.
 Rédigé le 30/07/2026. **Statut : implémenté, corrigé et audité le 31/07/2026.**
 
@@ -41,7 +44,7 @@ backend.
 | C3 | Servi par FastAPI, **même origine**, même port. | Le cookie `jarvis_session` est `SameSite=Strict` ; le middleware vérifie `Origin`/`Referer` ; la CSP est `default-src 'self'`. Une autre origine casse les trois. |
 | C4 | Aucune modification des routers `api/*`. | Le backend est stable, la refonte est purement frontale. |
 | C5 | Fail-closed sur l'auth. | Aucune donnée affichée avant session confirmée. |
-| C6 | CSP respectée : pas de CDN, pas de police Google, pas de script externe. | `default-src 'self'` ; `style-src` autorise l'inline. |
+| C6 | CSP respectée : pas de CDN, pas de police Google, pas de script externe. | `default-src 'self'` ; scripts et balises de style inline liés au fichier HTML par hash SHA-256. |
 
 ### Note sur PHP
 

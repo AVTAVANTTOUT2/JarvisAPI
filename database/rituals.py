@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import timedelta
 from typing import Any
 
 from .core import get_db
 from .settings import get_setting, set_setting
 from .stats import get_daily_activity_stats
+from .time_buckets import (
+    local_datetime,
+    sqlite_utc_timestamp,
+    utc_bounds_for_local_dates,
+)
 
 
 def set_daily_ritual(date: str, field: str, value: Any) -> None:
@@ -40,7 +45,7 @@ def get_todays_birthdays(today_mm_dd: str | None = None) -> list[dict]:
 
     ``people.birthday`` accepte 'YYYY-MM-DD' (âge calculable) ou 'MM-DD'.
     """
-    mm_dd = today_mm_dd or datetime.now().strftime("%m-%d")
+    mm_dd = today_mm_dd or local_datetime().strftime("%m-%d")
     with get_db() as conn:
         rows = conn.execute(
             """SELECT id, name, relationship, birthday FROM people
@@ -190,10 +195,8 @@ def get_overdue_commitments(days: int = 3) -> list[dict]:
 
 
 def set_dnd(minutes: int) -> str:
-    """Active le DND pour `minutes`. Retourne l'heure de fin (ISO locale)."""
-    from datetime import timedelta
-
-    until = (datetime.now() + timedelta(minutes=max(1, minutes))).isoformat(timespec="seconds")
+    """Active le DND pour `minutes`. Retourne l'instant de fin en UTC SQLite."""
+    until = sqlite_utc_timestamp(local_datetime() + timedelta(minutes=max(1, minutes)))
     set_setting("dnd_until", until)
     return until
 
@@ -204,7 +207,7 @@ def clear_dnd() -> None:
 
 def get_dnd_status() -> dict:
     until = get_setting("dnd_until", "")
-    active = bool(until) and until > datetime.now().isoformat(timespec="seconds")
+    active = bool(until) and until > sqlite_utc_timestamp()
     return {"active": active, "until": until or None}
 
 
@@ -242,8 +245,6 @@ def get_week_comparison() -> dict:
 
     Chiffres bruts + variation en % — aucune interprétation.
     """
-    from datetime import timedelta
-
     daily = get_daily_activity_stats(14)
     prev_days, cur_days = daily[:7], daily[7:]
 
@@ -257,16 +258,27 @@ def get_week_comparison() -> dict:
 
     cur, prev = _sum(cur_days), _sum(prev_days)
 
-    today = datetime.now().date()
-    cur_start = (today - timedelta(days=6)).isoformat()
-    prev_start = (today - timedelta(days=13)).isoformat()
+    today = local_datetime().date()
+    cur_start_date = today - timedelta(days=6)
+    prev_start_date = today - timedelta(days=13)
+    tomorrow = today + timedelta(days=1)
+    cur_start = cur_start_date.isoformat()
+    prev_start = prev_start_date.isoformat()
+    prev_start_utc, cur_start_utc = utc_bounds_for_local_dates(
+        prev_start_date, cur_start_date
+    )
+    _, end_utc = utc_bounds_for_local_dates(cur_start_date, tomorrow)
     with get_db() as conn:
         cur["tasks_done"] = conn.execute(
-            "SELECT COUNT(*) FROM tasks WHERE status = 'done' AND DATE(completed_at) >= ?",
-            (cur_start,)).fetchone()[0]
+            "SELECT COUNT(*) FROM tasks WHERE status = 'done' "
+            "AND completed_at >= ? AND completed_at < ?",
+            (cur_start_utc, end_utc),
+        ).fetchone()[0]
         prev["tasks_done"] = conn.execute(
-            "SELECT COUNT(*) FROM tasks WHERE status = 'done' AND DATE(completed_at) >= ? "
-            "AND DATE(completed_at) < ?", (prev_start, cur_start)).fetchone()[0]
+            "SELECT COUNT(*) FROM tasks WHERE status = 'done' "
+            "AND completed_at >= ? AND completed_at < ?",
+            (prev_start_utc, cur_start_utc),
+        ).fetchone()[0]
         cur["screen_minutes"] = round((conn.execute(
             "SELECT COALESCE(SUM(duration_seconds), 0) FROM app_usage WHERE date >= ?",
             (cur_start,)).fetchone()[0] or 0) / 60, 1)
@@ -334,11 +346,9 @@ def get_day_score(date: str) -> dict | None:
 
 def get_top_days(metric: str = "exceptional_score", limit: int = 10, days: int = 90) -> list[dict]:
     """Classement des meilleurs jours sur `metric` (exceptional_score ou luck_score)."""
-    from datetime import timedelta
-
     if metric not in ("exceptional_score", "luck_score"):
         raise ValueError(f"métrique invalide : {metric}")
-    since = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+    since = (local_datetime().date() - timedelta(days=days)).isoformat()
     with get_db() as conn:
         rows = conn.execute(
             f"""SELECT * FROM day_scores WHERE date >= ? AND {metric} IS NOT NULL

@@ -8,6 +8,7 @@ import {
   ConversationUploadResult,
   DocumentPrivacyPolicy,
 } from '@unified/lib/api'
+import { formatRelativeTime, parseBackendTimestamp } from '@unified/lib/timeFormat'
 import { ws } from '@desktop/services/websocket'
 import { Cloud, Menu, Paperclip, Plus, Search, Send, ShieldCheck, X } from 'lucide-react'
 
@@ -34,29 +35,11 @@ interface AttachedDoc {
   processing_mode?: ConversationUploadResult['processing_mode']
 }
 
-// ── Helpers date ────────────────────────────────────────────
-
-function relativeDate(iso: string | null | undefined): string {
-  if (!iso) return ''
-  const d = new Date(iso)
-  const now = new Date()
-  const diff = now.getTime() - d.getTime()
-  const mins = Math.floor(diff / 60000)
-  if (mins < 1) return "à l'instant"
-  if (mins < 60) return `${mins}m`
-  const hrs = Math.floor(mins / 60)
-  if (hrs < 24) return `${hrs}h`
-  const days = Math.floor(hrs / 24)
-  if (days === 1) return 'hier'
-  if (days < 7) return `${days}j`
-  return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })
-}
-
 function groupConversations(convs: ConversationSummary[]) {
   const now = new Date()
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  const startOfYesterday = new Date(startOfToday.getTime() - 86400000)
-  const startOf7Days = new Date(startOfToday.getTime() - 6 * 86400000)
+  const startOfYesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1)
+  const startOf7Days = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6)
 
   const pinned: ConversationSummary[] = []
   const today: ConversationSummary[] = []
@@ -66,7 +49,7 @@ function groupConversations(convs: ConversationSummary[]) {
 
   for (const c of convs) {
     if (c.pinned) { pinned.push(c); continue }
-    const d = new Date(c.last_message_at || c.started_at)
+    const d = new Date(parseBackendTimestamp(c.last_message_at || c.started_at))
     if (d >= startOfToday) today.push(c)
     else if (d >= startOfYesterday) yesterday.push(c)
     else if (d >= startOf7Days) week.push(c)
@@ -810,7 +793,7 @@ function ConvGroup({ label, convs, activeId, onSelect, onContextMenu, contextMen
                 <div className="text-sm truncate">{c.title || 'Nouvelle conversation'}</div>
                 <div className="flex items-center gap-2 mt-0.5">
                   <span className="text-xs text-white/30 truncate flex-1">{c.last_message?.slice(0, 40) || ''}</span>
-                  <span className="text-xs text-white/15 shrink-0">{relativeDate(c.last_message_at || c.started_at)}</span>
+                  <span className="text-xs text-white/15 shrink-0">{formatRelativeTime(c.last_message_at || c.started_at)}</span>
                 </div>
               </>
             )}
@@ -876,7 +859,6 @@ function MessageBubble({ message, streaming, onConfirmAction, onCancelAction }: 
           {streaming && <span className="inline-block w-0.5 h-4 bg-white/60 ml-0.5 animate-blink" />}
         </div>
         <div className={`flex items-center gap-2 text-xs text-white/20 ${isUser ? 'flex-row-reverse' : ''}`}>
-          {message.agent && <span className="font-mono">{message.agent}</span>}
           {message.meta && <span>{message.meta}</span>}
         </div>
         {message.actionType && (

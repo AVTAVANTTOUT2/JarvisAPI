@@ -79,7 +79,7 @@ Phase 6 → dépend de Phase 1 + Phase 3 + Phase 5
 1. **Phase 1 — Quick Wins P0** : ✅ validée le 14/07/2026
 2. **Phase 2 — Database modulaire** : ✅ validée le 14/07/2026 — façade 236 lignes, 25 modules après ajout du journal Phase 3
 3. **Phase 3 — Event bus actif** : ✅ validée le 14/07/2026 — 10 événements, 3 consommateurs et PWA temps réel
-4. **Phase 4 — Routeurs FastAPI** : ✅ validée le 14/07/2026 — 12 routeurs, `main.py` 175 lignes et contrat API inchangé
+4. **Phase 4 — Routeurs FastAPI** : ✅ validée le 14/07/2026, puis étendue — 18 routeurs montés, `main.py` sous 500 lignes et contrat API verrouillé
 5. **Phase 5 — Apple Data Service** : ✅ validée le 14/07/2026 — accès `chat.db` et conversion Apple centralisés
 6. **Phase 6 — Frontend unifié + SDK Auth** : ✅ validée sur `main` le 14/07/2026 — Next.js 15 responsive, LockGate et client API partagés, fallbacks réversibles
 
