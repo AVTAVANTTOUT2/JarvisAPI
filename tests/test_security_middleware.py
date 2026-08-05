@@ -398,6 +398,41 @@ def test_hsts_present_on_early_response_when_https_enabled(tmp_db, monkeypatch):
     )
 
 
+def test_handler_cannot_weaken_non_csp_security_headers():
+    """Un handler qui pose X-Frame-Options/Referrer-Policy avant le middleware
+    ne doit pas pouvoir assouplir la politique globale — seule la CSP est
+    remplaable (page HTML liée par hashes).
+    """
+    from starlette.responses import Response
+
+    from api.middleware import _apply_security_headers
+    from security_headers import SECURITY_HEADERS
+
+    response = Response("ok", media_type="text/plain")
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    response.headers["Referrer-Policy"] = "unsafe-url"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Content-Security-Policy"] = "default-src 'none'"
+
+    _apply_security_headers(response)
+
+    assert response.headers["X-Frame-Options"] == SECURITY_HEADERS["X-Frame-Options"]
+    assert response.headers["Referrer-Policy"] == SECURITY_HEADERS["Referrer-Policy"]
+    assert response.headers["X-Content-Type-Options"] == (
+        SECURITY_HEADERS["X-Content-Type-Options"]
+    )
+    # CSP fournie par la route : conservée (plus stricte / liée au contenu).
+    assert response.headers["Content-Security-Policy"] == "default-src 'none'"
+
+
+def test_route_overridable_security_headers_is_csp_only():
+    from api.middleware import _ROUTE_OVERRIDABLE_SECURITY_HEADERS
+
+    assert _ROUTE_OVERRIDABLE_SECURITY_HEADERS == frozenset(
+        {"Content-Security-Policy"}
+    )
+
+
 def test_proxy_https_sets_hsts_and_secure_session_cookie(tmp_db, monkeypatch):
     monkeypatch.setattr("config.WEB_HTTPS", False)
     monkeypatch.setattr("config.WEB_HTTPS_BEHIND_PROXY", True)
