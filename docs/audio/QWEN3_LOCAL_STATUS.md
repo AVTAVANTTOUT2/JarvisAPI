@@ -167,31 +167,34 @@ ont été générées avec la voix macOS Thomas puis converties en PCM16 mono
 | STT | Médiane inférence | Similarité médiane | Usage |
 |---|---:|---:|---|
 | `small` | **706 ms** | 0,894 | passage temps réel systématique |
-| `large-v3-turbo` | 2 259 ms | **0,909** | relecture seulement si `avg_logprob < -0,30` |
+| `large-v3-turbo` | 2 259 ms | **0,909** | relecture seulement si `avg_logprob < -0,35` |
 
-Sur les deux phrases confiantes, seul `small` s'exécute. Sur la phrase météo
-difficile, `small` termine en 780 ms avec `avg_logprob=-0,33` : la relecture
-qualité part alors, mais l'accusé local part **en parallèle**. Le chargement du
-modèle lourd est déporté hors de la boucle asyncio et ne bloque donc ni le TTS,
-ni les WebSockets, ni le VAD.
+Le seuil a été recalibré le 5 août sur huit enregistrements français connus.
+Les six transcriptions correctes (similarité ≥ 0,85) occupent l'intervalle
+`-0,3244…-0,2005` ; les deux sorties réellement dégradées sont à `-0,4378` et
+`-0,6470`, puis passent respectivement de 0,8395 à 1,0 et de 0,8412 à 0,9610
+après relecture. `-0,35` évite donc l'escalade observée sur une phrase correcte
+à `-0,3244` tout en conservant les deux corrections utiles.
 
 ### Trace matérielle intégrée — pire chemin qualité
 
-La trace suivante emploie le vrai PCM météo (1 439 ms), le vrai STT, le vrai
-Qwen3 Base cloné `jarvis-fr` et la première écriture sur les haut-parleurs Mac
-mini via CoreAudio. STT primaire et TTS sont préchauffés comme au démarrage du
-daemon ; le modèle qualité est volontairement froid. L'origine est la fin de
-parole, pas la fin du silence VAD.
+La trace suivante emploie le vrai PCM français
+`data/voice-tests/demo_01_greeting.wav` (1 904 ms), le vrai STT, le vrai Qwen3
+Base cloné `jarvis-fr` et la première écriture sur les haut-parleurs Mac mini
+via CoreAudio. STT primaire et TTS sont préchauffés comme au démarrage du
+daemon ; l'objet modèle qualité est volontairement froid. L'origine est la fin
+de parole, pas la fin du silence VAD.
 
 | Événement | Depuis fin de parole |
 |---|---:|
-| `small` décide la relecture qualité et lance l'accusé | 779,7 ms |
-| premier PCM Qwen3 | 1 483,2 ms |
-| **première écriture CoreAudio** | **1 483,4 ms** |
-| accusé entièrement joué | 2 322,3 ms |
-| transcription qualité froide terminée | 4 840,6 ms |
+| `small` termine (`avg_logprob=-0,4378`) | 664,5 ms |
+| cache qualité complet vérifié et tâches lancées | 664,9 ms |
+| premier PCM Qwen3 | 1 757,9 ms |
+| **première écriture CoreAudio** | **1 758,3 ms** |
+| modèle qualité chargé | 2 455,2 ms |
+| transcription qualité froide terminée | 4 783,2 ms |
 
-La cible **fin de parole → premier son < 2 000 ms** passe donc avec **516,6 ms
+La cible **fin de parole → premier son < 2 000 ms** passe donc avec **241,7 ms
 de marge**, y compris lorsque la relecture qualité doit charger ses poids. Le
 LLM distant peut encore varier de plusieurs secondes, mais il ne se trouve plus
 sur le chemin du premier son : le tour canonique et l'accusé tournent en
@@ -199,10 +202,14 @@ parallèle. Les fast-paths déterministes répondent directement et ne jouent pa
 deux accusés ; si la relecture STT a déjà lancé l'accusé, le moteur canonique ne
 le relance pas.
 
-Le banc TTS exécuté dans le même état mesure par ailleurs **558,7 ms** de
-médiane chaude au premier PCM et un facteur temps réel médian de **0,59** sur
+Le banc TTS exécuté dans le même état mesure par ailleurs **512,9 ms** de
+médiane chaude au premier PCM et un facteur temps réel médian de **0,566** sur
 les trois longueurs. Ces chiffres sont plus conservateurs que la campagne
-historique à 445 ms et restent largement dans le budget.
+historique à 445 ms et restent largement dans le budget. La preuve structurée
+est versionnée dans
+[`artifacts/voice_latency_2026-08-05.json`](../../artifacts/voice_latency_2026-08-05.json)
+et se reproduit avec `scripts/benchmark_voice_first_sound.py` en lui donnant le
+WAV, le chemin du modèle Base local et le profil `jarvis-fr`.
 
 ## Deux pièges désamorcés
 

@@ -2,7 +2,7 @@
 
 <!-- Généré par tools/audit_technical_debt.py ; modifier le JSON source. -->
 
-**Mise à jour :** 2026-08-04 — **État :** 41 résolues, 0 actives, 41 suivies.
+**Mise à jour :** 2026-08-05 — **État :** 41 résolues, 0 actives, 41 suivies.
 
 La source de vérité est [`Architecture/technical_debt_registry.json`](technical_debt_registry.json). La CI valide les identifiants, les statuts, les preuves et ce rendu avec `python tools/audit_technical_debt.py --check`. Il n'existe pas de table SQLite `technical_debt` : la consigne historique correspondante est retirée.
 
@@ -18,7 +18,7 @@ Les anciens identifiants `TD-001` à `TD-013`, tous soldés, restent dans l'hist
 
 | ID | Dette | Résolution vérifiable | Preuves |
 |---|---|---|---|
-| TD-P0-01 | Latence micro-vers-premier-son encore supérieure à la cible de 2 s | Le STT small traite le chemin courant, une relecture locale lourde ne part que sous le seuil de confiance et l'accusé Qwen3 joue en parallèle du modèle qualité ou du tour canonique ; la trace PCM vers écriture CoreAudio mesure 1 483,4 ms sur le pire chemin froid exercé | [`audio/stt_daemon.py`](../audio/stt_daemon.py), [`scripts/audio_daemon.py`](../scripts/audio_daemon.py), [`docs/audio/QWEN3_LOCAL_STATUS.md`](../docs/audio/QWEN3_LOCAL_STATUS.md), [`tests/test_voice_latency.py`](../tests/test_voice_latency.py), [`tests/test_voice_pipeline_e2e.py`](../tests/test_voice_pipeline_e2e.py) |
+| TD-P0-01 | Latence micro-vers-premier-son encore supérieure à la cible de 2 s | Le STT small traite le chemin courant, le seuil -0,35 sépare les transcriptions correctes des deux sorties dégradées de la campagne locale, le cache qualité est vérifié sans chargement et l'accusé Qwen3 couvre le chargement froid ; la trace PCM vers écriture CoreAudio reproductible mesure 1 758,3 ms | [`audio/stt_daemon.py`](../audio/stt_daemon.py), [`scripts/audio_daemon.py`](../scripts/audio_daemon.py), [`docs/audio/QWEN3_LOCAL_STATUS.md`](../docs/audio/QWEN3_LOCAL_STATUS.md), [`scripts/benchmark_voice_first_sound.py`](../scripts/benchmark_voice_first_sound.py), [`artifacts/voice_latency_2026-08-05.json`](../artifacts/voice_latency_2026-08-05.json), [`tests/test_voice_latency.py`](../tests/test_voice_latency.py), [`tests/test_voice_pipeline_e2e.py`](../tests/test_voice_pipeline_e2e.py) |
 | TD-P0-02 | Moteur TTS cible non validé sur la machine de production | Fish a été retiré et remplacé par Qwen3 local, mesuré et validé avec une référence française versionnée | [`docs/audio/QWEN3_LOCAL_STATUS.md`](../docs/audio/QWEN3_LOCAL_STATUS.md), [`tests/test_local_tts.py`](../tests/test_local_tts.py) |
 | TD-P0-03 | Analyse des captures d’écran distantes appelée avec un contrat incomplet | Le routeur fournit désormais application et dimensions à l’API d’analyse publique stable | [`api/router_devices.py`](../api/router_devices.py), [`tests/test_security_middleware.py`](../tests/test_security_middleware.py) |
 | TD-P0-04 | SQL de migration et journal schema_migrations non atomiques | Chaque migration et son enregistrement s’exécutent dans une transaction unique sur la même connexion | [`database/migrations.py`](../database/migrations.py), [`tests/test_db_migrations.py`](../tests/test_db_migrations.py) |

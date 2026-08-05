@@ -181,6 +181,38 @@ class FasterWhisperBackend(DaemonSTTBackend):
         self._load_failed = False
         self._load_lock = asyncio.Lock()
 
+    def is_available_locally(self) -> bool:
+        """Vérifie les artefacts CTranslate2 sans charger les poids ni le réseau."""
+        if self._loaded:
+            return True
+
+        candidate = Path(self._model_size).expanduser()
+        try:
+            if not candidate.is_dir():
+                from faster_whisper.utils import download_model
+
+                candidate = Path(download_model(
+                    self._model_size,
+                    cache_dir=str(FASTER_WHISPER_CACHE),
+                    local_files_only=True,
+                ))
+        except Exception:
+            return False
+
+        required = (candidate / "config.json", candidate / "model.bin")
+        tokenizer = (
+            candidate / "tokenizer.json",
+            candidate / "vocabulary.json",
+            candidate / "vocabulary.txt",
+        )
+        try:
+            return (
+                all(path.is_file() and path.stat().st_size > 0 for path in required)
+                and any(path.is_file() and path.stat().st_size > 0 for path in tokenizer)
+            )
+        except OSError:
+            return False
+
     def preload_sync(self) -> bool:
         if self._loaded:
             return True
@@ -567,27 +599,31 @@ class FallbackSTTBackend(DaemonSTTBackend):
                         result.avg_logprob,
                         quality_backend._model_size,
                     )
-                    # L'accusé ne part **qu'une fois** la disponibilité du
-                    # modèle lourd établie. Le faire avant, c'était parler pour
-                    # couvrir un travail qui pouvait ne jamais avoir lieu : sur
-                    # une machine dont les poids qualité sont absents ou
-                    # incomplets — et le runtime interdit tout téléchargement —
-                    # `preload_sync` échoue, la transcription primaire est
-                    # rendue telle quelle, et l'utilisateur a entendu « Bien,
-                    # Monsieur. » pour rien. Le chargement est justement la
-                    # partie qui peut échouer ; l'accusé couvre la
-                    # transcription, qui est garantie de suivre.
+                    # La présence des artefacts est vérifiée sans charger les
+                    # poids. L'accusé peut ainsi couvrir aussi le chargement
+                    # froid sans faire parler JARVIS si le cache est absent ou
+                    # incomplet. Attendre `preload_sync` ici ferait dépasser le
+                    # budget de deux secondes précisément sur le pire chemin.
+                    if not quality_backend.is_available_locally():
+                        logger.warning(
+                            "[stt_daemon] relecture qualité ignorée : cache local "
+                            "incomplet model=%s",
+                            quality_backend._model_size,
+                        )
+                        return result
+
+                    notice_task: asyncio.Task[None] | None = None
+                    if on_quality_fallback is not None:
+                        notice_task = asyncio.create_task(
+                            on_quality_fallback(),
+                            name="stt-quality-fallback-notice",
+                        )
+                        notice_task.add_done_callback(_log_quality_notice_failure)
                     loop = asyncio.get_running_loop()
                     quality_ready = quality_backend._loaded or await loop.run_in_executor(
                         None, quality_backend.preload_sync,
                     )
                     if quality_ready:
-                        if on_quality_fallback is not None:
-                            notice_task = asyncio.create_task(
-                                on_quality_fallback(),
-                                name="stt-quality-fallback-notice",
-                            )
-                            notice_task.add_done_callback(_log_quality_notice_failure)
                         quality_result = await quality_backend.transcribe_pcm(
                             pcm_bytes,
                             sample_rate=sample_rate,
@@ -596,6 +632,8 @@ class FallbackSTTBackend(DaemonSTTBackend):
                         if quality_result is not None and quality_result.text.strip():
                             quality_result.quality_fallback_used = True
                             return quality_result
+                    elif notice_task is not None and not notice_task.done():
+                        notice_task.cancel()
                     # La relecture qualité est une optimisation : si elle est
                     # indisponible, la transcription primaire reste utilisable.
                     return result

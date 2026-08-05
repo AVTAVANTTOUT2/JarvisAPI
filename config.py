@@ -97,7 +97,11 @@ DEFAULT_STT_DEVICE = "auto"
 DEFAULT_STT_COMPUTE_TYPE = "float32"
 DEFAULT_STT_BEAM_SIZE = 1
 DEFAULT_STT_VAD_FILTER = False
-DEFAULT_STT_QUALITY_FALLBACK_LOGPROB = -0.30
+# Campagne locale du 5 août 2026 : huit phrases FR connues. Le seuil -0,30
+# relisait une transcription correcte à 94 % (logprob=-0,3244). À -0,35, les
+# six passages corrects restent sur `small` et les deux passages réellement
+# dégradés (-0,4378 et -0,6470) sont améliorés par le modèle qualité.
+DEFAULT_STT_QUALITY_FALLBACK_LOGPROB = -0.35
 
 # ── Segmentation VAD du daemon audio ────────────────────────
 # Ces trois valeurs déterminent le délai entre la dernière syllabe et le

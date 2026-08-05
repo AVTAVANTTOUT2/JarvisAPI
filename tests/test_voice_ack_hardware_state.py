@@ -107,13 +107,12 @@ def test_empty_transcript_with_evidence_of_speech_still_escalates():
 
 
 @pytest.mark.asyncio
-async def test_no_ack_when_the_quality_model_cannot_load(monkeypatch):
-    """Ne pas parler pour couvrir un travail qui n'aura pas lieu.
+async def test_no_ack_when_the_quality_model_cache_is_incomplete(monkeypatch):
+    """Ne pas parler pour couvrir un travail dont les poids sont absents.
 
     Les poids du modèle qualité peuvent être absents ou incomplets, et le
-    runtime interdit tout téléchargement. ``preload_sync`` échoue alors, la
-    transcription primaire est rendue telle quelle — et l'accusé, s'il est
-    parti avant, a fait parler JARVIS pour rien.
+    runtime interdit tout téléchargement. La vérification légère doit arrêter
+    le chemin avant le chargement et avant l'accusé.
     """
     from audio.stt_daemon import (
         FallbackSTTBackend,
@@ -130,7 +129,7 @@ async def test_no_ack_when_the_quality_model_cannot_load(monkeypatch):
             text="Quel temps fait Hilal Il ?",
             engine="faster-whisper",
             model="small",
-            avg_logprob=-0.33,
+            avg_logprob=-0.44,
             max_no_speech_prob=0.09,
         )
 
@@ -138,7 +137,12 @@ async def test_no_ack_when_the_quality_model_cannot_load(monkeypatch):
         acks.append("Bien, Monsieur.")
 
     monkeypatch.setattr(primary, "preload_sync", lambda: True)
-    monkeypatch.setattr(quality, "preload_sync", lambda: False)  # poids absents
+    monkeypatch.setattr(quality, "is_available_locally", lambda: False)
+    monkeypatch.setattr(
+        quality,
+        "preload_sync",
+        lambda: pytest.fail("un cache incomplet ne doit jamais être chargé"),
+    )
     monkeypatch.setattr(primary, "transcribe_pcm", _primary)
     backend = FallbackSTTBackend([primary, quality])
 

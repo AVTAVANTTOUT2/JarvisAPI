@@ -55,7 +55,7 @@ Phrases de contrôle dans `voice_processing` (stop / silence / annule) interromp
 Table `voice_debug_log` : latences STT / routing / LLM / TTS / total.
 
 La métrique de référence est `end_of_speech_to_first_audio_ms`. La trace
-matérielle du 4 août 2026 mesure **1 483,4 ms** sur le pire chemin exercé
+matérielle du 5 août 2026 mesure **1 758,3 ms** sur le pire chemin exercé
 (`small` peu confiant, modèle qualité froid, Qwen3 Base et vraie écriture
 CoreAudio), sous la cible de 2 000 ms. Voir
 [`docs/audio/QWEN3_LOCAL_STATUS.md`](../docs/audio/QWEN3_LOCAL_STATUS.md).
@@ -72,7 +72,7 @@ TTS_PROVIDER=qwen3_local
 STT_ENGINE=local
 STT_MODEL=small
 STT_FALLBACK_MODEL=large-v3-turbo
-STT_QUALITY_FALLBACK_LOGPROB=-0.3
+STT_QUALITY_FALLBACK_LOGPROB=-0.35
 VOICE_ANTICIPATORY_ACK_ENABLED=true
 VOICE_REASONING_MODEL=   # défaut = DeepSeek Flash
 ```

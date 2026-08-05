@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-08-04",
+  "updated_at": "2026-08-05",
   "source": "Audit consolidé JarvisAPI postérieur aux audits P01–P18",
   "items": [
     {
@@ -8,11 +8,13 @@
       "severity": "P0",
       "status": "resolved",
       "summary": "Latence micro-vers-premier-son encore supérieure à la cible de 2 s",
-      "resolution": "Le STT small traite le chemin courant, une relecture locale lourde ne part que sous le seuil de confiance et l'accusé Qwen3 joue en parallèle du modèle qualité ou du tour canonique ; la trace PCM vers écriture CoreAudio mesure 1 483,4 ms sur le pire chemin froid exercé",
+      "resolution": "Le STT small traite le chemin courant, le seuil -0,35 sépare les transcriptions correctes des deux sorties dégradées de la campagne locale, le cache qualité est vérifié sans chargement et l'accusé Qwen3 couvre le chargement froid ; la trace PCM vers écriture CoreAudio reproductible mesure 1 758,3 ms",
       "evidence": [
         "audio/stt_daemon.py",
         "scripts/audio_daemon.py",
         "docs/audio/QWEN3_LOCAL_STATUS.md",
+        "scripts/benchmark_voice_first_sound.py",
+        "artifacts/voice_latency_2026-08-05.json",
         "tests/test_voice_latency.py",
         "tests/test_voice_pipeline_e2e.py"
       ]

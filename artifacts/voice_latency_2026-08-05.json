@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "measured_at": "2026-08-05",
+  "offline": true,
+  "platform": "Apple Silicon / CoreAudio",
+  "input_wav": "data/voice-tests/demo_01_greeting.wav",
+  "threshold": -0.35,
+  "calibration": {
+    "speech_samples": 8,
+    "correct_samples_at_or_above_0_85_similarity": 6,
+    "correct_avg_logprob_range": [-0.3244, -0.2005],
+    "degraded_avg_logprob": [-0.4378, -0.6470],
+    "quality_similarity_improvements": [[0.8395, 1.0], [0.8412, 0.9610]]
+  },
+  "primary": {
+    "model": "small",
+    "text": "Bonjour Monsieur. Qu'as-tu fait pour vous ?",
+    "avg_logprob": -0.43781092166900637,
+    "inference_ms": 650
+  },
+  "quality": {
+    "model": "large-v3-turbo",
+    "text": "Bonjour Monsieur. Que puis-je faire pour vous ?",
+    "avg_logprob": -0.24371525858129775,
+    "inference_ms": 2313
+  },
+  "cache_complete": true,
+  "cache_check_ms": 0.33,
+  "events_ms": {
+    "small_done": 664.5,
+    "ack_and_quality_started": 664.9,
+    "first_pcm": 1757.9,
+    "coreaudio_first_write": 1758.3,
+    "quality_loaded": 2455.2,
+    "quality_done": 4783.2,
+    "all_done": 4783.2
+  },
+  "tts_benchmark": {
+    "warm_first_pcm_median_ms": 512.9,
+    "warm_real_time_factor_median": 0.566,
+    "model_load_ms": 2362,
+    "sidecar_rss_mb": 1960
+  },
+  "target_ms": 2000,
+  "target_met": true,
+  "margin_ms": 241.7
+}

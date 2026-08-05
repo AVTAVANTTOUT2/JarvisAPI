@@ -9,6 +9,7 @@ ni étape bloquante, ni état résiduel, et que la chronologie reste corrélée 
 from __future__ import annotations
 
 import asyncio
+import threading
 import time
 
 import pytest
@@ -286,7 +287,7 @@ def test_stt_realtime_defaults_are_measured_not_assumed():
     assert config.DEFAULT_STT_COMPUTE_TYPE == "float32"
     assert config.DEFAULT_STT_BEAM_SIZE == 1
     assert config.DEFAULT_STT_VAD_FILTER is False
-    assert config.DEFAULT_STT_QUALITY_FALLBACK_LOGPROB == -0.30
+    assert config.DEFAULT_STT_QUALITY_FALLBACK_LOGPROB == -0.35
 
 
 def test_stt_backend_uses_the_realtime_settings(monkeypatch):
@@ -351,6 +352,34 @@ def test_stt_model_load_falls_back_to_versioned_compute_type(monkeypatch):
     assert captured["compute_type"] == config.DEFAULT_STT_COMPUTE_TYPE
 
 
+def test_quality_model_cache_check_requires_complete_ctranslate_weights(
+    monkeypatch,
+    tmp_path,
+):
+    """Un snapshot partiel ne doit jamais autoriser l'accusé anticipé."""
+    from faster_whisper import utils as faster_whisper_utils
+
+    from audio.stt_daemon import FasterWhisperBackend
+
+    snapshot = tmp_path / "snapshot"
+    snapshot.mkdir()
+    (snapshot / "config.json").write_text("{}", encoding="utf-8")
+    weights = snapshot / "model.bin"
+    weights.write_bytes(b"weights")
+    (snapshot / "tokenizer.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(
+        faster_whisper_utils,
+        "download_model",
+        lambda *_args, **_kwargs: str(snapshot),
+    )
+
+    backend = FasterWhisperBackend("large-v3-turbo")
+    assert backend.is_available_locally() is True
+
+    weights.write_bytes(b"")
+    assert backend.is_available_locally() is False
+
+
 @pytest.mark.asyncio
 async def test_low_confidence_small_transcript_gets_one_quality_replay(monkeypatch):
     from audio.stt_daemon import (
@@ -369,7 +398,7 @@ async def test_low_confidence_small_transcript_gets_one_quality_replay(monkeypat
             text="Quel temps fait Hilal Il ?",
             engine="faster-whisper",
             model="small",
-            avg_logprob=-0.33,
+            avg_logprob=-0.44,
             max_no_speech_prob=0.09,
         )
 
@@ -383,6 +412,7 @@ async def test_low_confidence_small_transcript_gets_one_quality_replay(monkeypat
         )
 
     monkeypatch.setattr(primary, "preload_sync", lambda: True)
+    monkeypatch.setattr(quality, "is_available_locally", lambda: True)
     monkeypatch.setattr(quality, "preload_sync", lambda: True)
     monkeypatch.setattr(primary, "transcribe_pcm", _primary)
     monkeypatch.setattr(quality, "transcribe_pcm", _quality)
@@ -415,7 +445,7 @@ async def test_quality_replay_notice_runs_while_heavy_model_is_working(monkeypat
             text="Quel temps fait Hilal Il ?",
             engine="faster-whisper",
             model="small",
-            avg_logprob=-0.33,
+            avg_logprob=-0.44,
         )
 
     async def _quality(*_args, **_kwargs):
@@ -430,8 +460,17 @@ async def test_quality_replay_notice_runs_while_heavy_model_is_working(monkeypat
     async def _notice():
         notice_started.set()
 
+    quality_loading = threading.Event()
+    release_quality_load = threading.Event()
+
+    def _quality_preload():
+        quality_loading.set()
+        assert release_quality_load.wait(timeout=1)
+        return True
+
     monkeypatch.setattr(primary, "preload_sync", lambda: True)
-    monkeypatch.setattr(quality, "preload_sync", lambda: True)
+    monkeypatch.setattr(quality, "is_available_locally", lambda: True)
+    monkeypatch.setattr(quality, "preload_sync", _quality_preload)
     monkeypatch.setattr(primary, "transcribe_pcm", _primary)
     monkeypatch.setattr(quality, "transcribe_pcm", _quality)
     backend = FallbackSTTBackend([primary, quality])
@@ -443,8 +482,10 @@ async def test_quality_replay_notice_runs_while_heavy_model_is_working(monkeypat
             on_quality_fallback=_notice,
         )
     )
+    assert await asyncio.to_thread(quality_loading.wait, 1)
     await asyncio.wait_for(notice_started.wait(), timeout=1)
     assert task.done() is False
+    release_quality_load.set()
     release_quality.set()
     result = await task
 
@@ -457,6 +498,7 @@ async def test_quality_replay_notice_runs_while_heavy_model_is_working(monkeypat
     ("text", "avg_logprob", "no_speech"),
     [
         ("Ouvre le calendrier", -0.18, 0.01),
+        ("Tous les systèmes sont opérationnels", -0.3244, 0.05),
         ("", None, 0.95),
     ],
 )
@@ -520,7 +562,7 @@ def test_latency_settings_are_versioned_defaults():
     assert config.DEFAULT_STT_COMPUTE_TYPE == "float32"
     assert config.DEFAULT_STT_BEAM_SIZE == 1
     assert config.DEFAULT_STT_VAD_FILTER is False
-    assert config.DEFAULT_STT_QUALITY_FALLBACK_LOGPROB == -0.30
+    assert config.DEFAULT_STT_QUALITY_FALLBACK_LOGPROB == -0.35
 
 
 def test_env_examples_agree_with_builtin_defaults():
@@ -561,7 +603,7 @@ def test_engine_config_exposes_the_realtime_settings():
     cfg = load_audio_engine_config()
     assert cfg.stt_beam_size >= 1
     assert cfg.stt_vad_filter is False
-    assert cfg.stt_quality_fallback_logprob == -0.30
+    assert cfg.stt_quality_fallback_logprob == -0.35
     assert cfg.vad_silence_ms > 0
     assert cfg.vad_min_speech_ms > 0
     assert cfg.vad_pre_roll_ms > 0
