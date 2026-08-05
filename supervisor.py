@@ -407,7 +407,9 @@ def _kill_orphan_tts_sidecars() -> int:
         killed += 1
     if killed:
         time.sleep(0.8)
-        for raw in r.stdout.strip().split():
+        # Rejouer la liste agrégée — pas le dernier `pgrep` seul — sinon un
+        # launcher listé avant le dernier échappe au SIGKILL de suivi.
+        for raw in pids:
             if not raw.isdigit():
                 continue
             pid = int(raw)
