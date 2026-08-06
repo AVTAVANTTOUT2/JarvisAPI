@@ -54,10 +54,19 @@ def _computer_status_payload() -> dict:
 
         return {
             "available": _c.allowed,
-            "shell": _c.shell,
         }
     except Exception:
-        return {"available": False, "shell": config.COMPUTER_SHELL}
+        return {"available": False}
+
+
+def _imessage_status_payload() -> dict:
+    return {
+        "available": imessage_bridge is not None and imessage_bridge.is_available(),
+        "configured": bool(config.IMESSAGE_TARGET),
+        "prefix_enabled": bool(config.IMESSAGE_PREFIX),
+        "sourcing_enabled": config.IMESSAGE_SOURCING_ENABLED,
+        "send_enabled": config.IMESSAGE_SEND_ENABLED,
+    }
 
 
 def _safe_memory_stats() -> dict:
@@ -91,18 +100,13 @@ async def api_status():
         summary = await location_manager.get_daily_summary()
         loc_payload = {
             "tracking": getattr(config, "LOCATION_TRACKING", True),
-            "place_radius_m": int(getattr(config, "LOCATION_PLACE_RADIUS", 100)),
             "status": st,
             "summary_today": {
                 "place_count": len(summary.get("visits") or []),
                 "trip_count": summary.get("trip_count"),
                 "total_distance_km": summary.get("total_distance_km"),
             },
-            "today_route": [
-                v.get("place_name")
-                for v in (get_today_visits() or [])
-                if v.get("place_name")
-            ],
+            "visit_count_today": len(get_today_visits() or []),
             "pattern_count": len(get_active_location_patterns()),
         }
     except Exception as e:
@@ -128,14 +132,7 @@ async def api_status():
             "min_speech_ms": getattr(config, "VOICE_MIN_SPEECH_MS", 400),
             "max_tokens": getattr(config, "VOICE_MAX_TOKENS", 500),
         },
-        "imessage": {
-            "available": imessage_bridge is not None and imessage_bridge.is_available(),
-            "target": config.IMESSAGE_TARGET,
-            "prefix": config.IMESSAGE_PREFIX or None,
-            "sourcing_enabled": config.IMESSAGE_SOURCING_ENABLED,
-            "send_enabled": config.IMESSAGE_SEND_ENABLED,
-            "scan_interval": config.IMESSAGE_SCAN_INTERVAL,
-        },
+        "imessage": _imessage_status_payload(),
         "email_watcher": {
             "running": email_watcher.running,
             "check_interval": email_watcher.check_interval,
