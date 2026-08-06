@@ -383,7 +383,10 @@ def _kill_orphan_tts_sidecars() -> int:
         pids.extend(r.stdout.strip().split())
 
     managed = _managed_pids()
-    killed = 0
+    # Seuls les PID réellement jugés orphelins peuvent être escaladés. Rejouer
+    # la liste brute au SIGKILL tuerait les sidecars épargnés juste au-dessus,
+    # c'est-à-dire le moteur vocal encore rattaché au backend géré.
+    terminated: list[int] = []
     for raw in pids:
         if not raw.isdigit():
             continue
@@ -405,22 +408,19 @@ def _kill_orphan_tts_sidecars() -> int:
             continue
         log.warning("Sidecar TTS orphelin — SIGTERM PID %d", pid)
         _kill_process_tree(pid, sig=signal.SIGTERM)
-        killed += 1
-    if killed:
+        terminated.append(pid)
+    if terminated:
         time.sleep(0.8)
-        # Rejouer la liste agrégée — pas le dernier `pgrep` seul — sinon un
-        # launcher listé avant le dernier échappe au SIGKILL de suivi.
-        for raw in pids:
-            if not raw.isdigit():
-                continue
-            pid = int(raw)
+        # Tous les launchers listés sont couverts, puisque `terminated` est
+        # alimenté par la boucle qui parcourt la liste agrégée.
+        for pid in terminated:
             try:
                 os.kill(pid, 0)
             except ProcessLookupError:
                 continue
             log.warning("Sidecar TTS résistant — SIGKILL PID %d", pid)
             _kill_process_tree(pid, sig=signal.SIGKILL)
-    return killed
+    return len(terminated)
 
 
 def _tail_log(log_name: str, lines: int = 5) -> str:

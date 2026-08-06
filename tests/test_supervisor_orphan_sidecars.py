@@ -108,3 +108,51 @@ def test_kill_orphan_tts_sidecars_spares_managed_children(monkeypatch):
 
     assert count == 0
     kill_tree.assert_not_called()
+
+
+def test_kill_orphan_tts_sidecars_never_escalates_on_a_spared_sidecar(monkeypatch):
+    """Un orphelin dans le lot ne doit pas emporter le moteur encore rattaché.
+
+    Le SIGKILL de suivi rejouait la liste brute des PID trouvés par `pgrep`,
+    sans reprendre les exclusions de la première passe. Dès qu'un seul orphelin
+    existait — la seule situation où ce nettoyeur sert — le sidecar vivant du
+    backend géré était tué avec lui, en pleine synthèse.
+    """
+    import supervisor
+
+    monkeypatch.setattr(supervisor, "_TTS_SIDECAR_SCRIPTS", ("qwen3_local.py",))
+    monkeypatch.setattr(supervisor, "_managed_pids", lambda: {42})
+    monkeypatch.setattr(supervisor.time, "sleep", lambda *_a, **_k: None)
+
+    orphan, attached = 9101, 9102
+    killed: list[tuple[int, int]] = []
+
+    def fake_run(cmd, *args, **kwargs):
+        if cmd[:2] == ["pgrep", "-f"]:
+            return SimpleNamespace(stdout=f"{orphan}\n{attached}\n", returncode=0)
+        return SimpleNamespace(stdout="", returncode=0)
+
+    def fake_check_output(cmd, *args, **kwargs):
+        # `attached` descend du backend géré (42), `orphan` de launchd (1).
+        pid = int(cmd[cmd.index("-p") + 1])
+        return "42\n" if pid == attached else "1\n"
+
+    def fake_kill(pid, sig):
+        if sig == 0:
+            return None  # les deux processus sont toujours vivants
+        raise AssertionError("os.kill ne doit servir qu'à sonder (sig=0)")
+
+    monkeypatch.setattr(supervisor.subprocess, "run", fake_run)
+    monkeypatch.setattr(supervisor.subprocess, "check_output", fake_check_output)
+    monkeypatch.setattr(
+        supervisor, "_kill_process_tree",
+        lambda pid, *, sig: killed.append((pid, int(sig))),
+    )
+    monkeypatch.setattr(supervisor.os, "kill", fake_kill)
+
+    count = supervisor._kill_orphan_tts_sidecars()
+
+    assert count == 1
+    assert sorted({pid for pid, _ in killed}) == [orphan]
+    assert (attached, int(supervisor.signal.SIGKILL)) not in killed
+    assert (orphan, int(supervisor.signal.SIGKILL)) in killed

@@ -76,7 +76,20 @@ def _content_length_error(request: Request) -> JSONResponse | None:
         return None
     raw_length = request.headers.get("content-length")
     if raw_length is None:
-        return None
+        # Sans en-tête, le plafond n'est qu'un vœu : un corps en
+        # `Transfer-Encoding: chunked` traverse ce garde-fou et se retrouve
+        # entièrement bufferisé avant la moindre validation. Les clients
+        # légitimes — l'agent distant en `requests`, le Companion, le
+        # navigateur — annoncent tous leur longueur.
+        return JSONResponse(
+            {
+                "detail": {
+                    "code": "length_required",
+                    "message": "Content-Length obligatoire sur cette route",
+                }
+            },
+            status_code=411,
+        )
     try:
         declared = int(raw_length)
     except ValueError:
