@@ -18,6 +18,7 @@ const MIN_PIN = 4;
 const MAX_PIN = 12;
 const MIN_PASSPHRASE = 10;
 const SOFT_LOCK_KEY = 'jarvis:soft-lock';
+const SESSION_UNLOCK_KEY = 'jarvis:session-unlocked';
 
 const el = {
   root: document.getElementById('lock'),
@@ -267,10 +268,23 @@ function unlocked() {
   // Après la création initiale, le prochain verrou doit vérifier le code au
   // lieu de rester dans l'étape de confirmation de la première saisie.
   mode = 'unlock';
+  markSessionUnlocked();
   el.root.hidden = true;
   const done = resolveUnlocked;
   resolveUnlocked = null;
   if (done) done();
+}
+
+function markSessionUnlocked() {
+  try { sessionStorage.setItem(SESSION_UNLOCK_KEY, '1'); } catch { /* ignoré */ }
+}
+
+function clearSessionUnlock() {
+  try { sessionStorage.removeItem(SESSION_UNLOCK_KEY); } catch { /* ignoré */ }
+}
+
+function isSessionUnlockedThisTab() {
+  try { return sessionStorage.getItem(SESSION_UNLOCK_KEY) === '1'; } catch { return false; }
 }
 
 function hasPersistedSoftLock() {
@@ -290,13 +304,16 @@ export function lock(reason) {
   el.root.hidden = false;
   code = '';
   firstEntry = '';
-  mode = reason === 'unconfigured' ? 'setup' : reason === 'idle' ? 'verify' : 'unlock';
+  mode = reason === 'unconfigured'
+    ? 'setup'
+    : (reason === 'idle' || reason === 'verify') ? 'verify' : 'unlock';
   secretKind = 'pin';
   renderDots();
   syncSecretMethod();
 
   if (reason === 'unconfigured') say('Aucun code défini. Choisissez-en un (4 chiffres min.), puis OK.');
   else if (reason === 'expired') say('Session expirée. Entrez votre code, puis OK.');
+  else if (reason === 'verify') say('Confirmez votre identité. Entrez votre code, puis OK.');
   else if (reason === 'idle') say('Verrouillé par inactivité. Entrez votre code, puis OK.');
   else say('Entrez votre code, puis OK.');
 
@@ -327,9 +344,18 @@ export async function requireSession() {
   }
   setKeysDisabled(false);
 
-  if (st.authenticated && !hasPersistedSoftLock()) { el.root.hidden = true; return; }
+  if (st.authenticated && !hasPersistedSoftLock() && isSessionUnlockedThisTab()) {
+    el.root.hidden = true;
+    return;
+  }
 
-  const waiting = lock(st.authenticated ? 'idle' : st.configured ? undefined : 'unconfigured');
+  let reason;
+  if (!st.configured) reason = 'unconfigured';
+  else if (!st.authenticated) reason = undefined;
+  else if (hasPersistedSoftLock()) reason = 'idle';
+  else reason = 'verify';
+
+  const waiting = lock(reason);
   if (st.configured && st.locked_out) startCountdown(st.lockout_seconds || 0);
   return waiting;
 }
@@ -347,6 +373,7 @@ export function watchIdle(minutes, onIdle) {
     fired = true;
     clearTimeout(timer);
     persistSoftLock(true);
+    clearSessionUnlock();
     onIdle();
   };
   const arm = () => {
