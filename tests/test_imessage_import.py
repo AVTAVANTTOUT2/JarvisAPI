@@ -603,6 +603,78 @@ class TestCLIScript:
         source = Path(Path(__file__).resolve().parent.parent / "scripts" / "imessage_import.py").read_text()
         ast.parse(source)
 
+    @staticmethod
+    def _load_cli_module():
+        """Charge reellement le module CLI (exec, pas seulement parse)."""
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "imessage_import_cli_exec",
+            Path(__file__).resolve().parent.parent / "scripts" / "imessage_import.py",
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_cmd_import_falls_back_to_direct_when_daemon_unhealthy(self, monkeypatch):
+        """Regression : daemon indisponible → fallback direct, pas de NameError.
+
+        La branche « daemon indisponible » de cmd_import loggue via le logger
+        module ; s'il n'est pas defini, le CLI plantait en NameError au lieu
+        de basculer sur l'import direct.
+        """
+        import argparse
+
+        from integrations import imessage_daemon_client as daemon_module
+        from integrations.imessage_daemon_client import DaemonResponse
+
+        cli = self._load_cli_module()
+        assert hasattr(cli, "logger"), "le module CLI doit definir son logger"
+
+        monkeypatch.setattr(
+            daemon_module.daemon_client,
+            "health",
+            lambda: DaemonResponse(ok=False, status_code=0, data={}, error="down"),
+        )
+        direct_calls: list[tuple] = []
+        monkeypatch.setattr(
+            cli,
+            "_cmd_import_direct",
+            lambda importer, args: direct_calls.append((importer, args)) or 0,
+        )
+
+        args = argparse.Namespace(force=False)
+        result = cli.cmd_import(importer=MagicMock(), args=args)
+
+        assert result == 0
+        assert len(direct_calls) == 1
+
+    def test_cmd_sync_falls_back_to_direct_when_daemon_sync_fails(self, monkeypatch):
+        """Regression : echec sync daemon → log puis fallback direct."""
+        import argparse
+
+        from integrations import imessage_daemon_client as daemon_module
+
+        cli = self._load_cli_module()
+
+        monkeypatch.setattr(
+            daemon_module.daemon_client,
+            "ensure_synced",
+            lambda timeout_s: (False, "daemon indisponible"),
+        )
+        direct_calls: list[tuple] = []
+        monkeypatch.setattr(
+            cli,
+            "_cmd_sync_direct",
+            lambda importer, args: direct_calls.append((importer, args)) or 0,
+        )
+
+        args = argparse.Namespace(force=False)
+        result = cli.cmd_sync(importer=MagicMock(), args=args)
+
+        assert result == 0
+        assert len(direct_calls) == 1
+
 
 # ═══════════════════════════════════════════════════════════
 # Tests d'idempotence — scenarios complets
