@@ -45,6 +45,36 @@ def _prepare_env_file(path: Path) -> dict[str, str | None]:
     return dict(dotenv_values(path))
 
 
+def _sanitize_dotenv_value(value: str | None) -> str | None:
+    """Corrige le piège python-dotenv ``KEY=   # commentaire``.
+
+    Quand la valeur est vide et qu'un commentaire inline suit, python-dotenv
+    conserve ``# commentaire`` comme valeur. Une telle valeur n'est jamais
+    intentionnelle dans la config JARVIS.
+    """
+    if value is None:
+        return None
+    stripped = value.strip()
+    if stripped.startswith("#"):
+        return ""
+    return value
+
+
+def _apply_env_values(values: dict[str, str | None], *, override: bool) -> None:
+    """Publie les paires dans ``os.environ`` après sanitation des commentaires."""
+    import os
+
+    for key, value in values.items():
+        if key is None:
+            continue
+        cleaned = _sanitize_dotenv_value(value)
+        if cleaned is None:
+            continue
+        if not override and key in os.environ:
+            continue
+        os.environ[key] = cleaned
+
+
 def load_jarvis_env(*, force: bool = False) -> None:
     """Charge ``.env.config`` puis ``.env`` (idempotent).
 
@@ -67,7 +97,9 @@ def load_jarvis_env(*, force: bool = False) -> None:
                 f"{names}. Déplacez-les dans .env."
             )
         load_dotenv(CONFIG_ENV_FILE, override=True)
+        _apply_env_values(config_values, override=True)
     if SECRETS_ENV_FILE.is_file():
-        _prepare_env_file(SECRETS_ENV_FILE)
+        secrets_values = _prepare_env_file(SECRETS_ENV_FILE)
         load_dotenv(SECRETS_ENV_FILE, override=True)
+        _apply_env_values(secrets_values, override=True)
     _ENV_LOADED = True

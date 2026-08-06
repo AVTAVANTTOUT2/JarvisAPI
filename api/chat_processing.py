@@ -23,7 +23,7 @@ from api.chat_actions import (
     _run_loop_mode_internal,
     _should_defer_action,
 )
-from api.action_confirmations import peek_pending_proposal
+from api.action_confirmations import is_imperative_confirmation, peek_pending_proposal
 from api.chat_context import _build_enriched_context, _maybe_title_conversation
 from api.llm_logging import _schedule_llm_log
 from database import save_message, update_conversation_activity
@@ -225,6 +225,47 @@ async def _process_message_internal(
                 "cost": float(final_meta.get("cost") or 0.0),
             }
 
+        if is_imperative_confirmation(original_text):
+            # Une confirmation n'est jamais une nouvelle intention. Sans
+            # proposition consommable, ne pas laisser un LLM inventer une
+            # action puis en annoncer mensongèrement la réussite.
+            display_text = (
+                "Je n’ai aucune action en attente à confirmer, Monsieur. "
+                "Précisez l’action souhaitée."
+            )
+            action_result = {
+                "ok": False,
+                "error": "no_pending_action",
+                "message": display_text,
+            }
+            if persist_assistant:
+                try:
+                    save_message(
+                        conversation_id,
+                        "assistant",
+                        display_text,
+                        agent="orchestrator",
+                        tokens_in=0,
+                        tokens_out=0,
+                        cost=0.0,
+                    )
+                except Exception as e:
+                    logger.error("[internal-confirmation] save assistant : %s", e)
+            try:
+                update_conversation_activity(conversation_id)
+            except Exception:
+                pass
+            return {
+                "text": display_text,
+                "emotion": "neutral",
+                "action": None,
+                "action_result": action_result,
+                "agent": "orchestrator",
+                "model": None,
+                "cost": 0.0,
+                "empty_response_cause": None,
+            }
+
         _mark_voice_trace(trace, "CONTEXT_BUILD_STARTED")
         context = await _build_enriched_context(text, conversation_id)
         _mark_voice_trace(trace, "CONTEXT_BUILD_COMPLETED")
@@ -394,14 +435,32 @@ async def _process_message_internal(
             # empêche de diagnostiquer :
             #   - le modele ne renvoie aucun contenu (reseau, quota, coupure) ;
             #   - il ne renvoie *que* le tag [emotion], que le parseur retire.
-            cause = "aucun_contenu" if not raw_display_text.strip() else "tag_emotion_seul"
             tokens_out = int(final_meta.get("tokens_out") or 0)
+            max_tokens = int(final_meta.get("max_tokens") or 0)
+            reasoning_tokens = int(final_meta.get("reasoning_tokens") or 0)
+            stop_reason = str(final_meta.get("stop_reason") or "")
+            budget_exhausted = (
+                not raw_display_text.strip()
+                and (
+                    stop_reason == "length"
+                    or (max_tokens > 0 and tokens_out >= max_tokens)
+                    or (max_tokens > 0 and reasoning_tokens >= max_tokens)
+                )
+            )
+            if budget_exhausted:
+                cause = "budget_epuise_avant_reponse"
+            else:
+                cause = "aucun_contenu" if not raw_display_text.strip() else "tag_emotion_seul"
             logger.warning(
-                "[internal] Reponse vide (%s) — agent=%s tokens_out=%d raw_chars=%d : "
+                "[internal] Reponse vide (%s) — agent=%s tokens_out=%d "
+                "reasoning_tokens=%d max_tokens=%d stop_reason=%s raw_chars=%d : "
                 "le modele n'a rien produit, la demande de l'utilisateur n'est pas en cause",
                 cause,
                 final_meta.get("agent"),
                 tokens_out,
+                reasoning_tokens,
+                max_tokens,
+                stop_reason or "?",
                 len(raw_display_text.strip()),
             )
             empty_response_cause = cause

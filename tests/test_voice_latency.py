@@ -122,6 +122,7 @@ def test_vad_reports_speech_end_before_the_detection_silence():
     # vite que le temps réel : une latence négative en aval serait absurde.
     assert collector.last_speech_started_at <= collector.last_speech_ended_at
     assert collector.last_audio_ms > 0
+    assert 0 < collector.last_speech_ms < collector.last_audio_ms
 
 
 def test_vad_resets_speech_timestamp_between_utterances():
@@ -290,6 +291,7 @@ def test_stt_realtime_defaults_are_measured_not_assumed():
     assert config.DEFAULT_STT_BEAM_SIZE == 1
     assert config.DEFAULT_STT_VAD_FILTER is False
     assert config.DEFAULT_STT_QUALITY_FALLBACK_LOGPROB == -0.35
+    assert config.DEFAULT_STT_QUALITY_FALLBACK_MIN_SPEECH_MS == 1200
 
 
 def test_stt_backend_uses_the_realtime_settings(monkeypatch):
@@ -589,6 +591,9 @@ def test_env_examples_agree_with_builtin_defaults():
         "STT_QUALITY_FALLBACK_LOGPROB": str(
             config.DEFAULT_STT_QUALITY_FALLBACK_LOGPROB
         ),
+        "STT_QUALITY_FALLBACK_MIN_SPEECH_MS": str(
+            config.DEFAULT_STT_QUALITY_FALLBACK_MIN_SPEECH_MS
+        ),
     }
     root = Path(__file__).resolve().parent.parent
 
@@ -612,6 +617,7 @@ def test_engine_config_exposes_the_realtime_settings():
     assert cfg.stt_beam_size >= 1
     assert cfg.stt_vad_filter is False
     assert cfg.stt_quality_fallback_logprob == -0.35
+    assert cfg.stt_quality_fallback_min_speech_ms == 1200
     assert cfg.vad_silence_ms > 0
     assert cfg.vad_min_speech_ms > 0
     assert cfg.vad_pre_roll_ms > 0

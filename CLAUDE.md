@@ -179,6 +179,12 @@ Ollama         = Screen Watcher uniquement (vision locale)
 - Auto-réparation (`scripts/self_healing.py`) et auto-amélioration
  (`scripts/self_improvement.py`, job scheduler dim 06:00) délèguent à Cursor en
  mode `pr_only` obligatoire.
+- Chaîne d'ingénierie autonome : Cursor détecte et ouvre une PR/Issue, Codex
+  audite et corrige dans un worktree, les tests locaux et la CI GitHub sont
+  bloquants, puis Claude effectue la dernière revue en lecture seule. Le runner
+  `scripts/engineering_team.py` peut fusionner automatiquement le SHA revu si
+  toutes les portes sont vertes ; aucun LLM n'appelle directement le merge.
+  Contrat complet : `Architecture/ENGINEERING_TEAM.md`.
 - Briefings : `agents/briefing_engine.py` (morning / evening / delta, version
  vocale 30-60 s, dédup, priorités critique / aujourd'hui / surveiller / info).
 - Latences vocales p50/p95 : `GET /api/voice/metrics` (table `voice_debug_log`).

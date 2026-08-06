@@ -166,6 +166,9 @@ class UtteranceTrace:
     utterance_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
     conversation_id: int | None = None
     t0: float = field(default_factory=time.perf_counter)
+    # Mesure VAD transportée avec la trace : elle reste fiable même si Whisper
+    # ne décode qu'un fragment court d'une phrase réellement longue.
+    speech_ms: int = 0
     marks: list[Mark] = field(default_factory=list)
     _by_event: dict[str, Mark] = field(default_factory=dict, repr=False)
 
@@ -233,6 +236,7 @@ class UtteranceTrace:
         return {
             "utterance_id": self.utterance_id,
             "conversation_id": self.conversation_id,
+            "speech_ms": self.speech_ms,
             "end_of_speech_to_first_audio_ms": self.end_of_speech_to_first_audio_ms,
             "stt_ms": self.span_ms(STT_STARTED, STT_COMPLETED),
             "stt_queue_ms": self.span_ms(STT_QUEUE_ENTERED, STT_STARTED),

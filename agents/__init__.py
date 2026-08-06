@@ -204,6 +204,58 @@ class BaseAgent(ABC):
             temperature=temperature,
             max_tokens=mt,
         )
+        response_max_tokens = mt
+        retry_attempted = False
+        _, response_payload = self._extract_emotion(
+            str(result.get("content") or "")
+        )
+        budget_exhausted = (
+            not response_payload.strip()
+            and (
+                str(result.get("stop_reason") or "") == "length"
+                or (mt > 0 and int(result.get("tokens_out") or 0) >= mt)
+                or (mt > 0 and int(result.get("reasoning_tokens") or 0) >= mt)
+            )
+        )
+        if is_voice and budget_exhausted:
+            retry_attempted = True
+            retry_mt = max(
+                mt + 1,
+                int(getattr(config, "VOICE_EMPTY_RETRY_TOKENS", 1000)),
+            )
+            retry_system = (
+                f"{system}\n\n---\n"
+                "REPRISE VOCALE : réponds immédiatement par la réponse finale, "
+                "en trois phrases maximum, sans exposer ton raisonnement."
+            )
+            try:
+                retry = await llm.chat(
+                    messages=messages,
+                    model=eff_model,
+                    system=retry_system,
+                    temperature=min(temperature, 0.4),
+                    max_tokens=retry_mt,
+                )
+                for key in (
+                    "tokens_in",
+                    "tokens_out",
+                    "cache_hit",
+                    "reasoning_tokens",
+                    "reasoning_chars",
+                ):
+                    retry[key] = int(result.get(key) or 0) + int(retry.get(key) or 0)
+                retry["cost"] = float(result.get("cost") or 0.0) + float(
+                    retry.get("cost") or 0.0
+                )
+                result = retry
+                # Les compteurs ci-dessus agrègent les deux appels ; le budget
+                # exposé doit donc agréger leurs plafonds lui aussi.
+                response_max_tokens = mt + retry_mt
+            except Exception:
+                logger.warning(
+                    "Retry vocal après épuisement du budget impossible",
+                    exc_info=True,
+                )
 
         latency_ms = int((_time.time() - t_start) * 1000)
 
@@ -217,6 +269,11 @@ class BaseAgent(ABC):
                 "tokens_out": result.get("tokens_out", 0),
                 "cost": result.get("cost", 0),
                 "latency_ms": latency_ms,
+                "stop_reason": result.get("stop_reason"),
+                "reasoning_tokens": result.get("reasoning_tokens", 0),
+                "reasoning_chars": result.get("reasoning_chars", 0),
+                "max_tokens": response_max_tokens,
+                "retry_attempted": retry_attempted,
             },
         ))
 
@@ -254,6 +311,11 @@ class BaseAgent(ABC):
             "tokens_out": result["tokens_out"],
             "cost": result["cost"],
             "emotion": emotion,
+            "stop_reason": result.get("stop_reason"),
+            "reasoning_tokens": result.get("reasoning_tokens", 0),
+            "reasoning_chars": result.get("reasoning_chars", 0),
+            "max_tokens": response_max_tokens,
+            "retry_attempted": retry_attempted,
         }
 
     # Alias de compatibilité — l'ancien nom reste utilisable par les agents existants.

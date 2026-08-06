@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "providers": {
+    "primary": {
+      "name": "codex",
+      "auth": "chatgpt_subscription",
+      "model": "configured_codex_default"
+    },
+    "reviewer": {
+      "name": "claude",
+      "auth": "claude_pro_subscription",
+      "permission_mode": "plan"
+    }
+  },
+  "roles": {
+    "orchestrator": "codex",
+    "roadmap_manager": "codex",
+    "developer": "codex",
+    "test_triage": "codex",
+    "pr_reviewer": "claude",
+    "merge_owner": "deterministic_orchestrator_after_claude"
+  },
+  "loop": {
+    "interval_minutes": 30,
+    "base_branch": "main",
+    "branch_prefix": "codex/jarvis/",
+    "max_tasks_per_cycle": 1,
+    "max_attempts_per_task": 5,
+    "max_merge_attempts": 10,
+    "max_tests_per_task": 3,
+    "codex_timeout_seconds": 900,
+    "claude_timeout_seconds": 600,
+    "codex_not_before": "2026-08-09T10:37:00+00:00",
+    "test_timeout_seconds": 900,
+    "publish_draft_pr": true,
+    "auto_merge": true,
+    "merge_method": "squash"
+  },
+  "roadmap": {
+    "source": "cursor_pull_requests_then_github_issues",
+    "ready_label": "agent-ready",
+    "max_new_tasks_per_cycle": 1
+  },
+  "cursor": {
+    "trusted_pr_authors": ["app/cursor"],
+    "finding_label": "cursor-finding",
+    "handoff_label": "agent-ready"
+  },
+  "slack": {
+    "hub": {"name": "proj-jarvis-hub", "id": "C0BN7ABB3PB"},
+    "agents": {"name": "proj-jarvis-agents", "id": "C0BN5C7HX0A"},
+    "roadmap": {"name": "proj-jarvis-roadmap", "id": "C0BN9KP9FPE"},
+    "reviews": {"name": "proj-jarvis-reviews", "id": "C0BN5UCLH8S"},
+    "ci": {"name": "proj-jarvis-ci", "id": "C0BN5UFJ5S6"},
+    "security": {"name": "proj-jarvis-security", "id": "C0BN5C8JTA6"}
+  }
+}
