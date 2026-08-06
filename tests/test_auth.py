@@ -426,3 +426,52 @@ def test_revoke_all_sessions_except_current(tmp_db):
 
     assert auth.verify_session(keep) is not None
     assert auth.verify_session(drop) is None
+
+
+# ── Sessions : une seule horloge, l'UTC de SQLite ────────────────
+
+
+def test_session_expiry_is_written_on_sqlite_clock(tmp_db, monkeypatch):
+    """`expires_at` doit être daté sur la même horloge que les requêtes SQL.
+
+    Il était écrit avec `datetime.now()` (heure locale) alors que
+    `purge_expired_sessions` et `list_active_sessions` le comparent à
+    `datetime('now')` (UTC). La durée de vie appliquée dérivait donc du
+    décalage du poste : deux heures de sursis à Paris pour une session déjà
+    morte, quatre heures d'avance à New York pour une session encore valide.
+    """
+    import auth
+    from database import get_db
+
+    monkeypatch.setattr("config.SESSION_INACTIVITY_DAYS", 14)
+    auth.create_session()
+
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT expires_at, julianday(expires_at) - julianday('now') AS jours"
+            " FROM sessions"
+        ).fetchone()
+
+    # Tolérance d'une minute : seul un décalage de fuseau produirait des heures.
+    assert abs(float(row["jours"]) - 14.0) < (1.0 / 1440.0), (
+        f"expires_at={row['expires_at']} vu à {row['jours']:.4f} jours par SQLite"
+    )
+
+
+def test_active_session_is_never_purged_before_its_deadline(tmp_db, monkeypatch):
+    """Conséquence directe à l'ouest de Greenwich : purge d'une session valide.
+
+    La fenêtre est volontairement plus courte que le décalage d'un fuseau
+    ouest : sur l'ancien code, `expires_at` daté en heure locale est déjà
+    dans le passé pour `datetime('now')`, et la purge emporte une session
+    parfaitement valide. Un test à un jour ne verrait rien.
+    """
+    import auth
+    from database import purge_expired_sessions
+
+    monkeypatch.setattr("config.SESSION_INACTIVITY_DAYS", 0.05)  # 72 minutes
+    token, _ = auth.create_session()
+
+    purge_expired_sessions()
+
+    assert auth.verify_session(token) is not None

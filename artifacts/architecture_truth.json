@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-06T18:16:23.313048+00:00",
+  "generated_at": "2026-08-06T18:33:37.390000+00:00",
   "repo_root": ".",
   "canonical_formulation": {
     "database": "Le projet crée 90 tables persistantes après init_db() + migrations, plus jusqu'à 5 objets FTS5, soit 95 tables physiques lorsque FTS5 est disponible.",
@@ -719,7 +719,7 @@
         "method": "GET",
         "path": "/api/auth/sessions",
         "source": "api/router_auth.py",
-        "line": 261,
+        "line": 263,
         "consumers": {
           "frontend_next": [
             "frontend/complement_validation.cjs",
@@ -736,7 +736,7 @@
         "method": "GET",
         "path": "/api/auth/status",
         "source": "api/router_auth.py",
-        "line": 136,
+        "line": 138,
         "consumers": {
           "frontend_next": [
             "frontend/complement_validation.cjs",
@@ -1959,7 +1959,7 @@
         "method": "GET",
         "path": "/api/mobile/devices",
         "source": "api/router_auth.py",
-        "line": 385,
+        "line": 387,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -3038,7 +3038,7 @@
         "method": "POST",
         "path": "/api/auth/change-secret",
         "source": "api/router_auth.py",
-        "line": 240,
+        "line": 242,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -3055,7 +3055,7 @@
         "method": "POST",
         "path": "/api/auth/local-unlock",
         "source": "api/router_auth.py",
-        "line": 207,
+        "line": 209,
         "consumers": {
           "shared_auth_sdk": [
             "jarvis_auth/src/client.ts"
@@ -3072,7 +3072,7 @@
         "method": "POST",
         "path": "/api/auth/logout",
         "source": "api/router_auth.py",
-        "line": 231,
+        "line": 233,
         "consumers": {
           "frontend_next": [
             "frontend/complement_validation.cjs",
@@ -3099,7 +3099,7 @@
         "method": "POST",
         "path": "/api/auth/sessions/{session_id}/revoke",
         "source": "api/router_auth.py",
-        "line": 280,
+        "line": 282,
         "consumers": {
           "frontend_next": [
             "frontend/complement_validation.cjs",
@@ -3117,7 +3117,7 @@
         "method": "POST",
         "path": "/api/auth/setup",
         "source": "api/router_auth.py",
-        "line": 160,
+        "line": 162,
         "consumers": {
           "mobile_web": [
             "web_mobile/js/api.js"
@@ -3141,7 +3141,7 @@
         "method": "POST",
         "path": "/api/auth/unlock",
         "source": "api/router_auth.py",
-        "line": 179,
+        "line": 181,
         "consumers": {
           "frontend_next": [
             "frontend/complement_validation.cjs"
@@ -3170,7 +3170,7 @@
         "method": "POST",
         "path": "/api/auth/verify",
         "source": "api/router_auth.py",
-        "line": 197,
+        "line": 199,
         "consumers": {
           "mobile_web": [
             "web_mobile/js/api.js"
@@ -4404,7 +4404,7 @@
         "method": "POST",
         "path": "/api/mobile/capabilities",
         "source": "api/router_auth.py",
-        "line": 373,
+        "line": 375,
         "consumers": {
           "android": [
             "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
@@ -4473,7 +4473,7 @@
         "method": "POST",
         "path": "/api/mobile/devices/{device_id}/revoke",
         "source": "api/router_auth.py",
-        "line": 400,
+        "line": 402,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -4492,7 +4492,7 @@
         "method": "POST",
         "path": "/api/mobile/pairing/complete",
         "source": "api/router_auth.py",
-        "line": 303,
+        "line": 305,
         "consumers": {
           "android": [
             "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
@@ -4516,7 +4516,7 @@
         "method": "POST",
         "path": "/api/mobile/pairing/start",
         "source": "api/router_auth.py",
-        "line": 290,
+        "line": 292,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -4539,7 +4539,7 @@
         "method": "POST",
         "path": "/api/mobile/push-token",
         "source": "api/router_auth.py",
-        "line": 362,
+        "line": 364,
         "consumers": {
           "android": [
             "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
@@ -4557,7 +4557,7 @@
         "method": "POST",
         "path": "/api/mobile/session",
         "source": "api/router_auth.py",
-        "line": 345,
+        "line": 347,
         "consumers": {
           "android": [
             "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
