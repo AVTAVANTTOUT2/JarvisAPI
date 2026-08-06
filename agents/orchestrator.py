@@ -268,8 +268,14 @@ JOURNAL_PATTERNS = [
     "j'ai vécu", "je tenais à noter",
 ]
 
-VALID_CATEGORIES = frozenset(
-    ["COACH", "JOURNAL", "SCHOOL", "PRODUCTIVITY", "DEVOPS", "INFO", "FOOD"]
+VALID_CATEGORIES = (
+    "COACH",
+    "JOURNAL",
+    "SCHOOL",
+    "PRODUCTIVITY",
+    "DEVOPS",
+    "INFO",
+    "FOOD",
 )
 
 
@@ -336,6 +342,13 @@ async def classify_category(message: str) -> str:
         return _resolve("DEVOPS", "keyword")
     if _match_any(message, INFO_PATTERNS):
         return _resolve("INFO", "keyword")
+
+    # Une transcription d'un seul mot est souvent un nom propre ou un fragment
+    # de VAD. Elle ne contient pas assez de signal pour choisir un domaine par
+    # défaut via le LLM.
+    words = re.findall(r"[^\W_]+(?:['’-][^\W_]+)*", message, flags=re.UNICODE)
+    if len(words) <= 1:
+        return _resolve("INFO", "fragment")
 
     try:
         category = await llm.quick_classify(message, list(VALID_CATEGORIES))

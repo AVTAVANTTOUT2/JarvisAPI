@@ -102,6 +102,11 @@ DEFAULT_STT_VAD_FILTER = False
 # six passages corrects restent sur `small` et les deux passages réellement
 # dégradés (-0,4378 et -0,6470) sont améliorés par le modèle qualité.
 DEFAULT_STT_QUALITY_FALLBACK_LOGPROB = -0.35
+# Les segments très courts manquent de contexte pour qu'une seconde passe
+# lourde apporte un gain fiable. Surtout, charger le modèle qualité pour un
+# fragment de moins d'une seconde peut bloquer toute la boucle vocale pendant
+# plusieurs dizaines de secondes.
+DEFAULT_STT_QUALITY_FALLBACK_MIN_SPEECH_MS = 1200
 
 # ── Segmentation VAD du daemon audio ────────────────────────
 # Ces trois valeurs déterminent le délai entre la dernière syllabe et le
@@ -139,6 +144,10 @@ STT_BEAM_SIZE = int(_get("STT_BEAM_SIZE", str(DEFAULT_STT_BEAM_SIZE)))
 STT_QUALITY_FALLBACK_LOGPROB = float(_get(
     "STT_QUALITY_FALLBACK_LOGPROB",
     str(DEFAULT_STT_QUALITY_FALLBACK_LOGPROB),
+))
+STT_QUALITY_FALLBACK_MIN_SPEECH_MS = int(_get(
+    "STT_QUALITY_FALLBACK_MIN_SPEECH_MS",
+    str(DEFAULT_STT_QUALITY_FALLBACK_MIN_SPEECH_MS),
 ))
 # Appel Flash streamé pour la voix : donne l'instant du premier token. La
 # lecture ne démarre pas pour autant avant la fin de la passe 1 (un bloc
@@ -240,6 +249,7 @@ WAKE_WORD = _get("WAKE_WORD", "jarvis")
 VOICE_SILENCE_DURATION_MS = int(_get("VOICE_SILENCE_DURATION_MS", "1200"))
 VOICE_MIN_SPEECH_MS = int(_get("VOICE_MIN_SPEECH_MS", "400"))
 VOICE_MAX_TOKENS = int(_get("VOICE_MAX_TOKENS", "500"))
+VOICE_EMPTY_RETRY_TOKENS = int(_get("VOICE_EMPTY_RETRY_TOKENS", "1000"))
 
 # Localisation (GPS / lieux nommés)
 LOCATION_TRACKING = _get("LOCATION_TRACKING", "true").lower() == "true"
@@ -490,10 +500,25 @@ EMAIL_WATCHER_LOCK_PATH = _get("EMAIL_WATCHER_LOCK_PATH", "")
 # Le daemon tourne en parallèle du serveur web : screen watcher,
 # notifications proactives, wake word, TTS local.
 DAEMON_ENABLED = _get("DAEMON_ENABLED", "true").lower() == "true"
+# Garde-fou RAM / process (politique A : JARVIS only — jamais Codex/Chrome/IDE)
+RESOURCE_GUARD_ENABLED = _get("RESOURCE_GUARD_ENABLED", "true").lower() == "true"
+RESOURCE_GUARD_INTERVAL_S = float(_get("RESOURCE_GUARD_INTERVAL_S", "30"))
+RESOURCE_GUARD_WARN_FREE_MB = int(_get("RESOURCE_GUARD_WARN_FREE_MB", "2048"))
+RESOURCE_GUARD_CRITICAL_FREE_MB = int(_get("RESOURCE_GUARD_CRITICAL_FREE_MB", "1024"))
+RESOURCE_GUARD_OLLAMA_IDLE_STOP = _get(
+    "RESOURCE_GUARD_OLLAMA_IDLE_STOP", "true"
+).lower() == "true"
+RESOURCE_GUARD_OLLAMA_IDLE_TTL_S = float(
+    _get("RESOURCE_GUARD_OLLAMA_IDLE_TTL_S", "120")
+)
+RESOURCE_GUARD_TTS_MAX_WORKERS = int(_get("RESOURCE_GUARD_TTS_MAX_WORKERS", "1"))
+RESOURCE_GUARD_KILL_ORPHANS = _get("RESOURCE_GUARD_KILL_ORPHANS", "true").lower() == "true"
+RESOURCE_GUARD_DRY_RUN = _get("RESOURCE_GUARD_DRY_RUN", "false").lower() == "true"
 SCREEN_WATCHER_ENABLED = _get("SCREEN_WATCHER_ENABLED", "true").lower() == "true"
 SCREEN_WATCHER_INTERVAL = int(_get("SCREEN_WATCHER_INTERVAL", "15"))      # secondes
 SCREEN_CHANGE_THRESHOLD = float(_get("SCREEN_CHANGE_THRESHOLD", "5"))     # % minimum
 SCREEN_ANALYSIS_THRESHOLD = float(_get("SCREEN_ANALYSIS_THRESHOLD", "30"))  # % pour LLM vision
+SCREEN_NOTIFICATION_TTL_S = float(_get("SCREEN_NOTIFICATION_TTL_S", "15"))
 SCREEN_RESIZE_WIDTH = int(_get("SCREEN_RESIZE_WIDTH", "1280"))
 SCREEN_RESIZE_HEIGHT = int(_get("SCREEN_RESIZE_HEIGHT", "800"))
 SCREEN_RESIZE: tuple[int, int] = (SCREEN_RESIZE_WIDTH, SCREEN_RESIZE_HEIGHT)
@@ -529,7 +554,14 @@ SCREEN_WATCHER_AUTOSTART = _get(
 ).lower() == "true"
 
 # Identité de la machine — sert pour register_local_device + screen_watcher
-DEVICE_ID = _get("DEVICE_ID", socket.gethostname())
+# python-dotenv peut transformer `DEVICE_ID=   # commentaire` en valeur `# …` :
+# on refuse toute valeur qui ressemble à un commentaire inline.
+_DEVICE_ID_RAW = _get("DEVICE_ID", "").strip()
+DEVICE_ID = (
+    socket.gethostname()
+    if (not _DEVICE_ID_RAW or _DEVICE_ID_RAW.startswith("#"))
+    else _DEVICE_ID_RAW
+)
 DEVICE_NAME = _get("DEVICE_NAME", "Mac Mini")
 
 # Wake word "Jarvis" via Porcupine (Picovoice — gratuit usage perso)

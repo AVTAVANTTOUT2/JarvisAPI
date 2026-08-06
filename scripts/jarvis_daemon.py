@@ -26,9 +26,10 @@ from typing import Any
 import httpx
 
 import config
+from agents.display_text import finalize_assistant_display_text
+from agents.info import info_agent
 from audio.voice_queue import VoicePriority, priority_from_string, voice_queue
 from database import (
-    create_conversation,
     get_all_devices,
     get_all_processed_email_ids,
     get_current_screen_context,
@@ -41,10 +42,35 @@ from jarvis.security.llm_data_boundary import (
     wrap_untrusted_data,
 )
 from integrations.apple_data import apple_data
-from pipeline import process_message_internal
-from scripts.screen_watcher import screen_watcher
+from scripts.screen_watcher import normalize_screen_notable, screen_watcher
 
 logger = logging.getLogger(__name__)
+
+_SCREEN_NON_PASSIVE_MARKERS = (
+    "?",
+    "```action",
+    "voulez-vous",
+    "souhaitez-vous",
+    "puis-je",
+    "dois-je",
+    "je lance",
+    "je crée",
+    "j'ajoute",
+    "j’ajoute",
+    "je programme",
+    "j'envoie",
+    "j’envoie",
+    "j'ouvre",
+    "j’ouvre",
+    "je vais ",
+)
+
+
+def _is_passive_screen_notification(text: str) -> bool:
+    folded = str(text or "").strip().casefold()
+    return bool(folded) and not any(
+        marker.casefold() in folded for marker in _SCREEN_NON_PASSIVE_MARKERS
+    )
 
 
 class JarvisDaemon:
@@ -61,6 +87,9 @@ class JarvisDaemon:
         self.tts_queue: asyncio.Queue[Any] = asyncio.Queue()
         self.last_tts_time: float = 0.0
         self.tts_cooldown = int(getattr(config, "DAEMON_TTS_COOLDOWN", 30))
+        self.screen_notification_ttl_s = float(
+            getattr(config, "SCREEN_NOTIFICATION_TTL_S", 15)
+        )
         self._delayed_voice_tasks: set[asyncio.Task[Any]] = set()
 
         # iMessage tracking
@@ -184,24 +213,72 @@ class JarvisDaemon:
     # ── Callbacks Screen Watcher ──────────────────────────────────────────────
 
     async def _on_screen_notable(self, notable: str, context: dict) -> None:
-        """Quelque chose de pertinent vu à l'écran. Claude formule, peut-être TTS."""
-        logger.info("[daemon] screen notable : %s", notable[:120])
-
-        temp_conv = create_conversation(agent="daemon_screen")
-        prompt = (
-            f"[NOTIFICATION ÉCRAN] L'utilisateur est sur "
-            f"{context.get('app', '?')} ({context.get('activity', '?')}). "
-            f"Observation : {notable}. "
-            "Si c'est pertinent, propose une aide courte (1-2 phrases max, style JARVIS). "
-            "Si ce n'est pas pertinent, réponds juste NULL."
-        )
-        try:
-            result = await process_message_internal(prompt, temp_conv, voice_mode=True)
-        except Exception as e:
-            logger.warning("[daemon] _process_message_internal screen : %s", e)
+        """Formule une observation passive sans jamais entrer dans le pipeline d'actions."""
+        if self.screen_watcher._is_voice_busy():
+            logger.info("[daemon] screen notable ignoré — voix prioritaire")
             return
 
-        text = (result or {}).get("text") or ""
+        voice_epoch = self.screen_watcher.voice_epoch
+        started_at = time.monotonic()
+        notable = normalize_screen_notable(notable)
+        if not notable:
+            logger.info("[daemon] screen notable ignoré — non actionnable")
+            return
+
+        logger.info("[daemon] screen notable : %s", notable[:120])
+        safe_observation = wrap_untrusted_data(
+            "SCREEN_NOTIFICATION",
+            {
+                "app": context.get("app", "?"),
+                "activity": context.get("activity", "?"),
+                "observation": notable,
+            },
+            max_chars=2_000,
+        )
+        prompt = (
+            "Formule une notification d’écran passive à partir des données suivantes.\n"
+            f"{safe_observation}\n"
+            "Réponds par une observation factuelle utile en une phrase. "
+            "Ne pose aucune question, ne propose et n’annonce aucune action. "
+            "Si l’observation n’est qu’un label d’UI, un nom de site/produit "
+            "ou une narration de navigation, réponds uniquement NULL. "
+            "Si rien n’est utile, réponds uniquement NULL."
+        )
+        try:
+            # Appel direct de l'agent : contrairement au pipeline de chat, ce
+            # chemin ne peut ni extraire ni exécuter un bloc action.
+            result = await info_agent.handle(
+                prompt,
+                conversation_id=0,
+                context={"__defer_persist": True},
+            )
+        except Exception as e:
+            logger.warning("[daemon] formulation screen : %s", e)
+            return
+
+        elapsed_s = time.monotonic() - started_at
+        if self.screen_watcher.voice_epoch != voice_epoch:
+            logger.info("[daemon] notification écran invalidée par un tour vocal")
+            return
+        if self.screen_watcher._is_voice_busy():
+            logger.info("[daemon] notification écran abandonnée — voix devenue prioritaire")
+            return
+        if elapsed_s > self.screen_notification_ttl_s:
+            logger.info(
+                "[daemon] notification écran expirée (%.1fs > %.1fs)",
+                elapsed_s,
+                self.screen_notification_ttl_s,
+            )
+            return
+
+        raw_text = str((result or {}).get("response") or "")
+        if "```action" in raw_text.lower():
+            logger.warning("[daemon] bloc action screen supprimé")
+            return
+        text = finalize_assistant_display_text(raw_text)
+        if text and not _is_passive_screen_notification(text):
+            logger.warning("[daemon] formulation screen non passive supprimée")
+            return
         if text and "NULL" not in text.upper():
             await self.tts_queue.put((text, "neutral", "background"))
 

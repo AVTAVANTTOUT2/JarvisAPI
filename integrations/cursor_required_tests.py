@@ -16,6 +16,11 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # Exécutables autorisés (basename uniquement, ou relative worktree pour gradlew).
+#
+# ``npx`` est volontairement absent : il télécharge puis exécute un paquet
+# arbitraire du registre. Une liste de tests écrite par un modèle à partir
+# d'une Issue quelconque y trouverait une exécution de code distant sans
+# jamais employer un métacaractère shell.
 ALLOWED_EXECUTABLES: frozenset[str] = frozenset(
     {
         "pytest",
@@ -23,11 +28,25 @@ ALLOWED_EXECUTABLES: frozenset[str] = frozenset(
         "python3",
         "pnpm",
         "npm",
-        "npx",
         "gradle",
         "./gradlew",
         "gradlew",
     }
+)
+
+# Un exécutable allowlisté ne suffit pas : `npm publish`, `npm install`,
+# `python -m pip install` ou `gradlew publish` sont des commandes de
+# distribution ou d'installation, pas des tests. La liste des tests requis est
+# dérivée d'un texte non fiable (corps d'Issue, description de PR) : la
+# sous-commande doit donc être vérifiée, pas seulement le binaire.
+_NODE_SUBCOMMANDS: frozenset[str] = frozenset(
+    {"test", "run", "lint", "typecheck", "check", "build"}
+)
+_PYTHON_MODULES: frozenset[str] = frozenset({"pytest", "unittest", "compileall"})
+# Tâches Gradle : préfixes de vérification uniquement (test, check, lint,
+# assemble, verify…), jamais publish / upload / install.
+_GRADLE_TASK_RE = re.compile(
+    r"(?i)^(test|check|lint|assemble|verify|ktlint|detekt|spotless)[A-Za-z0-9_]*$"
 )
 
 # Métacaractères / formes d'injection shell — rejet immédiat.
@@ -148,6 +167,59 @@ def parse_required_test(
     )
 
 
+def _first_positional(args: list[str]) -> str | None:
+    """Premier jeton qui n'est ni un drapeau ni la valeur d'un drapeau."""
+    skip_next = False
+    for arg in args:
+        if skip_next:
+            skip_next = False
+            continue
+        if arg == "--":
+            return None
+        if arg.startswith("-"):
+            # `--flag=valeur` porte sa valeur ; `--flag valeur` consomme le
+            # jeton suivant, qui n'est donc pas la sous-commande.
+            skip_next = "=" not in arg
+            continue
+        return arg
+    return None
+
+
+def _validate_subcommand(executable: str, args: list[str]) -> None:
+    """Refuse une sous-commande qui n'est pas une exécution de tests."""
+    name = executable.lstrip("./")
+    if name in ("npm", "pnpm"):
+        sub = _first_positional(args)
+        if sub is None:
+            raise RequiredTestError(f"{name} sans sous-commande de test")
+        if sub not in _NODE_SUBCOMMANDS:
+            raise RequiredTestError(
+                f"sous-commande {name} non allowlistée: {sub}"
+            )
+        return
+
+    if name in ("python", "python3"):
+        if "-m" not in args:
+            raise RequiredTestError(
+                "python doit lancer un module de test (`python -m pytest`)"
+            )
+        module_index = args.index("-m") + 1
+        module = args[module_index] if module_index < len(args) else ""
+        if module not in _PYTHON_MODULES:
+            raise RequiredTestError(f"module python non allowlisté: {module or '?'}")
+        return
+
+    if name in ("gradle", "gradlew"):
+        tasks = [a for a in args if not a.startswith("-")]
+        if not tasks:
+            raise RequiredTestError("gradle sans tâche de test")
+        for task in tasks:
+            # Une tâche peut être qualifiée par son module : `:app:testDebug`.
+            leaf = task.rsplit(":", 1)[-1]
+            if not _GRADLE_TASK_RE.match(leaf):
+                raise RequiredTestError(f"tâche gradle non allowlistée: {task}")
+
+
 def _finalize_required_test(rt: RequiredTest, *, worktree: Path) -> RequiredTest:
     exe = rt.executable.strip()
     if not exe:
@@ -171,6 +243,8 @@ def _finalize_required_test(rt: RequiredTest, *, worktree: Path) -> RequiredTest
         if _FORBIDDEN_ARGS_RE.match(arg):
             raise RequiredTestError(f"argument interdit: {arg}")
         _validate_path_arg(arg, worktree)
+
+    _validate_subcommand(check_name, rt.args)
 
     # cwd borné au worktree
     cwd_path = worktree

@@ -24,6 +24,7 @@ import json
 import logging
 import tempfile
 import time
+from collections.abc import Awaitable, Callable
 from io import BytesIO
 from pathlib import Path
 
@@ -58,6 +59,111 @@ SCREEN_WATCHER_STATES = frozenset({
     "blocked_ollama",
     "disabled",
 })
+
+# Valeurs « notable » que le modèle vision renvoie souvent à tort comme texte.
+_NOTABLE_NULLISH = frozenset({
+    "",
+    "null",
+    "none",
+    "nil",
+    "n/a",
+    "na",
+    "rien",
+    "nothing",
+    "n/d",
+})
+
+# Un notable n'est vocalisé que s'il signale une alerte actionnable.
+_NOTABLE_ACTIONABLE_MARKERS = (
+    "erreur",
+    "error",
+    "exception",
+    "failed",
+    "failure",
+    "crash",
+    "plant",
+    "indisponible",
+    "unavailable",
+    "timeout",
+    "blocked",
+    "bloqué",
+    "permission",
+    "mot de passe",
+    "password",
+    "autorisation",
+    "not logged",
+    "login",
+    "alert",
+    "alerte",
+    "warning",
+    "avertissement",
+    "module",
+    "traceback",
+    "oom",
+    "segfault",
+    "denied",
+    "refus",
+    "impossible",
+    "échec",
+    "echec",
+    "using your mac",
+)
+
+# Narration d'UI / de navigation : jamais parlée, même si le modèle la remplit.
+_NOTABLE_NARRATION_MARKERS = (
+    "interface",
+    "depuis un moment",
+    "en cours",
+    "conversation",
+    "dialogue",
+    "discussion",
+    "navigation",
+    "page de",
+    "utilisation",
+    "chat avec",
+    "chatgpt",
+    "youtube",
+    "cursor.com",
+    "fenêtre active",
+    "fenetre active",
+)
+
+
+def normalize_screen_notable(raw: object) -> str | None:
+    """Retourne un notable actionnable, ou ``None`` si c'est du bruit vision.
+
+    Le modèle vision remplit souvent ``notable`` avec un label d'UI
+    (« ChatGPT Pro interface ») ou une narration de navigation. Ces valeurs
+    ne doivent jamais déclencher une notification vocale.
+    """
+    if raw is None or isinstance(raw, (bool, int, float)):
+        return None
+    text = str(raw).strip()
+    if not text:
+        return None
+    folded = text.casefold()
+    if folded in _NOTABLE_NULLISH:
+        return None
+    if folded.startswith("aucune ") or "aucune erreur" in folded or "no error" in folded:
+        return None
+
+    is_narration = any(marker in folded for marker in _NOTABLE_NARRATION_MARKERS)
+    is_security = any(
+        marker in folded
+        for marker in (
+            "autorisation",
+            "permission",
+            "mot de passe",
+            "password",
+            "using your mac",
+        )
+    )
+    if is_narration and not is_security:
+        return None
+
+    if not any(marker in folded for marker in _NOTABLE_ACTIONABLE_MARKERS):
+        return None
+    return text
 
 
 class ScreenWatcher:
@@ -113,10 +219,12 @@ class ScreenWatcher:
         self.error_count: int = 0
 
         # Callbacks asynchrones définis par le daemon
-        self.on_notable = None  # async (notable_text: str, context: dict) -> None
-        self.on_idle = None     # async (idle_minutes: int) -> None
+        self.on_notable: Callable[[str, dict], Awaitable[None]] | None = None
+        self.on_idle: Callable[[int], Awaitable[None]] | None = None
         self._vision_deferred_logged: float = 0.0
         self._vision_task: asyncio.Task[dict | None] | None = None
+        self._notification_task: asyncio.Task[None] | None = None
+        self._voice_epoch: int = 0
 
     @property
     def status(self) -> str:
@@ -331,10 +439,16 @@ class ScreenWatcher:
         self.defer_for_voice()
 
     def defer_for_voice(self) -> None:
-        """Annule uniquement l'analyse vision active pour libérer les ressources."""
-        task = self._vision_task
-        if task is not None and not task.done():
-            task.cancel()
+        """Invalide et annule tout travail écran concurrent d'un tour vocal."""
+        self._voice_epoch += 1
+        for task in (self._vision_task, self._notification_task):
+            if task is not None and not task.done():
+                task.cancel()
+
+    @property
+    def voice_epoch(self) -> int:
+        """Compteur monotone permettant de détecter une voix déjà terminée."""
+        return self._voice_epoch
 
     # ── Tick principal ──────────────────────────────────────────────────────
 
@@ -409,21 +523,35 @@ class ScreenWatcher:
                 self._vision_task = None
             if analysis:
                 self.last_analysis_at = time.time()
+                notable = normalize_screen_notable(analysis.get("notable"))
+                analysis["notable"] = notable
                 save_screen_activity(
                     device=self.device,
                     app=analysis.get("app") or current_app,
                     activity=analysis.get("activity", ""),
                     mood=analysis.get("mood", "unknown"),
-                    notable=analysis.get("notable"),
+                    notable=notable,
                     screenshot_hash=current_hash,
                     change_pct=round(change_pct, 1),
                 )
-                notable = analysis.get("notable")
                 if notable and self.on_notable:
-                    try:
-                        await self.on_notable(notable, analysis)
-                    except Exception as e:
-                        logger.warning("[screen] on_notable callback : %s", e)
+                    if self._is_voice_busy():
+                        logger.info("[screen] Notable différé — voix devenue prioritaire")
+                    else:
+                        self._notification_task = asyncio.create_task(
+                            self.on_notable(notable, analysis),
+                            name="screen_notification",
+                        )
+                        try:
+                            await self._notification_task
+                        except asyncio.CancelledError:
+                            logger.info(
+                                "[screen] Formulation notable annulée — priorité voix"
+                            )
+                        except Exception as e:
+                            logger.warning("[screen] on_notable callback : %s", e)
+                        finally:
+                            self._notification_task = None
             else:
                 save_screen_activity(
                     device=self.device,
@@ -642,6 +770,38 @@ class ScreenWatcher:
 
     # ── Analyse Ollama ─────────────────────────────────────────────────────
 
+    @staticmethod
+    def _vision_prompt_text(app: str | None, window_info: dict | None) -> str:
+        """Prompt vision : ``notable`` uniquement pour une alerte actionnable."""
+        win_w = window_info.get("width", 0) if window_info else 0
+        win_h = window_info.get("height", 0) if window_info else 0
+        app_label = app or "inconnue"
+        return (
+            "Décris en 1 ligne ce que tu vois sur cet écran.\n"
+            f"Application active : {app_label}. "
+            f"Dimensions de la fenêtre : {win_w}x{win_h} points. "
+            "L'écran complet fait 5120×1440 (ultrawide 32:9). "
+            "L'image montrée est uniquement la fenêtre active, croppée.\n"
+            "Règle notable : null sauf alerte actionnable "
+            "(erreur visible, crash, dialogue bloquant, demande "
+            "d'autorisation ou mot de passe). Jamais un nom de site, "
+            "d'interface, de produit, ni une narration de navigation.\n"
+            "Retourne UNIQUEMENT ce JSON, rien d'autre :\n"
+            '{"app": "nom de l\'application visible", '
+            '"activity": "ce que l\'utilisateur fait en 5 mots max", '
+            '"mood": "focused|idle|distracted|stuck|browsing", '
+            '"notable": null}\n\n'
+            "Exemples :\n"
+            '{"app": "VS Code", "activity": "code Python", "mood": "focused", '
+            '"notable": null}\n'
+            '{"app": "Terminal", "activity": "erreur rouge", "mood": "stuck", '
+            '"notable": "erreur Python ModuleNotFoundError dans le terminal"}\n'
+            '{"app": "Safari", "activity": "YouTube", "mood": "distracted", '
+            '"notable": null}\n'
+            '{"app": "Finder", "activity": "navigation fichiers", '
+            '"mood": "browsing", "notable": null}'
+        )
+
     async def analyze_image(
         self,
         img: Image.Image,
@@ -702,29 +862,7 @@ class ScreenWatcher:
             img_to_save.save(buffer, format="JPEG", quality=self.jpeg_quality)
             img_b64 = base64.b64encode(buffer.getvalue()).decode()
 
-            win_w = window_info.get("width", 0) if window_info else 0
-            win_h = window_info.get("height", 0) if window_info else 0
-            app_label = app or "inconnue"
-
-            prompt = (
-                "Décris en 1 ligne ce que tu vois sur cet écran.\n"
-                f"Application active : {app_label}. "
-                f"Dimensions de la fenêtre : {win_w}x{win_h} points. "
-                "L'écran complet fait 5120×1440 (ultrawide 32:9). "
-                "L'image montrée est uniquement la fenêtre active, croppée.\n"
-                "Retourne UNIQUEMENT ce JSON, rien d'autre :\n"
-                '{"app": "nom de l\'application visible", '
-                '"activity": "ce que l\'utilisateur fait en 5 mots max", '
-                '"mood": "focused|idle|distracted|stuck|browsing", '
-                '"notable": "info pertinente (erreur, site, notification) ou null"}\n\n'
-                "Exemples :\n"
-                '{"app": "VS Code", "activity": "code Python", "mood": "focused", "notable": null}\n'
-                '{"app": "Terminal", "activity": "erreur rouge", "mood": "stuck", '
-                '"notable": "erreur Python ModuleNotFoundError dans le terminal"}\n'
-                '{"app": "Safari", "activity": "YouTube", "mood": "distracted", '
-                '"notable": "regarde YouTube depuis un moment"}\n'
-                '{"app": "Finder", "activity": "navigation fichiers", "mood": "browsing", "notable": null}'
-            )
+            prompt = self._vision_prompt_text(app, window_info)
 
             from integrations.ollama_client import ollama_generate
 
@@ -747,9 +885,12 @@ class ScreenWatcher:
             end = text.rfind("}") + 1
             if start >= 0 and end > start:
                 try:
-                    return json.loads(text[start:end])
+                    parsed = json.loads(text[start:end])
                 except json.JSONDecodeError:
                     return None
+                if isinstance(parsed, dict):
+                    parsed["notable"] = normalize_screen_notable(parsed.get("notable"))
+                    return parsed
             return None
         except Exception as e:
             self._ollama_failures += 1
