@@ -858,10 +858,15 @@ def test_remote_screen_without_content_length_is_refused(tmp_db):
     assert response.json()["detail"]["code"] == "length_required"
 
 
-def test_routes_without_declared_limit_still_accept_streamed_bodies(tmp_db):
-    """L'exigence ne vaut que pour les deux routes à plafond déclaré."""
+def test_routes_without_declared_limit_still_accept_streamed_bodies():
+    """L'exigence ne vaut que pour les routes à plafond déclaré.
+
+    Le chemin témoin est volontairement inexistant : citer une vraie route
+    inscrirait un lien de couverture mensonger dans `architecture_truth.json`,
+    qui associe chaque route aux tests qui la nomment.
+    """
     from api.middleware import _request_size_limit
 
-    assert _request_size_limit("POST", "/api/tasks") is None
+    assert _request_size_limit("POST", "/api/sans-plafond-declare") is None
     assert _request_size_limit("POST", "/api/devices/x/screen") is not None
     assert _request_size_limit("GET", "/api/devices/x/screen") is None
