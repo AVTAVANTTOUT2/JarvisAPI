@@ -383,6 +383,7 @@ def _kill_orphan_tts_sidecars() -> int:
 
     managed = _managed_pids()
     killed = 0
+    term_targets: list[int] = []
     for raw in pids:
         if not raw.isdigit():
             continue
@@ -404,15 +405,13 @@ def _kill_orphan_tts_sidecars() -> int:
             continue
         log.warning("Sidecar TTS orphelin — SIGTERM PID %d", pid)
         _kill_process_tree(pid, sig=signal.SIGTERM)
+        term_targets.append(pid)
         killed += 1
     if killed:
         time.sleep(0.8)
-        # Rejouer la liste agrégée — pas le dernier `pgrep` seul — sinon un
-        # launcher listé avant le dernier échappe au SIGKILL de suivi.
-        for raw in pids:
-            if not raw.isdigit():
-                continue
-            pid = int(raw)
+        # SIGKILL uniquement sur les orphelins déjà ciblés par SIGTERM — rejouer
+        # toute la liste `pids` tuait aussi un sidecar géré encore vivant.
+        for pid in term_targets:
             try:
                 os.kill(pid, 0)
             except ProcessLookupError:

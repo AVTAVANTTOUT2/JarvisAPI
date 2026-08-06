@@ -85,6 +85,53 @@ def test_kill_orphan_tts_sidecars_scans_every_listed_script(monkeypatch):
     )
 
 
+def test_kill_orphan_tts_sidecars_sigkill_spares_managed_when_mixed(monkeypatch):
+    """Un orphelin tué ne doit pas entraîner le SIGKILL d'un sidecar géré voisin."""
+    import supervisor
+
+    monkeypatch.setattr(supervisor, "_TTS_SIDECAR_SCRIPTS", ("qwen3_local.py",))
+    monkeypatch.setattr(supervisor, "_managed_pids", lambda: {42})
+    monkeypatch.setattr(supervisor.time, "sleep", lambda *_a, **_k: None)
+
+    def fake_run(cmd, *args, **kwargs):
+        if cmd[:2] == ["pgrep", "-f"]:
+            return SimpleNamespace(stdout="9001\n9002\n", returncode=0)
+        return SimpleNamespace(stdout="", returncode=0)
+
+    def fake_check_output(cmd, *args, **kwargs):
+        pid = int(cmd[-1])
+        # 9001 orphelin (ppid hors arbre géré), 9002 sidecar géré (ppid=42).
+        return "1\n" if pid == 9001 else "42\n"
+
+    killed: list[tuple[int, int]] = []
+
+    def fake_kill_tree(pid, *, sig):
+        killed.append((pid, int(sig)))
+
+    alive = {9001, 9002}
+
+    def fake_kill(pid, sig):
+        if sig == 0:
+            if pid not in alive:
+                raise ProcessLookupError(pid)
+            return None
+        raise AssertionError("os.kill ne doit servir qu'à sonder (sig=0)")
+
+    monkeypatch.setattr(supervisor.subprocess, "run", fake_run)
+    monkeypatch.setattr(supervisor.subprocess, "check_output", fake_check_output)
+    monkeypatch.setattr(supervisor, "_kill_process_tree", fake_kill_tree)
+    monkeypatch.setattr(supervisor.os, "kill", fake_kill)
+
+    count = supervisor._kill_orphan_tts_sidecars()
+
+    assert count == 1
+    term_pids = [pid for pid, sig in killed if sig == supervisor.signal.SIGTERM]
+    kill_pids = [pid for pid, sig in killed if sig == supervisor.signal.SIGKILL]
+    assert term_pids == [9001]
+    assert kill_pids == [9001]
+    assert 9002 not in kill_pids
+
+
 def test_kill_orphan_tts_sidecars_spares_managed_children(monkeypatch):
     import supervisor
 
