@@ -18,13 +18,11 @@ from pathlib import Path
 import config
 import llm
 from database import (
-    add_cross_insight,
     add_fact,
     add_relationship_event,
     find_or_create_pattern,
     get_analysis_cursor,
     get_person,
-    get_total_messages_analyzed,
     rename_person_if_phone_number,
     sync_imessage_counts_to_people,
     update_analysis_cursor,

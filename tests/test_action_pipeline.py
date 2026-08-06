@@ -5,7 +5,6 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
-import pytest
 
 # Import display_text sans charger agents/__init__.py (dépendances lourdes)
 _spec = importlib.util.spec_from_file_location(

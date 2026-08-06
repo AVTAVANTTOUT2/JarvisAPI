@@ -23,7 +23,6 @@ from database import (
     get_tasks,
     get_unread_notifications,
     save_daily_briefing,
-    save_message,
 )
 from integrations import calendar_client, mail_client, weather
 

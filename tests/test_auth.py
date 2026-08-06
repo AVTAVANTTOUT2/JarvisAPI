@@ -415,7 +415,6 @@ def test_list_active_sessions_excludes_revoked(tmp_db):
 
 def test_revoke_all_sessions_except_current(tmp_db):
     import auth
-    from database import list_active_sessions
 
     keep, _ = auth.create_session(user_agent="keep-me")
     drop, _ = auth.create_session(user_agent="drop-me")

@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock
 
-import pytest
 
 from jarvis.models import DataSource, EmailPayload, RouterStats
 from jarvis.pii.anonymizer import PIIAnonymizer

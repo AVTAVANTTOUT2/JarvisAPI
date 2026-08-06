@@ -515,7 +515,7 @@ class EmailWatcher:
         try:
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(None, imessage_bridge._send_message, msg)
-            logger.info(f"[email_watcher] → iMessage envoyé")
+            logger.info("[email_watcher] → iMessage envoyé")
         except Exception as e:
             logger.error(f"[email_watcher] iMessage : {e}")
 
