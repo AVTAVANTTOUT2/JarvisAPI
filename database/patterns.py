@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 
 from jarvis.event_bus import event_bus
 from jarvis.events import PatternDetected

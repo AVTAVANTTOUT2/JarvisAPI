@@ -22,8 +22,7 @@ from __future__ import annotations
 import logging
 import re
 import uuid
-from dataclasses import dataclass, field
-from typing import Optional
+from dataclasses import dataclass
 
 from jarvis import settings
 

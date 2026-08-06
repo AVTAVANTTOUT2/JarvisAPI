@@ -15,7 +15,6 @@ from datetime import datetime, timedelta
 
 from dateutil import parser as date_parser
 
-import config
 
 from ._applescript import escape_applescript_string, run_applescript
 

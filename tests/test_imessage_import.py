@@ -12,9 +12,7 @@ Teste :
 
 from __future__ import annotations
 
-import hashlib
 import sqlite3
-from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -314,12 +312,11 @@ class TestMessageDedup:
     def test_insert_message_by_rowid(self, importer_with_memory_db):
         """Un message est insere via son apple_rowid."""
         importer, chat_db = importer_with_memory_db
-        from database import get_db
 
         # Preparer un handle et un chat
         hids = _seed_handles(chat_db, [{"id": "+33600000001", "service": "iMessage"}])
         handles_map = importer._import_handles(chat_db)
-        cids = _seed_chats(chat_db, [{"identifier": "+33600000001", "style": 0}])
+        _seed_chats(chat_db, [{"identifier": "+33600000001", "style": 0}])
         chats_map = importer._import_chats(chat_db)
 
         mids = _seed_messages(chat_db, [{
@@ -340,7 +337,6 @@ class TestMessageDedup:
     def test_same_rowid_skipped(self, importer_with_memory_db):
         """Deux messages avec le meme ROWID → un seul importe."""
         importer, chat_db = importer_with_memory_db
-        from database import get_db
 
         hids = _seed_handles(chat_db, [{"id": "+33600000001", "service": "iMessage"}])
         handles_map = importer._import_handles(chat_db)
@@ -370,7 +366,6 @@ class TestMessageDedup:
     def test_same_guid_skipped(self, importer_with_memory_db):
         """Meme GUID mais ROWID different → skip."""
         importer, chat_db = importer_with_memory_db
-        from database import get_db
 
         hids = _seed_handles(chat_db, [{"id": "+33600000001", "service": "iMessage"}])
         handles_map = importer._import_handles(chat_db)
@@ -592,12 +587,6 @@ class TestCLIScript:
 
     def test_cli_script_syntax(self):
         """Le script CLI est syntaxiquement correct."""
-        import importlib.util
-        spec = importlib.util.spec_from_file_location(
-            "imessage_import_cli",
-            Path(__file__).resolve().parent.parent / "scripts" / "imessage_import.py",
-        )
-        module = importlib.util.module_from_spec(spec)
         # Ne pas executer, juste verifier que ca parse
         import ast
         source = Path(Path(__file__).resolve().parent.parent / "scripts" / "imessage_import.py").read_text()

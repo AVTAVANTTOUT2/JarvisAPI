@@ -361,7 +361,6 @@ async def test_concurrent_warmup_starts_single_sidecar(settings, monkeypatch):
     warmup() sans verrou → plusieurs sidecars, chacun avec ses poids en
     mémoire Metal.
     """
-    from jarvis.audio.tts.backends import qwen3_local as qwen3_mod
     from jarvis.audio.tts.backends.qwen3_local import Qwen3LocalTTSProvider
 
     starts = 0

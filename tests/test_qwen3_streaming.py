@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -45,7 +44,7 @@ LONGUE = (
 def _model_installed() -> bool:
     settings = load_tts_settings()
     try:
-        from native_audio.qwen3_local import Qwen3ModelMissing, resolve_model_dir
+        from native_audio.qwen3_local import resolve_model_dir
 
         resolve_model_dir(settings.model_path)
         return True

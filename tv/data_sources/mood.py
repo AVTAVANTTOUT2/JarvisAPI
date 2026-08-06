@@ -10,7 +10,6 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-import config as cfg
 
 logger = logging.getLogger(__name__)
 

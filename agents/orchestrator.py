@@ -16,13 +16,9 @@ from agents import BaseAgent, get_agent
 from agents.display_text import finalize_assistant_display_text
 from database import (
     build_full_context,
-    get_active_patterns,
     get_all_people,
     get_conversation_history,
-    get_life_profile,
     get_recent_email_summaries,
-    get_recent_episodes,
-    save_message,
 )
 from jarvis.event_bus import JarvisEvent, event_bus
 from jarvis.security.llm_data_boundary import (

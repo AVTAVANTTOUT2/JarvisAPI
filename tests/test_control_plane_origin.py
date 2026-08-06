@@ -94,7 +94,7 @@ def test_frontend_never_builds_a_cross_origin_supervisor_url():
         "supervisorWsUrl reconstruit une origine : elle serait fermée en 4403"
     )
     assert "SUPERVISOR_PORT" not in body.replace(
-        f"ws://127.0.0.1:${{SUPERVISOR_PORT}}", ""
+        "ws://127.0.0.1:${SUPERVISOR_PORT}", ""
     ), "supervisorWsUrl impose un port : ce n'est plus la même origine"
 
 
