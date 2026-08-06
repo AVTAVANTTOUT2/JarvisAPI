@@ -285,3 +285,40 @@ async def test_voice_lance_confirms_pending_shell_not_cursor_job():
 
     assert result is None, "le préambule cognitif doit céder au plan shell en attente"
     mock_confirm.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("phrase", ["confirme", "démarre", "demarre", "ok lance"])
+async def test_voice_cursor_phrases_confirm_pending_shell_plan(phrase: str):
+    """Les phrases Cursor (« confirme », « démarre »…) doivent confirmer un plan shell en attente."""
+    import api.chat_actions as chat_actions
+    from api.action_confirmations import reset_pending_proposals_for_tests
+    from api.chat_processing import _process_message_internal
+
+    reset_pending_proposals_for_tests()
+    chat_actions._maybe_store_pending_proposal(
+        {"type": "terminal", "shell_plan_id": "server-plan"},
+        conversation_id=9,
+        confirmation_session_id="local-voice:9",
+    )
+    execute = AsyncMock(return_value={"ok": True, "output": "done"})
+
+    with (
+        patch("api.chat_processing.execute_action", execute),
+        patch("api.chat_processing.orchestrator.handle", AsyncMock()),
+        patch("api.chat_processing.save_message"),
+        patch("api.chat_processing.update_conversation_activity"),
+    ):
+        result = await _process_message_internal(
+            phrase,
+            9,
+            voice_mode=True,
+            confirmation_session_id="local-voice:9",
+        )
+
+    execute.assert_awaited_once_with({
+        "type": "terminal",
+        "shell_plan_id": "server-plan",
+        "confirmed": True,
+    })
+    assert result["action_result"] == {"ok": True, "output": "done"}
