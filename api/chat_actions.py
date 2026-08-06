@@ -45,6 +45,17 @@ ACTIONS_WITH_FOLLOWUP = frozenset({
     "food_order",
 })
 
+# Actions à effet de bord exécutées seulement après confirmation explicite
+# (proposal_id / « oui » exact), jamais sur seule heuristique du texte LLM.
+ACTIONS_REQUIRING_CONFIRMATION = frozenset({
+    "calendar_create",
+    "task",
+    "reminder",
+    "open_app",
+    "find_file",
+    "name_place",
+})
+
 # Types d'actions qui peuvent déclencher la boucle agentique (multi-étapes)
 AGENTIC_ACTION_TYPES = frozenset({"terminal"})
 
@@ -189,9 +200,12 @@ _PROPOSAL_MARKERS = (
 
 
 def _should_defer_action(display_text: str, action: dict) -> bool:
-    """Reporte l'exécution si JARVIS pose une question de confirmation."""
-    if action.get("type") == "mail" and not action.get("confirmed"):
+    """Reporte l'exécution si JARVIS pose une question ou si l'action est sensible."""
+    action_type = action.get("type")
+    if action_type == "mail" and not action.get("confirmed"):
         return False  # mail : brouillon immédiat, pending séparé
+    if action_type in ACTIONS_REQUIRING_CONFIRMATION and not action.get("confirmed"):
+        return True
     text = (display_text or "").lower()
     if "?" not in text:
         return False
