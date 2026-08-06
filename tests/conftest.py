@@ -88,6 +88,12 @@ def _isolate_app_lifespan(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(email_watcher, "start", _noop_start)
     monkeypatch.setattr(email_watcher, "stop", lambda: None)
     monkeypatch.setattr("api.lifespan._calendar_subprocess_run", lambda *_a, **_k: None)
+    try:
+        import api.router_auth as router_auth
+
+        monkeypatch.setattr(router_auth, "_is_loopback", lambda _request: True)
+    except Exception:
+        pass
 
 
 @pytest.fixture(autouse=True)
