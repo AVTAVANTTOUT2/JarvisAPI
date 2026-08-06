@@ -48,11 +48,25 @@ class TestShouldDeferAction:
             {"type": "terminal", "command": "head data.csv"},
         ) is True
 
-    def test_no_defer_on_direct_command(self) -> None:
+    def test_no_defer_on_direct_terminal_command(self) -> None:
         from main import _should_defer_action
         assert _should_defer_action(
             "J'exécute la commande.",
             {"type": "terminal", "command": "ls"},
+        ) is False
+
+    def test_sensitive_action_deferred_without_confirmation(self) -> None:
+        from main import _should_defer_action
+        assert _should_defer_action(
+            "Événement créé.",
+            {"type": "calendar_create", "summary": "RDV"},
+        ) is True
+
+    def test_sensitive_action_runs_when_confirmed(self) -> None:
+        from main import _should_defer_action
+        assert _should_defer_action(
+            "Événement créé.",
+            {"type": "calendar_create", "summary": "RDV", "confirmed": True},
         ) is False
 
 
