@@ -740,3 +740,40 @@ class TestHandleZeroResolution:
             assert row["text"] == "Via chat join"
             assert row["handle"] == "+33600000099"
             assert row["chat_identifier"] == "+33600000099"
+
+
+# ── CLI : repli quand le daemon est injoignable ──────────────────
+
+
+def test_cli_falls_back_to_direct_access_without_crashing(monkeypatch):
+    """Le repli vers l'accès direct ne doit pas lever de NameError.
+
+    `logger` était utilisé sur trois sites sans jamais être défini dans le
+    module. Quand le daemon répond mais n'est pas prêt, la branche de repli
+    levait un NameError — rattrapé par le `except` juste en dessous, qui
+    appelait à son tour `logger` et faisait planter la commande.
+    """
+    import argparse
+    import sys
+    import types
+
+    import scripts.imessage_import as cli
+
+    module = types.ModuleType("integrations.imessage_daemon_client")
+    module.daemon_client = types.SimpleNamespace(
+        health=lambda: types.SimpleNamespace(ok=True, data={"ok": False}),
+    )
+    monkeypatch.setitem(sys.modules, "integrations.imessage_daemon_client", module)
+
+    class _Unavailable:
+        def is_available(self) -> bool:
+            return False
+
+    assert cli.cmd_import(_Unavailable(), argparse.Namespace(force=False)) == 1
+
+
+def test_cli_module_exposes_a_logger():
+    """Garde-fou : les sites d'appel `logger.*` doivent avoir une cible."""
+    import scripts.imessage_import as cli
+
+    assert isinstance(cli.logger, __import__("logging").Logger)
