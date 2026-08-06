@@ -255,7 +255,6 @@ def _generate_wake_sound() -> None:
     duration = 0.150
     freq = 880.0
     n_samples = int(SAMPLE_RATE * duration)
-    fade_samples = int(SAMPLE_RATE * 0.020)
 
     with wave.open(str(path), "w") as f:
         f.setnchannels(CHANNELS)
@@ -280,7 +279,6 @@ def _generate_end_sound() -> None:
     duration = 0.120
     freq = 440.0
     n_samples = int(SAMPLE_RATE * duration)
-    fade_samples = int(SAMPLE_RATE * 0.015)
 
     with wave.open(str(path), "w") as f:
         f.setnchannels(CHANNELS)
