@@ -833,3 +833,35 @@ def test_ws_rejected_without_session(tmp_db):
             with client.websocket_connect("/ws"):
                 pass
         assert exc_info.value.code == 4401
+
+
+def test_remote_screen_without_content_length_is_refused(tmp_db):
+    """Un corps chunké contournait le plafond et se bufferisait entièrement.
+
+    Le garde-fou ne lisait `Content-Length` que s'il était présent : une requête
+    en `Transfer-Encoding: chunked` traversait la borne déclarée et FastAPI
+    parsait un corps de taille arbitraire avant toute validation.
+    """
+    with _client() as client:
+        token = _pair_remote_device(client, "screen-chunked")
+        response = client.post(
+            "/api/devices/screen-chunked/screen",
+            headers={
+                "X-Device-Token": token,
+                "Content-Type": "application/json",
+                "Transfer-Encoding": "chunked",
+            },
+            content=iter([b'{"image_b64":"AAAA","app":"Safari"}']),
+        )
+
+    assert response.status_code == 411
+    assert response.json()["detail"]["code"] == "length_required"
+
+
+def test_routes_without_declared_limit_still_accept_streamed_bodies(tmp_db):
+    """L'exigence ne vaut que pour les deux routes à plafond déclaré."""
+    from api.middleware import _request_size_limit
+
+    assert _request_size_limit("POST", "/api/tasks") is None
+    assert _request_size_limit("POST", "/api/devices/x/screen") is not None
+    assert _request_size_limit("GET", "/api/devices/x/screen") is None
