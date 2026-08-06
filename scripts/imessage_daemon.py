@@ -81,6 +81,28 @@ class DaemonState:
 state = DaemonState()
 _importer = None
 
+# Réservation atomique du slot import/sync. Le drapeau doit être posé par le
+# handler AVANT de lancer le thread de fond : posé par le thread lui-même,
+# une seconde requête arrivant avant son ordonnancement verrait encore
+# import_running=False et lancerait un deuxième import parallèle sur chat.db.
+_claim_lock = threading.Lock()
+
+
+def _try_claim_operation(progress: str) -> bool:
+    """Réserve l'unique slot d'exécution import/sync ; False si déjà pris."""
+    with _claim_lock:
+        if state.import_running:
+            return False
+        state.import_running = True
+        state.import_progress = progress
+        state.import_error = None
+        return True
+
+
+def _release_operation() -> None:
+    with _claim_lock:
+        state.import_running = False
+
 
 def _get_importer():
     global _importer
@@ -117,9 +139,7 @@ def _watchdog(interval: int = 60) -> None:
 
 
 def _import_bg() -> None:
-    state.import_running = True
-    state.import_progress = "Import en cours..."
-    state.import_error = None
+    # Le slot a déjà été réservé par _try_claim_operation dans le handler.
     try:
         imp = _get_importer()
         logger.info("[daemon] Import initial demarre")
@@ -139,13 +159,11 @@ def _import_bg() -> None:
         state.import_progress = f"Echec: {e}"
         logger.exception("[daemon] Echec import")
     finally:
-        state.import_running = False
+        _release_operation()
 
 
 def _sync_bg() -> None:
-    state.import_running = True
-    state.import_progress = "Sync incrementale en cours..."
-    state.import_error = None
+    # Le slot a déjà été réservé par _try_claim_operation dans le handler.
     try:
         imp = _get_importer()
         logger.info("[daemon] Sync incrementale demarree")
@@ -157,7 +175,7 @@ def _sync_bg() -> None:
         state.import_progress = f"Echec sync: {e}"
         logger.exception("[daemon] Echec sync")
     finally:
-        state.import_running = False
+        _release_operation()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -240,23 +258,31 @@ class Handler(BaseHTTPRequestHandler):
             })
 
     def _import_start(self, body: dict) -> None:
-        if state.import_running:
-            self._json({"error": "Import deja en cours", "progress": state.import_progress}, 409)
-            return
         if not state.health_ok:
             self._err(503, f"chat.db inaccessible: {state.health_error}")
             return
-        threading.Thread(target=_import_bg, daemon=True, name="import").start()
+        if not _try_claim_operation("Import en cours..."):
+            self._json({"error": "Import deja en cours", "progress": state.import_progress}, 409)
+            return
+        try:
+            threading.Thread(target=_import_bg, daemon=True, name="import").start()
+        except Exception:
+            _release_operation()
+            raise
         self._json({"status": "started", "mode": "initial"})
 
     def _sync_start(self, body: dict) -> None:
-        if state.import_running:
-            self._json({"error": "Operation deja en cours", "progress": state.import_progress}, 409)
-            return
         if not state.health_ok:
             self._err(503, f"chat.db inaccessible: {state.health_error}")
             return
-        threading.Thread(target=_sync_bg, daemon=True, name="sync").start()
+        if not _try_claim_operation("Sync incrementale en cours..."):
+            self._json({"error": "Operation deja en cours", "progress": state.import_progress}, 409)
+            return
+        try:
+            threading.Thread(target=_sync_bg, daemon=True, name="sync").start()
+        except Exception:
+            _release_operation()
+            raise
         self._json({"status": "started", "mode": "incremental"})
 
     def _reconcile(self) -> None:
