@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import shutil
 import subprocess
@@ -23,6 +24,8 @@ from agents.engineering_team.providers import (
 )
 from agents.engineering_team.state import CycleAlreadyRunning, StateStore
 from integrations.cursor_required_tests import parse_and_run_required_tests
+
+logger = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG = ROOT / "Architecture" / "engineering-team.json"
@@ -306,15 +309,24 @@ class EngineeringTeam:
         state.last_cycle_at = utc_now()
         events: list[dict[str, Any]] = []
         self._recover_interrupted_tasks(state, events)
-        retry_after = state.codex_retry_after or self.config["loop"].get(
-            "codex_not_before"
-        )
+        # `codex_not_before` est une pause manuelle, absente du fichier livré :
+        # committée, elle éteint silencieusement toute la boucle jusqu'à la date
+        # écrite. Elle est donc journalisée en clair à chaque cycle bloqué.
+        config_pause = self.config["loop"].get("codex_not_before")
+        retry_after = state.codex_retry_after or config_pause
         if not _timestamp_is_due(retry_after):
             self.store.save(state)
+            reason = f"quota Codex en attente jusqu'au {retry_after}"
+            if not state.codex_retry_after:
+                reason = (
+                    f"pause manuelle codex_not_before={config_pause} "
+                    "dans Architecture/engineering-team.json"
+                )
+                logger.warning("[engineering_team] cycle ignoré — %s", reason)
             return {
                 "ok": True,
                 "status": "subscription_paused",
-                "reason": f"quota Codex en attente jusqu'au {retry_after}",
+                "reason": reason,
                 "events": events,
             }
         state.codex_retry_after = None
@@ -602,12 +614,20 @@ class EngineeringTeam:
             for task in state.tasks
             if task.source_pr_number is not None and task.phase != TaskPhase.DONE
         }
+        cursor_config = self.config["cursor"]
         trusted_authors = {
             str(author).lower()
-            for author in self.config["cursor"].get(
-                "trusted_pr_authors", ["app/cursor"]
-            )
+            for author in cursor_config.get("trusted_pr_authors", ["app/cursor"])
         }
+        finding_label = str(cursor_config.get("finding_label") or "").lower()
+        # Le label seul n'est pas une preuve d'origine : il ouvrirait le
+        # pipeline Codex en écriture à une PR d'auteur quelconque, donc à une
+        # description hostile lue comme une consigne. L'auteur approuvé reste
+        # la condition d'admission ; ouvrir sur le seul label est un opt-in
+        # explicite du propriétaire du dépôt.
+        label_admits_untrusted = bool(
+            cursor_config.get("label_admits_untrusted_authors", False)
+        )
         candidates = []
         for pull_request in pull_requests:
             author = str((pull_request.get("author") or {}).get("login") or "").lower()
@@ -622,7 +642,8 @@ class EngineeringTeam:
                 != self.config["loop"]["base_branch"]
             ):
                 continue
-            if author in trusted_authors or "cursor-finding" in labels:
+            labelled = bool(finding_label) and finding_label in labels
+            if author in trusted_authors or (labelled and label_admits_untrusted):
                 candidates.append(pull_request)
         if not candidates:
             return None

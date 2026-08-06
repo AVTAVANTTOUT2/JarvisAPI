@@ -854,7 +854,12 @@ class DaemonSTT:
         sr = sample_rate or int(getattr(config, "AUDIO_DAEMON_SAMPLE_RATE", 16000))
         self.last_raw_text = ""
         self.last_clean_text = ""
-        if isinstance(self._backend, FallbackSTTBackend):
+        if isinstance(self._backend, FallbackSTTBackend) and (
+            on_quality_fallback is not None or speech_ms is not None
+        ):
+            # Sans callback ni mesure VAD, la variante enrichie serait
+            # rigoureusement équivalente à `transcribe_pcm` : on garde le
+            # chemin simple, qui reste le contrat public du backend.
             result = await self._backend.transcribe_pcm_with_quality_callback(
                 pcm_bytes,
                 sample_rate=sr,

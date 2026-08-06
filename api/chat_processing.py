@@ -23,7 +23,11 @@ from api.chat_actions import (
     _run_loop_mode_internal,
     _should_defer_action,
 )
-from api.action_confirmations import is_imperative_confirmation, peek_pending_proposal
+from api.action_confirmations import (
+    is_imperative_confirmation,
+    peek_pending_proposal,
+    unmatched_confirmation_reply,
+)
 from api.chat_context import _build_enriched_context, _maybe_title_conversation
 from api.llm_logging import _schedule_llm_log
 from database import save_message, update_conversation_activity
@@ -226,24 +230,13 @@ async def _process_message_internal(
             }
 
         if is_imperative_confirmation(original_text):
-            # Une confirmation n'est jamais une nouvelle intention. Sans
-            # proposition consommable, ne pas laisser un LLM inventer une
-            # action puis en annoncer mensongèrement la réussite.
-            display_text = (
-                "Je n’ai aucune action en attente à confirmer, Monsieur. "
-                "Précisez l’action souhaitée."
-            )
-            action_result = {
-                "ok": False,
-                "error": "no_pending_action",
-                "message": display_text,
-            }
+            reply = unmatched_confirmation_reply()
             if persist_assistant:
                 try:
                     save_message(
                         conversation_id,
                         "assistant",
-                        display_text,
+                        reply["text"],
                         agent="orchestrator",
                         tokens_in=0,
                         tokens_out=0,
@@ -255,16 +248,7 @@ async def _process_message_internal(
                 update_conversation_activity(conversation_id)
             except Exception:
                 pass
-            return {
-                "text": display_text,
-                "emotion": "neutral",
-                "action": None,
-                "action_result": action_result,
-                "agent": "orchestrator",
-                "model": None,
-                "cost": 0.0,
-                "empty_response_cause": None,
-            }
+            return reply
 
         _mark_voice_trace(trace, "CONTEXT_BUILD_STARTED")
         context = await _build_enriched_context(text, conversation_id)

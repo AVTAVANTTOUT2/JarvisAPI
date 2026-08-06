@@ -766,10 +766,12 @@ async def api_resources():
     from jarvis.resource_guard import config_from_settings
 
     guard.config = config_from_settings(config, project_dir=PROJECT_DIR)
-    # Lecture à la demande : un tick forcé pour un snapshot frais.
-    report = await asyncio.to_thread(guard.tick)
+    # Relevé seul : les actions listées sont celles que le prochain tick
+    # exécuterait. Une consultation ne tue aucun process et n'arrête pas Ollama.
+    report = await asyncio.to_thread(guard.snapshot)
     payload = report.to_public_dict()
     payload["enabled"] = True
+    payload["read_only"] = True
     payload["dry_run"] = guard.config.dry_run
     payload["interval_s"] = float(getattr(config, "RESOURCE_GUARD_INTERVAL_S", 30))
     return payload

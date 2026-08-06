@@ -21,14 +21,24 @@ runner retire explicitement les variables de clés API de leur environnement.
 
 La boucle reconnaît automatiquement :
 
-1. toute PR ouverte vers `main` dont l'auteur GitHub est `app/cursor` ;
-2. toute PR portant le label `cursor-finding` ;
-3. toute Issue `agent-ready`, notamment les Issues de sécurité Cursor ;
-4. les constats Cursor publiés dans les canaux Slack Jarvis : l'automatisation
+1. toute PR ouverte vers `main` dont l'auteur GitHub figure dans
+   `cursor.trusted_pr_authors` (`app/cursor` par défaut) ;
+2. toute Issue `agent-ready`, notamment les Issues de sécurité Cursor ;
+3. les constats Cursor publiés dans les canaux Slack Jarvis : l'automatisation
    Codex crée une Issue GitHub si aucun lien GitHub n'existe encore.
 
 La PR Cursor est prioritaire sur une nouvelle Issue. Les messages Slack servent
 de filet de rattrapage pour les automations report-only comme le scan sécurité.
+
+Le label `cursor-finding` **n'admet pas** à lui seul une PR : il ne prouve rien
+sur l'origine du code ni sur celle de la description, que Codex lit ensuite en
+écriture. Ouvrir la boucle sur le seul label est un opt-in explicite,
+`cursor.label_admits_untrusted_authors: true`.
+
+`loop.codex_not_before` est une pause manuelle, absente du fichier livré : une
+date committée éteint toute la boucle jusqu'à son échéance. Chaque cycle bloqué
+par cette clé le journalise en avertissement. La pause automatique après quota
+Codex, elle, vit dans l'état d'exécution (`codex_retry_after`).
 
 ## Cycle
 

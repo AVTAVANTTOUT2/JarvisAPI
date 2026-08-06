@@ -30,7 +30,6 @@
     "max_tests_per_task": 3,
     "codex_timeout_seconds": 900,
     "claude_timeout_seconds": 600,
-    "codex_not_before": "2026-08-09T10:37:00+00:00",
     "test_timeout_seconds": 900,
     "publish_draft_pr": true,
     "auto_merge": true,
@@ -44,6 +43,7 @@
   "cursor": {
     "trusted_pr_authors": ["app/cursor"],
     "finding_label": "cursor-finding",
+    "label_admits_untrusted_authors": false,
     "handoff_label": "agent-ready"
   },
   "slack": {

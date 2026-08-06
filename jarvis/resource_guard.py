@@ -395,32 +395,26 @@ def _plan_daemon_duplicates(
         group = [p for p in processes if p.kind == kind]
         if len(group) <= 1:
             continue
-        kept = [p for p in group if p.ppid in managed_pids or p.pid in managed_pids]
-        if not kept:
-            # Aucun rattaché : garder le PID le plus bas, tuer le reste.
-            kept = [min(group, key=lambda p: p.pid)]
-        kept_pids = {p.pid for p in kept}
+        managed = [p for p in group if p.ppid in managed_pids or p.pid in managed_pids]
+        # Un seul survivant par kind : le plus bas PID géré, ou le plus bas PID
+        # du groupe si rien n'est rattaché à l'arbre supervisor. Garder tous les
+        # gérés laisserait s'empiler plusieurs audio_daemon / screen_watcher,
+        # ce qui est précisément la fuite que ce garde-fou doit fermer.
+        kept = min(managed or group, key=lambda p: p.pid)
         for p in group:
-            if p.pid in kept_pids:
+            if p.pid == kept.pid:
                 continue
-            if p.ppid in managed_pids or p.pid in managed_pids:
-                # Plusieurs gérés : garder le plus bas PID géré.
-                if p.pid != min(kept_pids):
-                    actions.append(
-                        GuardAction(
-                            action="kill_duplicate_daemon",
-                            pid=p.pid,
-                            reason=f"doublon {kind} (gardé={min(kept_pids)})",
-                            executed=False,
-                            dry_run=config.dry_run,
-                        )
-                    )
-                continue
+            is_managed = p.ppid in managed_pids or p.pid in managed_pids
+            reason = (
+                f"doublon {kind} (gardé={kept.pid})"
+                if is_managed
+                else f"doublon {kind} hors arbre géré"
+            )
             actions.append(
                 GuardAction(
                     action="kill_duplicate_daemon",
                     pid=p.pid,
-                    reason=f"doublon {kind} hors arbre géré",
+                    reason=reason,
                     executed=False,
                     dry_run=config.dry_run,
                 )
@@ -463,6 +457,52 @@ class ResourceGuard:
 
     def should_tick(self, interval_s: float) -> bool:
         return (self._monotonic() - self._last_tick_at) >= interval_s
+
+    def snapshot(self) -> GuardReport:
+        """Observation pure : rien n'est tué, aucune horloge n'est touchée.
+
+        La lecture HTTP passe ici. Un ``tick()`` déclenché par un GET tuerait
+        des processus et arrêterait Ollama hors intervalle, y compris quand la
+        configuration demande un simple relevé — une requête de consultation ne
+        doit jamais altérer la machine. Les actions listées décrivent ce que le
+        prochain tick ferait, elles ne sont pas exécutées.
+        """
+        if not self.config.enabled:
+            return GuardReport(
+                level="ok",
+                free_mb=None,
+                processes=[],
+                actions=[],
+                screen_watcher_running=False,
+                ollama_idle_seconds=None,
+            )
+
+        sw_running = bool(self._is_sw_running())
+        # `_sw_stopped_since` n'est pas armé ici : seule la boucle périodique
+        # date l'arrêt du screen watcher, sinon une consultation avancerait le
+        # compte à rebours d'arrêt d'Ollama.
+        if sw_running or self._sw_stopped_since is None:
+            idle_s = 0.0
+        else:
+            idle_s = max(0.0, self._monotonic() - self._sw_stopped_since)
+
+        processes = self._list_processes()
+        free_mb = self._read_free_mb()
+        return GuardReport(
+            level=memory_level(free_mb, self.config),
+            free_mb=free_mb,
+            processes=processes,
+            actions=plan_actions(
+                processes,
+                self._managed_pids(),
+                free_mb,
+                self.config,
+                screen_watcher_running=sw_running,
+                ollama_idle_s=idle_s,
+            ),
+            screen_watcher_running=sw_running,
+            ollama_idle_seconds=idle_s if not sw_running else 0.0,
+        )
 
     def tick(self) -> GuardReport:
         self._last_tick_at = self._monotonic()

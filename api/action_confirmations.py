@@ -86,6 +86,33 @@ def is_imperative_confirmation(text: str) -> bool:
     return normalised in _IMPERATIVE_CONFIRMATION_PHRASES
 
 
+def unmatched_confirmation_reply() -> dict:
+    """Réponse à une confirmation impérative sans proposition consommable.
+
+    Une confirmation n'est jamais une nouvelle intention : sans proposition en
+    attente, il faut le dire plutôt que laisser un modèle inventer une action
+    puis en annoncer mensongèrement la réussite.
+    """
+    display_text = (
+        "Je n’ai aucune action en attente à confirmer, Monsieur. "
+        "Précisez l’action souhaitée."
+    )
+    return {
+        "text": display_text,
+        "emotion": "neutral",
+        "action": None,
+        "action_result": {
+            "ok": False,
+            "error": "no_pending_action",
+            "message": display_text,
+        },
+        "agent": "orchestrator",
+        "model": None,
+        "cost": 0.0,
+        "empty_response_cause": None,
+    }
+
+
 def is_valid_proposal_id(value: object) -> bool:
     """Valide le format exact produit par ``secrets.token_urlsafe(32)``."""
     return isinstance(value, str) and bool(_PROPOSAL_ID_RE.fullmatch(value))

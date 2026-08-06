@@ -222,3 +222,54 @@ def test_plan_kills_duplicate_audio_daemon_orphan() -> None:
     )
     assert any(a.action == "kill_duplicate_daemon" and a.pid == 11 for a in actions)
     assert not any(a.pid == 10 for a in actions)
+
+
+def test_plan_kills_surplus_managed_daemon_duplicates() -> None:
+    """Deux daemons gérés du même kind : un seul survit."""
+    procs = [
+        ProcessInfo(10, 42, 100, f"{PROJECT}/scripts/audio_daemon.py", "audio_daemon"),
+        ProcessInfo(11, 42, 100, f"{PROJECT}/scripts/audio_daemon.py", "audio_daemon"),
+        ProcessInfo(12, 42, 100, f"{PROJECT}/scripts/audio_daemon.py", "audio_daemon"),
+    ]
+    actions = plan_actions(
+        procs, {42}, 5000.0, _cfg(), screen_watcher_running=True, ollama_idle_s=0.0
+    )
+    killed = {a.pid for a in actions if a.action == "kill_duplicate_daemon"}
+    assert killed == {11, 12}
+
+
+def test_snapshot_never_executes_actions_nor_moves_the_tick_clock() -> None:
+    """La lecture HTTP observe : elle ne tue rien et n'arme aucune horloge."""
+    killed: list[int] = []
+    stopped: list[str] = []
+    guard = ResourceGuard(
+        config=_cfg(ollama_idle_ttl_s=0.0),
+        list_processes=lambda: [
+            ProcessInfo(1145, 1, 1000, "ollama serve", "ollama_serve"),
+            ProcessInfo(
+                9001,
+                1,
+                1000,
+                f"{PROJECT}/native_audio/qwen3_local.py --serve",
+                "tts_sidecar",
+            ),
+        ],
+        read_free_mb=lambda: 100.0,
+        is_screen_watcher_running=lambda: False,
+        managed_pids=lambda: set(),
+        kill_process_tree=lambda pid, *, sig: killed.append(pid),
+        stop_ollama=lambda: stopped.append("ollama") or {"ok": True},
+        monotonic=lambda: 1000.0,
+    )
+
+    report = guard.snapshot()
+
+    assert killed == []
+    assert stopped == []
+    assert report.actions, "le relevé doit annoncer ce que le tick ferait"
+    assert all(not a.executed for a in report.actions)
+    # Ni l'intervalle du tick périodique ni le compte à rebours Ollama ne
+    # doivent bouger sous l'effet d'une consultation.
+    assert guard.should_tick(1.0) is True
+    assert guard.last_report is None
+    assert report.ollama_idle_seconds == 0.0
