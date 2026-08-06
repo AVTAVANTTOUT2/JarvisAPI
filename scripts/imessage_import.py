@@ -34,6 +34,8 @@ from database import init_db
 from integrations.apple_data import apple_data
 from integrations.imessage_import import IMessageImporter, imessage_importer
 
+logger = logging.getLogger(__name__)
+
 
 def _setup_logging(verbose: bool = False) -> None:
     level = logging.DEBUG if verbose else logging.INFO
