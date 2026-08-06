@@ -241,12 +241,14 @@ const FEATURES: FeatureSpec[] = [
     icon: MessageSquare,
     description: 'Lecture chat.db + envoi via osascript',
     test: async () => {
-      const status = (await api.getStatus()) as { imessage?: { available?: boolean; target?: string | null } };
+      const status = (await api.getStatus()) as {
+        imessage?: { available?: boolean; configured?: boolean };
+      };
       const ok = !!status?.imessage?.available;
       return {
         ok,
         summary: ok
-          ? `Bridge actif · cible : ${status.imessage?.target || '—'}`
+          ? `Bridge actif · ${status.imessage?.configured ? 'cible configurée' : 'cible absente'}`
           : 'Pas d\'accès chat.db (Full Disk Access requis)',
         details: status?.imessage,
       };
