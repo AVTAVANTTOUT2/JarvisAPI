@@ -58,10 +58,6 @@ _IMPERATIVE_CONFIRMATION_PHRASES = frozenset({
     "oui vas y",
     "oui fais le",
 })
-_NEGATION_RE = re.compile(
-    r"(?:^|[\s'-])(pas|jamais|non|annule|annuler|refuse|refuser|stop)(?:$|[\s'-])",
-    re.IGNORECASE,
-)
 _PROPOSAL_ID_RE = re.compile(r"^[A-Za-z0-9_-]{43}$")
 
 
@@ -73,11 +69,15 @@ def _normalise_confirmation(text: str) -> str:
 
 
 def is_exact_confirmation(text: str) -> bool:
-    """Vrai uniquement pour une phrase entière autorisée et sans négation."""
+    """Vrai uniquement pour une phrase entière autorisée.
+
+    L'appartenance à l'allowlist prime sur toute heuristique de négation :
+    « pourquoi pas » contient le jeton « pas » sans être un refus. Les
+    véritables négations (« lance pas », « non ») ne figurent pas dans
+    l'allowlist et restent rejetées par exactitude stricte.
+    """
     normalised = _normalise_confirmation(text)
-    return bool(normalised and not _NEGATION_RE.search(normalised)) and (
-        normalised in _CONFIRMATION_PHRASES
-    )
+    return bool(normalised) and normalised in _CONFIRMATION_PHRASES
 
 
 def is_imperative_confirmation(text: str) -> bool:

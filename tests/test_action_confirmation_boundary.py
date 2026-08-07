@@ -212,7 +212,11 @@ def test_terminal_and_clipboard_secrets_never_enter_followup_prompt() -> None:
     ["oui", "Oui!", "OK", "d'accord", "Oui, vas-y.", "  go  ", "pourquoi pas"],
 )
 def test_exact_confirmation_tolerates_stt_punctuation(phrase: str) -> None:
-    """Les moteurs STT ponctuent (« Oui, vas-y. ») ; ce n'est pas une nouvelle intention."""
+    """Les moteurs STT ponctuent (« Oui, vas-y. ») ; ce n'est pas une nouvelle intention.
+
+    « pourquoi pas » est dans l'allowlist et ne doit pas être tué par un
+    faux positif sur le jeton « pas ».
+    """
     assert is_exact_confirmation(phrase) is True
 
 
@@ -221,6 +225,7 @@ def test_exact_confirmation_tolerates_stt_punctuation(phrase: str) -> None:
     ["", "   ", "oui mais attends", "lance pas", "non", "vas-y demain", "oui\noui"],
 )
 def test_exact_confirmation_rejects_partial_or_negated_phrases(phrase: str) -> None:
+    """Les refus et les phrases partielles ne confirment jamais — exactitude stricte."""
     assert is_exact_confirmation(phrase) is False
 
 
