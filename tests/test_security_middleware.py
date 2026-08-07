@@ -858,6 +858,73 @@ def test_remote_screen_without_content_length_is_refused(tmp_db):
     assert response.json()["detail"]["code"] == "length_required"
 
 
+def test_mobile_voice_turn_without_content_length_is_refused(tmp_db):
+    """Même frontière que l'écran distant : le tour vocal mobile a un plafond.
+
+    PR #182 a verrouillé le cas chunké pour `/api/devices/{id}/screen` ; la
+    même fonction `_content_length_error` borne aussi `/api/mobile/voice/turn`.
+    Sans ce test, une régression pourrait ne casser que la route Companion.
+    """
+    with _client() as client:
+        authenticate(client)
+        start = client.post("/api/mobile/pairing/start")
+        assert start.status_code == 200
+        code = start.json()["code"]
+        complete = client.post(
+            "/api/mobile/pairing/complete",
+            json={
+                "code": code,
+                "device_id": "voice-chunked",
+                "name": "Pixel Chunked",
+                "model": "Pixel 8",
+                "app_version": "1.0.4",
+            },
+        )
+        assert complete.status_code == 200
+        token = complete.json()["token"]
+        response = client.post(
+            "/api/mobile/voice/turn",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "multipart/form-data; boundary=----jarvis",
+                "Transfer-Encoding": "chunked",
+            },
+            content=iter([b"------jarvis--\r\n"]),
+        )
+
+    assert response.status_code == 411
+    assert response.json()["detail"]["code"] == "length_required"
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["/api/devices/screen-bad-cl/screen", "/api/mobile/voice/turn"],
+)
+@pytest.mark.parametrize("raw_length", ["abc", "-1"])
+def test_capped_routes_reject_invalid_content_length(path: str, raw_length: str):
+    """Un Content-Length illisible ou négatif ne doit pas passer le plafond.
+
+    Testé via `_content_length_error` directement : TestClient/httpx recalcule
+    souvent `Content-Length` à partir du corps, ce qui masquerait le garde-fou.
+    """
+    from types import SimpleNamespace
+
+    from api.middleware import _content_length_error
+
+    request = SimpleNamespace(
+        method="POST",
+        url=SimpleNamespace(path=path),
+        headers={"content-length": raw_length},
+    )
+    response = _content_length_error(request)
+    assert response is not None
+    assert response.status_code == 400
+    assert response.body
+    import json
+
+    assert json.loads(response.body)["detail"]["code"] == "invalid_content_length"
+
+
 def test_routes_without_declared_limit_still_accept_streamed_bodies():
     """L'exigence ne vaut que pour les routes à plafond déclaré.
 
@@ -870,3 +937,5 @@ def test_routes_without_declared_limit_still_accept_streamed_bodies():
     assert _request_size_limit("POST", "/api/sans-plafond-declare") is None
     assert _request_size_limit("POST", "/api/devices/x/screen") is not None
     assert _request_size_limit("GET", "/api/devices/x/screen") is None
+    assert _request_size_limit("POST", "/api/mobile/voice/turn") is not None
+    assert _request_size_limit("GET", "/api/mobile/voice/turn") is None
