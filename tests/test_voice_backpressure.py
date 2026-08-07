@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -39,3 +40,50 @@ def test_native_daemon_has_no_complete_utterance_drop_branch():
 
     assert "utterance jetée" not in source
     assert "_enqueue_utterance_with_backpressure" in source
+
+
+@pytest.mark.asyncio
+async def test_post_tts_cleanup_preserves_queued_next_utterance():
+    """Le tour suivant enfilé pendant processing ne doit pas être jeté."""
+    from audio.voice_latency import UtteranceTrace
+    from scripts.audio_daemon import AudioDaemon
+
+    daemon = AudioDaemon()
+    daemon._interrupt_event = asyncio.Event()
+    daemon._utterance_queue = asyncio.Queue(maxsize=3)
+    daemon._audio_queue = asyncio.Queue(maxsize=300)
+    daemon.wake_word_enabled = False
+    daemon.state = "processing"
+
+    next_turn = (UtteranceTrace(), b"deuxieme phrase")
+    daemon._utterance_queue.put_nowait(next_turn)
+
+    with (
+        patch("scripts.audio_daemon.create_conversation", return_value=1),
+        patch(
+            "scripts.audio_daemon.process_voice_fast",
+            new_callable=AsyncMock,
+            return_value={"text": "Réponse.", "emotion": "neutral", "latency_ms": 5},
+        ),
+        patch.object(type(daemon), "_play_tts", new_callable=AsyncMock),
+        patch.object(type(daemon), "_broadcast_state", new_callable=AsyncMock),
+        patch(
+            "audio.stt_daemon.stt_daemon.transcribe_with_metadata",
+            new_callable=AsyncMock,
+            return_value={
+                "text": "premiere phrase",
+                "segments": [],
+                "engine": "faster-whisper",
+                "inference_ms": 5,
+                "audio_ms": 900,
+            },
+        ),
+    ):
+        await daemon._process_single_utterance_active(
+            b"\x00\x01" * 2000,
+            True,
+            trace=UtteranceTrace(),
+        )
+
+    assert daemon._utterance_queue.qsize() == 1
+    assert await daemon._utterance_queue.get() is next_turn

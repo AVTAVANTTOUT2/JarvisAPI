@@ -1775,13 +1775,9 @@ class AudioDaemon:
             if drained:
                 logger.debug("[audio_daemon] Purge post-TTS : %d frames jetées", drained)
 
-        #    c) Purger aussi les utterances en attente (plus pertinentes après reprise)
-        if self._utterance_queue is not None:
-            while not self._utterance_queue.empty():
-                try:
-                    self._utterance_queue.get_nowait()
-                except asyncio.QueueEmpty:
-                    break
+        #    c) Ne pas purger la file d'énoncés : le VAD peut enfiler le tour
+        #    suivant pendant le traitement (state=processing). Ces segments sont
+        #    des paroles utilisateur, pas des résidus d'écho post-TTS.
 
         #    d) Reset Silero apres purge (buffer d'accumulation vide)
         if USE_SILERO_VAD:
