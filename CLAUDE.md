@@ -473,7 +473,9 @@ valeur `confirmed:true` sans plan serveur est ignorée.
 `LLM_SHELL_WORKSPACE`, `LLM_SHELL_MAX_COMMANDS`,
 `LLM_SHELL_MAX_TIMEOUT`, `LLM_SHELL_PLAN_TTL_SECONDS` dans `.env`.
 **`/api/status`** et **`/api/integrations`** exposent
-`computer: { available, shell }`.
+`computer: { available }`. Le chemin du shell reste une valeur de
+configuration locale : le publier n'apprenait rien à l'interface et décrivait
+l'environnement du poste à qui lisait la réponse.
 
 ## Exécution de code — un seul chemin, confiné
 

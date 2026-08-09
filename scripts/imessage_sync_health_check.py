@@ -60,7 +60,9 @@ def check_status_api() -> dict:
         payload = json.loads(stdout)
         out["reachable"] = True
         out["imessage_available"] = payload.get("imessage", {}).get("available")
-        out["imessage_target"] = payload.get("imessage", {}).get("target")
+        # `/api/status` ne renvoie plus le numéro cible : le diagnostic n'a
+        # besoin que de savoir s'il est configuré, pas de le réafficher.
+        out["imessage_target_configured"] = payload.get("imessage", {}).get("configured")
         out["email_watcher_running"] = payload.get("email_watcher", {}).get("running")
         out["people_count_api"] = payload.get("memory", {}).get("people")
         out["relationship_profiles_count_api"] = payload.get("memory", {}).get("relationship_profiles")
