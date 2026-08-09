@@ -62,12 +62,19 @@ class TestShouldDeferAction:
             {"type": "calendar_create", "summary": "RDV"},
         ) is True
 
-    def test_sensitive_action_runs_when_confirmed(self) -> None:
+    def test_sensitive_action_ignores_a_confirmed_flag_from_the_model(self) -> None:
+        """Le champ `confirmed` d'un bloc ```action``` est écrit par le modèle.
+
+        `_should_defer_action` ne reçoit que des actions fraîchement extraites
+        d'une réponse : le chemin « proposition serveur confirmée » rend la
+        main bien avant. Honorer ce champ laisserait donc une génération de
+        texte lever le garde-fou censé la contenir.
+        """
         from api.chat_actions import _should_defer_action
         assert _should_defer_action(
             "Événement créé.",
             {"type": "calendar_create", "summary": "RDV", "confirmed": True},
-        ) is False
+        ) is True
 
 
 class TestExtractActionFromText:
