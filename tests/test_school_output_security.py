@@ -12,7 +12,15 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
-def _install_school_stubs() -> None:
+def _install_school_stubs(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Substitue `agents` le temps du test, puis le rend tel qu'il était.
+
+    Écraser `sys.modules["agents"]` sans le restaurer laisse la façade stub en
+    place pour toute la suite : les modules importés ensuite (`api.chat_processing`
+    → `from agents import get_agent`) échouent sur un paquet devenu vide.
+    `monkeypatch.setitem` remet l'entrée d'origine — ou la supprime si elle
+    n'existait pas — à la fin du test.
+    """
     agents = types.ModuleType("agents")
     display_text = types.ModuleType("agents.display_text")
 
@@ -28,12 +36,12 @@ def _install_school_stubs() -> None:
 
     display_text.finalize_assistant_display_text = finalize_assistant_display_text
     agents.BaseAgent = BaseAgent
-    sys.modules["agents"] = agents
-    sys.modules["agents.display_text"] = display_text
+    monkeypatch.setitem(sys.modules, "agents", agents)
+    monkeypatch.setitem(sys.modules, "agents.display_text", display_text)
 
 
-def _load_school_module():
-    _install_school_stubs()
+def _load_school_module(monkeypatch: pytest.MonkeyPatch):
+    _install_school_stubs(monkeypatch)
     spec = importlib.util.spec_from_file_location(
         "school_agent_module",
         REPO_ROOT / "agents" / "school.py",
@@ -49,7 +57,7 @@ def school_mod(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     out = tmp_path / "school"
     out.mkdir()
     monkeypatch.setattr("config.SCHOOL_OUTPUT_DIR", str(out))
-    mod = _load_school_module()
+    mod = _load_school_module(monkeypatch)
     return mod, out
 
 

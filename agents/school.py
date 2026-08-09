@@ -144,9 +144,14 @@ class SchoolAgent(BaseAgent):
 
         filename = meta.get("filename")
         subject = meta.get("subject", "divers")
-        if not filename:
-            logger.warning(f"[school] Bloc ```save sans 'filename' : {meta}")
+        # Le JSON vient du modèle : `filename` peut être un nombre ou une liste.
+        # Sans ce contrôle, `filename.endswith(".md")` plus bas lève une
+        # AttributeError avant même d'atteindre l'assainissement du chemin.
+        if not filename or not isinstance(filename, str):
+            logger.warning(f"[school] Bloc ```save sans 'filename' exploitable : {meta}")
             return None
+        if not isinstance(subject, str):
+            subject = "divers"
 
         # Dossier : data/outputs/school/[matière_normalisée]/
         # NFKD enlève les accents (Économie → Economie → economie)
