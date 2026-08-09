@@ -249,7 +249,7 @@ def _find_ollama_serve_pids() -> list[int]:
                 try:
                     pid = int(line.strip())
                     if pid not in pids:
-                        # Vérifier la ligne de commande (macOS : ps, pas /proc)
+                        # Vérifier la ligne de commande (macOS : ps)
                         ps = subprocess.run(
                             ["ps", "-p", str(pid), "-o", "command="],
                             capture_output=True,
