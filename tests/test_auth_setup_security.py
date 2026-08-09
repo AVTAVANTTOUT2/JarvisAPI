@@ -12,10 +12,28 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_main_disables_public_openapi_urls() -> None:
-    source = (REPO_ROOT / "main.py").read_text(encoding="utf-8")
-    assert "docs_url=None" in source
-    assert "redoc_url=None" in source
-    assert "openapi_url=None" in source
+    """`/docs`, `/redoc` et `/openapi.json` vivent hors du préfixe `/api/`.
+
+    Le verrou de session ne les regardait donc pas : la surface complète de
+    l'API — chemins, corps, noms de champs — se lisait sans cookie. On vérifie
+    l'application montée, pas le texte du fichier : une chaîne présente dans
+    `main.py` ne prouve pas qu'elle s'applique à `app`.
+    """
+    from fastapi.testclient import TestClient
+
+    import main
+
+    assert main.app.docs_url is None
+    assert main.app.redoc_url is None
+    assert main.app.openapi_url is None
+
+    with TestClient(main.app) as client:
+        for path in ("/docs", "/redoc", "/openapi.json"):
+            assert client.get(path).status_code == 404, path
+
+    # Le schéma reste constructible en interne : les contrats de route
+    # (`tests/test_phase4_route_contract.py`) s'appuient dessus.
+    assert main.app.openapi()["paths"]
 
 
 def test_setup_guard_rejects_off_loopback(monkeypatch: pytest.MonkeyPatch) -> None:
