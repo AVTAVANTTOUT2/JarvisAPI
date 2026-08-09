@@ -935,7 +935,7 @@ def test_routes_without_declared_limit_still_accept_streamed_bodies():
     from api.middleware import _request_size_limit
 
     assert _request_size_limit("POST", "/api/sans-plafond-declare") is None
-    assert _request_size_limit("POST", "/api/devices/x/screen") is not None
-    assert _request_size_limit("GET", "/api/devices/x/screen") is None
     assert _request_size_limit("POST", "/api/mobile/voice/turn") is not None
     assert _request_size_limit("GET", "/api/mobile/voice/turn") is None
+    assert _request_size_limit("POST", "/api/devices/x/screen") is not None
+    assert _request_size_limit("GET", "/api/devices/x/screen") is None
