@@ -621,6 +621,9 @@ async def test_cached_tts_task_cancellation_is_never_swallowed(monkeypatch):
         # du code arbitraire (scripts postinstall, registre distant).
         "npm install left-pad",
         "npm publish",
+        "npm run postinstall",
+        "npm run exfil",
+        "pnpm run prepare",
         "pnpm add malicious-pkg",
         "pnpm exec rm",
         "npx cowsay pwned",
@@ -671,5 +674,10 @@ def test_structured_spec_is_validated_like_a_string(worktree: Path):
     with pytest.raises(RequiredTestError):
         parse_required_test(
             {"executable": "npm", "args": ["install", "left-pad"]},
+            worktree=worktree,
+        )
+    with pytest.raises(RequiredTestError):
+        parse_required_test(
+            {"executable": "npm", "args": ["run", "postinstall"]},
             worktree=worktree,
         )

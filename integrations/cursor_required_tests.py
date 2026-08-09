@@ -42,6 +42,9 @@ ALLOWED_EXECUTABLES: frozenset[str] = frozenset(
 _NODE_SUBCOMMANDS: frozenset[str] = frozenset(
     {"test", "run", "lint", "typecheck", "check", "build"}
 )
+# Scripts autorisés après ``npm run`` / ``pnpm run`` — ``run`` seul ouvre
+# n'importe quelle entrée ``package.json`` (postinstall, prepare, exfil…).
+_NODE_RUN_SCRIPTS: frozenset[str] = _NODE_SUBCOMMANDS - {"run"}
 _PYTHON_MODULES: frozenset[str] = frozenset({"pytest", "unittest", "compileall"})
 # Tâches Gradle : préfixes de vérification uniquement (test, check, lint,
 # assemble, verify…), jamais publish / upload / install.
@@ -185,6 +188,30 @@ def _first_positional(args: list[str]) -> str | None:
     return None
 
 
+def _positional_after(args: list[str], token: str) -> str | None:
+    """Premier argument positionnel après ``token`` (drapeaux ignorés)."""
+    seen = False
+    skip_next = False
+    for arg in args:
+        if skip_next:
+            skip_next = False
+            continue
+        if arg == token:
+            seen = True
+            continue
+        if not seen:
+            if arg.startswith("-") and arg != "--":
+                skip_next = "=" not in arg
+            continue
+        if arg == "--":
+            return None
+        if arg.startswith("-"):
+            skip_next = "=" not in arg
+            continue
+        return arg
+    return None
+
+
 def _validate_subcommand(executable: str, args: list[str]) -> None:
     """Refuse une sous-commande qui n'est pas une exécution de tests."""
     name = executable.lstrip("./")
@@ -196,6 +223,14 @@ def _validate_subcommand(executable: str, args: list[str]) -> None:
             raise RequiredTestError(
                 f"sous-commande {name} non allowlistée: {sub}"
             )
+        if sub == "run":
+            script = _positional_after(args, "run")
+            if script is None:
+                raise RequiredTestError(f"{name} run sans nom de script")
+            if script not in _NODE_RUN_SCRIPTS:
+                raise RequiredTestError(
+                    f"script npm/pnpm non allowlisté: {script}"
+                )
         return
 
     if name in ("python", "python3"):
