@@ -38,6 +38,14 @@ _PUBLIC_AUTH_ROUTES = frozenset(
 
 _UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
+# Routes applicatives servies hors du préfixe `/api/`. Le verrou de session ne
+# regardait que `/api/`, si bien que `POST /upload` — déclaré parmi ses voisins
+# `/api/*` sans leur préfixe — acceptait un fichier de n'importe qui atteignant
+# le port, application verrouillée ou non. Toute route applicative hors `/api/`
+# doit être listée ici ; `tests/test_security_middleware.py` refuse qu'une
+# nouvelle échappe au verrou.
+_PROTECTED_NON_API_PATHS = frozenset({"/upload"})
+
 # Lectures métier autorisées avec jeton mobile Bearer (Vague 1).
 _MOBILE_BEARER_GET_EXACT = frozenset(
     {
@@ -336,7 +344,7 @@ async def _dispatch_with_session_gate(request: Request, call_next) -> Response:
 
     if (
         method != "OPTIONS"
-        and path.startswith("/api/")
+        and (path.startswith("/api/") or path in _PROTECTED_NON_API_PATHS)
         and not _bypasses_session_gate(method, path)
         and not _supervisor_control_authenticated(request, path)
     ):

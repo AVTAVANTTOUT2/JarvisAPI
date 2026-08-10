@@ -34,6 +34,10 @@ from database import init_db
 from integrations.apple_data import apple_data
 from integrations.imessage_import import IMessageImporter, imessage_importer
 
+# Trois sites d'appel utilisaient `logger` sans qu'il existe : le repli vers
+# l'accès direct, censé rattraper un daemon indisponible, levait un NameError.
+logger = logging.getLogger(__name__)
+
 
 def _setup_logging(verbose: bool = False) -> None:
     level = logging.DEBUG if verbose else logging.INFO

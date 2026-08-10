@@ -88,6 +88,31 @@ def _isolate_app_lifespan(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(email_watcher, "start", _noop_start)
     monkeypatch.setattr(email_watcher, "stop", lambda: None)
     monkeypatch.setattr("api.lifespan._calendar_subprocess_run", lambda *_a, **_k: None)
+    # `POST /api/auth/setup` n'est plus atteignable que depuis la boucle locale.
+    # Le TestClient se présente comme `client.host == "testclient"` et
+    # `Host: testserver` : deux valeurs qu'`is_loopback_request` refuse à juste
+    # titre. Sans ce recalage, toute la suite existante — qui ouvre sa session
+    # via `/api/auth/setup` — tomberait en 403 pour une raison de transport
+    # simulé, pas de sécurité.
+    #
+    # Le recalage est limité à cette route : neutraliser `_is_loopback` partout
+    # rendait vraie la localité de `/api/auth/local-unlock`, dont deux tests
+    # exigent précisément le refus hors boucle locale. Le garde de setup reste
+    # vérifié à part, requête distante à l'appui
+    # (`tests/test_auth_setup_security.py`).
+    import api.router_auth as router_auth
+
+    _real_is_loopback = router_auth._is_loopback
+
+    def _loopback_except_simulated_setup(request) -> bool:
+        path = getattr(getattr(request, "url", None), "path", None)
+        if path is None:
+            path = (getattr(request, "scope", None) or {}).get("path")
+        if path == "/api/auth/setup":
+            return True
+        return _real_is_loopback(request)
+
+    monkeypatch.setattr(router_auth, "_is_loopback", _loopback_except_simulated_setup)
 
 
 @pytest.fixture(autouse=True)

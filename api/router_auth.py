@@ -79,10 +79,18 @@ def _require_browser_session(request: Request) -> dict:
     return session
 
 
-def _guard_setup() -> None:
-    """Refuse une seconde initialisation avant de valider son corps."""
+def _guard_setup(request: Request) -> str:
+    """Refuse une seconde initialisation et limite le setup au loopback."""
     if auth.is_configured():
         raise HTTPException(409, "Déjà configuré — utilisez /api/auth/change-secret")
+    if not _is_loopback(request):
+        raise HTTPException(
+            403,
+            "Configuration initiale autorisée uniquement depuis la machine locale",
+        )
+    client_key = _auth_client_key(request, channel="setup")
+    _raise_if_rate_limited(client_key)
+    return client_key
 
 
 def _guard_unlock(request: Request) -> str:
@@ -121,7 +129,9 @@ def _guard_change_secret(request: Request) -> str:
 
 
 def _set_session_cookie(response: Response, token: str, expires_at: datetime) -> None:
-    max_age = max(1, int((expires_at - datetime.now()).total_seconds()))
+    # `expires_at` est daté en UTC naïf, comme les colonnes SQLite. Retrancher
+    # une heure locale ferait expirer le cookie avec le décalage du poste.
+    max_age = max(1, int((expires_at - auth.naive_utc_now()).total_seconds()))
     response.set_cookie(
         key=config.SESSION_COOKIE_NAME,
         value=token,
@@ -162,7 +172,7 @@ async def api_auth_setup(
     body: SecretRequest,
     request: Request,
     response: Response,
-    _guard: Annotated[None, Depends(_guard_setup)],
+    _client_key: Annotated[str, Depends(_guard_setup)],
 ):
     """Définit le PIN/passphrase initial (une seule fois) et ouvre une session."""
     try:

@@ -74,17 +74,29 @@ def is_configured() -> bool:
     return bool(get_setting(_SETTING_SECRET_HASH, ""))
 
 
-# PIN court autorisé (usage personnel + verrou anti-bruteforce).
+# PIN court autorisé en loopback-only ; exposition réseau exige 6 chiffres minimum.
 _MIN_PIN_DIGITS = 4
+_MIN_NETWORK_PIN_DIGITS = 6
 _MIN_PASSPHRASE_LEN = 10
 
 
 def validate_secret_strength(secret: str) -> None:
-    """Applique la politique : PIN de 4 chiffres ou passphrase de 10 caractères."""
+    """Applique la politique : PIN ou passphrase selon l'exposition réseau."""
     if not secret:
         raise ValueError("Le secret est requis.")
     if secret.isascii() and secret.isdigit():
-        if len(secret) < _MIN_PIN_DIGITS:
+        min_digits = (
+            _MIN_NETWORK_PIN_DIGITS
+            if config.WEB_ALLOW_NETWORK_BIND
+            else _MIN_PIN_DIGITS
+        )
+        if len(secret) < min_digits:
+            if config.WEB_ALLOW_NETWORK_BIND:
+                raise ValueError(
+                    "Avec une exposition réseau, le PIN doit contenir "
+                    f"au moins {_MIN_NETWORK_PIN_DIGITS} chiffres "
+                    f"(ou utilisez une passphrase de {_MIN_PASSPHRASE_LEN} caractères)."
+                )
             raise ValueError(
                 f"Le PIN doit contenir au moins {_MIN_PIN_DIGITS} chiffres."
             )
@@ -128,6 +140,20 @@ def _default_client_key() -> str:
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def naive_utc_now() -> datetime:
+    """Instant courant au format exact de ``CURRENT_TIMESTAMP`` (UTC, sans fuseau).
+
+    Les colonnes de `sessions` mélangeaient deux horloges : `created_at` et
+    `last_seen_at` viennent de `CURRENT_TIMESTAMP` (UTC) tandis qu'`expires_at`
+    était écrit avec `datetime.now()` (heure locale). Les requêtes SQL, elles,
+    comparent à `datetime('now')` — donc à l'UTC. La durée de vie réellement
+    appliquée dérivait ainsi du décalage du poste : à Paris une session morte
+    restait listée comme active deux heures, et à l'ouest de Greenwich une
+    session encore valide était purgée en avance.
+    """
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def _parse_datetime(value: str | None) -> datetime | None:
@@ -499,7 +525,7 @@ def verify_csrf_token(session_token: str | None, csrf_token: str | None) -> bool
 
 
 def _session_expiry() -> datetime:
-    return datetime.now() + timedelta(days=config.SESSION_INACTIVITY_DAYS)
+    return naive_utc_now() + timedelta(days=config.SESSION_INACTIVITY_DAYS)
 
 
 def create_session(
@@ -546,7 +572,7 @@ def verify_session(token: str | None) -> dict | None:
     if not row:
         return None
 
-    now = datetime.now()
+    now = naive_utc_now()
     try:
         expires_at = datetime.fromisoformat(row["expires_at"])
         created_at = datetime.fromisoformat(row["created_at"])
