@@ -16,7 +16,7 @@
 Structure API canonique : **261 opérations HTTP + 2 WebSockets**, **232 chemins OpenAPI**, **17 routeurs api/router_*.py + Fitness = 18 montés**, main.py **214 lignes**.
 
 | Taille | ✅ `main.py` 211 lignes | Tous les modules `api/*.py` restent à 500 lignes ou moins |
-| Routes | ✅ 259 opérations HTTP + 2 WebSockets | Réparties dans 18 `APIRouter` montés ; 230 chemins OpenAPI |
+| Routes | ✅ 261 opérations HTTP + 2 WebSockets | Réparties dans 18 `APIRouter` montés ; 232 chemins OpenAPI |
 | Responsabilités | ✅ Assemblage séparé | Routeurs, WS, pipeline, frontend, auth, middleware et lifespan isolés |
 | Imports | ✅ Dépendances distribuées | Aucun module `api/` n'importe `main.py` |
 | Middleware | ✅ Correct | CORS configuré, security_middleware fonctionnel |

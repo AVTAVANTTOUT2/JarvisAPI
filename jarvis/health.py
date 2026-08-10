@@ -81,6 +81,26 @@ CACHE_TTL_S = 5.0
 
 _MAX_DETAIL_STR = 120
 
+PUBLIC_DETAIL_KEYS = frozenset({
+    "backend",
+    "critical_free_mb",
+    "device",
+    "engine",
+    "free_mb",
+    "handler_queues",
+    "journal_mode",
+    "latency_ms",
+    "loop_bound",
+    "offline",
+    "provider",
+    "queued_events",
+    "saturated_queues",
+    "streaming",
+    "subscribers",
+    "uptime_s",
+    "warn_free_mb",
+})
+
 _PROCESS_STARTED_AT = time.monotonic()
 
 
@@ -124,13 +144,22 @@ def public_details(details: dict[str, Any] | None) -> dict[str, Any]:
         return {}
     clean: dict[str, Any] = {}
     for key, value in details.items():
-        if not isinstance(key, str):
+        if not isinstance(key, str) or key not in PUBLIC_DETAIL_KEYS:
             continue
         if isinstance(value, bool) or value is None:
             clean[key] = value
         elif isinstance(value, (int, float)):
             clean[key] = value
         elif isinstance(value, str):
+            stripped = value.strip()
+            looks_like_path = stripped.startswith(("/", "~/", "~\\")) or (
+                len(stripped) >= 3
+                and stripped[1] == ":"
+                and stripped[2] in ("/", "\\")
+            )
+            if looks_like_path:
+                logger.warning("[health] chemin privé ignoré dans le détail : %s", key)
+                continue
             clean[key] = value[:_MAX_DETAIL_STR]
         else:
             logger.warning("[health] détail non scalaire ignoré : %s", key)

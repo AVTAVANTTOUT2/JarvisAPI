@@ -43,7 +43,7 @@ Depuis du code async, utiliser `await event_bus.emit(event)`. Depuis un chemin s
 
 ## Couche API — Phase 4
 
-`main.py` est un point d'assemblage : configuration FastAPI/CORS, montage de 17 `APIRouter` sous `api/router_*.py` plus Fitness, branchement des WebSockets de chat et de TV, configuration de `pipeline.py`, frontend et lancement Uvicorn. Le contrat public compte 259 opérations HTTP et 2 WebSockets ; l'OpenAPI expose 230 chemins.
+`main.py` est un point d'assemblage : configuration FastAPI/CORS, montage de 17 `APIRouter` sous `api/router_*.py` plus Fitness, branchement des WebSockets de chat et de TV, configuration de `pipeline.py`, frontend et lancement Uvicorn. Le contrat public compte 261 opérations HTTP et 2 WebSockets ; l'OpenAPI expose 232 chemins.
 
 - `api/router_*.py` contient exactement 17 routeurs par domaine ; Fitness porte le 18e routeur monté et aucun routeur ne dépasse 478 lignes.
 - `api/lifespan.py`, `api/middleware.py` et `api/frontend.py` portent le cycle de vie, la sécurité HTTP et le serving des frontends.

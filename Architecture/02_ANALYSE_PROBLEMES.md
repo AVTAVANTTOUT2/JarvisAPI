@@ -55,7 +55,7 @@
 - **Fichier** : `main.py`
 - **Origine** : Croissance organique sur 12+ mois. Chaque nouvelle feature a été ajoutée dans `main.py` plutôt que dans un module séparé.
 - **Conséquence** : Impossible à tester unitairement. Toute modification dans un domaine risque de casser un autre. Conflits de merge fréquents. Onboarding impossible pour un nouveau développeur.
-- **Correction** : routeurs FastAPI par domaine (ADR-008). Le contrat courant est verrouillé à 259 opérations HTTP, 2 WebSockets et 230 chemins OpenAPI par les tests et l'inventaire généré.
+- **Correction** : routeurs FastAPI par domaine (ADR-008). Le contrat courant est verrouillé à 261 opérations HTTP, 2 WebSockets et 232 chemins OpenAPI par les tests et l'inventaire généré.
 
 ### P1-2 — database/__init__.py : 4 169 lignes, ~208 fonctions, 23 domaines
 

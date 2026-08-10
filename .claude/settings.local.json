@@ -3,8 +3,7 @@
     "allow": [
       "mcp__claude_ai_Figma__whoami",
       "mcp__claude_ai_Figma__create_new_file",
-      "mcp__claude_ai_Figma__use_figma",
-      "mcp__Claude_Code_Remote__send_later"
+      "mcp__claude_ai_Figma__use_figma"
     ]
   }
 }

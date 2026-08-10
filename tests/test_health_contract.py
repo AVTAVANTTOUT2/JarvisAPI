@@ -280,6 +280,7 @@ def test_details_keep_only_short_scalars():
             "processes": [{"pid": 42, "cmdline": "/Users/nolann/venv/bin/python"}],
             "loop_bound": True,
             "nothing": None,
+            "unexpected_secret": "sk-live-should-never-surface",
             42: "clé non textuelle",
         }
     )
@@ -287,9 +288,16 @@ def test_details_keep_only_short_scalars():
     assert cleaned["free_mb"] == 512.0
     assert len(cleaned["engine"]) == 120
     assert cleaned["loop_bound"] is True
-    assert cleaned["nothing"] is None
+    assert "nothing" not in cleaned
     assert "processes" not in cleaned
+    assert "unexpected_secret" not in cleaned
     assert 42 not in cleaned
+
+
+def test_details_drop_private_paths_even_under_an_allowed_key():
+    cleaned = health.public_details({"engine": "/Users/nolann/private/engine"})
+
+    assert "engine" not in cleaned
 
 
 def test_text_to_speech_never_exposes_model_or_voice_paths(tmp_db):

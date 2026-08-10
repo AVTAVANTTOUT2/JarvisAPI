@@ -161,11 +161,15 @@ export function jarvisRawFetch(path: string, options?: RequestInit): Promise<Res
   return fetch(`${root}${p}`, { ...options, credentials: 'include', headers })
 }
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
+async function request<T>(
+  path: string,
+  options?: RequestInit,
+  acceptedErrorStatuses: readonly number[] = [],
+): Promise<T> {
   const p = path.startsWith('/') ? path : `/${path}`
   const res = await jarvisRawFetch(p, options)
   const text = await res.text()
-  if (!res.ok) {
+  if (!res.ok && !acceptedErrorStatuses.includes(res.status)) {
     if ((res.status === 401 || res.status === 428) && !p.startsWith('/api/auth/')) {
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('jarvis:auth-required'))
@@ -212,6 +216,7 @@ export const api = {
     request<HealthReport>(
       `/api/health/detail${options?.refresh ? '?refresh=true' : ''}`,
       { signal: options?.signal },
+      [503],
     ),
 
   /** Latences du pipeline vocal — source unique, déjà exposée par le backend. */

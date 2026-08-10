@@ -19,7 +19,7 @@ Le dossier `Architecture/` reflète l'état du code après l'implémentation de 
 
 | Affirmation dans Architecture/ | Réalité code | Statut |
 |---|---|---|
-| 259 opérations HTTP + 2 WebSockets, 230 chemins OpenAPI | Inventaire FastAPI et snapshot déterministe, canal TV inclus | ✅ Contrat actualisé |
+| 261 opérations HTTP + 2 WebSockets, 232 chemins OpenAPI | Inventaire FastAPI et snapshot déterministe, canal TV inclus | ✅ Contrat actualisé |
 | 90 persistantes / 95 physiques avec FTS5 après `init_db()` | Vérifié par `tools/audit_architecture_truth.py --check` sur une base `:memory:` fraîche ; hors `sqlite_*` | ✅ `schema.sql` généré = 91 déclarations, dont la table virtuelle FTS5 |
 | 7 agents LLM + orchestrateur | 12 fichiers dans agents/ | ✅ Exact (dont 5 utilitaires) |
 | 29 jobs APScheduler | 102 références dans scheduler.py | ✅ Exact |

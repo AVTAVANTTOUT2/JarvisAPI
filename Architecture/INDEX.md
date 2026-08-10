@@ -127,7 +127,7 @@ graph TB
 
     subgraph "Backend (port 8081)"
         MAIN["main.py — 211 lignes<br/>assemblage FastAPI<br/>18 routeurs montés<br/>2 WebSockets<br/>sert frontend/out en priorité"]
-        API["api/<br/>259 opérations HTTP<br/>230 chemins OpenAPI<br/>handlers et support"]
+        API["api/<br/>261 opérations HTTP<br/>232 chemins OpenAPI<br/>handlers et support"]
         BUS["Event Bus actif<br/>10 événements de domaine<br/>SSE + WebSocket + TTS"]
     end
 
