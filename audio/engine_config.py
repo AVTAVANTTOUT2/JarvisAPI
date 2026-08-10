@@ -105,7 +105,6 @@ def load_audio_engine_config() -> AudioEngineConfig:
 
 def log_audio_startup_config(*, active_stt_engine: str | None = None) -> None:
     """Journalise la pile audio au démarrage (sans secret)."""
-    import config
 
     cfg = load_audio_engine_config()
     stt_active = active_stt_engine or cfg.stt_engine

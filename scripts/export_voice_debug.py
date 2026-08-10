@@ -68,14 +68,14 @@ def build_markdown(rows: list[dict[str, Any]]) -> str:
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     lines: list[str] = []
 
-    lines.append(f"# Voice Debug — Export complet")
-    lines.append(f"")
+    lines.append("# Voice Debug — Export complet")
+    lines.append("")
     lines.append(f"**Export genere le {now}**  ")
     lines.append(f"**Nombre de traces : {len(rows)}**  ")
     lines.append(f"**Base de donnees : `{DB_PATH}`**")
-    lines.append(f"")
-    lines.append(f"---")
-    lines.append(f"")
+    lines.append("")
+    lines.append("---")
+    lines.append("")
 
     if not rows:
         lines.append("> Aucune trace dans la table `voice_debug_log`.")
@@ -107,9 +107,9 @@ def build_markdown(rows: list[dict[str, Any]]) -> str:
 
         # ── Entete de la trace ──
         lines.append(f"## Trace #{trace_id} — {created_at}")
-        lines.append(f"")
-        lines.append(f"| Metrique | Valeur |")
-        lines.append(f"|---|---|")
+        lines.append("")
+        lines.append("| Metrique | Valeur |")
+        lines.append("|---|---|")
         lines.append(f"| ID | {trace_id} |")
         lines.append(f"| Horodatage | `{created_at}` |")
         lines.append(f"| Modele | `{model}` |")
@@ -122,31 +122,31 @@ def build_markdown(rows: list[dict[str, Any]]) -> str:
         lines.append(f"| LLM Pass 2 | {_fmt_ms(llm2_latency)} |")
         lines.append(f"| TTS ({tts_engine}) | {_fmt_ms(tts_latency)} |")
         lines.append(f"| **Latence totale** | **{_fmt_ms(total_latency)}** |")
-        lines.append(f"")
+        lines.append("")
 
         # ── Transcription ──
-        lines.append(f"### 1. Transcription (STT)")
-        lines.append(f"")
+        lines.append("### 1. Transcription (STT)")
+        lines.append("")
         lines.append(f"> {input_text}")
-        lines.append(f"")
+        lines.append("")
 
         # ── System Prompt ──
         if system_prompt:
-            lines.append(f"### 2. System Prompt")
-            lines.append(f"")
-            lines.append(f"```text")
+            lines.append("### 2. System Prompt")
+            lines.append("")
+            lines.append("```text")
             lines.append(_truncate(system_prompt, 5000))
-            lines.append(f"```")
-            lines.append(f"")
+            lines.append("```")
+            lines.append("")
 
         # ── Messages envoyes (historique) ──
         if messages_json:
             messages = _safe_json(messages_json)
             if isinstance(messages, list) and messages:
-                lines.append(f"### 3. Messages envoyes au LLM (historique)")
-                lines.append(f"")
-                lines.append(f"| # | Role | Contenu |")
-                lines.append(f"|---|---|---|")
+                lines.append("### 3. Messages envoyes au LLM (historique)")
+                lines.append("")
+                lines.append("| # | Role | Contenu |")
+                lines.append("|---|---|---|")
                 for mi, msg in enumerate(messages):
                     if isinstance(msg, dict):
                         role = msg.get("role", "?")
@@ -155,52 +155,52 @@ def build_markdown(rows: list[dict[str, Any]]) -> str:
                         if len(content) > 200:
                             content_short += "…"
                         lines.append(f"| {mi + 1} | `{role}` | {content_short} |")
-                lines.append(f"")
-                lines.append(f"<details><summary>Contenu complet des messages</summary>")
-                lines.append(f"")
-                lines.append(f"```json")
+                lines.append("")
+                lines.append("<details><summary>Contenu complet des messages</summary>")
+                lines.append("")
+                lines.append("```json")
                 lines.append(json.dumps(messages, ensure_ascii=False, indent=2))
-                lines.append(f"```")
-                lines.append(f"</details>")
-                lines.append(f"")
+                lines.append("```")
+                lines.append("</details>")
+                lines.append("")
 
         # ── Reponse brute ──
         if raw_response:
-            lines.append(f"### 4. Reponse brute (LLM)")
-            lines.append(f"")
-            lines.append(f"```text")
+            lines.append("### 4. Reponse brute (LLM)")
+            lines.append("")
+            lines.append("```text")
             lines.append(_truncate(raw_response, 5000))
-            lines.append(f"```")
-            lines.append(f"")
+            lines.append("```")
+            lines.append("")
 
         # ── Reponse clean ──
         if response_clean and response_clean != raw_response:
-            lines.append(f"### 5. Reponse clean (apres extraction emotion)")
-            lines.append(f"")
+            lines.append("### 5. Reponse clean (apres extraction emotion)")
+            lines.append("")
             lines.append(f"> {response_clean}")
-            lines.append(f"")
+            lines.append("")
 
         # ── Action detectee ──
         if action_json:
             action = _safe_json(action_json)
-            lines.append(f"### 6. Action detectee")
-            lines.append(f"")
-            lines.append(f"```json")
+            lines.append("### 6. Action detectee")
+            lines.append("")
+            lines.append("```json")
             if isinstance(action, (dict, list)):
                 lines.append(json.dumps(action, ensure_ascii=False, indent=2))
             else:
                 lines.append(str(action))
-            lines.append(f"```")
-            lines.append(f"")
+            lines.append("```")
+            lines.append("")
 
         # ── Separateur ──
-        lines.append(f"---")
-        lines.append(f"")
+        lines.append("---")
+        lines.append("")
 
     # ── Footer ──
-    lines.append(f"")
+    lines.append("")
     lines.append(f"*Export automatise par `scripts/export_voice_debug.py` — {now}*")
-    lines.append(f"")
+    lines.append("")
 
     return "\n".join(lines)
 

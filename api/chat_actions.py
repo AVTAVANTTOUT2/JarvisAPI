@@ -45,6 +45,25 @@ ACTIONS_WITH_FOLLOWUP = frozenset({
     "food_order",
 })
 
+# Actions qui écrivent un état persistant, exécutées seulement après
+# confirmation explicite (proposal_id / « oui » exact), jamais sur la seule
+# heuristique du texte LLM.
+#
+# Le critère est l'écriture durable, pas la sensibilité ressentie :
+#   - `find_file` ne modifie rien — c'est une lecture, elle reste immédiate ;
+#   - `open_app` lance une application et n'écrit rien ; deux tests
+#     (`test_process_message_internal_executes_open_app`,
+#     `test_school_agent_preserves_open_app_action`) documentent qu'un
+#     « ouvre OBS » vocal doit ouvrir OBS, sans second tour de parole.
+# `terminal` et `food_order` ne figurent pas ici : ils ont déjà leur propre
+# confirmation par plan serveur opaque dans `actions.py`, plus stricte.
+ACTIONS_REQUIRING_CONFIRMATION = frozenset({
+    "calendar_create",
+    "task",
+    "reminder",
+    "name_place",
+})
+
 # Types d'actions qui peuvent déclencher la boucle agentique (multi-étapes)
 AGENTIC_ACTION_TYPES = frozenset({"terminal"})
 
@@ -189,9 +208,29 @@ _PROPOSAL_MARKERS = (
 
 
 def _should_defer_action(display_text: str, action: dict) -> bool:
-    """Reporte l'exécution si JARVIS pose une question de confirmation."""
-    if action.get("type") == "mail" and not action.get("confirmed"):
+    """Reporte l'exécution si JARVIS pose une question ou si l'action est sensible.
+
+    Le dictionnaire reçu ici sort toujours de `_extract_action_from_text()`,
+    donc du texte produit par le modèle : les deux appelants
+    (`api/ws_messages.py`, `api/chat_processing.py`) rendent la main avant
+    d'arriver ici quand l'action vient d'une proposition serveur consommée.
+    Consulter `action["confirmed"]` reviendrait donc à laisser une génération
+    de texte lever son propre garde-fou — exactement ce que
+    `actions.py` refuse déjà pour `terminal` et `food_order`, où un
+    `confirmed: true` sans plan serveur est ignoré et journalisé. Les types
+    sensibles sont donc différés sans condition.
+    """
+    action_type = action.get("type")
+    if action_type == "mail" and not action.get("confirmed"):
         return False  # mail : brouillon immédiat, pending séparé
+    if action_type in ACTIONS_REQUIRING_CONFIRMATION:
+        if action.get("confirmed"):
+            logger.warning(
+                "[pending] `confirmed` fourni par le modèle ignoré pour %s "
+                "— la confirmation appartient à l'utilisateur",
+                action_type,
+            )
+        return True
     text = (display_text or "").lower()
     if "?" not in text:
         return False

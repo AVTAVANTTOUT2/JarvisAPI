@@ -32,22 +32,16 @@ def _resolve_handle_name(handle: str) -> str:
     if not db_path or not handle:
         return handle
     try:
+        # Matcher via les relationship_profiles
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
         cur = conn.execute(
-            "SELECT name FROM people WHERE name NOT LIKE '+%' AND name NOT LIKE '%@%' LIMIT 1"
-        )
-        row = cur.fetchone()
-        conn.close()
-        # On essaie de matcher via les relationship_profiles
-        conn2 = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-        cur2 = conn2.execute(
             """SELECT p.name FROM people p
                JOIN relationship_profiles rp ON rp.person_id = p.id
                WHERE rp.handle = ? LIMIT 1""",
             (handle,),
         )
-        rp_row = cur2.fetchone()
-        conn2.close()
+        rp_row = cur.fetchone()
+        conn.close()
         if rp_row:
             return rp_row[0]
     except Exception:

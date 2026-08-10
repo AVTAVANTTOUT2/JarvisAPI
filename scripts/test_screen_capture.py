@@ -13,13 +13,8 @@ Vérifie :
 """
 
 import asyncio
-import base64
-import hashlib
-import subprocess
 import sys
 import tempfile
-import time
-from io import BytesIO
 from pathlib import Path
 
 # Ajouter la racine du projet au path pour les imports internes

@@ -293,6 +293,9 @@ Le microphone d'un navigateur distant nécessite HTTPS. Ne pas exposer directeme
 # Suite standard — hors ligne et déterministe (aucune connexion sortante)
 python -m pytest tests/ jarvis/tests agents/devagent -q
 
+# Lint Python (règles pyflakes F — configuration dans .ruff.toml)
+python -m ruff check .
+
 # Frontend principal
 cd frontend
 pnpm test

@@ -858,6 +858,73 @@ def test_remote_screen_without_content_length_is_refused(tmp_db):
     assert response.json()["detail"]["code"] == "length_required"
 
 
+def test_mobile_voice_turn_without_content_length_is_refused(tmp_db):
+    """Même frontière que l'écran distant : le tour vocal mobile a un plafond.
+
+    PR #182 a verrouillé le cas chunké pour `/api/devices/{id}/screen` ; la
+    même fonction `_content_length_error` borne aussi `/api/mobile/voice/turn`.
+    Sans ce test, une régression pourrait ne casser que la route Companion.
+    """
+    with _client() as client:
+        authenticate(client)
+        start = client.post("/api/mobile/pairing/start")
+        assert start.status_code == 200
+        code = start.json()["code"]
+        complete = client.post(
+            "/api/mobile/pairing/complete",
+            json={
+                "code": code,
+                "device_id": "voice-chunked",
+                "name": "Pixel Chunked",
+                "model": "Pixel 8",
+                "app_version": "1.0.4",
+            },
+        )
+        assert complete.status_code == 200
+        token = complete.json()["token"]
+        response = client.post(
+            "/api/mobile/voice/turn",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "multipart/form-data; boundary=----jarvis",
+                "Transfer-Encoding": "chunked",
+            },
+            content=iter([b"------jarvis--\r\n"]),
+        )
+
+    assert response.status_code == 411
+    assert response.json()["detail"]["code"] == "length_required"
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["/api/devices/screen-bad-cl/screen", "/api/mobile/voice/turn"],
+)
+@pytest.mark.parametrize("raw_length", ["abc", "-1"])
+def test_capped_routes_reject_invalid_content_length(path: str, raw_length: str):
+    """Un Content-Length illisible ou négatif ne doit pas passer le plafond.
+
+    Testé via `_content_length_error` directement : TestClient/httpx recalcule
+    souvent `Content-Length` à partir du corps, ce qui masquerait le garde-fou.
+    """
+    from types import SimpleNamespace
+
+    from api.middleware import _content_length_error
+
+    request = SimpleNamespace(
+        method="POST",
+        url=SimpleNamespace(path=path),
+        headers={"content-length": raw_length},
+    )
+    response = _content_length_error(request)
+    assert response is not None
+    assert response.status_code == 400
+    assert response.body
+    import json
+
+    assert json.loads(response.body)["detail"]["code"] == "invalid_content_length"
+
+
 def test_routes_without_declared_limit_still_accept_streamed_bodies():
     """L'exigence ne vaut que pour les routes à plafond déclaré.
 
@@ -868,5 +935,88 @@ def test_routes_without_declared_limit_still_accept_streamed_bodies():
     from api.middleware import _request_size_limit
 
     assert _request_size_limit("POST", "/api/sans-plafond-declare") is None
+    assert _request_size_limit("POST", "/api/mobile/voice/turn") is not None
+    assert _request_size_limit("GET", "/api/mobile/voice/turn") is None
     assert _request_size_limit("POST", "/api/devices/x/screen") is not None
     assert _request_size_limit("GET", "/api/devices/x/screen") is None
+
+
+# ── Contrat : aucune route applicative hors du verrou ────────────
+
+
+#: Routes délibérément atteignables sans cookie de session. Chacune
+#: s'authentifie autrement (secret d'ouverture, code d'appairage, jeton device
+#: ou jeton de localisation) ou sert précisément à ouvrir une session.
+PUBLIC_BY_DESIGN: frozenset[tuple[str, str]] = frozenset({
+    ("GET", "/api/auth/status"),
+    ("POST", "/api/auth/setup"),
+    ("POST", "/api/auth/unlock"),
+    ("POST", "/api/auth/local-unlock"),
+    ("POST", "/api/auth/verify"),
+    ("POST", "/api/location"),
+    ("POST", "/api/location/batch"),
+    ("POST", "/api/devices/register"),
+    ("POST", "/api/mobile/pairing/complete"),
+    ("POST", "/api/mobile/session"),
+    ("POST", "/api/mobile/push-token"),
+    ("POST", "/api/mobile/capabilities"),
+    ("POST", "/api/mobile/voice/turn"),
+    ("POST", "/api/mobile/conversations"),
+    ("POST", "/api/mobile/chat"),
+    ("POST", "/api/mobile/chat/confirm"),
+})
+
+
+def _declared_operations() -> list[tuple[str, str]]:
+    import main
+
+    operations: list[tuple[str, str]] = []
+    for path, methods in main.app.openapi().get("paths", {}).items():
+        if "{" in path:
+            continue
+        for method in methods:
+            verb = method.upper()
+            if verb in ("GET", "POST", "PATCH", "DELETE", "PUT"):
+                operations.append((verb, path))
+    return sorted(set(operations))
+
+
+def test_no_route_escapes_the_session_gate(tmp_db):
+    """Balaie tout le contrat public sans session et exige un refus.
+
+    Le verrou ne regardait que le préfixe `/api/`. `POST /upload`, déclaré
+    parmi ses voisins `/api/*` sans leur préfixe, acceptait donc un fichier de
+    n'importe qui atteignant le port — application verrouillée ou non, avec
+    écriture disque, insertion en base et injection du contenu dans le contexte
+    LLM. Ce test énumère les routes plutôt que d'en surveiller une.
+    """
+    import auth
+
+    auth.setup_secret(TEST_AUTH_SECRET)
+    reachable: list[tuple[int, str, str]] = []
+    with _client() as client:
+        for method, path in _declared_operations():
+            if (method, path) in PUBLIC_BY_DESIGN:
+                continue
+            response = client.request(method, path, json={})
+            if response.status_code not in (401, 403, 428, 405):
+                reachable.append((response.status_code, method, path))
+
+    assert reachable == [], (
+        "routes atteignables sans session : "
+        + ", ".join(f"{s} {m} {p}" for s, m, p in reachable)
+    )
+
+
+def test_upload_requires_a_session(tmp_db):
+    """Preuve directe : l'upload anonyme écrivait un fichier et une ligne."""
+    import auth
+
+    auth.setup_secret(TEST_AUTH_SECRET)
+    with _client() as client:
+        response = client.post(
+            "/upload",
+            files={"file": ("poc.txt", b"contenu injecte", "text/plain")},
+        )
+
+    assert response.status_code == 401

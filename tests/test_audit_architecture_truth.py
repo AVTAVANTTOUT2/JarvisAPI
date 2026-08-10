@@ -391,7 +391,7 @@ def test_real_repo_smoke_counts_stable() -> None:
         "openapi_paths": 230,
         "domain_router_modules": 17,
         "mounted_routers": 18,
-        "main_lines": 211,
+        "main_lines": 214,
     }
     assert api_surface["ownership_policy"]["rules"] == 32
     assert api_surface["ownership_policy"]["findings"] == []

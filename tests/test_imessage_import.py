@@ -12,9 +12,7 @@ Teste :
 
 from __future__ import annotations
 
-import hashlib
 import sqlite3
-from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -314,12 +312,11 @@ class TestMessageDedup:
     def test_insert_message_by_rowid(self, importer_with_memory_db):
         """Un message est insere via son apple_rowid."""
         importer, chat_db = importer_with_memory_db
-        from database import get_db
 
         # Preparer un handle et un chat
         hids = _seed_handles(chat_db, [{"id": "+33600000001", "service": "iMessage"}])
         handles_map = importer._import_handles(chat_db)
-        cids = _seed_chats(chat_db, [{"identifier": "+33600000001", "style": 0}])
+        _seed_chats(chat_db, [{"identifier": "+33600000001", "style": 0}])
         chats_map = importer._import_chats(chat_db)
 
         mids = _seed_messages(chat_db, [{
@@ -340,7 +337,6 @@ class TestMessageDedup:
     def test_same_rowid_skipped(self, importer_with_memory_db):
         """Deux messages avec le meme ROWID → un seul importe."""
         importer, chat_db = importer_with_memory_db
-        from database import get_db
 
         hids = _seed_handles(chat_db, [{"id": "+33600000001", "service": "iMessage"}])
         handles_map = importer._import_handles(chat_db)
@@ -370,7 +366,6 @@ class TestMessageDedup:
     def test_same_guid_skipped(self, importer_with_memory_db):
         """Meme GUID mais ROWID different → skip."""
         importer, chat_db = importer_with_memory_db
-        from database import get_db
 
         hids = _seed_handles(chat_db, [{"id": "+33600000001", "service": "iMessage"}])
         handles_map = importer._import_handles(chat_db)
@@ -592,16 +587,82 @@ class TestCLIScript:
 
     def test_cli_script_syntax(self):
         """Le script CLI est syntaxiquement correct."""
-        import importlib.util
-        spec = importlib.util.spec_from_file_location(
-            "imessage_import_cli",
-            Path(__file__).resolve().parent.parent / "scripts" / "imessage_import.py",
-        )
-        module = importlib.util.module_from_spec(spec)
         # Ne pas executer, juste verifier que ca parse
         import ast
         source = Path(Path(__file__).resolve().parent.parent / "scripts" / "imessage_import.py").read_text()
         ast.parse(source)
+
+    @staticmethod
+    def _load_cli_module():
+        """Charge reellement le module CLI (exec, pas seulement parse)."""
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "imessage_import_cli_exec",
+            Path(__file__).resolve().parent.parent / "scripts" / "imessage_import.py",
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_cmd_import_falls_back_to_direct_when_daemon_unhealthy(self, monkeypatch):
+        """Regression : daemon indisponible → fallback direct, pas de NameError.
+
+        La branche « daemon indisponible » de cmd_import loggue via le logger
+        module ; s'il n'est pas defini, le CLI plantait en NameError au lieu
+        de basculer sur l'import direct.
+        """
+        import argparse
+
+        from integrations import imessage_daemon_client as daemon_module
+        from integrations.imessage_daemon_client import DaemonResponse
+
+        cli = self._load_cli_module()
+        assert hasattr(cli, "logger"), "le module CLI doit definir son logger"
+
+        monkeypatch.setattr(
+            daemon_module.daemon_client,
+            "health",
+            lambda: DaemonResponse(ok=False, status_code=0, data={}, error="down"),
+        )
+        direct_calls: list[tuple] = []
+        monkeypatch.setattr(
+            cli,
+            "_cmd_import_direct",
+            lambda importer, args: direct_calls.append((importer, args)) or 0,
+        )
+
+        args = argparse.Namespace(force=False)
+        result = cli.cmd_import(importer=MagicMock(), args=args)
+
+        assert result == 0
+        assert len(direct_calls) == 1
+
+    def test_cmd_sync_falls_back_to_direct_when_daemon_sync_fails(self, monkeypatch):
+        """Regression : echec sync daemon → log puis fallback direct."""
+        import argparse
+
+        from integrations import imessage_daemon_client as daemon_module
+
+        cli = self._load_cli_module()
+
+        monkeypatch.setattr(
+            daemon_module.daemon_client,
+            "ensure_synced",
+            lambda timeout_s: (False, "daemon indisponible"),
+        )
+        direct_calls: list[tuple] = []
+        monkeypatch.setattr(
+            cli,
+            "_cmd_sync_direct",
+            lambda importer, args: direct_calls.append((importer, args)) or 0,
+        )
+
+        args = argparse.Namespace(force=False)
+        result = cli.cmd_sync(importer=MagicMock(), args=args)
+
+        assert result == 0
+        assert len(direct_calls) == 1
 
 
 # ═══════════════════════════════════════════════════════════
@@ -740,3 +801,40 @@ class TestHandleZeroResolution:
             assert row["text"] == "Via chat join"
             assert row["handle"] == "+33600000099"
             assert row["chat_identifier"] == "+33600000099"
+
+
+# ── CLI : repli quand le daemon est injoignable ──────────────────
+
+
+def test_cli_falls_back_to_direct_access_without_crashing(monkeypatch):
+    """Le repli vers l'accès direct ne doit pas lever de NameError.
+
+    `logger` était utilisé sur trois sites sans jamais être défini dans le
+    module. Quand le daemon répond mais n'est pas prêt, la branche de repli
+    levait un NameError — rattrapé par le `except` juste en dessous, qui
+    appelait à son tour `logger` et faisait planter la commande.
+    """
+    import argparse
+    import sys
+    import types
+
+    import scripts.imessage_import as cli
+
+    module = types.ModuleType("integrations.imessage_daemon_client")
+    module.daemon_client = types.SimpleNamespace(
+        health=lambda: types.SimpleNamespace(ok=True, data={"ok": False}),
+    )
+    monkeypatch.setitem(sys.modules, "integrations.imessage_daemon_client", module)
+
+    class _Unavailable:
+        def is_available(self) -> bool:
+            return False
+
+    assert cli.cmd_import(_Unavailable(), argparse.Namespace(force=False)) == 1
+
+
+def test_cli_module_exposes_a_logger():
+    """Garde-fou : les sites d'appel `logger.*` doivent avoir une cible."""
+    import scripts.imessage_import as cli
+
+    assert isinstance(cli.logger, __import__("logging").Logger)

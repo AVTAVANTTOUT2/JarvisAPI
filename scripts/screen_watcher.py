@@ -28,7 +28,6 @@ from collections.abc import Awaitable, Callable
 from io import BytesIO
 from pathlib import Path
 
-import httpx
 from PIL import Image
 
 import config
@@ -164,6 +163,22 @@ def normalize_screen_notable(raw: object) -> str | None:
     if not any(marker in folded for marker in _NOTABLE_ACTIONABLE_MARKERS):
         return None
     return text
+
+
+async def _reap_subprocess(proc: asyncio.subprocess.Process) -> None:
+    """Tue puis moissonne un subprocess dont l'attente a expiré.
+
+    Sans ce kill, `asyncio.wait_for` n'annule que l'attente : le
+    `screencapture` ou l'`osascript` bloqué survivrait à chaque cycle de
+    capture (toutes les ~12 s) et s'accumulerait en processus orphelins.
+    Même contrat que `integrations/_applescript.py` et
+    `scripts/audio_daemon._wait_subprocess`.
+    """
+    try:
+        proc.kill()
+        await proc.wait()
+    except ProcessLookupError:
+        pass
 
 
 class ScreenWatcher:
@@ -591,7 +606,11 @@ class ScreenWatcher:
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.DEVNULL,
             )
-            await asyncio.wait_for(proc.wait(), timeout=self.capture_timeout)
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=self.capture_timeout)
+            except asyncio.TimeoutError:
+                await _reap_subprocess(proc)
+                raise
 
             # Attendre que le fichier soit complètement écrit (race condition macOS)
             await asyncio.sleep(0.1)
@@ -637,7 +656,13 @@ class ScreenWatcher:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.DEVNULL,
             )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=self.osascript_timeout)
+            try:
+                stdout, _ = await asyncio.wait_for(
+                    proc.communicate(), timeout=self.osascript_timeout
+                )
+            except asyncio.TimeoutError:
+                await _reap_subprocess(proc)
+                raise
             text = (stdout or b"").decode().strip()
 
             if not text:
@@ -676,7 +701,13 @@ class ScreenWatcher:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.DEVNULL,
             )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=self.osascript_timeout)
+            try:
+                stdout, _ = await asyncio.wait_for(
+                    proc.communicate(), timeout=self.osascript_timeout
+                )
+            except asyncio.TimeoutError:
+                await _reap_subprocess(proc)
+                raise
             name = (stdout or b"").decode().strip()
             return name or None
         except Exception:
@@ -934,7 +965,13 @@ class ScreenWatcher:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.DEVNULL,
             )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=self.osascript_timeout)
+            try:
+                stdout, _ = await asyncio.wait_for(
+                    proc.communicate(), timeout=self.osascript_timeout
+                )
+            except asyncio.TimeoutError:
+                await _reap_subprocess(proc)
+                raise
             text = (stdout or b"").decode().strip()
             parts = text.split("|")
             if len(parts) == 2:

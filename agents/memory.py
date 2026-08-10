@@ -39,7 +39,6 @@ from database import (
     save_mood,
     save_weekly_summary,
     upsert_person,
-    upsert_relationship_profile,
 )
 from jarvis.security.llm_data_boundary import (
     UNTRUSTED_DATA_SYSTEM_RULE,
