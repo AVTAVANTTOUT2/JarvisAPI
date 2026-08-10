@@ -296,9 +296,9 @@ class IMessageBridge:
             # save_message déjà fait par _call_claude — ici on le refait pas pour éviter doublon
 
             return response
-        except Exception as e:
+        except Exception:
             logger.exception("[iMessage] Erreur traitement message")
-            return f"Erreur JARVIS : {type(e).__name__}: {e}"
+            return "Erreur JARVIS : traitement impossible pour le moment."
         finally:
             if conv_id:
                 try:
