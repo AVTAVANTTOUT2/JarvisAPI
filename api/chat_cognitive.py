@@ -44,6 +44,34 @@ def is_cursor_confirmation_phrase(text: str) -> bool:
     return bool(_CONFIRM_RE.match((text or "").strip()))
 
 
+def should_run_cursor_cognitive_path(
+    text: str,
+    intent: TaskIntent,
+    *,
+    conversation_id: int,
+    confirmation_session_id: str,
+) -> bool:
+    """Vrai si le message doit emprunter maybe_delegate_chat_to_cursor.
+
+    Les confirmations (« lance », « vas-y ») ne sont pas classées ``cursor``
+    par le routeur, mais doivent quand même confirmer un job en attente.
+    Une proposition shell/food/terminal liée à la session prime (parité voix).
+    """
+    if intent.execution_type == "cursor":
+        return True
+    if not is_cursor_confirmation_phrase(text):
+        return False
+    from api.action_confirmations import peek_pending_proposal
+
+    return (
+        peek_pending_proposal(
+            conversation_id=conversation_id,
+            session_id=confirmation_session_id,
+        )
+        is None
+    )
+
+
 async def maybe_confirm_pending_cursor(
     text: str,
     conversation_id: int,
