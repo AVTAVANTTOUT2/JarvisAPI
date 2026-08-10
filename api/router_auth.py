@@ -129,7 +129,9 @@ def _guard_change_secret(request: Request) -> str:
 
 
 def _set_session_cookie(response: Response, token: str, expires_at: datetime) -> None:
-    max_age = max(1, int((expires_at - datetime.now()).total_seconds()))
+    # `expires_at` est daté en UTC naïf, comme les colonnes SQLite. Retrancher
+    # une heure locale ferait expirer le cookie avec le décalage du poste.
+    max_age = max(1, int((expires_at - auth.naive_utc_now()).total_seconds()))
     response.set_cookie(
         key=config.SESSION_COOKIE_NAME,
         value=token,

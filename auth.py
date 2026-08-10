@@ -142,6 +142,20 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def naive_utc_now() -> datetime:
+    """Instant courant au format exact de ``CURRENT_TIMESTAMP`` (UTC, sans fuseau).
+
+    Les colonnes de `sessions` mélangeaient deux horloges : `created_at` et
+    `last_seen_at` viennent de `CURRENT_TIMESTAMP` (UTC) tandis qu'`expires_at`
+    était écrit avec `datetime.now()` (heure locale). Les requêtes SQL, elles,
+    comparent à `datetime('now')` — donc à l'UTC. La durée de vie réellement
+    appliquée dérivait ainsi du décalage du poste : à Paris une session morte
+    restait listée comme active deux heures, et à l'ouest de Greenwich une
+    session encore valide était purgée en avance.
+    """
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
 def _parse_datetime(value: str | None) -> datetime | None:
     if not value:
         return None
@@ -511,7 +525,7 @@ def verify_csrf_token(session_token: str | None, csrf_token: str | None) -> bool
 
 
 def _session_expiry() -> datetime:
-    return datetime.now() + timedelta(days=config.SESSION_INACTIVITY_DAYS)
+    return naive_utc_now() + timedelta(days=config.SESSION_INACTIVITY_DAYS)
 
 
 def create_session(
@@ -558,7 +572,7 @@ def verify_session(token: str | None) -> dict | None:
     if not row:
         return None
 
-    now = datetime.now()
+    now = naive_utc_now()
     try:
         expires_at = datetime.fromisoformat(row["expires_at"])
         created_at = datetime.fromisoformat(row["created_at"])

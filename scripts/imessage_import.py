@@ -36,6 +36,10 @@ from integrations.imessage_import import IMessageImporter
 
 logger = logging.getLogger(__name__)
 
+# Trois sites d'appel utilisaient `logger` sans qu'il existe : le repli vers
+# l'accès direct, censé rattraper un daemon indisponible, levait un NameError.
+logger = logging.getLogger(__name__)
+
 
 def _setup_logging(verbose: bool = False) -> None:
     level = logging.DEBUG if verbose else logging.INFO
