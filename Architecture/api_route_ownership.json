@@ -51,6 +51,14 @@
       "rationale": "Lecture administrative de la consommation et des coûts des fournisseurs."
     },
     {
+      "id": "infrastructure-liveness-probe",
+      "owner": "observability",
+      "audience": "automation",
+      "methods": ["GET"],
+      "paths": ["/api/health/live"],
+      "rationale": "Sonde de vie publique consommée par le superviseur, launchd et un éventuel reverse proxy — jamais par un frontend, qui lit le diagnostic détaillé authentifié."
+    },
+    {
       "id": "operator-cursor-control",
       "owner": "cursor-delegation",
       "audience": "operator",

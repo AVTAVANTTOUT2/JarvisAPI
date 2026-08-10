@@ -10,7 +10,7 @@
 > `Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md`.
 
 Runtime SQLite canonique : **90 tables persistantes**, **95 tables physiques avec FTS5**, schéma généré : **91 déclarations de tables**.
-Structure API canonique : **259 opérations HTTP + 2 WebSockets**, **230 chemins OpenAPI**, **17 routeurs api/router_*.py + Fitness = 18 montés**, main.py **214 lignes**.
+Structure API canonique : **261 opérations HTTP + 2 WebSockets**, **232 chemins OpenAPI**, **17 routeurs api/router_*.py + Fitness = 18 montés**, main.py **214 lignes**.
 
 ---
 

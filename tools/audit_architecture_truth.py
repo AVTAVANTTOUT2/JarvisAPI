@@ -111,7 +111,11 @@ STALE_API_DOC_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\b207\s+opérations?\b", re.I),
     re.compile(r"\b189\s+chemins?\b", re.I),
     re.compile(r"\b175\s+lignes?\b", re.I),
-    re.compile(r"\b261\s+opérations?\s+HTTP\b", re.I),
+    # `261 opérations HTTP` a été une valeur périmée, puis est redevenue la
+    # vérité calculée en ajoutant les deux routes de santé. Un motif qui
+    # interdit le nombre exact que le même outil réclame rend la documentation
+    # impossible à écrire : l'interdiction est levée, la formulation canonique
+    # ci-dessus reste la seule contrainte.
     re.compile(r"\b231\s+chemins?\s+OpenAPI\b", re.I),
     re.compile(r"PIN\s+6\s+chiffres", re.I),
 )

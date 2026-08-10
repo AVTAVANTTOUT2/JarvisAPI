@@ -36,6 +36,14 @@ _PUBLIC_AUTH_ROUTES = frozenset(
     }
 )
 
+# Sonde de vie. Publique par nécessité : un superviseur, un launchd ou un
+# reverse proxy doit pouvoir distinguer « application verrouillée » de
+# « application morte », et un 428 ne le dit pas. Elle est donc tenue au strict
+# minimum — `{"status": "ok"}` et rien d'autre. Le diagnostic détaillé
+# (`/api/health/detail`) reste derrière le verrou de session ; la comparaison
+# exacte du chemin garantit que ce préfixe n'ouvre rien de plus.
+_PUBLIC_HEALTH_ROUTES = frozenset({("GET", "/api/health/live")})
+
 _UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
 # Routes applicatives servies hors du préfixe `/api/`. Le verrou de session ne
@@ -311,6 +319,8 @@ def _supervisor_control_authenticated(request: Request, path: str) -> bool:
 
 def _bypasses_session_gate(method: str, path: str) -> bool:
     if (method, path) in _PUBLIC_AUTH_ROUTES:
+        return True
+    if (method, path) in _PUBLIC_HEALTH_ROUTES:
         return True
     if method == "POST" and path in ("/api/location", "/api/location/batch"):
         return True
