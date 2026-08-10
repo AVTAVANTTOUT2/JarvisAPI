@@ -407,7 +407,10 @@ def test_mobile_auth_supports_passphrases_and_persists_idle_lock():
     assert "data-secret-kind=\"passphrase\"" in index_source
     assert "lock-passphrase-submit" in index_source
     assert "localStorage.setItem(SOFT_LOCK_KEY, '1')" in auth_source
-    assert "st.authenticated && !hasPersistedSoftLock()" in auth_source
+    assert "SESSION_UNLOCK_KEY" in auth_source
+    assert "sessionStorage.setItem(SESSION_UNLOCK_KEY" in auth_source
+    assert "isSessionUnlockedThisTab()" in auth_source
+    assert "reason = 'verify'" in auth_source
     assert "const result = await api.verify(entered)" in auth_source
     assert "'/api/auth/verify'" in api_source
 
