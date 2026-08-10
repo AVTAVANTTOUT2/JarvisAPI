@@ -23,7 +23,7 @@ Classer chaque entrée utilisateur (chat, voix, Android, iMessage, `/loop`) en u
 | `api/chat_context.py` | Injecte `__routing` / `__context_trace` |
 | `api/router_cognitive.py` | API REST d'introspection |
 
-Les modules `api/chat_cognitive.py`, `api/chat_processing.py` et `api/ws_messages.py` restent chacun sous 500 lignes (contrat Phase 4) : la logique Cursor partagée vit dans `chat_cognitive.py`, les transports l'importent.
+Les modules `api/chat_cognitive.py`, `api/chat_processing.py` et `api/ws_messages.py` restent chacun à 500 lignes ou moins (contrat Phase 4) : la logique Cursor partagée vit dans `chat_cognitive.py`, les transports l'importent.
 
 ## Flux
 
@@ -56,7 +56,11 @@ texte utilisateur
 
 ## Délégation Cursor — proposition et confirmation
 
-Les jobs Cursor ne démarrent **jamais** sans confirmation explicite (`auto_start=false`, `require_confirmation=true` dans `integrations/cursor_delegation.py`).
+Les jobs Cursor proposés par ce chemin chat/voix ne démarrent **jamais** sans
+confirmation explicite : l'appel fixe `auto_start=false` et
+`require_confirmation=true`. L'API générique de `integrations/cursor_delegation.py`
+accepte d'autres politiques pour les producteurs autonomes qui les demandent
+explicitement.
 
 ### Proposition (nouvelle tâche technique)
 
