@@ -32,6 +32,30 @@ SAVE_BLOCK_RE = re.compile(r"```save\s*\n(.*?)\n```", re.DOTALL)
 # Découpage pour pseudo-streaming (_route_task ne stream pas, on simule)
 STREAM_CHUNK_SIZE = 20
 
+_SAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def _safe_school_output_path(out_dir: Path, filename: str) -> Path | None:
+    """Résout un chemin d'écriture strictement contenu dans *out_dir*."""
+    if not filename or not isinstance(filename, str):
+        return None
+    basename = Path(filename.strip()).name
+    if not basename or basename in {".", ".."}:
+        logger.warning("[school] Nom de fichier refusé : %r", filename)
+        return None
+    safe_name = _SAFE_FILENAME_RE.sub("_", basename).strip("._")
+    if not safe_name:
+        logger.warning("[school] Nom de fichier vide après assainissement : %r", filename)
+        return None
+    try:
+        root = out_dir.resolve()
+        target = (root / safe_name).resolve()
+        target.relative_to(root)
+    except (OSError, RuntimeError, ValueError):
+        logger.warning("[school] Path traversal bloqué pour filename=%r", filename)
+        return None
+    return target
+
 
 class SchoolAgent(BaseAgent):
     """Agent école : DeepSeek main pour analyse/fiches, mode tâche lourde pour devoirs longs."""
@@ -120,9 +144,14 @@ class SchoolAgent(BaseAgent):
 
         filename = meta.get("filename")
         subject = meta.get("subject", "divers")
-        if not filename:
-            logger.warning(f"[school] Bloc ```save sans 'filename' : {meta}")
+        # Le JSON vient du modèle : `filename` peut être un nombre ou une liste.
+        # Sans ce contrôle, `filename.endswith(".md")` plus bas lève une
+        # AttributeError avant même d'atteindre l'assainissement du chemin.
+        if not filename or not isinstance(filename, str):
+            logger.warning(f"[school] Bloc ```save sans 'filename' exploitable : {meta}")
             return None
+        if not isinstance(subject, str):
+            subject = "divers"
 
         # Dossier : data/outputs/school/[matière_normalisée]/
         # NFKD enlève les accents (Économie → Economie → economie)
@@ -144,7 +173,9 @@ class SchoolAgent(BaseAgent):
                 header += f"\n*{doc_type}*\n"
             file_content = f"{header}\n{file_content}"
 
-        filepath = out_dir / filename
+        filepath = _safe_school_output_path(out_dir, filename)
+        if filepath is None:
+            return None
         try:
             filepath.write_text(file_content, encoding="utf-8")
         except OSError as e:
