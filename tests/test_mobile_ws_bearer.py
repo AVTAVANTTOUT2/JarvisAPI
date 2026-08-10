@@ -19,8 +19,10 @@ def tmp_db(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     monkeypatch.setattr("config.DB_PATH", str(db_path))
     monkeypatch.setattr("database.DB_PATH", db_path)
     from database import init_db
+    from api.ws_session import _ws_last_sessions
 
     init_db()
+    _ws_last_sessions.clear()
     return db_path
 
 
@@ -59,6 +61,44 @@ def test_websocket_accepts_mobile_bearer(tmp_db):
             msg = ws.receive_json()
             assert msg["type"] == "connected"
             assert "conversation_id" in msg
+            assert "checkpoint_id" in msg
+
+
+def test_websocket_checkpoint_resumes_after_reconnect(tmp_db):
+    with _client() as client:
+        authenticate(client)
+        token = _pair(client)
+        client.cookies.clear()
+        headers = {"Authorization": f"Bearer {token}"}
+        with client.websocket_connect("/ws", headers=headers) as ws:
+            first = ws.receive_json()
+
+        checkpoint_id = first["checkpoint_id"]
+        with client.websocket_connect(
+            f"/ws?checkpoint_id={checkpoint_id}",
+            headers=headers,
+        ) as ws:
+            resumed = ws.receive_json()
+
+    assert resumed["conversation_id"] == first["conversation_id"]
+    assert resumed["checkpoint_id"] == checkpoint_id
+    assert resumed["resumed"] is True
+
+
+def test_websocket_rejects_invalid_checkpoint(tmp_db):
+    from starlette.websockets import WebSocketDisconnect
+
+    with _client() as client:
+        authenticate(client)
+        token = _pair(client)
+        client.cookies.clear()
+        with pytest.raises(WebSocketDisconnect) as exc_info:
+            with client.websocket_connect(
+                "/ws?checkpoint_id=not-a-checkpoint",
+                headers={"Authorization": f"Bearer {token}"},
+            ):
+                pass
+    assert exc_info.value.code == 4400
 
 
 def test_websocket_cookie_requires_exact_origin(tmp_db):

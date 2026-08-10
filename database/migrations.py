@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 import sqlite3
+import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -785,12 +786,39 @@ def _migrate_conversations(conn: sqlite3.Connection) -> None:
         "ALTER TABLE conversations ADD COLUMN tags TEXT",
         "ALTER TABLE conversations ADD COLUMN last_message_at DATETIME",
         "ALTER TABLE conversations ADD COLUMN message_count INTEGER DEFAULT 0",
+        "ALTER TABLE conversations ADD COLUMN checkpoint_id TEXT",
+        "ALTER TABLE conversations ADD COLUMN title_status TEXT NOT NULL DEFAULT 'pending'",
+        "ALTER TABLE conversations ADD COLUMN title_source TEXT",
+        "ALTER TABLE conversations ADD COLUMN title_updated_at DATETIME",
     ]
     for sql in migrations:
         try:
             conn.execute(sql)
         except sqlite3.OperationalError:
             pass
+
+    rows = conn.execute(
+        "SELECT id FROM conversations WHERE checkpoint_id IS NULL OR checkpoint_id = ''"
+    ).fetchall()
+    for row in rows:
+        conn.execute(
+            "UPDATE conversations SET checkpoint_id = ? WHERE id = ?",
+            (str(uuid.uuid4()), row[0]),
+        )
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_conversations_checkpoint_id "
+        "ON conversations(checkpoint_id) WHERE checkpoint_id IS NOT NULL"
+    )
+    conn.execute(
+        """
+        UPDATE conversations
+        SET title_status = 'manual',
+            title_source = COALESCE(title_source, 'legacy'),
+            title_updated_at = COALESCE(title_updated_at, last_message_at, started_at)
+        WHERE title IS NOT NULL AND TRIM(title) != ''
+          AND COALESCE(title_source, '') = ''
+        """
+    )
 
 
 def _migrate_message_usage_estimation(conn: sqlite3.Connection) -> None:

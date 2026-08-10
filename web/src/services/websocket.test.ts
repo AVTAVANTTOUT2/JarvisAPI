@@ -5,16 +5,35 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { resolveWsUrl, WS } from './websocket'
+import {
+  CONVERSATION_CHECKPOINT_STORAGE_KEY,
+  resolveWsUrl,
+  WS,
+} from './websocket'
 
 function mockLocation(protocol: string, host: string) {
+  const values = new Map<string, string>()
+  const localStorage = {
+    get length() { return values.size },
+    clear: () => values.clear(),
+    getItem: (key: string) => values.get(key) ?? null,
+    key: (index: number) => Array.from(values.keys())[index] ?? null,
+    removeItem: (key: string) => values.delete(key),
+    setItem: (key: string, value: string) => values.set(key, value),
+  } as Storage
   vi.stubGlobal('window', {
     ...globalThis.window,
     location: { protocol, host, hostname: host.split(':')[0] } as Location,
+    localStorage,
   })
 }
 
 afterEach(() => {
+  try {
+    window.localStorage.clear()
+  } catch {
+    // Certains stubs de test n'exposent pas le stockage navigateur.
+  }
   vi.unstubAllGlobals()
 })
 
@@ -32,6 +51,14 @@ describe('resolveWsUrl', () => {
   it('bascule en wss: sur une page HTTPS', () => {
     mockLocation('https:', 'jarvis.local:8081')
     expect(resolveWsUrl()).toBe('wss://jarvis.local:8081/ws')
+  })
+
+  it('transmet le checkpoint durable pendant la reconnexion', () => {
+    mockLocation('https:', 'jarvis.local:8081')
+    const checkpoint = '7cd42b5e-f035-4d9c-8a0f-d33a7cbfb5c2'
+    expect(resolveWsUrl(checkpoint)).toBe(
+      `wss://jarvis.local:8081/ws?checkpoint_id=${checkpoint}`,
+    )
   })
 
   it("ne contient jamais de port codé en dur différent de l'origine", () => {
@@ -79,6 +106,10 @@ describe('WS lifecycle', () => {
         this.readyState = FakeWebSocket.CLOSED
         this.onclose?.()
       }
+
+      emitMessage(data: Record<string, unknown>) {
+        this.onmessage?.({ data: JSON.stringify(data) })
+      }
     }
 
     mockLocation('http:', 'localhost:9000')
@@ -87,10 +118,19 @@ describe('WS lifecycle', () => {
     const client = new WS()
     client.connect()
     const first = instances[0]
+    const checkpoint = '7cd42b5e-f035-4d9c-8a0f-d33a7cbfb5c2'
+    first.emitOpen()
+    first.emitMessage({
+      type: 'connected',
+      conversation_id: 42,
+      checkpoint_id: checkpoint,
+    })
+    expect(window.localStorage.getItem(CONVERSATION_CHECKPOINT_STORAGE_KEY)).toBe(checkpoint)
 
     client.disconnect()
     client.connect()
     const second = instances[1]
+    expect(second.url).toBe(`ws://localhost:9000/ws?checkpoint_id=${checkpoint}`)
 
     first.emitClose()
     second.emitOpen()
@@ -102,6 +142,7 @@ describe('WS lifecycle', () => {
         content: 'Toujours connecté',
         stream: true,
         tts: false,
+        checkpoint_id: checkpoint,
       }),
     ])
 

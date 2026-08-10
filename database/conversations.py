@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
+import uuid
 from typing import Any
 
 from jarvis.event_bus import event_bus
@@ -18,8 +19,24 @@ logger = logging.getLogger(__name__)
 
 
 CONVERSATION_MUTABLE_FIELDS: frozenset[str] = frozenset(
-    {"title", "pinned", "archived", "tags"}
+    {
+        "title",
+        "title_status",
+        "title_source",
+        "title_updated_at",
+        "pinned",
+        "archived",
+        "tags",
+    }
 )
+
+
+def normalize_checkpoint_id(checkpoint_id: str) -> str:
+    """Valide et canonicalise l'identifiant opaque d'une conversation."""
+    try:
+        return str(uuid.UUID(str(checkpoint_id).strip()))
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise ValueError("checkpoint_id invalide") from exc
 
 
 def save_message(
@@ -105,14 +122,66 @@ def update_agentic_workflow(
         )
 
 
-def create_conversation(agent: str | None = None) -> int:
+def create_conversation(
+    agent: str | None = None,
+    checkpoint_id: str | None = None,
+) -> int:
+    checkpoint = (
+        normalize_checkpoint_id(checkpoint_id)
+        if checkpoint_id is not None
+        else str(uuid.uuid4())
+    )
     with get_db() as conn:
-        cur = conn.execute("INSERT INTO conversations (agent) VALUES (?)", (agent,))
+        cur = conn.execute(
+            "INSERT INTO conversations (agent, checkpoint_id) VALUES (?, ?)",
+            (agent, checkpoint),
+        )
         conversation_id = int(cur.lastrowid)
     event_bus.emit_nowait(
-        ConversationUpdated(conversation_id, {"created": True, "agent": agent})
+        ConversationUpdated(
+            conversation_id,
+            {"created": True, "agent": agent, "checkpoint_id": checkpoint},
+        )
     )
     return conversation_id
+
+
+def get_conversation_by_checkpoint(checkpoint_id: str) -> dict | None:
+    """Résout une conversation depuis son checkpoint opaque."""
+    checkpoint = normalize_checkpoint_id(checkpoint_id)
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT * FROM conversations WHERE checkpoint_id = ?",
+            (checkpoint,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def resolve_conversation_checkpoint(
+    checkpoint_id: str,
+    *,
+    agent: str | None = None,
+    create: bool = False,
+) -> tuple[int, bool]:
+    """Résout un checkpoint, ou le crée explicitement si demandé.
+
+    Retourne ``(conversation_id, resumed)``. Une requête de message ne doit
+    jamais créer silencieusement un checkpoint inconnu : seul le handshake ou
+    ``new_conversation`` passe ``create=True``.
+    """
+    checkpoint = normalize_checkpoint_id(checkpoint_id)
+    existing = get_conversation_by_checkpoint(checkpoint)
+    if existing:
+        return int(existing["id"]), True
+    if not create:
+        raise LookupError("checkpoint de conversation introuvable")
+    try:
+        return create_conversation(agent=agent, checkpoint_id=checkpoint), False
+    except sqlite3.IntegrityError:
+        existing = get_conversation_by_checkpoint(checkpoint)
+        if existing:
+            return int(existing["id"]), True
+        raise
 
 
 def end_conversation(conv_id: int, summary: str | None = None) -> None:
@@ -179,6 +248,43 @@ def update_conversation(conv_id: int, **kwargs: Any) -> bool:
         updated = cursor.rowcount > 0
     if updated:
         event_bus.emit_nowait(ConversationUpdated(conv_id, dict(kwargs)))
+    return updated
+
+
+def update_generated_conversation_title(
+    conv_id: int,
+    *,
+    title: str,
+    title_status: str,
+    title_source: str,
+    title_updated_at: str,
+) -> bool:
+    """Écrit un titre automatique sans jamais écraser un titre final ou manuel."""
+    if title_status not in {"ready", "fallback"}:
+        raise ValueError("statut de titre automatique invalide")
+    with get_db() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE conversations
+            SET title = ?, title_status = ?, title_source = ?, title_updated_at = ?
+            WHERE id = ?
+              AND COALESCE(title_status, 'pending') NOT IN ('manual', 'ready')
+            """,
+            (title, title_status, title_source, title_updated_at, conv_id),
+        )
+        updated = cursor.rowcount > 0
+    if updated:
+        event_bus.emit_nowait(
+            ConversationUpdated(
+                conv_id,
+                {
+                    "title": title,
+                    "title_status": title_status,
+                    "title_source": title_source,
+                    "title_updated_at": title_updated_at,
+                },
+            )
+        )
     return updated
 
 
@@ -300,7 +406,8 @@ def search_conversations(query: str, limit: int = 20) -> list[dict]:
             try:
                 rows = conn.execute(
                     """
-                    SELECT c.id, c.title, c.started_at, c.last_message_at, c.message_count,
+                    SELECT c.id, c.checkpoint_id, c.title, c.title_status,
+                           c.started_at, c.last_message_at, c.message_count,
                            m.content AS matching_message, MAX(m.created_at) AS match_date
                     FROM messages_fts f
                     JOIN messages m ON m.id = f.rowid
@@ -320,7 +427,8 @@ def search_conversations(query: str, limit: int = 20) -> list[dict]:
                 seen = {r["id"] for r in rows}
                 title_rows = conn.execute(
                     """
-                    SELECT c.id, c.title, c.started_at, c.last_message_at, c.message_count,
+                    SELECT c.id, c.checkpoint_id, c.title, c.title_status,
+                           c.started_at, c.last_message_at, c.message_count,
                            NULL AS matching_message, c.last_message_at AS match_date
                     FROM conversations c
                     WHERE c.title LIKE ?
@@ -334,7 +442,8 @@ def search_conversations(query: str, limit: int = 20) -> list[dict]:
         if not rows:
             rows = conn.execute(
                 """
-                SELECT c.id, c.title, c.started_at, c.last_message_at, c.message_count,
+                SELECT c.id, c.checkpoint_id, c.title, c.title_status,
+                       c.started_at, c.last_message_at, c.message_count,
                        m.content AS matching_message, MAX(m.created_at) AS match_date
                 FROM conversations c
                 JOIN messages m ON m.conversation_id = c.id

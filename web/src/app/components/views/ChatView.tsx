@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   api,
   ApiError,
+  ConversationDetail,
   ConversationDocument,
   ConversationSearchResult,
   ConversationSummary,
@@ -56,6 +57,14 @@ function groupConversations(convs: ConversationSummary[]) {
     else older.push(c)
   }
   return { pinned, today, yesterday, week, older }
+}
+
+function conversationLabel(conv: Pick<ConversationSummary, 'title' | 'title_status' | 'message_count' | 'msg_count'>) {
+  if (conv.title) return conv.title
+  if ((conv.message_count || conv.msg_count || 0) > 0 && conv.title_status === 'pending') {
+    return 'Titre IA en cours…'
+  }
+  return 'Nouvelle conversation'
 }
 
 // ── Suggestions ─────────────────────────────────────────────
@@ -128,6 +137,18 @@ export function ChatView() {
     }
   }, [])
 
+  const applyConversation = useCallback((conversation: ConversationDetail) => {
+    setActiveConvId(conversation.id)
+    setMessages((conversation.messages || []).map(message => ({
+      role: message.role,
+      content: message.content,
+      agent: message.agent,
+    })))
+    setConvDocs(conversation.documents || [])
+    setAttachedDocs([])
+    userScrolledUp.current = false
+  }, [])
+
   // ── WebSocket events ────────────────────────────────────
 
   useEffect(() => {
@@ -135,13 +156,32 @@ export function ChatView() {
 
     unsubs.push(ws.on('connected', (d) => {
       const cid = d.conversation_id as number | undefined
-      if (cid) setActiveConvId(cid)
+      if (cid && d.resumed) {
+        api.getConversation(cid).then(applyConversation).catch((error) => {
+          console.error('[ChatView] restore conversation', error)
+        })
+      } else if (cid) {
+        setActiveConvId(cid)
+        setMessages([])
+        setAttachedDocs([])
+        setConvDocs([])
+      }
       loadConversations()
     }))
 
     unsubs.push(ws.on('conversation_switched', (d) => {
       const cid = d.conversation_id as number | undefined
-      if (cid) setActiveConvId(cid)
+      if (cid && d.resumed) {
+        api.getConversation(cid).then(applyConversation).catch((error) => {
+          console.error('[ChatView] switch conversation', error)
+        })
+      } else if (cid) {
+        setActiveConvId(cid)
+        setMessages([])
+        setAttachedDocs([])
+        setConvDocs([])
+      }
+      loadConversations()
     }))
 
     unsubs.push(ws.on('conversation_updated', (d) => {
@@ -149,7 +189,16 @@ export function ChatView() {
       const title = d.title as string | null
       setConversations(prev =>
         prev.map(c => c.id === cid
-          ? { ...c, title, message_count: (d.message_count as number) || c.message_count, last_message_at: new Date().toISOString() }
+          ? {
+              ...c,
+              checkpoint_id: (d.checkpoint_id as string) || c.checkpoint_id,
+              title,
+              title_status: (d.title_status as ConversationSummary['title_status']) || c.title_status,
+              title_source: (d.title_source as string | null) ?? c.title_source,
+              message_count: (d.message_count as number) ?? c.message_count,
+              msg_count: (d.message_count as number) ?? c.msg_count,
+              last_message_at: new Date().toISOString(),
+            }
           : c)
       )
     }))
@@ -315,28 +364,48 @@ export function ChatView() {
       audio.play().catch(() => {})
     })
 
+    // Le socket appartient au layout et peut déjà être connecté avant que la
+    // vue Chat soit montée. Réhydrater ici évite un écran vide à la navigation.
+    if (ws.conversationId) {
+      api.getConversation(ws.conversationId).then(applyConversation).catch((error) => {
+        console.error('[ChatView] hydrate active conversation', error)
+      })
+      loadConversations()
+    }
+
     return () => { unsubs.forEach(u => u()); unsubBinary() }
-  }, [loadConversations])
+  }, [applyConversation, loadConversations])
 
   // ── Switch conversation ─────────────────────────────────
 
   const switchConversation = useCallback(async (convId: number) => {
     try {
       const conv = await api.getConversation(convId)
-      setActiveConvId(convId)
-      setMessages((conv.messages || []).map(m => ({ role: m.role, content: m.content, agent: m.agent })))
-      setConvDocs(conv.documents || [])
-      setAttachedDocs([])
-      userScrolledUp.current = false
-      ws.send({ type: 'switch_conversation', conversation_id: convId })
+      if (!ws.switchConversation(convId, conv.checkpoint_id)) {
+        throw new Error('Connexion temps réel indisponible')
+      }
+      applyConversation(conv)
       setMobileSidebarOpen(false)
     } catch (e) {
       console.error('[ChatView] switchConversation', e)
+      setMessages(prev => [...prev, {
+        role: 'system',
+        content: 'Impossible d’ouvrir cette conversation tant que JARVIS est déconnecté.',
+        isError: true,
+      }])
     }
-  }, [])
+  }, [applyConversation])
 
   const newConversation = useCallback(() => {
-    ws.send({ type: 'new_conversation' })
+    if (!ws.startNewConversation()) {
+      setMessages(prev => [...prev, {
+        role: 'system',
+        content: 'Connexion perdue : impossible de créer une conversation.',
+        isError: true,
+      }])
+      return
+    }
+    setActiveConvId(null)
     setMessages([])
     setAttachedDocs([])
     setConvDocs([])
@@ -371,11 +440,18 @@ export function ChatView() {
       return
     }
 
+    if (!ws.sendText(text || 'Analyse les documents attaches.', true)) {
+      setMessages(prev => [...prev, {
+        role: 'system',
+        content: 'Message non envoyé : JARVIS est déconnecté. Réessaie après la reconnexion.',
+        isError: true,
+      }])
+      return
+    }
     setMessages(prev => [...prev, { role: 'user', content: text || '(document)' }])
     setMessages(prev => [...prev, { role: 'assistant', content: '' }])
     setIsStreaming(true)
     setStreamingContent('')
-    ws.sendText(text || 'Analyse les documents attaches.', true)
   }, [input, attachedDocs, newConversation])
 
   // ── Textarea ────────────────────────────────────────────
@@ -549,7 +625,7 @@ export function ChatView() {
           {searchResults.map(r => (
             <button key={`${r.id}-${r.match_date}`} onClick={() => { switchConversation(r.id); setSearchQuery(''); setSearchResults([]) }}
               className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/5 transition-colors">
-              <div className="text-sm text-white truncate">{r.title || 'Sans titre'}</div>
+            <div className="text-sm text-white truncate">{r.title || 'Conversation'}</div>
               <div className="text-xs text-white/30 truncate mt-0.5">{r.matching_message?.slice(0, 60)}</div>
             </button>
           ))}
@@ -790,7 +866,7 @@ function ConvGroup({ label, convs, activeId, onSelect, onContextMenu, contextMen
                 className="w-full bg-transparent border-b border-white/30 text-sm text-white focus:outline-none" />
             ) : (
               <>
-                <div className="text-sm truncate">{c.title || 'Nouvelle conversation'}</div>
+          <div className="text-sm truncate">{conversationLabel(c)}</div>
                 <div className="flex items-center gap-2 mt-0.5">
                   <span className="text-xs text-white/30 truncate flex-1">{c.last_message?.slice(0, 40) || ''}</span>
                   <span className="text-xs text-white/15 shrink-0">{formatRelativeTime(c.last_message_at || c.started_at)}</span>
@@ -833,7 +909,7 @@ function ConvTitleEditor({ conv, onSave }: { conv: ConversationSummary; onSave: 
       onKeyDown={e => { if (e.key === 'Enter') { onSave(draft); setEditing(false) } }}
       className="bg-transparent border-b border-white/30 text-sm text-white focus:outline-none w-full max-w-[180px]" />
   }
-  return <button onClick={() => setEditing(true)} className="text-sm text-white/80 hover:text-white truncate font-medium text-left">{conv.title || 'Nouvelle conversation'}</button>
+  return <button onClick={() => setEditing(true)} className="text-sm text-white/80 hover:text-white truncate font-medium text-left">{conversationLabel(conv)}</button>
 }
 
 function MessageBubble({ message, streaming, onConfirmAction, onCancelAction }: {

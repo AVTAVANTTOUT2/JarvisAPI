@@ -79,13 +79,31 @@ CREATE TABLE conversation_turns (
 
 CREATE TABLE conversations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    checkpoint_id TEXT NOT NULL UNIQUE DEFAULT (
+        lower(hex(randomblob(4))) || '-' ||
+        lower(hex(randomblob(2))) || '-4' ||
+        substr(lower(hex(randomblob(2))), 2) || '-' ||
+        substr('89ab', (random() & 3) + 1, 1) ||
+        substr(lower(hex(randomblob(2))), 2) || '-' ||
+        lower(hex(randomblob(6)))
+    ),
     started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     ended_at DATETIME,
     agent TEXT,
     summary TEXT,
+    title TEXT,
+    title_status TEXT NOT NULL DEFAULT 'pending'
+        CHECK(title_status IN ('pending', 'ready', 'fallback', 'manual')),
+    title_source TEXT,
+    title_updated_at DATETIME,
+    pinned BOOLEAN DEFAULT 0,
+    archived BOOLEAN DEFAULT 0,
+    tags TEXT,
+    last_message_at DATETIME,
+    message_count INTEGER DEFAULT 0,
     mood_start INTEGER,
     mood_end INTEGER
-, title TEXT, pinned BOOLEAN DEFAULT 0, archived BOOLEAN DEFAULT 0, tags TEXT, last_message_at DATETIME, message_count INTEGER DEFAULT 0);
+);
 
 CREATE TABLE cross_insights (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1070,6 +1088,8 @@ CREATE INDEX idx_auth_rate_limits_updated ON auth_rate_limits(updated_at);
 CREATE INDEX idx_commitments_status ON commitments(status);
 
 CREATE INDEX idx_convdocs_conv ON conversation_documents(conversation_id);
+
+CREATE UNIQUE INDEX idx_conversations_checkpoint_id ON conversations(checkpoint_id) WHERE checkpoint_id IS NOT NULL;
 
 CREATE INDEX idx_crossinsights_type ON cross_insights(insight_type);
 

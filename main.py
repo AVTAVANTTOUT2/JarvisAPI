@@ -52,7 +52,7 @@ from api.ws_handler import websocket_endpoint
 from api.ws_tv import TV_EVENTS_WS_PATH, tv_events_websocket
 from api.ws_session import (
     _resume_or_create_conversation as _resume_or_create_conversation,
-    _ws_last_session as _ws_last_session,
+    _ws_last_sessions as _ws_last_sessions,
 )
 from app.fitness.routes import router as fitness_router
 from core.network_security import validate_network_bind

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 
 from fastapi import WebSocket
@@ -18,9 +17,13 @@ from api.chat_actions import (
     _maybe_store_pending_proposal, _run_loop_mode_ws, _should_defer_action,
 )
 from api.action_confirmations import peek_pending_proposal
-from api.chat_context import _build_enriched_context, _maybe_title_conversation, _send_tts_streaming
+from api.chat_context import (
+    _build_enriched_context,
+    _send_tts_streaming,
+)
+from api.conversation_titles import notify_and_schedule_conversation_title
 from api.llm_logging import _schedule_llm_log
-from database import get_conversation_detail, save_message, update_conversation_activity
+from database import save_message, update_conversation_activity
 
 logger = logging.getLogger("jarvis")
 
@@ -466,19 +469,8 @@ async def _process_message(
         except Exception as e:
             logger.debug("[conv] update_activity assistant : %s", e)
 
-        # Auto-titrage en background
-        asyncio.create_task(_maybe_title_conversation(conversation_id))
-
-        # Notifier le client que la conversation a été mise à jour
         try:
-            conv_info = get_conversation_detail(conversation_id)
-            if conv_info:
-                await ws.send_json({
-                    "type": "conversation_updated",
-                    "conversation_id": conversation_id,
-                    "title": conv_info.get("title"),
-                    "message_count": conv_info.get("message_count", 0),
-                })
+            await notify_and_schedule_conversation_title(ws, conversation_id)
         except Exception as e:
             logger.debug("[conv] conversation_updated event : %s", e)
 

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import re
 from typing import Any
@@ -28,7 +27,13 @@ from api.action_confirmations import (
     peek_pending_proposal,
     unmatched_confirmation_reply,
 )
-from api.chat_context import _build_enriched_context, _maybe_title_conversation
+from api.chat_context import (
+    _build_enriched_context,
+)
+from api.conversation_titles import (
+    _maybe_title_conversation,
+    schedule_conversation_title,
+)
 from api.llm_logging import _schedule_llm_log
 from database import save_message, update_conversation_activity
 
@@ -468,7 +473,7 @@ async def _process_message_internal(
         except Exception:
             pass
 
-        asyncio.create_task(_maybe_title_conversation(conversation_id))
+        schedule_conversation_title(conversation_id, title_factory=_maybe_title_conversation)
 
         return {
             "text": display_text,
