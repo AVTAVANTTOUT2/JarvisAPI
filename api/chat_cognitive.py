@@ -47,7 +47,6 @@ def is_cursor_confirmation_phrase(text: str) -> bool:
 def should_run_cursor_cognitive_path(
     text: str,
     intent: TaskIntent,
-    *,
     conversation_id: int,
     confirmation_session_id: str,
 ) -> bool:
