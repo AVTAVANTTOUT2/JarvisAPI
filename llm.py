@@ -203,10 +203,14 @@ async def chat(
         raise RuntimeError("DeepSeek : aucune réponse après retries")
 
     choice = data["choices"][0]
-    content = choice["message"]["content"]
+    message = choice.get("message") or {}
+    content = str(message.get("content") or "")
+    reasoning_content = str(message.get("reasoning_content") or "")
     usage = data.get("usage", {})
     tokens_in = usage.get("prompt_tokens", 0)
     tokens_out = usage.get("completion_tokens", 0)
+    completion_details = usage.get("completion_tokens_details") or {}
+    reasoning_tokens = int(completion_details.get("reasoning_tokens") or 0)
     # DeepSeek expose le cache hit dans prompt_cache_hit_tokens (cache automatique)
     cache_hit = usage.get("prompt_cache_hit_tokens", 0)
 
@@ -220,6 +224,8 @@ async def chat(
         "cost": cost,
         "model": model,
         "stop_reason": choice.get("finish_reason", "stop"),
+        "reasoning_tokens": reasoning_tokens,
+        "reasoning_chars": len(reasoning_content),
     }
 
 
@@ -410,7 +416,12 @@ async def quick_classify(text: str, categories: list[str], model: str = None) ->
         str: Nom de la catégorie en MAJUSCULES (ex: "SCHOOL").
     """
     model = model or config.DEEPSEEK_FAST_MODEL
-    cats = ", ".join(categories)
+    normalised_categories = [
+        str(category).strip().upper()
+        for category in categories
+        if str(category).strip()
+    ]
+    cats = ", ".join(normalised_categories)
 
     response = await chat(
         messages=[{"role": "user", "content": text}],
@@ -424,11 +435,17 @@ async def quick_classify(text: str, categories: list[str], model: str = None) ->
         temperature=0.0,
     )
 
-    result = response["content"].strip().upper()
-    for cat in categories:
-        if cat.upper() in result:
-            return cat.upper()
-    return categories[0].upper()
+    result = str(response.get("content") or "").strip().upper()
+    if result in normalised_categories:
+        return result
+
+    fallback = "INFO" if "INFO" in normalised_categories else ""
+    logger.warning(
+        "Classification invalide (%r) — fallback explicite=%s",
+        result,
+        fallback or "aucun",
+    )
+    return fallback
 
 
 async def classify_task_type(user_message: str) -> str:

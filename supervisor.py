@@ -116,6 +116,7 @@ _ws_clients: set[WebSocket] = set()
 _health_check_task: asyncio.Task | None = None
 _backend_restart_count: int = 0
 _health_check_interval: int = int(os.getenv("SUPERVISOR_HEALTH_CHECK_S", "10"))
+_resource_guard: Any = None  # ResourceGuard | None — init lazy au 1er tick
 
 
 # ── HTTP client partage (connection pooling) ────────────────────────────
@@ -382,8 +383,10 @@ def _kill_orphan_tts_sidecars() -> int:
         pids.extend(r.stdout.strip().split())
 
     managed = _managed_pids()
-    killed = 0
-    term_targets: list[int] = []
+    # Seuls les PID réellement jugés orphelins peuvent être escaladés. Rejouer
+    # la liste brute au SIGKILL tuerait les sidecars épargnés juste au-dessus,
+    # c'est-à-dire le moteur vocal encore rattaché au backend géré.
+    terminated: list[int] = []
     for raw in pids:
         if not raw.isdigit():
             continue
@@ -405,20 +408,19 @@ def _kill_orphan_tts_sidecars() -> int:
             continue
         log.warning("Sidecar TTS orphelin — SIGTERM PID %d", pid)
         _kill_process_tree(pid, sig=signal.SIGTERM)
-        term_targets.append(pid)
-        killed += 1
-    if killed:
+        terminated.append(pid)
+    if terminated:
         time.sleep(0.8)
-        # SIGKILL uniquement sur les orphelins déjà ciblés par SIGTERM — rejouer
-        # toute la liste `pids` tuait aussi un sidecar géré encore vivant.
-        for pid in term_targets:
+        # Tous les launchers listés sont couverts, puisque `terminated` est
+        # alimenté par la boucle qui parcourt la liste agrégée.
+        for pid in terminated:
             try:
                 os.kill(pid, 0)
             except ProcessLookupError:
                 continue
             log.warning("Sidecar TTS résistant — SIGKILL PID %d", pid)
             _kill_process_tree(pid, sig=signal.SIGKILL)
-    return killed
+    return len(terminated)
 
 
 def _tail_log(log_name: str, lines: int = 5) -> str:
@@ -747,6 +749,32 @@ async def api_status():
         "frontend": FRONTEND_RESOLUTION.to_public_dict(),
         "services": svcs,
     }
+
+
+@app.get("/api/supervisor/resources")
+async def api_resources():
+    """État du garde-fou RAM / process (politique A : JARVIS only)."""
+    if not getattr(config, "RESOURCE_GUARD_ENABLED", True):
+        return {
+            "enabled": False,
+            "level": "ok",
+            "message": "RESOURCE_GUARD_ENABLED=false",
+            "processes": [],
+            "actions": [],
+        }
+    guard = _get_resource_guard()
+    from jarvis.resource_guard import config_from_settings
+
+    guard.config = config_from_settings(config, project_dir=PROJECT_DIR)
+    # Relevé seul : les actions listées sont celles que le prochain tick
+    # exécuterait. Une consultation ne tue aucun process et n'arrête pas Ollama.
+    report = await asyncio.to_thread(guard.snapshot)
+    payload = report.to_public_dict()
+    payload["enabled"] = True
+    payload["read_only"] = True
+    payload["dry_run"] = guard.config.dry_run
+    payload["interval_s"] = float(getattr(config, "RESOURCE_GUARD_INTERVAL_S", 30))
+    return payload
 
 
 @app.post("/api/supervisor/{sid}/start")
@@ -1253,6 +1281,80 @@ register_desktop_frontend_routes(app, FRONTEND_RESOLUTION)
 # HEALTH CHECK — surveillance automatique du backend
 # ══════════════════════════════════════════════════════════════════════════
 
+
+def _screen_watcher_running_for_guard() -> bool:
+    """True si SW tourne, ou si l'état est inconnu (backend down).
+
+    Conservateur : on ne stoppe Ollama que lorsqu'on *sait* que le screen
+    watcher est arrêté — un backend injoignable ne doit pas déclencher un
+    stop_ollama parasite.
+    """
+    try:
+        resp = httpx.get(
+            f"{BACKEND_URL}/api/control/screen_watcher/detail",
+            headers=supervisor_control_headers(),
+            timeout=3.0,
+            verify=_backend_http_verify(),
+        )
+        if resp.status_code != 200:
+            return True
+        data = resp.json()
+        if "running" in data:
+            return bool(data["running"])
+        status = str(data.get("status") or data.get("state") or "").lower()
+        if status in {"running", "active", "started"}:
+            return True
+        if status in {"stopped", "idle", "disabled", "error"}:
+            return False
+        return True
+    except Exception:
+        return True
+
+
+def _get_resource_guard():
+    """Singleton lazy du garde-fou (évite import circulaire au chargement)."""
+    global _resource_guard
+    if _resource_guard is not None:
+        return _resource_guard
+    from jarvis.resource_guard import ResourceGuard, config_from_settings
+
+    def _stop_ollama_for_guard() -> dict:
+        try:
+            httpx.post(
+                f"{BACKEND_URL}/api/control/screen_watcher/stop",
+                headers=supervisor_control_headers(),
+                timeout=5.0,
+                verify=_backend_http_verify(),
+            )
+        except Exception as exc:
+            log.debug("resource_guard: stop SW avant ollama ignoré : %s", exc)
+        return _stop_sync("ollama")
+
+    _resource_guard = ResourceGuard(
+        config_from_settings(config, project_dir=PROJECT_DIR),
+        is_screen_watcher_running=_screen_watcher_running_for_guard,
+        managed_pids=_managed_pids,
+        kill_process_tree=_kill_process_tree,
+        stop_ollama=_stop_ollama_for_guard,
+    )
+    return _resource_guard
+
+
+def _run_resource_guard_tick() -> dict | None:
+    """Exécute un tick si l'intervalle est écoulé ; None sinon."""
+    if not getattr(config, "RESOURCE_GUARD_ENABLED", True):
+        return None
+    guard = _get_resource_guard()
+    interval = float(getattr(config, "RESOURCE_GUARD_INTERVAL_S", 30))
+    if not guard.should_tick(interval):
+        return None
+    from jarvis.resource_guard import config_from_settings
+
+    guard.config = config_from_settings(config, project_dir=PROJECT_DIR)
+    report = guard.tick()
+    return report.to_public_dict()
+
+
 async def _health_check_loop() -> None:
     """Boucle de fond : verifie que le backend est vivant et le redemarre si mort.
 
@@ -1338,6 +1440,14 @@ async def _health_check_loop() -> None:
                         asyncio.create_task(handle_crash_loop(_last_crash_tail), name="self_healing")
                     except Exception:
                         log.exception("Erreur au declenchement self-healing (ignoree, jamais bloquant)")
+
+            # Garde-fou RAM / orphelins JARVIS (jamais Codex/IDE)
+            try:
+                rg = await asyncio.to_thread(_run_resource_guard_tick)
+                if rg and rg.get("actions"):
+                    await _broadcast({"type": "resource_guard", **rg})
+            except Exception:
+                log.exception("resource_guard tick échoué — ignoré")
 
         except Exception:
             log.exception("Erreur dans la boucle health-check — sera reessayee")

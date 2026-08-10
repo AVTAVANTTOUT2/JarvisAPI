@@ -102,6 +102,10 @@ class VadUtteranceCollector:
     last_speech_started_at: float | None = None
     last_speech_ended_at: float | None = None
     last_audio_ms: float = 0.0
+    # Durée de parole validée par le VAD, sans pré-roll ni silence terminal.
+    # Comme les autres champs ``last_*``, elle survit au reset qui suit la
+    # finalisation afin d'accompagner l'utterance jusqu'au STT.
+    last_speech_ms: float = 0.0
 
     def __post_init__(self) -> None:
         self._pre_roll_max = max(1, int(self.config.pre_roll_ms / self.config.chunk_ms))
@@ -200,6 +204,7 @@ class VadUtteranceCollector:
                 ended_at = max(ended_at, self.speech_started_at)
             self.last_speech_ended_at = min(ended_at, now)
             self.last_audio_ms = self.total_chunks * self.config.chunk_ms
+            self.last_speech_ms = self.speech_chunks * self.config.chunk_ms
             self.reset()
             return audio if audio else None
 

@@ -14,7 +14,6 @@ import asyncio
 import io
 import logging
 import math
-import os
 import struct
 import subprocess
 import tempfile
@@ -46,13 +45,13 @@ from pipeline import process_voice_fast
 
 # Detection Silero VAD (sans log, le logger est defini plus bas)
 try:
-    from audio.vad_silero import silero_vad as _vad_silero, SileroVAD
+    from audio.vad_silero import silero_vad as _vad_silero
     USE_SILERO_VAD: bool = _vad_silero.available
 except ImportError:
     USE_SILERO_VAD = False
     _vad_silero = None
 
-from database import create_conversation, get_setting, save_message
+from database import create_conversation
 from jarvis.event_bus import JarvisEvent, event_bus
 
 logger = logging.getLogger("audio_daemon")
@@ -92,6 +91,21 @@ async def _enqueue_utterance_with_backpressure(
     started = time.perf_counter()
     await queue.put(item)
     return round((time.perf_counter() - started) * 1000)
+
+
+def _should_interrupt_half_duplex(
+    *,
+    state: str,
+    rms: float,
+    speech_threshold: float,
+) -> bool:
+    """N'interrompt que la parole TTS, jamais un traitement encore silencieux."""
+    return state == "speaking" and rms > speech_threshold
+
+
+def _should_collect_utterance(state: str) -> bool:
+    """Le micro continue de préparer le tour suivant pendant le traitement."""
+    return state in ("listening", "processing")
 
 # Son de confirmation
 WAKE_SOUND_PATH = Path(__file__).resolve().parent.parent / "data" / "sounds" / "wake.wav"
@@ -240,7 +254,6 @@ def _generate_wake_sound() -> None:
     duration = 0.150
     freq = 880.0
     n_samples = int(SAMPLE_RATE * duration)
-    fade_samples = int(SAMPLE_RATE * 0.020)
 
     with wave.open(str(path), "w") as f:
         f.setnchannels(CHANNELS)
@@ -265,7 +278,6 @@ def _generate_end_sound() -> None:
     duration = 0.120
     freq = 440.0
     n_samples = int(SAMPLE_RATE * duration)
-    fade_samples = int(SAMPLE_RATE * 0.015)
 
     with wave.open(str(path), "w") as f:
         f.setnchannels(CHANNELS)
@@ -685,8 +697,6 @@ class AudioDaemon:
 
         self._audio_queue = asyncio.Queue(maxsize=300)
         self._utterance_queue = asyncio.Queue(maxsize=3)
-
-        loop = asyncio.get_running_loop()
 
         # TTS local : le chargement du modèle appartient au warmup, jamais à un
         # tour de parole. `_warmup_tts` est lancé plus bas, hors conversation.
@@ -1196,10 +1206,14 @@ class AudioDaemon:
                         "silero" if USE_SILERO_VAD else "rms", self._half_duplex,
                     )
 
-                if self.state in ("speaking", "processing"):
+                if self.state == "speaking":
                     if not self._half_duplex:
                         pass  # barge-in possible si micro ouvert — non implémenté sans VoiceProcessingIO
-                    elif chunk_rms(chunk) > speech_threshold:
+                    elif _should_interrupt_half_duplex(
+                        state=self.state,
+                        rms=chunk_rms(chunk),
+                        speech_threshold=speech_threshold,
+                    ):
                         native_audio_output.stop()
                         if self._tts_proc and self._tts_proc.returncode is None:
                             try:
@@ -1213,11 +1227,12 @@ class AudioDaemon:
                         interrupt_event.set()
                         await self._broadcast_state()
                         logger.info("[audio_daemon] Interruption (half-duplex limité)")
-                        utterance_collector.reset()
+                        if not utterance_collector.has_speech:
+                            utterance_collector.reset()
                         utterance_collector.ingest(chunk)
                     continue
 
-                if self.state != "listening":
+                if not _should_collect_utterance(self.state):
                     continue
 
                 completed = utterance_collector.ingest(chunk)
@@ -1227,6 +1242,7 @@ class AudioDaemon:
                     trace = UtteranceTrace(
                         conversation_id=self._conv_id,
                         t0=utterance_collector.last_speech_ended_at or time.perf_counter(),
+                        speech_ms=round(utterance_collector.last_speech_ms),
                     )
                     audio_ms = utterance_collector.last_audio_ms
                     started_at = utterance_collector.last_speech_started_at
@@ -1497,6 +1513,7 @@ class AudioDaemon:
                     pcm_bytes,
                     sample_rate=SAMPLE_RATE,
                     language=getattr(config, "LANGUAGE", "fr"),
+                    speech_ms=trace.speech_ms or None,
                     on_quality_fallback=_quality_fallback_ack,
                 )
                 if meta:
@@ -1890,7 +1907,8 @@ class AudioDaemon:
     def _porcupine_wake_loop(self) -> None:
         """Thread bloquant : écoute le wake word via Porcupine."""
         try:
-            import pvporcupine  # type: ignore[import-not-found]
+            # Sonde de disponibilité : l'import lui-même est le test.
+            import pvporcupine  # noqa: F401  # type: ignore[import-not-found]
         except ImportError:
             return
 

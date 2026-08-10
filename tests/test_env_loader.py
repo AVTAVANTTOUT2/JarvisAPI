@@ -114,6 +114,35 @@ def test_config_example_contains_no_secret_keys() -> None:
     assert env_loader.SECRET_ENV_KEYS.isdisjoint(example_values)
 
 
+def test_inline_comment_after_empty_value_is_not_kept_as_value(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """python-dotenv retient `# commentaire` quand la valeur est vide + espaces."""
+    config_file = tmp_path / ".env.config"
+    secrets_file = tmp_path / ".env"
+    config_file.write_text(
+        "DEVICE_ID=                       # vide = hostname système\n"
+        "WEB_PORT=9005\n",
+        encoding="utf-8",
+    )
+    secrets_file.write_text("DEEPSEEK_API_KEY=sk-safe\n", encoding="utf-8")
+
+    import env_loader
+
+    importlib.reload(env_loader)
+    monkeypatch.setattr(env_loader, "CONFIG_ENV_FILE", config_file)
+    monkeypatch.setattr(env_loader, "SECRETS_ENV_FILE", secrets_file)
+    env_loader._ENV_LOADED = False
+    monkeypatch.delenv("DEVICE_ID", raising=False)
+    monkeypatch.delenv("WEB_PORT", raising=False)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+
+    env_loader.load_jarvis_env(force=True)
+
+    assert os.environ.get("DEVICE_ID", "") == ""
+    assert os.environ["WEB_PORT"] == "9005"
+
+
 def test_env_files_are_hardened_before_loading(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

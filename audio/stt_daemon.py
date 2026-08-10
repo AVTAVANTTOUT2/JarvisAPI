@@ -57,6 +57,10 @@ class TranscriptionResult:
     # ou si l'énoncé capturé était long.
     inference_ms: int = 0
     audio_ms: int = 0
+    # Durée de parole utile. Le VAD amont fournit la mesure de référence quand
+    # elle existe ; les segments Whisper servent de repli pour les autres
+    # entrées audio. Elle exclut pré-roll et silence terminal de ``audio_ms``.
+    speech_ms: int = 0
     model: str | None = None
     avg_logprob: float | None = None
     max_no_speech_prob: float | None = None
@@ -68,6 +72,19 @@ class TranscriptionResult:
         if not self.audio_ms:
             return None
         return round(self.inference_ms / self.audio_ms, 3)
+
+
+def _segments_speech_ms(segments: list[Any]) -> int:
+    """Additionne les intervalles de parole fournis par Whisper."""
+    total_s = 0.0
+    for segment in segments:
+        try:
+            start = float(getattr(segment, "start"))
+            end = float(getattr(segment, "end"))
+        except (AttributeError, TypeError, ValueError):
+            continue
+        total_s += max(0.0, end - start)
+    return round(total_s * 1000)
 
 
 def build_initial_prompt() -> str:
@@ -306,6 +323,7 @@ class FasterWhisperBackend(DaemonSTTBackend):
                     engine=self.name,
                     inference_ms=round((time.perf_counter() - started) * 1000),
                     audio_ms=audio_ms,
+                    speech_ms=_segments_speech_ms(segments_list),
                     model=self._model_size,
                     avg_logprob=(
                         sum(float(getattr(segment, "avg_logprob", 0.0)) for segment in segments_list)
@@ -350,6 +368,7 @@ class FasterWhisperBackend(DaemonSTTBackend):
                         engine=self.name,
                         inference_ms=round((time.perf_counter() - started) * 1000),
                         audio_ms=audio_ms,
+                        speech_ms=_segments_speech_ms(segments_list),
                     )
                 finally:
                     Path(path).unlink(missing_ok=True)
@@ -551,7 +570,8 @@ class FallbackSTTBackend(DaemonSTTBackend):
         *,
         sample_rate: int,
         language: str = "fr",
-        on_quality_fallback: Callable[[], Awaitable[None]],
+        on_quality_fallback: Callable[[], Awaitable[None]] | None,
+        speech_ms: int | None = None,
     ) -> TranscriptionResult | None:
         """Transcrit et signale le départ d'une relecture lourde.
 
@@ -563,6 +583,7 @@ class FallbackSTTBackend(DaemonSTTBackend):
             sample_rate=sample_rate,
             language=language,
             on_quality_fallback=on_quality_fallback,
+            speech_ms=speech_ms,
         )
 
     async def _transcribe_pcm(
@@ -572,6 +593,7 @@ class FallbackSTTBackend(DaemonSTTBackend):
         sample_rate: int,
         language: str,
         on_quality_fallback: Callable[[], Awaitable[None]] | None,
+        speech_ms: int | None = None,
     ) -> TranscriptionResult | None:
         if not self.preload_sync() or self._active_index is None:
             return None
@@ -584,6 +606,11 @@ class FallbackSTTBackend(DaemonSTTBackend):
                 pcm_bytes, sample_rate=sample_rate, language=language,
             )
             if result is not None:
+                if speech_ms is not None and speech_ms > 0:
+                    # Les timestamps ASR décrivent seulement ce que le modèle
+                    # a réussi à décoder. La mesure VAD décrit ce qui a vraiment
+                    # été prononcé et doit donc piloter la décision de replay.
+                    result.speech_ms = speech_ms
                 if (
                     index == 0
                     and len(self._backends) > 1
@@ -612,11 +639,10 @@ class FallbackSTTBackend(DaemonSTTBackend):
                         )
                         return result
 
-                    notice_task: asyncio.Task[None] | None = None
+                    notice_task: asyncio.Future[None] | None = None
                     if on_quality_fallback is not None:
-                        notice_task = asyncio.create_task(
+                        notice_task = asyncio.ensure_future(
                             on_quality_fallback(),
-                            name="stt-quality-fallback-notice",
                         )
                         notice_task.add_done_callback(_log_quality_notice_failure)
                     loop = asyncio.get_running_loop()
@@ -630,6 +656,8 @@ class FallbackSTTBackend(DaemonSTTBackend):
                             language=language,
                         )
                         if quality_result is not None and quality_result.text.strip():
+                            if speech_ms is not None and speech_ms > 0:
+                                quality_result.speech_ms = speech_ms
                             quality_result.quality_fallback_used = True
                             return quality_result
                     elif notice_task is not None and not notice_task.done():
@@ -651,26 +679,40 @@ def _needs_quality_fallback(result: TranscriptionResult) -> bool:
         "STT_QUALITY_FALLBACK_LOGPROB",
         config.DEFAULT_STT_QUALITY_FALLBACK_LOGPROB,
     ))
-    if result.avg_logprob is not None and result.text.strip():
-        return result.avg_logprob < threshold
-    if result.text.strip():
+    has_text = bool(result.text.strip())
+    if result.avg_logprob is not None and has_text:
+        needs_replay = result.avg_logprob < threshold
+    elif has_text:
+        needs_replay = False
+    else:
+        # Transcription vide : il faut une preuve que de la parole a été
+        # perdue avant de payer le modèle lourd. L'absence d'indicateur n'est
+        # pas une présomption de parole, c'est une absence de signal.
+        needs_replay = (
+            result.max_no_speech_prob is not None
+            and result.max_no_speech_prob < 0.5
+        )
+
+    if not needs_replay:
         return False
 
-    # Transcription vide : il faut une **preuve** que de la parole a été perdue
-    # avant de payer le modèle lourd.
-    #
-    # faster-whisper ne rend aucun segment sur du silence ou du bruit — les
-    # deux indicateurs valent alors ``None``. Les lire comme « 0.0 », donc
-    # comme « certainement parlé », escaladait sur chaque bruit de fond : le
-    # modèle lourd était chargé, et l'accusé vocal qui couvre son temps de
-    # chargement faisait répondre JARVIS à personne. L'absence d'indicateur
-    # n'est pas une présomption de parole, c'est une absence de signal.
-    if result.max_no_speech_prob is None:
+    min_speech_ms = max(0, int(getattr(
+        config,
+        "STT_QUALITY_FALLBACK_MIN_SPEECH_MS",
+        config.DEFAULT_STT_QUALITY_FALLBACK_MIN_SPEECH_MS,
+    )))
+    measured_speech_ms = result.speech_ms or result.audio_ms
+    if 0 < measured_speech_ms < min_speech_ms:
+        logger.debug(
+            "[stt] Relecture qualité ignorée pour parole courte (%dms < %dms)",
+            measured_speech_ms,
+            min_speech_ms,
+        )
         return False
-    return result.max_no_speech_prob < 0.5
+    return True
 
 
-def _log_quality_notice_failure(task: asyncio.Task[None]) -> None:
+def _log_quality_notice_failure(task: asyncio.Future[None]) -> None:
     """Consomme l'exception du callback sans faire échouer la transcription."""
     if task.cancelled():
         return
@@ -801,6 +843,7 @@ class DaemonSTT:
         *,
         sample_rate: int | None = None,
         language: str = "fr",
+        speech_ms: int | None = None,
         on_quality_fallback: Callable[[], Awaitable[None]] | None = None,
     ) -> dict | None:
         if not self._preload_attempted:
@@ -811,15 +854,18 @@ class DaemonSTT:
         sr = sample_rate or int(getattr(config, "AUDIO_DAEMON_SAMPLE_RATE", 16000))
         self.last_raw_text = ""
         self.last_clean_text = ""
-        if (
-            on_quality_fallback is not None
-            and isinstance(self._backend, FallbackSTTBackend)
+        if isinstance(self._backend, FallbackSTTBackend) and (
+            on_quality_fallback is not None or speech_ms is not None
         ):
+            # Sans callback ni mesure VAD, la variante enrichie serait
+            # rigoureusement équivalente à `transcribe_pcm` : on garde le
+            # chemin simple, qui reste le contrat public du backend.
             result = await self._backend.transcribe_pcm_with_quality_callback(
                 pcm_bytes,
                 sample_rate=sr,
                 language=language,
                 on_quality_fallback=on_quality_fallback,
+                speech_ms=speech_ms,
             )
         else:
             result = await self._backend.transcribe_pcm(
@@ -847,6 +893,7 @@ class DaemonSTT:
             "engine": result.engine,
             "inference_ms": result.inference_ms,
             "audio_ms": result.audio_ms,
+            "speech_ms": result.speech_ms,
             "real_time_factor": result.real_time_factor,
             "model": result.model,
             "avg_logprob": result.avg_logprob,

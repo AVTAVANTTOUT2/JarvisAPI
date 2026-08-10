@@ -20,6 +20,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 import config  # noqa: E402
 from integrations.cursor_env import build_cursor_safe_env  # noqa: E402
 from integrations.cursor_required_tests import (  # noqa: E402
+    ALLOWED_EXECUTABLES,
     RequiredTestError,
     parse_and_run_required_tests,
     parse_required_test,
@@ -608,3 +609,67 @@ async def test_cached_tts_task_cancellation_is_never_swallowed(monkeypatch):
         "type": "speech_cancelled",
         "turn_id": "turn-cancelled-task",
     }
+
+
+# ── 1 bis. required_tests : la sous-commande doit être un test ──────
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        # Installation / distribution : jamais des tests, et chacune exécute
+        # du code arbitraire (scripts postinstall, registre distant).
+        "npm install left-pad",
+        "npm publish",
+        "pnpm add malicious-pkg",
+        "pnpm exec rm",
+        "npx cowsay pwned",
+        "python -m pip install requests",
+        "python3 -m venv /tmp/x",
+        "python -m http.server",
+        "gradle publish",
+        "./gradlew uploadArchives",
+        "python setup.py",
+    ],
+)
+def test_required_tests_reject_non_test_subcommands(worktree: Path, payload: str):
+    """Un exécutable allowlisté ne suffit pas : la sous-commande est vérifiée.
+
+    La liste des tests requis descend d'un texte non fiable (corps d'Issue,
+    description de PR relue par un modèle) : sans ce contrôle, une consigne
+    glissée dans une Issue ferait installer ou publier depuis le worktree.
+    """
+    with pytest.raises(RequiredTestError):
+        parse_required_test(payload, worktree=worktree)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        "pytest tests/test_ok.py -q",
+        "python -m pytest tests/ -q",
+        "python3 -m unittest discover",
+        "npm test",
+        "pnpm run test",
+        "pnpm --filter web test",
+        "npm run lint -- --fix",
+        "./gradlew testDebugUnitTest",
+        "gradle :app:lintDebug",
+    ],
+)
+def test_required_tests_accept_real_test_commands(worktree: Path, payload: str):
+    assert parse_required_test(payload, worktree=worktree).executable
+
+
+def test_npx_is_not_an_allowlisted_executable():
+    """npx télécharge et exécute un paquet arbitraire du registre."""
+    assert "npx" not in ALLOWED_EXECUTABLES
+
+
+def test_structured_spec_is_validated_like_a_string(worktree: Path):
+    """La forme dict ne contourne pas le contrôle de sous-commande."""
+    with pytest.raises(RequiredTestError):
+        parse_required_test(
+            {"executable": "npm", "args": ["install", "left-pad"]},
+            worktree=worktree,
+        )

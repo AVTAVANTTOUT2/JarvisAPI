@@ -43,6 +43,21 @@ _CONFIRMATION_PHRASES = frozenset({
     "oui stp",
     "oui merci",
 })
+_IMPERATIVE_CONFIRMATION_PHRASES = frozenset({
+    "vas-y",
+    "vas y",
+    "fais-le",
+    "fais le",
+    "go",
+    "lance",
+    "execute",
+    "exécute",
+    "allez",
+    "fonce",
+    "oui vas-y",
+    "oui vas y",
+    "oui fais le",
+})
 _NEGATION_RE = re.compile(
     r"(?:^|[\s'-])(pas|jamais|non|annule|annuler|refuse|refuser|stop)(?:$|[\s'-])",
     re.IGNORECASE,
@@ -51,7 +66,10 @@ _PROPOSAL_ID_RE = re.compile(r"^[A-Za-z0-9_-]{43}$")
 
 
 def _normalise_confirmation(text: str) -> str:
-    return re.sub(r"\s+", " ", str(text or "").strip().lower()).rstrip(".!?,;: ")
+    # Les moteurs STT ponctuent naturellement « Oui, vas-y. ». La ponctuation
+    # ne doit pas transformer une confirmation exacte en nouvelle intention.
+    without_punctuation = re.sub(r"[.!?,;:]+", " ", str(text or "").strip().lower())
+    return re.sub(r"\s+", " ", without_punctuation).strip()
 
 
 def is_exact_confirmation(text: str) -> bool:
@@ -60,6 +78,39 @@ def is_exact_confirmation(text: str) -> bool:
     return bool(normalised and not _NEGATION_RE.search(normalised)) and (
         normalised in _CONFIRMATION_PHRASES
     )
+
+
+def is_imperative_confirmation(text: str) -> bool:
+    """Vrai lorsque la phrase demande explicitement de lancer une action."""
+    normalised = _normalise_confirmation(text)
+    return normalised in _IMPERATIVE_CONFIRMATION_PHRASES
+
+
+def unmatched_confirmation_reply() -> dict:
+    """Réponse à une confirmation impérative sans proposition consommable.
+
+    Une confirmation n'est jamais une nouvelle intention : sans proposition en
+    attente, il faut le dire plutôt que laisser un modèle inventer une action
+    puis en annoncer mensongèrement la réussite.
+    """
+    display_text = (
+        "Je n’ai aucune action en attente à confirmer, Monsieur. "
+        "Précisez l’action souhaitée."
+    )
+    return {
+        "text": display_text,
+        "emotion": "neutral",
+        "action": None,
+        "action_result": {
+            "ok": False,
+            "error": "no_pending_action",
+            "message": display_text,
+        },
+        "agent": "orchestrator",
+        "model": None,
+        "cost": 0.0,
+        "empty_response_cause": None,
+    }
 
 
 def is_valid_proposal_id(value: object) -> bool:
