@@ -28,7 +28,7 @@ remplacées par le contrat réellement déployé ; elles ne décrivent plus la c
 | 4 | `codex/phase-4-local-tts-resilience` | P1 | Terminé techniquement | Qwen3 local testé, erreurs actionnables, aucun repli silencieux |
 | 5 | `codex/phase-5-voice-websockets` | P1 | Terminé techniquement | Poussoir, mains libres et temps réel partagent le même contrat STT |
 | 6 | `codex/phase-6-recording-diarization` | P2 | À faire | Enregistrements longs fiables ; diarisation locale explicitement optionnelle |
-| 7 | `codex/phase-7-audio-observability` | P1 | Partiel | Outil de campagne livré ; campagne 24 h et dashboard encore à valider |
+| 7 | `codex/phase-7-audio-observability` | P1 | Partiel | Dashboard et outil de campagne livrés ; campagne 24 h encore à exécuter |
 
 ## Phase 0 — Retrait du fournisseur legacy
 

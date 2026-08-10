@@ -46,8 +46,9 @@ Les travaux sont classés selon l'ordre de priorité suivant :
 
 - [ ] Offline First complet — primitives IndexedDB présentes, lectures/écritures à généraliser à toutes les vues
 - [ ] Sync queue — UUID/timestamp/retry présents, checksum, version d'entité et résolution de conflits à ajouter
-- [ ] Health Dashboard (`/health`) — lot parallèle réservé à Claude, à cocher après validation et fusion de sa PR
-- [ ] Monitoring (métriques temps réel) — même lot observabilité, sans chevauchement avec la stabilisation de release
+- [x] Health Dashboard (`/health`) — contrat backend unifié, sonde publique `/api/health/live` et vue responsive livrés par la PR #199
+- [x] Monitoring opérationnel instantané — métriques santé/voix publiques, rafraîchissement borné et états dégradés/indisponibles validés par la PR #199
+- [ ] Historique des métriques — séries temporelles, rétention et tendances à ajouter après la clôture de release
 - [x] Socle de recherche unifiée backend (FTS5 + embeddings)
 - [ ] Expérience de recherche unifiée dans le frontend
 - [ ] Authentification biométrique (Face ID / Touch ID)
@@ -56,8 +57,8 @@ Les travaux sont classés selon l'ordre de priorité suivant :
 
 1. Exécuter et archiver la campagne de release 24 h, puis les preuves sur appareils physiques.
 2. Terminer Offline First et la résolution de conflits de la sync queue.
-3. Valider et fusionner le lot parallèle Health Dashboard / monitoring.
-4. Unifier l'expérience de recherche, puis ajouter la biométrie après stabilisation des flux offline.
+3. Unifier l'expérience de recherche, puis ajouter la biométrie après stabilisation des flux offline.
+4. Étendre l'observabilité aux séries temporelles et à la rétention des métriques.
 
 ### 2027 — Maturité
 

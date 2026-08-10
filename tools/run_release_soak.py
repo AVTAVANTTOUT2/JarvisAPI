@@ -26,7 +26,7 @@ from typing import Any, Callable, Iterable
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUTPUT = ROOT / "artifacts" / "release_soak.json"
 DEFAULT_PROBES = (
-    ("backend_liveness", "http://127.0.0.1:9000/api/auth/status"),
+    ("backend_liveness", "http://127.0.0.1:9000/api/health/live"),
 )
 
 
@@ -49,7 +49,7 @@ def _runtime_defaults() -> tuple[tuple[tuple[str, str], ...], Path | None]:
     scheme = "https" if jarvis_config.WEB_USE_HTTPS else "http"
     base = f"{scheme}://localhost:{jarvis_config.SUPERVISOR_PORT}"
     probes = (
-        ("backend_liveness", f"{base}/api/auth/status"),
+        ("backend_liveness", f"{base}/api/health/live"),
     )
     ca_file = Path(jarvis_config.SSL_CERT_PATH) if scheme == "https" else None
     return probes, ca_file

@@ -48,7 +48,7 @@ def test_runtime_defaults_follow_local_supervisor_tls(tmp_path, monkeypatch) -> 
     probes, ca_file = _runtime_defaults()
 
     assert probes == (
-        ("backend_liveness", "https://localhost:9443/api/auth/status"),
+        ("backend_liveness", "https://localhost:9443/api/health/live"),
     )
     assert ca_file == cert
 
