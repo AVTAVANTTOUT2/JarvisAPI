@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 
 from tests.conftest import authenticate
 from tests.test_uber_eats import uber_env  # noqa: F401
