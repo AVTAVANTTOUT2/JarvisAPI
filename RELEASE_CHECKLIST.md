@@ -1,4 +1,4 @@
-# Release checklist — JARVIS / Companion Android
+# Release checklist — JARVIS backend / Companion Android
 
 Checklist obligatoire avant chaque publication (tag Git + release GitHub + APK).  
 Ne cocher une case que lorsque la preuve existe (commande, log, SHA, capture).
@@ -21,7 +21,7 @@ Ne cocher une case que lorsque la preuve existe (commande, log, SHA, capture).
 - [ ] Branche `main` ; working tree clean
 - [ ] `git rev-parse HEAD` == `git rev-parse origin/main`
 - [ ] Aucun conflit, aucun stash oublié non archivé
-- [ ] Aucune PR Android ouverte liée à la release
+- [ ] Aucune PR ouverte liée à la release
 
 ## 2. Cohérence dépôt
 
@@ -41,30 +41,31 @@ Ne cocher une case que lorsque la preuve existe (commande, log, SHA, capture).
 
 ## 4. Tests locaux
 
-- [ ] Backend : `python -m pytest tests/test_mobile_voice.py tests/test_mobile_pairing.py tests/test_audio_defaults.py -q`
+- [ ] Backend standard : `.venv/bin/python -m pytest tests/ jarvis/tests agents/devagent -q`
+- [ ] Dépendances reproductibles : `.venv/bin/python -m pip check`
+- [ ] Lint : `.venv/bin/ruff check .`
 - [ ] Android : `./gradlew assembleDebug testDebugUnitTest lintDebug`
 
 ## 5. Pile audio (preuves)
 
 - [ ] STT : Faster-Whisper
 - [ ] Modèle STT : `large-v3-turbo` (repli local éventuel : `large-v3` uniquement)
-- [ ] TTS : Kokoro
-- [ ] Voix : `af_nicole`
-- [ ] Sortie TTS = **WAV** (`RIFF…`)
-- [ ] Aucun fallback Edge pour `TTS_ENGINE=kokoro`
+- [ ] TTS : Qwen3 local (`TTS_ENGINE=qwen3_local`)
+- [ ] Modèle TTS : `Qwen3-TTS-12Hz-0.6B-Base-6bit`, présent localement
+- [ ] Profil vocal : `voices/jarvis-fr` vérifié sans exposer ses données privées
+- [ ] Sortie TTS streamée = PCM16 mono, 24 kHz
+- [ ] Aucun fallback implicite entre fournisseurs TTS
 - [ ] Aucun fallback vers un fournisseur cloud audio retiré
-- [ ] Preuve jointe (chemin fichier / log / timestamp) :
+- [ ] Porte matérielle Qwen3 exécutée **daemon JARVIS arrêté** : `.venv/bin/python -m pytest -m integration_tts -v`
+- [ ] Campagne 24 h : `.venv/bin/python tools/run_release_soak.py --duration-hours 24 --output artifacts/release_soak.json`
+- [ ] `artifacts/release_soak.json` archivé avec zéro dépassement du budget d'échecs retenu
+- [ ] Preuves jointes (artefact / log / timestamp) :
 
 ```text
-# exemple
-python - <<'PY'
-import asyncio, config
-from audio.tts import get_tts_by_name
-e = get_tts_by_name("kokoro")
-b = asyncio.run(e.synthesize("Preuve release."))
-assert e.get_backend_name() == "kokoro" and b[:4] == b"RIFF"
-print(config.STT_MODEL, config.KOKORO_VOICE, len(b))
-PY
+# Exemple :
+# - artifacts/release_soak.json
+# - sortie pytest du marqueur integration_tts
+# - timestamp et identifiant du Mac/appareil physique
 ```
 
 ## 6. APK
@@ -81,7 +82,7 @@ PY
 - [ ] CA Android = certificat **public** uniquement (`jarvis_ca.crt`)
 - [ ] Dépôt public : revue PII / URLs personnelles
 
-## 8. Validation téléphone réel
+## 8. Validations matérielles réelles
 
 > Ne jamais cocher sans appareil physique et preuves.
 
@@ -92,13 +93,17 @@ PY
 - [ ] Upload tour vocal
 - [ ] Whisper `large-v3-turbo`
 - [ ] DeepSeek
-- [ ] Kokoro + lecture
+- [ ] Qwen3 + lecture
 - [ ] Deuxième tour avec contexte (`conversation_id`)
 - [ ] Révocation
 - [ ] Permissions
 - [ ] Rotation écran
 - [ ] Coupure réseau
 - [ ] Réveil après verrouillage
+- [ ] Mac cible : permission micro refusée puis réaccordée
+- [ ] Mac cible : déconnexion/reconnexion du périphérique audio
+- [ ] Mac cible : enregistrements 1/30/180 minutes
+- [ ] Mac cible : observation 24 h sans crash loop ni saturation de file
 
 Si non exécuté : laisser **non coché** et l’indiquer dans les notes de release.
 

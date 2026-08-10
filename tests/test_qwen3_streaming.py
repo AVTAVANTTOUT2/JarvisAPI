@@ -59,29 +59,29 @@ needs_model = pytest.mark.skipif(
 
 
 @pytest.fixture(scope="module")
-def loop():
+def sidecar_loop():
     """Une seule boucle pour tout le module.
 
     Le sidecar est un sous-processus asyncio : ses flux sont attachés à la
     boucle qui l'a démarré. Un ``asyncio.run()`` par test en créerait une
     nouvelle à chaque fois et la lecture échouerait sur « attached to a
-    different loop » — sans rien dire du moteur lui-même.
+    different loop » — sans rien dire du moteur lui-même. La boucle reste
+    privée : la publier via ``asyncio.set_event_loop`` permettrait aux fixtures
+    fonctionnelles de pytest-asyncio de la fermer entre deux scénarios.
     """
     new_loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(new_loop)
     yield new_loop
     new_loop.close()
-    asyncio.set_event_loop(None)
 
 
 @pytest.fixture(scope="module")
-def provider(loop):
+def provider(sidecar_loop):
     """Un seul moteur chargé pour tout le module — comme en production."""
     settings = replace(load_tts_settings(), provider="qwen3_local")
     prov = create_local_tts_provider(settings)
-    loop.run_until_complete(prov.warmup())
+    sidecar_loop.run_until_complete(prov.warmup())
     yield prov
-    loop.run_until_complete(prov.close())
+    sidecar_loop.run_until_complete(prov.close())
 
 
 async def _collect(provider, text: str, request_id: str) -> dict:
@@ -114,9 +114,13 @@ async def _collect(provider, text: str, request_id: str) -> dict:
     "label,text,min_chunks",
     [("courte", COURTE, 1), ("trois_phrases", TROIS_PHRASES, 2), ("longue", LONGUE, 3)],
 )
-def test_streaming_delivers_before_synthesis_ends(provider, loop, label, text, min_chunks):
+def test_streaming_delivers_before_synthesis_ends(
+    provider, sidecar_loop, label, text, min_chunks,
+):
     """Le premier son part avant la fin de la synthèse, et l'ordre est tenu."""
-    report = loop.run_until_complete(_collect(provider, text, f"stream-{label}"))
+    report = sidecar_loop.run_until_complete(
+        _collect(provider, text, f"stream-{label}"),
+    )
 
     assert report["chunk_count"] >= min_chunks, report
     assert report["is_final_received"] is True, report
@@ -139,7 +143,7 @@ def test_streaming_delivers_before_synthesis_ends(provider, loop, label, text, m
 
 
 @needs_model
-def test_cancel_after_first_chunk_stops_delivery(provider, loop):
+def test_cancel_after_first_chunk_stops_delivery(provider, sidecar_loop):
     """Après annulation, plus aucun fragment n'est livré — pas de son tardif."""
     request_id = "stream-cancel"
 
@@ -156,7 +160,7 @@ def test_cancel_after_first_chunk_stops_delivery(provider, loop):
         after = await _collect(provider, COURTE, "stream-after-cancel")
         return delivered, after["chunk_count"]
 
-    delivered, after_chunks = loop.run_until_complete(scenario())
+    delivered, after_chunks = sidecar_loop.run_until_complete(scenario())
 
     # L'annulation prend effet à la frontière d'un fragment : on tolère celui
     # déjà en vol, jamais la suite complète de l'énoncé long.
@@ -165,10 +169,14 @@ def test_cancel_after_first_chunk_stops_delivery(provider, loop):
 
 
 @needs_model
-def test_two_successive_requests_stay_independent(provider, loop):
+def test_two_successive_requests_stay_independent(provider, sidecar_loop):
     """Deux tours de parole enchaînés : aucun mélange, chacun sa fin."""
-    first = loop.run_until_complete(_collect(provider, COURTE, "stream-seq-1"))
-    second = loop.run_until_complete(_collect(provider, TROIS_PHRASES, "stream-seq-2"))
+    first = sidecar_loop.run_until_complete(
+        _collect(provider, COURTE, "stream-seq-1"),
+    )
+    second = sidecar_loop.run_until_complete(
+        _collect(provider, TROIS_PHRASES, "stream-seq-2"),
+    )
 
     assert first["is_final_received"] and second["is_final_received"]
     assert first["chunk_count"] >= 1 and second["chunk_count"] >= 1
@@ -177,7 +185,7 @@ def test_two_successive_requests_stay_independent(provider, loop):
 
 
 @needs_model
-def test_engine_runs_without_any_network(provider, loop):
+def test_engine_runs_without_any_network(provider, sidecar_loop):
     """Le moteur parle avec les connexions sortantes refusées.
 
     La suite entière tourne déjà derrière un garde-fou réseau (`conftest.py`) :
@@ -185,7 +193,9 @@ def test_engine_runs_without_any_network(provider, loop):
     que l'utilisateur a demandée en premier.
     """
     assert provider.info().offline is True
-    report = loop.run_until_complete(_collect(provider, COURTE, "stream-offline"))
+    report = sidecar_loop.run_until_complete(
+        _collect(provider, COURTE, "stream-offline"),
+    )
     assert report["chunk_count"] >= 1 and report["is_final_received"]
 
 

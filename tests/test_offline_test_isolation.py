@@ -48,18 +48,21 @@ def test_markers_are_declared_with_a_description(marker: str):
     assert len(lines[0].split(":", 1)[1].strip()) > 20, "description de marqueur trop vague"
 
 
-def test_standard_suite_deselects_external_network_by_default():
+def test_standard_suite_deselects_external_and_hardware_tests_by_default():
     addopts = _pytest_ini()["addopts"]
 
-    assert f'-m "not {EXTERNAL_MARKER}"' in addopts
+    assert f"not {EXTERNAL_MARKER}" in addopts
+    assert f"not {TTS_MARKER}" in addopts
     # Sans `--strict-markers`, une faute de frappe dans un marqueur passe
     # inaperçue et le test réseau se retrouve rejoué par défaut.
     assert "--strict-markers" in addopts
 
 
-def test_external_tests_are_effectively_deselected(pytestconfig: pytest.Config):
+def test_explicit_integrations_are_effectively_deselected(pytestconfig: pytest.Config):
     """Vérifie l'effet réel de la configuration sur la session courante."""
-    assert pytestconfig.getoption("markexpr") == f"not {EXTERNAL_MARKER}"
+    markexpr = pytestconfig.getoption("markexpr")
+    assert f"not {EXTERNAL_MARKER}" in markexpr
+    assert f"not {TTS_MARKER}" in markexpr
 
 
 def test_no_test_reaches_the_network_without_the_marker():

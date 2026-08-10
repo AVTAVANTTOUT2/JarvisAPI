@@ -94,12 +94,17 @@ Preuves exécutées le 14/07/2026 : 5 contrats `tests/test_notification_service.
 
 ### Stabilisation audio post-PR #17
 
-- [ ] Chaque moteur configuré distingue disponibilité déclarée et préchargement réussi.
-- [ ] Aucun fournisseur STT cloud ni secret associé dans le code, l'UI ou la configuration.
-- [ ] Les moteurs optionnels absents ne produisent pas d'incident tant qu'ils ne sont pas sélectionnés.
-- [ ] Les chemins poussoir, mains libres, temps réel et daemon partagent le contrat STT local.
+- [x] Chaque moteur configuré distingue disponibilité déclarée et préchargement réussi.
+- [x] Aucun fournisseur STT cloud ni secret associé dans le code, l'UI ou la configuration.
+- [x] Les moteurs optionnels absents ne produisent pas d'incident tant qu'ils ne sont pas sélectionnés.
+- [x] Les chemins poussoir, mains libres, temps réel et daemon partagent le contrat STT local.
 - [ ] Les scénarios permission micro refusée, crash loop et saturation ont un test ou une preuve manuelle.
 - [ ] Une observation de 24 h sur le Mac cible clôt les phases critiques.
+
+Preuves techniques réactualisées le 10/08/2026 : contrats de configuration et
+d'absence de repli cloud, tests TTS locaux, test matériel Qwen3 explicite et
+suite standard isolée du GPU. Les deux dernières cases restent volontairement
+ouvertes jusqu'aux preuves matérielles et à l'artefact de campagne 24 h.
 
 Le détail, l'ordre des PR et les rollbacks sont définis dans `30_PLAN_STABILISATION_AUDIO.md`.
 

@@ -1,6 +1,7 @@
 # 30 — Plan de stabilisation audio après la PR #17
 
-**Date** : 15 juillet 2026  
+**Date initiale** : 15 juillet 2026
+**Mise à jour d'état** : 10 août 2026
 **Point de départ** : PR #17, pipeline natif macOS local  
 **Règle** : une phase = une PR réversible, avec tests et preuve de validation
 
@@ -8,26 +9,30 @@
 
 Traiter l'inventaire des erreurs audio sans réintroduire de fournisseur STT/TTS
 abandonné. Le chemin cible est local pour le daemon : **faster-whisper `large-v3-turbo`** (STT) et
-**Kokoro `af_nicole`** (TTS) par défaut. Edge reste disponible **uniquement** via
-`TTS_ENGINE=edge` (choix explicite) — jamais comme repli silencieux de Kokoro.
-WhisperKit, whisper.cpp, TTSKit et `say` restent des moteurs optionnels explicites.
+**Qwen3-TTS 0.6B Base 6-bit** (TTS) par défaut sur Apple Silicon. Les autres
+moteurs restent des choix explicites : aucun changement de fournisseur ni repli
+réseau ne peut être déclenché silencieusement.
+
+Le statut et les mesures courantes de Qwen3 sont détaillés dans
+`docs/audio/QWEN3_LOCAL_STATUS.md`. Les références Kokoro ci-dessous ont été
+remplacées par le contrat réellement déployé ; elles ne décrivent plus la cible.
 
 ## Ordre des PR
 
-| Phase | Branche proposée | Priorité | Résultat attendu |
-|---|---|---:|---|
-| 0 | `codex/phase-0-remove-legacy-audio` | Bloquante | Ancien fournisseur supprimé du code, de la configuration, des tests et de l'UI |
-| 1 | `codex/phase-1-local-stt-bootstrap` | P0 | Un moteur STT local choisi, préchargé et diagnostiqué sans faux positifs |
-| 2 | `codex/phase-2-native-stt-bridges` | P1 | WhisperKit/whisper.cpp installables, chemins et modèles vérifiés |
-| 3 | `codex/phase-3-audio-daemon-resilience` | P0 | Plus d'abandon silencieux après crash ou micro muet |
-| 4 | `codex/phase-4-local-tts-resilience` | P1 | Chaîne TTS locale testée avec repli déterministe |
-| 5 | `codex/phase-5-voice-websockets` | P1 | Poussoir, mains libres et temps réel partagent le même contrat STT |
-| 6 | `codex/phase-6-recording-diarization` | P2 | Enregistrements longs fiables ; diarisation locale explicitement optionnelle |
-| 7 | `codex/phase-7-audio-observability` | P1 | Erreurs classifiées, métriques utiles et validation finale |
+| Phase | Branche proposée | Priorité | État au 10/08 | Résultat attendu |
+|---|---|---:|---|---|
+| 0 | `codex/phase-0-remove-legacy-audio` | Bloquante | Terminé | Ancien fournisseur supprimé du code, de la configuration, des tests et de l'UI |
+| 1 | `codex/phase-1-local-stt-bootstrap` | P0 | Terminé | Un moteur STT local choisi, préchargé et diagnostiqué sans faux positifs |
+| 2 | `codex/phase-2-native-stt-bridges` | P1 | Terminé | WhisperKit/whisper.cpp installables, chemins et modèles vérifiés |
+| 3 | `codex/phase-3-audio-daemon-resilience` | P0 | Partiel | Plus d'abandon silencieux après crash ou micro muet ; preuves matérielles encore requises |
+| 4 | `codex/phase-4-local-tts-resilience` | P1 | Terminé techniquement | Qwen3 local testé, erreurs actionnables, aucun repli silencieux |
+| 5 | `codex/phase-5-voice-websockets` | P1 | Terminé techniquement | Poussoir, mains libres et temps réel partagent le même contrat STT |
+| 6 | `codex/phase-6-recording-diarization` | P2 | À faire | Enregistrements longs fiables ; diarisation locale explicitement optionnelle |
+| 7 | `codex/phase-7-audio-observability` | P1 | Partiel | Dashboard et outil de campagne livrés ; campagne 24 h encore à exécuter |
 
 ## Phase 0 — Retrait du fournisseur legacy
 
-**État** : implémentée dans le présent lot, validation en cours.
+**État** : terminée et couverte par les contrôles de non-régression.
 
 - Supprimer le client STT cloud et ses secrets de configuration.
 - Retirer le backend TTS, les réglages API et les options frontend associés.
@@ -77,10 +82,13 @@ manuel micro refusé puis réautorisé ; observation 24 h avant clôture.
 
 ## Phase 4 — Résilience TTS locale
 
-- Tester la disponibilité de TTSKit, Kokoro et macOS sans charger plusieurs
+- Tester la disponibilité de Qwen3, TTSKit et macOS sans charger plusieurs
   modèles simultanément.
 - Formaliser l'ordre de repli et le format audio produit par chaque moteur.
-- Corriger les échecs silencieux `say`/`afconvert` et l'énumération des voix.
+- Refuser tout repli implicite entre fournisseurs ; chaque moteur est un choix
+  de configuration observable.
+- Corriger les échecs silencieux du sidecar, de `say`/`afconvert` et de
+  l'énumération des voix.
 - Ajouter des messages d'installation actionnables pour les composants choisis.
 
 **Sortie** : matrice de tests moteur principal/repli/aucun moteur et lecture d'un
@@ -113,6 +121,10 @@ doublons.
 - Dédupliquer les logs et réserver `CRITICAL` aux pertes de service effectives.
 - Rejouer l'inventaire initial, documenter chaque erreur éliminée ou reclassée.
 - Exécuter la suite complète backend/frontend et la campagne manuelle 24 h.
+
+L'outil `tools/run_release_soak.py` produit l'artefact borné de cette campagne.
+Sa livraison ne vaut pas preuve d'exécution : la phase reste ouverte tant que
+les 24 h sur le Mac cible et les scénarios matériels ne sont pas archivés.
 
 **Definition of Done globale** : aucune erreur critique non expliquée, aucun
 fallback cloud STT, aucune configuration legacy, et rollback documenté par PR.

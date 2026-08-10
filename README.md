@@ -315,9 +315,8 @@ désélectionnés par défaut (`pytest.ini`).
 
 | Objectif | Commande |
 |---|---|
-| Suite standard (hors ligne, défaut) | `python -m pytest tests/ jarvis/tests agents/devagent -q` |
-| Tests unitaires seuls, sans intégration locale | `python -m pytest -m "not integration_tts" -q` |
-| Intégrations locales réelles (synthèse vocale réelle) | `python -m pytest -m integration_tts -v` |
+| Suite standard (hors ligne, sans réservation Metal, défaut) | `python -m pytest tests/ jarvis/tests agents/devagent -q` |
+| Intégrations locales réelles (synthèse vocale réelle) | arrêter le daemon JARVIS, puis `python -m pytest -m integration_tts -v` |
 
 Marqueurs déclarés :
 
@@ -326,8 +325,10 @@ Marqueurs déclarés :
   toute future dépendance réseau d'un test soit un choix visible, jamais un
   effet de bord. Un `-m` passé en ligne de commande remplace `addopts`.
 - `integration_tts` — fait réellement produire de l'audio par le moteur local.
-  Hors ligne et déterministe, donc conservé dans la suite standard ; se saute
-  proprement quand les poids ne sont pas installés sur la machine.
+  Cette porte matérielle est exclue de la suite standard : sur Apple Silicon,
+  lancer un second Qwen3 pendant que le daemon JARVIS détient déjà le modèle
+  peut saturer Metal. Elle se saute proprement si les poids sont absents et se
+  lance explicitement, daemon arrêté, avec `pytest -m integration_tts`.
 
 La CI vérifie également l'installation de production, les intégrations macOS
 simulées, le build Release de l'app SwiftUI et de son widget, la release Android

@@ -1,6 +1,6 @@
 # 07 — Feuille de Route Technique
 
-**Date** : 11 juillet 2026
+**Date** : 10 août 2026
 
 ## Priorisation
 
@@ -34,19 +34,31 @@ Les travaux sont classés selon l'ordre de priorité suivant :
 - [x] Phase 6 : Frontend unifié + SDK Auth (validée sur `main` le 14/07/2026 — Next.js 15 responsive, LockGate partagé, wrapper API unique, fallbacks conservés)
 - [x] CI de non-régression complète (Python, Vite et Next.js unifié) sur le commit de merge Phase 6
 - [x] NotificationService : 16 producteurs migrés, déduplication atomique, Web Push et contrat de compatibilité validés le 14/07/2026
+- [x] Porte de release backend reproductible : lock Python 3.12 propre, suite standard sans réservation Metal, cycle de vie Qwen3/Event Bus fiabilisé
+- [x] Outillage de campagne 24 h livré (`tools/run_release_soak.py`, artefact JSON borné et sans payload sensible)
+- [x] Socle de stabilisation audio post-PR #17 : STT local partagé, Qwen3 local explicite, moteurs optionnels sans repli silencieux et contrats automatisés
 - [ ] Validation manuelle sur appareils réels (installation, veille, GPS et ergonomie)
-- [ ] Stabilisation audio post-PR #17 selon `30_PLAN_STABILISATION_AUDIO.md`
+- [ ] Clôture audio : campagne 24 h sur le Mac cible, scénarios micro réels et enregistrements 1/30/180 minutes selon `30_PLAN_STABILISATION_AUDIO.md`
 
 ### Q4 2026 — Améliorations (Septembre-Décembre)
 
 **Fondation solide acquise → nouvelles features possibles**
 
-- [ ] Offline First complet (IndexedDB toutes les vues)
-- [ ] Sync queue avec UUID/timestamp/checksum
-- [ ] Health Dashboard (`/health`)
-- [ ] Monitoring (métriques temps réel)
-- [ ] Moteur de recherche unifié (FTS5 + embeddings)
+- [ ] Offline First complet — primitives IndexedDB présentes, lectures/écritures à généraliser à toutes les vues
+- [ ] Sync queue — UUID/timestamp/retry présents, checksum, version d'entité et résolution de conflits à ajouter
+- [x] Health Dashboard (`/health`) — contrat backend unifié, sonde publique `/api/health/live` et vue responsive livrés par la PR #199
+- [x] Monitoring opérationnel instantané — métriques santé/voix publiques, rafraîchissement borné et états dégradés/indisponibles validés par la PR #199
+- [ ] Historique des métriques — séries temporelles, rétention et tendances à ajouter après la clôture de release
+- [x] Socle de recherche unifiée backend (FTS5 + embeddings)
+- [ ] Expérience de recherche unifiée dans le frontend
 - [ ] Authentification biométrique (Face ID / Touch ID)
+
+### Ordre recommandé des travaux restants
+
+1. Exécuter et archiver la campagne de release 24 h, puis les preuves sur appareils physiques.
+2. Terminer Offline First et la résolution de conflits de la sync queue.
+3. Unifier l'expérience de recherche, puis ajouter la biométrie après stabilisation des flux offline.
+4. Étendre l'observabilité aux séries temporelles et à la rétention des métriques.
 
 ### 2027 — Maturité
 

@@ -86,6 +86,7 @@ voices.bin
 *.bak
 resume_conversations_*.md
 logs/
+artifacts/release_soak*.json
 .worktrees/
 
 # Cursor delegation worktrees
