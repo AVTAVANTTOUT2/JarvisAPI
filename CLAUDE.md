@@ -31,7 +31,7 @@ Le bus applicatif est actif et conserve la compatibilité de construction histor
 - Les mutations de `database/tasks.py`, `notifications.py`, `conversations.py`, `episodes.py`, `facts.py`, `patterns.py` et `people.py` émettent **après commit**.
 - `database/event_log.py` journalise tous les événements dans la table SQLite `event_log`.
   Runtime SQLite canonique : **90 tables persistantes**, **95 tables physiques avec FTS5**, schéma généré : **91 déclarations de tables**.
-  Structure API canonique : **259 opérations HTTP + 2 WebSockets**, **230 chemins OpenAPI**, **17 routeurs api/router_*.py + Fitness = 18 montés**, main.py **214 lignes**.
+  Structure API canonique : **261 opérations HTTP + 2 WebSockets**, **232 chemins OpenAPI**, **17 routeurs api/router_*.py + Fitness = 18 montés**, main.py **214 lignes**.
   `database/schema.sql` est désormais un miroir généré et contrôlé du schéma frais ;
   `init_db()` continue d'exécuter exclusivement `schema.py` puis `migrations.py`.
 - `websocket_registry.py` diffuse les événements de domaine aux sockets actives et `scripts/audio_daemon.py` traite les notifications `urgent/high`.
@@ -43,7 +43,7 @@ Depuis du code async, utiliser `await event_bus.emit(event)`. Depuis un chemin s
 
 ## Couche API — Phase 4
 
-`main.py` est un point d'assemblage : configuration FastAPI/CORS, montage de 17 `APIRouter` sous `api/router_*.py` plus Fitness, branchement des WebSockets de chat et de TV, configuration de `pipeline.py`, frontend et lancement Uvicorn. Le contrat public compte 259 opérations HTTP et 2 WebSockets ; l'OpenAPI expose 230 chemins.
+`main.py` est un point d'assemblage : configuration FastAPI/CORS, montage de 17 `APIRouter` sous `api/router_*.py` plus Fitness, branchement des WebSockets de chat et de TV, configuration de `pipeline.py`, frontend et lancement Uvicorn. Le contrat public compte 261 opérations HTTP et 2 WebSockets ; l'OpenAPI expose 232 chemins.
 
 - `api/router_*.py` contient exactement 17 routeurs par domaine ; Fitness porte le 18e routeur monté et aucun routeur ne dépasse 478 lignes.
 - `api/lifespan.py`, `api/middleware.py` et `api/frontend.py` portent le cycle de vie, la sécurité HTTP et le serving des frontends.
@@ -1263,6 +1263,8 @@ doivent jamais appliquer directement `DATE(created_at)` avec une date locale :
 - `POST /upload` → upload de documents (PDF, images, texte)
 - `GET /api/memory` → life profile + people
 - `POST /api/memory` → modifier le life profile
+- `GET /api/health/live` → sonde de vie publique, `{"status": "ok"}` et rien d'autre
+- `GET /api/health/detail` → diagnostic de santé agrégé (authentifié)
 - `GET /api/status` → stats d'utilisation, agents actifs, coûts
 - `GET /api/stats/weekly?days=7` → série d'activité quotidienne (messages, tours utilisateur, vocal, tokens, coût) + variations jour/jour + totaux ; un tour est un message `user`
 - `GET /api/costs` → dépenses LLM (jour / 7j / mois, par modèle) + budget configuré
@@ -1277,6 +1279,81 @@ doivent jamais appliquer directement `DATE(created_at)` avec une date locale :
 - `GET/POST/DELETE /api/dnd` → mode « silence total sauf feu » (seul l'urgent passe : TTS daemon, iMessage watcher)
 - `GET /api/meetings` → réunions captées (opt-in MEETING_CAPTURE_ENABLED, micro daemon → résumé + actions, table recordings label 'réunion')
 - `GET /api/presence` → présence bureau par le son (micro daemon audio ; arrivée = bruit > `PRESENCE_NOISE_RMS` → « Vous êtes là, Monsieur » ; départ = `PRESENCE_TIMEOUT_MIN` min de silence, tick /10 min)
+
+## Santé du système — contrat unifié
+
+`jarvis/health.py` est la seule source de vérité de l'état de santé. Il ne
+mesure rien de neuf : il rappelle les primitives existantes et les traduit en
+états explicites. Aucun appel réseau externe n'est fait pendant la requête.
+
+### Deux routes, deux publics
+
+| Route | Verrou | Contenu |
+|---|---|---|
+| `GET /api/health/live` | **public** | `{"status": "ok"}`. Rien d'autre : ni version, ni hôte, ni composant, ni compteur |
+| `GET /api/health/detail` | session standard | Agrégat complet des composants, `?refresh=true` force une resonde |
+
+La sonde de vie est publique par nécessité : un superviseur ou un launchd doit
+pouvoir distinguer « application verrouillée » de « application morte », et le
+`428` du verrou ne le dit pas. Le préfixe n'ouvre rien de plus — le middleware
+compare le chemin **exact**, et `/api/health/detail` reste privé.
+
+Le chemin porte `/live` plutôt que le `/api/health` habituel parce que
+`tv/server.py`, une autre application sur un autre port, expose déjà sa propre
+route `/api/health`.
+
+### États
+
+`healthy`, `degraded`, `unavailable`, `unknown`. **Aucun faux vert** : un
+composant que la requête ne peut pas prouver est `unknown`, jamais `healthy`
+par défaut. Le global vaut `unavailable` si un composant critique (`backend`,
+`database`) est tombé, `degraded` dès qu'un composant est dégradé ou
+indisponible, et `healthy` sinon. Un `unknown` non critique ne repeint pas
+l'application en rouge mais reste compté dans `summary` et affiché tel quel.
+
+Une panne partielle renvoie quand même le rapport complet : c'est justement
+quand tout ne va pas bien qu'il faut pouvoir lire la page. Le code HTTP est
+`200`, sauf `unavailable` qui répond `503`.
+
+### Composants agrégés
+
+| Composant | Critique | Ce qui est réellement vérifié |
+|---|---|---|
+| `backend` | oui | Le processus répond ; expose son uptime relatif |
+| `database` | oui | Ouverture SQLite + `SELECT 1` + mode journal, avec latence |
+| `event_bus` | non | Abonnés, files de handlers, saturation, boucle liée |
+| `resources` | non | RAM libre et seuils **du garde-fou** (`jarvis/resource_guard.py`) |
+| `speech_to_text` | non | Disponibilité du moteur local telle que le module la connaît |
+| `text_to_speech` | non | Configuration résolue uniquement — les poids ne sont pas chargés |
+
+`text_to_speech` reste donc `unknown` tant qu'un tour de parole réel ne l'a pas
+exercé : charger plusieurs gigaoctets de poids pour répondre à une sonde serait
+absurde, et prétendre `healthy` sans preuve serait pire.
+
+### Ce qui n'est pas dupliqué
+
+- L'inventaire des processus reste dans `GET /api/supervisor/resources` ;
+  la santé ne reprend que la RAM libre et le niveau, calculés par les **mêmes**
+  fonctions.
+- Les latences vocales restent dans `GET /api/voice/metrics` ; la vue `/health`
+  les affiche sans les recalculer.
+
+### Sécurité
+
+Les raisons publiques sont un vocabulaire fermé (`health.PUBLIC_REASONS`) :
+un code hors liste devient `internal_error` et le détail réel part dans les
+journaux. Les détails sont filtrés en scalaires courts — ni chemin, ni liste de
+processus, ni contenu d'exception. `model` et `voice` du moteur vocal peuvent
+porter un chemin local : ils sont exclus de la réponse.
+
+### Rafraîchissement
+
+Le relevé serveur est mutualisé `CACHE_TTL_S` secondes (5 s) : plusieurs onglets
+ne multiplient pas les `memory_pressure` ni les ouvertures SQLite. La vue
+`/health` interroge par polling borné (15 s), suspendu quand l'onglet est
+masqué, avec annulation de la requête en vol au démontage. Le SSE
+`/api/events/stream` n'est pas utilisé : il transporte des événements de
+domaine, et un état de composant n'en est pas un.
 
 ## Outillage DevOps (lot 10-20)
 

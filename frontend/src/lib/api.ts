@@ -38,6 +38,44 @@ export type * from '@unified/types/api'
 
 export const BASE = ''
 
+/**
+ * Contrat de `GET /api/health/detail` — miroir exact de `jarvis/health.py`.
+ *
+ * `state` et `reason` viennent d'un vocabulaire fermé côté serveur, mais le
+ * type reste ouvert sur `string` pour `reason` : un backend plus récent que le
+ * frontend doit pouvoir ajouter un code sans casser l'affichage.
+ */
+export type HealthState = 'healthy' | 'degraded' | 'unavailable' | 'unknown'
+
+export interface HealthComponent {
+  name: string
+  state: HealthState
+  critical: boolean
+  reason: string | null
+  details: Record<string, string | number | boolean | null>
+}
+
+export interface HealthReport {
+  status: HealthState
+  checked_at: string
+  duration_ms: number
+  summary: Record<HealthState, number>
+  components: HealthComponent[]
+}
+
+export interface VoiceLatencyStage {
+  p50_ms: number
+  p95_ms: number
+  count: number
+}
+
+export interface VoiceLatencyMetrics {
+  ok?: boolean
+  samples: number
+  days: number
+  stages: Record<string, VoiceLatencyStage>
+}
+
 export interface DocumentPrivacyPolicy {
   mode: 'strict_local' | 'hybrid'
   strict_local: boolean
@@ -123,11 +161,15 @@ export function jarvisRawFetch(path: string, options?: RequestInit): Promise<Res
   return fetch(`${root}${p}`, { ...options, credentials: 'include', headers })
 }
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
+async function request<T>(
+  path: string,
+  options?: RequestInit,
+  acceptedErrorStatuses: readonly number[] = [],
+): Promise<T> {
   const p = path.startsWith('/') ? path : `/${path}`
   const res = await jarvisRawFetch(p, options)
   const text = await res.text()
-  if (!res.ok) {
+  if (!res.ok && !acceptedErrorStatuses.includes(res.status)) {
     if ((res.status === 401 || res.status === 428) && !p.startsWith('/api/auth/')) {
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('jarvis:auth-required'))
@@ -162,6 +204,24 @@ export async function jarvisFetch<T = unknown>(
 
 export const api = {
   getStatus: () => request('/api/status'),
+
+  /**
+   * Diagnostic de santé agrégé (`GET /api/health/detail`).
+   *
+   * `signal` est obligatoire côté appelant pour que la page puisse annuler la
+   * requête en vol au démontage : un composant démonté qui reçoit encore une
+   * réponse est une fuite d'abonnement.
+   */
+  getHealthDetail: (options?: { refresh?: boolean; signal?: AbortSignal }) =>
+    request<HealthReport>(
+      `/api/health/detail${options?.refresh ? '?refresh=true' : ''}`,
+      { signal: options?.signal },
+      [503],
+    ),
+
+  /** Latences du pipeline vocal — source unique, déjà exposée par le backend. */
+  getVoiceMetrics: (days = 7, signal?: AbortSignal) =>
+    request<VoiceLatencyMetrics>(`/api/voice/metrics?days=${days}`, { signal }),
 
   getAuthStatus: (): Promise<AuthStatus> => authClient.status(),
   authSetup: (secret: string) => authClient.setup(secret),
