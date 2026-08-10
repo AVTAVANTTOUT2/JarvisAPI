@@ -41,18 +41,39 @@ class TestIsAgenticAction:
 
 class TestShouldDeferAction:
     def test_defer_on_proposal_question(self) -> None:
-        from main import _should_defer_action
+        from api.chat_actions import _should_defer_action
         assert _should_defer_action(
             "Veux-tu que j'analyse ce fichier ?",
             {"type": "terminal", "command": "head data.csv"},
         ) is True
 
-    def test_no_defer_on_direct_command(self) -> None:
-        from main import _should_defer_action
+    def test_no_defer_on_direct_terminal_command(self) -> None:
+        from api.chat_actions import _should_defer_action
         assert _should_defer_action(
             "J'exécute la commande.",
             {"type": "terminal", "command": "ls"},
         ) is False
+
+    def test_sensitive_action_deferred_without_confirmation(self) -> None:
+        from api.chat_actions import _should_defer_action
+        assert _should_defer_action(
+            "Événement créé.",
+            {"type": "calendar_create", "summary": "RDV"},
+        ) is True
+
+    def test_sensitive_action_ignores_a_confirmed_flag_from_the_model(self) -> None:
+        """Le champ `confirmed` d'un bloc ```action``` est écrit par le modèle.
+
+        `_should_defer_action` ne reçoit que des actions fraîchement extraites
+        d'une réponse : le chemin « proposition serveur confirmée » rend la
+        main bien avant. Honorer ce champ laisserait donc une génération de
+        texte lever le garde-fou censé la contenir.
+        """
+        from api.chat_actions import _should_defer_action
+        assert _should_defer_action(
+            "Événement créé.",
+            {"type": "calendar_create", "summary": "RDV", "confirmed": True},
+        ) is True
 
 
 class TestExtractActionFromText:
