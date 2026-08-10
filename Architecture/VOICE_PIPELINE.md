@@ -1,6 +1,6 @@
 # Pipeline vocal cognitif
 
-Dernière mise à jour : 2026-08-04
+Dernière mise à jour : 2026-08-10
 
 ## Rôle
 
@@ -36,6 +36,10 @@ audio → STT local
                     └ action + action_result structurés
   → TTS → playback
 ```
+
+### Confirmation Cursor (« lance »)
+
+Après un ack de délégation, « lance » / « vas-y » démarre le job en attente via `api/voice_cognitive.py` (même priorité que le chat : une proposition shell/food/terminal liée à la session prime sur le job Cursor). Détails et phrases reconnues : [`Architecture/COGNITIVE_ROUTING.md`](COGNITIVE_ROUTING.md#délégation-cursor--proposition-et-confirmation).
 
 ### Barge-in
 
