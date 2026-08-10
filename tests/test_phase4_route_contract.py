@@ -5,13 +5,13 @@ from __future__ import annotations
 import hashlib
 import json
 
-EXPECTED_ROUTE_COUNT = 260
-EXPECTED_ROUTE_SIGNATURE = "954823c99deb8f112c7afe42ac0a2385ddc4ab3ea1929cd48c3e93bb8fd97827"
-EXPECTED_OPENAPI_PATH_COUNT = 230
+EXPECTED_ROUTE_COUNT = 262
+EXPECTED_ROUTE_SIGNATURE = "442e5f1ba292be9639647aa710ac7a4985198f0d60f03965f481f40efa668d8f"
+EXPECTED_OPENAPI_PATH_COUNT = 232
 # Empreinte stable : chemins + méthodes uniquement (indépendante de la version
 # FastAPI/Pydantic qui fait varier les composants du schéma complet).
 EXPECTED_OPENAPI_PATHS_SIGNATURE = (
-    "ecb296b555c5b05efea5dada298bf6e52225e9a08fbc34158611bbe4c3ee4ed0"
+    "94729af5ce32d16a3ad9a64580dbb769c9ec2bc4790e5dd5483ee9a3748633c8"
 )
 
 

@@ -8,7 +8,7 @@
 export const UNIFIED_ROUTES = [
   'chat', 'voice', 'tasks', 'fitness', 'food', 'documents', 'memory', 'status', 'dashboard',
   'contacts', 'map', 'analytics', 'search', 'data', 'conversations', 'calendar',
-  'logs', 'monitoring', 'voice-debug', 'control', 'mission', 'mobile', 'mails', 'config',
+  'logs', 'monitoring', 'health', 'voice-debug', 'control', 'mission', 'mobile', 'mails', 'config',
   'cognitive', 'scheduler',
 ] as const
 

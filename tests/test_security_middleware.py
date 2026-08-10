@@ -948,6 +948,10 @@ def test_routes_without_declared_limit_still_accept_streamed_bodies():
 #: s'authentifie autrement (secret d'ouverture, code d'appairage, jeton device
 #: ou jeton de localisation) ou sert précisément à ouvrir une session.
 PUBLIC_BY_DESIGN: frozenset[tuple[str, str]] = frozenset({
+    # Sonde de vie : publique par nécessité, et volontairement muette —
+    # `tests/test_health_contract.py` verrouille le fait qu'elle ne renvoie
+    # rien d'autre que `{"status": "ok"}`.
+    ("GET", "/api/health/live"),
     ("GET", "/api/auth/status"),
     ("POST", "/api/auth/setup"),
     ("POST", "/api/auth/unlock"),

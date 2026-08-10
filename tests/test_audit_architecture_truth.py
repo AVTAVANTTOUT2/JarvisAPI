@@ -378,22 +378,22 @@ def test_real_repo_smoke_counts_stable() -> None:
 
     api_surface = audit.analyze_api_surface(ROOT)
     assert api_surface["counts"] == {
-        "operations": 261,
-        "paths": 232,
-        "consumer_and_tested": 124,
-        "consumer_without_path_test": 52,
-        "owned_non_frontend_and_tested": 37,
+        "operations": 263,
+        "paths": 234,
+        "consumer_and_tested": 126,
+        "consumer_without_path_test": 51,
+        "owned_non_frontend_and_tested": 38,
         "owned_non_frontend_without_path_test": 48,
     }
     assert api_surface["structure"] == {
-        "http_operations": 259,
+        "http_operations": 261,
         "websocket_operations": 2,
-        "openapi_paths": 230,
+        "openapi_paths": 232,
         "domain_router_modules": 17,
         "mounted_routers": 18,
         "main_lines": 214,
     }
-    assert api_surface["ownership_policy"]["rules"] == 32
+    assert api_surface["ownership_policy"]["rules"] == 33
     assert api_surface["ownership_policy"]["findings"] == []
 
 
