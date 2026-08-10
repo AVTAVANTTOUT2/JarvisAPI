@@ -12,7 +12,6 @@ Usage :
 
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 import time
@@ -70,7 +69,7 @@ def test_mail() -> bool:
         r = run_osascript('tell application "Mail" to return name of every account', timeout=15.0)
     except subprocess.TimeoutExpired:
         fail("Mail.app", "TIMEOUT (15s) — Mail.app ne repond pas. Prompt Automation en attente ?")
-        print(f"        Verifiez : Reglages Systeme > Confidentialite > Automatisation")
+        print("        Verifiez : Reglages Systeme > Confidentialite > Automatisation")
         return False
     except FileNotFoundError:
         fail("osascript introuvable", "Ce script doit tourner sur macOS.")
@@ -88,7 +87,7 @@ def test_mail() -> bool:
         print(f"        {YELLOW}> Cochez Terminal/Cursor pour Mail.{RESET}")
     elif "-600" in stderr:
         fail("Mail.app — app non ouverte (erreur -600)")
-        print(f"        Lancez Mail.app manuellement puis relancez ce test.")
+        print("        Lancez Mail.app manuellement puis relancez ce test.")
     else:
         fail(f"Mail.app (rc={r.returncode})", stderr[:300])
     return False
@@ -114,7 +113,7 @@ def test_calendar() -> bool:
         )
     except subprocess.TimeoutExpired:
         fail("Calendar.app", "TIMEOUT (10s) — prompt Automation en attente ?")
-        print(f"        Verifiez : Reglages Systeme > Confidentialite > Automatisation")
+        print("        Verifiez : Reglages Systeme > Confidentialite > Automatisation")
         return False
     except FileNotFoundError:
         fail("osascript introuvable", "Ce script doit tourner sur macOS.")
@@ -132,7 +131,7 @@ def test_calendar() -> bool:
         print(f"        {YELLOW}> Cochez Terminal/Cursor pour Calendrier.{RESET}")
     elif "-600" in stderr:
         fail("Calendar.app — app non ouverte (erreur -600)")
-        print(f"        Lancez Calendar.app manuellement puis relancez ce test.")
+        print("        Lancez Calendar.app manuellement puis relancez ce test.")
     else:
         fail(f"Calendar.app (rc={r.returncode})", stderr[:300])
     return False
@@ -144,7 +143,7 @@ def test_imessage() -> bool:
 
     if not db_path.exists():
         fail("chat.db introuvable", f"Chemin : {db_path}")
-        print(f"        Messages.app n'a probablement jamais ete ouvert sur ce Mac.")
+        print("        Messages.app n'a probablement jamais ete ouvert sur ce Mac.")
         return False
 
     report = apple_data.health()

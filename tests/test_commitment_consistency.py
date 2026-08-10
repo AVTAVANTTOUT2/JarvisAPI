@@ -100,7 +100,7 @@ def test_score_clamped_between_0_and_100():
 
 
 def test_get_consistency_score_uses_real_db(tmp_db):
-    from database import add_commitment, get_db, update_commitment_status
+    from database import add_commitment, update_commitment_status
     from scripts.commitment_consistency import get_consistency_score
 
     c1 = add_commitment("Envoyer le devis")

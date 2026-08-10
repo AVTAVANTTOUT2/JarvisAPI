@@ -122,7 +122,7 @@ def test_index_text_upserts_same_source(tmp_db):
 
 
 def test_semantic_search_ranks_by_similarity(tmp_db):
-    from scripts.semantic_search import cosine_similarity, embed_text, index_text, semantic_search
+    from scripts.semantic_search import index_text, semantic_search
 
     # Vecteurs contrôlés directement (pas de dépendance au hash du texte)
     close_vec = np.array([1.0, 0.0, 0.0], dtype=np.float32)

@@ -32,7 +32,9 @@ if str(ROOT_DIR) not in sys.path:
 
 from database import init_db
 from integrations.apple_data import apple_data
-from integrations.imessage_import import IMessageImporter, imessage_importer
+from integrations.imessage_import import IMessageImporter
+
+logger = logging.getLogger(__name__)
 
 
 def _setup_logging(verbose: bool = False) -> None:
@@ -433,7 +435,6 @@ def _doctor_sqlite_open(report: dict) -> None:
 def _doctor_summary(report: dict) -> None:
     sections = report.get("sections", {})
     sqlite_ok = sections.get("sqlite_open", {}).get("success", False)
-    tcc_accessible = sections.get("tcc", {}).get("chat_db_accessible", False)
     under_remote = sections.get("process_chain", {}).get("under_remote", False)
     cursor_remote = sections.get("cursor", {}).get("remote_mode", False)
     jarvis_running = any(
@@ -645,8 +646,8 @@ def _cmd_import_direct(importer: IMessageImporter, args: argparse.Namespace) -> 
         return 1
 
     print("Demarrage de l'import complet...")
-    print(f"  Chat DB   : ~/Library/Messages/chat.db")
-    print(f"  JARVIS DB : jarvis.db")
+    print("  Chat DB   : ~/Library/Messages/chat.db")
+    print("  JARVIS DB : jarvis.db")
     print(f"  Batch     : {importer.batch_size}")
     print()
 
