@@ -79,10 +79,18 @@ def _require_browser_session(request: Request) -> dict:
     return session
 
 
-def _guard_setup() -> None:
-    """Refuse une seconde initialisation avant de valider son corps."""
+def _guard_setup(request: Request) -> str:
+    """Refuse une seconde initialisation et limite le setup au loopback."""
     if auth.is_configured():
         raise HTTPException(409, "Déjà configuré — utilisez /api/auth/change-secret")
+    if not _is_loopback(request):
+        raise HTTPException(
+            403,
+            "Configuration initiale autorisée uniquement depuis la machine locale",
+        )
+    client_key = _auth_client_key(request, channel="setup")
+    _raise_if_rate_limited(client_key)
+    return client_key
 
 
 def _guard_unlock(request: Request) -> str:
@@ -164,7 +172,7 @@ async def api_auth_setup(
     body: SecretRequest,
     request: Request,
     response: Response,
-    _guard: Annotated[None, Depends(_guard_setup)],
+    _client_key: Annotated[str, Depends(_guard_setup)],
 ):
     """Définit le PIN/passphrase initial (une seule fois) et ouvre une session."""
     try:
