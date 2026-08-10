@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+from datetime import datetime, timezone
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -21,6 +22,7 @@ from database import (
     create_conversation,
     get_conversation_detail,
     get_mobile_chat_dedup,
+    resolve_conversation_checkpoint,
     save_message,
     save_mobile_chat_dedup,
     update_conversation,
@@ -32,6 +34,10 @@ router = APIRouter()
 
 _CLIENT_MESSAGE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
 _PROPOSAL_ID_RE = re.compile(r"^[A-Za-z0-9_-]{43}$")
+_CHECKPOINT_ID_RE = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-"
+    r"[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+)
 
 
 class _StrictMobileChatRequest(BaseModel):
@@ -40,11 +46,13 @@ class _StrictMobileChatRequest(BaseModel):
 
 class MobileConversationCreateRequest(_StrictMobileChatRequest):
     title: str | None = Field(default=None, max_length=200)
+    checkpoint_id: str | None = Field(default=None, pattern=_CHECKPOINT_ID_RE)
 
 
 class MobileChatRequest(_StrictMobileChatRequest):
     content: str = Field(min_length=1, max_length=20_000)
     conversation_id: int | None = Field(default=None, ge=1)
+    checkpoint_id: str | None = Field(default=None, pattern=_CHECKPOINT_ID_RE)
     client_message_id: str | None = Field(default=None, pattern=_CLIENT_MESSAGE_ID_RE)
 
 
@@ -61,9 +69,25 @@ async def api_mobile_create_conversation(
 ) -> dict:
     """Crée une conversation pour le Companion Android."""
     title = (body.title or None) if body is not None else None
-    conversation_id = create_conversation(agent="android_chat")
+    requested_checkpoint = body.checkpoint_id if body is not None else None
+    if requested_checkpoint:
+        conversation_id, resumed = resolve_conversation_checkpoint(
+            requested_checkpoint,
+            agent="android_chat",
+            create=True,
+        )
+    else:
+        conversation_id = create_conversation(agent="android_chat")
+        resumed = False
     if title:
-        update_conversation(conversation_id, title=title)
+        update_conversation(
+            conversation_id,
+            title=title,
+            title_status="manual",
+            title_source="user",
+            title_updated_at=datetime.now(timezone.utc).isoformat(),
+        )
+    detail = get_conversation_detail(conversation_id)
     logger.info(
         "[mobile_chat] create conv=%s device=%s",
         conversation_id,
@@ -71,8 +95,11 @@ async def api_mobile_create_conversation(
     )
     return {
         "conversation_id": conversation_id,
-        "title": title,
+        "checkpoint_id": detail.get("checkpoint_id") if detail else None,
+        "title": detail.get("title") if detail else title,
+        "title_status": detail.get("title_status") if detail else "pending",
         "agent": "android_chat",
+        "resumed": resumed,
     }
 
 
@@ -100,12 +127,26 @@ async def api_mobile_chat(
             return {**cached, "idempotent_replay": True}
 
     conversation_id = body.conversation_id
+    checkpoint_id = body.checkpoint_id
+    if checkpoint_id is not None:
+        try:
+            checkpoint_conversation_id, _ = resolve_conversation_checkpoint(
+                checkpoint_id,
+                create=False,
+            )
+        except LookupError as exc:
+            raise HTTPException(404, "Checkpoint de conversation introuvable") from exc
+        if conversation_id is not None and conversation_id != checkpoint_conversation_id:
+            raise HTTPException(409, "Conversation et checkpoint incohérents")
+        conversation_id = checkpoint_conversation_id
+
     if conversation_id is not None:
         detail = get_conversation_detail(conversation_id)
         if not detail:
             raise HTTPException(404, "Conversation introuvable")
     else:
         conversation_id = create_conversation(agent="android_chat")
+        detail = get_conversation_detail(conversation_id)
 
     try:
         save_message(conversation_id, "user", content)
@@ -128,6 +169,7 @@ async def api_mobile_chat(
 
     payload: dict[str, Any] = {
         "conversation_id": conversation_id,
+        "checkpoint_id": detail.get("checkpoint_id") if detail else None,
         "response_text": response_text,
         "emotion": result.get("emotion") or "neutral",
         "agent": result.get("agent"),

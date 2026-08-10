@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-10T17:35:02.523595+00:00",
+  "generated_at": "2026-08-10T19:36:56.881933+00:00",
   "repo_root": ".",
   "canonical_formulation": {
     "database": "Le projet crée 90 tables persistantes après init_db() + migrations, plus jusqu'à 5 objets FTS5, soit 95 tables physiques lorsque FTS5 est disponible.",
@@ -487,7 +487,7 @@
         "method": "DELETE",
         "path": "/api/conversations/{conv_id}",
         "source": "api/router_conversations.py",
-        "line": 111,
+        "line": 127,
         "consumers": {
           "frontend_next": [
             "frontend/complement_validation.cjs",
@@ -1008,7 +1008,7 @@
         "method": "GET",
         "path": "/api/conversations",
         "source": "api/router_conversations.py",
-        "line": 86,
+        "line": 87,
         "consumers": {
           "frontend_next": [
             "frontend/complement_validation.cjs",
@@ -1040,7 +1040,7 @@
         "method": "GET",
         "path": "/api/conversations/search",
         "source": "api/router_conversations.py",
-        "line": 77,
+        "line": 78,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -1054,7 +1054,7 @@
         "method": "GET",
         "path": "/api/conversations/{conv_id}",
         "source": "api/router_conversations.py",
-        "line": 93,
+        "line": 94,
         "consumers": {
           "frontend_next": [
             "frontend/complement_validation.cjs",
@@ -2333,7 +2333,7 @@
         "method": "GET",
         "path": "/api/privacy/documents",
         "source": "api/router_conversations.py",
-        "line": 64,
+        "line": 65,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -2870,7 +2870,7 @@
         "method": "PATCH",
         "path": "/api/conversations/{conv_id}",
         "source": "api/router_conversations.py",
-        "line": 102,
+        "line": 103,
         "consumers": {
           "frontend_next": [
             "frontend/complement_validation.cjs",
@@ -3460,7 +3460,7 @@
         "method": "POST",
         "path": "/api/conversations/{conv_id}/archive",
         "source": "api/router_conversations.py",
-        "line": 119,
+        "line": 135,
         "consumers": {
           "frontend_next": [
             "frontend/complement_validation.cjs",
@@ -3480,7 +3480,7 @@
         "method": "POST",
         "path": "/api/conversations/{conv_id}/pin",
         "source": "api/router_conversations.py",
-        "line": 127,
+        "line": 143,
         "consumers": {
           "frontend_next": [
             "frontend/complement_validation.cjs",
@@ -3500,7 +3500,7 @@
         "method": "POST",
         "path": "/api/conversations/{conv_id}/upload",
         "source": "api/router_conversations.py",
-        "line": 138,
+        "line": 154,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -4468,7 +4468,7 @@
         "method": "POST",
         "path": "/api/mobile/chat",
         "source": "api/router_mobile_chat.py",
-        "line": 79,
+        "line": 106,
         "consumers": {
           "android": [
             "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
@@ -4485,7 +4485,7 @@
         "method": "POST",
         "path": "/api/mobile/chat/confirm",
         "source": "api/router_mobile_chat.py",
-        "line": 149,
+        "line": 191,
         "consumers": {
           "android": [
             "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
@@ -4502,7 +4502,7 @@
         "method": "POST",
         "path": "/api/mobile/conversations",
         "source": "api/router_mobile_chat.py",
-        "line": 57,
+        "line": 65,
         "consumers": {
           "android": [
             "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
@@ -5099,7 +5099,7 @@
         "method": "PUT",
         "path": "/api/privacy/documents",
         "source": "api/router_conversations.py",
-        "line": 70,
+        "line": 71,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Form, HTTPException, UploadFile
@@ -103,6 +104,21 @@ async def api_conversation_get(conv_id: int):
 async def api_conversation_update(conv_id: int, body: ConversationUpdateRequest):
     """Met à jour les métadonnées d'une conversation (titre, pinned, archived…)."""
     fields = body.model_dump(exclude_unset=True)
+    if "title" in fields:
+        title = str(fields["title"] or "").strip()
+        fields["title"] = title or None
+        if title:
+            fields.update(
+                title_status="manual",
+                title_source="user",
+                title_updated_at=datetime.now(timezone.utc).isoformat(),
+            )
+        else:
+            fields.update(
+                title_status="pending",
+                title_source=None,
+                title_updated_at=None,
+            )
     if not update_conversation(conv_id, **fields):
         raise HTTPException(404, "Conversation non trouvée")
     return {"ok": True}

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import re
 
@@ -17,7 +16,13 @@ from api.action_confirmations import (
     consume_text_confirmation,
     store_pending_proposal,
 )
-from api.chat_context import _build_enriched_context, _maybe_title_conversation
+from api.chat_context import (
+    _build_enriched_context,
+)
+from api.conversation_titles import (
+    _maybe_title_conversation,
+    schedule_conversation_title,
+)
 from database import save_message, update_conversation_activity
 from jarvis.security.llm_data_boundary import format_action_result_for_external_llm
 
@@ -131,7 +136,10 @@ async def _run_loop_mode_ws(
             cost=float(loop_result.get("total_cost") or 0.0),
         )
         update_conversation_activity(conversation_id)
-        asyncio.create_task(_maybe_title_conversation(conversation_id))
+        schedule_conversation_title(
+            conversation_id,
+            title_factory=_maybe_title_conversation,
+        )
     except Exception as exc:
         logger.warning("[loop] save_message : %s", exc)
 

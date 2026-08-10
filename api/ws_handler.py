@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import time
 
 from fastapi import WebSocket, WebSocketDisconnect
 
@@ -17,13 +16,28 @@ from api.welcome import _maybe_send_daily_welcome
 from api.ws_handsfree import _handle_hands_free_blob, handle_voice_cancel_message
 from api.ws_messages import _process_message
 from api.ws_action_messages import handle_ws_action_decision
+from api.ws_conversations import (
+    conversation_switched_payload,
+    create_websocket_conversation,
+    resume_message_checkpoint,
+    switch_websocket_conversation,
+)
 from api.ws_session import (
     _resume_or_create_conversation,
-    _ws_last_session,
+    close_websocket_conversation,
+    remember_websocket_conversation,
     resolve_websocket_auth,
     websocket_confirmation_session_id,
 )
-from database import create_conversation, end_conversation, get_conversation_detail, get_conversation_history, get_last_conversation_summary, save_message
+from database import (
+    create_conversation,
+    end_conversation,
+    get_conversation_detail,
+    get_conversation_history,
+    get_last_conversation_summary,
+    normalize_checkpoint_id,
+    save_message,
+)
 from websocket_registry import add_websocket, remove_websocket
 
 try:
@@ -43,6 +57,13 @@ async def websocket_endpoint(ws: WebSocket):
         await ws.close(code=4401)
         return
     confirmation_session_id = websocket_confirmation_session_id(session, mobile_device)
+    requested_checkpoint_id = ws.query_params.get("checkpoint_id")
+    if requested_checkpoint_id:
+        try:
+            requested_checkpoint_id = normalize_checkpoint_id(requested_checkpoint_id)
+        except ValueError:
+            await ws.close(code=4400, reason="checkpoint_id invalide")
+            return
 
     await ws.accept()
     if mobile_device:
@@ -52,6 +73,7 @@ async def websocket_endpoint(ws: WebSocket):
     await add_websocket(ws)
 
     conversation_id = None
+    checkpoint_id = None
     conversation_mode = False
     is_speaking = False
     conv_audio_buffer: list[bytes] = []
@@ -59,8 +81,16 @@ async def websocket_endpoint(ws: WebSocket):
     active_recording = None
 
     try:
-        conversation_id, resumed = _resume_or_create_conversation()
-        _ws_last_session.update({"conversation_id": conversation_id, "closed_at": 0.0, "ws": ws})
+        conversation_id, checkpoint_id, resumed = _resume_or_create_conversation(
+            confirmation_session_id,
+            requested_checkpoint_id,
+        )
+        remember_websocket_conversation(
+            confirmation_session_id,
+            ws,
+            conversation_id,
+            checkpoint_id,
+        )
         try:
             prev = get_last_conversation_summary()
             config.PRIOR_SESSION_SUMMARY = (prev or "").strip()
@@ -71,6 +101,7 @@ async def websocket_endpoint(ws: WebSocket):
         await ws.send_json({
             "type": "connected",
             "conversation_id": conversation_id,
+            "checkpoint_id": checkpoint_id,
             "user_name": config.USER_NAME,
             "resumed": resumed,
         })
@@ -204,9 +235,14 @@ async def websocket_endpoint(ws: WebSocket):
 
                 # ── Conversation mains libres (nouveau flux)
                 if msg_type == "conversation_start":
+                    voice_conversation_id = create_conversation(agent="voice")
+                    voice_conversation = get_conversation_detail(voice_conversation_id)
                     conv_session = {
                         "active": True,
-                        "conversation_id": create_conversation(agent="voice"),
+                        "conversation_id": voice_conversation_id,
+                        "checkpoint_id": voice_conversation.get("checkpoint_id")
+                        if voice_conversation
+                        else None,
                         "confirmation_session_id": confirmation_session_id,
                         "is_speaking": False,
                         "is_processing": False,
@@ -215,6 +251,7 @@ async def websocket_endpoint(ws: WebSocket):
                     await ws.send_json({
                         "type": "conversation_started",
                         "conversation_id": conv_session["conversation_id"],
+                        "checkpoint_id": conv_session["checkpoint_id"],
                         "silence_duration_ms": config.VOICE_SILENCE_DURATION_MS,
                         "min_speech_ms": config.VOICE_MIN_SPEECH_MS,
                     })
@@ -332,12 +369,14 @@ async def websocket_endpoint(ws: WebSocket):
                 if msg_type == "new_conversation":
                     try:
                         old_id = conversation_id
-                        conversation_id = create_conversation(agent="orchestrator")
-                        await ws.send_json({
-                            "type": "conversation_switched",
-                            "conversation_id": conversation_id,
-                            "title": None,
-                        })
+                        state = create_websocket_conversation(
+                            confirmation_session_id,
+                            ws,
+                            msg.get("checkpoint_id"),
+                        )
+                        conversation_id = int(state["conversation_id"])
+                        checkpoint_id = str(state["checkpoint_id"])
+                        await ws.send_json(conversation_switched_payload(state))
                         logger.info("[ws] new_conversation #%d (remplace #%s)", conversation_id, old_id)
                     except Exception as e:
                         logger.exception("[ws] new_conversation : %s", e)
@@ -345,22 +384,19 @@ async def websocket_endpoint(ws: WebSocket):
                     continue
 
                 if msg_type == "switch_conversation":
-                    target_id = msg.get("conversation_id")
-                    if not isinstance(target_id, int):
-                        await ws.send_json({"type": "error", "message": "conversation_id manquant"})
-                        continue
                     try:
-                        conv = get_conversation_detail(target_id)
-                        if not conv:
-                            await ws.send_json({"type": "error", "message": f"Conversation #{target_id} introuvable"})
-                            continue
-                        conversation_id = target_id
-                        await ws.send_json({
-                            "type": "conversation_switched",
-                            "conversation_id": conversation_id,
-                            "title": conv.get("title"),
-                        })
+                        state = switch_websocket_conversation(
+                            confirmation_session_id,
+                            ws,
+                            target_id=msg.get("conversation_id"),
+                            target_checkpoint_id=msg.get("checkpoint_id"),
+                        )
+                        conversation_id = int(state["conversation_id"])
+                        checkpoint_id = str(state["checkpoint_id"])
+                        await ws.send_json(conversation_switched_payload(state))
                         logger.info("[ws] switch_conversation → #%d", conversation_id)
+                    except (LookupError, ValueError) as e:
+                        await ws.send_json({"type": "error", "message": str(e)})
                     except Exception as e:
                         logger.exception("[ws] switch_conversation : %s", e)
                         await ws.send_json({"type": "error", "message": f"Switch échoué : {e}"})
@@ -402,6 +438,24 @@ async def websocket_endpoint(ws: WebSocket):
                     continue
 
                 try:
+                    state = resume_message_checkpoint(
+                        confirmation_session_id,
+                        ws,
+                        conversation_id,
+                        msg.get("checkpoint_id"),
+                    )
+                except (LookupError, ValueError):
+                    await ws.send_json({
+                        "type": "error",
+                        "message": "Checkpoint de conversation expiré ou invalide",
+                    })
+                    continue
+                if state:
+                    conversation_id = int(state["conversation_id"])
+                    checkpoint_id = str(state["checkpoint_id"])
+                    await ws.send_json(conversation_switched_payload(state))
+
+                try:
                     await _process_message(
                         ws, content, conversation_id, voice_mode=False, stream=stream,
                         send_tts=tts_flag, confirmation_session_id=confirmation_session_id,
@@ -422,9 +476,13 @@ async def websocket_endpoint(ws: WebSocket):
     finally:
         await remove_websocket(ws)
         # Fenêtre de grâce : une reconnexion rapide reprendra cette conversation.
-        if conversation_id:
-            _ws_last_session["conversation_id"] = conversation_id
-            _ws_last_session["closed_at"] = time.time()
+        if conversation_id and checkpoint_id:
+            close_websocket_conversation(
+                confirmation_session_id,
+                ws,
+                conversation_id,
+                checkpoint_id,
+            )
         if conv_session:
             try:
                 end_conversation(conv_session["conversation_id"])
@@ -438,7 +496,3 @@ async def websocket_endpoint(ws: WebSocket):
                     asyncio.create_task(_run_memory_in_background(conversation_id))
             except Exception as e:
                 logger.error(f"Erreur memory background trigger : {e}")
-            try:
-                end_conversation(conversation_id)
-            except Exception as e:
-                logger.error(f"Erreur end_conversation : {e}")

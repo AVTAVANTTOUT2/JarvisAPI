@@ -88,7 +88,11 @@ export interface ServiceInfo {
 
 export interface ConversationSummary {
   id: number
+  checkpoint_id: string
   title: string | null
+  title_status: 'pending' | 'ready' | 'fallback' | 'manual'
+  title_source: string | null
+  title_updated_at: string | null
   started_at: string
   last_message_at: string | null
   message_count: number
@@ -125,7 +129,9 @@ export interface ConversationDetail extends ConversationSummary {
 
 export interface ConversationSearchResult {
   id: number
+  checkpoint_id: string
   title: string | null
+  title_status: 'pending' | 'ready' | 'fallback' | 'manual'
   started_at: string
   last_message_at: string | null
   message_count: number

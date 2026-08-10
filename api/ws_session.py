@@ -10,13 +10,52 @@ from fastapi import WebSocket
 import auth
 import config
 from api.middleware import _canonical_origin
-from database import create_conversation
+from database import (
+    create_conversation,
+    get_conversation_detail,
+    resolve_conversation_checkpoint,
+)
 from websocket_registry import connected_ws
 
 logger = logging.getLogger("jarvis")
 
 
-_ws_last_session: dict[str, Any] = {"conversation_id": None, "closed_at": 0.0, "ws": None}
+_ws_last_sessions: dict[str, dict[str, Any]] = {}
+
+
+def remember_websocket_conversation(
+    identity_key: str,
+    ws: WebSocket,
+    conversation_id: int,
+    checkpoint_id: str,
+    *,
+    closed_at: float = 0.0,
+) -> None:
+    """Mémorise uniquement la conversation de cette identité authentifiée."""
+    _ws_last_sessions[identity_key] = {
+        "conversation_id": conversation_id,
+        "checkpoint_id": checkpoint_id,
+        "closed_at": closed_at,
+        "ws": ws,
+    }
+
+
+def close_websocket_conversation(
+    identity_key: str,
+    ws: WebSocket,
+    conversation_id: int,
+    checkpoint_id: str,
+) -> None:
+    """Ouvre la fenêtre de grâce sans clôturer la conversation persistée."""
+    import time
+
+    remember_websocket_conversation(
+        identity_key,
+        ws,
+        conversation_id,
+        checkpoint_id,
+        closed_at=time.time(),
+    )
 
 
 def resolve_websocket_auth(ws: WebSocket) -> tuple[Any, dict | None]:
@@ -80,9 +119,16 @@ def websocket_confirmation_session_id(
     raise ValueError("WebSocket sans identité authentifiée")
 
 
-def _resume_or_create_conversation(now: float | None = None) -> tuple[int, bool]:
-    """Reprend la conversation précédente si la coupure est plus courte que
-    VOICE_SESSION_GRACE_S, sinon en crée une nouvelle. Retourne (id, reprise).
+def _resume_or_create_conversation(
+    identity_key: str,
+    requested_checkpoint_id: str | None = None,
+    now: float | None = None,
+) -> tuple[int, str, bool]:
+    """Résout le checkpoint client ou reprend la session de cette identité.
+
+    Retourne ``(conversation_id, checkpoint_id, resumed)``. L'ancien état
+    global pouvait rattacher une socket à la conversation d'un autre client ;
+    le fallback de grâce est désormais isolé par session ou appareil.
 
     Deux cas de reprise :
     - déconnexion détectée il y a moins de `grace` secondes ;
@@ -93,13 +139,37 @@ def _resume_or_create_conversation(now: float | None = None) -> tuple[int, bool]
 
     now = now or _time.time()
     grace = getattr(config, "VOICE_SESSION_GRACE_S", 180)
-    prev_id = _ws_last_session.get("conversation_id")
+    if requested_checkpoint_id:
+        conv_id, resumed = resolve_conversation_checkpoint(
+            requested_checkpoint_id,
+            agent="orchestrator",
+            create=True,
+        )
+        detail = get_conversation_detail(conv_id)
+        if not detail:
+            raise LookupError("conversation checkpoint introuvable")
+        return conv_id, str(detail["checkpoint_id"]), resumed
+
+    previous = _ws_last_sessions.get(identity_key) or {}
+    prev_id = previous.get("conversation_id")
     if prev_id:
-        closed_at = _ws_last_session.get("closed_at") or 0.0
-        prev_ws = _ws_last_session.get("ws")
+        closed_at = previous.get("closed_at") or 0.0
+        prev_ws = previous.get("ws")
         recently_closed = closed_at > 0.0 and (now - closed_at) < grace
         dropped = closed_at == 0.0 and prev_ws is not None and prev_ws not in connected_ws
         if recently_closed or dropped:
-            logger.info("[ws] Reprise de la conversation #%s (coupure < %ds)", prev_id, grace)
-            return prev_id, True
-    return create_conversation(agent="orchestrator"), False
+            detail = get_conversation_detail(int(prev_id))
+            if detail and detail.get("checkpoint_id"):
+                logger.info(
+                    "[ws] Reprise de la conversation #%s pour %s (coupure < %ds)",
+                    prev_id,
+                    identity_key,
+                    grace,
+                )
+                return int(prev_id), str(detail["checkpoint_id"]), True
+
+    conv_id = create_conversation(agent="orchestrator")
+    detail = get_conversation_detail(conv_id)
+    if not detail or not detail.get("checkpoint_id"):
+        raise RuntimeError("checkpoint de conversation non créé")
+    return conv_id, str(detail["checkpoint_id"]), False

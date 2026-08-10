@@ -10,81 +10,23 @@ from typing import Any
 from fastapi import WebSocket
 
 import config
-import llm
 from api.llm_logging import _schedule_llm_log
 from database import (
     get_all_people,
     get_app_usage,
-    get_conversation_detail,
     get_conversation_documents,
     get_conversations,
     get_current_screen_context,
     get_recordings,
     get_school_documents,
     get_tasks,
-    update_conversation,
 )
 from integrations import calendar_client, mail_client, weather
 from jarvis.document_privacy import document_strict_local_enabled
 from jarvis.pii.boundary import DataBoundary
-from jarvis.security.llm_data_boundary import (
-    UNTRUSTED_DATA_SYSTEM_RULE,
-    wrap_untrusted_data,
-)
+from jarvis.security.llm_data_boundary import wrap_untrusted_data
 
 logger = logging.getLogger("jarvis")
-
-
-async def _maybe_title_conversation(conv_id: int) -> None:
-    """Génère un titre court si la conversation n'en a pas encore et a au moins 1 user + 1 assistant."""
-    try:
-        conv = get_conversation_detail(conv_id)
-        if not conv or conv.get("title"):
-            return
-        msgs = conv.get("messages", [])
-        has_user = any(m.get("role") == "user" for m in msgs)
-        has_assistant = any(m.get("role") == "assistant" for m in msgs)
-        if not (has_user and has_assistant):
-            return
-        first_msgs = msgs[:4]
-        raw_context = "\n".join(
-            f"{m['role']}: {m['content'][:100]}" for m in first_msgs
-        )
-        context = wrap_untrusted_data(
-            "CONVERSATION_HISTORY_FOR_TITLE",
-            raw_context,
-            max_chars=800,
-        )
-        result = await llm.chat(
-            messages=[{"role": "user", "content": context}],
-            model=config.DEEPSEEK_FAST_MODEL,
-            system=(
-                UNTRUSTED_DATA_SYSTEM_RULE
-                + "\nGénère un titre court (3-6 mots) pour cette conversation. "
-                "Pas de guillemets, pas de ponctuation finale. Juste le titre."
-            ),
-            max_tokens=20,
-            temperature=0.3,
-            use_cache=False,
-        )
-        title = (result.get("content") or "").strip().strip('"').strip("'")
-        if title:
-            update_conversation(conv_id, title=title)
-            _schedule_llm_log(
-                agent="system",
-                action_type="auto_title",
-                payload={"conversation_id": conv_id, "title": title},
-                status="success",
-            )
-            logger.info("[conv] Titre auto : #%d → %s", conv_id, title)
-    except Exception as e:
-        _schedule_llm_log(
-            agent="system",
-            action_type="auto_title",
-            payload={"conversation_id": conv_id, "error": str(e)},
-            status="error",
-        )
-        logger.debug("[conv] _maybe_title_conversation : %s", e)
 
 
 async def _send_tts_streaming(

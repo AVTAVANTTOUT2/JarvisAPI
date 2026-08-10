@@ -33,9 +33,12 @@ from .conversations import (
     delete_conversation,
     end_conversation,
     get_conversation_detail,
+    get_conversation_by_checkpoint,
     get_conversation_documents,
     get_conversation_history,
     get_conversations,
+    normalize_checkpoint_id,
+    resolve_conversation_checkpoint,
     get_last_conversation_summary,
     get_messages_since,
     save_conversation_document,
@@ -45,6 +48,7 @@ from .conversations import (
     update_agentic_workflow,
     update_conversation,
     update_conversation_activity,
+    update_generated_conversation_title,
 )
 
 from .episodes import (

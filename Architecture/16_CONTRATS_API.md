@@ -102,29 +102,36 @@ GET /api/conversations?limit=20&cursor=eyJpZCI6NDJ9
 
 ## WebSocket — Contrat
 
+Le client conserve un `checkpoint_id` UUID opaque par conversation. Il le
+présente à la reconnexion via `/ws?checkpoint_id=<uuid>` et dans chaque message
+texte. L'identifiant numérique reste un identifiant interne de base ; le
+checkpoint est le contrat durable et idempotent entre reconnexions.
+
 ### Messages client → serveur
 
 | Type | Payload | Description |
 |---|---|---|
 | `handshake` | `{version: 1}` | Négociation de version |
-| `text` | `{content: "...", conversation_id: 1}` | Message texte |
+| `text` | `{content: "...", checkpoint_id: "<uuid>"}` | Message texte rattaché explicitement à la conversation active |
 | `voice` | `Blob` (binaire) | Audio WebM |
 | `action_confirm` | `{proposal_id: "<opaque>"}` | Consommation unique d'une proposition serveur liée à la session et à la conversation |
 | `action_cancel` | `{proposal_id: "<opaque>"}` | Révocation de la proposition et de son éventuel plan shell |
-| `switch_conversation` | `{conversation_id: 2}` | Changement de conversation |
-| `new_conversation` | `{}` | Nouvelle conversation |
+| `switch_conversation` | `{conversation_id: 2, checkpoint_id: "<uuid>"}` | Changement vérifié par les deux identifiants |
+| `new_conversation` | `{checkpoint_id: "<uuid>"}` | Création idempotente d'une nouvelle conversation |
 
 ### Messages serveur → client
 
 | Type | Payload | Description |
 |---|---|---|
 | `handshake_ok` | `{version: 1, session_id: "..."}` | Handshake accepté |
+| `connected` | `{conversation_id: 1, checkpoint_id: "<uuid>", resumed: true}` | Conversation créée ou restaurée au handshake |
+| `conversation_switched` | `{conversation_id: 2, checkpoint_id: "<uuid>", title: "...", resumed: true}` | Accusé de création ou de changement |
 | `response` | `{content: "...", agent: "school", emotion: "warm"}` | Réponse JARVIS |
 | `response_chunk` | `{content: "..."}` | Streaming progressif |
 | `response_end` | `{}` | Fin du streaming |
 | `action_request` | `{action: {...}}` | Demande de confirmation |
 | `notification` | `{id: 1, title: "...", priority: "high"}` | Notification push |
-| `conversation_updated` | `{id: 1, title: "..."}` | Mise à jour conversation |
+| `conversation_updated` | `{conversation_id: 1, checkpoint_id: "<uuid>", title: "...", title_status: "ready"}` | Métadonnées immédiates puis titre IA final |
 | `error` | `{code: "...", message: "..."}` | Erreur |
 
 ## Évolution future

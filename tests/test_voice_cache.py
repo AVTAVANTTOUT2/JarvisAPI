@@ -161,19 +161,48 @@ def test_ws_session_grace(monkeypatch, tmp_path):
     import main
 
     monkeypatch.setattr("config.VOICE_SESSION_GRACE_S", 180)
-    monkeypatch.setitem(main._ws_last_session, "conversation_id", None)
-    monkeypatch.setitem(main._ws_last_session, "closed_at", 0.0)
+    main._ws_last_sessions.clear()
 
     # première connexion : création
-    cid1, resumed = main._resume_or_create_conversation(now=1000.0)
+    cid1, checkpoint1, resumed = main._resume_or_create_conversation(
+        "session:browser-a",
+        now=1000.0,
+    )
     assert resumed is False
 
     # coupure courte → reprise de la même conversation
-    main._ws_last_session["conversation_id"] = cid1
-    main._ws_last_session["closed_at"] = 1000.0
-    cid2, resumed = main._resume_or_create_conversation(now=1060.0)
+    main._ws_last_sessions["session:browser-a"] = {
+        "conversation_id": cid1,
+        "checkpoint_id": checkpoint1,
+        "closed_at": 1000.0,
+        "ws": None,
+    }
+    cid2, checkpoint2, resumed = main._resume_or_create_conversation(
+        "session:browser-a",
+        now=1060.0,
+    )
     assert resumed is True and cid2 == cid1
+    assert checkpoint2 == checkpoint1
+
+    # une autre identité ne reprend jamais la conversation du premier client
+    isolated_id, _, resumed = main._resume_or_create_conversation(
+        "session:browser-b",
+        now=1060.0,
+    )
+    assert resumed is False and isolated_id != cid1
 
     # coupure au-delà de la grâce → nouvelle conversation
-    cid3, resumed = main._resume_or_create_conversation(now=1000.0 + 300)
+    cid3, _, resumed = main._resume_or_create_conversation(
+        "session:browser-a",
+        now=1300.0,
+    )
     assert resumed is False and cid3 != cid1
+
+    # le checkpoint explicite reste durable au-delà de la fenêtre de grâce
+    resumed_id, resumed_checkpoint, resumed = main._resume_or_create_conversation(
+        "session:browser-a",
+        checkpoint1,
+        now=5000.0,
+    )
+    assert resumed is True and resumed_id == cid1
+    assert resumed_checkpoint == checkpoint1
