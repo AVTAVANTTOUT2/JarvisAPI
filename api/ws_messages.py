@@ -142,11 +142,11 @@ async def _process_message(
 
         # ── Routage cognitif : tâche technique → délégation Cursor ──
         try:
-            from api.chat_cognitive import maybe_delegate_chat_to_cursor, route_chat_text
+            from api.chat_cognitive import maybe_delegate_chat_to_cursor, route_chat_text, should_run_cursor_cognitive_path
 
             intent = route_chat_text(original_text, voice_mode=voice_mode)
             await ws.send_json({"type": "routing", "routing": intent.to_diagnostic()})
-            if intent.execution_type == "cursor":
+            if should_run_cursor_cognitive_path(original_text, intent, conversation_id, confirmation_session_id):
                 delegated = await maybe_delegate_chat_to_cursor(
                     original_text,
                     conversation_id,

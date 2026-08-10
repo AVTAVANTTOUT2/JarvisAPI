@@ -116,10 +116,10 @@ async def _process_message_internal(
 
         # ── Routage cognitif : tâche technique → délégation Cursor ──
         try:
-            from api.chat_cognitive import maybe_delegate_chat_to_cursor, route_chat_text
+            from api.chat_cognitive import maybe_delegate_chat_to_cursor, route_chat_text, should_run_cursor_cognitive_path
 
             intent = route_chat_text(original_text, voice_mode=voice_mode)
-            if intent.execution_type == "cursor":
+            if should_run_cursor_cognitive_path(original_text, intent, conversation_id, confirmation_session_id):
                 # NB : la persistance du message user appartient à l'appelant
                 # REST (même contrat que le reste de _process_message_internal).
                 delegated = await maybe_delegate_chat_to_cursor(
