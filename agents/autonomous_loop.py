@@ -6,7 +6,7 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import Awaitable, Callable, Protocol
+from typing import Awaitable, Callable
 
 import config
 import llm
@@ -206,7 +206,7 @@ async def run_autonomous_loop(
     workflow_id: int | None = None
     if conversation_id:
         try:
-            from database import create_agentic_workflow, update_agentic_workflow
+            from database import create_agentic_workflow
 
             workflow_id = create_agentic_workflow(
                 conversation_id,

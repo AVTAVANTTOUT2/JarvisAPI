@@ -14,7 +14,6 @@ import asyncio
 import io
 import logging
 import math
-import os
 import struct
 import subprocess
 import tempfile
@@ -46,13 +45,13 @@ from pipeline import process_voice_fast
 
 # Detection Silero VAD (sans log, le logger est defini plus bas)
 try:
-    from audio.vad_silero import silero_vad as _vad_silero, SileroVAD
+    from audio.vad_silero import silero_vad as _vad_silero
     USE_SILERO_VAD: bool = _vad_silero.available
 except ImportError:
     USE_SILERO_VAD = False
     _vad_silero = None
 
-from database import create_conversation, get_setting, save_message
+from database import create_conversation
 from jarvis.event_bus import JarvisEvent, event_bus
 
 logger = logging.getLogger("audio_daemon")
@@ -255,7 +254,6 @@ def _generate_wake_sound() -> None:
     duration = 0.150
     freq = 880.0
     n_samples = int(SAMPLE_RATE * duration)
-    fade_samples = int(SAMPLE_RATE * 0.020)
 
     with wave.open(str(path), "w") as f:
         f.setnchannels(CHANNELS)
@@ -280,7 +278,6 @@ def _generate_end_sound() -> None:
     duration = 0.120
     freq = 440.0
     n_samples = int(SAMPLE_RATE * duration)
-    fade_samples = int(SAMPLE_RATE * 0.015)
 
     with wave.open(str(path), "w") as f:
         f.setnchannels(CHANNELS)
@@ -700,8 +697,6 @@ class AudioDaemon:
 
         self._audio_queue = asyncio.Queue(maxsize=300)
         self._utterance_queue = asyncio.Queue(maxsize=3)
-
-        loop = asyncio.get_running_loop()
 
         # TTS local : le chargement du modèle appartient au warmup, jamais à un
         # tour de parole. `_warmup_tts` est lancé plus bas, hors conversation.
@@ -1912,7 +1907,8 @@ class AudioDaemon:
     def _porcupine_wake_loop(self) -> None:
         """Thread bloquant : écoute le wake word via Porcupine."""
         try:
-            import pvporcupine  # type: ignore[import-not-found]
+            # Sonde de disponibilité : l'import lui-même est le test.
+            import pvporcupine  # noqa: F401  # type: ignore[import-not-found]
         except ImportError:
             return
 

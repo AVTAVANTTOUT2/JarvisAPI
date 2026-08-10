@@ -12,7 +12,6 @@ Usage:
 """
 
 import asyncio
-import json
 import os
 import re
 import sqlite3
@@ -21,7 +20,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Optional
 
 # ── Setup path ───────────────────────────────────────────────
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -701,7 +700,7 @@ async def run_test(tc: TestCase) -> TestResult:
             # Si le bloc action est malforme, le pipeline n'a pas pu l'extraire
             if action_malformed:
                 if VERBOSE:
-                    print(f"\n    [warn] Bloc action malforme (``` manquants)")
+                    print("\n    [warn] Bloc action malforme (``` manquants)")
                 # Bug pipeline connu — on ne fail pas strictement
             elif tc.expect_action in (
                 "weather", "open_app", "calendar", "terminal",

@@ -105,8 +105,6 @@ def _check_ollama() -> bool:
 
 def _check_db() -> bool:
     """Vérifie si le fichier SQLite JARVIS est accessible."""
-    import os
-    db_path = os.path.join(os.path.dirname(__file__), "..", "data", "jarvis.db")
     # Chemin absolu depuis la racine du projet
     from pathlib import Path
     root = Path(__file__).resolve().parent.parent.parent

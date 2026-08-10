@@ -16,9 +16,7 @@ import ipaddress
 import json
 import logging
 import time
-import sys
 from contextlib import asynccontextmanager
-from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -26,7 +24,6 @@ from fastapi import FastAPI, Request
 from fastapi.responses import (
     HTMLResponse,
     JSONResponse,
-    PlainTextResponse,
     RedirectResponse,
     StreamingResponse,
 )

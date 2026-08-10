@@ -1,0 +1,27 @@
+# Garde-fou lint Python — exécuté en CI (job backend) via `ruff check .`.
+#
+# Périmètre volontairement restreint aux règles pyflakes (F) : des erreurs
+# de correction objectives (noms non définis, imports et variables
+# inutilisés…), pas des questions de style. Élargir la sélection se fait
+# par PR dédiée, avec les correctifs associés dans le même commit.
+
+target-version = "py312"
+
+# Arbres non-Python du monorepo. Ruff n'analyse que les fichiers .py, mais
+# l'exclusion explicite évite de parcourir node_modules et les builds.
+extend-exclude = [
+    "android",
+    "artifacts",
+    "frontend",
+    "native_mac",
+    "web",
+    "web_mobile",
+]
+
+[lint]
+select = ["F"]
+
+[lint.per-file-ignores]
+# Les __init__.py de façade réexportent volontairement leurs symboles
+# (contrat documenté : « helpers réexportés par `database` », etc.).
+"**/__init__.py" = ["F401"]
