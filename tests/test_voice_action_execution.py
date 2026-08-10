@@ -302,10 +302,21 @@ async def test_voice_cursor_phrases_confirm_pending_shell_plan(phrase: str):
         confirmation_session_id="local-voice:9",
     )
     execute = AsyncMock(return_value={"ok": True, "output": "done"})
+    followup = AsyncMock(
+        return_value={
+            "emotion": "neutral",
+            "response": "Commande exécutée.",
+            "agent": "orchestrator",
+            "model": None,
+            "tokens_in": 0,
+            "tokens_out": 0,
+            "cost": 0.0,
+        }
+    )
 
     with (
         patch("api.chat_processing.execute_action", execute),
-        patch("api.chat_processing.orchestrator.handle", AsyncMock()),
+        patch("api.chat_processing.orchestrator.handle", followup),
         patch("api.chat_processing.save_message"),
         patch("api.chat_processing.update_conversation_activity"),
     ):
@@ -321,4 +332,5 @@ async def test_voice_cursor_phrases_confirm_pending_shell_plan(phrase: str):
         "shell_plan_id": "server-plan",
         "confirmed": True,
     })
+    followup.assert_awaited_once()
     assert result["action_result"] == {"ok": True, "output": "done"}
