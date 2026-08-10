@@ -55,7 +55,7 @@ async def _fake_call_deepseek(system: str, user: str, **kwargs):
 @pytest.mark.asyncio
 async def test_full_loop_iteration_with_perf_staging_pr(tmp_db, tmp_path, monkeypatch):
     from database import devagent as devagent_db
-    from database import get_perf_history, get_unread_notifications
+    from database import get_perf_history
     from database.devagent import get_deployments
 
     project_path = tmp_path / "myproj"

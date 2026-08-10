@@ -11,7 +11,6 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any
 
-import config as cfg
 
 logger = logging.getLogger(__name__)
 

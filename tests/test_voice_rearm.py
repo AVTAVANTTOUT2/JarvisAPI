@@ -57,7 +57,6 @@ async def test_empty_transcription_creates_nothing_and_rearms():
 
     with (
         patch("scripts.audio_daemon.create_conversation") as create_conv,
-        patch("scripts.audio_daemon.save_message") as save_msg,
         patch("scripts.audio_daemon.process_voice_fast", new_callable=AsyncMock) as llm,
         patch.object(type(daemon), "_play_tts", new_callable=AsyncMock) as tts,
         patch.object(type(daemon), "_broadcast_state", new_callable=AsyncMock),
@@ -70,7 +69,8 @@ async def test_empty_transcription_creates_nothing_and_rearms():
         )
 
     create_conv.assert_not_called()
-    save_msg.assert_not_called()
+    # La persistance passe par process_voice_fast (pipeline) : le module
+    # audio_daemon n'importe plus save_message, l'assertion vit sur llm.
     llm.assert_not_awaited()
     tts.assert_not_awaited()
 

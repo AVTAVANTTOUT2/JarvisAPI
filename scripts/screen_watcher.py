@@ -28,7 +28,6 @@ from collections.abc import Awaitable, Callable
 from io import BytesIO
 from pathlib import Path
 
-import httpx
 from PIL import Image
 
 import config

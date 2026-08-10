@@ -23,7 +23,6 @@ import time
 from datetime import datetime
 from typing import Any
 
-import httpx
 
 import config
 from agents.display_text import finalize_assistant_display_text
@@ -32,7 +31,6 @@ from audio.voice_queue import VoicePriority, priority_from_string, voice_queue
 from database import (
     get_all_devices,
     get_all_processed_email_ids,
-    get_current_screen_context,
     mark_device_offline,
     set_active_device,
 )

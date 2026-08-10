@@ -219,7 +219,7 @@ def test_voice_heavy_ack_then_background_main(tmp_db):
             await asyncio.sleep(0.3)
             return result
 
-    result = asyncio.run(_run())
+    asyncio.run(_run())
     assert chat_mock.await_count >= 1  # le plan Main a bien été généré en fond
 
 
