@@ -23,6 +23,7 @@ from database import (
     get_relationship_timeline,
     get_school_documents,
     get_tasks,
+    unified_search,
 )
 from database.time_buckets import local_datetime, sqlite_utc_timestamp
 from integrations import calendar_client
@@ -205,58 +206,19 @@ async def api_contacts_sync():
         raise internal_error("contacts_sync_failed", "Synchronisation des contacts impossible") from e
 
 
-async def api_search(q: str = ""):
-    """Recherche légère multi-sources (pas de LLM)."""
-    needle = (q or "").strip().lower()
-    if len(needle) < 2:
-        return {"query": q, "results": []}
-
-    results: list[dict] = []
-
-    try:
-        for p in get_all_people():
-            name = (p.get("name") or "").strip()
-            if needle in name.lower():
-                results.append({
-                    "type": "person",
-                    "id": p.get("id"),
-                    "title": name,
-                    "subtitle": p.get("relationship") or "",
-                    "meta": "people",
-                })
-    except Exception as e:
-        logger.warning("search people : %s", e)
-
-    try:
-        for ep in get_recent_episodes(limit=80):
-            blob = f"{ep.get('summary', '')} {ep.get('content', '')}".lower()
-            if needle in blob:
-                results.append({
-                    "type": "episode",
-                    "id": ep.get("id"),
-                    "title": (ep.get("summary") or ep.get("content") or "")[:120],
-                    "subtitle": str(ep.get("created_at") or ""),
-                    "meta": "episode",
-                })
-    except Exception as e:
-        logger.warning("search episodes : %s", e)
-
-    try:
-        docs = get_school_documents(limit=50)
-        for d in docs:
-            t = (d.get("title") or "").lower()
-            if needle in t or needle in (d.get("content") or "").lower()[:2000]:
-                results.append({
-                    "type": "document",
-                    "id": d.get("id"),
-                    "title": d.get("title") or "(sans titre)",
-                    "subtitle": d.get("doc_type") or "",
-                    "meta": "school_document",
-                })
-    except Exception as e:
-        logger.warning("search docs : %s", e)
-
-    return {"query": q, "results": results[:80]}
+async def api_search(q: str = "", limit: int = 50):
+    """Recherche classée dans toutes les données locales, sans appel LLM."""
+    results = unified_search(q, limit=limit)
+    categories: dict[str, int] = {}
+    for result in results:
+        category = str(result["category"])
+        categories[category] = categories.get(category, 0) + 1
+    return {
+        "query": q,
+        "total": len(results),
+        "categories": categories,
+        "results": results,
+    }
 
 
 async def api_export_dump(format: str = "json"):
