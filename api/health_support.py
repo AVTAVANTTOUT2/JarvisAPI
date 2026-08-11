@@ -31,6 +31,7 @@ from typing import Any
 from fastapi import Query, Response
 
 from jarvis import health
+from database import get_metric_history
 
 logger = logging.getLogger(__name__)
 
@@ -66,4 +67,11 @@ async def api_health_detail(
     return report
 
 
-__all__ = ["api_health_detail", "api_health_live"]
+async def api_metrics_history(
+    hours: int = Query(24, ge=1, le=24 * 365),
+) -> dict[str, Any]:
+    """Buckets persistants et tendances du diagnostic opérationnel."""
+    return get_metric_history(hours)
+
+
+__all__ = ["api_health_detail", "api_health_live", "api_metrics_history"]

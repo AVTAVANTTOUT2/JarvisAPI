@@ -624,6 +624,7 @@ BACKUP_KEEP = int(_get("BACKUP_KEEP", "7"))            # nb de sauvegardes conse
 # pour les journaux d'actions : leur fenêtre est volontairement bornée.
 RETENTION_SCREEN_DAYS = int(_get("RETENTION_SCREEN_DAYS", "30"))
 RETENTION_LOCATION_DAYS = int(_get("RETENTION_LOCATION_DAYS", "90"))
+RETENTION_METRICS_DAYS = max(7, min(int(_get("RETENTION_METRICS_DAYS", "90")), 365))
 RETENTION_NOTIF_READ_DAYS = int(_get("RETENTION_NOTIF_READ_DAYS", "60"))
 RETENTION_LLM_LOGS_DAYS = max(1, min(int(_get("RETENTION_LLM_LOGS_DAYS", "7")), 30))
 RETENTION_SCHEDULER_RUNS_DAYS = max(

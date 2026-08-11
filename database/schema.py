@@ -878,4 +878,18 @@ CREATE TABLE IF NOT EXISTS sync_operations (
 );
 CREATE INDEX IF NOT EXISTS idx_sync_operations_entity
     ON sync_operations(entity_key, created_at);
+
+-- Séries temporelles d'observabilité, agrégées par buckets de cinq minutes.
+CREATE TABLE IF NOT EXISTS metric_samples (
+    metric TEXT NOT NULL,
+    bucket_at DATETIME NOT NULL,
+    value REAL NOT NULL,
+    last_value REAL NOT NULL,
+    unit TEXT NOT NULL DEFAULT '',
+    sample_count INTEGER NOT NULL DEFAULT 1 CHECK(sample_count >= 1),
+    recorded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY(metric, bucket_at)
+);
+CREATE INDEX IF NOT EXISTS idx_metric_samples_recorded
+    ON metric_samples(recorded_at);
 """
