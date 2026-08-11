@@ -1,11 +1,13 @@
 /**
  * HealthView — état de santé unifié de JARVIS.
  *
- * Deux sources, aucune duplication :
+ * Trois sources, aucune duplication :
  *  - `GET /api/health/detail` : agrégation des composants (backend, SQLite,
  *    bus d'événements, ressources, STT, TTS) produite par `jarvis/health.py` ;
  *  - `GET /api/voice/metrics` : latences p50/p95 du pipeline vocal, déjà
  *    exposées par le backend — la page les affiche, elle ne les recalcule pas.
+ *  - `GET /api/metrics/history` : historique compacté des diagnostics santé,
+ *    conservé localement selon la politique de rétention du serveur.
  *
  * Rafraîchissement : polling borné, pas de SSE. Le flux `/api/events/stream`
  * transporte des événements de domaine (tâches, notifications, mémoire) ; un
@@ -40,6 +42,8 @@ import {
   type HealthComponent,
   type HealthReport,
   type HealthState,
+  type MetricHistoryResponse,
+  type MetricHistorySeries,
   type VoiceLatencyMetrics,
 } from '@unified/lib/api';
 
@@ -126,6 +130,121 @@ const VOICE_STAGE_LABELS: Record<string, string> = {
   total: 'Tour complet',
 };
 
+const HISTORY_METRICS: Record<string, string> = {
+  'health.score': 'Disponibilité',
+  'health.duration_ms': 'Durée du diagnostic',
+  'health.database.latency_ms': 'Latence SQLite',
+};
+
+function formatMetricValue(value: number, unit: string): string {
+  const formatted = Number.isInteger(value) ? String(value) : value.toFixed(1);
+  if (unit === 'percent') return `${formatted} %`;
+  if (unit === 'ms') return `${formatted} ms`;
+  return unit ? `${formatted} ${unit}` : formatted;
+}
+
+function MetricSparkline({ series }: { series: MetricHistorySeries }) {
+  const width = 240;
+  const height = 72;
+  const padding = 6;
+  const values = series.points.map((point) => point.value);
+  const minimum = Math.min(...values);
+  const maximum = Math.max(...values);
+  const spread = maximum - minimum;
+  const coordinates = series.points
+    .map((point, index) => {
+      const x =
+        series.points.length === 1
+          ? width / 2
+          : padding + (index / (series.points.length - 1)) * (width - padding * 2);
+      const y =
+        spread === 0
+          ? height / 2
+          : padding + ((maximum - point.value) / spread) * (height - padding * 2);
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(' ');
+
+  return (
+    <svg
+      viewBox={`0 0 ${width} ${height}`}
+      role="img"
+      aria-label={`Évolution de ${HISTORY_METRICS[series.metric] ?? series.metric}`}
+      className="h-[72px] w-full"
+    >
+      <line
+        x1={padding}
+        y1={height / 2}
+        x2={width - padding}
+        y2={height / 2}
+        stroke="currentColor"
+        className="text-white/5"
+      />
+      <polyline
+        points={coordinates}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="text-cyan-400"
+      />
+    </svg>
+  );
+}
+
+function MetricHistoryPanel({ history }: { history: MetricHistoryResponse | null }) {
+  const selected = (history?.series ?? []).filter(
+    (series) => HISTORY_METRICS[series.metric] && series.points.length > 0,
+  );
+
+  return (
+    <section className="mt-8">
+      <h2 className="mb-3 text-sm font-semibold text-slate-300">
+        Tendances opérationnelles
+        <span className="ml-2 text-xs font-normal text-slate-500">
+          source : /api/metrics/history — {history?.hours ?? 24} dernières heures
+        </span>
+      </h2>
+      {selected.length === 0 ? (
+        <p data-testid="metric-history-empty" className="font-mono text-xs text-slate-500">
+          L’historique se constituera au fil des diagnostics.
+        </p>
+      ) : (
+        <div data-testid="metric-history" className="grid gap-3 md:grid-cols-3">
+          {selected.map((series) => {
+            const trend = series.summary.trend_pct;
+            const trendLabel = trend === null ? 'tendance initiale' : `${trend > 0 ? '+' : ''}${trend} %`;
+            return (
+              <article key={series.metric} className="rounded-lg border border-white/10 bg-white/[0.02] p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h3 className="text-xs font-medium text-slate-300">
+                      {HISTORY_METRICS[series.metric]}
+                    </h3>
+                    <p className="mt-1 font-mono text-lg text-slate-100">
+                      {formatMetricValue(series.summary.latest, series.unit)}
+                    </p>
+                  </div>
+                  <span className="font-mono text-[11px] text-slate-500">{trendLabel}</span>
+                </div>
+                <MetricSparkline series={series} />
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Moyenne {formatMetricValue(series.summary.average, series.unit)} · {series.summary.samples}{' '}
+                  échantillon(s)
+                </p>
+              </article>
+            );
+          })}
+        </div>
+      )}
+      {history && (
+        <p className="mt-2 text-[11px] text-slate-600">Rétention locale : {history.retention_days} jours.</p>
+      )}
+    </section>
+  );
+}
+
 function StateIcon({ state, size = 16 }: { state: HealthState; size?: number }) {
   if (state === 'healthy') return <CheckCircle2 size={size} className="text-emerald-400" />;
   if (state === 'degraded') return <AlertTriangle size={size} className="text-amber-400" />;
@@ -204,6 +323,7 @@ function ComponentCard({ component }: { component: HealthComponent }) {
 export function HealthView() {
   const [report, setReport] = useState<HealthReport | null>(null);
   const [voice, setVoice] = useState<VoiceLatencyMetrics | null>(null);
+  const [history, setHistory] = useState<MetricHistoryResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -221,13 +341,15 @@ export function HealthView() {
 
     if (opts?.refresh) setRefreshing(true);
     try {
-      const [health, metrics] = await Promise.all([
+      const [health, metrics, metricHistory] = await Promise.all([
         api.getHealthDetail({ refresh: opts?.refresh, signal: controller.signal }),
         api.getVoiceMetrics(7, controller.signal).catch(() => null),
+        api.getMetricHistory(24, controller.signal).catch(() => null),
       ]);
       if (controller.signal.aborted || !mountedRef.current) return;
       setReport(health);
       setVoice(metrics);
+      setHistory(metricHistory);
       setError(null);
     } catch (e) {
       if (controller.signal.aborted || !mountedRef.current) return;
@@ -359,6 +481,8 @@ export function HealthView() {
           )}
         </>
       )}
+
+      <MetricHistoryPanel history={history} />
 
       <section className="mt-8">
         <h2 className="mb-3 text-sm font-semibold text-slate-300">

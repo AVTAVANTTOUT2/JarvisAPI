@@ -7,6 +7,7 @@ from fastapi import APIRouter
 from api.health_support import (
     api_health_detail,
     api_health_live,
+    api_metrics_history,
 )
 from api.misc_status import (
     api_status,
@@ -102,6 +103,11 @@ router.add_api_route(
 router.add_api_route(
     "/api/health/detail",
     api_health_detail,
+    methods=["GET"],
+)
+router.add_api_route(
+    "/api/metrics/history",
+    api_metrics_history,
     methods=["GET"],
 )
 router.add_api_route(

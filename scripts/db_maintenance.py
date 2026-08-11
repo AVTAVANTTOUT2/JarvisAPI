@@ -386,24 +386,25 @@ def run_maintenance() -> dict:
     """Purge les tables/fichiers volumineux, optimise l'index FTS et le WAL.
 
     La rétention vient de la config (0 = conserver indéfiniment). Les
-    notifications ne sont purgées que si elles sont **lues**. ``created_at``
-    est en UTC (DEFAULT CURRENT_TIMESTAMP), comparé à ``datetime('now')``
+    notifications ne sont purgées que si elles sont **lues**. Les horodatages
+    sont en UTC (DEFAULT CURRENT_TIMESTAMP), comparés à ``datetime('now')``
     (UTC aussi) — cohérent.
     """
     purged: dict[str, int] = {}
     rules = [
-        ("screen_activity", config.RETENTION_SCREEN_DAYS),
-        ("location_history", config.RETENTION_LOCATION_DAYS),
-        ("llm_action_logs", config.RETENTION_LLM_LOGS_DAYS),
-        ("dev_loop_log", config.RETENTION_LLM_LOGS_DAYS),
+        ("screen_activity", "created_at", config.RETENTION_SCREEN_DAYS),
+        ("location_history", "created_at", config.RETENTION_LOCATION_DAYS),
+        ("metric_samples", "recorded_at", config.RETENTION_METRICS_DAYS),
+        ("llm_action_logs", "created_at", config.RETENTION_LLM_LOGS_DAYS),
+        ("dev_loop_log", "created_at", config.RETENTION_LLM_LOGS_DAYS),
     ]
     referenced_uploads: set[str] = set()
     with get_db() as conn:
-        for table, days in rules:
+        for table, timestamp_column, days in rules:
             if days <= 0:
                 continue
             cur = conn.execute(
-                f"DELETE FROM {table} WHERE created_at < datetime('now', ?)",  # noqa: S608 — tables internes
+                f"DELETE FROM {table} WHERE {timestamp_column} < datetime('now', ?)",  # noqa: S608 — tables internes
                 (f"-{int(days)} days",),
             )
             purged[table] = cur.rowcount

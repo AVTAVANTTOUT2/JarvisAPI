@@ -13,7 +13,7 @@
 
 | Aspect | Évaluation | Note |
 |---|---|---|
-Structure API canonique : **261 opérations HTTP + 2 WebSockets**, **232 chemins OpenAPI**, **17 routeurs api/router_*.py + Fitness = 18 montés**, main.py **214 lignes**.
+Structure API canonique : **262 opérations HTTP + 2 WebSockets**, **233 chemins OpenAPI**, **17 routeurs api/router_*.py + Fitness = 18 montés**, main.py **214 lignes**.
 
 | Taille | ✅ `main.py` 211 lignes | Tous les modules `api/*.py` restent à 500 lignes ou moins |
 | Routes | ✅ 261 opérations HTTP + 2 WebSockets | Réparties dans 18 `APIRouter` montés ; 232 chemins OpenAPI |

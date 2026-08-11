@@ -10,7 +10,7 @@ Jarvis stocke des données structurées variées : conversations, contacts, tâc
 ## Décision
 
 SQLite est la seule base de données du projet. Fichier unique : `data/jarvis.db`.
-Runtime SQLite canonique : **92 tables persistantes**, **97 tables physiques avec FTS5**, schéma généré : **93 déclarations de tables**.
+Runtime SQLite canonique : **93 tables persistantes**, **98 tables physiques avec FTS5**, schéma généré : **94 déclarations de tables**.
 Le miroir `database/schema.sql` n’est pas exécuté au runtime : il est régénéré depuis
 `database/schema.py`, `database/migrations.py` et `database/devagent.py`, puis comparé
 en CI. Les connexions vivent dans `database/core.py` et l'API compatible dans

@@ -86,6 +86,34 @@ export interface VoiceLatencyMetrics {
   stages: Record<string, VoiceLatencyStage>
 }
 
+export interface MetricHistoryPoint {
+  timestamp: string
+  value: number
+  last_value: number
+  samples: number
+}
+
+export interface MetricHistorySeries {
+  metric: string
+  unit: string
+  points: MetricHistoryPoint[]
+  summary: {
+    latest: number
+    average: number
+    minimum: number
+    maximum: number
+    trend_pct: number | null
+    samples: number
+  }
+}
+
+export interface MetricHistoryResponse {
+  hours: number
+  bucket_seconds: number
+  retention_days: number
+  series: MetricHistorySeries[]
+}
+
 export interface DocumentPrivacyPolicy {
   mode: 'strict_local' | 'hybrid'
   strict_local: boolean
@@ -317,6 +345,10 @@ export const api = {
   /** Latences du pipeline vocal — source unique, déjà exposée par le backend. */
   getVoiceMetrics: (days = 7, signal?: AbortSignal) =>
     request<VoiceLatencyMetrics>(`/api/voice/metrics?days=${days}`, { signal }),
+
+  /** Séries temporelles agrégées et conservées localement. */
+  getMetricHistory: (hours = 24, signal?: AbortSignal) =>
+    request<MetricHistoryResponse>(`/api/metrics/history?hours=${hours}`, { signal }),
 
   getAuthStatus: (): Promise<AuthStatus> => authClient.status(),
   authSetup: (secret: string) => authClient.setup(secret),

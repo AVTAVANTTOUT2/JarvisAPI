@@ -685,6 +685,17 @@ CREATE VIRTUAL TABLE messages_fts USING fts5(
                 tokenize='unicode61 remove_diacritics 2'
             );
 
+CREATE TABLE metric_samples (
+    metric TEXT NOT NULL,
+    bucket_at DATETIME NOT NULL,
+    value REAL NOT NULL,
+    last_value REAL NOT NULL,
+    unit TEXT NOT NULL DEFAULT '',
+    sample_count INTEGER NOT NULL DEFAULT 1 CHECK(sample_count >= 1),
+    recorded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY(metric, bucket_at)
+);
+
 CREATE TABLE mobile_chat_dedup (
             device_id TEXT NOT NULL,
             client_message_id TEXT NOT NULL,
@@ -1227,6 +1238,9 @@ CREATE INDEX idx_meals_date ON meals(date);
 CREATE INDEX idx_messages_conv ON messages(conversation_id);
 
 CREATE INDEX idx_messages_created ON messages(created_at);
+
+CREATE INDEX idx_metric_samples_recorded
+    ON metric_samples(recorded_at);
 
 CREATE INDEX idx_mobile_chat_dedup_created ON mobile_chat_dedup(created_at);
 

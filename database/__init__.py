@@ -52,6 +52,7 @@ from .conversations import (
 )
 
 from .unified_search import unified_search
+from .metrics import get_metric_history, record_health_snapshot, record_metric_samples
 
 from .episodes import (
     get_recent_episodes,

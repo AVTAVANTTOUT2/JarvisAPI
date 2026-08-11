@@ -1622,6 +1622,26 @@ def _migrate_sync_conflict_tables(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_metric_samples(conn: sqlite3.Connection) -> None:
+    """Ajoute les séries temporelles compactées du dashboard santé."""
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS metric_samples (
+            metric TEXT NOT NULL,
+            bucket_at DATETIME NOT NULL,
+            value REAL NOT NULL,
+            last_value REAL NOT NULL,
+            unit TEXT NOT NULL DEFAULT '',
+            sample_count INTEGER NOT NULL DEFAULT 1 CHECK(sample_count >= 1),
+            recorded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(metric, bucket_at)
+        );
+        CREATE INDEX IF NOT EXISTS idx_metric_samples_recorded
+            ON metric_samples(recorded_at);
+        """
+    )
+
+
 def run_migrations(conn: sqlite3.Connection) -> None:
     """Applique dans un ordre stable toutes les migrations idempotentes."""
     _migrate_people_ai_description(conn)
@@ -1667,4 +1687,5 @@ def run_migrations(conn: sqlite3.Connection) -> None:
     _migrate_food_orders(conn)
     _migrate_food_intelligence(conn)
     _migrate_sync_conflict_tables(conn)
+    _migrate_metric_samples(conn)
     _migrate_application_timestamps_to_utc_v2(conn)
