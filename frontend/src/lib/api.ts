@@ -5,7 +5,12 @@ import type { ApiPerson, NotificationItem } from '@unified/types/jarvis'
 import { authClient } from '@jarvis/auth'
 import { API_BASE, jarvisRawFetch } from './http'
 import { enqueueWrite, isNetworkError, resourceRoot } from './offline/queue'
-import { cacheRead, getCachedRead, invalidateCachedReads } from './offline/readCache'
+import {
+  cacheRead,
+  getCachedRead,
+  getLatestCachedVersion,
+  invalidateCachedReads,
+} from './offline/readCache'
 import type {
   AppUsageRow,
   AudioDaemonStatus,
@@ -161,7 +166,7 @@ export interface OfflineRequestPolicy {
 export type JarvisRequestInit = RequestInit & { offline?: OfflineRequestPolicy }
 
 const QUEUEABLE_DATA_MUTATIONS = [
-  /^\/api\/tasks(?:\/|$)/,
+  /^\/api\/tasks(?:\/\d+)?$/,
   /^\/api\/notifications\/(?:\d+\/read|read-all)$/,
   /^\/api\/settings\/tts$/,
   /^\/api\/fitness\/(?:sessions\/\d+\/progress|meals(?:\/from-text)?|water|weights|program(?:\/sessions\/\d+)?)$/,
@@ -231,6 +236,8 @@ async function request<T>(
             method: method as 'POST' | 'PUT' | 'PATCH' | 'DELETE',
             path: p,
             body: body.data,
+            entityKey: resourceRoot(p),
+            baseVersion: await getLatestCachedVersion(resourceRoot(p)),
             label: offline?.label ?? `Modification ${resourceRoot(p).replace('/api/', '')}`,
           })
           const queuedResult = offline?.optimistic ?? { queued: true, offline_queue_id: queueId }
@@ -261,7 +268,13 @@ async function request<T>(
       payload = {} as T
     }
   }
-  if (cacheable) await cacheRead(p, payload).catch(() => undefined)
+  if (cacheable) {
+    const versionText = res.headers.get('X-Jarvis-Entity-Version')
+    const entityVersion = versionText !== null && /^\d+$/.test(versionText)
+      ? Number(versionText)
+      : undefined
+    await cacheRead(p, payload, entityVersion).catch(() => undefined)
+  }
   if (method !== 'GET') await invalidateCachedReads(resourceRoot(p)).catch(() => undefined)
   return payload
 }

@@ -62,6 +62,27 @@ describe('shared offline API policy', () => {
     })
   })
 
+  it('carries the last server entity version into an offline mutation', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ tasks: [] }), {
+        status: 200,
+        headers: { 'X-Jarvis-Entity-Version': '7' },
+      }),
+    ))
+    await jarvisFetch('/api/tasks')
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
+
+    await jarvisFetch('/api/tasks', {
+      method: 'POST',
+      body: JSON.stringify({ title: 'Versionnée' }),
+    })
+
+    expect((await listQueuedWrites())[0]).toMatchObject({
+      entityKey: '/api/tasks',
+      baseVersion: 7,
+    })
+  })
+
   it('never queues commands or external side effects implicitly', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
 

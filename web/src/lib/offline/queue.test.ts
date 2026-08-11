@@ -1,6 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { clearOfflineDB } from './db'
-import { enqueueWrite, flushQueue, isNetworkError, listQueuedWrites, removeQueuedWrite } from './queue'
+import {
+  enqueueWrite,
+  flushQueue,
+  isNetworkError,
+  listQueuedWrites,
+  operationChecksum,
+  removeQueuedWrite,
+  resolveQueuedWrite,
+} from './queue'
 
 describe('isNetworkError', () => {
   it('recognizes a TypeError (fetch network failure) as a network error', () => {
@@ -38,6 +46,8 @@ describe('offline write queue', () => {
     expect(writes).toHaveLength(1)
     expect(writes[0].id).toBe(id)
     expect(writes[0].attempts).toBe(0)
+    expect(writes[0].status).toBe('pending')
+    expect(writes[0].checksum).toMatch(/^[a-f0-9]{64}$/)
     expect(writes[0].label).toBe('Nouvelle tâche : Acheter du lait')
   })
 
@@ -65,7 +75,7 @@ describe('offline write queue', () => {
 
     const result = await flushQueue()
 
-    expect(result).toEqual({ ok: 2, failed: 0 })
+    expect(result).toEqual({ ok: 2, failed: 0, conflicts: 0 })
     expect(fetchMock).toHaveBeenCalledTimes(2)
     expect(await listQueuedWrites()).toHaveLength(0)
   })
@@ -80,14 +90,16 @@ describe('offline write queue', () => {
     expect(await listQueuedWrites()).toHaveLength(1)
   })
 
-  it('drops a write on a definitive 4xx (validation) error', async () => {
+  it('keeps a definitive 4xx visible for manual retry or discard', async () => {
     await enqueueWrite({ method: 'POST', path: '/api/tasks', body: {}, label: 'invalid' })
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 400 }))
 
     const result = await flushQueue()
 
     expect(result.failed).toBe(1)
-    expect(await listQueuedWrites()).toHaveLength(0) // retirée, pas rejouée indéfiniment
+    const writes = await listQueuedWrites()
+    expect(writes).toHaveLength(1)
+    expect(writes[0].status).toBe('failed')
   })
 
   it('keeps a write queued on 401 (session expirée, pas une erreur définitive)', async () => {
@@ -121,5 +133,68 @@ describe('offline write queue', () => {
 
     expect(result.ok).toBe(2)
     expect(await listQueuedWrites()).toHaveLength(0)
+  })
+
+  it('uses the exact checksum contract shared with the backend', async () => {
+    await expect(operationChecksum('POST', '/api/tasks', { title: 'A' })).resolves.toBe(
+      '860f1b02931f3949ef0958229e867c4abfb9a99e23d38726a219b021f8193d5e',
+    )
+  })
+
+  it('marks a version conflict without replaying later writes for the same entity', async () => {
+    await enqueueWrite({
+      method: 'POST',
+      path: '/api/tasks',
+      body: { title: 'A' },
+      label: 'A',
+      baseVersion: 1,
+    })
+    await enqueueWrite({ method: 'POST', path: '/api/tasks', body: { title: 'B' }, label: 'B' })
+    const conflict = new Response(JSON.stringify({
+      error: 'sync_version_conflict',
+      server_version: 2,
+    }), { status: 409 })
+    const fetchMock = vi.fn().mockResolvedValue(conflict)
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await flushQueue()
+
+    expect(result).toEqual({ ok: 0, failed: 0, conflicts: 1 })
+    expect(fetchMock).toHaveBeenCalledOnce()
+    const writes = await listQueuedWrites()
+    expect(writes[0]).toMatchObject({ status: 'conflict', serverVersion: 2 })
+    expect(writes[1].status).toBe('pending')
+  })
+
+  it('supports explicit client-wins and server-wins resolution', async () => {
+    const clientWrite = await enqueueWrite({
+      method: 'PATCH',
+      path: '/api/tasks/1',
+      body: { status: 'done' },
+      label: 'Client',
+      baseVersion: 1,
+    })
+    const serverWrite = await enqueueWrite({
+      method: 'DELETE',
+      path: '/api/tasks/2',
+      body: undefined,
+      label: 'Serveur',
+      baseVersion: 1,
+    })
+    const { updateQueuedWrite } = await import('./queue')
+    await updateQueuedWrite(clientWrite, { status: 'conflict', serverVersion: 3 })
+    await updateQueuedWrite(serverWrite, { status: 'conflict', serverVersion: 3 })
+
+    await resolveQueuedWrite(clientWrite, 'client_wins')
+    await resolveQueuedWrite(serverWrite, 'server_wins')
+
+    const writes = await listQueuedWrites()
+    expect(writes).toHaveLength(1)
+    expect(writes[0]).toMatchObject({
+      id: clientWrite,
+      status: 'pending',
+      baseVersion: 3,
+      conflictStrategy: 'client_wins',
+    })
   })
 })

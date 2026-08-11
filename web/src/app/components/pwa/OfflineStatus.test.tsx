@@ -1,7 +1,7 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { clearOfflineDB } from '@desktop/lib/offline/db';
-import { enqueueWrite } from '@desktop/lib/offline/queue';
+import { enqueueWrite, updateQueuedWrite } from '@desktop/lib/offline/queue';
 import { OfflineStatus } from './OfflineStatus';
 
 describe('OfflineStatus', () => {
@@ -44,5 +44,24 @@ describe('OfflineStatus', () => {
     }));
 
     await waitFor(() => expect(screen.getByText(/il y a 2 min/)).toBeTruthy());
+  });
+
+  it('offers both explicit choices for a version conflict', async () => {
+    const id = await enqueueWrite({
+      method: 'PATCH',
+      path: '/api/tasks/1',
+      body: { status: 'done' },
+      label: 'Modification tasks',
+      baseVersion: 1,
+    });
+    await updateQueuedWrite(id, { status: 'conflict', serverVersion: 2 });
+
+    render(<OfflineStatus />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Conflit de synchronisation')).toBeTruthy();
+      expect(screen.getByRole('button', { name: 'Garder le serveur' })).toBeTruthy();
+      expect(screen.getByRole('button', { name: 'Envoyer ma version' })).toBeTruthy();
+    });
   });
 });
