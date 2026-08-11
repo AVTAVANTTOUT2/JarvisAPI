@@ -360,14 +360,12 @@ def test_check_mode_rejects_a_stale_report(fake_repo: Path, tmp_path: Path) -> N
 def test_real_repo_smoke_counts_stable() -> None:
     """Garde-fou : le dépôt réel produit les comptages attendus (code only)."""
     tables = audit.analyze_tables(ROOT)
-    assert tables["counts"]["schema_sql_applicatives"] == 91
-    # Vague 2B + chat + délégation Cursor + pairage desktop sécurisé,
-    # neuf tables fitness (journaux + programme interactif), le journal des
-    # commandes de repas et les trois tables de suggestion (menus relevés,
-    # préférences dérivées, propositions du jour).
-    assert tables["counts"]["schema_py"] == 55
-    assert tables["counts"]["persistantes_post_init"] == 90
-    assert tables["counts"]["physiques_max_default_fts_on"] == 95
+    assert tables["counts"]["schema_sql_applicatives"] == 93
+    # Le versionnement de synchronisation ajoute deux tables applicatives aux
+    # comptages Python et post-initialisation.
+    assert tables["counts"]["schema_py"] == 57
+    assert tables["counts"]["persistantes_post_init"] == 92
+    assert tables["counts"]["physiques_max_default_fts_on"] == 97
     assert tables["init_pipeline"]["does_not_execute_schema_sql"] is True
 
     resolution = audit.analyze_frontend_resolution(ROOT)
@@ -400,7 +398,7 @@ def test_real_repo_smoke_counts_stable() -> None:
 def test_generated_runtime_schema_replays_a_fresh_database() -> None:
     schema = audit.render_runtime_schema(ROOT)
     assert schema.startswith("-- GENERATED FILE — DO NOT EDIT.")
-    assert len(audit._extract_create_tables(schema)) == 91
+    assert len(audit._extract_create_tables(schema)) == 93
 
     conn = sqlite3.connect(":memory:")
     try:
@@ -411,7 +409,7 @@ def test_generated_runtime_schema_replays_a_fresh_database() -> None:
             """).fetchone()[0]
     finally:
         conn.close()
-    assert table_count == 95
+    assert table_count == 97
 
 
 def test_versioned_architecture_artifacts_match_runtime() -> None:
