@@ -4,6 +4,7 @@ import { defineConfig } from 'vitest/config'
 export default defineConfig({
   resolve: {
     alias: {
+      idb: path.resolve(__dirname, './node_modules/idb'),
       '@jarvis/auth': path.resolve(__dirname, './node_modules/@jarvis/auth'),
       '@desktop': path.resolve(__dirname, './src'),
       '@unified': path.resolve(__dirname, '../frontend/src'),
