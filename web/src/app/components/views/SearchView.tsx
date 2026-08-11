@@ -6,22 +6,26 @@
  * les données (iMessage, fichiers, mémoire, etc.) et renvoie une réponse en streaming.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Search, Zap, MessageSquare, Users, FileText, CheckSquare, Loader2 } from 'lucide-react';
-import { api } from '@unified/lib/api';
+import { Search, Zap, MessageSquare, Users, FileText, CheckSquare, Database, Loader2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { api, type UnifiedSearchResult } from '@unified/lib/api';
 import { ws } from '@desktop/services/websocket';
 
 interface ConvItem {
   id: number;
+  checkpoint_id?: string | null;
   title: string | null;
   last_message?: string;
   last_message_at?: string;
   message_count?: number;
+  url?: string;
 }
 
 interface PersonItem {
   id: number;
   name: string;
   relationship?: string;
+  url?: string;
 }
 
 interface TaskItem {
@@ -29,6 +33,9 @@ interface TaskItem {
   title: string;
   status: string;
   priority: string;
+  description?: string;
+  meta?: string;
+  url?: string;
 }
 
 interface DocItem {
@@ -36,17 +43,29 @@ interface DocItem {
   title: string;
   doc_type?: string;
   subject_name?: string;
+  subtitle?: string;
+  url?: string;
+}
+
+interface MemoryItem {
+  id: number;
+  title: string;
+  subtitle?: string;
+  meta?: string | null;
+  type: 'episode' | 'fact';
+  url: string;
 }
 
 type SearchMode = 'quick' | 'jarvis';
 
-type ResultCategory = 'conversations' | 'contacts' | 'tasks' | 'docs';
+type ResultCategory = 'conversations' | 'contacts' | 'tasks' | 'docs' | 'memory';
 
 const CATEGORY_LABELS: Record<ResultCategory, string> = {
   conversations: 'Conversations',
   contacts: 'Contacts',
   tasks: 'Tâches',
   docs: 'Documents',
+  memory: 'Mémoire',
 };
 
 const CATEGORY_ICONS: Record<ResultCategory, React.ComponentType<{ size?: number; className?: string }>> = {
@@ -54,6 +73,7 @@ const CATEGORY_ICONS: Record<ResultCategory, React.ComponentType<{ size?: number
   contacts: Users,
   tasks: CheckSquare,
   docs: FileText,
+  memory: Database,
 };
 
 function highlight(text: string, query: string): React.ReactNode {
@@ -67,6 +87,7 @@ function highlight(text: string, query: string): React.ReactNode {
 }
 
 export function SearchView() {
+  const navigate = useNavigate();
   const [query, setQuery] = useState('');
   const [mode, setMode] = useState<SearchMode>('quick');
   const [activeCategory, setActiveCategory] = useState<ResultCategory | 'all'>('all');
@@ -77,12 +98,16 @@ export function SearchView() {
   const [tasks, setTasks] = useState<TaskItem[]>([]);
   const [docs, setDocs] = useState<DocItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [serverResults, setServerResults] = useState<UnifiedSearchResult[] | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState(false);
 
   // JARVIS mode state
   const [jarvisResponse, setJarvisResponse] = useState('');
   const [jarvisStreaming, setJarvisStreaming] = useState(false);
   const [jarvisEmotion, setJarvisEmotion] = useState('neutral');
   const inputRef = useRef<HTMLInputElement>(null);
+  const q = query.trim().toLowerCase();
 
   // ── Chargement des données ────────────────────────────────
   const loadData = useCallback(async () => {
@@ -120,6 +145,40 @@ export function SearchView() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  // Le backend applique FTS5 et un classement commun. Les données déjà
+  // chargées restent disponibles comme repli quand le réseau est absent.
+  useEffect(() => {
+    if (q.length < 2) {
+      setServerResults(null);
+      setSearching(false);
+      setSearchError(false);
+      return;
+    }
+
+    setServerResults(null);
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      setSearching(true);
+      setSearchError(false);
+      api.search(query.trim(), controller.signal)
+        .then(response => setServerResults(response.results || []))
+        .catch(error => {
+          if ((error as Error).name !== 'AbortError') {
+            setServerResults(null);
+            setSearchError(true);
+          }
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setSearching(false);
+        });
+    }, 250);
+
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [q, query]);
 
   // ── JARVIS WebSocket events ───────────────────────────────
   useEffect(() => {
@@ -162,37 +221,79 @@ export function SearchView() {
   }, [mode]);
 
   // ── Filtrage côté client ──────────────────────────────────
-  const q = query.trim().toLowerCase();
-
-  const filteredConvs = q
+  const filteredConvs: ConvItem[] = serverResults
+    ? serverResults.filter(result => result.category === 'conversations').map(result => ({
+        id: result.id,
+        checkpoint_id: result.checkpoint_id,
+        title: result.title,
+        last_message: result.subtitle,
+        url: result.url,
+      }))
+    : q
     ? conversations.filter(c =>
         (c.title || '').toLowerCase().includes(q) ||
         (c.last_message || '').toLowerCase().includes(q)
       )
-    : conversations.slice(0, 20);
+    : [];
 
-  const filteredContacts = q
+  const filteredContacts: PersonItem[] = serverResults
+    ? serverResults.filter(result => result.category === 'contacts').map(result => ({
+        id: result.id,
+        name: result.title,
+        relationship: result.subtitle,
+        url: result.url,
+      }))
+    : q
     ? contacts.filter(p =>
         (p.name || '').toLowerCase().includes(q) ||
         (p.relationship || '').toLowerCase().includes(q)
       )
-    : contacts.slice(0, 20);
+    : [];
 
-  const filteredTasks = q
+  const filteredTasks: TaskItem[] = serverResults
+    ? serverResults.filter(result => result.category === 'tasks').map(result => ({
+        id: result.id,
+        title: result.title,
+        description: result.subtitle,
+        meta: result.meta || '',
+        status: '',
+        priority: '',
+        url: result.url,
+      }))
+    : q
     ? tasks.filter(t =>
         (t.title || '').toLowerCase().includes(q)
       )
-    : tasks.slice(0, 20);
+    : [];
 
-  const filteredDocs = q
+  const filteredDocs: DocItem[] = serverResults
+    ? serverResults.filter(result => result.category === 'documents').map(result => ({
+        id: result.id,
+        title: result.title,
+        subtitle: result.subtitle,
+        doc_type: result.meta || undefined,
+        url: result.url,
+      }))
+    : q
     ? docs.filter(d =>
         (d.title || '').toLowerCase().includes(q) ||
         (d.doc_type || '').toLowerCase().includes(q) ||
         (d.subject_name || '').toLowerCase().includes(q)
       )
-    : docs.slice(0, 20);
+    : [];
 
-  const totalResults = filteredConvs.length + filteredContacts.length + filteredTasks.length + filteredDocs.length;
+  const filteredMemory: MemoryItem[] = (serverResults || [])
+    .filter(result => result.category === 'memory')
+    .map(result => ({
+      id: result.id,
+      title: result.title,
+      subtitle: result.subtitle,
+      meta: result.meta,
+      type: result.type as 'episode' | 'fact',
+      url: result.url,
+    }));
+
+  const totalResults = filteredConvs.length + filteredContacts.length + filteredTasks.length + filteredDocs.length + filteredMemory.length;
 
   // ── Actions ───────────────────────────────────────────────
   function handleSearch(e: React.FormEvent) {
@@ -219,6 +320,7 @@ export function SearchView() {
   const showContacts = activeCategory === 'all' || activeCategory === 'contacts';
   const showTasks = activeCategory === 'all' || activeCategory === 'tasks';
   const showDocs = activeCategory === 'all' || activeCategory === 'docs';
+  const showMemory = activeCategory === 'all' || activeCategory === 'memory';
 
   const priorityColor = (p: string) =>
     p === 'high' ? 'text-red-400' : p === 'medium' ? 'text-yellow-400' : 'text-green-400';
@@ -285,12 +387,18 @@ export function SearchView() {
             disabled={!query.trim() || (mode === 'jarvis' && jarvisStreaming)}
             className="absolute right-3 top-1/2 -translate-y-1/2 px-3 py-1.5 bg-white text-black rounded-lg text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:bg-white/90 transition-opacity"
           >
-            {mode === 'jarvis' && jarvisStreaming ? (
+            {(mode === 'jarvis' && jarvisStreaming) || (mode === 'quick' && searching) ? (
               <Loader2 size={14} className="animate-spin" />
             ) : mode === 'jarvis' ? 'Envoyer' : 'Rechercher'}
           </button>
         </div>
       </form>
+
+      {searchError && q && (
+        <p className="shrink-0 text-xs text-amber-300/80" role="status">
+          JARVIS est hors ligne : résultats limités aux données déjà chargées sur cet appareil.
+        </p>
+      )}
 
       {/* Réponse JARVIS */}
       {mode === 'jarvis' && (jarvisResponse || jarvisStreaming) && (
@@ -323,7 +431,8 @@ export function SearchView() {
             const count = cat === 'conversations' ? filteredConvs.length
               : cat === 'contacts' ? filteredContacts.length
               : cat === 'tasks' ? filteredTasks.length
-              : filteredDocs.length;
+              : cat === 'docs' ? filteredDocs.length
+              : filteredMemory.length;
             const Icon = CATEGORY_ICONS[cat];
             return (
               <button
@@ -345,7 +454,7 @@ export function SearchView() {
 
       {/* Résultats */}
       <div className="flex-1 overflow-y-auto space-y-6 min-h-0">
-        {loading ? (
+        {loading && !serverResults ? (
           <div className="flex items-center justify-center h-32 text-muted-foreground">
             <Loader2 size={20} className="animate-spin mr-2" />
             Chargement…
@@ -364,7 +473,7 @@ export function SearchView() {
                     <div
                       key={c.id}
                       className="flex items-start gap-3 p-3 rounded-xl bg-white/3 border border-white/5 hover:bg-white/5 hover:border-white/10 transition-colors cursor-pointer"
-                      onClick={() => window.location.href = '/chat'}
+                       onClick={() => navigate(c.url || `/chat?conversation=${c.id}`)}
                     >
                       <MessageSquare size={14} className="mt-0.5 shrink-0 text-muted-foreground" />
                       <div className="min-w-0">
@@ -398,7 +507,7 @@ export function SearchView() {
                     <div
                       key={p.id}
                       className="flex items-center gap-3 p-3 rounded-xl bg-white/3 border border-white/5 hover:bg-white/5 hover:border-white/10 transition-colors cursor-pointer"
-                      onClick={() => window.location.href = '/contacts'}
+                       onClick={() => navigate(p.url || `/contacts?person=${p.id}`)}
                     >
                       <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-sm font-semibold shrink-0">
                         {(p.name || '?')[0].toUpperCase()}
@@ -430,14 +539,22 @@ export function SearchView() {
                   {filteredTasks.map(t => (
                     <div
                       key={t.id}
-                      className="flex items-center gap-3 p-3 rounded-xl bg-white/3 border border-white/5 hover:bg-white/5 hover:border-white/10 transition-colors"
+                      className="flex items-center gap-3 p-3 rounded-xl bg-white/3 border border-white/5 hover:bg-white/5 hover:border-white/10 transition-colors cursor-pointer"
+                      onClick={() => navigate(t.url || `/tasks?task=${t.id}`)}
                     >
                       <CheckSquare size={14} className="shrink-0 text-muted-foreground" />
-                      <p className="text-sm flex-1 truncate">
-                        {q ? highlight(t.title, q) : t.title}
-                      </p>
-                      <span className={`text-xs shrink-0 ${priorityColor(t.priority)}`}>{t.priority}</span>
-                      <span className={`text-xs shrink-0 ${statusColor(t.status)}`}>{t.status}</span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm truncate">
+                          {q ? highlight(t.title, q) : t.title}
+                        </p>
+                        {(t.description || t.meta) && (
+                          <p className="text-xs text-muted-foreground truncate mt-0.5">
+                            {t.description || t.meta}
+                          </p>
+                        )}
+                      </div>
+                      {t.priority && <span className={`text-xs shrink-0 ${priorityColor(t.priority)}`}>{t.priority}</span>}
+                      {t.status && <span className={`text-xs shrink-0 ${statusColor(t.status)}`}>{t.status}</span>}
                     </div>
                   ))}
                 </div>
@@ -456,19 +573,56 @@ export function SearchView() {
                     <div
                       key={d.id}
                       className="flex items-center gap-3 p-3 rounded-xl bg-white/3 border border-white/5 hover:bg-white/5 hover:border-white/10 transition-colors cursor-pointer"
-                      onClick={() => window.location.href = '/documents'}
+                      onClick={() => navigate(d.url || `/documents?document=${d.id}`)}
                     >
                       <FileText size={14} className="shrink-0 text-muted-foreground" />
                       <div className="min-w-0">
                         <p className="text-sm truncate">
                           {q ? highlight(d.title, q) : d.title}
                         </p>
+                        {d.subtitle && (
+                          <p className="text-xs text-muted-foreground truncate mt-0.5">
+                            {q ? highlight(d.subtitle, q) : d.subtitle}
+                          </p>
+                        )}
                         {(d.doc_type || d.subject_name) && (
                           <p className="text-xs text-muted-foreground">
                             {[d.doc_type, d.subject_name].filter(Boolean).join(' · ')}
                           </p>
                         )}
                       </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {/* Mémoire et épisodes */}
+            {showMemory && filteredMemory.length > 0 && (
+              <section>
+                <h3 className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-2">
+                  <Database size={12} />
+                  Mémoire ({filteredMemory.length})
+                </h3>
+                <div className="space-y-1.5">
+                  {filteredMemory.map(item => (
+                    <div
+                      key={`${item.type}-${item.id}`}
+                      className="flex items-start gap-3 p-3 rounded-xl bg-white/3 border border-white/5 hover:bg-white/5 hover:border-white/10 transition-colors cursor-pointer"
+                      onClick={() => navigate(item.url)}
+                    >
+                      <Database size={14} className="mt-0.5 shrink-0 text-muted-foreground" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium truncate">
+                          {q ? highlight(item.title, q) : item.title}
+                        </p>
+                        {item.subtitle && (
+                          <p className="text-xs text-muted-foreground truncate mt-0.5">
+                            {q ? highlight(item.subtitle, q) : item.subtitle}
+                          </p>
+                        )}
+                      </div>
+                      {item.meta && <span className="text-xs text-muted-foreground shrink-0">{item.meta}</span>}
                     </div>
                   ))}
                 </div>

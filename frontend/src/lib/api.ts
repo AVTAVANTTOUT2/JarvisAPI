@@ -38,6 +38,7 @@ import type {
   ScreenActivityRow,
   ServiceInfo,
   SupervisorStatus,
+  UnifiedSearchResponse,
   VoiceDebugTrace,
   WeeklyStats,
 } from '@unified/types/api'
@@ -626,7 +627,8 @@ export const api = {
       { method: 'POST', body: JSON.stringify(body) },
     ),
 
-  search: (q: string) => request(`/api/search?q=${encodeURIComponent(q)}`),
+  search: (q: string, signal?: AbortSignal) =>
+    request<UnifiedSearchResponse>(`/api/search?q=${encodeURIComponent(q)}`, { signal }),
   exportJson: () => request('/api/export?format=json'),
 
   // Daemon JARVIS — devices, écran, app usage
