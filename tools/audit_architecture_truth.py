@@ -137,6 +137,7 @@ API_ROUTE_SPECIAL_PATHS = {"/upload", "/ws"}
 API_ROUTE_OWNERSHIP_POLICY = "Architecture/api_route_ownership.json"
 NON_FRONTEND_AUDIENCES = {
     "automation",
+    "developer",
     "device-agent",
     "indirect-client",
     "integration-client",

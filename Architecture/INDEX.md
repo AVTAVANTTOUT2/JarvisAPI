@@ -6,7 +6,7 @@
 **Périmètre** : 273 fichiers Python (56 261 lignes), 99 fichiers source frontend (18 770 lignes),
 90 tables SQLite persistantes après `init_db()` et 95 tables physiques avec FTS5.
 Runtime SQLite canonique : **94 tables persistantes**, **99 tables physiques avec FTS5**, schéma généré : **95 déclarations de tables**.
-Structure API canonique : **267 opérations HTTP + 2 WebSockets**, **237 chemins OpenAPI**, **17 routeurs api/router_*.py + Fitness = 18 montés**, main.py **214 lignes**.
+Structure API canonique : **269 opérations HTTP + 2 WebSockets**, **239 chemins OpenAPI**, **18 routeurs api/router_*.py + Fitness = 19 montés**, main.py **219 lignes**.
 Voir [32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md](./32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md).
 **État** : **Documentation officielle — toute modification du code doit rester cohérente avec ce dossier**
 
@@ -65,6 +65,7 @@ Voir [32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md](./32_FRONTEND_DATABASE_SOURCE_OF_
 | [29_JARVIS_ANDROID_H24.md](./29_JARVIS_ANDROID_H24.md) | Architecture du compagnon Android permanent |
 | [30_PLAN_STABILISATION_AUDIO.md](./30_PLAN_STABILISATION_AUDIO.md) | Phases de stabilisation audio après la PR #17 |
 | [32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md](./32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md) | **Source de vérité** frontends + surface API + comptages SQLite |
+| [33_API_PUBLIQUE_OPENAPI.md](./33_API_PUBLIQUE_OPENAPI.md) | Contrat développeur OpenAPI 3.1, sécurité et politique de compatibilité |
 | [api_route_ownership.json](./api_route_ownership.json) | Attribution contrôlée des opérations sans client direct |
 | [36_CANAL_WEBSOCKET_TV.md](./36_CANAL_WEBSOCKET_TV.md) | Canal `/ws/tv/events` — authentifié, lecture seule, séparé du chat |
 | [adr/](./adr/) | ADR individuels — ADR-016 à ADR-022 |
@@ -126,8 +127,8 @@ graph TB
     end
 
     subgraph "Backend (port 8081)"
-        MAIN["main.py — 211 lignes<br/>assemblage FastAPI<br/>18 routeurs montés<br/>2 WebSockets<br/>sert frontend/out en priorité"]
-        API["api/<br/>267 opérations HTTP<br/>237 chemins OpenAPI<br/>handlers et support"]
+        MAIN["main.py — 219 lignes<br/>assemblage FastAPI<br/>19 routeurs montés<br/>2 WebSockets<br/>sert frontend/out en priorité"]
+        API["api/<br/>269 opérations HTTP<br/>239 chemins OpenAPI<br/>handlers et support"]
         BUS["Event Bus actif<br/>10 événements de domaine<br/>SSE + WebSocket + TTS"]
     end
 
@@ -184,7 +185,7 @@ graph TB
 | 2 | 3 curseurs ROWID indépendants sur chat.db | CRITIQUE | Messages traités 2-3 fois | ✅ Résolu — Phase 1 |
 | 3 | Race condition sur le set WebSocket | CRITIQUE | Crash potentiel (`Set changed size during iteration`) | ✅ Résolu — Phase 1 |
 | 4 | SQLite sans `busy_timeout` | CRITIQUE | Écritures silencieusement perdues | ✅ Résolu — Phase 1 |
-| 5 | main.py : 7 197 lignes, 40+ responsabilités (état historique) | MAJEURE | Impossible à tester, toute modification risquée | ✅ Résolu — assemblage sous 500 lignes, 18 routeurs montés |
+| 5 | main.py : 7 197 lignes, 40+ responsabilités (état historique) | MAJEURE | Impossible à tester, toute modification risquée | ✅ Résolu — assemblage sous 500 lignes, 19 routeurs montés |
 
 ### Plan de migration — 6 phases, 15 jours
 
@@ -214,6 +215,7 @@ Chaque phase est **indépendante**, **réversible**, **testée**, et **sans inte
 - [13_PLUGINS.md](./13_PLUGINS.md) — ADR-013 connecteurs externes
 - [14_AI_SERVICE.md](./14_AI_SERVICE.md) — ADR-014 point d'entrée LLM unique
 - [15_SAUVEGARDES.md](./15_SAUVEGARDES.md) — ADR-015 backup & restore
+- [33_API_PUBLIQUE_OPENAPI.md](./33_API_PUBLIQUE_OPENAPI.md) — ADR-025 contrat développeur
 - [adr/ADR-016](./adr/ADR-016-applescript-integration-apple.md) — AppleScript comme unique intégration Apple
 - [adr/ADR-017](./adr/ADR-017-sqlite-base-unique.md) — SQLite comme base de données unique
 - [adr/ADR-018](./adr/ADR-018-dual-llm-router.md) — Architecture dual-LLM (local + cloud)
