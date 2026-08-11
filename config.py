@@ -570,6 +570,11 @@ SCREEN_OLLAMA_MIN_INTERVAL_S = float(_get("SCREEN_OLLAMA_MIN_INTERVAL_S", "60"))
 TRIAGE_MODEL = _get("TRIAGE_MODEL", "") or DEEPSEEK_FAST_MODEL  # triage daemon = DeepSeek Flash
 OLLAMA_URL = _get("OLLAMA_URL", _get("SCREEN_WATCHER_OLLAMA_URL", "http://127.0.0.1:11434"))
 OLLAMA_AUTOSTART = _get("OLLAMA_AUTOSTART", "true").lower() == "true"
+# Claw3D — UI visuelle optionnelle, pilotée par le superviseur (pas de LaunchAgent dédié)
+CLAW3D_MANAGED_BY_SUPERVISOR = _get("CLAW3D_MANAGED_BY_SUPERVISOR", "true").lower() == "true"
+CLAW3D_HOST = _get("CLAW3D_HOST", "127.0.0.1")
+CLAW3D_PORT = _positive_int("CLAW3D_PORT", 3000)
+CLAW3D_MODE = _get("CLAW3D_MODE", "jarvis-readonly")
 # Raisonnement local via Ollama : TOUJOURS false hors Screen Watcher
 OLLAMA_REASONING_ENABLED = _get("OLLAMA_REASONING_ENABLED", "false").lower() == "true"
 # Alias : démarrer SW au boot complet (même sémantique que SCREEN_WATCHER_ENABLED)

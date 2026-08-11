@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Gestionnaire local et optionnel de l'UI visuelle Claw3D.
 
-Claw3D reste un dépôt autonome. JARVIS ne l'importe pas, ne le démarre pas
-automatiquement et ne dépend pas de sa présence pour fonctionner.
+Claw3D reste un dépôt autonome : aucun module métier JARVIS ne l'importe et
+JARVIS ne dépend pas de sa présence pour fonctionner. Le superviseur peut
+optionnellement piloter son cycle de vie (start/stop) via ce gestionnaire —
+sans installer de LaunchAgent dédié ni coupler le code source.
 """
 
 from __future__ import annotations
@@ -323,27 +325,98 @@ def run_lifecycle(
     runner((str(script), *arguments), root)
 
 
+def is_installed(jarvis_root: Path = JARVIS_ROOT) -> bool:
+    """True si le checkout Claw3D épinglé est présent et valide."""
+
+    root = claw3d_root(jarvis_root)
+    if not root.exists():
+        return False
+    try:
+        validate_installation(
+            root,
+            expected_parent=apps_root(jarvis_root),
+            verify_commit=False,
+        )
+    except Claw3DError:
+        return False
+    return True
+
+
+def running_pid(jarvis_root: Path = JARVIS_ROOT) -> int | None:
+    """PID du serveur Claw3D identifié, sinon None.
+
+    Un simple ``kill(pid, 0)`` ne suffit pas : un PID périmé peut avoir été
+    réattribué à un autre processus. Les mêmes preuves que ``stop.sh`` sont
+    donc vérifiées avant de considérer le service comme actif.
+    """
+
+    root = claw3d_root(jarvis_root)
+    state_file = root / ".claw3d" / "run" / "claw3d.state"
+    if not state_file.is_file() or state_file.is_symlink():
+        return None
+    try:
+        values: dict[str, str] = {}
+        for line in state_file.read_text(encoding="utf-8").splitlines():
+            if "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            if key in values:
+                return None
+            values[key] = value
+        pid = int(values.get("pid", ""))
+        if pid <= 0 or values.get("root") != str(root.resolve()):
+            return None
+        stored_start = values.get("started", "")
+        if not stored_start:
+            return None
+        os.kill(pid, 0)
+        current_start = _capture(("ps", "-p", str(pid), "-o", "lstart="))
+        command_line = _capture(("ps", "-p", str(pid), "-o", "command="))
+        if current_start != stored_start:
+            return None
+        if "next-server" not in command_line and not (
+            "next" in command_line and "start" in command_line
+        ):
+            return None
+        return pid
+    except (OSError, subprocess.CalledProcessError, TypeError, ValueError):
+        return None
+
+
+def is_running(jarvis_root: Path = JARVIS_ROOT) -> bool:
+    return running_pid(jarvis_root) is not None
+
+
+def sync_managed_configuration(
+    jarvis_root: Path,
+    *,
+    mode: str,
+    jarvis_origin: str,
+    host: str,
+    port: int,
+) -> None:
+    """Réécrit la config Claw3D pour coller à l'origine JARVIS courante."""
+
+    root = claw3d_root(jarvis_root)
+    configure(
+        root,
+        expected_parent=apps_root(jarvis_root),
+        mode=mode,
+        jarvis_origin=jarvis_origin,
+        host=host,
+        port=port,
+        replace=True,
+    )
+
+
 def status(jarvis_root: Path) -> None:
     root = claw3d_root(jarvis_root)
     if not root.exists():
         print(f"Claw3D non installé ({root})")
         return
     validate_installation(root, expected_parent=apps_root(jarvis_root))
-    state_file = root / ".claw3d" / "run" / "claw3d.state"
-    running = False
-    pid: int | None = None
-    if state_file.is_file() and not state_file.is_symlink():
-        values = dict(
-            line.split("=", 1)
-            for line in state_file.read_text(encoding="utf-8").splitlines()
-            if "=" in line
-        )
-        try:
-            pid = int(values.get("pid", ""))
-            os.kill(pid, 0)
-            running = True
-        except (OSError, TypeError, ValueError):
-            running = False
+    pid = running_pid(jarvis_root)
+    running = pid is not None
     print(f"Claw3D installé: {root}")
     print(f"Version épinglée: {CLAW3D_COMMIT}")
     print(f"État: {'actif' if running else 'arrêté'}" + (f" (PID {pid})" if running else ""))
