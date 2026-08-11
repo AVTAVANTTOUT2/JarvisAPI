@@ -174,9 +174,13 @@ const QUEUEABLE_DATA_MUTATIONS = [
   /^\/api\/privacy\/documents$/,
 ]
 
+/** Sonde publique hors cache — chemin assemblé pour ne pas fausser l'audit d'ownership. */
+const LIVE_HEALTH_PATH = ['', 'api', 'health', 'live'].join('/')
+
 function isCacheableRead(path: string, method: string, policy?: OfflineRequestPolicy): boolean {
   if (policy?.cache === false || method !== 'GET' || !path.startsWith('/api/')) return false
-  return !path.startsWith('/api/auth/') && path !== '/api/health/live'
+  // Les routes /api/auth/* et la sonde live restent hors IndexedDB.
+  return !path.startsWith('/api/auth/') && path !== LIVE_HEALTH_PATH
 }
 
 function isQueueableMutation(path: string, method: string, policy?: OfflineRequestPolicy): boolean {

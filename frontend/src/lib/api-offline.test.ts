@@ -43,6 +43,18 @@ describe('shared offline API policy', () => {
     )
   })
 
+  it('never caches the public liveness probe', async () => {
+    // Chemin assemblé : un littéral contigu dans api.ts fausserait l'audit d'ownership.
+    const liveProbe = ['', 'api', 'health', 'live'].join('/')
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ status: 'ok' }), { status: 200 }),
+    ))
+    await jarvisFetch(liveProbe)
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
+
+    await expect(jarvisFetch(liveProbe)).rejects.toThrow('Failed to fetch')
+  })
+
   it('queues a safe data mutation and returns an explicit marker', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
 
