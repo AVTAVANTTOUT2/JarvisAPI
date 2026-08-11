@@ -189,6 +189,7 @@ TEST_SOURCE_ROOTS = (
     "native_mac",
     "jarvis_auth",
 )
+NON_CONSUMER_REFERENCE_MARKER = "architecture-audit: non-consumer-reference"
 
 
 @dataclass
@@ -533,6 +534,11 @@ def _reference_map(
             text = source.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
+        text = "\n".join(
+            line
+            for line in text.splitlines()
+            if NON_CONSUMER_REFERENCE_MARKER not in line
+        )
         relative = source.relative_to(root).as_posix()
         for path, pattern in patterns.items():
             if pattern.search(text):

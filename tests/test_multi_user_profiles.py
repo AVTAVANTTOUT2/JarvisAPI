@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import threading
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -205,3 +207,65 @@ def test_profile_management_routes_require_default_admin(profile_db: Path) -> No
         assert deactivated.status_code == 200
         assert profile_path.is_file()
         assert client.get("/api/tasks", headers={"X-Jarvis-Profile": profile_id}).status_code == 404
+
+
+def test_semantic_indexing_thread_keeps_active_profile(profile_db: Path, monkeypatch) -> None:
+    from database import create_user_profile, current_profile_id, use_profile
+    from database.episodes import _dispatch_semantic_indexing
+
+    alice = create_user_profile("Alice index")
+    observed: list[str] = []
+    deferred: list[Callable[[], None]] = []
+
+    class DeferredThread:
+        def __init__(self, *, target, daemon: bool) -> None:
+            assert daemon is True
+            self.target = target
+
+        def start(self) -> None:
+            deferred.append(self.target)
+
+    def fake_index_text(_source_type: str, _source_id: int, _text: str) -> None:
+        observed.append(current_profile_id())
+
+    monkeypatch.setattr(threading, "Thread", DeferredThread)
+    monkeypatch.setattr("scripts.semantic_search.index_text", fake_index_text)
+    with use_profile(alice["id"]):
+        _dispatch_semantic_indexing("episode", 1, "privé")
+
+    assert current_profile_id() == "default"
+    assert len(deferred) == 1
+    deferred[0]()
+    assert observed == [alice["id"]]
+
+
+def test_push_thread_keeps_active_profile(profile_db: Path, monkeypatch) -> None:
+    from database import create_user_profile, current_profile_id, use_profile
+    from database.notifications import _dispatch_push_notification
+
+    alice = create_user_profile("Alice push")
+    observed: list[str] = []
+    deferred: list[Callable[[], None]] = []
+
+    class DeferredThread:
+        def __init__(self, *, target, daemon: bool) -> None:
+            assert daemon is True
+            self.target = target
+
+        def start(self) -> None:
+            deferred.append(self.target)
+
+    def fake_subscriptions() -> list[dict]:
+        observed.append(current_profile_id())
+        return []
+
+    monkeypatch.setattr(threading, "Thread", DeferredThread)
+    monkeypatch.setattr("database.notifications.get_all_push_subscriptions", fake_subscriptions)
+    monkeypatch.setattr("database.mobile.get_active_mobile_push_tokens", lambda: [])
+    with use_profile(alice["id"]):
+        _dispatch_push_notification("Privé", "profil Alice", "high")
+
+    assert current_profile_id() == "default"
+    assert len(deferred) == 1
+    deferred[0]()
+    assert observed == [alice["id"]]

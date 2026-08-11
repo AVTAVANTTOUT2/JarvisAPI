@@ -9,7 +9,7 @@ from typing import Any
 import config
 from jarvis.log_privacy import redact_action_log_payload, sanitize_log_label
 
-from .core import get_db
+from .core import current_profile_id, get_db, use_profile
 from .push import delete_push_subscription, get_all_push_subscriptions
 
 logger = logging.getLogger(__name__)
@@ -116,30 +116,34 @@ def _dispatch_push_notification(title: str, content: str | None, priority: str) 
     """Envoi Web Push + FCM Android — en arrière-plan, jamais bloquant."""
     import threading
 
+    profile_id = current_profile_id()
+
     def _send():
-        try:
-            import push
+        with use_profile(profile_id):
+            try:
+                import push
 
-            for sub in get_all_push_subscriptions():
-                subscription = {
-                    "endpoint": sub["endpoint"],
-                    "keys": {"p256dh": sub["p256dh"], "auth": sub["auth"]},
-                }
-                ok, status = push.send_web_push(
-                    subscription, {"title": title, "body": content or "", "priority": priority}
-                )
-                if not ok and status in (404, 410):
-                    delete_push_subscription(sub["endpoint"])
+                for sub in get_all_push_subscriptions():
+                    subscription = {
+                        "endpoint": sub["endpoint"],
+                        "keys": {"p256dh": sub["p256dh"], "auth": sub["auth"]},
+                    }
+                    ok, status = push.send_web_push(
+                        subscription,
+                        {"title": title, "body": content or "", "priority": priority},
+                    )
+                    if not ok and status in (404, 410):
+                        delete_push_subscription(sub["endpoint"])
 
-            from database.mobile import clear_mobile_push_token, get_active_mobile_push_tokens
-            from integrations.fcm import send_fcm_notification
+                from database.mobile import clear_mobile_push_token, get_active_mobile_push_tokens
+                from integrations.fcm import send_fcm_notification
 
-            for token in get_active_mobile_push_tokens():
-                ok, status = send_fcm_notification(token, title, content, priority)
-                if not ok and status in (404, 410):
-                    clear_mobile_push_token(token)
-        except Exception:
-            logger.debug("[push] dispatch échoué (best-effort)", exc_info=True)
+                for token in get_active_mobile_push_tokens():
+                    ok, status = send_fcm_notification(token, title, content, priority)
+                    if not ok and status in (404, 410):
+                        clear_mobile_push_token(token)
+            except Exception:
+                logger.debug("[push] dispatch échoué (best-effort)", exc_info=True)
 
     threading.Thread(target=_send, daemon=True).start()
 

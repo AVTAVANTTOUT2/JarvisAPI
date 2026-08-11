@@ -26,6 +26,21 @@ def render_schema() -> str:
     ) + "\n"
 
 
+def contract_is_current(output: Path = DEFAULT_OUTPUT, rendered: str | None = None) -> bool:
+    """Vérifie la dérive sans exposer un diff de plusieurs milliers de lignes."""
+    if not output.is_file():
+        return False
+    expected = rendered if rendered is not None else render_schema()
+    return output.read_text(encoding="utf-8") == expected
+
+
+def stale_contract_message(output: Path = DEFAULT_OUTPUT) -> str:
+    return (
+        f"Contrat OpenAPI obsolète : {output}. "
+        "Exécutez `.venv/bin/python tools/export_openapi.py`, puis inspectez le diff."
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
@@ -35,8 +50,8 @@ def main(argv: list[str] | None = None) -> int:
     rendered = render_schema()
 
     if args.check:
-        if not output.is_file() or output.read_text(encoding="utf-8") != rendered:
-            print(f"[export_openapi] contrat obsolète : {output}", file=sys.stderr)
+        if not contract_is_current(output, rendered):
+            print(f"[export_openapi] {stale_contract_message(output)}", file=sys.stderr)
             return 1
         print(f"[export_openapi] contrat synchronisé : {output}")
         return 0

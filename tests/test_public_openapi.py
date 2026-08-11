@@ -123,10 +123,14 @@ def test_developer_docs_remain_session_protected_and_offline(
 
 
 def test_committed_openapi_artifact_is_current() -> None:
-    from tools.export_openapi import DEFAULT_OUTPUT, render_schema
+    from tools.export_openapi import (
+        DEFAULT_OUTPUT,
+        contract_is_current,
+        stale_contract_message,
+    )
 
     assert DEFAULT_OUTPUT == ROOT / "openapi" / "jarvis.openapi.json"
-    assert DEFAULT_OUTPUT.read_text(encoding="utf-8") == render_schema()
+    assert contract_is_current(DEFAULT_OUTPUT), stale_contract_message(DEFAULT_OUTPUT)
 
 
 def test_openapi_artifact_is_valid_json() -> None:
