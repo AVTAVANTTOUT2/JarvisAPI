@@ -23,11 +23,9 @@ from api.ws_conversations import (
     switch_websocket_conversation,
 )
 from api.ws_session import (
-    _resume_or_create_conversation,
-    close_websocket_conversation,
-    remember_websocket_conversation,
-    resolve_websocket_auth,
-    websocket_confirmation_session_id,
+    _resume_or_create_conversation, activate_websocket_profile,
+    close_websocket_conversation, remember_websocket_conversation,
+    resolve_websocket_auth, websocket_confirmation_session_id,
 )
 from database import (
     create_conversation,
@@ -49,21 +47,8 @@ logger = logging.getLogger("jarvis")
 
 async def websocket_endpoint(ws: WebSocket):
     """Chat temps réel : JSON texte, audio binaire, streaming, TTS."""
-    from database import activate_profile, normalize_profile_id, user_profile_exists
-
-    try:
-        profile_id = normalize_profile_id(
-            ws.headers.get("x-jarvis-profile") or ws.cookies.get("jarvis_profile")
-        )
-    except ValueError:
-        await ws.close(code=4400, reason="profil invalide")
+    if not await activate_websocket_profile(ws):
         return
-    if not user_profile_exists(profile_id):
-        await ws.close(code=4404, reason="profil introuvable")
-        return
-    # Chaque WebSocket possède sa propre tâche asyncio : le contexte disparaît
-    # avec elle et reste hérité par ses tâches de mémoire en arrière-plan.
-    activate_profile(profile_id)
     if not auth.is_configured():
         await ws.close(code=4428)
         return
