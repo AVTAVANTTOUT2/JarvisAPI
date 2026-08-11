@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import logging
+import re
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
+from contextvars import ContextVar, Token
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -17,12 +19,72 @@ from .time_buckets import local_datetime, utc_bounds_for_local_dates
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_PROFILE_ID = "default"
+_PROFILE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
+_active_profile_id: ContextVar[str] = ContextVar(
+    "jarvis_active_profile_id",
+    default=DEFAULT_PROFILE_ID,
+)
+
+
+def normalize_profile_id(profile_id: str | None) -> str:
+    """Valide un identifiant de profil avant tout usage comme segment de chemin."""
+    candidate = str(profile_id or DEFAULT_PROFILE_ID).strip().casefold()
+    if not _PROFILE_ID_RE.fullmatch(candidate):
+        raise ValueError("Identifiant de profil invalide")
+    return candidate
+
+
+def current_profile_id() -> str:
+    """Retourne le profil lié à la requête/tâche asyncio courante."""
+    return _active_profile_id.get()
+
+
+def activate_profile(profile_id: str) -> Token[str]:
+    """Lie un profil au contexte courant et retourne le jeton de restauration."""
+    return _active_profile_id.set(normalize_profile_id(profile_id))
+
+
+def reset_profile(token: Token[str]) -> None:
+    """Restaure le contexte de profil précédent."""
+    _active_profile_id.reset(token)
+
+
+@contextmanager
+def use_profile(profile_id: str) -> Iterator[None]:
+    """Isole toutes les connexions ouvertes dans le bloc sur un profil."""
+    token = activate_profile(profile_id)
+    try:
+        yield
+    finally:
+        reset_profile(token)
+
+
+def profile_database_path(profile_id: str | None = None) -> Path:
+    """Résout la base d'un profil sans permettre de sortie de la racine dédiée."""
+    from . import DB_PATH
+
+    base_path = Path(DB_PATH)
+    selected = normalize_profile_id(profile_id or current_profile_id())
+    if selected == DEFAULT_PROFILE_ID:
+        return base_path
+    if str(base_path) == ":memory:":
+        raise RuntimeError("Les profils additionnels exigent une base SQLite sur disque")
+    return base_path.parent / "profiles" / selected / base_path.name
+
+
+def profile_storage_path(base_path: str | Path, profile_id: str | None = None) -> Path:
+    """Partitionne un répertoire de données selon le même profil que SQLite."""
+    root = Path(base_path).expanduser()
+    selected = normalize_profile_id(profile_id or current_profile_id())
+    if selected == DEFAULT_PROFILE_ID:
+        return root
+    return root.parent / "profiles" / selected / root.name
+
 
 def _current_db_path() -> Path:
     """Résout le chemin à l'appel pour préserver `database.DB_PATH` configurable."""
-    from . import DB_PATH
-
-    return Path(DB_PATH)
+    return profile_database_path()
 
 
 def harden_sqlite_permissions(path: Path | None = None) -> None:

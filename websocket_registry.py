@@ -9,25 +9,35 @@ from jarvis.event_bus import DOMAIN_EVENT_TYPES, JarvisEvent, event_bus
 
 
 connected_ws: set[Any] = set()
+connected_ws_profiles: dict[Any, str] = {}
 connected_ws_lock = asyncio.Lock()
 
 
 async def add_websocket(ws: Any) -> None:
+    from database.core import current_profile_id
+
     async with connected_ws_lock:
         connected_ws.add(ws)
+        connected_ws_profiles[ws] = current_profile_id()
 
 
 async def remove_websocket(ws: Any) -> None:
     async with connected_ws_lock:
         connected_ws.discard(ws)
+        connected_ws_profiles.pop(ws, None)
 
 
 async def broadcast_ws(event: dict[str, Any]) -> None:
     """Diffuse un événement sur un snapshot stable des connexions actives."""
     # Les I/O réseau restent hors du verrou : une socket lente ne bloque pas
     # les connexions et déconnexions concurrentes.
+    from database.core import current_profile_id
+
+    profile_id = current_profile_id()
     async with connected_ws_lock:
-        recipients = tuple(connected_ws)
+        recipients = tuple(
+            ws for ws in connected_ws if connected_ws_profiles.get(ws, "default") == profile_id
+        )
 
     dead: set[Any] = set()
     for ws in recipients:
@@ -39,6 +49,8 @@ async def broadcast_ws(event: dict[str, Any]) -> None:
     if dead:
         async with connected_ws_lock:
             connected_ws.difference_update(dead)
+            for ws in dead:
+                connected_ws_profiles.pop(ws, None)
 
 
 @event_bus.on(DOMAIN_EVENT_TYPES)

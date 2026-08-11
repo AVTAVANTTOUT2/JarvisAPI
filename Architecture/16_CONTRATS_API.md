@@ -100,6 +100,24 @@ GET /api/conversations?limit=20&cursor=eyJpZCI6NDJ9
 | `/api/location` (ingestion) | 60 | 1 minute |
 | `/*` (tout le reste) | 300 | 1 minute |
 
+## Profils utilisateur
+
+Toutes les requêtes HTTP acceptent `X-Jarvis-Profile`. Sans header ni cookie
+`jarvis_profile`, le profil rétrocompatible `default` est utilisé. Les
+identifiants respectent `^[a-z0-9][a-z0-9_-]{0,31}$` ; un identifiant mal formé
+retourne `400 invalid_profile`, un profil inconnu ou désactivé retourne
+`404 profile_not_found`.
+
+| Méthode | Route | Auth | Usage |
+|---|---|---|---|
+| `GET` | `/api/auth/profiles` | loopback, sinon session | Liste les profils actifs |
+| `POST` | `/api/auth/profiles` | session du profil `default` + CSRF | Crée et initialise une base isolée |
+| `POST` | `/api/auth/profiles/{id}/deactivate` | session du profil `default` + CSRF | Désactive sans supprimer les données |
+
+Le cookie de session est vérifié dans la base sélectionnée. Il ne peut donc pas
+être rejoué sur un autre profil. WebSocket et SSE utilisent le cookie de
+sélection non secret afin de conserver la même frontière dans les API navigateur.
+
 ## WebSocket — Contrat
 
 Le client conserve un `checkpoint_id` UUID opaque par conversation. Il le

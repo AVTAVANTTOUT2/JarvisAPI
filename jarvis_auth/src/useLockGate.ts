@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { AuthClient, AuthError, authClient, type AuthStatus } from './client'
+import {
+  AuthClient,
+  AuthError,
+  authClient,
+  getActiveProfileId,
+  type AuthStatus,
+  type ProfileListResponse,
+  type UserProfile,
+} from './client'
 
 const INACTIVITY_EVENTS = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'] as const
 const SOFT_LOCK_STORAGE_KEY = 'jarvis:soft-lock'
@@ -36,11 +44,14 @@ export interface LockGateState {
   connectionError: boolean
   softLocked: boolean
   lockoutSeconds: number
+  activeProfileId: string
+  profiles: UserProfile[]
   refresh: () => Promise<void>
   setup: (secret: string) => Promise<void>
   unlock: (secret: string) => Promise<void>
   localUnlock: (secret: string) => Promise<void>
   logout: () => Promise<void>
+  selectProfile: (profileId: string) => Promise<void>
 }
 
 /** Orchestre le setup, le déverrouillage et l'auto-lock côté navigateur. */
@@ -51,13 +62,19 @@ export function useLockGate(options: UseLockGateOptions = {}): LockGateState {
   const [connectionError, setConnectionError] = useState(false)
   const [softLocked, setSoftLocked] = useState(readPersistedSoftLock)
   const [lockoutSeconds, setLockoutSeconds] = useState(0)
+  const [activeProfileId, setActiveProfile] = useState(getActiveProfileId)
+  const [profiles, setProfiles] = useState<UserProfile[]>([])
   const inactivityTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastActivityAt = useRef(Date.now())
 
   const refresh = useCallback(async () => {
     try {
       const nextStatus = await client.status()
+      const profileClient = client as AuthClient & { profiles?: () => Promise<ProfileListResponse> }
+      const availableProfiles = await profileClient.profiles?.().catch(() => null)
       setStatus(nextStatus)
+      setProfiles(availableProfiles?.profiles ?? (nextStatus.profile ? [nextStatus.profile] : []))
+      setActiveProfile(availableProfiles?.active_profile ?? nextStatus.profile?.id ?? getActiveProfileId())
       setLockoutSeconds(nextStatus.lockout_seconds)
       setConnectionError(false)
       if (!nextStatus.authenticated) {
@@ -174,16 +191,41 @@ export function useLockGate(options: UseLockGateOptions = {}): LockGateState {
     await refresh()
   }, [client, refresh])
 
+  const selectProfile = useCallback(async (profileId: string) => {
+    if (profileId === activeProfileId) return
+    if (status?.authenticated) {
+      try {
+        await client.logout()
+      } catch {
+        // Ne jamais conserver une session valide dans un profil masqué : sans
+        // révocation confirmée, le changement reste fermé et réessayable.
+        setConnectionError(true)
+        return
+      }
+    }
+    options.onUnauthenticated?.()
+    client.selectProfile(profileId)
+    setActiveProfile(profileId)
+    setStatus(null)
+    setLoading(true)
+    persistSoftLock(false)
+    setSoftLocked(false)
+    await refresh()
+  }, [activeProfileId, client, options.onUnauthenticated, refresh, status?.authenticated])
+
   return {
     status,
     loading,
     connectionError,
     softLocked,
     lockoutSeconds,
+    activeProfileId,
+    profiles,
     refresh,
     setup,
     unlock,
     localUnlock,
     logout,
+    selectProfile,
   }
 }
