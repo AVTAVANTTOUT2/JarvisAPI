@@ -12,6 +12,7 @@ import {
 import { formatRelativeTime, parseBackendTimestamp } from '@unified/lib/timeFormat'
 import { ws } from '@desktop/services/websocket'
 import { Cloud, Menu, Paperclip, Plus, Search, Send, ShieldCheck, X } from 'lucide-react'
+import { useSearchParams } from 'react-router-dom'
 
 // ── Types locaux ────────────────────────────────────────────
 
@@ -81,6 +82,8 @@ const SUGGESTIONS = [
 // ═══════════════════════════════════════════════════════════════
 
 export function ChatView() {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const requestedConversation = searchParams.get('conversation')
   const [conversations, setConversations] = useState<ConversationSummary[]>([])
   const [activeConvId, setActiveConvId] = useState<number | null>(null)
   const [messages, setMessages] = useState<UIMessage[]>([])
@@ -107,6 +110,7 @@ export function ChatView() {
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const handledConversationParam = useRef<string | null>(null)
 
   // ── Scroll ──────────────────────────────────────────────
 
@@ -395,6 +399,19 @@ export function ChatView() {
       }])
     }
   }, [applyConversation])
+
+  useEffect(() => {
+    if (!requestedConversation || handledConversationParam.current === requestedConversation) return
+    const conversationId = Number(requestedConversation)
+    if (!Number.isSafeInteger(conversationId) || conversationId <= 0) return
+
+    handledConversationParam.current = requestedConversation
+    void switchConversation(conversationId).finally(() => {
+      const next = new URLSearchParams(searchParams)
+      next.delete('conversation')
+      setSearchParams(next, { replace: true })
+    })
+  }, [requestedConversation, searchParams, setSearchParams, switchConversation])
 
   const newConversation = useCallback(() => {
     if (!ws.startNewConversation()) {

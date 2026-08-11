@@ -139,6 +139,32 @@ export interface ConversationSearchResult {
   match_date: string | null
 }
 
+export type UnifiedSearchCategory =
+  | 'conversations'
+  | 'contacts'
+  | 'tasks'
+  | 'documents'
+  | 'memory'
+
+export interface UnifiedSearchResult {
+  type: 'conversation' | 'person' | 'task' | 'document' | 'episode' | 'fact'
+  category: UnifiedSearchCategory
+  id: number
+  checkpoint_id?: string | null
+  title: string
+  subtitle: string
+  meta: string | null
+  url: string
+  score: number
+}
+
+export interface UnifiedSearchResponse {
+  query: string
+  total: number
+  categories: Partial<Record<UnifiedSearchCategory, number>>
+  results: UnifiedSearchResult[]
+}
+
 export interface CalendarEvent {
   id: string
   title: string

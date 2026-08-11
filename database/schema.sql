@@ -952,6 +952,26 @@ CREATE TABLE sessions (
             revoked INTEGER DEFAULT 0
         , mobile_device_id TEXT);
 
+CREATE TABLE sync_entity_versions (
+    entity_key TEXT PRIMARY KEY,
+    version INTEGER NOT NULL DEFAULT 0 CHECK(version >= 0),
+    checksum TEXT,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE sync_operations (
+    operation_id TEXT PRIMARY KEY,
+    checksum TEXT NOT NULL,
+    entity_key TEXT NOT NULL,
+    base_version INTEGER,
+    resolved_version INTEGER NOT NULL,
+    status_code INTEGER NOT NULL,
+    response_body BLOB,
+    response_content_type TEXT,
+    response_headers_json TEXT NOT NULL DEFAULT '{}',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE tasks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     title TEXT NOT NULL,
@@ -1255,6 +1275,9 @@ CREATE INDEX idx_screen_device ON screen_activity(device);
 CREATE INDEX idx_sessions_mobile_device ON sessions(mobile_device_id);
 
 CREATE INDEX idx_sessions_token_hash ON sessions(token_hash);
+
+CREATE INDEX idx_sync_operations_entity
+    ON sync_operations(entity_key, created_at);
 
 CREATE INDEX idx_tasks_status ON tasks(status);
 

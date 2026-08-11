@@ -133,9 +133,11 @@ def test_desktop_uses_one_authenticated_api_wrapper():
                 if re.search(r"(?<![.`])\bfetch\(", line) and not line.lstrip().startswith("*"):
                     direct_fetches.append((path.relative_to(REPO_ROOT).as_posix(), line_number))
 
-    assert [path for path, _ in direct_fetches] == ["frontend/src/lib/api.ts"]
+    assert [path for path, _ in direct_fetches] == ["frontend/src/lib/http.ts"]
+    http_source = (REPO_ROOT / "frontend/src/lib/http.ts").read_text(encoding="utf-8")
     api_source = (REPO_ROOT / "frontend/src/lib/api.ts").read_text(encoding="utf-8")
-    assert "credentials: 'include'" in api_source
+    assert "credentials: 'include'" in http_source
+    assert "jarvisRawFetch" in api_source
     assert "@unified/lib/api" in (REPO_ROOT / "web/src/pages/MissionControl.tsx").read_text()
 
 

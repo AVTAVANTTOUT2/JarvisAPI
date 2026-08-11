@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-08-11T13:48:51.717602+00:00",
+  "generated_at": "2026-08-11T14:15:20.385534+00:00",
   "repo_root": ".",
   "canonical_formulation": {
-    "database": "Le projet crée 90 tables persistantes après init_db() + migrations, plus jusqu'à 5 objets FTS5, soit 95 tables physiques lorsque FTS5 est disponible.",
+    "database": "Le projet crée 92 tables persistantes après init_db() + migrations, plus jusqu'à 5 objets FTS5, soit 97 tables physiques lorsque FTS5 est disponible.",
     "frontends": "Le frontend canonique est frontend/ (Next.js 15 → frontend/out). web/src est uniquement sa bibliothèque de vues et n'est plus une application exécutable. web_mobile/ est l'interface mobile autonome servie sous /mobile/, sans build. Si frontend/out manque, le bureau répond explicitement 503. tv/ (5174) est réservé à la TV. FastAPI (8081) et le supervisor (9000) servent uniquement frontend/out via core.frontend_resolution."
   },
   "frontends": [
@@ -117,16 +117,16 @@
       "does_not_execute_schema_sql": true
     },
     "counts": {
-      "schema_py": 55,
-      "schema_sql_applicatives": 91,
+      "schema_py": 57,
+      "schema_sql_applicatives": 93,
       "migrations_unique_excluding_schema_and_fts": 29,
       "devagent": 6,
-      "persistantes_post_init": 90,
+      "persistantes_post_init": 92,
       "fts_objects_if_available": 5,
-      "physiques_max_default_fts_on": 95,
+      "physiques_max_default_fts_on": 97,
       "imessage_mirror": 9,
       "technique_estime": 19,
-      "metier_estime": 56
+      "metier_estime": 58
     },
     "lists": {
       "schema_py": [
@@ -178,6 +178,8 @@
         "school_flashcards",
         "school_subjects",
         "screen_activity",
+        "sync_entity_versions",
+        "sync_operations",
         "tasks",
         "trips",
         "user_facts",
@@ -268,6 +270,8 @@
         "screen_activity",
         "security_findings",
         "sessions",
+        "sync_entity_versions",
+        "sync_operations",
         "tasks",
         "trips",
         "user_facts",
@@ -399,6 +403,8 @@
         "screen_activity",
         "security_findings",
         "sessions",
+        "sync_entity_versions",
+        "sync_operations",
         "tasks",
         "trips",
         "user_facts",
@@ -444,9 +450,9 @@
       ]
     },
     "explanations": {
-      "schema_sql": "91 tables applicatives dans database/schema.sql (dump non exécuté), hors sqlite_sequence.",
-      "persistantes": "90 tables créées par schema.py + migrations + DevAgent, hors objets FTS.",
-      "physiques_fts": "95 entrées sqlite_master avec les cinq objets FTS5 disponibles.",
+      "schema_sql": "93 tables applicatives dans database/schema.sql (dump non exécuté), hors sqlite_sequence.",
+      "persistantes": "92 tables créées par schema.py + migrations + DevAgent, hors objets FTS.",
+      "physiques_fts": "97 entrées sqlite_master avec les cinq objets FTS5 disponibles.",
       "historique": "Les totaux 44, 70, 71, 72, 73, 75, 76 et 78 décrivent des snapshots antérieurs, pas le runtime courant."
     }
   },
@@ -455,9 +461,9 @@
     "counts": {
       "operations": 263,
       "paths": 234,
-      "consumer_and_tested": 126,
+      "consumer_and_tested": 127,
       "consumer_without_path_test": 51,
-      "owned_non_frontend_and_tested": 38,
+      "owned_non_frontend_and_tested": 37,
       "owned_non_frontend_without_path_test": 48
     },
     "consumer_surfaces": [
@@ -479,7 +485,7 @@
     },
     "ownership_policy": {
       "path": "Architecture/api_route_ownership.json",
-      "rules": 33,
+      "rules": 32,
       "findings": []
     },
     "routes": [
@@ -632,8 +638,7 @@
             "frontend/src/lib/api.ts"
           ],
           "frontend_vite": [
-            "web/src/app/components/views/MonitoringView.tsx",
-            "web/src/app/components/views/TasksView.tsx"
+            "web/src/app/components/views/MonitoringView.tsx"
           ],
           "mobile_web": [
             "web_mobile/js/api.js"
@@ -652,10 +657,13 @@
         "tests": [
           "frontend/e2e/critical-flows.spec.ts",
           "frontend/e2e/unified.spec.ts",
+          "frontend/src/lib/api-offline.test.ts",
           "tests/test_control_plane_auth.py",
           "tests/test_mobile_bearer_routes.py",
           "tests/test_mobile_chat.py",
+          "tests/test_sync_versioning.py",
           "tests/test_task_input_contract.py",
+          "web/src/app/components/pwa/OfflineStatus.test.tsx",
           "web/src/lib/offline/queue.test.ts"
         ],
         "non_frontend_ownership": null,
@@ -678,8 +686,11 @@
           ]
         },
         "tests": [
+          "frontend/src/lib/api-offline.test.ts",
           "tests/test_crud_not_found.py",
-          "tests/test_task_input_contract.py"
+          "tests/test_task_input_contract.py",
+          "web/src/app/components/pwa/OfflineStatus.test.tsx",
+          "web/src/lib/offline/queue.test.ts"
         ],
         "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
@@ -1716,19 +1727,18 @@
         "path": "/api/health/live",
         "source": "api/router_misc.py",
         "line": 97,
-        "consumers": {},
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
         "tests": [
           "tests/test_health_contract.py",
           "tests/test_release_soak.py",
           "tests/test_security_middleware.py"
         ],
-        "non_frontend_ownership": {
-          "rule_id": "infrastructure-liveness-probe",
-          "owner": "observability",
-          "audience": "automation",
-          "rationale": "Sonde de vie publique consommée par le superviseur, launchd et un éventuel reverse proxy — jamais par un frontend, qui lit le diagnostic détaillé authentifié."
-        },
-        "classification": "owned_non_frontend_and_tested"
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
       },
       {
         "method": "GET",
@@ -2697,6 +2707,7 @@
           "android/app/src/test/kotlin/fr/jarvis/companion/feature/diagnostics/DiagnosticsPresentationLogicTest.kt",
           "frontend/e2e/critical-flows.spec.ts",
           "frontend/e2e/unified.spec.ts",
+          "frontend/src/lib/api-offline.test.ts",
           "tests/test_audit_architecture_truth.py",
           "tests/test_claw3d_manager.py",
           "tests/test_no_open_interpreter.py"
@@ -2715,8 +2726,7 @@
             "frontend/src/lib/api.ts"
           ],
           "frontend_vite": [
-            "web/src/app/components/views/MonitoringView.tsx",
-            "web/src/app/components/views/TasksView.tsx"
+            "web/src/app/components/views/MonitoringView.tsx"
           ],
           "mobile_web": [
             "web_mobile/js/api.js"
@@ -2735,10 +2745,13 @@
         "tests": [
           "frontend/e2e/critical-flows.spec.ts",
           "frontend/e2e/unified.spec.ts",
+          "frontend/src/lib/api-offline.test.ts",
           "tests/test_control_plane_auth.py",
           "tests/test_mobile_bearer_routes.py",
           "tests/test_mobile_chat.py",
+          "tests/test_sync_versioning.py",
           "tests/test_task_input_contract.py",
+          "web/src/app/components/pwa/OfflineStatus.test.tsx",
           "web/src/lib/offline/queue.test.ts"
         ],
         "non_frontend_ownership": null,
@@ -3002,8 +3015,11 @@
           ]
         },
         "tests": [
+          "frontend/src/lib/api-offline.test.ts",
           "tests/test_crud_not_found.py",
-          "tests/test_task_input_contract.py"
+          "tests/test_task_input_contract.py",
+          "web/src/app/components/pwa/OfflineStatus.test.tsx",
+          "web/src/lib/offline/queue.test.ts"
         ],
         "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
@@ -3419,6 +3435,7 @@
           ]
         },
         "tests": [
+          "frontend/src/lib/api-offline.test.ts",
           "tests/test_http_error_contract.py"
         ],
         "non_frontend_ownership": null,
@@ -4216,6 +4233,7 @@
           ]
         },
         "tests": [
+          "frontend/src/lib/api-offline.test.ts",
           "tests/test_food_input_contract.py",
           "tests/test_food_intelligence.py"
         ],
@@ -4995,8 +5013,7 @@
             "frontend/src/lib/api.ts"
           ],
           "frontend_vite": [
-            "web/src/app/components/views/MonitoringView.tsx",
-            "web/src/app/components/views/TasksView.tsx"
+            "web/src/app/components/views/MonitoringView.tsx"
           ],
           "mobile_web": [
             "web_mobile/js/api.js"
@@ -5015,10 +5032,13 @@
         "tests": [
           "frontend/e2e/critical-flows.spec.ts",
           "frontend/e2e/unified.spec.ts",
+          "frontend/src/lib/api-offline.test.ts",
           "tests/test_control_plane_auth.py",
           "tests/test_mobile_bearer_routes.py",
           "tests/test_mobile_chat.py",
+          "tests/test_sync_versioning.py",
           "tests/test_task_input_contract.py",
+          "web/src/app/components/pwa/OfflineStatus.test.tsx",
           "web/src/lib/offline/queue.test.ts"
         ],
         "non_frontend_ownership": null,

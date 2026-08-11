@@ -1593,6 +1593,35 @@ def _migrate_food_intelligence(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_sync_conflict_tables(conn: sqlite3.Connection) -> None:
+    """Ajoute le versioning optimiste et le journal de reprise idempotent."""
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS sync_entity_versions (
+            entity_key TEXT PRIMARY KEY,
+            version INTEGER NOT NULL DEFAULT 0 CHECK(version >= 0),
+            checksum TEXT,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS sync_operations (
+            operation_id TEXT PRIMARY KEY,
+            checksum TEXT NOT NULL,
+            entity_key TEXT NOT NULL,
+            base_version INTEGER,
+            resolved_version INTEGER NOT NULL,
+            status_code INTEGER NOT NULL,
+            response_body BLOB,
+            response_content_type TEXT,
+            response_headers_json TEXT NOT NULL DEFAULT '{}',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_sync_operations_entity
+            ON sync_operations(entity_key, created_at);
+        """
+    )
+
+
 def run_migrations(conn: sqlite3.Connection) -> None:
     """Applique dans un ordre stable toutes les migrations idempotentes."""
     _migrate_people_ai_description(conn)
@@ -1637,4 +1666,5 @@ def run_migrations(conn: sqlite3.Connection) -> None:
     _migrate_scheduler_job_runs(conn)
     _migrate_food_orders(conn)
     _migrate_food_intelligence(conn)
+    _migrate_sync_conflict_tables(conn)
     _migrate_application_timestamps_to_utc_v2(conn)

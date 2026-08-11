@@ -4,6 +4,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { BigBrotherLayout } from '@desktop/app/components/layout/BigBrotherLayout';
 import { InstallPrompt } from '@desktop/app/components/pwa/InstallPrompt';
 import { NotificationsPrompt } from '@desktop/app/components/pwa/NotificationsPrompt';
+import { OfflineStatus } from '@desktop/app/components/pwa/OfflineStatus';
 import { ChatView } from '@desktop/app/components/views/ChatView';
 import { clearOfflineDB } from '@desktop/lib/offline/db';
 import { initOfflineSync } from '@desktop/lib/offline/queue';
@@ -50,8 +51,8 @@ function S({ children }: { children: ReactNode }) {
 export default function App() {
   return (
     <LockGate
-      onAuthenticated={() => initOfflineSync(() => {
-        window.dispatchEvent(new CustomEvent('jarvis:offline-sync-done'));
+      onAuthenticated={() => initOfflineSync((result) => {
+        window.dispatchEvent(new CustomEvent('jarvis:offline-sync-done', { detail: result }));
       })}
       onUnauthenticated={() => { void clearOfflineDB(); }}
     >
@@ -87,6 +88,7 @@ export default function App() {
       </BrowserRouter>
       <InstallPrompt />
       <NotificationsPrompt />
+      <OfflineStatus />
     </LockGate>
   );
 }

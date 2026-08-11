@@ -16,6 +16,7 @@ from core.supervisor_auth import (
     verify_supervisor_control_token,
 )
 from security_headers import SECURITY_HEADERS
+from api.sync_versioning import sync_versioning_middleware
 
 _DEVICE_TOKEN_POST_ROUTE_RE = re.compile(r"^/api/devices/[^/]+/(heartbeat|screen)$")
 _DEVICE_TOKEN_GET_ROUTE_RE = re.compile(r"^/api/devices/[^/]+/tts$")
@@ -431,5 +432,8 @@ async def security_middleware(request: Request, call_next):
     """
     response = _content_length_error(request)
     if response is None:
-        response = await _dispatch_with_session_gate(request, call_next)
+        async def versioned_call_next(inner_request: Request):
+            return await sync_versioning_middleware(inner_request, call_next)
+
+        response = await _dispatch_with_session_gate(request, versioned_call_next)
     return _apply_security_headers(response)

@@ -13,7 +13,6 @@ import {
 } from 'lucide-react';
 import { api } from '@unified/lib/api';
 import { formatRelativeTime } from '@unified/lib/timeFormat';
-import { enqueueWrite, isNetworkError } from '@desktop/lib/offline/queue';
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -137,22 +136,7 @@ export function TasksView() {
       const data: any = await api.createTask(body);
       if (data?.task) {
         setTasks(prev => [data.task, ...prev]);
-      }
-      setNewTitle('');
-      setNewPriority('medium');
-      setNewDueDate('');
-      setNewCategory('');
-      setShowCreate(false);
-    } catch (e: any) {
-      if (isNetworkError(e)) {
-        // Hors ligne : la tâche part dans la file d'attente et sera créée
-        // côté serveur au retour réseau — l'utilisateur la voit tout de suite.
-        await enqueueWrite({
-          method: 'POST',
-          path: '/api/tasks',
-          body,
-          label: `Nouvelle tâche : ${title}`,
-        });
+      } else if (data?.queued) {
         setTasks(prev => [
           {
             id: -Date.now(),
@@ -168,14 +152,14 @@ export function TasksView() {
           },
           ...prev,
         ]);
-        setNewTitle('');
-        setNewPriority('medium');
-        setNewDueDate('');
-        setNewCategory('');
-        setShowCreate(false);
-      } else {
-        setError(e?.message || 'Erreur lors de la création');
       }
+      setNewTitle('');
+      setNewPriority('medium');
+      setNewDueDate('');
+      setNewCategory('');
+      setShowCreate(false);
+    } catch (e: any) {
+      setError(e?.message || 'Erreur lors de la création');
     } finally {
       setCreating(false);
     }

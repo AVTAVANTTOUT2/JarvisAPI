@@ -51,6 +51,8 @@ from .conversations import (
     update_generated_conversation_title,
 )
 
+from .unified_search import unified_search
+
 from .episodes import (
     get_recent_episodes,
     get_recording,

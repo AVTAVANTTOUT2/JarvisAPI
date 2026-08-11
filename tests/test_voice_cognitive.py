@@ -180,6 +180,37 @@ def test_voice_tech_cursor_failure_honest_message(tmp_db, monkeypatch):
     assert result["action"] is None
 
 
+def test_voice_legacy_cursor_confirmation_fails_explicitly(tmp_db):
+    """Un job antérieur au scoping n'est ni lancé ni masqué par une réponse générique."""
+    confirm_mock = AsyncMock()
+    with (
+        patch("integrations.cursor_delegation.cursor_delegation") as svc,
+        patch(
+            "database.cursor_jobs.list_jobs_by_statuses",
+            return_value=[
+                {
+                    "job_id": "legacy-voice",
+                    "interaction_mode": "voice",
+                    "status": "awaiting_confirmation",
+                    "routing": {},
+                }
+            ],
+        ),
+    ):
+        svc.confirm = confirm_mock
+        result = asyncio.run(
+            maybe_handle_cognitive_voice("lance", 1, t0=0.0)
+        )
+
+    assert result is not None and not result.get("__continue__")
+    assert result["action"] == {
+        "type": "cursor_confirm_unavailable",
+        "reason": "cursor_confirmation_legacy_unscoped",
+    }
+    assert "rien n'a été lancé" in result["text"].lower()
+    confirm_mock.assert_not_awaited()
+
+
 def test_voice_briefing_returns_voice_text(tmp_db):
     """« Fais-moi mon briefing » → version vocale courte du moteur."""
     from agents.briefing_engine import StructuredBriefing

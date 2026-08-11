@@ -2,7 +2,15 @@
  * Service REST central — BASE vide : même origine que FastAPI ou le supervisor.
  */
 import type { ApiPerson, NotificationItem } from '@unified/types/jarvis'
-import { authClient, getCsrfToken } from '@jarvis/auth'
+import { authClient } from '@jarvis/auth'
+import { API_BASE, jarvisRawFetch } from './http'
+import { enqueueWrite, isNetworkError, resourceRoot } from './offline/queue'
+import {
+  cacheRead,
+  getCachedRead,
+  getLatestCachedVersion,
+  invalidateCachedReads,
+} from './offline/readCache'
 import type {
   AppUsageRow,
   AudioDaemonStatus,
@@ -30,13 +38,15 @@ import type {
   ScreenActivityRow,
   ServiceInfo,
   SupervisorStatus,
+  UnifiedSearchResponse,
   VoiceDebugTrace,
   WeeklyStats,
 } from '@unified/types/api'
 
 export type * from '@unified/types/api'
+export { API_BASE, jarvisRawFetch } from './http'
 
-export const BASE = ''
+export const BASE = API_BASE
 
 /**
  * Contrat de `GET /api/health/detail` — miroir exact de `jarvis/health.py`.
@@ -142,32 +152,105 @@ function publicApiErrorMessage(status: number, body: string): string {
   return `API ${status}`
 }
 
-/** Compat imports existants (`lib/api.ts`). */
-export const API_BASE = ''
+export interface OfflineRequestPolicy {
+  /** Force ou interdit la mise en file d'une mutation réseau. */
+  queue?: boolean
+  /** Libellé non sensible affiché dans le statut global. */
+  label?: string
+  /** Valeur retournée immédiatement quand l'écriture est mise en file. */
+  optimistic?: unknown
+  /** Permet d'exclure une lecture volatile du cache IndexedDB. */
+  cache?: boolean
+  cacheTtlMs?: number
+}
 
-/** Point réseau unique pour les vues desktop, mobile et la file hors-ligne. */
-export function jarvisRawFetch(path: string, options?: RequestInit): Promise<Response> {
-  const root = API_BASE.replace(/\/$/, '')
-  const p = path.startsWith('/') ? path : `/${path}`
-  const headers = new Headers(options?.headers)
-  if (options?.body && !(options.body instanceof FormData) && !headers.has('Content-Type')) {
-    headers.set('Content-Type', 'application/json')
+export type JarvisRequestInit = RequestInit & { offline?: OfflineRequestPolicy }
+
+const QUEUEABLE_DATA_MUTATIONS = [
+  /^\/api\/tasks(?:\/\d+)?$/,
+  /^\/api\/notifications\/(?:\d+\/read|read-all)$/,
+  /^\/api\/settings\/tts$/,
+  /^\/api\/fitness\/(?:sessions\/\d+\/progress|meals(?:\/from-text)?|water|weights|program(?:\/sessions\/\d+)?)$/,
+  /^\/api\/life-profile(?:\/\d+)?$/,
+  /^\/api\/people(?:\/[^/]+)?$/,
+  /^\/api\/journal$/,
+  /^\/api\/location(?:\/(?:batch|name-current))?$/,
+  /^\/api\/places(?:\/\d+)?$/,
+  /^\/api\/conversations\/\d+(?:\/archive)?$/,
+  /^\/api\/privacy\/documents$/,
+]
+
+function isCacheableRead(path: string, method: string, policy?: OfflineRequestPolicy): boolean {
+  if (policy?.cache === false || method !== 'GET' || !path.startsWith('/api/')) return false
+  return !path.startsWith('/api/auth/') && path !== '/api/health/live'
+}
+
+function isQueueableMutation(path: string, method: string, policy?: OfflineRequestPolicy): boolean {
+  if (policy?.queue !== undefined) return policy.queue
+  if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) return false
+  return QUEUEABLE_DATA_MUTATIONS.some((pattern) => pattern.test(path.split('?')[0]))
+}
+
+function serializableBody(body: BodyInit | null | undefined): { supported: boolean; data: unknown } {
+  if (body === undefined || body === null) return { supported: true, data: undefined }
+  if (typeof body !== 'string') return { supported: false, data: undefined }
+  try {
+    return { supported: true, data: JSON.parse(body) }
+  } catch {
+    return { supported: false, data: undefined }
   }
-  const method = (options?.method ?? 'GET').toUpperCase()
-  const csrfToken = getCsrfToken()
-  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method) && csrfToken) {
-    headers.set('X-CSRF-Token', csrfToken)
-  }
-  return fetch(`${root}${p}`, { ...options, credentials: 'include', headers })
+}
+
+function dispatchOfflineEvent(name: string, detail: Record<string, unknown>): void {
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(name, { detail }))
 }
 
 async function request<T>(
   path: string,
-  options?: RequestInit,
+  options?: JarvisRequestInit,
   acceptedErrorStatuses: readonly number[] = [],
 ): Promise<T> {
   const p = path.startsWith('/') ? path : `/${path}`
-  const res = await jarvisRawFetch(p, options)
+  const { offline, ...networkOptions } = options ?? {}
+  const method = (networkOptions.method ?? 'GET').toUpperCase()
+  const cacheable = isCacheableRead(p, method, offline)
+  let res: Response
+  try {
+    res = await jarvisRawFetch(p, networkOptions)
+  } catch (error) {
+    if (isNetworkError(error) && cacheable) {
+      try {
+        const cached = await getCachedRead<T>(p, offline?.cacheTtlMs)
+        if (cached) {
+          dispatchOfflineEvent('jarvis:offline-cache-hit', { path: p, staleMs: cached.staleMs })
+          return cached.data
+        }
+      } catch {
+        // IndexedDB indisponible : conserver l'erreur réseau d'origine.
+      }
+    }
+    if (isNetworkError(error) && isQueueableMutation(p, method, offline)) {
+      const body = serializableBody(networkOptions.body)
+      if (body.supported) {
+        try {
+          const queueId = await enqueueWrite({
+            method: method as 'POST' | 'PUT' | 'PATCH' | 'DELETE',
+            path: p,
+            body: body.data,
+            entityKey: resourceRoot(p),
+            baseVersion: await getLatestCachedVersion(resourceRoot(p)),
+            label: offline?.label ?? `Modification ${resourceRoot(p).replace('/api/', '')}`,
+          })
+          const queuedResult = offline?.optimistic ?? { queued: true, offline_queue_id: queueId }
+          dispatchOfflineEvent('jarvis:offline-write-queued', { path: p, queueId })
+          return queuedResult as T
+        } catch {
+          // Si IndexedDB échoue, l'appelant doit recevoir l'erreur réseau réelle.
+        }
+      }
+    }
+    throw error
+  }
   const text = await res.text()
   if (!res.ok && !acceptedErrorStatuses.includes(res.status)) {
     if ((res.status === 401 || res.status === 428) && !p.startsWith('/api/auth/')) {
@@ -177,18 +260,30 @@ async function request<T>(
     }
     throw new ApiError(publicApiErrorMessage(res.status, text), res.status, text)
   }
-  if (!text) return {} as T
-  try {
-    return JSON.parse(text) as T
-  } catch {
-    return {} as T
+  let payload: T
+  if (!text) payload = {} as T
+  else {
+    try {
+      payload = JSON.parse(text) as T
+    } catch {
+      payload = {} as T
+    }
   }
+  if (cacheable) {
+    const versionText = res.headers.get('X-Jarvis-Entity-Version')
+    const entityVersion = versionText !== null && /^\d+$/.test(versionText)
+      ? Number(versionText)
+      : undefined
+    await cacheRead(p, payload, entityVersion).catch(() => undefined)
+  }
+  if (method !== 'GET') await invalidateCachedReads(resourceRoot(p)).catch(() => undefined)
+  return payload
 }
 
 /** Appel générique partagé par les vues mobiles et desktop. */
 export async function jarvisFetch<T = unknown>(
   path: string,
-  options?: RequestInit,
+  options?: JarvisRequestInit,
 ): Promise<T> {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 15_000)
@@ -532,7 +627,8 @@ export const api = {
       { method: 'POST', body: JSON.stringify(body) },
     ),
 
-  search: (q: string) => request(`/api/search?q=${encodeURIComponent(q)}`),
+  search: (q: string, signal?: AbortSignal) =>
+    request<UnifiedSearchResponse>(`/api/search?q=${encodeURIComponent(q)}`, { signal }),
   exportJson: () => request('/api/export?format=json'),
 
   // Daemon JARVIS — devices, écran, app usage
