@@ -7,7 +7,6 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.getValue
@@ -15,7 +14,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import fr.jarvis.companion.core.ui.components.JarvisBackground
+import fr.jarvis.companion.core.security.BiometricGate
 import fr.jarvis.companion.data.JarvisSettings
+import fr.jarvis.companion.feature.lock.BiometricLockScreen
 import fr.jarvis.companion.feature.onboarding.OnboardingScreen
 import fr.jarvis.companion.navigation.JarvisNavCallbacks
 import fr.jarvis.companion.navigation.JarvisNavHost
@@ -23,11 +24,15 @@ import fr.jarvis.companion.notifications.JarvisNotifications
 import fr.jarvis.companion.services.JarvisLocationService
 import fr.jarvis.companion.services.JarvisWakeWordService
 import fr.jarvis.companion.ui.theme.JarvisTheme
+import androidx.fragment.app.FragmentActivity
 
 /** Point d'entrée — shell navigation Compose, services GPS/wake préservés. */
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
     private var locationPendingEnable = false
     private var wakePendingEnable = false
+    private var biometricUnlocked by mutableStateOf(false)
+    private var biometricMessage by mutableStateOf<String?>(null)
+    private lateinit var biometricGate: BiometricGate
 
     private val locationPermissions = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
@@ -66,6 +71,15 @@ class MainActivity : ComponentActivity() {
         JarvisNotifications.createChannels(this)
         requestNotificationPermissionIfNeeded()
         resumePersistentFeatures()
+        biometricGate = BiometricGate(
+            activity = this,
+            onSuccess = {
+                biometricMessage = null
+                biometricUnlocked = true
+            },
+            onError = { biometricMessage = it },
+        )
+        biometricUnlocked = !shouldProtectWithBiometrics()
 
         setContent {
             JarvisTheme {
@@ -81,8 +95,16 @@ class MainActivity : ComponentActivity() {
                         OnboardingScreen(
                             onComplete = {
                                 showOnboarding = false
+                                biometricUnlocked = true
                                 resumePersistentFeatures()
                             },
+                        )
+                    }
+                } else if (!biometricUnlocked && shouldProtectWithBiometrics()) {
+                    JarvisBackground {
+                        BiometricLockScreen(
+                            message = biometricMessage,
+                            onAuthenticate = biometricGate::authenticate,
                         )
                     }
                 } else {
@@ -103,6 +125,27 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onStart() {
+        super.onStart()
+        if (::biometricGate.isInitialized && !biometricUnlocked && shouldProtectWithBiometrics()) {
+            biometricGate.authenticate()
+        }
+    }
+
+    override fun onStop() {
+        if (::biometricGate.isInitialized &&
+            !isChangingConfigurations &&
+            !biometricGate.isAuthenticating &&
+            shouldProtectWithBiometrics()
+        ) {
+            biometricUnlocked = false
+        }
+        super.onStop()
+    }
+
+    private fun shouldProtectWithBiometrics(): Boolean =
+        JarvisSettings.nativeToken(this).isNotEmpty() && biometricGate.isAvailable()
 
     private fun requestNotificationPermissionIfNeeded() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&

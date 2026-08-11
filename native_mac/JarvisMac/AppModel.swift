@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import LocalAuthentication
 
 @MainActor
 final class AppModel: ObservableObject {
@@ -21,9 +22,12 @@ final class AppModel: ObservableObject {
 
     private var streamingMessageID: UUID?
     private var notifiedIDs = Set<Int>()
+    private let biometricCredentials = BiometricCredentialStore()
 
     var userName: String { snapshot.status?.user ?? "Monsieur" }
     var isReady: Bool { phase == .ready }
+    var biometricUnlockAvailable: Bool { biometricCredentials.isAvailable }
+    var biometricUnlockLabel: String { biometricCredentials.label }
 
     init() {
         socket.onEvent = { [weak self] event in self?.handleSocketEvent(event) }
@@ -44,6 +48,10 @@ final class AppModel: ObservableObject {
             if !auth.configured {
                 phase = .setupRequired
             } else if !auth.authenticated {
+                phase = .locked
+            } else if biometricCredentials.isAvailable {
+                // Le cookie serveur peut encore être valide, mais l’interface
+                // native reste protégée à chaque nouveau lancement.
                 phase = .locked
             } else {
                 phase = .ready
@@ -98,6 +106,7 @@ final class AppModel: ObservableObject {
     func unlock(secret: String) async -> Bool {
         do {
             try await api.unlock(secret: secret, setup: phase == .setupRequired)
+            try? biometricCredentials.save(secret: secret)
             phase = .ready
             errorMessage = nil
             await readySession()
@@ -108,8 +117,29 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func unlockWithBiometrics() async -> Bool {
+        guard biometricCredentials.isAvailable else { return false }
+        do {
+            let secret = try await biometricCredentials.retrieve()
+            try await api.unlock(secret: secret)
+            phase = .ready
+            errorMessage = nil
+            await readySession()
+            return true
+        } catch {
+            // Un secret modifié depuis une autre interface ne doit jamais
+            // provoquer une boucle biométrique avec une valeur obsolète.
+            if !(error is LAError) {
+                biometricCredentials.delete()
+            }
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
+
     func logout() async {
         try? await api.logout()
+        biometricCredentials.delete()
         socket.disconnect()
         phase = .locked
         snapshot = DashboardSnapshot()
