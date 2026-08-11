@@ -2,7 +2,7 @@ import { fireEvent, screen, waitFor } from '@testing-library/dom'
 import { act, cleanup, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { LockGate, type AuthClient, type AuthStatus } from '@jarvis/auth'
+import { LockGate, setActiveProfileId, type AuthClient, type AuthStatus } from '@jarvis/auth'
 
 const lockedStatus: AuthStatus = {
   configured: true,
@@ -23,6 +23,7 @@ function fakeClient(statuses: AuthStatus[]): AuthClient {
     localUnlock: vi.fn(async () => ({ ok: true, recovered: true })),
     verify: vi.fn(async () => ({ ok: true })),
     logout: vi.fn(async () => ({ ok: true })),
+    selectProfile: vi.fn(),
   } as unknown as AuthClient
 }
 
@@ -42,6 +43,7 @@ beforeEach(() => {
     value: localStorageMock,
   })
   localStorageMock.clear()
+  setActiveProfileId('default')
 })
 
 afterEach(() => {
@@ -193,5 +195,38 @@ describe('shared LockGate', () => {
     expect(client.verify).toHaveBeenCalledWith('correct-secret')
     expect(client.unlock).not.toHaveBeenCalled()
     expect(window.localStorage.getItem('jarvis:soft-lock')).toBeNull()
+  })
+
+  it('revokes the active session before switching profiles from a soft lock', async () => {
+    window.localStorage.setItem('jarvis:soft-lock', '1')
+    const authenticated = { ...lockedStatus, authenticated: true }
+    const client = fakeClient([authenticated, lockedStatus])
+    const logout = vi.mocked(client.logout)
+    const selectProfile = vi.mocked(client.selectProfile)
+    Object.assign(client, {
+      profiles: vi.fn(async () => ({
+        active_profile: 'default',
+        profiles: [
+          { id: 'default', display_name: 'Principal', is_active: 1 },
+          { id: 'alice-1234', display_name: 'Alice', is_active: 1 },
+        ],
+      })),
+    })
+
+    render(
+      <LockGate client={client}>
+        <div>Données privées</div>
+      </LockGate>,
+    )
+
+    fireEvent.change(await screen.findByLabelText('Profil utilisateur'), {
+      target: { value: 'alice-1234' },
+    })
+
+    await waitFor(() => expect(selectProfile).toHaveBeenCalledWith('alice-1234'))
+    expect(logout).toHaveBeenCalledOnce()
+    expect(logout.mock.invocationCallOrder[0]).toBeLessThan(
+      selectProfile.mock.invocationCallOrder[0],
+    )
   })
 })

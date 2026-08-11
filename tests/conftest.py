@@ -88,6 +88,13 @@ def _isolate_app_lifespan(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(email_watcher, "start", _noop_start)
     monkeypatch.setattr(email_watcher, "stop", lambda: None)
     monkeypatch.setattr("api.lifespan._calendar_subprocess_run", lambda *_a, **_k: None)
+    # Le message d'accueil consulte Mail/Calendrier et appelle le LLM. Ces I/O
+    # ne font pas partie du contrat des tests HTTP/WebSocket et peuvent laisser
+    # l'exécuteur asyncio bloqué sur AppleScript à la fermeture du TestClient.
+    async def _noop_welcome(*_a, **_k) -> None:
+        return None
+
+    monkeypatch.setattr("api.ws_handler._maybe_send_daily_welcome", _noop_welcome)
     # `POST /api/auth/setup` n'est plus atteignable que depuis la boucle locale.
     # Le TestClient se présente comme `client.host == "testclient"` et
     # `Host: testserver` : deux valeurs qu'`is_loopback_request` refuse à juste

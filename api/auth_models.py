@@ -18,6 +18,10 @@ class ChangeSecretRequest(_StrictAuthRequest):
     new: str = Field(min_length=1, max_length=1_024)
 
 
+class ProfileCreateRequest(_StrictAuthRequest):
+    display_name: str = Field(min_length=1, max_length=80)
+
+
 class MobilePairingCompleteRequest(_StrictAuthRequest):
     code: str = Field(pattern=r"^\d{6}$")
     device_id: str = Field(min_length=1, max_length=128)

@@ -11,6 +11,12 @@ from fastapi.responses import JSONResponse
 
 import auth
 import config
+from database import (
+    activate_profile,
+    normalize_profile_id,
+    reset_profile,
+    user_profile_exists,
+)
 from core.supervisor_auth import (
     SUPERVISOR_CONTROL_HEADER,
     verify_supervisor_control_token,
@@ -30,6 +36,7 @@ _CONVERSATION_ACTION_RE = re.compile(r"^/api/conversations/\d+/(archive|pin)$")
 _PUBLIC_AUTH_ROUTES = frozenset(
     {
         ("GET", "/api/auth/status"),
+        ("GET", "/api/auth/profiles"),
         ("POST", "/api/auth/setup"),
         ("POST", "/api/auth/unlock"),
         ("POST", "/api/auth/local-unlock"),
@@ -430,10 +437,35 @@ async def security_middleware(request: Request, call_next):
     anticipées 401, 403 et 428 reçoivent ainsi exactement la même politique que
     les réponses produites par les routeurs.
     """
-    response = _content_length_error(request)
-    if response is None:
-        async def versioned_call_next(inner_request: Request):
-            return await sync_versioning_middleware(inner_request, call_next)
+    try:
+        profile_id = normalize_profile_id(
+            request.headers.get("x-jarvis-profile")
+            or request.cookies.get("jarvis_profile")
+        )
+    except ValueError:
+        return _apply_security_headers(
+            JSONResponse({"error": "invalid_profile"}, status_code=400)
+        )
 
-        response = await _dispatch_with_session_gate(request, versioned_call_next)
-    return _apply_security_headers(response)
+    try:
+        available = user_profile_exists(profile_id)
+    except (OSError, sqlite3.Error):
+        available = False
+    if not available:
+        return _apply_security_headers(
+            JSONResponse({"error": "profile_not_found"}, status_code=404)
+        )
+
+    profile_token = activate_profile(profile_id)
+    request.state.profile_id = profile_id
+    try:
+        response = _content_length_error(request)
+        if response is None:
+            async def versioned_call_next(inner_request: Request):
+                return await sync_versioning_middleware(inner_request, call_next)
+
+            response = await _dispatch_with_session_gate(request, versioned_call_next)
+        response.headers["X-Jarvis-Profile"] = profile_id
+        return _apply_security_headers(response)
+    finally:
+        reset_profile(profile_token)

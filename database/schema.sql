@@ -1020,6 +1020,14 @@ CREATE TABLE user_facts (
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE user_profiles (
+            id TEXT PRIMARY KEY,
+            display_name TEXT NOT NULL CHECK(length(display_name) BETWEEN 1 AND 80),
+            is_active INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0, 1)),
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            last_used_at DATETIME
+        );
+
 CREATE TABLE visits (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     place_id INTEGER NOT NULL REFERENCES places(id),
@@ -1298,6 +1306,9 @@ CREATE INDEX idx_tasks_status ON tasks(status);
 CREATE INDEX idx_trips_date ON trips(started_at);
 
 CREATE INDEX idx_turns_recording ON conversation_turns(recording_id);
+
+CREATE INDEX idx_user_profiles_active
+            ON user_profiles(is_active, display_name);
 
 CREATE INDEX idx_vdebug_created ON voice_debug_log(created_at);
 

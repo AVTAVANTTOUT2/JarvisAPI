@@ -38,7 +38,7 @@ def _migrate_day_scores(conn: sqlite3.Connection) -> None:
 
 
 def _migrate_sessions(conn: sqlite3.Connection) -> None:
-    """Sessions d'authentification (verrouillage app). Un seul utilisateur, plusieurs devices.
+    """Sessions d'authentification isolées dans la base du profil courant.
 
     Le token brut n'est jamais stocké — seulement son hash SHA-256
     (`token_hash`), pour qu'une fuite de la base ne permette pas de rejouer
@@ -84,6 +84,25 @@ def _migrate_sessions(conn: sqlite3.Connection) -> None:
         """
         DELETE FROM app_settings
         WHERE key IN ('auth_failed_attempts', 'auth_lockout_until')
+        """
+    )
+
+
+def _migrate_user_profiles(conn: sqlite3.Connection) -> None:
+    """Ajoute le registre des bases utilisateur isolées et le profil historique."""
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS user_profiles (
+            id TEXT PRIMARY KEY,
+            display_name TEXT NOT NULL CHECK(length(display_name) BETWEEN 1 AND 80),
+            is_active INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0, 1)),
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            last_used_at DATETIME
+        );
+        CREATE INDEX IF NOT EXISTS idx_user_profiles_active
+            ON user_profiles(is_active, display_name);
+        INSERT OR IGNORE INTO user_profiles (id, display_name)
+            VALUES ('default', 'Principal');
         """
     )
 
@@ -1673,6 +1692,7 @@ def run_migrations(conn: sqlite3.Connection) -> None:
     _migrate_jarvis_journal(conn)
     _migrate_day_scores(conn)
     _migrate_sessions(conn)
+    _migrate_user_profiles(conn)
     _migrate_mobile_devices(conn)
     _migrate_remote_devices(conn)
     _migrate_push_subscriptions(conn)

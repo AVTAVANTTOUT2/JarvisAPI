@@ -112,10 +112,13 @@ def websocket_confirmation_session_id(
     mobile_device: dict | None,
 ) -> str:
     """Identité stable à laquelle lier les propositions de cette socket."""
+    from database import current_profile_id
+
+    prefix = f"profile:{current_profile_id()}:"
     if mobile_device:
-        return f"mobile:{mobile_device['device_id']}"
+        return f"{prefix}mobile:{mobile_device['device_id']}"
     if session:
-        return f"session:{session['id']}"
+        return f"{prefix}session:{session['id']}"
     raise ValueError("WebSocket sans identité authentifiée")
 
 

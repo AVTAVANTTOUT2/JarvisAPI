@@ -124,6 +124,25 @@ export function LockGate({ children, title = 'JARVIS', ...options }: LockGatePro
                 : 'Application verrouillée'}
         </p>
 
+        {gate.profiles.length > 1 && !gate.loading ? (
+          <label style={{ ...styles.form, gap: 6, marginBottom: 16 }}>
+            <span style={{ color: '#a1a1aa', fontSize: 12 }}>Profil</span>
+            <select
+              style={styles.input}
+              value={gate.activeProfileId}
+              onChange={(event) => void gate.selectProfile(event.target.value)}
+              aria-label="Profil utilisateur"
+              disabled={busy}
+            >
+              {gate.profiles.map((profile) => (
+                <option key={profile.id} value={profile.id}>
+                  {profile.display_name}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+
         {gate.connectionError && !gate.status ? (
           <button type="button" style={styles.button} onClick={() => void gate.refresh()}>
             Réessayer

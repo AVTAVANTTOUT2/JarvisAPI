@@ -1,5 +1,13 @@
-export { AuthClient, AuthError, authClient, getCsrfToken, setCsrfToken } from './client'
-export type { AuthClientOptions, AuthStatus } from './client'
+export {
+  AuthClient,
+  AuthError,
+  authClient,
+  getActiveProfileId,
+  getCsrfToken,
+  setActiveProfileId,
+  setCsrfToken,
+} from './client'
+export type { AuthClientOptions, AuthStatus, ProfileListResponse, UserProfile } from './client'
 export { LockGate } from './LockGate'
 export type { LockGateProps } from './LockGate'
 export { useLockGate } from './useLockGate'
