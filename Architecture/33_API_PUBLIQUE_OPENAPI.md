@@ -55,6 +55,6 @@ route doit donc mettre à jour explicitement l'artefact versionné.
 
 ## Consommateurs
 
-Le JSON peut être importé dans un générateur OpenAPI standard. Le SDK JARVIS
-officiel s'appuie sur les mêmes `operationId` et ne redéfinit pas les chemins ou
-les règles d'authentification.
+Le JSON peut être importé dans un générateur OpenAPI standard. Le SDK Python
+officiel dans `sdk/python/` génère son registre depuis les mêmes `operationId`
+et ne redéfinit ni les chemins ni les règles d'authentification.

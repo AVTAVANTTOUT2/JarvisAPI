@@ -66,6 +66,7 @@ Voir [32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md](./32_FRONTEND_DATABASE_SOURCE_OF_
 | [30_PLAN_STABILISATION_AUDIO.md](./30_PLAN_STABILISATION_AUDIO.md) | Phases de stabilisation audio après la PR #17 |
 | [32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md](./32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md) | **Source de vérité** frontends + surface API + comptages SQLite |
 | [33_API_PUBLIQUE_OPENAPI.md](./33_API_PUBLIQUE_OPENAPI.md) | Contrat développeur OpenAPI 3.1, sécurité et politique de compatibilité |
+| [34_SDK_DEVELOPPEURS.md](./34_SDK_DEVELOPPEURS.md) | SDK Python, génération depuis OpenAPI, transport et erreurs |
 | [api_route_ownership.json](./api_route_ownership.json) | Attribution contrôlée des opérations sans client direct |
 | [36_CANAL_WEBSOCKET_TV.md](./36_CANAL_WEBSOCKET_TV.md) | Canal `/ws/tv/events` — authentifié, lecture seule, séparé du chat |
 | [adr/](./adr/) | ADR individuels — ADR-016 à ADR-022 |
@@ -216,6 +217,7 @@ Chaque phase est **indépendante**, **réversible**, **testée**, et **sans inte
 - [14_AI_SERVICE.md](./14_AI_SERVICE.md) — ADR-014 point d'entrée LLM unique
 - [15_SAUVEGARDES.md](./15_SAUVEGARDES.md) — ADR-015 backup & restore
 - [33_API_PUBLIQUE_OPENAPI.md](./33_API_PUBLIQUE_OPENAPI.md) — ADR-025 contrat développeur
+- [34_SDK_DEVELOPPEURS.md](./34_SDK_DEVELOPPEURS.md) — ADR-026 SDK Python officiel
 - [adr/ADR-016](./adr/ADR-016-applescript-integration-apple.md) — AppleScript comme unique intégration Apple
 - [adr/ADR-017](./adr/ADR-017-sqlite-base-unique.md) — SQLite comme base de données unique
 - [adr/ADR-018](./adr/ADR-018-dual-llm-router.md) — Architecture dual-LLM (local + cloud)
