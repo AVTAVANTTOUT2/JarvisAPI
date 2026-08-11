@@ -855,4 +855,27 @@ CREATE TABLE IF NOT EXISTS cursor_delegation_jobs (
 );
 CREATE INDEX IF NOT EXISTS idx_cursor_jobs_status ON cursor_delegation_jobs(status);
 CREATE INDEX IF NOT EXISTS idx_cursor_jobs_created ON cursor_delegation_jobs(created_at);
+
+-- Versions optimistes et journal idempotent des reprises hors ligne.
+CREATE TABLE IF NOT EXISTS sync_entity_versions (
+    entity_key TEXT PRIMARY KEY,
+    version INTEGER NOT NULL DEFAULT 0 CHECK(version >= 0),
+    checksum TEXT,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS sync_operations (
+    operation_id TEXT PRIMARY KEY,
+    checksum TEXT NOT NULL,
+    entity_key TEXT NOT NULL,
+    base_version INTEGER,
+    resolved_version INTEGER NOT NULL,
+    status_code INTEGER NOT NULL,
+    response_body BLOB,
+    response_content_type TEXT,
+    response_headers_json TEXT NOT NULL DEFAULT '{}',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_sync_operations_entity
+    ON sync_operations(entity_key, created_at);
 """

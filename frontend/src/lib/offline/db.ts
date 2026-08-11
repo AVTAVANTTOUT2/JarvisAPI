@@ -7,6 +7,14 @@ export interface QueuedWrite {
   body: unknown
   createdAt: number
   attempts: number
+  checksum: string
+  entityKey: string
+  baseVersion: number | null
+  serverVersion?: number
+  status: 'pending' | 'conflict' | 'failed'
+  conflictStrategy?: 'client_wins'
+  lastAttemptAt?: number
+  lastError?: string
   /** Libellé lisible et non sensible affiché dans l'état de synchronisation. */
   label: string
 }
@@ -15,6 +23,7 @@ export interface CachedRead {
   key: string
   data: unknown
   cachedAt: number
+  entityVersion?: number
 }
 
 interface JarvisOfflineDB extends DBSchema {
