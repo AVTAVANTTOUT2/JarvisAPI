@@ -15,7 +15,7 @@
       "owner": "database-operations",
       "audience": "operator",
       "methods": ["GET", "POST"],
-      "paths": ["/api/backups", "/api/backups/run", "/api/backups/{name}/restore"],
+      "paths": ["/api/backups", "/api/backups/cloud", "/api/backups/cloud/{name}/restore", "/api/backups/run", "/api/backups/{name}/restore"],
       "rationale": "Surface de sauvegarde et restauration réservée à l'exploitation authentifiée."
     },
     {

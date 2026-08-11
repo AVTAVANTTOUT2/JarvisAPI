@@ -119,7 +119,7 @@
 
 **Recommandation** : Solution A. Extraction mécanique, groupe par groupe. Effort : 3 jours.
 
-**Statut** : Implémenté et validé le 14 juillet 2026, puis étendu. `main.py` reste sous 500 lignes ; 17 modules `api/router_*.py` exposent des `APIRouter` et Fitness fournit le 18e routeur monté. Tous les modules `api/` restent à 500 lignes ou moins et aucun n'importe `main.py`. Le contrat courant (261 opérations HTTP, 2 WebSockets, 232 chemins OpenAPI) est verrouillé par `tests/test_phase4_route_contract.py`, `tests/test_phase4_architecture.py` et l'inventaire généré.
+**Statut** : Implémenté et validé le 14 juillet 2026, puis étendu. `main.py` reste sous 500 lignes ; 17 modules `api/router_*.py` exposent des `APIRouter` et Fitness fournit le 18e routeur monté. Tous les modules `api/` restent à 500 lignes ou moins et aucun n'importe `main.py`. Le contrat courant (267 opérations HTTP, 2 WebSockets, 237 chemins OpenAPI) est verrouillé par `tests/test_phase4_route_contract.py`, `tests/test_phase4_architecture.py` et l'inventaire généré.
 
 ---
 

@@ -31,7 +31,7 @@ Le bus applicatif est actif et conserve la compatibilité de construction histor
 - Les mutations de `database/tasks.py`, `notifications.py`, `conversations.py`, `episodes.py`, `facts.py`, `patterns.py` et `people.py` émettent **après commit**.
 - `database/event_log.py` journalise tous les événements dans la table SQLite `event_log`.
 Runtime SQLite canonique : **94 tables persistantes**, **99 tables physiques avec FTS5**, schéma généré : **95 déclarations de tables**.
-Structure API canonique : **265 opérations HTTP + 2 WebSockets**, **235 chemins OpenAPI**, **17 routeurs api/router_*.py + Fitness = 18 montés**, main.py **214 lignes**.
+Structure API canonique : **267 opérations HTTP + 2 WebSockets**, **237 chemins OpenAPI**, **17 routeurs api/router_*.py + Fitness = 18 montés**, main.py **214 lignes**.
   `database/schema.sql` est désormais un miroir généré et contrôlé du schéma frais ;
   `init_db()` continue d'exécuter exclusivement `schema.py` puis `migrations.py`.
 - `websocket_registry.py` diffuse les événements de domaine aux sockets actives et `scripts/audio_daemon.py` traite les notifications `urgent/high`.
@@ -43,7 +43,7 @@ Depuis du code async, utiliser `await event_bus.emit(event)`. Depuis un chemin s
 
 ## Couche API — Phase 4
 
-`main.py` est un point d'assemblage : configuration FastAPI/CORS, montage de 17 `APIRouter` sous `api/router_*.py` plus Fitness, branchement des WebSockets de chat et de TV, configuration de `pipeline.py`, frontend et lancement Uvicorn. Le contrat public compte 265 opérations HTTP et 2 WebSockets ; l'OpenAPI expose 235 chemins.
+`main.py` est un point d'assemblage : configuration FastAPI/CORS, montage de 17 `APIRouter` sous `api/router_*.py` plus Fitness, branchement des WebSockets de chat et de TV, configuration de `pipeline.py`, frontend et lancement Uvicorn. Le contrat public compte 267 opérations HTTP et 2 WebSockets ; l'OpenAPI expose 237 chemins.
 
 - `api/router_*.py` contient exactement 17 routeurs par domaine ; Fitness porte le 18e routeur monté et aucun routeur ne dépasse 478 lignes.
 - `api/lifespan.py`, `api/middleware.py` et `api/frontend.py` portent le cycle de vie, la sécurité HTTP et le serving des frontends.
@@ -2134,6 +2134,7 @@ tous les endpoints `/api/*` (hors `/api/auth/*`) répondent `428`.
 | `core/file_security.py` | Permissions communes : dossiers sensibles 0700, DB/sidecars/backups/uploads/clés 0600, écritures privées sans passage par 0644 |
 | `scripts/db_maintenance.py` | Backups chiffrés par défaut (enveloppe Fernet V2, PBKDF2 salé, clé locale 0600 ou passphrase) + restauration avec contrôle d'intégrité et snapshot de sécurité |
 | `database/dbapi.py`, `database/encryption.py` | Façade SQLite/SQLCipher, clé par profil dans le Trousseau, migration atomique avec rollback et restauration compatible avec les deux formats de base |
+| `scripts/cloud_backup.py` | Réplication WebDAV HTTPS des seules enveloppes V2, contrôle de taille, rétention par profil et restauration via le pipeline local authentifié |
 
 ### Failles corrigées
 
@@ -2204,6 +2205,17 @@ BACKUP_ENCRYPTION_PASSPHRASE=
 DATABASE_ENCRYPTION_ENABLED=false
 DATABASE_ENCRYPTION_PASSPHRASE=
 DATABASE_ENCRYPTION_KEYCHAIN_SERVICE=com.jarvis.database.sqlcipher
+BACKUP_CLOUD_ENABLED=false
+BACKUP_CLOUD_PROVIDER=webdav
+BACKUP_CLOUD_URL=https://cloud.example.com/dav/JARVIS/
+BACKUP_CLOUD_USERNAME=
+BACKUP_CLOUD_PASSWORD=
+BACKUP_CLOUD_BEARER_TOKEN=
+BACKUP_CLOUD_KEEP=30
+BACKUP_CLOUD_TIMEOUT_SECONDS=30
+BACKUP_CLOUD_RETRY_ATTEMPTS=3
+BACKUP_CLOUD_RETRY_DELAY_SECONDS=2
+BACKUP_CLOUD_MAX_DOWNLOAD_MB=2048
 ```
 
 ### Limites assumées
