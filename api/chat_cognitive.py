@@ -67,11 +67,11 @@ def _cursor_job_conversation_id(job: dict[str, Any]) -> int | None:
         return None
 
 
-def resolve_pending_cursor_job_for_confirmation(
+def resolve_pending_cursor_confirmation(
     conversation_id: int,
     interaction_mode: str,
-) -> dict[str, Any] | None:
-    """Job Cursor en attente pour cette conversation et ce mode, sans repli global.
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Résout un job Cursor sans repli global et explique tout refus.
 
     Sans filtre par conversation, « lance » dans une discussion peut démarrer
     un worktree préparé dans une autre, ou un job vocal depuis le chat.
@@ -89,7 +89,78 @@ def resolve_pending_cursor_job_for_confirmation(
         for job in mode_pending
         if _cursor_job_conversation_id(job) == int(conversation_id)
     ]
-    return scoped[-1] if scoped else None
+    if scoped:
+        return scoped[-1], None
+    if any(_cursor_job_conversation_id(job) is None for job in mode_pending):
+        return None, "cursor_confirmation_legacy_unscoped"
+    if mode_pending:
+        return None, "cursor_confirmation_different_conversation"
+    if pending:
+        return None, "cursor_confirmation_different_mode"
+    return None, "cursor_confirmation_missing"
+
+
+def resolve_pending_cursor_job_for_confirmation(
+    conversation_id: int,
+    interaction_mode: str,
+) -> dict[str, Any] | None:
+    """Compatibilité : retourne uniquement le job confirmable, le cas échéant."""
+    job, _reason = resolve_pending_cursor_confirmation(
+        conversation_id,
+        interaction_mode,
+    )
+    return job
+
+
+def cursor_confirmation_unavailable_message(reason: str | None) -> str:
+    """Message explicite et sans fuite d'information pour une confirmation refusée."""
+    if reason == "cursor_confirmation_legacy_unscoped":
+        return (
+            "Cette ancienne proposition Cursor n'est liée à aucune conversation. "
+            "Rien n'a été lancé ; reformulez la demande pour créer une proposition sûre."
+        )
+    if reason == "cursor_confirmation_different_conversation":
+        return (
+            "Aucune proposition Cursor n'attend confirmation dans cette conversation. "
+            "Rien n'a été lancé."
+        )
+    if reason == "cursor_confirmation_different_mode":
+        return (
+            "La proposition Cursor en attente appartient à un autre mode d'interaction. "
+            "Rien n'a été lancé."
+        )
+    return "Aucune proposition Cursor n'attend confirmation ici. Rien n'a été lancé."
+
+
+def _cursor_confirmation_response(
+    conversation_id: int,
+    text: str,
+    *,
+    job: dict[str, Any] | None = None,
+    error: str | None = None,
+) -> dict[str, Any]:
+    """Construit et persiste une réponse terminale de confirmation Cursor."""
+    try:
+        from database import save_message
+
+        save_message(conversation_id, "assistant", text, agent="cognitive", cost=0.0)
+    except Exception as exc:
+        logger.debug("[chat_cognitive] save confirm ack : %s", exc)
+
+    result: dict[str, Any] = {
+        "handled": True,
+        "text": text,
+        "emotion": "neutral",
+        "confirmed": job is not None,
+    }
+    if job is not None:
+        result.update(
+            job_id=job.get("job_id"),
+            job=public_cursor_job_view(job),
+        )
+    if error is not None:
+        result["error"] = error
+    return result
 
 
 def should_run_cursor_cognitive_path(
@@ -131,36 +202,30 @@ async def maybe_confirm_pending_cursor(
     try:
         from integrations.cursor_delegation import cursor_delegation
 
-        latest = resolve_pending_cursor_job_for_confirmation(
+        latest, reason = resolve_pending_cursor_confirmation(
             conversation_id,
             interaction_mode,
         )
         if not latest:
-            return None
+            return _cursor_confirmation_response(
+                conversation_id,
+                cursor_confirmation_unavailable_message(reason),
+                error=reason,
+            )
         job = await cursor_delegation.confirm(latest["job_id"])
     except Exception as exc:
         logger.warning("[chat_cognitive] confirm Cursor : %s", exc)
-        return None
+        return _cursor_confirmation_response(
+            conversation_id,
+            "Je n'ai pas pu confirmer la proposition Cursor. Rien n'a été lancé.",
+            error="cursor_confirmation_failed",
+        )
 
     ack = (
         f"C'est parti, Monsieur. Job `{job.get('job_id')}` démarré — "
         "je vous rends compte dès que les tests sont terminés."
     )
-    try:
-        from database import save_message
-
-        save_message(conversation_id, "assistant", ack, agent="cognitive", cost=0.0)
-    except Exception as exc:
-        logger.debug("[chat_cognitive] save confirm ack : %s", exc)
-
-    return {
-        "handled": True,
-        "text": ack,
-        "emotion": "neutral",
-        "job_id": job.get("job_id"),
-        "job": public_cursor_job_view(job),
-        "confirmed": True,
-    }
+    return _cursor_confirmation_response(conversation_id, ack, job=job)
 
 
 async def maybe_delegate_chat_to_cursor(

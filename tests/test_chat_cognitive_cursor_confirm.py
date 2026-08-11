@@ -167,5 +167,44 @@ async def test_lance_in_chat_does_not_confirm_voice_pending_job() -> None:
             interaction_mode="chat",
         )
 
-    assert result is None
+    assert result is not None
+    assert result["handled"] is True
+    assert result["confirmed"] is False
+    assert result["error"] == "cursor_confirmation_different_mode"
+    assert "rien n'a été lancé" in result["text"].lower()
+    confirm_mock.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_legacy_unscoped_cursor_job_fails_explicitly() -> None:
+    from api.chat_cognitive import maybe_confirm_pending_cursor
+
+    with (
+        patch(
+            "database.cursor_jobs.list_jobs_by_statuses",
+            return_value=[
+                {
+                    "job_id": "legacy-job",
+                    "status": "awaiting_confirmation",
+                    "interaction_mode": "chat",
+                    "routing": {},
+                }
+            ],
+        ),
+        patch(
+            "integrations.cursor_delegation.cursor_delegation.confirm",
+            new_callable=AsyncMock,
+        ) as confirm_mock,
+    ):
+        result = await maybe_confirm_pending_cursor(
+            "lance",
+            conversation_id=9,
+            interaction_mode="chat",
+        )
+
+    assert result is not None
+    assert result["confirmed"] is False
+    assert result["error"] == "cursor_confirmation_legacy_unscoped"
+    assert "ancienne proposition" in result["text"].lower()
+    assert "rien n'a été lancé" in result["text"].lower()
     confirm_mock.assert_not_called()

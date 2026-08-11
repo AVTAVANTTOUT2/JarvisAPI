@@ -134,9 +134,12 @@ async def maybe_handle_cognitive_voice(
             return None
         try:
             from integrations.cursor_delegation import cursor_delegation
-            from api.chat_cognitive import resolve_pending_cursor_job_for_confirmation
+            from api.chat_cognitive import (
+                cursor_confirmation_unavailable_message,
+                resolve_pending_cursor_confirmation,
+            )
 
-            target = resolve_pending_cursor_job_for_confirmation(
+            target, reason = resolve_pending_cursor_confirmation(
                 conversation_id,
                 "voice",
             )
@@ -148,8 +151,32 @@ async def maybe_handle_cognitive_voice(
                     debug_trace, conversation_id, text, ack, intent, t0,
                     action={"type": "cursor_confirm", "job_id": job.get("job_id")},
                 )
+            ack = cursor_confirmation_unavailable_message(reason)
+            debug_trace["cursor_confirmation_error"] = reason
+            return _finalize_voice_reply(
+                debug_trace,
+                conversation_id,
+                text,
+                ack,
+                intent,
+                t0,
+                action={"type": "cursor_confirm_unavailable", "reason": reason},
+            )
         except Exception as exc:
             logger.warning("[voice_fast] confirm Cursor : %s", exc)
+            debug_trace["cursor_confirmation_error"] = "cursor_confirmation_failed"
+            return _finalize_voice_reply(
+                debug_trace,
+                conversation_id,
+                text,
+                "Je n'ai pas pu confirmer la proposition Cursor. Rien n'a été lancé.",
+                intent,
+                t0,
+                action={
+                    "type": "cursor_confirm_unavailable",
+                    "reason": "cursor_confirmation_failed",
+                },
+            )
 
     # ── Tâche technique → proposition Cursor (pas d'auto-start) ──
     if intent.execution_type == "cursor":
