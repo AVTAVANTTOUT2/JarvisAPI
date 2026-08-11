@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		1CD8C46BE5466F9187739233 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D80D32C61CAD2CAE516BE7E2 /* RootView.swift */; };
+		1CE082FE38F211ACF44DE23C /* BiometricCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B78AA0700882AF0BC47F721D /* BiometricCredentialStore.swift */; };
 		224E9CE38CD9C78165D40662 /* JarvisSocket.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91C421F01812591F41688E0E /* JarvisSocket.swift */; };
 		27B2062157F58117C9499762 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDC2AC71D7D7E86605463EF7 /* Models.swift */; };
 		2825DDCBE853C63B8CA5A8D7 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E39411303832E3CF68C9821A /* SettingsView.swift */; };
@@ -67,6 +68,7 @@
 		9EB0ED42FF2BB60C101F1860 /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
 		AC0C5E201BC90D0D04286816 /* SystemView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemView.swift; sourceTree = "<group>"; };
 		B13C798547E3D7DF04AF48C8 /* PreviewExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewExporter.swift; sourceTree = "<group>"; };
+		B78AA0700882AF0BC47F721D /* BiometricCredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiometricCredentialStore.swift; sourceTree = "<group>"; };
 		BD083CE2FCC4402A881C47E8 /* DesignSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystem.swift; sourceTree = "<group>"; };
 		C7885B368BA237DA9B7B2C30 /* ActionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionsView.swift; sourceTree = "<group>"; };
 		D6C3B3123B3F2989768FA623 /* CommandPaletteView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteView.swift; sourceTree = "<group>"; };
@@ -85,6 +87,7 @@
 			children = (
 				C7885B368BA237DA9B7B2C30 /* ActionsView.swift */,
 				F29639B1D1707E3559A33894 /* AppModel.swift */,
+				B78AA0700882AF0BC47F721D /* BiometricCredentialStore.swift */,
 				9EB0ED42FF2BB60C101F1860 /* ChatView.swift */,
 				D6C3B3123B3F2989768FA623 /* CommandPaletteView.swift */,
 				BD083CE2FCC4402A881C47E8 /* DesignSystem.swift */,
@@ -223,6 +226,7 @@
 			files = (
 				F15F4488219144D969C2EB30 /* ActionsView.swift in Sources */,
 				3A440AD377341AD691DEC602 /* AppModel.swift in Sources */,
+				1CE082FE38F211ACF44DE23C /* BiometricCredentialStore.swift in Sources */,
 				E5377B5773043ACFC15B7654 /* ChatView.swift in Sources */,
 				615D7B2C9E4F4E1BFABAF0A5 /* CommandPaletteView.swift in Sources */,
 				F81240AF613708DEE6EBAA6D /* DesignSystem.swift in Sources */,
