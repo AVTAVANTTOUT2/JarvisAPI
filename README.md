@@ -60,7 +60,7 @@ Web · Voix · Android · iMessage
 - **Fitness et nutrition** : programme poids du corps modifiable en base, séances/exercices fait ou non fait, échauffements et étirements, repas/calories/protéines, eau, pesée, conseils IA et relances vocales jusqu'à validation.
 - **Développement** : routage des demandes techniques, plans d'exécution confirmés, travaux isolés et DevAgent pour les tâches multi-étapes.
 - **Multi-appareils** : interface Web responsive, interface mobile légère, application Android native, agent Mac distant et tableau de bord TV.
-- **Sécurité et fiabilité** : écoute réseau locale par défaut, sessions protégées, contrôle CSRF, permissions strictes, sauvegardes chiffrées, rotation automatique et chiffrement SQLCipher optionnel de chaque base utilisateur.
+- **Sécurité et fiabilité** : écoute réseau locale par défaut, sessions protégées, contrôle CSRF, permissions strictes, sauvegardes chiffrées, réplication WebDAV optionnelle, rotation par profil et chiffrement SQLCipher optionnel de chaque base utilisateur.
 
 ## Exemples
 
@@ -248,6 +248,7 @@ stocké dans le dépôt.
 | `DEEPSEEK_FAST_MODEL` / `DEEPSEEK_MAIN_MODEL` | Modèles utilisés pour les réponses rapides et les tâches complexes. |
 | `DB_PATH` | Emplacement de la base SQLite. |
 | `DATABASE_ENCRYPTION_ENABLED` | Ouvre les bases avec SQLCipher après migration via `tools/database_encryption.py`. |
+| `BACKUP_CLOUD_ENABLED` / `BACKUP_CLOUD_URL` | Réplique uniquement les sauvegardes Fernet V2 vers une collection WebDAV HTTPS. |
 | `STT_ENGINE` / `TTS_ENGINE` | Moteurs de transcription et de synthèse vocale. |
 | `IMESSAGE_TARGET` | Active le bridge iMessage pour le numéro ou l'adresse indiquée. |
 | `IMESSAGE_SEND_ENABLED` | Autorise explicitement l'envoi d'iMessages. Désactivé par défaut. |

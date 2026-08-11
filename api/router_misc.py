@@ -16,6 +16,8 @@ from api.misc_status import (
     api_backups_list,
     api_backups_run,
     api_backups_restore,
+    api_cloud_backups_list,
+    api_cloud_backup_restore,
     api_maintenance_run,
     api_imessage_import_run,
     api_imessage_import_status,
@@ -138,6 +140,16 @@ router.add_api_route(
 router.add_api_route(
     "/api/backups/{name}/restore",
     api_backups_restore,
+    methods=["POST"],
+)
+router.add_api_route(
+    "/api/backups/cloud",
+    api_cloud_backups_list,
+    methods=["GET"],
+)
+router.add_api_route(
+    "/api/backups/cloud/{name}/restore",
+    api_cloud_backup_restore,
     methods=["POST"],
 )
 router.add_api_route(

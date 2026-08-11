@@ -239,7 +239,7 @@ def _validated_restore_source(data: bytes, backup_dir: Path) -> Path:
         raise
 
 
-def run_backup() -> dict:
+def run_backup(*, sync_cloud: bool = True) -> dict:
     """Sauvegarde cohérente de la base (VACUUM INTO) puis rotation.
 
     ``VACUUM INTO`` produit un fichier compacté et transactionnellement
@@ -252,6 +252,11 @@ def run_backup() -> dict:
     src = Path(config.DB_PATH) if profile_id == "default" else profile_database_path(profile_id)
     if not src.exists():
         return {"ok": False, "error": f"base introuvable : {src}"}
+    if sync_cloud and config.BACKUP_CLOUD_ENABLED and not config.BACKUP_ENCRYPTION_ENABLED:
+        return {
+            "ok": False,
+            "error": "La réplication cloud exige une sauvegarde Fernet V2 chiffrée",
+        }
 
     backup_dir = _backup_dir()
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -313,6 +318,23 @@ def run_backup() -> dict:
         "removed": removed,
         "encrypted": encrypted,
     }
+    if sync_cloud and config.BACKUP_CLOUD_ENABLED:
+        try:
+            from scripts.cloud_backup import upload_cloud_backup
+
+            report["cloud"] = upload_cloud_backup(dest, profile_id=profile_id)
+        except Exception as exc:
+            logger.error("[backup] réplication cloud impossible : %s", exc)
+            report.update(
+                {
+                    "ok": False,
+                    "local_ok": True,
+                    "error": "Sauvegarde locale créée, réplication cloud impossible",
+                    "cloud": {"enabled": True, "ok": False, "error": str(exc)},
+                }
+            )
+    else:
+        report["cloud"] = {"enabled": False, "ok": True, "uploaded": False}
     logger.info(
         "[backup] %s (%.1f Mo, %.2fs, chiffré=%s, rotation: %d supprimée(s))",
         dest.name, report["size_bytes"] / 1e6, report["duration_s"], encrypted, len(removed),
@@ -356,7 +378,7 @@ def restore_backup(name: str) -> dict:
         return {"ok": False, "error": "Sauvegarde SQLite invalide"}
 
     try:
-        safety = run_backup()
+        safety = run_backup(sync_cloud=False)
         if not safety.get("ok"):
             return {
                 "ok": False,

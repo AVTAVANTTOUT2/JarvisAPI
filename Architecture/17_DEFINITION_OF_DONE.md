@@ -58,7 +58,7 @@ Preuves exécutées le 14/07/2026 : 4 tests Phase 3 passants, suite backend comp
 
 - [x] `wc -l main.py` < 500 lignes — 211 lignes
 - [x] Exactement 12 fichiers `api/router_*.py` exposent des `APIRouter`
-- [x] Les signatures des 261 opérations HTTP et des 2 WebSockets, ainsi que les 232 chemins OpenAPI, sont inventoriées et verrouillées ; les endpoints couverts passent via `TestClient`
+- [x] Les signatures des 267 opérations HTTP et des 2 WebSockets, ainsi que les 237 chemins OpenAPI, sont inventoriées et verrouillées ; les endpoints couverts passent via `TestClient`
 - [x] Le lifespan extrait dans `api/lifespan.py` est monté explicitement et la suite de non-régression reste verte
 
 Preuves exécutées le 14/07/2026 : 6 tests Phase 4 passants, suite complète à 548 passants et 1 ignoré, `compileall`, Ruff et `git diff --check` réussis. Tous les modules `api/` restent à 500 lignes ou moins et aucun n'importe `main.py`. Aucun serveur réel, campagne `curl` exhaustive ou observation opérationnelle sur 24 h n'a été exécuté dans cet environnement.

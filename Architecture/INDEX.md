@@ -6,7 +6,7 @@
 **Périmètre** : 273 fichiers Python (56 261 lignes), 99 fichiers source frontend (18 770 lignes),
 90 tables SQLite persistantes après `init_db()` et 95 tables physiques avec FTS5.
 Runtime SQLite canonique : **94 tables persistantes**, **99 tables physiques avec FTS5**, schéma généré : **95 déclarations de tables**.
-Structure API canonique : **265 opérations HTTP + 2 WebSockets**, **235 chemins OpenAPI**, **17 routeurs api/router_*.py + Fitness = 18 montés**, main.py **214 lignes**.
+Structure API canonique : **267 opérations HTTP + 2 WebSockets**, **237 chemins OpenAPI**, **17 routeurs api/router_*.py + Fitness = 18 montés**, main.py **214 lignes**.
 Voir [32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md](./32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md).
 **État** : **Documentation officielle — toute modification du code doit rester cohérente avec ce dossier**
 
@@ -127,7 +127,7 @@ graph TB
 
     subgraph "Backend (port 8081)"
         MAIN["main.py — 211 lignes<br/>assemblage FastAPI<br/>18 routeurs montés<br/>2 WebSockets<br/>sert frontend/out en priorité"]
-        API["api/<br/>261 opérations HTTP<br/>232 chemins OpenAPI<br/>handlers et support"]
+        API["api/<br/>267 opérations HTTP<br/>237 chemins OpenAPI<br/>handlers et support"]
         BUS["Event Bus actif<br/>10 événements de domaine<br/>SSE + WebSocket + TTS"]
     end
 

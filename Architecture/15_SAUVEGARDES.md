@@ -73,6 +73,30 @@ La restauration d’une sauvegarde Fernet détecte la cible : elle restaure une
 image SQLite standard lorsque SQLCipher est désactivé et la réimporte chiffrée
 lorsqu’il est actif. Aucun backup ne dépend donc du format de la base courante.
 
+## Réplication cloud chiffrée
+
+Le backend WebDAV est optionnel et local-first. Après une sauvegarde locale
+réussie, JARVIS refuse tout upload qui n’est pas une enveloppe
+`JARVIS-BACKUP-V2` `.db.enc`, téléverse sans redirection HTTP, vérifie la taille
+distante par `HEAD`, puis applique `BACKUP_CLOUD_KEEP` au seul profil actif.
+Une erreur cloud conserve la copie locale mais fait échouer le rapport afin de
+ne jamais masquer la perte de redondance.
+
+`GET /api/backups/cloud` liste les objets du profil actif et
+`POST /api/backups/cloud/{name}/restore` les télécharge dans un fichier privé
+borné avant de réutiliser le pipeline local : authentification Fernet,
+`integrity_check`, snapshot de sécurité et restauration SQLite/SQLCipher. Les
+credentials WebDAV ne sont jamais acceptés dans l’URL ni exposés par l’API.
+
+Le CLI équivalent est disponible via :
+
+```bash
+python tools/cloud_backup.py status
+python tools/cloud_backup.py list
+python tools/cloud_backup.py upload
+python tools/cloud_backup.py restore jarvis-YYYYMMDD-HHMMSS.db.enc
+```
+
 ## Configuration
 
 ```bash
@@ -86,6 +110,18 @@ BACKUP_ENCRYPTION_PASSPHRASE=
 DATABASE_ENCRYPTION_ENABLED=false
 DATABASE_ENCRYPTION_PASSPHRASE=
 DATABASE_ENCRYPTION_KEYCHAIN_SERVICE=com.jarvis.database.sqlcipher
+BACKUP_CLOUD_ENABLED=false
+BACKUP_CLOUD_PROVIDER=webdav
+BACKUP_CLOUD_URL=https://cloud.example.com/dav/JARVIS/
+BACKUP_CLOUD_USERNAME=
+BACKUP_CLOUD_PASSWORD=
+# Alternative exclusive à Basic :
+BACKUP_CLOUD_BEARER_TOKEN=
+BACKUP_CLOUD_KEEP=30
+BACKUP_CLOUD_TIMEOUT_SECONDS=30
+BACKUP_CLOUD_RETRY_ATTEMPTS=3
+BACKUP_CLOUD_RETRY_DELAY_SECONDS=2
+BACKUP_CLOUD_MAX_DOWNLOAD_MB=2048
 ```
 
 ## Limite assumée

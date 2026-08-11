@@ -4,6 +4,7 @@ import logging
 import os
 import socket
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from env_loader import load_jarvis_env
 
@@ -71,12 +72,36 @@ class ConfigurationError(RuntimeError):
 
 
 def validate_required_runtime_config() -> None:
-    """Refuse de démarrer un backend incapable de servir les fonctions LLM."""
+    """Refuse de démarrer avec des secrets ou services obligatoires incomplets."""
     api_key = (DEEPSEEK_API_KEY or "").strip()
     if not api_key or api_key == "sk-...":
         raise ConfigurationError(
             "DEEPSEEK_API_KEY est obligatoire. Configure-la dans .env avant de démarrer JARVIS."
         )
+    if BACKUP_CLOUD_ENABLED:
+        parsed = urlsplit(BACKUP_CLOUD_URL)
+        basic = bool(BACKUP_CLOUD_USERNAME or BACKUP_CLOUD_PASSWORD)
+        bearer = bool(BACKUP_CLOUD_BEARER_TOKEN)
+        if BACKUP_CLOUD_PROVIDER != "webdav":
+            raise ConfigurationError("BACKUP_CLOUD_PROVIDER doit être 'webdav'.")
+        if parsed.scheme != "https" or not parsed.hostname:
+            raise ConfigurationError("BACKUP_CLOUD_URL doit être une URL HTTPS absolue.")
+        if parsed.username or parsed.password or parsed.query or parsed.fragment:
+            raise ConfigurationError(
+                "BACKUP_CLOUD_URL ne doit contenir ni credentials, ni query, ni fragment."
+            )
+        if basic and not (BACKUP_CLOUD_USERNAME and BACKUP_CLOUD_PASSWORD):
+            raise ConfigurationError(
+                "BACKUP_CLOUD_USERNAME et BACKUP_CLOUD_PASSWORD sont indissociables."
+            )
+        if basic == bearer:
+            raise ConfigurationError(
+                "Configurez exactement une authentification cloud : Basic ou Bearer."
+            )
+        if not BACKUP_ENCRYPTION_ENABLED:
+            raise ConfigurationError(
+                "BACKUP_CLOUD_ENABLED exige BACKUP_ENCRYPTION_ENABLED=true."
+            )
 
 
 # ── Audio — STT local (faster-whisper) + TTS local (Qwen3-TTS) ──
@@ -868,6 +893,22 @@ BACKUP_ENCRYPTION_KEY_FILE = _get(
     "BACKUP_ENCRYPTION_KEY_FILE",
     "./data/.backup_encryption.key",
 )
+
+# ── Réplication cloud WebDAV (opt-in, enveloppes V2 uniquement) ──
+BACKUP_CLOUD_ENABLED = _get("BACKUP_CLOUD_ENABLED", "false").lower() == "true"
+BACKUP_CLOUD_PROVIDER = _get("BACKUP_CLOUD_PROVIDER", "webdav").strip().lower()
+BACKUP_CLOUD_URL = _get("BACKUP_CLOUD_URL", "").strip()
+BACKUP_CLOUD_USERNAME = _get("BACKUP_CLOUD_USERNAME", "")
+BACKUP_CLOUD_PASSWORD = _get("BACKUP_CLOUD_PASSWORD", "")
+BACKUP_CLOUD_BEARER_TOKEN = _get("BACKUP_CLOUD_BEARER_TOKEN", "")
+BACKUP_CLOUD_KEEP = max(0, int(_get("BACKUP_CLOUD_KEEP", "30")))
+BACKUP_CLOUD_TIMEOUT_SECONDS = _positive_float("BACKUP_CLOUD_TIMEOUT_SECONDS", 30.0)
+BACKUP_CLOUD_RETRY_ATTEMPTS = _positive_int("BACKUP_CLOUD_RETRY_ATTEMPTS", 3)
+BACKUP_CLOUD_RETRY_DELAY_SECONDS = max(
+    0.0,
+    float(_get("BACKUP_CLOUD_RETRY_DELAY_SECONDS", "2")),
+)
+BACKUP_CLOUD_MAX_DOWNLOAD_MB = _positive_int("BACKUP_CLOUD_MAX_DOWNLOAD_MB", 4096)
 
 # ── Chiffrement complet de la base active (SQLCipher, opt-in) ──
 # L'activation d'une base existante passe d'abord par
