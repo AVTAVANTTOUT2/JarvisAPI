@@ -30,11 +30,13 @@ from api.frontend import (
 )
 from api.lifespan import lifespan
 from api.middleware import configured_cors_origins, security_middleware
+from api.openapi import install_openapi, stable_operation_id
 from api.router_auth import router as auth_router
 from api.router_conversations import router as conversations_router
 from api.router_daemon import router as daemon_router
 from api.router_devagent import router as devagent_router
 from api.router_devices import router as devices_router
+from api.router_developer import router as developer_router
 from api.router_food import router as food_router
 from api.router_location import router as location_router
 from api.router_mobile_voice import router as mobile_voice_router
@@ -84,6 +86,7 @@ app = FastAPI(
     description="Assistant personnel multi-agents",
     version="0.1.0",
     lifespan=lifespan,
+    generate_unique_id_function=stable_operation_id,
     docs_url=None,
     redoc_url=None,
     openapi_url=None,
@@ -105,6 +108,7 @@ app.include_router(conversations_router)
 app.include_router(daemon_router)
 app.include_router(devagent_router)
 app.include_router(devices_router)
+app.include_router(developer_router)
 app.include_router(food_router)
 app.include_router(location_router)
 app.include_router(mobile_voice_router)
@@ -117,6 +121,7 @@ app.include_router(rituals_router)
 app.include_router(scheduler_router)
 app.include_router(tasks_router)
 app.include_router(cognitive_router)
+install_openapi(app)
 app.websocket("/ws")(websocket_endpoint)
 # Canal TV : descendant, authentifié par le jeton supervisor, sans commande.
 # Volontairement séparé de /ws, qui reste le canal de chat et d'action.

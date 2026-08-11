@@ -310,6 +310,14 @@
       "methods": ["POST"],
       "paths": ["/api/maintenance/run"],
       "rationale": "Déclenchement explicite de la maintenance SQLite par l'exploitation."
+    },
+    {
+      "id": "developer-openapi",
+      "owner": "developer-experience",
+      "audience": "developer",
+      "methods": ["GET"],
+      "paths": ["/api/developer/docs", "/api/developer/openapi.json"],
+      "rationale": "Contrat et catalogue OpenAPI protégés, destinés aux intégrateurs authentifiés."
     }
   ]
 }

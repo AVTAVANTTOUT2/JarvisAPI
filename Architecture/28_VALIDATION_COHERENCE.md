@@ -5,7 +5,7 @@
 **Statut** : Rapport de vérification doc vs code — Phases 1 à 6 et NotificationService implémentés
 
 Runtime SQLite canonique : **94 tables persistantes**, **99 tables physiques avec FTS5**, schéma généré : **95 déclarations de tables**.
-Structure API canonique : **267 opérations HTTP + 2 WebSockets**, **237 chemins OpenAPI**, **17 routeurs api/router_*.py + Fitness = 18 montés**, main.py **214 lignes**.
+Structure API canonique : **269 opérations HTTP + 2 WebSockets**, **239 chemins OpenAPI**, **18 routeurs api/router_*.py + Fitness = 19 montés**, main.py **219 lignes**.
 
 ---
 
@@ -19,7 +19,7 @@ Le dossier `Architecture/` reflète l'état du code après l'implémentation de 
 
 | Affirmation dans Architecture/ | Réalité code | Statut |
 |---|---|---|
-| 267 opérations HTTP + 2 WebSockets, 237 chemins OpenAPI | Inventaire FastAPI et snapshot déterministe, canal TV inclus | ✅ Contrat actualisé |
+| 269 opérations HTTP + 2 WebSockets, 239 chemins OpenAPI | Inventaire FastAPI et snapshot déterministe, canal TV inclus | ✅ Contrat actualisé |
 | 90 persistantes / 95 physiques avec FTS5 après `init_db()` | Vérifié par `tools/audit_architecture_truth.py --check` sur une base `:memory:` fraîche ; hors `sqlite_*` | ✅ `schema.sql` généré = 91 déclarations, dont la table virtuelle FTS5 |
 | 7 agents LLM + orchestrateur | 12 fichiers dans agents/ | ✅ Exact (dont 5 utilitaires) |
 | 29 jobs APScheduler | 102 références dans scheduler.py | ✅ Exact |

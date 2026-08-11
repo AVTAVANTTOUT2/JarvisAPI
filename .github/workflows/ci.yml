@@ -201,6 +201,9 @@ jobs:
           --output artifacts/architecture_truth.json
           --schema-output database/schema.sql
 
+      - name: Vérifier le contrat OpenAPI public
+        run: python tools/export_openapi.py --check
+
       - name: Vérifier le registre canonique de dette technique
         run: python tools/audit_technical_debt.py --check
 

@@ -143,6 +143,19 @@ Chaque automatisation respecte son option d'activation et ses seuils. Un passage
 
 Le suivi live est disponible dans l'UI bureau sur **`/scheduler`** : statut du jour (fait / en attente / manqué / échec / silencieux), agrégats 7 jours pour les ticks fréquents, sortie des sorties au clic, et relance manuelle pour les jobs quotidiens ou hebdomadaires. API : `GET /api/scheduler/jobs`, `GET /api/scheduler/jobs/{id}/runs`, `POST /api/scheduler/jobs/{id}/run`.
 
+## API développeur
+
+Le contrat OpenAPI 3.1 versionné se trouve dans
+[`openapi/jarvis.openapi.json`](./openapi/jarvis.openapi.json). Sur une instance
+déverrouillée, `GET /api/developer/docs` affiche le catalogue autonome et
+`GET /api/developer/openapi.json` retourne le contrat exact. Les deux routes
+restent derrière la session JARVIS ; `/docs`, `/redoc` et `/openapi.json`
+demeurent fermés. Vérification locale :
+
+```bash
+.venv/bin/python tools/export_openapi.py --check
+```
+
 ## Stack technique
 
 | Couche | Technologies |

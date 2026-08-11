@@ -71,7 +71,7 @@ Preuves : 4 tests Phase 3 passants ; suite backend complète à 542 passants et 
 
 ### Phase 4 — implémentée et validée le 14/07/2026
 
-Preuves courantes : signatures de 267 opérations HTTP et 2 WebSockets inventoriées ; hash des 237 chemins OpenAPI ; 17 routeurs `api/router_*.py` plus Fitness ; `main.py` sous 500 lignes ; aucun import `api → main`. Les suites CI actuelles remplacent les totaux pytest historiques. Aucune validation opérationnelle 24 h n'est revendiquée.
+Preuves courantes : signatures de 269 opérations HTTP et 2 WebSockets inventoriées ; hash des 239 chemins OpenAPI ; 18 routeurs `api/router_*.py` plus Fitness ; `main.py` sous 500 lignes ; aucun import `api → main`. Les suites CI actuelles remplacent les totaux pytest historiques. Aucune validation opérationnelle 24 h n'est revendiquée.
 
 | Fichier | Contenu |
 |---|---|
