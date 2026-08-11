@@ -12,6 +12,7 @@ classificateurs contradictoires.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from typing import Any
@@ -42,6 +43,53 @@ def route_chat_text(text: str, *, voice_mode: bool = False) -> TaskIntent:
 
 def is_cursor_confirmation_phrase(text: str) -> bool:
     return bool(_CONFIRM_RE.match((text or "").strip()))
+
+
+def _cursor_job_routing(job: dict[str, Any]) -> dict[str, Any]:
+    """Lit le routing persisté d'un job Cursor (dict ou JSON legacy)."""
+    routing = job.get("routing") or job.get("routing_json") or {}
+    if isinstance(routing, str):
+        try:
+            routing = json.loads(routing)
+        except json.JSONDecodeError:
+            return {}
+    return routing if isinstance(routing, dict) else {}
+
+
+def _cursor_job_conversation_id(job: dict[str, Any]) -> int | None:
+    """Conversation liée à la proposition, si le job a été créé depuis le chat/voix."""
+    raw = _cursor_job_routing(job).get("conversation_id")
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def resolve_pending_cursor_job_for_confirmation(
+    conversation_id: int,
+    interaction_mode: str,
+) -> dict[str, Any] | None:
+    """Job Cursor en attente pour cette conversation et ce mode, sans repli global.
+
+    Sans filtre par conversation, « lance » dans une discussion peut démarrer
+    un worktree préparé dans une autre, ou un job vocal depuis le chat.
+    """
+    from database.cursor_jobs import list_jobs_by_statuses
+
+    pending = list_jobs_by_statuses(("awaiting_confirmation", "proposal"))
+    mode_pending = [
+        job
+        for job in pending
+        if job.get("interaction_mode") == interaction_mode
+    ]
+    scoped = [
+        job
+        for job in mode_pending
+        if _cursor_job_conversation_id(job) == int(conversation_id)
+    ]
+    return scoped[-1] if scoped else None
 
 
 def should_run_cursor_cognitive_path(
@@ -82,18 +130,13 @@ async def maybe_confirm_pending_cursor(
         return None
     try:
         from integrations.cursor_delegation import cursor_delegation
-        from database.cursor_jobs import list_jobs_by_statuses
 
-        pending = list_jobs_by_statuses(("awaiting_confirmation", "proposal"))
-        if interaction_mode:
-            filtered = [
-                j for j in pending if j.get("interaction_mode") == interaction_mode
-            ]
-            # Fallback : n'importe quel pending si mode exact absent
-            pending = filtered or pending
-        if not pending:
+        latest = resolve_pending_cursor_job_for_confirmation(
+            conversation_id,
+            interaction_mode,
+        )
+        if not latest:
             return None
-        latest = pending[-1]  # ASC → dernier = plus récent
         job = await cursor_delegation.confirm(latest["job_id"])
     except Exception as exc:
         logger.warning("[chat_cognitive] confirm Cursor : %s", exc)
@@ -149,12 +192,15 @@ async def maybe_delegate_chat_to_cursor(
     try:
         from integrations.cursor_delegation import cursor_delegation
 
+        routing = dict(intent.to_diagnostic())
+        routing["conversation_id"] = int(conversation_id)
+
         job = await cursor_delegation.enqueue(
             title=text[:120],
             user_request=text,
             template_id=intent.template_id or "feature_implementation",
             interaction_mode=interaction_mode,
-            routing=intent.to_diagnostic(),
+            routing=routing,
             auto_start=False,
             require_confirmation=True,
         )
