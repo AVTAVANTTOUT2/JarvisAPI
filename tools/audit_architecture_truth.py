@@ -1193,9 +1193,14 @@ def render_runtime_schema(root: Path) -> str:
     if not isinstance(schema, str):
         raise RuntimeError("database/schema.py ne définit pas SCHEMA")
 
+    root_value = str(root)
+    inserted_path = root_value not in sys.path
+    if inserted_path:
+        sys.path.insert(0, root_value)
+
     migration_path = root / "database" / "migrations.py"
     spec = importlib.util.spec_from_file_location(
-        "_jarvis_architecture_truth_migrations",
+        "database._jarvis_architecture_truth_migrations",
         migration_path,
     )
     if spec is None or spec.loader is None:
@@ -1203,10 +1208,6 @@ def render_runtime_schema(root: Path) -> str:
     migrations = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(migrations)
 
-    root_value = str(root)
-    inserted_path = root_value not in sys.path
-    if inserted_path:
-        sys.path.insert(0, root_value)
     conn = sqlite3.connect(":memory:")
     try:
         conn.execute("PRAGMA foreign_keys=ON")

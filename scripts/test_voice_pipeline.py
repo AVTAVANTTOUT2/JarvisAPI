@@ -14,7 +14,6 @@ Usage:
 import asyncio
 import os
 import re
-import sqlite3
 import sys
 import time
 from dataclasses import dataclass, field
@@ -29,6 +28,7 @@ os.chdir(str(_PROJECT_ROOT))
 
 # ── Lazy imports (DB init au moment de l'import) ──────────────
 import config
+from database import get_connection
 
 # Outil de validation interactif : même si ce fichier est explicitement passé
 # à pytest, ses scénarios réels ne doivent jamais être collectés automatiquement.
@@ -496,7 +496,7 @@ TESTS: list[TestCase] = [
 def _setup_test_conversation() -> None:
     """Cree la conversation de test si elle n'existe pas."""
     try:
-        conn = sqlite3.connect(str(config.DB_PATH))
+        conn = get_connection()
         conn.execute("PRAGMA journal_mode=WAL")
         row = conn.execute(
             "SELECT id FROM conversations WHERE id = ?", (TEST_CONV_ID,)
@@ -516,7 +516,7 @@ def _setup_test_conversation() -> None:
 def _cleanup_test_data() -> None:
     """Supprime les messages de test et la conversation de test de la DB."""
     try:
-        conn = sqlite3.connect(str(config.DB_PATH))
+        conn = get_connection()
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("DELETE FROM messages WHERE conversation_id = ?", (TEST_CONV_ID,))
         conn.execute("DELETE FROM conversations WHERE id = ?", (TEST_CONV_ID,))

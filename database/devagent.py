@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-import sqlite3
+from . import dbapi as sqlite3
 from typing import Any, Optional
 
 import config

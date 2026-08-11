@@ -32,6 +32,14 @@ from .core import (
     reset_profile,
     use_profile,
 )
+from .encryption import (
+    DatabaseEncryptionError,
+    database_encryption_status,
+    disable_database_encryption,
+    enable_database_encryption,
+    export_plaintext_snapshot,
+    replace_database_from_plaintext,
+)
 from .event_log import EventReplayWindow, get_event_log, get_event_replay_window
 
 

@@ -20,6 +20,7 @@ import base64
 import hashlib
 import logging
 import os
+import re
 import secrets
 import sqlite3
 import time
@@ -27,7 +28,15 @@ from datetime import datetime
 from pathlib import Path
 
 import config
-from database import get_connection, get_cost_summary, get_db
+from database import (
+    current_profile_id,
+    export_plaintext_snapshot,
+    get_connection,
+    get_cost_summary,
+    get_db,
+    profile_database_path,
+    replace_database_from_plaintext,
+)
 from database.core import harden_sqlite_permissions
 from core.file_security import (
     ensure_private_directory,
@@ -50,6 +59,41 @@ _BACKUP_KDF_ITERATIONS = 600_000
 def _backup_dir() -> Path:
     d = Path(config.BACKUP_DIR)
     return ensure_private_directory(d)
+
+
+def _backup_prefix(profile_id: str | None = None) -> str:
+    selected = profile_id or current_profile_id()
+    return "jarvis" if selected == "default" else f"jarvis-{selected}"
+
+
+def _is_profile_backup(path: Path, profile_id: str | None = None) -> bool:
+    selected = profile_id or current_profile_id()
+    prefix = re.escape(_backup_prefix(selected))
+    if re.fullmatch(
+        rf"{prefix}-\d{{8}}-\d{{6}}(?:-\d+)?\.db(?:\.enc)?",
+        path.name,
+    ):
+        return True
+    # Compatibilité des sauvegardes historiques du profil principal, tout en
+    # excluant le format canonique désormais réservé aux profils secondaires.
+    return bool(
+        selected == "default"
+        and re.fullmatch(r"jarvis-[A-Za-z0-9_-]+\.db(?:\.enc)?", path.name)
+        and not re.fullmatch(
+            r"jarvis-[a-z0-9](?:[a-z0-9-]{0,62})-\d{8}-\d{6}"
+            r"(?:-\d+)?\.db(?:\.enc)?",
+            path.name,
+        )
+    )
+
+
+def _profile_backup_files(backup_dir: Path, profile_id: str | None = None) -> list[Path]:
+    prefix = _backup_prefix(profile_id)
+    return [
+        path
+        for path in backup_dir.glob(f"{prefix}-*.db*")
+        if path.is_file() and _is_profile_backup(path, profile_id)
+    ]
 
 
 def harden_backup_permissions() -> None:
@@ -204,7 +248,8 @@ def run_backup() -> dict:
     en clair supprimé. Sans passphrase explicite, une clé locale 0600 est créée.
     Retourne un rapport {ok, path, size_bytes, duration_s, removed, encrypted}.
     """
-    src = Path(config.DB_PATH)
+    profile_id = current_profile_id()
+    src = Path(config.DB_PATH) if profile_id == "default" else profile_database_path(profile_id)
     if not src.exists():
         return {"ok": False, "error": f"base introuvable : {src}"}
 
@@ -217,22 +262,20 @@ def run_backup() -> dict:
         # existante prise à la même seconde.
         return p.exists() or p.with_suffix(p.suffix + ".enc").exists()
 
-    dest = backup_dir / f"jarvis-{stamp}.db"
+    prefix = _backup_prefix(profile_id)
+    dest = backup_dir / f"{prefix}-{stamp}.db"
     n = 1
     while _candidate_taken(dest):
-        dest = backup_dir / f"jarvis-{stamp}-{n}.db"
+        dest = backup_dir / f"{prefix}-{stamp}-{n}.db"
         n += 1
 
     t0 = time.monotonic()
-    conn = get_connection()
     try:
-        conn.execute("VACUUM INTO ?", (str(dest),))
-    except sqlite3.Error as e:
+        export_plaintext_snapshot(src, dest, profile_id)
+    except Exception as e:
         dest.unlink(missing_ok=True)
-        logger.error("[backup] VACUUM INTO : %s", e)
+        logger.error("[backup] export SQLite cohérent : %s", e)
         return {"ok": False, "error": str(e)}
-    finally:
-        conn.close()
     try:
         ensure_private_file(dest)
     except Exception as exc:
@@ -261,7 +304,7 @@ def run_backup() -> dict:
             logger.error("[backup] permissions privées impossibles : %s", exc)
             return {"ok": False, "error": "Permissions privées de sauvegarde impossibles"}
 
-    removed = _rotate_backups(backup_dir)
+    removed = _rotate_backups(backup_dir, profile_id=profile_id)
     report = {
         "ok": True,
         "path": str(dest),
@@ -286,7 +329,12 @@ def restore_backup(name: str) -> dict:
     """
     backup_dir = _backup_dir().resolve()
     candidate = (backup_dir / name).resolve()
-    if candidate.parent != backup_dir or not candidate.is_file():
+    profile_id = current_profile_id()
+    if (
+        candidate.parent != backup_dir
+        or not candidate.is_file()
+        or not _is_profile_backup(candidate, profile_id)
+    ):
         return {"ok": False, "error": "Sauvegarde introuvable"}
 
     # Lire (et déchiffrer) la sauvegarde cible AVANT de prendre le snapshot de
@@ -315,19 +363,17 @@ def restore_backup(name: str) -> dict:
                 "error": f"Snapshot de sécurité impossible : {safety.get('error')}",
             }
 
-        source: sqlite3.Connection | None = None
-        destination: sqlite3.Connection | None = None
-        try:
-            source = sqlite3.connect(f"file:{source_path}?mode=ro", uri=True)
-            destination = get_connection()
-            source.backup(destination)
-            destination.commit()
-        finally:
-            if destination is not None:
-                destination.close()
-            if source is not None:
-                source.close()
-        harden_sqlite_permissions()
+        destination_path = (
+            Path(config.DB_PATH)
+            if current_profile_id() == "default"
+            else profile_database_path()
+        )
+        replace_database_from_plaintext(
+            source_path,
+            destination_path,
+            current_profile_id(),
+        )
+        harden_sqlite_permissions(destination_path)
     except Exception as exc:
         logger.error("[restore] restauration SQLite de %s : %s", name, exc)
         return {"ok": False, "error": "Restauration SQLite impossible"}
@@ -342,12 +388,20 @@ def restore_backup(name: str) -> dict:
     return {"ok": True, "restored_from": name, "safety_backup": safety.get("path")}
 
 
-def _rotate_backups(backup_dir: Path, keep: int | None = None) -> list[str]:
-    """Ne conserve que les ``keep`` sauvegardes les plus récentes (par mtime)."""
+def _rotate_backups(
+    backup_dir: Path,
+    keep: int | None = None,
+    *,
+    profile_id: str | None = None,
+) -> list[str]:
+    """Applique la rétention au seul profil actif, sans fuite inter-profils."""
     keep = config.BACKUP_KEEP if keep is None else keep
     if keep <= 0:
         return []
-    files = sorted(backup_dir.glob("jarvis-*.db*"), key=lambda f: f.stat().st_mtime)
+    files = sorted(
+        _profile_backup_files(backup_dir, profile_id),
+        key=lambda f: f.stat().st_mtime,
+    )
     removed: list[str] = []
     for f in files[:-keep] if len(files) > keep else []:
         try:
@@ -365,8 +419,11 @@ def list_backups() -> list[dict]:
         return []
     ensure_private_directory(backup_dir)
     out = []
-    for f in sorted(backup_dir.glob("jarvis-*.db*"),
-                    key=lambda f: f.stat().st_mtime, reverse=True):
+    for f in sorted(
+        _profile_backup_files(backup_dir),
+        key=lambda f: f.stat().st_mtime,
+        reverse=True,
+    ):
         st = f.stat()
         ensure_private_file(f)
         out.append({

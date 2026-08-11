@@ -7,7 +7,7 @@ Retourne les N dernières actions exécutées par les agents JARVIS
 from __future__ import annotations
 
 import logging
-import sqlite3
+from database import dbapi as sqlite3
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any
@@ -64,7 +64,7 @@ def get_recent_actions() -> list[dict[str, Any]]:
     cutoff_str = cutoff.strftime("%Y-%m-%d %H:%M:%S")
 
     try:
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        conn = sqlite3.connect_readonly(db_path)
         conn.row_factory = sqlite3.Row
         cur = conn.execute(
             """SELECT id, created_at, agent, action_type, payload, status, execution_time_ms

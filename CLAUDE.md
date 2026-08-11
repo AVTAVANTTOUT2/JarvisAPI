@@ -43,7 +43,7 @@ Depuis du code async, utiliser `await event_bus.emit(event)`. Depuis un chemin s
 
 ## Couche API — Phase 4
 
-`main.py` est un point d'assemblage : configuration FastAPI/CORS, montage de 17 `APIRouter` sous `api/router_*.py` plus Fitness, branchement des WebSockets de chat et de TV, configuration de `pipeline.py`, frontend et lancement Uvicorn. Le contrat public compte 261 opérations HTTP et 2 WebSockets ; l'OpenAPI expose 232 chemins.
+`main.py` est un point d'assemblage : configuration FastAPI/CORS, montage de 17 `APIRouter` sous `api/router_*.py` plus Fitness, branchement des WebSockets de chat et de TV, configuration de `pipeline.py`, frontend et lancement Uvicorn. Le contrat public compte 265 opérations HTTP et 2 WebSockets ; l'OpenAPI expose 235 chemins.
 
 - `api/router_*.py` contient exactement 17 routeurs par domaine ; Fitness porte le 18e routeur monté et aucun routeur ne dépasse 478 lignes.
 - `api/lifespan.py`, `api/middleware.py` et `api/frontend.py` portent le cycle de vie, la sécurité HTTP et le serving des frontends.
@@ -2133,6 +2133,7 @@ tous les endpoints `/api/*` (hors `/api/auth/*`) répondent `428`.
 | `jarvis_auth/src/LockGate.tsx` | Écran partagé de configuration/déverrouillage + verrouillage automatique client après `AUTO_LOCK_MINUTES` d'inactivité |
 | `core/file_security.py` | Permissions communes : dossiers sensibles 0700, DB/sidecars/backups/uploads/clés 0600, écritures privées sans passage par 0644 |
 | `scripts/db_maintenance.py` | Backups chiffrés par défaut (enveloppe Fernet V2, PBKDF2 salé, clé locale 0600 ou passphrase) + restauration avec contrôle d'intégrité et snapshot de sécurité |
+| `database/dbapi.py`, `database/encryption.py` | Façade SQLite/SQLCipher, clé par profil dans le Trousseau, migration atomique avec rollback et restauration compatible avec les deux formats de base |
 
 ### Failles corrigées
 
@@ -2200,6 +2201,9 @@ LLM_SHELL_PLAN_TTL_SECONDS=600
 BACKUP_ENCRYPTION_ENABLED=true
 BACKUP_ENCRYPTION_KEY_FILE=./data/.backup_encryption.key
 BACKUP_ENCRYPTION_PASSPHRASE=
+DATABASE_ENCRYPTION_ENABLED=false
+DATABASE_ENCRYPTION_PASSPHRASE=
+DATABASE_ENCRYPTION_KEYCHAIN_SERVICE=com.jarvis.database.sqlcipher
 ```
 
 ### Limites assumées

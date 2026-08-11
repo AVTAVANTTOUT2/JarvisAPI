@@ -24,6 +24,8 @@ from integrations.apple_data import (
     apple_epoch_to_datetime,
     datetime_to_apple_epoch,
 )
+from database import dbapi as jarvis_sqlite
+from database import get_connection
 
 logging.basicConfig(
     level=logging.INFO,
@@ -132,7 +134,7 @@ def get_existing_guids(jarvis_conn: sqlite3.Connection) -> set[str]:
             "SELECT external_id FROM messages WHERE source = 'imessage' AND external_id IS NOT NULL"
         )
         return {row[0] for row in cursor if row[0]}
-    except sqlite3.OperationalError:
+    except (sqlite3.OperationalError, jarvis_sqlite.OperationalError):
         return set()
 
 
@@ -168,7 +170,7 @@ def ensure_schema(jarvis_conn: sqlite3.Connection) -> None:
         jarvis_conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_messages_external_id ON messages(external_id)"
         )
-    except sqlite3.OperationalError:
+    except (sqlite3.OperationalError, jarvis_sqlite.OperationalError):
         pass
 
     jarvis_conn.commit()
@@ -207,7 +209,7 @@ def insert_messages(
     Returns:
         dict avec {inserted, skipped, total}.
     """
-    jarvis_conn = sqlite3.connect(JARVIS_DB)
+    jarvis_conn = get_connection()
     jarvis_conn.execute("PRAGMA journal_mode=WAL")
     jarvis_conn.execute("PRAGMA foreign_keys=OFF")  # FK off pour insertion batch
 
@@ -292,8 +294,7 @@ def print_stats(messages: list[dict[str, Any]]) -> None:
 
 def verify_backfill(since_date: str) -> dict[str, Any]:
     """Vérifie l'état post-backfill sans modifier la base."""
-    conn = sqlite3.connect(JARVIS_DB)
-    conn.row_factory = sqlite3.Row
+    conn = get_connection()
 
     # Dernier message iMessage
     last_row = conn.execute(

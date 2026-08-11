@@ -12,16 +12,16 @@ Sortie JSON pour audit rapide:
 from __future__ import annotations
 
 import json
-import sqlite3
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
 from integrations.apple_data import apple_data
+from database import get_connection, profile_database_path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DB_PATH = ROOT / "data" / "jarvis.db"
+DB_PATH = profile_database_path()
 BACKEND_LOG = ROOT / "data" / ".jarvis_restart" / "backend.log"
 STATUS_URL = "https://127.0.0.1:8081/api/status"
 
@@ -78,8 +78,7 @@ def check_jarvis_db() -> dict:
         out["error"] = "jarvis.db absent"
         return out
 
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = get_connection()
     cur = conn.cursor()
     out["people_count"] = cur.execute("SELECT COUNT(*) c FROM people").fetchone()["c"]
     out["relationship_profiles_count"] = cur.execute("SELECT COUNT(*) c FROM relationship_profiles").fetchone()["c"]

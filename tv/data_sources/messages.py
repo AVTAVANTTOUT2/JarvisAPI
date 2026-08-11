@@ -8,7 +8,7 @@ triés par timestamp descendant.
 from __future__ import annotations
 
 import logging
-import sqlite3
+from database import dbapi as sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -33,7 +33,7 @@ def _resolve_handle_name(handle: str) -> str:
         return handle
     try:
         # Matcher via les relationship_profiles
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        conn = sqlite3.connect_readonly(db_path)
         cur = conn.execute(
             """SELECT p.name FROM people p
                JOIN relationship_profiles rp ON rp.person_id = p.id
@@ -87,7 +87,7 @@ def _get_chat_messages() -> list[dict[str, Any]]:
     if not db_path:
         return []
     try:
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        conn = sqlite3.connect_readonly(db_path)
         conn.row_factory = sqlite3.Row
         cur = conn.execute(
             """SELECT m.id, m.content, m.role, m.agent, m.created_at, c.title

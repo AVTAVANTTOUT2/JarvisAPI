@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import sqlite3
+from database import dbapi as sqlite3
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
