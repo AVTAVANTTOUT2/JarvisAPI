@@ -8,7 +8,7 @@ import logging
 from jarvis.event_bus import event_bus
 from jarvis.events import EpisodeSaved
 
-from .core import get_db
+from .core import current_profile_id, get_db, use_profile
 
 logger = logging.getLogger(__name__)
 
@@ -39,15 +39,18 @@ def _dispatch_semantic_indexing(source_type: str, source_id: int, text: str) -> 
     """
     import threading
 
-    def _index():
-        try:
-            from scripts.semantic_search import SemanticSearchUnavailable, index_text
+    profile_id = current_profile_id()
 
-            index_text(source_type, source_id, text)
-        except SemanticSearchUnavailable:
-            pass
-        except Exception:
-            logger.debug("[semantic_search] indexation échouée (best-effort)", exc_info=True)
+    def _index():
+        with use_profile(profile_id):
+            try:
+                from scripts.semantic_search import SemanticSearchUnavailable, index_text
+
+                index_text(source_type, source_id, text)
+            except SemanticSearchUnavailable:
+                pass
+            except Exception:
+                logger.debug("[semantic_search] indexation échouée (best-effort)", exc_info=True)
 
     threading.Thread(target=_index, daemon=True).start()
 

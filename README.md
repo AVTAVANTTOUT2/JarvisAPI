@@ -60,7 +60,7 @@ Web · Voix · Android · iMessage
 - **Fitness et nutrition** : programme poids du corps modifiable en base, séances/exercices fait ou non fait, échauffements et étirements, repas/calories/protéines, eau, pesée, conseils IA et relances vocales jusqu'à validation.
 - **Développement** : routage des demandes techniques, plans d'exécution confirmés, travaux isolés et DevAgent pour les tâches multi-étapes.
 - **Multi-appareils** : interface Web responsive, interface mobile légère, application Android native, agent Mac distant et tableau de bord TV.
-- **Sécurité et fiabilité** : écoute réseau locale par défaut, sessions protégées, contrôle CSRF, permissions de fichiers strictes, sauvegardes chiffrées et rotation automatique.
+- **Sécurité et fiabilité** : écoute réseau locale par défaut, sessions protégées, contrôle CSRF, permissions strictes, sauvegardes chiffrées, réplication WebDAV optionnelle, rotation par profil et chiffrement SQLCipher optionnel de chaque base utilisateur.
 
 ## Exemples
 
@@ -142,6 +142,29 @@ Enfin, quelques tâches de fond suivent un rythme hebdomadaire :
 Chaque automatisation respecte son option d'activation et ses seuils. Un passage du cron ne produit donc pas forcément une notification ou un appel à un modèle.
 
 Le suivi live est disponible dans l'UI bureau sur **`/scheduler`** : statut du jour (fait / en attente / manqué / échec / silencieux), agrégats 7 jours pour les ticks fréquents, sortie des sorties au clic, et relance manuelle pour les jobs quotidiens ou hebdomadaires. API : `GET /api/scheduler/jobs`, `GET /api/scheduler/jobs/{id}/runs`, `POST /api/scheduler/jobs/{id}/run`.
+
+## API développeur
+
+Le contrat OpenAPI 3.1 versionné se trouve dans
+[`openapi/jarvis.openapi.json`](./openapi/jarvis.openapi.json). Sur une instance
+déverrouillée, `GET /api/developer/docs` affiche le catalogue autonome et
+`GET /api/developer/openapi.json` retourne le contrat exact. Les deux routes
+restent derrière la session JARVIS ; `/docs`, `/redoc` et `/openapi.json`
+demeurent fermés. Vérification locale :
+
+```bash
+.venv/bin/python tools/export_openapi.py --check
+```
+
+Le SDK Python officiel se trouve dans [`sdk/python`](./sdk/python) :
+
+```bash
+python -m pip install ./sdk/python
+```
+
+Il couvre tout le registre d'`operationId`, gère session/CSRF et jetons
+mobiles/appareils, vérifie TLS et ne retente automatiquement que les lectures
+idempotentes.
 
 ## Stack technique
 
@@ -272,6 +295,8 @@ nettoyage, la suppression et le rollback.
 | `DEEPSEEK_API_KEY` | Clé du moteur de raisonnement principal. |
 | `DEEPSEEK_FAST_MODEL` / `DEEPSEEK_MAIN_MODEL` | Modèles utilisés pour les réponses rapides et les tâches complexes. |
 | `DB_PATH` | Emplacement de la base SQLite. |
+| `DATABASE_ENCRYPTION_ENABLED` | Ouvre les bases avec SQLCipher après migration via `tools/database_encryption.py`. |
+| `BACKUP_CLOUD_ENABLED` / `BACKUP_CLOUD_URL` | Réplique uniquement les sauvegardes Fernet V2 vers une collection WebDAV HTTPS. |
 | `STT_ENGINE` / `TTS_ENGINE` | Moteurs de transcription et de synthèse vocale. |
 | `IMESSAGE_TARGET` | Active le bridge iMessage pour le numéro ou l'adresse indiquée. |
 | `IMESSAGE_SEND_ENABLED` | Autorise explicitement l'envoi d'iMessages. Désactivé par défaut. |

@@ -161,7 +161,7 @@ durable complet n'existe pas. `Queue Engine`, `AI Service`, `/health` et
 
 ## Phase 4 — Routeurs FastAPI (Jour 5-7)
 
-**État** : ✅ Implémentée et validée le 14/07/2026, puis étendue. Le contrat courant compte 261 opérations HTTP, 2 WebSockets et 232 chemins OpenAPI ; `main.py` reste un assemblage sous 500 lignes.
+**État** : ✅ Implémentée et validée le 14/07/2026, puis étendue. Le contrat courant compte 269 opérations HTTP, 2 WebSockets et 239 chemins OpenAPI ; `main.py` reste un assemblage sous 500 lignes.
 
 ### Routeurs créés (12)
 

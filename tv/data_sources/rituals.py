@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
-import sqlite3
+from database import dbapi as sqlite3
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -25,7 +25,7 @@ def get_rituals() -> dict[str, Any]:
 
     today = datetime.now().strftime("%Y-%m-%d")
     try:
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        conn = sqlite3.connect_readonly(db_path)
         conn.row_factory = sqlite3.Row
         row = conn.execute(
             "SELECT quote, roast, productivity_score, score_detail FROM daily_rituals WHERE date = ?",

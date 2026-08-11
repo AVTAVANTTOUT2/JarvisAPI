@@ -6,7 +6,7 @@ Retourne les alertes/notifications non lues triées par priorité.
 from __future__ import annotations
 
 import logging
-import sqlite3
+from database import dbapi as sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -36,7 +36,7 @@ def get_unread_notifications() -> list[dict[str, Any]]:
         return []
 
     try:
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        conn = sqlite3.connect_readonly(db_path)
         conn.row_factory = sqlite3.Row
         cur = conn.execute(
             """SELECT id, source, title, content, priority, read, created_at

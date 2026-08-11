@@ -86,6 +86,34 @@ export interface VoiceLatencyMetrics {
   stages: Record<string, VoiceLatencyStage>
 }
 
+export interface MetricHistoryPoint {
+  timestamp: string
+  value: number
+  last_value: number
+  samples: number
+}
+
+export interface MetricHistorySeries {
+  metric: string
+  unit: string
+  points: MetricHistoryPoint[]
+  summary: {
+    latest: number
+    average: number
+    minimum: number
+    maximum: number
+    trend_pct: number | null
+    samples: number
+  }
+}
+
+export interface MetricHistoryResponse {
+  hours: number
+  bucket_seconds: number
+  retention_days: number
+  series: MetricHistorySeries[]
+}
+
 export interface DocumentPrivacyPolicy {
   mode: 'strict_local' | 'hybrid'
   strict_local: boolean
@@ -180,9 +208,12 @@ const QUEUEABLE_DATA_MUTATIONS = [
   /^\/api\/privacy\/documents$/,
 ]
 
+/** Sonde publique hors cache ; référence de politique, pas appel client. */
+const LIVE_HEALTH_PATH = '/api/health/live' // architecture-audit: non-consumer-reference
+
 function isCacheableRead(path: string, method: string, policy?: OfflineRequestPolicy): boolean {
   if (policy?.cache === false || method !== 'GET' || !path.startsWith('/api/')) return false
-  return !path.startsWith('/api/auth/') && path !== '/api/health/live'
+  return !path.startsWith('/api/auth/') && path !== LIVE_HEALTH_PATH
 }
 
 function isQueueableMutation(path: string, method: string, policy?: OfflineRequestPolicy): boolean {
@@ -317,6 +348,10 @@ export const api = {
   /** Latences du pipeline vocal — source unique, déjà exposée par le backend. */
   getVoiceMetrics: (days = 7, signal?: AbortSignal) =>
     request<VoiceLatencyMetrics>(`/api/voice/metrics?days=${days}`, { signal }),
+
+  /** Séries temporelles agrégées et conservées localement. */
+  getMetricHistory: (hours = 24, signal?: AbortSignal) =>
+    request<MetricHistoryResponse>(`/api/metrics/history?hours=${hours}`, { signal }),
 
   getAuthStatus: (): Promise<AuthStatus> => authClient.status(),
   authSetup: (secret: string) => authClient.setup(secret),

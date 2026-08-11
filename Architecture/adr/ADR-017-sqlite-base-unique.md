@@ -1,16 +1,20 @@
-# ADR-0002 : SQLite comme base de données unique
+# ADR-0002 : SQLite comme moteur de données unique
 
 **Date** : 2026-07-11 (rétroactif — décision prise au démarrage du projet)
 **Statut** : Accepté
 
 ## Contexte
 
-Jarvis stocke des données structurées variées : conversations, contacts, tâches, faits utilisateur, emails, lieux, analytics, logs. Le système cible un utilisateur unique sur une machine locale.
+Jarvis stocke des données structurées variées : conversations, contacts, tâches, faits utilisateur, emails, lieux, analytics et logs. Le système reste local à une machine, avec plusieurs profils isolés depuis ADR-023.
 
 ## Décision
 
-SQLite est la seule base de données du projet. Fichier unique : `data/jarvis.db`.
-Runtime SQLite canonique : **92 tables persistantes**, **97 tables physiques avec FTS5**, schéma généré : **93 déclarations de tables**.
+SQLite est le seul moteur de données du projet. Le profil historique utilise
+`data/jarvis.db` et chaque profil additionnel un fichier sous
+`data/profiles/<profile_id>/jarvis.db`. Tous rejouent exactement le même schéma
+et les mêmes migrations ; aucune seconde technologie de persistance n'est
+introduite.
+Runtime SQLite canonique : **94 tables persistantes**, **99 tables physiques avec FTS5**, schéma généré : **95 déclarations de tables**.
 Le miroir `database/schema.sql` n’est pas exécuté au runtime : il est régénéré depuis
 `database/schema.py`, `database/migrations.py` et `database/devagent.py`, puis comparé
 en CI. Les connexions vivent dans `database/core.py` et l'API compatible dans
@@ -20,7 +24,7 @@ en CI. Les connexions vivent dans `database/core.py` et l'API compatible dans
 
 | Alternative | Avantages | Inconvénients | Raison du rejet |
 |---|---|---|---|
-| PostgreSQL | Concurrent writes, extensions, JSON avancé | Serveur séparé, overhead mémoire, complexité ops | Surdimensionné pour utilisateur unique |
+| PostgreSQL | Concurrent writes, extensions, JSON avancé | Serveur séparé, overhead mémoire, complexité ops | Surdimensionné pour une installation locale |
 | Supabase / Firebase | Cloud-native, temps réel, auth intégrée | Dépendance cloud, coût, données hors machine | Viole Privacy First et Local First |
 | DuckDB | Analytics performantes, colonnar | Pas adapté OLTP, communauté plus petite | Jarvis est OLTP-first |
 | Fichiers JSON | Simple, lisible | Pas de requêtes, pas d'index, pas ACID | Ne scale pas au-delà de quelques fichiers |
@@ -29,8 +33,8 @@ en CI. Les connexions vivent dans `database/core.py` et l'API compatible dans
 
 ### Positives
 - Zéro serveur, zéro configuration réseau
-- Backup = copier un fichier
-- Performances excellentes en lecture pour un utilisateur unique
+- Backup = copier le fichier du profil concerné
+- Performances excellentes en lecture pour chaque profil
 - FTS5 intégré pour la recherche full-text
 - Portable et inspectable (`sqlite3 jarvis.db`)
 - ACID par défaut

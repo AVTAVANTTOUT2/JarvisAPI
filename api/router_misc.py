@@ -7,6 +7,7 @@ from fastapi import APIRouter
 from api.health_support import (
     api_health_detail,
     api_health_live,
+    api_metrics_history,
 )
 from api.misc_status import (
     api_status,
@@ -15,6 +16,8 @@ from api.misc_status import (
     api_backups_list,
     api_backups_run,
     api_backups_restore,
+    api_cloud_backups_list,
+    api_cloud_backup_restore,
     api_maintenance_run,
     api_imessage_import_run,
     api_imessage_import_status,
@@ -105,6 +108,11 @@ router.add_api_route(
     methods=["GET"],
 )
 router.add_api_route(
+    "/api/metrics/history",
+    api_metrics_history,
+    methods=["GET"],
+)
+router.add_api_route(
     "/api/status",
     api_status,
     methods=["GET"],
@@ -132,6 +140,16 @@ router.add_api_route(
 router.add_api_route(
     "/api/backups/{name}/restore",
     api_backups_restore,
+    methods=["POST"],
+)
+router.add_api_route(
+    "/api/backups/cloud",
+    api_cloud_backups_list,
+    methods=["GET"],
+)
+router.add_api_route(
+    "/api/backups/cloud/{name}/restore",
+    api_cloud_backup_restore,
     methods=["POST"],
 )
 router.add_api_route(

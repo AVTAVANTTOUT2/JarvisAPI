@@ -11,9 +11,12 @@ import auth
 import config
 from api.middleware import _canonical_origin
 from database import (
+    activate_profile,
     create_conversation,
     get_conversation_detail,
+    normalize_profile_id,
     resolve_conversation_checkpoint,
+    user_profile_exists,
 )
 from websocket_registry import connected_ws
 
@@ -21,6 +24,23 @@ logger = logging.getLogger("jarvis")
 
 
 _ws_last_sessions: dict[str, dict[str, Any]] = {}
+
+
+async def activate_websocket_profile(ws: WebSocket) -> bool:
+    """Valide et active le profil isolé porté par le handshake."""
+    try:
+        profile_id = normalize_profile_id(
+            ws.headers.get("x-jarvis-profile") or ws.cookies.get("jarvis_profile")
+        )
+    except ValueError:
+        await ws.close(code=4400, reason="profil invalide")
+        return False
+    if not user_profile_exists(profile_id):
+        await ws.close(code=4404, reason="profil introuvable")
+        return False
+    # Le ContextVar reste propre à la tâche WebSocket et à ses tâches filles.
+    activate_profile(profile_id)
+    return True
 
 
 def remember_websocket_conversation(
@@ -112,10 +132,13 @@ def websocket_confirmation_session_id(
     mobile_device: dict | None,
 ) -> str:
     """Identité stable à laquelle lier les propositions de cette socket."""
+    from database import current_profile_id
+
+    prefix = f"profile:{current_profile_id()}:"
     if mobile_device:
-        return f"mobile:{mobile_device['device_id']}"
+        return f"{prefix}mobile:{mobile_device['device_id']}"
     if session:
-        return f"session:{session['id']}"
+        return f"{prefix}session:{session['id']}"
     raise ValueError("WebSocket sans identité authentifiée")
 
 

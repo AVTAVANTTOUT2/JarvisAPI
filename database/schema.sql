@@ -685,6 +685,17 @@ CREATE VIRTUAL TABLE messages_fts USING fts5(
                 tokenize='unicode61 remove_diacritics 2'
             );
 
+CREATE TABLE metric_samples (
+    metric TEXT NOT NULL,
+    bucket_at DATETIME NOT NULL,
+    value REAL NOT NULL,
+    last_value REAL NOT NULL,
+    unit TEXT NOT NULL DEFAULT '',
+    sample_count INTEGER NOT NULL DEFAULT 1 CHECK(sample_count >= 1),
+    recorded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY(metric, bucket_at)
+);
+
 CREATE TABLE mobile_chat_dedup (
             device_id TEXT NOT NULL,
             client_message_id TEXT NOT NULL,
@@ -1009,6 +1020,14 @@ CREATE TABLE user_facts (
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE user_profiles (
+            id TEXT PRIMARY KEY,
+            display_name TEXT NOT NULL CHECK(length(display_name) BETWEEN 1 AND 80),
+            is_active INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0, 1)),
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            last_used_at DATETIME
+        );
+
 CREATE TABLE visits (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     place_id INTEGER NOT NULL REFERENCES places(id),
@@ -1228,6 +1247,9 @@ CREATE INDEX idx_messages_conv ON messages(conversation_id);
 
 CREATE INDEX idx_messages_created ON messages(created_at);
 
+CREATE INDEX idx_metric_samples_recorded
+    ON metric_samples(recorded_at);
+
 CREATE INDEX idx_mobile_chat_dedup_created ON mobile_chat_dedup(created_at);
 
 CREATE INDEX idx_mobile_fcm_token ON mobile_devices(fcm_token);
@@ -1284,6 +1306,9 @@ CREATE INDEX idx_tasks_status ON tasks(status);
 CREATE INDEX idx_trips_date ON trips(started_at);
 
 CREATE INDEX idx_turns_recording ON conversation_turns(recording_id);
+
+CREATE INDEX idx_user_profiles_active
+            ON user_profiles(is_active, display_name);
 
 CREATE INDEX idx_vdebug_created ON voice_debug_log(created_at);
 

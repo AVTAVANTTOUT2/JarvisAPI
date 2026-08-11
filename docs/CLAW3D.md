@@ -143,4 +143,4 @@ génériques du système, du navigateur, de GitHub ou des outils.
 - arrêter JARVIS laisse le mode mock et le builder Claw3D utilisables.
 
 La décision d'architecture est consignée dans
-[`ADR-023`](../Architecture/adr/ADR-023-claw3d-ui-optionnelle.md).
+[`ADR-027`](../Architecture/adr/ADR-027-claw3d-ui-optionnelle.md).

@@ -6,7 +6,7 @@ Retourne le score d'humeur et le niveau d'énergie le plus récent.
 from __future__ import annotations
 
 import logging
-import sqlite3
+from database import dbapi as sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +21,7 @@ def get_last_mood() -> dict[str, Any]:
         return {"ok": False, "mood_score": 0, "energy_level": 0}
 
     try:
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        conn = sqlite3.connect_readonly(db_path)
         conn.row_factory = sqlite3.Row
         cur = conn.execute(
             """SELECT mood_score, energy_level, context, created_at

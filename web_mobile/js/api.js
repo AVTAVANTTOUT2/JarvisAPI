@@ -18,6 +18,15 @@
 const listeners = new Set();
 let csrfToken = null;
 
+function activeProfileId() {
+  try {
+    const value = window.localStorage.getItem('jarvis:profile') || 'default';
+    return /^[a-z0-9][a-z0-9_-]{0,31}$/.test(value) ? value : 'default';
+  } catch {
+    return 'default';
+  }
+}
+
 /** Prévient l'application qu'il faut repasser par le verrou. */
 export function onAuthLost(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 function authLost(reason) { for (const fn of listeners) { try { fn(reason); } catch { /* isolé */ } } }
@@ -33,7 +42,7 @@ async function refreshCsrf() {
   try {
     const res = await fetch('/api/auth/status', {
       credentials: 'include',
-      headers: { 'Accept': 'application/json' },
+      headers: { 'Accept': 'application/json', 'X-Jarvis-Profile': activeProfileId() },
     });
     if (!res.ok) return null;
     const st = await res.json();
@@ -50,7 +59,7 @@ async function send(method, path, body, { formData = false } = {}) {
   const init = {
     method,
     credentials: 'include',
-    headers: { 'Accept': 'application/json' },
+    headers: { 'Accept': 'application/json', 'X-Jarvis-Profile': activeProfileId() },
   };
   if (body !== undefined) {
     if (formData) {

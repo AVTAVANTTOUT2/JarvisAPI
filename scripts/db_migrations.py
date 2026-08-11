@@ -20,11 +20,11 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
-import sqlite3
 from collections.abc import Iterator
 from pathlib import Path
 
 import config
+from database import dbapi as sqlite3
 from database import get_applied_migrations, get_connection
 
 logger = logging.getLogger(__name__)

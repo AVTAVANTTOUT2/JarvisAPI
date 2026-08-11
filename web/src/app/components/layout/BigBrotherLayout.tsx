@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { ws } from '@desktop/services/websocket';
-import { Activity, Bot, CalendarDays, Clock3, Dumbbell, HeartPulse, ListTodo, MessageSquare, Mic, Settings2, Smartphone, TerminalSquare, UtensilsCrossed, Bug } from 'lucide-react';
+import { Activity, Bot, CalendarDays, Clock3, Dumbbell, HeartPulse, ListTodo, MessageSquare, Mic, Settings2, Smartphone, TerminalSquare, UtensilsCrossed, Bug, Users } from 'lucide-react';
 
 function navCls({ isActive }: { isActive: boolean }) {
   return `block w-full text-left px-3 py-2.5 rounded-xl text-sm transition-colors border border-transparent ${
@@ -144,6 +144,12 @@ export function BigBrotherLayout() {
               Téléphone
             </span>
           </NavLink>
+          <NavLink to="/profiles" className={navCls}>
+            <span className="inline-flex items-center gap-2">
+              <Users size={14} />
+              Profils
+            </span>
+          </NavLink>
         </nav>
       </aside>
       <main className="flex-1 min-h-0 min-w-0 flex flex-col">
@@ -188,6 +194,10 @@ export function BigBrotherLayout() {
             <NavLink to="/mobile" className={({ isActive }) => `${topNavCls({ isActive })} hidden sm:inline-flex`}>
               <Smartphone size={14} />
               Téléphone
+            </NavLink>
+            <NavLink to="/profiles" className={({ isActive }) => `${topNavCls({ isActive })} hidden sm:inline-flex`}>
+              <Users size={14} />
+              Profils
             </NavLink>
           </div>
         </header>

@@ -197,6 +197,7 @@ async def api_costs():
 
 async def api_backups_list():
     """Sauvegardes SQLite présentes (plus récente en premier)."""
+    from scripts.cloud_backup import cloud_backup_status
     from scripts.db_maintenance import list_backups
 
     return {
@@ -204,6 +205,7 @@ async def api_backups_list():
         "dir": config.BACKUP_DIR,
         "keep": config.BACKUP_KEEP,
         "enabled": config.BACKUP_ENABLED,
+        "cloud": cloud_backup_status(),
     }
 
 
@@ -227,6 +229,36 @@ async def api_backups_restore(name: str):
         logger.error("restore_backup %s : %s", name, report.get("error", "inconnu"))
         raise api_error(400, "backup_restore_failed", "Restauration impossible")
     return report
+
+
+async def api_cloud_backups_list():
+    """Sauvegardes WebDAV chiffrées du seul profil actif."""
+    from scripts.cloud_backup import (
+        CloudBackupError,
+        cloud_backup_status,
+        list_cloud_backups,
+    )
+
+    status = cloud_backup_status()
+    if not status.get("enabled"):
+        return {"cloud": status, "backups": []}
+    try:
+        backups = await asyncio.to_thread(list_cloud_backups)
+    except CloudBackupError as exc:
+        logger.error("list_cloud_backups : %s", exc)
+        raise api_error(502, "cloud_backup_unavailable", "Cloud de sauvegarde indisponible") from exc
+    return {"cloud": status, "backups": backups}
+
+
+async def api_cloud_backup_restore(name: str):
+    """Télécharge et restaure une enveloppe WebDAV authentifiée."""
+    from scripts.cloud_backup import CloudBackupError, restore_cloud_backup
+
+    try:
+        return await asyncio.to_thread(restore_cloud_backup, name)
+    except CloudBackupError as exc:
+        logger.error("restore_cloud_backup %s : %s", name, exc)
+        raise api_error(400, "cloud_backup_restore_failed", "Restauration cloud impossible") from exc
 
 
 async def api_maintenance_run():

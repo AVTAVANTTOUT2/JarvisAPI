@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import sqlite3
+from . import dbapi as sqlite3
 import uuid
 
 logger = logging.getLogger(__name__)
@@ -38,7 +38,7 @@ def _migrate_day_scores(conn: sqlite3.Connection) -> None:
 
 
 def _migrate_sessions(conn: sqlite3.Connection) -> None:
-    """Sessions d'authentification (verrouillage app). Un seul utilisateur, plusieurs devices.
+    """Sessions d'authentification isolées dans la base du profil courant.
 
     Le token brut n'est jamais stocké — seulement son hash SHA-256
     (`token_hash`), pour qu'une fuite de la base ne permette pas de rejouer
@@ -84,6 +84,25 @@ def _migrate_sessions(conn: sqlite3.Connection) -> None:
         """
         DELETE FROM app_settings
         WHERE key IN ('auth_failed_attempts', 'auth_lockout_until')
+        """
+    )
+
+
+def _migrate_user_profiles(conn: sqlite3.Connection) -> None:
+    """Ajoute le registre des bases utilisateur isolées et le profil historique."""
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS user_profiles (
+            id TEXT PRIMARY KEY,
+            display_name TEXT NOT NULL CHECK(length(display_name) BETWEEN 1 AND 80),
+            is_active INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0, 1)),
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            last_used_at DATETIME
+        );
+        CREATE INDEX IF NOT EXISTS idx_user_profiles_active
+            ON user_profiles(is_active, display_name);
+        INSERT OR IGNORE INTO user_profiles (id, display_name)
+            VALUES ('default', 'Principal');
         """
     )
 
@@ -1622,6 +1641,26 @@ def _migrate_sync_conflict_tables(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_metric_samples(conn: sqlite3.Connection) -> None:
+    """Ajoute les séries temporelles compactées du dashboard santé."""
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS metric_samples (
+            metric TEXT NOT NULL,
+            bucket_at DATETIME NOT NULL,
+            value REAL NOT NULL,
+            last_value REAL NOT NULL,
+            unit TEXT NOT NULL DEFAULT '',
+            sample_count INTEGER NOT NULL DEFAULT 1 CHECK(sample_count >= 1),
+            recorded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(metric, bucket_at)
+        );
+        CREATE INDEX IF NOT EXISTS idx_metric_samples_recorded
+            ON metric_samples(recorded_at);
+        """
+    )
+
+
 def run_migrations(conn: sqlite3.Connection) -> None:
     """Applique dans un ordre stable toutes les migrations idempotentes."""
     _migrate_people_ai_description(conn)
@@ -1653,6 +1692,7 @@ def run_migrations(conn: sqlite3.Connection) -> None:
     _migrate_jarvis_journal(conn)
     _migrate_day_scores(conn)
     _migrate_sessions(conn)
+    _migrate_user_profiles(conn)
     _migrate_mobile_devices(conn)
     _migrate_remote_devices(conn)
     _migrate_push_subscriptions(conn)
@@ -1667,4 +1707,5 @@ def run_migrations(conn: sqlite3.Connection) -> None:
     _migrate_food_orders(conn)
     _migrate_food_intelligence(conn)
     _migrate_sync_conflict_tables(conn)
+    _migrate_metric_samples(conn)
     _migrate_application_timestamps_to_utc_v2(conn)

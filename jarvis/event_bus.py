@@ -31,6 +31,15 @@ from typing import Any, ClassVar, Optional
 
 logger = logging.getLogger("jarvis.event_bus")
 
+
+def _current_event_profile_id() -> str:
+    try:
+        from database.core import current_profile_id
+
+        return current_profile_id()
+    except (ImportError, RuntimeError):
+        return "default"
+
 # ── Constantes ─────────────────────────────────────────────────────────────────
 
 MAX_HISTORY = 200
@@ -115,6 +124,7 @@ class JarvisEvent:
     event_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     version: int = 1
     source: Optional[str] = None
+    profile_id: str = field(default_factory=_current_event_profile_id, init=False)
     checksum: str = field(init=False)
 
     def __post_init__(self) -> None:
@@ -166,6 +176,7 @@ class JarvisEvent:
             "version": self.version,
             "timestamp": self.timestamp,
             "source": self.source,
+            "profile_id": self.profile_id,
             "payload": payload,
             "data": payload if self.data is not None else None,
             "agent": self.agent,
@@ -198,6 +209,7 @@ class EventBus:
 
     __slots__ = (
         "_subscribers",
+        "_subscriber_profiles",
         "_history",
         "_max_history",
         "_handlers",
@@ -213,6 +225,7 @@ class EventBus:
         if handler_queue_size < 1:
             raise ValueError("handler_queue_size doit être positif")
         self._subscribers: list[asyncio.Queue[JarvisEvent]] = []
+        self._subscriber_profiles: dict[asyncio.Queue[JarvisEvent], str] = {}
         self._history: list[JarvisEvent] = []
         self._max_history: int = MAX_HISTORY
         self._handlers: dict[str, list[EventHandler]] = {}
@@ -313,6 +326,7 @@ class EventBus:
         """
         q: asyncio.Queue[JarvisEvent] = asyncio.Queue(maxsize=QUEUE_MAXSIZE)
         self._subscribers.append(q)
+        self._subscriber_profiles[q] = _current_event_profile_id()
         logger.debug("EventBus: nouvel abonné — total=%d", len(self._subscribers))
         return q
 
@@ -323,6 +337,7 @@ class EventBus:
         """
         try:
             self._subscribers.remove(q)
+            self._subscriber_profiles.pop(q, None)
             logger.debug("EventBus: abonné retiré — total=%d", len(self._subscribers))
         except ValueError:
             pass
@@ -351,6 +366,8 @@ class EventBus:
 
         dead: list[asyncio.Queue[JarvisEvent]] = []
         for q in tuple(self._subscribers):
+            if self._subscriber_profiles.get(q, "default") != event.profile_id:
+                continue
             try:
                 q.put_nowait(event)
             except asyncio.QueueFull:
@@ -365,6 +382,7 @@ class EventBus:
         for q in dead:
             try:
                 self._subscribers.remove(q)
+                self._subscriber_profiles.pop(q, None)
             except ValueError:
                 pass
 
@@ -424,11 +442,14 @@ class EventBus:
                 except asyncio.QueueEmpty:
                     return
                 try:
-                    await self._invoke_handler(
-                        handler,
-                        event,
-                        offload_sync_handler=offload_sync_handlers,
-                    )
+                    from database.core import use_profile
+
+                    with use_profile(event.profile_id):
+                        await self._invoke_handler(
+                            handler,
+                            event,
+                            offload_sync_handler=offload_sync_handlers,
+                        )
                 finally:
                     queue.task_done()
         finally:
@@ -527,7 +548,9 @@ class EventBus:
         Returns:
             Liste de dicts, du plus ancien au plus récent.
         """
-        return [event.to_dict() for event in self._history[-last_n:]]
+        profile_id = _current_event_profile_id()
+        events = [event for event in self._history if event.profile_id == profile_id]
+        return [event.to_dict() for event in events[-last_n:]]
 
 
 # ── Singleton global ──────────────────────────────────────────────────────────

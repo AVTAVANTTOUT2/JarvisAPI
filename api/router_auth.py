@@ -16,6 +16,7 @@ from api.auth_models import (
     MobileCapabilitiesRequest,
     MobilePairingCompleteRequest,
     MobilePushTokenRequest,
+    ProfileCreateRequest,
     SecretRequest,
 )
 from core.network_security import is_loopback_request
@@ -151,6 +152,13 @@ async def api_auth_status(request: Request, response: Response):
     rate_status = auth.rate_limit_status(_auth_client_key(request))
     session_token = request.cookies.get(config.SESSION_COOKIE_NAME)
     session = auth.verify_session(session_token) if configured else None
+    from database import current_profile_id, list_user_profiles, touch_user_profile
+
+    profile_id = current_profile_id()
+    profiles = list_user_profiles()
+    profile = next((item for item in profiles if item["id"] == profile_id), None)
+    if session is not None:
+        touch_user_profile(profile_id)
     return {
         "configured": configured,
         "authenticated": session is not None,
@@ -164,7 +172,53 @@ async def api_auth_status(request: Request, response: Response):
         "lockout_scope": rate_status.scope,
         "local_recovery_available": _is_loopback(request),
         "auto_lock_minutes": config.AUTO_LOCK_MINUTES,
+        "profile": profile,
     }
+
+
+@router.get("/api/auth/profiles")
+async def api_auth_profiles(request: Request):
+    """Expose le sélecteur local ; à distance une session reste obligatoire."""
+    if not _is_loopback(request):
+        _require_browser_session(request)
+    from database import current_profile_id, list_user_profiles
+
+    return {
+        "active_profile": current_profile_id(),
+        "profiles": list_user_profiles(),
+    }
+
+
+@router.post("/api/auth/profiles", status_code=201)
+async def api_auth_profile_create(body: ProfileCreateRequest, request: Request):
+    """Crée un espace utilisateur complet depuis le profil administrateur."""
+    _require_browser_session(request)
+    from database import DEFAULT_PROFILE_ID, create_user_profile, current_profile_id
+
+    if current_profile_id() != DEFAULT_PROFILE_ID:
+        raise HTTPException(403, "La création de profils est réservée au profil principal")
+    try:
+        profile = create_user_profile(body.display_name)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"profile": profile}
+
+
+@router.post("/api/auth/profiles/{profile_id}/deactivate")
+async def api_auth_profile_deactivate(profile_id: str, request: Request):
+    """Désactive un profil sans effacer ses données."""
+    _require_browser_session(request)
+    from database import DEFAULT_PROFILE_ID, current_profile_id, deactivate_user_profile
+
+    if current_profile_id() != DEFAULT_PROFILE_ID:
+        raise HTTPException(403, "La gestion des profils est réservée au profil principal")
+    try:
+        changed = deactivate_user_profile(profile_id)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if not changed:
+        raise HTTPException(404, "Profil introuvable")
+    return {"ok": True}
 
 
 @router.post("/api/auth/setup")

@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import json
 import logging
-import sqlite3
+from . import dbapi as sqlite3
 from collections.abc import Mapping, Sequence
 from datetime import timedelta
 from typing import Any

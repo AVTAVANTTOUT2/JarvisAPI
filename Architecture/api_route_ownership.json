@@ -15,7 +15,7 @@
       "owner": "database-operations",
       "audience": "operator",
       "methods": ["GET", "POST"],
-      "paths": ["/api/backups", "/api/backups/run", "/api/backups/{name}/restore"],
+      "paths": ["/api/backups", "/api/backups/cloud", "/api/backups/cloud/{name}/restore", "/api/backups/run", "/api/backups/{name}/restore"],
       "rationale": "Surface de sauvegarde et restauration réservée à l'exploitation authentifiée."
     },
     {
@@ -49,6 +49,14 @@
       "methods": ["GET"],
       "paths": ["/api/costs"],
       "rationale": "Lecture administrative de la consommation et des coûts des fournisseurs."
+    },
+    {
+      "id": "infrastructure-liveness-probe",
+      "owner": "observability",
+      "audience": "automation",
+      "methods": ["GET"],
+      "paths": ["/api/health/live"],
+      "rationale": "Sonde de vie publique consommée par le superviseur, launchd et les reverse proxies ; le frontend ne fait que l'exclure explicitement de son cache."
     },
     {
       "id": "operator-cursor-control",
@@ -310,6 +318,14 @@
       "methods": ["POST"],
       "paths": ["/api/maintenance/run"],
       "rationale": "Déclenchement explicite de la maintenance SQLite par l'exploitation."
+    },
+    {
+      "id": "developer-openapi",
+      "owner": "developer-experience",
+      "audience": "developer",
+      "methods": ["GET"],
+      "paths": ["/api/developer/docs", "/api/developer/openapi.json"],
+      "rationale": "Contrat et catalogue OpenAPI protégés, destinés aux intégrateurs authentifiés."
     }
   ]
 }

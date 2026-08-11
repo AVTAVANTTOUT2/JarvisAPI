@@ -17,12 +17,28 @@ if str(DB_PATH) != ":memory:":
 
 from .schema import SCHEMA
 from .core import (
+    DEFAULT_PROFILE_ID,
+    activate_profile,
     build_full_context,
     count_memory_stats,
+    current_profile_id,
     get_connection,
     get_db,
     get_usage_stats,
     init_db,
+    normalize_profile_id,
+    profile_database_path,
+    profile_storage_path,
+    reset_profile,
+    use_profile,
+)
+from .encryption import (
+    DatabaseEncryptionError,
+    database_encryption_status,
+    disable_database_encryption,
+    enable_database_encryption,
+    export_plaintext_snapshot,
+    replace_database_from_plaintext,
 )
 from .event_log import EventReplayWindow, get_event_log, get_event_replay_window
 
@@ -52,6 +68,15 @@ from .conversations import (
 )
 
 from .unified_search import unified_search
+from .metrics import get_metric_history, record_health_snapshot, record_metric_samples
+from .profiles import (
+    create_user_profile,
+    deactivate_user_profile,
+    list_user_profiles,
+    profile_data_path,
+    touch_user_profile,
+    user_profile_exists,
+)
 
 from .episodes import (
     get_recent_episodes,

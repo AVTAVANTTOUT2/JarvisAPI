@@ -5,6 +5,7 @@ struct LockView: View {
     @State private var secret = ""
     @State private var isWorking = false
     @State private var launcherMessage: String?
+    @State private var attemptedAutomaticBiometry = false
 
     var body: some View {
         VStack(spacing: 24) {
@@ -30,6 +31,13 @@ struct LockView: View {
                         .buttonStyle(.borderedProminent)
                         .controlSize(.large)
                         .disabled(secret.isEmpty || isWorking)
+                    if model.phase == .locked && model.biometricUnlockAvailable {
+                        Button("Déverrouiller avec \(model.biometricUnlockLabel)") {
+                            unlockWithBiometrics()
+                        }
+                        .buttonStyle(JarvisSecondaryButtonStyle())
+                        .disabled(isWorking)
+                    }
                 }
             case .offline:
                 HStack(spacing: 10) {
@@ -56,6 +64,14 @@ struct LockView: View {
         .frame(maxWidth: 590)
         .jarvisGlass(cornerRadius: 30)
         .padding(40)
+        .task(id: model.phase) {
+            guard model.phase == .locked,
+                  model.biometricUnlockAvailable,
+                  !attemptedAutomaticBiometry
+            else { return }
+            attemptedAutomaticBiometry = true
+            unlockWithBiometrics()
+        }
     }
 
     private var title: String {
@@ -78,8 +94,19 @@ struct LockView: View {
         case .checking: "Connexion sécurisée au cœur local…"
         case .offline(let reason): reason
         case .setupRequired: "Protégez l’accès à votre intelligence personnelle. Ce secret sera aussi utilisé sur le web."
-        case .locked: "Utilisez le même secret que sur le dashboard web."
+        case .locked: model.biometricUnlockAvailable
+            ? "Utilisez \(model.biometricUnlockLabel) ou le même secret que sur le dashboard web."
+            : "Utilisez le même secret que sur le dashboard web."
         case .ready: "Opérationnel"
+        }
+    }
+
+    private func unlockWithBiometrics() {
+        guard !isWorking else { return }
+        isWorking = true
+        Task {
+            _ = await model.unlockWithBiometrics()
+            isWorking = false
         }
     }
 

@@ -201,6 +201,15 @@ jobs:
           --output artifacts/architecture_truth.json
           --schema-output database/schema.sql
 
+      - name: Vérifier le contrat OpenAPI public
+        run: python tools/export_openapi.py --check
+
+      - name: Vérifier et empaqueter le SDK Python
+        run: |
+          python tools/generate_python_sdk.py --check
+          PYTHONPATH=sdk/python/src python -m pytest sdk/python/tests -q
+          python -m pip wheel --no-deps sdk/python --wheel-dir /tmp/jarvis-sdk-wheel
+
       - name: Vérifier le registre canonique de dette technique
         run: python tools/audit_technical_debt.py --check
 

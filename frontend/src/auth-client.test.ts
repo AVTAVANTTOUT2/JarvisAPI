@@ -1,9 +1,17 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { AuthClient, AuthError, getCsrfToken, setCsrfToken } from '@jarvis/auth'
+import {
+  AuthClient,
+  AuthError,
+  getActiveProfileId,
+  getCsrfToken,
+  setActiveProfileId,
+  setCsrfToken,
+} from '@jarvis/auth'
 import { api } from '@unified/lib/api'
 
 afterEach(() => {
+  setActiveProfileId('default')
   setCsrfToken(null)
   vi.unstubAllGlobals()
 })
@@ -41,6 +49,21 @@ describe('AuthClient', () => {
 
     await expect(client.verify('wrong')).rejects.toEqual(expect.objectContaining<AuthError>({ status: 401 }))
     expect(onUnauthorized).toHaveBeenCalledOnce()
+  })
+
+  it('binds auth and API requests to the selected isolated profile', async () => {
+    const fetchImpl = vi.fn(async () =>
+      new Response(JSON.stringify({ profiles: [], active_profile: 'alice-1234' }), { status: 200 }),
+    )
+    const client = new AuthClient({ fetchImpl })
+
+    client.selectProfile('alice-1234')
+    await client.profiles()
+
+    const [, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit]
+    expect(getActiveProfileId()).toBe('alice-1234')
+    expect(new Headers(init.headers).get('X-Jarvis-Profile')).toBe('alice-1234')
+    expect(document.cookie).toContain('jarvis_profile=alice-1234')
   })
 })
 

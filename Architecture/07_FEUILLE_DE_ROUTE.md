@@ -1,6 +1,6 @@
 # 07 — Feuille de Route Technique
 
-**Date** : 10 août 2026
+**Date** : 11 août 2026
 
 ## Priorisation
 
@@ -17,6 +17,12 @@ Les travaux sont classés selon l'ordre de priorité suivant :
 
 ## Roadmap
 
+> Les cases cochées le 11 août 2026 correspondent à du code implémenté et
+> validé dans la pile de PR brouillon #202, #204 à #212. Elles ne signifient
+> pas que ces PR ont été fusionnées sur `main`. Les validations 24 h, audio et
+> appareils physiques restent volontairement ouvertes tant que leurs preuves
+> réelles ne sont pas archivées.
+
 ### Q3 2026 — Stabilisation (Juillet-Août)
 
 **Semaine 1 — Fondations**
@@ -27,7 +33,7 @@ Les travaux sont classés selon l'ordre de priorité suivant :
 
 **Semaine 2 — Découplage**
 - [x] Phase 3 : Event bus actif (validée le 14/07/2026 — 10 événements, 3 consommateurs, PWA temps réel)
-- [x] Phase 4 : Routeurs FastAPI (validée le 14/07/2026, puis étendue — 18 routeurs montés, `main.py` sous 500 lignes, contrat API verrouillé)
+- [x] Phase 4 : Routeurs FastAPI (validée le 14/07/2026, puis étendue — 19 routeurs montés, `main.py` sous 500 lignes, contrat API verrouillé)
 - [x] Phase 5 : Apple Data Service (validée le 14/07/2026 — accès `chat.db` centralisé et conversion Apple unique)
 
 **Semaines 3-4 — Unification**
@@ -44,29 +50,28 @@ Les travaux sont classés selon l'ordre de priorité suivant :
 
 **Fondation solide acquise → nouvelles features possibles**
 
-- [ ] Offline First complet — primitives IndexedDB présentes, lectures/écritures à généraliser à toutes les vues
-- [ ] Sync queue — UUID/timestamp/retry présents, checksum, version d'entité et résolution de conflits à ajouter
+- [x] Offline First complet — accès IndexedDB généralisé, lectures dégradées, écritures en file et reprise réseau livrés par la PR #202
+- [x] Sync queue — checksum, version d'entité, détection et résolution explicite des conflits livrés par la PR #204
 - [x] Health Dashboard (`/health`) — contrat backend unifié, sonde publique `/api/health/live` et vue responsive livrés par la PR #199
 - [x] Monitoring opérationnel instantané — métriques santé/voix publiques, rafraîchissement borné et états dégradés/indisponibles validés par la PR #199
-- [ ] Historique des métriques — séries temporelles, rétention et tendances à ajouter après la clôture de release
+- [x] Historique des métriques — séries temporelles, rétention bornée et tendances livrées par la PR #207
 - [x] Socle de recherche unifiée backend (FTS5 + embeddings)
-- [ ] Expérience de recherche unifiée dans le frontend
-- [ ] Authentification biométrique (Face ID / Touch ID)
+- [x] Expérience de recherche unifiée dans le frontend — classement partagé, états offline et navigation vers les résultats livrés par la PR #205
+- [x] Portes biométriques natives — secret interactif lié au jeu biométrique sur macOS ; verrou d’interface Android avec jeton Keystore accessible aux workers H24, livré par la PR #206
 
-### Ordre recommandé des travaux restants
+### Ordre recommandé de clôture
 
-1. Exécuter et archiver la campagne de release 24 h, puis les preuves sur appareils physiques.
-2. Terminer Offline First et la résolution de conflits de la sync queue.
-3. Unifier l'expérience de recherche, puis ajouter la biométrie après stabilisation des flux offline.
-4. Étendre l'observabilité aux séries temporelles et à la rétention des métriques.
+1. Terminer et archiver la campagne de release 24 h, les scénarios micro réels et les preuves sur appareils physiques.
+2. Attendre la fin de toutes les CI de la pile, puis intégrer dans l'ordre #202, #204, #205, #206, #207, #208, #209, #210, #211 et #212 après feu vert explicite.
+3. Après intégration, publier les notes de version et taguer le contrat OpenAPI et le SDK Python `1.0.0`.
 
 ### 2027 — Maturité
 
-- [ ] Mode multi-utilisateur (si pertinent)
-- [ ] Chiffrement complet au repos
-- [ ] Sauvegarde cloud chiffrée
-- [ ] API publique documentée (OpenAPI)
-- [ ] SDK développeurs
+- [x] Mode multi-utilisateur — profils isolés de bout en bout et contexte explicite livrés par la PR #208
+- [x] Chiffrement complet au repos — SQLCipher, migration atomique et politique fail-closed livrés par la PR #209
+- [x] Sauvegarde cloud chiffrée — réplication WebDAV chiffrée, vérifiée et sans secret persistant livrée par la PR #210
+- [x] API publique documentée (OpenAPI) — contrat OpenAPI 3.1 versionné `1.0.0`, 269 opérations et documentation protégée livrés par la PR #211
+- [x] SDK développeurs — client Python `1.0.0` généré depuis le contrat, sans dépendance runtime et avec transport sécurisé livré par la PR #212
 
 ## Règle d'or
 

@@ -11,7 +11,6 @@ import asyncio
 import hashlib
 import json
 import re
-import sqlite3
 import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -19,6 +18,7 @@ from typing import Any
 from fastapi import Request
 from starlette.responses import JSONResponse, Response
 
+from database import dbapi as sqlite3
 from database.core import get_db
 
 SYNC_MARKER_HEADER = "X-Jarvis-Sync-Operation"

@@ -1,15 +1,17 @@
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { HealthReport, VoiceLatencyMetrics } from '@unified/lib/api';
+import type { HealthReport, MetricHistoryResponse, VoiceLatencyMetrics } from '@unified/lib/api';
 
 const getHealthDetail = vi.fn();
 const getVoiceMetrics = vi.fn();
+const getMetricHistory = vi.fn();
 
 vi.mock('@unified/lib/api', () => ({
   api: {
     getHealthDetail: (...args: unknown[]) => getHealthDetail(...args),
     getVoiceMetrics: (...args: unknown[]) => getVoiceMetrics(...args),
+    getMetricHistory: (...args: unknown[]) => getMetricHistory(...args),
   },
 }));
 
@@ -49,12 +51,20 @@ function report(overrides: Partial<HealthReport> = {}): HealthReport {
 }
 
 const noVoiceMetrics: VoiceLatencyMetrics = { samples: 0, days: 7, stages: {} };
+const noMetricHistory: MetricHistoryResponse = {
+  hours: 24,
+  bucket_seconds: 300,
+  retention_days: 90,
+  series: [],
+};
 
 beforeEach(() => {
   getHealthDetail.mockReset();
   getVoiceMetrics.mockReset();
+  getMetricHistory.mockReset();
   getHealthDetail.mockResolvedValue(report());
   getVoiceMetrics.mockResolvedValue(noVoiceMetrics);
+  getMetricHistory.mockResolvedValue(noMetricHistory);
 });
 
 afterEach(() => {
@@ -148,6 +158,37 @@ describe('HealthView', () => {
     await waitFor(() => expect(screen.getByTestId('voice-metrics')).toBeTruthy());
     expect(screen.getByTestId('voice-metrics').textContent).toContain('2478 ms');
     expect(getVoiceMetrics).toHaveBeenCalled();
+  });
+
+  it('affiche les tendances santé persistées par le serveur', async () => {
+    getMetricHistory.mockResolvedValue({
+      ...noMetricHistory,
+      series: [
+        {
+          metric: 'health.score',
+          unit: 'percent',
+          points: [
+            { timestamp: '2026-08-10 10:00:00Z', value: 50, last_value: 50, samples: 1 },
+            { timestamp: '2026-08-10 10:05:00Z', value: 100, last_value: 100, samples: 2 },
+          ],
+          summary: {
+            latest: 100,
+            average: 83.3,
+            minimum: 50,
+            maximum: 100,
+            trend_pct: 100,
+            samples: 3,
+          },
+        },
+      ],
+    } satisfies MetricHistoryResponse);
+
+    render(<HealthView />);
+
+    await waitFor(() => expect(screen.getByTestId('metric-history')).toBeTruthy());
+    expect(screen.getByTestId('metric-history').textContent).toContain('Disponibilité');
+    expect(screen.getByTestId('metric-history').textContent).toContain('100 %');
+    expect(getMetricHistory).toHaveBeenCalledWith(24, expect.any(AbortSignal));
   });
 
   it('interroge le serveur périodiquement puis arrête le timer au démontage', async () => {

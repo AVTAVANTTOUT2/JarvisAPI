@@ -9,8 +9,8 @@
 > juillet. La topologie frontend actuelle est définie par
 > `Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md`.
 
-Runtime SQLite canonique : **92 tables persistantes**, **97 tables physiques avec FTS5**, schéma généré : **93 déclarations de tables**.
-Structure API canonique : **261 opérations HTTP + 2 WebSockets**, **232 chemins OpenAPI**, **17 routeurs api/router_*.py + Fitness = 18 montés**, main.py **214 lignes**.
+Runtime SQLite canonique : **94 tables persistantes**, **99 tables physiques avec FTS5**, schéma généré : **95 déclarations de tables**.
+Structure API canonique : **269 opérations HTTP + 2 WebSockets**, **239 chemins OpenAPI**, **18 routeurs api/router_*.py + Fitness = 19 montés**, main.py **219 lignes**.
 
 ---
 
@@ -20,7 +20,7 @@ Structure API canonique : **261 opérations HTTP + 2 WebSockets**, **232 chemins
 JarvisAPI/
 ├── main.py                    ← Assemblage FastAPI/Uvicorn (211 lignes)
 ├── api/                       ← 17 routeurs de domaine + handlers/support API
-│   ├── router_*.py           ← participe aux 261 opérations HTTP / 232 chemins OpenAPI
+│   ├── router_*.py           ← participe aux 269 opérations HTTP / 239 chemins OpenAPI
 │   ├── ws_handler.py         ← WebSocket /ws
 │   ├── lifespan.py           ← Cycle de vie des services
 │   ├── middleware.py         ← Sécurité HTTP
@@ -480,7 +480,7 @@ imessage_analysis_cache → curseur d'analyse par contact
 │             │ - Proxy WebSocket vers 8081            │
 │             │ - Health-check + auto-restart          │
 │  Port 8081  │ Backend FastAPI                       │
-│             │ - 261 opérations HTTP / 232 OpenAPI  │
+│             │ - 269 opérations HTTP / 239 OpenAPI  │
 │             │ - WebSocket /ws                       │
 │             │ - Sert frontend/out en priorité       │
 │             │ - Garde web/dist et /m/ en fallback   │
@@ -741,7 +741,7 @@ GPS / lieux restent chargées côté API. Aucune coordonnée n'est envoyée à u
 | Fichiers source frontend | 99 (38 web + 38 pwa + 19 frontend + 4 jarvis_auth) |
 | Lignes frontend | 18 770 |
 | Tables SQLite | 75 applicatives après initialisation et migrations (`sqlite_sequence` exclue) |
-| API | 261 opérations HTTP + 2 WebSockets ; 232 chemins OpenAPI |
+| API | 269 opérations HTTP + 2 WebSockets ; 239 chemins OpenAPI |
 | Tests backend | 565 tests pytest collectés dans 66 fichiers ; 564 passants, 1 ignoré le 14/07/2026 |
 | Agents LLM | 7 + orchestrateur |
 | Jobs APScheduler | 29 |

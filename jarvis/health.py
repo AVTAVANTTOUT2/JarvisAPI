@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import sqlite3
+from database import dbapi as sqlite3
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -470,6 +470,14 @@ async def get_health(*, force: bool = False) -> dict[str, Any]:
         if not force and _cache is not None and now < _cache_expires_at:
             return _cache
         report = await collect_health()
+        try:
+            from database.metrics import record_health_snapshot
+
+            record_health_snapshot(report)
+        except Exception as exc:
+            # Une défaillance d'observabilité ne doit jamais transformer une
+            # sonde de santé lisible en erreur HTTP.
+            logger.warning("[health] archivage du relevé impossible : %s", exc)
         _cache = report
         _cache_expires_at = time.monotonic() + CACHE_TTL_S
         return report

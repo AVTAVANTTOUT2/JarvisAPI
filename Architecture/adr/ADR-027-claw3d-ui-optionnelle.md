@@ -1,4 +1,4 @@
-# ADR-023 — Déployer Claw3D comme UI visuelle optionnelle
+# ADR-027 — Déployer Claw3D comme UI visuelle optionnelle
 
 - Statut : accepté
 - Date : 2026-08-11

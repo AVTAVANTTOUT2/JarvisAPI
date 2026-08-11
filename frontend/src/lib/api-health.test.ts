@@ -35,4 +35,21 @@ describe('health API', () => {
 
     await expect(api.getHealthDetail()).resolves.toEqual(report)
   })
+
+  it('requests the persisted metric history with a bounded horizon', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ hours: 24, bucket_seconds: 300, retention_days: 90, series: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await api.getMetricHistory(24)
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/metrics/history?hours=24',
+      expect.objectContaining({ credentials: 'include' }),
+    )
+  })
 })

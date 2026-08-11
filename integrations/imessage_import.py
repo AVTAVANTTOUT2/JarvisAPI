@@ -218,7 +218,7 @@ class IMessageImporter:
             service.count_messages()
             self._available = True
             logger.info("[imessage_import] chat.db accessible en lecture")
-        except sqlite3.OperationalError as e:
+        except (sqlite3.OperationalError, jarvis_sqlite.OperationalError) as e:
             logger.warning(
                 "[imessage_import] chat.db inaccessible : %s — "
                 "Full Disk Access requis pour l'app qui lance JARVIS.",
@@ -237,7 +237,7 @@ class IMessageImporter:
         if self._chat_db_conn:
             try:
                 self._chat_db_conn.close()
-            except sqlite3.Error:
+            except (sqlite3.Error, jarvis_sqlite.Error):
                 pass
             self._chat_db_conn = None
 
@@ -581,7 +581,7 @@ class IMessageImporter:
                 (apple_handle_id,),
             ).fetchone()
             return row["id"] if row else None
-        except sqlite3.IntegrityError:
+        except (sqlite3.IntegrityError, jarvis_sqlite.IntegrityError):
             row = conn.execute(
                 "SELECT id FROM imessage_handles WHERE apple_handle_id = ?",
                 (apple_handle_id,),
@@ -639,7 +639,7 @@ class IMessageImporter:
                 "SELECT id FROM imessage_chats WHERE apple_chat_id = ?", (apple_chat_id,),
             ).fetchone()
             return row["id"] if row else None
-        except sqlite3.IntegrityError:
+        except (sqlite3.IntegrityError, jarvis_sqlite.IntegrityError):
             row = conn.execute(
                 "SELECT id FROM imessage_chats WHERE apple_chat_id = ?", (apple_chat_id,),
             ).fetchone()
@@ -673,7 +673,7 @@ class IMessageImporter:
                         (jarvis_chat_id, jarvis_handle_id),
                     )
                     count += 1
-                except sqlite3.IntegrityError:
+                except (sqlite3.IntegrityError, jarvis_sqlite.IntegrityError):
                     pass
         return count
 
@@ -787,7 +787,7 @@ class IMessageImporter:
                     current, batch_end, total_imported,
                 )
 
-            except sqlite3.Error as e:
+            except (sqlite3.Error, jarvis_sqlite.Error) as e:
                 total_failed += 1
                 errors.append(f"Batch {current}-{batch_end}: {e}")
                 logger.error("[imessage_import] Echec batch %d-%d : %s", current, batch_end, e)
@@ -906,7 +906,7 @@ class IMessageImporter:
                 ),
             )
             return True
-        except sqlite3.IntegrityError as e:
+        except (sqlite3.IntegrityError, jarvis_sqlite.IntegrityError) as e:
             err_str = str(e).lower()
             if "unique" in err_str:
                 return False  # contrainte UNIQUE violee → skip
@@ -945,7 +945,7 @@ class IMessageImporter:
                     )
                     if cur.rowcount > 0:
                         imported += 1
-                except sqlite3.IntegrityError:
+                except (sqlite3.IntegrityError, jarvis_sqlite.IntegrityError):
                     pass
 
         # Liens message_attachment_join
@@ -971,7 +971,7 @@ class IMessageImporter:
                             (msg_row["id"], att_row["id"]),
                         )
                         linked += 1
-                    except sqlite3.IntegrityError:
+                    except (sqlite3.IntegrityError, jarvis_sqlite.IntegrityError):
                         pass
 
         return {"imported": imported, "linked": linked}
@@ -1012,7 +1012,7 @@ class IMessageImporter:
                     )
                     if cur.rowcount > 0:
                         imported += 1
-                except sqlite3.IntegrityError:
+                except (sqlite3.IntegrityError, jarvis_sqlite.IntegrityError):
                     pass
         return {"imported": imported, "linked": 0}
 
@@ -1070,7 +1070,7 @@ class IMessageImporter:
                     )
                     if cur.rowcount > 0:
                         imported += 1
-                except sqlite3.IntegrityError:
+                except (sqlite3.IntegrityError, jarvis_sqlite.IntegrityError):
                     pass
 
         return {"imported": imported}
@@ -1115,7 +1115,7 @@ class IMessageImporter:
                     )
                     if cur.rowcount > 0:
                         imported += 1
-                except sqlite3.IntegrityError:
+                except (sqlite3.IntegrityError, jarvis_sqlite.IntegrityError):
                     pass
 
         return {"imported": imported}
@@ -1313,3 +1313,4 @@ class IMessageImporter:
 
 
 imessage_importer = IMessageImporter()
+from database import dbapi as jarvis_sqlite

@@ -6,7 +6,7 @@ Retourne les derniers résumés d'emails analysés par le watcher JARVIS.
 from __future__ import annotations
 
 import logging
-import sqlite3
+from database import dbapi as sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -22,7 +22,7 @@ def get_email_summaries() -> list[dict[str, Any]]:
         return []
 
     try:
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        conn = sqlite3.connect_readonly(db_path)
         conn.row_factory = sqlite3.Row
         cur = conn.execute(
             """SELECT id, sender, subject, summary, action_needed, priority, processed_at

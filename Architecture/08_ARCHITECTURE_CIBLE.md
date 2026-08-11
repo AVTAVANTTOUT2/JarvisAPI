@@ -19,7 +19,7 @@ graph TB
     end
 
     subgraph "API Layer"
-        API["FastAPI<br/>18 routeurs montés<br/>261 opérations HTTP"]
+        API["FastAPI<br/>19 routeurs montés<br/>269 opérations HTTP"]
         WS["WebSocket /ws<br/>Streaming + Broadcast"]
         AUTH["Auth Middleware<br/>SDK partagé"]
     end

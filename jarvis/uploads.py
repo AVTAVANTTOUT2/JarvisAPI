@@ -65,7 +65,9 @@ class StoredUpload:
 
 
 def _managed_root() -> Path:
-    return Path(config.UPLOAD_DIR).expanduser().resolve()
+    from database.core import profile_storage_path
+
+    return profile_storage_path(config.UPLOAD_DIR).resolve()
 
 
 def _lexical_absolute(path: str | Path) -> Path:
