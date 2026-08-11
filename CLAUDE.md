@@ -2137,6 +2137,7 @@ tous les endpoints `/api/*` (hors `/api/auth/*`) répondent `428`.
 | `scripts/cloud_backup.py` | Réplication WebDAV HTTPS des seules enveloppes V2, contrôle de taille, rétention par profil et restauration via le pipeline local authentifié |
 | `api/openapi.py`, `api/router_developer.py` | Contrat OpenAPI 3.1 versionné, IDs stables, sécurité par opération et documentation HTML autonome protégée |
 | `tools/export_openapi.py`, `openapi/jarvis.openapi.json` | Export canonique et garde-fou de dérive du contrat développeur, exécuté en CI |
+| `sdk/python/`, `tools/generate_python_sdk.py` | SDK Python 3.10+ sans dépendance runtime, registre généré des 269 opérations, authentification fail-closed, retries idempotents et wheel vérifié en CI |
 
 ### Failles corrigées
 

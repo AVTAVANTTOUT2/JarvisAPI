@@ -156,6 +156,16 @@ demeurent fermés. Vérification locale :
 .venv/bin/python tools/export_openapi.py --check
 ```
 
+Le SDK Python officiel se trouve dans [`sdk/python`](./sdk/python) :
+
+```bash
+python -m pip install ./sdk/python
+```
+
+Il couvre tout le registre d'`operationId`, gère session/CSRF et jetons
+mobiles/appareils, vérifie TLS et ne retente automatiquement que les lectures
+idempotentes.
+
 ## Stack technique
 
 | Couche | Technologies |
