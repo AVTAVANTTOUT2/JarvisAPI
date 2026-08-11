@@ -208,7 +208,7 @@ jobs:
         run: |
           python tools/generate_python_sdk.py --check
           PYTHONPATH=sdk/python/src python -m pytest sdk/python/tests -q
-          python -m pip wheel --no-deps --no-build-isolation sdk/python --wheel-dir /tmp/jarvis-sdk-wheel
+          python -m pip wheel --no-deps sdk/python --wheel-dir /tmp/jarvis-sdk-wheel
 
       - name: Vérifier le registre canonique de dette technique
         run: python tools/audit_technical_debt.py --check
