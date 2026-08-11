@@ -50,9 +50,9 @@ async def test_database_mutations_emit_log_and_push_all_phase3_events(
     assert "event_log" in table_names
     assert "location_point_dedup" in table_names
     assert "mobile_chat_dedup" in table_names
-    # 92 persistantes + 5 FTS = 97 physiques après ajout des métadonnées de
-    # version et du journal de conflits de synchronisation.
-    assert len(table_names) == 97
+    # 93 persistantes + 5 FTS = 98 physiques après versionnement de la sync et
+    # ajout de l’historique des métriques.
+    assert len(table_names) == 98
     assert "cursor_delegation_jobs" in table_names
     assert "device_pairing_codes" in table_names
     assert "device_pairing_attempts" in table_names
