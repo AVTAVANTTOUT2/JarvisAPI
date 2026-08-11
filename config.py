@@ -869,6 +869,17 @@ BACKUP_ENCRYPTION_KEY_FILE = _get(
     "./data/.backup_encryption.key",
 )
 
+# ── Chiffrement complet de la base active (SQLCipher, opt-in) ──
+# L'activation d'une base existante passe d'abord par
+# `tools/database_encryption.py enable`. Sans passphrase explicite, chaque
+# profil reçoit une clé aléatoire dans le Trousseau macOS.
+DATABASE_ENCRYPTION_ENABLED = _get("DATABASE_ENCRYPTION_ENABLED", "false").lower() == "true"
+DATABASE_ENCRYPTION_PASSPHRASE = _get("DATABASE_ENCRYPTION_PASSPHRASE", "")
+DATABASE_ENCRYPTION_KEYCHAIN_SERVICE = _get(
+    "DATABASE_ENCRYPTION_KEYCHAIN_SERVICE",
+    "com.jarvis.database.sqlcipher",
+)
+
 # Interface mobile autonome (HTML/CSS/JS vanilla, servie sous /mobile/).
 WEB_MOBILE_DIR = _get("WEB_MOBILE_DIR", str(BASE_DIR / "web_mobile"))
 

@@ -10,14 +10,15 @@ Output par défaut : data/exports/voice_debug_YYYY-MM-DD_HHMM.md
 import argparse
 import json
 import os
-import sqlite3
 import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from database import get_connection, profile_database_path
+
 ROOT = Path(__file__).resolve().parent.parent
-DB_PATH = os.environ.get("DB_PATH", str(ROOT / "data" / "jarvis.db"))
+DB_PATH = str(profile_database_path())
 DEFAULT_OUTPUT = ROOT / "data" / "exports" / f"voice_debug_{datetime.now().strftime('%Y-%m-%d_%H%M')}.md"
 
 
@@ -225,8 +226,7 @@ def main() -> None:
         print(f"[ERREUR] Base de donnees introuvable : {DB_PATH}", file=sys.stderr)
         sys.exit(1)
 
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = get_connection()
 
     try:
         # Verifie que la table existe

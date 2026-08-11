@@ -7,7 +7,7 @@ triées par priorité descendante puis due_date ascendante.
 from __future__ import annotations
 
 import logging
-import sqlite3
+from database import dbapi as sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -35,7 +35,7 @@ def get_active_tasks() -> list[dict[str, Any]]:
         return []
 
     try:
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        conn = sqlite3.connect_readonly(db_path)
         conn.row_factory = sqlite3.Row
         cur = conn.execute(
             """SELECT id, title, description, priority, status, due_date, category, created_at

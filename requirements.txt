@@ -51,8 +51,9 @@ playwright==1.62.0
 # Utils
 python-dateutil==2.9.*
 
-# Sécurité — chiffrement optionnel des sauvegardes (Fernet/AES)
+# Sécurité — sauvegardes Fernet + chiffrement complet SQLite optionnel (SQLCipher)
 cryptography>=41.0
+sqlcipher3==0.6.2
 
 # Recherche sémantique — embeddings locaux (all-MiniLM-L6-v2, ~90 Mo au 1er run)
 # Le code dégrade proprement si absent (torch est déjà requis ci-dessus).

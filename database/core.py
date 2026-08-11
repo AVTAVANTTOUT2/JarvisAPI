@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import re
-import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar, Token
@@ -13,6 +12,7 @@ from pathlib import Path
 
 from core.file_security import ensure_private_directory, ensure_private_file
 
+from . import dbapi as sqlite3
 from .migrations import run_migrations
 from .schema import SCHEMA
 from .time_buckets import local_datetime, utc_bounds_for_local_dates
@@ -107,7 +107,7 @@ def get_connection() -> sqlite3.Connection:
     db_path = _current_db_path()
     if str(db_path) != ":memory:":
         ensure_private_directory(db_path.parent)
-    conn = sqlite3.connect(str(db_path))
+    conn = sqlite3.connect(str(db_path), profile_id=current_profile_id())
     harden_sqlite_permissions(db_path)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA busy_timeout = 5000")

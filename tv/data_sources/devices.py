@@ -6,7 +6,7 @@ Retourne la liste des devices avec leur statut online/heartbeat.
 from __future__ import annotations
 
 import logging
-import sqlite3
+from database import dbapi as sqlite3
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any
@@ -25,7 +25,7 @@ def get_devices_status() -> dict[str, Any]:
     now = datetime.now(timezone.utc)
 
     try:
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        conn = sqlite3.connect_readonly(db_path)
         conn.row_factory = sqlite3.Row
 
         cur = conn.execute(
@@ -92,7 +92,7 @@ def _get_daily_cost(db_path: str, now: datetime) -> float:
     """Calcule le coût API cumulé sur les dernières 24h."""
     cutoff = (now - timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
     try:
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        conn = sqlite3.connect_readonly(db_path)
         cur = conn.execute(
             "SELECT COALESCE(SUM(cost), 0) FROM messages WHERE created_at >= ?",
             (cutoff,),

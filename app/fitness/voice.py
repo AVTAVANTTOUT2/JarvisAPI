@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-import sqlite3
+from database import dbapi as sqlite3
 import time
 import unicodedata
 from dataclasses import dataclass

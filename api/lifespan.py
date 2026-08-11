@@ -332,7 +332,16 @@ async def lifespan(app: FastAPI):
                 stdout=_asyncio.subprocess.PIPE,
                 stderr=_asyncio.subprocess.PIPE,
             )
-            stdout, stderr = await _asyncio.wait_for(proc.communicate(), timeout=5.0)
+            try:
+                stdout, stderr = await _asyncio.wait_for(
+                    proc.communicate(),
+                    timeout=5.0,
+                )
+            except BaseException:
+                if proc.returncode is None:
+                    proc.kill()
+                await proc.communicate()
+                raise
             output = (stdout + stderr).decode(errors="replace").strip()
             if "connected" in output.lower() or "already" in output.lower():
                 logger.info("[startup] ADB connecté à la TV (%s:%s) — %s", tv_ip, tv_port, output.split("\n")[0][:80])

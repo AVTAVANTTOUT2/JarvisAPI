@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-import sqlite3
 from urllib.parse import urlsplit
 
 from fastapi import Request, Response, WebSocket
@@ -11,6 +10,7 @@ from fastapi.responses import JSONResponse
 
 import auth
 import config
+from database import dbapi as sqlite3
 from database import (
     activate_profile,
     normalize_profile_id,

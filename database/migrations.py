@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import sqlite3
+from . import dbapi as sqlite3
 import uuid
 
 logger = logging.getLogger(__name__)

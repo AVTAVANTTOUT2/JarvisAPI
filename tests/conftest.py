@@ -55,6 +55,7 @@ def _isolate_app_lifespan(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(config, "DEEPSEEK_API_KEY", "test-deepseek-key")
     monkeypatch.setattr(config, "DAEMON_ENABLED", False)
     monkeypatch.setattr(config, "AUDIO_DAEMON_ENABLED", False)
+    monkeypatch.setattr(config, "TV_IP", "")
     # Ne pas écraser IMESSAGE_SOURCING_ENABLED : les tests de contrat vérifient
     # le défaut config=True. On coupe le scan réel via is_available() ci-dessous.
     monkeypatch.setattr(config, "CURSOR_DELEGATION_ENABLED", False)

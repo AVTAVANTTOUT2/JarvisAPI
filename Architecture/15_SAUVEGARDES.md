@@ -1,7 +1,8 @@
 # 15 — Sauvegardes et restauration
 
 **État** : implémenté et testé
-**Code** : `scripts/db_maintenance.py`, `core/file_security.py`
+**Code** : `scripts/db_maintenance.py`, `database/encryption.py`,
+`core/file_security.py`
 
 ## Politique actuelle
 
@@ -48,6 +49,30 @@ Les tests couvrent le round-trip chiffré, le format legacy, la mauvaise
 passphrase, l’intégrité SQLite, le path traversal et la présence du snapshot
 de sécurité.
 
+## Base active SQLCipher
+
+La protection de la base active est indépendante de l’enveloppe Fernet des
+sauvegardes. Une migration explicite chiffre chaque base de profil page par
+page, conserve le schéma, FTS5 et `user_version`, puis garde une copie de
+rollback privée :
+
+```bash
+python tools/database_encryption.py status --all-profiles
+python tools/database_encryption.py enable --all-profiles
+# Après succès seulement :
+DATABASE_ENCRYPTION_ENABLED=true
+```
+
+Par défaut, chaque profil reçoit une clé distincte dans le Trousseau macOS sous
+le service `com.jarvis.database.sqlcipher`. En CI ou avec un gestionnaire de
+secrets, `DATABASE_ENCRYPTION_PASSPHRASE` peut fournir une passphrase d’au moins
+20 caractères. Une base plaintext, une mauvaise clé ou un pilote sans FTS5
+font échouer le démarrage fermé.
+
+La restauration d’une sauvegarde Fernet détecte la cible : elle restaure une
+image SQLite standard lorsque SQLCipher est désactivé et la réimporte chiffrée
+lorsqu’il est actif. Aucun backup ne dépend donc du format de la base courante.
+
 ## Configuration
 
 ```bash
@@ -58,12 +83,15 @@ BACKUP_ENCRYPTION_ENABLED=true
 BACKUP_ENCRYPTION_KEY_FILE=./data/.backup_encryption.key
 # Facultatif ; si vide, la clé locale ci-dessus est créée.
 BACKUP_ENCRYPTION_PASSPHRASE=
+DATABASE_ENCRYPTION_ENABLED=false
+DATABASE_ENCRYPTION_PASSPHRASE=
+DATABASE_ENCRYPTION_KEYCHAIN_SERVICE=com.jarvis.database.sqlcipher
 ```
 
 ## Limite assumée
 
-La base active SQLite n’est pas chiffrée page par page par JARVIS. Elle, ses
-sidecars WAL/SHM et les uploads sont limités au compte Unix courant (`0600`,
-dossiers `0700`). FileVault reste nécessaire pour le chiffrement complet du
-volume. L’évaluation SQLCipher et chiffrement applicatif est documentée dans
+SQLCipher couvre la base active et ses sidecars après activation, pas les
+uploads ni les autres fichiers applicatifs. Ceux-ci restent limités au compte
+Unix courant (`0600`, dossiers `0700`) et FileVault demeure nécessaire pour le
+chiffrement complet du volume. La décision est détaillée dans
 `Architecture/adr/ADR-022-DATA-AT-REST.md`.

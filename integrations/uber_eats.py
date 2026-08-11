@@ -27,7 +27,7 @@ import json
 import logging
 import re
 import secrets
-import sqlite3
+from database import dbapi as sqlite3
 import threading
 import time
 from collections.abc import AsyncIterator, Iterable, Mapping, Sequence

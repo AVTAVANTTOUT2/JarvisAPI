@@ -15,7 +15,7 @@ import logging
 import os
 import signal
 import socket
-import sqlite3
+from database import dbapi as sqlite3
 import subprocess
 import sys
 import time

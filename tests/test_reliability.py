@@ -93,6 +93,39 @@ def test_backup_rotation_keeps_most_recent(tmp_db, monkeypatch):
     assert Path(paths[0]).name in removed
 
 
+def test_backup_listing_rotation_and_restore_are_profile_isolated(
+    tmp_db,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import os
+
+    from database import use_profile
+    from scripts.db_maintenance import _rotate_backups, list_backups, restore_backup
+
+    backup_dir = Path(config.BACKUP_DIR)
+    backup_dir.mkdir(parents=True)
+    default_old = backup_dir / "jarvis-20260811-010101.db.enc"
+    default_new = backup_dir / "jarvis-20260811-020202.db.enc"
+    alice = backup_dir / "jarvis-alice-20260811-030303.db.enc"
+    for index, path in enumerate((default_old, default_new, alice), start=1):
+        path.write_bytes(b"private backup")
+        os.utime(path, (index, index))
+
+    assert {item["name"] for item in list_backups()} == {
+        default_old.name,
+        default_new.name,
+    }
+    assert _rotate_backups(backup_dir, keep=1) == [default_old.name]
+    assert alice.exists()
+
+    with use_profile("alice"):
+        assert [item["name"] for item in list_backups()] == [alice.name]
+        assert restore_backup(default_new.name) == {
+            "ok": False,
+            "error": "Sauvegarde introuvable",
+        }
+
+
 def test_backup_missing_db_fails_cleanly(tmp_db, monkeypatch, tmp_path):
     from scripts.db_maintenance import run_backup
 

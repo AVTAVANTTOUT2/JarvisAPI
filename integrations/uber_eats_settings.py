@@ -19,7 +19,7 @@ relever elle-même le plafond pour dépenser davantage.
 from __future__ import annotations
 
 import logging
-import sqlite3
+from database import dbapi as sqlite3
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
