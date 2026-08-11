@@ -6,7 +6,10 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from api.chat_cognitive import should_run_cursor_cognitive_path
+from api.chat_cognitive import (
+    resolve_pending_cursor_job_for_confirmation,
+    should_run_cursor_cognitive_path,
+)
 from jarvis.cognitive.models import TaskIntent
 
 
@@ -87,6 +90,7 @@ async def test_chat_internal_confirms_pending_cursor_on_lance() -> None:
                     "job_id": "job-42",
                     "status": "awaiting_confirmation",
                     "interaction_mode": "chat",
+                    "routing": {"conversation_id": 7},
                 }
             ],
         ),
@@ -107,3 +111,100 @@ async def test_chat_internal_confirms_pending_cursor_on_lance() -> None:
     assert result["agent"] == "cognitive"
     assert result["action_result"]["job_id"] == "job-42"
     assert "parti" in result["text"].lower()
+
+
+def test_resolve_pending_cursor_job_scopes_by_conversation_and_mode() -> None:
+    jobs = [
+        {
+            "job_id": "voice-other",
+            "status": "awaiting_confirmation",
+            "interaction_mode": "voice",
+            "routing": {"conversation_id": 2},
+        },
+        {
+            "job_id": "chat-old",
+            "status": "awaiting_confirmation",
+            "interaction_mode": "chat",
+            "routing": {"conversation_id": 1},
+        },
+        {
+            "job_id": "chat-new",
+            "status": "awaiting_confirmation",
+            "interaction_mode": "chat",
+            "routing": {"conversation_id": 1},
+        },
+    ]
+    with patch("database.cursor_jobs.list_jobs_by_statuses", return_value=jobs):
+        assert resolve_pending_cursor_job_for_confirmation(1, "chat")["job_id"] == "chat-new"
+        assert resolve_pending_cursor_job_for_confirmation(2, "voice")["job_id"] == "voice-other"
+        assert resolve_pending_cursor_job_for_confirmation(1, "voice") is None
+
+
+@pytest.mark.asyncio
+async def test_lance_in_chat_does_not_confirm_voice_pending_job() -> None:
+    from api.chat_cognitive import maybe_confirm_pending_cursor
+
+    with (
+        patch(
+            "database.cursor_jobs.list_jobs_by_statuses",
+            return_value=[
+                {
+                    "job_id": "job-voice",
+                    "status": "awaiting_confirmation",
+                    "interaction_mode": "voice",
+                    "routing": {"conversation_id": 9},
+                }
+            ],
+        ),
+        patch(
+            "integrations.cursor_delegation.cursor_delegation.confirm",
+            new_callable=AsyncMock,
+        ) as confirm_mock,
+    ):
+        result = await maybe_confirm_pending_cursor(
+            "lance",
+            conversation_id=9,
+            interaction_mode="chat",
+        )
+
+    assert result is not None
+    assert result["handled"] is True
+    assert result["confirmed"] is False
+    assert result["error"] == "cursor_confirmation_different_mode"
+    assert "rien n'a été lancé" in result["text"].lower()
+    confirm_mock.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_legacy_unscoped_cursor_job_fails_explicitly() -> None:
+    from api.chat_cognitive import maybe_confirm_pending_cursor
+
+    with (
+        patch(
+            "database.cursor_jobs.list_jobs_by_statuses",
+            return_value=[
+                {
+                    "job_id": "legacy-job",
+                    "status": "awaiting_confirmation",
+                    "interaction_mode": "chat",
+                    "routing": {},
+                }
+            ],
+        ),
+        patch(
+            "integrations.cursor_delegation.cursor_delegation.confirm",
+            new_callable=AsyncMock,
+        ) as confirm_mock,
+    ):
+        result = await maybe_confirm_pending_cursor(
+            "lance",
+            conversation_id=9,
+            interaction_mode="chat",
+        )
+
+    assert result is not None
+    assert result["confirmed"] is False
+    assert result["error"] == "cursor_confirmation_legacy_unscoped"
+    assert "ancienne proposition" in result["text"].lower()
+    assert "rien n'a été lancé" in result["text"].lower()
+    confirm_mock.assert_not_called()

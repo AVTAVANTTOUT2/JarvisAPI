@@ -134,11 +134,15 @@ async def maybe_handle_cognitive_voice(
             return None
         try:
             from integrations.cursor_delegation import cursor_delegation
-            from database.cursor_jobs import list_jobs_by_statuses
+            from api.chat_cognitive import (
+                cursor_confirmation_unavailable_message,
+                resolve_pending_cursor_confirmation,
+            )
 
-            pending = list_jobs_by_statuses(("awaiting_confirmation", "proposal"))
-            voice_pending = [j for j in pending if j.get("interaction_mode") in ("voice", "android", "chat")]
-            target = (voice_pending or pending)[-1] if (voice_pending or pending) else None
+            target, reason = resolve_pending_cursor_confirmation(
+                conversation_id,
+                "voice",
+            )
             if target:
                 job = await cursor_delegation.confirm(target["job_id"])
                 ack = "C'est parti, Monsieur. Cursor démarre sur la branche isolée."
@@ -147,8 +151,32 @@ async def maybe_handle_cognitive_voice(
                     debug_trace, conversation_id, text, ack, intent, t0,
                     action={"type": "cursor_confirm", "job_id": job.get("job_id")},
                 )
+            ack = cursor_confirmation_unavailable_message(reason)
+            debug_trace["cursor_confirmation_error"] = reason
+            return _finalize_voice_reply(
+                debug_trace,
+                conversation_id,
+                text,
+                ack,
+                intent,
+                t0,
+                action={"type": "cursor_confirm_unavailable", "reason": reason},
+            )
         except Exception as exc:
             logger.warning("[voice_fast] confirm Cursor : %s", exc)
+            debug_trace["cursor_confirmation_error"] = "cursor_confirmation_failed"
+            return _finalize_voice_reply(
+                debug_trace,
+                conversation_id,
+                text,
+                "Je n'ai pas pu confirmer la proposition Cursor. Rien n'a été lancé.",
+                intent,
+                t0,
+                action={
+                    "type": "cursor_confirm_unavailable",
+                    "reason": "cursor_confirmation_failed",
+                },
+            )
 
     # ── Tâche technique → proposition Cursor (pas d'auto-start) ──
     if intent.execution_type == "cursor":
@@ -159,12 +187,15 @@ async def maybe_handle_cognitive_voice(
         try:
             from integrations.cursor_delegation import cursor_delegation
 
+            routing = dict(intent.to_diagnostic())
+            routing["conversation_id"] = int(conversation_id)
+
             job = await cursor_delegation.enqueue(
                 title=text[:120],
                 user_request=text,
                 template_id=intent.template_id or "feature_implementation",
                 interaction_mode="voice",
-                routing=intent.to_diagnostic(),
+                routing=routing,
                 auto_start=False,
                 require_confirmation=True,
             )
