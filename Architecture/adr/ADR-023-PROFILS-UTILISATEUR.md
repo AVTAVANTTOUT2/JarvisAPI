@@ -17,7 +17,9 @@ Le profil historique `default` conserve `DB_PATH`. Chaque profil additionnel
 reçoit une base complète sous `profiles/<profile_id>/`, initialisée par le même
 schéma et les mêmes migrations. Un `ContextVar` lie la requête HTTP, la socket
 WebSocket, les tâches asyncio héritées et les handlers de l’EventBus au profil
-courant.
+courant. Les rares threads natifs créés directement capturent explicitement le
+profil avant leur démarrage ; ils ne dépendent pas de l’héritage implicite des
+`ContextVar`, absent avec `threading.Thread`.
 
 Le registre `user_profiles` vit dans la base principale. Le header
 `X-Jarvis-Profile` sélectionne un profil pour HTTP ; le cookie non secret

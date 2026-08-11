@@ -57,7 +57,7 @@ Les travaux sont classés selon l'ordre de priorité suivant :
 - [x] Historique des métriques — séries temporelles, rétention bornée et tendances livrées par la PR #207
 - [x] Socle de recherche unifiée backend (FTS5 + embeddings)
 - [x] Expérience de recherche unifiée dans le frontend — classement partagé, états offline et navigation vers les résultats livrés par la PR #205
-- [x] Authentification biométrique (Face ID / Touch ID) — portes natives macOS et Android livrées par la PR #206
+- [x] Portes biométriques natives — secret interactif lié au jeu biométrique sur macOS ; verrou d’interface Android avec jeton Keystore accessible aux workers H24, livré par la PR #206
 
 ### Ordre recommandé de clôture
 

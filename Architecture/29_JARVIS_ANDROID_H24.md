@@ -72,6 +72,14 @@ flowchart LR
 - mode voiture et audio Bluetooth ;
 - diagnostic batterie Samsung et démarrage après reboot.
 
+La porte biométrique Android protège la réouverture de l’interface. Le jeton
+reste chiffré en AES-GCM par une clé Android Keystore, mais cette clé n’est pas
+liée au `BiometricPrompt` afin que les workers GPS, sync, push et voix puissent
+continuer en arrière-plan. Sur macOS, le secret du client interactif est au
+contraire lié à `biometryCurrentSet` dans le Trousseau. Ces garanties sont
+intentionnellement différentes et ne doivent pas être présentées comme
+équivalentes.
+
 ### P2 — JARVIS ambiant
 
 - wake word local avec ForegroundService visible ;

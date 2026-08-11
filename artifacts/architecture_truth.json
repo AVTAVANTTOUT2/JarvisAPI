@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-11T08:09:00.831248+00:00",
+  "generated_at": "2026-08-11T13:50:42.739919+00:00",
   "repo_root": ".",
   "canonical_formulation": {
     "database": "Le projet crée 94 tables persistantes après init_db() + migrations, plus jusqu'à 5 objets FTS5, soit 99 tables physiques lorsque FTS5 est disponible.",
@@ -467,9 +467,9 @@
     "counts": {
       "operations": 271,
       "paths": 241,
-      "consumer_and_tested": 131,
+      "consumer_and_tested": 130,
       "consumer_without_path_test": 51,
-      "owned_non_frontend_and_tested": 42,
+      "owned_non_frontend_and_tested": 43,
       "owned_non_frontend_without_path_test": 47
     },
     "consumer_surfaces": [
@@ -491,7 +491,7 @@
     },
     "ownership_policy": {
       "path": "Architecture/api_route_ownership.json",
-      "rules": 33,
+      "rules": 34,
       "findings": []
     },
     "routes": [
@@ -1805,19 +1805,21 @@
         "path": "/api/health/live",
         "source": "api/router_misc.py",
         "line": 100,
-        "consumers": {
-          "frontend_next": [
-            "frontend/src/lib/api.ts"
-          ]
-        },
+        "consumers": {},
         "tests": [
+          "frontend/src/lib/api-offline.test.ts",
           "tests/test_health_contract.py",
           "tests/test_public_openapi.py",
           "tests/test_release_soak.py",
           "tests/test_security_middleware.py"
         ],
-        "non_frontend_ownership": null,
-        "classification": "consumer_and_tested"
+        "non_frontend_ownership": {
+          "rule_id": "infrastructure-liveness-probe",
+          "owner": "observability",
+          "audience": "automation",
+          "rationale": "Sonde de vie publique consommée par le superviseur, launchd et les reverse proxies ; le frontend ne fait que l'exclure explicitement de son cache."
+        },
+        "classification": "owned_non_frontend_and_tested"
       },
       {
         "method": "GET",

@@ -43,6 +43,16 @@ describe('shared offline API policy', () => {
     )
   })
 
+  it('never caches the public liveness probe', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ status: 'ok' }), { status: 200 }),
+    ))
+    await jarvisFetch('/api/health/live')
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
+
+    await expect(jarvisFetch('/api/health/live')).rejects.toThrow('Failed to fetch')
+  })
+
   it('queues a safe data mutation and returns an explicit marker', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
 

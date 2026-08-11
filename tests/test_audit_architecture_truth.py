@@ -48,7 +48,8 @@ def fake_repo(tmp_path: Path) -> Path:
     (fe / "out" / "index.html").write_text("<html></html>", encoding="utf-8")
     (fe / "src").mkdir()
     (fe / "src" / "api.ts").write_text(
-        "fetch('/api/status'); fetch(`/api/jobs/${jobId}`);\n",
+        "fetch('/api/status'); fetch(`/api/jobs/${jobId}`);\n"
+        "const operatorPolicy = '/api/operator' // architecture-audit: non-consumer-reference\n",
         encoding="utf-8",
     )
 
@@ -378,9 +379,9 @@ def test_real_repo_smoke_counts_stable() -> None:
     assert api_surface["counts"] == {
         "operations": 271,
         "paths": 241,
-        "consumer_and_tested": 131,
+        "consumer_and_tested": 130,
         "consumer_without_path_test": 51,
-        "owned_non_frontend_and_tested": 42,
+        "owned_non_frontend_and_tested": 43,
         "owned_non_frontend_without_path_test": 47,
     }
     assert api_surface["structure"] == {
@@ -391,7 +392,7 @@ def test_real_repo_smoke_counts_stable() -> None:
         "mounted_routers": 19,
         "main_lines": 219,
     }
-    assert api_surface["ownership_policy"]["rules"] == 33
+    assert api_surface["ownership_policy"]["rules"] == 34
     assert api_surface["ownership_policy"]["findings"] == []
 
 
