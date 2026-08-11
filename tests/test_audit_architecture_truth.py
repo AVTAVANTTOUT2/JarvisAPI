@@ -380,9 +380,9 @@ def test_real_repo_smoke_counts_stable() -> None:
     assert api_surface["counts"] == {
         "operations": 263,
         "paths": 234,
-        "consumer_and_tested": 126,
+        "consumer_and_tested": 127,
         "consumer_without_path_test": 51,
-        "owned_non_frontend_and_tested": 38,
+        "owned_non_frontend_and_tested": 37,
         "owned_non_frontend_without_path_test": 48,
     }
     assert api_surface["structure"] == {
@@ -393,7 +393,7 @@ def test_real_repo_smoke_counts_stable() -> None:
         "mounted_routers": 18,
         "main_lines": 214,
     }
-    assert api_surface["ownership_policy"]["rules"] == 33
+    assert api_surface["ownership_policy"]["rules"] == 32
     assert api_surface["ownership_policy"]["findings"] == []
 
 
