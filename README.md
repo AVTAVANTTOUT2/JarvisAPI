@@ -263,6 +263,31 @@ vérifie `ProgramArguments`, `WorkingDirectory` et les logs, puis exécute
 `plutil -lint` avant de charger le service. Aucun chemin utilisateur n'est
 stocké dans le dépôt.
 
+### 5. Installer l'UI visuelle Claw3D (optionnel)
+
+Claw3D peut être déployé depuis JarvisAPI sans devenir une dépendance du backend :
+
+```bash
+python3 scripts/claw3d.py install --mode mock
+python3 scripts/claw3d.py start
+```
+
+Pour le connecter ensuite aux événements JARVIS en lecture seule :
+
+```bash
+python3 scripts/claw3d.py configure \
+  --mode jarvis-readonly \
+  --jarvis-origin http://127.0.0.1:8080
+python3 scripts/claw3d.py stop
+python3 scripts/claw3d.py start
+```
+
+Le checkout, les dépendances, builds, caches, logs et PID Claw3D restent sous
+`.jarvis/apps/claw3d`. Aucun service JARVIS ne dépend de sa présence et aucun
+secret n'est transmis au navigateur. Voir le guide complet
+[`docs/CLAW3D.md`](docs/CLAW3D.md) pour le mode hors ligne, la vérification, le
+nettoyage, la suppression et le rollback.
+
 ## Configuration utile
 
 | Variable | Rôle |
