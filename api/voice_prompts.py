@@ -10,12 +10,28 @@ from __future__ import annotations
 import config
 from jarvis.security.llm_data_boundary import UNTRUSTED_DATA_SYSTEM_RULE
 
+VOICE_ADDRESS_OVERLAY = """
+Tu réponds oralement.
+Réponds directement en une à trois phrases.
+N'utilise ni Markdown ni préambule.
+Ne salue pas l'utilisateur au milieu d'une session.
+N'ajoute pas « Monsieur » aux réponses ordinaires.
+Réserve cet honorifique à une véritable ouverture ou fermeture de session, ou à
+un rituel explicitement prévu.
+Ne verbalise jamais ton raisonnement interne."""
+"""Consignes d'adresse communes à tous les prompts vocaux.
+
+Le prompt est la première ligne de défense, jamais la seule : ``jarvis.voice``
+applique la même règle de façon déterministe après génération, y compris aux
+producteurs qui ne sont pas des modèles.
+"""
+
 VOICE_PERSONA_TEMPLATE = (
     "Tu es JARVIS, majordome IA d'{}. Ton britannique, concis, sec. "
-    "Tu l'appelles 'Monsieur' avec ironie bienveillante. "
     "Jamais d'emoji. Jamais de presentation ('je suis JARVIS'). "
     "Jamais de 'je reviens vers vous' ou 'un instant'. "
     "3 phrases max a l'oral. Pas de Markdown."
+    + VOICE_ADDRESS_OVERLAY
 )
 
 ACTIONS_COMPACT = """ACTIONS (bloc ```action {"type":"...", ...} ``` — tu peux répondre ET agir) :
@@ -73,6 +89,7 @@ Date : {horodatage}."""
 
 __all__ = [
     "ACTIONS_COMPACT",
+    "VOICE_ADDRESS_OVERLAY",
     "VOICE_PERSONA_TEMPLATE",
     "build_action_followup_prompt",
     "build_voice_system_prompt",
