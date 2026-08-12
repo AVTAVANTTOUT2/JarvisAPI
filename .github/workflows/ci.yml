@@ -400,8 +400,9 @@ jobs:
           pnpm --dir frontend install --frozen-lockfile
 
       - name: Précharger les dépendances Android de façon vérifiée
+        working-directory: android
         run: |
-          ./android/gradlew \
+          ./gradlew \
             assembleDebug testDebugUnitTest lintDebug \
             assembleRelease testReleaseUnitTest lintRelease \
             --no-daemon
