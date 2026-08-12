@@ -566,3 +566,59 @@ def test_event_mapping_requires_exact_session_and_never_exposes_tool_arguments()
     serialized = repr(dict(mapped.payload))
     assert "id_ed25519" not in serialized
     assert "private-key" not in serialized
+
+
+def test_select_model_prefers_deepseek_and_skips_anonymous_opencode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "deepseek-test-secret")
+    catalog = SimpleNamespace(
+        connected=("opencode", "deepseek", "jarvis-e2e"),
+        default={
+            "opencode": "big-pickle",
+            "deepseek": "deepseek-v4-pro",
+            "jarvis-e2e": "fixture-model",
+        },
+    )
+    selected = opencode_adapter._select_model(catalog)
+    assert selected == ModelSelection(
+        provider_id="deepseek", model_id="deepseek-v4-pro"
+    )
+
+
+def test_select_model_allows_fixture_provider_without_deepseek(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    catalog = SimpleNamespace(
+        connected=("opencode", "jarvis-e2e"),
+        default={"opencode": "big-pickle", "jarvis-e2e": "fixture-model"},
+    )
+    selected = opencode_adapter._select_model(catalog)
+    assert selected.provider_id == "jarvis-e2e"
+    assert selected.model_id == "fixture-model"
+
+
+def test_select_model_rejects_anonymous_opencode_without_deepseek_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    catalog = SimpleNamespace(
+        connected=("opencode",),
+        default={"opencode": "big-pickle"},
+    )
+    with pytest.raises(RuntimeError, match="DEEPSEEK_API_KEY absente"):
+        opencode_adapter._select_model(catalog)
+
+
+def test_model_provider_environment_loads_jarvis_env_without_second_secret(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_secret = "deepseek-test-secret"
+    monkeypatch.setenv("DEEPSEEK_API_KEY", fake_secret)
+    monkeypatch.setenv("OPENCODE_DEEPSEEK_API_KEY", "must-never-be-used")
+    env = opencode_adapter._model_provider_environment()
+    assert set(env) == {"DEEPSEEK_API_KEY"}
+    assert env["DEEPSEEK_API_KEY"] == fake_secret
+    assert "OPENCODE_DEEPSEEK_API_KEY" not in env
+    assert opencode_adapter._MODEL_PROVIDER_ENV_ALLOWLIST == ("DEEPSEEK_API_KEY",)

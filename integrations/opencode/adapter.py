@@ -63,16 +63,27 @@ _MAX_EVENTS_PER_RUN = 4_096
 _MAX_ARTIFACTS_PER_RUN = 100
 _MUTATING_FILE_TOOLS = frozenset({"edit", "write"})
 _MODEL_PROVIDER_ENV_ALLOWLIST = ("DEEPSEEK_API_KEY",)
+_PREFERRED_MODEL_PROVIDERS = ("deepseek",)
+_ANONYMOUS_MODEL_PROVIDERS = frozenset({"opencode"})
+_MISSING_DEEPSEEK_KEY_MESSAGE = (
+    "DEEPSEEK_API_KEY absente de la configuration JARVIS (.env). "
+    "OpenCode ne reçoit cette clé que via l'allowlist du runtime ; "
+    "aucune configuration secrète OpenCode indépendante n'est supportée."
+)
 
 
 def _model_provider_environment() -> dict[str, str]:
     """Retourne uniquement les credentials modèle explicitement approuvés.
 
-    Le runtime n'hérite jamais l'environnement du parent. La clé DeepSeek est
-    la seule exception produit actuellement supportée et elle n'est ni
-    persistée, ni journalisée, ni exposée aux outils MCP/bash.
+    Source unique : la configuration JARVIS (``.env.config`` puis ``.env`` via
+    ``load_jarvis_env``). Le runtime n'hérite jamais l'environnement du parent.
+    La clé DeepSeek est la seule exception produit actuellement supportée et
+    elle n'est ni persistée, ni journalisée, ni exposée aux outils MCP/bash.
     """
 
+    from env_loader import load_jarvis_env
+
+    load_jarvis_env()
     value = os.environ.get("DEEPSEEK_API_KEY", "")
     if not value.strip() or value.strip() == "sk-...":
         return {}
@@ -157,11 +168,33 @@ def _agent_names(values: Sequence[Mapping[str, Any]]) -> frozenset[str]:
 
 
 def _select_model(catalog: Any) -> ModelSelection:
-    for provider_id in catalog.connected:
+    """Choisit un modèle connecté sans repli silencieux sur le provider anonyme.
+
+    DeepSeek est préféré lorsqu'il est connecté (clé JARVIS forwardée). Les
+    providers de fixture (ex. ``jarvis-e2e``) restent éligibles. Le provider
+    intégré ``opencode`` n'est jamais un fallback produit : sans DeepSeek ni
+    autre provider authentifié, l'erreur pointe vers ``DEEPSEEK_API_KEY``.
+    """
+
+    connected = tuple(catalog.connected)
+    ordered: list[str] = []
+    for provider_id in _PREFERRED_MODEL_PROVIDERS:
+        if provider_id in connected and provider_id not in ordered:
+            ordered.append(provider_id)
+    for provider_id in connected:
+        if provider_id in _ANONYMOUS_MODEL_PROVIDERS:
+            continue
+        if provider_id not in ordered:
+            ordered.append(provider_id)
+    for provider_id in ordered:
         model_id = catalog.default.get(provider_id)
         if model_id:
             return ModelSelection(provider_id=provider_id, model_id=model_id)
-    raise RuntimeError("aucun modèle OpenCode connecté")
+    if not _model_provider_environment():
+        raise RuntimeError(_MISSING_DEEPSEEK_KEY_MESSAGE)
+    raise RuntimeError(
+        "aucun modèle OpenCode connecté (DeepSeek attendu via DEEPSEEK_API_KEY JARVIS)"
+    )
 
 
 def _run_storage_key(run_id: str, profile_id: str) -> str:

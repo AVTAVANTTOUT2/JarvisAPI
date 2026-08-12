@@ -407,7 +407,8 @@ async def test_two_services_use_distinct_processes_ports_secrets_and_state(
 async def test_runtime_passes_only_explicit_deepseek_credential_to_child(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("DEEPSEEK_API_KEY", "deepseek-test-secret")
+    fake_secret = "deepseek-test-secret"
+    monkeypatch.setenv("DEEPSEEK_API_KEY", fake_secret)
     monkeypatch.setenv("OPENAI_API_KEY", "must-not-leak")
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "must-not-leak")
     layout = _layout(tmp_path)
@@ -418,12 +419,22 @@ async def test_runtime_passes_only_explicit_deepseek_credential_to_child(
     try:
         await runtime.create_run(run, _context(run))
         start_kwargs = runtime._states[run.run_id].process_manager.start_kwargs
-        assert start_kwargs["explicit_environment"] == {
-            "DEEPSEEK_API_KEY": "deepseek-test-secret"
-        }
+        explicit = start_kwargs.get("explicit_environment") or {}
+        # Comparer des clés et une égalité ciblée : un assert sur le dict
+        # complet exposerait la valeur dans le rapport pytest en cas d'échec.
+        assert set(explicit) == {"DEEPSEEK_API_KEY"}
+        assert explicit.get("DEEPSEEK_API_KEY") == fake_secret
         assert start_kwargs["additional_environment_allowlist"] == ("DEEPSEEK_API_KEY",)
-        assert "OPENAI_API_KEY" not in repr(start_kwargs)
-        assert "AWS_SECRET_ACCESS_KEY" not in repr(start_kwargs)
+        rendered = repr(
+            {
+                key: value
+                for key, value in start_kwargs.items()
+                if key != "explicit_environment"
+            }
+        )
+        assert "OPENAI_API_KEY" not in rendered
+        assert "AWS_SECRET_ACCESS_KEY" not in rendered
+        assert "must-not-leak" not in rendered
     finally:
         await runtime.dispose()
 

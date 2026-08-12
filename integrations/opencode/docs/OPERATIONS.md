@@ -82,10 +82,13 @@ problème persiste, comparer ce template au schéma de la version épinglée.
 
 ### Aucun modèle connecté
 
-Le runtime est sain mais aucun provider n'annonce de modèle par défaut.
-Configurer la clé autorisée sans la journaliser, puis redémarrer. L'intégration
-transmet aujourd'hui uniquement `DEEPSEEK_API_KEY`. Ajouter un autre secret
-demande une modification explicite de l'allowlist et une revue sécurité.
+Le runtime est sain mais aucun provider authentifié n'annonce de modèle par
+défaut. Vérifier que `DEEPSEEK_API_KEY` est présente dans le ``.env`` JARVIS
+(pas dans `.env.config`, pas dans un secret OpenCode séparé), sans la
+journaliser, puis redémarrer. Le provider anonyme intégré `opencode` n'est
+jamais un fallback produit. L'intégration transmet aujourd'hui uniquement
+`DEEPSEEK_API_KEY` via l'allowlist. Ajouter un autre secret demande une
+modification explicite de l'allowlist et une revue sécurité.
 
 ### Flux SSE interrompu
 

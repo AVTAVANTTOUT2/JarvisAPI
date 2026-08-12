@@ -462,3 +462,32 @@ def test_retry_policy_is_exponential_jittered_and_bounded() -> None:
     assert policy.delay(0) == 0.75
     assert policy.delay(1) == 1.25
     assert policy.delay(10) == 2.0
+
+
+def test_provider_catalog_redacts_credential_fields_from_payload() -> None:
+    from integrations.opencode.client.models import ProviderCatalog
+    from integrations.opencode.security.redaction import REDACTED
+
+    secret = "deepseek-live-secret-value"
+    catalog = ProviderCatalog.from_payload(
+        {
+            "all": [
+                {
+                    "id": "deepseek",
+                    "name": "DeepSeek",
+                    "key": secret,
+                    "apiKey": secret,
+                    "models": {"deepseek-v4-pro": {"name": "Pro"}},
+                }
+            ],
+            "default": {"deepseek": "deepseek-v4-pro"},
+            "connected": ["deepseek"],
+        }
+    )
+    assert catalog.connected == ("deepseek",)
+    assert catalog.default["deepseek"] == "deepseek-v4-pro"
+    rendered = repr(catalog)
+    assert secret not in rendered
+    assert catalog.all[0]["key"] == REDACTED
+    assert catalog.all[0]["apiKey"] == REDACTED
+    assert "deepseek-v4-pro" in catalog.all[0]["models"]

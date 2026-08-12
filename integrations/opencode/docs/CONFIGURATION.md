@@ -1,12 +1,32 @@
 # Configuration
 
 Les valeurs par défaut sont dans `config/defaults.json`; la configuration
-fournisseur générée est `config/opencode.json`. L'adaptateur transmet
-explicitement `DEEPSEEK_API_KEY` lorsqu'elle est configurée ; aucune autre
-variable secrète du parent n'est héritée par le processus enfant.
+fournisseur générée est `config/opencode.json`.
+
+## DeepSeek — une seule source de vérité
+
+`DEEPSEEK_API_KEY` est définie **une seule fois** dans la configuration
+JARVIS (fichier secrets ``.env``, chargé après ``.env.config`` via
+``env_loader.load_jarvis_env`` / ``config``). L'adaptateur OpenCode :
+
+1. relit cette valeur depuis l'environnement JARVIS déjà chargé ;
+2. la transmet au processus enfant uniquement via l'allowlist explicite
+   (`DEEPSEEK_API_KEY`) ;
+3. ne la persiste jamais dans `integrations/opencode/.runtime/config/*.json`,
+   les logs, argv, événements ou artefacts.
+
+Aucune variable concurrente du type `OPENCODE_DEEPSEEK_API_KEY`, aucun
+``.env`` spécifique OpenCode, et aucun argument CLI ne sont supportés. Sans
+clé JARVIS valide, le runtime refuse le provider anonyme intégré `opencode`
+et échoue avec une erreur explicite pointant vers ``.env``.
+
+L'adaptateur transmet explicitement `DEEPSEEK_API_KEY` lorsqu'elle est
+configurée ; aucune autre variable secrète du parent n'est héritée par le
+processus enfant.
 
 | Variable | Valeur / rôle |
 |---|---|
+| `DEEPSEEK_API_KEY` | Secret JARVIS unique (``.env``) ; forwardé à OpenCode via allowlist |
 | `AGENTIC_RUNTIME` | `auto`, identifiant d'un runtime, ou `disabled` |
 | `AGENTIC_RUNTIME_FALLBACK` | `disabled` par défaut ; `legacy` uniquement sur opt-in |
 | `AGENTIC_DEFAULT_PROFILE` | profil de capacités de repli, `readonly-research` par défaut |
