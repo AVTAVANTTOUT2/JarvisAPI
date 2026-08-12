@@ -178,9 +178,21 @@ STT_QUALITY_FALLBACK_MIN_SPEECH_MS = int(_get(
 # lecture ne démarre pas pour autant avant la fin de la passe 1 (un bloc
 # ``action`` remplacerait le texte prononcé).
 VOICE_LLM_STREAMING = _get("VOICE_LLM_STREAMING", "true").lower() in ("true", "1", "yes")
-VOICE_ANTICIPATORY_ACK_ENABLED = _get(
-    "VOICE_ANTICIPATORY_ACK_ENABLED", "true",
-).lower() in ("true", "1", "yes")
+
+# ── Politique de parole ─────────────────────────────────────────────────────
+# `rare`  : l'honorifique « Monsieur » est réservé à une véritable ouverture ou
+#           fermeture de session et aux rituels, une fois au maximum.
+# `never` : jamais d'honorifique, quel que soit le type d'énoncé.
+# `free`  : aucun filtrage — le modèle et les chaînes fixes décident seuls.
+VOICE_ADDRESS_POLICY = _get("VOICE_ADDRESS_POLICY", "rare").strip().lower()
+
+# Un accusé parlé n'est légitime que si un travail long a réellement été
+# accepté. `long_jobs_only` (défaut) l'autorise dans ce seul cas ; `never` le
+# supprime entièrement. Masquer le temps de premier jeton d'un LLM par une
+# phrase creuse n'est pas une option : c'était le défaut corrigé.
+VOICE_PROGRESS_ACK_POLICY = _get(
+    "VOICE_PROGRESS_ACK_POLICY", "long_jobs_only",
+).strip().lower()
 STT_VAD_FILTER = _get("STT_VAD_FILTER", str(DEFAULT_STT_VAD_FILTER)).lower() in (
     "true", "1", "yes",
 )
@@ -998,6 +1010,14 @@ RETIRED_ENV_VARS: dict[str, str] = {
     "KOKORO_SPEED": _RETIRED_KOKORO,
     "KOKORO_MAX_TOKENS": _RETIRED_KOKORO,
     "KOKORO_FIRST_CHUNK_MAX_TOKENS": _RETIRED_KOKORO,
+    # L'accusé anticipé faisait entendre une phrase fixe avant presque chaque
+    # réponse, puis le tour attendait sa lecture. Il n'est plus désactivable :
+    # il n'existe plus. La progression d'un travail long, elle, vit dans
+    # VOICE_PROGRESS_ACK_POLICY — ce sont deux notions différentes.
+    "VOICE_ANTICIPATORY_ACK_ENABLED": (
+        "L'accusé anticipé générique a été retiré ; la progression d'un travail "
+        "long se règle par VOICE_PROGRESS_ACK_POLICY."
+    ),
 }
 
 

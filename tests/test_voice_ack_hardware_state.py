@@ -1,4 +1,4 @@
-"""L'accusé anticipé ne doit ni s'inviter sur du bruit, ni laisser le micro coupé.
+"""Le repli qualité STT ne doit ni parler, ni laisser le micro coupé.
 
 Trois défauts distincts se combinaient pour rendre le daemon sourd après un
 simple bruit de fond. Ils sont figés ici séparément, parce qu'ils se corrigent
@@ -11,14 +11,17 @@ simple bruit de fond. Ils sont figés ici séparément, parce qu'ils se corrigen
    relecture par le modèle lourd — exactement ce que la docstring promettait
    d'éviter.
 
-2. **La parole.** Cette relecture fait entendre « Bien, Monsieur. » pour couvrir
-   son temps de chargement. Sur du bruit, JARVIS répondait donc à personne.
+2. **La parole.** Cette relecture faisait entendre « Bien, Monsieur. » pour
+   couvrir son temps de chargement. Sur du bruit, JARVIS répondait donc à
+   personne. L'accusé anticipé générique a depuis été supprimé : le repli
+   qualité n'émet plus qu'un signal d'observabilité.
 
-3. **Le micro.** En half-duplex (le défaut), cet accusé coupe le flux d'entrée.
-   Seul le chemin de fin de tour normal le rouvrait ; toutes les sorties
-   anticipées — transcription vide, écho post-TTS, transcription rejetée —
-   passent par ``_rearm``, qui ne le rouvrait pas. Le daemon restait alors
-   muet et sourd jusqu'au prochain crash de la boucle.
+3. **Le micro.** En half-duplex (le défaut), cet accusé coupait le flux
+   d'entrée. Seul le chemin de fin de tour normal le rouvrait ; toutes les
+   sorties anticipées — transcription vide, écho post-TTS, transcription
+   rejetée — passent par ``_rearm``, qui ne le rouvrait pas. Le daemon restait
+   alors muet et sourd jusqu'au prochain crash de la boucle. Le réarmement
+   reste vérifié ici : il protège toutes les autres sorties anticipées.
 """
 
 from __future__ import annotations
@@ -134,7 +137,7 @@ async def test_no_ack_when_the_quality_model_cache_is_incomplete(monkeypatch):
         )
 
     async def _notice():
-        acks.append("Bien, Monsieur.")
+        acks.append("repli-qualite")
 
     monkeypatch.setattr(primary, "preload_sync", lambda: True)
     monkeypatch.setattr(quality, "is_available_locally", lambda: False)
@@ -156,7 +159,7 @@ async def test_no_ack_when_the_quality_model_cache_is_incomplete(monkeypatch):
     assert result.quality_fallback_used is False
     assert result.text == "Quel temps fait Hilal Il ?"
     assert acks == [], (
-        "aucun accusé ne doit être prononcé si la relecture n'a pas lieu"
+        "aucun signal de repli ne doit être émis si la relecture n'a pas lieu"
     )
 
 
@@ -164,7 +167,7 @@ async def test_no_ack_when_the_quality_model_cache_is_incomplete(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_rearm_restores_the_microphone_after_an_anticipatory_ack():
+async def test_rearm_restores_the_microphone_after_a_stopped_stream():
     """Toute sortie anticipée doit rendre le micro, pas seulement la fin de tour.
 
     ``_rearm`` promet « sans état résiduel ». Un flux d'entrée arrêté est un
@@ -173,7 +176,7 @@ async def test_rearm_restores_the_microphone_after_an_anticipatory_ack():
     daemon = _daemon()
 
     with patch.object(type(daemon), "_broadcast_state", new_callable=AsyncMock):
-        daemon._stream.stop_stream()          # ce que fait l'accusé en half-duplex
+        daemon._stream.stop_stream()          # ce que fait le TTS en half-duplex
         assert daemon._stream.is_active() is False
 
         await daemon._rearm(reason="empty_transcript")
@@ -236,33 +239,65 @@ async def test_noise_does_not_make_jarvis_speak_and_leaves_the_mic_open():
 
 
 @pytest.mark.asyncio
-async def test_late_ack_does_not_overwrite_a_rearmed_state():
-    """L'accusé qui finit après le réarmement ne doit pas réafficher « processing ».
+async def test_processing_signal_is_silent_and_never_resurrects_a_rearmed_state():
+    """Le signal de début de tour est un état, pas une parole.
 
-    Il est lancé en tâche concurrente et survit à la sortie anticipée. S'il
-    réécrit l'état en aveugle, l'interface annonce un traitement en cours alors
-    que le daemon écoute.
+    Il remplace l'accusé anticipé. Deux propriétés à tenir : il ne synthétise
+    rien, et s'il arrive après l'abandon du tour il ne doit pas réafficher
+    « processing » alors que le daemon écoute déjà.
     """
-    daemon = _daemon()
-    released = asyncio.Event()
+    from audio.voice_latency import UtteranceTrace
 
-    async def _slow_tts(self, text, **_kwargs):
-        await released.wait()
+    daemon = _daemon()
+    spoken: list[str] = []
+    payloads: list[dict] = []
+
+    async def _record_tts(self, text, **_kwargs):
+        spoken.append(text)
+
+    async def _broadcast(self, payload=None):
+        if isinstance(payload, dict):
+            payloads.append(payload)
 
     with (
-        patch.object(type(daemon), "_play_tts", _slow_tts),
-        patch.object(type(daemon), "_broadcast_state", new_callable=AsyncMock),
+        patch.object(type(daemon), "_play_tts", _record_tts),
+        patch.object(type(daemon), "_broadcast_state", _broadcast),
     ):
-        ack = asyncio.create_task(daemon._play_anticipatory_ack(None))
-        await asyncio.sleep(0)
+        await daemon._signal_processing_started(UtteranceTrace())
+        assert daemon.state == "processing"
+        assert spoken == [], "le signal de début de tour ne doit rien prononcer"
+        assert payloads and payloads[-1]["type"] == "voice_processing_started"
 
-        # Le tour est abandonné pendant que l'accusé parle encore.
+        # Le tour est abandonné, puis un signal tardif arrive.
         await daemon._rearm(reason="empty_transcript")
         assert daemon.state == "listening"
-
-        released.set()
-        await ack
+        await daemon._signal_processing_started(UtteranceTrace())
 
     assert daemon.state == "listening", (
-        "un accusé tardif ne doit pas ramener l'état à « processing »"
+        "un signal tardif ne doit pas ramener l'état à « processing »"
     )
+    assert spoken == []
+
+
+@pytest.mark.asyncio
+async def test_quality_fallback_signal_makes_no_sound():
+    """Le repli qualité est observable, jamais audible."""
+    daemon = _daemon()
+    spoken: list[str] = []
+    payloads: list[dict] = []
+
+    async def _record_tts(self, text, **_kwargs):
+        spoken.append(text)
+
+    async def _broadcast(self, payload=None):
+        if isinstance(payload, dict):
+            payloads.append(payload)
+
+    with (
+        patch.object(type(daemon), "_play_tts", _record_tts),
+        patch.object(type(daemon), "_broadcast_state", _broadcast),
+    ):
+        await daemon._signal_quality_fallback()
+
+    assert spoken == []
+    assert payloads == [{"type": "voice_quality_fallback"}]

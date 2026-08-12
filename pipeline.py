@@ -79,6 +79,11 @@ async def process_voice_fast(
     ``trace`` transporte la chronologie de latence du tour de parole ; elle est
     facultative pour que les producteurs qui n'en tiennent pas (tests, API)
     restent inchangés.
+
+    ``on_canonical_turn_started`` signale un **changement d'état** au moment où
+    le moteur canonique prend le tour. Ce n'est pas un producteur de parole :
+    il ne doit rien synthétiser ni jouer. Le rappel part en parallèle du tour
+    et n'entre jamais dans son chemin critique.
     """
     kwargs: dict[str, Any] = {"stt_ms": stt_ms, "trace": trace}
     if on_canonical_turn_started is not None:
