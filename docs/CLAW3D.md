@@ -119,6 +119,21 @@ python3 scripts/claw3d.py start
 
 Le mode `null` affiche l'état hors ligne et n'émet aucune requête JARVIS.
 
+## Mise à niveau après un changement de révision épinglée
+
+`install` ne clone que si le répertoire est absent : une installation restée sur
+une révision antérieure au pin fait échouer **toutes** les commandes, `status`
+et `verify` compris, avec `version Claw3D inattendue`. La sortie est :
+
+```bash
+python3 scripts/claw3d.py update
+```
+
+La commande ne prend aucun argument de version : la seule révision atteignable
+est `CLAW3D_COMMIT`. Elle refuse un checkout portant des modifications suivies
+par Git plutôt que de les écraser, puis rejoue `install.sh` pour resynchroniser
+les dépendances. La configuration `.env` existante est conservée.
+
 ## Vérification, arrêt et nettoyage
 
 ```bash

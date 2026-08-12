@@ -99,6 +99,23 @@ def test_visual_credentials_are_scoped_private_and_stable(tmp_path: Path):
     assert ca_path is None and repeated_ca is None
 
 
+def test_visual_state_root_is_private_enough_for_the_claw3d_connector(tmp_path: Path):
+    """Le connecteur Claw3D refuse un état projet lisible hors du propriétaire.
+
+    Créé au umask usuel, ``.claw3d`` naissait en 0755 et le relais visuel
+    répondait ``visual_connector_unavailable`` sans indiquer la cause.
+    """
+
+    root = tmp_path / "jarvis" / ".jarvis" / "apps" / "claw3d"
+    root.mkdir(parents=True)
+    (root / ".claw3d").mkdir(mode=0o755)
+
+    token_path, _ = claw3d.provision_visual_credentials(root, "http://127.0.0.1:8080")
+
+    for directory in (root / ".claw3d", token_path.parent):
+        assert directory.stat().st_mode & 0o077 == 0, directory
+
+
 def test_visual_credentials_copy_only_public_ca_for_https(tmp_path: Path):
     jarvis_root = tmp_path / "jarvis"
     root = jarvis_root / ".jarvis" / "apps" / "claw3d"
@@ -263,3 +280,94 @@ def test_sync_managed_configuration_rewrites_readonly_origin(tmp_path: Path, mon
 def test_source_is_pinned_to_an_exact_public_commit():
     assert claw3d.CLAW3D_REPOSITORY == "https://github.com/AVTAVANTTOUT2/Claw3D.git"
     assert claw3d.CLAW3D_COMMIT == "202feaf0efd8ae92451368d408e387a507da0192"
+
+
+def _prepare_update(tmp_path: Path, monkeypatch, *, head: str, dirty: str = ""):
+    """Installation factice prête pour ``update_installation``.
+
+    ``_capture`` est stubbé par commande : ``rev-parse`` suit l'état simulé du
+    checkout (il change après le ``git checkout``), ``status`` décrit la
+    propreté de l'arbre.
+    """
+
+    root = _fake_installation(tmp_path)
+    monkeypatch.setattr(claw3d, "apps_root", lambda jarvis_root=claw3d.JARVIS_ROOT: root.parent)
+    monkeypatch.setattr(claw3d, "_require_tool", lambda name: None)
+    state = {"head": head}
+    commands: list[tuple[tuple[str, ...], Path | None]] = []
+
+    def capture(command, cwd=None):
+        if "rev-parse" in command:
+            return state["head"]
+        if "status" in command:
+            return dirty
+        raise AssertionError(f"commande inattendue: {command}")
+
+    def runner(command, cwd=None):
+        commands.append((tuple(command), cwd))
+        if "checkout" in command:
+            state["head"] = claw3d.CLAW3D_COMMIT
+
+    monkeypatch.setattr(claw3d, "_capture", capture)
+    return root, commands, runner
+
+
+def test_update_realigns_a_stale_checkout_on_the_pinned_commit(tmp_path: Path, monkeypatch):
+    root, commands, runner = _prepare_update(tmp_path, monkeypatch, head="0" * 40)
+
+    assert claw3d.update_installation(tmp_path, runner=runner) == claw3d.CLAW3D_COMMIT
+
+    assert commands == [
+        (
+            (
+                "git",
+                "fetch",
+                "--filter=blob:none",
+                "--no-tags",
+                claw3d.CLAW3D_REPOSITORY,
+                claw3d.CLAW3D_COMMIT,
+            ),
+            root,
+        ),
+        (("git", "checkout", "--detach", claw3d.CLAW3D_COMMIT), root),
+        ((str(root / "scripts" / "install.sh"),), root),
+    ]
+
+
+def test_update_never_moves_to_a_revision_other_than_the_pin(tmp_path: Path, monkeypatch):
+    _, commands, runner = _prepare_update(tmp_path, monkeypatch, head="0" * 40)
+
+    claw3d.update_installation(tmp_path, runner=runner)
+
+    referenced = {argument for command, _ in commands for argument in command}
+    assert claw3d.CLAW3D_COMMIT in referenced
+    assert not any(
+        argument in referenced
+        for argument in ("main", "HEAD", "origin/main", "--force", "FETCH_HEAD")
+    )
+
+
+def test_update_is_a_noop_when_the_checkout_is_already_pinned(tmp_path: Path, monkeypatch):
+    _, commands, runner = _prepare_update(tmp_path, monkeypatch, head=claw3d.CLAW3D_COMMIT)
+
+    assert claw3d.update_installation(tmp_path, runner=runner) == claw3d.CLAW3D_COMMIT
+    assert commands == []
+
+
+def test_update_refuses_to_discard_local_modifications(tmp_path: Path, monkeypatch):
+    _, commands, runner = _prepare_update(
+        tmp_path, monkeypatch, head="0" * 40, dirty=" M src/app/page.tsx\n"
+    )
+
+    with pytest.raises(claw3d.Claw3DError, match="modifié localement"):
+        claw3d.update_installation(tmp_path, runner=runner)
+    assert commands == []
+
+
+def test_update_refuses_a_missing_installation(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(claw3d, "_require_tool", lambda name: None)
+    apps = tmp_path / ".jarvis" / "apps"
+    monkeypatch.setattr(claw3d, "apps_root", lambda jarvis_root=claw3d.JARVIS_ROOT: apps)
+
+    with pytest.raises(claw3d.Claw3DError, match="installation Claw3D absente"):
+        claw3d.update_installation(tmp_path)

@@ -281,3 +281,39 @@ def test_cursor_update_fails_closed_when_redaction_errors(
             ("p12-fail-closed",),
         ).fetchone()[0]
     assert raw_output is None
+
+
+def test_validation_sandbox_profile_allows_reading_the_root_entry() -> None:
+    """Le chargeur dynamique lit l'entrée « / » avant tout autre chemin.
+
+    Sans cette autorisation, `sandbox-exec` abandonne le processus (SIGABRT) et
+    le préflight échoue en `validation_sandbox_unavailable` : la porte de
+    validation DevAgent devient inatteignable et aucune livraison ne peut
+    aboutir, sans que le message ne désigne la cause.
+    """
+
+    from agents.devagent import agentic_runtime
+
+    profile = agentic_runtime._sandbox_profile(Path("/tmp/workspace"), Path("/tmp/home"))
+    read_rules = [
+        line
+        for line in profile.splitlines()
+        if line.startswith("(allow file-read*")
+    ]
+    assert read_rules, profile
+    assert any('(literal "/")' in line for line in read_rules), profile
+    assert "(deny default)" in profile
+    assert "(deny network*)" in profile
+
+
+@pytest.mark.skipif(
+    __import__("platform").system() != "Darwin", reason="sandbox-exec est macOS"
+)
+def test_validation_sandbox_preflight_succeeds_on_this_host(tmp_path: Path) -> None:
+    """Le bac à sable de validation doit réellement démarrer sur la machine."""
+
+    from agents.devagent import agentic_runtime
+
+    if not Path("/usr/bin/sandbox-exec").is_file():
+        pytest.skip("sandbox-exec absent")
+    agentic_runtime._validation_sandbox_preflight(tmp_path)

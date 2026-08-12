@@ -1056,8 +1056,14 @@ def _sandbox_profile(workspace: Path, isolated_home: Path) -> str:
             "(deny default)",
             "(allow process*)",
             "(deny network*)",
+            # `file-read-metadata` sur la racine ne suffit pas : sur macOS 26,
+            # le chargeur dynamique lit l'entrée de répertoire « / » elle-même
+            # et abandonne (SIGABRT) sinon. Le préflight tombait alors en
+            # `validation_sandbox_unavailable` et bloquait toute livraison,
+            # sans que rien ne désigne la cause. `literal` n'ouvre que la
+            # racine, pas son contenu — les sous-arbres restent énumérés.
             '(allow file-read-metadata (literal "/"))',
-            f"(allow file-read* {read_rules} {read_files})",
+            f'(allow file-read* (literal "/") {read_rules} {read_files})',
             '(allow file-read* (literal "/dev/null") (literal "/dev/urandom"))',
             f'(allow file-write* (subpath "{_sandbox_literal(workspace)}") '
             f'(subpath "{_sandbox_literal(isolated_home)}"))',

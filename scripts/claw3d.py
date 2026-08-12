@@ -64,9 +64,26 @@ def claw3d_root(jarvis_root: Path = JARVIS_ROOT) -> Path:
     return apps_root(jarvis_root) / "claw3d"
 
 
+def _ensure_private_directory(path: Path) -> Path:
+    """Crée le répertoire en 0700 et corrige un mode trop permissif.
+
+    Le connecteur Claw3D refuse un état projet lisible par le groupe ou par les
+    autres : un répertoire créé au umask usuel (0755) rend le jeton
+    ``visual:read`` inexploitable et le relais visuel répond alors
+    ``visual_connector_unavailable`` sans que rien n'indique la cause.
+    """
+    if path.is_symlink():
+        raise Claw3DError(f"répertoire privé Claw3D ambigu: {path}")
+    path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if not path.is_dir():
+        raise Claw3DError(f"répertoire privé Claw3D invalide: {path}")
+    path.chmod(0o700)
+    return path
+
+
 def _write_private_file(path: Path, content: str, *, preserve: bool) -> Path:
     """Écrit un fichier régulier 0600 sans suivre de lien symbolique."""
-    path.parent.mkdir(parents=True, exist_ok=True)
+    _ensure_private_directory(path.parent)
     if path.parent.is_symlink() or path.is_symlink():
         raise Claw3DError(f"chemin privé ambigu: {path}")
     if path.exists():
@@ -95,7 +112,7 @@ def provision_visual_credentials(root: Path, jarvis_origin: str) -> tuple[Path, 
     state_root = root / ".claw3d"
     if state_root.is_symlink():
         raise Claw3DError("le répertoire privé Claw3D ne peut pas être un lien symbolique")
-    state_root.mkdir(exist_ok=True)
+    _ensure_private_directory(state_root)
     token_path = root / VISUAL_TOKEN_RELATIVE_PATH
     if token_path.exists():
         token = token_path.read_text(encoding="ascii").strip()
@@ -404,6 +421,61 @@ def install(
     return root
 
 
+def update_installation(jarvis_root: Path, *, runner: Runner = _run) -> str:
+    """Aligne un checkout Claw3D existant sur la révision épinglée.
+
+    ``install`` ne clone qu'une installation absente : sans cette commande, un
+    checkout resté sur une révision antérieure ne peut plus être réparé, et
+    ``validate_installation`` refuse alors *toutes* les commandes, y compris
+    ``status`` et ``verify``. Le pin reste la seule révision atteignable — cette
+    commande ne choisit pas une version, elle rattrape un retard.
+
+    Une modification locale suivie par Git interrompt la mise à jour : écraser
+    silencieusement du travail non commité serait pire qu'un checkout périmé.
+    """
+
+    for tool in ("git", "node", "npm"):
+        _require_tool(tool)
+
+    root = claw3d_root(jarvis_root)
+    app_parent = apps_root(jarvis_root)
+    if root.is_symlink():
+        raise Claw3DError(f"lien symbolique Claw3D refusé: {root}")
+    if not root.is_dir():
+        raise Claw3DError(f"installation Claw3D absente: {root}")
+
+    validate_installation(root, expected_parent=app_parent, verify_commit=False)
+
+    current = _capture(("git", "rev-parse", "HEAD"), cwd=root)
+    if current == CLAW3D_COMMIT:
+        return current
+
+    modified = _capture(
+        ("git", "status", "--porcelain", "--untracked-files=no"), cwd=root
+    )
+    if modified:
+        raise Claw3DError(
+            "checkout Claw3D modifié localement: mise à jour refusée "
+            "(committez ou annulez ces modifications avant de rejouer update)"
+        )
+
+    runner(
+        (
+            "git",
+            "fetch",
+            "--filter=blob:none",
+            "--no-tags",
+            CLAW3D_REPOSITORY,
+            CLAW3D_COMMIT,
+        ),
+        root,
+    )
+    runner(("git", "checkout", "--detach", CLAW3D_COMMIT), root)
+    validate_installation(root, expected_parent=app_parent)
+    runner((str(root / "scripts" / "install.sh"),), root)
+    return CLAW3D_COMMIT
+
+
 def run_lifecycle(
     jarvis_root: Path,
     script_name: str,
@@ -538,6 +610,11 @@ def build_parser() -> argparse.ArgumentParser:
     install_parser = subparsers.add_parser("install", help="cloner et installer Claw3D")
     _add_configuration_arguments(install_parser)
 
+    subparsers.add_parser(
+        "update",
+        help="aligner une installation existante sur la révision épinglée",
+    )
+
     configure_parser = subparsers.add_parser(
         "configure", help="remplacer explicitement la configuration visuelle"
     )
@@ -572,6 +649,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 port=args.port,
             )
             print(f"Claw3D prêt: {root}")
+        elif args.command == "update":
+            commit = update_installation(JARVIS_ROOT)
+            print(f"Claw3D aligné sur la révision épinglée: {commit}")
         elif args.command == "configure":
             root = claw3d_root()
             configure(
