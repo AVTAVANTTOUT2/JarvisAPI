@@ -859,15 +859,25 @@ class AgenticService:
         ):
             if current.terminal:
                 return
-            error = AgenticError(
-                AgenticErrorCode.RUNTIME_PROTOCOL,
-                "le runtime a signalé un échec",
-            )
+            raw_code = str(event.payload.get("error_code") or "").strip().lower()
+            if raw_code == AgenticErrorCode.BUDGET_EXCEEDED.value:
+                error = AgenticError(
+                    AgenticErrorCode.BUDGET_EXCEEDED,
+                    "le runtime a franchi une limite de budget",
+                )
+            else:
+                error = AgenticError(
+                    AgenticErrorCode.RUNTIME_PROTOCOL,
+                    "le runtime a signalé un échec",
+                )
             await self._transition(
                 current,
                 AgenticRunStatus.FAILED,
                 error=error,
-                payload={"error_code": error.code.value},
+                payload={
+                    "error_code": error.code.value,
+                    "violation": event.payload.get("violation"),
+                },
             )
 
     async def _process_persisted_runtime_event(

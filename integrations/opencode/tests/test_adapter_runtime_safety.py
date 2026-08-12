@@ -923,6 +923,45 @@ async def test_completion_without_usage_telemetry_fails_closed(tmp_path: Path) -
 
 
 @pytest.mark.asyncio
+async def test_partial_message_updated_without_tokens_does_not_abort(
+    tmp_path: Path,
+) -> None:
+    """DeepSeek/OpenCode envoient des message.updated avant les compteurs."""
+
+    runtime = _runtime(_layout(tmp_path), _ProcessFactory(), _ClientFactory())
+    run = _run(tmp_path, run_id="partial-usage", profile_id="default")
+    try:
+        await runtime.create_run(run, _context(run))
+        await runtime.start(run)
+        state = runtime._states[run.run_id]
+        await state.client.events.put(
+            _event(
+                state.session_id,
+                "partial",
+                "message.updated",
+                {
+                    "info": {
+                        "id": "assistant-partial",
+                        "sessionID": state.session_id,
+                        "role": "assistant",
+                    }
+                },
+            )
+        )
+        await state.client.events.put(
+            _assistant_usage_event(state.session_id, "usage-ready", total=8)
+        )
+        await state.client.events.put(
+            _event(state.session_id, "idle", "session.idle", {})
+        )
+        events = await asyncio.wait_for(_collect(runtime, run.run_id), timeout=1)
+        assert events[-1].type == "agent.run.completed"
+        assert state.usage_seen is True
+    finally:
+        await runtime.dispose()
+
+
+@pytest.mark.asyncio
 async def test_concurrent_cleanup_waits_for_process_stop_before_purging(
     tmp_path: Path,
 ) -> None:
@@ -1092,6 +1131,9 @@ async def test_event_queue_and_total_input_are_bounded_fail_closed(
         await runtime.start(run)
         state = runtime._states[run.run_id]
         assert state.max_events == 2
+        # Le plafond SSE brut est distinct du plafond mappé ; on le borne ici
+        # pour vérifier le fail-closed DoS sur le flux fournisseur.
+        state.max_raw_events = 2
         for index in range(3):
             await state.client.events.put(
                 _event(state.session_id, f"ignored-{index}", "server.heartbeat", {})
@@ -1099,6 +1141,55 @@ async def test_event_queue_and_total_input_are_bounded_fail_closed(
         events = await asyncio.wait_for(_collect(runtime, run.run_id), timeout=1)
         assert events[-1].payload["violation"] == "event_budget_exceeded"
         assert run.run_id not in runtime._states
+    finally:
+        await runtime.dispose()
+
+
+def test_event_limits_raw_ceiling_absorbs_deepseek_token_streaming() -> None:
+    from jarvis.agentic.context import build_run_budget
+
+    run = _run(
+        Path("/tmp"),
+        run_id="limits",
+        profile_id="default",
+        budget=build_run_budget(),
+    )
+    queue_size, mapped, raw = adapter_module._event_limits(run)
+    assert queue_size <= adapter_module._MAX_EVENT_QUEUE_SIZE
+    assert mapped <= adapter_module._MAX_EVENTS_PER_RUN
+    assert raw >= 16_384
+    assert raw <= adapter_module._MAX_RAW_SSE_PER_RUN
+    # Le plafond SSE brut doit rester largement au-dessus du plafond mappé :
+    # DeepSeek émet des message.part.updated au niveau token.
+    assert raw > mapped * 8
+
+
+@pytest.mark.asyncio
+async def test_unmapped_sse_noise_does_not_consume_mapped_event_budget(
+    tmp_path: Path,
+) -> None:
+    runtime = _runtime(_layout(tmp_path), _ProcessFactory(), _ClientFactory())
+    run = _run(tmp_path, run_id="sse-noise", profile_id="default")
+    try:
+        await runtime.create_run(run, _context(run))
+        await runtime.start(run)
+        state = runtime._states[run.run_id]
+        state.max_events = 2
+        state.max_raw_events = 100
+        for index in range(5):
+            await state.client.events.put(
+                _event(state.session_id, f"noise-{index}", "server.heartbeat", {})
+            )
+        await state.client.events.put(
+            _assistant_usage_event(state.session_id, "usage", total=4)
+        )
+        await state.client.events.put(
+            _event(state.session_id, "idle", "session.idle", {})
+        )
+        events = await asyncio.wait_for(_collect(runtime, run.run_id), timeout=1)
+        assert events[-1].type == "agent.run.completed"
+        assert state.raw_event_count >= 5
+        assert state.event_count == 1
     finally:
         await runtime.dispose()
 

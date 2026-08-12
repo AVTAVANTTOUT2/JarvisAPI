@@ -15,6 +15,7 @@ import re
 import stat
 import sys
 import threading
+from types import SimpleNamespace
 from typing import Any, Callable
 from uuid import uuid4
 
@@ -60,6 +61,9 @@ _MAX_RUNTIME_DIRECTORIES = 256
 _MAX_PROCESS_STATE_BYTES = 64 * 1024
 _MAX_EVENT_QUEUE_SIZE = 512
 _MAX_EVENTS_PER_RUN = 4_096
+# DeepSeek streams many SSE frames per mapped domain event; keep a hard
+# ceiling independent of the mapped-event budget.
+_MAX_RAW_SSE_PER_RUN = 250_000
 _MAX_ARTIFACTS_PER_RUN = 100
 _MUTATING_FILE_TOOLS = frozenset({"edit", "write"})
 _MODEL_PROVIDER_ENV_ALLOWLIST = ("DEEPSEEK_API_KEY",)
@@ -481,11 +485,21 @@ def _nonnegative_float(value: Any) -> float | None:
     return result
 
 
-def _event_limits(run: AgenticRun) -> tuple[int, int]:
+def _event_limits(run: AgenticRun) -> tuple[int, int, int]:
+    """Retourne (taille file, événements mappés max, SSE bruts max).
+
+    OpenCode émet beaucoup de ``message.part.updated`` pendant le streaming
+    DeepSeek. Le plafond mappé reste calé sur le budget logique du run ; le
+    plafond SSE brut est plus large pour absorber la télémétrie fournisseur
+    sans ouvrir une file DoS illimitée.
+    """
+
     expected = run.budget.max_steps * 2 + run.budget.max_tool_calls + 16
     queue_size = min(_MAX_EVENT_QUEUE_SIZE, max(32, expected))
-    total = min(_MAX_EVENTS_PER_RUN, max(64, expected * 4))
-    return queue_size, total
+    mapped = min(_MAX_EVENTS_PER_RUN, max(64, expected * 4))
+    # Token-level SSE (message.part.updated) dwarfs mapped events on DeepSeek.
+    raw = min(_MAX_RAW_SSE_PER_RUN, max(16_384, expected * 512))
+    return queue_size, mapped, raw
 
 
 @dataclass(slots=True)
@@ -504,7 +518,9 @@ class _RunState:
     request_prompt: str
     queue: asyncio.Queue[RuntimeEvent | None] = field(init=False)
     max_events: int = field(init=False)
+    max_raw_events: int = field(init=False)
     event_count: int = 0
+    raw_event_count: int = 0
     pump: asyncio.Task[None] | None = None
     budget_watchdog: asyncio.Task[None] | None = None
     terminal_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
@@ -531,7 +547,7 @@ class _RunState:
     provider_completed: bool = False
 
     def __post_init__(self) -> None:
-        queue_size, self.max_events = _event_limits(self.run)
+        queue_size, self.max_events, self.max_raw_events = _event_limits(self.run)
         self.queue = asyncio.Queue(maxsize=queue_size)
 
 
@@ -1094,6 +1110,8 @@ class OpenCodeRuntime:
             raise RuntimeError("nettoyage du runtime OpenCode incomplet") from failure
 
     def _queue_violation(self, state: _RunState) -> str | None:
+        if state.raw_event_count > state.max_raw_events:
+            return "event_budget_exceeded"
         if state.event_count > state.max_events:
             return "event_budget_exceeded"
         if state.queue.full():
@@ -1239,49 +1257,54 @@ class OpenCodeRuntime:
             return None
         properties = data.get("properties")
         if not isinstance(properties, Mapping):
-            return "budget_telemetry_unavailable"
+            # Mise à jour partielle / non exploitable : ignorer, ne pas avorter.
+            return None
         info = properties.get("info")
         if not isinstance(info, Mapping):
-            return "budget_telemetry_unavailable"
+            return None
         if str(info.get("role") or "").lower() != "assistant":
             return None
         session_id = info.get("sessionID") or properties.get("sessionID")
         if not isinstance(session_id, str) or not session_id:
-            return "budget_telemetry_unavailable"
+            return None
         if session_id != state.session_id:
             return None
         message_id = info.get("id") or info.get("messageID")
         if not isinstance(message_id, str) or not message_id or len(message_id) > 512:
-            return "budget_telemetry_unavailable"
+            return None
         tokens = info.get("tokens")
         if not isinstance(tokens, Mapping):
-            return "budget_telemetry_unavailable"
+            # DeepSeek/OpenCode émettent des message.updated avant d'avoir les
+            # compteurs : ce n'est pas une violation, seulement une amorce.
+            return None
         input_tokens = _nonnegative_int(tokens.get("input"))
         if input_tokens is None:
-            return "budget_telemetry_unavailable"
+            return None
         cache = tokens.get("cache")
         if cache is None:
             cache = {}
         if not isinstance(cache, Mapping):
-            return "budget_telemetry_unavailable"
+            return None
         cache_read = _nonnegative_int(cache.get("read", 0))
         cache_write = _nonnegative_int(cache.get("write", 0))
         if cache_read is None or cache_write is None:
-            return "budget_telemetry_unavailable"
+            return None
         total = tokens.get("total")
         if total is not None:
             model_tokens = _nonnegative_int(total)
             if model_tokens is None:
-                return "budget_telemetry_unavailable"
+                return None
         else:
             output_tokens = _nonnegative_int(tokens.get("output"))
             reasoning_tokens = _nonnegative_int(tokens.get("reasoning"))
             if output_tokens is None or reasoning_tokens is None:
-                return "budget_telemetry_unavailable"
+                return None
             model_tokens = input_tokens + output_tokens + reasoning_tokens + cache_write
         raw_cost = info.get("cost")
         cost = _nonnegative_float(raw_cost)
         if state.run.budget.cost_budget is not None and cost is None:
+            # Budget coût actif mais télémétrie absente sur un message assistant
+            # déjà pourvu de tokens : impossible de comptabiliser fidèlement.
             return "budget_telemetry_unavailable"
         resolved_cost = cost or 0.0
         context_tokens = input_tokens + cache_read
@@ -1314,6 +1337,36 @@ class OpenCodeRuntime:
         ):
             return "cost_budget"
         return None
+
+    async def _reconcile_usage_from_session(self, state: _RunState) -> None:
+        """Récupère la télémétrie manquante avant d'accepter un session.idle."""
+
+        if state.usage_seen:
+            return
+        try:
+            messages = await state.client.messages(
+                state.session_id,
+                directory=str(state.workspace),
+            )
+        except Exception:
+            return
+        for envelope in messages:
+            info = getattr(envelope, "info", None)
+            if not isinstance(info, Mapping):
+                continue
+            synthetic = SimpleNamespace(
+                data={
+                    "type": "message.updated",
+                    "properties": {
+                        "sessionID": state.session_id,
+                        "info": dict(info),
+                    },
+                },
+                event_type="message.updated",
+            )
+            violation = self._usage_budget_violation(state, synthetic)
+            if violation is not None:
+                raise RuntimeError(violation)
 
     def _budget_window(self, state: _RunState) -> tuple[float, str]:
         delay = float(state.run.budget.max_duration_s)
@@ -1365,8 +1418,8 @@ class OpenCodeRuntime:
             ):
                 if state.finished or state.cancelled:
                     return
-                state.event_count += 1
-                if state.event_count > state.max_events:
+                state.raw_event_count += 1
+                if state.raw_event_count > state.max_raw_events:
                     await self._emit_failure(
                         state,
                         error_code="budget_exceeded",
@@ -1388,6 +1441,14 @@ class OpenCodeRuntime:
                 )
                 if mapped is None:
                     continue
+                state.event_count += 1
+                if state.event_count > state.max_events:
+                    await self._emit_failure(
+                        state,
+                        error_code="budget_exceeded",
+                        violation="event_budget_exceeded",
+                    )
+                    return
                 violation = self._event_budget_violation(state, event, mapped)
                 if violation is not None:
                     await self._emit_failure(
@@ -1401,12 +1462,22 @@ class OpenCodeRuntime:
                 ):
                     continue
                 if mapped.type == "agent.run.completed" and not state.usage_seen:
-                    await self._emit_failure(
-                        state,
-                        error_code="budget_exceeded",
-                        violation="budget_telemetry_unavailable",
-                    )
-                    return
+                    try:
+                        await self._reconcile_usage_from_session(state)
+                    except RuntimeError as exc:
+                        await self._emit_failure(
+                            state,
+                            error_code="budget_exceeded",
+                            violation=str(exc) or "budget_telemetry_unavailable",
+                        )
+                        return
+                    if not state.usage_seen:
+                        await self._emit_failure(
+                            state,
+                            error_code="budget_exceeded",
+                            violation="budget_telemetry_unavailable",
+                        )
+                        return
                 if mapped.type in {"agent.run.completed", "agent.run.failed"}:
                     violation = self._queue_violation(state)
                     if violation is not None:
