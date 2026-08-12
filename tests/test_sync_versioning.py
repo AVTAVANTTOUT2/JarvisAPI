@@ -185,12 +185,15 @@ def test_inflight_operation_blocks_replay_until_client_wins(sync_client) -> None
     }
     assert state["writes"] == 0
 
+    # `client_wins` ne lève pas ce blocage, et ne le doit pas : une réservation
+    # incomplète signifie que le handler a peut-être déjà persisté la mutation.
+    # La rejouer dupliquerait l'écriture — c'est le défaut corrigé par #221.
+    # Le client tranche les conflits de version, pas les issues inconnues.
     headers["X-Jarvis-Conflict-Strategy"] = "client_wins"
-    recovered = client.post("/api/tasks", content=body, headers=headers)
-    assert recovered.status_code == 200
-    assert recovered.json()["title"] == "offline"
-    assert recovered.headers["X-Jarvis-Entity-Version"] == "1"
-    assert state["writes"] == 1
+    still_blocked = client.post("/api/tasks", content=body, headers=headers)
+    assert still_blocked.status_code == 409
+    assert still_blocked.json()["error"] == "sync_operation_outcome_unknown"
+    assert state["writes"] == 0
 
 
 def test_same_operation_id_with_different_checksum_is_rejected(sync_client) -> None:
