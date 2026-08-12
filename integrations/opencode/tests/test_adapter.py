@@ -622,3 +622,45 @@ def test_model_provider_environment_loads_jarvis_env_without_second_secret(
     assert env["DEEPSEEK_API_KEY"] == fake_secret
     assert "OPENCODE_DEEPSEEK_API_KEY" not in env
     assert opencode_adapter._MODEL_PROVIDER_ENV_ALLOWLIST == ("DEEPSEEK_API_KEY",)
+
+
+def test_select_agent_uses_coding_when_workspace_write_granted() -> None:
+    run = AgenticRun(
+        run_id="run-coding",
+        profile_id="default",
+        origin="user",
+        channel="api",
+        runtime_id="opencode",
+        title="corriger un typo",
+        category=AgenticRequestCategory.AGENTIC_REVERSIBLE,
+        permissions=("workspace:read", "workspace:write"),
+    )
+    context = AgenticContext(
+        run_id=run.run_id,
+        profile_id=run.profile_id,
+        channel=run.channel,
+        origin=run.origin,
+        permissions=run.permissions,
+    )
+    assert opencode_adapter._select_agent(run, context) == "jarvis-coding"
+
+
+def test_select_agent_keeps_executor_without_write_permission() -> None:
+    run = AgenticRun(
+        run_id="run-readonly",
+        profile_id="default",
+        origin="user",
+        channel="api",
+        runtime_id="opencode",
+        title="résumer le dépôt",
+        category=AgenticRequestCategory.AGENTIC_READONLY,
+        permissions=("workspace:read",),
+    )
+    context = AgenticContext(
+        run_id=run.run_id,
+        profile_id=run.profile_id,
+        channel=run.channel,
+        origin=run.origin,
+        permissions=run.permissions,
+    )
+    assert opencode_adapter._select_agent(run, context) == "jarvis-executor"

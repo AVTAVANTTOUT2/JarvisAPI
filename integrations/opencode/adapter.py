@@ -201,6 +201,25 @@ def _select_model(catalog: Any) -> ModelSelection:
     )
 
 
+def _select_agent(run: AgenticRun, context: AgenticContext) -> str:
+    """Choisit l'agent OpenCode selon les permissions déjà accordées par JARVIS.
+
+    ``jarvis-coding`` autorise l'édition native dans le worktree lorsque
+    ``workspace:write`` a déjà été accordé au run. ``jarvis-executor`` garde
+    ``edit=ask`` pour les parcours où l'écriture n'est pas pré-autorisée ;
+    l'approbation native y reste bornée (deny-only via MCP, voir tests e2e).
+    """
+
+    permissions = set(context.permissions) | set(run.permissions)
+    can_edit = (
+        run.category is not AgenticRequestCategory.AGENTIC_READONLY
+        and bool({"workspace.edit", "workspace:write"} & permissions)
+    )
+    if can_edit:
+        return "jarvis-coding"
+    return "jarvis-executor"
+
+
 def _run_storage_key(run_id: str, profile_id: str) -> str:
     return hashlib.sha256(f"{profile_id}\0{run_id}".encode()).hexdigest()
 
@@ -1015,9 +1034,10 @@ class OpenCodeRuntime:
                     )
                 catalog = await client.providers(directory=str(workspace))
                 model = _select_model(catalog)
+                agent = _select_agent(run, context)
                 session = await client.create_session(
                     title="JARVIS agentic run",
-                    agent="jarvis-executor",
+                    agent=agent,
                     model=model,
                     metadata={"origin": "jarvis", "runID": run.run_id},
                     directory=str(workspace),
@@ -1043,7 +1063,7 @@ class OpenCodeRuntime:
                 client=client,
                 session_id=session.id,
                 model=model,
-                agent="jarvis-executor",
+                agent=agent,
                 system_prompt=_system_prompt(run, context, workspace),
                 request_prompt=_request_prompt(run, context),
             )
