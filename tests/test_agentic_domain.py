@@ -416,3 +416,37 @@ def test_verifier_refuses_model_text_missing_paths_and_untrusted_receipts(
         trusted_artifact_ids=frozenset({receipt.artifact_id}),
     )
     assert trusted.verdict is VerificationVerdict.PASS
+
+
+def test_budget_violation_survives_event_neutralisation() -> None:
+    """`budget_exceeded` sans borne nommée n'apprend rien à personne.
+
+    Le service pose `violation` sur la transition d'échec ; l'allowlist de
+    neutralisation la supprimait silencieusement, si bien que le diagnostic
+    ajouté côté runtime n'atteignait aucun consommateur.
+    """
+
+    from jarvis.agentic.redaction import SAFE_EVENT_FIELDS, neutralize_event_payload
+
+    assert "violation" in SAFE_EVENT_FIELDS
+
+    safe = neutralize_event_payload(
+        {
+            "run_id": "run-1",
+            "error_code": "budget_exceeded",
+            "violation": "event_budget_exceeded",
+            "session_token": "secret-a-jeter",
+        }
+    )
+    assert safe["violation"] == "event_budget_exceeded"
+    assert safe["error_code"] == "budget_exceeded"
+    assert "session_token" not in safe
+
+
+def test_neutralised_violation_is_bounded() -> None:
+    """Le champ reste une étiquette courte, jamais un canal de sortie."""
+
+    from jarvis.agentic.redaction import neutralize_event_payload
+
+    safe = neutralize_event_payload({"violation": "x" * 5_000})
+    assert len(safe["violation"]) <= 200
