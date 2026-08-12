@@ -345,8 +345,17 @@ def _runtime(
 
 @pytest.mark.asyncio
 async def test_two_services_use_distinct_processes_ports_secrets_and_state(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Deux services concurrents ne partagent ni processus, ni port, ni secret.
+
+    Le test tournait sans neutraliser l'environnement : il n'était vert que sur
+    une machine **sans** `DEEPSEEK_API_KEY`. Dès qu'une clé était configurée,
+    l'adaptateur ajoutait légitimement `explicit_environment` aux arguments de
+    démarrage, l'assertion tombait — et pytest imprimait la clé dans son
+    rapport d'échec. La CI ne voyait jamais ce chemin, faute de clé.
+    """
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
     layout = _layout(tmp_path)
     processes = _ProcessFactory()
     clients = _ClientFactory()
@@ -367,14 +376,17 @@ async def test_two_services_use_distinct_processes_ports_secrets_and_state(
         )
         assert state_a.process_manager.port != state_b.process_manager.port
         assert state_a.client.password != state_b.client.password
-        assert (
-            "additional_environment_allowlist"
-            not in state_a.process_manager.start_kwargs
+        # Sans clé fournisseur, aucun environnement explicite n'est transmis.
+        # On compare des **clés**, jamais le dictionnaire complet : son rendu
+        # dans un rapport d'échec exposerait la valeur du secret.
+        assert "additional_environment_allowlist" not in set(
+            state_a.process_manager.start_kwargs
         )
-        assert (
-            "additional_environment_allowlist"
-            not in state_b.process_manager.start_kwargs
+        assert "additional_environment_allowlist" not in set(
+            state_b.process_manager.start_kwargs
         )
+        assert "explicit_environment" not in set(state_a.process_manager.start_kwargs)
+        assert "explicit_environment" not in set(state_b.process_manager.start_kwargs)
 
         await first.pause(run_a.run_id)
         assert state_a.client.abort_count == 1

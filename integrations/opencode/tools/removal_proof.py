@@ -15,6 +15,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections.abc import Callable
 from typing import Any
 
 
@@ -33,6 +34,7 @@ _COPY_EXCLUDED_NAMES = frozenset(
         ".ssh",
         ".venv",
         ".worktrees",
+        "venv",  # convention documentée du dépôt : `source venv/bin/activate`
         "__pycache__",
         "artifacts",
         "build",
@@ -106,6 +108,47 @@ class RemovalProofError(RuntimeError):
     """La preuve de suppression n'a pas satisfait son contrat."""
 
 
+def _untracked_paths(root: Path) -> frozenset[str]:
+    """Chemins relatifs présents dans le répertoire de travail, absents du dépôt.
+
+    La preuve porte sur ce que JARVIS livre. Copier le répertoire de travail
+    brut y faisait entrer les fichiers de travail locaux : n'importe quel
+    brouillon dont le **nom** contient celui du fournisseur — un
+    ``.opencode-request.tmp`` posé à la racine, par exemple — était ensuite
+    compté comme résidu et cassait la preuve sur la machine du développeur,
+    jamais en CI où le répertoire est fraîchement cloné.
+
+    ``--exclude-standard`` est volontairement **omis** : un fichier masqué par
+    `.gitignore` ou `.git/info/exclude` n'est pas davantage livré qu'un fichier
+    simplement non ajouté. C'est ce qui manquait — le fichier de coordination
+    local est masqué par `.git/info/exclude` et passait donc au travers.
+
+    Les entrées sous un répertoire déjà écarté de la copie sont ignorées : sans
+    ce filtre, l'ensemble compterait les dizaines de milliers de fichiers de
+    ``venv/`` et ``node_modules/`` que ``copytree`` ne visite jamais.
+    """
+    if not (root / ".git").exists():
+        return frozenset()
+    try:
+        listing = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "-z", "--others"],
+            check=True,
+            capture_output=True,
+            timeout=120,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return frozenset()
+    relatives: set[str] = set()
+    for name in listing.decode("utf-8").split("\0"):
+        if not name:
+            continue
+        head = name.split("/", 1)[0]
+        if head in _COPY_EXCLUDED_NAMES:
+            continue
+        relatives.add(name)
+    return frozenset(relatives)
+
+
 def _copy_ignore(directory: str, names: list[str]) -> set[str]:
     """Exclut secrets, artefacts lourds et liens de la copie temporaire."""
 
@@ -136,6 +179,33 @@ def _copy_ignore(directory: str, names: list[str]) -> set[str]:
     return ignored
 
 
+def _copy_ignore_for(source: Path) -> Callable[[str, list[str]], set[str]]:
+    """Filtre de copie qui écarte en plus tout ce que Git ne suit pas.
+
+    Les chemins non suivis sont calculés **une fois**, pas à chaque répertoire
+    visité par ``copytree``, et comparés en relatif — résoudre chaque candidat
+    coûterait un appel système par fichier du dépôt.
+    """
+    untracked = _untracked_paths(source)
+    resolved_source = source.resolve()
+
+    def _ignore(directory: str, names: list[str]) -> set[str]:
+        ignored = _copy_ignore(directory, names)
+        if not untracked:
+            return ignored
+        try:
+            prefix = Path(directory).resolve().relative_to(resolved_source)
+        except (OSError, ValueError):
+            return ignored
+        for name in names:
+            candidate = (prefix / name).as_posix()
+            if candidate in untracked:
+                ignored.add(name)
+        return ignored
+
+    return _ignore
+
+
 def _is_test_path(relative: Path) -> bool:
     lowered_parts = {part.casefold() for part in relative.parts}
     name = relative.name.casefold()
@@ -147,13 +217,40 @@ def _is_test_path(relative: Path) -> bool:
     )
 
 
+def _shipped_files(root: Path) -> list[Path] | None:
+    """Fichiers réellement livrés par le dépôt, d'après Git.
+
+    La preuve de retrait porte sur ce que JARVIS **publie**, pas sur ce qui
+    traîne dans le répertoire de travail. Parcourir l'arborescence brute faisait
+    échouer la preuve chez tout développeur suivant la convention documentée du
+    dépôt : `venv/` contient des paquets tiers dont le code mentionne le nom du
+    fournisseur, et un fichier de coordination non suivi suffisait à la casser.
+
+    Rend ``None`` si Git n'est pas exploitable ici (copie temporaire sans
+    ``.git``, outil absent) : l'appelant retombe alors sur le parcours complet.
+    """
+    if not (root / ".git").exists():
+        return None
+    try:
+        listing = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "-z", "--cached"],
+            check=True,
+            capture_output=True,
+            timeout=60,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return [root / name for name in listing.decode("utf-8").split("\0") if name]
+
+
 def _production_provider_references(root: Path, provider_name: str) -> list[str]:
     """Retourne les références fournisseur dans le code/contrat de production."""
 
     needle = provider_name.casefold()
     plugin_root = (root / PLUGIN_RELATIVE_PATH).resolve(strict=False)
     violations: list[str] = []
-    for path in root.rglob("*"):
+    candidates = _shipped_files(root)
+    for path in candidates if candidates is not None else root.rglob("*"):
         if not path.is_file() or path.is_symlink():
             continue
         try:
@@ -543,7 +640,7 @@ def run_removal_proof(
     with tempfile.TemporaryDirectory(prefix="jarvis-runtime-removal-") as temp_name:
         temporary_root = Path(temp_name).resolve(strict=True)
         repo_copy = temporary_root / "repository"
-        shutil.copytree(source, repo_copy, ignore=_copy_ignore)
+        shutil.copytree(source, repo_copy, ignore=_copy_ignore_for(source))
         if full:
             # ``artifacts/`` reste globalement exclu. Seules les preuves
             # canoniques exigées par les audits sont recopiées explicitement.
