@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
-"""Mesure hors ligne fin de parole → premier PCM/écriture audio du chemin qualité.
+"""Mesure hors ligne du coût de synthèse pendant une relecture qualité STT.
 
 Le STT primaire et le TTS sont préchauffés comme au démarrage du daemon. Le
-modèle qualité reste froid ; son chargement et l'accusé anticipé démarrent en
-parallèle. Le WAV doit être PCM16 mono et suffisamment difficile pour franchir
-le seuil de relecture qualité configuré.
+modèle qualité reste froid ; son chargement tourne en parallèle d'une synthèse
+sonde. Le WAV doit être PCM16 mono et suffisamment difficile pour franchir le
+seuil de relecture qualité configuré.
+
+**Ce que ce nombre n'est pas.** Le pipeline ne parle plus pendant une relecture
+qualité : l'accusé anticipé a été retiré (ADR-028), le repli n'émet qu'un
+signal d'état muet. La phrase synthétisée ici est une **sonde** destinée à
+chronométrer le chemin TTS → CoreAudio pendant que le modèle lourd charge ;
+aucun utilisateur ne l'entend. Présenter ce délai comme un « premier son »
+perçu décrirait une architecture qui n'existe plus.
 """
 
 from __future__ import annotations
@@ -87,12 +94,12 @@ async def _measure(args: argparse.Namespace) -> dict[str, Any]:
         cache_check_ms = round((time.perf_counter() - cache_check_started) * 1000, 2)
         if not cache_complete:
             raise RuntimeError(f"Cache qualité incomplet : {args.quality_model}")
-        mark("ack_and_quality_started")
+        mark("probe_and_quality_started")
 
-        async def ack() -> Any:
+        async def probe() -> Any:
             async def chunks():
                 async for chunk in provider.stream(
-                    args.ack,
+                    args.probe_text,
                     request_id="voice-latency-benchmark",
                     utterance_id="voice-latency-benchmark",
                 ):
@@ -125,9 +132,9 @@ async def _measure(args: argparse.Namespace) -> dict[str, Any]:
             mark("quality_done")
             return result
 
-        playback, quality = await asyncio.gather(ack(), quality_replay())
+        playback, quality = await asyncio.gather(probe(), quality_replay())
         mark("all_done")
-        first_sound_ms = events.get("coreaudio_first_write", events.get("first_pcm"))
+        probe_first_sound_ms = events.get("coreaudio_first_write", events.get("first_pcm"))
 
         return {
             "offline": True,
@@ -149,10 +156,13 @@ async def _measure(args: argparse.Namespace) -> dict[str, Any]:
             "cache_check_ms": cache_check_ms,
             "playback": playback,
             "events_ms": events,
-            "first_sound_ms": first_sound_ms,
-            "target_ms": 2000,
-            "target_met": first_sound_ms is not None and first_sound_ms < 2000,
-            "margin_ms": None if first_sound_ms is None else round(2000 - first_sound_ms, 1),
+            # Nommé sans ambiguïté : c'est le premier son de la **sonde**, pas
+            # celui d'une réponse. La cible de 2 s appartenait à l'accusé
+            # anticipé, qui n'existe plus ; la comparer ici ferait passer une
+            # mesure d'instrumentation pour une latence perçue.
+            "probe_first_sound_ms": probe_first_sound_ms,
+            "measures": "synthese_sonde_pendant_chargement_du_modele_qualite",
+            "user_audible_during_quality_replay": False,
         }
     finally:
         await provider.close()
@@ -164,7 +174,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--primary-model", default="small")
     parser.add_argument("--quality-model", default="large-v3-turbo")
     parser.add_argument("--language", default="fr")
-    parser.add_argument("--ack", default="Bien, Monsieur.")
+    # Phrase sonde, pas un énoncé du produit : le pipeline ne parle pas
+    # pendant une relecture qualité. Le défaut historique était « Bien,
+    # Monsieur. », l'accusé anticipé supprimé par l'ADR-028.
+    parser.add_argument(
+        "--probe-text", "--ack", dest="probe_text",
+        default="Mesure de latence de synthèse.",
+    )
     parser.add_argument("--tts-model-path", type=Path)
     parser.add_argument("--voice-path", type=Path)
     parser.add_argument("--no-playback", action="store_true")
