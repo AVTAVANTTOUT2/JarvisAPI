@@ -229,6 +229,10 @@ def test_is_installed_and_running_helpers(tmp_path: Path, monkeypatch):
 
 def test_sync_managed_configuration_rewrites_readonly_origin(tmp_path: Path, monkeypatch):
     root = _fake_installation(tmp_path)
+    # HTTPS readonly exige le CA public JARVIS (même contrat que provision_visual_credentials).
+    cert = tmp_path / "certs" / "cert.pem"
+    cert.parent.mkdir()
+    cert.write_text("PUBLIC TEST CERTIFICATE\n", encoding="ascii")
     monkeypatch.setattr(claw3d, "apps_root", lambda jarvis_root=claw3d.JARVIS_ROOT: root.parent)
     monkeypatch.setattr(
         claw3d,
@@ -244,9 +248,16 @@ def test_sync_managed_configuration_rewrites_readonly_origin(tmp_path: Path, mon
         port=3000,
     )
     content = (root / ".env").read_text(encoding="utf-8")
+    token_path = root / claw3d.VISUAL_TOKEN_RELATIVE_PATH
+    ca_path = root / claw3d.VISUAL_CA_RELATIVE_PATH
     assert "VISUAL_ADAPTER=jarvis-readonly" in content
     assert "JARVIS_ORIGIN=https://127.0.0.1:8081" in content
     assert "CLAW3D_PORT=3000" in content
+    assert f"JARVIS_VISUAL_TOKEN_FILE={token_path.resolve()}" in content
+    assert f"NODE_EXTRA_CA_CERTS={ca_path.resolve()}" in content
+    assert token_path.is_file() and token_path.stat().st_mode & 0o777 == 0o600
+    assert ca_path.read_text(encoding="ascii") == "PUBLIC TEST CERTIFICATE\n"
+    assert ca_path.stat().st_mode & 0o777 == 0o600
 
 
 def test_source_is_pinned_to_an_exact_public_commit():
