@@ -271,17 +271,15 @@ async def sync_versioning_middleware(
                 if existing["checksum"] != checksum:
                     return _error("sync_operation_reused", 409, entity_key=entity_key)
                 if int(existing["status_code"]) == 0:
-                    if client_wins:
-                        _discard_reservation(operation_id)
-                    else:
-                        return _error(
-                            "sync_operation_outcome_unknown",
-                            409,
-                            entity_key=entity_key,
-                            server_version=_current_version(entity_key),
-                        )
-                else:
-                    return _replay(existing)
+                    # Une réservation incomplète signifie que le handler a peut-être
+                    # déjà persisté la mutation : client_wins ne doit jamais réexécuter.
+                    return _error(
+                        "sync_operation_outcome_unknown",
+                        409,
+                        entity_key=entity_key,
+                        server_version=_current_version(entity_key),
+                    )
+                return _replay(existing)
 
             version_header = request.headers.get(ENTITY_VERSION_HEADER)
             try:
