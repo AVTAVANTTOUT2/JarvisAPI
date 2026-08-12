@@ -43,12 +43,12 @@ Depuis du code async, utiliser `await event_bus.emit(event)`. Depuis un chemin s
 
 ## Couche API — Phase 4
 
-`main.py` est un point d'assemblage : configuration FastAPI/CORS, montage de 18 `APIRouter` sous `api/router_*.py` plus Fitness, branchement des WebSockets de chat et de TV, configuration de `pipeline.py`, frontend et lancement Uvicorn. Le contrat public compte 269 opérations HTTP et 2 WebSockets ; l'OpenAPI expose 239 chemins.
+`main.py` est un point d'assemblage : configuration FastAPI/CORS, montage de 20 `APIRouter` sous `api/router_*.py` plus Fitness, branchement des WebSockets de chat et de TV, configuration de `pipeline.py`, frontend et lancement Uvicorn. Le contrat public compte 283 opérations HTTP et 2 WebSockets ; l'OpenAPI expose 252 chemins.
 
-- `api/router_*.py` contient exactement 18 routeurs par domaine ; Fitness porte le 19e routeur monté et aucun routeur ne dépasse 478 lignes.
+- `api/router_*.py` contient exactement 20 routeurs par domaine ; Fitness porte le 21e routeur monté et aucun routeur ne dépasse 483 lignes.
 - `api/lifespan.py`, `api/middleware.py` et `api/frontend.py` portent le cycle de vie, la sécurité HTTP et le serving des frontends.
 - `api/ws_handler.py`, `api/ws_messages.py`, `api/chat_*.py` et `api/voice_*.py` séparent le transport WebSocket, le contexte, les actions et les pipelines texte/vocal.
-- Tous les modules `api/*.py` restent sous 500 lignes et aucun n'importe `main.py`.
+- Tous les modules `api/*.py` restent à 500 lignes au plus et aucun n'importe `main.py`.
 - `tests/test_phase4_route_contract.py` verrouille les signatures des routes et l'empreinte OpenAPI ; `tests/test_phase4_architecture.py` verrouille les frontières structurelles.
 
 ## Frontend unifié et SDK Auth — Phase 6
