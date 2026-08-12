@@ -118,20 +118,24 @@ async def maybe_handle_cognitive_voice(
     debug_trace = build_voice_debug_trace(text, intent, routing_ms)
     debug_trace["latency_stt_ms"] = int(stt_ms or 0)
     confirmation_session_id = confirmation_session_id or f"local-voice:{conversation_id}"
+    legacy_agentic_fallback = str(
+        getattr(config, "AGENTIC_RUNTIME_FALLBACK", "disabled")
+    ).lower() == "legacy"
 
     # ── Confirmation vocale d'une délégation en attente (« lance », « vas-y ») ──
     from api.action_confirmations import peek_pending_proposal
     from api.chat_cognitive import is_cursor_confirmation_phrase
 
-    if is_cursor_confirmation_phrase(text):
-        # Une proposition shell/food/terminal liée à cette session prime sur un
-        # job Cursor global : « lance » doit confirmer l'action en attente, pas
-        # démarrer un worktree à la place.
-        if peek_pending_proposal(
-            conversation_id=conversation_id,
-            session_id=confirmation_session_id,
-        ):
-            return None
+    # Une confirmation locale déjà enregistrée (shell, calendrier, etc.) reste
+    # prioritaire quel que soit le runtime agentique sélectionné. Le pipeline
+    # principal la consommera avec son contexte de session exact.
+    if is_cursor_confirmation_phrase(text) and peek_pending_proposal(
+        conversation_id=conversation_id,
+        session_id=confirmation_session_id,
+    ):
+        return None
+
+    if legacy_agentic_fallback and is_cursor_confirmation_phrase(text):
         try:
             from integrations.cursor_delegation import cursor_delegation
             from api.chat_cognitive import (
@@ -179,7 +183,7 @@ async def maybe_handle_cognitive_voice(
             )
 
     # ── Tâche technique → proposition Cursor (pas d'auto-start) ──
-    if intent.execution_type == "cursor":
+    if legacy_agentic_fallback and intent.execution_type in {"agentic", "cursor"}:
         ack = (
             "J'ai préparé la délégation à Cursor. Dites « lance » pour démarrer."
         )

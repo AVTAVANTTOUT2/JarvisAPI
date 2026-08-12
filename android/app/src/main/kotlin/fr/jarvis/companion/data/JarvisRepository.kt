@@ -5,6 +5,15 @@ import android.os.Build
 import com.google.gson.JsonObject
 import fr.jarvis.companion.BuildConfig
 import fr.jarvis.companion.data.chat.ChatSyncRemote
+import fr.jarvis.companion.network.AgenticApprovalDecisionRequest
+import fr.jarvis.companion.network.AgenticApprovalDto
+import fr.jarvis.companion.network.AgenticArtifactDto
+import fr.jarvis.companion.network.AgenticCallResult
+import fr.jarvis.companion.network.AgenticEventDto
+import fr.jarvis.companion.network.AgenticJsonAdapter
+import fr.jarvis.companion.network.AgenticRunCreateRequest
+import fr.jarvis.companion.network.AgenticRunDto
+import fr.jarvis.companion.network.AgenticRuntimeStatusDto
 import fr.jarvis.companion.network.CapabilitiesRequest
 import fr.jarvis.companion.network.ConversationPatchRequest
 import fr.jarvis.companion.network.JarvisApiResult
@@ -22,6 +31,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import retrofit2.Response
+import java.util.UUID
 
 /** Accès réseau suspendu — ViewModel et services passent par cette couche. */
 class JarvisRepository(context: Context) : ChatSyncRemote {
@@ -271,6 +281,98 @@ class JarvisRepository(context: Context) : ChatSyncRemote {
                 .getOrElse { JarvisApiResult.failure(it.message ?: "erreur réseau") }
         }
 
+    suspend fun getAgenticRuntimeStatus(): AgenticCallResult<AgenticRuntimeStatusDto> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                toAgenticResult(api().getAgenticRuntimeStatus(bearer()), AgenticJsonAdapter::runtime)
+            }.getOrElse { agenticFailure(it) }
+        }
+
+    suspend fun getAgenticRuns(limit: Int = 50): AgenticCallResult<List<AgenticRunDto>> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                toAgenticResult(api().getAgenticRuns(bearer(), limit.coerceIn(1, 100)), AgenticJsonAdapter::runs)
+            }.getOrElse { agenticFailure(it) }
+        }
+
+    suspend fun getAgenticRun(runId: String): AgenticCallResult<AgenticRunDto> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                toAgenticResult(api().getAgenticRun(bearer(), runId), AgenticJsonAdapter::run)
+            }.getOrElse { agenticFailure(it) }
+        }
+
+    suspend fun getAgenticRunEvents(runId: String): AgenticCallResult<List<AgenticEventDto>> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                toAgenticResult(api().getAgenticRunEvents(bearer(), runId), AgenticJsonAdapter::events)
+            }.getOrElse { agenticFailure(it) }
+        }
+
+    suspend fun getAgenticRunApprovals(runId: String): AgenticCallResult<List<AgenticApprovalDto>> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                toAgenticResult(
+                    api().getAgenticRunApprovals(bearer(), runId),
+                    AgenticJsonAdapter::approvals,
+                )
+            }.getOrElse { agenticFailure(it) }
+        }
+
+    suspend fun getAgenticRunArtifacts(runId: String): AgenticCallResult<List<AgenticArtifactDto>> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                toAgenticResult(
+                    api().getAgenticRunArtifacts(bearer(), runId),
+                    AgenticJsonAdapter::artifacts,
+                )
+            }.getOrElse { agenticFailure(it) }
+        }
+
+    suspend fun createAgenticRun(request: AgenticRunCreateRequest): AgenticCallResult<AgenticRunDto> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                toAgenticResult(
+                    api().createAgenticRun(bearer(), "android:${UUID.randomUUID()}", request),
+                    AgenticJsonAdapter::run,
+                )
+            }.getOrElse { agenticFailure(it) }
+        }
+
+    suspend fun pauseAgenticRun(runId: String): JarvisApiResult = withContext(Dispatchers.IO) {
+        runCatching { toResult(api().pauseAgenticRun(bearer(), runId)) }
+            .getOrElse { JarvisApiResult.failure(it.message ?: "erreur réseau") }
+    }
+
+    suspend fun resumeAgenticRun(runId: String): JarvisApiResult = withContext(Dispatchers.IO) {
+        runCatching { toResult(api().resumeAgenticRun(bearer(), runId)) }
+            .getOrElse { JarvisApiResult.failure(it.message ?: "erreur réseau") }
+    }
+
+    suspend fun cancelAgenticRun(runId: String): JarvisApiResult = withContext(Dispatchers.IO) {
+        runCatching { toResult(api().cancelAgenticRun(bearer(), runId)) }
+            .getOrElse { JarvisApiResult.failure(it.message ?: "erreur réseau") }
+    }
+
+    suspend fun decideAgenticApproval(
+        runId: String,
+        approvalId: String,
+        approved: Boolean,
+    ): JarvisApiResult = withContext(Dispatchers.IO) {
+        val decision = if (approved) "approved" else "denied"
+        runCatching {
+            toResult(
+                api().decideAgenticApproval(
+                    bearer(),
+                    "android:${UUID.randomUUID()}",
+                    runId,
+                    approvalId,
+                    AgenticApprovalDecisionRequest(decision),
+                ),
+            )
+        }.getOrElse { JarvisApiResult.failure(it.message ?: "erreur réseau") }
+    }
+
     fun bearerToken(): String = JarvisSettings.nativeToken(appContext)
 
     fun serverBaseUrl(): String = JarvisSettings.server(appContext)
@@ -295,4 +397,28 @@ class JarvisRepository(context: Context) : ChatSyncRemote {
             error = error,
         )
     }
+
+    private fun <T> toAgenticResult(
+        response: Response<JsonObject>,
+        decode: (JsonObject) -> T,
+    ): AgenticCallResult<T> {
+        val base = toResult(response)
+        val payload = response.body()
+        if (!base.ok || payload == null) {
+            return AgenticCallResult(
+                ok = false,
+                status = base.status,
+                unauthorized = base.status == 401 || base.status == 403,
+                error = base.error,
+            )
+        }
+        return AgenticCallResult(
+            ok = true,
+            status = base.status,
+            value = decode(payload),
+        )
+    }
+
+    private fun <T> agenticFailure(error: Throwable): AgenticCallResult<T> =
+        AgenticCallResult(ok = false, status = 0, error = error.message ?: "erreur réseau")
 }

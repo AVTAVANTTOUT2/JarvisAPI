@@ -16,6 +16,7 @@ numéro ou email iMessage). Les messages des autres contacts sont ignorés.
 import asyncio
 import logging
 import re
+import uuid
 from pathlib import Path
 
 import config
@@ -31,13 +32,14 @@ from .imessage_cursor import (
 logger = logging.getLogger(__name__)
 
 MESSAGE_CHUNK_SIZE = 2000  # limite raisonnable iMessage avant split
-OSASCRIPT_TIMEOUT = 30.0   # secondes (aligné Mail / Calendar)
+OSASCRIPT_TIMEOUT = 30.0  # secondes (aligné Mail / Calendar)
 _IMESSAGE_PHONE_RE = re.compile(r"^\+[1-9]\d{6,14}$")
 _IMESSAGE_EMAIL_RE = re.compile(
     r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]{1,64}@"
     r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
     r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$"
 )
+_AGENTIC_CONTROL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 
 
 def validate_imessage_address(address: str) -> str | None:
@@ -71,6 +73,11 @@ class IMessageBridge:
         self.target = (target_address or "").strip()
         self._apple_data = data_service or apple_data
         self.cursor_name = f"bridge.reply:{self.target}"
+        # Le checkpoint déterministe conserve le même fil JARVIS après un
+        # redémarrage du bridge sans persister l'adresse iMessage en clair.
+        self.conversation_checkpoint_id = str(
+            uuid.uuid5(uuid.NAMESPACE_URL, f"jarvis:imessage:{self.target.casefold()}")
+        )
         self.running: bool = False
         self.processed_rowids: set[int] = set()
         self._processed_rowids_max = 5000
@@ -79,6 +86,9 @@ class IMessageBridge:
         # (cas où Messages.app re-déclenche une notif, ou pour tester), on skip.
         self._recent_outgoing: list[str] = []
         self._recent_outgoing_max = 10
+        self._agentic_followups: dict[str, asyncio.Task[None]] = {}
+        self._notified_agentic_approvals: set[tuple[str, str]] = set()
+        self._notified_agentic_terminals: set[str] = set()
         logger.info(
             f"[iMessage] Init bridge — target={self.target or '(non configuré)'} | "
             f"db={self.db_path}"
@@ -100,7 +110,7 @@ class IMessageBridge:
             return
         self._recent_outgoing.append(normalized)
         if len(self._recent_outgoing) > self._recent_outgoing_max:
-            self._recent_outgoing = self._recent_outgoing[-self._recent_outgoing_max:]
+            self._recent_outgoing = self._recent_outgoing[-self._recent_outgoing_max :]
 
     def _is_echo(self, text: str) -> bool:
         """True si le texte reçu correspond à une réponse récemment envoyée."""
@@ -114,7 +124,9 @@ class IMessageBridge:
     def is_available(self) -> bool:
         """Vérifie l'accès à chat.db. Retourne False si pas configuré ou pas accessible."""
         if not self.target:
-            logger.info("[iMessage] Bridge desactive — IMESSAGE_TARGET non configure dans .env")
+            logger.info(
+                "[iMessage] Bridge desactive — IMESSAGE_TARGET non configure dans .env"
+            )
             return False
         if validate_imessage_address(self.target) is None:
             logger.error("[iMessage] Destinataire invalide : %r", self.target)
@@ -177,12 +189,14 @@ class IMessageBridge:
         max_rowid = last_check_rowid
         for row in rows:
             rowid = int(row["rowid"])
-            messages.append({
-                "rowid": rowid,
-                "text": row["text"] or "",
-                "date": row["date"],
-                "handle": row["handle"],
-            })
+            messages.append(
+                {
+                    "rowid": rowid,
+                    "text": row["text"] or "",
+                    "date": row["date"],
+                    "handle": row["handle"],
+                }
+            )
             max_rowid = max(max_rowid, rowid)
 
         if max_rowid > last_check_rowid:
@@ -207,24 +221,28 @@ class IMessageBridge:
         escaped_target = self._escape_for_applescript(target)
         script = (
             'tell application "Messages"\n'
-            '    set targetService to 1st account whose service type = iMessage\n'
+            "    set targetService to 1st account whose service type = iMessage\n"
             f'    set targetBuddy to participant "{escaped_target}" of targetService\n'
             f'    send "{escaped}" to targetBuddy\n'
-            'end tell'
+            "end tell"
         )
         for attempt in range(2):
             result = run_applescript(script, timeout=OSASCRIPT_TIMEOUT)
             if result.ok:
                 return True
             if result.reason == "timeout":
-                logger.warning("[iMessage] osascript timeout (tentative %s)", attempt + 1)
+                logger.warning(
+                    "[iMessage] osascript timeout (tentative %s)", attempt + 1
+                )
                 if attempt == 0:
                     continue
                 return False
             if result.reason == "not_found":
                 logger.error("[iMessage] osascript introuvable — pas un macOS ?")
                 return False
-            logger.error("[iMessage] Envoi KO (%s) : %s", result.returncode, result.stderr)
+            logger.error(
+                "[iMessage] Envoi KO (%s) : %s", result.returncode, result.stderr
+            )
             return False
         return False
 
@@ -239,7 +257,7 @@ class IMessageBridge:
         if not text:
             return 0
         chunks = [
-            text[i:i + MESSAGE_CHUNK_SIZE]
+            text[i : i + MESSAGE_CHUNK_SIZE]
             for i in range(0, len(text), MESSAGE_CHUNK_SIZE)
         ]
         sent = 0
@@ -249,7 +267,9 @@ class IMessageBridge:
             else:
                 break
         if sent:
-            logger.info(f"[iMessage] → {self.target} ({sent}/{len(chunks)} chunks, {len(text)} chars)")
+            logger.info(
+                f"[iMessage] → {self.target} ({sent}/{len(chunks)} chunks, {len(text)} chars)"
+            )
             # Mémorise la réponse complète pour l'anti-écho côté input
             self._remember_outgoing(text)
         return sent
@@ -270,10 +290,12 @@ class IMessageBridge:
         m = pattern.match(text)
         if not m:
             return None
-        return text[m.end():].strip()
+        return text[m.end() :].strip()
 
-    async def _process_message(self, text: str) -> str:
-        """Filtre + délègue à l'orchestrateur. Retourne la réponse à envoyer (ou '')."""
+    async def _process_message(
+        self, text: str, *, idempotency_key: str | None = None
+    ) -> str:
+        """Filtre puis passe par le même pipeline que les autres canaux."""
         cleaned = self._apply_prefix_filter(text)
         if cleaned is None:
             logger.info(f"[iMessage] Message ignoré (pas de préfixe) : {text[:60]!r}")
@@ -282,36 +304,134 @@ class IMessageBridge:
             return ""
 
         # Imports tardifs pour éviter les cycles d'import
-        from agents.orchestrator import orchestrator
-        from database import create_conversation, end_conversation, save_message
+        from api.chat_processing import _process_message_internal
+        from database import resolve_conversation_checkpoint, save_message
 
-        conv_id = None
         try:
-            conv_id = create_conversation(agent="orchestrator")
+            conv_id, _resumed = resolve_conversation_checkpoint(
+                self.conversation_checkpoint_id,
+                agent="orchestrator",
+                create=True,
+            )
             save_message(conv_id, "user", cleaned)
 
-            result = await orchestrator.handle(cleaned, conversation_id=conv_id)
-            response = result.get("response", "") or ""
-
-            # save_message déjà fait par _call_claude — ici on le refait pas pour éviter doublon
+            result = await _process_message_internal(
+                cleaned,
+                conv_id,
+                confirmation_session_id=f"imessage:{self.conversation_checkpoint_id}",
+                agentic_idempotency_key=idempotency_key,
+                agentic_origin="imessage",
+                agentic_channel="imessage",
+            )
+            response = result.get("text", "") or ""
+            run_id = str((result.get("agentic_run") or {}).get("run_id") or "")
+            if run_id:
+                task = self._agentic_followups.get(run_id)
+                if task is None or task.done():
+                    task = asyncio.create_task(
+                        self._follow_agentic_run(run_id),
+                        name=f"imessage-agentic-{run_id[:12]}",
+                    )
+                    self._agentic_followups[run_id] = task
+                    task.add_done_callback(
+                        lambda completed, followed_run_id=run_id: (
+                            self._forget_agentic_followup(followed_run_id, completed)
+                        )
+                    )
 
             return response
         except Exception:
             logger.exception("[iMessage] Erreur traitement message")
             return "Erreur JARVIS : traitement impossible pour le moment."
-        finally:
-            if conv_id:
-                try:
-                    end_conversation(conv_id)
-                except Exception:
-                    pass
+
+    def _forget_agentic_followup(
+        self,
+        run_id: str,
+        completed: asyncio.Task[None],
+    ) -> None:
+        if self._agentic_followups.get(run_id) is completed:
+            self._agentic_followups.pop(run_id, None)
+
+    async def _follow_agentic_run(self, run_id: str) -> None:
+        """Transmet approbations et résultat final sur le canal iMessage."""
+
+        from jarvis.agentic import get_agentic_service
+
+        service = get_agentic_service()
+        sequence = 0
+        while self.running:
+            run = service.get(run_id)
+            if run is None:
+                return
+            events = service.events(run_id, after_sequence=sequence)
+            delivery_failed = False
+            for event in events:
+                if event.type != "agent.approval.requested":
+                    sequence = max(sequence, event.sequence)
+                    continue
+                approval_id = str(event.payload.get("approval_id") or "")
+                notification_key = (run_id, approval_id)
+                if (
+                    _AGENTIC_CONTROL_ID_RE.fullmatch(approval_id) is None
+                    or notification_key in self._notified_agentic_approvals
+                ):
+                    sequence = max(sequence, event.sequence)
+                    continue
+                summary = str(
+                    event.payload.get("spoken_summary")
+                    or event.payload.get("action")
+                    or "Action sensible"
+                )[:500]
+                prompt = (
+                    f"Validation requise : {summary}. "
+                    f"Répondez « J’approuve l’approbation {approval_id} » ou "
+                    f"« Je refuse l’approbation {approval_id} »."
+                )
+                sent = await asyncio.to_thread(self._send_message, prompt)
+                if not sent:
+                    delivery_failed = True
+                    break
+                if len(self._notified_agentic_approvals) >= 512:
+                    self._notified_agentic_approvals.clear()
+                self._notified_agentic_approvals.add(notification_key)
+                sequence = max(sequence, event.sequence)
+            if delivery_failed:
+                await asyncio.sleep(1.0)
+                continue
+            if run.terminal:
+                if run_id in self._notified_agentic_terminals:
+                    return
+                terminal_events = service.events(run_id, after_sequence=0)
+                summary = next(
+                    (
+                        str(event.payload.get("spoken_summary") or "").strip()
+                        for event in reversed(terminal_events)
+                        if str(event.payload.get("spoken_summary") or "").strip()
+                    ),
+                    "",
+                )
+                if not summary:
+                    summary = (
+                        f"La tâche est terminée avec le statut {run.status.value}."
+                    )
+                sent = await asyncio.to_thread(self._send_message, summary[:1_000])
+                if not sent:
+                    await asyncio.sleep(1.0)
+                    continue
+                if len(self._notified_agentic_terminals) >= 512:
+                    self._notified_agentic_terminals.clear()
+                self._notified_agentic_terminals.add(run_id)
+                return
+            await asyncio.sleep(1.0)
 
     # ── Polling loop ─────────────────────────────────────────
 
     async def start_polling(self, interval: float = 3.0) -> None:
         """Lance la boucle de polling. À mettre dans `asyncio.create_task()`."""
         if not config.IMESSAGE_SEND_ENABLED:
-            logger.info("[imessage] Bridge (polling+réponse) désactivé — sourcing seul actif.")
+            logger.info(
+                "[imessage] Bridge (polling+réponse) désactivé — sourcing seul actif."
+            )
             return
         if not self.is_available():
             logger.warning("[iMessage] Polling annulé (bridge indisponible)")
@@ -347,7 +467,9 @@ class IMessageBridge:
                     self.processed_rowids.add(rowid)
                     if len(self.processed_rowids) > self._processed_rowids_max:
                         # Conserver une fenêtre glissante des derniers rowids.
-                        self.processed_rowids = set(sorted(self.processed_rowids)[-self._processed_rowids_max:])
+                        self.processed_rowids = set(
+                            sorted(self.processed_rowids)[-self._processed_rowids_max :]
+                        )
                     logger.info(
                         f"[iMessage] ← {msg.get('handle')} (rowid={msg['rowid']}) : "
                         f"{text[:80]!r}"
@@ -356,10 +478,15 @@ class IMessageBridge:
                     # Anti-écho : si le texte reçu est exactement une de nos
                     # dernières réponses (réfléchissement Messages, doublon Apple…)
                     if self._is_echo(text):
-                        logger.info(f"[iMessage] Écho détecté — skip (rowid={msg['rowid']})")
+                        logger.info(
+                            f"[iMessage] Écho détecté — skip (rowid={msg['rowid']})"
+                        )
                         continue
 
-                    response = await self._process_message(text)
+                    response = await self._process_message(
+                        text,
+                        idempotency_key=f"imessage:{rowid}",
+                    )
                     if response:
                         await loop.run_in_executor(None, self._send_message, response)
                         # Laisse à Messages.app le temps d'écrire le message
@@ -386,6 +513,9 @@ class IMessageBridge:
 
     def stop(self) -> None:
         self.running = False
+        for task in tuple(self._agentic_followups.values()):
+            task.cancel()
+        self._agentic_followups.clear()
 
 
 def send_imessage_to_address(address: str, text: str) -> tuple[bool, str]:

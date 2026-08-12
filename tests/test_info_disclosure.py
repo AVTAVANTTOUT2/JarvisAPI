@@ -73,3 +73,11 @@ async def test_api_status_omits_route_names_and_imessage_target(
     assert "target" not in payload.get("imessage", {})
     assert payload["imessage"]["configured"] is True
     assert "shell" not in payload.get("computer", {})
+    assert "agentic" in payload["agents_registered"]
+    assert set(payload["agentic"]) == {
+        "available",
+            "runtimes",
+            "active_run_count",
+            "attention_required_count",
+            "observability",
+        }

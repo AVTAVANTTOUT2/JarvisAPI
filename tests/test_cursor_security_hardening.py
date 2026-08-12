@@ -135,6 +135,8 @@ def test_cursor_requires_confirmation(tmp_path: Path, monkeypatch):
     repo = _make_git_repo(tmp_path / "repo")
     cli = _make_fake_cli(tmp_path)
     monkeypatch.setattr(config, "CURSOR_DELEGATION_ENABLED", True)
+    monkeypatch.setattr(config, "AGENTIC_RUNTIME", "disabled")
+    monkeypatch.setattr(config, "AGENTIC_RUNTIME_FALLBACK", "legacy")
     monkeypatch.setattr(config, "CURSOR_CLI_PATH", str(cli))
     monkeypatch.setattr(config, "CURSOR_WORKTREE_ROOT", str(tmp_path / "wt"))
 
@@ -181,6 +183,8 @@ def test_chat_voice_propose_only(monkeypatch):
     from integrations.cursor_delegation import cursor_delegation
 
     monkeypatch.setattr(config, "CURSOR_DELEGATION_ENABLED", True)
+    monkeypatch.setattr(config, "AGENTIC_RUNTIME", "disabled")
+    monkeypatch.setattr(config, "AGENTIC_RUNTIME_FALLBACK", "legacy")
     # Évite qu'un cache CLI négatif d'un test précédent déroute vers answer
     cursor_delegation._cli_info = None
 

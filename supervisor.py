@@ -109,7 +109,7 @@ app.middleware("http")(security_middleware)
 # ── Etat global ─────────────────────────────────────────────────────────
 _start_time = time.time()
 _managed: dict[str, subprocess.Popen | None] = {
-    "backend": None, "tv_dashboard": None, "ollama": None,
+    "backend": None, "tv_dashboard": None, "ollama": None, "claw3d": None,
 }
 _caffeinate_proc: subprocess.Popen | None = None
 _ws_clients: set[WebSocket] = set()
@@ -454,6 +454,14 @@ SERVICES = [
     {"id": "backend", "name": "Backend JARVIS", "description": "FastAPI principal (agents, LLM, daemons)", "category": "core", "port": BACKEND_PORT, "can_control": True},
     {"id": "tv_dashboard", "name": "TV Dashboard", "description": "Dashboard War Room (port 5174)", "category": "external", "port": 5174, "can_control": True},
     {"id": "ollama", "name": "Ollama", "description": "LLM local (qwen2.5-vl, triage)", "category": "external", "port": 11434, "can_control": True},
+    {
+        "id": "claw3d",
+        "name": "Claw3D",
+        "description": f"UI visuelle optionnelle (port {getattr(config, 'CLAW3D_PORT', 3000)})",
+        "category": "external",
+        "port": int(getattr(config, "CLAW3D_PORT", 3000)),
+        "can_control": True,
+    },
 ]
 
 
@@ -475,6 +483,21 @@ async def _svc_status(svc: dict) -> dict:
             "vision_model_available": health.get("vision_model_available"),
             "error": health.get("error"),
             "port": health.get("port") or port,
+        }
+
+    if sid == "claw3d":
+        from scripts import claw3d as claw3d_manager
+
+        installed = await asyncio.to_thread(claw3d_manager.is_installed, PROJECT_DIR)
+        running = await asyncio.to_thread(claw3d_manager.is_running, PROJECT_DIR)
+        port_conflict = not running and _port_open(port)
+        return {
+            **svc,
+            "running": running,
+            "installed": installed,
+            "managed": bool(getattr(config, "CLAW3D_MANAGED_BY_SUPERVISOR", True)),
+            "port_conflict": port_conflict,
+            "office_url": f"http://{getattr(config, 'CLAW3D_HOST', '127.0.0.1')}:{port}/office",
         }
 
     running = _managed_alive(sid) or _port_open(port)
@@ -584,6 +607,151 @@ def _backend_protocol_mismatch() -> bool:
     return _backend_responds_http()
 
 
+def _claw3d_jarvis_origin() -> str:
+    """Origine loopback du backend pour le connecteur Claw3D (lecture seule)."""
+    return f"{_backend_scheme()}://127.0.0.1:{BACKEND_PORT}"
+
+
+def _start_claw3d_sync() -> dict:
+    """Démarre Claw3D via scripts/claw3d.py — jamais bloquant pour JARVIS."""
+    from scripts import claw3d as claw3d_manager
+    from scripts.claw3d import Claw3DError
+
+    if not getattr(config, "CLAW3D_MANAGED_BY_SUPERVISOR", True):
+        return {
+            "ok": True,
+            "skipped": True,
+            "message": "Claw3D non géré par le superviseur (CLAW3D_MANAGED_BY_SUPERVISOR=false)",
+        }
+    if not claw3d_manager.is_installed(PROJECT_DIR):
+        return {
+            "ok": True,
+            "skipped": True,
+            "code": "claw3d_not_installed",
+            "message": "Claw3D non installé — python scripts/claw3d.py install",
+        }
+
+    host = str(getattr(config, "CLAW3D_HOST", "127.0.0.1"))
+    port = int(getattr(config, "CLAW3D_PORT", 3000))
+    mode = str(getattr(config, "CLAW3D_MODE", "jarvis-readonly"))
+    if mode not in {"mock", "null", "jarvis-readonly"}:
+        mode = "jarvis-readonly"
+
+    try:
+        if claw3d_manager.is_running(PROJECT_DIR):
+            return {"ok": True, "message": "Claw3D déjà actif"}
+        if _port_open(port):
+            return {
+                "ok": False,
+                "code": "service_port_conflict",
+                "message": f"Port Claw3D {port} occupé par un processus non géré",
+            }
+
+        origin = _claw3d_jarvis_origin() if mode == "jarvis-readonly" else ""
+        claw3d_manager.sync_managed_configuration(
+            PROJECT_DIR,
+            mode=mode,
+            jarvis_origin=origin,
+            host=host,
+            port=port,
+        )
+        (LOGS_DIR / "claw3d.log").parent.mkdir(parents=True, exist_ok=True)
+        with open(str(LOGS_DIR / "claw3d.log"), "a", encoding="utf-8") as log_file:
+            proc = subprocess.Popen(
+                [VENV_PYTHON, "scripts/claw3d.py", "start"],
+                cwd=str(PROJECT_DIR),
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                env={**os.environ, "PYTHONUNBUFFERED": "1"},
+            )
+            try:
+                proc.wait(timeout=60)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                return {
+                    "ok": False,
+                    "code": "service_start_failed",
+                    "message": "Démarrage Claw3D expiré (60s)",
+                }
+        if proc.returncode not in (0, None):
+            return {
+                "ok": False,
+                "code": "service_start_failed",
+                "message": f"scripts/claw3d.py start a échoué (code {proc.returncode})",
+            }
+        _managed["claw3d"] = None
+        pid = claw3d_manager.running_pid(PROJECT_DIR)
+        log.info("Claw3D démarré%s — http://%s:%d/office", f" (PID {pid})" if pid else "", host, port)
+        return {
+            "ok": True,
+            "message": f"Claw3D démarré (http://{host}:{port}/office)",
+            "pid": pid,
+        }
+    except Claw3DError as exc:
+        log.warning("Claw3D start refusé : %s", exc)
+        return {"ok": False, "code": "claw3d_config_error", "message": str(exc)}
+    except Exception as exc:
+        log.exception("Claw3D start échoué")
+        return {"ok": False, "code": "service_start_failed", "message": str(exc)}
+
+
+def _stop_claw3d_sync() -> dict:
+    """Arrête Claw3D via scripts/claw3d.py — idempotent."""
+    from scripts import claw3d as claw3d_manager
+    from scripts.claw3d import Claw3DError
+
+    port = int(getattr(config, "CLAW3D_PORT", 3000))
+    try:
+        if not claw3d_manager.is_installed(PROJECT_DIR):
+            _managed["claw3d"] = None
+            return {"ok": True, "skipped": True, "message": "Claw3D non installé"}
+        if not claw3d_manager.is_running(PROJECT_DIR):
+            _managed["claw3d"] = None
+            return {"ok": True, "message": "Claw3D déjà arrêté"}
+
+        with open(str(LOGS_DIR / "claw3d.log"), "a", encoding="utf-8") as log_file:
+            proc = subprocess.Popen(
+                [VENV_PYTHON, "scripts/claw3d.py", "stop"],
+                cwd=str(PROJECT_DIR),
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                env={**os.environ, "PYTHONUNBUFFERED": "1"},
+            )
+            try:
+                proc.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                _managed["claw3d"] = None
+                return {
+                    "ok": False,
+                    "code": "service_stop_failed",
+                    "message": "Arrêt Claw3D expiré — aucun processus tiers n'a été touché",
+                }
+        _managed["claw3d"] = None
+        if proc.returncode not in (0, None):
+            return {
+                "ok": False,
+                "code": "service_stop_failed",
+                "message": f"scripts/claw3d.py stop a échoué (code {proc.returncode})",
+            }
+        if _port_open(port):
+            return {
+                "ok": False,
+                "code": "service_port_conflict",
+                "message": f"Port Claw3D {port} encore occupé après l'arrêt sécurisé",
+            }
+        log.info("Claw3D arrêté")
+        return {"ok": True, "message": "Claw3D arrêté"}
+    except Claw3DError as exc:
+        log.warning("Claw3D stop : %s", exc)
+        _managed["claw3d"] = None
+        return {"ok": False, "code": "claw3d_config_error", "message": str(exc)}
+    except Exception as exc:
+        log.exception("Claw3D stop échoué")
+        _managed["claw3d"] = None
+        return {"ok": False, "code": "service_stop_failed", "message": str(exc)}
+
+
 def _start_sync(sid: str) -> dict:
     if sid == "backend":
         if config.WEB_HTTPS and not config.WEB_SSL_AVAILABLE:
@@ -673,6 +841,9 @@ def _start_sync(sid: str) -> dict:
             log.info("Ollama healthy")
         return result
 
+    if sid == "claw3d":
+        return _start_claw3d_sync()
+
     return {
         "ok": False,
         "code": "service_not_found",
@@ -721,6 +892,9 @@ def _stop_sync(sid: str) -> dict:
         _managed["ollama"] = None
         result = stop_ollama()
         return result
+
+    if sid == "claw3d":
+        return _stop_claw3d_sync()
 
     return {
         "ok": False,
@@ -816,8 +990,8 @@ async def api_restart(sid: str):
 @app.post("/api/supervisor/start-all")
 async def api_start_all():
     results = {}
-    # Ollama d'abord (health), puis backend (autostart SW via daemon)
-    for sid in ["ollama", "tv_dashboard", "backend"]:
+    # Ollama d'abord (health), puis backend, puis Claw3D (connecteur lecture seule)
+    for sid in ["ollama", "tv_dashboard", "backend", "claw3d"]:
         results[sid] = await _run_sync_control(_start_sync, sid, "start")
         if sid == "ollama":
             await asyncio.sleep(1)
@@ -831,7 +1005,7 @@ async def api_start_all():
 async def api_stop_all():
     results = {}
     await _stop_screen_watcher_via_backend()
-    for sid in ["tv_dashboard", "ollama", "backend"]:
+    for sid in ["claw3d", "tv_dashboard", "ollama", "backend"]:
         results[sid] = await _run_sync_control(_stop_sync, sid, "stop")
     await _broadcast({"type": "bulk_update", "action": "stop-all", "results": results})
     return {"results": results}
@@ -840,11 +1014,11 @@ async def api_stop_all():
 @app.post("/api/supervisor/restart-all")
 async def api_restart_all():
     await _stop_screen_watcher_via_backend()
-    for sid in ["tv_dashboard", "ollama", "backend"]:
+    for sid in ["claw3d", "tv_dashboard", "ollama", "backend"]:
         await _run_sync_control(_stop_sync, sid, "stop")
     await asyncio.sleep(2)
     results = {}
-    for sid in ["ollama", "tv_dashboard", "backend"]:
+    for sid in ["ollama", "tv_dashboard", "backend", "claw3d"]:
         results[sid] = await _run_sync_control(_start_sync, sid, "restart")
         if sid == "ollama":
             await asyncio.sleep(1)
@@ -856,7 +1030,11 @@ async def api_restart_all():
 
 @app.get("/api/supervisor/{sid}/logs")
 async def api_logs(sid: str, lines: int = 50):
-    log_map = {"backend": LOGS_DIR / "backend.log", "tv_dashboard": LOGS_DIR / "tv.log"}
+    log_map = {
+        "backend": LOGS_DIR / "backend.log",
+        "tv_dashboard": LOGS_DIR / "tv.log",
+        "claw3d": LOGS_DIR / "claw3d.log",
+    }
     f = log_map.get(sid)
     if f is None:
         raise _supervisor_error(
@@ -1507,6 +1685,21 @@ async def lifespan(_app: FastAPI):
                 time.sleep(1)
                 _start_sync("backend")
 
+    # Claw3D après le backend : connecteur lecture seule vers l'origine locale
+    if getattr(config, "CLAW3D_MANAGED_BY_SUPERVISOR", True):
+        try:
+            log.info("Auto-start Claw3D...")
+            claw_result = _start_sync("claw3d")
+            if not claw_result.get("ok"):
+                log.warning(
+                    "Claw3D non démarré — JARVIS continue (%s)",
+                    claw_result.get("message") or claw_result.get("code"),
+                )
+            elif claw_result.get("skipped"):
+                log.info("Claw3D ignoré : %s", claw_result.get("message"))
+        except Exception as exc:
+            log.warning("Auto-start Claw3D échoué : %s — suite sans UI visuelle", exc)
+
     # Demarrer la boucle de health-check en background
     _health_check_task = asyncio.create_task(_health_check_loop(), name="health_check")
 
@@ -1533,7 +1726,7 @@ async def lifespan(_app: FastAPI):
             pass
 
     # Arreter les services geres (ordre : dependants d'abord, backend en dernier)
-    for sid in ("tv_dashboard", "ollama", "backend"):
+    for sid in ("claw3d", "tv_dashboard", "ollama", "backend"):
         try:
             _stop_sync(sid)
         except Exception:

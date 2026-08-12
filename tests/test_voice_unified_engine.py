@@ -52,6 +52,12 @@ async def test_voice_adapter_delegates_actions_to_canonical_engine() -> None:
         confirmation_session_id="voice:desktop",
         persist_assistant=False,
         trace=None,
+        agentic_idempotency_key=None,
+        agentic_origin="voice",
+        agentic_channel="voice",
+        agentic_device=None,
+        agentic_locale=None,
+        agentic_timezone=None,
     )
     persist.assert_called_once()
     assert result["action"] == action

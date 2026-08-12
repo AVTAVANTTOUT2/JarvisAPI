@@ -18,12 +18,15 @@ Claw3D exacte dans `.jarvis/apps/claw3d`, répertoire ignoré par Git et entièr
 amovible.
 
 Le code Claw3D reste un dépôt Git autonome avec son propre lockfile, ses scripts
-lifecycle et tout son état. Aucun module JARVIS ne l'importe et aucun service ne
-le démarre automatiquement.
+lifecycle et tout son état. Aucun module métier JARVIS ne l'importe. Le
+**superviseur** peut optionnellement piloter start/stop via `scripts/claw3d.py`
+lorsque `CLAW3D_MANAGED_BY_SUPERVISOR=true` : c'est un couplage de cycle de vie,
+pas une dépendance de disponibilité (JARVIS démarre même si Claw3D manque).
 
 L'intégration réseau est initiée par Claw3D et limitée à deux lectures JARVIS :
 `GET /api/status` et `GET /api/events/stream`. L'origine est fournie
-explicitement par l'opérateur. Aucun secret ou cookie n'est relayé.
+explicitement (ou synchronisée par le superviseur depuis `WEB_PORT` / HTTPS).
+Aucun secret ou cookie n'est relayé.
 
 ## Conséquences
 
@@ -51,8 +54,9 @@ explicitement par l'opérateur. Aucun secret ou cookie n'est relayé.
   installation et suppression.
 - **Proxy générique JARVIS** : élargit inutilement la surface réseau et pourrait
   exposer commandes ou secrets.
-- **Service launchd commun** : empêcherait la suppression manuelle complète de
-  Claw3D et créerait une dépendance de cycle de vie.
+- **Service launchd Claw3D dédié** : empêcherait la suppression manuelle
+  complète et créerait une dépendance système. Le superviseur JARVIS reste le
+  seul orchestrateur optionnel (enfant stoppé avec le superviseur).
 
 ## Rollback
 

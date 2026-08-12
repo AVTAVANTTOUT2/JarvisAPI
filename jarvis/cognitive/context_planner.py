@@ -124,10 +124,16 @@ class ContextPlanner:
                 ("SERVICES", 0.5, "état services"),
             ):
                 add(key, available.get(key.lower()) or available.get(key), key.lower(), rel, reason)
-        elif domain == "dev" or intent.execution_type == "cursor":
+        elif domain == "dev" or intent.execution_type in {"agentic", "cursor"}:
             add("INTENT", intent.reason, "router", 1.0, "intention technique")
             add("GIT_STATUS", available.get("git_status"), "git", 0.9, "état du dépôt")
-            add("CURSOR_HISTORY", available.get("cursor_history"), "cursor_jobs", 0.7, "délégations récentes")
+            add(
+                "AGENTIC_HISTORY",
+                available.get("agentic_history") or available.get("cursor_history"),
+                "agent_runs",
+                0.7,
+                "délégations récentes",
+            )
             add("CONSTRAINTS", available.get("constraints"), "config", 0.8, "règles du projet")
         elif domain == "strategy":
             add("TASKS", available.get("tasks"), "tasks", 0.9, "priorités")

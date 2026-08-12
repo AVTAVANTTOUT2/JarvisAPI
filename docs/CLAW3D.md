@@ -21,10 +21,9 @@ donnée JARVIS.
 Le gestionnaire n'accepte pas d'URL arbitraire. Il épingle exactement :
 
 - dépôt : `https://github.com/AVTAVANTTOUT2/Claw3D.git` ;
-- branche de provenance : `codex/jarvis-visual-ui` ;
-- commit : `f66ee199223fbee51a3506c6f50f0a68db487cad`.
+- commit : `202feaf0efd8ae92451368d408e387a507da0192`.
 
-Une mise à jour de Claw3D doit modifier ce triplet, adapter les tests puis passer
+Une mise à jour de Claw3D doit modifier ce couple, adapter les tests puis passer
 par une nouvelle PR JarvisAPI. Il n'existe aucun `git pull` automatique.
 
 ## Prérequis
@@ -57,15 +56,41 @@ Le mode mock ne contacte jamais JARVIS.
 
 ## Connexion en lecture seule à JARVIS
 
-Démarrer d'abord JARVIS avec sa procédure habituelle. Si `WEB_HOST=127.0.0.1`
-et `WEB_PORT=8080`, configurer l'origine locale ainsi :
+Quand `CLAW3D_MANAGED_BY_SUPERVISOR=true` (défaut), le **superviseur** démarre et
+arrête Claw3D avec JARVIS. Prérequis unique : une installation préalable.
+
+```bash
+# Une seule fois
+python3 scripts/claw3d.py install --mode jarvis-readonly \
+  --jarvis-origin https://127.0.0.1:8081
+
+# Ensuite : tout démarre/arrête avec le superviseur
+./scripts/launch_supervisor.sh
+# ou LaunchAgent com.jarvis.supervisor
+```
+
+Le superviseur réécrit la config Claw3D à chaque démarrage pour coller à
+l'origine réelle du backend (`http(s)://127.0.0.1:$WEB_PORT`). Si Claw3D n'est
+pas installé, JARVIS démarre normalement et ignore l'UI visuelle.
+Si `CLAW3D_PORT` appartient déjà à un processus qui n'est pas identifié par
+l'état Claw3D, le superviseur signale `service_port_conflict` et ne démarre ni
+n'arrête ce processus tiers. Il faut libérer le port ou choisir un autre port.
+
+Pilote manuel (équivalent) :
 
 ```bash
 python3 scripts/claw3d.py configure \
   --mode jarvis-readonly \
-  --jarvis-origin http://127.0.0.1:8080
+  --jarvis-origin https://127.0.0.1:8081
 python3 scripts/claw3d.py stop
 python3 scripts/claw3d.py start
+```
+
+Désactiver le couplage superviseur sans retirer Claw3D :
+
+```bash
+# dans .env / .env.config
+CLAW3D_MANAGED_BY_SUPERVISOR=false
 ```
 
 Le connecteur Claw3D est côté serveur et n'utilise que :
@@ -138,9 +163,12 @@ génériques du système, du navigateur, de GitHub ou des outils.
 - aucune dépendance `file:`, workspace, sous-module ou source vendored ;
 - aucun accès Claw3D à SQLite, `data/`, `.env` ou aux secrets JARVIS ;
 - aucun volume partagé ;
-- aucun démarrage automatique par `main.py`, le superviseur ou launchd ;
+- démarrage optionnel via le **superviseur** uniquement (`CLAW3D_MANAGED_BY_SUPERVISOR`),
+  jamais via `main.py` ni un LaunchAgent Claw3D dédié ;
+- absence ou panne de Claw3D : JARVIS continue sans UI visuelle ;
 - arrêter ou retirer Claw3D ne change pas le fonctionnement de JARVIS ;
-- arrêter JARVIS laisse le mode mock et le builder Claw3D utilisables.
+- avec `CLAW3D_MANAGED_BY_SUPERVISOR=false`, le mode mock et le builder restent
+  utilisables indépendamment de JARVIS.
 
 La décision d'architecture est consignée dans
 [`ADR-027`](../Architecture/adr/ADR-027-claw3d-ui-optionnelle.md).

@@ -1,0 +1,28 @@
+{
+  "api_info_version": "1.0.0",
+  "openapi_version": "3.1.0",
+  "provider_version": "1.18.16",
+  "required_operations": {
+    "GET /agent": "app.agents",
+    "GET /event": "event.subscribe",
+    "GET /global/event": "global.event",
+    "GET /global/health": "global.health",
+    "GET /mcp": "mcp.status",
+    "GET /permission": "permission.list",
+    "GET /provider": "provider.list",
+    "GET /session": "session.list",
+    "GET /session/status": "session.status",
+    "GET /session/{sessionID}": "session.get",
+    "GET /session/{sessionID}/diff": "session.diff",
+    "GET /session/{sessionID}/message": "session.messages",
+    "POST /permission/{requestID}/reply": "permission.reply",
+    "POST /session": "session.create",
+    "POST /session/{sessionID}/abort": "session.abort",
+    "POST /session/{sessionID}/prompt_async": "session.prompt_async"
+  },
+  "schema_version": 1,
+  "source_bytes": 1060866,
+  "source_commit": "a3647eb025c7615159d417dcc49fc39fdaeba65b",
+  "source_sha256": "5bbd6493a1a488ef4294889341c896e420f814ecea95822100aaa9f3f95ab2d1",
+  "source_url": "https://raw.githubusercontent.com/anomalyco/opencode/a3647eb025c7615159d417dcc49fc39fdaeba65b/packages/sdk/openapi.json"
+}

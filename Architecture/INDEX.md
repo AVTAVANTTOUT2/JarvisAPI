@@ -2,11 +2,11 @@
 
 **Date initiale** : 11 juillet 2026
 
-**Dernière mise à jour** : 3 août 2026
+**Dernière mise à jour** : 11 août 2026
 **Périmètre** : 273 fichiers Python (56 261 lignes), 99 fichiers source frontend (18 770 lignes),
-90 tables SQLite persistantes après `init_db()` et 95 tables physiques avec FTS5.
-Runtime SQLite canonique : **94 tables persistantes**, **99 tables physiques avec FTS5**, schéma généré : **95 déclarations de tables**.
-Structure API canonique : **269 opérations HTTP + 2 WebSockets**, **239 chemins OpenAPI**, **18 routeurs api/router_*.py + Fitness = 19 montés**, main.py **219 lignes**.
+104 tables SQLite persistantes après `init_db()` et 109 tables physiques avec FTS5.
+Runtime SQLite canonique : **104 tables persistantes**, **109 tables physiques avec FTS5**, schéma généré : **105 déclarations de tables**.
+Structure API canonique : **283 opérations HTTP + 2 WebSockets**, **252 chemins OpenAPI**, **20 routeurs api/router_*.py + Fitness = 21 montés**, main.py **223 lignes**.
 Voir [32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md](./32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md).
 **État** : **Documentation officielle — toute modification du code doit rester cohérente avec ce dossier**
 

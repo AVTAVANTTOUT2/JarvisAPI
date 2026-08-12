@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-08-11T14:21:54.789398+00:00",
+  "generated_at": "2026-08-12T07:34:37.421095+00:00",
   "repo_root": ".",
   "canonical_formulation": {
-    "database": "Le projet crée 94 tables persistantes après init_db() + migrations, plus jusqu'à 5 objets FTS5, soit 99 tables physiques lorsque FTS5 est disponible.",
+    "database": "Le projet crée 104 tables persistantes après init_db() + migrations, plus jusqu'à 5 objets FTS5, soit 109 tables physiques lorsque FTS5 est disponible.",
     "frontends": "Le frontend canonique est frontend/ (Next.js 15 → frontend/out). web/src est uniquement sa bibliothèque de vues et n'est plus une application exécutable. web_mobile/ est l'interface mobile autonome servie sous /mobile/, sans build. Si frontend/out manque, le bureau répond explicitement 503. tv/ (5174) est réservé à la TV. FastAPI (8081) et le supervisor (9000) servent uniquement frontend/out via core.frontend_resolution."
   },
   "frontends": [
@@ -117,19 +117,29 @@
       "does_not_execute_schema_sql": true
     },
     "counts": {
-      "schema_py": 58,
-      "schema_sql_applicatives": 95,
+      "schema_py": 68,
+      "schema_sql_applicatives": 105,
       "migrations_unique_excluding_schema_and_fts": 30,
       "devagent": 6,
-      "persistantes_post_init": 94,
+      "persistantes_post_init": 104,
       "fts_objects_if_available": 5,
-      "physiques_max_default_fts_on": 99,
+      "physiques_max_default_fts_on": 109,
       "imessage_mirror": 9,
       "technique_estime": 19,
-      "metier_estime": 60
+      "metier_estime": 70
     },
     "lists": {
       "schema_py": [
+        "agent_approval_outbox",
+        "agent_approvals",
+        "agent_artifacts",
+        "agent_capability_grants",
+        "agent_checkpoints",
+        "agent_event_inbox",
+        "agent_events",
+        "agent_metrics",
+        "agent_runs",
+        "agent_steps",
         "agentic_workflows",
         "app_settings",
         "app_usage",
@@ -190,6 +200,16 @@
         "work_sessions"
       ],
       "schema_sql": [
+        "agent_approval_outbox",
+        "agent_approvals",
+        "agent_artifacts",
+        "agent_capability_grants",
+        "agent_checkpoints",
+        "agent_event_inbox",
+        "agent_events",
+        "agent_metrics",
+        "agent_runs",
+        "agent_steps",
         "agentic_workflows",
         "app_settings",
         "app_usage",
@@ -327,6 +347,16 @@
         "dev_spec"
       ],
       "persistantes": [
+        "agent_approval_outbox",
+        "agent_approvals",
+        "agent_artifacts",
+        "agent_capability_grants",
+        "agent_checkpoints",
+        "agent_event_inbox",
+        "agent_events",
+        "agent_metrics",
+        "agent_runs",
+        "agent_steps",
         "agentic_workflows",
         "app_settings",
         "app_usage",
@@ -456,21 +486,21 @@
       ]
     },
     "explanations": {
-      "schema_sql": "95 tables applicatives dans database/schema.sql (dump non exécuté), hors sqlite_sequence.",
-      "persistantes": "94 tables créées par schema.py + migrations + DevAgent, hors objets FTS.",
-      "physiques_fts": "99 entrées sqlite_master avec les cinq objets FTS5 disponibles.",
+      "schema_sql": "105 tables applicatives dans database/schema.sql (dump non exécuté), hors sqlite_sequence.",
+      "persistantes": "104 tables créées par schema.py + migrations + DevAgent, hors objets FTS.",
+      "physiques_fts": "109 entrées sqlite_master avec les cinq objets FTS5 disponibles.",
       "historique": "Les totaux 44, 70, 71, 72, 73, 75, 76 et 78 décrivent des snapshots antérieurs, pas le runtime courant."
     }
   },
   "api_surface": {
     "coverage_scope": "Références statiques par chemin : la méthode HTTP et les assertions comportementales restent vérifiées par les suites de tests.",
     "counts": {
-      "operations": 271,
-      "paths": 241,
-      "consumer_and_tested": 130,
-      "consumer_without_path_test": 51,
-      "owned_non_frontend_and_tested": 43,
-      "owned_non_frontend_without_path_test": 47
+      "operations": 285,
+      "paths": 254,
+      "consumer_and_tested": 137,
+      "consumer_without_path_test": 48,
+      "owned_non_frontend_and_tested": 48,
+      "owned_non_frontend_without_path_test": 52
     },
     "consumer_surfaces": [
       "android",
@@ -482,16 +512,16 @@
       "tv"
     ],
     "structure": {
-      "http_operations": 269,
+      "http_operations": 283,
       "websocket_operations": 2,
-      "openapi_paths": 239,
-      "domain_router_modules": 18,
-      "mounted_routers": 19,
-      "main_lines": 219
+      "openapi_paths": 252,
+      "domain_router_modules": 20,
+      "mounted_routers": 21,
+      "main_lines": 223
     },
     "ownership_policy": {
       "path": "Architecture/api_route_ownership.json",
-      "rules": 34,
+      "rules": 36,
       "findings": []
     },
     "routes": [
@@ -706,6 +736,139 @@
       },
       {
         "method": "GET",
+        "path": "/api/agentic/runs",
+        "source": "api/router_agentic.py",
+        "line": 259,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/agenticApi.ts"
+          ],
+          "android": [
+            "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
+          ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift"
+          ]
+        },
+        "tests": [
+          "frontend/src/lib/agenticApi.test.ts",
+          "tests/test_agentic_api.py",
+          "tests/test_security_middleware.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/agentic/runs/{run_id}",
+        "source": "api/router_agentic.py",
+        "line": 287,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/agenticApi.ts"
+          ],
+          "android": [
+            "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
+          ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift"
+          ]
+        },
+        "tests": [
+          "frontend/src/lib/agenticApi.test.ts",
+          "tests/test_agentic_api.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/agentic/runs/{run_id}/approvals",
+        "source": "api/router_agentic.py",
+        "line": 309,
+        "consumers": {
+          "android": [
+            "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
+          ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift"
+          ]
+        },
+        "tests": [
+          "tests/test_agentic_api.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/agentic/runs/{run_id}/artifacts",
+        "source": "api/router_agentic.py",
+        "line": 302,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/agenticApi.ts"
+          ],
+          "android": [
+            "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
+          ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift"
+          ]
+        },
+        "tests": [
+          "frontend/src/lib/agenticApi.test.ts"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/agentic/runs/{run_id}/events",
+        "source": "api/router_agentic.py",
+        "line": 292,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/agenticApi.ts"
+          ],
+          "android": [
+            "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
+          ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift"
+          ]
+        },
+        "tests": [
+          "frontend/src/lib/agenticApi.test.ts",
+          "tests/test_agentic_api.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/agentic/runtime/status",
+        "source": "api/router_agentic.py",
+        "line": 210,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/agenticApi.ts"
+          ],
+          "android": [
+            "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
+          ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift"
+          ]
+        },
+        "tests": [
+          "tests/test_agentic_api.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
         "path": "/api/app-usage",
         "source": "api/router_devices.py",
         "line": 357,
@@ -808,14 +971,15 @@
         "path": "/api/autonomy/settings",
         "source": "api/router_cognitive.py",
         "line": 344,
-        "consumers": {
-          "frontend_vite": [
-            "web/src/app/components/views/CognitiveView.tsx"
-          ]
-        },
+        "consumers": {},
         "tests": [],
-        "non_frontend_ownership": null,
-        "classification": "consumer_without_path_test"
+        "non_frontend_ownership": {
+          "rule_id": "operator-cognitive-control",
+          "owner": "cognitive-orchestration",
+          "audience": "operator",
+          "rationale": "Inspection et pilotage explicites de l'orchestration cognitive par l'opérateur authentifié."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "GET",
@@ -920,28 +1084,30 @@
         "path": "/api/cognitive/capabilities",
         "source": "api/router_cognitive.py",
         "line": 119,
-        "consumers": {
-          "frontend_vite": [
-            "web/src/app/components/views/CognitiveView.tsx"
-          ]
-        },
+        "consumers": {},
         "tests": [],
-        "non_frontend_ownership": null,
-        "classification": "consumer_without_path_test"
+        "non_frontend_ownership": {
+          "rule_id": "operator-cognitive-control",
+          "owner": "cognitive-orchestration",
+          "audience": "operator",
+          "rationale": "Inspection et pilotage explicites de l'orchestration cognitive par l'opérateur authentifié."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "GET",
         "path": "/api/cognitive/llm-policy",
         "source": "api/router_cognitive.py",
         "line": 128,
-        "consumers": {
-          "frontend_vite": [
-            "web/src/app/components/views/CognitiveView.tsx"
-          ]
-        },
+        "consumers": {},
         "tests": [],
-        "non_frontend_ownership": null,
-        "classification": "consumer_without_path_test"
+        "non_frontend_ownership": {
+          "rule_id": "operator-cognitive-control",
+          "owner": "cognitive-orchestration",
+          "audience": "operator",
+          "rationale": "Inspection et pilotage explicites de l'orchestration cognitive par l'opérateur authentifié."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "GET",
@@ -1157,31 +1323,33 @@
         "path": "/api/cursor/jobs",
         "source": "api/router_cognitive.py",
         "line": 163,
-        "consumers": {
-          "frontend_vite": [
-            "web/src/app/components/views/CognitiveView.tsx"
-          ]
-        },
+        "consumers": {},
         "tests": [
           "tests/test_cognitive_api_validation.py",
           "tests/test_cursor_security_hardening.py"
         ],
-        "non_frontend_ownership": null,
-        "classification": "consumer_and_tested"
+        "non_frontend_ownership": {
+          "rule_id": "operator-cursor-control",
+          "owner": "cursor-delegation",
+          "audience": "operator",
+          "rationale": "Commandes de contrôle humain et diagnostic du moteur de délégation Cursor."
+        },
+        "classification": "owned_non_frontend_and_tested"
       },
       {
         "method": "GET",
         "path": "/api/cursor/jobs/{job_id}",
         "source": "api/router_cognitive.py",
         "line": 187,
-        "consumers": {
-          "frontend_vite": [
-            "web/src/app/components/views/CognitiveView.tsx"
-          ]
-        },
+        "consumers": {},
         "tests": [],
-        "non_frontend_ownership": null,
-        "classification": "consumer_without_path_test"
+        "non_frontend_ownership": {
+          "rule_id": "operator-cursor-control",
+          "owner": "cursor-delegation",
+          "audience": "operator",
+          "rationale": "Commandes de contrôle humain et diagnostic du moteur de délégation Cursor."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "GET",
@@ -2931,6 +3099,57 @@
       },
       {
         "method": "GET",
+        "path": "/api/visual/v1/events",
+        "source": "api/router_visual.py",
+        "line": 272,
+        "consumers": {},
+        "tests": [
+          "tests/test_visual_agentic_relay.py"
+        ],
+        "non_frontend_ownership": {
+          "rule_id": "local-visual-relay",
+          "owner": "visual-observability",
+          "audience": "integration-client",
+          "rationale": "Flux d'observabilité en lecture seule destiné à une intégration locale authentifiée."
+        },
+        "classification": "owned_non_frontend_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/visual/v1/health",
+        "source": "api/router_visual.py",
+        "line": 252,
+        "consumers": {},
+        "tests": [
+          "tests/test_visual_agentic_relay.py"
+        ],
+        "non_frontend_ownership": {
+          "rule_id": "local-visual-relay",
+          "owner": "visual-observability",
+          "audience": "integration-client",
+          "rationale": "Flux d'observabilité en lecture seule destiné à une intégration locale authentifiée."
+        },
+        "classification": "owned_non_frontend_and_tested"
+      },
+      {
+        "method": "GET",
+        "path": "/api/visual/v1/snapshot",
+        "source": "api/router_visual.py",
+        "line": 261,
+        "consumers": {},
+        "tests": [
+          "tests/test_visual_agentic_relay.py"
+        ],
+        "non_frontend_ownership": {
+          "rule_id": "local-visual-relay",
+          "owner": "visual-observability",
+          "audience": "integration-client",
+          "rationale": "Flux d'observabilité en lecture seule destiné à une intégration locale authentifiée."
+        },
+        "classification": "owned_non_frontend_and_tested"
+      },
+      {
+        "method": "GET",
         "path": "/api/voice-debug",
         "source": "api/router_daemon.py",
         "line": 129,
@@ -2953,7 +3172,6 @@
             "frontend/src/lib/api.ts"
           ],
           "frontend_vite": [
-            "web/src/app/components/views/CognitiveView.tsx",
             "web/src/app/components/views/HealthView.tsx"
           ]
         },
@@ -3126,6 +3344,106 @@
         ],
         "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/agentic/runs",
+        "source": "api/router_agentic.py",
+        "line": 219,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/agenticApi.ts"
+          ],
+          "android": [
+            "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
+          ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift"
+          ]
+        },
+        "tests": [
+          "frontend/src/lib/agenticApi.test.ts",
+          "tests/test_agentic_api.py",
+          "tests/test_security_middleware.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/agentic/runs/{run_id}/approvals/{approval_id}/decision",
+        "source": "api/router_agentic.py",
+        "line": 341,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/agenticApi.ts"
+          ],
+          "android": [
+            "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
+          ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift"
+          ]
+        },
+        "tests": [
+          "frontend/src/lib/agenticApi.test.ts",
+          "tests/test_agentic_api.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/agentic/runs/{run_id}/cancel",
+        "source": "api/router_agentic.py",
+        "line": 336,
+        "consumers": {
+          "android": [
+            "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
+          ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/agentic/runs/{run_id}/pause",
+        "source": "api/router_agentic.py",
+        "line": 326,
+        "consumers": {
+          "android": [
+            "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
+          ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift"
+          ]
+        },
+        "tests": [
+          "frontend/src/lib/agenticApi.test.ts"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/agentic/runs/{run_id}/resume",
+        "source": "api/router_agentic.py",
+        "line": 331,
+        "consumers": {
+          "android": [
+            "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
+          ],
+          "macos": [
+            "native_mac/JarvisMac/JarvisAPI.swift"
+          ]
+        },
+        "tests": [],
+        "non_frontend_ownership": null,
+        "classification": "consumer_without_path_test"
       },
       {
         "method": "POST",
@@ -3511,14 +3829,15 @@
         "path": "/api/cognitive/route",
         "source": "api/router_cognitive.py",
         "line": 111,
-        "consumers": {
-          "frontend_vite": [
-            "web/src/app/components/views/CognitiveView.tsx"
-          ]
-        },
+        "consumers": {},
         "tests": [],
-        "non_frontend_ownership": null,
-        "classification": "consumer_without_path_test"
+        "non_frontend_ownership": {
+          "rule_id": "operator-cognitive-control",
+          "owner": "cognitive-orchestration",
+          "audience": "operator",
+          "rationale": "Inspection et pilotage explicites de l'orchestration cognitive par l'opérateur authentifié."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "POST",
@@ -3692,17 +4011,18 @@
         "path": "/api/cursor/jobs",
         "source": "api/router_cognitive.py",
         "line": 205,
-        "consumers": {
-          "frontend_vite": [
-            "web/src/app/components/views/CognitiveView.tsx"
-          ]
-        },
+        "consumers": {},
         "tests": [
           "tests/test_cognitive_api_validation.py",
           "tests/test_cursor_security_hardening.py"
         ],
-        "non_frontend_ownership": null,
-        "classification": "consumer_and_tested"
+        "non_frontend_ownership": {
+          "rule_id": "operator-cursor-control",
+          "owner": "cursor-delegation",
+          "audience": "operator",
+          "rationale": "Commandes de contrôle humain et diagnostic du moteur de délégation Cursor."
+        },
+        "classification": "owned_non_frontend_and_tested"
       },
       {
         "method": "POST",
@@ -4662,7 +4982,7 @@
         "method": "POST",
         "path": "/api/mobile/chat/confirm",
         "source": "api/router_mobile_chat.py",
-        "line": 191,
+        "line": 197,
         "consumers": {
           "android": [
             "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
@@ -5300,7 +5620,7 @@
         "method": "WEBSOCKET",
         "path": "/ws",
         "source": "main.py",
-        "line": 125,
+        "line": 129,
         "consumers": {
           "frontend_next": [
             "frontend/public/sw.js"
@@ -5340,7 +5660,7 @@
         "method": "WEBSOCKET",
         "path": "/ws/tv/events",
         "source": "main.py",
-        "line": 128,
+        "line": 132,
         "consumers": {
           "tv": [
             "tv/config.py"

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
@@ -10,6 +11,13 @@ from typing import Awaitable, Callable
 
 import config
 import llm
+from agents.devagent.agentic_runtime import (
+    AgenticRuntimeUnavailable,
+    delegate_agentic_task,
+    delegate_engineering_task,
+    legacy_fallback_enabled,
+    select_test_command,
+)
 from agents.display_text import strip_assistant_code_fences
 from jarvis.security.llm_data_boundary import (
     UNTRUSTED_DATA_SYSTEM_RULE,
@@ -223,44 +231,131 @@ async def run_autonomous_loop(
             [], workflow_id, "failed", 0, 0, 0.0, synthesis,
         )
 
-    # ── Routage cognitif : tâches techniques → Cursor (worktree isolé)
+    # ── Toute boucle explicite passe d'abord par le runtime générique.
+    intent = None
     try:
         from jarvis.cognitive import route_request
 
         intent = route_request(str(user_message), interaction_mode="loop")
-        if intent.execution_type == "cursor" and getattr(config, "CURSOR_DELEGATION_ENABLED", True):
-            from integrations.cursor_delegation import cursor_delegation
+    except Exception as exc:
+        logger.warning("[loop] routage cognitif indisponible: %s", exc)
 
-            await _emit(on_event, "loop_progress", {
-                "message": "Délégation technique à Cursor CLI (worktree isolé).",
-                "routing": intent.to_diagnostic(),
-            })
-            # /loop est un mode autonome explicite → auto-start autorisé.
-            job = await cursor_delegation.enqueue(
+    routing = intent.to_diagnostic() if intent is not None else {}
+    is_technical = intent is not None and getattr(intent, "execution_type", None) in {
+        "agentic",
+        "cursor",
+    }
+    try:
+        request_digest = hashlib.sha256(str(user_message).encode("utf-8")).hexdigest()[:24]
+        idempotency_key = f"loop:{conversation_id or 'none'}:{request_digest}"
+        if is_technical:
+            await _emit(
+                on_event,
+                "loop_progress",
+                {
+                    "message": "Création d'un run agentique dans un worktree isolé.",
+                    "routing": routing,
+                },
+            )
+            delegation: dict = await delegate_engineering_task(
                 title=str(user_message)[:120],
                 user_request=str(user_message),
-                template_id=intent.template_id or "feature_implementation",
+                template_id=getattr(intent, "template_id", None) or "feature_implementation",
+                workflow_id=str(workflow_id) if workflow_id is not None else None,
+                risk=str(routing.get("risk") or "medium"),
                 interaction_mode="loop",
-                routing=intent.to_diagnostic(),
+                origin="user",
+                channel="loop",
+                task_id=str(workflow_id) if workflow_id is not None else None,
+                idempotency_key=idempotency_key,
+                selected_context={"routing": routing},
+                acceptance_criteria=(),
+                required_tests=(select_test_command(Path(config.BASE_DIR), routing),),
                 auto_start=True,
                 require_confirmation=False,
+                delivery_mode="pr_only",
             )
+            run_reference = delegation.get("run_id") or delegation.get("job_id")
             synthesis = (
-                f"Tâche technique déléguée à Cursor — job `{job.get('job_id')}`. "
-                "Suivi via /api/cursor/jobs."
+                f"Tâche technique acceptée — suivi `{run_reference}` dans le panneau agentique. "
+                "Le travail s'exécute dans un worktree isolé; JARVIS conserve la validation "
+                "et la livraison Git."
             )
-            await _emit(on_event, "loop_done", {
-                "status": "completed",
+        else:
+            await _emit(
+                on_event,
+                "loop_progress",
+                {
+                    "message": "Création d'un run agentique persistant.",
+                    "routing": routing,
+                },
+            )
+            runtime_result = await delegate_agentic_task(
+                title=str(user_message)[:120],
+                instruction=str(user_message),
+                channel="loop",
+                origin="user",
+                task_id=str(workflow_id) if workflow_id is not None else None,
+                conversation_id=(
+                    str(conversation_id) if conversation_id is not None else None
+                ),
+                idempotency_key=idempotency_key,
+                permissions=("tasks:read", "tasks:write"),
+                selected_context={"routing": routing},
+                auto_start=True,
+                wait=False,
+            )
+            delegation = {
+                "job_id": runtime_result.run_id,
+                "run_id": runtime_result.run_id,
+                "status": runtime_result.status,
+                "phase": runtime_result.phase,
+                "legacy": False,
+            }
+            synthesis = (
+                f"Tâche autonome acceptée — suivi `{runtime_result.run_id}` "
+                "dans le panneau agentique."
+            )
+
+        await _emit(
+            on_event,
+            "loop_done",
+            {
+                "status": "running",
                 "steps": 1,
                 "synthesis": synthesis,
-                "cursor_job_id": job.get("job_id"),
-            })
-            return _finalize_loop(
-                [{"step": 1, "result": {"ok": True, "job": job}}],
-                workflow_id, "completed", 0, 0, 0.0, synthesis,
+                "agentic_run_id": delegation.get("run_id"),
+                "job_id": delegation.get("job_id"),
+            },
+        )
+        return _finalize_loop(
+            [{"step": 1, "result": {"ok": True, "delegation": delegation}}],
+            workflow_id,
+            "running",
+            0,
+            0,
+            0.0,
+            synthesis,
+        )
+    except AgenticRuntimeUnavailable as exc:
+        if not legacy_fallback_enabled():
+            synthesis = f"Runtime agentique indisponible: {exc}"
+            await _emit(
+                on_event,
+                "loop_done",
+                {"status": "failed", "steps": 0, "synthesis": synthesis},
             )
+            return _finalize_loop([], workflow_id, "failed", 0, 0, 0.0, synthesis)
+        logger.warning("[loop] fallback historique explicite: %s", exc)
     except Exception as exc:
-        logger.warning("[loop] délégation Cursor skip: %s", exc)
+        logger.warning("[loop] délégation agentique échouée: %s", exc)
+        synthesis = "La délégation agentique a échoué avant son démarrage."
+        await _emit(
+            on_event,
+            "loop_done",
+            {"status": "failed", "steps": 0, "synthesis": synthesis},
+        )
+        return _finalize_loop([], workflow_id, "failed", 0, 0, 0.0, synthesis)
 
     results: list[dict] = []
     total_output_chars = 0

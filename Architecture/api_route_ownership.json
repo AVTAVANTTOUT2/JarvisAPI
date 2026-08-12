@@ -65,6 +65,8 @@
       "methods": ["GET", "POST"],
       "paths": [
         "/api/cursor/status",
+        "/api/cursor/jobs",
+        "/api/cursor/jobs/{job_id}",
         "/api/cursor/jobs/{job_id}/cancel",
         "/api/cursor/jobs/{job_id}/confirm",
         "/api/cursor/jobs/{job_id}/retry",
@@ -99,6 +101,31 @@
         "/api/devagent/{project_id}/status"
       ],
       "rationale": "Plan de contrôle explicite de l'agent de développement, utilisable par un opérateur ou une intégration CI."
+    },
+    {
+      "id": "operator-cognitive-control",
+      "owner": "cognitive-orchestration",
+      "audience": "operator",
+      "methods": ["GET", "POST"],
+      "paths": [
+        "/api/autonomy/settings",
+        "/api/cognitive/capabilities",
+        "/api/cognitive/llm-policy",
+        "/api/cognitive/route"
+      ],
+      "rationale": "Inspection et pilotage explicites de l'orchestration cognitive par l'opérateur authentifié."
+    },
+    {
+      "id": "local-visual-relay",
+      "owner": "visual-observability",
+      "audience": "integration-client",
+      "methods": ["GET"],
+      "paths": [
+        "/api/visual/v1/events",
+        "/api/visual/v1/health",
+        "/api/visual/v1/snapshot"
+      ],
+      "rationale": "Flux d'observabilité en lecture seule destiné à une intégration locale authentifiée."
     },
     {
       "id": "device-pairing-operations",

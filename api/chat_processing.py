@@ -12,6 +12,8 @@ from agents import get_agent
 from agents.autonomous_loop import parse_loop_command
 from agents.display_text import extract_leading_emotion, finalize_assistant_display_text
 from agents.orchestrator import orchestrator
+from api.agentic_processing import maybe_start_agentic_run
+from api.chat_cognitive import maybe_handle_legacy_agentic_chat
 from api.chat_actions import (
     ACTIONS_WITH_FOLLOWUP,
     _extract_action_from_text,
@@ -60,18 +62,17 @@ async def _process_message_internal(
     *,
     persist_assistant: bool = True,
     trace: Any | None = None,
+    agentic_idempotency_key: str | None = None,
+    agentic_origin: str = "user",
+    agentic_channel: str | None = None,
+    agentic_device: str | None = None,
+    agentic_locale: str | None = None,
+    agentic_timezone: str | None = None,
 ) -> dict:
-    """Pipeline JARVIS sans WebSocket — pour les endpoints REST (journal, contacts, etc.).
+    """Pipeline REST/voix partagé avec enrichissement, actions et persistance.
 
-    Applique le même enrichissement de contexte que _process_message, appelle l'orchestrateur,
-    exécute les actions avec 2e passe si nécessaire, sauvegarde le message assistant.
-
-    Retourne {text, emotion, action, action_result, agent, model, cost}.
-
-    ``persist_assistant=False`` est réservé à l'adaptateur vocal natif : il
-    permet à celui-ci d'écrire le couple user/assistant hors de la boucle
-    asyncio, sans dupliquer le moteur de tour ni ajouter SQLite à la latence
-    micro-vers-enceinte.
+    ``persist_assistant=False`` laisse l'adaptateur vocal écrire le couple de
+    messages hors de la boucle asyncio, sans dupliquer le moteur de tour.
     """
     try:
         confirmation_session_id = confirmation_session_id or f"internal:{conversation_id}"
@@ -108,6 +109,20 @@ async def _process_message_internal(
                     "model": config.LOOP_MODEL,
                     "cost": 0.0,
                 }
+            agentic = await maybe_start_agentic_run(
+                f"/agent {loop_task.strip()}",
+                conversation_id,
+                channel=agentic_channel or ("voice" if voice_mode else "chat"),
+                voice_mode=voice_mode,
+                persist_assistant=persist_assistant,
+                idempotency_key=agentic_idempotency_key,
+                origin=agentic_origin,
+                device=agentic_device,
+                locale=agentic_locale,
+                timezone_name=agentic_timezone,
+            )
+            if agentic is not None:
+                return agentic
             try:
                 save_message(conversation_id, "user", original_text)
             except Exception as exc:
@@ -119,33 +134,29 @@ async def _process_message_internal(
                 confirmation_session_id=confirmation_session_id,
             )
 
-        # ── Routage cognitif : tâche technique → délégation Cursor ──
-        try:
-            from api.chat_cognitive import maybe_delegate_chat_to_cursor, route_chat_text, should_run_cursor_cognitive_path
+        agentic = await maybe_start_agentic_run(
+            original_text,
+            conversation_id,
+            channel=agentic_channel or ("voice" if voice_mode else "chat"),
+            voice_mode=voice_mode,
+            persist_assistant=persist_assistant,
+            idempotency_key=agentic_idempotency_key,
+            origin=agentic_origin,
+            device=agentic_device,
+            locale=agentic_locale,
+            timezone_name=agentic_timezone,
+        )
+        if agentic is not None:
+            return agentic
 
-            intent = route_chat_text(original_text, voice_mode=voice_mode)
-            if should_run_cursor_cognitive_path(original_text, intent, conversation_id, confirmation_session_id):
-                # NB : la persistance du message user appartient à l'appelant
-                # REST (même contrat que le reste de _process_message_internal).
-                delegated = await maybe_delegate_chat_to_cursor(
-                    original_text,
-                    conversation_id,
-                    intent=intent,
-                    interaction_mode="voice" if voice_mode else "chat",
-                )
-                if delegated and delegated.get("handled"):
-                    return {
-                        "text": delegated["text"],
-                        "emotion": delegated.get("emotion", "neutral"),
-                        "action": {"type": "cursor_delegate", "job_id": delegated.get("job_id")},
-                        "action_result": {"ok": True, "job_id": delegated.get("job_id")},
-                        "agent": "cognitive",
-                        "model": "router",
-                        "cost": 0.0,
-                        "routing": delegated.get("routing"),
-                    }
-        except Exception as e:
-            logger.debug("[_process_message_internal] routage cognitif : %s", e)
+        legacy = await maybe_handle_legacy_agentic_chat(
+            original_text,
+            conversation_id,
+            voice_mode=voice_mode,
+            confirmation_session_id=confirmation_session_id,
+        )
+        if legacy is not None:
+            return legacy
 
         # Confirmation « oui / vas-y » sur une action en attente (REST)
         pending_action = peek_pending_proposal(
@@ -411,19 +422,8 @@ async def _process_message_internal(
         display_text = re.sub(r'```(?:json|action|save)\s*\{[\s\S]*?\}\s*```', '', display_text).strip()
         display_text = re.sub(r'^\s*\[\w+\]\s*\n?', '', display_text).strip()
         if not display_text:
-            # Reponse vide : dire ce qui s'est passe, pas autre chose.
-            #
-            # « Bien noté. » prétend avoir compris et enregistré quelque chose
-            # alors que le moteur n'a rien produit. C'est le même défaut que
-            # « Je n'ai pas compris » côté vocal, en pire : l'un accuse à tort
-            # la compréhension de l'utilisateur, l'autre lui fait croire que sa
-            # demande est prise en compte. Les deux envoyaient chercher la cause
-            # au mauvais endroit, pendant qu'elle restait invisible.
-            #
-            # Deux causes distinctes produisent ce vide, et les confondre
-            # empêche de diagnostiquer :
-            #   - le modele ne renvoie aucun contenu (reseau, quota, coupure) ;
-            #   - il ne renvoie *que* le tag [emotion], que le parseur retire.
+            # Distinguer un budget épuisé d'un modèle muet ou d'un tag émotion
+            # seul, sans prétendre que la demande utilisateur a été comprise.
             tokens_out = int(final_meta.get("tokens_out") or 0)
             max_tokens = int(final_meta.get("max_tokens") or 0)
             reasoning_tokens = int(final_meta.get("reasoning_tokens") or 0)

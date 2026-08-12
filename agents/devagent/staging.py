@@ -1,4 +1,4 @@
-"""Auto-déploiement staging pour un projet DevAgent après des tests verts.
+"""Utilitaire historique de copie staging, disponible uniquement sur appel manuel.
 
 Un projet DevAgent est arbitraire (API, CLI, script, intégration…) — il n'y a
 pas de notion générique de « démarrer le service ». Le déploiement staging se
@@ -14,9 +14,10 @@ limite donc à ce qui est vérifiable de façon universelle et sûre :
    vient d'être validé, pas juste une copie de fichiers.
 4. Enregistrer le résultat (``dev_deployments``) et notifier.
 
-Un déploiement staging raté ne bloque jamais la boucle DevAgent (l'itération
-elle-même reste un succès) — c'est un filet de sécurité en plus, pas une
-porte de sortie.
+Le runtime agentique et la boucle DevAgent n'appellent jamais ce module : une
+livraison peut pousser une branche et ouvrir une PR draft, mais elle ne déploie
+ni en staging ni en production. Ce helper reste importable pour les opérateurs
+et tests historiques qui l'invoquent explicitement.
 """
 
 from __future__ import annotations

@@ -159,6 +159,12 @@ async def api_mobile_chat(
         conversation_id,
         voice_mode=False,
         confirmation_session_id=f"mobile:{device_id}",
+        agentic_idempotency_key=(
+            f"mobile:{device_id}:{client_message_id}" if client_message_id else None
+        ),
+        agentic_origin="android",
+        agentic_channel="android",
+        agentic_device=device_id,
     )
     response_text = str(result.get("text") or "").strip()
     action = result.get("action")

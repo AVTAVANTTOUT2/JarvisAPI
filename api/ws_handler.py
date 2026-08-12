@@ -3,16 +3,15 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 
 from fastapi import WebSocket, WebSocketDisconnect
 
 import auth
 import config
-from api.chat_actions import _run_loop_mode_ws
 from api.memory_background import _run_memory_in_background
 from api.welcome import _maybe_send_daily_welcome
+from api import ws_client_context as ws_ctx
 from api.ws_handsfree import _handle_hands_free_blob, handle_voice_cancel_message
 from api.ws_messages import _process_message
 from api.ws_action_messages import handle_ws_action_decision
@@ -34,7 +33,6 @@ from database import (
     get_conversation_history,
     get_last_conversation_summary,
     normalize_checkpoint_id,
-    save_message,
 )
 from websocket_registry import add_websocket, remove_websocket
 
@@ -57,6 +55,7 @@ async def websocket_endpoint(ws: WebSocket):
         await ws.close(code=4401)
         return
     confirmation_session_id = websocket_confirmation_session_id(session, mobile_device)
+    agentic_context = ws_ctx.websocket_client_context(ws, mobile_device)
     requested_checkpoint_id = ws.query_params.get("checkpoint_id")
     if requested_checkpoint_id:
         try:
@@ -172,6 +171,7 @@ async def websocket_endpoint(ws: WebSocket):
                     await _process_message(
                         ws, text, conversation_id, voice_mode=True, stream=True,
                         send_tts=True, confirmation_session_id=confirmation_session_id,
+                        agentic_context=agentic_context.agentic_kwargs(),
                     )
                     is_speaking = True  # jusqu'à done_playing (réponse vocale jouée)
                 except Exception as e:
@@ -186,13 +186,11 @@ async def websocket_endpoint(ws: WebSocket):
             if "text" in packet and packet["text"] is not None:
                 raw = packet["text"]
                 try:
-                    msg = json.loads(raw)
-                except json.JSONDecodeError:
+                    parsed = ws_ctx.parse_websocket_client_message(raw, agentic_context)
+                    msg, msg_type, client_message_id, message_context = parsed
+                except (ValueError, TypeError):
                     await ws.send_json({"type": "error", "message": "JSON invalide"})
                     continue
-
-                msg_type = msg.get("type", "text")
-
                 if msg_type == "recording_start":
                     if stt is None or not getattr(stt, "available", False):
                         await ws.send_json({
@@ -244,6 +242,7 @@ async def websocket_endpoint(ws: WebSocket):
                         if voice_conversation
                         else None,
                         "confirmation_session_id": confirmation_session_id,
+                        "agentic_context": message_context,
                         "is_speaking": False,
                         "is_processing": False,
                     }
@@ -345,6 +344,7 @@ async def websocket_endpoint(ws: WebSocket):
                         await _process_message(
                             ws, text, conversation_id, voice_mode=True, stream=True,
                             send_tts=True, confirmation_session_id=confirmation_session_id,
+                            agentic_context=agentic_context.agentic_kwargs(),
                         )
                         is_speaking = True
                     except Exception as e:
@@ -411,14 +411,13 @@ async def websocket_endpoint(ws: WebSocket):
                         })
                         continue
                     try:
-                        save_message(conversation_id, "user", f"/loop {task}")
-                    except Exception as e:
-                        logger.debug("[ws] loop save user : %s", e)
-                    try:
-                        await _run_loop_mode_ws(
-                            ws, task, conversation_id,
+                        await _process_message(
+                            ws, f"/loop {task}", conversation_id,
                             voice_mode=bool(msg.get("voice_mode")),
+                            stream=False, send_tts=bool(msg.get("voice_mode")),
                             confirmation_session_id=confirmation_session_id,
+                            client_message_id=client_message_id,
+                            agentic_context=message_context.agentic_kwargs(),
                         )
                     except Exception:
                         logger.exception("[ws] loop mode")
@@ -459,6 +458,8 @@ async def websocket_endpoint(ws: WebSocket):
                     await _process_message(
                         ws, content, conversation_id, voice_mode=False, stream=stream,
                         send_tts=tts_flag, confirmation_session_id=confirmation_session_id,
+                        client_message_id=client_message_id,
+                        agentic_context=message_context.agentic_kwargs(),
                     )
                     if tts_flag:
                         is_speaking = True

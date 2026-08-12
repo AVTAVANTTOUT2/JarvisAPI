@@ -1,0 +1,64 @@
+{
+  "manifest_version": 1,
+  "runtime": {
+    "id": "opencode",
+    "name": "Local agentic runtime",
+    "version": "1.18.16",
+    "entrypoint": "integrations.opencode.register:create_runtime",
+    "enabled": true,
+    "capabilities": [
+      {
+        "name": "workspace.read",
+        "scope": "workspace:read",
+        "description": "Read files confined to the selected workspace",
+        "risk_level": "low",
+        "requires_approval": false,
+        "reversible": true,
+        "timeout_s": 60
+      },
+      {
+        "name": "workspace.edit",
+        "scope": "workspace:write",
+        "description": "Apply reversible edits confined to the selected workspace",
+        "risk_level": "medium",
+        "requires_approval": true,
+        "reversible": true,
+        "timeout_s": 120
+      },
+      {
+        "name": "tests.run",
+        "scope": "tests:run",
+        "description": "Run bounded verification commands in the selected workspace",
+        "risk_level": "low",
+        "requires_approval": false,
+        "reversible": true,
+        "timeout_s": 600
+      },
+      {
+        "name": "tasks.read",
+        "scope": "tasks:read",
+        "description": "Read tasks from the active JARVIS profile",
+        "risk_level": "low",
+        "requires_approval": false,
+        "reversible": true,
+        "timeout_s": 30
+      },
+      {
+        "name": "tasks.write",
+        "scope": "tasks:write",
+        "description": "Create reversible idempotent tasks in the active JARVIS profile",
+        "risk_level": "medium",
+        "requires_approval": true,
+        "reversible": true,
+        "timeout_s": 30
+      }
+    ]
+  },
+  "removable": true,
+  "network": "loopback-only",
+  "ui": false,
+  "ci": {
+    "module": "integrations.opencode.tools.ci",
+    "phases": ["offline", "live", "removal"]
+  }
+}

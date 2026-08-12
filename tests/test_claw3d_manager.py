@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -24,7 +25,7 @@ def _fake_installation(jarvis_root: Path) -> Path:
     "value,expected",
     (
         ("http://127.0.0.1:8080", "http://127.0.0.1:8080"),
-        ("https://jarvis.example/", "https://jarvis.example"),
+        ("https://localhost/", "https://localhost"),
     ),
 )
 def test_normalize_jarvis_origin_accepts_origins(value: str, expected: str):
@@ -41,6 +42,7 @@ def test_normalize_jarvis_origin_accepts_origins(value: str, expected: str):
         "https://jarvis.example?token=secret",
         "https://jarvis.example/#fragment",
         "https://jarvis.example;touch",
+        "https://jarvis.example",
         " https://jarvis.example",
     ),
 )
@@ -74,6 +76,45 @@ def test_readonly_configuration_requires_an_explicit_origin():
     )
     assert "JARVIS_CONNECTOR_ENABLED=true" in configuration
     assert "JARVIS_ORIGIN=http://127.0.0.1:8080" in configuration
+
+
+def test_visual_credentials_are_scoped_private_and_stable(tmp_path: Path):
+    jarvis_root = tmp_path / "jarvis"
+    root = jarvis_root / ".jarvis" / "apps" / "claw3d"
+    root.mkdir(parents=True)
+
+    token_path, ca_path = claw3d.provision_visual_credentials(
+        root,
+        "http://127.0.0.1:8080",
+    )
+    original = token_path.read_text(encoding="ascii")
+    repeated, repeated_ca = claw3d.provision_visual_credentials(
+        root,
+        "http://127.0.0.1:8080",
+    )
+
+    assert repeated == token_path
+    assert repeated.read_text(encoding="ascii") == original
+    assert token_path.stat().st_mode & 0o777 == 0o600
+    assert ca_path is None and repeated_ca is None
+
+
+def test_visual_credentials_copy_only_public_ca_for_https(tmp_path: Path):
+    jarvis_root = tmp_path / "jarvis"
+    root = jarvis_root / ".jarvis" / "apps" / "claw3d"
+    root.mkdir(parents=True)
+    cert = jarvis_root / "certs" / "cert.pem"
+    cert.parent.mkdir()
+    cert.write_text("PUBLIC TEST CERTIFICATE\n", encoding="ascii")
+
+    _, ca_path = claw3d.provision_visual_credentials(
+        root,
+        "https://127.0.0.1:8080",
+    )
+
+    assert ca_path is not None
+    assert ca_path.read_text(encoding="ascii") == "PUBLIC TEST CERTIFICATE\n"
+    assert ca_path.stat().st_mode & 0o777 == 0o600
 
 
 def test_configuration_preserves_existing_env_unless_replace_is_explicit(tmp_path: Path):
@@ -155,7 +196,59 @@ def test_validation_rejects_a_symlinked_installation(tmp_path: Path, monkeypatch
         claw3d.validate_installation(linked_root, verify_commit=False)
 
 
+def test_is_installed_and_running_helpers(tmp_path: Path, monkeypatch):
+    assert claw3d.is_installed(tmp_path) is False
+    root = _fake_installation(tmp_path)
+    monkeypatch.setattr(claw3d, "apps_root", lambda jarvis_root=claw3d.JARVIS_ROOT: root.parent)
+    assert claw3d.is_installed(tmp_path) is True
+    assert claw3d.is_running(tmp_path) is False
+
+    state_dir = root / ".claw3d" / "run"
+    state_dir.mkdir(parents=True)
+    state_file = state_dir / "claw3d.state"
+    state_file.write_text(f"pid={os.getpid()}\n", encoding="utf-8")
+    assert claw3d.running_pid(tmp_path) is None
+
+    started = "Tue Aug 11 16:46:38 2026"
+    state_file.write_text(
+        f"pid={os.getpid()}\nroot={root.resolve()}\nport=3000\nstarted={started}\n",
+        encoding="utf-8",
+    )
+
+    def capture(command, cwd=None):
+        del cwd
+        return started if command[-1] == "lstart=" else "next-server (v15.5.12)"
+
+    monkeypatch.setattr(claw3d, "_capture", capture)
+    assert claw3d.running_pid(tmp_path) == os.getpid()
+    assert claw3d.is_running(tmp_path) is True
+
+    monkeypatch.setattr(claw3d, "_capture", lambda command, cwd=None: "autre démarrage")
+    assert claw3d.running_pid(tmp_path) is None
+
+
+def test_sync_managed_configuration_rewrites_readonly_origin(tmp_path: Path, monkeypatch):
+    root = _fake_installation(tmp_path)
+    monkeypatch.setattr(claw3d, "apps_root", lambda jarvis_root=claw3d.JARVIS_ROOT: root.parent)
+    monkeypatch.setattr(
+        claw3d,
+        "validate_installation",
+        lambda root, expected_parent=None, verify_commit=True: None,
+    )
+
+    claw3d.sync_managed_configuration(
+        tmp_path,
+        mode="jarvis-readonly",
+        jarvis_origin="https://127.0.0.1:8081",
+        host="127.0.0.1",
+        port=3000,
+    )
+    content = (root / ".env").read_text(encoding="utf-8")
+    assert "VISUAL_ADAPTER=jarvis-readonly" in content
+    assert "JARVIS_ORIGIN=https://127.0.0.1:8081" in content
+    assert "CLAW3D_PORT=3000" in content
+
+
 def test_source_is_pinned_to_an_exact_public_commit():
     assert claw3d.CLAW3D_REPOSITORY == "https://github.com/AVTAVANTTOUT2/Claw3D.git"
-    assert claw3d.CLAW3D_BRANCH == "codex/jarvis-visual-ui"
-    assert claw3d.CLAW3D_COMMIT == "f66ee199223fbee51a3506c6f50f0a68db487cad"
+    assert claw3d.CLAW3D_COMMIT == "202feaf0efd8ae92451368d408e387a507da0192"

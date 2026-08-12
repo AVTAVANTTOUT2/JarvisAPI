@@ -1,0 +1,75 @@
+{
+  "assets": {
+    "darwin-arm64": {
+      "archive": "zip",
+      "filename": "opencode-darwin-arm64.zip",
+      "sha256": "1e670c94341a374824dc6700b6f38b2cb6634baf3ca20e645084c33ce6639320",
+      "size": 46053503,
+      "url": "https://github.com/anomalyco/opencode/releases/download/v1.18.16/opencode-darwin-arm64.zip"
+    },
+    "darwin-x64": {
+      "archive": "zip",
+      "filename": "opencode-darwin-x64.zip",
+      "sha256": "4cfa1d11e665ffb83b68dbefc4cadee0559d008e7ab40c92d14fc371c8b13595",
+      "size": 48254566,
+      "url": "https://github.com/anomalyco/opencode/releases/download/v1.18.16/opencode-darwin-x64.zip"
+    },
+    "linux-arm64": {
+      "archive": "tar.gz",
+      "filename": "opencode-linux-arm64.tar.gz",
+      "sha256": "4fdce5f9bc877d977304d71c0c90ad6e83efa381fe0edf0a61e6142a625e1c41",
+      "size": 60189672,
+      "url": "https://github.com/anomalyco/opencode/releases/download/v1.18.16/opencode-linux-arm64.tar.gz"
+    },
+    "linux-x64": {
+      "archive": "tar.gz",
+      "filename": "opencode-linux-x64.tar.gz",
+      "sha256": "286e07355df06738c1905955be15b7fbc10a7b12d931de9394a6f7597246750b",
+      "size": 60379356,
+      "url": "https://github.com/anomalyco/opencode/releases/download/v1.18.16/opencode-linux-x64.tar.gz"
+    },
+    "windows-x64": {
+      "archive": "zip",
+      "filename": "opencode-windows-x64.zip",
+      "sha256": "a60bf4d8019982b81dc0c3b91b6e226442cf2b73aca817599b68779ac053e3ff",
+      "size": 60501625,
+      "url": "https://github.com/anomalyco/opencode/releases/download/v1.18.16/opencode-windows-x64.zip"
+    }
+  },
+  "license": {
+    "git_blob_sha": "6439474beed8e0271df9862eff97ffd70ec2464c",
+    "name": "MIT",
+    "source": "https://raw.githubusercontent.com/anomalyco/opencode/v1.18.16/LICENSE"
+  },
+  "release": {
+    "minimum_safe_version": "1.1.10",
+    "minimum_secure_version": "1.1.10",
+    "published_at": "2026-08-10T06:07:08Z",
+    "tag": "v1.18.16",
+    "version": "1.18.16"
+  },
+  "schema_version": 1,
+  "upstream": {
+    "advisories": "https://github.com/anomalyco/opencode/security/advisories",
+    "commit": "a3647eb025c7615159d417dcc49fc39fdaeba65b",
+    "release": "https://github.com/anomalyco/opencode/releases/tag/v1.18.16",
+    "repository": "https://github.com/anomalyco/opencode"
+  },
+  "vulnerability_review": [
+    {
+      "advisory": "GHSA-c83v-7274-4vgp",
+      "cve": "CVE-2026-22813",
+      "fixed_version": "1.1.10",
+      "severity": "critical",
+      "summary": "Web UI XSS leading to remote code execution"
+    },
+    {
+      "advisory": "GHSA-vxw4-wv6m-9hhh",
+      "cve": "CVE-2026-22812",
+      "fixed_version": "1.0.216",
+      "severity": "high",
+      "summary": "Unauthenticated server exposure"
+    }
+  ],
+  "verified_at": "2026-08-11"
+}

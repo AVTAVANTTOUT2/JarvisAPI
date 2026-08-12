@@ -123,6 +123,9 @@ async def _process_voice_fast(
     confirmation_session_id: str | None = None,
     trace: Any | None = None,
     on_canonical_turn_started: Callable[[], Awaitable[None]] | None = None,
+    agentic_device: str | None = None,
+    agentic_locale: str | None = None,
+    agentic_timezone: str | None = None,
 ) -> dict[str, Any]:
     """Traite un tour vocal avec le moteur conversationnel unique.
 
@@ -190,6 +193,27 @@ async def _process_voice_fast(
             confirmation_session_id=confirmation_session_id,
             persist_assistant=False,
             trace=trace,
+            agentic_idempotency_key=(
+                f"voice:{confirmation_session_id}:{trace.utterance_id}"
+                if trace is not None and getattr(trace, "utterance_id", None)
+                else None
+            ),
+            agentic_origin="voice",
+            agentic_channel=(
+                "android_voice"
+                if confirmation_session_id.startswith("mobile:")
+                else "voice"
+            ),
+            agentic_device=(
+                agentic_device
+                or (
+                    confirmation_session_id.removeprefix("mobile:")
+                    if confirmation_session_id.startswith("mobile:")
+                    else None
+                )
+            ),
+            agentic_locale=agentic_locale,
+            agentic_timezone=agentic_timezone,
         ),
         name="voice-canonical-turn",
     )

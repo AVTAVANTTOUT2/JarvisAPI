@@ -261,7 +261,7 @@ def test_empty_response_is_logged_visibly_with_its_cause():
     # vocal, lui, ne reçoit qu'un texte déjà nettoyé — il ne peut plus
     # distinguer « rien du tout » de « seulement le tag [emotion] ».
     source = (PROJECT_ROOT / "api" / "chat_processing.py").read_text(encoding="utf-8")
-    block = source[source.index("Reponse vide : dire ce qui"):]
+    block = source[source.index('cause = "aucun_contenu"') :]
     block = block[: block.index("if persist_assistant")]
 
     assert "logger.warning" in block

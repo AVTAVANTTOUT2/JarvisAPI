@@ -7,6 +7,7 @@ persistance et une façade rétrocompatible pour les anciens appelants.
 
 from __future__ import annotations
 
+import hashlib
 from typing import Any, Final
 
 import database
@@ -25,9 +26,9 @@ DEFAULT_DEDUPLICATION_WINDOW_SECONDS: Final[int] = 300
 class NotificationService:
     """Orchestre la création et la consultation des notifications.
 
-    La déduplication porte sur ``source``, ``title`` et ``email_id`` dans une
-    fenêtre courte. Elle évite les alertes répétées d'un même producteur sans
-    supprimer des notifications liées à des emails distincts.
+    Par défaut, la déduplication porte sur ``source``, ``title`` et
+    ``email_id`` dans une fenêtre courte. Les producteurs qui fournissent une
+    ``idempotency_key`` obtiennent une déduplication durable par source.
     """
 
     def create(
@@ -39,21 +40,33 @@ class NotificationService:
         email_id: str | None = None,
         *,
         deduplication_window_seconds: int | None = DEFAULT_DEDUPLICATION_WINDOW_SECONDS,
+        idempotency_key: str | None = None,
     ) -> int:
         """Crée une notification, ou retourne celle déjà créée récemment.
+
+        ``idempotency_key`` active une déduplication durable indépendante de
+        la fenêtre temporelle. La clé est hachée avant persistance afin qu'un
+        identifiant fourni par un producteur ne puisse pas divulguer de donnée.
 
         Les priorités ``urgent`` et ``high`` déclenchent un Web Push
         best-effort après le commit. ``notification.created`` n'est émis que
         lorsqu'une nouvelle ligne a réellement été persistée.
         """
         normalized_priority = self._normalize_priority(priority)
+        persisted_email_id = email_id
+        if idempotency_key is not None:
+            if not idempotency_key.strip():
+                raise ValueError("idempotency_key ne peut pas être vide")
+            digest = hashlib.sha256(idempotency_key.encode("utf-8")).hexdigest()
+            persisted_email_id = f"idempotency:{digest}"
         notification_id, created = notification_store._insert_notification(
             source=source,
             title=title,
             content=content,
             priority=normalized_priority,
-            email_id=email_id,
+            email_id=persisted_email_id,
             deduplication_window_seconds=deduplication_window_seconds,
+            deduplicate_forever=idempotency_key is not None,
         )
         if not created:
             return notification_id

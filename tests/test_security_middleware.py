@@ -696,6 +696,45 @@ def test_remote_screen_content_length_is_rejected_before_json_parse(tmp_db, monk
     assert response.json()["detail"]["code"] == "payload_too_large"
 
 
+def test_agentic_body_is_rejected_before_json_parse_without_capping_uploads(
+    tmp_db,
+    monkeypatch,
+):
+    import config
+
+    monkeypatch.setattr(config, "AGENTIC_MAX_REQUEST_BYTES", 128)
+    with _client() as client:
+        authenticate(client)
+        response = client.post(
+            "/api/agentic/runs",
+            headers={"Idempotency-Key": "oversized-agentic-payload"},
+            json={"title": "A" * 500},
+        )
+
+    assert response.status_code == 413
+    assert response.json()["detail"]["code"] == "payload_too_large"
+    from api.middleware import _request_size_limit
+
+    assert _request_size_limit("POST", "/upload") is None
+
+
+def test_agentic_stream_without_content_length_is_rejected_before_parsing(tmp_db):
+    with _client() as client:
+        authenticate(client)
+        response = client.post(
+            "/api/agentic/runs",
+            headers={
+                "Idempotency-Key": "chunked-agentic-payload",
+                "Content-Type": "application/json",
+                "Transfer-Encoding": "chunked",
+            },
+            content=iter([b'{"title":"test"}']),
+        )
+
+    assert response.status_code == 411
+    assert response.json()["detail"]["code"] == "length_required"
+
+
 def test_activate_device_requires_session_not_device_token(tmp_db):
     """`/activate` est déclenché depuis le dashboard navigateur — verrou de session, pas jeton device."""
     import auth
@@ -898,7 +937,11 @@ def test_mobile_voice_turn_without_content_length_is_refused(tmp_db):
 
 @pytest.mark.parametrize(
     "path",
-    ["/api/devices/screen-bad-cl/screen", "/api/mobile/voice/turn"],
+    [
+        "/api/devices/screen-bad-cl/screen",
+        "/api/mobile/voice/turn",
+        "/api/agentic/runs",
+    ],
 )
 @pytest.mark.parametrize("raw_length", ["abc", "-1"])
 def test_capped_routes_reject_invalid_content_length(path: str, raw_length: str):
@@ -938,6 +981,8 @@ def test_routes_without_declared_limit_still_accept_streamed_bodies():
     assert _request_size_limit("POST", "/api/mobile/voice/turn") is not None
     assert _request_size_limit("GET", "/api/mobile/voice/turn") is None
     assert _request_size_limit("POST", "/api/devices/x/screen") is not None
+    assert _request_size_limit("POST", "/api/agentic/runs") is not None
+    assert _request_size_limit("POST", "/upload") is None
     assert _request_size_limit("GET", "/api/devices/x/screen") is None
 
 

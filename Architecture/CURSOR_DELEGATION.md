@@ -1,12 +1,20 @@
-# Délégation Cursor CLI
+# Délégation Cursor CLI — compatibilité historique
 
-Dernière mise à jour : 2026-07-16
+Dernière mise à jour : 2026-08-11
+
+> **Statut : legacy opt-in.** Le chemin canonique est désormais le runtime
+> agentique générique `jarvis/agentic/`, découvert dynamiquement depuis les
+> manifests `integrations/*/plugin.json`. Le DevAgent passe par
+> `agents/devagent/agentic_runtime.py`; ce document ne décrit que le fallback
+> historique activable explicitement avec `AGENTIC_RUNTIME_FALLBACK=legacy`.
 
 ## Rôle
 
-Exécuter le travail technique (bugs, features, CI, migrations, audits) via Cursor Agent en mode headless, dans un worktree git isolé, jamais sur `main`/`master`.
+Conserver un chemin de secours explicite pour les installations qui utilisent
+encore Cursor Agent en mode headless. Il n'est jamais sélectionné implicitement
+et ne constitue plus l'architecture agentique principale de JARVIS.
 
-## Fichiers clés
+## Fichiers clés du fallback
 
 | Fichier | Rôle |
 |---------|------|
