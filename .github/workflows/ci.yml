@@ -332,8 +332,8 @@ jobs:
       - name: Compiler, tester et linter debug + release
         run: |
           ./gradlew \
-            assembleDebug testDebugUnitTest lintDebug \
-            assembleRelease testReleaseUnitTest lintRelease \
+            assembleDebug compileDebugUnitTestKotlin lintDebug \
+            assembleRelease compileReleaseUnitTestKotlin lintRelease \
             --no-daemon
 
       - name: Vérifier les artefacts R8 et les DTO conservés
