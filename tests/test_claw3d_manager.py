@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -153,6 +154,59 @@ def test_validation_rejects_a_symlinked_installation(tmp_path: Path, monkeypatch
 
     with pytest.raises(claw3d.Claw3DError, match="installation Claw3D invalide"):
         claw3d.validate_installation(linked_root, verify_commit=False)
+
+
+def test_is_installed_and_running_helpers(tmp_path: Path, monkeypatch):
+    assert claw3d.is_installed(tmp_path) is False
+    root = _fake_installation(tmp_path)
+    monkeypatch.setattr(claw3d, "apps_root", lambda jarvis_root=claw3d.JARVIS_ROOT: root.parent)
+    assert claw3d.is_installed(tmp_path) is True
+    assert claw3d.is_running(tmp_path) is False
+
+    state_dir = root / ".claw3d" / "run"
+    state_dir.mkdir(parents=True)
+    state_file = state_dir / "claw3d.state"
+    state_file.write_text(f"pid={os.getpid()}\n", encoding="utf-8")
+    assert claw3d.running_pid(tmp_path) is None
+
+    started = "Tue Aug 11 16:46:38 2026"
+    state_file.write_text(
+        f"pid={os.getpid()}\nroot={root.resolve()}\nport=3000\nstarted={started}\n",
+        encoding="utf-8",
+    )
+
+    def capture(command, cwd=None):
+        del cwd
+        return started if command[-1] == "lstart=" else "next-server (v15.5.12)"
+
+    monkeypatch.setattr(claw3d, "_capture", capture)
+    assert claw3d.running_pid(tmp_path) == os.getpid()
+    assert claw3d.is_running(tmp_path) is True
+
+    monkeypatch.setattr(claw3d, "_capture", lambda command, cwd=None: "autre démarrage")
+    assert claw3d.running_pid(tmp_path) is None
+
+
+def test_sync_managed_configuration_rewrites_readonly_origin(tmp_path: Path, monkeypatch):
+    root = _fake_installation(tmp_path)
+    monkeypatch.setattr(claw3d, "apps_root", lambda jarvis_root=claw3d.JARVIS_ROOT: root.parent)
+    monkeypatch.setattr(
+        claw3d,
+        "validate_installation",
+        lambda root, expected_parent=None, verify_commit=True: None,
+    )
+
+    claw3d.sync_managed_configuration(
+        tmp_path,
+        mode="jarvis-readonly",
+        jarvis_origin="https://127.0.0.1:8081",
+        host="127.0.0.1",
+        port=3000,
+    )
+    content = (root / ".env").read_text(encoding="utf-8")
+    assert "VISUAL_ADAPTER=jarvis-readonly" in content
+    assert "JARVIS_ORIGIN=https://127.0.0.1:8081" in content
+    assert "CLAW3D_PORT=3000" in content
 
 
 def test_source_is_pinned_to_an_exact_public_commit():
