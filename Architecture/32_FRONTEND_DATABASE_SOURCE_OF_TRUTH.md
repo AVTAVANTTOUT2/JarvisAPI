@@ -4,11 +4,11 @@
 **Méthode** : audit du code exécutable sur `main` (pas de la documentation).  
 **Contrôle automatique** : `tools/audit_architecture_truth.py --check --schema-output database/schema.sql`
 
-Runtime SQLite canonique : **94 tables persistantes**, **99 tables physiques avec FTS5**, schéma généré : **95 déclarations de tables**.
+Runtime SQLite canonique : **104 tables persistantes**, **109 tables physiques avec FTS5**, schéma généré : **105 déclarations de tables**.
 
-Surface API canonique : **271 opérations**, **241 chemins**, **130 consommées et testées**, **51 consommées sans référence de test**, **43 non-frontend documentées et testées**, **47 non-frontend documentées sans référence de test**, **0 non attribuées**.
+Surface API canonique : **285 opérations**, **254 chemins**, **137 consommées et testées**, **48 consommées sans référence de test**, **48 non-frontend documentées et testées**, **52 non-frontend documentées sans référence de test**, **0 non attribuées**.
 
-Structure API canonique : **269 opérations HTTP + 2 WebSockets**, **239 chemins OpenAPI**, **18 routeurs api/router_*.py + Fitness = 19 montés**, main.py **219 lignes**.
+Structure API canonique : **283 opérations HTTP + 2 WebSockets**, **252 chemins OpenAPI**, **20 routeurs api/router_*.py + Fitness = 21 montés**, main.py **223 lignes**.
 
 > Ce document **remplace** les affirmations conflictuelles « 44 tables », « 72 tables », « 73 tables »
 > et les formulations ambiguës sur le « frontend principal ».  
@@ -30,9 +30,9 @@ Structure API canonique : **269 opérations HTTP + 2 WebSockets**, **239 chemins
 
 | Question | Réponse vérifiée |
 |---|---|
-| Combien de tables après `init_db()` (défaut, FTS5 disponible) ? | **95** entrées `sqlite_master` de type `table` (hors `sqlite_*`) |
-| Combien hors objets FTS5 ? | **90** tables persistantes |
-| Pourquoi `schema.sql` en déclare 91 ? | Il contient les 90 persistantes et `messages_fts`; SQLite crée les 4 tables auxiliaires FTS5 restantes |
+| Combien de tables après `init_db()` (défaut, FTS5 disponible) ? | **109** entrées `sqlite_master` de type `table` (hors `sqlite_*`) |
+| Combien hors objets FTS5 ? | **104** tables persistantes |
+| Pourquoi `schema.sql` en déclare 105 ? | Il contient les 104 persistantes et `messages_fts`; SQLite crée les 4 tables auxiliaires FTS5 restantes |
 | D'où vient « **73** » ? | Inventaire Architecture antérieur au chat mobile, à la délégation Cursor et au pairage desktop sécurisé |
 | Frontend canonique (FastAPI 8081) ? | **`frontend/`** — Next.js **15.5.20**, React **19.2.7** (lockfile), export → `frontend/out/` |
 | Fallback racine FastAPI ? | **Aucun** — réponse 503 explicite si `frontend/out` manque |
@@ -45,10 +45,10 @@ Structure API canonique : **269 opérations HTTP + 2 WebSockets**, **239 chemins
 **Formulation canonique (à réutiliser partout) :**
 
 ```text
-Le projet crée 90 tables persistantes après init_db() + migrations, plus
+Le projet crée 104 tables persistantes après init_db() + migrations, plus
 5 objets FTS5 (messages_fts + 4 auxiliaires) lorsque FTS5 est disponible,
-soit 95 tables physiques sur une base neuve avec configuration par défaut.
-database/schema.sql est un miroir généré de 91 déclarations : les 90 tables
+soit 109 tables physiques sur une base neuve avec configuration par défaut.
+database/schema.sql est un miroir généré de 105 déclarations : les 104 tables
 persistantes et la table virtuelle messages_fts. Il n'est pas exécuté par
 init_db(), mais la CI interdit toute divergence avec le runtime frais.
 
@@ -399,7 +399,7 @@ Statuts : `active` | `technique` | `miroir` | `conditionnelle` | `devagent`
 
 ## 8. Recommandation
 
-1. **Citer toujours** la formulation canonique 90 persistantes / 95 physiques / 91 déclarations.
+1. **Citer toujours** la formulation canonique 104 persistantes / 109 physiques / 105 déclarations.
 2. **Frontend** : phrase canonique du §1.
 3. **Conserver** `web/src` comme bibliothèque de vues ; son ancien shell Vite
    ne doit pas être restauré. La maquette `front_tv/` et le template TV legacy
