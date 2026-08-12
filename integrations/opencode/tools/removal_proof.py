@@ -545,16 +545,21 @@ def run_removal_proof(
         repo_copy = temporary_root / "repository"
         shutil.copytree(source, repo_copy, ignore=_copy_ignore)
         if full:
-            # L'audit d'architecture compare ce seul artefact canonique. Le
-            # reste de ``artifacts/`` demeure exclu de la copie par sécurité.
-            architecture_truth = source / "artifacts" / "architecture_truth.json"
-            if not architecture_truth.is_file() or architecture_truth.is_symlink():
-                raise RemovalProofError(
-                    "artefact d'architecture canonique indisponible"
-                )
-            copied_truth = repo_copy / "artifacts" / architecture_truth.name
-            copied_truth.parent.mkdir(mode=0o700)
-            shutil.copyfile(architecture_truth, copied_truth)
+            # ``artifacts/`` reste globalement exclu. Seules les preuves
+            # canoniques exigées par les audits sont recopiées explicitement.
+            required_artifacts = (
+                "architecture_truth.json",
+                "voice_latency_2026-08-05.json",
+            )
+            copied_artifacts = repo_copy / "artifacts"
+            copied_artifacts.mkdir(mode=0o700)
+            for artifact_name in required_artifacts:
+                artifact = source / "artifacts" / artifact_name
+                if not artifact.is_file() or artifact.is_symlink():
+                    raise RemovalProofError(
+                        f"artefact canonique indisponible: {artifact_name}"
+                    )
+                shutil.copyfile(artifact, copied_artifacts / artifact_name)
         if any(path.is_symlink() for path in repo_copy.rglob("*")):
             raise RemovalProofError("la copie temporaire contient un lien symbolique")
 
