@@ -14,6 +14,7 @@ import ipaddress
 import json
 import os
 from pathlib import Path
+import secrets
 import shutil
 import subprocess
 import sys
@@ -24,9 +25,10 @@ from urllib.parse import urlsplit, urlunsplit
 
 JARVIS_ROOT = Path(__file__).resolve().parents[1]
 CLAW3D_REPOSITORY = "https://github.com/AVTAVANTTOUT2/Claw3D.git"
-CLAW3D_BRANCH = "codex/jarvis-visual-ui"
-CLAW3D_COMMIT = "f66ee199223fbee51a3506c6f50f0a68db487cad"
+CLAW3D_COMMIT = "202feaf0efd8ae92451368d408e387a507da0192"
 CLAW3D_MARKER = "claw3d.visual-ui.root.v1"
+VISUAL_TOKEN_RELATIVE_PATH = Path(".claw3d/auth/jarvis-visual.token")
+VISUAL_CA_RELATIVE_PATH = Path(".claw3d/trust/jarvis-ca.pem")
 
 Runner = Callable[[Sequence[str], Path | None], None]
 
@@ -60,6 +62,66 @@ def apps_root(jarvis_root: Path = JARVIS_ROOT) -> Path:
 
 def claw3d_root(jarvis_root: Path = JARVIS_ROOT) -> Path:
     return apps_root(jarvis_root) / "claw3d"
+
+
+def _write_private_file(path: Path, content: str, *, preserve: bool) -> Path:
+    """Écrit un fichier régulier 0600 sans suivre de lien symbolique."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.parent.is_symlink() or path.is_symlink():
+        raise Claw3DError(f"chemin privé ambigu: {path}")
+    if path.exists():
+        if not path.is_file():
+            raise Claw3DError(f"fichier privé invalide: {path}")
+        path.chmod(0o600)
+        if preserve:
+            return path
+    temporary = path.with_name(f".{path.name}.tmp-{os.getpid()}")
+    if temporary.exists() or temporary.is_symlink():
+        raise Claw3DError(f"fichier temporaire ambigu: {temporary}")
+    try:
+        with temporary.open("x", encoding="ascii") as handle:
+            handle.write(content)
+        temporary.chmod(0o600)
+        temporary.replace(path)
+    finally:
+        if temporary.exists() and not temporary.is_symlink():
+            temporary.unlink()
+    return path
+
+
+def provision_visual_credentials(root: Path, jarvis_origin: str) -> tuple[Path, Path | None]:
+    """Crée le jeton scoped et copie uniquement le certificat public utile."""
+    root = root.resolve()
+    state_root = root / ".claw3d"
+    if state_root.is_symlink():
+        raise Claw3DError("le répertoire privé Claw3D ne peut pas être un lien symbolique")
+    state_root.mkdir(exist_ok=True)
+    token_path = root / VISUAL_TOKEN_RELATIVE_PATH
+    if token_path.exists():
+        token = token_path.read_text(encoding="ascii").strip()
+        if not 43 <= len(token) <= 128 or not all(
+            char.isalnum() or char in "_-" for char in token
+        ):
+            raise Claw3DError("jeton visual:read existant invalide")
+        _write_private_file(token_path, token + "\n", preserve=True)
+    else:
+        _write_private_file(token_path, secrets.token_urlsafe(48) + "\n", preserve=False)
+
+    ca_path: Path | None = None
+    if urlsplit(jarvis_origin).scheme.lower() == "https":
+        jarvis_root = root.parents[2]
+        source = jarvis_root / "certs" / "cert.pem"
+        if source.is_symlink() or not source.is_file():
+            raise Claw3DError(
+                "certificat JARVIS local introuvable; générez certs/cert.pem avant Claw3D"
+            )
+        ca_path = root / VISUAL_CA_RELATIVE_PATH
+        _write_private_file(
+            ca_path,
+            source.read_text(encoding="ascii"),
+            preserve=False,
+        )
+    return token_path, ca_path
 
 
 def _ensure_local_directory(path: Path, parent: Path) -> None:
@@ -129,6 +191,13 @@ def normalize_jarvis_origin(value: str) -> str:
     except ValueError as exc:
         raise Claw3DError("port invalide dans JARVIS_ORIGIN") from exc
     hostname = _normalize_network_host(parsed.hostname, "JARVIS_ORIGIN")
+    if hostname != "localhost":
+        try:
+            loopback = ipaddress.ip_address(hostname).is_loopback
+        except ValueError:
+            loopback = False
+        if not loopback:
+            raise Claw3DError("JARVIS_ORIGIN doit rester sur l'interface loopback")
     formatted_host = f"[{hostname}]" if ":" in hostname else hostname
     netloc = formatted_host + (f":{port}" if port is not None else "")
     return urlunsplit((parsed.scheme.lower(), netloc, "", "", ""))
@@ -139,6 +208,9 @@ def render_configuration(
     jarvis_origin: str | None,
     host: str,
     port: int,
+    *,
+    visual_token_file: Path | None = None,
+    ca_cert_file: Path | None = None,
 ) -> str:
     if mode not in {"mock", "null", "jarvis-readonly"}:
         raise Claw3DError(f"adaptateur visuel inconnu: {mode}")
@@ -154,19 +226,31 @@ def render_configuration(
     else:
         origin = ""
 
-    return "\n".join(
+    lines = [
+        "# Généré explicitement par JarvisAPI scripts/claw3d.py.",
+        "# Ce fichier ne contient aucun secret JARVIS.",
+        f"VISUAL_ADAPTER={mode}",
+        f"JARVIS_CONNECTOR_ENABLED={'true' if connector_enabled else 'false'}",
+        f"JARVIS_ORIGIN={origin}",
+    ]
+    if connector_enabled:
+        token_file = str(visual_token_file.resolve()) if visual_token_file else ""
+        ca_file = str(ca_cert_file.resolve()) if ca_cert_file else ""
+        lines.extend(
+            (
+                f"JARVIS_VISUAL_TOKEN_FILE={token_file}",
+                f"NODE_EXTRA_CA_CERTS={ca_file}",
+            )
+        )
+    lines.extend(
         (
-            "# Généré explicitement par JarvisAPI scripts/claw3d.py.",
-            "# Ce fichier ne contient aucun secret JARVIS.",
-            f"VISUAL_ADAPTER={mode}",
-            f"JARVIS_CONNECTOR_ENABLED={'true' if connector_enabled else 'false'}",
-            f"JARVIS_ORIGIN={origin}",
             "VISUAL_BROWSER_PERSISTENCE=false",
             f"CLAW3D_HOST={host}",
             f"CLAW3D_PORT={port}",
             "",
         )
     )
+    return "\n".join(lines)
 
 
 def write_configuration(root: Path, content: str, *, replace: bool) -> bool:
@@ -240,13 +324,9 @@ def _clone_pinned_claw3d(target: Path, runner: Runner = _run) -> None:
             (
                 "git",
                 "clone",
-                "--depth",
-                "32",
                 "--filter=blob:none",
                 "--no-tags",
-                "--single-branch",
-                "--branch",
-                CLAW3D_BRANCH,
+                "--no-checkout",
                 CLAW3D_REPOSITORY,
                 str(checkout),
             ),
@@ -268,7 +348,19 @@ def configure(
     replace: bool,
 ) -> bool:
     validate_installation(root, expected_parent=expected_parent)
-    content = render_configuration(mode, jarvis_origin, host, port)
+    origin = normalize_jarvis_origin(jarvis_origin or "") if mode == "jarvis-readonly" else None
+    token_file: Path | None = None
+    ca_file: Path | None = None
+    if origin is not None:
+        token_file, ca_file = provision_visual_credentials(root, origin)
+    content = render_configuration(
+        mode,
+        origin,
+        host,
+        port,
+        visual_token_file=token_file,
+        ca_cert_file=ca_file,
+    )
     return write_configuration(root, content, replace=replace)
 
 

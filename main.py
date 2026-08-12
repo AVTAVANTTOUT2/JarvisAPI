@@ -32,6 +32,7 @@ from api.lifespan import lifespan
 from api.middleware import configured_cors_origins, security_middleware
 from api.openapi import install_openapi, stable_operation_id
 from api.router_auth import router as auth_router
+from api.router_agentic import router as agentic_router
 from api.router_conversations import router as conversations_router
 from api.router_daemon import router as daemon_router
 from api.router_devagent import router as devagent_router
@@ -49,6 +50,7 @@ from api.router_rituals import router as rituals_router
 from api.router_scheduler import router as scheduler_router
 from api.router_tasks import router as tasks_router
 from api.router_cognitive import router as cognitive_router
+from api.router_visual import router as visual_router
 from api.voice_processing import _process_voice_fast
 from api.ws_handler import websocket_endpoint
 from api.ws_tv import TV_EVENTS_WS_PATH, tv_events_websocket
@@ -104,6 +106,7 @@ app.middleware("http")(security_middleware)
 
 app.include_router(fitness_router)
 app.include_router(auth_router)
+app.include_router(agentic_router)
 app.include_router(conversations_router)
 app.include_router(daemon_router)
 app.include_router(devagent_router)
@@ -121,6 +124,7 @@ app.include_router(rituals_router)
 app.include_router(scheduler_router)
 app.include_router(tasks_router)
 app.include_router(cognitive_router)
+app.include_router(visual_router)
 install_openapi(app)
 app.websocket("/ws")(websocket_endpoint)
 # Canal TV : descendant, authentifié par le jeton supervisor, sans commande.

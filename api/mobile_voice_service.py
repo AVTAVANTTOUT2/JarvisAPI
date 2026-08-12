@@ -87,6 +87,8 @@ async def process_mobile_voice_turn(
     audio_bytes: bytes,
     *,
     conversation_id: int | None = None,
+    locale: str | None = None,
+    timezone_name: str | None = None,
 ) -> dict[str, Any]:
     """Exécute un tour vocal complet pour un appareil mobile appairé."""
     device_id = str(device.get("device_id") or "")
@@ -154,6 +156,9 @@ async def process_mobile_voice_turn(
                     conv_id,
                     stt_ms=stt_ms,
                     confirmation_session_id=f"mobile:{device_id}",
+                    agentic_device=device_id,
+                    agentic_locale=locale or device.get("locale"),
+                    agentic_timezone=timezone_name or device.get("timezone"),
                 ),
                 timeout=config.MOBILE_VOICE_LLM_TIMEOUT_SEC,
             )

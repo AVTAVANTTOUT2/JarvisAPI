@@ -22,9 +22,44 @@ def _insert_notification(
     priority: str,
     email_id: str | None,
     deduplication_window_seconds: int | None,
+    *,
+    deduplicate_forever: bool = False,
 ) -> tuple[int, bool]:
     """Insère atomiquement une notification et indique si elle est nouvelle."""
     with get_db() as conn:
+        if deduplicate_forever:
+            if email_id is None:
+                raise ValueError("une clé persistée est requise pour l'idempotence")
+            cur = conn.execute(
+                """
+                INSERT INTO notifications (source, title, content, priority, email_id)
+                SELECT ?, ?, ?, ?, ?
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM notifications
+                    WHERE source = ?
+                      AND email_id = ?
+                )
+                """,
+                (source, title, content, priority, email_id, source, email_id),
+            )
+            if conn.execute("SELECT changes()").fetchone()[0] == 1:
+                return int(cur.lastrowid), True
+            existing = conn.execute(
+                """
+                SELECT id
+                FROM notifications
+                WHERE source = ?
+                  AND email_id = ?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (source, email_id),
+            ).fetchone()
+            if existing is not None:
+                return int(existing["id"]), False
+            raise RuntimeError("notification idempotente introuvable après insertion")
+
         if deduplication_window_seconds is None:
             cur = conn.execute(
                 """INSERT INTO notifications (source, title, content, priority, email_id)

@@ -18,11 +18,10 @@ def test_pnpm_manifests_use_the_same_exact_version():
 
 
 def test_ci_installs_the_manifest_pnpm_version_exactly():
-    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(
-        encoding="utf-8"
-    )
+    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
 
-    assert workflow.count(f"version: {PNPM_VERSION}") == 2
+    # Frontend, web et preuve de retrait complète installent la même version.
+    assert workflow.count(f"version: {PNPM_VERSION}") == 3
     assert "version: 11\n" not in workflow
 
 

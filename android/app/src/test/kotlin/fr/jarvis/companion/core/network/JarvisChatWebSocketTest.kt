@@ -2,6 +2,7 @@ package fr.jarvis.companion.core.network
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import com.google.gson.Gson
 import fr.jarvis.companion.data.FakeSecretKeyProvider
 import fr.jarvis.companion.data.JarvisSecureStore
 import fr.jarvis.companion.data.JarvisSettings
@@ -13,8 +14,14 @@ import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.tls.HandshakeCertificates
 import okhttp3.tls.HeldCertificate
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -136,6 +143,25 @@ class JarvisChatWebSocketTest {
         assertEquals("response", received.get().type)
         assertEquals("Bonsoir", received.get().content)
         assertEquals(42L, received.get().conversationId)
+
+        val agenticEvent = runBlocking {
+            val nextEvent = async(start = CoroutineStart.UNDISPATCHED) {
+                socket.agenticEvents.first()
+            }
+            serverSocket.get().send(
+                """{"type":"agent.approval.requested","data":{"run_id":"run-android","approval_id":"apr_opaque-42","phase":"awaiting_approval","prompt":"sensitive prompt","arguments":{"token":"secret"}}}""",
+            )
+            withTimeout(3_000) { nextEvent.await() }
+        }
+        assertEquals("run-android", agenticEvent.run_id)
+        assertEquals("apr_opaque-42", agenticEvent.approval_id)
+        assertEquals("awaiting_approval", agenticEvent.phase)
+        assertFalse(Gson().toJson(agenticEvent).contains("sensitive prompt"))
+        assertFalse(Gson().toJson(agenticEvent).contains("secret"))
+        assertEquals(0, received.get().raw.size())
+        assertEquals("run-android", received.get().agenticEvent?.run_id)
+        assertFalse(Gson().toJson(received.get()).contains("sensitive prompt"))
+        assertFalse(Gson().toJson(received.get()).contains("secret"))
         socket.disconnect()
         assertTrue(closed.await(3, TimeUnit.SECONDS))
     }

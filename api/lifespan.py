@@ -352,8 +352,37 @@ async def lifespan(app: FastAPI):
 
     logger.info(f"JARVIS prêt → http://localhost:{config.WEB_PORT}")
 
-    # ── Délégation Cursor : reprise des jobs persistants après restart ──
-    if getattr(config, "CURSOR_DELEGATION_ENABLED", True):
+    # Le core réconcilie les runs via le registre dynamique. L'absence de plugin
+    # reste un état fonctionnel et ne doit jamais empêcher JARVIS de démarrer.
+    agentic_service = None
+    agentic_finalizer_stop = asyncio.Event()
+    agentic_finalizer_task = None
+    try:
+        from jarvis.agentic import get_agentic_service
+
+        agentic_service = get_agentic_service()
+        agentic_service.start_maintenance()
+        reconciled = await agentic_service.reconcile_nonterminal()
+        if reconciled:
+            logger.info("[startup] runs agentiques réconciliés : %d", len(reconciled))
+    except Exception as exc:
+        logger.warning("[startup] réconciliation agentique indisponible : %s", exc)
+
+    try:
+        from agents.devagent.finalizer import run_engineering_finalizer_worker
+
+        agentic_finalizer_task = asyncio.create_task(
+            run_engineering_finalizer_worker(agentic_finalizer_stop),
+            name="agentic-engineering-finalizer",
+        )
+    except Exception as exc:
+        logger.warning("[startup] finaliseur agentique indisponible : %s", exc)
+
+    # Délégation historique, uniquement comme fallback explicitement configuré.
+    if (
+        str(getattr(config, "AGENTIC_RUNTIME_FALLBACK", "disabled")).lower() == "legacy"
+        and getattr(config, "CURSOR_DELEGATION_ENABLED", True)
+    ):
         try:
             from integrations.cursor_delegation import cursor_delegation
 
@@ -373,6 +402,12 @@ async def lifespan(app: FastAPI):
     from scripts.scheduler import shutdown_scheduler
 
     shutdown_scheduler()
+    agentic_finalizer_stop.set()
+    if agentic_finalizer_task is not None:
+        try:
+            await asyncio.wait_for(agentic_finalizer_task, timeout=5.0)
+        except (TimeoutError, asyncio.CancelledError):
+            agentic_finalizer_task.cancel()
     if imessage_bridge is not None:
         imessage_bridge.stop()
     # Annulation des tâches de sourcing iMessage
@@ -420,6 +455,12 @@ async def lifespan(app: FastAPI):
             await audio_daemon_task
         except (asyncio.CancelledError, Exception):
             pass
+
+    if agentic_service is not None:
+        try:
+            await agentic_service.dispose()
+        except Exception as exc:
+            logger.warning("[shutdown] arrêt du runtime agentique : %s", exc)
 
     await event_bus.wait_until_idle()
     event_bus.unbind_loop()

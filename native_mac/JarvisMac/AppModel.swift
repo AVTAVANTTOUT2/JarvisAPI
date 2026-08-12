@@ -12,6 +12,15 @@ final class AppModel: ObservableObject {
     @Published private(set) var isChatProcessing = false
     @Published private(set) var chatStatus = "Prêt"
     @Published private(set) var isRefreshing = false
+    @Published private(set) var agenticRuntime: AgenticRuntimeStatus?
+    @Published private(set) var agenticRuns: [AgenticRun] = []
+    @Published private(set) var selectedAgenticRun: AgenticRun?
+    @Published private(set) var selectedAgenticEvents: [AgenticEvent] = []
+    @Published private(set) var selectedAgenticApprovals: [AgenticApproval] = []
+    @Published private(set) var selectedAgenticArtifacts: [AgenticArtifact] = []
+    @Published private(set) var isAgenticDetailLoading = false
+    @Published private(set) var isAgenticActionInFlight = false
+    @Published private(set) var agenticActionMessage: String?
     @Published var errorMessage: String?
     @Published var briefing: String?
     @Published var isCommandPalettePresented = false
@@ -21,6 +30,8 @@ final class AppModel: ObservableObject {
     let audio = NativeAudioService()
 
     private var streamingMessageID: UUID?
+    private var agenticRefreshTask: Task<Void, Never>?
+    private var agenticDetailTask: Task<Void, Never>?
     private var notifiedIDs = Set<Int>()
     private let biometricCredentials = BiometricCredentialStore()
 
@@ -141,9 +152,18 @@ final class AppModel: ObservableObject {
         try? await api.logout()
         biometricCredentials.delete()
         socket.disconnect()
+        agenticRefreshTask?.cancel()
+        agenticDetailTask?.cancel()
         phase = .locked
         snapshot = DashboardSnapshot()
         chatMessages = []
+        agenticRuntime = nil
+        agenticRuns = []
+        selectedAgenticRun = nil
+        selectedAgenticEvents = []
+        selectedAgenticApprovals = []
+        selectedAgenticArtifacts = []
+        agenticActionMessage = nil
     }
 
     func retryConnection() async { await bootstrap() }
@@ -160,6 +180,12 @@ final class AppModel: ObservableObject {
             snapshot.status = try? await api.status()
             snapshot.integrations = try? await api.integrations()
             snapshot.conversations = (try? await api.conversations()) ?? []
+            if let runtime = try? await api.agenticRuntimeStatus() {
+                agenticRuntime = runtime
+            }
+            if let runs = try? await api.agenticRuns() {
+                agenticRuns = runs
+            }
             snapshot.refreshedAt = .now
             deliverNewNativeNotifications()
             errorMessage = nil
@@ -349,8 +375,152 @@ final class AppModel: ObservableObject {
             Task { await refreshConversations() }
         case "action_pending":
             chatStatus = "Confirmation requise"
+        case _ where type.hasPrefix("agent."):
+            handleAgenticEvent(type)
         default:
             break
+        }
+    }
+
+    func selectAgenticRun(_ run: AgenticRun) {
+        selectedAgenticRun = run
+        selectedAgenticEvents = []
+        selectedAgenticApprovals = run.approvals
+        selectedAgenticArtifacts = run.artifacts
+        agenticActionMessage = nil
+        agenticDetailTask?.cancel()
+        agenticDetailTask = Task { [weak self] in
+            await self?.refreshAgenticRunDetail(id: run.id)
+        }
+    }
+
+    func refreshAgenticRunDetail(id: String) async {
+        isAgenticDetailLoading = true
+        defer {
+            if selectedAgenticRun?.id == id {
+                isAgenticDetailLoading = false
+            }
+        }
+        do {
+            let run = try await api.agenticRun(id: id)
+            let events = try? await api.agenticRunEvents(id: id)
+            let approvals = try? await api.agenticRunApprovals(id: id)
+            let artifacts = try? await api.agenticRunArtifacts(id: id)
+            guard !Task.isCancelled, selectedAgenticRun?.id == id else { return }
+            selectedAgenticRun = run
+            selectedAgenticEvents = events ?? []
+            selectedAgenticApprovals = approvals ?? run.approvals
+            selectedAgenticArtifacts = artifacts ?? run.artifacts
+            if events == nil || approvals == nil || artifacts == nil {
+                agenticActionMessage = "Certaines informations sont temporairement indisponibles."
+            }
+            if let index = agenticRuns.firstIndex(where: { $0.id == run.id }) {
+                agenticRuns[index] = run
+            }
+        } catch {
+            guard selectedAgenticRun?.id == id else { return }
+            agenticActionMessage = "Le détail de la tâche est temporairement indisponible."
+        }
+    }
+
+    func pauseAgenticRun(_ run: AgenticRun) async {
+        await performAgenticAction(runID: run.id, success: "Tâche mise en pause.") {
+            try await api.pauseAgenticRun(id: run.id)
+        }
+    }
+
+    func resumeAgenticRun(_ run: AgenticRun) async {
+        await performAgenticAction(runID: run.id, success: "Tâche reprise.") {
+            try await api.resumeAgenticRun(id: run.id)
+        }
+    }
+
+    func cancelAgenticRun(_ run: AgenticRun) async {
+        await performAgenticAction(runID: run.id, success: "Annulation demandée.") {
+            try await api.cancelAgenticRun(id: run.id)
+        }
+    }
+
+    func decideAgenticApproval(
+        run: AgenticRun,
+        approval: AgenticApproval,
+        approved: Bool
+    ) async {
+        await performAgenticAction(runID: run.id, success: "Décision enregistrée.") {
+            try await api.decideAgenticApproval(
+                runID: run.id,
+                approvalID: approval.id,
+                approved: approved
+            )
+        }
+    }
+
+    func openAgenticTask(_ taskID: String) {
+        guard !taskID.isEmpty else { return }
+        selectedSection = .today
+    }
+
+    func openAgenticConversation(_ conversationID: String) {
+        selectedSection = .chat
+        guard let id = Int(conversationID),
+              let summary = snapshot.conversations.first(where: { $0.id == id }) else { return }
+        Task { await openConversation(summary) }
+    }
+
+    private func performAgenticAction(
+        runID: String,
+        success: String,
+        operation: () async throws -> Void
+    ) async {
+        guard !isAgenticActionInFlight else { return }
+        isAgenticActionInFlight = true
+        defer { isAgenticActionInFlight = false }
+        do {
+            try await operation()
+            agenticActionMessage = success
+            await refreshAgenticRunDetail(id: runID)
+            if let runs = try? await api.agenticRuns() {
+                agenticRuns = runs
+            }
+            if let runtime = try? await api.agenticRuntimeStatus() {
+                agenticRuntime = runtime
+            }
+        } catch {
+            agenticActionMessage = "Action impossible. Réessayez."
+        }
+    }
+
+    private func handleAgenticEvent(_ type: String) {
+        let labels = [
+            "agent.run.created": "Tâche créée",
+            "agent.run.started": "Tâche en cours",
+            "agent.run.phase_changed": "Étape suivante",
+            "agent.tool.started": "Action en cours…",
+            "agent.tool.completed": "Action terminée",
+            "agent.approval.requested": "Autorisation requise",
+            "agent.approval.resolved": "Décision enregistrée",
+            "agent.run.paused": "Tâche en pause",
+            "agent.run.resumed": "Tâche reprise",
+            "agent.run.blocked": "Tâche bloquée",
+            "agent.run.verifying": "Vérification du résultat",
+            "agent.run.completed": "Tâche terminée",
+            "agent.run.failed": "Échec de la tâche",
+            "agent.run.cancelled": "Tâche annulée",
+        ]
+        chatStatus = labels[type] ?? "Mise à jour de la tâche"
+        agenticRefreshTask?.cancel()
+        agenticRefreshTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            guard !Task.isCancelled, let self else { return }
+            if let runtime = try? await self.api.agenticRuntimeStatus() {
+                self.agenticRuntime = runtime
+            }
+            if let runs = try? await self.api.agenticRuns() {
+                self.agenticRuns = runs
+            }
+            if let selectedID = self.selectedAgenticRun?.id {
+                await self.refreshAgenticRunDetail(id: selectedID)
+            }
         }
     }
 

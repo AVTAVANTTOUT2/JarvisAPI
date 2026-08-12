@@ -22,12 +22,28 @@ from core.supervisor_auth import (
     verify_supervisor_control_token,
 )
 from security_headers import SECURITY_HEADERS
+from api.request_limits import (
+    content_length_error as _content_length_error,
+    request_size_limit,
+)
 from api.sync_versioning import sync_versioning_middleware
+
+_request_size_limit = request_size_limit
 
 _DEVICE_TOKEN_POST_ROUTE_RE = re.compile(r"^/api/devices/[^/]+/(heartbeat|screen)$")
 _DEVICE_TOKEN_GET_ROUTE_RE = re.compile(r"^/api/devices/[^/]+/tts$")
 _CONVERSATION_DETAIL_RE = re.compile(r"^/api/conversations/\d+$")
 _CONVERSATION_ACTION_RE = re.compile(r"^/api/conversations/\d+/(archive|pin)$")
+_AGENTIC_ID_PATH = r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}"
+_AGENTIC_RUN_READ_RE = re.compile(
+    rf"^/api/agentic/runs/{_AGENTIC_ID_PATH}(?:/(?:events|artifacts|approvals))?$"
+)
+_AGENTIC_RUN_ACTION_RE = re.compile(
+    rf"^/api/agentic/runs/{_AGENTIC_ID_PATH}/(?:pause|resume|cancel)$"
+)
+_AGENTIC_APPROVAL_ACTION_RE = re.compile(
+    rf"^/api/agentic/runs/{_AGENTIC_ID_PATH}/approvals/{_AGENTIC_ID_PATH}/decision$"
+)
 
 # Seules les routes nécessaires pour configurer, ouvrir ou fermer une session
 # navigateur sont publiques. Toute nouvelle route sous /api/auth/ reste privée
@@ -51,6 +67,17 @@ _PUBLIC_AUTH_ROUTES = frozenset(
 # (`/api/health/detail`) reste derrière le verrou de session ; la comparaison
 # exacte du chemin garantit que ce préfixe n'ouvre rien de plus.
 _PUBLIC_HEALTH_ROUTES = frozenset({("GET", "/api/health/live")})
+
+# Ces routes contournent uniquement le cookie navigateur. Le routeur visual
+# exige ensuite un jeton de service `visual:read` et une source loopback ; ce
+# n'est donc pas une surface publique.
+_VISUAL_SERVICE_ROUTES = frozenset(
+    {
+        ("GET", "/api/visual/v1/health"),
+        ("GET", "/api/visual/v1/snapshot"),
+        ("GET", "/api/visual/v1/events"),
+    }
+)
 
 _UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
@@ -82,69 +109,16 @@ _MOBILE_BEARER_GET_EXACT = frozenset(
 _MOBILE_BEARER_MUTATION_METHODS = frozenset({"PATCH", "DELETE", "POST"})
 
 
-def _request_size_limit(method: str, path: str) -> int | None:
-    """Plafond du corps pour les routes qui transportent de gros blobs."""
-    if method != "POST":
-        return None
-    if path == "/api/mobile/voice/turn":
-        return max(1, int(config.MOBILE_VOICE_MAX_REQUEST_BYTES))
-    if re.fullmatch(r"/api/devices/[^/]+/screen", path):
-        return max(1, int(config.REMOTE_SCREEN_MAX_REQUEST_BYTES))
-    return None
-
-
-def _content_length_error(request: Request) -> JSONResponse | None:
-    """Refuse un Content-Length excessif avant parsing multipart/JSON."""
-    limit = _request_size_limit(request.method, request.url.path)
-    if limit is None:
-        return None
-    raw_length = request.headers.get("content-length")
-    if raw_length is None:
-        # Sans en-tête, le plafond n'est qu'un vœu : un corps en
-        # `Transfer-Encoding: chunked` traverse ce garde-fou et se retrouve
-        # entièrement bufferisé avant la moindre validation. Les clients
-        # légitimes — l'agent distant en `requests`, le Companion, le
-        # navigateur — annoncent tous leur longueur.
-        return JSONResponse(
-            {
-                "detail": {
-                    "code": "length_required",
-                    "message": "Content-Length obligatoire sur cette route",
-                }
-            },
-            status_code=411,
-        )
-    try:
-        declared = int(raw_length)
-    except ValueError:
-        return JSONResponse(
-            {"detail": {"code": "invalid_content_length", "message": "Content-Length invalide"}},
-            status_code=400,
-        )
-    if declared < 0:
-        return JSONResponse(
-            {"detail": {"code": "invalid_content_length", "message": "Content-Length invalide"}},
-            status_code=400,
-        )
-    if declared > limit:
-        return JSONResponse(
-            {
-                "detail": {
-                    "code": "payload_too_large",
-                    "message": f"Corps de requête trop volumineux (maximum {limit} octets)",
-                }
-            },
-            status_code=413,
-        )
-    return None
-
-
 def _mobile_bearer_allows(method: str, path: str) -> bool:
     """True si un Bearer mobile valide peut ouvrir cette route."""
     if method == "GET":
         if path in _MOBILE_BEARER_GET_EXACT:
             return True
         if _CONVERSATION_DETAIL_RE.match(path):
+            return True
+        if path in {"/api/agentic/runtime/status", "/api/agentic/runs"}:
+            return True
+        if _AGENTIC_RUN_READ_RE.match(path):
             return True
         return False
 
@@ -153,6 +127,13 @@ def _mobile_bearer_allows(method: str, path: str) -> bool:
         if method in ("PATCH", "DELETE") and _CONVERSATION_DETAIL_RE.match(path):
             return True
         if method == "POST" and _CONVERSATION_ACTION_RE.match(path):
+            return True
+        if method == "POST" and path == "/api/agentic/runs":
+            return True
+        if method == "POST" and (
+            _AGENTIC_RUN_ACTION_RE.match(path)
+            or _AGENTIC_APPROVAL_ACTION_RE.match(path)
+        ):
             return True
     return False
 
@@ -234,16 +215,8 @@ def _csrf_origin_allowed(request: Request) -> bool:
     return candidate in configured
 
 
-# En-têtes par lesquels le superviseur déclare l'origine réelle du navigateur.
-#
-# Le proxy WebSocket ne peut pas se contenter de relayer `Host` : la
-# bibliothèque cliente le réécrit systématiquement depuis l'URI de connexion
-# (`websockets/client.py` : `headers["Host"] = build_host(...)`). Le backend
-# recevait donc l'Origin du navigateur (port du superviseur) avec le Host du
-# backend, et refusait en 403 — indéfiniment, puisque le navigateur reconnecte.
-#
-# Le superviseur déclare donc explicitement la paire vue côté navigateur, et
-# prouve son identité par le même jeton privé que `/api/control/*`.
+# Le proxy WebSocket réécrit `Host`; le superviseur transmet donc la paire vue
+# par le navigateur et prouve son identité avec son jeton privé de contrôle.
 WS_FORWARDED_ORIGIN_HEADER = "X-Forwarded-Origin"
 WS_FORWARDED_HOST_HEADER = "X-Forwarded-Host"
 
@@ -329,6 +302,8 @@ def _bypasses_session_gate(method: str, path: str) -> bool:
     if (method, path) in _PUBLIC_AUTH_ROUTES:
         return True
     if (method, path) in _PUBLIC_HEALTH_ROUTES:
+        return True
+    if (method, path) in _VISUAL_SERVICE_ROUTES:
         return True
     if method == "POST" and path in ("/api/location", "/api/location/batch"):
         return True

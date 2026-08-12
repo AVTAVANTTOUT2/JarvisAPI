@@ -1,5 +1,7 @@
 /** Contrats de données partagés par le client API et les vues frontend. */
 
+export type * from './agentic'
+
 /** Réponse publique de `/api/auth/status`, volontairement découplée du package React. */
 export interface AuthStatus {
   configured: boolean

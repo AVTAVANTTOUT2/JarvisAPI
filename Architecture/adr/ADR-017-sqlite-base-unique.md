@@ -14,7 +14,7 @@ SQLite est le seul moteur de données du projet. Le profil historique utilise
 `data/profiles/<profile_id>/jarvis.db`. Tous rejouent exactement le même schéma
 et les mêmes migrations ; aucune seconde technologie de persistance n'est
 introduite.
-Runtime SQLite canonique : **94 tables persistantes**, **99 tables physiques avec FTS5**, schéma généré : **95 déclarations de tables**.
+Runtime SQLite canonique : **104 tables persistantes**, **109 tables physiques avec FTS5**, schéma généré : **105 déclarations de tables**.
 Le miroir `database/schema.sql` n’est pas exécuté au runtime : il est régénéré depuis
 `database/schema.py`, `database/migrations.py` et `database/devagent.py`, puis comparé
 en CI. Les connexions vivent dans `database/core.py` et l'API compatible dans

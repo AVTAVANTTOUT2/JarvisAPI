@@ -5,6 +5,7 @@ import com.google.gson.Gson
 import com.google.gson.JsonObject
 import fr.jarvis.companion.BuildConfig
 import fr.jarvis.companion.data.JarvisSettings
+import fr.jarvis.companion.network.AgenticRealtimeEventDto
 import fr.jarvis.companion.network.JarvisTls
 import fr.jarvis.companion.network.ServerUrlNormalizer
 import kotlinx.coroutines.CoroutineScope
@@ -12,8 +13,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -45,7 +50,41 @@ data class WsIncomingMessage(
     val action: JsonObject? = null,
     val actionType: String? = null,
     val raw: JsonObject,
+    val agenticEvent: AgenticRealtimeEventDto? = null,
 )
+
+internal fun parseAgenticRealtimeEvent(parsed: JsonObject, type: String): AgenticRealtimeEventDto? {
+    if (!type.matches(Regex("^agent\\.[a-z0-9_.-]{1,88}$"))) return null
+    val nested = parsed.get("data")?.takeIf { it.isJsonObject }?.asJsonObject
+        ?: parsed.get("payload")?.takeIf { it.isJsonObject }?.asJsonObject
+    val payload = nested ?: parsed
+    fun boundedString(maxLength: Int, vararg keys: String): String? = keys.firstNotNullOfOrNull { key ->
+        runCatching { payload.get(key)?.takeIf { it.isJsonPrimitive }?.asString?.trim() }
+            .getOrNull()
+            ?.takeIf { value ->
+                value.isNotBlank() && value.length <= maxLength && value.none { it.isISOControl() }
+            }
+    }
+    fun opaqueId(vararg keys: String): String? = boundedString(128, *keys)
+        ?.takeIf { it.matches(Regex("^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")) }
+
+    val runId = opaqueId("run_id", "runId") ?: return null
+    val progress = runCatching {
+        payload.get("progress")?.takeIf { it.isJsonPrimitive }?.asDouble
+    }.getOrNull()
+    val requiresAttention = runCatching {
+        payload.get("requires_attention")?.takeIf { it.isJsonPrimitive }?.asBoolean
+    }.getOrNull()
+    return AgenticRealtimeEventDto(
+        type = type,
+        run_id = runId,
+        status = boundedString(64, "status", "state"),
+        phase = boundedString(64, "phase", "current_phase"),
+        progress = progress,
+        approval_id = opaqueId("approval_id", "approvalId"),
+        requires_attention = requiresAttention,
+    )
+}
 
 interface ChatWebSocketListener {
     fun onWsMessage(message: WsIncomingMessage)
@@ -63,6 +102,12 @@ class JarvisChatWebSocket(
 
     private val _connectionState = MutableStateFlow<WsConnectionState>(WsConnectionState.Disconnected)
     val connectionState: StateFlow<WsConnectionState> = _connectionState.asStateFlow()
+    private val _agenticEvents = MutableSharedFlow<AgenticRealtimeEventDto>(
+        extraBufferCapacity = 32,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+    /** Signal borné pour rafraîchir l'UI; le payload WS brut n'est jamais exposé. */
+    val agenticEvents: SharedFlow<AgenticRealtimeEventDto> = _agenticEvents.asSharedFlow()
 
     private var webSocket: WebSocket? = null
     private var listener: ChatWebSocketListener? = null
@@ -185,16 +230,26 @@ class JarvisChatWebSocket(
         override fun onMessage(webSocket: WebSocket, text: String) {
             val parsed = runCatching { gson.fromJson(text, JsonObject::class.java) }.getOrNull() ?: return
             val type = parsed.get("type")?.asString ?: return
-            val incoming = WsIncomingMessage(
-                type = type,
-                content = parsed.get("content")?.asString,
-                conversationId = parsed.get("conversation_id")?.takeIf { it.isJsonPrimitive }?.asLong,
-                title = parsed.get("title")?.asString,
-                message = parsed.get("message")?.asString ?: parsed.get("error")?.asString,
-                action = parsed.get("action")?.takeIf { it.isJsonObject }?.asJsonObject,
-                actionType = parsed.get("action_type")?.asString,
-                raw = parsed,
-            )
+            val agenticEvent = parseAgenticRealtimeEvent(parsed, type)
+            agenticEvent?.let(_agenticEvents::tryEmit)
+            val incoming = if (agenticEvent != null) {
+                WsIncomingMessage(
+                    type = type,
+                    raw = JsonObject(),
+                    agenticEvent = agenticEvent,
+                )
+            } else {
+                WsIncomingMessage(
+                    type = type,
+                    content = parsed.get("content")?.asString,
+                    conversationId = parsed.get("conversation_id")?.takeIf { it.isJsonPrimitive }?.asLong,
+                    title = parsed.get("title")?.asString,
+                    message = parsed.get("message")?.asString ?: parsed.get("error")?.asString,
+                    action = parsed.get("action")?.takeIf { it.isJsonObject }?.asJsonObject,
+                    actionType = parsed.get("action_type")?.asString,
+                    raw = parsed,
+                )
+            }
             listener?.onWsMessage(incoming)
         }
 

@@ -210,6 +210,8 @@ fun JarvisNavHost(
                                 hasPorcupineKey = key.isNotEmpty()
                                 callbacks.onPorcupineKeySave(key)
                             },
+                            onOpenTasks = { navigate(JarvisDestination.TASKS) },
+                            onOpenConversations = { navigate(JarvisDestination.CHAT) },
                         )
                     }
                     composable(JarvisDestination.REPAIR) {

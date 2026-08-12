@@ -6,6 +6,7 @@ import logging
 
 from fastapi import WebSocket
 
+import config
 from actions import execute_action
 from agents import easter_eggs, get_agent
 from agents.autonomous_loop import parse_loop_command
@@ -23,6 +24,11 @@ from api.chat_context import (
 )
 from api.conversation_titles import notify_and_schedule_conversation_title
 from api.llm_logging import _schedule_llm_log
+from api.ws_agentic import (
+    agentic_idempotency_key,
+    maybe_send_agentic_run,
+    maybe_send_legacy_delegation,
+)
 from database import save_message, update_conversation_activity
 
 logger = logging.getLogger("jarvis")
@@ -37,6 +43,8 @@ async def _process_message(
     stream: bool = True,
     send_tts: bool = False,
     confirmation_session_id: str,
+    client_message_id: str | None = None,
+    agentic_context: dict[str, str | None] | None = None,
 ) -> dict:
     """Pipeline unique texte + vocal : DB → orchestrateur (même enrichissement) →
     nettoyage affichage → actions → TTS optionnel.
@@ -52,14 +60,12 @@ async def _process_message(
 
         original_text = content
 
-        # Construire le contexte enrichi (mails, météo, calendar, tâches, etc.)
         try:
             extra_context = await _build_enriched_context(content, conversation_id)
         except Exception as e:
             logger.warning("[_process_message] _build_enriched_context : %s", e)
             extra_context = {}
 
-        # Pipeline WS = source de vérité pour la persistance assistant
         extra_context["__defer_persist"] = True
 
         if "documents_context" in extra_context:
@@ -83,15 +89,30 @@ async def _process_message(
                     "message": "Usage : /loop [tâche à accomplir autonomement]",
                 })
                 return {"emotion": "neutral", "response": ""}
-            return await _run_loop_mode_ws(
+            agentic = await maybe_send_agentic_run(
                 ws,
-                loop_task.strip(),
+                f"/agent {loop_task.strip()}",
                 conversation_id,
                 voice_mode=voice_mode,
-                confirmation_session_id=confirmation_session_id,
+                send_tts=send_tts,
+                idempotency_key=agentic_idempotency_key(
+                    confirmation_session_id, client_message_id
+                ),
+                **(agentic_context or {}),
             )
+            if agentic is not None:
+                return agentic
+            if str(getattr(config, "AGENTIC_RUNTIME_FALLBACK", "disabled")).lower() == "legacy":
+                return await _run_loop_mode_ws(
+                    ws,
+                    loop_task.strip(),
+                    conversation_id,
+                    voice_mode=voice_mode,
+                    confirmation_session_id=confirmation_session_id,
+                )
+            await ws.send_json({"type": "error", "message": "Runtime agentique désactivé"})
+            return {"emotion": "neutral", "response": "Runtime agentique désactivé"}
 
-        # ── Raccourci « répète » : rejoue le dernier audio TTS tel quel ──
         from audio.tts_cache import is_repeat_request, last_tts
 
         if is_repeat_request(original_text):
@@ -118,9 +139,6 @@ async def _process_message(
                     await ws.send_bytes(entry["audio"])
                     await ws.send_json({"type": "speech_done"})
                 return {"emotion": entry["emotion"], "response": entry["text"]}
-            # rien à rejouer → le pipeline normal répond naturellement
-
-        # ── Easter eggs vocaux : réplique codée en dur, zéro LLM ──
         egg = easter_eggs.match(original_text)
         if egg is not None:
             egg_text = egg["response"]
@@ -143,38 +161,31 @@ async def _process_message(
                 await _send_tts_streaming(ws, egg_text, egg_emotion)
             return {"emotion": egg_emotion, "response": egg_text}
 
-        # ── Routage cognitif : tâche technique → délégation Cursor ──
-        try:
-            from api.chat_cognitive import maybe_delegate_chat_to_cursor, route_chat_text, should_run_cursor_cognitive_path
+        agentic = await maybe_send_agentic_run(
+            ws,
+            original_text,
+            conversation_id,
+            voice_mode=voice_mode,
+            send_tts=send_tts,
+            idempotency_key=agentic_idempotency_key(
+                confirmation_session_id, client_message_id
+            ),
+            **(agentic_context or {}),
+        )
+        if agentic is not None:
+            return agentic
 
-            intent = route_chat_text(original_text, voice_mode=voice_mode)
-            await ws.send_json({"type": "routing", "routing": intent.to_diagnostic()})
-            if should_run_cursor_cognitive_path(original_text, intent, conversation_id, confirmation_session_id):
-                delegated = await maybe_delegate_chat_to_cursor(
-                    original_text,
-                    conversation_id,
-                    intent=intent,
-                    interaction_mode="voice" if voice_mode else "chat",
-                )
-                if delegated and delegated.get("handled"):
-                    await ws.send_json({
-                        "type": "response",
-                        "agent": "cognitive",
-                        "content": delegated["text"],
-                        "emotion": delegated.get("emotion", "neutral"),
-                        "model": "router",
-                        "tokens_in": 0, "tokens_out": 0, "cost": 0.0,
-                        "cursor_job_id": delegated.get("job_id"),
-                    })
-                    if send_tts:
-                        await _send_tts_streaming(ws, delegated["text"], "neutral")
-                    return {"emotion": "neutral", "response": delegated["text"]}
-                # Délégation impossible → le pipeline classique continue et
-                # l'orchestrateur répond en conseil (pas de fausse promesse).
-        except Exception as e:
-            logger.debug("[_process_message] routage cognitif : %s", e)
+        legacy = await maybe_send_legacy_delegation(
+            ws,
+            original_text,
+            conversation_id,
+            voice_mode=voice_mode,
+            send_tts=send_tts,
+            confirmation_session_id=confirmation_session_id,
+        )
+        if legacy is not None:
+            return legacy
 
-        # ── Vérifier si l'utilisateur confirme une proposition en attente ──
         pending_action = peek_pending_proposal(
             conversation_id=conversation_id, session_id=confirmation_session_id,
         )
@@ -281,7 +292,6 @@ async def _process_message(
             )
 
             if _is_agentic_action(action):
-                # Mode agent : boucle d'exécution multi-étapes
                 agent_name = final_meta.get("agent", "orchestrator")
                 agent = get_agent(agent_name) or orchestrator
                 logger.info("[agentic] Démarrage boucle agentique pour %s", action.get("type"))
@@ -312,7 +322,6 @@ async def _process_message(
                     "status": loop_result.get("final_status", "completed"),
                 })
 
-                # Synthèse finale des résultats
                 results_text = "\n".join([
                     f"Étape {r['step']}: "
                     f"{str(r['result'].get('output', r['result'].get('message', '')))[:1000]}"
@@ -350,7 +359,6 @@ async def _process_message(
                         "content": display_text,
                     })
             else:
-                # Mode simple : une action
                 if _should_defer_action(display_text, action):
                     pending_client_action = _maybe_store_pending_proposal(
                         action, conversation_id, confirmation_session_id,
@@ -407,7 +415,6 @@ async def _process_message(
                             "result": action_result,
                         })
 
-                # 2e passe pour les actions avec followup
                 if (
                     action_result
                     and not (action_result.get("deferred") or action_result.get("needs_confirmation"))

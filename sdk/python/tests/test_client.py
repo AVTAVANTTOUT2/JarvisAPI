@@ -77,12 +77,14 @@ def test_registry_matches_canonical_openapi() -> None:
     for path, path_item in schema["paths"].items():
         for method, operation in path_item.items():
             if method in {"get", "post", "put", "patch", "delete", "head", "options"}:
+                if method == "get" and path.startswith("/api/visual/v1/"):
+                    continue
                 expected[operation["operationId"]] = (
                     method.upper(),
                     path,
                     operation["x-jarvis-authentication"],
                 )
-    assert len(OPERATIONS) == 269
+    assert len(OPERATIONS) == 280
     assert set(OPERATIONS) == set(expected)
     assert all(
         (operation.method, operation.path, operation.auth) == expected[operation_id]

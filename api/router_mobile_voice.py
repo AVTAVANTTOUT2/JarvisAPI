@@ -21,6 +21,8 @@ async def api_mobile_voice_turn(
     request: Request,
     audio: UploadFile = File(...),
     conversation_id: int | None = Form(None),
+    locale: str | None = Form(None),
+    timezone: str | None = Form(None),
 ) -> dict:
     """Tour vocal push-to-talk : audio entrant → STT → JARVIS → TTS → JSON."""
     device = _require_mobile_device(request)
@@ -30,6 +32,8 @@ async def api_mobile_voice_turn(
             device,
             raw,
             conversation_id=conversation_id,
+            locale=locale,
+            timezone_name=timezone,
         )
     except UploadRejected as exc:
         raise HTTPException(exc.status_code, exc.detail) from exc

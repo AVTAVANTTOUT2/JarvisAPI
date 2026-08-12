@@ -9,8 +9,8 @@
 > juillet. La topologie frontend actuelle est définie par
 > `Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md`.
 
-Runtime SQLite canonique : **94 tables persistantes**, **99 tables physiques avec FTS5**, schéma généré : **95 déclarations de tables**.
-Structure API canonique : **269 opérations HTTP + 2 WebSockets**, **239 chemins OpenAPI**, **18 routeurs api/router_*.py + Fitness = 19 montés**, main.py **219 lignes**.
+Runtime SQLite canonique : **104 tables persistantes**, **109 tables physiques avec FTS5**, schéma généré : **105 déclarations de tables**.
+Structure API canonique : **283 opérations HTTP + 2 WebSockets**, **252 chemins OpenAPI**, **20 routeurs api/router_*.py + Fitness = 21 montés**, main.py **223 lignes**.
 
 ---
 
@@ -392,8 +392,8 @@ graph TB
 ### 4.1 SQLite — jarvis.db (90 persistantes, 95 avec FTS5)
 
 > Comptage généré et vérifié en CI — voir `Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md`.
-> `database/schema.sql` contient 91 déclarations de tables : 90 persistantes et
-> la table virtuelle FTS5 ; ses quatre tables auxiliaires portent le total physique à 95.
+> `database/schema.sql` contient 105 déclarations de tables : 104 persistantes et
+> la table virtuelle FTS5 ; ses quatre tables auxiliaires portent le total physique à 109.
 
 ```mermaid
 erDiagram

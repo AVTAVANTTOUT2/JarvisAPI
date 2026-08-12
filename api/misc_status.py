@@ -113,13 +113,60 @@ async def api_status():
         logger.debug("api_status location : %s", e)
         loc_payload = {"error": "location_status_unavailable"}
 
+    agentic_payload: dict[str, Any]
+    try:
+        from jarvis.agentic import get_agentic_service
+
+        agentic_service = get_agentic_service()
+        runtimes = await agentic_service.runtime_status()
+        recent_runs = agentic_service.list(limit=100, offset=0)
+        terminal = {"completed", "failed", "cancelled", "expired", "provider_unavailable"}
+        active_runs = [
+            run for run in recent_runs if str(getattr(run.status, "value", run.status)) not in terminal
+        ]
+        agentic_payload = {
+            "available": any(item.get("status") in {"healthy", "degraded"} for item in runtimes),
+            "runtimes": runtimes,
+            "active_run_count": len(active_runs),
+            "attention_required_count": sum(
+                str(getattr(run.status, "value", run.status))
+                in {"awaiting_approval", "blocked", "paused"}
+                for run in active_runs
+            ),
+            "observability": agentic_service.observability_summary(),
+        }
+    except Exception as e:
+        logger.debug("api_status agentic : %s", e)
+        agentic_payload = {
+            "available": False,
+            "runtimes": [],
+            "active_run_count": 0,
+            "attention_required_count": 0,
+            "observability": {
+                "runs_by_status": {},
+                "events_by_type": {},
+                "approvals_by_decision": {},
+                "metrics": {},
+                "average_duration_seconds": 0.0,
+            },
+        }
+
     return {
         "user": config.USER_NAME,
         "models": {
             "fast": config.DEEPSEEK_FAST_MODEL,
             "main": config.DEEPSEEK_MAIN_MODEL,
         },
-        "agents_registered": ["info", "school", "productivity", "coach", "journal", "memory"],
+        "agents_registered": [
+            "info",
+            "school",
+            "productivity",
+            "coach",
+            "journal",
+            "memory",
+            "agentic",
+        ],
+        "agentic": agentic_payload,
         "today": stats,
         "audio": {
             "stt_available": stt is not None and getattr(stt, "available", False),

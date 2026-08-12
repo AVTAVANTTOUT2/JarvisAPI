@@ -1,14 +1,17 @@
-"""Self-healing sûr : diagnostic local puis proposition Cursor en PR.
+"""Self-healing sûr : diagnostic local puis workflow agentique en PR.
 
 Le supervisor peut demander un diagnostic après une boucle de crash. Ce module
 ne modifie jamais le checkout actif : lorsque l'auto-réparation est activée, le
-correctif est délégué à Cursor dans un worktree avec livraison ``pr_only``.
+correctif est délégué dans un worktree géré par JARVIS avec livraison ``pr_only``.
 Sinon, seule la cause probable est notifiée.
 """
 
 from __future__ import annotations
 
+import hashlib
 import logging
+from datetime import datetime, timezone
+from pathlib import Path
 
 import config
 from jarvis.notification_service import notification_service
@@ -32,6 +35,13 @@ Retourne UNIQUEMENT ce JSON :
   "file": "chemin/relatif/fichier.py ou null"
 }}
 """
+
+
+def _crash_idempotency_key(crash_tail: str) -> str:
+    """Déduplique une même crash-loop pendant une heure, même après redémarrage."""
+    window = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H")
+    digest = hashlib.sha256(crash_tail.encode("utf-8", errors="replace")).hexdigest()[:16]
+    return f"self-healing:{window}:{digest}"
 
 
 async def diagnose_crash(log_tail: str) -> dict:
@@ -71,7 +81,7 @@ async def diagnose_crash(log_tail: str) -> dict:
 
 
 async def handle_crash_loop(crash_tail: str) -> dict:
-    """Diagnostique une crash-loop puis délègue uniquement via une PR Cursor."""
+    """Diagnostique une crash-loop puis délègue via un worktree PR-only."""
     if not config.SELF_HEALING_ENABLED:
         return {"ok": False, "reason": "SELF_HEALING_ENABLED désactivé"}
 
@@ -95,54 +105,82 @@ async def handle_crash_loop(crash_tail: str) -> dict:
                 "reason": "SELF_REPAIR_ENABLED=false",
                 "diagnosis": diagnosis,
             }
-        if not getattr(config, "CURSOR_DELEGATION_ENABLED", True):
-            return {
-                "ok": True,
-                "action": "diagnosed_only",
-                "reason": "CURSOR_DELEGATION_ENABLED=false",
-                "diagnosis": diagnosis,
-            }
-
         try:
-            from integrations.cursor_delegation import cursor_delegation
+            from agents.devagent import agentic_runtime
             from jarvis.security.redaction import redact_sensitive_text
 
-            job = await cursor_delegation.enqueue(
+            safe_tail = redact_sensitive_text(crash_tail[-3000:])
+            idempotency_key = _crash_idempotency_key(crash_tail)
+            job = await agentic_runtime.delegate_engineering_task(
                 title="Self-repair: crash loop",
                 user_request=redact_sensitive_text(
                     "Auto-réparation JARVIS après crash loop.\n"
                     f"Diagnostic: {diagnosis.get('root_cause')}\n"
                     f"Fichier suspect: {diagnosis.get('file')}\n"
-                    f"Log tail:\n{crash_tail[-3000:]}\n"
+                    f"Log tail:\n{safe_tail}\n"
                     "Reproduire, corriger, tester, ouvrir une PR. "
                     "Ne jamais modifier main directement."
                 ),
                 template_id="self_repair",
-                risk_level="high",
+                workflow_id="self_healing",
+                risk="high",
                 interaction_mode="scheduled",
+                origin="supervisor",
+                channel="self_healing",
+                task_id=f"self-healing:{idempotency_key.rsplit(':', 1)[-1]}",
+                idempotency_key=idempotency_key,
+                selected_context={
+                    "delivery_owner": "jarvis",
+                    "crash_window": idempotency_key.split(":", 2)[1],
+                    "diagnosis_confidence": diagnosis.get("confidence"),
+                },
+                evidence={
+                    "diagnosis": diagnosis,
+                    "log_tail": safe_tail,
+                },
+                permissions=("workspace:read", "workspace:write"),
+                acceptance_criteria=(
+                    "La crash-loop est reproductible puis corrigée à sa cause racine",
+                    "Un test de non-régression déterministe couvre la panne",
+                    "Le runtime n'exécute ni Git, ni push, ni PR, ni déploiement",
+                ),
+                required_tests=(
+                    ("python", "-m", "pytest", "tests/test_self_healing.py", "-q"),
+                ),
                 auto_start=True,
                 require_confirmation=False,
                 delivery_mode="pr_only",
+                repo_root=Path(config.BASE_DIR),
+                wait_for_completion=False,
             )
+        except agentic_runtime.AgenticRuntimeUnavailable as exc:
+            logger.warning("[self-healing] runtime agentique indisponible : %s", exc)
+            return {
+                "ok": True,
+                "action": "diagnosed_only",
+                "reason": str(exc)[:300],
+                "diagnosis": diagnosis,
+            }
         except Exception as exc:
-            logger.warning("[self-healing] délégation Cursor échouée : %s", exc)
+            logger.warning("[self-healing] délégation agentique échouée : %s", exc)
             return {
                 "ok": False,
-                "action": "cursor_failed_pr_only",
+                "action": "runtime_failed_pr_only",
                 "error": str(exc)[:300],
                 "diagnosis": diagnosis,
             }
 
         notification_service.create(
             source="system",
-            title="Self-repair délégué à Cursor",
+            title="Self-repair agentique démarré",
             content=f"Job {job.get('job_id')} — mode pr_only",
             priority="high",
         )
         return {
             "ok": True,
-            "action": "cursor_delegated",
+            "action": "agentic_delegated",
             "job_id": job.get("job_id"),
+            "run_id": job.get("run_id"),
             "diagnosis": diagnosis,
         }
     except Exception as exc:

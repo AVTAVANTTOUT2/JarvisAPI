@@ -25,7 +25,7 @@ def _fake_installation(jarvis_root: Path) -> Path:
     "value,expected",
     (
         ("http://127.0.0.1:8080", "http://127.0.0.1:8080"),
-        ("https://jarvis.example/", "https://jarvis.example"),
+        ("https://localhost/", "https://localhost"),
     ),
 )
 def test_normalize_jarvis_origin_accepts_origins(value: str, expected: str):
@@ -42,6 +42,7 @@ def test_normalize_jarvis_origin_accepts_origins(value: str, expected: str):
         "https://jarvis.example?token=secret",
         "https://jarvis.example/#fragment",
         "https://jarvis.example;touch",
+        "https://jarvis.example",
         " https://jarvis.example",
     ),
 )
@@ -75,6 +76,45 @@ def test_readonly_configuration_requires_an_explicit_origin():
     )
     assert "JARVIS_CONNECTOR_ENABLED=true" in configuration
     assert "JARVIS_ORIGIN=http://127.0.0.1:8080" in configuration
+
+
+def test_visual_credentials_are_scoped_private_and_stable(tmp_path: Path):
+    jarvis_root = tmp_path / "jarvis"
+    root = jarvis_root / ".jarvis" / "apps" / "claw3d"
+    root.mkdir(parents=True)
+
+    token_path, ca_path = claw3d.provision_visual_credentials(
+        root,
+        "http://127.0.0.1:8080",
+    )
+    original = token_path.read_text(encoding="ascii")
+    repeated, repeated_ca = claw3d.provision_visual_credentials(
+        root,
+        "http://127.0.0.1:8080",
+    )
+
+    assert repeated == token_path
+    assert repeated.read_text(encoding="ascii") == original
+    assert token_path.stat().st_mode & 0o777 == 0o600
+    assert ca_path is None and repeated_ca is None
+
+
+def test_visual_credentials_copy_only_public_ca_for_https(tmp_path: Path):
+    jarvis_root = tmp_path / "jarvis"
+    root = jarvis_root / ".jarvis" / "apps" / "claw3d"
+    root.mkdir(parents=True)
+    cert = jarvis_root / "certs" / "cert.pem"
+    cert.parent.mkdir()
+    cert.write_text("PUBLIC TEST CERTIFICATE\n", encoding="ascii")
+
+    _, ca_path = claw3d.provision_visual_credentials(
+        root,
+        "https://127.0.0.1:8080",
+    )
+
+    assert ca_path is not None
+    assert ca_path.read_text(encoding="ascii") == "PUBLIC TEST CERTIFICATE\n"
+    assert ca_path.stat().st_mode & 0o777 == 0o600
 
 
 def test_configuration_preserves_existing_env_unless_replace_is_explicit(tmp_path: Path):
@@ -211,5 +251,4 @@ def test_sync_managed_configuration_rewrites_readonly_origin(tmp_path: Path, mon
 
 def test_source_is_pinned_to_an_exact_public_commit():
     assert claw3d.CLAW3D_REPOSITORY == "https://github.com/AVTAVANTTOUT2/Claw3D.git"
-    assert claw3d.CLAW3D_BRANCH == "codex/jarvis-visual-ui"
-    assert claw3d.CLAW3D_COMMIT == "f66ee199223fbee51a3506c6f50f0a68db487cad"
+    assert claw3d.CLAW3D_COMMIT == "202feaf0efd8ae92451368d408e387a507da0192"

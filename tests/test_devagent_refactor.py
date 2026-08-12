@@ -21,6 +21,12 @@ DUP_BLOCK = """def compute(x, y):
 """
 
 
+@pytest.fixture(autouse=True)
+def _explicit_legacy_runtime(monkeypatch):
+    monkeypatch.setattr("config.AGENTIC_RUNTIME", "disabled")
+    monkeypatch.setattr("config.AGENTIC_RUNTIME_FALLBACK", "legacy")
+
+
 def _make_project(tmp_path: Path) -> Path:
     from agents.devagent.executor import git_init
 

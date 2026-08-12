@@ -305,3 +305,43 @@ async def maybe_delegate_chat_to_cursor(
         "routing": intent.to_diagnostic(),
         "awaiting_confirmation": True,
     }
+
+
+async def maybe_handle_legacy_agentic_chat(
+    text: str,
+    conversation_id: int,
+    *,
+    voice_mode: bool,
+    confirmation_session_id: str,
+) -> dict[str, Any] | None:
+    """Pont legacy opt-in, isolé du pipeline conversationnel principal."""
+
+    if str(getattr(config, "AGENTIC_RUNTIME_FALLBACK", "disabled")).lower() != "legacy":
+        return None
+    try:
+        intent = route_chat_text(text, voice_mode=voice_mode)
+        if not should_run_cursor_cognitive_path(
+            text, intent, conversation_id, confirmation_session_id
+        ):
+            return None
+        delegated = await maybe_delegate_chat_to_cursor(
+            text,
+            conversation_id,
+            intent=intent,
+            interaction_mode="voice" if voice_mode else "chat",
+        )
+    except Exception as exc:
+        logger.debug("[chat_cognitive] routage legacy : %s", exc)
+        return None
+    if not delegated or not delegated.get("handled"):
+        return None
+    return {
+        "text": delegated["text"],
+        "emotion": delegated.get("emotion", "neutral"),
+        "action": {"type": "legacy_delegate", "job_id": delegated.get("job_id")},
+        "action_result": {"ok": True, "job_id": delegated.get("job_id")},
+        "agent": "cognitive",
+        "model": "router",
+        "cost": 0.0,
+        "routing": delegated.get("routing"),
+    }

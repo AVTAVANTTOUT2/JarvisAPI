@@ -1,4 +1,4 @@
-"""Contrats du self-healing report-only / Cursor PR-only."""
+"""Contrats du self-healing report-only / runtime agentique PR-only."""
 
 from __future__ import annotations
 
@@ -70,12 +70,17 @@ async def test_diagnoses_without_modifying_code_when_self_repair_is_disabled(
 
 
 @pytest.mark.asyncio
-async def test_diagnoses_only_when_cursor_is_disabled(tmp_db, diagnosis, monkeypatch):
+async def test_diagnoses_only_when_runtime_is_unavailable(tmp_db, diagnosis, monkeypatch):
+    from agents.devagent import agentic_runtime
     from scripts.self_healing import handle_crash_loop
 
     monkeypatch.setattr("config.SELF_HEALING_ENABLED", True)
     monkeypatch.setattr("config.SELF_REPAIR_ENABLED", True)
-    monkeypatch.setattr("config.CURSOR_DELEGATION_ENABLED", False)
+    monkeypatch.setattr(
+        agentic_runtime,
+        "delegate_engineering_task",
+        AsyncMock(side_effect=agentic_runtime.AgenticRuntimeUnavailable("indisponible")),
+    )
 
     with patch(
         "scripts.self_healing.diagnose_crash",
@@ -84,19 +89,20 @@ async def test_diagnoses_only_when_cursor_is_disabled(tmp_db, diagnosis, monkeyp
         result = await handle_crash_loop("Traceback: ZeroDivisionError")
 
     assert result["action"] == "diagnosed_only"
-    assert result["reason"] == "CURSOR_DELEGATION_ENABLED=false"
+    assert result["reason"] == "indisponible"
 
 
 @pytest.mark.asyncio
 async def test_self_repair_is_delegated_pr_only(tmp_db, diagnosis, monkeypatch):
-    from integrations.cursor_delegation import cursor_delegation
+    from agents.devagent import agentic_runtime
     from scripts.self_healing import handle_crash_loop
 
-    enqueue = AsyncMock(return_value={"job_id": "job-self-repair"})
+    delegate = AsyncMock(
+        return_value={"job_id": "job-self-repair", "run_id": "run-self-repair"}
+    )
     monkeypatch.setattr("config.SELF_HEALING_ENABLED", True)
     monkeypatch.setattr("config.SELF_REPAIR_ENABLED", True)
-    monkeypatch.setattr("config.CURSOR_DELEGATION_ENABLED", True)
-    monkeypatch.setattr(cursor_delegation, "enqueue", enqueue)
+    monkeypatch.setattr(agentic_runtime, "delegate_engineering_task", delegate)
 
     with patch(
         "scripts.self_healing.diagnose_crash",
@@ -104,31 +110,35 @@ async def test_self_repair_is_delegated_pr_only(tmp_db, diagnosis, monkeypatch):
     ):
         result = await handle_crash_loop("Traceback: ZeroDivisionError")
 
-    assert result["action"] == "cursor_delegated"
+    assert result["action"] == "agentic_delegated"
     assert result["job_id"] == "job-self-repair"
-    kwargs = enqueue.await_args.kwargs
+    assert result["run_id"] == "run-self-repair"
+    kwargs = delegate.await_args.kwargs
     assert kwargs["delivery_mode"] == "pr_only"
     assert kwargs["interaction_mode"] == "scheduled"
+    assert kwargs["origin"] == "supervisor"
+    assert kwargs["channel"] == "self_healing"
+    assert kwargs["permissions"] == ("workspace:read", "workspace:write")
+    assert kwargs["idempotency_key"].startswith("self-healing:")
     assert kwargs["auto_start"] is True
     assert kwargs["require_confirmation"] is False
 
 
 @pytest.mark.asyncio
-async def test_cursor_failure_never_falls_back_to_direct_patch(
+async def test_runtime_failure_never_falls_back_to_direct_patch(
     tmp_db,
     diagnosis,
     monkeypatch,
 ):
-    from integrations.cursor_delegation import cursor_delegation
+    from agents.devagent import agentic_runtime
     from scripts.self_healing import handle_crash_loop
 
     monkeypatch.setattr("config.SELF_HEALING_ENABLED", True)
     monkeypatch.setattr("config.SELF_REPAIR_ENABLED", True)
-    monkeypatch.setattr("config.CURSOR_DELEGATION_ENABLED", True)
     monkeypatch.setattr(
-        cursor_delegation,
-        "enqueue",
-        AsyncMock(side_effect=RuntimeError("Cursor indisponible")),
+        agentic_runtime,
+        "delegate_engineering_task",
+        AsyncMock(side_effect=RuntimeError("Runtime indisponible")),
     )
 
     with patch(
@@ -138,8 +148,8 @@ async def test_cursor_failure_never_falls_back_to_direct_patch(
         result = await handle_crash_loop("Traceback: ZeroDivisionError")
 
     assert result["ok"] is False
-    assert result["action"] == "cursor_failed_pr_only"
-    assert "Cursor indisponible" in result["error"]
+    assert result["action"] == "runtime_failed_pr_only"
+    assert "Runtime indisponible" in result["error"]
 
 
 def test_self_healing_contains_no_checkout_mutation_primitive():

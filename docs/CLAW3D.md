@@ -21,10 +21,9 @@ donnée JARVIS.
 Le gestionnaire n'accepte pas d'URL arbitraire. Il épingle exactement :
 
 - dépôt : `https://github.com/AVTAVANTTOUT2/Claw3D.git` ;
-- branche de provenance : `codex/jarvis-visual-ui` ;
-- commit : `f66ee199223fbee51a3506c6f50f0a68db487cad`.
+- commit : `202feaf0efd8ae92451368d408e387a507da0192`.
 
-Une mise à jour de Claw3D doit modifier ce triplet, adapter les tests puis passer
+Une mise à jour de Claw3D doit modifier ce couple, adapter les tests puis passer
 par une nouvelle PR JarvisAPI. Il n'existe aucun `git pull` automatique.
 
 ## Prérequis

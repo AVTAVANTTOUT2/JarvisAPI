@@ -10,7 +10,7 @@ import config
 
 logger = logging.getLogger(__name__)
 
-Executor = Literal["jarvis_tool", "cursor", "deepseek", "system"]
+Executor = Literal["jarvis_tool", "agentic", "cursor", "deepseek", "system"]
 
 
 @dataclass(frozen=True)
@@ -36,7 +36,15 @@ class CapabilityRegistry:
         self.refresh()
 
     def refresh(self) -> None:
-        cursor_on = bool(getattr(config, "CURSOR_DELEGATION_ENABLED", True))
+        agentic_on = (
+            str(getattr(config, "AGENTIC_RUNTIME", "auto")).strip().lower()
+            != "disabled"
+        )
+        cursor_on = (
+            str(getattr(config, "AGENTIC_RUNTIME_FALLBACK", "disabled")).lower()
+            == "legacy"
+            and bool(getattr(config, "CURSOR_DELEGATION_ENABLED", True))
+        )
         computer_on = bool(getattr(config, "COMPUTER_ACCESS", False))
         if cursor_on:
             # Disponibilité réelle du CLI — UNIQUEMENT depuis le cache déjà
@@ -114,7 +122,11 @@ class CapabilityRegistry:
             ),
             "cursor.delegate": Capability(
                 "cursor.delegate", cursor_on, "medium", True, "cursor",
-                "Déléguer une tâche technique à Cursor CLI (worktree isolé, confirmation requise)",
+                "Fallback legacy Cursor (worktree isolé, opt-in explicite)",
+            ),
+            "agentic.delegate": Capability(
+                "agentic.delegate", agentic_on, "medium", True, "agentic",
+                "Déléguer une tâche au runtime agentique découvert dynamiquement",
             ),
             "screen_watcher.vision": Capability(
                 "screen_watcher.vision",
@@ -142,14 +154,16 @@ class CapabilityRegistry:
             ),
             "self_repair": Capability(
                 "self_repair",
-                bool(getattr(config, "SELF_REPAIR_ENABLED", True)),
-                "high", True, "cursor",
-                "Auto-réparation via Cursor (PR only par défaut)",
+                bool(getattr(config, "SELF_REPAIR_ENABLED", True))
+                and (agentic_on or cursor_on),
+                "high", True, "agentic",
+                "Auto-réparation via runtime agentique (draft PR uniquement)",
             ),
             "self_improvement": Capability(
                 "self_improvement",
-                bool(getattr(config, "SELF_IMPROVEMENT_ENABLED", True)),
-                "medium", True, "cursor",
+                bool(getattr(config, "SELF_IMPROVEMENT_ENABLED", True))
+                and (agentic_on or cursor_on),
+                "medium", True, "agentic",
                 "Propositions d'amélioration basées sur des preuves",
             ),
         }
