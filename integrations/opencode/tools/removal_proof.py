@@ -38,7 +38,6 @@ _COPY_EXCLUDED_NAMES = frozenset(
         "build",
         "coverage",
         "credentials",
-        "data",
         "dist",
         "node_modules",
         "secrets",
@@ -112,6 +111,14 @@ def _copy_ignore(directory: str, names: list[str]) -> set[str]:
 
     base = Path(directory)
     ignored = set(_COPY_EXCLUDED_NAMES & set(names))
+    # Seul le répertoire de données runtime à la racine est exclu. Les paquets
+    # applicatifs légitimes nommés ``data`` (notamment Android) doivent rester
+    # dans la copie afin que la preuve reconstruise réellement les clients.
+    try:
+        if base.resolve(strict=True) == REPOSITORY_ROOT.resolve(strict=True):
+            ignored.update({"data"} & set(names))
+    except OSError:
+        pass
     for name in names:
         candidate = base / name
         if (
@@ -155,7 +162,9 @@ def _production_provider_references(root: Path, provider_name: str) -> list[str]
             continue
         except ValueError:
             pass
-        if any(part in _COPY_EXCLUDED_NAMES for part in relative.parts):
+        if any(part in _COPY_EXCLUDED_NAMES for part in relative.parts) or (
+            relative.parts and relative.parts[0] == "data"
+        ):
             continue
         if _is_test_path(relative):
             continue

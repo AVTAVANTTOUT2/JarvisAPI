@@ -1,6 +1,7 @@
 from integrations.opencode.tools.removal_proof import (
     REMOVAL_PROOF_STEPS,
     REPOSITORY_ROOT,
+    _copy_ignore,
     run_removal_proof,
 )
 
@@ -27,3 +28,12 @@ def test_plugin_removal_keeps_generic_jarvis_contract() -> None:
         for step in result["steps"][8:15]
     )
     assert result["steps"][15]["status"] == "passed"
+
+
+def test_copy_ignores_only_root_runtime_data_directory() -> None:
+    assert "data" in _copy_ignore(str(REPOSITORY_ROOT), ["data", "android"])
+    android_package = (
+        REPOSITORY_ROOT
+        / "android/app/src/main/kotlin/fr/jarvis/companion"
+    )
+    assert "data" not in _copy_ignore(str(android_package), ["data", "voice"])
