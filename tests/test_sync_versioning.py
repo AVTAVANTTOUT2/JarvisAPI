@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 import database
 from api.sync_versioning import operation_checksum, sync_versioning_middleware
-from database.core import init_db
+from database.core import get_db, init_db
 
 
 @pytest.fixture()
@@ -101,6 +101,34 @@ def test_completed_operation_is_replayed_without_duplicate_side_effect(sync_clie
     assert first.status_code == replay.status_code == 200
     assert replay.json() == first.json()
     assert replay.headers["X-Jarvis-Idempotent-Replay"] == "true"
+    assert state["writes"] == 1
+
+
+def test_client_wins_cannot_reexecute_incomplete_operation(sync_client) -> None:
+    """client_wins ne doit pas réappliquer une mutation déjà commitée côté serveur."""
+    client, state = sync_client
+    body = b'{"title":"offline"}'
+    operation_id = str(uuid.uuid4())
+    checksum = operation_checksum("POST", "/api/tasks", body)
+    headers = _sync_headers(body, version=0, operation_id=operation_id)
+    headers["X-Jarvis-Conflict-Strategy"] = "client_wins"
+
+    with get_db() as conn:
+        conn.execute(
+            """
+            INSERT INTO sync_operations (
+                operation_id, checksum, entity_key, base_version,
+                resolved_version, status_code
+            ) VALUES (?, ?, '/api/tasks', 0, 0, 0)
+            """,
+            (operation_id, checksum),
+        )
+
+    state["writes"] = 1
+    response = client.post("/api/tasks", content=body, headers=headers)
+
+    assert response.status_code == 409
+    assert response.json()["error"] == "sync_operation_outcome_unknown"
     assert state["writes"] == 1
 
 
