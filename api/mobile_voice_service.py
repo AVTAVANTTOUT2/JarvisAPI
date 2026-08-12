@@ -132,7 +132,7 @@ async def process_mobile_voice_turn(
                 transcript[:120],
             )
             raise MobileVoiceError(
-                "Je n'ai pas bien entendu, Monsieur. Réessayez en maintenant le micro "
+                "Je n'ai pas bien entendu. Réessayez en maintenant le micro "
                 "un peu plus longtemps.",
                 400,
             )
@@ -204,7 +204,7 @@ async def process_mobile_voice_turn(
                 tts_error = "Synthèse vocale indisponible"
                 logger.warning("[mobile_voice] TTS error device=%s: %s", device_id, exc)
         else:
-            response_text = "Je n'ai pas de réponse pour le moment, Monsieur."
+            response_text = "Je n'ai pas de réponse pour le moment."
 
         payload: dict[str, Any] = {
             "conversation_id": conv_id,

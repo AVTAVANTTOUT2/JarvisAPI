@@ -31,14 +31,24 @@ def tmp_db(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
 
 
 def test_voice_control_stop_commands():
-    assert _match_voice_control("Arrête") == "Bien, Monsieur."
-    assert _match_voice_control("stop !") == "Bien, Monsieur."
-    assert _match_voice_control("tais-toi") == "Bien, Monsieur."
+    """« stop » coupe la parole et n'en produit aucune autre.
+
+    Répondre « Bien, Monsieur. » à une demande de silence ajoutait une phrase
+    par-dessus l'interruption : la commande était exécutée et contredite dans
+    le même souffle.
+    """
+    from api.voice_fastpath import SILENT_ACKNOWLEDGEMENT
+
+    assert _match_voice_control("Arrête") == SILENT_ACKNOWLEDGEMENT
+    assert _match_voice_control("stop !") == SILENT_ACKNOWLEDGEMENT
+    assert _match_voice_control("tais-toi") == SILENT_ACKNOWLEDGEMENT
+    # Reconnue, mais muette : à distinguer d'une absence de correspondance.
+    assert _match_voice_control("Arrête") is not None
 
 
 def test_voice_control_cancel():
-    assert _match_voice_control("annule") == "C'est annulé, Monsieur."
-    assert _match_voice_control("laisse tomber.") == "C'est annulé, Monsieur."
+    assert _match_voice_control("annule") == "C'est annulé."
+    assert _match_voice_control("laisse tomber.") == "C'est annulé."
 
 
 def test_voice_control_not_matched_in_sentences():

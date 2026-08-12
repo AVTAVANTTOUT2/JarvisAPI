@@ -37,7 +37,7 @@ def _fallback_action_response(action_type: str, result: dict) -> str:
             "dans un espace isolé. Dites oui pour confirmer exactement ce plan."
         )
     if not result.get("ok"):
-        return "Desole Monsieur, l'action a echoue."
+        return "L'action a echoue."
 
     if action_type == "weather":
         data = result.get("data", {})
@@ -48,18 +48,18 @@ def _fallback_action_response(action_type: str, result: dict) -> str:
 
     if action_type == "open_app":
         app_name = result.get("app_name", "l'application")
-        return f"{app_name} est ouverte, Monsieur."
+        return f"{app_name} est ouverte."
 
     if action_type == "task":
-        return "Tache creee, Monsieur."
+        return "Tache creee."
 
     if action_type == "reminder":
-        return "Rappel cree, Monsieur."
+        return "Rappel cree."
 
     if action_type == "calendar":
         events = result.get("events", [])
         if not events:
-            return "Votre agenda est vide, Monsieur."
+            return "Votre agenda est vide."
         ev = events[0]
         return (
             f"Prochain evenement : {ev.get('summary', '?')} "
@@ -67,23 +67,23 @@ def _fallback_action_response(action_type: str, result: dict) -> str:
         )
 
     if action_type == "calendar_create":
-        return "Evenement ajoute a votre agenda, Monsieur."
+        return "Evenement ajoute a votre agenda."
 
     if action_type == "terminal":
         output = result.get("output", "")[:100]
-        return f"Commande executee. {output}" if output else "Commande executee, Monsieur."
+        return f"Commande executee. {output}" if output else "Commande executee."
 
     if action_type == "mood":
-        return "Humeur enregistree, Monsieur."
+        return "Humeur enregistree."
 
     if action_type == "mail":
-        return "Brouillon prepare, Monsieur."
+        return "Brouillon prepare."
 
     if action_type == "mail_read":
         emails = result.get("emails", [])
         count = len(emails) if emails else 0
         if count == 0:
-            return "Vous n'avez aucun email non lu, Monsieur."
+            return "Vous n'avez aucun email non lu."
 
         stats = result.get("stats", {})
         urgent = stats.get("urgent", 0)
@@ -106,20 +106,20 @@ def _fallback_action_response(action_type: str, result: dict) -> str:
         return response
 
     if action_type == "note":
-        return "Note enregistree, Monsieur."
+        return "Note enregistree."
 
     if action_type == "find_file":
         files = result.get("files", [])
         count = len(files) if files else result.get("count", 0)
         if count == 0:
-            return "Aucun fichier trouve, Monsieur."
-        return f"{count} fichier(s) trouve(s), Monsieur."
+            return "Aucun fichier trouve."
+        return f"{count} fichier(s) trouve(s)."
 
     if action_type == "clipboard":
         if result.get("action") == "set" or "text" in result:
-            return "Copie dans le presse-papiers, Monsieur."
+            return "Copie dans le presse-papiers."
         return (
-            "Presse-papiers lu localement, Monsieur. "
+            "Presse-papiers lu localement. "
             "Son contenu n'a pas été transmis."
         )
 
@@ -127,36 +127,36 @@ def _fallback_action_response(action_type: str, result: dict) -> str:
         info_type = result.get("info", "")
         if "battery" in str(result) or info_type == "battery":
             pct = result.get("percentage", "?")
-            return f"Batterie a {pct}%, Monsieur."
+            return f"Batterie a {pct}%."
         if "wifi" in str(result) or info_type == "wifi":
             ssid = result.get("ssid", "inconnu")
-            return f"Wi-Fi connecte a {ssid}, Monsieur."
+            return f"Wi-Fi connecte a {ssid}."
         if "apps" in str(result) or info_type == "apps":
             apps = result.get("apps", [])
-            return f"{len(apps)} applications ouvertes, Monsieur."
+            return f"{len(apps)} applications ouvertes."
         # disk / fallback
         free = result.get("free", "?")
-        return f"Espace disque disponible : {free}, Monsieur."
+        return f"Espace disque disponible : {free}."
 
     if action_type == "name_place":
         name = result.get("name", result.get("message", "le lieu"))
-        return f"Lieu nomme : {name}, Monsieur."
+        return f"Lieu nomme : {name}."
 
+    # Ces deux messages sont déjà des phrases complètes : leur ajouter un point
+    # produisait « Position inconnue.. » une fois l'adresse retirée.
     if action_type == "where_am_i":
-        msg = result.get("message", "Position inconnue.")
-        return f"{msg}, Monsieur."
+        return str(result.get("message") or "Position inconnue.")
 
     if action_type == "day_route":
-        msg = result.get("message", "Aucune visite aujourd'hui.")
-        return f"{msg}, Monsieur."
+        return str(result.get("message") or "Aucune visite aujourd'hui.")
 
     if action_type == "search_conversations":
         count = result.get("count", 0)
         if count == 0:
-            return "Aucune conversation trouvee, Monsieur."
-        return f"{count} conversation(s) trouvee(s), Monsieur."
+            return "Aucune conversation trouvee."
+        return f"{count} conversation(s) trouvee(s)."
 
-    return "C'est fait, Monsieur."
+    return "C'est fait."
 
 
 def _save_voice_messages(

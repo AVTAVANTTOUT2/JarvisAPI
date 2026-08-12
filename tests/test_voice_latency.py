@@ -163,7 +163,7 @@ def test_sidecar_frame_roundtrip():
 def test_trivial_hail_is_recognized(phrase):
     from api.voice_processing import match_trivial_hail
 
-    assert match_trivial_hail(phrase) == "Je vous écoute, Monsieur."
+    assert match_trivial_hail(phrase) == "Je vous écoute."
 
 
 @pytest.mark.parametrize("phrase", [

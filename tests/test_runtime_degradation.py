@@ -243,7 +243,7 @@ def test_empty_response_does_not_blame_comprehension():
         )
 
     assert any(
-        "Je n'ai pas obtenu de reponse" in line
+        "Je n'ai pas obtenu de réponse" in line
         for source in sources.values()
         for line in source.splitlines()
         if not line.strip().startswith("#")

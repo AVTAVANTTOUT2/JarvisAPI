@@ -81,13 +81,36 @@ async def test_speculative_put_get_normalized(monkeypatch):
     spec = SpeculativeTTS()
     eng = _FakeProvider()
 
-    assert await spec.put("Bien, Monsieur.", "neutral", eng) is True
+    assert await spec.put("C'est fait.", "neutral", eng) is True
     # correspondance insensible à la casse/accents/ponctuation finale
-    assert spec.get("bien, monsieur", "neutral").startswith(b"RIFF")
-    assert spec.get("Bien, Monsieur.", "warm") is None      # émotion différente
+    assert spec.get("c'est fait", "neutral").startswith(b"RIFF")
+    assert spec.get("C'est fait.", "warm") is None      # émotion différente
     # put idempotent : pas de re-synthèse
-    assert await spec.put("BIEN, MONSIEUR.", "neutral", eng) is True
+    assert await spec.put("C'EST FAIT.", "neutral", eng) is True
     assert eng.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_speculative_refuses_phrases_the_address_policy_would_rewrite(monkeypatch):
+    """Un audio pré-généré court-circuite le filtre d'adresse appliqué au texte.
+
+    Sans ce garde, un cache constitué avant ce lot continuerait de **jouer**
+    « Bien, Monsieur. » : la génération est filtrée, la lecture d'un fichier
+    déjà écrit ne l'est pas.
+    """
+    from audio.tts_cache import SpeculativeTTS
+
+    monkeypatch.setattr("config.SPECULATIVE_TTS_ENABLED", True)
+    spec = SpeculativeTTS()
+    eng = _FakeProvider()
+
+    assert await spec.put("Bien, Monsieur.", "neutral", eng) is False
+    assert eng.calls == 0, "aucune synthèse ne doit être dépensée pour ce texte"
+    assert spec.get("Bien, Monsieur.", "neutral") is None
+
+    # Même avec un cache déjà pollué, la lecture est refusée.
+    spec._cache[("bien, monsieur", "neutral")] = b"RIFFancien"
+    assert spec.get("Bien, Monsieur.", "neutral") is None
 
 
 @pytest.mark.asyncio
@@ -99,11 +122,11 @@ async def test_speculative_invalidated_on_voice_change(monkeypatch, tmp_path):
     monkeypatch.setattr("config.SPECULATIVE_TTS_ENABLED", True)
     monkeypatch.setattr("config.TTS_VOICE_PATH", str(tmp_path / "voix-A"))
     spec = SpeculativeTTS()
-    await spec.put("Bien, Monsieur.", "neutral", _FakeProvider())
-    assert spec.get("Bien, Monsieur.") is not None
+    await spec.put("C'est fait.", "neutral", _FakeProvider())
+    assert spec.get("C'est fait.") is not None
 
     monkeypatch.setattr("config.TTS_VOICE_PATH", str(tmp_path / "voix-B"))
-    assert spec.get("Bien, Monsieur.") is None
+    assert spec.get("C'est fait.") is None
     assert spec.stats()["entries"] == 0
 
 
@@ -116,11 +139,11 @@ async def test_speculative_invalidated_on_model_change(monkeypatch):
     monkeypatch.setattr("config.SPECULATIVE_TTS_ENABLED", True)
     monkeypatch.setattr("config.TTS_MODEL_PATH", "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-6bit")
     spec = SpeculativeTTS()
-    await spec.put("Bien, Monsieur.", "neutral", _FakeProvider())
-    assert spec.get("Bien, Monsieur.") is not None
+    await spec.put("C'est fait.", "neutral", _FakeProvider())
+    assert spec.get("C'est fait.") is not None
 
     monkeypatch.setattr("config.TTS_MODEL_PATH", "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16")
-    assert spec.get("Bien, Monsieur.") is None
+    assert spec.get("C'est fait.") is None
     assert spec.stats()["entries"] == 0
 
 
@@ -130,8 +153,8 @@ async def test_speculative_disabled(monkeypatch):
 
     monkeypatch.setattr("config.SPECULATIVE_TTS_ENABLED", False)
     spec = SpeculativeTTS()
-    assert await spec.put("Bien, Monsieur.", "neutral", _FakeProvider()) is False
-    assert spec.get("Bien, Monsieur.") is None
+    assert await spec.put("C'est fait.", "neutral", _FakeProvider()) is False
+    assert spec.get("C'est fait.") is None
 
 
 @pytest.mark.asyncio
@@ -146,7 +169,7 @@ async def test_speculative_engine_failure_is_silent(monkeypatch):
         raise RuntimeError("moteur local en panne")
 
     broken.stream = _explode
-    assert await spec.put("Bien, Monsieur.", "neutral", broken) is False
+    assert await spec.put("C'est fait.", "neutral", broken) is False
 
 
 # ── Session vocale persistante ───────────────────────────────

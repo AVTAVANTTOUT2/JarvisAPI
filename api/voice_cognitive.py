@@ -145,7 +145,7 @@ async def maybe_handle_cognitive_voice(
             )
             if target:
                 job = await cursor_delegation.confirm(target["job_id"])
-                ack = "C'est parti, Monsieur. Cursor démarre sur la branche isolée."
+                ack = "Je lance l'analyse. Cursor démarre sur la branche isolée."
                 debug_trace["cursor_job_id"] = job.get("job_id")
                 return _finalize_voice_reply(
                     debug_trace, conversation_id, text, ack, intent, t0,
@@ -204,7 +204,7 @@ async def maybe_handle_cognitive_voice(
             debug_trace["awaiting_confirmation"] = True
         except Exception as exc:
             logger.error("[voice_fast] delegation Cursor : %s", exc)
-            ack = f"Je ne peux pas préparer Cursor d'ici, Monsieur. Raison : {str(exc)[:120]}"
+            ack = f"Je ne peux pas préparer Cursor d'ici. Raison : {str(exc)[:120]}"
             debug_trace["error"] = str(exc)
 
         return _finalize_voice_reply(

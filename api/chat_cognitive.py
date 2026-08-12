@@ -222,7 +222,7 @@ async def maybe_confirm_pending_cursor(
         )
 
     ack = (
-        f"C'est parti, Monsieur. Job `{job.get('job_id')}` démarré — "
+        f"Je lance l'analyse. Job `{job.get('job_id')}` démarré — "
         "je vous rends compte dès que les tests sont terminés."
     )
     return _cursor_confirmation_response(conversation_id, ack, job=job)

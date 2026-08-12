@@ -29,16 +29,25 @@ logger = logging.getLogger("jarvis")
 # - Hors TTS, les mêmes commandes sont traitées en priorité avant le LLM.
 # - Annulation explicite côté client : message WebSocket ``voice_cancel``.
 _VOICE_CONTROL_MAX_LEN = 30
+
+SILENT_ACKNOWLEDGEMENT = ""
+"""Réponse d'une commande d'arrêt : couper la parole, sans en produire une autre.
+
+Répondre « Bien. » à « stop » est une contradiction — on demande le silence et
+on obtient une phrase de plus, prononcée par-dessus l'interruption. La commande
+coupe la lecture et rend la main ; l'absence de réponse *est* la réponse.
+"""
+
 _VOICE_CONTROL_COMMANDS: tuple[tuple[tuple[str, ...], str], ...] = (
     (("arrete", "arrête", "stop", "tais-toi", "tais toi", "chut", "silence", "stoppe",
       "plus court", "coupe"),
-     "Bien, Monsieur."),
+     SILENT_ACKNOWLEDGEMENT),
     (("annule", "annule tout", "laisse tomber", "oublie", "oublie ca", "oublie ça"),
-     "C'est annulé, Monsieur."),
+     "C'est annulé."),
     (("continue", "poursuis", "vas-y continue"),
-     "Je continue, Monsieur."),
+     "Je continue."),
     (("merci ca suffit", "merci ça suffit", "c'est tout", "c'est bon merci", "ca suffit", "ça suffit"),
-     "À votre service, Monsieur."),
+     "À votre service."),
 )
 
 
@@ -74,7 +83,9 @@ _HAIL_PRESENCE_PHRASES = frozenset({
     "vous etes la", "vous êtes là", "vous etes là",
     "tu me recois", "tu me reçois",
 })
-_HAIL_RESPONSE = "Je vous écoute, Monsieur."
+# Une vérification de présence n'ouvre pas une session : elle constate qu'elle
+# est déjà ouverte. Pas d'honorifique — il serait répété à chaque « Jarvis ? ».
+_HAIL_RESPONSE = "Je vous écoute."
 
 
 def _normalize_hail(text: str) -> str:
@@ -224,6 +235,7 @@ async def _voice_llm_call(
 
 
 __all__ = [
+    "SILENT_ACKNOWLEDGEMENT",
     "_mark",
     "_match_voice_control",
     "_persist_voice_messages_async",
