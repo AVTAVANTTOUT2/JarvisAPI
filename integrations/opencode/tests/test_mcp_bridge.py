@@ -74,6 +74,32 @@ def _broker_request(
     return json.loads(response)
 
 
+def _process_argv_listing(pid: int) -> str:
+    """Lit l'argv complet d'un processus sans dépendre de la largeur de `ps`.
+
+    Sous Linux CI, `ps -o command=` tronque souvent autour de ``COLUMNS`` (ex.
+    80) et coupe ``--bootstrap-socket`` au milieu. ``/proc/<pid>/cmdline`` et
+    ``ps -ww`` exposent la ligne complète ; le token ne doit toujours pas y
+    apparaître.
+    """
+    if pid <= 0:
+        raise ValueError(f"pid invalide pour lecture argv: {pid}")
+    proc_cmdline = Path(f"/proc/{pid}/cmdline")
+    if proc_cmdline.is_file():
+        raw = proc_cmdline.read_bytes()
+        if raw:
+            return raw.replace(b"\x00", b" ").decode("utf-8", errors="replace")
+    result = subprocess.run(
+        ["ps", "-ww", "-o", "args=", "-p", str(pid)],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=2.0,
+        env={**os.environ, "COLUMNS": "512"},
+    )
+    return result.stdout
+
+
 def test_capability_file_rejects_same_uid_forgery(tmp_path: Path) -> None:
     key = os.urandom(32)
     parent = tmp_path / "capabilities"
@@ -841,6 +867,57 @@ def test_bootstrap_rejects_same_uid_peer_outside_bound_process_tree(
         owner.wait(timeout=2.0)
 
 
+def test_process_argv_listing_survives_narrow_ps_columns() -> None:
+    """Régression CI : un `ps` étroit coupe ``--bootstrap-socket`` au milieu."""
+    long_bootstrap = (
+        "/tmp/pytest-of-runner/pytest-2/test_stdio_proxy_relays_withou0/"
+        "state/sockets/bootstrap.sock"
+    )
+    long_socket = long_bootstrap.replace("bootstrap.sock", "broker.sock")
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            "import time; time.sleep(5)",
+            "proxy",
+            "--transport",
+            "unix",
+            "--bootstrap-socket",
+            long_bootstrap,
+            "--socket-path",
+            long_socket,
+        ],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline:
+            try:
+                narrow = subprocess.run(
+                    ["ps", "-o", "command=", "-p", str(process.pid)],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=2.0,
+                    env={**os.environ, "COLUMNS": "80"},
+                ).stdout
+                break
+            except subprocess.CalledProcessError:
+                time.sleep(0.01)
+        else:
+            raise AssertionError("processus de régression argv introuvable dans ps")
+        listing = _process_argv_listing(process.pid)
+        assert "--bootstrap-socket" not in narrow
+        assert "--bootstrap-socket" in listing
+        assert long_bootstrap in listing
+        assert "secret-token-must-not-leak" not in listing
+    finally:
+        process.terminate()
+        process.wait(timeout=2.0)
+
+
 def test_stdio_proxy_relays_without_receiving_capability_fields(tmp_path: Path) -> None:
     state = tmp_path / "state"
     broker = MCPBroker(
@@ -868,13 +945,7 @@ def test_stdio_proxy_relays_without_receiving_capability_fields(tmp_path: Path) 
         while endpoint.bootstrap_path.exists() and time.monotonic() < deadline:
             time.sleep(0.01)
         assert not endpoint.bootstrap_path.exists()
-        listing = subprocess.run(
-            ["ps", "-o", "command=", "-p", str(process.pid)],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=2.0,
-        ).stdout
+        listing = _process_argv_listing(process.pid)
         assert endpoint.token not in listing
         assert "--bootstrap-socket" in listing
         stdout, stderr = process.communicate(request + "\n", timeout=5.0)
