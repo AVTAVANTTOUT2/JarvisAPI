@@ -23,17 +23,23 @@ logger = logging.getLogger(__name__)
 
 # Phrases quasi certaines d'être prononcées : pré-générées au démarrage du
 # daemon, et re-servies instantanément quand la réponse finale correspond.
+# Ces phrases sont prononcées **après** un fait établi (action aboutie, fin de
+# session, demande de répétition), jamais pour couvrir une attente. Aucune ne
+# porte l'honorifique, sauf la réouverture de session : la politique d'adresse
+# le retirerait à la lecture, et un fichier pré-synthétisé dont le texte ne
+# correspond plus à ce que JARVIS dirait est un fichier qu'il ne faut pas jouer.
 CANNED_PHRASES: list[tuple[str, str]] = [
-    ("Bien, Monsieur.", "neutral"),
-    ("C'est fait, Monsieur.", "neutral"),
+    ("C'est fait.", "neutral"),
     ("Très bien, j'annule.", "neutral"),
-    ("Un instant, Monsieur.", "neutral"),
     ("Je vous écoute.", "neutral"),
-    ("Oui Monsieur ?", "neutral"),
-    ("Bien Monsieur, je reste en veille.", "warm"),
-    ("Me revoici, Monsieur.", "warm"),
-    ("Je n'ai encore rien dit, Monsieur.", "amused"),
+    ("Je reste en veille.", "warm"),
+    ("Je me mets en veille.", "warm"),
+    ("Je n'ai encore rien dit.", "amused"),
 ]
+# « Me revoici, Monsieur. » n'y figure volontairement pas : c'est une ouverture
+# de session, donc le seul énoncé du daemon qui porte encore l'honorifique. Il
+# dépend du budget de session, que le cache ne peut pas consulter — et une
+# sortie de veille n'est ni fréquente ni sensible à la latence.
 
 _REPEAT_TRIGGERS = (
     "repete",
@@ -85,14 +91,22 @@ class SpeculativeTTS:
 
     @staticmethod
     def _current_sig() -> str:
-        """Empreinte fournisseur+voix+modèle : un changement vide le cache.
+        """Empreinte fournisseur+voix+modèle+politique : un changement vide le cache.
 
         Lue dans la configuration et non auprès d'un moteur chargé : le cache
         reste générique et son invalidation identique sur toutes les machines,
         y compris là où aucun modèle n'est installé.
+
+        La politique d'adresse fait partie de la clé. Sans elle, un cache
+        constitué avant ce lot continuerait de rejouer « Bien, Monsieur. » : le
+        texte serait filtré à la génération mais l'audio, lui, était déjà écrit.
         """
         settings = load_tts_settings()
-        return f"{settings.provider}:{settings.voice_id}:{settings.model_path}"
+        policy = str(getattr(config, "VOICE_ADDRESS_POLICY", "rare") or "rare").lower()
+        return (
+            f"{settings.provider}:{settings.voice_id}:{settings.model_path}"
+            f":address={policy}"
+        )
 
     def _check_sig(self) -> None:
         sig = self._current_sig()
@@ -102,10 +116,25 @@ class SpeculativeTTS:
             self._cache.clear()
             self._engine_sig = sig
 
+    @staticmethod
+    def _conforms_to_address_policy(text: str) -> bool:
+        """Le texte est-il déjà ce que JARVIS dirait aujourd'hui ?
+
+        Un audio pré-généré court-circuite la synthèse, donc aussi le filtre
+        d'adresse appliqué au texte. Refuser d'entrer et de sortir du cache
+        toute phrase que la politique réécrirait est la seule façon d'être
+        certain qu'un ancien « Bien, Monsieur. » ne sera jamais rejoué.
+        """
+        from jarvis.voice import VoiceUtteranceKind, apply_address_policy
+
+        return apply_address_policy(text, kind=VoiceUtteranceKind.ANSWER) == text
+
     def get(self, text: str, emotion: str = "neutral") -> bytes | None:
         if not getattr(config, "SPECULATIVE_TTS_ENABLED", True):
             return None
         self._check_sig()
+        if not self._conforms_to_address_policy(text):
+            return None
         return self._cache.get((_normalize(text), emotion))
 
     async def put(self, text: str, emotion: str, provider) -> bool:
@@ -113,6 +142,9 @@ class SpeculativeTTS:
         if not getattr(config, "SPECULATIVE_TTS_ENABLED", True):
             return False
         self._check_sig()
+        if not self._conforms_to_address_policy(text):
+            logger.debug("[tts_cache] hors politique d'adresse, non mis en cache : %s", text[:40])
+            return False
         key = (_normalize(text), emotion)
         if key in self._cache:
             return True

@@ -98,7 +98,7 @@ def unmatched_confirmation_reply() -> dict:
     puis en annoncer mensongèrement la réussite.
     """
     display_text = (
-        "Je n’ai aucune action en attente à confirmer, Monsieur. "
+        "Je n’ai aucune action en attente à confirmer. "
         "Précisez l’action souhaitée."
     )
     return {

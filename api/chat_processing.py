@@ -453,7 +453,7 @@ async def _process_message_internal(
                 len(raw_display_text.strip()),
             )
             empty_response_cause = cause
-            display_text = "Je n'ai pas obtenu de reponse, Monsieur."
+            display_text = "Je n'ai pas obtenu de réponse."
 
         if persist_assistant:
             try:

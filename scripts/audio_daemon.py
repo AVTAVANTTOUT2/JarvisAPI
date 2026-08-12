@@ -41,7 +41,18 @@ from jarvis.audio.tts import (
 )
 from jarvis.audio.tts.errors import TTSError
 from jarvis.audio.tts.playback import play_chunks
+from jarvis.voice import (
+    HONORIFIC_ALLOWED_KINDS,
+    VoiceUtteranceKind,
+    apply_address_policy,
+    close_voice_session,
+    get_voice_session,
+)
 from pipeline import process_voice_fast
+
+# Types d'énoncé qui déplacent la frontière de session : eux seuls consultent
+# le budget d'honorifique, les autres n'y ont simplement pas droit.
+_BOUNDARY_KINDS = HONORIFIC_ALLOWED_KINDS
 
 # Detection Silero VAD (sans log, le logger est defini plus bas)
 try:
@@ -1052,7 +1063,11 @@ class AudioDaemon:
 
                                 if not config.is_quiet_hours() and not is_dnd_active():
                                     asyncio.run_coroutine_threadsafe(
-                                        self._play_tts(config.PRESENCE_GREETING, emotion="warm"),
+                                        self._play_tts(
+                                            config.PRESENCE_GREETING,
+                                            emotion="warm",
+                                            kind=VoiceUtteranceKind.GREETING,
+                                        ),
                                         loop,
                                     )
                         except Exception as e:
@@ -1169,7 +1184,9 @@ class AudioDaemon:
                                     )
                                     await _wait_subprocess(proc, context="wake_sound afplay")
                                 else:
-                                    await self._play_tts("Oui Monsieur ?", emotion="neutral")
+                                    # Le wake word n'ouvre pas une session : il
+                                    # reprend la parole dans celle en cours.
+                                    await self._play_tts("Je vous écoute.", emotion="neutral")
                             except Exception as e:
                                 logger.debug("[audio_daemon] wake sound/TTS: %s", e)
                             self.state = "listening"
@@ -1388,12 +1405,26 @@ class AudioDaemon:
 
         if any(p in lower for p in SLEEP_PHRASES):
             self.enter_sleep_mode()
-            asyncio.create_task(self._play_tts("Bien, Monsieur. Je me mets en veille.", emotion="warm"))
+            # Fin réelle de session : le budget d'honorifique est rendu, de
+            # sorte que le réveil suivant puisse saluer une fois.
+            close_voice_session(self._conv_id)
+            asyncio.create_task(self._play_tts(
+                "Je me mets en veille.",
+                emotion="warm",
+                kind=VoiceUtteranceKind.FAREWELL,
+            ))
             return True
 
         if any(p in lower for p in WAKE_PHRASES):
             self.exit_sleep_mode()
-            asyncio.create_task(self._play_tts("Me revoici, Monsieur.", emotion="warm"))
+            # Sortie de veille : véritable ouverture de session, l'honorifique
+            # y est autorisé — une seule fois, la politique s'en charge.
+            close_voice_session(self._conv_id)
+            asyncio.create_task(self._play_tts(
+                "Me revoici, Monsieur.",
+                emotion="warm",
+                kind=VoiceUtteranceKind.GREETING,
+            ))
             return True
 
         return False
@@ -1423,51 +1454,47 @@ class AudioDaemon:
         finally:
             voice_queue.set_user_conversation_active(False)
 
-    async def _play_anticipatory_ack(self, trace: UtteranceTrace) -> None:
-        """Fait entendre un accusé local pendant que le moteur prépare la réponse.
+    async def _signal_processing_started(self, trace: UtteranceTrace) -> None:
+        """Annonce que le moteur canonique a pris le tour — **sans parler**.
 
-        Ce chemin n'est déclenché qu'après les fast-paths/cas cognitifs : une
-        interpellation, une commande de contrôle, Fitness, Cursor ou un briefing
-        ne reçoit donc jamais deux réponses. Le TTS et le tour canonique tournent
-        en parallèle ; la file vocale sérialise ensuite la réponse finale.
+        Cette méthode remplace l'accusé anticipé « Bien, Monsieur. ». Celui-ci
+        posait deux problèmes distincts, et le second était invisible :
+
+        1. il ajoutait une prise de parole devant presque chaque réponse
+           normale, suivie d'une seconde phrase qui répétait l'honorifique ;
+        2. il coûtait du temps — le tour attendait la **lecture** de l'accusé
+           avant de rendre la vraie réponse, et en semi-duplex il fermait le
+           flux d'entrée, si bien qu'une sortie anticipée laissait le micro clos.
+
+        Un accusé parlé reste légitime lorsqu'un travail long a réellement été
+        accepté (``VOICE_PROGRESS_ACK_POLICY``) : ce n'est pas le même objet, et
+        il est émis par le producteur du travail, pas par le pipeline vocal.
+
+        L'événement reste diffusé pour les interfaces qui affichent l'état ; il
+        est purement visuel et ne doit jamais être traduit en audio par un
+        client.
         """
-        if not getattr(config, "VOICE_ANTICIPATORY_ACK_ENABLED", True):
-            return
-        if self._tts_unavailable_reason:
-            return
         if self._interrupt_event is not None and self._interrupt_event.is_set():
             return
-
-        ack = "Bien, Monsieur."
-        self.state = "speaking"
-        await self._broadcast_state({
-            "type": "voice_anticipatory_ack",
-            "response": ack,
-            "emotion": "neutral",
-        })
-        if self._half_duplex and self._stream:
-            try:
-                self._stream.stop_stream()
-            except Exception as exc:
-                logger.debug("[audio_daemon] stop stream avant accusé : %s", exc)
-
-        await self._play_tts(
-            ack,
-            emotion="neutral",
-            priority=VoicePriority.USER_RESPONSE,
-            wait=True,
-            trace=trace,
-        )
-        # L'accusé tourne en tâche concurrente et peut finir **après** que le
-        # tour a été abandonné et le pipeline réarmé. Ne rendre la main à
-        # « processing » que si l'état est toujours celui que cette méthode a
-        # posé : sinon l'interface annonce un traitement en cours alors que le
-        # daemon écoute déjà.
-        if self.state != "speaking":
+        if self.state in ("listening", "wake_listening"):
+            # Le tour a été abandonné et le pipeline réarmé pendant que ce
+            # signal était en vol : réafficher « processing » ferait mentir
+            # l'interface sur un traitement qui n'a plus lieu.
             return
-        if self._interrupt_event is None or not self._interrupt_event.is_set():
-            self.state = "processing"
-            await self._broadcast_state()
+        self.state = "processing"
+        await self._broadcast_state({
+            "type": "voice_processing_started",
+            "utterance_id": trace.utterance_id if trace is not None else None,
+        })
+
+    async def _signal_quality_fallback(self) -> None:
+        """Relecture STT par le modèle lourd — observable, jamais audible.
+
+        L'ancien chemin faisait entendre l'accusé anticipé pour couvrir la
+        relecture. Sur un simple bruit, faster-whisper ne rend aucun segment :
+        JARVIS parlait alors à personne, puis se retrouvait micro fermé.
+        """
+        await self._broadcast_state({"type": "voice_quality_fallback"})
 
     async def _process_single_utterance_active(
         self, pcm_bytes: bytes, stt_available: bool, *, trace: UtteranceTrace,
@@ -1498,12 +1525,12 @@ class AudioDaemon:
         _t_stt_start = _time.time()
 
         meta: dict | None = None
-        quality_ack_started = False
 
-        def _quality_fallback_ack() -> Awaitable[None]:
-            nonlocal quality_ack_started
-            quality_ack_started = True
-            return self._play_anticipatory_ack(trace)
+        def _quality_fallback_notice() -> Awaitable[None]:
+            # Un signal d'observabilité, pas une parole : la relecture par le
+            # modèle lourd ne concerne pas l'utilisateur tant qu'elle n'a pas
+            # produit de transcription.
+            return self._signal_quality_fallback()
 
         if stt_available:
             try:
@@ -1514,7 +1541,7 @@ class AudioDaemon:
                     sample_rate=SAMPLE_RATE,
                     language=getattr(config, "LANGUAGE", "fr"),
                     speech_ms=trace.speech_ms or None,
-                    on_quality_fallback=_quality_fallback_ack,
+                    on_quality_fallback=_quality_fallback_notice,
                 )
                 if meta:
                     text = str(meta.get("text") or "").strip()
@@ -1624,7 +1651,7 @@ class AudioDaemon:
                         self._tts_playing_event.clear()
                         self._last_tts_end = time.time()
                 else:
-                    await self._play_tts("Je n'ai encore rien dit, Monsieur.", emotion="amused")
+                    await self._play_tts("Je n'ai encore rien dit.", emotion="amused")
                 self.state = "wake_listening" if self.wake_word_enabled else "listening"
                 await self._broadcast_state()
                 return
@@ -1651,7 +1678,12 @@ class AudioDaemon:
             self._conv_start_time = 0.0
             self.state = "wake_listening" if self.wake_word_enabled else "listening"
             await self._broadcast_state()
-            await self._play_tts("Bien Monsieur, je reste en veille.", emotion="warm")
+            close_voice_session(self._conv_id)
+            await self._play_tts(
+                "Je reste en veille.",
+                emotion="warm",
+                kind=VoiceUtteranceKind.FAREWELL,
+            )
             await self._play_end_sound()
             return
 
@@ -1677,20 +1709,21 @@ class AudioDaemon:
         trace.set_conversation(self._conv_id)
 
         try:
-            turn_callback = None if quality_ack_started else (
-                lambda: self._play_anticipatory_ack(trace)
-            )
             result = await process_voice_fast(
                 text,
                 self._conv_id,
                 stt_ms=stt_latency_ms,
                 trace=trace,
-                on_canonical_turn_started=turn_callback,
+                on_canonical_turn_started=lambda: self._signal_processing_started(trace),
             )
         except Exception as e:
             logger.exception("[audio_daemon] _process_voice_fast : %s", e)
             await self._rearm(reason="llm_error", trace=trace)
-            await self._play_tts("Désolé Monsieur, je rencontre un problème technique.", emotion="concerned")
+            await self._play_tts(
+                "Je rencontre un problème technique.",
+                emotion="concerned",
+                kind=VoiceUtteranceKind.ERROR,
+            )
             return
 
         response_text = (result or {}).get("text") or ""
@@ -2005,9 +2038,24 @@ class AudioDaemon:
         priority: VoicePriority | None = None,
         wait: bool = False,
         trace: UtteranceTrace | None = None,
+        kind: VoiceUtteranceKind = VoiceUtteranceKind.ANSWER,
     ) -> None:
-        """Enfile une synthèse vocale sur le moteur local résolu."""
+        """Enfile une synthèse vocale sur le moteur local résolu.
+
+        Second goulet de la politique d'adresse, après l'adaptateur de tour :
+        le daemon parle aussi de sa propre initiative (notifications, rituels,
+        veille, pannes), sans jamais passer par ``_process_voice_fast``.
+        """
         if not text or not text.strip():
+            return
+        text = apply_address_policy(
+            text,
+            kind=kind,
+            session=get_voice_session(self._conv_id) if kind in _BOUNDARY_KINDS else None,
+            allow_honorific=kind in _BOUNDARY_KINDS,
+            session_boundary=kind in _BOUNDARY_KINDS,
+        )
+        if not text.strip():
             return
         if priority is None:
             priority = {

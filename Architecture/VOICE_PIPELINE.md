@@ -1,6 +1,6 @@
 # Pipeline vocal cognitif
 
-Dernière mise à jour : 2026-08-10
+Dernière mise à jour : 2026-08-12
 
 ## Rôle
 
@@ -17,24 +17,25 @@ Réponses vocales instantanées (Flash), avec délégation Cursor ou raisonnemen
 | `api/mobile_voice_service.py` | Android → `_process_voice_fast` |
 | `database/devops.py` | `get_voice_latency_metrics` (p50/p95) |
 | `api/router_cognitive.py` | `GET /api/voice/metrics` |
+| `jarvis/voice/address.py` | Politique d'adresse : types d'énoncés, budget de session, filtre déterministe |
 
 ## Flux type (mains libres / Android)
 
 ```
 audio → STT local
   ├ `small` confiant → résultat immédiat
-  └ confiance faible → accusé Qwen3 local + relecture qualité en parallèle
+  └ confiance faible → signal `voice_quality_fallback` (silencieux) + relecture qualité
   → route_request(..., interaction_mode="voice")
   → maybe_handle_cognitive_voice()
        ├ briefing → BriefingEngine (voice_text)
        ├ cursor → ack Flash + enqueue job
        ├ heavy → ack + tâche Main async + résumé Flash + notif high
        └ sinon → `_process_message_internal(..., voice_mode=True)`
-                    ├ accusé local concurrent si le STT ne l'a pas déjà lancé
+                    ├ signal d'état `voice_processing_started` (jamais audible)
                     ├ contexte et routage canoniques
                     ├ DeepSeek Flash court (`VOICE_MAX_TOKENS`)
                     └ action + action_result structurés
-  → TTS → playback
+  → politique d'adresse → TTS → playback
 ```
 
 ### Confirmation Cursor (« lance »)
@@ -77,9 +78,53 @@ STT_ENGINE=local
 STT_MODEL=small
 STT_FALLBACK_MODEL=large-v3-turbo
 STT_QUALITY_FALLBACK_LOGPROB=-0.35
-VOICE_ANTICIPATORY_ACK_ENABLED=true
+VOICE_ADDRESS_POLICY=rare
+VOICE_PROGRESS_ACK_POLICY=long_jobs_only
 VOICE_REASONING_MODEL=   # défaut = DeepSeek Flash
 ```
+
+## Politique de parole
+
+Un tour normal produit **exactement une** prise de parole : la réponse. Aucune
+phrase générique ne la précède.
+
+L'accusé anticipé « Bien, Monsieur. » a été supprimé. Il ajoutait un énoncé
+devant presque chaque réponse, et le tour attendait sa **lecture** avant de
+rendre la vraie réponse — en semi-duplex il fermait de surcroît le flux
+d'entrée, si bien qu'une sortie anticipée laissait le micro clos. Ce qui le
+remplace n'est pas une phrase plus courte mais un changement d'état :
+`voice_processing_started`, purement visuel.
+
+Un accusé **parlé** reste légitime lorsqu'un travail long a réellement été
+accepté (« Je lance l'analyse. ») : la progression d'un job et le temps de
+premier jeton d'un LLM sont deux notions distinctes, et seule la première
+mérite d'être annoncée. Elle est réglée par `VOICE_PROGRESS_ACK_POLICY`.
+
+### « Monsieur »
+
+L'honorifique n'est pas supprimé, il est rationné — `VOICE_ADDRESS_POLICY`.
+
+| Type d'énoncé | « Monsieur » |
+|---|---|
+| Réponse conversationnelle ou d'outil | interdit |
+| Confirmation d'action, progression | interdit |
+| Erreur, repli, réponse vide | interdit |
+| Interpellation, barge-in | interdit |
+| Ouverture réelle de session | une fois au maximum |
+| Fermeture réelle de session | une fois au maximum |
+| Rituel proactif | une fois au maximum |
+
+Deux garanties, pas une seule : le prompt (`VOICE_ADDRESS_OVERLAY`, `persona.txt`)
+et un filtre déterministe appliqué après génération. Le prompt suffit *la
+plupart du temps* ; « la plupart du temps » ne convient pas pour un mot que
+l'utilisateur entend à chaque tour, et il ne touche de toute façon pas les
+producteurs qui ne sont pas des modèles (fast-paths, replis d'action, cache TTS).
+
+Le filtre ne fait jamais de remplacement global. Il laisse intacts les
+citations, les titres d'œuvre, la civilité d'un tiers (« Monsieur Dupont »),
+l'emploi comme nom commun et le mot en position de sujet. Une frontière de
+session n'est pas une détection de wake word : réveiller JARVIS trois fois pour
+trois questions reste la même conversation.
 
 ## Android
 
@@ -93,4 +138,9 @@ publient `action` et `action_result` séparément du texte prononcé.
 
 - Latences p50/p95 nécessitent un volume de tours réels en `voice_debug_log`.
 - Follow-up heavy Main est asynchrone : l’utilisateur reçoit d’abord l’ack, puis une notif / résumé.
+- Le pipeline reste séquentiel après la fin de parole : STT complet, puis LLM,
+  puis TTS. Le STT incrémental, l'endpointing adaptatif, l'annulation d'écho et
+  le barge-in plein duplex ne sont **pas** couverts par ce lot — voir
+  `Architecture/adr/ADR-028-politique-de-parole-vocale.md`, section « Ce que ce
+  lot ne fait pas ».
 - Pas de bascule Ollama pour la voix.

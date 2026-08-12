@@ -27,8 +27,53 @@ from api.voice_fastpath import (
 from api.voice_support import _broadcast_voice_debug
 from app.fitness.voice import maybe_handle_fitness_voice
 from database import _save_voice_debug_trace
+from jarvis.voice import VoiceUtteranceKind, apply_address_policy, get_voice_session
 
 logger = logging.getLogger("jarvis")
+
+# Types d'action qui déplacent réellement la frontière de session. Eux seuls
+# peuvent porter l'honorifique — et une seule fois par session.
+_SESSION_BOUNDARY_ACTIONS: dict[str, VoiceUtteranceKind] = {
+    "sleep": VoiceUtteranceKind.FAREWELL,
+    "wake": VoiceUtteranceKind.GREETING,
+}
+
+
+def _utterance_kind(result: dict[str, Any]) -> VoiceUtteranceKind:
+    """Nature de l'énoncé produit par un tour canonique.
+
+    Déterministe et lue sur le résultat structuré, jamais sur le texte : c'est
+    l'action réellement exécutée qui dit si la session s'ouvre ou se ferme, pas
+    la formulation choisie par le modèle.
+    """
+    action = result.get("action")
+    if isinstance(action, dict):
+        kind = _SESSION_BOUNDARY_ACTIONS.get(str(action.get("type") or ""))
+        if kind is not None:
+            return kind
+    return VoiceUtteranceKind.ANSWER
+
+
+def _speakable(
+    text: str,
+    *,
+    conversation_id: int,
+    kind: VoiceUtteranceKind = VoiceUtteranceKind.ANSWER,
+) -> str:
+    """Passe obligatoire de toute réponse vocale par la politique d'adresse.
+
+    Unique goulet côté API : daemon local, page ``/voice``, mains-libres et
+    mobile empruntent tous ``_process_voice_fast``, donc tous ce filtre. Le
+    prompt reste la première ligne de défense ; ceci en est la garantie.
+    """
+    boundary = kind in (VoiceUtteranceKind.GREETING, VoiceUtteranceKind.FAREWELL)
+    return apply_address_policy(
+        text,
+        kind=kind,
+        session=get_voice_session(conversation_id) if boundary else None,
+        allow_honorific=boundary,
+        session_boundary=boundary,
+    )
 
 
 def _deterministic_voice_result(
@@ -42,6 +87,7 @@ def _deterministic_voice_result(
     trace: Any | None,
 ) -> dict[str, Any]:
     """Construit et persiste une réponse locale qui ne requiert aucun moteur."""
+    reply = _speakable(reply, conversation_id=conversation_id)
     latency_ms = round((time.time() - started_at) * 1000)
     debug_trace = {
         "input_text": text,
@@ -52,7 +98,10 @@ def _deterministic_voice_result(
         "action_detected": None,
         "action_result": None,
     }
-    _persist_voice_messages_async(conversation_id, text, reply, 0.0, trace)
+    if reply:
+        # Une commande d'arrêt ne produit aucune parole : lui inventer un tour
+        # d'assistant vide polluerait l'historique et la reprise de contexte.
+        _persist_voice_messages_async(conversation_id, text, reply, 0.0, trace)
     return {
         "text": reply,
         "emotion": "neutral",
@@ -169,27 +218,36 @@ async def _process_voice_fast(
         name="voice-canonical-turn",
     )
 
-    async def _run_anticipatory_speech() -> None:
-        if on_canonical_turn_started is None:
-            return
-        try:
-            await on_canonical_turn_started()
-        except Exception:
-            # L'accusé améliore la latence perçue mais ne doit jamais empêcher
-            # le moteur canonique de rendre la vraie réponse.
-            logger.warning("[voice] parole anticipée indisponible", exc_info=True)
+    # ``on_canonical_turn_started`` signale un **état**, il ne parle pas.
+    # Historiquement il déclenchait « Bien, Monsieur. » puis le tour attendait
+    # les deux via ``asyncio.gather`` : la vraie réponse pouvait être prête et
+    # rester en file derrière une phrase creuse. Le signal part désormais en
+    # parallèle et n'entre jamais dans le chemin critique — il est simplement
+    # récolté à la fin pour ne laisser aucune tâche orpheline.
+    signal_task: asyncio.Task | None = None
+    if on_canonical_turn_started is not None:
+        async def _signal_turn_started() -> None:
+            try:
+                await on_canonical_turn_started()
+            except Exception:
+                logger.warning("[voice] signal de début de tour indisponible", exc_info=True)
 
-    if on_canonical_turn_started is None:
-        result = await canonical_task
-    else:
-        anticipatory_task = asyncio.create_task(
-            _run_anticipatory_speech(),
-            name="voice-anticipatory-speech",
+        signal_task = asyncio.create_task(
+            _signal_turn_started(), name="voice-turn-started-signal",
         )
-        result, _ = await asyncio.gather(canonical_task, anticipatory_task)
+
+    try:
+        result = await canonical_task
+    finally:
+        if signal_task is not None:
+            await asyncio.gather(signal_task, return_exceptions=True)
     turn_ms = round((time.time() - turn_started) * 1000)
 
-    response_text = str(result.get("text") or "").strip()
+    response_text = _speakable(
+        str(result.get("text") or "").strip(),
+        conversation_id=conversation_id,
+        kind=_utterance_kind(result),
+    )
     if not response_text and result.get("agent") != "none":
         # Ne pas accuser la compréhension : la transcription est le plus souvent
         # parfaite, et l'utilisateur reformulait dans le vide en croyant mal
@@ -197,7 +255,7 @@ async def _process_voice_fast(
         # moteur canonique, seul endroit qui voit la réponse brute du modèle et
         # ses jetons ; il le journalise en WARNING et remonte
         # ``empty_response_cause``.
-        response_text = "Je n'ai pas obtenu de reponse, Monsieur."
+        response_text = "Je n'ai pas obtenu de réponse."
 
     total_cost = float(result.get("cost") or 0.0)
     action = result.get("action")

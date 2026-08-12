@@ -364,7 +364,7 @@ async def test_empty_voice_reply_identifies_exhausted_reasoning_budget() -> None
         await asyncio.sleep(0)
 
     assert result["empty_response_cause"] == "budget_epuise_avant_reponse"
-    assert result["text"] == "Je n'ai pas obtenu de reponse, Monsieur."
+    assert result["text"] == "Je n'ai pas obtenu de réponse."
 
 
 @pytest.mark.asyncio

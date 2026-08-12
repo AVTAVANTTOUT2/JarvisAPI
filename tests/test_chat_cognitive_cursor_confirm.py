@@ -114,7 +114,7 @@ async def test_chat_internal_confirms_pending_cursor_on_lance(monkeypatch) -> No
 
     assert result["agent"] == "cognitive"
     assert result["action_result"]["job_id"] == "job-42"
-    assert "parti" in result["text"].lower()
+    assert "je lance l'analyse" in result["text"].lower()
 
 
 def test_resolve_pending_cursor_job_scopes_by_conversation_and_mode() -> None:

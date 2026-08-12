@@ -45,7 +45,7 @@ def _daemon():
     return daemon
 
 
-def _pipeline(transcript: str, reply: str = "Dix-huit degrés, Monsieur."):
+def _pipeline(transcript: str, reply: str = "Dix-huit degrés."):
     """Contexte simulant STT / LLM / TTS instantanés."""
     return (
         patch("scripts.audio_daemon.create_conversation", return_value=42),
@@ -86,29 +86,37 @@ async def test_short_command_adds_no_fixed_delay():
 
 
 @pytest.mark.asyncio
-async def test_native_turn_plays_ack_while_canonical_engine_is_running(monkeypatch):
+async def test_canonical_turn_speaks_once_and_never_announces_itself():
+    """Un tour normal produit exactement une prise de parole : la réponse.
+
+    L'ancien pipeline faisait entendre « Bien, Monsieur. » pendant la
+    préparation, puis la réponse — deux énoncés, deux honorifiques, et un tour
+    qui attendait la lecture du premier avant de rendre le second.
+    """
     daemon = _daemon()
     trace = UtteranceTrace()
     spoken: list[str] = []
+    signalled: list[str] = []
 
     async def _play(text, **kwargs):
         spoken.append(text)
-        if text == "Bien, Monsieur.":
-            kwargs["trace"].mark(vl.TTS_PLAYBACK_STARTED, engine="test-ack")
+
+    async def _broadcast(payload=None):
+        if isinstance(payload, dict) and payload.get("type"):
+            signalled.append(payload["type"])
 
     async def _canonical(*_args, **kwargs):
         callback = kwargs.get("on_canonical_turn_started")
-        assert callback is not None
+        assert callback is not None, "le signal d'état doit rester disponible"
         await callback()
         trace.mark(vl.LLM_COMPLETED, model="fake", pass_index=1)
         return {"text": "Réponse finale.", "emotion": "neutral", "latency_ms": 4}
 
-    monkeypatch.setattr("config.VOICE_ANTICIPATORY_ACK_ENABLED", True)
     with (
         patch("scripts.audio_daemon.create_conversation", return_value=42),
         patch("scripts.audio_daemon.process_voice_fast", side_effect=_canonical),
         patch.object(type(daemon), "_play_tts", side_effect=_play),
-        patch.object(type(daemon), "_broadcast_state", new_callable=AsyncMock),
+        patch.object(type(daemon), "_broadcast_state", side_effect=_broadcast),
         patch(
             "audio.stt_daemon.stt_daemon.transcribe_with_metadata",
             new_callable=AsyncMock,
@@ -121,13 +129,13 @@ async def test_native_turn_plays_ack_while_canonical_engine_is_running(monkeypat
             trace=trace,
         )
 
-    assert spoken == ["Bien, Monsieur.", "Réponse finale."]
-    events = [mark.event for mark in trace.marks]
-    assert events.index(vl.TTS_PLAYBACK_STARTED) < events.index(vl.LLM_COMPLETED)
+    assert spoken == ["Réponse finale."]
+    # Le début de traitement reste observable, mais sous forme d'état.
+    assert "voice_processing_started" in signalled
 
 
 @pytest.mark.asyncio
-async def test_quality_replay_ack_is_not_repeated_at_canonical_start(monkeypatch):
+async def test_quality_replay_stays_silent():
     daemon = _daemon()
     trace = UtteranceTrace()
     spoken: list[str] = []
@@ -140,14 +148,10 @@ async def test_quality_replay_ack_is_not_repeated_at_canonical_start(monkeypatch
 
     async def _play(text, **kwargs):
         spoken.append(text)
-        if text == "Bien, Monsieur.":
-            kwargs["trace"].mark(vl.TTS_PLAYBACK_STARTED, engine="test-ack")
 
     async def _canonical(*_args, **kwargs):
-        assert kwargs.get("on_canonical_turn_started") is None
         return {"text": "Dix-huit degrés.", "emotion": "neutral", "latency_ms": 4}
 
-    monkeypatch.setattr("config.VOICE_ANTICIPATORY_ACK_ENABLED", True)
     with (
         patch("scripts.audio_daemon.create_conversation", return_value=42),
         patch("scripts.audio_daemon.process_voice_fast", side_effect=_canonical),
@@ -164,7 +168,10 @@ async def test_quality_replay_ack_is_not_repeated_at_canonical_start(monkeypatch
             trace=trace,
         )
 
-    assert spoken == ["Bien, Monsieur.", "Dix-huit degrés."]
+    # La relecture par le modèle lourd est un événement d'observabilité.
+    # La faire parler revenait à s'adresser à un bruit : sur du silence,
+    # faster-whisper ne rend aucun segment et le repli se déclenchait seul.
+    assert spoken == ["Dix-huit degrés."]
 
 
 @pytest.mark.asyncio
