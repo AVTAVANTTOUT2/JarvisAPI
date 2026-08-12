@@ -17,6 +17,7 @@ import shlex
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
 import uuid
 from dataclasses import dataclass, field
@@ -1014,9 +1015,31 @@ def _has_local_delivery_commit(worktree: EngineeringWorktree) -> bool:
         raise RuntimeError("git_history_check_failed") from exc
 
 
+def _validation_toolchain_root() -> Path | None:
+    """Environnement virtuel qui exécute JARVIS, s'il y en a un.
+
+    Un worktree ne contient pas d'environnement : sans cette racine, la
+    validation tombait sur l'interpréteur système, dépourvu des dépendances de
+    test du projet, et les tests échouaient pour une raison sans rapport avec
+    la modification livrée. La racine est lue seule — jamais écrite.
+    """
+
+    prefix = Path(sys.prefix).resolve(strict=False)
+    if prefix == Path(sys.base_prefix).resolve(strict=False):
+        return None
+    return prefix if (prefix / "bin").is_dir() else None
+
+
+def _validation_read_roots(workspace: Path) -> tuple[str, ...]:
+    toolchain = _validation_toolchain_root()
+    return (*_SANDBOX_SYSTEM_READ_ROOTS, *((str(toolchain),) if toolchain else ()))
+
+
 def _trusted_path(workspace: Path) -> str:
+    toolchain = _validation_toolchain_root()
     candidates = (
         workspace / ".venv" / "bin",
+        *((toolchain / "bin",) if toolchain else ()),
         Path("/opt/homebrew/bin"),
         Path("/usr/local/bin"),
         Path("/usr/bin"),
@@ -1031,7 +1054,7 @@ def _trusted_executable(name: str, workspace: Path) -> Path:
         raise RuntimeError("validation_executable_unavailable")
     resolved = Path(resolved_name).resolve(strict=True)
     allowed_roots = (workspace.resolve(strict=True),) + tuple(
-        Path(root).resolve(strict=False) for root in _SANDBOX_SYSTEM_READ_ROOTS
+        Path(root).resolve(strict=False) for root in _validation_read_roots(workspace)
     )
     if not any(resolved == root or root in resolved.parents for root in allowed_roots):
         raise RuntimeError("validation_executable_untrusted")
@@ -1042,13 +1065,39 @@ def _sandbox_literal(value: Path | str) -> str:
     return str(value).replace("\\", "\\\\").replace('"', '\\"')
 
 
+def _sandbox_traversal_literals(paths: Sequence[str]) -> tuple[str, ...]:
+    """Répertoires à traverser pour atteindre les racines autorisées.
+
+    Un `subpath` n'ouvre pas les ancêtres du chemin qu'il désigne. Résoudre
+    `/opt/homebrew/...` exige donc un `stat` sur `/opt`, qui n'est couvert par
+    aucune règle : la résolution échoue en « Operation not permitted » et la
+    validation tombe en `validation_executable_unavailable`. Seules les
+    métadonnées sont accordées — aucun contenu de répertoire n'est listé.
+    """
+
+    ancestors = {"/"}
+    for raw in paths:
+        ancestors.update(str(parent) for parent in Path(raw).parents)
+    return tuple(sorted(ancestors))
+
+
 def _sandbox_profile(workspace: Path, isolated_home: Path) -> str:
-    read_roots = (*_SANDBOX_SYSTEM_READ_ROOTS, str(workspace), str(isolated_home))
+    read_roots = (
+        *_validation_read_roots(workspace),
+        str(workspace),
+        str(isolated_home),
+    )
     read_rules = " ".join(
         f'(subpath "{_sandbox_literal(root)}")' for root in read_roots
     )
     read_files = " ".join(
         f'(literal "{_sandbox_literal(path)}")' for path in _SANDBOX_SYSTEM_READ_FILES
+    )
+    traversal = " ".join(
+        f'(literal "{_sandbox_literal(path)}")'
+        for path in _sandbox_traversal_literals(
+            (*read_roots, *_SANDBOX_SYSTEM_READ_FILES)
+        )
     )
     return "\n".join(
         (
@@ -1056,16 +1105,21 @@ def _sandbox_profile(workspace: Path, isolated_home: Path) -> str:
             "(deny default)",
             "(allow process*)",
             "(deny network*)",
+            f"(allow file-read-metadata {traversal})",
             # `file-read-metadata` sur la racine ne suffit pas : sur macOS 26,
             # le chargeur dynamique lit l'entrée de répertoire « / » elle-même
             # et abandonne (SIGABRT) sinon. Le préflight tombait alors en
             # `validation_sandbox_unavailable` et bloquait toute livraison,
             # sans que rien ne désigne la cause. `literal` n'ouvre que la
             # racine, pas son contenu — les sous-arbres restent énumérés.
-            '(allow file-read-metadata (literal "/"))',
             f'(allow file-read* (literal "/") {read_rules} {read_files})',
             '(allow file-read* (literal "/dev/null") (literal "/dev/urandom"))',
-            f'(allow file-write* (subpath "{_sandbox_literal(workspace)}") '
+            # `/dev/null` en écriture : les journaux et les configurations
+            # neutralisées (`PIP_CONFIG_FILE`, `NPM_CONFIG_USERCONFIG`) y
+            # écrivent. Sans lui, pytest meurt en INTERNALERROR avant le
+            # premier test — un échec qui ne dit rien de la modification testée.
+            f'(allow file-write* (literal "/dev/null") '
+            f'(subpath "{_sandbox_literal(workspace)}") '
             f'(subpath "{_sandbox_literal(isolated_home)}"))',
             "(allow sysctl-read)",
         )
