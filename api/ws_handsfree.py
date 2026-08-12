@@ -12,6 +12,7 @@ import config
 from agents.display_text import finalize_assistant_display_text
 from api.chat_context import _send_tts_streaming
 from api.voice_processing import _match_voice_control, _process_voice_fast
+from api.ws_client_context import AgenticClientContext
 
 try:
     from audio import stt
@@ -113,6 +114,7 @@ async def _handle_hands_free_blob(
         return
 
     cid = conv_session["conversation_id"]
+    agentic_context = conv_session.get("agentic_context") or AgenticClientContext()
     conv_session["is_processing"] = True
 
     async def reset_listening(send_processing_done: bool = True):
@@ -171,6 +173,7 @@ async def _handle_hands_free_blob(
                 cid,
                 stt_ms=stt_ms,
                 confirmation_session_id=conv_session["confirmation_session_id"],
+                **agentic_context.voice_kwargs(),
             )
             if cancel_event.is_set():
                 await reset_listening()

@@ -131,6 +131,78 @@ interface JarvisApiService {
         @Header("Authorization") authorization: String,
         @Body body: MobileChatConfirmRequest,
     ): Response<JsonObject>
+
+    @GET("api/agentic/runtime/status")
+    suspend fun getAgenticRuntimeStatus(
+        @Header("Authorization") authorization: String,
+    ): Response<JsonObject>
+
+    @GET("api/agentic/runs")
+    suspend fun getAgenticRuns(
+        @Header("Authorization") authorization: String,
+        @retrofit2.http.Query("limit") limit: Int = 50,
+    ): Response<JsonObject>
+
+    @POST("api/agentic/runs")
+    suspend fun createAgenticRun(
+        @Header("Authorization") authorization: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body body: AgenticRunCreateRequest,
+    ): Response<JsonObject>
+
+    @GET("api/agentic/runs/{id}")
+    suspend fun getAgenticRun(
+        @Header("Authorization") authorization: String,
+        @Path("id") id: String,
+    ): Response<JsonObject>
+
+    @GET("api/agentic/runs/{id}/events")
+    suspend fun getAgenticRunEvents(
+        @Header("Authorization") authorization: String,
+        @Path("id") id: String,
+    ): Response<JsonObject>
+
+    @GET("api/agentic/runs/{id}/approvals")
+    suspend fun getAgenticRunApprovals(
+        @Header("Authorization") authorization: String,
+        @Path("id") id: String,
+    ): Response<JsonObject>
+
+    @GET("api/agentic/runs/{id}/artifacts")
+    suspend fun getAgenticRunArtifacts(
+        @Header("Authorization") authorization: String,
+        @Path("id") id: String,
+    ): Response<JsonObject>
+
+    @POST("api/agentic/runs/{id}/pause")
+    suspend fun pauseAgenticRun(
+        @Header("Authorization") authorization: String,
+        @Path("id") id: String,
+        @Body body: EmptyBody = EmptyBody(),
+    ): Response<JsonObject>
+
+    @POST("api/agentic/runs/{id}/resume")
+    suspend fun resumeAgenticRun(
+        @Header("Authorization") authorization: String,
+        @Path("id") id: String,
+        @Body body: EmptyBody = EmptyBody(),
+    ): Response<JsonObject>
+
+    @POST("api/agentic/runs/{id}/cancel")
+    suspend fun cancelAgenticRun(
+        @Header("Authorization") authorization: String,
+        @Path("id") id: String,
+        @Body body: EmptyBody = EmptyBody(),
+    ): Response<JsonObject>
+
+    @POST("api/agentic/runs/{runId}/approvals/{approvalId}/decision")
+    suspend fun decideAgenticApproval(
+        @Header("Authorization") authorization: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Path("runId") runId: String,
+        @Path("approvalId") approvalId: String,
+        @Body body: AgenticApprovalDecisionRequest,
+    ): Response<JsonObject>
 }
 
 data class EmptyBody(val noop: Boolean = true)

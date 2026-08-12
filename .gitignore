@@ -51,6 +51,7 @@ certs/*.p12
 # Le .gitkeep est volontairement exclu de cette règle
 
 # ── Frontend ────────────────────────────────────────────────
+/node_modules/
 web/node_modules/
 web/dist/
 web/.vite/

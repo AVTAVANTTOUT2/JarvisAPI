@@ -1,5 +1,6 @@
 """Configuration centralisée JARVIS — charge .env.config + .env."""
 
+import json
 import logging
 import os
 import socket
@@ -85,7 +86,9 @@ def validate_required_runtime_config() -> None:
         if BACKUP_CLOUD_PROVIDER != "webdav":
             raise ConfigurationError("BACKUP_CLOUD_PROVIDER doit être 'webdav'.")
         if parsed.scheme != "https" or not parsed.hostname:
-            raise ConfigurationError("BACKUP_CLOUD_URL doit être une URL HTTPS absolue.")
+            raise ConfigurationError(
+                "BACKUP_CLOUD_URL doit être une URL HTTPS absolue."
+            )
         if parsed.username or parsed.password or parsed.query or parsed.fragment:
             raise ConfigurationError(
                 "BACKUP_CLOUD_URL ne doit contenir ni credentials, ni query, ni fragment."
@@ -139,9 +142,9 @@ DEFAULT_STT_QUALITY_FALLBACK_MIN_SPEECH_MS = 1200
 # local — pour qu'une installation neuve hérite des valeurs mesurées.
 # 1200 ms de silence (ancien réglage local) ajoutaient à eux seuls plus d'une
 # seconde avant la moindre transcription.
-DEFAULT_AUDIO_DAEMON_SILENCE_MS = 500     # fourchette utile : 300-600 ms
+DEFAULT_AUDIO_DAEMON_SILENCE_MS = 500  # fourchette utile : 300-600 ms
 DEFAULT_AUDIO_DAEMON_MIN_SPEECH_MS = 200  # en dessous, on jette les claquements
-DEFAULT_AUDIO_DAEMON_PRE_ROLL_MS = 300    # amorce conservée avant le seuil
+DEFAULT_AUDIO_DAEMON_PRE_ROLL_MS = 300  # amorce conservée avant le seuil
 
 
 def _normalize_stt_engine(engine: str) -> str:
@@ -154,7 +157,9 @@ def _normalize_stt_engine(engine: str) -> str:
 STT_ENGINE = _normalize_stt_engine(
     _get("STT_ENGINE") or _get("AUDIO_DAEMON_STT_ENGINE") or DEFAULT_STT_ENGINE
 )
-STT_MODEL = (_get("STT_MODEL") or _get("AUDIO_DAEMON_STT_MODEL") or DEFAULT_STT_MODEL).strip()
+STT_MODEL = (
+    _get("STT_MODEL") or _get("AUDIO_DAEMON_STT_MODEL") or DEFAULT_STT_MODEL
+).strip()
 STT_FALLBACK_MODEL = (
     _get("STT_FALLBACK_MODEL")
     or _get("AUDIO_DAEMON_STT_FALLBACK_MODEL")
@@ -166,27 +171,39 @@ STT_COMPUTE_TYPE = _get("STT_COMPUTE_TYPE", DEFAULT_STT_COMPUTE_TYPE)
 # Décodage temps réel : un seul faisceau, et pas de second VAD interne — le
 # daemon segmente déjà l'énoncé avant d'appeler le moteur.
 STT_BEAM_SIZE = int(_get("STT_BEAM_SIZE", str(DEFAULT_STT_BEAM_SIZE)))
-STT_QUALITY_FALLBACK_LOGPROB = float(_get(
-    "STT_QUALITY_FALLBACK_LOGPROB",
-    str(DEFAULT_STT_QUALITY_FALLBACK_LOGPROB),
-))
-STT_QUALITY_FALLBACK_MIN_SPEECH_MS = int(_get(
-    "STT_QUALITY_FALLBACK_MIN_SPEECH_MS",
-    str(DEFAULT_STT_QUALITY_FALLBACK_MIN_SPEECH_MS),
-))
+STT_QUALITY_FALLBACK_LOGPROB = float(
+    _get(
+        "STT_QUALITY_FALLBACK_LOGPROB",
+        str(DEFAULT_STT_QUALITY_FALLBACK_LOGPROB),
+    )
+)
+STT_QUALITY_FALLBACK_MIN_SPEECH_MS = int(
+    _get(
+        "STT_QUALITY_FALLBACK_MIN_SPEECH_MS",
+        str(DEFAULT_STT_QUALITY_FALLBACK_MIN_SPEECH_MS),
+    )
+)
 # Appel Flash streamé pour la voix : donne l'instant du premier token. La
 # lecture ne démarre pas pour autant avant la fin de la passe 1 (un bloc
 # ``action`` remplacerait le texte prononcé).
-VOICE_LLM_STREAMING = _get("VOICE_LLM_STREAMING", "true").lower() in ("true", "1", "yes")
+VOICE_LLM_STREAMING = _get("VOICE_LLM_STREAMING", "true").lower() in (
+    "true",
+    "1",
+    "yes",
+)
 VOICE_ANTICIPATORY_ACK_ENABLED = _get(
-    "VOICE_ANTICIPATORY_ACK_ENABLED", "true",
+    "VOICE_ANTICIPATORY_ACK_ENABLED",
+    "true",
 ).lower() in ("true", "1", "yes")
 STT_VAD_FILTER = _get("STT_VAD_FILTER", str(DEFAULT_STT_VAD_FILTER)).lower() in (
-    "true", "1", "yes",
+    "true",
+    "1",
+    "yes",
 )
 STT_ALLOW_MODEL_DOWNLOAD = (
-    _get("STT_ALLOW_MODEL_DOWNLOAD", _get("AUDIO_DAEMON_ALLOW_MODEL_DOWNLOAD", "false"))
-    .lower()
+    _get(
+        "STT_ALLOW_MODEL_DOWNLOAD", _get("AUDIO_DAEMON_ALLOW_MODEL_DOWNLOAD", "false")
+    ).lower()
     == "true"
 )
 
@@ -242,12 +259,16 @@ TTS_TEMPERATURE = float(_get("TTS_TEMPERATURE", str(DEFAULT_TTS_TEMPERATURE)))
 TTS_TOP_P = float(_get("TTS_TOP_P", str(DEFAULT_TTS_TOP_P)))
 TTS_TOP_K = int(_get("TTS_TOP_K", str(DEFAULT_TTS_TOP_K)))
 TTS_STREAMING = _get("TTS_STREAMING", str(DEFAULT_TTS_STREAMING)).lower() in (
-    "true", "1", "yes",
+    "true",
+    "1",
+    "yes",
 )
 TTS_SAMPLE_RATE = _positive_int("TTS_SAMPLE_RATE", DEFAULT_TTS_SAMPLE_RATE)
 TTS_CHANNELS = _positive_int("TTS_CHANNELS", DEFAULT_TTS_CHANNELS)
 TTS_WARMUP = _get("TTS_WARMUP", str(DEFAULT_TTS_WARMUP)).lower() in ("true", "1", "yes")
-TTS_TIMEOUT_SECONDS = _positive_float("TTS_TIMEOUT_SECONDS", DEFAULT_TTS_TIMEOUT_SECONDS)
+TTS_TIMEOUT_SECONDS = _positive_float(
+    "TTS_TIMEOUT_SECONDS", DEFAULT_TTS_TIMEOUT_SECONDS
+)
 TTS_MIN_CHUNK_CHARS = _positive_int("TTS_MIN_CHUNK_CHARS", DEFAULT_TTS_MIN_CHUNK_CHARS)
 TTS_TARGET_CHUNK_CHARS = _positive_int(
     "TTS_TARGET_CHUNK_CHARS", DEFAULT_TTS_TARGET_CHUNK_CHARS
@@ -263,7 +284,9 @@ TTS_FIRST_CHUNK_MAX_CHARS = _positive_int(
     "TTS_FIRST_CHUNK_MAX_CHARS", DEFAULT_TTS_FIRST_CHUNK_MAX_CHARS
 )
 
-AUDIO_DAEMON_OUTPUT_DEVICE = _get("AUDIO_DAEMON_OUTPUT_DEVICE", "")  # vide = sortie défaut macOS
+AUDIO_DAEMON_OUTPUT_DEVICE = _get(
+    "AUDIO_DAEMON_OUTPUT_DEVICE", ""
+)  # vide = sortie défaut macOS
 AUDIO_DAEMON_HALF_DUPLEX = _get("AUDIO_DAEMON_HALF_DUPLEX", "true").lower() == "true"
 AUDIO_DAEMON_PRE_ROLL_MS = int(
     _get("AUDIO_DAEMON_PRE_ROLL_MS", str(DEFAULT_AUDIO_DAEMON_PRE_ROLL_MS))
@@ -282,9 +305,15 @@ LOCATION_PLACE_RADIUS = int(_get("LOCATION_PLACE_RADIUS", "100"))
 LOCATION_BATCH_MAX_POINTS = int(_get("LOCATION_BATCH_MAX_POINTS", "50"))
 
 # Mode écoute continue (enregistrement long → transcription → synthèse)
-RECORDING_MAX_DURATION_MIN = int(_get("RECORDING_MAX_DURATION_MIN", "180"))  # refus au-delà
-RECORDING_CHUNK_SIZE_MB = int(_get("RECORDING_CHUNK_SIZE_MB", "20"))        # taille max par segment local
-RECORDING_SUMMARY_ONLY = _get("RECORDING_SUMMARY_ONLY", "false").lower() == "true"  # n’inclut pas la transcription dans les réponses API/liste
+RECORDING_MAX_DURATION_MIN = int(
+    _get("RECORDING_MAX_DURATION_MIN", "180")
+)  # refus au-delà
+RECORDING_CHUNK_SIZE_MB = int(
+    _get("RECORDING_CHUNK_SIZE_MB", "20")
+)  # taille max par segment local
+RECORDING_SUMMARY_ONLY = (
+    _get("RECORDING_SUMMARY_ONLY", "false").lower() == "true"
+)  # n’inclut pas la transcription dans les réponses API/liste
 
 # ── Intégrations ────────────────────────────────────────────
 # Mail / Calendar : Apple Mail + Calendar.app en AppleScript — aucune OAuth.
@@ -295,20 +324,24 @@ TAVILY_API_KEY = _get("TAVILY_API_KEY")
 # ── iMessage bridge (macOS uniquement) ──────────────────────
 # Polling de ~/Library/Messages/chat.db + envoi via osascript.
 # Nécessite : Full Disk Access (lecture chat.db) + Automation (Messages.app).
-IMESSAGE_TARGET = _get("IMESSAGE_TARGET", "")            # numéro ou email iMessage
+IMESSAGE_TARGET = _get("IMESSAGE_TARGET", "")  # numéro ou email iMessage
 IMESSAGE_POLLING_INTERVAL = float(_get("IMESSAGE_POLLING_INTERVAL", "3.0"))
-IMESSAGE_PREFIX = _get("IMESSAGE_PREFIX", "")            # vide = traite tout
-                                                          # défini = traite seulement les msgs commençant par ce mot
+IMESSAGE_PREFIX = _get("IMESSAGE_PREFIX", "")  # vide = traite tout
+# défini = traite seulement les msgs commençant par ce mot
 
 # ── iMessage — sourcing (lecture) et envoi (séparés, jamais couplés) ──
 IMESSAGE_SOURCING_ENABLED = _get("IMESSAGE_SOURCING_ENABLED", "true").lower() == "true"
 IMESSAGE_SEND_ENABLED = _get("IMESSAGE_SEND_ENABLED", "false").lower() == "true"
-IMESSAGE_SCAN_INTERVAL = int(_get("IMESSAGE_SCAN_INTERVAL", "300"))  # secondes entre 2 scans (défaut 5min)
+IMESSAGE_SCAN_INTERVAL = int(
+    _get("IMESSAGE_SCAN_INTERVAL", "300")
+)  # secondes entre 2 scans (défaut 5min)
 
 # ── Import iMessage — paramètres de l'importeur chat.db → jarvis.db ──
-IIMPORT_BATCH_SIZE = int(_get("IIMPORT_BATCH_SIZE", "5000"))       # messages par batch
-IIMPORT_MAX_RETRIES = int(_get("IIMPORT_MAX_RETRIES", "3"))        # tentatives max par batch
-IIMPORT_SYNC_INTERVAL = int(_get("IIMPORT_SYNC_INTERVAL", "300"))  # secondes entre 2 syncs auto
+IIMPORT_BATCH_SIZE = int(_get("IIMPORT_BATCH_SIZE", "5000"))  # messages par batch
+IIMPORT_MAX_RETRIES = int(_get("IIMPORT_MAX_RETRIES", "3"))  # tentatives max par batch
+IIMPORT_SYNC_INTERVAL = int(
+    _get("IIMPORT_SYNC_INTERVAL", "300")
+)  # secondes entre 2 syncs auto
 
 # ── Daemon iMessage — processus permanent d'acces a chat.db ──
 IMESSAGE_DAEMON_ENABLED = _get("IMESSAGE_DAEMON_ENABLED", "true").lower() == "true"
@@ -352,9 +385,7 @@ WEB_HTTPS = _get("WEB_HTTPS", "false").lower() == "true"
 # Reverse proxy TLS de confiance (Tailscale Serve, Caddy, nginx) devant un
 # backend HTTP strictement loopback. Active cookie Secure + HSTS sans charger
 # de certificat dans Uvicorn.
-WEB_HTTPS_BEHIND_PROXY = (
-    _get("WEB_HTTPS_BEHIND_PROXY", "false").lower() == "true"
-)
+WEB_HTTPS_BEHIND_PROXY = _get("WEB_HTTPS_BEHIND_PROXY", "false").lower() == "true"
 # Origines supplémentaires exactes autorisées pour les mutations par cookie.
 # Vide en production : la même origine schéma+hôte+port reste toujours admise.
 # Toute origine de développement supplémentaire doit être ajoutée explicitement.
@@ -363,6 +394,14 @@ SSL_CERT_PATH = _config_path("WEB_SSL_CERT_PATH", "certs/cert.pem")
 SSL_KEY_PATH = _config_path("WEB_SSL_KEY_PATH", "certs/key.pem")
 WEB_SSL_AVAILABLE = SSL_CERT_PATH.is_file() and SSL_KEY_PATH.is_file()
 WEB_USE_HTTPS = WEB_HTTPS and WEB_SSL_AVAILABLE
+
+# Jeton de service en lecture seule pour le relais visuel local. Seul le
+# chemin est configuré : le secret n'entre jamais dans l'environnement du
+# backend ni dans le navigateur.
+VISUAL_RELAY_TOKEN_FILE = _config_path(
+    "VISUAL_RELAY_TOKEN_FILE",
+    ".jarvis/apps/claw3d/.claw3d/auth/jarvis-visual.token",
+)
 
 # Firebase Cloud Messaging — notifications Android, même application fermée.
 FCM_SERVICE_ACCOUNT_FILE = _get("FCM_SERVICE_ACCOUNT_FILE", "")
@@ -504,15 +543,21 @@ EVENING_SUMMARY_ENABLED = _get("EVENING_SUMMARY_ENABLED", "true").lower() == "tr
 WEEKLY_SUMMARY_ENABLED = _get("WEEKLY_SUMMARY_ENABLED", "true").lower() == "true"
 OVERDUE_TASKS_ENABLED = _get("OVERDUE_TASKS_ENABLED", "true").lower() == "true"
 LOCATION_ANALYSIS_ENABLED = _get("LOCATION_ANALYSIS_ENABLED", "true").lower() == "true"
-RELATIONSHIP_ANALYSIS_ENABLED = _get("RELATIONSHIP_ANALYSIS_ENABLED", "true").lower() == "true"
-RELATIONSHIP_ALERTS_ENABLED = _get("RELATIONSHIP_ALERTS_ENABLED", "true").lower() == "true"
+RELATIONSHIP_ANALYSIS_ENABLED = (
+    _get("RELATIONSHIP_ANALYSIS_ENABLED", "true").lower() == "true"
+)
+RELATIONSHIP_ALERTS_ENABLED = (
+    _get("RELATIONSHIP_ALERTS_ENABLED", "true").lower() == "true"
+)
 DB_MAINTENANCE_ENABLED = _get("DB_MAINTENANCE_ENABLED", "true").lower() == "true"
 LLM_BUDGET_CHECK_ENABLED = _get("LLM_BUDGET_CHECK_ENABLED", "true").lower() == "true"
 BREAK_ALERTS_ENABLED = _get("BREAK_ALERTS_ENABLED", "true").lower() == "true"
 MOOD_SIGNALS_ENABLED = _get("MOOD_SIGNALS_ENABLED", "true").lower() == "true"
 BINGE_ALERTS_ENABLED = _get("BINGE_ALERTS_ENABLED", "true").lower() == "true"
 DOOMSCROLL_ALERTS_ENABLED = _get("DOOMSCROLL_ALERTS_ENABLED", "true").lower() == "true"
-MISSED_OPPORTUNITIES_ENABLED = _get("MISSED_OPPORTUNITIES_ENABLED", "true").lower() == "true"
+MISSED_OPPORTUNITIES_ENABLED = (
+    _get("MISSED_OPPORTUNITIES_ENABLED", "true").lower() == "true"
+)
 
 # ── Surveillance email proactive ────────────────────────────
 # Intervalle (en secondes) entre chaque check des nouveaux emails par
@@ -530,19 +575,23 @@ RESOURCE_GUARD_ENABLED = _get("RESOURCE_GUARD_ENABLED", "true").lower() == "true
 RESOURCE_GUARD_INTERVAL_S = float(_get("RESOURCE_GUARD_INTERVAL_S", "30"))
 RESOURCE_GUARD_WARN_FREE_MB = int(_get("RESOURCE_GUARD_WARN_FREE_MB", "2048"))
 RESOURCE_GUARD_CRITICAL_FREE_MB = int(_get("RESOURCE_GUARD_CRITICAL_FREE_MB", "1024"))
-RESOURCE_GUARD_OLLAMA_IDLE_STOP = _get(
-    "RESOURCE_GUARD_OLLAMA_IDLE_STOP", "true"
-).lower() == "true"
+RESOURCE_GUARD_OLLAMA_IDLE_STOP = (
+    _get("RESOURCE_GUARD_OLLAMA_IDLE_STOP", "true").lower() == "true"
+)
 RESOURCE_GUARD_OLLAMA_IDLE_TTL_S = float(
     _get("RESOURCE_GUARD_OLLAMA_IDLE_TTL_S", "120")
 )
 RESOURCE_GUARD_TTS_MAX_WORKERS = int(_get("RESOURCE_GUARD_TTS_MAX_WORKERS", "1"))
-RESOURCE_GUARD_KILL_ORPHANS = _get("RESOURCE_GUARD_KILL_ORPHANS", "true").lower() == "true"
+RESOURCE_GUARD_KILL_ORPHANS = (
+    _get("RESOURCE_GUARD_KILL_ORPHANS", "true").lower() == "true"
+)
 RESOURCE_GUARD_DRY_RUN = _get("RESOURCE_GUARD_DRY_RUN", "false").lower() == "true"
 SCREEN_WATCHER_ENABLED = _get("SCREEN_WATCHER_ENABLED", "true").lower() == "true"
-SCREEN_WATCHER_INTERVAL = int(_get("SCREEN_WATCHER_INTERVAL", "15"))      # secondes
-SCREEN_CHANGE_THRESHOLD = float(_get("SCREEN_CHANGE_THRESHOLD", "5"))     # % minimum
-SCREEN_ANALYSIS_THRESHOLD = float(_get("SCREEN_ANALYSIS_THRESHOLD", "30"))  # % pour LLM vision
+SCREEN_WATCHER_INTERVAL = int(_get("SCREEN_WATCHER_INTERVAL", "15"))  # secondes
+SCREEN_CHANGE_THRESHOLD = float(_get("SCREEN_CHANGE_THRESHOLD", "5"))  # % minimum
+SCREEN_ANALYSIS_THRESHOLD = float(
+    _get("SCREEN_ANALYSIS_THRESHOLD", "30")
+)  # % pour LLM vision
 SCREEN_NOTIFICATION_TTL_S = float(_get("SCREEN_NOTIFICATION_TTL_S", "15"))
 SCREEN_RESIZE_WIDTH = int(_get("SCREEN_RESIZE_WIDTH", "1280"))
 SCREEN_RESIZE_HEIGHT = int(_get("SCREEN_RESIZE_HEIGHT", "800"))
@@ -566,17 +615,26 @@ SCREEN_VISION_MODEL = _get(
     "SCREEN_VISION_MODEL",
     _get("SCREEN_WATCHER_VISION_MODEL", "qwen3-vl:4b"),
 )
-SCREEN_OLLAMA_MIN_INTERVAL_S = float(_get("SCREEN_OLLAMA_MIN_INTERVAL_S", "60"))  # delai min entre 2 analyses vision
-TRIAGE_MODEL = _get("TRIAGE_MODEL", "") or DEEPSEEK_FAST_MODEL  # triage daemon = DeepSeek Flash
-OLLAMA_URL = _get("OLLAMA_URL", _get("SCREEN_WATCHER_OLLAMA_URL", "http://127.0.0.1:11434"))
+SCREEN_OLLAMA_MIN_INTERVAL_S = float(
+    _get("SCREEN_OLLAMA_MIN_INTERVAL_S", "60")
+)  # delai min entre 2 analyses vision
+TRIAGE_MODEL = (
+    _get("TRIAGE_MODEL", "") or DEEPSEEK_FAST_MODEL
+)  # triage daemon = DeepSeek Flash
+OLLAMA_URL = _get(
+    "OLLAMA_URL", _get("SCREEN_WATCHER_OLLAMA_URL", "http://127.0.0.1:11434")
+)
 OLLAMA_AUTOSTART = _get("OLLAMA_AUTOSTART", "true").lower() == "true"
 # Raisonnement local via Ollama : TOUJOURS false hors Screen Watcher
 OLLAMA_REASONING_ENABLED = _get("OLLAMA_REASONING_ENABLED", "false").lower() == "true"
 # Alias : démarrer SW au boot complet (même sémantique que SCREEN_WATCHER_ENABLED)
-SCREEN_WATCHER_AUTOSTART = _get(
-    "SCREEN_WATCHER_AUTOSTART",
-    "true" if SCREEN_WATCHER_ENABLED else "false",
-).lower() == "true"
+SCREEN_WATCHER_AUTOSTART = (
+    _get(
+        "SCREEN_WATCHER_AUTOSTART",
+        "true" if SCREEN_WATCHER_ENABLED else "false",
+    ).lower()
+    == "true"
+)
 
 # Identité de la machine — sert pour register_local_device + screen_watcher
 # python-dotenv peut transformer `DEVICE_ID=   # commentaire` en valeur `# …` :
@@ -598,10 +656,19 @@ DAEMON_TTS_COOLDOWN = int(_get("DAEMON_TTS_COOLDOWN", "15"))
 
 # Phrases de fin de conversation vocale (union audio_daemon + jarvis_daemon)
 END_PHRASES: tuple[str, ...] = (
-    "merci jarvis", "c'est bon jarvis", "c'est tout jarvis",
-    "merci c'est bon", "c'est fini", "bonne nuit jarvis",
-    "a plus jarvis", "à plus jarvis", "ok merci", "au revoir", "stop",
-    "arrête", "arrête-toi",
+    "merci jarvis",
+    "c'est bon jarvis",
+    "c'est tout jarvis",
+    "merci c'est bon",
+    "c'est fini",
+    "bonne nuit jarvis",
+    "a plus jarvis",
+    "à plus jarvis",
+    "ok merci",
+    "au revoir",
+    "stop",
+    "arrête",
+    "arrête-toi",
 )
 
 # ── Audio Daemon (micro natif Mac Mini — wake word + conversation mains libres) ──
@@ -615,14 +682,19 @@ AUDIO_DAEMON_MIN_SPEECH_MS = int(
     _get("AUDIO_DAEMON_MIN_SPEECH_MS", str(DEFAULT_AUDIO_DAEMON_MIN_SPEECH_MS))
 )
 AUDIO_DAEMON_MAX_UTTERANCE_S = int(_get("AUDIO_DAEMON_MAX_UTTERANCE_S", "30"))
-AUDIO_DAEMON_CONVERSATION_TIMEOUT = float(_get("AUDIO_DAEMON_CONVERSATION_TIMEOUT", "30.0"))
-AUDIO_DAEMON_INPUT_DEVICE = _get("AUDIO_DAEMON_INPUT_DEVICE", "")  # vide = entrée défaut macOS
+AUDIO_DAEMON_CONVERSATION_TIMEOUT = float(
+    _get("AUDIO_DAEMON_CONVERSATION_TIMEOUT", "30.0")
+)
+AUDIO_DAEMON_INPUT_DEVICE = _get(
+    "AUDIO_DAEMON_INPUT_DEVICE", ""
+)  # vide = entrée défaut macOS
 AUDIO_DAEMON_WAKE_SOUND = _get("AUDIO_DAEMON_WAKE_SOUND", "true").lower() == "true"
 AUDIO_DAEMON_STT_ENGINE = STT_ENGINE
 AUDIO_DAEMON_STT_MODEL = STT_MODEL
 AUDIO_DAEMON_STT_FALLBACK_MODEL = STT_FALLBACK_MODEL
 AUDIO_DAEMON_WHISPERCPP_MODEL_PATH = _get(
-    "AUDIO_DAEMON_WHISPERCPP_MODEL_PATH", str(Path.home() / "models" / "ggml-large-v3.bin")
+    "AUDIO_DAEMON_WHISPERCPP_MODEL_PATH",
+    str(Path.home() / "models" / "ggml-large-v3.bin"),
 )
 AUDIO_DAEMON_ALLOW_MODEL_DOWNLOAD = STT_ALLOW_MODEL_DOWNLOAD
 
@@ -632,7 +704,9 @@ SILERO_VAD_THRESHOLD_OFF = float(_get("SILERO_VAD_THRESHOLD_OFF", "0.28"))
 
 # ── Mode autonome /loop (DeepSeek sans limite configurable) ──
 LOOP_UNLIMITED = _get("LOOP_UNLIMITED", "true").lower() == "true"
-LOOP_MAX_STEPS = int(_get("LOOP_MAX_STEPS", "0"))  # 0 = illimité (garde-fou technique 500)
+LOOP_MAX_STEPS = int(
+    _get("LOOP_MAX_STEPS", "0")
+)  # 0 = illimité (garde-fou technique 500)
 LOOP_MAX_OUTPUT_CHARS = int(_get("LOOP_MAX_OUTPUT_CHARS", "0"))  # 0 = illimité
 LOOP_MAX_LLM_CALLS = int(_get("LOOP_MAX_LLM_CALLS", "0"))  # 0 = illimité
 LOOP_MAX_TOKENS = int(_get("LOOP_MAX_TOKENS", "1024"))
@@ -643,7 +717,7 @@ LOOP_DECISION_MODEL = _get("LOOP_DECISION_MODEL", "") or DEEPSEEK_FAST_MODEL
 # ── Fiabilité — sauvegardes, rétention, budget LLM, heures calmes ──
 BACKUP_ENABLED = _get("BACKUP_ENABLED", "true").lower() == "true"
 BACKUP_DIR = _get("BACKUP_DIR", "./data/backups")
-BACKUP_KEEP = int(_get("BACKUP_KEEP", "7"))            # nb de sauvegardes conservées
+BACKUP_KEEP = int(_get("BACKUP_KEEP", "7"))  # nb de sauvegardes conservées
 
 # Rétention des tables volumineuses (jours). 0 = conserver indéfiniment, sauf
 # pour les journaux d'actions : leur fenêtre est volontairement bornée.
@@ -692,18 +766,20 @@ def is_quiet_hours(now=None) -> bool:
     end = eh * 60 + em
     if start == end:
         return False
-    if start < end:                     # plage diurne (13:00 → 14:00)
+    if start < end:  # plage diurne (13:00 → 14:00)
         return start <= cur < end
-    return cur >= start or cur < end    # plage nocturne (23:30 → 07:00)
+    return cur >= start or cur < end  # plage nocturne (23:30 → 07:00)
 
 
 # ── Rituels quotidiens (roast, debrief, citation, anniversaires) ──
 RITUALS_ENABLED = _get("RITUALS_ENABLED", "true").lower() == "true"
-ROAST_TIME = _get("ROAST_TIME", "18:30")            # critique sèche des tâches non faites
-DEBRIEF_TIME = _get("DEBRIEF_TIME", "21:45")        # bilan de journée, ton concerned
-QUOTE_TIME = _get("QUOTE_TIME", "07:00")            # citation ironique du jour
+ROAST_TIME = _get("ROAST_TIME", "18:30")  # critique sèche des tâches non faites
+DEBRIEF_TIME = _get("DEBRIEF_TIME", "21:45")  # bilan de journée, ton concerned
+QUOTE_TIME = _get("QUOTE_TIME", "07:00")  # citation ironique du jour
 BIRTHDAY_CHECK_TIME = _get("BIRTHDAY_CHECK_TIME", "08:00")
-RITUALS_TTS = _get("RITUALS_TTS", "true").lower() == "true"  # roast/debrief parlés via daemon
+RITUALS_TTS = (
+    _get("RITUALS_TTS", "true").lower() == "true"
+)  # roast/debrief parlés via daemon
 
 # ── Fitness proactif ───────────────────────────────────────
 # Interrupteur global d'urgence. Les horaires et la cadence se règlent ensuite
@@ -715,16 +791,12 @@ FITNESS_MEAL_VISION_TIMEOUT_S = float(_get("FITNESS_MEAL_VISION_TIMEOUT_S", "90"
 FITNESS_MEAL_VISION_MAX_TOKENS = int(_get("FITNESS_MEAL_VISION_MAX_TOKENS", "800"))
 FITNESS_MEAL_ANALYSIS_MAX_TOKENS = int(_get("FITNESS_MEAL_ANALYSIS_MAX_TOKENS", "2048"))
 FITNESS_MEAL_PHOTO_MAX_BYTES = int(_get("FITNESS_MEAL_PHOTO_MAX_BYTES", "8000000"))
-FITNESS_MEAL_PHOTO_MAX_PIXELS = int(
-    _get("FITNESS_MEAL_PHOTO_MAX_PIXELS", "12000000")
-)
-FITNESS_MEAL_PHOTO_MAX_DIMENSION = int(
-    _get("FITNESS_MEAL_PHOTO_MAX_DIMENSION", "8192")
-)
+FITNESS_MEAL_PHOTO_MAX_PIXELS = int(_get("FITNESS_MEAL_PHOTO_MAX_PIXELS", "12000000"))
+FITNESS_MEAL_PHOTO_MAX_DIMENSION = int(_get("FITNESS_MEAL_PHOTO_MAX_DIMENSION", "8192"))
 
 # ── Debrief hebdo vocal + mood tracking discret ──────────────
-WEEKLY_DEBRIEF_TIME = _get("WEEKLY_DEBRIEF_TIME", "21:00")   # dimanche soir
-MOOD_SIGNAL_TIME = _get("MOOD_SIGNAL_TIME", "23:15")         # calcul du signal quotidien
+WEEKLY_DEBRIEF_TIME = _get("WEEKLY_DEBRIEF_TIME", "21:00")  # dimanche soir
+MOOD_SIGNAL_TIME = _get("MOOD_SIGNAL_TIME", "23:15")  # calcul du signal quotidien
 
 # ── Présence au bureau (détection par le son, micro daemon audio) ──
 # Arrivée : un son dépasse PRESENCE_NOISE_RMS → « Vous êtes là, Monsieur. »
@@ -735,24 +807,37 @@ PRESENCE_NOISE_RMS = float(_get("PRESENCE_NOISE_RMS", "0.015"))  # < seuil parol
 PRESENCE_GREETING = _get("PRESENCE_GREETING", "Vous êtes là, Monsieur. Bon retour.")
 
 # ── Alerte pause café (écran sans interruption) ──────────────
-BREAK_ALERT_MINUTES = int(_get("BREAK_ALERT_MINUTES", "90"))   # durée continue avant alerte ; 0 = off
-BREAK_GAP_MINUTES = int(_get("BREAK_GAP_MINUTES", "15"))       # trou considéré comme une pause
+BREAK_ALERT_MINUTES = int(
+    _get("BREAK_ALERT_MINUTES", "90")
+)  # durée continue avant alerte ; 0 = off
+BREAK_GAP_MINUTES = int(
+    _get("BREAK_GAP_MINUTES", "15")
+)  # trou considéré comme une pause
 BREAK_COOLDOWN_MINUTES = int(_get("BREAK_COOLDOWN_MINUTES", "90"))
 
 # ── Détection binge streaming (screen watcher) ────────────────
-BINGE_ALERT_MINUTES = int(_get("BINGE_ALERT_MINUTES", "120"))  # streaming continu avant commentaire ; 0 = off
+BINGE_ALERT_MINUTES = int(
+    _get("BINGE_ALERT_MINUTES", "120")
+)  # streaming continu avant commentaire ; 0 = off
 BINGE_GAP_MINUTES = int(_get("BINGE_GAP_MINUTES", "20"))
-STREAMING_APPS = [a.strip().lower() for a in _get(
-    "STREAMING_APPS", "netflix,youtube,twitch,prime video,disney,plex,molotov,mycanal"
-).split(",") if a.strip()]
+STREAMING_APPS = [
+    a.strip().lower()
+    for a in _get(
+        "STREAMING_APPS",
+        "netflix,youtube,twitch,prime video,disney,plex,molotov,mycanal",
+    ).split(",")
+    if a.strip()
+]
 
 # ── Alerte trajet retour tard (GPS + heure) ───────────────────
 LATE_RETURN_ENABLED = _get("LATE_RETURN_ENABLED", "true").lower() == "true"
-LATE_RETURN_HOUR = int(_get("LATE_RETURN_HOUR", "23"))         # à partir de cette heure
+LATE_RETURN_HOUR = int(_get("LATE_RETURN_HOUR", "23"))  # à partir de cette heure
 
 # ── Voix : rejeu, session persistante, TTS spéculatif ─────────
 SPECULATIVE_TTS_ENABLED = _get("SPECULATIVE_TTS_ENABLED", "false").lower() == "true"
-VOICE_SESSION_GRACE_S = int(_get("VOICE_SESSION_GRACE_S", "180"))  # reprise après coupure courte
+VOICE_SESSION_GRACE_S = int(
+    _get("VOICE_SESSION_GRACE_S", "180")
+)  # reprise après coupure courte
 if SPECULATIVE_TTS_ENABLED:
     # Le préchauffage est sérialisé côté daemon, mais chaque phrase
     # pré-générée occupe quand même le GPU hors tour de parole.
@@ -766,9 +851,15 @@ if SPECULATIVE_TTS_ENABLED:
 # Opt-in : capture les transcriptions ambiantes du micro pour détecter une
 # réunion (parole soutenue) et produire résumé + actions à la fin.
 MEETING_CAPTURE_ENABLED = _get("MEETING_CAPTURE_ENABLED", "false").lower() == "true"
-MEETING_MIN_SPEECH_S = int(_get("MEETING_MIN_SPEECH_S", "240"))   # parole cumulée pour ouvrir (4 min)
-MEETING_WINDOW_MIN = int(_get("MEETING_WINDOW_MIN", "15"))        # fenêtre de cumul avant ouverture
-MEETING_SILENCE_MIN = int(_get("MEETING_SILENCE_MIN", "10"))      # silence qui clôt la réunion
+MEETING_MIN_SPEECH_S = int(
+    _get("MEETING_MIN_SPEECH_S", "240")
+)  # parole cumulée pour ouvrir (4 min)
+MEETING_WINDOW_MIN = int(
+    _get("MEETING_WINDOW_MIN", "15")
+)  # fenêtre de cumul avant ouverture
+MEETING_SILENCE_MIN = int(
+    _get("MEETING_SILENCE_MIN", "10")
+)  # silence qui clôt la réunion
 
 # ── Migrations SQLite versionnées (backup automatique préalable) ──
 DB_MIGRATIONS_DIR = _get("DB_MIGRATIONS_DIR", str(BASE_DIR / "database" / "migrations"))
@@ -781,24 +872,155 @@ PERF_BASELINE_WINDOW = int(_get("PERF_BASELINE_WINDOW", "5"))
 # ── Scan de code dupliqué ────────────────────────────────────
 DUPLICATE_SCAN_ENABLED = _get("DUPLICATE_SCAN_ENABLED", "true").lower() == "true"
 DUPLICATE_SCAN_MIN_LINES = int(_get("DUPLICATE_SCAN_MIN_LINES", "6"))
-DUPLICATE_SCAN_DIRS = _get("DUPLICATE_SCAN_DIRS", "agents,scripts,integrations,database")
+DUPLICATE_SCAN_DIRS = _get(
+    "DUPLICATE_SCAN_DIRS", "agents,scripts,integrations,database"
+)
 
 # ── Audit sécurité (secrets, patterns dangereux) ────────────
 SECURITY_AUDIT_ENABLED = _get("SECURITY_AUDIT_ENABLED", "true").lower() == "true"
-SECURITY_AUDIT_DIRS = _get("SECURITY_AUDIT_DIRS", "agents,scripts,integrations,database,main.py,config.py,llm.py,actions.py")
+SECURITY_AUDIT_DIRS = _get(
+    "SECURITY_AUDIT_DIRS",
+    "agents,scripts,integrations,database,main.py,config.py,llm.py,actions.py",
+)
 SECURITY_AUTO_FIX_ENABLED = _get("SECURITY_AUTO_FIX_ENABLED", "false").lower() == "true"
 
 # ── Génération auto de tests manquants (opt-in, coûte des tokens) ──
 AUTO_TEST_GEN_ENABLED = _get("AUTO_TEST_GEN_ENABLED", "false").lower() == "true"
-AUTO_TEST_GEN_TARGET_DIRS = _get("AUTO_TEST_GEN_TARGET_DIRS", "")  # vide = aucune cible, opt-in explicite
+AUTO_TEST_GEN_TARGET_DIRS = _get(
+    "AUTO_TEST_GEN_TARGET_DIRS", ""
+)  # vide = aucune cible, opt-in explicite
 
-# ── DevAgent : PR auto, déploiement staging ─────────────────
+# ── DevAgent : PR draft, compatibilité staging ───────────────
 DEVAGENT_AUTO_PR = _get("DEVAGENT_AUTO_PR", "true").lower() == "true"
-DEVAGENT_AUTO_DEPLOY_STAGING = _get("DEVAGENT_AUTO_DEPLOY_STAGING", "true").lower() == "true"
-DEVAGENT_AUTORUN_MAX_INTERVIEW_ROUNDS = int(_get("DEVAGENT_AUTORUN_MAX_INTERVIEW_ROUNDS", "6"))
+_JARVIS_REQUIRED_CHECKS_DEFAULT = (
+    "Production dependencies (pip install)",
+    "macOS 26 (Python + app/widget Release)",
+    "Tests Python (pytest)",
+    "Bibliothèque de vues desktop (tests + typecheck)",
+    "Frontend unifié (tests + build)",
+    "Android (assemble + tests + lint)",
+    "Preuve de retrait complète (sans provider)",
+)
+_devagent_required_checks_raw = _get("DEVAGENT_REQUIRED_CHECKS", "").strip()
+DEVAGENT_REQUIRED_CHECKS_EXPLICIT = bool(_devagent_required_checks_raw)
+if _devagent_required_checks_raw:
+    try:
+        _configured_required_checks = json.loads(_devagent_required_checks_raw)
+        if (
+            not isinstance(_configured_required_checks, list)
+            or not 1 <= len(_configured_required_checks) <= 64
+            or any(
+                not isinstance(item, str)
+                or not item.strip()
+                or item != item.strip()
+                or len(item) > 200
+                or any(ord(char) < 0x20 for char in item)
+                for item in _configured_required_checks
+            )
+            or len(set(_configured_required_checks)) != len(_configured_required_checks)
+        ):
+            raise ValueError("policy invalide")
+        DEVAGENT_REQUIRED_CHECKS = tuple(_configured_required_checks)
+    except (TypeError, ValueError):
+        logger.error(
+            "DEVAGENT_REQUIRED_CHECKS invalide ; publication automatisée refusée"
+        )
+        DEVAGENT_REQUIRED_CHECKS = ()
+else:
+    DEVAGENT_REQUIRED_CHECKS = _JARVIS_REQUIRED_CHECKS_DEFAULT
+# Conservé pour compatibilité de configuration ; la boucle ne le consomme plus.
+DEVAGENT_AUTO_DEPLOY_STAGING = (
+    _get("DEVAGENT_AUTO_DEPLOY_STAGING", "false").lower() == "true"
+)
+DEVAGENT_AUTORUN_MAX_INTERVIEW_ROUNDS = int(
+    _get("DEVAGENT_AUTORUN_MAX_INTERVIEW_ROUNDS", "6")
+)
+
+# ── Runtime agentique générique ─────────────────────────────
+# `auto` sélectionne le premier plugin sain découvert dynamiquement. Le coeur
+# ne connaît aucun identifiant de provider et reste importable sans plugin.
+AGENTIC_RUNTIME = _get("AGENTIC_RUNTIME", "auto").strip().lower() or "auto"
+AGENTIC_RUNTIME_FALLBACK = (
+    _get("AGENTIC_RUNTIME_FALLBACK", "disabled").strip().lower() or "disabled"
+)
+if AGENTIC_RUNTIME_FALLBACK not in {"legacy", "disabled"}:
+    logger.warning(
+        "AGENTIC_RUNTIME_FALLBACK=%s invalide ; fallback désactivé",
+        AGENTIC_RUNTIME_FALLBACK,
+    )
+    AGENTIC_RUNTIME_FALLBACK = "disabled"
+
+AGENTIC_DEFAULT_PROFILE = (
+    _get("AGENTIC_DEFAULT_PROFILE", "readonly-research").strip().lower()
+    or "readonly-research"
+)
+_AGENTIC_CAPABILITY_PROFILE_IDS = frozenset(
+    {
+        "readonly-research",
+        "coding",
+        "communication",
+        "browser",
+        "invoice",
+        "obs",
+        "media",
+        "desktop",
+    }
+)
+if AGENTIC_DEFAULT_PROFILE not in _AGENTIC_CAPABILITY_PROFILE_IDS:
+    logger.warning(
+        "AGENTIC_DEFAULT_PROFILE=%s inconnu ; profil read-only appliqué",
+        AGENTIC_DEFAULT_PROFILE,
+    )
+    AGENTIC_DEFAULT_PROFILE = "readonly-research"
+
+_AGENTIC_PROFILE_ROUTE_KEYS = frozenset(
+    {
+        "direct_action",
+        "workflow",
+        "agentic_readonly",
+        "agentic_reversible",
+        "agentic_external_effect",
+        "agentic_high_risk",
+    }
+)
+_agentic_profile_routes_raw = _get("AGENTIC_PROFILE_ROUTE_OVERRIDES", "").strip()
+AGENTIC_PROFILE_ROUTE_OVERRIDES: dict[str, str] = {}
+if _agentic_profile_routes_raw:
+    try:
+        _configured_profile_routes = json.loads(_agentic_profile_routes_raw)
+        if (
+            not isinstance(_configured_profile_routes, dict)
+            or len(_configured_profile_routes) > len(_AGENTIC_PROFILE_ROUTE_KEYS)
+            or any(
+                not isinstance(key, str)
+                or key not in _AGENTIC_PROFILE_ROUTE_KEYS
+                or not isinstance(value, str)
+                or value not in _AGENTIC_CAPABILITY_PROFILE_IDS
+                for key, value in _configured_profile_routes.items()
+            )
+        ):
+            raise ValueError("routes invalides")
+        AGENTIC_PROFILE_ROUTE_OVERRIDES = dict(_configured_profile_routes)
+    except (TypeError, ValueError):
+        logger.error(
+            "AGENTIC_PROFILE_ROUTE_OVERRIDES invalide ; aucune surcharge appliquée"
+        )
+AGENTIC_MAX_RUN_SECONDS = _positive_int("AGENTIC_MAX_RUN_SECONDS", 1800)
+AGENTIC_MAX_STEPS = _positive_int("AGENTIC_MAX_STEPS", 40)
+AGENTIC_MAX_TOOL_CALLS = _positive_int("AGENTIC_MAX_TOOL_CALLS", 80)
+AGENTIC_MAX_RETRIES = _positive_int("AGENTIC_MAX_RETRIES", 3)
+AGENTIC_MAX_CONCURRENT_RUNS = _positive_int("AGENTIC_MAX_CONCURRENT_RUNS", 1)
+AGENTIC_MAX_REQUEST_BYTES = _positive_int("AGENTIC_MAX_REQUEST_BYTES", 64 * 1024)
+AGENTIC_MAX_ARTIFACT_BYTES = _positive_int(
+    "AGENTIC_MAX_ARTIFACT_BYTES", 50 * 1024 * 1024
+)
+AGENTIC_APPROVAL_TTL_SECONDS = _positive_int("AGENTIC_APPROVAL_TTL_SECONDS", 300)
+AGENTIC_EVENT_RETENTION_DAYS = _positive_int("AGENTIC_EVENT_RETENTION_DAYS", 30)
 
 # ── CI locale (pré-commit) ───────────────────────────────────
-LOCAL_CI_RUN_FRONTEND_BUILD = _get("LOCAL_CI_RUN_FRONTEND_BUILD", "false").lower() == "true"
+LOCAL_CI_RUN_FRONTEND_BUILD = (
+    _get("LOCAL_CI_RUN_FRONTEND_BUILD", "false").lower() == "true"
+)
 
 # ── Self-healing (diagnostic + délégation PR-only, désactivé par défaut) ──
 SELF_HEALING_ENABLED = _get("SELF_HEALING_ENABLED", "false").lower() == "true"
@@ -825,18 +1047,26 @@ MESSAGE_PREDICTION_LOOKBACK_DAYS = int(_get("MESSAGE_PREDICTION_LOOKBACK_DAYS", 
 
 # ── Lieux favoris et opportunités ratées ─────────────────────
 FAVORITE_PLACE_MIN_VISITS = int(_get("FAVORITE_PLACE_MIN_VISITS", "5"))
-OPPORTUNITY_MIN_DAYS_NAMED = int(_get("OPPORTUNITY_MIN_DAYS_NAMED", "30"))  # lieu nommé depuis N jours...
-OPPORTUNITY_MAX_VISITS = int(_get("OPPORTUNITY_MAX_VISITS", "0"))          # ...avec au plus N visites = raté
+OPPORTUNITY_MIN_DAYS_NAMED = int(
+    _get("OPPORTUNITY_MIN_DAYS_NAMED", "30")
+)  # lieu nommé depuis N jours...
+OPPORTUNITY_MAX_VISITS = int(
+    _get("OPPORTUNITY_MAX_VISITS", "0")
+)  # ...avec au plus N visites = raté
 
 # ── Doomscrolling ─────────────────────────────────────────────
 DOOMSCROLL_APPS = _get(
     "DOOMSCROLL_APPS", "instagram,tiktok,twitter,x,reddit,facebook,snapchat,threads"
 )
-DOOMSCROLL_DAILY_MINUTES = int(_get("DOOMSCROLL_DAILY_MINUTES", "90"))  # cumul quotidien, pas continu
+DOOMSCROLL_DAILY_MINUTES = int(
+    _get("DOOMSCROLL_DAILY_MINUTES", "90")
+)  # cumul quotidien, pas continu
 
 # ── Coût de la procrastination ───────────────────────────────
 PROCRASTINATION_ABANDONED_DAYS = int(_get("PROCRASTINATION_ABANDONED_DAYS", "30"))
-PROCRASTINATION_HOURLY_VALUE = float(_get("PROCRASTINATION_HOURLY_VALUE", "0"))  # 0 = pas d'estimation monétaire
+PROCRASTINATION_HOURLY_VALUE = float(
+    _get("PROCRASTINATION_HOURLY_VALUE", "0")
+)  # 0 = pas d'estimation monétaire
 
 # ── Journal parallèle de JARVIS ──────────────────────────────
 JARVIS_JOURNAL_ENABLED = _get("JARVIS_JOURNAL_ENABLED", "true").lower() == "true"
@@ -857,8 +1087,10 @@ DIARIZATION_ENABLED = _get("DIARIZATION_ENABLED", "false").lower() == "true"
 
 # ── Authentification / verrouillage app ──────────────────────
 SESSION_COOKIE_NAME = _get("SESSION_COOKIE_NAME", "jarvis_session")
-SESSION_MAX_AGE_DAYS = int(_get("SESSION_MAX_AGE_DAYS", "30"))       # expiration absolue
-SESSION_INACTIVITY_DAYS = int(_get("SESSION_INACTIVITY_DAYS", "14"))  # ré-émise à chaque requête active
+SESSION_MAX_AGE_DAYS = int(_get("SESSION_MAX_AGE_DAYS", "30"))  # expiration absolue
+SESSION_INACTIVITY_DAYS = int(
+    _get("SESSION_INACTIVITY_DAYS", "14")
+)  # ré-émise à chaque requête active
 AUTH_LOCKOUT_MAX_ATTEMPTS = int(_get("AUTH_LOCKOUT_MAX_ATTEMPTS", "5"))
 AUTH_LOCKOUT_MINUTES = int(_get("AUTH_LOCKOUT_MINUTES", "15"))
 AUTH_RATE_WINDOW_MINUTES = int(_get("AUTH_RATE_WINDOW_MINUTES", "15"))
@@ -868,7 +1100,9 @@ AUTH_PROGRESSIVE_DELAY_MAX_SECONDS = int(
 )
 AUTH_GLOBAL_MAX_ATTEMPTS = int(_get("AUTH_GLOBAL_MAX_ATTEMPTS", "50"))
 AUTH_GLOBAL_LOCKOUT_MINUTES = int(_get("AUTH_GLOBAL_LOCKOUT_MINUTES", "5"))
-AUTO_LOCK_MINUTES = int(_get("AUTO_LOCK_MINUTES", "5"))  # verrouillage écran côté client après inactivité
+AUTO_LOCK_MINUTES = int(
+    _get("AUTO_LOCK_MINUTES", "5")
+)  # verrouillage écran côté client après inactivité
 
 # ── Pairage des agents desktop distants ──────────────────────
 DEVICE_PAIRING_TTL_MINUTES = int(_get("DEVICE_PAIRING_TTL_MINUTES", "10"))
@@ -914,7 +1148,9 @@ BACKUP_CLOUD_MAX_DOWNLOAD_MB = _positive_int("BACKUP_CLOUD_MAX_DOWNLOAD_MB", 409
 # L'activation d'une base existante passe d'abord par
 # `tools/database_encryption.py enable`. Sans passphrase explicite, chaque
 # profil reçoit une clé aléatoire dans le Trousseau macOS.
-DATABASE_ENCRYPTION_ENABLED = _get("DATABASE_ENCRYPTION_ENABLED", "false").lower() == "true"
+DATABASE_ENCRYPTION_ENABLED = (
+    _get("DATABASE_ENCRYPTION_ENABLED", "false").lower() == "true"
+)
 DATABASE_ENCRYPTION_PASSPHRASE = _get("DATABASE_ENCRYPTION_PASSPHRASE", "")
 DATABASE_ENCRYPTION_KEYCHAIN_SERVICE = _get(
     "DATABASE_ENCRYPTION_KEYCHAIN_SERVICE",

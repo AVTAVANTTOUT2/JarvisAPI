@@ -172,6 +172,89 @@ final class JarvisAPI {
         try await request("/api/briefing?kind=\(kind)")
     }
 
+    func agenticRuntimeStatus() async throws -> AgenticRuntimeStatus {
+        let envelope: AgenticRuntimeEnvelope = try await request("/api/agentic/runtime/status")
+        return envelope.runtime
+    }
+
+    func agenticRuns(limit: Int = 50) async throws -> [AgenticRun] {
+        let bounded = min(100, max(1, limit))
+        let envelope: AgenticRunsEnvelope = try await request("/api/agentic/runs?limit=\(bounded)")
+        return envelope.runs
+    }
+
+    func agenticRun(id: String) async throws -> AgenticRun {
+        let envelope: AgenticRunEnvelope = try await request("/api/agentic/runs/\(pathSegment(id))")
+        return envelope.run
+    }
+
+    func agenticRunEvents(id: String) async throws -> [AgenticEvent] {
+        let envelope: AgenticEventsEnvelope = try await request(
+            "/api/agentic/runs/\(pathSegment(id))/events"
+        )
+        return envelope.events
+    }
+
+    func agenticRunApprovals(id: String) async throws -> [AgenticApproval] {
+        let envelope: AgenticApprovalsEnvelope = try await request(
+            "/api/agentic/runs/\(pathSegment(id))/approvals"
+        )
+        return envelope.approvals
+    }
+
+    func agenticRunArtifacts(id: String) async throws -> [AgenticArtifact] {
+        let envelope: AgenticArtifactsEnvelope = try await request(
+            "/api/agentic/runs/\(pathSegment(id))/artifacts"
+        )
+        return envelope.artifacts
+    }
+
+    func createAgenticRun(
+        title: String,
+        runID: String? = nil
+    ) async throws -> AgenticRun {
+        let envelope: AgenticRunEnvelope = try await request(
+            "/api/agentic/runs",
+            method: "POST",
+            body: AgenticRunCreateRequest(
+                title: title,
+                runID: runID
+            ),
+            additionalHeaders: ["Idempotency-Key": "macos:\(UUID().uuidString)"]
+        )
+        return envelope.run
+    }
+
+    func pauseAgenticRun(id: String) async throws {
+        let _: AgenticMutationResponse = try await request(
+            "/api/agentic/runs/\(pathSegment(id))/pause",
+            method: "POST"
+        )
+    }
+
+    func resumeAgenticRun(id: String) async throws {
+        let _: AgenticMutationResponse = try await request(
+            "/api/agentic/runs/\(pathSegment(id))/resume",
+            method: "POST"
+        )
+    }
+
+    func cancelAgenticRun(id: String) async throws {
+        let _: AgenticMutationResponse = try await request(
+            "/api/agentic/runs/\(pathSegment(id))/cancel",
+            method: "POST"
+        )
+    }
+
+    func decideAgenticApproval(runID: String, approvalID: String, approved: Bool) async throws {
+        let _: AgenticMutationResponse = try await request(
+            "/api/agentic/runs/\(pathSegment(runID))/approvals/\(pathSegment(approvalID))/decision",
+            method: "POST",
+            body: ["decision": approved ? "approved" : "denied"],
+            additionalHeaders: ["Idempotency-Key": "macos:\(UUID().uuidString)"]
+        )
+    }
+
     func websocketRequest() throws -> URLRequest {
         guard let baseURL else { throw JarvisAPIError.invalidURL }
         let scheme = baseURL.scheme == "https" ? "wss" : "ws"
@@ -194,7 +277,8 @@ final class JarvisAPI {
         _ path: String,
         method: String = "GET",
         body: Body?,
-        requiresCSRF: Bool = true
+        requiresCSRF: Bool = true,
+        additionalHeaders: [String: String] = [:]
     ) async throws -> Response {
         guard let baseURL, let url = URL(string: path, relativeTo: baseURL) else {
             throw JarvisAPIError.invalidURL
@@ -210,6 +294,9 @@ final class JarvisAPI {
         }
         if method != "GET", requiresCSRF, let csrfToken {
             request.setValue(csrfToken, forHTTPHeaderField: "X-CSRF-Token")
+        }
+        for (name, value) in additionalHeaders {
+            request.setValue(value, forHTTPHeaderField: name)
         }
 
         let data: Data
@@ -236,14 +323,20 @@ final class JarvisAPI {
     private func request<Response: Decodable>(
         _ path: String,
         method: String = "GET",
-        requiresCSRF: Bool = true
+        requiresCSRF: Bool = true,
+        additionalHeaders: [String: String] = [:]
     ) async throws -> Response {
         try await request(
             path,
             method: method,
             body: Optional<String>.none,
-            requiresCSRF: requiresCSRF
+            requiresCSRF: requiresCSRF,
+            additionalHeaders: additionalHeaders
         )
+    }
+
+    private func pathSegment(_ value: String) -> String {
+        value.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? value
     }
 
     private static func extractError(from data: Data) -> String {

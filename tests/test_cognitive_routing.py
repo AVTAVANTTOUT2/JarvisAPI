@@ -28,15 +28,15 @@ def test_voice_simple_routes_to_flash():
     assert intent.domain in ("info", "general", "productivity")
 
 
-def test_voice_tech_routes_to_cursor_with_ack(monkeypatch):
+def test_voice_tech_routes_to_generic_agentic_runtime_with_ack(monkeypatch):
     import config
 
-    monkeypatch.setattr(config, "CURSOR_DELEGATION_ENABLED", True)
+    monkeypatch.setattr(config, "AGENTIC_RUNTIME", "auto")
     intent = route_request(
         "Corrige le bug de connexion Android dans le projet",
         interaction_mode="voice",
     )
-    assert intent.execution_type == "cursor"
+    assert intent.execution_type == "agentic"
     assert intent.voice_ack
     assert intent.prompt_model
     assert intent.template_id
@@ -53,22 +53,23 @@ def test_voice_strategy_ack_then_main():
     assert intent.prompt_model
 
 
-def test_text_code_routes_to_cursor(monkeypatch):
+def test_text_code_routes_to_generic_agentic_runtime(monkeypatch):
     import config
 
-    monkeypatch.setattr(config, "CURSOR_DELEGATION_ENABLED", True)
+    monkeypatch.setattr(config, "AGENTIC_RUNTIME", "auto")
     intent = route_request(
         "Crée la migration SQL et applique-la dans mon projet",
         interaction_mode="chat",
     )
-    assert intent.execution_type == "cursor"
+    assert intent.execution_type == "agentic"
 
 
-def test_tech_without_cursor_falls_back_to_honest_answer(monkeypatch):
-    """Cursor indisponible → réponse conseil Main, jamais de fausse promesse."""
+def test_tech_without_agentic_runtime_falls_back_to_honest_answer(monkeypatch):
+    """Runtime désactivé → réponse conseil Main, jamais de fausse promesse."""
     import config
 
-    monkeypatch.setattr(config, "CURSOR_DELEGATION_ENABLED", False)
+    monkeypatch.setattr(config, "AGENTIC_RUNTIME", "disabled")
+    monkeypatch.setattr(config, "AGENTIC_RUNTIME_FALLBACK", "disabled")
     intent = route_request(
         "Corrige le bug de connexion Android dans le projet",
         interaction_mode="chat",
@@ -78,15 +79,16 @@ def test_tech_without_cursor_falls_back_to_honest_answer(monkeypatch):
     assert "indisponible" in intent.reason
 
 
-def test_async_fallback_cannot_offer_unavailable_cursor(monkeypatch):
+def test_async_fallback_cannot_offer_unavailable_agentic_runtime(monkeypatch):
     import config
     import llm
 
-    async def classify_as_cursor(*_args, **_kwargs):
-        return "CURSOR"
+    async def classify_as_agentic(*_args, **_kwargs):
+        return "AGENTIC"
 
-    monkeypatch.setattr(config, "CURSOR_DELEGATION_ENABLED", False)
-    monkeypatch.setattr(llm, "quick_classify", classify_as_cursor)
+    monkeypatch.setattr(config, "AGENTIC_RUNTIME", "disabled")
+    monkeypatch.setattr(config, "AGENTIC_RUNTIME_FALLBACK", "disabled")
+    monkeypatch.setattr(llm, "quick_classify", classify_as_agentic)
 
     intent = asyncio.run(
         CognitiveRouter().route_async("Bonjour Jarvis", use_llm_fallback=True)
@@ -128,11 +130,11 @@ def test_context_planner_contact_budget():
     assert "FACTS" not in keys
 
 
-def test_capability_registry_lists_cursor():
+def test_capability_registry_lists_generic_agentic_runtime():
     reg = get_capability_registry()
     reg.refresh()
     names = {c["name"] for c in reg.list_all()}
-    assert "cursor.delegate" in names
+    assert "agentic.delegate" in names
     assert "screen_watcher.vision" in names
 
 

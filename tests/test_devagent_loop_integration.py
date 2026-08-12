@@ -32,7 +32,11 @@ def tmp_db(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
 
 async def _fake_call_deepseek(system: str, user: str, **kwargs):
     if user == "Planifie la prochaine tache.":
-        payload = {"task": "ajoute un test", "files_to_create_or_edit": ["test_ok.py"], "reasoning": "x"}
+        payload = {
+            "task": "ajoute un test",
+            "files_to_create_or_edit": ["test_ok.py"],
+            "reasoning": "x",
+        }
     elif user == "Genere le code.":
         payload = {
             "files": {"test_ok.py": "def test_ok():\n    assert True\n"},
@@ -53,27 +57,49 @@ async def _fake_call_deepseek(system: str, user: str, **kwargs):
 
 
 @pytest.mark.asyncio
-async def test_full_loop_iteration_with_perf_staging_pr(tmp_db, tmp_path, monkeypatch):
+async def test_full_loop_iteration_with_perf_pr_never_deploys(
+    tmp_db, tmp_path, monkeypatch
+):
     from database import devagent as devagent_db
     from database import get_perf_history
     from database.devagent import get_deployments
 
     project_path = tmp_path / "myproj"
     project_path.mkdir()
-    project_id = devagent_db.create_dev_project("myproj", "Mon Projet", str(project_path))
+    project_id = devagent_db.create_dev_project(
+        "myproj", "Mon Projet", str(project_path)
+    )
     spec = {
-        "project_name": "Mon Projet", "slug": "myproj", "project_type": "cli",
-        "stack": ["python"], "isolation_path": str(project_path),
-        "constraints": [], "acceptance_criteria": ["les tests passent"],
-        "loop_budget": {"max_iterations": 3, "max_tokens": 1_000_000, "max_consecutive_failures": 3},
+        "project_name": "Mon Projet",
+        "slug": "myproj",
+        "project_type": "cli",
+        "stack": ["python"],
+        "isolation_path": str(project_path),
+        "constraints": [],
+        "acceptance_criteria": ["les tests passent"],
+        "loop_budget": {
+            "max_iterations": 3,
+            "max_tokens": 1_000_000,
+            "max_consecutive_failures": 3,
+        },
     }
     devagent_db.save_spec(project_id, json.dumps(spec))
 
     monkeypatch.setattr("config.DEVAGENT_AUTO_DEPLOY_STAGING", True)
     monkeypatch.setattr("config.DEVAGENT_AUTO_PR", True)
+    monkeypatch.setattr("config.AGENTIC_RUNTIME", "disabled")
+    monkeypatch.setattr("config.AGENTIC_RUNTIME_FALLBACK", "legacy")
 
-    with patch("agents.devagent.loop.call_deepseek", new=AsyncMock(side_effect=_fake_call_deepseek)), \
-         patch("agents.devagent.pr.call_deepseek", new=AsyncMock(side_effect=_fake_call_deepseek)):
+    with (
+        patch(
+            "agents.devagent.loop.call_deepseek",
+            new=AsyncMock(side_effect=_fake_call_deepseek),
+        ),
+        patch(
+            "agents.devagent.pr.call_deepseek",
+            new=AsyncMock(side_effect=_fake_call_deepseek),
+        ),
+    ):
         from agents.devagent.loop import run_loop
 
         await run_loop(project_id)
@@ -83,17 +109,16 @@ async def test_full_loop_iteration_with_perf_staging_pr(tmp_db, tmp_path, monkey
 
     # Un commit d'itération a bien été créé (au-delà du commit "init").
     from agents.devagent.executor import run_isolated
+
     log = run_isolated(["git", "log", "--oneline"], cwd=project_path)["stdout"]
     assert "iteration 0" in log
 
     # Perf-guard a enregistré un benchmark pour le scope du projet.
     assert len(get_perf_history("myproj")) == 1
 
-    # Déploiement staging exécuté et enregistré en succès.
+    # Le drapeau historique ne peut plus déclencher de déploiement automatique.
     deployments = get_deployments(project_id)
-    assert len(deployments) == 1
-    assert deployments[0]["status"] == "success"
-    assert Path(deployments[0]["staging_path"]).is_dir()
+    assert deployments == []
 
     # PR auto-générée à l'acceptation.
     pr_path = project_path / "PR_DESCRIPTION.md"
@@ -103,7 +128,7 @@ async def test_full_loop_iteration_with_perf_staging_pr(tmp_db, tmp_path, monkey
     logs = devagent_db.get_dev_loop_logs(limit=50, project_id=project_id)
     phases = {log["action_type"] for log in logs}
     assert "devagent_perf_guard" in phases
-    assert "devagent_staging" in phases
+    assert "devagent_staging" not in phases
     assert "devagent_pr" in phases
 
 
@@ -114,19 +139,34 @@ async def test_loop_disables_staging_and_pr_via_config(tmp_db, tmp_path, monkeyp
 
     project_path = tmp_path / "myproj2"
     project_path.mkdir()
-    project_id = devagent_db.create_dev_project("myproj2", "Projet 2", str(project_path))
+    project_id = devagent_db.create_dev_project(
+        "myproj2", "Projet 2", str(project_path)
+    )
     spec = {
-        "project_name": "Projet 2", "slug": "myproj2", "project_type": "cli",
-        "stack": ["python"], "isolation_path": str(project_path),
-        "constraints": [], "acceptance_criteria": ["les tests passent"],
-        "loop_budget": {"max_iterations": 3, "max_tokens": 1_000_000, "max_consecutive_failures": 3},
+        "project_name": "Projet 2",
+        "slug": "myproj2",
+        "project_type": "cli",
+        "stack": ["python"],
+        "isolation_path": str(project_path),
+        "constraints": [],
+        "acceptance_criteria": ["les tests passent"],
+        "loop_budget": {
+            "max_iterations": 3,
+            "max_tokens": 1_000_000,
+            "max_consecutive_failures": 3,
+        },
     }
     devagent_db.save_spec(project_id, json.dumps(spec))
 
     monkeypatch.setattr("config.DEVAGENT_AUTO_DEPLOY_STAGING", False)
     monkeypatch.setattr("config.DEVAGENT_AUTO_PR", False)
+    monkeypatch.setattr("config.AGENTIC_RUNTIME", "disabled")
+    monkeypatch.setattr("config.AGENTIC_RUNTIME_FALLBACK", "legacy")
 
-    with patch("agents.devagent.loop.call_deepseek", new=AsyncMock(side_effect=_fake_call_deepseek)):
+    with patch(
+        "agents.devagent.loop.call_deepseek",
+        new=AsyncMock(side_effect=_fake_call_deepseek),
+    ):
         from agents.devagent.loop import run_loop
 
         await run_loop(project_id)

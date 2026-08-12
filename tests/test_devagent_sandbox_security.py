@@ -65,7 +65,10 @@ def test_loop_preserves_valid_generated_write(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_refactor_uses_same_generated_path_policy(tmp_path: Path) -> None:
+async def test_refactor_uses_same_generated_path_policy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from agents.devagent.executor import GeneratedPathError, git_init
     from agents.devagent.refactor import refactor_top_duplicate
 
@@ -82,6 +85,8 @@ async def test_refactor_uses_same_generated_path_policy(tmp_path: Path) -> None:
     (src / "a.py").write_text(duplicate, encoding="utf-8")
     (src / "b.py").write_text(duplicate, encoding="utf-8")
     git_init(project)
+    monkeypatch.setattr("config.AGENTIC_RUNTIME", "disabled")
+    monkeypatch.setattr("config.AGENTIC_RUNTIME_FALLBACK", "legacy")
     fake_response = {
         "content": json.dumps({"files": {"../escape.py": "malicious"}}),
         "tokens_total": 1,

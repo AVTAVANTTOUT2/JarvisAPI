@@ -68,8 +68,12 @@ def test_should_not_run_cursor_path_for_lance_with_shell_pending() -> None:
 
 
 @pytest.mark.asyncio
-async def test_chat_internal_confirms_pending_cursor_on_lance() -> None:
+async def test_chat_internal_confirms_pending_cursor_on_lance(monkeypatch) -> None:
+    import config
+
     from api.chat_processing import _process_message_internal
+
+    monkeypatch.setattr(config, "AGENTIC_RUNTIME_FALLBACK", "legacy")
 
     confirmed_job = {"job_id": "job-42", "status": "running"}
 

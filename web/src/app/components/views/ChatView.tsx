@@ -10,6 +10,7 @@ import {
   DocumentPrivacyPolicy,
 } from '@unified/lib/api'
 import { formatRelativeTime, parseBackendTimestamp } from '@unified/lib/timeFormat'
+import { AGENTIC_EVENT_TYPES } from '@unified/lib/agenticApi'
 import { ws } from '@desktop/services/websocket'
 import { Cloud, Menu, Paperclip, Plus, Search, Send, ShieldCheck, X } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
@@ -76,6 +77,36 @@ const SUGGESTIONS = [
   'Aide-moi a reviser',
   'Analyse mon humeur ce mois',
 ]
+
+export function agenticEventLabel(type: string, data: Record<string, unknown>): string {
+  const phase = typeof data.phase === 'string' ? data.phase.replaceAll('_', ' ') : ''
+  const spokenSummary = typeof data.spoken_summary === 'string'
+    ? data.spoken_summary.trim().slice(0, 500)
+    : ''
+  const labels: Record<string, string> = {
+    'agent.run.created': 'Tâche agentique créée.',
+    'agent.run.started': 'Exécution de la tâche en cours.',
+    'agent.run.phase_changed': phase ? `Nouvelle phase : ${phase}.` : 'La tâche passe à l’étape suivante.',
+    'agent.run.paused': 'Tâche mise en pause.',
+    'agent.run.resumed': 'Tâche reprise.',
+    'agent.run.blocked': 'La tâche a besoin d’attention.',
+    'agent.run.verifying': 'JARVIS vérifie le résultat.',
+    'agent.run.completed': 'Tâche terminée.',
+    'agent.run.failed': 'La tâche n’a pas pu aboutir.',
+    'agent.run.cancelled': 'Tâche annulée.',
+    'agent.tool.started': 'Une action est en cours…',
+    'agent.tool.completed': 'Action terminée.',
+    'agent.approval.requested': 'Votre autorisation est nécessaire pour continuer.',
+    'agent.approval.resolved': 'Décision enregistrée.',
+  }
+  if (spokenSummary && [
+    'agent.run.completed',
+    'agent.run.failed',
+    'agent.run.blocked',
+    'agent.approval.requested',
+  ].includes(type)) return spokenSummary
+  return labels[type] ?? 'Mise à jour de la tâche.'
+}
 
 // ═══════════════════════════════════════════════════════════════
 // COMPOSANT PRINCIPAL
@@ -287,6 +318,21 @@ export function ChatView() {
       setIsStreaming(false)
       loadConversations()
     }))
+
+    AGENTIC_EVENT_TYPES.forEach((type) => {
+      unsubs.push(ws.on(type, (data) => {
+        setMessages(prev => [...prev, {
+          role: 'system',
+          content: agenticEventLabel(type, data),
+          meta: 'agentic',
+          isError: type === 'agent.run.failed',
+        }])
+        if (type === 'agent.run.completed' || type === 'agent.run.failed' || type === 'agent.run.cancelled') {
+          setIsStreaming(false)
+          loadConversations()
+        }
+      }))
+    })
 
     unsubs.push(ws.on('response_followup', (d) => {
       const txt = d.content as string

@@ -14,6 +14,14 @@ from agents.autonomous_loop import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _explicit_legacy_runtime(monkeypatch):
+    """Ces tests couvrent volontairement l'ancienne boucle locale."""
+
+    monkeypatch.setattr("config.AGENTIC_RUNTIME", "disabled")
+    monkeypatch.setattr("config.AGENTIC_RUNTIME_FALLBACK", "legacy")
+
+
 class TestParseLoopCommand:
     def test_loop_with_task(self) -> None:
         assert parse_loop_command("/loop installe redis") == "installe redis"

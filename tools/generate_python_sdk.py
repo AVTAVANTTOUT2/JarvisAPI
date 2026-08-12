@@ -21,6 +21,9 @@ SUPPORTED_AUTH_KINDS = {
     "session",
     "session_or_mobile",
 }
+LOCAL_ONLY_AUTH_BOUNDARIES = {
+    "visual_read_bearer": ("/api/visual/v1/", frozenset({"GET"})),
+}
 
 
 def _operations(schema: dict[str, Any]) -> list[dict[str, str]]:
@@ -38,9 +41,19 @@ def _operations(schema: dict[str, Any]) -> list[dict[str, str]]:
                 raise ValueError(f"operationId dupliqué : {operation_id}")
             if not isinstance(auth, str) or not auth:
                 raise ValueError(f"auth absente : {operation_id}")
+            seen.add(operation_id)
+            if auth in LOCAL_ONLY_AUTH_BOUNDARIES:
+                path_prefix, allowed_methods = LOCAL_ONLY_AUTH_BOUNDARIES[auth]
+                if not path.startswith(path_prefix) or method.upper() not in allowed_methods:
+                    raise ValueError(
+                        "auth locale utilisée hors de sa frontière : "
+                        f"{operation_id} ({method.upper()} {path}, {auth})"
+                    )
+                # Ces endpoints loopback utilisent un jeton dédié, provisionné localement.
+                # Ils appartiennent au contrat global mais jamais au SDK développeur public.
+                continue
             if auth not in SUPPORTED_AUTH_KINDS:
                 raise ValueError(f"auth non supportée par le SDK : {operation_id} ({auth})")
-            seen.add(operation_id)
             operations.append(
                 {
                     "operation_id": operation_id,

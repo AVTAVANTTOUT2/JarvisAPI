@@ -47,6 +47,7 @@ def test_public_contract_is_complete_stable_and_tagged() -> None:
         "mobileBearer",
         "deviceToken",
         "locationToken",
+        "visualReadBearer",
     }
 
 

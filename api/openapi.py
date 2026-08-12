@@ -76,6 +76,8 @@ def _tag_for_path(path: str) -> str:
 
 def _security_for(method: str, path: str) -> tuple[list[dict[str, list]], str]:
     upper_method = method.upper()
+    if upper_method == "GET" and path.startswith("/api/visual/v1/"):
+        return [{"visualReadBearer": []}], "visual_read_bearer"
     if (upper_method, path) in _PAIRING_PATHS:
         return [], "pairing_code"
     if _DEVICE_TOKEN_PATH_RE.fullmatch(path):
@@ -177,6 +179,12 @@ def build_openapi_schema(app: FastAPI) -> dict[str, Any]:
             "type": "http",
             "scheme": "bearer",
             "bearerFormat": "JARVIS mobile token",
+        },
+        "visualReadBearer": {
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "scoped visual:read token",
+            "description": "Jeton de service local limité au relais visuel en lecture seule.",
         },
         "deviceToken": {"type": "apiKey", "in": "header", "name": "X-Device-Token"},
         "locationToken": {"type": "apiKey", "in": "header", "name": "X-Location-Token"},

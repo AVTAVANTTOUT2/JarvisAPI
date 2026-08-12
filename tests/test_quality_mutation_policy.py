@@ -24,12 +24,12 @@ def _request(*, client: str, host: str = "localhost:8000") -> Request:
 @pytest.mark.asyncio
 async def test_security_fix_is_delegated_with_confirmation_and_pr_only(monkeypatch):
     import config
-    from integrations.cursor_delegation import cursor_delegation
+    from agents.devagent import agentic_runtime
     from scripts.quality_delegation import delegate_security_fix
 
-    enqueue = AsyncMock(return_value={"job_id": "job-safe"})
+    delegate = AsyncMock(return_value={"job_id": "job-safe", "run_id": "run-safe"})
     monkeypatch.setattr(config, "SECURITY_AUTO_FIX_ENABLED", True)
-    monkeypatch.setattr(cursor_delegation, "enqueue", enqueue)
+    monkeypatch.setattr(agentic_runtime, "delegate_engineering_task", delegate)
 
     job = await delegate_security_fix(
         {
@@ -43,10 +43,15 @@ async def test_security_fix_is_delegated_with_confirmation_and_pr_only(monkeypat
     )
 
     assert job["job_id"] == "job-safe"
-    kwargs = enqueue.await_args.kwargs
+    assert job["run_id"] == "run-safe"
+    kwargs = delegate.await_args.kwargs
     assert kwargs["delivery_mode"] == "pr_only"
     assert kwargs["require_confirmation"] is True
-    assert kwargs["auto_start"] is False
+    assert kwargs["auto_start"] is True
+    assert kwargs["origin"] == "user"
+    assert kwargs["channel"] == "quality"
+    assert kwargs["permissions"] == ("workspace:read", "workspace:write")
+    assert kwargs["idempotency_key"].startswith("quality:security-fix:")
     assert "ghp_" not in kwargs["user_request"]
 
 
@@ -68,13 +73,13 @@ async def test_dangerous_pattern_cannot_use_mechanical_fix(monkeypatch):
 @pytest.mark.asyncio
 async def test_missing_tests_scheduler_delegates_only_to_pr_worktree(monkeypatch):
     import config
-    from integrations.cursor_delegation import cursor_delegation
+    from agents.devagent import agentic_runtime
     from scripts.quality_delegation import delegate_missing_tests
 
-    enqueue = AsyncMock(return_value={"job_id": "job-tests"})
+    delegate = AsyncMock(return_value={"job_id": "job-tests", "run_id": "run-tests"})
     monkeypatch.setattr(config, "AUTO_TEST_GEN_ENABLED", True)
     monkeypatch.setattr(config, "AUTO_TEST_GEN_TARGET_DIRS", "api,jarvis/cognitive")
-    monkeypatch.setattr(cursor_delegation, "enqueue", enqueue)
+    monkeypatch.setattr(agentic_runtime, "delegate_engineering_task", delegate)
 
     job = await delegate_missing_tests(
         interaction_mode="scheduled",
@@ -83,11 +88,15 @@ async def test_missing_tests_scheduler_delegates_only_to_pr_worktree(monkeypatch
     )
 
     assert job["job_id"] == "job-tests"
-    kwargs = enqueue.await_args.kwargs
+    assert job["run_id"] == "run-tests"
+    kwargs = delegate.await_args.kwargs
     assert kwargs["delivery_mode"] == "pr_only"
     assert kwargs["interaction_mode"] == "scheduled"
+    assert kwargs["origin"] == "scheduler"
+    assert kwargs["channel"] == "test_generation"
     assert kwargs["auto_start"] is True
     assert kwargs["require_confirmation"] is False
+    assert kwargs["idempotency_key"].startswith("quality:test-generation:")
 
 
 @pytest.mark.asyncio

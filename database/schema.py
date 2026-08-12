@@ -893,3 +893,215 @@ CREATE TABLE IF NOT EXISTS metric_samples (
 CREATE INDEX IF NOT EXISTS idx_metric_samples_recorded
     ON metric_samples(recorded_at);
 """
+
+# Noyau agentique provider-neutral. Conservé séparément pour rendre explicite
+# la frontière de suppression des plugins, tout en l'incluant au schéma frais.
+AGENTIC_SCHEMA = """
+CREATE TABLE IF NOT EXISTS agent_runs (
+    run_id TEXT PRIMARY KEY,
+    profile_id TEXT NOT NULL,
+    task_id TEXT,
+    conversation_id TEXT,
+    origin TEXT NOT NULL,
+    channel TEXT NOT NULL,
+    device TEXT,
+    locale TEXT NOT NULL DEFAULT 'fr-FR',
+    timezone TEXT NOT NULL DEFAULT 'Europe/Paris',
+    runtime_id TEXT NOT NULL,
+    provider_session_id TEXT,
+    status TEXT NOT NULL,
+    phase TEXT NOT NULL,
+    category TEXT NOT NULL,
+    title TEXT NOT NULL,
+    permissions_json TEXT NOT NULL DEFAULT '[]',
+    context_json TEXT NOT NULL DEFAULT '{}',
+    budget_json TEXT NOT NULL,
+    workspace TEXT,
+    idempotency_key TEXT,
+    idempotency_digest TEXT,
+    error_json TEXT,
+    verification_json TEXT,
+    created_at TEXT NOT NULL,
+    started_at TEXT,
+    finished_at TEXT,
+    updated_at TEXT NOT NULL,
+    CHECK(status IN (
+        'created', 'classified', 'queued', 'provisioning', 'planning',
+        'awaiting_approval', 'running', 'verifying', 'reviewing', 'paused',
+        'blocked', 'cancelling', 'cancelled', 'failed', 'completed', 'expired',
+        'provider_unavailable'
+    )),
+    CHECK(category IN (
+        'direct_action', 'workflow', 'agentic_readonly', 'agentic_reversible',
+        'agentic_external_effect', 'agentic_high_risk'
+    ))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_runs_profile_idempotency
+    ON agent_runs(profile_id, idempotency_key)
+    WHERE idempotency_key IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_agent_runs_profile_status
+    ON agent_runs(profile_id, status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_runs_task ON agent_runs(profile_id, task_id);
+CREATE INDEX IF NOT EXISTS idx_agent_runs_conversation
+    ON agent_runs(profile_id, conversation_id);
+
+CREATE TABLE IF NOT EXISTS agent_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id TEXT NOT NULL,
+    run_id TEXT NOT NULL REFERENCES agent_runs(run_id) ON DELETE CASCADE,
+    profile_id TEXT NOT NULL,
+    sequence INTEGER NOT NULL CHECK(sequence > 0),
+    event_type TEXT NOT NULL,
+    external_event_id TEXT,
+    timestamp TEXT NOT NULL,
+    payload_json TEXT NOT NULL DEFAULT '{}',
+    level TEXT NOT NULL DEFAULT 'info',
+    visibility TEXT NOT NULL DEFAULT 'user',
+    sensitivity TEXT NOT NULL DEFAULT 'normal',
+    UNIQUE(run_id, event_id),
+    UNIQUE(run_id, sequence)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_events_external
+    ON agent_events(run_id, external_event_id)
+    WHERE external_event_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_agent_events_profile_run
+    ON agent_events(profile_id, run_id, sequence);
+
+CREATE TABLE IF NOT EXISTS agent_event_inbox (
+    run_id TEXT NOT NULL,
+    event_id TEXT NOT NULL,
+    profile_id TEXT NOT NULL,
+    processing_started_at TEXT,
+    processed_at TEXT,
+    claim_token TEXT,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY(run_id, event_id),
+    FOREIGN KEY(run_id, event_id)
+        REFERENCES agent_events(run_id, event_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_agent_event_inbox_pending
+    ON agent_event_inbox(profile_id, processed_at, processing_started_at, created_at);
+
+CREATE TABLE IF NOT EXISTS agent_steps (
+    step_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES agent_runs(run_id) ON DELETE CASCADE,
+    profile_id TEXT NOT NULL,
+    sequence INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    status TEXT NOT NULL,
+    started_at TEXT,
+    finished_at TEXT,
+    error_code TEXT,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    UNIQUE(run_id, sequence)
+);
+CREATE INDEX IF NOT EXISTS idx_agent_steps_profile_run
+    ON agent_steps(profile_id, run_id, sequence);
+
+CREATE TABLE IF NOT EXISTS agent_approvals (
+    approval_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES agent_runs(run_id) ON DELETE CASCADE,
+    profile_id TEXT NOT NULL,
+    action TEXT NOT NULL,
+    tool TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    arguments_json TEXT NOT NULL DEFAULT '{}',
+    risks_json TEXT NOT NULL DEFAULT '[]',
+    scope TEXT NOT NULL,
+    expires_at TEXT,
+    decision TEXT NOT NULL DEFAULT 'pending',
+    decision_by TEXT,
+    decision_at TEXT,
+    decision_id TEXT,
+    created_at TEXT NOT NULL,
+    CHECK(decision IN ('pending', 'approved', 'denied', 'expired'))
+);
+CREATE INDEX IF NOT EXISTS idx_agent_approvals_profile_run
+    ON agent_approvals(profile_id, run_id, decision);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_approvals_profile_decision
+    ON agent_approvals(profile_id, decision_id)
+    WHERE decision_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS agent_approval_outbox (
+    approval_id TEXT PRIMARY KEY REFERENCES agent_approvals(approval_id) ON DELETE CASCADE,
+    run_id TEXT NOT NULL REFERENCES agent_runs(run_id) ON DELETE CASCADE,
+    profile_id TEXT NOT NULL,
+    decision_id TEXT NOT NULL,
+    decision TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    attempts INTEGER NOT NULL DEFAULT 0,
+    claimed_at TEXT,
+    delivered_at TEXT,
+    last_error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(profile_id, decision_id),
+    CHECK(decision IN ('approved', 'denied')),
+    CHECK(status IN ('pending', 'delivering', 'delivered'))
+);
+CREATE INDEX IF NOT EXISTS idx_agent_approval_outbox_pending
+    ON agent_approval_outbox(profile_id, run_id, status, created_at);
+
+CREATE TABLE IF NOT EXISTS agent_artifacts (
+    artifact_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES agent_runs(run_id) ON DELETE CASCADE,
+    profile_id TEXT NOT NULL,
+    artifact_type TEXT NOT NULL,
+    reference TEXT NOT NULL,
+    sha256 TEXT,
+    size_bytes INTEGER,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    visibility TEXT NOT NULL DEFAULT 'user',
+    retention TEXT NOT NULL DEFAULT 'default',
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_agent_artifacts_profile_run
+    ON agent_artifacts(profile_id, run_id, created_at);
+
+CREATE TABLE IF NOT EXISTS agent_capability_grants (
+    grant_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES agent_runs(run_id) ON DELETE CASCADE,
+    profile_id TEXT NOT NULL,
+    capability TEXT NOT NULL,
+    scope TEXT NOT NULL,
+    granted_by TEXT NOT NULL,
+    expires_at TEXT,
+    revoked_at TEXT,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    UNIQUE(run_id, capability, scope)
+);
+CREATE INDEX IF NOT EXISTS idx_agent_grants_profile_run
+    ON agent_capability_grants(profile_id, run_id, revoked_at);
+
+CREATE TABLE IF NOT EXISTS agent_checkpoints (
+    checkpoint_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES agent_runs(run_id) ON DELETE CASCADE,
+    profile_id TEXT NOT NULL,
+    sequence INTEGER NOT NULL,
+    state_json TEXT NOT NULL DEFAULT '{}',
+    checksum TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE(run_id, sequence)
+);
+CREATE INDEX IF NOT EXISTS idx_agent_checkpoints_profile_run
+    ON agent_checkpoints(profile_id, run_id, sequence DESC);
+
+CREATE TABLE IF NOT EXISTS agent_metrics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL REFERENCES agent_runs(run_id) ON DELETE CASCADE,
+    profile_id TEXT NOT NULL,
+    metric TEXT NOT NULL,
+    value REAL NOT NULL,
+    unit TEXT NOT NULL DEFAULT '',
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    recorded_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_agent_metrics_profile_run
+    ON agent_metrics(profile_id, run_id, recorded_at);
+"""
+
+SCHEMA += AGENTIC_SCHEMA

@@ -131,6 +131,7 @@ def test_voice_tech_delegates_and_acks(tmp_db, monkeypatch):
     import config
 
     monkeypatch.setattr(config, "CURSOR_DELEGATION_ENABLED", True)
+    monkeypatch.setattr(config, "AGENTIC_RUNTIME_FALLBACK", "legacy")
 
     fake_job = {
         "job_id": "job-test-123",
@@ -164,6 +165,7 @@ def test_voice_tech_cursor_failure_honest_message(tmp_db, monkeypatch):
     import config
 
     monkeypatch.setattr(config, "CURSOR_DELEGATION_ENABLED", True)
+    monkeypatch.setattr(config, "AGENTIC_RUNTIME_FALLBACK", "legacy")
     enqueue_mock = AsyncMock(side_effect=RuntimeError("CLI non authentifié"))
 
     with patch("integrations.cursor_delegation.cursor_delegation") as svc:
@@ -180,8 +182,11 @@ def test_voice_tech_cursor_failure_honest_message(tmp_db, monkeypatch):
     assert result["action"] is None
 
 
-def test_voice_legacy_cursor_confirmation_fails_explicitly(tmp_db):
+def test_voice_legacy_cursor_confirmation_fails_explicitly(tmp_db, monkeypatch):
     """Un job antérieur au scoping n'est ni lancé ni masqué par une réponse générique."""
+    import config
+
+    monkeypatch.setattr(config, "AGENTIC_RUNTIME_FALLBACK", "legacy")
     confirm_mock = AsyncMock()
     with (
         patch("integrations.cursor_delegation.cursor_delegation") as svc,

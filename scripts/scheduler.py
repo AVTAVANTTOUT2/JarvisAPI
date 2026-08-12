@@ -28,7 +28,15 @@ from scripts.scheduler_tracking import (
 
 logger = logging.getLogger(__name__)
 
-scheduler = AsyncIOScheduler()
+scheduler = AsyncIOScheduler(
+    job_defaults={
+        # Une occurrence en retard est condensée et un même job ne se chevauche
+        # jamais dans ce processus. Les délégations utilisent en plus une clé
+        # d'idempotence durable pour couvrir les redémarrages et multi-processus.
+        "coalesce": True,
+        "max_instances": 1,
+    }
+)
 
 # Une notification « tâche en retard » par tâche et par jour civil (évite le spam horaire).
 _OVERDUE_NOTIFIED_DAY: dict[int, str] = {}
@@ -359,13 +367,12 @@ async def _food_delivery_tracking_job():
 
 @tracked("self_improvement")
 async def _self_improvement_job():
-    """Auto-amélioration : collecte de preuves → proposition → PR Cursor (pr_only)."""
+    """Auto-amélioration : preuves → run générique → livraison JARVIS PR-only."""
     if not getattr(config, "SELF_IMPROVEMENT_ENABLED", False):
         return skipped("SELF_IMPROVEMENT_ENABLED=false")
     from scripts.self_improvement import propose_improvements
 
-    auto = bool(getattr(config, "CURSOR_DELEGATION_ENABLED", True))
-    result = await propose_improvements(auto_delegate=auto)
+    result = await propose_improvements(auto_delegate=True)
     n = len(result.get("proposals") or [])
     if n:
         logger.info(
@@ -465,7 +472,7 @@ async def _security_audit_job():
 
 @tracked("test_gen")
 async def _test_gen_job():
-    """Délègue les tests manquants à Cursor, uniquement via une PR."""
+    """Délègue les tests manquants via un run générique et un worktree isolé."""
     if not config.AUTO_TEST_GEN_ENABLED:
         return skipped("AUTO_TEST_GEN_ENABLED=false")
     from scripts.quality_delegation import delegate_missing_tests
@@ -475,7 +482,10 @@ async def _test_gen_job():
         auto_start=True,
         require_confirmation=False,
     )
-    return ok(f"Tests délégués via PR-only : {job.get('job_id')}")
+    return ok(
+        f"Tests délégués via PR-only : {job.get('job_id')}"
+        f" (run {job.get('run_id') or 'legacy'})"
+    )
 
 
 @tracked("commitments_overdue")

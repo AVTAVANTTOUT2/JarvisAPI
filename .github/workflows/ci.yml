@@ -216,6 +216,21 @@ jobs:
       - name: pytest
         run: python -m pytest tests/ jarvis/tests agents/devagent -q
 
+      - name: Tests hors ligne des intégrations découvertes
+        run: python tools/run_integration_ci.py --phase offline
+
+      - name: Smoke live hermétique des intégrations découvertes
+        run: python tools/run_integration_ci.py --phase live
+
+      - name: Preuve rapide de retrait du provider
+        run: >-
+          python tools/run_integration_ci.py
+          --phase removal
+          --quick-removal
+
+      - name: Refuser les erreurs de whitespace Git
+        run: git diff --check
+
   frontend:
     name: Bibliothèque de vues desktop (tests + typecheck)
     runs-on: ubuntu-latest
@@ -342,3 +357,54 @@ jobs:
           disable-animations: true
           working-directory: android
           script: ./gradlew connectedDebugAndroidTest --no-daemon
+
+  removal_proof:
+    name: Preuve de retrait complète (sans provider)
+    needs: [backend, frontend, unified_frontend, android, macos_smoke]
+    runs-on: macos-26
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements/locks/dev-macos-arm64-py312.txt
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.11.0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: |
+            web/pnpm-lock.yaml
+            frontend/pnpm-lock.yaml
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Installer les outils et dépendances de la preuve
+        run: |
+          brew install xcodegen portaudio libsndfile
+          python -m pip install --require-hashes \
+            -r requirements/locks/dev-macos-arm64-py312.txt
+          pnpm --dir web install --frozen-lockfile
+          pnpm --dir frontend install --frozen-lockfile
+
+      - name: Précharger les dépendances Android de façon vérifiée
+        run: |
+          ./android/gradlew \
+            assembleDebug testDebugUnitTest lintDebug \
+            assembleRelease testReleaseUnitTest lintRelease \
+            --no-daemon
+
+      - name: Retirer le plugin puis rejouer les 16 portes dans la copie
+        run: python tools/run_integration_ci.py --phase removal

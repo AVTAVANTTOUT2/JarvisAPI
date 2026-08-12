@@ -19,8 +19,17 @@ _FAST = lambda: getattr(config, "VOICE_REASONING_MODEL", None) or config.DEEPSEE
 _MAIN = lambda: getattr(config, "MAIN_REASONING_MODEL", None) or config.DEEPSEEK_MAIN_MODEL
 
 
-def _cursor_available() -> bool:
-    """Capacité Cursor courante, partagée par tous les chemins de routage."""
+def _agentic_runtime_enabled() -> bool:
+    """Le routage reste générique même si le provider auto est indisponible."""
+
+    return str(getattr(config, "AGENTIC_RUNTIME", "auto")).strip().lower() != "disabled"
+
+
+def _legacy_cursor_available() -> bool:
+    """Fallback Cursor explicite uniquement, jamais sélectionné implicitement."""
+
+    if str(getattr(config, "AGENTIC_RUNTIME_FALLBACK", "disabled")).lower() != "legacy":
+        return False
     available = bool(getattr(config, "CURSOR_DELEGATION_ENABLED", True))
     if not available:
         return False
@@ -101,15 +110,11 @@ _BRIEFING_PATTERNS = (
     r"\b(fais\s+le\s+point\s+sur\s+jarvis|qu['']est[- ]ce\s+que\s+cursor\s+a\s+(terminé|termine|fini))\b",
 )
 
-_VOICE_ACK_CURSOR = (
-    "J'ai préparé la délégation à Cursor. Dites « lance » pour démarrer."
-)
+_VOICE_ACK_AGENTIC = "J'ai préparé la tâche agentique. Dites « lance » pour démarrer."
 _VOICE_ACK_HEAVY = (
     "Très bien, Monsieur. J'analyse l'ensemble et je vous prépare une réponse structurée."
 )
-_VOICE_ACK_FEATURE = (
-    "J'ai préparé le cahier des charges pour Cursor. Dites « lance » pour démarrer."
-)
+_VOICE_ACK_FEATURE = "J'ai préparé le cahier des charges. Dites « lance » pour démarrer."
 
 
 def _fold(text: str) -> str:
@@ -206,12 +211,32 @@ class CognitiveRouter:
                 context_budget="minimal",
             )
 
-        # 3) Exécution technique → Cursor (si la capacité est disponible)
+        # 3) Exécution technique → runtime agentique générique. Le fallback
+        # Cursor historique n'est possible que sur opt-in explicite.
         if is_tech:
-            cursor_available = _cursor_available()
             template = _detect_template(folded)
-            ack = _VOICE_ACK_FEATURE if "feature" in template or "ajoute" in folded else _VOICE_ACK_CURSOR
-            if cursor_available:
+            ack = (
+                _VOICE_ACK_FEATURE
+                if "feature" in template or "ajoute" in folded
+                else _VOICE_ACK_AGENTIC
+            )
+            if _agentic_runtime_enabled():
+                return TaskIntent(
+                    interaction_mode=mode,  # type: ignore[arg-type]
+                    domain="dev",
+                    complexity="heavy",
+                    execution_type="agentic",
+                    reasoning_model=_FAST() if is_voice else _MAIN(),
+                    prompt_model=_MAIN(),
+                    reason="modification de code / tâche technique via runtime agentique",
+                    risk_level="medium",
+                    requires_confirmation=True,
+                    expected_duration="minutes",
+                    template_id=template,
+                    context_budget="dev",
+                    voice_ack=ack if is_voice else None,
+                )
+            if _legacy_cursor_available():
                 return TaskIntent(
                     interaction_mode=mode,  # type: ignore[arg-type]
                     domain="dev",
@@ -227,7 +252,7 @@ class CognitiveRouter:
                     context_budget="dev",
                     voice_ack=ack if is_voice else None,
                 )
-            # Cursor indisponible → réponse honnête via Main, jamais de fausse promesse
+            # Runtime désactivé et aucun fallback → réponse honnête via Main.
             return TaskIntent(
                 interaction_mode=mode,  # type: ignore[arg-type]
                 domain="dev",
@@ -235,7 +260,7 @@ class CognitiveRouter:
                 execution_type="answer",
                 reasoning_model=_FAST() if is_voice else _MAIN(),
                 prompt_model=_MAIN(),
-                reason="tâche technique mais Cursor CLI indisponible — réponse conseil",
+                reason="tâche technique mais runtime agentique indisponible — réponse conseil",
                 risk_level="low",
                 context_budget="dev",
             )
@@ -312,25 +337,29 @@ class CognitiveRouter:
 
             label = await llm.quick_classify(
                 text,
-                ["ANSWER", "TOOL", "CURSOR", "HEAVY"],
+                ["ANSWER", "TOOL", "AGENTIC", "HEAVY"],
                 model=_FAST(),
             )
-            if label == "CURSOR":
-                if not _cursor_available():
+            if label == "AGENTIC":
+                if not _agentic_runtime_enabled() and not _legacy_cursor_available():
                     intent.reason = (
-                        "classification LLM Cursor ignorée : capacité indisponible"
+                        "classification LLM agentique ignorée : capacité indisponible"
                     )
                     return intent
                 # Le LLM propose seulement — confirmation toujours requise.
-                intent.execution_type = "cursor"
+                intent.execution_type = (
+                    "agentic" if _agentic_runtime_enabled() else "cursor"
+                )
                 intent.domain = "dev"
                 intent.prompt_model = _MAIN()
                 intent.template_id = _detect_template(_fold(text))
                 intent.requires_confirmation = True
                 intent.risk_level = "medium"
-                intent.reason = "classification LLM → proposition Cursor (confirmation requise)"
+                intent.reason = (
+                    "classification LLM → proposition agentique (confirmation requise)"
+                )
                 if interaction_mode in ("voice", "android"):
-                    intent.voice_ack = _VOICE_ACK_CURSOR
+                    intent.voice_ack = _VOICE_ACK_AGENTIC
             elif label == "HEAVY":
                 intent.complexity = "heavy"
                 intent.prompt_model = _MAIN()

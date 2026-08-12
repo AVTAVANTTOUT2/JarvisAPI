@@ -1,0 +1,15 @@
+{
+  "hostname": "127.0.0.1",
+  "max_archive_bytes": 268435456,
+  "max_extracted_bytes": 536870912,
+  "reconnect_attempts": 6,
+  "reconnect_base_seconds": 0.25,
+  "reconnect_jitter_seconds": 0.25,
+  "reconnect_max_seconds": 5.0,
+  "request_timeout_seconds": 15.0,
+  "shutdown_timeout_seconds": 10.0,
+  "sse_connect_timeout_seconds": 10.0,
+  "sse_read_timeout_seconds": 90.0,
+  "startup_timeout_seconds": 20.0,
+  "username": "jarvis-opencode"
+}

@@ -1,4 +1,4 @@
-"""DevAgent — agent developpement autonome isole (DeepSeek v4 Pro)."""
+"""DevAgent — orchestration JARVIS d'un développement agentique isolé."""
 
 from agents.devagent.interview import next_interview_step, submit_answer
 from agents.devagent.loop import run_loop

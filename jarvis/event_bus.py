@@ -78,6 +78,32 @@ EVENT_TYPES: tuple[str, ...] = (
     "system.service_up",
     "system.service_down",
     "system.error",
+    # Runtime agentique générique. Ce bloc reste avant les dix événements de
+    # domaine historiques afin de préserver DOMAIN_EVENT_TYPES[-10:].
+    "agent.run.created",
+    "agent.run.classified",
+    "agent.run.queued",
+    "agent.run.provisioning",
+    "agent.run.started",
+    "agent.run.phase_changed",
+    "agent.run.awaiting_approval",
+    "agent.run.paused",
+    "agent.run.resumed",
+    "agent.run.blocked",
+    "agent.run.verifying",
+    "agent.run.reviewing",
+    "agent.run.cancelling",
+    "agent.run.cancelled",
+    "agent.run.completed",
+    "agent.run.failed",
+    "agent.run.expired",
+    "agent.run.provider_unavailable",
+    "agent.tool.started",
+    "agent.tool.completed",
+    "agent.tool.failed",
+    "agent.approval.requested",
+    "agent.approval.resolved",
+    "agent.artifact.created",
     # Commande de repas — suivi de livraison poussé vers l'interface.
     # Volontairement placé avant le bloc « Domaine applicatif » : ce dernier
     # est défini comme les dix derniers types et doit rester aligné sur les
@@ -98,6 +124,11 @@ EVENT_TYPES: tuple[str, ...] = (
 
 VALID_EVENT_TYPES: frozenset[str] = frozenset(EVENT_TYPES)
 DOMAIN_EVENT_TYPES: tuple[str, ...] = EVENT_TYPES[-10:]
+AGENTIC_EVENT_TYPES: tuple[str, ...] = tuple(
+    event_type
+    for event_type in EVENT_TYPES
+    if event_type.startswith(("agent.run.", "agent.tool.", "agent.approval.", "agent.artifact."))
+)
 
 
 @dataclass(frozen=True)

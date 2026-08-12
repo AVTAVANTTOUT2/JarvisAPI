@@ -69,6 +69,24 @@
         },
         "type": "object"
       },
+      "ApprovalDecisionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "decision": {
+            "enum": [
+              "approved",
+              "denied"
+            ],
+            "title": "Decision",
+            "type": "string"
+          }
+        },
+        "required": [
+          "decision"
+        ],
+        "title": "ApprovalDecisionRequest",
+        "type": "object"
+      },
       "Body_post_api_conversations_by_conv_id_upload": {
         "properties": {
           "cloud_consent": {
@@ -156,6 +174,28 @@
               }
             ],
             "title": "Conversation Id"
+          },
+          "locale": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Locale"
+          },
+          "timezone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timezone"
           }
         },
         "required": [
@@ -368,6 +408,161 @@
           }
         },
         "title": "ConversationUpdateRequest",
+        "type": "object"
+      },
+      "CreateRunRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "budget": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunBudgetRequest"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "category": {
+            "default": "direct_action",
+            "enum": [
+              "direct_action",
+              "workflow",
+              "agentic_readonly"
+            ],
+            "title": "Category",
+            "type": "string"
+          },
+          "channel": {
+            "default": "api",
+            "enum": [
+              "api",
+              "web",
+              "voice",
+              "mobile",
+              "imessage",
+              "macos",
+              "android"
+            ],
+            "title": "Channel",
+            "type": "string"
+          },
+          "conversation_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conversation Id"
+          },
+          "device": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device"
+          },
+          "locale": {
+            "default": "fr-FR",
+            "maxLength": 32,
+            "minLength": 2,
+            "title": "Locale",
+            "type": "string"
+          },
+          "origin": {
+            "const": "user",
+            "default": "user",
+            "title": "Origin",
+            "type": "string"
+          },
+          "permissions": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 100,
+            "title": "Permissions",
+            "type": "array"
+          },
+          "request": {
+            "anyOf": [
+              {
+                "maxLength": 8000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "runtime_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Runtime Id"
+          },
+          "selected_context": {
+            "additionalProperties": true,
+            "title": "Selected Context",
+            "type": "object"
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Id"
+          },
+          "timezone": {
+            "default": "Europe/Paris",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Timezone",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "title": "CreateRunRequest",
         "type": "object"
       },
       "CursorEnqueueRequest": {
@@ -3213,6 +3408,102 @@
         "title": "RouteRequest",
         "type": "object"
       },
+      "RunBudgetRequest": {
+        "additionalProperties": false,
+        "description": "Limites décidées par JARVIS, jamais par le fournisseur.",
+        "properties": {
+          "blocking_strategy": {
+            "default": "pause",
+            "enum": [
+              "pause",
+              "fail"
+            ],
+            "title": "Blocking Strategy",
+            "type": "string"
+          },
+          "compaction_policy": {
+            "default": "checkpoint",
+            "enum": [
+              "checkpoint",
+              "summarize",
+              "fail"
+            ],
+            "title": "Compaction Policy",
+            "type": "string"
+          },
+          "concurrency_limit": {
+            "default": 1,
+            "maximum": 16.0,
+            "minimum": 1.0,
+            "title": "Concurrency Limit",
+            "type": "integer"
+          },
+          "cost_budget": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Budget"
+          },
+          "max_artifact_bytes": {
+            "default": 52428800,
+            "maximum": 1073741824.0,
+            "minimum": 0.0,
+            "title": "Max Artifact Bytes",
+            "type": "integer"
+          },
+          "max_context_tokens": {
+            "default": 128000,
+            "maximum": 10000000.0,
+            "minimum": 1.0,
+            "title": "Max Context Tokens",
+            "type": "integer"
+          },
+          "max_duration_s": {
+            "default": 1800.0,
+            "exclusiveMinimum": 0.0,
+            "maximum": 86400.0,
+            "title": "Max Duration S",
+            "type": "number"
+          },
+          "max_retries": {
+            "default": 3,
+            "maximum": 20.0,
+            "minimum": 0.0,
+            "title": "Max Retries",
+            "type": "integer"
+          },
+          "max_steps": {
+            "default": 50,
+            "maximum": 1000.0,
+            "minimum": 1.0,
+            "title": "Max Steps",
+            "type": "integer"
+          },
+          "max_tool_calls": {
+            "default": 100,
+            "maximum": 5000.0,
+            "minimum": 0.0,
+            "title": "Max Tool Calls",
+            "type": "integer"
+          },
+          "model_token_budget": {
+            "default": 200000,
+            "maximum": 10000000.0,
+            "minimum": 1.0,
+            "title": "Model Token Budget",
+            "type": "integer"
+          }
+        },
+        "title": "RunBudgetRequest",
+        "type": "object"
+      },
       "SecretRequest": {
         "additionalProperties": false,
         "properties": {
@@ -4200,6 +4491,12 @@
         "in": "cookie",
         "name": "jarvis_session",
         "type": "apiKey"
+      },
+      "visualReadBearer": {
+        "bearerFormat": "scoped visual:read token",
+        "description": "Jeton de service local limité au relais visuel en lecture seule.",
+        "scheme": "bearer",
+        "type": "http"
       }
     }
   },
@@ -4211,6 +4508,757 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/agentic/runs": {
+      "get": {
+        "description": "Opération JARVIS `GET /api/agentic/runs`.",
+        "operationId": "get_api_agentic_runs",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Api Agentic Runs",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "428": {
+            "$ref": "#/components/responses/SetupRequired"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "mobileBearer": []
+          }
+        ],
+        "summary": "List Agentic Runs",
+        "tags": [
+          "agentic"
+        ],
+        "x-jarvis-authentication": "session_or_mobile"
+      },
+      "post": {
+        "description": "Opération JARVIS `POST /api/agentic/runs`.",
+        "operationId": "post_api_agentic_runs",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Post Api Agentic Runs",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "428": {
+            "$ref": "#/components/responses/SetupRequired"
+          }
+        },
+        "security": [
+          {
+            "csrfToken": [],
+            "sessionCookie": []
+          },
+          {
+            "mobileBearer": []
+          }
+        ],
+        "summary": "Create Agentic Run",
+        "tags": [
+          "agentic"
+        ],
+        "x-jarvis-authentication": "session_or_mobile",
+        "x-jarvis-csrf-origin-required": true
+      }
+    },
+    "/api/agentic/runs/{run_id}": {
+      "get": {
+        "description": "Opération JARVIS `GET /api/agentic/runs/{run_id}`.",
+        "operationId": "get_api_agentic_runs_by_run_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Api Agentic Runs By Run Id",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "428": {
+            "$ref": "#/components/responses/SetupRequired"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "mobileBearer": []
+          }
+        ],
+        "summary": "Get Agentic Run",
+        "tags": [
+          "agentic"
+        ],
+        "x-jarvis-authentication": "session_or_mobile"
+      }
+    },
+    "/api/agentic/runs/{run_id}/approvals": {
+      "get": {
+        "description": "Opération JARVIS `GET /api/agentic/runs/{run_id}/approvals`.",
+        "operationId": "get_api_agentic_runs_by_run_id_approvals",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Api Agentic Runs By Run Id Approvals",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "428": {
+            "$ref": "#/components/responses/SetupRequired"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "mobileBearer": []
+          }
+        ],
+        "summary": "Get Agentic Run Approvals",
+        "tags": [
+          "agentic"
+        ],
+        "x-jarvis-authentication": "session_or_mobile"
+      }
+    },
+    "/api/agentic/runs/{run_id}/approvals/{approval_id}/decision": {
+      "post": {
+        "description": "Opération JARVIS `POST /api/agentic/runs/{run_id}/approvals/{approval_id}/decision`.",
+        "operationId": "post_api_agentic_runs_by_run_id_approvals_by_approval_id_decision",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "approval_id",
+            "required": true,
+            "schema": {
+              "title": "Approval Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApprovalDecisionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Post Api Agentic Runs By Run Id Approvals By Approval Id Decision",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "428": {
+            "$ref": "#/components/responses/SetupRequired"
+          }
+        },
+        "security": [
+          {
+            "csrfToken": [],
+            "sessionCookie": []
+          },
+          {
+            "mobileBearer": []
+          }
+        ],
+        "summary": "Decide Agentic Approval",
+        "tags": [
+          "agentic"
+        ],
+        "x-jarvis-authentication": "session_or_mobile",
+        "x-jarvis-csrf-origin-required": true
+      }
+    },
+    "/api/agentic/runs/{run_id}/artifacts": {
+      "get": {
+        "description": "Opération JARVIS `GET /api/agentic/runs/{run_id}/artifacts`.",
+        "operationId": "get_api_agentic_runs_by_run_id_artifacts",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Api Agentic Runs By Run Id Artifacts",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "428": {
+            "$ref": "#/components/responses/SetupRequired"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "mobileBearer": []
+          }
+        ],
+        "summary": "Get Agentic Run Artifacts",
+        "tags": [
+          "agentic"
+        ],
+        "x-jarvis-authentication": "session_or_mobile"
+      }
+    },
+    "/api/agentic/runs/{run_id}/cancel": {
+      "post": {
+        "description": "Opération JARVIS `POST /api/agentic/runs/{run_id}/cancel`.",
+        "operationId": "post_api_agentic_runs_by_run_id_cancel",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Post Api Agentic Runs By Run Id Cancel",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "428": {
+            "$ref": "#/components/responses/SetupRequired"
+          }
+        },
+        "security": [
+          {
+            "csrfToken": [],
+            "sessionCookie": []
+          },
+          {
+            "mobileBearer": []
+          }
+        ],
+        "summary": "Cancel Agentic Run",
+        "tags": [
+          "agentic"
+        ],
+        "x-jarvis-authentication": "session_or_mobile",
+        "x-jarvis-csrf-origin-required": true
+      }
+    },
+    "/api/agentic/runs/{run_id}/events": {
+      "get": {
+        "description": "Opération JARVIS `GET /api/agentic/runs/{run_id}/events`.",
+        "operationId": "get_api_agentic_runs_by_run_id_events",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after_sequence",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "After Sequence",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Api Agentic Runs By Run Id Events",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "428": {
+            "$ref": "#/components/responses/SetupRequired"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "mobileBearer": []
+          }
+        ],
+        "summary": "Get Agentic Run Events",
+        "tags": [
+          "agentic"
+        ],
+        "x-jarvis-authentication": "session_or_mobile"
+      }
+    },
+    "/api/agentic/runs/{run_id}/pause": {
+      "post": {
+        "description": "Opération JARVIS `POST /api/agentic/runs/{run_id}/pause`.",
+        "operationId": "post_api_agentic_runs_by_run_id_pause",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Post Api Agentic Runs By Run Id Pause",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "428": {
+            "$ref": "#/components/responses/SetupRequired"
+          }
+        },
+        "security": [
+          {
+            "csrfToken": [],
+            "sessionCookie": []
+          },
+          {
+            "mobileBearer": []
+          }
+        ],
+        "summary": "Pause Agentic Run",
+        "tags": [
+          "agentic"
+        ],
+        "x-jarvis-authentication": "session_or_mobile",
+        "x-jarvis-csrf-origin-required": true
+      }
+    },
+    "/api/agentic/runs/{run_id}/resume": {
+      "post": {
+        "description": "Opération JARVIS `POST /api/agentic/runs/{run_id}/resume`.",
+        "operationId": "post_api_agentic_runs_by_run_id_resume",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Post Api Agentic Runs By Run Id Resume",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "428": {
+            "$ref": "#/components/responses/SetupRequired"
+          }
+        },
+        "security": [
+          {
+            "csrfToken": [],
+            "sessionCookie": []
+          },
+          {
+            "mobileBearer": []
+          }
+        ],
+        "summary": "Resume Agentic Run",
+        "tags": [
+          "agentic"
+        ],
+        "x-jarvis-authentication": "session_or_mobile",
+        "x-jarvis-csrf-origin-required": true
+      }
+    },
+    "/api/agentic/runtime/status": {
+      "get": {
+        "description": "Opération JARVIS `GET /api/agentic/runtime/status`.",
+        "operationId": "get_api_agentic_runtime_status",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Api Agentic Runtime Status",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "428": {
+            "$ref": "#/components/responses/SetupRequired"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "mobileBearer": []
+          }
+        ],
+        "summary": "Agentic Runtime Status",
+        "tags": [
+          "agentic"
+        ],
+        "x-jarvis-authentication": "session_or_mobile"
+      }
+    },
     "/api/analyze-contact": {
       "post": {
         "description": "Lance l'analyse Haiku d'un contact iMessage. Body : {\"name\": \"Bertille\"}.",
@@ -17540,6 +18588,93 @@
         "x-jarvis-authentication": "session_or_mobile"
       }
     },
+    "/api/visual/v1/events": {
+      "get": {
+        "description": "Opération JARVIS `GET /api/visual/v1/events`.",
+        "operationId": "get_api_visual_v1_events",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "visualReadBearer": []
+          }
+        ],
+        "summary": "Visual Events",
+        "tags": [
+          "visual"
+        ],
+        "x-jarvis-authentication": "visual_read_bearer"
+      }
+    },
+    "/api/visual/v1/health": {
+      "get": {
+        "description": "Opération JARVIS `GET /api/visual/v1/health`.",
+        "operationId": "get_api_visual_v1_health",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "visualReadBearer": []
+          }
+        ],
+        "summary": "Visual Health",
+        "tags": [
+          "visual"
+        ],
+        "x-jarvis-authentication": "visual_read_bearer"
+      }
+    },
+    "/api/visual/v1/snapshot": {
+      "get": {
+        "description": "Opération JARVIS `GET /api/visual/v1/snapshot`.",
+        "operationId": "get_api_visual_v1_snapshot",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "visualReadBearer": []
+          }
+        ],
+        "summary": "Visual Snapshot",
+        "tags": [
+          "visual"
+        ],
+        "x-jarvis-authentication": "visual_read_bearer"
+      }
+    },
     "/api/voice-debug": {
       "get": {
         "description": "Retourne les dernières traces de debug du pipeline vocal.",
@@ -17719,6 +18854,10 @@
     }
   ],
   "tags": [
+    {
+      "description": "Opérations du domaine JARVIS « agentic ».",
+      "name": "agentic"
+    },
     {
       "description": "Opérations du domaine JARVIS « analyze-contact ».",
       "name": "analyze-contact"
@@ -17994,6 +19133,10 @@
     {
       "description": "Opérations du domaine JARVIS « visits ».",
       "name": "visits"
+    },
+    {
+      "description": "Opérations du domaine JARVIS « visual ».",
+      "name": "visual"
     },
     {
       "description": "Opérations du domaine JARVIS « voice-debug ».",
