@@ -869,7 +869,7 @@ def test_stdio_proxy_relays_without_receiving_capability_fields(tmp_path: Path) 
             time.sleep(0.01)
         assert not endpoint.bootstrap_path.exists()
         listing = subprocess.run(
-            ["ps", "-o", "command=", "-p", str(process.pid)],
+            ["ps", "-ww", "-o", "command=", "-p", str(process.pid)],
             check=True,
             capture_output=True,
             text=True,

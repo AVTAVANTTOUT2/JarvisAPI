@@ -60,6 +60,8 @@ _MAX_RUNTIME_DIRECTORIES = 256
 _MAX_PROCESS_STATE_BYTES = 64 * 1024
 _MAX_EVENT_QUEUE_SIZE = 512
 _MAX_EVENTS_PER_RUN = 4_096
+_MAX_ARTIFACTS_PER_RUN = 100
+_MUTATING_FILE_TOOLS = frozenset({"edit", "write"})
 _MODEL_PROVIDER_ENV_ALLOWLIST = ("DEEPSEEK_API_KEY",)
 
 
@@ -184,6 +186,156 @@ def _workspace_for(run: AgenticRun, layout: RuntimeLayout) -> Path:
         workspace.parent.chmod(0o700)
     workspace.mkdir(mode=0o700, exist_ok=True)
     return workspace.resolve(strict=True)
+
+
+def _workspace_artifact_path(
+    workspace: Path, candidate: object
+) -> tuple[str, Path] | None:
+    """Canonicalise un chemin attesté sans autoriser d'évasion ni de lien."""
+
+    if not isinstance(candidate, str) or not candidate or len(candidate) > 4_096:
+        return None
+    if "\x00" in candidate:
+        return None
+    raw = Path(candidate)
+    if ".." in raw.parts:
+        return None
+    if raw.is_absolute():
+        try:
+            relative = raw.relative_to(workspace)
+        except ValueError:
+            return None
+    else:
+        relative = raw
+    if not relative.parts:
+        return None
+    reference = relative.as_posix()
+    if len(reference) > 1_000:
+        return None
+
+    lexical = workspace.joinpath(relative)
+    cursor = workspace
+    try:
+        for part in relative.parts:
+            cursor = cursor / part
+            if cursor.is_symlink():
+                return None
+        resolved = lexical.resolve(strict=False)
+        resolved.relative_to(workspace)
+    except (OSError, RuntimeError, ValueError):
+        return None
+    return reference, resolved
+
+
+def _session_mutation_paths(
+    messages: Sequence[Any], *, session_id: str
+) -> tuple[str, ...]:
+    """Extrait uniquement les écritures terminées attestées par la session."""
+
+    candidates: list[str] = []
+    for message in messages:
+        info = getattr(message, "info", None)
+        parts = getattr(message, "parts", None)
+        if not isinstance(info, Mapping) or not isinstance(parts, Sequence):
+            continue
+        if str(info.get("role") or "").lower() != "assistant":
+            continue
+        observed_session = info.get("sessionID") or info.get("sessionId")
+        if observed_session is None or str(observed_session) != session_id:
+            continue
+        for part in parts:
+            if not isinstance(part, Mapping) or part.get("type") != "tool":
+                continue
+            if str(part.get("tool") or "").lower() not in _MUTATING_FILE_TOOLS:
+                continue
+            tool_state = part.get("state")
+            if not isinstance(tool_state, Mapping):
+                continue
+            if str(tool_state.get("status") or "").lower() != "completed":
+                continue
+            tool_input = tool_state.get("input")
+            if not isinstance(tool_input, Mapping):
+                continue
+            candidate = tool_input.get("filePath")
+            if isinstance(candidate, str):
+                candidates.append(candidate)
+    return tuple(candidates)
+
+
+def _hash_stable_artifact(
+    path: Path, *, workspace: Path, max_bytes: int
+) -> tuple[str | None, int | None]:
+    """Empreinte un fichier régulier stable, sans suivre aucun lien."""
+
+    descriptor: int | None = None
+    directory_descriptor: int | None = None
+    try:
+        relative = path.relative_to(workspace)
+        if not relative.parts or ".." in relative.parts:
+            return None, None
+        common_flags = (
+            os.O_RDONLY
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_NONBLOCK", 0)
+        )
+        directory_flags = common_flags | getattr(os, "O_DIRECTORY", 0)
+        directory_descriptor = os.open(workspace, directory_flags)
+        for component in relative.parts[:-1]:
+            next_descriptor = os.open(
+                component,
+                directory_flags,
+                dir_fd=directory_descriptor,
+            )
+            os.close(directory_descriptor)
+            directory_descriptor = next_descriptor
+        descriptor = os.open(
+            relative.parts[-1],
+            common_flags,
+            dir_fd=directory_descriptor,
+        )
+    except (OSError, RuntimeError, ValueError):
+        return None, None
+    finally:
+        if directory_descriptor is not None:
+            os.close(directory_descriptor)
+
+    assert descriptor is not None
+    try:
+        before = os.fstat(descriptor)
+        if not stat.S_ISREG(before.st_mode):
+            return None, None
+        size_bytes = before.st_size
+        if size_bytes > max_bytes:
+            return None, size_bytes
+        hasher = hashlib.sha256()
+        consumed = 0
+        while consumed < size_bytes:
+            chunk = os.read(descriptor, min(64 * 1024, size_bytes - consumed))
+            if not chunk:
+                raise RuntimeError("runtime_artifact_changed_during_hash")
+            consumed += len(chunk)
+            hasher.update(chunk)
+        after = os.fstat(descriptor)
+        before_fingerprint = (
+            before.st_dev,
+            before.st_ino,
+            before.st_size,
+            before.st_mtime_ns,
+            before.st_ctime_ns,
+        )
+        after_fingerprint = (
+            after.st_dev,
+            after.st_ino,
+            after.st_size,
+            after.st_mtime_ns,
+            after.st_ctime_ns,
+        )
+        if before_fingerprint != after_fingerprint or consumed != after.st_size:
+            raise RuntimeError("runtime_artifact_changed_during_hash")
+        return hasher.hexdigest(), consumed
+    finally:
+        os.close(descriptor)
 
 
 def _system_prompt(run: AgenticRun, context: AgenticContext, workspace: Path) -> str:
@@ -1267,21 +1419,24 @@ class OpenCodeRuntime:
             state.run.category is not AgenticRequestCategory.AGENTIC_READONLY
             and bool({"workspace.edit", "workspace:write"} & permissions)
         )
+        # OpenCode 1.18.16 transforme le champ ``tools`` (désormais déprécié)
+        # en règles de permission de session, évaluées après celles de l'agent.
+        # Envoyer ``True`` élèverait donc notamment ``edit=ask`` à ``edit=allow``.
+        # La façade ne transmet que les restrictions contextuelles; les outils
+        # autorisés restent gouvernés par la configuration privée de l'agent.
+        tool_restrictions = {"bash": False}
+        if not can_read:
+            tool_restrictions.update({"read": False, "grep": False, "glob": False})
+        if not can_edit:
+            tool_restrictions.update({"edit": False, "write": False})
         await state.client.prompt_async(
             state.session_id,
             [TextPart(text=text)],
             model=state.model,
             agent=state.agent,
-            tools={
-                "read": can_read,
-                "grep": can_read,
-                "glob": can_read,
-                "edit": can_edit,
-                "write": can_edit,
-                # ``tests.run`` désigne la façade JARVIS/MCP allowlistée. Ce scope
-                # n'accorde jamais un shell natif arbitraire au modèle.
-                "bash": False,
-            },
+            # ``tests.run`` désigne la façade JARVIS/MCP allowlistée. Ce scope
+            # n'accorde jamais un shell natif arbitraire au modèle.
+            tools=tool_restrictions,
             system=state.system_prompt,
             directory=str(state.workspace),
         )
@@ -1479,39 +1634,60 @@ class OpenCodeRuntime:
     async def get_artifacts(self, run_id: str) -> Sequence[Artifact]:
         state = self._state_for(run_id)
         diff = await state.client.diff(state.session_id, directory=str(state.workspace))
-        if len(diff) > 100:
+        if len(diff) > _MAX_ARTIFACTS_PER_RUN:
             raise RuntimeError("runtime_artifact_count_exceeded")
-        artifacts: list[Artifact] = []
-        for index, item in enumerate(diff):
+        message_limit = min(256, max(20, state.run.budget.max_tool_calls * 2 + 4))
+        messages = await state.client.messages(
+            state.session_id,
+            limit=message_limit,
+            directory=str(state.workspace),
+        )
+
+        candidates: dict[str, tuple[Path, set[str]]] = {}
+        raw_candidates: list[tuple[object, str]] = []
+        for item in diff:
             if not isinstance(item, Mapping):
                 continue
-            candidate = item.get("file") or item.get("path") or item.get("filename")
-            if not isinstance(candidate, str):
+            raw_candidates.append(
+                (
+                    item.get("file") or item.get("path") or item.get("filename"),
+                    "provider_session_diff",
+                )
+            )
+        raw_candidates.extend(
+            (candidate, "completed_session_tool")
+            for candidate in _session_mutation_paths(
+                messages,
+                session_id=state.session_id,
+            )
+        )
+        for raw_candidate, source in raw_candidates:
+            canonical = _workspace_artifact_path(state.workspace, raw_candidate)
+            if canonical is None:
                 continue
-            path = Path(candidate)
-            if path.is_absolute():
-                try:
-                    path = path.resolve().relative_to(state.workspace)
-                except (OSError, ValueError):
-                    continue
-            if ".." in path.parts:
-                continue
-            reference = path.as_posix()[:1_000]
-            resolved = (state.workspace / path).resolve(strict=False)
-            try:
-                resolved.relative_to(state.workspace)
-            except ValueError:
-                continue
-            digest: str | None = None
-            size_bytes: int | None = None
-            if resolved.is_file() and not resolved.is_symlink():
-                size_bytes = resolved.stat().st_size
-                if size_bytes <= state.run.budget.max_artifact_bytes:
-                    hasher = hashlib.sha256()
-                    with resolved.open("rb") as handle:
-                        for chunk in iter(lambda: handle.read(64 * 1024), b""):
-                            hasher.update(chunk)
-                    digest = hasher.hexdigest()
+            reference, resolved = canonical
+            existing = candidates.get(reference)
+            if existing is None:
+                candidates[reference] = (resolved, {source})
+            else:
+                existing[1].add(source)
+        if len(candidates) > _MAX_ARTIFACTS_PER_RUN:
+            raise RuntimeError("runtime_artifact_count_exceeded")
+
+        artifacts: list[Artifact] = []
+        remaining_artifact_bytes = state.run.budget.max_artifact_bytes
+        for index, reference in enumerate(sorted(candidates)):
+            resolved, sources = candidates[reference]
+            digest, size_bytes = _hash_stable_artifact(
+                resolved,
+                workspace=state.workspace,
+                max_bytes=remaining_artifact_bytes,
+            )
+            if size_bytes is not None and size_bytes > remaining_artifact_bytes:
+                raise RuntimeError("runtime_artifact_bytes_exceeded")
+            if digest is not None:
+                assert size_bytes is not None
+                remaining_artifact_bytes -= size_bytes
             artifacts.append(
                 Artifact(
                     artifact_id=f"{run_id}-diff-{index}",
@@ -1522,13 +1698,13 @@ class OpenCodeRuntime:
                     size_bytes=size_bytes,
                     metadata={
                         "workspace_relative": True,
+                        "session_bound": True,
+                        "evidence_sources": sorted(sources),
                         "content_digest": digest is not None,
                     },
                 )
             )
-        messages = await state.client.messages(
-            state.session_id, limit=20, directory=str(state.workspace)
-        )
+
         final_text = ""
         for message in messages:
             if str(message.info.get("role") or "").lower() != "assistant":
@@ -1544,6 +1720,9 @@ class OpenCodeRuntime:
         if final_text:
             safe_summary, voice_summary = _result_summaries(final_text)
             encoded = safe_summary.encode("utf-8")
+            if len(encoded) > remaining_artifact_bytes:
+                raise RuntimeError("runtime_artifact_bytes_exceeded")
+            remaining_artifact_bytes -= len(encoded)
             artifacts.append(
                 Artifact(
                     artifact_id=f"{run_id}-result",

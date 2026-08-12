@@ -15,6 +15,7 @@ import asyncio
 from contextlib import aclosing, suppress
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -136,15 +137,18 @@ def _provider_config(
     config["model"] = "jarvis-e2e/fixture-model"
     if edit_permission is not None:
         executor = config.setdefault("agent", {}).setdefault("jarvis-executor", {})
-        permission = executor.setdefault("permission", {})
-        permission["*"] = "allow"
-        permission["edit"] = edit_permission
-        permission["write"] = edit_permission
-        permission["bash"] = "deny"
-        permission["external_directory"] = "deny"
-        permission["task"] = "deny"
-        permission["webfetch"] = "deny"
-        permission["websearch"] = "deny"
+        # OpenCode applique la dernière règle correspondante. Le wildcard doit
+        # donc précéder les règles spécifiques, et ``write`` est bien couvert
+        # par la permission native ``edit`` dans le schéma 1.18.16.
+        executor["permission"] = {
+            "*": "allow",
+            "edit": edit_permission,
+            "bash": "deny",
+            "external_directory": "deny",
+            "task": "deny",
+            "webfetch": "deny",
+            "websearch": "deny",
+        }
     if mcp_trace is not None:
         command = [
             sys.executable,
@@ -738,7 +742,9 @@ async def test_real_binary_generic_facade_readonly_and_coding_worktree(
     assert any(
         item.type == "changed_file"
         and item.reference == coding_file.name
-        and item.sha256 is not None
+        and item.sha256 == hashlib.sha256(b"VALUE=after\n").hexdigest()
+        and item.size_bytes == len(b"VALUE=after\n")
+        and item.metadata.get("evidence_sources") == ["completed_session_tool"]
         for item in coding_artifacts
     )
     scenarios = {record.get("scenario") for record in provider.trace.snapshot()}
@@ -821,7 +827,14 @@ async def test_real_binary_generic_facade_gate_red_fix_and_verify_green(
         and str(event.payload.get("tool") or "").endswith("edit")
         for event in events
     )
-    assert any(item.type == "changed_file" for item in artifacts)
+    assert any(
+        item.type == "changed_file"
+        and item.reference == gate_file.name
+        and item.sha256 == hashlib.sha256(b"GATE_GREEN\n").hexdigest()
+        and item.size_bytes == len(b"GATE_GREEN\n")
+        and item.metadata.get("evidence_sources") == ["completed_session_tool"]
+        for item in artifacts
+    )
 
 
 @pytest.mark.asyncio
@@ -861,6 +874,10 @@ async def test_real_binary_generic_facade_rejects_edit_and_proves_positive_limit
         provider,
         edit_permission="ask",
     )
+    template = json.loads(template_path.read_text(encoding="utf-8"))
+    permission_items = list(template["agent"]["jarvis-executor"]["permission"].items())
+    assert permission_items[0] == ("*", "allow")
+    assert permission_items[1] == ("edit", "ask")
     monkeypatch.setattr(config_settings, "OPENCODE_CONFIG_TEMPLATE", template_path)
     runtime = _real_runtime(layout, _runtime_settings(), manifest)
     try:

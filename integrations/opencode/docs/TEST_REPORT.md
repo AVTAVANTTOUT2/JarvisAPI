@@ -25,15 +25,13 @@ python tools/run_integration_ci.py --phase removal
 
 Résultats locaux sur la branche de livraison :
 
-- suite Python JARVIS : **2 511 réussis**, 8 désélectionnés (E2E opt-in et
-  probe loopback interdit par le bac à sable), avec 1 avertissement de
-  dépréciation Torch historique ;
+- suite Python JARVIS hors bac à sable : **2 512 réussis**, 7 désélectionnés
+  (E2E opt-in), avec 1 avertissement de dépréciation Torch historique ;
 - cœur DevAgent/livraison : **60 réussis**, y compris la preuve qu'un ancien
   `DEVAGENT_AUTO_DEPLOY_STAGING=true` ne peut plus déclencher de déploiement ;
 - relais JARVIS/Claw3D : **30 réussis** ;
-- plugin hors sockets dans le bac à sable : **120 réussis**, 8 refus `EPERM`
-  AF_UNIX et 8 E2E désélectionnés ; la même suite hors bac à sable avant les
-  derniers scénarios E2E comptait **128 réussis**, 8 désélectionnés ;
+- plugin hors E2E : **136 réussis**, 8 E2E désélectionnés ; phase `live` vrai
+  binaire : **8 réussis**, 21 tests non-live désélectionnés ;
 - Web : **82 réussis**, typecheck réussi ; frontend unifié : **48 réussis**,
   typecheck et build production de 32 pages réussis ;
 - Android debug/release : **120 tâches Gradle réussies**, APK/mapping/lint et
@@ -46,11 +44,11 @@ Résultats locaux sur la branche de livraison :
   110 tables créées, aucun fournisseur découvert, spawn, accès réseau ou
   résidu runtime.
 
-Les tests vrai binaire lient exclusivement `127.0.0.1` et n'utilisent aucune
-clé externe. Le bac à sable local refuse les créations de sockets (`EPERM`).
-Cinq des huit scénarios E2E vrai binaire ont réussi avant ce refus ; le
-correctif qui borne explicitement le provider de fixture est linté et collecté,
-et les huit scénarios sont une porte `live` obligatoire en CI. La preuve de
-retrait `--full` constitue un job macOS dédié dépendant des cinq autres portes
-de livraison. La CI reconstruit aussi tous les clients depuis un environnement
-propre au SHA livré.
+Les huit tests vrai binaire lient exclusivement `127.0.0.1` et des sockets Unix
+locales, sans clé externe ni réseau public. Ils couvrent notamment auth privée,
+concurrence, configuration projet hostile, reprise d'orphelin, lecture seule,
+édition attestée, gate rouge vers vert, approbation refusée et nettoyage. Ils
+constituent une porte `live` obligatoire en CI. La preuve de retrait `--full`
+constitue un job macOS dédié dépendant des cinq autres portes de livraison. La
+CI reconstruit aussi tous les clients depuis un environnement propre au SHA
+livré.
