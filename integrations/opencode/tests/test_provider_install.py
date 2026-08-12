@@ -7,7 +7,9 @@ from pathlib import Path
 import shutil
 import tarfile
 import zipfile
+from typing import Any
 
+import httpx
 import pytest
 
 from integrations.opencode.config import OpenCodeSettings, RuntimeLayout
@@ -16,6 +18,7 @@ from integrations.opencode.lifecycle.install import (
     ChecksumMismatchError,
     InstallManager,
     InstallationError,
+    _is_transient_download_error,
     _validated_download_url,
 )
 from integrations.opencode.lifecycle.release import ReleaseAsset, ReleaseManifest
@@ -161,6 +164,143 @@ def test_installer_rejects_non_allowlisted_download_hops(url: str) -> None:
 def test_installer_accepts_only_official_download_hosts() -> None:
     url = "https://release-assets.githubusercontent.com/github-production-release-asset/opencode.zip"
     assert _validated_download_url(url) == url
+
+
+def test_transient_download_error_classifier() -> None:
+    assert _is_transient_download_error(
+        httpx.RemoteProtocolError("Server disconnected without sending a response.")
+    )
+    assert _is_transient_download_error(httpx.ConnectError("connection refused"))
+    assert _is_transient_download_error(httpx.ReadTimeout("timed out"))
+    assert not _is_transient_download_error(httpx.HTTPStatusError(
+        "boom",
+        request=httpx.Request("GET", "https://github.com/opencode.zip"),
+        response=httpx.Response(404),
+    ))
+    assert not _is_transient_download_error(InstallationError("checksum"))
+
+
+def test_download_asset_retries_transient_remote_disconnect(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    payload = b"opencode-binary-bytes"
+    destination = tmp_path / "plugin" / ".runtime" / "tmp" / "opencode-linux-x64.zip"
+    asset = ReleaseAsset(
+        key="linux-x64",
+        filename="opencode-linux-x64.zip",
+        archive="zip",
+        url=(
+            "https://github.com/anomalyco/opencode/releases/download/"
+            "v9.9.9/opencode-linux-x64.zip"
+        ),
+        sha256=hashlib.sha256(payload).hexdigest(),
+        size=len(payload),
+    )
+    manager = InstallManager(layout=_layout(tmp_path))
+    attempts = {"count": 0}
+    sleeps: list[float] = []
+
+    class _Response:
+        def __init__(self) -> None:
+            self.is_redirect = False
+            self.headers = {"content-length": str(len(payload))}
+            self.url = asset.url
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def iter_raw(self):
+            yield payload
+
+        def __enter__(self) -> "_Response":
+            return self
+
+        def __exit__(self, *args: object) -> bool:
+            return False
+
+    class _Client:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            return None
+
+        def __enter__(self) -> "_Client":
+            return self
+
+        def __exit__(self, *args: object) -> bool:
+            return False
+
+        def stream(self, method: str, url: str) -> _Response:
+            assert method == "GET"
+            assert url == asset.url
+            attempts["count"] += 1
+            if attempts["count"] < 3:
+                raise httpx.RemoteProtocolError(
+                    "Server disconnected without sending a response."
+                )
+            return _Response()
+
+    monkeypatch.setattr(
+        "integrations.opencode.lifecycle.install.httpx.Client",
+        _Client,
+    )
+    monkeypatch.setattr(
+        "integrations.opencode.lifecycle.install.time.sleep",
+        sleeps.append,
+    )
+
+    manager.download_asset(asset, destination, max_bytes=1024)
+
+    assert attempts["count"] == 3
+    assert sleeps == [0.5, 1.0]
+    assert destination.read_bytes() == payload
+    assert destination.stat().st_mode & 0o777 == 0o600
+
+
+def test_download_asset_exhausts_retries_then_raises(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    payload = b"never-delivered"
+    destination = tmp_path / "plugin" / ".runtime" / "tmp" / "opencode-linux-x64.zip"
+    asset = ReleaseAsset(
+        key="linux-x64",
+        filename="opencode-linux-x64.zip",
+        archive="zip",
+        url=(
+            "https://github.com/anomalyco/opencode/releases/download/"
+            "v9.9.9/opencode-linux-x64.zip"
+        ),
+        sha256=hashlib.sha256(payload).hexdigest(),
+        size=len(payload),
+    )
+    manager = InstallManager(layout=_layout(tmp_path))
+
+    class _Client:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            return None
+
+        def __enter__(self) -> "_Client":
+            return self
+
+        def __exit__(self, *args: object) -> bool:
+            return False
+
+        def stream(self, method: str, url: str) -> Any:
+            raise httpx.RemoteProtocolError(
+                "Server disconnected without sending a response."
+            )
+
+    monkeypatch.setattr(
+        "integrations.opencode.lifecycle.install.httpx.Client",
+        _Client,
+    )
+    monkeypatch.setattr(
+        "integrations.opencode.lifecycle.install.time.sleep",
+        lambda *_args: None,
+    )
+
+    with pytest.raises(InstallationError, match="téléchargement OpenCode"):
+        manager.download_asset(asset, destination, max_bytes=1024)
+
+    assert not destination.exists()
 
 
 def test_install_rejects_archive_traversal_even_with_valid_checksum(

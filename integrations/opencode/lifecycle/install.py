@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
+import logging
 import os
 from pathlib import Path
 import shutil
@@ -12,6 +13,7 @@ import stat
 import subprocess
 import tarfile
 import tempfile
+import time
 from typing import Callable
 from urllib.parse import urljoin, urlsplit
 import zipfile
@@ -65,6 +67,7 @@ class VerificationReport:
 
 
 Downloader = Callable[[ReleaseAsset, Path, int], None]
+logger = logging.getLogger(__name__)
 _DOWNLOAD_ALLOWED_HOSTS = frozenset(
     {
         "github.com",
@@ -73,6 +76,19 @@ _DOWNLOAD_ALLOWED_HOSTS = frozenset(
     }
 )
 _MAX_DOWNLOAD_REDIRECTS = 5
+_MAX_DOWNLOAD_ATTEMPTS = 3
+_DOWNLOAD_RETRY_BASE_SECONDS = 0.5
+_TRANSIENT_DOWNLOAD_ERRORS = (
+    httpx.TimeoutException,
+    httpx.NetworkError,
+    httpx.RemoteProtocolError,
+)
+
+
+def _is_transient_download_error(exc: BaseException) -> bool:
+    """True pour les coupures CDN / réseau réessayables, faux pour le reste."""
+
+    return isinstance(exc, _TRANSIENT_DOWNLOAD_ERRORS)
 
 
 def _validated_download_url(url: str) -> str:
@@ -187,6 +203,34 @@ class InstallManager:
             raise InstallationError(
                 "Destination de téléchargement symbolique interdite"
             )
+        last_error: BaseException | None = None
+        for attempt in range(_MAX_DOWNLOAD_ATTEMPTS):
+            try:
+                self._download_asset_once(asset, destination, max_bytes)
+                return
+            except Exception as exc:
+                if not _is_transient_download_error(exc):
+                    raise
+                last_error = exc
+                if attempt + 1 >= _MAX_DOWNLOAD_ATTEMPTS:
+                    break
+                delay = _DOWNLOAD_RETRY_BASE_SECONDS * (2**attempt)
+                logger.warning(
+                    "Téléchargement OpenCode interrompu (%s), nouvel essai %s/%s dans %.1fs",
+                    type(exc).__name__,
+                    attempt + 2,
+                    _MAX_DOWNLOAD_ATTEMPTS,
+                    delay,
+                )
+                time.sleep(delay)
+        raise InstallationError(
+            "Échec du téléchargement OpenCode après "
+            f"{_MAX_DOWNLOAD_ATTEMPTS} tentatives: {last_error}"
+        ) from last_error
+
+    def _download_asset_once(
+        self, asset: ReleaseAsset, destination: Path, max_bytes: int
+    ) -> None:
         digest = hashlib.sha256()
         total = 0
         descriptor, temporary = tempfile.mkstemp(
