@@ -377,9 +377,11 @@ def _full_gate_environment(
         "JAVA_HOME",
         "LANG",
         "LC_ALL",
+        "LOGNAME",
         "PATH",
         "PNPM_HOME",
         "TMPDIR",
+        "USER",
         "XCODE_VERSION_ACTUAL",
     }
     environment = {key: value for key, value in base.items() if key in allowed}
