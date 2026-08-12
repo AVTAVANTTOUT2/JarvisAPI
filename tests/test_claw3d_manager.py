@@ -86,11 +86,13 @@ def test_visual_credentials_are_scoped_private_and_stable(tmp_path: Path):
     token_path, ca_path = claw3d.provision_visual_credentials(
         root,
         "http://127.0.0.1:8080",
+        jarvis_root=jarvis_root,
     )
     original = token_path.read_text(encoding="ascii")
     repeated, repeated_ca = claw3d.provision_visual_credentials(
         root,
         "http://127.0.0.1:8080",
+        jarvis_root=jarvis_root,
     )
 
     assert repeated == token_path
@@ -110,6 +112,7 @@ def test_visual_credentials_copy_only_public_ca_for_https(tmp_path: Path):
     _, ca_path = claw3d.provision_visual_credentials(
         root,
         "https://127.0.0.1:8080",
+        jarvis_root=jarvis_root,
     )
 
     assert ca_path is not None
@@ -229,6 +232,13 @@ def test_is_installed_and_running_helpers(tmp_path: Path, monkeypatch):
 
 def test_sync_managed_configuration_rewrites_readonly_origin(tmp_path: Path, monkeypatch):
     root = _fake_installation(tmp_path)
+    # Une origine https réclame le certificat public de JARVIS. Le fournir ici
+    # rend le test hermétique : il passait ou échouait selon que la machine du
+    # développeur avait déjà généré `certs/cert.pem`.
+    cert = tmp_path / "certs" / "cert.pem"
+    cert.parent.mkdir(parents=True, exist_ok=True)
+    cert.write_text("PUBLIC TEST CERTIFICATE\n", encoding="ascii")
+    monkeypatch.setattr(claw3d, "JARVIS_ROOT", tmp_path)
     monkeypatch.setattr(claw3d, "apps_root", lambda jarvis_root=claw3d.JARVIS_ROOT: root.parent)
     monkeypatch.setattr(
         claw3d,

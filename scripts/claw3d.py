@@ -89,7 +89,12 @@ def _write_private_file(path: Path, content: str, *, preserve: bool) -> Path:
     return path
 
 
-def provision_visual_credentials(root: Path, jarvis_origin: str) -> tuple[Path, Path | None]:
+def provision_visual_credentials(
+    root: Path,
+    jarvis_origin: str,
+    *,
+    jarvis_root: Path | None = None,
+) -> tuple[Path, Path | None]:
     """Crée le jeton scoped et copie uniquement le certificat public utile."""
     root = root.resolve()
     state_root = root / ".claw3d"
@@ -109,8 +114,13 @@ def provision_visual_credentials(root: Path, jarvis_origin: str) -> tuple[Path, 
 
     ca_path: Path | None = None
     if urlsplit(jarvis_origin).scheme.lower() == "https":
-        jarvis_root = root.parents[2]
-        source = jarvis_root / "certs" / "cert.pem"
+        # La racine JARVIS est une donnée connue du module, pas quelque chose à
+        # reconstituer en remontant trois niveaux depuis l'installation Claw3D.
+        # Cette déduction par index tenait par coïncidence de disposition : elle
+        # désignait un répertoire arbitraire dès que la racine changeait, et
+        # exigeait alors un certificat à un emplacement où personne ne l'attend.
+        base = (jarvis_root or JARVIS_ROOT).resolve()
+        source = base / "certs" / "cert.pem"
         if source.is_symlink() or not source.is_file():
             raise Claw3DError(
                 "certificat JARVIS local introuvable; générez certs/cert.pem avant Claw3D"
