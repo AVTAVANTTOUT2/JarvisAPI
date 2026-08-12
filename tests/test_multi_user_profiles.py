@@ -172,7 +172,7 @@ def test_websocket_broadcasts_are_partitioned_by_profile(profile_db: Path) -> No
 def test_profile_management_routes_require_default_admin(profile_db: Path) -> None:
     import auth
     import config
-    from database import profile_database_path
+    from database import create_user_profile, profile_database_path, use_profile
     from main import app
 
     auth.setup_secret("1234")
@@ -207,6 +207,69 @@ def test_profile_management_routes_require_default_admin(profile_db: Path) -> No
         assert deactivated.status_code == 200
         assert profile_path.is_file()
         assert client.get("/api/tasks", headers={"X-Jarvis-Profile": profile_id}).status_code == 404
+
+    # Session secondaire : création / désactivation refusées (frontière de privilège).
+    guest = create_user_profile("Guest Admin Check")
+    with use_profile(guest["id"]):
+        auth.setup_secret("5678")
+        guest_token, _ = auth.create_session(user_agent="Guest")
+        guest_csrf = auth.csrf_token_for_session(guest_token)
+
+    guest_headers = {
+        "Origin": "http://testserver",
+        "X-CSRF-Token": guest_csrf,
+        "X-Jarvis-Profile": guest["id"],
+    }
+    with TestClient(app) as client:
+        client.cookies.set(config.SESSION_COOKIE_NAME, guest_token)
+        denied_create = client.post(
+            "/api/auth/profiles",
+            headers=guest_headers,
+            json={"display_name": "Escalade"},
+        )
+        assert denied_create.status_code == 403
+        assert "profil principal" in denied_create.json()["detail"].lower()
+
+        denied_deactivate = client.post(
+            f"/api/auth/profiles/{guest['id']}/deactivate",
+            headers=guest_headers,
+        )
+        assert denied_deactivate.status_code == 403
+        assert "profil principal" in denied_deactivate.json()["detail"].lower()
+
+
+def test_create_user_profile_rolls_back_registry_when_init_fails(
+    profile_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from database import list_user_profiles
+    from database import profiles as profiles_mod
+
+    before = {profile["id"] for profile in list_user_profiles(include_inactive=True)}
+
+    def boom() -> None:
+        raise RuntimeError("init_db failed for profile")
+
+    monkeypatch.setattr(profiles_mod, "init_db", boom)
+
+    with pytest.raises(RuntimeError, match="init_db failed"):
+        profiles_mod.create_user_profile("Orphelin")
+
+    after = list_user_profiles(include_inactive=True)
+    assert {profile["id"] for profile in after} == before
+    assert all(profile["display_name"] != "Orphelin" for profile in after)
+    # Aucune base orpheline créée sous data/profiles (chemin dérivé du DB_PATH de test).
+    profiles_dir = profile_db.parent / "profiles"
+    if profiles_dir.is_dir():
+        assert not any(profiles_dir.rglob("*.db"))
+
+
+def test_create_user_profile_rejects_empty_or_oversized_display_name(profile_db: Path) -> None:
+    from database import create_user_profile
+
+    with pytest.raises(ValueError, match="1 et 80"):
+        create_user_profile("   ")
+    with pytest.raises(ValueError, match="1 et 80"):
+        create_user_profile("x" * 81)
 
 
 def test_semantic_indexing_thread_keeps_active_profile(profile_db: Path, monkeypatch) -> None:

@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-12T07:34:37.421095+00:00",
+  "generated_at": "2026-08-12T13:38:40.450279+00:00",
   "repo_root": ".",
   "canonical_formulation": {
     "database": "Le projet crée 104 tables persistantes après init_db() + migrations, plus jusqu'à 5 objets FTS5, soit 109 tables physiques lorsque FTS5 est disponible.",
@@ -587,7 +587,8 @@
         },
         "tests": [
           "tests/test_food_control.py",
-          "tests/test_food_input_contract.py"
+          "tests/test_food_input_contract.py",
+          "tests/test_sync_versioning.py"
         ],
         "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
@@ -1776,7 +1777,8 @@
         },
         "tests": [
           "tests/test_food_control.py",
-          "tests/test_food_input_contract.py"
+          "tests/test_food_input_contract.py",
+          "tests/test_sync_versioning.py"
         ],
         "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
@@ -3678,7 +3680,8 @@
           "frontend/src/auth-client.test.ts",
           "tests/conftest.py",
           "tests/test_auth_input_contract.py",
-          "tests/test_security_middleware.py"
+          "tests/test_security_middleware.py",
+          "tests/test_sync_versioning.py"
         ],
         "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
@@ -4549,7 +4552,8 @@
         },
         "tests": [
           "tests/test_food_control.py",
-          "tests/test_food_input_contract.py"
+          "tests/test_food_input_contract.py",
+          "tests/test_sync_versioning.py"
         ],
         "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
