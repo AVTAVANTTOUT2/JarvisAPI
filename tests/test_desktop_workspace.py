@@ -2,8 +2,6 @@
 
 from pathlib import Path
 
-import pytest
-
 from jarvis.agentic.desktop_workspace import resolve_desktop_workspace
 
 
