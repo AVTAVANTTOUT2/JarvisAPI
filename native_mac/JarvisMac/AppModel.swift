@@ -28,6 +28,9 @@ final class AppModel: ObservableObject {
     let api = JarvisAPI()
     let socket = JarvisSocket()
     let audio = NativeAudioService()
+    /// La session SSH vit ici et non dans la vue : changer de section ne doit
+    /// pas couper un shell distant.
+    let terminal = TerminalBridge()
 
     private var streamingMessageID: UUID?
     private var agenticRefreshTask: Task<Void, Never>?
@@ -152,6 +155,9 @@ final class AppModel: ObservableObject {
         try? await api.logout()
         biometricCredentials.delete()
         socket.disconnect()
+        // Un shell distant laissé ouvert derrière l'écran verrouillé annulerait
+        // le verrou : la session SSH tombe avec la session applicative.
+        terminal.teardown()
         agenticRefreshTask?.cancel()
         agenticDetailTask?.cancel()
         phase = .locked
@@ -317,6 +323,7 @@ final class AppModel: ObservableObject {
         switch url.host {
         case "chat": selectedSection = .chat
         case "actions": selectedSection = .actions
+        case "terminal": selectedSection = .terminal
         case "system": selectedSection = .system
         default: selectedSection = .today
         }

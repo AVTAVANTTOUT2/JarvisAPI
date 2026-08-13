@@ -10,20 +10,27 @@
 		1CD8C46BE5466F9187739233 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D80D32C61CAD2CAE516BE7E2 /* RootView.swift */; };
 		1CE082FE38F211ACF44DE23C /* BiometricCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B78AA0700882AF0BC47F721D /* BiometricCredentialStore.swift */; };
 		224E9CE38CD9C78165D40662 /* JarvisSocket.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91C421F01812591F41688E0E /* JarvisSocket.swift */; };
+		2330A6C2773D3D6CE1F153F5 /* TailscaleService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 709A181A8B30A78A3682AC1F /* TailscaleService.swift */; };
 		27B2062157F58117C9499762 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDC2AC71D7D7E86605463EF7 /* Models.swift */; };
 		2825DDCBE853C63B8CA5A8D7 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E39411303832E3CF68C9821A /* SettingsView.swift */; };
+		2A7DC21F612E27FDFAD3BBB7 /* TerminalSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2160AFD31D3A9C5BED1DB280 /* TerminalSurface.swift */; };
 		3A440AD377341AD691DEC602 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = F29639B1D1707E3559A33894 /* AppModel.swift */; };
+		466E7FEBEDD3ABF066492919 /* TerminalEmulator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5431697DEDA47C44449E2B14 /* TerminalEmulator.swift */; };
 		4A66D86B43A1BE912D38BE24 /* JarvisAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 626A40C635304319E75E8BDA /* JarvisAPI.swift */; };
+		4F458134E0ABF25DB393D634 /* TerminalBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FE8DD1C39A12945E3AEA25F /* TerminalBridge.swift */; };
 		5492D61427A8E8FF78B4EE05 /* LockView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 666404C0B2DA43CCB37BF0AE /* LockView.swift */; };
 		615D7B2C9E4F4E1BFABAF0A5 /* CommandPaletteView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6C3B3123B3F2989768FA623 /* CommandPaletteView.swift */; };
+		65C83F116809D383CD25D1F4 /* SSHTerminalSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FFE476AFB088C6710F3AEAA /* SSHTerminalSession.swift */; };
 		68C131AEDE364B7B596D2AFD /* DeskWidgetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE339FF25A647013EC889CC9 /* DeskWidgetView.swift */; };
 		6F0C366BCAFF5C9CFBA139B9 /* JarvisWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 1448724931C29A7550A0E24E /* JarvisWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		75C5682E699AA3C4A7BDDE30 /* MemoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E8BB4E440FA9D1D0DB788F6 /* MemoryView.swift */; };
+		85D9699E5BD7EE56E3A0ED98 /* TerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A137C54083F155E950266021 /* TerminalView.swift */; };
 		8F7068B10663B70206942ACB /* NativeServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8DBDC98569FE92AB44401E5 /* NativeServices.swift */; };
 		B132F0BCEFEC613053D3C6B5 /* JarvisMacApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D0FE0CF09B11602ED9CCD1C /* JarvisMacApp.swift */; };
 		BA44E1BD6DD06B10855BFF54 /* JarvisWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1182C0721702CF5A87DDD1F4 /* JarvisWidget.swift */; };
 		E5377B5773043ACFC15B7654 /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EB0ED42FF2BB60C101F1860 /* ChatView.swift */; };
 		E90D8354167EB38142CDC68B /* SystemView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC0C5E201BC90D0D04286816 /* SystemView.swift */; };
+		E923ACE267552B66315E8A7E /* TerminalTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7D9BBD1759BFCF9A58697EF /* TerminalTheme.swift */; };
 		F15F4488219144D969C2EB30 /* ActionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7885B368BA237DA9B7B2C30 /* ActionsView.swift */; };
 		F3E7BFBE48CF93AEC2C96B1C /* MenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 359D4532A234E827F964D123 /* MenuBarView.swift */; };
 		F74CCEF05BA835AD44405456 /* PreviewExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B13C798547E3D7DF04AF48C8 /* PreviewExporter.swift */; };
@@ -58,20 +65,27 @@
 /* Begin PBXFileReference section */
 		1182C0721702CF5A87DDD1F4 /* JarvisWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JarvisWidget.swift; sourceTree = "<group>"; };
 		1448724931C29A7550A0E24E /* JarvisWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = JarvisWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		2160AFD31D3A9C5BED1DB280 /* TerminalSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSurface.swift; sourceTree = "<group>"; };
 		359D4532A234E827F964D123 /* MenuBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarView.swift; sourceTree = "<group>"; };
 		4D0FE0CF09B11602ED9CCD1C /* JarvisMacApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JarvisMacApp.swift; sourceTree = "<group>"; };
+		5431697DEDA47C44449E2B14 /* TerminalEmulator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalEmulator.swift; sourceTree = "<group>"; };
 		626A40C635304319E75E8BDA /* JarvisAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JarvisAPI.swift; sourceTree = "<group>"; };
 		666404C0B2DA43CCB37BF0AE /* LockView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LockView.swift; sourceTree = "<group>"; };
 		6E8BB4E440FA9D1D0DB788F6 /* MemoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryView.swift; sourceTree = "<group>"; };
+		6FE8DD1C39A12945E3AEA25F /* TerminalBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBridge.swift; sourceTree = "<group>"; };
+		709A181A8B30A78A3682AC1F /* TailscaleService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TailscaleService.swift; sourceTree = "<group>"; };
 		805A6E03B69D8002EDACC3B2 /* TodayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayView.swift; sourceTree = "<group>"; };
+		8FFE476AFB088C6710F3AEAA /* SSHTerminalSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHTerminalSession.swift; sourceTree = "<group>"; };
 		91C421F01812591F41688E0E /* JarvisSocket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JarvisSocket.swift; sourceTree = "<group>"; };
 		9EB0ED42FF2BB60C101F1860 /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
+		A137C54083F155E950266021 /* TerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalView.swift; sourceTree = "<group>"; };
 		AC0C5E201BC90D0D04286816 /* SystemView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemView.swift; sourceTree = "<group>"; };
 		B13C798547E3D7DF04AF48C8 /* PreviewExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewExporter.swift; sourceTree = "<group>"; };
 		B78AA0700882AF0BC47F721D /* BiometricCredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiometricCredentialStore.swift; sourceTree = "<group>"; };
 		BD083CE2FCC4402A881C47E8 /* DesignSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystem.swift; sourceTree = "<group>"; };
 		C7885B368BA237DA9B7B2C30 /* ActionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionsView.swift; sourceTree = "<group>"; };
 		D6C3B3123B3F2989768FA623 /* CommandPaletteView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteView.swift; sourceTree = "<group>"; };
+		D7D9BBD1759BFCF9A58697EF /* TerminalTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalTheme.swift; sourceTree = "<group>"; };
 		D80D32C61CAD2CAE516BE7E2 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		D8DBDC98569FE92AB44401E5 /* NativeServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeServices.swift; sourceTree = "<group>"; };
 		DE339FF25A647013EC889CC9 /* DeskWidgetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeskWidgetView.swift; sourceTree = "<group>"; };
@@ -103,7 +117,14 @@
 				B13C798547E3D7DF04AF48C8 /* PreviewExporter.swift */,
 				D80D32C61CAD2CAE516BE7E2 /* RootView.swift */,
 				E39411303832E3CF68C9821A /* SettingsView.swift */,
+				8FFE476AFB088C6710F3AEAA /* SSHTerminalSession.swift */,
 				AC0C5E201BC90D0D04286816 /* SystemView.swift */,
+				709A181A8B30A78A3682AC1F /* TailscaleService.swift */,
+				6FE8DD1C39A12945E3AEA25F /* TerminalBridge.swift */,
+				5431697DEDA47C44449E2B14 /* TerminalEmulator.swift */,
+				2160AFD31D3A9C5BED1DB280 /* TerminalSurface.swift */,
+				D7D9BBD1759BFCF9A58697EF /* TerminalTheme.swift */,
+				A137C54083F155E950266021 /* TerminalView.swift */,
 				805A6E03B69D8002EDACC3B2 /* TodayView.swift */,
 			);
 			path = JarvisMac;
@@ -241,8 +262,15 @@
 				8F7068B10663B70206942ACB /* NativeServices.swift in Sources */,
 				F74CCEF05BA835AD44405456 /* PreviewExporter.swift in Sources */,
 				1CD8C46BE5466F9187739233 /* RootView.swift in Sources */,
+				65C83F116809D383CD25D1F4 /* SSHTerminalSession.swift in Sources */,
 				2825DDCBE853C63B8CA5A8D7 /* SettingsView.swift in Sources */,
 				E90D8354167EB38142CDC68B /* SystemView.swift in Sources */,
+				2330A6C2773D3D6CE1F153F5 /* TailscaleService.swift in Sources */,
+				4F458134E0ABF25DB393D634 /* TerminalBridge.swift in Sources */,
+				466E7FEBEDD3ABF066492919 /* TerminalEmulator.swift in Sources */,
+				2A7DC21F612E27FDFAD3BBB7 /* TerminalSurface.swift in Sources */,
+				E923ACE267552B66315E8A7E /* TerminalTheme.swift in Sources */,
+				85D9699E5BD7EE56E3A0ED98 /* TerminalView.swift in Sources */,
 				F9C2C1374A981B1F4EEEB1F9 /* TodayView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

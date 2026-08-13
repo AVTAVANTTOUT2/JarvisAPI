@@ -6,6 +6,7 @@ enum AppSection: String, CaseIterable, Identifiable {
     case chat
     case actions
     case memory
+    case terminal
     case system
 
     var id: String { rawValue }
@@ -16,6 +17,7 @@ enum AppSection: String, CaseIterable, Identifiable {
         case .chat: "Conversation"
         case .actions: "Actions"
         case .memory: "Mémoire"
+        case .terminal: "Terminal"
         case .system: "Système"
         }
     }
@@ -26,6 +28,7 @@ enum AppSection: String, CaseIterable, Identifiable {
         case .chat: "bubble.left.and.bubble.right.fill"
         case .actions: "checkmark.circle.fill"
         case .memory: "brain.head.profile.fill"
+        case .terminal: "terminal.fill"
         case .system: "waveform.path.ecg"
         }
     }

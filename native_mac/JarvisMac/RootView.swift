@@ -51,6 +51,7 @@ struct RootView: View {
                 case .chat: ChatView()
                 case .actions: ActionsView()
                 case .memory: MemoryView()
+                case .terminal: TerminalView()
                 case .system: SystemView()
                 }
             }

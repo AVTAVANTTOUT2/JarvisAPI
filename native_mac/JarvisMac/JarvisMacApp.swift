@@ -22,6 +22,8 @@ struct JarvisMacApp: App {
                     .keyboardShortcut("2", modifiers: .command)
                 Button("Actions") { model.selectedSection = .actions }
                     .keyboardShortcut("3", modifiers: .command)
+                Button("Terminal") { model.selectedSection = .terminal }
+                    .keyboardShortcut("4", modifiers: .command)
                 Divider()
                 Button("Demander à Jarvis…") { model.isCommandPalettePresented = true }
                     .keyboardShortcut("j", modifiers: [.command, .shift])
