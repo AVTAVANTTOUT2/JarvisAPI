@@ -286,8 +286,8 @@
 			projectRoot = "";
 			targets = (
 				D43AD3FBCAB4A59DFE318086 /* JarvisMac */,
-				05F4C93CA00380ADFE5320B7 /* JarvisMacTests */,
 				882CE05334D15212FC8D6680 /* JarvisWidgetExtension */,
+				05F4C93CA00380ADFE5320B7 /* JarvisMacTests */,
 			);
 		};
 /* End PBXProject section */
