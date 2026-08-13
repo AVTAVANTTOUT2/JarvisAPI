@@ -49,6 +49,7 @@ struct RootView: View {
                 switch model.selectedSection {
                 case .today: TodayView()
                 case .chat: ChatView()
+                case .tasks: TasksView(api: model.api)
                 case .actions: ActionsView()
                 case .memory: MemoryView()
                 case .terminal: TerminalView()

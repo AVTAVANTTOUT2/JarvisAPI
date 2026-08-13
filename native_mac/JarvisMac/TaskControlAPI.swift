@@ -96,7 +96,7 @@ extension JarvisAPI {
             let project_id: String?
             let comment: String
         }
-        let envelope: TaskMutationEnvelope = try await request(
+        let envelope: ControlTaskEnvelope = try await request(
             "/api/task-control/tasks",
             method: "POST",
             body: Body(
@@ -128,7 +128,7 @@ extension JarvisAPI {
             let comment: String
             let plan_digest: String?
         }
-        let envelope: TaskMutationEnvelope = try await request(
+        let envelope: ControlTaskEnvelope = try await request(
             "/api/task-control/tasks/\(pathSegment(taskID))/plans/\(version)/decision",
             method: "POST",
             body: Body(decision: decision, comment: comment, plan_digest: digest)
@@ -149,7 +149,7 @@ extension JarvisAPI {
 
     func cancelControlTask(taskID: String, reason: String) async throws -> ControlTask {
         struct Body: Encodable { let reason: String }
-        let envelope: TaskMutationEnvelope = try await request(
+        let envelope: ControlTaskEnvelope = try await request(
             "/api/task-control/tasks/\(pathSegment(taskID))/cancel",
             method: "POST",
             body: Body(reason: reason)

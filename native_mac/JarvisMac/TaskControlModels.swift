@@ -416,7 +416,7 @@ struct TaskEffectApproval: Codable, Hashable, Identifiable {
 
 // MARK: - Rapport et livrables
 
-struct TaskReport: Codable, Hashable, Identifiable {
+struct TaskReport: Decodable, Hashable, Identifiable {
     let reportID: String
     let taskID: String
     let version: Int
@@ -569,7 +569,7 @@ struct TaskDetailEnvelope: Decodable {
     }
 }
 
-struct TaskMutationEnvelope: Decodable { let task: ControlTask }
+struct ControlTaskEnvelope: Decodable { let task: ControlTask }
 struct TaskPlansEnvelope: Decodable { let plans: [TaskPlan] }
 struct TaskActivityEnvelope: Decodable {
     let activity: [TaskActivityEntry]

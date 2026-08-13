@@ -31,7 +31,6 @@ final class TaskNotificationCenter {
     private let delegate = TaskNotificationDelegate()
 
     private init() {
-        delegate.owner = self
         center.delegate = delegate
     }
 
@@ -119,23 +118,24 @@ final class TaskNotificationCenter {
     }
 
     private func updateBadge(count: Int) {
-        let content = UNMutableNotificationContent()
-        content.badge = NSNumber(value: count)
         // Le badge est porté par le centre de notifications plutôt que par
-        // NSApp : il reste juste même quand la fenêtre est fermée.
+        // `NSApp` : il reste juste même quand la fenêtre est fermée.
         center.setBadgeCount(count) { _ in }
-        _ = content
     }
 
-    fileprivate func handleOpen(taskID: String) {
+    func handleOpen(taskID: String) {
         onOpenTask?(taskID)
     }
 }
 
 /// Délégué séparé : `UNUserNotificationCenterDelegate` doit être une classe
 /// Objective-C, et le centre n'en retient qu'une référence faible.
+///
+/// Le délégué ne retient pas le centre de notifications : il ne transporte que
+/// l'identifiant de tâche vers l'acteur principal. Capturer l'objet
+/// `@MainActor` dans une closure appelée depuis un thread quelconque revenait
+/// à le faire traverser une frontière d'isolation.
 private final class TaskNotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
-    weak var owner: TaskNotificationCenter?
 
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
@@ -152,7 +152,9 @@ private final class TaskNotificationDelegate: NSObject, UNUserNotificationCenter
     ) {
         let info = response.notification.request.content.userInfo
         if let taskID = info["task_id"] as? String {
-            Task { @MainActor [weak self] in self?.owner?.handleOpen(taskID: taskID) }
+            Task { @MainActor in
+                TaskNotificationCenter.shared.handleOpen(taskID: taskID)
+            }
         }
         completionHandler()
     }

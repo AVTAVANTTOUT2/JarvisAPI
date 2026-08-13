@@ -4,6 +4,7 @@ import SwiftUI
 enum AppSection: String, CaseIterable, Identifiable {
     case today
     case chat
+    case tasks
     case actions
     case memory
     case terminal
@@ -15,6 +16,7 @@ enum AppSection: String, CaseIterable, Identifiable {
         switch self {
         case .today: "Aujourd’hui"
         case .chat: "Conversation"
+        case .tasks: "Tâches"
         case .actions: "Actions"
         case .memory: "Mémoire"
         case .terminal: "Terminal"
@@ -26,6 +28,7 @@ enum AppSection: String, CaseIterable, Identifiable {
         switch self {
         case .today: "sparkles"
         case .chat: "bubble.left.and.bubble.right.fill"
+        case .tasks: "checklist"
         case .actions: "checkmark.circle.fill"
         case .memory: "brain.head.profile.fill"
         case .terminal: "terminal.fill"
