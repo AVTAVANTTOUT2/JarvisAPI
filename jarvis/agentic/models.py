@@ -154,6 +154,7 @@ ALLOWED_RUN_TRANSITIONS: Mapping[AgenticRunStatus, frozenset[AgenticRunStatus]] 
     AgenticRunStatus.QUEUED: frozenset(
         {
             AgenticRunStatus.PROVISIONING,
+            AgenticRunStatus.BLOCKED,
             AgenticRunStatus.CANCELLING,
             AgenticRunStatus.CANCELLED,
             AgenticRunStatus.FAILED,
@@ -271,7 +272,11 @@ ALLOWED_RUN_TRANSITIONS: Mapping[AgenticRunStatus, frozenset[AgenticRunStatus]] 
         }
     ),
     AgenticRunStatus.CANCELLING: frozenset(
-        {AgenticRunStatus.CANCELLED, AgenticRunStatus.FAILED}
+        {
+            AgenticRunStatus.CANCELLED,
+            AgenticRunStatus.PROVIDER_UNAVAILABLE,
+            AgenticRunStatus.FAILED,
+        }
     ),
     AgenticRunStatus.CANCELLED: frozenset(),
     AgenticRunStatus.FAILED: frozenset(),
@@ -347,6 +352,7 @@ class AgenticErrorCode(str, Enum):
     BUDGET_EXCEEDED = "budget_exceeded"
     TIMEOUT = "timeout"
     CANCELLED = "cancelled"
+    RESOURCE_PRESSURE = "resource_pressure"
     VERIFICATION_FAILED = "verification_failed"
     PERSISTENCE_CONFLICT = "persistence_conflict"
     INTERNAL = "internal"

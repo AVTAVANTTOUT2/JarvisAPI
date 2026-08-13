@@ -256,12 +256,25 @@ Pour l'installer comme LaunchAgent macOS, depuis le checkout et son venv réels 
 
 ```bash
 python scripts/jarvis_launchd.py install
+# ou, une fois le CLI copié dans ~/.local/bin :
+jarvis install
 ```
 
+Commandes du CLI `jarvis` :
+
+| Commande | Effet |
+|---|---|
+| `jarvis stop` | Arrête tout le stack (launchd, backend, Ollama, Claw3D, runtime agentique, daemons, Node du checkout). Ne touche pas Cursor. |
+| `jarvis start` | Charge le LaunchAgent et attend supervisor + backend. |
+| `jarvis restart` / `jarvis maj` | Arrêt déterministe (PID JARVIS uniquement), attente bornée du verrou et des ports, puis `start`. Un occupant tiers du port 9000 bloque la relance. |
+| `jarvis status` | LaunchAgent, processus JARVIS, ports. |
+| `jarvis uninstall` | Arrête le stack et retire le LaunchAgent (plus de relance au login). |
+
 L'installateur génère `~/Library/LaunchAgents/com.jarvis.supervisor.plist`,
-vérifie `ProgramArguments`, `WorkingDirectory` et les logs, puis exécute
-`plutil -lint` avant de charger le service. Aucun chemin utilisateur n'est
-stocké dans le dépôt.
+installe `~/.local/bin/jarvis`, vérifie `ProgramArguments`, `WorkingDirectory`
+et les logs, puis exécute `plutil -lint` avant de charger le service. Aucun
+chemin utilisateur n'est stocké dans le dépôt. Après `stop`, le plist reste :
+`jarvis start` suffit pour relancer.
 
 ### 5. Installer l'UI visuelle Claw3D (optionnel)
 

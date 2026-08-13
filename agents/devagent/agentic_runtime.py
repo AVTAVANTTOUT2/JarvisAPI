@@ -709,7 +709,7 @@ def prepare_engineering_worktree(
             or str(current_branch.get("stdout") or "").strip() != branch
         ):
             raise RuntimeError("worktree idempotent existant incohérent")
-        return EngineeringWorktree(
+        reused = EngineeringWorktree(
             job_id=identifier,
             repo_root=repo,
             workspace=workspace.resolve(strict=True),
@@ -718,6 +718,8 @@ def prepare_engineering_worktree(
             remote_identity=remote_identity,
             required_checks=stable_required_checks,
         )
+        _sync_worktree_lifecycle(reused, state="active")
+        return reused
 
     branch_probe = run_isolated(
         ("git", "show-ref", "--verify", "--quiet", f"refs/heads/{branch}"),
@@ -740,7 +742,7 @@ def prepare_engineering_worktree(
     resolved_workspace = workspace.resolve(strict=True)
     if resolved_workspace.parent != root.resolve(strict=True):
         raise RuntimeError("le worktree résolu sort de la racine JARVIS")
-    return EngineeringWorktree(
+    prepared = EngineeringWorktree(
         job_id=identifier,
         repo_root=repo,
         workspace=resolved_workspace,
@@ -749,6 +751,35 @@ def prepare_engineering_worktree(
         remote_identity=remote_identity,
         required_checks=stable_required_checks,
     )
+    _sync_worktree_lifecycle(prepared, state="active")
+    return prepared
+
+
+def _sync_worktree_lifecycle(
+    worktree: EngineeringWorktree,
+    *,
+    state: str,
+    run_id: str | None = None,
+) -> None:
+    """Met à jour l'inventaire provider-neutral. Jamais bloquant pour Git."""
+    try:
+        from jarvis.agentic.worktrees import WorktreeLifecycle
+
+        manager = WorktreeLifecycle(worktree.repo_root)
+        manager.record(
+            worktree_id=worktree.job_id,
+            path=worktree.workspace,
+            branch=worktree.branch,
+            state=state,
+            run_id=run_id,
+        )
+        if state == "delivered":
+            manager.gc(dry_run=False)
+    except Exception as exc:
+        logger.warning(
+            "inventaire worktree ignoré (%s)",
+            type(exc).__name__,
+        )
 
 
 def _confined_validation_target(token: str, workspace: Path | None) -> None:
@@ -1317,6 +1348,7 @@ def validate_and_commit_engineering_worktree(
         return {"ok": False, "status": str(exc), "validations": []}
     if not before:
         if not expected:
+            _sync_worktree_lifecycle(worktree, state="delivered")
             return {"ok": True, "status": "no_changes", "validations": []}
         try:
             if not _has_local_delivery_commit(worktree):
@@ -1329,6 +1361,7 @@ def validate_and_commit_engineering_worktree(
         except (OSError, RuntimeError) as exc:
             return {"ok": False, "status": str(exc), "validations": []}
         if committed == expected:
+            _sync_worktree_lifecycle(worktree, state="delivered")
             return {"ok": True, "status": "already_committed", "validations": []}
         return {"ok": False, "status": "artifact_manifest_mismatch", "validations": []}
     if not expected:
@@ -1444,6 +1477,10 @@ def validate_and_commit_engineering_worktree(
     rollback_ok = True
     if not committed:
         rollback_ok = _rollback_index(worktree.workspace)
+    _sync_worktree_lifecycle(
+        worktree,
+        state="delivered" if committed else "failed",
+    )
     return {
         "ok": committed,
         "status": (

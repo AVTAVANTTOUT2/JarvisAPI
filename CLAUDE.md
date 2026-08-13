@@ -219,6 +219,25 @@ Ollama         = Screen Watcher uniquement (vision locale)
 - Latences vocales p50/p95 : `GET /api/voice/metrics` (table `voice_debug_log`).
 - UI : vue `/cognitive` (Intelligence, Délégations, Vocal, Autonomie).
 
+## Runtime agentique (plugin amovible)
+
+Le runtime agentique est un **provider d'exécution**, pas le cœur du produit. Le
+domaine générique vit dans `jarvis/agentic/` (classification, admission,
+permissions, approbations, vérification, Git). Les plugins sous
+`integrations/*/plugin.json` sont découverts dynamiquement ; aucun import
+statique du cœur vers un fournisseur d'exécution. Supprimer le dossier du
+plugin laisse JARVIS importable, avec l'API générique et un runtime
+`unavailable` explicite.
+
+- Clé modèle unique : `DEEPSEEK_API_KEY` (configuration JARVIS). Jamais de
+  doublon de secret provider.
+- Worktrees : `jarvis/agentic/worktrees.py` — GC borné, jamais de suppression
+  d'un arbre sale ou non poussé. CLI : `python -m jarvis.agentic.worktrees`.
+- Relance stack : `jarvis restart` refuse de démarrer si l'arrêt est incomplet
+  ou si un processus tiers occupe le port.
+- Claw3D reste une UI lecture seule optionnelle (ADR-027) ; son absence ne
+  dégrade pas la santé globale.
+
 ## Routing des tâches — standard vs tâche lourde
 
 Tout passe par **DeepSeek**. `llm.classify_task_type()` (fast model, ~10 tokens)

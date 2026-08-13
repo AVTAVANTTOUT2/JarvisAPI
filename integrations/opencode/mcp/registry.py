@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass
 from datetime import datetime
 from typing import AbstractSet, Any, Callable, Mapping
 
-from .approvals import ApprovalLedger
+from .approvals import ApprovalLedger, arguments_digest
 from .capabilities import CapabilityEnvelope, CapabilityError
 from .idempotency import IdempotencyJournal
 
 Handler = Callable[[dict[str, Any]], dict[str, Any]]
+ApprovalNeeded = Callable[[Mapping[str, Any]], None]
+DYNAMIC_APPROVAL_TOOLS = frozenset({"jarvis_tasks_create"})
 _SECRET_KEY = re.compile(
     r"(token|secret|password|cookie|authorization|api[_-]?key)", re.I
 )
@@ -91,7 +94,16 @@ class ToolRegistry:
         self.capability = capability
         self.journal = journal
         self.approvals = approval_ledger or ApprovalLedger(capability)
+        self._on_approval_needed: ApprovalNeeded | None = None
+        self._closed = False
         self._tools = {tool.name: tool for tool in self._default_tools()}
+
+    def bind_approval_callback(self, callback: ApprovalNeeded | None) -> None:
+        self._on_approval_needed = callback
+
+    def close(self) -> None:
+        self._closed = True
+        self.revoke_all_approvals()
 
     def _default_tools(self) -> tuple[ToolDefinition, ...]:
         def list_tasks(arguments: dict[str, Any]) -> dict[str, Any]:
@@ -223,7 +235,8 @@ class ToolRegistry:
         tool = self._tools.get(tool_name)
         if tool is None or not tool.effectful:
             raise CapabilityError("approval_tool_not_effectful")
-        self.capability.require(tool.scope)
+        if tool.name not in DYNAMIC_APPROVAL_TOOLS:
+            self.capability.require(tool.scope)
         self.approvals.grant(
             approval_id=approval_id,
             run_id=run_id,
@@ -239,20 +252,50 @@ class ToolRegistry:
         return self.approvals.revoke_all()
 
     def list_tools(self) -> list[dict[str, Any]]:
+        if self._closed:
+            return []
         schemas: list[dict[str, Any]] = []
         for tool in self._tools.values():
-            if tool.effectful and not self.approvals.is_visible(tool.name):
+            eligible = tool.effectful and tool.name in DYNAMIC_APPROVAL_TOOLS
+            scoped = tool.scope in self.capability.scopes
+            if tool.effectful and not eligible and not self.approvals.is_visible(tool.name):
                 continue
-            if tool.scope not in self.capability.scopes:
+            if not scoped and not eligible:
                 continue
             schemas.append(tool.mcp_schema())
         return schemas
+
+    def _emit_pending_approval(
+        self, tool: ToolDefinition, arguments: Mapping[str, Any]
+    ) -> None:
+        digest = arguments_digest(arguments)
+        approval_id = "mcp:" + hashlib.sha256(
+            f"{self.capability.run_id}\0{tool.name}\0{digest}".encode("utf-8")
+        ).hexdigest()[:32]
+        payload = {
+            "approval_id": approval_id,
+            "run_id": self.capability.run_id,
+            "tool": tool.name,
+            "action": tool.title,
+            "sanitized_arguments": redact(dict(arguments)),
+            "risks": (
+                "Action JARVIS soumise à confirmation utilisateur.",
+            ),
+            "workspace": str(self.capability.workspace),
+            "profile_id": self.capability.profile_id,
+            "arguments_digest": digest,
+        }
+        callback = self._on_approval_needed
+        if callback is not None:
+            callback(payload)
 
     def call(self, name: str, arguments: Mapping[str, Any]) -> dict[str, Any]:
         tool = self._tools.get(name)
         if tool is None:
             raise KeyError("unknown_tool")
-        self.capability.require(tool.scope)
+        eligible = tool.effectful and tool.name in DYNAMIC_APPROVAL_TOOLS
+        if not eligible:
+            self.capability.require(tool.scope)
         values = dict(arguments)
         metadata = values.pop("_jarvis", None)
         if not isinstance(metadata, Mapping):
@@ -274,11 +317,16 @@ class ToolRegistry:
         if metadata.get("bypass_agentic_reclassification") is not True:
             raise CapabilityError("tool_recursion_guard_missing")
         if tool.effectful:
-            raw_result = self.approvals.execute(
-                tool_name=tool.name,
-                arguments=values,
-                operation=lambda: tool.handler(values),
-            )
+            try:
+                raw_result = self.approvals.execute(
+                    tool_name=tool.name,
+                    arguments=values,
+                    operation=lambda: tool.handler(values),
+                )
+            except CapabilityError as exc:
+                if str(exc) == "tool_approval_required" and eligible:
+                    self._emit_pending_approval(tool, values)
+                raise
         else:
             raw_result = tool.handler(values)
         result = redact(raw_result)

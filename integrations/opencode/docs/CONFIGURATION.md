@@ -38,6 +38,15 @@ processus enfant.
 | `DEVAGENT_REQUIRED_CHECKS` | tableau JSON explicite des checks requis ; vide utilise les sept checks JARVIS, preuve de retrait complète incluse, uniquement pour le dépôt JARVIS |
 | `GH_TOKEN` ou `GITHUB_TOKEN` | jeton du parent pour REST et le push ; jamais transmis au runtime, à argv, à l'environnement Git ou à un fichier |
 
+| `AGENTIC_MODEL_FAST` | Identifiant catalogue pour les tâches simples ; vide = défaut DeepSeek connecté |
+| `AGENTIC_MODEL_CODING` | Identifiant catalogue pour coding/review ; vide = défaut DeepSeek connecté |
+| `AGENTIC_MIN_FREE_MEMORY_MB` | Seuil d'admission (défaut 2048 sur Mac mini M4 32 Go) |
+| `AGENTIC_CANCEL_ACK_TIMEOUT_S` | Délai d'ACK d'annulation ; un timeout devient `cancelled` forcé, pas `failed` |
+
+Les identifiants de modèles ne sont jamais inventés : s'ils sont configurés
+mais absents du catalogue, le runtime échoue de façon typée. Le provider
+anonyme `opencode` n'est jamais un fallback.
+
 Les mots de passe Basic Auth et tokens MCP ne doivent jamais être placés dans
 `.env`, les prompts, les événements, les notifications ou les arguments de
 processus. La clé modèle peut provenir du `.env` local ignoré ou d'un

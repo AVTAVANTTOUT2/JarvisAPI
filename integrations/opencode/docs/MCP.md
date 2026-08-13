@@ -114,6 +114,20 @@ arbitraires et contenu brut ne doivent pas être copiés dans les événements o
 logs. L'audit durable reste celui de JARVIS ; le journal MCP est un mécanisme
 local de non-répétition, pas la source de vérité métier.
 
+## Approbations dynamiques
+
+Les outils à effet listés dans `DYNAMIC_APPROVAL_TOOLS` (aujourd'hui
+`jarvis_tasks_create`) restent visibles dans `tools/list` même sans grant
+préalable. Un appel sans approbation :
+
+1. refuse l'effet immédiat (`tool_approval_required`) ;
+2. émet un callback vers l'adaptateur ;
+3. persiste une `ApprovalRequest` JARVIS (run, outil, digest, workspace,
+   profil, nonce, TTL) ;
+4. reprend uniquement après une décision one-shot au digest exact.
+
+Aucun élargissement de l'enveloppe de capacité, aucun replay, aucun merge.
+
 ## Ajouter un outil
 
 Un nouvel outil exige simultanément :

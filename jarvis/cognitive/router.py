@@ -52,6 +52,7 @@ _TECH_STRONG_PATTERNS = (
     r"\b(corrige|fixe|répare|repare|debug(?:ue)?)\b.*\b(bug|code|test|ci|build|crash|erreur|backend|frontend|android|app(?:li)?)\b",
     r"\b(implémente|implemente|développe|developpe|code)\b.*\b(fonctionnalité|fonctionnalite|feature|page|endpoint|écran|ecran|module)\b",
     r"\b(crée|cree|ajoute)\b.*\b(migration|endpoint|page|composant|test[s]?\s+unitaires?)\b",
+    r"\b(crée|cree|fais|génère|genere|écris|ecris)\b.*\b(html|css|javascript|todolist|todo[- ]list)\b",
     r"\b(répare|repare|corrige)\s+(la\s+)?ci\b",
     r"\b(refactor|refactorise|compile|déploie|deploie|build\s+l)\b",
     r"\b(analyse\s+l['']architecture|audit\s+(de\s+)?(sécu|secu|perf|code))\b",
@@ -66,6 +67,7 @@ _TECH_WEAK_NOUNS = (
     r"\b(apk|gradle|release|deploy|build)\b",
     r"\b(frontend|backend|android|api\s*router|endpoint)\b",
     r"\b(cursor)\b",
+    r"\b(html|css|javascript|todolist|todo[- ]list)\b",
 )
 
 _TECH_ACTION_VERBS = (

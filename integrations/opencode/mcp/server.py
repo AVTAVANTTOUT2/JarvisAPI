@@ -734,7 +734,7 @@ class MCPBroker:
             self._bootstrap_claimed = False
             self._stop.set()
             self._binding_changed.notify_all()
-        self.registry.revoke_all_approvals()
+        self.registry.close()
         for server_socket in (listener, bootstrap_listener):
             if server_socket is not None:
                 server_socket.close()

@@ -321,6 +321,17 @@ def _c(name: str, state: str) -> health.ComponentHealth:
 
 def test_aggregate_all_healthy():
     assert health.aggregate_state([_c("backend", health.HEALTHY), _c("database", health.HEALTHY)]) == health.HEALTHY
+    assert (
+        health.aggregate_state(
+            [
+                _c("backend", health.HEALTHY),
+                _c("database", health.HEALTHY),
+                _c("claw3d", health.UNKNOWN),
+                _c("agentic_plugin", health.UNKNOWN),
+            ]
+        )
+        == health.HEALTHY
+    )
 
 
 def test_aggregate_partial_failure_is_degraded_not_unavailable():
@@ -413,3 +424,19 @@ def test_event_bus_probe_reports_an_unbound_loop(monkeypatch):
     assert component.state == health.DEGRADED
     assert component.reason == "event_bus_loop_unbound"
     assert component.details["subscribers"] >= 0
+
+
+def test_optional_runtime_probes_never_mark_jarvis_unavailable(tmp_path, monkeypatch):
+    monkeypatch.setattr(health, "_PROJECT_DIR", tmp_path)
+
+    core = health.probe_agentic_core()
+    plugin = health.probe_agentic_plugin()
+    claw = health.probe_claw3d()
+
+    assert core.state == health.HEALTHY
+    assert plugin.state == health.UNKNOWN
+    assert plugin.reason in {"optional_runtime_absent", "runtime_not_probed"}
+    assert claw.state == health.UNKNOWN
+    assert claw.reason == "optional_ui_absent"
+    assert health.UNAVAILABLE not in {plugin.state, claw.state}
+    assert health.aggregate_state([core, plugin, claw, _c("backend", health.HEALTHY), _c("database", health.HEALTHY)]) == health.HEALTHY

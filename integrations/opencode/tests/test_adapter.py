@@ -572,6 +572,7 @@ def test_select_model_prefers_deepseek_and_skips_anonymous_opencode(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("DEEPSEEK_API_KEY", "deepseek-test-secret")
+    monkeypatch.setattr(opencode_adapter, "_configured_model_ids", lambda **_: ())
     catalog = SimpleNamespace(
         connected=("opencode", "deepseek", "jarvis-e2e"),
         default={
@@ -590,6 +591,7 @@ def test_select_model_allows_fixture_provider_without_deepseek(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.setattr(opencode_adapter, "_configured_model_ids", lambda **_: ())
     catalog = SimpleNamespace(
         connected=("opencode", "jarvis-e2e"),
         default={"opencode": "big-pickle", "jarvis-e2e": "fixture-model"},
@@ -603,6 +605,7 @@ def test_select_model_rejects_anonymous_opencode_without_deepseek_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.setattr(opencode_adapter, "_configured_model_ids", lambda **_: ())
     catalog = SimpleNamespace(
         connected=("opencode",),
         default={"opencode": "big-pickle"},
@@ -664,3 +667,69 @@ def test_select_agent_keeps_executor_without_write_permission() -> None:
         permissions=run.permissions,
     )
     assert opencode_adapter._select_agent(run, context) == "jarvis-executor"
+
+
+def test_select_model_uses_configured_id_present_in_catalog(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "deepseek-test-secret")
+    monkeypatch.setattr(
+        opencode_adapter,
+        "_configured_model_ids",
+        lambda *, coding: ("deepseek-v4-flash",) if not coding else ("deepseek-v4-pro",),
+    )
+    catalog = SimpleNamespace(
+        connected=("deepseek", "opencode"),
+        default={"deepseek": "deepseek-v4-pro", "opencode": "big-pickle"},
+        all=(
+            {
+                "id": "deepseek",
+                "models": {"deepseek-v4-flash": {}, "deepseek-v4-pro": {}},
+            },
+        ),
+    )
+    fast = opencode_adapter._select_model(catalog, coding=False)
+    coding = opencode_adapter._select_model(catalog, coding=True)
+    assert fast.model_id == "deepseek-v4-flash"
+    assert coding.model_id == "deepseek-v4-pro"
+    assert fast.provider_id == "deepseek"
+    assert coding.provider_id == "deepseek"
+
+
+def test_select_model_rejects_configured_id_absent_from_catalog(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "deepseek-test-secret")
+    monkeypatch.setattr(
+        opencode_adapter,
+        "_configured_model_ids",
+        lambda **_: ("modele-disparu",),
+    )
+    catalog = SimpleNamespace(
+        connected=("deepseek",),
+        default={"deepseek": "deepseek-v4-pro"},
+        all=({"id": "deepseek", "models": {"deepseek-v4-pro": {}}},),
+    )
+    with pytest.raises(RuntimeError, match="configuré absent"):
+        opencode_adapter._select_model(catalog)
+
+
+def test_select_model_ignores_hostile_catalog_and_anonymous_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "deepseek-test-secret")
+    monkeypatch.setattr(opencode_adapter, "_configured_model_ids", lambda **_: ())
+    catalog = SimpleNamespace(
+        connected=("opencode", "deepseek"),
+        default={
+            "opencode": "../../etc/passwd",
+            "deepseek": "deepseek-v4-pro",
+        },
+        all=(
+            {"id": "opencode", "models": {"sk-live-not-a-model": {}}},
+            {"id": "deepseek", "models": {"deepseek-v4-pro": {}}},
+        ),
+    )
+    selected = opencode_adapter._select_model(catalog)
+    assert selected.provider_id == "deepseek"
+    assert selected.model_id == "deepseek-v4-pro"

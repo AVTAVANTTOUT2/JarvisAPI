@@ -92,6 +92,9 @@ SAFE_EVENT_FIELDS: frozenset[str] = frozenset(
         "status",
         "title",
         "tool",
+        "cancellation_kind",
+        "admission_reason",
+        "worktree_id",
         # Nom fermé de la limite franchie (`event_budget_exceeded`,
         # `max_duration`, `cost_budget`…). Sans lui, `budget_exceeded` arrive
         # nu : le run échoue sans que rien ne dise quelle borne a cédé, et le

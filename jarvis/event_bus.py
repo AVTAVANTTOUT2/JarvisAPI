@@ -83,6 +83,7 @@ EVENT_TYPES: tuple[str, ...] = (
     "agent.run.created",
     "agent.run.classified",
     "agent.run.queued",
+    "agent.run.resource_wait",
     "agent.run.provisioning",
     "agent.run.started",
     "agent.run.phase_changed",

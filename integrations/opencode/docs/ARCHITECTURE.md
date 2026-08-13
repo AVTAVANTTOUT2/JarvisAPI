@@ -17,11 +17,14 @@ Le flux nominal est :
 4. l'adaptateur vérifie ou installe le binaire épinglé, provisionne un serveur
    privé et crée une session ;
 5. le serveur consomme uniquement les capacités natives autorisées et le pont
-   MCP local propre au run ;
+   MCP local propre au run, y compris les approbations dynamiques one-shot ;
 6. l'adaptateur traduit le SSE fournisseur en événements JARVIS, sans exposer
    les messages bruts ni le raisonnement interne ;
 7. JARVIS persiste les événements et artefacts, gère les approbations, puis
    exécute sa vérification déterministe avant tout état `completed`.
+8. l'admission (mémoire, concurrence d'écriture, priorité utilisateur) peut
+   garder un run en `queued` avec `agent.run.resource_wait` plutôt que de
+   lancer un OOM.
 
 OpenCode ne possède donc ni l'état métier, ni le profil, ni la politique Git,
 ni la décision finale. Les commits, push, PR et validations de dépôt restent

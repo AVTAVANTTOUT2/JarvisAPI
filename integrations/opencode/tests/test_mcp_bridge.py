@@ -353,11 +353,13 @@ def test_tool_schema_and_arguments_never_delegate_authority_to_model(
     )
 
     tools = registry.list_tools()
-
-    assert [tool["name"] for tool in tools] == ["jarvis_tasks_list"]
-    assert tools[0]["inputSchema"]["additionalProperties"] is False
-    assert "_jarvis" not in tools[0]["inputSchema"]["properties"]
-    assert tools[0]["annotations"] == {
+    names = [tool["name"] for tool in tools]
+    assert "jarvis_tasks_list" in names
+    assert "jarvis_tasks_create" in names
+    listed = next(tool for tool in tools if tool["name"] == "jarvis_tasks_list")
+    assert listed["inputSchema"]["additionalProperties"] is False
+    assert "_jarvis" not in listed["inputSchema"]["properties"]
+    assert listed["annotations"] == {
         "readOnlyHint": True,
         "destructiveHint": False,
         "idempotentHint": True,
@@ -370,7 +372,7 @@ def test_tool_schema_and_arguments_never_delegate_authority_to_model(
         "origin": "agent_runtime",
         "bypass_agentic_reclassification": True,
     }
-    with pytest.raises(CapabilityError, match="capability_scope_denied"):
+    with pytest.raises(CapabilityError, match="tool_approval_required"):
         registry.call(
             "jarvis_tasks_create",
             {"title": "A", "idempotency_key": "call-1", "_jarvis": trusted},
@@ -406,7 +408,9 @@ def test_tasks_write_never_mutates_without_explicit_jarvis_approval(
         return 1
 
     monkeypatch.setattr(database, "create_task", forbidden_mutation)
-    assert "jarvis_tasks_create" not in {
+    seen: list[Mapping[str, Any]] = []
+    write_registry.bind_approval_callback(lambda payload: seen.append(payload))
+    assert "jarvis_tasks_create" in {
         tool["name"] for tool in write_registry.list_tools()
     }
     with pytest.raises(CapabilityError, match="tool_approval_required"):
@@ -424,6 +428,8 @@ def test_tasks_write_never_mutates_without_explicit_jarvis_approval(
             },
         )
     assert mutated is False
+    assert seen and str(seen[0]["approval_id"]).startswith("mcp:")
+    assert seen[0]["tool"] == "jarvis_tasks_create"
     assert write_registry.journal.inspect() == {}
 
 
@@ -516,7 +522,7 @@ def test_parent_approval_is_exact_one_effect_and_idempotent_replay(
             replay["result"]["structuredContent"]["error"] == "tool_approval_consumed"
         )
         assert mutations == ["Autorisé"]
-        assert "jarvis_tasks_create" not in {
+        assert "jarvis_tasks_create" in {
             tool["name"] for tool in broker.registry.list_tools()
         }
 
@@ -772,7 +778,8 @@ def test_broker_exposes_only_exact_opaque_capability_and_rejects_wrong_bearer(
             {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}},
         )
         assert [tool["name"] for tool in response["result"]["tools"]] == [
-            "jarvis_tasks_list"
+            "jarvis_tasks_list",
+            "jarvis_tasks_create",
         ]
     finally:
         socket_path = endpoint.socket_path
@@ -968,5 +975,6 @@ def test_stdio_proxy_relays_without_receiving_capability_fields(tmp_path: Path) 
     response = json.loads(stdout)
     assert response["id"] == "list-1"
     assert [tool["name"] for tool in response["result"]["tools"]] == [
-        "jarvis_tasks_list"
+        "jarvis_tasks_list",
+        "jarvis_tasks_create",
     ]

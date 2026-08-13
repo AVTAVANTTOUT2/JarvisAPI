@@ -103,6 +103,12 @@ same-origin Claw3D. Aucun token, cookie, prompt, contenu de conversation,
 argument/résultat d'outil ou payload brut JARVIS n'est copié dans le bundle,
 les fixtures, les logs ou le stockage navigateur.
 
+Les runs agentiques arrivent en lecture seule (`/api/visual/v1/*`) : création,
+file, `resource_wait`, outils, `awaiting_approval`, revue, vérification,
+`cancelling`, `cancelled`, `completed`, `failed`, `provider_unavailable`.
+L'absence, l'arrêt ou une panne de Claw3D ne change ni la santé globale JARVIS
+ni l'exécution du runtime agentique.
+
 L'authentification de session n'est pas relayée. Si JARVIS exige un cookie
 `SameSite=Strict` non partageable entre origines, Claw3D reste verrouillé au lieu
 d'affaiblir le cookie ou d'exposer un secret.

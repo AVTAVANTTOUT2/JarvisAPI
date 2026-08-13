@@ -1,25 +1,27 @@
 #!/usr/bin/env python3
-"""Installe ou désinstalle le service launchd JARVIS 24/7.
+"""CLI de cycle de vie JARVIS 24/7 (launchd + stack).
 
 Le LaunchAgent exécute le supervisor avec le Python du venv réel. Un wrapper
-JARVIS.app est aussi installé pour déclencher visiblement les demandes de
-permissions micro/AppleEvents lors de la configuration initiale.
+JARVIS.app déclenche les demandes de permissions micro/AppleEvents.
 
 Usage:
-    python scripts/jarvis_launchd.py install        # installe .app + launchd
-    python scripts/jarvis_launchd.py uninstall      # desinstalle tout
-    python scripts/jarvis_launchd.py status         # verifie l'etat
-    python scripts/jarvis_launchd.py restart|maj    # redemarre le stack (prises en compte code)
-    python scripts/jarvis_launchd.py open           # ouvre l'app (declenche les prompts permissions)
+    python scripts/jarvis_launchd.py stop           # arrête tout le stack
+    python scripts/jarvis_launchd.py start          # charge launchd et attend la santé
+    python scripts/jarvis_launchd.py restart|maj    # stop puis start
+    python scripts/jarvis_launchd.py status         # LaunchAgent + processus
+    python scripts/jarvis_launchd.py install        # .app + launchd + CLI ~/.local/bin/jarvis
+    python scripts/jarvis_launchd.py uninstall      # arrête puis retire le LaunchAgent
+    python scripts/jarvis_launchd.py open           # permissions micro / AppleEvents
 
-Raccourci terminal (apres install du CLI ~/.local/bin/jarvis) :
-    jarvis maj
+Raccourci : ``jarvis stop`` / ``jarvis start`` / ``jarvis maj``.
 """
 
 from __future__ import annotations
 
 import os
 import shlex
+import shutil
+import stat
 import subprocess
 import sys
 import time
@@ -43,6 +45,8 @@ LAUNCHD_DIR = Path(HOME) / "Library" / "LaunchAgents"
 LAUNCHD_DEST = LAUNCHD_DIR / "com.jarvis.supervisor.plist"
 BUNDLE_ID = "fr.avity.jarvis"
 SUPERVISOR_LOG = str(LOGS_DIR / "supervisor.log")
+CLI_SRC = PROJECT_DIR / "scripts" / "jarvis"
+CLI_DEST = Path(HOME) / ".local" / "bin" / "jarvis"
 
 
 def _install_app() -> None:
@@ -97,6 +101,17 @@ def _install_launchd_plist() -> None:
     print(f"Plist launchd installe : {written['supervisor']}")
 
 
+def _install_cli() -> None:
+    """Installe le raccourci ``jarvis`` dans ~/.local/bin."""
+    if not CLI_SRC.is_file():
+        raise FileNotFoundError(f"CLI introuvable : {CLI_SRC}")
+    CLI_DEST.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(CLI_SRC, CLI_DEST)
+    mode = CLI_DEST.stat().st_mode
+    CLI_DEST.chmod(mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    print(f"CLI installe : {CLI_DEST}")
+
+
 def _bootstrap() -> bool:
     """Charge le service dans launchd. Retourne True si succes."""
     uid = os.getuid()
@@ -120,6 +135,7 @@ def cmd_install() -> int:
         print(f"Erreur : installation LaunchAgent impossible : {exc}")
         return 1
     _install_app()
+    _install_cli()
 
     if not _bootstrap():
         print("Erreur : launchctl bootstrap a echoue.")
@@ -131,6 +147,7 @@ def cmd_install() -> int:
     print("  Demarrage auto au boot     : oui")
     print("  Relance auto apres crash   : oui (KeepAlive)")
     print(f"  Logs                       : {SUPERVISOR_LOG}")
+    print("  CLI                        : jarvis stop | start | restart | maj")
     print()
     print("  Lance manuellement pour les permissions :")
     print(f"    open {APP_DIR}")
@@ -138,6 +155,7 @@ def cmd_install() -> int:
 
 
 def cmd_uninstall() -> int:
+    cmd_stop()
     uid = os.getuid()
     subprocess.run(
         ["launchctl", "bootout", f"gui/{uid}/com.jarvis.supervisor"],
@@ -145,7 +163,7 @@ def cmd_uninstall() -> int:
     )
     if LAUNCHD_DEST.exists():
         LAUNCHD_DEST.unlink()
-    print("Service launchd desinstalle.")
+    print("Service launchd desinstalle. CLI conserve : jarvis install pour revenir.")
     return 0
 
 
@@ -170,14 +188,20 @@ def cmd_status() -> int:
     else:
         print("Service INSTALLE mais INACTIF")
 
-    ps = subprocess.run(["pgrep", "-f", "supervisor.py"], capture_output=True, text=True)
-    if ps.stdout.strip():
-        print(f"Supervisor actif : PID {ps.stdout.strip()}")
+    from scripts.jarvis_stack import default_list_snapshots, select_owned
+
+    owned = select_owned(default_list_snapshots(PROJECT_DIR), PROJECT_DIR)
+    if owned:
+        print("Processus JARVIS :")
+        for item in owned:
+            print(f"  {item.service:16} pid={item.pid}")
     else:
-        print("Supervisor NON ACTIF")
+        print("Processus JARVIS : aucun")
 
     if APP_BIN.exists():
         print(f"App      : {APP_DIR}")
+    if CLI_DEST.is_file():
+        print(f"CLI      : {CLI_DEST}")
 
     return 0
 
@@ -210,68 +234,113 @@ def _port_listening(port: int) -> bool:
     return result.returncode == 0
 
 
+def _backend_port() -> int:
+    try:
+        import config as jarvis_config
+
+        return int(jarvis_config.WEB_PORT)
+    except (ImportError, AttributeError, TypeError, ValueError):
+        return 8081
+
+
 def _wait_healthy(*, timeout_s: float = 60.0) -> bool:
-    """Attend supervisor (:9000) + backend (:8081)."""
+    """Attend supervisor (:9000) + backend (WEB_PORT)."""
+    backend_port = _backend_port()
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
-        if _port_listening(9000) and _port_listening(8081):
+        if _port_listening(9000) and _port_listening(backend_port):
             return True
         time.sleep(1.0)
     return False
 
 
-def cmd_restart() -> int:
-    """Redémarre tout le stack via launchd (prise en compte du code).
+def cmd_stop() -> int:
+    """Arrête launchd, Ollama, Claw3D, le runtime agentique et tous les PID JARVIS."""
+    from scripts.jarvis_stack import stop_stack
 
-    Alias CLI : ``jarvis maj``.
-    """
+    print("Arrêt du stack JARVIS…")
+    report = stop_stack(root=PROJECT_DIR)
+    for label in report.bootout:
+        print(f"  launchd bootout {label}")
+    for name, result in report.managers.items():
+        print(f"  manager {name}: {result}")
+    for item in report.stopped:
+        print(f"  stop {item.service} pid={item.pid}")
+    if report.still_alive:
+        print(f"Encore vivant : {report.still_alive}")
+        print(f"Logs : {SUPERVISOR_LOG}")
+        return 1
+    print("OK — stack arrêté. Plist conservé ; relance : jarvis start")
+    return 0
+
+
+def cmd_start() -> int:
+    """Charge le LaunchAgent et attend supervisor + backend."""
     if not LAUNCHD_DEST.exists() or not APP_BIN.exists():
         print("Service non installé — installation…")
-        if cmd_install() != 0:
-            return 1
+        return cmd_install()
 
     uid = os.getuid()
-    label = f"gui/{uid}/com.jarvis.supervisor"
-
     if not _service_loaded(uid):
-        print("LaunchAgent inactif — bootstrap…")
+        print("Chargement LaunchAgent…")
         if not _bootstrap():
             print("Erreur : launchctl bootstrap a échoué.")
             return 1
+    elif not (_port_listening(9000) and _port_listening(_backend_port())):
+        label = f"gui/{uid}/com.jarvis.supervisor"
+        print("LaunchAgent chargé mais stack down — kickstart…")
+        result = subprocess.run(
+            ["launchctl", "kickstart", "-k", label],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            err = (result.stderr or result.stdout or "").strip()
+            print(f"Erreur kickstart : {err or f'exit {result.returncode}'}")
+            return 1
 
-    print("Redémarrage JARVIS (launchctl kickstart -k)…")
-    result = subprocess.run(
-        ["launchctl", "kickstart", "-k", label],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        err = (result.stderr or result.stdout or "").strip()
-        print(f"Erreur kickstart : {err or f'exit {result.returncode}'}")
-        return 1
-
-    print("Attente santé (supervisor :9000, backend :8081)…")
+    print("Attente santé (supervisor :9000, backend)…")
     if not _wait_healthy(timeout_s=90.0):
         print("Timeout : le stack n'est pas revenu sain.")
         print(f"Logs : {SUPERVISOR_LOG}")
         cmd_status()
         return 1
 
-    print("OK — changements pris en compte, stack relancé.")
+    print("OK — stack démarré.")
     return cmd_status()
 
 
+def cmd_restart() -> int:
+    """Arrêt complet, attente bornée, puis relance. Alias CLI : ``jarvis maj``."""
+    from scripts.jarvis_stack import RestartBlocked, cli_restart
+
+    try:
+        return cli_restart(
+            root=PROJECT_DIR,
+            stop=cmd_stop,
+            start=cmd_start,
+            ports=(9000, _backend_port()),
+        )
+    except RestartBlocked as exc:
+        print(f"Relance refusée : {exc}")
+        return 1
+
+
+COMMANDS = {
+    "stop": cmd_stop,
+    "start": cmd_start,
+    "restart": cmd_restart,
+    "maj": cmd_restart,
+    "status": cmd_status,
+    "install": cmd_install,
+    "uninstall": cmd_uninstall,
+    "open": cmd_open,
+}
+
+
 if __name__ == "__main__":
-    cmds = {
-        "install": cmd_install,
-        "uninstall": cmd_uninstall,
-        "status": cmd_status,
-        "open": cmd_open,
-        "restart": cmd_restart,
-        "maj": cmd_restart,
-    }
     action = sys.argv[1] if len(sys.argv) > 1 else "status"
-    if action not in cmds:
-        print(f"Usage: python {sys.argv[0]} {{{'|'.join(cmds)}}}")
+    if action not in COMMANDS:
+        print(f"Usage: python {sys.argv[0]} {{{'|'.join(COMMANDS)}}}")
         sys.exit(1)
-    sys.exit(cmds[action]())
+    sys.exit(COMMANDS[action]())

@@ -192,6 +192,14 @@ def test_classifier_covers_exact_categories_and_blocks_recursion():
         is AgenticRequestCategory.AGENTIC_REVERSIBLE
     )
     assert (
+        classify_agentic_request("crée une todolist html").category
+        is AgenticRequestCategory.DIRECT_ACTION
+    )
+    assert (
+        classify_agentic_request("crée une todolist html", adaptive=True).category
+        is AgenticRequestCategory.AGENTIC_REVERSIBLE
+    )
+    assert (
         classify_agentic_request("envoie ce message").category
         is AgenticRequestCategory.AGENTIC_EXTERNAL_EFFECT
     )
@@ -265,6 +273,7 @@ def test_agentic_events_preserve_domain_tail_and_use_strict_payload_allowlist():
     assert set(AGENTIC_EVENT_TYPES).isdisjoint(DOMAIN_EVENT_TYPES)
     assert {
         "agent.run.created",
+        "agent.run.resource_wait",
         "agent.tool.started",
         "agent.approval.requested",
     }.issubset(AGENTIC_EVENT_TYPES)

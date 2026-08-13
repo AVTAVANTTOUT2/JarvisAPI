@@ -11,12 +11,17 @@ import zipfile
 import pytest
 
 from integrations.opencode.config import OpenCodeSettings, RuntimeLayout
+import httpx
+
 from integrations.opencode.lifecycle.install import (
     ArchiveSecurityError,
     ChecksumMismatchError,
     InstallManager,
     InstallationError,
+    TransientDownloadError,
     _validated_download_url,
+    download_retry_delay,
+    is_transient_download_error,
 )
 from integrations.opencode.lifecycle.release import ReleaseAsset, ReleaseManifest
 
@@ -236,3 +241,144 @@ def test_uninstall_never_traverses_runtime_symlink(tmp_path: Path) -> None:
         manager.uninstall()
 
     assert sentinel.read_text() == "keep"
+
+
+def _http_status_error(status: int) -> httpx.HTTPStatusError:
+    request = httpx.Request("GET", "https://github.com/anomalyco/opencode/releases/x")
+    response = httpx.Response(status, request=request)
+    return httpx.HTTPStatusError("http error", request=request, response=response)
+
+
+def test_download_retry_delay_is_bounded_and_deterministic() -> None:
+    first = download_retry_delay(0)
+    second = download_retry_delay(1)
+    late = download_retry_delay(8)
+    assert 0 < first < 1
+    assert second > first
+    assert late <= 4.0
+    assert download_retry_delay(8) == late
+
+
+def test_only_transient_network_errors_are_retryable() -> None:
+    assert is_transient_download_error(httpx.RemoteProtocolError("disconnected"))
+    assert is_transient_download_error(httpx.ConnectTimeout("timeout"))
+    assert is_transient_download_error(TransientDownloadError("HTTP 503 transitoire"))
+    assert is_transient_download_error(_http_status_error(503))
+    assert is_transient_download_error(_http_status_error(429))
+    assert not is_transient_download_error(_http_status_error(404))
+    assert not is_transient_download_error(_http_status_error(401))
+    assert not is_transient_download_error(ChecksumMismatchError("checksum"))
+    assert not is_transient_download_error(
+        InstallationError("URL de téléchargement OpenCode non autorisée")
+    )
+    assert not is_transient_download_error(
+        InstallationError("Archive OpenCode trop volumineuse")
+    )
+
+
+def test_download_retries_transient_disconnect_then_succeeds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = {"n": 0}
+    sleeps: list[float] = []
+
+    def once(
+        self: InstallManager, asset: ReleaseAsset, destination: Path, max_bytes: int
+    ) -> None:
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise httpx.RemoteProtocolError("Server disconnected")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(b"archive")
+
+    monkeypatch.setattr(InstallManager, "_download_asset_once", once)
+    monkeypatch.setattr(
+        "integrations.opencode.lifecycle.install.time.sleep",
+        lambda delay: sleeps.append(delay),
+    )
+    archive = tmp_path / "opencode.zip"
+    _zip(archive, {"dist/opencode": b"ok"})
+    asset = _manifest(archive).asset("linux-x64")
+    destination = tmp_path / "out" / asset.filename
+    InstallManager(layout=_layout(tmp_path)).download_asset(
+        asset, destination, max_bytes=1_000_000
+    )
+    assert calls["n"] == 3
+    assert sleeps == [download_retry_delay(0), download_retry_delay(1)]
+    assert destination.read_bytes() == b"archive"
+
+
+def test_download_does_not_retry_http_4xx(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = {"n": 0}
+
+    def once(
+        self: InstallManager, asset: ReleaseAsset, destination: Path, max_bytes: int
+    ) -> None:
+        calls["n"] += 1
+        raise InstallationError("Téléchargement OpenCode refusé (HTTP 404)")
+
+    monkeypatch.setattr(InstallManager, "_download_asset_once", once)
+    monkeypatch.setattr(
+        "integrations.opencode.lifecycle.install.time.sleep",
+        lambda _delay: None,
+    )
+    archive = tmp_path / "opencode.zip"
+    _zip(archive, {"dist/opencode": b"ok"})
+    asset = _manifest(archive).asset("linux-x64")
+    with pytest.raises(InstallationError, match="HTTP 404"):
+        InstallManager(layout=_layout(tmp_path)).download_asset(
+            asset, tmp_path / "out.zip", max_bytes=1_000_000
+        )
+    assert calls["n"] == 1
+
+
+def test_download_gives_up_after_bounded_transient_attempts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = {"n": 0}
+
+    def once(
+        self: InstallManager, asset: ReleaseAsset, destination: Path, max_bytes: int
+    ) -> None:
+        calls["n"] += 1
+        raise httpx.RemoteProtocolError("still down")
+
+    monkeypatch.setattr(InstallManager, "_download_asset_once", once)
+    monkeypatch.setattr(
+        "integrations.opencode.lifecycle.install.time.sleep",
+        lambda _delay: None,
+    )
+    archive = tmp_path / "opencode.zip"
+    _zip(archive, {"dist/opencode": b"ok"})
+    asset = _manifest(archive).asset("linux-x64")
+    with pytest.raises(httpx.RemoteProtocolError, match="still down"):
+        InstallManager(layout=_layout(tmp_path)).download_asset(
+            asset, tmp_path / "out.zip", max_bytes=1_000_000
+        )
+    assert calls["n"] == 4
+
+
+def test_failed_download_does_not_leave_partial_destination(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def once(
+        self: InstallManager, asset: ReleaseAsset, destination: Path, max_bytes: int
+    ) -> None:
+        raise httpx.RemoteProtocolError("cut")
+
+    monkeypatch.setattr(InstallManager, "_download_asset_once", once)
+    monkeypatch.setattr(
+        "integrations.opencode.lifecycle.install.time.sleep",
+        lambda _delay: None,
+    )
+    archive = tmp_path / "opencode.zip"
+    _zip(archive, {"dist/opencode": b"ok"})
+    asset = _manifest(archive).asset("linux-x64")
+    destination = tmp_path / "partial.zip"
+    with pytest.raises(httpx.RemoteProtocolError):
+        InstallManager(layout=_layout(tmp_path)).download_asset(
+            asset, destination, max_bytes=1_000_000
+        )
+    assert not destination.exists()

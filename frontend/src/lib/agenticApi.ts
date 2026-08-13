@@ -89,6 +89,7 @@ export const AGENTIC_EVENT_TYPES = [
   'agent.run.created',
   'agent.run.classified',
   'agent.run.queued',
+  'agent.run.resource_wait',
   'agent.run.provisioning',
   'agent.run.started',
   'agent.run.phase_changed',
@@ -456,6 +457,7 @@ function statusForEvent(type: string): string | undefined {
   if (type === 'agent.run.created') return 'created'
   if (type === 'agent.run.classified') return 'classified'
   if (type === 'agent.run.queued') return 'queued'
+  if (type === 'agent.run.resource_wait') return 'queued'
   if (type === 'agent.run.provisioning') return 'provisioning'
   if (type === 'agent.run.started' || type === 'agent.run.resumed') return 'running'
   if (type === 'agent.run.awaiting_approval') return 'awaiting_approval'

@@ -69,7 +69,7 @@ Voir [32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md](./32_FRONTEND_DATABASE_SOURCE_OF_
 | [34_SDK_DEVELOPPEURS.md](./34_SDK_DEVELOPPEURS.md) | SDK Python, génération depuis OpenAPI, transport et erreurs |
 | [api_route_ownership.json](./api_route_ownership.json) | Attribution contrôlée des opérations sans client direct |
 | [36_CANAL_WEBSOCKET_TV.md](./36_CANAL_WEBSOCKET_TV.md) | Canal `/ws/tv/events` — authentifié, lecture seule, séparé du chat |
-| [adr/](./adr/) | ADR individuels — ADR-016 à ADR-022 |
+| [adr/](./adr/) | ADR individuels — ADR-016 à ADR-033 |
 | [diagrams/](./diagrams/) | Diagrammes Mermaid source |
 | [audit/](./audit/) | Rapports d'audit détaillés par domaine |
 | [audit/RAPPORT_PIRE_AUDIT.md](./audit/RAPPORT_PIRE_AUDIT.md) | Consolidation sorties agents Cursor (P01–P18) + findings pire→moindre |

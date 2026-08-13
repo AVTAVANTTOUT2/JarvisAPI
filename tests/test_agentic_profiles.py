@@ -222,3 +222,111 @@ async def test_conversation_router_passes_selected_profile_to_service(
         captured["permissions"] == get_capability_profile("coding").default_permissions
     )
     assert response["routing"]["capability_profile"] == "coding"
+
+
+def _capture_service(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    from api import agentic_processing
+
+    captured: dict[str, Any] = {}
+
+    class _Service:
+        def resolve_runtime_id(self, runtime_id: str | None) -> str | None:
+            return runtime_id or "fake-runtime"
+
+        async def create_and_start(self, **kwargs: Any) -> AgenticRun:
+            captured.update(kwargs)
+            return AgenticRun.new(
+                profile_id=kwargs["profile_id"],
+                origin=kwargs["origin"],
+                channel=kwargs["channel"],
+                runtime_id=kwargs["runtime_id"],
+                title=kwargs["title"],
+                conversation_id=kwargs["conversation_id"],
+                permissions=kwargs["permissions"],
+                selected_context=kwargs["selected_context"],
+                category=kwargs["category"],
+                workspace=kwargs.get("workspace"),
+            )
+
+    monkeypatch.setattr(config, "AGENTIC_RUNTIME", "fake-runtime")
+    monkeypatch.setattr(config, "AGENTIC_RUNTIME_FALLBACK", "disabled")
+    monkeypatch.setattr(config, "AGENTIC_DEFAULT_PROFILE", "readonly-research")
+    monkeypatch.setattr(config, "AGENTIC_PROFILE_ROUTE_OVERRIDES", {})
+    monkeypatch.setattr(agentic_processing, "get_agentic_service", _Service)
+    return captured
+
+
+@pytest.mark.asyncio
+async def test_natural_language_tech_task_starts_coding_run_without_slash_agent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from api import agentic_processing
+
+    captured = _capture_service(monkeypatch)
+    response = await agentic_processing.maybe_start_agentic_run(
+        "Corrige le bug de connexion Android dans le projet",
+        42,
+        channel="chat",
+        voice_mode=False,
+        persist_assistant=False,
+    )
+
+    assert response is not None
+    assert captured["capability_profile_id"] == "coding"
+    assert "workspace:write" in captured["permissions"]
+    assert captured["category"] is AgenticRequestCategory.AGENTIC_REVERSIBLE
+
+
+@pytest.mark.asyncio
+async def test_html_todolist_on_desktop_starts_coding_run_in_desktop_folder(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from api import agentic_processing
+    from jarvis.agentic.desktop_workspace import resolve_desktop_workspace
+
+    desktop = tmp_path / "Desktop"
+    desktop.mkdir()
+    captured = _capture_service(monkeypatch)
+    prompt = (
+        "jarvis dans le bureau de mon mac crée une todolist appelé todojarvis "
+        "je la veut en html css js 3 fichier max hors ligne pas extravagante."
+    )
+    monkeypatch.setattr(
+        agentic_processing,
+        "resolve_desktop_workspace",
+        lambda text: resolve_desktop_workspace(text, home=tmp_path),
+    )
+
+    response = await agentic_processing.maybe_start_agentic_run(
+        prompt,
+        7,
+        channel="chat",
+        voice_mode=False,
+        persist_assistant=False,
+    )
+
+    assert response is not None
+    assert captured["capability_profile_id"] == "coding"
+    assert "workspace:write" in captured["permissions"]
+    assert Path(captured["workspace"]).resolve() == (desktop / "todojarvis").resolve()
+    assert (desktop / "todojarvis").is_dir()
+
+
+@pytest.mark.asyncio
+async def test_create_task_does_not_start_an_agentic_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from api import agentic_processing
+
+    captured = _capture_service(monkeypatch)
+    response = await agentic_processing.maybe_start_agentic_run(
+        "Crée une tâche pour envoyer le dossier demain",
+        42,
+        channel="chat",
+        voice_mode=False,
+        persist_assistant=False,
+    )
+
+    assert response is None
+    assert captured == {}

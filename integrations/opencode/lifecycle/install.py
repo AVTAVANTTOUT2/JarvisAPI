@@ -12,6 +12,7 @@ import stat
 import subprocess
 import tarfile
 import tempfile
+import time
 from typing import Callable
 from urllib.parse import urljoin, urlsplit
 import zipfile
@@ -45,6 +46,10 @@ class ArchiveSecurityError(InstallationError):
     pass
 
 
+class TransientDownloadError(InstallationError):
+    """Coupure réseau transitoire, seule classe d'erreur éligible au retry."""
+
+
 @dataclass(frozen=True, slots=True)
 class InstallResult:
     version: str
@@ -73,6 +78,21 @@ _DOWNLOAD_ALLOWED_HOSTS = frozenset(
     }
 )
 _MAX_DOWNLOAD_REDIRECTS = 5
+_MAX_DOWNLOAD_ATTEMPTS = 4
+_DOWNLOAD_RETRY_BASE_SECONDS = 0.4
+_DOWNLOAD_RETRY_MAX_SECONDS = 4.0
+_DOWNLOAD_TOTAL_TIMEOUT_SECONDS = 90.0
+_TRANSIENT_HTTP_STATUS = frozenset({408, 425, 429, 500, 502, 503, 504})
+_TRANSIENT_HTTPX_TYPES = (
+    httpx.ConnectError,
+    httpx.ConnectTimeout,
+    httpx.ReadTimeout,
+    httpx.WriteTimeout,
+    httpx.PoolTimeout,
+    httpx.RemoteProtocolError,
+    httpx.ReadError,
+    httpx.WriteError,
+)
 
 
 def _validated_download_url(url: str) -> str:
@@ -90,6 +110,28 @@ def _validated_download_url(url: str) -> str:
     ):
         raise InstallationError("URL de téléchargement OpenCode non autorisée")
     return url
+
+
+def download_retry_delay(attempt: int) -> float:
+    """Backoff exponentiel borné avec jitter déterministe (0-based après échec)."""
+
+    if attempt < 0:
+        return 0.0
+    exponential = _DOWNLOAD_RETRY_BASE_SECONDS * (2**attempt)
+    capped = min(exponential, _DOWNLOAD_RETRY_MAX_SECONDS)
+    jitter = 0.85 + 0.15 * (((attempt + 1) * 37) % 11) / 10.0
+    return round(capped * jitter, 6)
+
+
+def is_transient_download_error(exc: BaseException) -> bool:
+    """True seulement pour les pannes réseau/HTTP transitoires, jamais 4xx stables."""
+
+    if isinstance(exc, TransientDownloadError):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError):
+        status = int(getattr(exc.response, "status_code", 0) or 0)
+        return status in _TRANSIENT_HTTP_STATUS
+    return isinstance(exc, _TRANSIENT_HTTPX_TYPES)
 
 
 class InstallManager:
@@ -180,7 +222,40 @@ class InstallManager:
     def download_asset(
         self, asset: ReleaseAsset, destination: Path, max_bytes: int
     ) -> None:
-        """Télécharge uniquement l'asset exact du manifest, sans utiliser les proxies du shell."""
+        """Télécharge l'asset du manifest avec retry borné sur pannes transitoires."""
+
+        started = time.monotonic()
+        last_error: BaseException | None = None
+        for attempt in range(_MAX_DOWNLOAD_ATTEMPTS):
+            if time.monotonic() - started >= _DOWNLOAD_TOTAL_TIMEOUT_SECONDS:
+                raise InstallationError(
+                    "Délai total de téléchargement OpenCode dépassé"
+                )
+            try:
+                self._download_asset_once(asset, destination, max_bytes)
+                return
+            except Exception as exc:
+                last_error = exc
+                remaining = _MAX_DOWNLOAD_ATTEMPTS - attempt - 1
+                if remaining <= 0 or not is_transient_download_error(exc):
+                    raise
+                delay = download_retry_delay(attempt)
+                if (
+                    time.monotonic() - started + delay
+                    >= _DOWNLOAD_TOTAL_TIMEOUT_SECONDS
+                ):
+                    raise InstallationError(
+                        "Délai total de téléchargement OpenCode dépassé"
+                    ) from exc
+                time.sleep(delay)
+        if last_error is not None:
+            raise last_error
+        raise InstallationError("Téléchargement OpenCode échoué")
+
+    def _download_asset_once(
+        self, asset: ReleaseAsset, destination: Path, max_bytes: int
+    ) -> None:
+        """Une tentative : fichier temporaire privé, remplacement atomique après validation."""
 
         destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         if destination.is_symlink() or destination.parent.is_symlink():
@@ -216,7 +291,17 @@ class InstallManager:
                                 urljoin(str(response.url), location)
                             )
                             continue
-                        response.raise_for_status()
+                        try:
+                            response.raise_for_status()
+                        except httpx.HTTPStatusError as exc:
+                            status = int(exc.response.status_code)
+                            if status in _TRANSIENT_HTTP_STATUS:
+                                raise TransientDownloadError(
+                                    f"HTTP {status} transitoire pendant le téléchargement OpenCode"
+                                ) from exc
+                            raise InstallationError(
+                                f"Téléchargement OpenCode refusé (HTTP {status})"
+                            ) from exc
                         length = response.headers.get("content-length")
                         if length:
                             try:
@@ -255,6 +340,9 @@ class InstallManager:
             os.replace(temporary, destination)
             if os.name != "nt":
                 destination.chmod(0o600)
+        except Exception:
+            Path(temporary).unlink(missing_ok=True)
+            raise
         finally:
             Path(temporary).unlink(missing_ok=True)
 
