@@ -49,6 +49,7 @@ from api.router_recordings import router as recordings_router
 from api.router_rituals import router as rituals_router
 from api.router_scheduler import router as scheduler_router
 from api.router_tasks import router as tasks_router
+from api.router_task_control import router as task_control_router
 from api.router_cognitive import router as cognitive_router
 from api.router_visual import router as visual_router
 from api.voice_processing import _process_voice_fast
@@ -123,6 +124,7 @@ app.include_router(recordings_router)
 app.include_router(rituals_router)
 app.include_router(scheduler_router)
 app.include_router(tasks_router)
+app.include_router(task_control_router)
 app.include_router(cognitive_router)
 app.include_router(visual_router)
 install_openapi(app)

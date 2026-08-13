@@ -315,6 +315,39 @@
         "title": "CalendarEventCreateRequest",
         "type": "object"
       },
+      "CandidateDecisionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "decision": {
+            "enum": [
+              "accepted",
+              "ignored",
+              "rejected",
+              "false_positive",
+              "merged"
+            ],
+            "title": "Decision",
+            "type": "string"
+          },
+          "merge_into": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Merge Into"
+          }
+        },
+        "required": [
+          "decision"
+        ],
+        "title": "CandidateDecisionRequest",
+        "type": "object"
+      },
       "ChangeSecretRequest": {
         "additionalProperties": false,
         "properties": {
@@ -3008,6 +3041,44 @@
         "title": "PlaceUpdateRequest",
         "type": "object"
       },
+      "PlanDecisionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "comment": {
+            "default": "",
+            "maxLength": 4000,
+            "title": "Comment",
+            "type": "string"
+          },
+          "decision": {
+            "enum": [
+              "approved",
+              "rejected",
+              "revision_requested"
+            ],
+            "title": "Decision",
+            "type": "string"
+          },
+          "plan_digest": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan Digest"
+          }
+        },
+        "required": [
+          "decision"
+        ],
+        "title": "PlanDecisionRequest",
+        "type": "object"
+      },
       "ProfileCreateRequest": {
         "additionalProperties": false,
         "properties": {
@@ -3723,6 +3794,220 @@
         "title": "SpeakerAssignmentRequest",
         "type": "object"
       },
+      "TaskCancelRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "default": "",
+            "maxLength": 500,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "title": "TaskCancelRequest",
+        "type": "object"
+      },
+      "TaskCommentRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Body",
+            "type": "string"
+          },
+          "request_plan_revision": {
+            "default": false,
+            "title": "Request Plan Revision",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "body"
+        ],
+        "title": "TaskCommentRequest",
+        "type": "object"
+      },
+      "TaskControlCreateRequest": {
+        "additionalProperties": false,
+        "description": "Création manuelle ou par un connecteur autorisé.\n\nLe client ne choisit pas l'état : toute tâche naît `created` et part en\nplanification. Il n'existe pas de champ pour demander un démarrage.",
+        "properties": {
+          "autoplan": {
+            "default": true,
+            "title": "Autoplan",
+            "type": "boolean"
+          },
+          "comment": {
+            "default": "",
+            "maxLength": 4000,
+            "title": "Comment",
+            "type": "string"
+          },
+          "conversation_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conversation Id"
+          },
+          "description": {
+            "default": "",
+            "maxLength": 8000,
+            "title": "Description",
+            "type": "string"
+          },
+          "due_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Due At"
+          },
+          "priority": {
+            "default": "medium",
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ],
+            "title": "Priority",
+            "type": "string"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
+          },
+          "source_channel": {
+            "default": "api",
+            "enum": [
+              "macos",
+              "web",
+              "voice",
+              "mobile",
+              "imessage",
+              "email",
+              "api",
+              "scheduler"
+            ],
+            "title": "Source Channel",
+            "type": "string"
+          },
+          "source_type": {
+            "default": "manual",
+            "enum": [
+              "manual",
+              "user_request",
+              "message",
+              "email",
+              "scheduler"
+            ],
+            "title": "Source Type",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "title": "TaskControlCreateRequest",
+        "type": "object"
+      },
+      "TaskControlPatchRequest": {
+        "additionalProperties": false,
+        "description": "Édition des seuls champs descriptifs.\n\n`status`, `approved_plan_version` et `approved_plan_digest` sont\nvolontairement absents : les faire figurer ici donnerait au client le\npouvoir de se déclarer approuvé.",
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 8000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "due_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Due At"
+          },
+          "priority": {
+            "anyOf": [
+              {
+                "enum": [
+                  "high",
+                  "medium",
+                  "low"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Priority"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "title": "TaskControlPatchRequest",
+        "type": "object"
+      },
       "TaskCreateRequest": {
         "additionalProperties": false,
         "properties": {
@@ -3783,6 +4068,20 @@
           "title"
         ],
         "title": "TaskCreateRequest",
+        "type": "object"
+      },
+      "TaskPlanRequest": {
+        "additionalProperties": false,
+        "description": "Relance une planification (nouvelle version).",
+        "properties": {
+          "comment": {
+            "default": "",
+            "maxLength": 4000,
+            "title": "Comment",
+            "type": "string"
+          }
+        },
+        "title": "TaskPlanRequest",
         "type": "object"
       },
       "TaskStatusRequest": {
@@ -18115,6 +18414,1130 @@
         "x-jarvis-authentication": "session"
       }
     },
+    "/api/task-candidates": {
+      "get": {
+        "description": "Opération JARVIS `GET /api/task-candidates`.",
+        "operationId": "get_api_task_candidates",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "decision",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": "pending",
+              "title": "Decision"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Api Task Candidates",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "428": {
+            "$ref": "#/components/responses/SetupRequired"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "summary": "List Task Candidates",
+        "tags": [
+          "task-control"
+        ],
+        "x-jarvis-authentication": "session"
+      }
+    },
+    "/api/task-candidates/{candidate_id}/decision": {
+      "post": {
+        "description": "Accepte (→ tâche en attente de plan) ou écarte un candidat.",
+        "operationId": "post_api_task_candidates_by_candidate_id_decision",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "candidate_id",
+            "required": true,
+            "schema": {
+              "title": "Candidate Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CandidateDecisionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Post Api Task Candidates By Candidate Id Decision",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "428": {
+            "$ref": "#/components/responses/SetupRequired"
+          }
+        },
+        "security": [
+          {
+            "csrfToken": [],
+            "sessionCookie": []
+          }
+        ],
+        "summary": "Decide Task Candidate",
+        "tags": [
+          "task-control"
+        ],
+        "x-jarvis-authentication": "session",
+        "x-jarvis-csrf-origin-required": true
+      }
+    },
+    "/api/task-control/tasks": {
+      "get": {
+        "description": "Liste par section d'interface, avec les compteurs de la barre latérale.",
+        "operationId": "get_api_task_control_tasks",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "section",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Section"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Api Task Control Tasks",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "428": {
+            "$ref": "#/components/responses/SetupRequired"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "summary": "List Control Tasks",
+        "tags": [
+          "task-control"
+        ],
+        "x-jarvis-authentication": "session"
+      },
+      "post": {
+        "description": "Crée une tâche et lance sa planification. Ne démarre jamais l'exécution.",
+        "operationId": "post_api_task_control_tasks",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskControlCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Post Api Task Control Tasks",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "428": {
+            "$ref": "#/components/responses/SetupRequired"
+          }
+        },
+        "security": [
+          {
+            "csrfToken": [],
+            "sessionCookie": []
+          }
+        ],
+        "summary": "Create Control Task",
+        "tags": [
+          "task-control"
+        ],
+        "x-jarvis-authentication": "session",
+        "x-jarvis-csrf-origin-required": true
+      }
+    },
+    "/api/task-control/tasks/{task_id}": {
+      "get": {
+        "description": "Détail complet : tâche, plans, dernier rapport, commentaires.",
+        "operationId": "get_api_task_control_tasks_by_task_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "title": "Task Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Api Task Control Tasks By Task Id",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "428": {
+            "$ref": "#/components/responses/SetupRequired"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "summary": "Get Control Task",
+        "tags": [
+          "task-control"
+        ],
+        "x-jarvis-authentication": "session"
+      },
+      "patch": {
+        "description": "Opération JARVIS `PATCH /api/task-control/tasks/{task_id}`.",
+        "operationId": "patch_api_task_control_tasks_by_task_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "title": "Task Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskControlPatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Patch Api Task Control Tasks By Task Id",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "428": {
+            "$ref": "#/components/responses/SetupRequired"
+          }
+        },
+        "security": [
+          {
+            "csrfToken": [],
+            "sessionCookie": []
+          }
+        ],
+        "summary": "Patch Control Task",
+        "tags": [
+          "task-control"
+        ],
+        "x-jarvis-authentication": "session",
+        "x-jarvis-csrf-origin-required": true
+      }
+    },
+    "/api/task-control/tasks/{task_id}/activity": {
+      "get": {
+        "description": "Activité ordonnée. `after_sequence` sert la reprise sans doublon.",
+        "operationId": "get_api_task_control_tasks_by_task_id_activity",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "title": "Task Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after_sequence",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "After Sequence",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "level",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Level"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "maximum": 2000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Api Task Control Tasks By Task Id Activity",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "428": {
+            "$ref": "#/components/responses/SetupRequired"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "summary": "Get Control Activity",
+        "tags": [
+          "task-control"
+        ],
+        "x-jarvis-authentication": "session"
+      }
+    },
+    "/api/task-control/tasks/{task_id}/approvals": {
+      "get": {
+        "description": "Opération JARVIS `GET /api/task-control/tasks/{task_id}/approvals`.",
+        "operationId": "get_api_task_control_tasks_by_task_id_approvals",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "title": "Task Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Api Task Control Tasks By Task Id Approvals",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "428": {
+            "$ref": "#/components/responses/SetupRequired"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "summary": "List Control Approvals",
+        "tags": [
+          "task-control"
+        ],
+        "x-jarvis-authentication": "session"
+      }
+    },
+    "/api/task-control/tasks/{task_id}/approvals/{approval_id}/decision": {
+      "post": {
+        "description": "Autorise ou refuse **un** effet précis, une seule fois.",
+        "operationId": "post_api_task_control_tasks_by_task_id_approvals_by_approval_id_decision",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "title": "Task Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "approval_id",
+            "required": true,
+            "schema": {
+              "title": "Approval Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApprovalDecisionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Post Api Task Control Tasks By Task Id Approvals By Approval Id Decision",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "428": {
+            "$ref": "#/components/responses/SetupRequired"
+          }
+        },
+        "security": [
+          {
+            "csrfToken": [],
+            "sessionCookie": []
+          }
+        ],
+        "summary": "Decide Control Approval",
+        "tags": [
+          "task-control"
+        ],
+        "x-jarvis-authentication": "session",
+        "x-jarvis-csrf-origin-required": true
+      }
+    },
+    "/api/task-control/tasks/{task_id}/artifacts": {
+      "get": {
+        "description": "Opération JARVIS `GET /api/task-control/tasks/{task_id}/artifacts`.",
+        "operationId": "get_api_task_control_tasks_by_task_id_artifacts",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "title": "Task Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Api Task Control Tasks By Task Id Artifacts",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "428": {
+            "$ref": "#/components/responses/SetupRequired"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "summary": "Get Control Artifacts",
+        "tags": [
+          "task-control"
+        ],
+        "x-jarvis-authentication": "session"
+      }
+    },
+    "/api/task-control/tasks/{task_id}/cancel": {
+      "post": {
+        "description": "Opération JARVIS `POST /api/task-control/tasks/{task_id}/cancel`.",
+        "operationId": "post_api_task_control_tasks_by_task_id_cancel",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "title": "Task Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskCancelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Post Api Task Control Tasks By Task Id Cancel",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "428": {
+            "$ref": "#/components/responses/SetupRequired"
+          }
+        },
+        "security": [
+          {
+            "csrfToken": [],
+            "sessionCookie": []
+          }
+        ],
+        "summary": "Cancel Control Task",
+        "tags": [
+          "task-control"
+        ],
+        "x-jarvis-authentication": "session",
+        "x-jarvis-csrf-origin-required": true
+      }
+    },
+    "/api/task-control/tasks/{task_id}/comments": {
+      "post": {
+        "description": "Ajoute une précision, et seulement si demandé, relance la planification.",
+        "operationId": "post_api_task_control_tasks_by_task_id_comments",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "title": "Task Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskCommentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Post Api Task Control Tasks By Task Id Comments",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "428": {
+            "$ref": "#/components/responses/SetupRequired"
+          }
+        },
+        "security": [
+          {
+            "csrfToken": [],
+            "sessionCookie": []
+          }
+        ],
+        "summary": "Add Control Comment",
+        "tags": [
+          "task-control"
+        ],
+        "x-jarvis-authentication": "session",
+        "x-jarvis-csrf-origin-required": true
+      }
+    },
+    "/api/task-control/tasks/{task_id}/plan": {
+      "post": {
+        "description": "Produit une nouvelle version de plan, en lecture seule.",
+        "operationId": "post_api_task_control_tasks_by_task_id_plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "title": "Task Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskPlanRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Post Api Task Control Tasks By Task Id Plan",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "428": {
+            "$ref": "#/components/responses/SetupRequired"
+          }
+        },
+        "security": [
+          {
+            "csrfToken": [],
+            "sessionCookie": []
+          }
+        ],
+        "summary": "Plan Control Task",
+        "tags": [
+          "task-control"
+        ],
+        "x-jarvis-authentication": "session",
+        "x-jarvis-csrf-origin-required": true
+      }
+    },
+    "/api/task-control/tasks/{task_id}/plans": {
+      "get": {
+        "description": "Opération JARVIS `GET /api/task-control/tasks/{task_id}/plans`.",
+        "operationId": "get_api_task_control_tasks_by_task_id_plans",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "title": "Task Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Api Task Control Tasks By Task Id Plans",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "428": {
+            "$ref": "#/components/responses/SetupRequired"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "summary": "List Control Plans",
+        "tags": [
+          "task-control"
+        ],
+        "x-jarvis-authentication": "session"
+      }
+    },
+    "/api/task-control/tasks/{task_id}/plans/{version}/decision": {
+      "post": {
+        "description": "Accepte, refuse ou renvoie en révision une version de plan.\n\nSi le client fournit le digest affiché à l'écran, il doit correspondre :\napprouver un plan que l'utilisateur n'a pas sous les yeux serait\nexactement la faille que ce parcours existe pour fermer.",
+        "operationId": "post_api_task_control_tasks_by_task_id_plans_by_version_decision",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "title": "Task Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "title": "Version",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlanDecisionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Post Api Task Control Tasks By Task Id Plans By Version Decision",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "428": {
+            "$ref": "#/components/responses/SetupRequired"
+          }
+        },
+        "security": [
+          {
+            "csrfToken": [],
+            "sessionCookie": []
+          }
+        ],
+        "summary": "Decide Control Plan",
+        "tags": [
+          "task-control"
+        ],
+        "x-jarvis-authentication": "session",
+        "x-jarvis-csrf-origin-required": true
+      }
+    },
+    "/api/task-control/tasks/{task_id}/report": {
+      "get": {
+        "description": "Opération JARVIS `GET /api/task-control/tasks/{task_id}/report`.",
+        "operationId": "get_api_task_control_tasks_by_task_id_report",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "title": "Task Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Api Task Control Tasks By Task Id Report",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "428": {
+            "$ref": "#/components/responses/SetupRequired"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "summary": "Get Control Report",
+        "tags": [
+          "task-control"
+        ],
+        "x-jarvis-authentication": "session"
+      }
+    },
     "/api/tasks": {
       "delete": {
         "description": "Supprime TOUTES les tâches (tous statuts confondus).",
@@ -19113,6 +20536,10 @@
     {
       "description": "Opérations du domaine JARVIS « status ».",
       "name": "status"
+    },
+    {
+      "description": "Opérations du domaine JARVIS « task-control ».",
+      "name": "task-control"
     },
     {
       "description": "Opérations du domaine JARVIS « tasks ».",

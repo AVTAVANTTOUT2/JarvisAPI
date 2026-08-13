@@ -20,7 +20,7 @@ def _line_count(path: Path) -> int:
 #: Nombre de routeurs métier attendus dans `api/`. À faire évoluer sciemment :
 #: un routeur qui apparaît sans décision explicite est presque toujours une
 #: route ajoutée au mauvais endroit.
-EXPECTED_DOMAIN_ROUTERS = 20
+EXPECTED_DOMAIN_ROUTERS = 21
 
 
 def test_phase4_assembles_the_expected_number_of_domain_routers():
