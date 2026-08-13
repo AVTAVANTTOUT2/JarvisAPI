@@ -84,7 +84,7 @@ def test_registry_matches_canonical_openapi() -> None:
                     path,
                     operation["x-jarvis-authentication"],
                 )
-    assert len(OPERATIONS) == 280
+    assert len(OPERATIONS) == 296
     assert set(OPERATIONS) == set(expected)
     assert all(
         (operation.method, operation.path, operation.auth) == expected[operation_id]

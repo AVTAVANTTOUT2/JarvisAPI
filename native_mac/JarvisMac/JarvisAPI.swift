@@ -273,7 +273,10 @@ final class JarvisAPI {
         return request
     }
 
-    private func request<Response: Decodable, Body: Encodable>(
+    /// Accessible aux extensions du client (fichiers séparés) : le
+    /// pilotage de tâches réutilise exactement ce chemin — cookie, Origin
+    /// exacte et jeton synchronisé compris — plutôt que d'en écrire un second.
+    func request<Response: Decodable, Body: Encodable>(
         _ path: String,
         method: String = "GET",
         body: Body?,
@@ -320,7 +323,7 @@ final class JarvisAPI {
         }
     }
 
-    private func request<Response: Decodable>(
+    func request<Response: Decodable>(
         _ path: String,
         method: String = "GET",
         requiresCSRF: Bool = true,
@@ -335,7 +338,7 @@ final class JarvisAPI {
         )
     }
 
-    private func pathSegment(_ value: String) -> String {
+    func pathSegment(_ value: String) -> String {
         value.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? value
     }
 

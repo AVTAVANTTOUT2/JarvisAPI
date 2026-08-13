@@ -47,6 +47,22 @@ targets:
         SKIP_INSTALL: YES
         APPLICATION_EXTENSION_API_ONLY: YES
         ENABLE_HARDENED_RUNTIME: YES
+  # Tests unitaires du pilotage de tâches. Le bundle est hébergé par l'app
+  # afin de tester les types réels (DTO, machine à états miroir, store) plutôt
+  # qu'une copie qui divergerait sans que rien ne le signale.
+  JarvisMacTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: JarvisMacTests
+    dependencies:
+      - target: JarvisMac
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.jarvis.desktop.tests
+        BUNDLE_LOADER: "$(TEST_HOST)"
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Jarvis.app/Contents/MacOS/Jarvis"
 schemes:
   JarvisMac:
     build:
@@ -55,5 +71,9 @@ schemes:
         JarvisWidgetExtension: all
     run:
       config: Debug
+    test:
+      config: Debug
+      targets:
+        - JarvisMacTests
     archive:
       config: Release

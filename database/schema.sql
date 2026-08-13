@@ -225,6 +225,126 @@ CREATE TABLE commitments (
             resolved_at DATETIME
         );
 
+CREATE TABLE control_task_activity (
+    activity_id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL REFERENCES control_tasks(task_id) ON DELETE CASCADE,
+    profile_id TEXT NOT NULL,
+    run_id TEXT,
+    sequence INTEGER NOT NULL,
+    event_type TEXT NOT NULL,
+    summary TEXT NOT NULL DEFAULT '',
+    agent_id TEXT NOT NULL DEFAULT '',
+    agent_role TEXT NOT NULL DEFAULT '',
+    phase TEXT NOT NULL DEFAULT '',
+    tool_name TEXT NOT NULL DEFAULT '',
+    artifact_reference TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT '',
+    level TEXT NOT NULL DEFAULT 'detail',
+    created_at TEXT NOT NULL,
+    UNIQUE(task_id, sequence)
+);
+
+CREATE TABLE control_task_candidates (
+    candidate_id TEXT PRIMARY KEY,
+    profile_id TEXT NOT NULL,
+    suggested_title TEXT NOT NULL,
+    suggested_description TEXT NOT NULL DEFAULT '',
+    source_json TEXT NOT NULL DEFAULT '{}',
+    confidence REAL NOT NULL DEFAULT 0,
+    reason TEXT NOT NULL DEFAULT '',
+    suggested_due_at TEXT,
+    decision TEXT NOT NULL DEFAULT 'pending',
+    decision_at TEXT,
+    created_task_id TEXT,
+    duplicate_of TEXT,
+    dedupe_key TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE control_task_comments (
+    comment_id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL REFERENCES control_tasks(task_id) ON DELETE CASCADE,
+    profile_id TEXT NOT NULL,
+    author TEXT NOT NULL DEFAULT 'user',
+    body TEXT NOT NULL,
+    run_id TEXT,
+    plan_version INTEGER,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE control_task_plans (
+    plan_id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL REFERENCES control_tasks(task_id) ON DELETE CASCADE,
+    profile_id TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    objective TEXT NOT NULL,
+    summary TEXT NOT NULL DEFAULT '',
+    context_understood TEXT NOT NULL DEFAULT '',
+    steps_json TEXT NOT NULL DEFAULT '[]',
+    deliverables_json TEXT NOT NULL DEFAULT '[]',
+    tools_json TEXT NOT NULL DEFAULT '[]',
+    permissions_json TEXT NOT NULL DEFAULT '[]',
+    risks_json TEXT NOT NULL DEFAULT '[]',
+    assumptions_json TEXT NOT NULL DEFAULT '[]',
+    success_criteria_json TEXT NOT NULL DEFAULT '[]',
+    known_limits_json TEXT NOT NULL DEFAULT '[]',
+    estimated_duration_s INTEGER,
+    estimated_cost REAL,
+    created_by TEXT NOT NULL DEFAULT 'jarvis.planner',
+    created_at TEXT NOT NULL,
+    decision TEXT NOT NULL DEFAULT 'pending',
+    decision_at TEXT,
+    decision_by TEXT,
+    decision_comment TEXT NOT NULL DEFAULT '',
+    digest TEXT NOT NULL,
+    UNIQUE(task_id, version)
+);
+
+CREATE TABLE control_task_reports (
+    report_id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL REFERENCES control_tasks(task_id) ON DELETE CASCADE,
+    profile_id TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    result_status TEXT NOT NULL,
+    summary TEXT NOT NULL DEFAULT '',
+    markdown TEXT NOT NULL DEFAULT '',
+    data_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    UNIQUE(task_id, version)
+);
+
+CREATE TABLE control_tasks (
+    task_id TEXT PRIMARY KEY,
+    profile_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL,
+    priority TEXT NOT NULL DEFAULT 'medium',
+    source_type TEXT NOT NULL DEFAULT 'manual',
+    source_channel TEXT NOT NULL DEFAULT 'api',
+    source_reference TEXT NOT NULL DEFAULT '',
+    source_excerpt TEXT NOT NULL DEFAULT '',
+    source_confidence REAL,
+    source_json TEXT NOT NULL DEFAULT '{}',
+    project_id TEXT,
+    conversation_id TEXT,
+    due_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    plan_id TEXT,
+    plan_version INTEGER,
+    approved_plan_version INTEGER,
+    approved_plan_digest TEXT,
+    agentic_run_id TEXT,
+    current_phase TEXT NOT NULL DEFAULT '',
+    progress REAL NOT NULL DEFAULT 0,
+    attention_required INTEGER NOT NULL DEFAULT 0,
+    result_status TEXT,
+    final_report_id TEXT,
+    legacy_task_id INTEGER,
+    metadata_json TEXT NOT NULL DEFAULT '{}'
+);
+
 CREATE TABLE conversation_documents (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
@@ -1346,6 +1466,32 @@ CREATE INDEX idx_appusage_date ON app_usage(date);
 CREATE INDEX idx_auth_rate_limits_updated ON auth_rate_limits(updated_at);
 
 CREATE INDEX idx_commitments_status ON commitments(status);
+
+CREATE INDEX idx_control_task_activity_task
+    ON control_task_activity(profile_id, task_id, sequence);
+
+CREATE INDEX idx_control_task_candidates_decision
+    ON control_task_candidates(profile_id, decision, created_at DESC);
+
+CREATE UNIQUE INDEX idx_control_task_candidates_dedupe
+    ON control_task_candidates(profile_id, dedupe_key)
+    WHERE dedupe_key <> '';
+
+CREATE INDEX idx_control_task_comments_task
+    ON control_task_comments(profile_id, task_id, created_at);
+
+CREATE INDEX idx_control_task_plans_task
+    ON control_task_plans(profile_id, task_id, version DESC);
+
+CREATE UNIQUE INDEX idx_control_tasks_legacy
+    ON control_tasks(profile_id, legacy_task_id)
+    WHERE legacy_task_id IS NOT NULL;
+
+CREATE INDEX idx_control_tasks_profile_status
+    ON control_tasks(profile_id, status, updated_at DESC);
+
+CREATE INDEX idx_control_tasks_run
+    ON control_tasks(agentic_run_id);
 
 CREATE INDEX idx_convdocs_conv ON conversation_documents(conversation_id);
 

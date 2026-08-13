@@ -4,11 +4,11 @@
 **Méthode** : audit du code exécutable sur `main` (pas de la documentation).  
 **Contrôle automatique** : `tools/audit_architecture_truth.py --check --schema-output database/schema.sql`
 
-Runtime SQLite canonique : **104 tables persistantes**, **109 tables physiques avec FTS5**, schéma généré : **105 déclarations de tables**.
+Runtime SQLite canonique : **104 tables persistantes**, **109 tables physiques avec FTS5**, schéma généré : **111 déclarations de tables**.
 
-Surface API canonique : **285 opérations**, **254 chemins**, **137 consommées et testées**, **48 consommées sans référence de test**, **48 non-frontend documentées et testées**, **52 non-frontend documentées sans référence de test**, **0 non attribuées**.
+Surface API canonique : **301 opérations**, **268 chemins**, **143 consommées et testées**, **58 consommées sans référence de test**, **48 non-frontend documentées et testées**, **52 non-frontend documentées sans référence de test**, **0 non attribuées**.
 
-Structure API canonique : **283 opérations HTTP + 2 WebSockets**, **252 chemins OpenAPI**, **20 routeurs api/router_*.py + Fitness = 21 montés**, main.py **223 lignes**.
+Structure API canonique : **299 opérations HTTP + 2 WebSockets**, **266 chemins OpenAPI**, **21 routeurs api/router_*.py + Fitness = 22 montés**, main.py **225 lignes**.
 
 > Ce document **remplace** les affirmations conflictuelles « 44 tables », « 72 tables », « 73 tables »
 > et les formulations ambiguës sur le « frontend principal ».  
