@@ -171,8 +171,6 @@ SLEEP_PHRASES: list[str] = [
     "en veille",
     "dors",
     "bonne nuit",
-    "pause",
-    "silence",
     "arrete d'ecouter",
     "arrete de m'ecouter",
 ]
@@ -530,7 +528,7 @@ class AudioDaemon:
     # ── Mode veille applicative ───────────────────────────────────────────────
 
     def enter_sleep_mode(self) -> None:
-        """Coupe l'ecoute active — seul 'wake' ou le wake word peut reactiver."""
+        """Coupe le traitement LLM — le wake word et les formules de réveil restent actifs."""
         self._sleep_mode = True
         logger.info("[audio_daemon] Mode veille active — micro en sourdine")
 
@@ -1155,15 +1153,6 @@ class AudioDaemon:
 
         while self._running and self._stop_event and not self._stop_event.is_set():
             try:
-                if self._sleep_mode:
-                    while not audio_queue.empty():
-                        try:
-                            audio_queue.get_nowait()
-                        except asyncio.QueueEmpty:
-                            break
-                    await asyncio.sleep(0.5)
-                    continue
-
                 # Wake word : un seul flux micro — détection volume sur le flux principal
                 if self.state in ("idle", "wake_listening") and self.wake_word_enabled:
                     try:
@@ -1175,6 +1164,8 @@ class AudioDaemon:
                         wake_loud_chunks += 1
                         if wake_loud_chunks >= FALLBACK_WAKE_CHUNKS:
                             wake_loud_chunks = 0
+                            if self._sleep_mode:
+                                self.exit_sleep_mode()
                             self._conv_start_time = time.time() if not self.continuous_mode else 0.0
                             try:
                                 if getattr(config, "AUDIO_DAEMON_WAKE_SOUND", True) and WAKE_SOUND_PATH.exists():
@@ -1610,9 +1601,28 @@ class AudioDaemon:
             return
 
         # ── 1. Detection sleep/wake (bypass total LLM, latence zero) ──
+        #
+        # Les commandes de contrôle (« stop », « silence », « annule »…) ne sont
+        # pas interceptées ici. Elles ont déjà un point d'application unique,
+        # `api/voice_fastpath._match_voice_control`, atteint par le pipeline sans
+        # appel LLM. Les dupliquer dans le daemon ferait taire les confirmations
+        # parlées (« C'est annulé. », « Je continue. ») sur le seul transport
+        # local, alors que les mains-libres et le mobile continueraient de les
+        # prononcer. « silence » et « pause » ne sont plus des formules de veille
+        # justement pour qu'elles atteignent ce point d'application.
         if self._check_sleep_wake(text):
             self.state = "wake_listening" if self.wake_word_enabled else "listening"
             await self._broadcast_state()
+            return
+
+        # ── 2. En veille : rien ne part vers le LLM ──
+        #
+        # Seules une formule de réveil (traitée juste au-dessus) et la détection
+        # du wake word sortent de la veille. Une commande de contrôle prononcée
+        # à portée du micro ne doit pas réveiller JARVIS en silence.
+        if self._sleep_mode:
+            logger.debug("[audio_daemon] Mode veille — utterance ignorée : %s", text[:60])
+            await self._rearm(reason="sleep_mode", trace=trace)
             return
 
         # Filtrage post-TTS : ignore écho sauf commandes courtes autorisées
