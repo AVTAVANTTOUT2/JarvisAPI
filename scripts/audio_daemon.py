@@ -171,8 +171,6 @@ SLEEP_PHRASES: list[str] = [
     "en veille",
     "dors",
     "bonne nuit",
-    "pause",
-    "silence",
     "arrete d'ecouter",
     "arrete de m'ecouter",
 ]
@@ -530,7 +528,7 @@ class AudioDaemon:
     # ── Mode veille applicative ───────────────────────────────────────────────
 
     def enter_sleep_mode(self) -> None:
-        """Coupe l'ecoute active — seul 'wake' ou le wake word peut reactiver."""
+        """Coupe le traitement LLM — le wake word et les formules de réveil restent actifs."""
         self._sleep_mode = True
         logger.info("[audio_daemon] Mode veille active — micro en sourdine")
 
@@ -1155,15 +1153,6 @@ class AudioDaemon:
 
         while self._running and self._stop_event and not self._stop_event.is_set():
             try:
-                if self._sleep_mode:
-                    while not audio_queue.empty():
-                        try:
-                            audio_queue.get_nowait()
-                        except asyncio.QueueEmpty:
-                            break
-                    await asyncio.sleep(0.5)
-                    continue
-
                 # Wake word : un seul flux micro — détection volume sur le flux principal
                 if self.state in ("idle", "wake_listening") and self.wake_word_enabled:
                     try:
@@ -1175,6 +1164,8 @@ class AudioDaemon:
                         wake_loud_chunks += 1
                         if wake_loud_chunks >= FALLBACK_WAKE_CHUNKS:
                             wake_loud_chunks = 0
+                            if self._sleep_mode:
+                                self.exit_sleep_mode()
                             self._conv_start_time = time.time() if not self.continuous_mode else 0.0
                             try:
                                 if getattr(config, "AUDIO_DAEMON_WAKE_SOUND", True) and WAKE_SOUND_PATH.exists():
@@ -1609,10 +1600,26 @@ class AudioDaemon:
             await self._rearm(reason="empty_transcript", trace=trace)
             return
 
-        # ── 1. Detection sleep/wake (bypass total LLM, latence zero) ──
+        # ── 1. Commandes de contrôle (barge-in) avant veille/réveil ──
+        from api.voice_fastpath import _match_voice_control
+
+        if _match_voice_control(text) is not None:
+            if self._sleep_mode:
+                self.exit_sleep_mode()
+            self.state = "wake_listening" if self.wake_word_enabled else "listening"
+            await self._broadcast_state()
+            await self._rearm(reason="voice_control", trace=trace)
+            return
+
+        # ── 2. Detection sleep/wake (bypass total LLM, latence zero) ──
         if self._check_sleep_wake(text):
             self.state = "wake_listening" if self.wake_word_enabled else "listening"
             await self._broadcast_state()
+            return
+
+        if self._sleep_mode:
+            logger.debug("[audio_daemon] Mode veille — utterance ignorée : %s", text[:60])
+            await self._rearm(reason="sleep_mode", trace=trace)
             return
 
         # Filtrage post-TTS : ignore écho sauf commandes courtes autorisées
