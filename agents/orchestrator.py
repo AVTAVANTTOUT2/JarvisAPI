@@ -165,6 +165,30 @@ async def append_recent_mails_to_context(ctx: dict, user_message: str, category:
     ctx["memory_context"] = (mem + "\n\n" + merged).strip() if mem else merged
 
 
+def _append_task_control_to_context(ctx: dict) -> None:
+    """Replie les tranches du pilotage de tâches dans ``memory_context``.
+
+    Les agents lisent cette zone via ``{{memory_context}}`` ; poser une clé
+    séparée n'aurait servi à rien tant qu'aucun gabarit ne la référence. Le
+    contenu est déjà borné et sans raisonnement : c'est ce qui permet à JARVIS
+    de dire « la tâche X attend votre validation » sans relayer autre chose.
+    """
+    blocks: list[str] = []
+    overview = (ctx.get("task_control_context") or "").strip()
+    focus = (ctx.get("task_control_focus") or "").strip()
+    if overview:
+        blocks.append(f"[TÂCHES_PILOTÉES]\n{overview}")
+    if focus:
+        blocks.append(f"[TÂCHE_DÉTAIL]\n{focus}")
+    if not blocks:
+        return
+    merged = "\n\n".join(blocks)
+    mem = (ctx.get("memory_context") or "").strip()
+    if merged in mem:
+        return
+    ctx["memory_context"] = (mem + "\n\n" + merged).strip() if mem else merged
+
+
 CATEGORIES = ["SCHOOL", "PRODUCTIVITY", "COACH", "INFO", "JOURNAL", "DEVOPS", "FOOD"]
 CATEGORY_TO_AGENT = {
     "SCHOOL": "school",
@@ -643,6 +667,7 @@ class OrchestratorAgent(BaseAgent):
             ctx["voice_mode"] = True
         ctx["history"] = self._build_history(conversation_id)
         await append_recent_mails_to_context(ctx, user_message, category)
+        _append_task_control_to_context(ctx)
 
         agent_name = CATEGORY_TO_AGENT.get(category, DEFAULT_AGENT)
         agent = get_agent(agent_name) or get_agent(DEFAULT_AGENT)

@@ -368,6 +368,16 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("[startup] réconciliation agentique indisponible : %s", exc)
 
+    # Pilotage de tâches : traduit les événements runtime en activité lisible.
+    # L'abonnement est posé une seule fois et reste sans effet tant qu'aucune
+    # tâche n'est liée à un run — un événement orphelin est simplement ignoré.
+    try:
+        from jarvis.task_control.service import get_task_control_service
+
+        get_task_control_service().bind_runtime_events()
+    except Exception as exc:
+        logger.warning("[startup] pilotage de tâches indisponible : %s", exc)
+
     try:
         from agents.devagent.finalizer import run_engineering_finalizer_worker
 

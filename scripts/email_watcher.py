@@ -457,6 +457,25 @@ class EmailWatcher:
             except Exception as e:
                 logger.error(f"[email_watcher] create_task (request) : {e}")
 
+        # 3 bis. Pilotage : la même demande devient un candidat ou une tâche
+        # en attente de plan. Rien n'est exécuté et aucune réponse n'est
+        # envoyée — le watcher garde la main sur ce qu'il lit, le domaine
+        # décide seulement s'il y a une demande.
+        if reason == "request":
+            try:
+                from jarvis.task_control.ingest import ingest_email_for_detection
+
+                await ingest_email_for_detection(
+                    {
+                        "id": email_id,
+                        "sender": sender,
+                        "subject": subject,
+                        "body": action_needed or summary,
+                    }
+                )
+            except Exception as e:
+                logger.error(f"[email_watcher] détection de tâche : {e}")
+
         # 4. Alerte iMessage — supprimée pendant les heures calmes et le mode
         #    « silence total sauf feu » (seul l'urgent passe le DND).
         #    La notification reste en base et dans l'UI dans tous les cas.
