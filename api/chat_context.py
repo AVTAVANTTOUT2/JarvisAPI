@@ -269,6 +269,20 @@ async def _build_enriched_context(text: str, conversation_id: int) -> dict:
         except Exception as ex:
             logger.warning("[ctx] tasks : %s", ex)
 
+    # Pilotage de tâches — plans à valider, exécutions en cours, livrables.
+    # Déclencheurs propres et étroits : la tranche est plus riche que la liste
+    # de tâches simples et n'a pas à s'inviter à chaque tour de parole.
+    try:
+        from jarvis.task_control.context import (
+            build_task_control_context,
+            should_include_task_control,
+        )
+
+        if should_include_task_control(text) or any(t in lower for t in task_triggers):
+            context.update(build_task_control_context())
+    except Exception as ex:
+        logger.warning("[ctx] task_control : %s", ex)
+
     # Localisation — lieu actuel, position GPS
     location_triggers = ["où", "position", "lieu", "ici", "maison", "bureau", "salle",
                          "adresse", "localisation", "trajet", "déplacement"]

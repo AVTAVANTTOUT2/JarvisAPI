@@ -233,6 +233,75 @@ async def _maybe_handle_control_intent(
     )
 
 
+async def _plan_instead_of_running(
+    request: str,
+    conversation_id: int,
+    *,
+    channel: str,
+    voice_mode: bool,
+    persist_assistant: bool,
+) -> dict[str, Any] | None:
+    """Crée une tâche en attente de plan plutôt que de lancer un run.
+
+    Retourne ``None`` si le pilotage est indisponible : mieux vaut retomber sur
+    le comportement historique que de perdre la demande de l'utilisateur. Le
+    cas est journalisé, jamais silencieux.
+    """
+
+    try:
+        from jarvis.task_control.ingest import create_task_from_user_request
+    except Exception:
+        logger.warning("pilotage de tâches indisponible : démarrage direct")
+        return None
+
+    created = await create_task_from_user_request(
+        request,
+        channel="voice" if voice_mode else channel,
+        conversation_id=str(conversation_id),
+    )
+    if created is None:
+        return None
+
+    acknowledgement = (
+        "J'ai préparé un plan. Il attend votre validation avant tout démarrage."
+        if voice_mode
+        else "Un plan est prêt. Ouvrez la tâche pour l'accepter, le refuser ou demander une correction."
+    )
+    if persist_assistant:
+        try:
+            save_message(
+                conversation_id,
+                "assistant",
+                acknowledgement,
+                agent="agentic",
+                model="runtime",
+                tokens_in=0,
+                tokens_out=0,
+                cost=0.0,
+            )
+        except Exception:
+            logger.exception("persistance de l'accusé de planification impossible")
+    return {
+        "text": acknowledgement,
+        "emotion": "neutral",
+        "action": {"type": "task_control_task", "task_id": created["task_id"]},
+        "action_result": {
+            "ok": True,
+            "accepted": True,
+            "awaiting_plan_approval": True,
+            "task_id": created["task_id"],
+            "status": created["status"],
+        },
+        "task_control": {
+            "task_id": created["task_id"],
+            "status": created["status"],
+        },
+        "agent": "agentic",
+        "model": "runtime",
+        "cost": 0.0,
+    }
+
+
 async def maybe_start_agentic_run(
     text: str,
     conversation_id: int,
@@ -300,6 +369,21 @@ async def maybe_start_agentic_run(
         ),
         route_overrides=getattr(config, "AGENTIC_PROFILE_ROUTE_OVERRIDES", {}),
     )
+
+    # Porte de validation humaine. Une demande adressée à JARVIS — tapée,
+    # dictée ou reçue — devient une tâche **planifiée**, pas une exécution.
+    # C'est le même invariant que pour les tâches créées à la main : personne
+    # n'est nécessairement devant l'écran au moment où le travail commencerait.
+    if bool(getattr(config, "AGENTIC_REQUIRE_PLAN_APPROVAL", True)):
+        planned = await _plan_instead_of_running(
+            request,
+            conversation_id,
+            channel=channel,
+            voice_mode=voice_mode,
+            persist_assistant=persist_assistant,
+        )
+        if planned is not None:
+            return planned
 
     service = get_agentic_service()
     runtime_id = service.resolve_runtime_id(

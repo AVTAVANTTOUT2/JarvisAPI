@@ -480,3 +480,46 @@ async def test_candidat_marque_faux_positif_ne_cree_pas_de_tache(service):
     assert decided.decision is CandidateDecision.FALSE_POSITIVE
     assert decided.created_task_id is None
     assert service.list_tasks() == []
+
+
+# ── Porte de validation sur le chemin d'entrée agentique ───────────────────
+
+
+@pytest.mark.asyncio
+async def test_une_demande_agentique_devient_une_tache_a_valider(
+    task_db, monkeypatch: pytest.MonkeyPatch
+):
+    """Le défaut du produit : une demande ne démarre pas, elle est planifiée."""
+
+    import config as config_module
+    from api import agentic_processing
+    from jarvis.task_control import service as service_module
+
+    monkeypatch.setattr(config_module, "AGENTIC_REQUIRE_PLAN_APPROVAL", True)
+    control = TaskControlService(
+        agentic_service=FakeAgenticService(),
+        notifications=FakeNotifications(),
+        bus=EventBus(),
+        planner=_stub_planner,
+        detector=TaskCandidateDetector(),
+    )
+    monkeypatch.setattr(service_module, "_service", control, raising=False)
+    monkeypatch.setattr(agentic_processing, "save_message", lambda *a, **k: None)
+
+    planned = await agentic_processing._plan_instead_of_running(
+        "prépare-moi une analyse de ce dépôt",
+        conversation_id=42,
+        channel="voice",
+        voice_mode=True,
+        persist_assistant=False,
+    )
+
+    assert planned is not None
+    assert planned["action_result"]["awaiting_plan_approval"] is True
+    assert "validation" in planned["text"]
+    assert control.agentic.starts == [], "aucune exécution n'a démarré"
+
+    task = control.repository.require_task(planned["task_control"]["task_id"])
+    assert task.status is TaskStatus.AWAITING_PLAN_APPROVAL
+    assert task.source.source_type is TaskSourceType.USER_REQUEST
+    assert task.source.channel is TaskSourceChannel.VOICE

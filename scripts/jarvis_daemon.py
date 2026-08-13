@@ -395,6 +395,23 @@ class JarvisDaemon:
             except Exception as e:
                 logger.debug("[daemon] create_notification imessage : %s", e)
 
+            # Détection de demande. Le daemon ne répond toujours à personne :
+            # au mieux une tâche apparaît en attente de plan, jamais une
+            # exécution ni un message sortant.
+            try:
+                from jarvis.task_control.ingest import ingest_message_for_detection
+
+                await ingest_message_for_detection(
+                    {
+                        "rowid": rowid,
+                        "text": text,
+                        "handle_id": handle,
+                        "is_from_me": False,
+                    }
+                )
+            except Exception as e:
+                logger.debug("[daemon] détection de tâche iMessage : %s", e)
+
     async def _check_mail(self) -> None:
         """Notifications vocales mail — délégué à email_watcher si actif."""
         try:

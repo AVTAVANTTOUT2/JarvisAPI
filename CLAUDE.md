@@ -219,6 +219,174 @@ Ollama         = Screen Watcher uniquement (vision locale)
 - Latences vocales p50/p95 : `GET /api/voice/metrics` (table `voice_debug_log`).
 - UI : vue `/cognitive` (Intelligence, Délégations, Vocal, Autonomie).
 
+## Pilotage de tâches — capture, plan, validation humaine, exécution
+
+Le runtime agentique sait exécuter. Ce qui manquait n'était pas de la puissance
+d'exécution, c'était **le moment de décider**. `jarvis/task_control/` ajoute ce
+moment. Contrat complet : `Architecture/adr/ADR-034-cycle-de-vie-des-taches-agentiques.md`.
+
+```
+demande / message / e-mail / création manuelle
+  → tâche (jamais démarrée)
+  → plan versionné, produit en lecture seule
+  → attente de validation humaine
+  → acceptation, refus ou révision
+  → exécution par le runtime générique
+  → activité, outils, fichiers, tests, autorisations
+  → rapport final et lieux de livraison
+  → contexte JARVIS, voix, notifications macOS
+```
+
+### L'invariant, et où il est tenu
+
+**Aucune tâche, créée automatiquement ou manuellement, ne peut être exécutée
+avant validation explicite de la version de plan qui sera exécutée.**
+
+Un seul point l'applique : `ensure_executable()` dans
+`jarvis/task_control/models.py`. Il exige *simultanément* un plan approuvé, la
+version approuvée, le **digest exact** du plan lu par l'utilisateur, et un état
+compatible. `TaskControlService._launch_run()` est le seul chemin du service qui
+appelle le runtime, et il commence par là.
+
+Le digest couvre l'objectif, les étapes, les outils, les permissions et les
+critères de réussite — pas la décision ni ses horodatages. Il reste donc stable
+entre la lecture et le démarrage, et change dès qu'une permission apparaît. Le
+client macOS renvoie le digest affiché ; s'il ne correspond plus, le serveur
+répond `409 plan_digest_mismatch` plutôt que d'approuver un texte non lu.
+
+### Deux pouvoirs, jamais interchangeables
+
+| Approbation | Autorise |
+|---|---|
+| `plan_approval` | Le **démarrage** d'une version de plan |
+| `effect_approval` | **Un** effet, avec ses arguments exacts, une seule fois |
+
+Approuver un plan n'autorise aucun effet externe. Un plan qui annonce
+`mail:send` affiche l'avertissement correspondant ; l'envoi demandera sa propre
+autorisation. Les approbations d'effet restent propriété de `jarvis/agentic/` —
+unicité, expiration et non-rejouabilité y sont déjà tenues.
+
+### La planification n'emprunte aucun runtime
+
+`planner.py` produit le plan par un appel de modèle borné, avec repli
+déterministe hors ligne. Il n'a ni processus, ni espace de travail, ni boucle
+d'outils : il ne *peut pas* écrire un fichier ni envoyer un message, quoi qu'un
+contenu observé lui demande. Les plans sont donc moins spécifiques qu'ils ne
+pourraient l'être — un repli hors ligne le dit dans ses `known_limits`.
+
+### Détection : donnée, jamais instruction
+
+`detection.py` reçoit un contenu que le connecteur est déjà autorisé à lire et
+n'en extrait qu'un titre, une raison et un extrait borné. Les rejets
+déterministes (newsletters, accusés automatiques, expéditeurs robots) passent
+**avant** tout appel de modèle. Confiance moyenne → candidat ; confiance forte →
+tâche **en attente de plan**. Jamais d'exécution, jamais de réponse.
+
+`jarvis/task_control/ingest.py` est le seul pont connecteur → domaine ; le
+watcher e-mail et le daemon iMessage y passent.
+
+### Activité : le travail, pas le raisonnement
+
+`activity.py` reconstruit chaque entrée à partir de champs nommés, avec des
+libellés écrits sur place. C'est une **allowlist de sortie**, pas un filtrage de
+contenu : un runtime qui émettrait sa réflexion dans son payload ne trouverait
+aucun champ où la faire passer. Trois niveaux d'affichage — `summary`, `detail`,
+`technical` — et demander un niveau inclut les plus synthétiques.
+
+### Tables
+
+`control_tasks`, `control_task_plans` (`UNIQUE(task_id, version)`),
+`control_task_activity` (`UNIQUE(task_id, sequence)` — rejouer un événement est
+un no-op), `control_task_candidates` (déduplication par `dedupe_key`),
+`control_task_reports` (immuables par version), `control_task_comments`.
+
+La migration adopte les tâches historiques en état `created` sans toucher à
+`tasks` : aucune tâche existante ne se retrouve en cours d'exécution.
+
+### Endpoints
+
+| Route | Méthode | Description |
+|---|---|---|
+| `/api/task-control/tasks` | GET / POST | Liste par section + compteurs ; création (jamais démarrée) |
+| `/api/task-control/tasks/{id}` | GET / PATCH | Détail (plans, rapport, commentaires) ; édition descriptive |
+| `/api/task-control/tasks/{id}/plan` | POST | Nouvelle version de plan, en lecture seule |
+| `/api/task-control/tasks/{id}/plans` | GET | Historique des versions |
+| `/api/task-control/tasks/{id}/plans/{v}/decision` | POST | `approved` / `rejected` / `revision_requested` |
+| `/api/task-control/tasks/{id}/activity` | GET | `after_sequence` pour la reprise sans doublon |
+| `/api/task-control/tasks/{id}/approvals` | GET | Autorisations d'effet en attente |
+| `/api/task-control/tasks/{id}/approvals/{aid}/decision` | POST | Autorise **un** effet, une fois |
+| `/api/task-control/tasks/{id}/report` | GET | Rapport final |
+| `/api/task-control/tasks/{id}/artifacts` | GET | Artefacts attestés |
+| `/api/task-control/tasks/{id}/comments` | POST | Précision, avec révision de plan optionnelle |
+| `/api/task-control/tasks/{id}/cancel` | POST | Annulation |
+| `/api/task-candidates` | GET | Détections en attente |
+| `/api/task-candidates/{id}/decision` | POST | Accepter, ignorer, rejeter, faux positif, fusionner |
+
+Ressource distincte de `/api/tasks` à dessein : l'historique a une identité
+entière, un modèle à trois états et trois clients.
+
+### Temps réel
+
+Aucun nouveau WebSocket. Douze types `task.control.*` sur le bus applicatif,
+déclarés **avant** le bloc « Domaine applicatif » de `EVENT_TYPES`
+(`DOMAIN_EVENT_TYPES` en est les dix derniers), consommés par le SSE existant
+`/api/events/stream` qui gère déjà `Last-Event-ID`.
+
+### Application macOS
+
+Section « Tâches » : `NavigationSplitView` à trois colonnes, détail à six
+onglets (Résumé, Plan, Activité, Autorisations, Résultat, Contexte).
+Raccourcis `⌘N`, `⌘↩`, `⌘.`, `⌥⌘A`. Livrables ouvrables dans le Finder,
+copiables, ou ouverts comme lien.
+
+L'application est un **client** : elle n'appelle jamais un runtime, ne connaît
+aucun identifiant de fournisseur, ne détient aucune clé de modèle et ne décide
+jamais qu'un run est terminé. Notifications `UNUserNotificationCenter`
+dédupliquées par état, retirées quand la tâche n'attend plus rien, sans contenu
+sensible sur l'écran verrouillé, et **sans bouton qui accorde une
+autorisation** — approuver un effet exige d'ouvrir la tâche.
+
+### Voix et contexte
+
+`context.py` produit un contexte dense et borné (états, étapes, lieux de
+livraison), replié par l'orchestrateur dans `memory_context`. Ni raisonnement,
+ni extrait de source, ni argument d'action : le moteur vocal ne peut pas lire à
+voix haute ce que la redaction a déjà écarté.
+
+### Variables d'env
+
+```bash
+TASK_DETECTION_ENABLED=true
+TASK_DETECTION_MIN_CONFIDENCE=0.45   # en dessous : rien
+TASK_DETECTION_AUTO_CONFIDENCE=0.85  # au-dessus : tâche en attente de plan
+TASK_DETECTION_DISABLED_SOURCES=     # ex. « email,message »
+AGENTIC_REQUIRE_PLAN_APPROVAL=true   # false = démarrage immédiat, comme avant
+```
+
+### La porte s'applique aussi aux demandes adressées à JARVIS
+
+`api/agentic_processing.maybe_start_agentic_run()` ne démarre plus un run : il
+crée une tâche **planifiée**. Chat, voix et iMessage passent par la même porte
+que la création manuelle — personne n'est nécessairement devant l'écran au
+moment où le travail commencerait, et c'est justement le cas que ce lot ferme.
+
+L'accusé le dit explicitement : « J'ai préparé un plan. Il attend votre
+validation avant tout démarrage. »
+
+### Limites assumées
+
+- `AGENTIC_REQUIRE_PLAN_APPROVAL=false` restaure le démarrage immédiat sur le
+  chemin d'entrée agentique. C'est un **retour au comportement d'avant ce lot**,
+  pas une option de confort : il rouvre exactement le cas que le lot ferme.
+- Si le pilotage est indisponible au moment de la demande, le chemin retombe
+  sur le démarrage direct plutôt que de perdre la demande — le cas est
+  journalisé, jamais silencieux.
+- La détection ne lit aucune source d'elle-même — elle dépend de ce que les
+  connecteurs lui passent.
+- Le score de détection est une heuristique explicable, pas un modèle : il
+  manquera des demandes formulées autrement.
+- Les plans sont moins spécifiques qu'un planificateur ayant accès au dépôt.
+
 ## Runtime agentique (plugin amovible)
 
 Le runtime agentique est un **provider d'exécution**, pas le cœur du produit. Le

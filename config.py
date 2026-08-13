@@ -1056,6 +1056,12 @@ TASK_DETECTION_ENABLED = _get("TASK_DETECTION_ENABLED", "true").strip().lower() 
 TASK_DETECTION_MIN_CONFIDENCE = _positive_float("TASK_DETECTION_MIN_CONFIDENCE", 0.45)
 TASK_DETECTION_AUTO_CONFIDENCE = _positive_float("TASK_DETECTION_AUTO_CONFIDENCE", 0.85)
 TASK_DETECTION_DISABLED_SOURCES = _get("TASK_DETECTION_DISABLED_SOURCES", "").strip()
+# Porte de validation humaine sur le chemin d'entrée agentique (chat, voix,
+# iMessage). À `true`, une demande devient une tâche planifiée qui attend sa
+# validation ; à `false`, elle démarre immédiatement comme avant ce lot.
+AGENTIC_REQUIRE_PLAN_APPROVAL = (
+    _get("AGENTIC_REQUIRE_PLAN_APPROVAL", "true").strip().lower() == "true"
+)
 SUPERVISOR_RESTART_STOP_TIMEOUT_S = _positive_float(
     "SUPERVISOR_RESTART_STOP_TIMEOUT_S", 30.0
 )

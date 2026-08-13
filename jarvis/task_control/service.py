@@ -563,7 +563,13 @@ class TaskControlService:
                 "expires_at": (
                     approval.expires_at.isoformat() if approval.expires_at else None
                 ),
-                "decision": approval.decision.value,
+                # L'approbation vient d'un plugin d'exécution : un champ
+                # incomplet doit dégrader l'affichage, pas casser l'écran des
+                # autorisations — c'est justement celui dont on a besoin quand
+                # quelque chose ne va pas.
+                "decision": str(
+                    getattr(approval.decision, "value", approval.decision) or "pending"
+                ),
                 "decision_at": (
                     approval.decision_at.isoformat() if approval.decision_at else None
                 ),
