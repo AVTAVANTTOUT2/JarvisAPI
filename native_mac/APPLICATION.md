@@ -261,6 +261,7 @@ Après `ready` :
 | **Conversation** | ⌘2 | Chat split + historique |
 | **Actions** | ⌘3 | Tâches + agenda |
 | **Mémoire** | — | Grille conversations / recherche |
+| **Terminal** | ⌘4 | Session SSH sur une machine du tailnet |
 | **Système** | — | Capacités + diagnostics |
 
 ### Toolbar détail
@@ -341,7 +342,18 @@ Bulles :
   - Contrôle Mac (shell)
 - Contrôles : Reconnecter, Actualiser, Réglages, Ouvrir le projet, Verrouiller
 
-### 8.6 Palette de commandes (`CommandPaletteView`) — ⇧⌘J
+### 8.6 Terminal (`TerminalView`) — ⌘4
+
+Session `ssh` sur une machine du tailnet, rendue par un émulateur VT intégré.
+
+- Barre : pastille d'état Tailscale, menu des machines découvertes, hôte / utilisateur / port, réglages, Connecter (⇧⌘↩)
+- Surface : émulateur 256 couleurs + couleur vraie, historique 5 000 lignes, sélection à la souris
+- Raccourcis : ⌘C copier, ⌘V coller, ⌘K effacer, ⇧⇞/⇧⇟ historique, ⌘+/⌘− taille
+- Réglages : chemin de clé privée, touche Option en Meta, commande `ssh` exacte affichée
+
+Conception, garde-fous et limites : **§17**.
+
+### 8.7 Palette de commandes (`CommandPaletteView`) — ⇧⌘J
 
 Sheet glass 590 px :
 
@@ -350,7 +362,7 @@ Sheet glass 590 px :
 - Entrée sur une requête libre → envoie en chat
 - Pill statut live en bas
 
-### 8.7 Barre des menus (`MenuBarView`)
+### 8.8 Barre des menus (`MenuBarView`)
 
 - Orbe + phase
 - Champ « Demander rapidement… » (si ready)
@@ -359,7 +371,7 @@ Sheet glass 590 px :
 
 Icône menu : `sparkles` si ready, sinon `circle.dashed`.
 
-### 8.8 Jarvis Glance (`DeskWidgetView`)
+### 8.9 Jarvis Glance (`DeskWidgetView`)
 
 Fenêtre flottante (level `.floating`, tous Spaces, title bar cachée) :
 
@@ -368,14 +380,14 @@ Fenêtre flottante (level `.floating`, tous Spaces, title bar cachée) :
 - Premier signal
 - Parler / Actualiser / pill phase
 
-### 8.9 Widget WidgetKit (`JarvisGlanceWidget`)
+### 8.10 Widget WidgetKit (`JarvisGlanceWidget`)
 
 - Small / Medium
 - Ping `https://127.0.0.1:8081/api/auth/status` toutes les 5 min
 - Greeting horaire + état cœur
 - Clic → `jarvis://today`
 
-### 8.10 Réglages (`SettingsView`)
+### 8.11 Réglages (`SettingsView`)
 
 - Adresse du cœur (`jarvis.baseURL`)
 - Dossier projet (`jarvis.projectRoot`, défaut `~/JARVIS`)
@@ -471,6 +483,13 @@ native_mac/
 │   ├── RootView.swift / LockView.swift
 │   ├── TodayView / ChatView / ActionsView / MemoryView / SystemView
 │   ├── CommandPaletteView / MenuBarView / DeskWidgetView / SettingsView
+│   ├── TerminalView.swift      # Section Terminal (SwiftUI)
+│   ├── TerminalSurface.swift   # NSView : rendu Core Text, clavier, sélection
+│   ├── TerminalEmulator.swift  # Moteur VT100/xterm (aucune dépendance UI)
+│   ├── TerminalTheme.swift     # Palette ANSI 256 couleurs
+│   ├── TerminalBridge.swift    # État de section : destination, session, tailnet
+│   ├── SSHTerminalSession.swift # forkpty + ssh
+│   ├── TailscaleService.swift  # Découverte des pairs (CLI locale)
 │   ├── PreviewExporter.swift
 │   └── Resources/Assets.xcassets
 ├── JarvisWidget/
@@ -522,6 +541,9 @@ Charge un snapshot fictif (tâches, agenda, conversations) pour captures / CI vi
 | Sandbox | Off (prototype ; accès micro + scripts locaux) |
 | Hardened Runtime | Activé dans le target |
 | Notifications | Filtrées urgent/high uniquement |
+| Terminal SSH | Authentification déléguée à `ssh` ; aucun mot de passe ni passphrase stocké ou saisi par l'app |
+| Clé d'hôte | Vérification `ssh` par défaut conservée — aucune option ne l'affaiblit |
+| Verrouillage | La session SSH est coupée au verrouillage de l'app (`AppModel.logout`) |
 
 Limites assumées du prototype :
 
@@ -566,6 +588,96 @@ L’app Mac est une **coque de présence** : elle rend Jarvis tangible sur le bu
 5. `JarvisMac/AppModel.swift` — comportements
 6. `JarvisMac/JarvisMacApp.swift` — scènes macOS
 7. `README.md` — démarrage rapide
+
+---
+
+## 17. Terminal distant — pont SSH par Tailscale
+
+La section **Terminal** (⌘4) ouvre une session `ssh` vers une machine du
+tailnet — en pratique le Mac mini serveur — et l'affiche dans un émulateur VT
+intégré à l'app.
+
+### Le pont est côté client, pas côté cœur
+
+Aucune route n'a été ajoutée au backend. Faire passer un shell distant par
+FastAPI aurait créé une exécution de commandes arbitraires derrière le cookie
+de session applicatif — exactement ce que le reste du projet refuse (plan shell
+allowlisté, confirmation humaine, workspace isolé). Ici, l'app lance `ssh`
+localement : **la frontière d'authentification est SSH**, avec ses clés, son
+`~/.ssh/config` et son `known_hosts`. Jarvis ne voit rien de la session, et un
+cœur compromis n'ouvre aucun shell.
+
+Deux verrous se cumulent malgré tout : la section n'est atteignable qu'après
+déverrouillage de l'app, et `AppModel.logout()` coupe la session SSH — laisser
+un shell vivant derrière l'écran verrouillé annulerait le verrou.
+
+### `forkpty`, et pas `Process`
+
+`ssh` doit être **chef de session** et posséder son terminal de contrôle : sans
+`/dev/tty`, il ne peut ni demander la confirmation d'une clé d'hôte inconnue,
+ni lire une passphrase. `Process` n'expose aucun moyen d'appeler `setsid()`.
+`SSHTerminalSession` fait donc `forkpty` + `execve`, avec `argv` et `envp`
+construits **avant** le fork — entre `fork` et `exec`, seules les fonctions
+async-signal-safe sont légitimes. Vérifié : le fils apparaît en `Ss+`, et
+l'invite « Are you sure you want to continue connecting » s'affiche bien dans
+la section.
+
+L'environnement transmis est une liste explicite (`HOME`, `PATH`, `LANG`,
+`SSH_AUTH_SOCK`…) plus `TERM=xterm-256color` : l'enfant n'a pas besoin de
+l'état interne de l'application.
+
+### Ce que la validation empêche
+
+Hôte et utilisateur sont validés caractère par caractère et ne peuvent pas
+commencer par `-`. Sans cela, un hôte nommé `-oProxyCommand=…` serait lu par
+`ssh` comme une option, c'est-à-dire une exécution de commande locale. La
+ligne de commande exacte est affichée dans le panneau de réglages, et
+**aucune option n'affaiblit la vérification de clé d'hôte**.
+
+Aucun mot de passe n'est stocké ni saisi par l'application : les invites de
+`ssh` sont rendues dans le terminal, où l'utilisateur répond lui-même.
+
+### Découverte Tailscale, en lecture seule
+
+`TailscaleService` appelle `tailscale status --json` sur le démon local — aucun
+appel réseau, aucune clé d'API. Il ne sert qu'à *proposer* des machines : le
+nom MagicDNS est préféré au `HostName`, qui est un nom d'affichage parfois
+générique (un iPhone s'y annonce « localhost »). Si Tailscale est absent ou
+arrêté, la section reste utilisable en saisissant une adresse à la main.
+
+### L'émulateur
+
+`TerminalEmulator` est un moteur VT100/xterm sans dépendance UI ni bibliothèque
+tierce : attributs SGR (16 / 256 / couleur vraie), régions de défilement,
+écran alterné, insertion/suppression de lignes et de caractères, retour à la
+ligne différé, historique de 5 000 lignes, UTF-8 avec diacritiques combinants
+et glyphes double largeur, titre OSC, réponses DSR/DA. Le rendu passe par Core
+Text dans un `NSView`, qui porte aussi le clavier (touches mortes comprises,
+via `NSTextInputClient`), la sélection et la molette.
+
+**Ce qu'il ne fait pas, volontairement** : pas de reflow au
+redimensionnement (une ligne coupée reste coupée), pas de rapport de souris,
+pas de Sixel, pas de jeux de caractères hérités. Les programmes plein écran
+usuels (`vim`, `htop`, `tmux`) fonctionnent ; un programme exigeant le
+signalement de la souris ne verra pas les clics.
+
+### Mise en service
+
+1. Sur la machine cible : Réglages Système → Général → Partage → **Connexion à distance**.
+2. Une clé publique dans `~/.ssh/authorized_keys` de la cible — sinon `ssh`
+   demandera un mot de passe à chaque session, dans le terminal.
+3. Tailscale actif des deux côtés.
+4. Section Terminal → menu **Machines** → **Connecter**.
+
+### Limites assumées
+
+- Une seule session à la fois ; changer de machine ferme la précédente.
+- Pas de reconnexion automatique après une coupure réseau : `ServerAliveInterval`
+  détecte la perte, la reconnexion reste un geste explicite.
+- La première connexion à un hôte inconnu demande une confirmation dans le
+  terminal — c'est voulu, et non contournable depuis l'interface.
+- Le rendu est vérifié hors écran et par des bancs d'essai dédiés, pas par une
+  suite de tests versionnée : le projet Xcode n'a pas de cible de tests.
 
 ---
 
