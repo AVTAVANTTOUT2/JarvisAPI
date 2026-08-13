@@ -1,9 +1,9 @@
 """Cycle de vie provider-neutral des worktrees agentiques JARVIS.
 
-OpenCode ne crée, ne liste et ne détruit aucun worktree. Ce module est la
-seule autorité de rétention : un répertoire n'est retiré que s'il est propre,
-sauvegardé, hors run actif, hors PR ouverte, et strictement sous la racine
-autorisée. Aucun commit WIP n'est créé implicitement.
+Aucun fournisseur d'exécution ne crée, ne liste ni ne détruit de worktree.
+Ce module est la seule autorité de rétention : un répertoire n'est retiré que
+s'il est propre, sauvegardé, hors run actif, hors PR ouverte, et strictement
+sous la racine autorisée. Aucun commit WIP n'est créé implicitement.
 """
 
 from __future__ import annotations
