@@ -360,13 +360,27 @@ TASK_DETECTION_ENABLED=true
 TASK_DETECTION_MIN_CONFIDENCE=0.45   # en dessous : rien
 TASK_DETECTION_AUTO_CONFIDENCE=0.85  # au-dessus : tâche en attente de plan
 TASK_DETECTION_DISABLED_SOURCES=     # ex. « email,message »
+AGENTIC_REQUIRE_PLAN_APPROVAL=true   # false = démarrage immédiat, comme avant
 ```
+
+### La porte s'applique aussi aux demandes adressées à JARVIS
+
+`api/agentic_processing.maybe_start_agentic_run()` ne démarre plus un run : il
+crée une tâche **planifiée**. Chat, voix et iMessage passent par la même porte
+que la création manuelle — personne n'est nécessairement devant l'écran au
+moment où le travail commencerait, et c'est justement le cas que ce lot ferme.
+
+L'accusé le dit explicitement : « J'ai préparé un plan. Il attend votre
+validation avant tout démarrage. »
 
 ### Limites assumées
 
-- `maybe_start_agentic_run()` reste en place : une demande **tapée** dans le
-  chat démarre toujours immédiatement. Ce lot ajoute le parcours validé sans
-  supprimer l'existant.
+- `AGENTIC_REQUIRE_PLAN_APPROVAL=false` restaure le démarrage immédiat sur le
+  chemin d'entrée agentique. C'est un **retour au comportement d'avant ce lot**,
+  pas une option de confort : il rouvre exactement le cas que le lot ferme.
+- Si le pilotage est indisponible au moment de la demande, le chemin retombe
+  sur le démarrage direct plutôt que de perdre la demande — le cas est
+  journalisé, jamais silencieux.
 - La détection ne lit aucune source d'elle-même — elle dépend de ce que les
   connecteurs lui passent.
 - Le score de détection est une heuristique explicable, pas un modèle : il

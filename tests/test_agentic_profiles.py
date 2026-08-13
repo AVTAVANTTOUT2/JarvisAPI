@@ -203,6 +203,9 @@ async def test_conversation_router_passes_selected_profile_to_service(
             )
 
     monkeypatch.setattr(config, "AGENTIC_RUNTIME", "fake-runtime")
+    # Ces cas exercent volontairement le démarrage direct : ils vérifient
+    # la sélection de profil de capacité, pas la porte de validation.
+    monkeypatch.setattr(config, "AGENTIC_REQUIRE_PLAN_APPROVAL", False)
     monkeypatch.setattr(config, "AGENTIC_RUNTIME_FALLBACK", "disabled")
     monkeypatch.setattr(config, "AGENTIC_DEFAULT_PROFILE", "readonly-research")
     monkeypatch.setattr(config, "AGENTIC_PROFILE_ROUTE_OVERRIDES", {})
@@ -249,6 +252,9 @@ def _capture_service(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
             )
 
     monkeypatch.setattr(config, "AGENTIC_RUNTIME", "fake-runtime")
+    # Ces cas exercent volontairement le démarrage direct : ils vérifient
+    # la sélection de profil de capacité, pas la porte de validation.
+    monkeypatch.setattr(config, "AGENTIC_REQUIRE_PLAN_APPROVAL", False)
     monkeypatch.setattr(config, "AGENTIC_RUNTIME_FALLBACK", "disabled")
     monkeypatch.setattr(config, "AGENTIC_DEFAULT_PROFILE", "readonly-research")
     monkeypatch.setattr(config, "AGENTIC_PROFILE_ROUTE_OVERRIDES", {})
