@@ -15,6 +15,7 @@ from jarvis.agentic import (
     select_capability_profile,
 )
 from jarvis.cognitive import route_request
+from jarvis.agentic.desktop_workspace import resolve_desktop_workspace
 from jarvis.agentic.models import (
     AgenticRequestCategory,
     ApprovalDecision,
@@ -310,7 +311,6 @@ async def maybe_start_agentic_run(
         == "legacy"
     ):
         return None
-    from jarvis.agentic.desktop_workspace import resolve_desktop_workspace
 
     desktop_workspace = resolve_desktop_workspace(request)
     run = await service.create_and_start(
