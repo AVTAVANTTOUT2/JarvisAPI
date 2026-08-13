@@ -1069,13 +1069,19 @@ def migrate_task_control_tables(conn: sqlite3.Connection) -> None:
     la source des tâches simples déjà affichées ailleurs, et chaque ligne
     reçoit ici un miroir piloté en état ``created``. Aucune tâche existante
     ne se retrouve donc en cours d'exécution du fait de la migration.
+
+    Les lignes sont lues par **position**, pas par nom : une migration est
+    appelée avec la connexion de l'appelant, et tous les appelants ne posent
+    pas ``row_factory = sqlite3.Row`` — l'outil d'audit du schéma, par
+    exemple, ouvre une connexion nue. Dépendre du `row_factory` d'autrui
+    faisait échouer la migration hors du chemin applicatif.
     """
 
     conn.executescript(TASK_CONTROL_SCHEMA)
     existing = conn.execute(
-        "SELECT COUNT(*) AS total FROM control_tasks WHERE legacy_task_id IS NOT NULL"
+        "SELECT COUNT(*) FROM control_tasks WHERE legacy_task_id IS NOT NULL"
     ).fetchone()
-    if existing is not None and int(existing["total"]) > 0:
+    if existing is not None and int(existing[0]) > 0:
         return
     try:
         rows = conn.execute(
@@ -1087,13 +1093,24 @@ def migrate_task_control_tables(conn: sqlite3.Connection) -> None:
     profile_id = current_profile_id()
     now = datetime.now(timezone.utc)
     for row in rows:
-        legacy_status = str(row["status"] or "todo")
+        (
+            legacy_id,
+            legacy_title,
+            legacy_description,
+            legacy_priority,
+            legacy_status_raw,
+            legacy_due,
+            legacy_category,
+            legacy_created,
+            legacy_completed,
+        ) = tuple(row)
+        legacy_status = str(legacy_status_raw or "todo")
         status = TaskStatus.COMPLETED if legacy_status == "done" else TaskStatus.CREATED
         result_status = "completed" if legacy_status == "done" else None
         source = TaskSource(
             source_type=TaskSourceType.MANUAL,
             channel=TaskSourceChannel.API,
-            reference=f"legacy:task:{row['id']}",
+            reference=f"legacy:task:{legacy_id}",
         )
         conn.execute(
             """
@@ -1106,12 +1123,12 @@ def migrate_task_control_tables(conn: sqlite3.Connection) -> None:
             ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
-                f"task_legacy{int(row['id']):08d}",
+                f"task_legacy{int(legacy_id):08d}",
                 profile_id,
-                str(row["title"] or "Tâche")[:300],
-                str(row["description"] or "")[:8000],
+                str(legacy_title or "Tâche")[:300],
+                str(legacy_description or "")[:8000],
                 status.value,
-                str(row["priority"] or "medium"),
+                str(legacy_priority or "medium"),
                 source.source_type.value,
                 source.channel.value,
                 source.reference,
@@ -1120,15 +1137,15 @@ def migrate_task_control_tables(conn: sqlite3.Connection) -> None:
                 _dumps(source.to_dict()),
                 None,
                 None,
-                row["due_date"],
-                row["created_at"] or _iso(now),
-                row["completed_at"] or row["created_at"] or _iso(now),
+                legacy_due,
+                legacy_created or _iso(now),
+                legacy_completed or legacy_created or _iso(now),
                 "",
                 1.0 if legacy_status == "done" else 0.0,
                 0,
                 result_status,
-                int(row["id"]),
-                _dumps({"legacy_category": row["category"]}),
+                int(legacy_id),
+                _dumps({"legacy_category": legacy_category}),
             ),
         )
 

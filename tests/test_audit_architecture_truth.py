@@ -361,7 +361,7 @@ def test_check_mode_rejects_a_stale_report(fake_repo: Path, tmp_path: Path) -> N
 def test_real_repo_smoke_counts_stable() -> None:
     """Garde-fou : le dépôt réel produit les comptages attendus (code only)."""
     tables = audit.analyze_tables(ROOT)
-    assert tables["counts"]["schema_sql_applicatives"] == 105
+    assert tables["counts"]["schema_sql_applicatives"] == 111
     # Le versionnement, l'historique des métriques et le registre de profils
     # sont tous inclus dans ces comptages cumulés.
     assert tables["counts"]["schema_py"] == 68
@@ -377,20 +377,20 @@ def test_real_repo_smoke_counts_stable() -> None:
 
     api_surface = audit.analyze_api_surface(ROOT)
     assert api_surface["counts"] == {
-        "operations": 285,
-        "paths": 254,
-        "consumer_and_tested": 137,
-        "consumer_without_path_test": 48,
+        "operations": 301,
+        "paths": 268,
+        "consumer_and_tested": 143,
+        "consumer_without_path_test": 58,
         "owned_non_frontend_and_tested": 48,
         "owned_non_frontend_without_path_test": 52,
     }
     assert api_surface["structure"] == {
-        "http_operations": 283,
+        "http_operations": 299,
         "websocket_operations": 2,
-        "openapi_paths": 252,
-        "domain_router_modules": 20,
-        "mounted_routers": 21,
-        "main_lines": 223,
+        "openapi_paths": 266,
+        "domain_router_modules": 21,
+        "mounted_routers": 22,
+        "main_lines": 225,
     }
     assert api_surface["ownership_policy"]["rules"] == 36
     assert api_surface["ownership_policy"]["findings"] == []
@@ -399,7 +399,7 @@ def test_real_repo_smoke_counts_stable() -> None:
 def test_generated_runtime_schema_replays_a_fresh_database() -> None:
     schema = audit.render_runtime_schema(ROOT)
     assert schema.startswith("-- GENERATED FILE — DO NOT EDIT.")
-    assert len(audit._extract_create_tables(schema)) == 105
+    assert len(audit._extract_create_tables(schema)) == 111
 
     conn = sqlite3.connect(":memory:")
     try:
@@ -410,7 +410,7 @@ def test_generated_runtime_schema_replays_a_fresh_database() -> None:
             """).fetchone()[0]
     finally:
         conn.close()
-    assert table_count == 109
+    assert table_count == 115
 
 
 def test_versioned_architecture_artifacts_match_runtime() -> None:
