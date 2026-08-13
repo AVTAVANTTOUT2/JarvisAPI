@@ -191,6 +191,29 @@ struct TaskControlSource: Codable, Hashable {
         case sourceType = "source_type"
         case detectionReason = "detection_reason"
     }
+
+    init() {}
+
+    /// Décodage tolérant aux champs absents.
+    ///
+    /// Le `Decodable` synthétisé exige toutes les clés non optionnelles, même
+    /// quand la propriété a une valeur par défaut. Une provenance qui
+    /// n'embarque pas d'extrait aurait alors fait échouer le décodage de toute
+    /// la tâche — un écran vide pour un champ vide.
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        sourceType =
+            (try? values.decodeIfPresent(TaskControlSourceType.self, forKey: .sourceType))
+            .flatMap { $0 } ?? .unknown
+        channel = (try? values.decodeIfPresent(String.self, forKey: .channel)) as? String ?? "api"
+        reference = (try? values.decodeIfPresent(String.self, forKey: .reference)) as? String ?? ""
+        excerpt = (try? values.decodeIfPresent(String.self, forKey: .excerpt)) as? String ?? ""
+        confidence = try? values.decodeIfPresent(Double.self, forKey: .confidence)
+        detectionReason =
+            (try? values.decodeIfPresent(String.self, forKey: .detectionReason)) as? String ?? ""
+        sender = (try? values.decodeIfPresent(String.self, forKey: .sender)) as? String ?? ""
+        subject = (try? values.decodeIfPresent(String.self, forKey: .subject)) as? String ?? ""
+    }
 }
 
 // MARK: - Tâche
@@ -235,6 +258,80 @@ struct ControlTask: Identifiable, Codable, Hashable {
         case attentionRequired = "attention_required"
         case resultStatus = "result_status"
         case finalReportID = "final_report_id"
+    }
+
+    /// Mêmes raisons que pour la provenance : seuls l'identifiant, le titre et
+    /// l'état sont indispensables. Le reste retombe sur un défaut lisible
+    /// plutôt que de faire disparaître la tâche de la liste.
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        taskID = try values.decode(String.self, forKey: .taskID)
+        title = try values.decode(String.self, forKey: .title)
+        status = try values.decode(TaskControlStatus.self, forKey: .status)
+        description = (try? values.decodeIfPresent(String.self, forKey: .description)) as? String ?? ""
+        priority = (try? values.decodeIfPresent(String.self, forKey: .priority)) as? String ?? "medium"
+        source =
+            (try? values.decodeIfPresent(TaskControlSource.self, forKey: .source)).flatMap { $0 }
+            ?? TaskControlSource()
+        projectID = try? values.decodeIfPresent(String.self, forKey: .projectID)
+        conversationID = try? values.decodeIfPresent(String.self, forKey: .conversationID)
+        dueAt = try? values.decodeIfPresent(String.self, forKey: .dueAt)
+        createdAt = try? values.decodeIfPresent(String.self, forKey: .createdAt)
+        updatedAt = try? values.decodeIfPresent(String.self, forKey: .updatedAt)
+        planVersion = try? values.decodeIfPresent(Int.self, forKey: .planVersion)
+        approvedPlanVersion = try? values.decodeIfPresent(Int.self, forKey: .approvedPlanVersion)
+        approvedPlanDigest = try? values.decodeIfPresent(String.self, forKey: .approvedPlanDigest)
+        agenticRunID = try? values.decodeIfPresent(String.self, forKey: .agenticRunID)
+        currentPhase = (try? values.decodeIfPresent(String.self, forKey: .currentPhase)) as? String ?? ""
+        progress = (try? values.decodeIfPresent(Double.self, forKey: .progress)) as? Double ?? 0
+        attentionRequired =
+            (try? values.decodeIfPresent(Bool.self, forKey: .attentionRequired)) as? Bool ?? false
+        resultStatus = try? values.decodeIfPresent(String.self, forKey: .resultStatus)
+        finalReportID = try? values.decodeIfPresent(String.self, forKey: .finalReportID)
+    }
+
+    init(
+        taskID: String,
+        title: String,
+        description: String = "",
+        status: TaskControlStatus,
+        priority: String = "medium",
+        source: TaskControlSource = TaskControlSource(),
+        projectID: String? = nil,
+        conversationID: String? = nil,
+        dueAt: String? = nil,
+        createdAt: String? = nil,
+        updatedAt: String? = nil,
+        planVersion: Int? = nil,
+        approvedPlanVersion: Int? = nil,
+        approvedPlanDigest: String? = nil,
+        agenticRunID: String? = nil,
+        currentPhase: String = "",
+        progress: Double = 0,
+        attentionRequired: Bool = false,
+        resultStatus: String? = nil,
+        finalReportID: String? = nil
+    ) {
+        self.taskID = taskID
+        self.title = title
+        self.description = description
+        self.status = status
+        self.priority = priority
+        self.source = source
+        self.projectID = projectID
+        self.conversationID = conversationID
+        self.dueAt = dueAt
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.planVersion = planVersion
+        self.approvedPlanVersion = approvedPlanVersion
+        self.approvedPlanDigest = approvedPlanDigest
+        self.agenticRunID = agenticRunID
+        self.currentPhase = currentPhase
+        self.progress = progress
+        self.attentionRequired = attentionRequired
+        self.resultStatus = resultStatus
+        self.finalReportID = finalReportID
     }
 
     var priorityLabel: String {

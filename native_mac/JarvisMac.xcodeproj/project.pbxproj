@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		1CD8C46BE5466F9187739233 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D80D32C61CAD2CAE516BE7E2 /* RootView.swift */; };
 		1CE082FE38F211ACF44DE23C /* BiometricCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B78AA0700882AF0BC47F721D /* BiometricCredentialStore.swift */; };
+		222CE8FAD3AAEE3445D2815D /* TaskControlDecodingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF3630416AE34D7D8DC465FB /* TaskControlDecodingTests.swift */; };
 		224E9CE38CD9C78165D40662 /* JarvisSocket.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91C421F01812591F41688E0E /* JarvisSocket.swift */; };
 		2330A6C2773D3D6CE1F153F5 /* TailscaleService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 709A181A8B30A78A3682AC1F /* TailscaleService.swift */; };
 		27B2062157F58117C9499762 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDC2AC71D7D7E86605463EF7 /* Models.swift */; };
@@ -16,6 +17,7 @@
 		2A7DC21F612E27FDFAD3BBB7 /* TerminalSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2160AFD31D3A9C5BED1DB280 /* TerminalSurface.swift */; };
 		3A440AD377341AD691DEC602 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = F29639B1D1707E3559A33894 /* AppModel.swift */; };
 		466E7FEBEDD3ABF066492919 /* TerminalEmulator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5431697DEDA47C44449E2B14 /* TerminalEmulator.swift */; };
+		46C0C37535A7565DF8F0F0F7 /* TaskControlAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D57C8F3C1C2C24FA98A62E5 /* TaskControlAPI.swift */; };
 		4A66D86B43A1BE912D38BE24 /* JarvisAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 626A40C635304319E75E8BDA /* JarvisAPI.swift */; };
 		4F458134E0ABF25DB393D634 /* TerminalBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FE8DD1C39A12945E3AEA25F /* TerminalBridge.swift */; };
 		5492D61427A8E8FF78B4EE05 /* LockView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 666404C0B2DA43CCB37BF0AE /* LockView.swift */; };
@@ -26,25 +28,31 @@
 		75C5682E699AA3C4A7BDDE30 /* MemoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E8BB4E440FA9D1D0DB788F6 /* MemoryView.swift */; };
 		85D9699E5BD7EE56E3A0ED98 /* TerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A137C54083F155E950266021 /* TerminalView.swift */; };
 		8F7068B10663B70206942ACB /* NativeServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8DBDC98569FE92AB44401E5 /* NativeServices.swift */; };
+		A86615E5BA1BA7C9B94ED46D /* TasksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18C7848AF4F97B5C71328A07 /* TasksView.swift */; };
+		AE4E9851FEA42963C84C43E6 /* TaskNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AE10515F57E994770276D3D /* TaskNotifications.swift */; };
 		B132F0BCEFEC613053D3C6B5 /* JarvisMacApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D0FE0CF09B11602ED9CCD1C /* JarvisMacApp.swift */; };
 		BA44E1BD6DD06B10855BFF54 /* JarvisWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1182C0721702CF5A87DDD1F4 /* JarvisWidget.swift */; };
+		C2763D29FD16F6512F908492 /* TaskDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36CA592D73D2B34A8D8264CE /* TaskDetailView.swift */; };
+		C4032A4AE7BECC6D0C254FA3 /* TaskControlStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF3752EDABBF9DB7A04AFCF5 /* TaskControlStore.swift */; };
 		E5377B5773043ACFC15B7654 /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EB0ED42FF2BB60C101F1860 /* ChatView.swift */; };
-		5913B788D47794F54E54C028 /* TaskControlModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3E7509A34AF8D1936D58225 /* TaskControlModels.swift */; };
-		B92116D04587C5DE274F0BFA /* TaskControlAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 958A1AE2D91C3EFD17B3DC2D /* TaskControlAPI.swift */; };
-		915BFB3B413ACE727647D139 /* TaskControlStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DCDF44B260AC3499D8D7644 /* TaskControlStore.swift */; };
-		ABD0961C7A5B5603FB1CB523 /* TaskNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B2B780B114EE2FAB907FEDA /* TaskNotifications.swift */; };
-		5C0C983B0C344FCAF9DA5E50 /* TasksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F86578FFF744AEE3C54BC916 /* TasksView.swift */; };
-		C68718155247A7CA56B8B666 /* TaskDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6229A7485511EC072D471EBD /* TaskDetailView.swift */; };
 		E90D8354167EB38142CDC68B /* SystemView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC0C5E201BC90D0D04286816 /* SystemView.swift */; };
 		E923ACE267552B66315E8A7E /* TerminalTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7D9BBD1759BFCF9A58697EF /* TerminalTheme.swift */; };
 		F15F4488219144D969C2EB30 /* ActionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7885B368BA237DA9B7B2C30 /* ActionsView.swift */; };
 		F3E7BFBE48CF93AEC2C96B1C /* MenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 359D4532A234E827F964D123 /* MenuBarView.swift */; };
 		F74CCEF05BA835AD44405456 /* PreviewExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B13C798547E3D7DF04AF48C8 /* PreviewExporter.swift */; };
 		F81240AF613708DEE6EBAA6D /* DesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD083CE2FCC4402A881C47E8 /* DesignSystem.swift */; };
+		F878E649DB9E3C3CF9FF1A92 /* TaskControlModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1869E6CFBFEB84AA31790282 /* TaskControlModels.swift */; };
 		F9C2C1374A981B1F4EEEB1F9 /* TodayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A6E03B69D8002EDACC3B2 /* TodayView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		2C88759900D5F6F523DC215A /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 5C02B3EF6296F80D41C613C6 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D43AD3FBCAB4A59DFE318086;
+			remoteInfo = JarvisMac;
+		};
 		30DA6D8864ECDB59C3F74C9D /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 5C02B3EF6296F80D41C613C6 /* Project object */;
@@ -69,10 +77,15 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		0AE10515F57E994770276D3D /* TaskNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskNotifications.swift; sourceTree = "<group>"; };
 		1182C0721702CF5A87DDD1F4 /* JarvisWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JarvisWidget.swift; sourceTree = "<group>"; };
 		1448724931C29A7550A0E24E /* JarvisWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = JarvisWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		1869E6CFBFEB84AA31790282 /* TaskControlModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskControlModels.swift; sourceTree = "<group>"; };
+		18C7848AF4F97B5C71328A07 /* TasksView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TasksView.swift; sourceTree = "<group>"; };
+		20F67748C51FB8CC91F608A5 /* JarvisMacTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = JarvisMacTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		2160AFD31D3A9C5BED1DB280 /* TerminalSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSurface.swift; sourceTree = "<group>"; };
 		359D4532A234E827F964D123 /* MenuBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarView.swift; sourceTree = "<group>"; };
+		36CA592D73D2B34A8D8264CE /* TaskDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskDetailView.swift; sourceTree = "<group>"; };
 		4D0FE0CF09B11602ED9CCD1C /* JarvisMacApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JarvisMacApp.swift; sourceTree = "<group>"; };
 		5431697DEDA47C44449E2B14 /* TerminalEmulator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalEmulator.swift; sourceTree = "<group>"; };
 		626A40C635304319E75E8BDA /* JarvisAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JarvisAPI.swift; sourceTree = "<group>"; };
@@ -80,18 +93,14 @@
 		6E8BB4E440FA9D1D0DB788F6 /* MemoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryView.swift; sourceTree = "<group>"; };
 		6FE8DD1C39A12945E3AEA25F /* TerminalBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBridge.swift; sourceTree = "<group>"; };
 		709A181A8B30A78A3682AC1F /* TailscaleService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TailscaleService.swift; sourceTree = "<group>"; };
+		7D57C8F3C1C2C24FA98A62E5 /* TaskControlAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskControlAPI.swift; sourceTree = "<group>"; };
 		805A6E03B69D8002EDACC3B2 /* TodayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayView.swift; sourceTree = "<group>"; };
 		8FFE476AFB088C6710F3AEAA /* SSHTerminalSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHTerminalSession.swift; sourceTree = "<group>"; };
 		91C421F01812591F41688E0E /* JarvisSocket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JarvisSocket.swift; sourceTree = "<group>"; };
 		9EB0ED42FF2BB60C101F1860 /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
-		E3E7509A34AF8D1936D58225 /* TaskControlModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskControlModels.swift; sourceTree = "<group>"; };
-		958A1AE2D91C3EFD17B3DC2D /* TaskControlAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskControlAPI.swift; sourceTree = "<group>"; };
-		7DCDF44B260AC3499D8D7644 /* TaskControlStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskControlStore.swift; sourceTree = "<group>"; };
-		0B2B780B114EE2FAB907FEDA /* TaskNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskNotifications.swift; sourceTree = "<group>"; };
-		F86578FFF744AEE3C54BC916 /* TasksView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TasksView.swift; sourceTree = "<group>"; };
-		6229A7485511EC072D471EBD /* TaskDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskDetailView.swift; sourceTree = "<group>"; };
 		A137C54083F155E950266021 /* TerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalView.swift; sourceTree = "<group>"; };
 		AC0C5E201BC90D0D04286816 /* SystemView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemView.swift; sourceTree = "<group>"; };
+		AF3630416AE34D7D8DC465FB /* TaskControlDecodingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskControlDecodingTests.swift; sourceTree = "<group>"; };
 		B13C798547E3D7DF04AF48C8 /* PreviewExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewExporter.swift; sourceTree = "<group>"; };
 		B78AA0700882AF0BC47F721D /* BiometricCredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiometricCredentialStore.swift; sourceTree = "<group>"; };
 		BD083CE2FCC4402A881C47E8 /* DesignSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystem.swift; sourceTree = "<group>"; };
@@ -105,6 +114,7 @@
 		E39411303832E3CF68C9821A /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		EDC2AC71D7D7E86605463EF7 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		F29639B1D1707E3559A33894 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
+		FF3752EDABBF9DB7A04AFCF5 /* TaskControlStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskControlStore.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -115,12 +125,6 @@
 				F29639B1D1707E3559A33894 /* AppModel.swift */,
 				B78AA0700882AF0BC47F721D /* BiometricCredentialStore.swift */,
 				9EB0ED42FF2BB60C101F1860 /* ChatView.swift */,
-				E3E7509A34AF8D1936D58225 /* TaskControlModels.swift */,
-				958A1AE2D91C3EFD17B3DC2D /* TaskControlAPI.swift */,
-				7DCDF44B260AC3499D8D7644 /* TaskControlStore.swift */,
-				0B2B780B114EE2FAB907FEDA /* TaskNotifications.swift */,
-				F86578FFF744AEE3C54BC916 /* TasksView.swift */,
-				6229A7485511EC072D471EBD /* TaskDetailView.swift */,
 				D6C3B3123B3F2989768FA623 /* CommandPaletteView.swift */,
 				BD083CE2FCC4402A881C47E8 /* DesignSystem.swift */,
 				DE339FF25A647013EC889CC9 /* DeskWidgetView.swift */,
@@ -138,6 +142,12 @@
 				8FFE476AFB088C6710F3AEAA /* SSHTerminalSession.swift */,
 				AC0C5E201BC90D0D04286816 /* SystemView.swift */,
 				709A181A8B30A78A3682AC1F /* TailscaleService.swift */,
+				7D57C8F3C1C2C24FA98A62E5 /* TaskControlAPI.swift */,
+				1869E6CFBFEB84AA31790282 /* TaskControlModels.swift */,
+				FF3752EDABBF9DB7A04AFCF5 /* TaskControlStore.swift */,
+				36CA592D73D2B34A8D8264CE /* TaskDetailView.swift */,
+				0AE10515F57E994770276D3D /* TaskNotifications.swift */,
+				18C7848AF4F97B5C71328A07 /* TasksView.swift */,
 				6FE8DD1C39A12945E3AEA25F /* TerminalBridge.swift */,
 				5431697DEDA47C44449E2B14 /* TerminalEmulator.swift */,
 				2160AFD31D3A9C5BED1DB280 /* TerminalSurface.swift */,
@@ -156,10 +166,19 @@
 			path = JarvisWidget;
 			sourceTree = "<group>";
 		};
+		97A726BAEB489E5F90F5274A /* JarvisMacTests */ = {
+			isa = PBXGroup;
+			children = (
+				AF3630416AE34D7D8DC465FB /* TaskControlDecodingTests.swift */,
+			);
+			path = JarvisMacTests;
+			sourceTree = "<group>";
+		};
 		CEE32337E405601A61833598 = {
 			isa = PBXGroup;
 			children = (
 				4368F10DAC51DC7EFCF3D3A3 /* JarvisMac */,
+				97A726BAEB489E5F90F5274A /* JarvisMacTests */,
 				7CBCCBAE7AB53852D224DB1B /* JarvisWidget */,
 				D2DBFA4EB4668DC3CAD288E6 /* Products */,
 			);
@@ -169,6 +188,7 @@
 			isa = PBXGroup;
 			children = (
 				E31D25D794AF515D157937E7 /* JarvisMac.app */,
+				20F67748C51FB8CC91F608A5 /* JarvisMacTests.xctest */,
 				1448724931C29A7550A0E24E /* JarvisWidgetExtension.appex */,
 			);
 			name = Products;
@@ -177,6 +197,24 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		05F4C93CA00380ADFE5320B7 /* JarvisMacTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 08147BF21280A18B46DDD547 /* Build configuration list for PBXNativeTarget "JarvisMacTests" */;
+			buildPhases = (
+				016BBDECB1B606C7B71E9CD7 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				E52E871BF3D9B243588F8515 /* PBXTargetDependency */,
+			);
+			name = JarvisMacTests;
+			packageProductDependencies = (
+			);
+			productName = JarvisMacTests;
+			productReference = 20F67748C51FB8CC91F608A5 /* JarvisMacTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 		882CE05334D15212FC8D6680 /* JarvisWidgetExtension */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 58A8C5CC7DEFDE5DAD6404FE /* Build configuration list for PBXNativeTarget "JarvisWidgetExtension" */;
@@ -222,6 +260,9 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 2600;
 				TargetAttributes = {
+					05F4C93CA00380ADFE5320B7 = {
+						ProvisioningStyle = Automatic;
+					};
 					882CE05334D15212FC8D6680 = {
 						ProvisioningStyle = Automatic;
 					};
@@ -245,12 +286,21 @@
 			projectRoot = "";
 			targets = (
 				D43AD3FBCAB4A59DFE318086 /* JarvisMac */,
+				05F4C93CA00380ADFE5320B7 /* JarvisMacTests */,
 				882CE05334D15212FC8D6680 /* JarvisWidgetExtension */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXSourcesBuildPhase section */
+		016BBDECB1B606C7B71E9CD7 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				222CE8FAD3AAEE3445D2815D /* TaskControlDecodingTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		26F512F6D74AED5BD5166FE2 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -267,12 +317,6 @@
 				3A440AD377341AD691DEC602 /* AppModel.swift in Sources */,
 				1CE082FE38F211ACF44DE23C /* BiometricCredentialStore.swift in Sources */,
 				E5377B5773043ACFC15B7654 /* ChatView.swift in Sources */,
-				5913B788D47794F54E54C028 /* TaskControlModels.swift in Sources */,
-				B92116D04587C5DE274F0BFA /* TaskControlAPI.swift in Sources */,
-				915BFB3B413ACE727647D139 /* TaskControlStore.swift in Sources */,
-				ABD0961C7A5B5603FB1CB523 /* TaskNotifications.swift in Sources */,
-				5C0C983B0C344FCAF9DA5E50 /* TasksView.swift in Sources */,
-				C68718155247A7CA56B8B666 /* TaskDetailView.swift in Sources */,
 				615D7B2C9E4F4E1BFABAF0A5 /* CommandPaletteView.swift in Sources */,
 				F81240AF613708DEE6EBAA6D /* DesignSystem.swift in Sources */,
 				68C131AEDE364B7B596D2AFD /* DeskWidgetView.swift in Sources */,
@@ -290,6 +334,12 @@
 				2825DDCBE853C63B8CA5A8D7 /* SettingsView.swift in Sources */,
 				E90D8354167EB38142CDC68B /* SystemView.swift in Sources */,
 				2330A6C2773D3D6CE1F153F5 /* TailscaleService.swift in Sources */,
+				46C0C37535A7565DF8F0F0F7 /* TaskControlAPI.swift in Sources */,
+				F878E649DB9E3C3CF9FF1A92 /* TaskControlModels.swift in Sources */,
+				C4032A4AE7BECC6D0C254FA3 /* TaskControlStore.swift in Sources */,
+				C2763D29FD16F6512F908492 /* TaskDetailView.swift in Sources */,
+				AE4E9851FEA42963C84C43E6 /* TaskNotifications.swift in Sources */,
+				A86615E5BA1BA7C9B94ED46D /* TasksView.swift in Sources */,
 				4F458134E0ABF25DB393D634 /* TerminalBridge.swift in Sources */,
 				466E7FEBEDD3ABF066492919 /* TerminalEmulator.swift in Sources */,
 				2A7DC21F612E27FDFAD3BBB7 /* TerminalSurface.swift in Sources */,
@@ -306,6 +356,11 @@
 			isa = PBXTargetDependency;
 			target = 882CE05334D15212FC8D6680 /* JarvisWidgetExtension */;
 			targetProxy = 30DA6D8864ECDB59C3F74C9D /* PBXContainerItemProxy */;
+		};
+		E52E871BF3D9B243588F8515 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = D43AD3FBCAB4A59DFE318086 /* JarvisMac */;
+			targetProxy = 2C88759900D5F6F523DC215A /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -414,6 +469,40 @@
 			};
 			name = Debug;
 		};
+		810DF9B985C1156D7FFDF81F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.jarvis.desktop.tests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Jarvis.app/Contents/MacOS/Jarvis";
+			};
+			name = Release;
+		};
+		911A6874D68BF96CD7929CE7 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.jarvis.desktop.tests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Jarvis.app/Contents/MacOS/Jarvis";
+			};
+			name = Debug;
+		};
 		B04D2D5D14C9B82EA2E3E4EE /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -514,6 +603,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		08147BF21280A18B46DDD547 /* Build configuration list for PBXNativeTarget "JarvisMacTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				911A6874D68BF96CD7929CE7 /* Debug */,
+				810DF9B985C1156D7FFDF81F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 		5261B8099FD050368D8E5DC5 /* Build configuration list for PBXNativeTarget "JarvisMac" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
