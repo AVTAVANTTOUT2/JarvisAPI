@@ -45,6 +45,12 @@ def _arguments_digest(arguments: Mapping[str, Any]) -> str:
     return canonical_digest(_plain_json(arguments))
 
 
+def arguments_digest(arguments: Mapping[str, Any]) -> str:
+    """Digest canonique des arguments métier, hors métadonnées `_jarvis`."""
+
+    return _arguments_digest(arguments)
+
+
 def _expiry_timestamp(value: datetime | float) -> float:
     if isinstance(value, datetime):
         if value.tzinfo is None or value.utcoffset() is None:

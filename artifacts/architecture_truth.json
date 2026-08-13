@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-12T13:38:40.450279+00:00",
+  "generated_at": "2026-08-13T13:06:35.564357+00:00",
   "repo_root": ".",
   "canonical_formulation": {
     "database": "Le projet crée 104 tables persistantes après init_db() + migrations, plus jusqu'à 5 objets FTS5, soit 109 tables physiques lorsque FTS5 est disponible.",
@@ -3103,7 +3103,7 @@
         "method": "GET",
         "path": "/api/visual/v1/events",
         "source": "api/router_visual.py",
-        "line": 272,
+        "line": 276,
         "consumers": {},
         "tests": [
           "tests/test_visual_agentic_relay.py"
@@ -3120,7 +3120,7 @@
         "method": "GET",
         "path": "/api/visual/v1/health",
         "source": "api/router_visual.py",
-        "line": 252,
+        "line": 256,
         "consumers": {},
         "tests": [
           "tests/test_visual_agentic_relay.py"
@@ -3137,7 +3137,7 @@
         "method": "GET",
         "path": "/api/visual/v1/snapshot",
         "source": "api/router_visual.py",
-        "line": 261,
+        "line": 265,
         "consumers": {},
         "tests": [
           "tests/test_visual_agentic_relay.py"

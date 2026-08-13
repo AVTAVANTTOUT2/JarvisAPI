@@ -304,6 +304,11 @@ _INTENT_HINTS: tuple[tuple[str, frozenset[str]], ...] = (
                 "refactoriser",
                 "implementer",
                 "corriger",
+                "html",
+                "css",
+                "javascript",
+                "todolist",
+                "migration",
             }
         ),
     ),

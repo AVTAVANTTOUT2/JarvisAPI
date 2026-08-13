@@ -182,6 +182,32 @@ describe('agenticApi contracts', () => {
     expect(jarvisFetch).toHaveBeenNthCalledWith(3, '/api/agentic/runs/r3/artifacts')
   })
 
+  it('projects resource wait, approval and cancel events without leaking payloads', () => {
+    const queued = mergeAgenticEvent([], {
+      type: 'agent.run.resource_wait',
+      run_id: 'run-wait',
+      phase: 'resource_wait',
+      prompt: 'secret prompt',
+    })
+    const approval = mergeAgenticEvent(queued, {
+      type: 'agent.approval.requested',
+      run_id: 'run-wait',
+      phase: 'awaiting_approval',
+    })
+    const cancelling = mergeAgenticEvent(approval, {
+      type: 'agent.run.cancelling',
+      run_id: 'run-wait',
+    })
+
+    expect(queued[0]).toMatchObject({ id: 'run-wait', status: 'queued', phase: 'resource_wait' })
+    expect(approval[0]).toMatchObject({
+      status: 'awaiting_approval',
+      requires_attention: true,
+    })
+    expect(cancelling[0].status).toBe('cancelling')
+    expect(JSON.stringify(cancelling)).not.toContain('secret prompt')
+  })
+
   it('creates a provider-neutral run with an idempotency key', async () => {
     jarvisFetch.mockResolvedValue({ run: { run_id: 'created-1', title: 'Analyser', status: 'created' } })
 

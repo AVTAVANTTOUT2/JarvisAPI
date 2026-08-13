@@ -27,33 +27,23 @@ mkdir -p data/logs
 launchctl bootout gui/$(id -u)/com.jarvis.supervisor 2>/dev/null || true
 sleep 0.5
 
-# 2. Tuer les processus sur le port 9000
-EXISTING=$(lsof -nP -iTCP:"${SUPERVISOR_PORT}" -sTCP:LISTEN -t 2>/dev/null || true)
-if [[ -n "$EXISTING" ]]; then
-    echo "[INFO] Processus existants sur port ${SUPERVISOR_PORT} (PIDs: $EXISTING) → arret..."
-    for pid in $EXISTING; do
-        kill -TERM "$pid" 2>/dev/null || true
-    done
-    sleep 1
-    for pid in $EXISTING; do
-        kill -KILL "$pid" 2>/dev/null || true
-    done
-    sleep 0.5
+# 2. Attendre que les PID JARVIS libèrent le port. Un occupant tiers bloque
+#    le démarrage : un port occupé ne prouve jamais la propriété d'un processus.
+export PYTHONPATH="${PROJECT_DIR}${PYTHONPATH:+:$PYTHONPATH}"
+if ! venv/bin/python -c "
+from pathlib import Path
+import sys
+from scripts.jarvis_stack import RestartBlocked, prepare_supervisor_bind
+try:
+    prepare_supervisor_bind(Path('.').resolve(), int('${SUPERVISOR_PORT}'))
+except RestartBlocked as exc:
+    print('[ERREUR]', exc)
+    sys.exit(1)
+"; then
+    echo "[ERREUR] Démarrage superviseur refusé (port tiers ou arrêt incomplet)."
+    exit 1
 fi
-
-# 3. Verifier que le port est bien libre
-ATTEMPTS=0
-while lsof -nP -iTCP:"${SUPERVISOR_PORT}" -sTCP:LISTEN -t 2>/dev/null | grep -q .; do
-    ATTEMPTS=$((ATTEMPTS + 1))
-    if [[ $ATTEMPTS -gt 5 ]]; then
-        echo "[ERREUR] Impossible de liberer le port ${SUPERVISOR_PORT} apres 5 tentatives."
-        exit 1
-    fi
-    echo "[INFO] Port ${SUPERVISOR_PORT} toujours occupe, tentative $ATTEMPTS/5..."
-    lsof -nP -iTCP:"${SUPERVISOR_PORT}" -sTCP:LISTEN -t 2>/dev/null | xargs kill -KILL 2>/dev/null || true
-    sleep 1
-done
-echo "[INFO] Port ${SUPERVISOR_PORT} libre."
+echo "[INFO] Port ${SUPERVISOR_PORT} disponible pour JARVIS."
 
 # ── Config ─────────────────────────────────────────────────
 export SUPERVISOR_AUTO_START_BACKEND="true"

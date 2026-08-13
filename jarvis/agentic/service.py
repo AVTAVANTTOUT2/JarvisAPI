@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import logging
 from pathlib import Path
+import time
 from typing import Any
 import uuid
 
@@ -134,6 +135,30 @@ _APPROVAL_EXPIRED_NOTIFICATION = (
 )
 _EVENT_PROCESSING_LEASE_SECONDS = 60
 _APPROVAL_SWEEP_INTERVAL_SECONDS = 15.0
+_INTERACTIVE_ORIGINS = frozenset(
+    {"user", "voice", "imessage", "macos", "android", "api", "web"}
+)
+_INTERACTIVE_CHANNELS = frozenset(
+    {"voice", "imessage", "macos", "android", "web", "api"}
+)
+_WRITE_CATEGORIES = frozenset(
+    {
+        AgenticRequestCategory.AGENTIC_REVERSIBLE,
+        AgenticRequestCategory.AGENTIC_EXTERNAL_EFFECT,
+        AgenticRequestCategory.AGENTIC_HIGH_RISK,
+    }
+)
+_WRITE_PERMISSIONS = frozenset(
+    {"workspace:write", "workspace.edit", "tasks:write"}
+)
+_ACTIVE_RUN_STATUSES = (
+    AgenticRunStatus.PROVISIONING,
+    AgenticRunStatus.PLANNING,
+    AgenticRunStatus.AWAITING_APPROVAL,
+    AgenticRunStatus.RUNNING,
+    AgenticRunStatus.VERIFYING,
+    AgenticRunStatus.REVIEWING,
+)
 
 
 def _maintenance_profile_ids() -> tuple[str, ...]:
@@ -176,6 +201,40 @@ def _capability_profile_routing_config() -> tuple[str, Mapping[str, str]]:
     return default_profile, configured_routes
 
 
+def _is_interactive_run(run: AgenticRun) -> bool:
+    origin = (run.origin or "").strip().casefold()
+    channel = (run.channel or "").strip().casefold()
+    return origin in _INTERACTIVE_ORIGINS or channel in _INTERACTIVE_CHANNELS
+
+
+def _is_write_run(run: AgenticRun) -> bool:
+    if run.category in _WRITE_CATEGORIES:
+        return True
+    return bool(_WRITE_PERMISSIONS.intersection(run.permissions))
+
+
+def _config_int(name: str, default: int) -> int:
+    try:
+        import config as jarvis_config
+    except ImportError:
+        return default
+    try:
+        raw = getattr(jarvis_config, name, default)
+        value = int(raw)
+    except (TypeError, ValueError, ImportError):
+        return default
+    return value if value >= 0 else default
+
+
+def _cancel_ack_timeout_s() -> float:
+    try:
+        import config as jarvis_config
+        value = float(getattr(jarvis_config, "AGENTIC_CANCEL_ACK_TIMEOUT_S", 10.0))
+    except (TypeError, ValueError, ImportError):
+        return 10.0
+    return value if value > 0 else 10.0
+
+
 class AgenticService:
     """Source de vérité des états, indépendamment de l'état observé du runtime."""
 
@@ -188,6 +247,7 @@ class AgenticService:
         verifier: CompletionVerifier | None = None,
         verifier_registry: VerifierRegistry | None = None,
         notifications: NotificationService | None = None,
+        read_free_memory_mb: Callable[[], float | None] | None = None,
     ) -> None:
         self.repository = repository or AgenticRepository()
         self.registry = registry or RuntimeRegistry()
@@ -197,12 +257,14 @@ class AgenticService:
         self.notifications = (
             notifications if notifications is not None else notification_service
         )
+        self.read_free_memory_mb = read_free_memory_mb
         self._admission_lock = asyncio.Lock()
         self._run_locks: dict[str, asyncio.Lock] = {}
         self._start_tasks: dict[str, asyncio.Task[AgenticRun]] = {}
         self._event_tasks: dict[str, asyncio.Task[None]] = {}
         self._terminal_events: dict[str, asyncio.Event] = {}
         self._maintenance_task: asyncio.Task[None] | None = None
+        self._provider_cooldown_until: dict[str, float] = {}
 
     def _lock(self, run_id: str) -> asyncio.Lock:
         return self._run_locks.setdefault(run_id, asyncio.Lock())
@@ -226,6 +288,12 @@ class AgenticService:
                 statuses=(AgenticRunStatus.QUEUED,),
                 limit=100,
             )
+        queued.sort(
+            key=lambda item: (
+                0 if _is_interactive_run(item) else 1,
+                item.created_at,
+            )
+        )
         for run in queued:
             self._schedule_start(run)
 
@@ -274,6 +342,7 @@ class AgenticService:
                     in {
                         AgenticRunStatus.AWAITING_APPROVAL,
                         AgenticRunStatus.BLOCKED,
+                        AgenticRunStatus.CANCELLING,
                         AgenticRunStatus.FAILED,
                         AgenticRunStatus.PROVIDER_UNAVAILABLE,
                     },
@@ -603,24 +672,57 @@ class AgenticService:
                     error=error,
                     payload={"error_code": error.code.value, "needs_attention": True},
                 )
-            active_statuses = (
-                AgenticRunStatus.PROVISIONING,
-                AgenticRunStatus.PLANNING,
-                AgenticRunStatus.AWAITING_APPROVAL,
-                AgenticRunStatus.RUNNING,
-                AgenticRunStatus.VERIFYING,
-                AgenticRunStatus.REVIEWING,
-            )
             async with self._admission_lock:
                 with use_profile(run.profile_id):
                     run = self.repository.require_run(run.run_id)
+                    if run.status is AgenticRunStatus.CANCELLING or run.terminal:
+                        return run
                     active_runs = self.repository.list_runs(
-                        statuses=active_statuses,
+                        statuses=_ACTIVE_RUN_STATUSES,
                         limit=1000,
                     )
+                    queued_runs = self.repository.list_runs(
+                        statuses=(AgenticRunStatus.QUEUED,),
+                        limit=1000,
+                    )
+                hold_reason = self._admission_hold_reason(
+                    run, active_runs, queued_runs
+                )
+                if hold_reason is not None:
+                    await self._record_and_emit(
+                        run,
+                        "agent.run.resource_wait",
+                        {
+                            "admission_reason": hold_reason,
+                            "needs_attention": False,
+                            "spoken_summary": "En attente de ressources.",
+                        },
+                    )
+                    max_wait = _config_int("AGENTIC_MAX_QUEUE_WAIT_S", 120)
+                    waited = (
+                        datetime.now(timezone.utc) - run.created_at
+                    ).total_seconds()
+                    if waited >= max_wait:
+                        error = AgenticError(
+                            AgenticErrorCode.RESOURCE_PRESSURE,
+                            "pression ressource: admission expirée",
+                            details={"admission_reason": hold_reason},
+                        )
+                        return await self._transition(
+                            run,
+                            AgenticRunStatus.BLOCKED,
+                            error=error,
+                            payload={
+                                "error_code": error.code.value,
+                                "admission_reason": hold_reason,
+                                "needs_attention": True,
+                            },
+                        )
+                    return run
                 effective_limit = min(
                     (run.budget.concurrency_limit,)
                     + tuple(item.budget.concurrency_limit for item in active_runs)
+                    + (_config_int("AGENTIC_MAX_CONCURRENT_RUNS", 1),)
                 )
                 if len(active_runs) >= effective_limit:
                     return run
@@ -675,6 +777,10 @@ class AgenticService:
                     run.runtime_id,
                     type(exc).__name__,
                 )
+                self._provider_cooldown_until[run.runtime_id] = (
+                    time.monotonic()
+                    + _config_int("AGENTIC_PROVIDER_CRASH_COOLDOWN_S", 30)
+                )
                 error = AgenticError(
                     AgenticErrorCode.RUNTIME_UNAVAILABLE,
                     redact_text(exc, max_chars=500),
@@ -722,6 +828,12 @@ class AgenticService:
         """Applique les effets d'un événement durable de façon rejouable."""
 
         current = self.repository.require_run(run.run_id)
+        if current.status in {
+            AgenticRunStatus.CANCELLING,
+            AgenticRunStatus.CANCELLED,
+        }:
+            return
+
         if event.type == "agent.approval.requested":
             approval_id = str(event.payload.get("approval_id") or "")
             if not approval_id:
@@ -1102,54 +1214,105 @@ class AgenticService:
             self._start_event_stream(updated, runtime)
             return updated
 
+    def _admission_hold_reason(
+        self,
+        run: AgenticRun,
+        active_runs: Sequence[AgenticRun],
+        queued_runs: Sequence[AgenticRun],
+    ) -> str | None:
+        cooldown_until = self._provider_cooldown_until.get(run.runtime_id, 0.0)
+        if cooldown_until > time.monotonic():
+            return "provider_cooldown"
+        min_free = _config_int("AGENTIC_MIN_FREE_MEMORY_MB", 2048)
+        if self.read_free_memory_mb is not None:
+            free = self.read_free_memory_mb()
+            if free is not None and free < min_free:
+                return "memory_pressure"
+        write_limit = _config_int("AGENTIC_WRITE_CONCURRENCY", 1)
+        write_active = sum(1 for item in active_runs if _is_write_run(item))
+        if _is_write_run(run) and write_active >= write_limit:
+            return "write_concurrency"
+        background_limit = _config_int("AGENTIC_MAX_BACKGROUND_RUNS", 1)
+        background_active = sum(
+            1 for item in active_runs if not _is_interactive_run(item)
+        )
+        if not _is_interactive_run(run) and background_active >= background_limit:
+            return "background_concurrency"
+        if not _is_interactive_run(run) and any(
+            _is_interactive_run(item) for item in queued_runs
+        ):
+            return "user_priority"
+        return None
+
     async def cancel(self, run_id: str) -> AgenticRun:
         async with self._lock(run_id):
             run = self.repository.require_run(run_id)
-            if run.terminal:
+            if run.status is AgenticRunStatus.CANCELLED:
                 return run
-            cancellation_requires_runtime = run.status not in {
+            if run.terminal and run.status is not AgenticRunStatus.CANCELLING:
+                return run
+            previous_status = run.status
+            cancellation_requires_runtime = previous_status not in {
                 AgenticRunStatus.CREATED,
                 AgenticRunStatus.CLASSIFIED,
                 AgenticRunStatus.QUEUED,
             }
-            run = await self._transition(run, AgenticRunStatus.CANCELLING)
-            runtime = None
+            if run.status is not AgenticRunStatus.CANCELLING:
+                run = await self._transition(
+                    run,
+                    AgenticRunStatus.CANCELLING,
+                    payload={
+                        "cancellation_kind": "requested",
+                        "needs_attention": True,
+                    },
+                )
+            cancellation_kind = "confirmed"
             try:
                 runtime = await self.registry.get(run.runtime_id)
                 if runtime is None and cancellation_requires_runtime:
-                    error = AgenticError(
-                        AgenticErrorCode.RUNTIME_UNAVAILABLE,
-                        "annulation non confirmée : runtime indisponible",
-                        retryable=True,
+                    cancellation_kind = "provider_lost"
+                elif runtime is not None and cancellation_requires_runtime:
+                    await asyncio.wait_for(
+                        runtime.cancel(run_id),
+                        timeout=_cancel_ack_timeout_s(),
                     )
-                    return await self._transition(
-                        run,
-                        AgenticRunStatus.FAILED,
-                        error=error,
-                        payload={
-                            "error_code": error.code.value,
-                            "needs_attention": True,
-                        },
-                    )
-                if runtime is not None and cancellation_requires_runtime:
-                    await runtime.cancel(run_id)
+                    cancellation_kind = "confirmed"
+            except asyncio.CancelledError:
+                raise
+            except TimeoutError:
+                logger.warning("ACK d'annulation du runtime %s expiré", run.run_id)
+                cancellation_kind = "forced"
             except Exception as exc:
-                error = AgenticError(
-                    AgenticErrorCode.RUNTIME_UNAVAILABLE,
-                    redact_text(exc, max_chars=500),
-                    retryable=True,
+                logger.warning(
+                    "annulation runtime %s (%s)",
+                    run.run_id,
+                    type(exc).__name__,
                 )
-                return await self._transition(
-                    run,
-                    AgenticRunStatus.FAILED,
-                    error=error,
-                    payload={"error_code": error.code.value, "needs_attention": True},
-                )
+                cancellation_kind = "forced"
             finally:
                 task = self._event_tasks.pop(run_id, None)
                 if task is not None and task is not asyncio.current_task():
                     task.cancel()
-            return await self._transition(run, AgenticRunStatus.CANCELLED)
+            payload = {
+                "cancellation_kind": cancellation_kind,
+                "needs_attention": cancellation_kind == "provider_lost",
+            }
+            if cancellation_kind == "provider_lost":
+                return await self._transition(
+                    run,
+                    AgenticRunStatus.PROVIDER_UNAVAILABLE,
+                    error=AgenticError(
+                        AgenticErrorCode.CANCELLED,
+                        "annulation: provider perdu",
+                        retryable=True,
+                    ),
+                    payload=payload,
+                )
+            return await self._transition(
+                run,
+                AgenticRunStatus.CANCELLED,
+                payload=payload,
+            )
 
     async def request_approval(
         self,
@@ -1159,6 +1322,11 @@ class AgenticService:
     ) -> ApprovalRequest:
         async with self._lock(approval.run_id):
             run = self.repository.require_run(approval.run_id)
+            if run.status in {
+                AgenticRunStatus.CANCELLING,
+                AgenticRunStatus.CANCELLED,
+            } or run.terminal:
+                raise ValueError("approbation refusée: run annulé ou terminal")
             if run.status is not AgenticRunStatus.AWAITING_APPROVAL:
                 validate_run_transition(run.status, AgenticRunStatus.AWAITING_APPROVAL)
             now = datetime.now(timezone.utc)
@@ -1755,7 +1923,16 @@ class AgenticService:
         return statuses
 
     def observability_summary(self) -> dict[str, Any]:
-        return self.repository.observability_summary()
+        summary = dict(self.repository.observability_summary())
+        try:
+            from .worktrees import WorktreeLifecycle
+
+            repo = Path(__file__).resolve().parents[2]
+            lifecycle = WorktreeLifecycle(repo)
+            summary["worktrees"] = lifecycle.metrics()
+        except Exception:
+            summary["worktrees"] = {"active": 0, "retained": 0, "unavailable": True}
+        return summary
 
     async def replay_unprocessed_runtime_events(self, *, limit: int = 1000) -> int:
         """Reprend les inbox de chaque profil actif dans sa base isolée."""
@@ -1843,6 +2020,15 @@ class AgenticService:
             try:
                 await self.replay_unprocessed_runtime_events()
                 await self.sweep_expired_approvals()
+                try:
+                    from .worktrees import WorktreeLifecycle
+
+                    repo = Path(__file__).resolve().parents[2]
+                    WorktreeLifecycle(repo).gc(dry_run=False)
+                except Exception as exc:
+                    logger.warning(
+                        "gc worktrees agentiques ignoré (%s)", type(exc).__name__
+                    )
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
@@ -1893,11 +2079,11 @@ class AgenticService:
             if run.status is AgenticRunStatus.CANCELLING:
                 run = await self._transition(
                     run,
-                    AgenticRunStatus.FAILED,
-                    error=AgenticError(
-                        AgenticErrorCode.RUNTIME_UNAVAILABLE,
-                        "annulation non confirmée après redémarrage",
-                    ),
+                    AgenticRunStatus.CANCELLED,
+                    payload={
+                        "cancellation_kind": "forced",
+                        "needs_attention": False,
+                    },
                 )
                 reconciled.append(run)
                 continue
@@ -2037,7 +2223,14 @@ _agentic_service: AgenticService | None = None
 def get_agentic_service() -> AgenticService:
     global _agentic_service
     if _agentic_service is None:
-        _agentic_service = AgenticService()
+        read_free: Callable[[], float | None] | None = None
+        try:
+            from jarvis.resource_guard import read_memory_free_mb
+
+            read_free = read_memory_free_mb
+        except Exception:
+            read_free = None
+        _agentic_service = AgenticService(read_free_memory_mb=read_free)
     return _agentic_service
 
 

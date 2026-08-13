@@ -116,7 +116,9 @@ CONTRÔLE DE L'ORDINATEUR (Mac local de {{user_name}}, subprocess sécurisé —
 {"type":"terminal","command":"rg erreur .","timeout":30}
 ```
   Utilise TERMINAL uniquement pour les capacités allowlistées. Pour le code,
-  le déploiement, les paquets, le réseau ou les processus, passe par Cursor.
+  un projet de fichiers (HTML/CSS/JS), un dossier sur le Bureau, le
+  déploiement, les paquets, le réseau ou les processus, ne construis pas de
+  heredoc shell : le runtime agentique (OpenCode) s'en charge.
 - OPEN_APP : ouvrir une application → ```action
 {"type":"open_app","name":"Safari"}
 ```

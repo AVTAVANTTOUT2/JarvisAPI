@@ -14,6 +14,8 @@ from jarvis.agentic import (
     get_agentic_service,
     select_capability_profile,
 )
+from jarvis.cognitive import route_request
+from jarvis.agentic.desktop_workspace import resolve_desktop_workspace
 from jarvis.agentic.models import (
     AgenticRequestCategory,
     ApprovalDecision,
@@ -276,10 +278,15 @@ async def maybe_start_agentic_run(
     runtime_setting = str(getattr(config, "AGENTIC_RUNTIME", "auto")).strip().lower()
     if runtime_setting == "disabled":
         return None
+    intent = route_request(
+        request,
+        interaction_mode="voice" if voice_mode else "chat",
+    )
+    cognitive_agentic = intent.execution_type in {"agentic", "cursor"}
     classification = classify_agentic_request(
         request,
         origin=origin,
-        adaptive=explicit,
+        adaptive=explicit or cognitive_agentic,
         requires_multiple_steps=True if explicit else None,
     )
     if classification.category not in _DELEGATED_CATEGORIES:
@@ -304,6 +311,8 @@ async def maybe_start_agentic_run(
         == "legacy"
     ):
         return None
+
+    desktop_workspace = resolve_desktop_workspace(request)
     run = await service.create_and_start(
         title=request,
         runtime_id=runtime_id,
@@ -318,6 +327,7 @@ async def maybe_start_agentic_run(
         capability_profile_id=capability_profile.profile_id,
         selected_context={"request": request, "classification": classification.reason},
         category=classification.category,
+        workspace=str(desktop_workspace) if desktop_workspace is not None else None,
         idempotency_key=idempotency_key,
     )
     acknowledgement = (

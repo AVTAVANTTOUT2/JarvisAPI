@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import hashlib
 import json
+import logging
 import math
 import os
 from pathlib import Path
@@ -45,6 +46,9 @@ from .lifecycle import (
 from .mcp.capabilities import CapabilityEnvelope
 from .mcp.server import MCPBroker
 from .security.redaction import redact_text
+
+
+logger = logging.getLogger(__name__)
 
 
 _SECRET_KEY = re.compile(
@@ -171,7 +175,76 @@ def _agent_names(values: Sequence[Mapping[str, Any]]) -> frozenset[str]:
     )
 
 
-def _select_model(catalog: Any) -> ModelSelection:
+def _catalog_model_index(catalog: Any) -> dict[str, str]:
+    """Associe un identifiant de modèle à un provider connecté non anonyme."""
+
+    connected = tuple(getattr(catalog, "connected", ()) or ())
+    index: dict[str, str] = {}
+    defaults = getattr(catalog, "default", {}) or {}
+    if isinstance(defaults, Mapping):
+        for provider_id, model_id in defaults.items():
+            if (
+                isinstance(provider_id, str)
+                and isinstance(model_id, str)
+                and provider_id in connected
+                and provider_id not in _ANONYMOUS_MODEL_PROVIDERS
+            ):
+                index[model_id] = provider_id
+    for entry in getattr(catalog, "all", ()) or ():
+        if not isinstance(entry, Mapping):
+            continue
+        provider_id = str(entry.get("id") or entry.get("providerID") or "")
+        if (
+            not provider_id
+            or provider_id not in connected
+            or provider_id in _ANONYMOUS_MODEL_PROVIDERS
+        ):
+            continue
+        models = entry.get("models")
+        if isinstance(models, Mapping):
+            identifiers = models.keys()
+        elif isinstance(models, list):
+            identifiers = []
+            for item in models:
+                if isinstance(item, str):
+                    identifiers.append(item)
+                elif isinstance(item, Mapping):
+                    model_id = item.get("id") or item.get("modelID")
+                    if isinstance(model_id, str):
+                        identifiers.append(model_id)
+        else:
+            continue
+        for model_id in identifiers:
+            if isinstance(model_id, str) and model_id:
+                index.setdefault(model_id, provider_id)
+    return index
+
+
+def _configured_model_ids(*, coding: bool) -> tuple[str, ...]:
+    try:
+        import config as jarvis_config
+    except ImportError:
+        return ()
+    primary = str(
+        getattr(
+            jarvis_config,
+            "AGENTIC_MODEL_CODING" if coding else "AGENTIC_MODEL_FAST",
+            "",
+        )
+        or ""
+    ).strip()
+    secondary = str(
+        getattr(
+            jarvis_config,
+            "AGENTIC_MODEL_FAST" if coding else "AGENTIC_MODEL_CODING",
+            "",
+        )
+        or ""
+    ).strip()
+    return tuple(item for item in (primary, secondary) if item)
+
+
+def _select_model(catalog: Any, *, coding: bool = False) -> ModelSelection:
     """Choisit un modèle connecté sans repli silencieux sur le provider anonyme.
 
     DeepSeek est préféré lorsqu'il est connecté (clé JARVIS forwardée). Les
@@ -179,6 +252,15 @@ def _select_model(catalog: Any) -> ModelSelection:
     intégré ``opencode`` n'est jamais un fallback produit : sans DeepSeek ni
     autre provider authentifié, l'erreur pointe vers ``DEEPSEEK_API_KEY``.
     """
+
+    known = _catalog_model_index(catalog)
+    configured = _configured_model_ids(coding=coding)
+    if configured:
+        for model_id in configured:
+            provider_id = known.get(model_id)
+            if provider_id:
+                return ModelSelection(provider_id=provider_id, model_id=model_id)
+        raise RuntimeError("modèle agentique configuré absent du catalogue")
 
     connected = tuple(catalog.connected)
     ordered: list[str] = []
@@ -945,6 +1027,24 @@ class OpenCodeRuntime:
             ipc_directory=target_layout.state_dir / "mcp",
         )
         endpoint = broker.start()
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        run_id = run.run_id
+
+        def on_needed(payload: Mapping[str, Any]) -> None:
+            if loop is None or not loop.is_running():
+                return
+            try:
+                asyncio.run_coroutine_threadsafe(
+                    self._publish_mcp_approval(run_id, dict(payload)),
+                    loop,
+                )
+            except Exception:
+                logger.warning("publication approbation MCP impossible")
+
+        broker.registry.bind_approval_callback(on_needed)
         overlay = {
             "mcp": {
                 "jarvis": endpoint.opencode_config(
@@ -1033,8 +1133,8 @@ class OpenCodeRuntime:
                         "agents JARVIS manquants: " + ", ".join(missing_agents)
                     )
                 catalog = await client.providers(directory=str(workspace))
-                model = _select_model(catalog)
                 agent = _select_agent(run, context)
+                model = _select_model(catalog, coding=agent == "jarvis-coding")
                 session = await client.create_session(
                     title="JARVIS agentic run",
                     agent=agent,
@@ -1128,6 +1228,37 @@ class OpenCodeRuntime:
             state.runtime_cleanup_done.set()
         if failure is not None:
             raise RuntimeError("nettoyage du runtime OpenCode incomplet") from failure
+
+    async def _publish_mcp_approval(
+        self, run_id: str, payload: Mapping[str, Any]
+    ) -> None:
+        state = self._states.get(run_id)
+        if state is None or state.cancelled or state.finished:
+            return
+        approval_id = str(payload.get("approval_id") or "").strip()
+        tool = str(payload.get("tool") or "").strip()
+        if not approval_id or not tool:
+            return
+        arguments = payload.get("sanitized_arguments")
+        if not isinstance(arguments, Mapping):
+            arguments = {}
+        event = RuntimeEvent(
+            event_id=str(uuid4()),
+            run_id=run_id,
+            sequence=0,
+            type="agent.approval.requested",
+            timestamp=datetime.now(timezone.utc),
+            payload={
+                "approval_id": approval_id,
+                "action": str(payload.get("action") or tool),
+                "tool": tool,
+                "sanitized_arguments": dict(arguments),
+                "risks": list(payload.get("risks") or ()),
+                "spoken_summary": "Une autorisation est nécessaire pour poursuivre.",
+                "needs_attention": True,
+            },
+        )
+        await self._enqueue_event(state, event)
 
     def _queue_violation(self, state: _RunState) -> str | None:
         if state.raw_event_count > state.max_raw_events:
@@ -1653,6 +1784,11 @@ class OpenCodeRuntime:
             await state.client.abort(state.session_id, directory=str(state.workspace))
         except Exception as exc:
             abort_error = exc
+        if abort_error is not None:
+            logger.warning(
+                "ACK d'annulation OpenCode absent (%s); arrêt du process détenu",
+                type(abort_error).__name__,
+            )
         if state.pump is not None:
             state.pump.cancel()
         if state.budget_watchdog is not None:
@@ -1664,8 +1800,9 @@ class OpenCodeRuntime:
             await asyncio.gather(*tasks, return_exceptions=True)
         await self._close_queue(state)
         await self._cleanup_runtime(state, purge=True)
-        if abort_error is not None:
-            raise RuntimeError("annulation OpenCode non confirmée") from abort_error
+        # Un ACK SSE manquant n'est pas un échec métier : le process détenu
+        # a été arrêté. JARVIS classe alors cancelled/forced, pas failed.
+
 
     async def answer_approval(
         self,

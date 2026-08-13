@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# CLI JARVIS — raccourci terminal (source de vérité, copié vers ~/.local/bin/jarvis)
+#
+#   jarvis stop      arrête tout le stack (launchd, backend, Ollama, Claw3D, runtime agentique, Node, daemons)
+#   jarvis start     charge le LaunchAgent et attend la santé
+#   jarvis restart   stop puis start (prise en compte du code)
+#   jarvis maj       alias de restart
+#   jarvis status    LaunchAgent + processus + ports
+#   jarvis install   JARVIS.app + LaunchAgent KeepAlive + ce CLI
+#   jarvis uninstall décharge et retire le LaunchAgent (plist)
+#   jarvis open      ouvre JARVIS.app (permissions micro / AppleEvents)
+#   jarvis           (= status)
+#
+set -euo pipefail
+
+JARVIS_ROOT="${JARVIS_ROOT:-$HOME/JARVIS}"
+LAUNCHD_PY="$JARVIS_ROOT/scripts/jarvis_launchd.py"
+VENV_PY="$JARVIS_ROOT/venv/bin/python"
+
+usage() {
+  cat <<'EOF'
+CLI JARVIS — cycle de vie du stack 24/7
+
+  jarvis stop      arrête tout : superviseur, backend, Ollama, Claw3D, runtime agentique,
+                   daemons Python, Node du checkout. Ne touche pas Cursor.
+  jarvis start     charge le LaunchAgent (plist déjà installé) et attend la santé
+  jarvis restart   stop puis start
+  jarvis maj       alias de restart
+  jarvis status    LaunchAgent + processus JARVIS + ports
+  jarvis install   installe JARVIS.app + LaunchAgent KeepAlive + ce CLI
+  jarvis uninstall retire le LaunchAgent (arrête d'abord le stack)
+  jarvis open      ouvre JARVIS.app (permissions micro / AppleEvents)
+  jarvis           (= status)
+
+Le plist reste en place après `stop` : `jarvis start` suffit pour relancer.
+`uninstall` retire le démarrage automatique au login.
+EOF
+}
+
+if [[ ! -f "$LAUNCHD_PY" ]]; then
+  echo "Erreur : projet introuvable ($JARVIS_ROOT)." >&2
+  echo "Définis JARVIS_ROOT si le dépôt n'est pas dans ~/JARVIS." >&2
+  exit 1
+fi
+
+if [[ ! -x "$VENV_PY" ]]; then
+  echo "Erreur : venv Python absent ($VENV_PY)." >&2
+  exit 1
+fi
+
+cmd="${1:-status}"
+case "$cmd" in
+  -h|--help|help)
+    usage
+    exit 0
+    ;;
+  stop|start|restart|maj|status|install|uninstall|open)
+    exec "$VENV_PY" "$LAUNCHD_PY" "$cmd"
+    ;;
+  *)
+    echo "Commande inconnue : $cmd" >&2
+    usage >&2
+    exit 1
+    ;;
+esac

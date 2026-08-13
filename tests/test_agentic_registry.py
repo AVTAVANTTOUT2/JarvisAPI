@@ -561,9 +561,8 @@ async def test_reconcile_never_replays_a_pending_cancellation(
 
     reconciled = await service.reconcile_nonterminal()
     assert len(reconciled) == 1
-    assert reconciled[0].status is AgenticRunStatus.FAILED
-    assert reconciled[0].error is not None
-    assert reconciled[0].error.code.value == "runtime_unavailable"
+    assert reconciled[0].status is AgenticRunStatus.CANCELLED
+    assert reconciled[0].error is None
     assert registry._instances == {}
     await service.dispose()
 

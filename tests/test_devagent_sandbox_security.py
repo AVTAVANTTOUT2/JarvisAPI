@@ -387,3 +387,39 @@ def test_validation_sandbox_allows_writing_to_dev_null_only_outside_the_workspac
     joined = " ".join(write_rules)
     assert '(literal "/dev/null")' in joined
     assert '(subpath "/etc")' not in joined
+
+
+def test_validation_sandbox_does_not_allow_reading_secrets_or_home() -> None:
+    from agents.devagent import agentic_runtime
+    from pathlib import Path
+
+    profile = agentic_runtime._sandbox_profile(Path("/tmp/ws"), Path("/tmp/home"))
+    read_lines = [
+        line for line in profile.splitlines() if line.startswith("(allow file-read*")
+    ]
+    joined = "\n".join(read_lines)
+    assert '(subpath "/Users")' not in joined
+    assert ".env" not in joined
+    assert ".ssh" not in joined
+    assert "id_ed25519" not in joined
+    assert "(deny network*)" in profile
+    write_joined = "\n".join(
+        line for line in profile.splitlines() if line.startswith("(allow file-write*")
+    )
+    assert '(subpath "/tmp/ws")' in write_joined
+    assert '(subpath "/tmp/home")' in write_joined
+    assert "venv" not in write_joined
+    assert "(deny network*)" in profile
+
+
+def test_validation_sandbox_env_blocks_user_site_and_network_package_installs(
+    tmp_path: Path,
+) -> None:
+    from agents.devagent import agentic_runtime
+    import os
+
+    env = agentic_runtime._sandbox_env(tmp_path, tmp_path / "isolated")
+    assert env["PYTHONNOUSERSITE"] == "1"
+    assert env["PIP_CONFIG_FILE"] == os.devnull
+    assert env["CARGO_NET_OFFLINE"] == "true"
+    assert env["GOPROXY"] == "off"

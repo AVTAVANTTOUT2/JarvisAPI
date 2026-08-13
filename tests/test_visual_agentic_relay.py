@@ -10,6 +10,7 @@ from starlette.requests import Request
 import api.router_visual as visual_router
 from api.middleware import _bypasses_session_gate
 from api.router_visual import (
+    _VISUAL_EVENT_TYPES,
     _neutral_event,
     _neutral_run_view,
     _require_visual_read,
@@ -124,3 +125,47 @@ def test_visual_routes_only_bypass_cookie_gate_for_exact_gets():
         assert _bypasses_session_gate("GET", path)
         assert not _bypasses_session_gate("POST", path)
     assert not _bypasses_session_gate("GET", "/api/visual/v1/events/private")
+
+
+def test_visual_allowlist_covers_attention_and_cancel_states() -> None:
+    from jarvis.event_bus import EVENT_TYPES
+
+    assert "agent.run.resource_wait" in _VISUAL_EVENT_TYPES
+    assert "agent.run.awaiting_approval" in _VISUAL_EVENT_TYPES
+    assert "agent.run.cancelling" in _VISUAL_EVENT_TYPES
+    assert "agent.approval.requested" in _VISUAL_EVENT_TYPES
+    assert _VISUAL_EVENT_TYPES <= set(EVENT_TYPES)
+
+
+def test_awaiting_approval_is_attention_without_user_content() -> None:
+    view = _neutral_run_view(
+        SimpleNamespace(
+            run_id="run-attn",
+            status=AgenticRunStatus.AWAITING_APPROVAL,
+            phase="awaiting_approval",
+            channel="voice",
+            title="secret customer request",
+        )
+    )
+    assert view["needs_attention"] is True
+    assert view["status"] == "awaiting_approval"
+    assert "secret" not in str(view)
+
+    event = _neutral_event(
+        {
+            "sse_id": 11,
+            "event_id": "evt-11",
+            "event_type": "agent.run.cancelling",
+            "timestamp": 1_786_438_801,
+            "payload": {
+                "run_id": "run-attn",
+                "status": "cancelling",
+                "phase": "cancelling",
+                "channel": "voice",
+                "prompt": "private prompt",
+            },
+        }
+    )
+    assert event is not None
+    assert event["event_type"] == "agent.run.cancelling"
+    assert "private prompt" not in str(event)

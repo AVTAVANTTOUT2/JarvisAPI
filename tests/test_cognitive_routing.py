@@ -64,6 +64,31 @@ def test_text_code_routes_to_generic_agentic_runtime(monkeypatch):
     assert intent.execution_type == "agentic"
 
 
+def test_local_html_todolist_on_desktop_routes_to_agentic(monkeypatch):
+    import config
+
+    monkeypatch.setattr(config, "AGENTIC_RUNTIME", "auto")
+    intent = route_request(
+        "jarvis dans le bureau de mon mac crée une todolist appelé todojarvis "
+        "je la veut en html css js 3 fichier max hors ligne pas extravagante.",
+        interaction_mode="chat",
+    )
+    assert intent.execution_type == "agentic"
+    assert intent.domain == "dev"
+
+
+def test_create_task_stays_a_productivity_tool(monkeypatch):
+    import config
+
+    monkeypatch.setattr(config, "AGENTIC_RUNTIME", "auto")
+    intent = route_request(
+        "Crée une tâche pour envoyer le dossier demain",
+        interaction_mode="chat",
+    )
+    assert intent.execution_type == "tool"
+    assert intent.domain == "productivity"
+
+
 def test_tech_without_agentic_runtime_falls_back_to_honest_answer(monkeypatch):
     """Runtime désactivé → réponse conseil Main, jamais de fausse promesse."""
     import config

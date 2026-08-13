@@ -101,8 +101,57 @@ health et logs ; ne pas déclarer le run réussi sans événement et vérificati
 
 Contrôler l'ID de run, l'expiration, le profil, le workspace, le scope et les
 métadonnées anti-récursion. Une clé d'idempotence réutilisée avec un payload
-différent est refusée. Ne pas éditer les enveloppes privées pour contourner le
-contrôle ; recréer le run avec les permissions minimales correctes.
+différent est refusée. Un outil à effet éligible (`jarvis_tasks_create`) n'est
+plus un refus silencieux : le broker crée une `ApprovalRequest` durable, le
+run passe en `awaiting_approval`, et l'utilisateur décide via API/Web/macOS/
+Android/voix. Sans décision, aucun effet.
+
+## Runbooks courts
+
+### Installer / vérifier / tester OpenCode
+
+```bash
+python -m integrations.opencode.scripts.manager print-version
+python -m integrations.opencode.scripts.manager verify
+python -m integrations.opencode.scripts.manager smoke-test --workspace "$PWD"
+```
+
+### Démarrer / arrêter / relancer JARVIS
+
+```bash
+jarvis status
+jarvis stop
+jarvis start
+jarvis restart   # refuse si stop incomplet ou port tiers
+```
+
+### Annuler un run / approuver
+
+```text
+POST /api/agentic/runs/{id}/cancel
+POST /api/agentic/runs/{id}/approvals/{approval_id}/decision
+```
+
+Un timeout d'ACK provider ne transforme pas l'annulation utilisateur en
+`failed`.
+
+### Nettoyer les worktrees
+
+```bash
+python -m jarvis.agentic.worktrees inspect --json
+python -m jarvis.agentic.worktrees gc            # dry-run
+python -m jarvis.agentic.worktrees gc --apply    # suppression seulement si propre, poussé, hors PR/run
+```
+
+### Diagnostiquer mémoire / provider unavailable
+
+`GET /api/health/detail` : `agentic_core`, `agentic_plugin` (unknown si absent,
+jamais une panne JARVIS), `claw3d` (idem). Un run en file expose
+`agent.run.resource_wait` et `admission_reason`.
+
+### Retirer OpenCode / Claw3D
+
+Voir `UNPLUG_RUNBOOK.md` et `docs/CLAW3D.md`. JARVIS démarre sans les deux.
 
 ## Validation après incident
 

@@ -63,6 +63,9 @@ PUBLIC_REASONS = frozenset(
         "stt_unavailable",
         "tts_provider_misconfigured",
         "tts_engine_not_probed",
+        "optional_runtime_absent",
+        "optional_ui_absent",
+        "runtime_not_probed",
     }
 )
 
@@ -99,6 +102,7 @@ PUBLIC_DETAIL_KEYS = frozenset({
     "subscribers",
     "uptime_s",
     "warn_free_mb",
+    "plugin_present",
 })
 
 _PROCESS_STARTED_AT = time.monotonic()
@@ -361,6 +365,69 @@ def probe_text_to_speech() -> ComponentHealth:
     )
 
 
+def probe_agentic_core() -> ComponentHealth:
+    """Le cœur agentique est local : importable ou inconnu, jamais faux vert."""
+    try:
+        from jarvis.agentic.models import AgenticRunStatus
+
+        _ = AgenticRunStatus.QUEUED
+    except Exception:
+        logger.exception("[health] cœur agentique illisible")
+        return ComponentHealth(
+            name="agentic_core",
+            state=UNKNOWN,
+            reason="internal_error",
+        )
+    return ComponentHealth(name="agentic_core", state=HEALTHY)
+
+
+def probe_agentic_plugin() -> ComponentHealth:
+    """Plugin optionnel : absent = unknown, jamais une panne JARVIS."""
+    try:
+        from jarvis.agentic.registry import discover_runtime_plugins
+
+        manifests = discover_runtime_plugins()
+    except Exception:
+        logger.exception("[health] plugin agentique illisible")
+        return ComponentHealth(
+            name="agentic_plugin",
+            state=UNKNOWN,
+            reason="internal_error",
+        )
+    if not manifests:
+        return ComponentHealth(
+            name="agentic_plugin",
+            state=UNKNOWN,
+            reason="optional_runtime_absent",
+            details={"plugin_present": False},
+        )
+    return ComponentHealth(
+        name="agentic_plugin",
+        state=UNKNOWN,
+        reason="runtime_not_probed",
+        details={"plugin_present": True},
+    )
+
+
+def probe_claw3d() -> ComponentHealth:
+    """UI optionnelle : son absence ne dégrade pas JARVIS."""
+    manager = _PROJECT_DIR / "scripts" / "claw3d.py"
+    installed = (_PROJECT_DIR / ".jarvis" / "apps" / "claw3d").exists()
+    if not manager.is_file() or not installed:
+        return ComponentHealth(
+            name="claw3d",
+            state=UNKNOWN,
+            reason="optional_ui_absent",
+            details={"plugin_present": False},
+        )
+    return ComponentHealth(
+        name="claw3d",
+        state=UNKNOWN,
+        reason="runtime_not_probed",
+        details={"plugin_present": True},
+    )
+
+
 #: Ordre d'affichage stable : le contrat JSON ne doit pas dépendre du hasard
 #: d'un dictionnaire ou de l'ordonnancement asyncio.
 PROBES: tuple[tuple[str, Callable[[], ComponentHealth]], ...] = (
@@ -370,6 +437,9 @@ PROBES: tuple[tuple[str, Callable[[], ComponentHealth]], ...] = (
     ("resources", probe_resources),
     ("speech_to_text", probe_speech_to_text),
     ("text_to_speech", probe_text_to_speech),
+    ("agentic_core", probe_agentic_core),
+    ("agentic_plugin", probe_agentic_plugin),
+    ("claw3d", probe_claw3d),
 )
 
 

@@ -40,7 +40,20 @@ _READONLY_TERMS = frozenset(
     {"analyse", "recherche", "compare", "résume", "inspecte", "audite", "explique"}
 )
 _REVERSIBLE_TERMS = frozenset(
-    {"modifie", "corrige", "implémente", "édite", "configure", "refactorise"}
+    {
+        "modifie",
+        "corrige",
+        "implémente",
+        "édite",
+        "configure",
+        "refactorise",
+        "crée",
+        "cree",
+        "génère",
+        "genere",
+        "écris",
+        "ecris",
+    }
 )
 _WORKFLOW_TERMS = frozenset(
     {"puis", "ensuite", "étapes", "workflow", "chaque", "tous les", "de bout en bout"}

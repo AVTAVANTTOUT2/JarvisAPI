@@ -38,6 +38,7 @@ _VISUAL_EVENT_TYPES = frozenset(
         "agent.run.created",
         "agent.run.classified",
         "agent.run.queued",
+        "agent.run.resource_wait",
         "agent.run.provisioning",
         "agent.run.phase_changed",
         "agent.run.started",
@@ -46,6 +47,8 @@ _VISUAL_EVENT_TYPES = frozenset(
         "agent.run.blocked",
         "agent.run.verifying",
         "agent.run.reviewing",
+        "agent.run.awaiting_approval",
+        "agent.run.cancelling",
         "agent.run.completed",
         "agent.run.failed",
         "agent.run.cancelled",
@@ -62,6 +65,7 @@ _PROGRESS_BY_STATUS = {
     "created": 0,
     "classified": 5,
     "queued": 10,
+    "resource_wait": 12,
     "provisioning": 15,
     "planning": 25,
     "awaiting_approval": 35,
@@ -154,7 +158,7 @@ def _neutral_run_view(run: Any) -> dict[str, Any]:
         "channel": str(getattr(run, "channel", "agentic"))[:64],
         "role": _role_for(status, phase),
         "progress": _PROGRESS_BY_STATUS.get(status, 0),
-        "needs_attention": status in {"awaiting_approval", "blocked", "failed", "provider_unavailable"},
+        "needs_attention": status in {"awaiting_approval", "blocked", "failed", "provider_unavailable", "cancelling"},
     }
 
 
@@ -185,7 +189,7 @@ def _neutral_event(event: Mapping[str, Any]) -> dict[str, Any] | None:
             "progress": _PROGRESS_BY_STATUS.get(status, 0),
             "step": event_type,
             "needs_attention": bool(data.get("needs_attention"))
-            or status in {"awaiting_approval", "blocked", "failed", "provider_unavailable"},
+            or status in {"awaiting_approval", "blocked", "failed", "provider_unavailable", "cancelling"},
         },
     }
 
