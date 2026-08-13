@@ -110,6 +110,22 @@ EVENT_TYPES: tuple[str, ...] = (
     # est défini comme les dix derniers types et doit rester aligné sur les
     # dix classes typées de jarvis/events.py.
     "food.order_updated",
+    # Pilotage de tâches — capture, plan, validation humaine, exécution.
+    # Même contrainte de position que le bloc ci-dessus : `DOMAIN_EVENT_TYPES`
+    # est défini comme les dix derniers types et doit rester aligné sur les dix
+    # classes typées de jarvis/events.py.
+    "task.control.created",
+    "task.control.plan_ready",
+    "task.control.plan_decided",
+    "task.control.started",
+    "task.control.progress",
+    "task.control.question",
+    "task.control.permission_required",
+    "task.control.blocked",
+    "task.control.completed",
+    "task.control.failed",
+    "task.control.cancelled",
+    "task.control.candidate_detected",
     # Domaine applicatif — Phase 3
     "notification.created",
     "task.created",

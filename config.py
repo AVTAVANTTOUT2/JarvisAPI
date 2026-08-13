@@ -1048,6 +1048,14 @@ AGENTIC_MAX_ARTIFACT_BYTES = _positive_int(
 )
 AGENTIC_APPROVAL_TTL_SECONDS = _positive_int("AGENTIC_APPROVAL_TTL_SECONDS", 300)
 AGENTIC_EVENT_RETENTION_DAYS = _positive_int("AGENTIC_EVENT_RETENTION_DAYS", 30)
+
+# ── Pilotage de tâches (capture → plan → validation humaine → exécution) ──
+# La détection ne décide jamais d'exécuter : au-dessus du seuil « auto », elle
+# crée une tâche qui attend son plan, pas une tâche qui démarre.
+TASK_DETECTION_ENABLED = _get("TASK_DETECTION_ENABLED", "true").strip().lower() == "true"
+TASK_DETECTION_MIN_CONFIDENCE = _positive_float("TASK_DETECTION_MIN_CONFIDENCE", 0.45)
+TASK_DETECTION_AUTO_CONFIDENCE = _positive_float("TASK_DETECTION_AUTO_CONFIDENCE", 0.85)
+TASK_DETECTION_DISABLED_SOURCES = _get("TASK_DETECTION_DISABLED_SOURCES", "").strip()
 SUPERVISOR_RESTART_STOP_TIMEOUT_S = _positive_float(
     "SUPERVISOR_RESTART_STOP_TIMEOUT_S", 30.0
 )

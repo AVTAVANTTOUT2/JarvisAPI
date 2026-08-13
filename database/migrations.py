@@ -1669,6 +1669,20 @@ def _migrate_agentic_runtime(conn: sqlite3.Connection) -> None:
     migrate_agentic_tables(conn)
 
 
+def _migrate_task_control(conn: sqlite3.Connection) -> None:
+    """Ajoute le pilotage de tâches et adopte les tâches historiques.
+
+    L'adoption est non destructive : `tasks` reste intacte et chaque ligne
+    reçoit un miroir piloté en état `created`. Aucune tâche existante ne se
+    retrouve en cours d'exécution du fait de la migration, ce qui serait la
+    seule façon vraiment dangereuse de se tromper ici.
+    """
+
+    from .task_control import migrate_task_control_tables
+
+    migrate_task_control_tables(conn)
+
+
 def run_migrations(conn: sqlite3.Connection) -> None:
     """Applique dans un ordre stable toutes les migrations idempotentes."""
     _migrate_people_ai_description(conn)
@@ -1717,4 +1731,5 @@ def run_migrations(conn: sqlite3.Connection) -> None:
     _migrate_sync_conflict_tables(conn)
     _migrate_metric_samples(conn)
     _migrate_agentic_runtime(conn)
+    _migrate_task_control(conn)
     _migrate_application_timestamps_to_utc_v2(conn)
