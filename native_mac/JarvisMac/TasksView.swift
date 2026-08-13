@@ -7,7 +7,6 @@ import SwiftUI
 /// porte l'essentiel du parcours produit (plan, activité, autorisations,
 /// résultat) et vit dans `TaskDetailView`.
 struct TasksView: View {
-    @EnvironmentObject private var model: AppModel
     @StateObject private var store: TaskControlStore
 
     @State private var isCreating = false

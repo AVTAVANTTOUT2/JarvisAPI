@@ -97,7 +97,18 @@ final class TaskControlStore: ObservableObject {
                 counts = envelope.counts
             }
             errorMessage = nil
-            notifier.reconcile(tasks: tasks, candidates: candidates)
+
+            // Les tâches qui demandent une décision sont relues séparément :
+            // réconcilier sur la seule section affichée aurait rendu les
+            // alertes dépendantes de l'onglet ouvert — rester sur
+            // « Terminées » aurait fait taire les plans à valider. La section
+            // courante est ajoutée pour que les conclusions vues à l'écran
+            // notifient aussi.
+            let attention = try await api.controlTasks(section: .attention)
+            var byID: [String: ControlTask] = [:]
+            for task in attention.tasks + tasks { byID[task.id] = task }
+            notifier.reconcile(tasks: Array(byID.values), candidates: candidates)
+
             if let selectedTaskID, tasks.contains(where: { $0.id == selectedTaskID }) {
                 await loadDetail(taskID: selectedTaskID, force: false)
             }
