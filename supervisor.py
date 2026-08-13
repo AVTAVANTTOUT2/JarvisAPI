@@ -612,6 +612,41 @@ def _claw3d_jarvis_origin() -> str:
     return f"{_backend_scheme()}://127.0.0.1:{BACKEND_PORT}"
 
 
+# Claw3D n'est qu'une surface visuelle : rien de la configuration JARVIS ne lui
+# est utile. Seules les variables nécessaires à l'exécution d'un processus
+# (chemin des outils, répertoire personnel, locale) sont transmises.
+_CLAW3D_ENV_ALLOWLIST = (
+    "PATH",
+    "HOME",
+    "SHELL",
+    "USER",
+    "LOGNAME",
+    "TMPDIR",
+    "LANG",
+    "LC_ALL",
+    "TERM",
+)
+
+
+def _claw3d_child_environment() -> dict:
+    """Environnement minimal du processus Claw3D.
+
+    Hériter ``os.environ`` livrait au processus Node l'intégralité du ``.env``
+    JARVIS — clé DeepSeek, passphrase de sauvegarde, jeton de localisation —
+    alors que Claw3D n'a besoin d'aucun secret : son unique credential est le
+    jeton ``visual:read`` écrit dans son propre état confiné. La configuration
+    Claw3D vient de son ``.env`` généré, pas de l'environnement du superviseur.
+    """
+    child = {
+        name: os.environ[name]
+        for name in _CLAW3D_ENV_ALLOWLIST
+        if os.environ.get(name)
+    }
+    child.setdefault("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
+    child["PYTHONUNBUFFERED"] = "1"
+    return child
+
+
 def _start_claw3d_sync() -> dict:
     """Démarre Claw3D via scripts/claw3d.py — jamais bloquant pour JARVIS."""
     from scripts import claw3d as claw3d_manager
@@ -662,7 +697,7 @@ def _start_claw3d_sync() -> dict:
                 cwd=str(PROJECT_DIR),
                 stdout=log_file,
                 stderr=subprocess.STDOUT,
-                env={**os.environ, "PYTHONUNBUFFERED": "1"},
+                env=_claw3d_child_environment(),
             )
             try:
                 proc.wait(timeout=60)
@@ -715,7 +750,7 @@ def _stop_claw3d_sync() -> dict:
                 cwd=str(PROJECT_DIR),
                 stdout=log_file,
                 stderr=subprocess.STDOUT,
-                env={**os.environ, "PYTHONUNBUFFERED": "1"},
+                env=_claw3d_child_environment(),
             )
             try:
                 proc.wait(timeout=30)

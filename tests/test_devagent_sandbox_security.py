@@ -281,3 +281,109 @@ def test_cursor_update_fails_closed_when_redaction_errors(
             ("p12-fail-closed",),
         ).fetchone()[0]
     assert raw_output is None
+
+
+def test_validation_sandbox_profile_allows_reading_the_root_entry() -> None:
+    """Le chargeur dynamique lit l'entrée « / » avant tout autre chemin.
+
+    Sans cette autorisation, `sandbox-exec` abandonne le processus (SIGABRT) et
+    le préflight échoue en `validation_sandbox_unavailable` : la porte de
+    validation DevAgent devient inatteignable et aucune livraison ne peut
+    aboutir, sans que le message ne désigne la cause.
+    """
+
+    from agents.devagent import agentic_runtime
+
+    profile = agentic_runtime._sandbox_profile(Path("/tmp/workspace"), Path("/tmp/home"))
+    read_rules = [
+        line
+        for line in profile.splitlines()
+        if line.startswith("(allow file-read*")
+    ]
+    assert read_rules, profile
+    assert any('(literal "/")' in line for line in read_rules), profile
+    assert "(deny default)" in profile
+    assert "(deny network*)" in profile
+
+
+@pytest.mark.skipif(
+    __import__("platform").system() != "Darwin", reason="sandbox-exec est macOS"
+)
+def test_validation_sandbox_preflight_succeeds_on_this_host(tmp_path: Path) -> None:
+    """Le bac à sable de validation doit réellement démarrer sur la machine."""
+
+    from agents.devagent import agentic_runtime
+
+    if not Path("/usr/bin/sandbox-exec").is_file():
+        pytest.skip("sandbox-exec absent")
+    agentic_runtime._validation_sandbox_preflight(tmp_path)
+
+
+def test_validation_uses_the_jarvis_virtualenv_toolchain(tmp_path: Path) -> None:
+    """Un worktree n'embarque pas d'environnement : celui de JARVIS est requis.
+
+    Sans lui, `pytest` était résolu vers l'interpréteur système, dépourvu des
+    dépendances de test du projet : la validation échouait pour une raison
+    étrangère à la modification livrée.
+    """
+
+    import sys
+
+    from agents.devagent import agentic_runtime
+
+    toolchain = agentic_runtime._validation_toolchain_root()
+    if sys.prefix == sys.base_prefix:
+        assert toolchain is None
+        return
+
+    assert toolchain == Path(sys.prefix).resolve()
+    assert str(toolchain / "bin") in agentic_runtime._trusted_path(tmp_path).split(":")
+    assert str(toolchain) in agentic_runtime._validation_read_roots(tmp_path)
+    profile = agentic_runtime._sandbox_profile(tmp_path, tmp_path / "home")
+    assert f'(subpath "{toolchain}")' in profile
+    write_rules = [
+        line for line in profile.splitlines() if line.startswith("(allow file-write*")
+    ]
+    assert write_rules and all(str(toolchain) not in line for line in write_rules)
+
+
+def test_validation_sandbox_allows_traversing_toward_allowed_roots() -> None:
+    """`subpath` n'ouvre pas les ancêtres : `/opt` doit être traversable.
+
+    Sinon la résolution de `/opt/homebrew/...` échoue en « Operation not
+    permitted » et la validation devient `validation_executable_unavailable`.
+    """
+
+    from agents.devagent import agentic_runtime
+
+    literals = agentic_runtime._sandbox_traversal_literals(
+        ("/opt/homebrew", "/usr/local", "/private/etc/ssl/cert.pem")
+    )
+    assert "/" in literals
+    assert "/opt" in literals
+    assert "/private/etc/ssl" in literals
+    assert "/opt/homebrew" not in literals
+
+    profile = agentic_runtime._sandbox_profile(Path("/tmp/ws"), Path("/tmp/home"))
+    metadata = [
+        line
+        for line in profile.splitlines()
+        if line.startswith("(allow file-read-metadata")
+    ]
+    assert metadata and '(literal "/opt")' in metadata[0]
+
+
+def test_validation_sandbox_allows_writing_to_dev_null_only_outside_the_workspace(
+) -> None:
+    """Journaux et configurations neutralisées écrivent dans `/dev/null`."""
+
+    from agents.devagent import agentic_runtime
+
+    profile = agentic_runtime._sandbox_profile(Path("/tmp/ws"), Path("/tmp/home"))
+    write_rules = [
+        line for line in profile.splitlines() if line.startswith("(allow file-write*")
+    ]
+    assert write_rules
+    joined = " ".join(write_rules)
+    assert '(literal "/dev/null")' in joined
+    assert '(subpath "/etc")' not in joined

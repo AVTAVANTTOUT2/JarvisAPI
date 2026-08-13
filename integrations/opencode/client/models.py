@@ -143,6 +143,31 @@ class PermissionRequest:
         )
 
 
+_PROVIDER_SECRET_FIELDS = frozenset(
+    {"key", "apiKey", "api_key", "token", "secret", "password", "authorization"}
+)
+
+
+def _sanitize_provider_entry(value: Any) -> JsonObject:
+    """Conserve les métadonnées utiles et retire tout credential fournisseur."""
+
+    from integrations.opencode.security.redaction import REDACTED, redact_mapping
+
+    provider = _object(value, "provider")
+    secrets = tuple(
+        item
+        for field_name in _PROVIDER_SECRET_FIELDS
+        if isinstance((item := provider.get(field_name)), str) and item.strip()
+    )
+    sanitized = redact_mapping(provider, secrets)
+    if not isinstance(sanitized, dict):
+        raise ModelValidationError("Provider OpenCode invalide après redaction")
+    for field_name in _PROVIDER_SECRET_FIELDS:
+        if field_name in sanitized and sanitized[field_name] not in (None, ""):
+            sanitized[field_name] = REDACTED
+    return sanitized
+
+
 @dataclass(frozen=True, slots=True)
 class ProviderCatalog:
     all: tuple[JsonObject, ...]
@@ -169,7 +194,7 @@ class ProviderCatalog:
         if not all(isinstance(item, str) for item in connected):
             raise ModelValidationError("Providers connectés invalides")
         return cls(
-            all=tuple(_object(item, "provider") for item in providers),
+            all=tuple(_sanitize_provider_entry(item) for item in providers),
             default=dict(defaults),
             connected=tuple(connected),
         )

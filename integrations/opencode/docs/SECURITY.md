@@ -18,6 +18,11 @@
   idempotentes, scopes contrôlés, origine et garde anti-récursion obligatoires ;
 - secrets, arguments et contenu non fiable redactés avant persistance ou
   diffusion ; aucune chaîne de pensée n'est exposée ;
+- credentials provider (`key` / `apiKey` / tokens) retirés du
+  `ProviderCatalog` dès le parsing HTTP, avant tout log ou repr ;
+- `DEEPSEEK_API_KEY` uniquement depuis la config JARVIS, never argv / fichiers
+  runtime / variable `OPENCODE_*` concurrente ; pas de repli silencieux sur le
+  provider anonyme `opencode` ;
 - arrêt uniquement si PID, binaire, instance et health authentifié prouvent la
   propriété du processus.
 

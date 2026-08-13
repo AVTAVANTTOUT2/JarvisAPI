@@ -52,6 +52,12 @@ def _isolate_app_lifespan(monkeypatch: pytest.MonkeyPatch):
         return None
 
     monkeypatch.setattr(config, "IMESSAGE_DAEMON_ENABLED", False)
+    # Posture réseau : la suite décrit le défaut du produit, pas la machine qui
+    # l'exécute. Un poste où `WEB_ALLOW_NETWORK_BIND=true` durcit la politique
+    # de secret et faisait échouer sept tests d'authentification et de profils
+    # — un rouge qui n'apprenait rien sur le code. Les fichiers qui testent
+    # l'exposition réseau fixent la valeur eux-mêmes et gardent la main.
+    monkeypatch.setattr(config, "WEB_ALLOW_NETWORK_BIND", False)
     monkeypatch.setattr(config, "DEEPSEEK_API_KEY", "test-deepseek-key")
     monkeypatch.setattr(config, "DAEMON_ENABLED", False)
     monkeypatch.setattr(config, "AUDIO_DAEMON_ENABLED", False)

@@ -7,6 +7,11 @@
 | `jarvis-reviewer` | refusée | refusé | revue des preuves |
 | `jarvis-coding` | autorisée dans le worktree | refusé | édition de code |
 
+L'adaptateur sélectionne `jarvis-coding` dès que le run JARVIS porte déjà
+`workspace:write` / `workspace.edit` (hors catégorie read-only). Sinon il reste
+sur `jarvis-executor`. L'édition native n'est donc pas négociée une seconde fois
+via `edit=ask` lorsque JARVIS a déjà accordé l'écriture au profil de capacités.
+
 Le shell natif reste refusé pour les quatre agents. Les tests, Git, push,
 draft PR et checks CI sont exécutés par JARVIS après comparaison exacte du
 manifeste `path + size + SHA-256`. Les commandes Git de commit/push/merge ou

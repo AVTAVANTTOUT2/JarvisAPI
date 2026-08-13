@@ -163,3 +163,56 @@ async def test_claw3d_status_exposes_a_port_conflict(supervisor_mod, monkeypatch
 def test_services_list_includes_claw3d(supervisor_mod):
     ids = {svc["id"] for svc in supervisor_mod.SERVICES}
     assert "claw3d" in ids
+
+
+def test_claw3d_child_environment_carries_no_jarvis_secret(supervisor_mod, monkeypatch):
+    """Claw3D est visuel : aucun secret JARVIS ne doit franchir la frontière."""
+
+    secrets = {
+        "DEEPSEEK_API_KEY": "sk-ne-doit-jamais-sortir",
+        "BACKUP_ENCRYPTION_PASSPHRASE": "passphrase-locale",
+        "LOCATION_API_TOKEN": "jeton-localisation",
+        "TAVILY_API_KEY": "cle-tavily",
+        "GITHUB_TOKEN": "jeton-github",
+        "SESSION_COOKIE_NAME": "jarvis_session",
+    }
+    for name, value in secrets.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    monkeypatch.setenv("HOME", "/Users/test")
+
+    child = supervisor_mod._claw3d_child_environment()
+
+    assert set(child) & set(secrets) == set()
+    assert not any(value in child.values() for value in secrets.values())
+    assert child["PATH"] == "/usr/bin:/bin"
+    assert child["HOME"] == "/Users/test"
+
+
+def test_claw3d_subprocesses_use_the_scrubbed_environment(supervisor_mod, monkeypatch):
+    """Les deux chemins (start/stop) passent l'environnement filtré."""
+
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-ne-doit-jamais-sortir")
+    monkeypatch.setattr("scripts.claw3d.is_installed", lambda jarvis_root=None: True)
+    monkeypatch.setattr("scripts.claw3d.is_running", lambda jarvis_root=None: False)
+    monkeypatch.setattr(supervisor_mod, "_port_open", lambda port: False)
+    monkeypatch.setattr("scripts.claw3d.sync_managed_configuration", lambda *a, **k: None)
+    monkeypatch.setattr("scripts.claw3d.running_pid", lambda jarvis_root=None: 4242)
+    captured: list[dict] = []
+    proc = MagicMock()
+    proc.returncode = 0
+
+    def fake_popen(*args, **kwargs):
+        captured.append(kwargs.get("env") or {})
+        return proc
+
+    monkeypatch.setattr(supervisor_mod.subprocess, "Popen", fake_popen)
+
+    supervisor_mod._start_claw3d_sync()
+    monkeypatch.setattr("scripts.claw3d.is_running", lambda jarvis_root=None: True)
+    supervisor_mod._stop_claw3d_sync()
+
+    assert len(captured) == 2
+    for environment in captured:
+        assert "DEEPSEEK_API_KEY" not in environment
+        assert environment.get("PYTHONUNBUFFERED") == "1"

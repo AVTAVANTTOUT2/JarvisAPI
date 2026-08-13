@@ -407,7 +407,8 @@ async def test_two_services_use_distinct_processes_ports_secrets_and_state(
 async def test_runtime_passes_only_explicit_deepseek_credential_to_child(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("DEEPSEEK_API_KEY", "deepseek-test-secret")
+    fake_secret = "deepseek-test-secret"
+    monkeypatch.setenv("DEEPSEEK_API_KEY", fake_secret)
     monkeypatch.setenv("OPENAI_API_KEY", "must-not-leak")
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "must-not-leak")
     layout = _layout(tmp_path)
@@ -418,12 +419,22 @@ async def test_runtime_passes_only_explicit_deepseek_credential_to_child(
     try:
         await runtime.create_run(run, _context(run))
         start_kwargs = runtime._states[run.run_id].process_manager.start_kwargs
-        assert start_kwargs["explicit_environment"] == {
-            "DEEPSEEK_API_KEY": "deepseek-test-secret"
-        }
+        explicit = start_kwargs.get("explicit_environment") or {}
+        # Comparer des clés et une égalité ciblée : un assert sur le dict
+        # complet exposerait la valeur dans le rapport pytest en cas d'échec.
+        assert set(explicit) == {"DEEPSEEK_API_KEY"}
+        assert explicit.get("DEEPSEEK_API_KEY") == fake_secret
         assert start_kwargs["additional_environment_allowlist"] == ("DEEPSEEK_API_KEY",)
-        assert "OPENAI_API_KEY" not in repr(start_kwargs)
-        assert "AWS_SECRET_ACCESS_KEY" not in repr(start_kwargs)
+        rendered = repr(
+            {
+                key: value
+                for key, value in start_kwargs.items()
+                if key != "explicit_environment"
+            }
+        )
+        assert "OPENAI_API_KEY" not in rendered
+        assert "AWS_SECRET_ACCESS_KEY" not in rendered
+        assert "must-not-leak" not in rendered
     finally:
         await runtime.dispose()
 
@@ -912,6 +923,45 @@ async def test_completion_without_usage_telemetry_fails_closed(tmp_path: Path) -
 
 
 @pytest.mark.asyncio
+async def test_partial_message_updated_without_tokens_does_not_abort(
+    tmp_path: Path,
+) -> None:
+    """DeepSeek/OpenCode envoient des message.updated avant les compteurs."""
+
+    runtime = _runtime(_layout(tmp_path), _ProcessFactory(), _ClientFactory())
+    run = _run(tmp_path, run_id="partial-usage", profile_id="default")
+    try:
+        await runtime.create_run(run, _context(run))
+        await runtime.start(run)
+        state = runtime._states[run.run_id]
+        await state.client.events.put(
+            _event(
+                state.session_id,
+                "partial",
+                "message.updated",
+                {
+                    "info": {
+                        "id": "assistant-partial",
+                        "sessionID": state.session_id,
+                        "role": "assistant",
+                    }
+                },
+            )
+        )
+        await state.client.events.put(
+            _assistant_usage_event(state.session_id, "usage-ready", total=8)
+        )
+        await state.client.events.put(
+            _event(state.session_id, "idle", "session.idle", {})
+        )
+        events = await asyncio.wait_for(_collect(runtime, run.run_id), timeout=1)
+        assert events[-1].type == "agent.run.completed"
+        assert state.usage_seen is True
+    finally:
+        await runtime.dispose()
+
+
+@pytest.mark.asyncio
 async def test_concurrent_cleanup_waits_for_process_stop_before_purging(
     tmp_path: Path,
 ) -> None:
@@ -1081,6 +1131,9 @@ async def test_event_queue_and_total_input_are_bounded_fail_closed(
         await runtime.start(run)
         state = runtime._states[run.run_id]
         assert state.max_events == 2
+        # Le plafond SSE brut est distinct du plafond mappé ; on le borne ici
+        # pour vérifier le fail-closed DoS sur le flux fournisseur.
+        state.max_raw_events = 2
         for index in range(3):
             await state.client.events.put(
                 _event(state.session_id, f"ignored-{index}", "server.heartbeat", {})
@@ -1088,6 +1141,55 @@ async def test_event_queue_and_total_input_are_bounded_fail_closed(
         events = await asyncio.wait_for(_collect(runtime, run.run_id), timeout=1)
         assert events[-1].payload["violation"] == "event_budget_exceeded"
         assert run.run_id not in runtime._states
+    finally:
+        await runtime.dispose()
+
+
+def test_event_limits_raw_ceiling_absorbs_deepseek_token_streaming() -> None:
+    from jarvis.agentic.context import build_run_budget
+
+    run = _run(
+        Path("/tmp"),
+        run_id="limits",
+        profile_id="default",
+        budget=build_run_budget(),
+    )
+    queue_size, mapped, raw = adapter_module._event_limits(run)
+    assert queue_size <= adapter_module._MAX_EVENT_QUEUE_SIZE
+    assert mapped <= adapter_module._MAX_EVENTS_PER_RUN
+    assert raw >= 16_384
+    assert raw <= adapter_module._MAX_RAW_SSE_PER_RUN
+    # Le plafond SSE brut doit rester largement au-dessus du plafond mappé :
+    # DeepSeek émet des message.part.updated au niveau token.
+    assert raw > mapped * 8
+
+
+@pytest.mark.asyncio
+async def test_unmapped_sse_noise_does_not_consume_mapped_event_budget(
+    tmp_path: Path,
+) -> None:
+    runtime = _runtime(_layout(tmp_path), _ProcessFactory(), _ClientFactory())
+    run = _run(tmp_path, run_id="sse-noise", profile_id="default")
+    try:
+        await runtime.create_run(run, _context(run))
+        await runtime.start(run)
+        state = runtime._states[run.run_id]
+        state.max_events = 2
+        state.max_raw_events = 100
+        for index in range(5):
+            await state.client.events.put(
+                _event(state.session_id, f"noise-{index}", "server.heartbeat", {})
+            )
+        await state.client.events.put(
+            _assistant_usage_event(state.session_id, "usage", total=4)
+        )
+        await state.client.events.put(
+            _event(state.session_id, "idle", "session.idle", {})
+        )
+        events = await asyncio.wait_for(_collect(runtime, run.run_id), timeout=1)
+        assert events[-1].type == "agent.run.completed"
+        assert state.raw_event_count >= 5
+        assert state.event_count == 1
     finally:
         await runtime.dispose()
 

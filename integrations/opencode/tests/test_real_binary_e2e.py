@@ -848,8 +848,17 @@ async def test_real_binary_generic_facade_rejects_edit_and_proves_positive_limit
     broker MCP mutateur actif, l'outil natif edit n'y est pas enregistré. Le
     test prouve le verrou approval_tool_not_effectful, puis refuse la demande
     réelle afin de libérer proprement la session, sans simuler d'autorisation.
+
+    En production, ``workspace:write`` sélectionne ``jarvis-coding`` (edit
+    allow). Ce scénario force ``jarvis-executor`` pour verrouiller le chemin
+    ``edit=ask`` + élévation MCP.
     """
 
+    from integrations.opencode import adapter as adapter_module
+
+    monkeypatch.setattr(
+        adapter_module, "_select_agent", lambda *_args, **_kwargs: "jarvis-executor"
+    )
     manifest = ReleaseManifest.load()
     integration_root = tmp_path / "generic-approval-plugin"
     integration_root.mkdir()
@@ -892,6 +901,7 @@ async def test_real_binary_generic_facade_rejects_edit_and_proves_positive_limit
         assert runtime._states[run.run_id].model == ModelSelection(
             "jarvis-e2e", "fixture-model"
         )
+        assert runtime._states[run.run_id].agent == "jarvis-executor"
         assert runtime._states[run.run_id].mcp_broker is not None
         await runtime.start(run)
         events, artifacts, approval_seen = await _collect_facade_terminal(
