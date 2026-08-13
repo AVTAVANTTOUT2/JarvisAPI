@@ -94,7 +94,7 @@ L’app expose **cinq scènes / surfaces** distinctes :
 
 | Surface | Rôle | Taille / style |
 |---|---|---|
-| **Fenêtre principale** | Shell complet (sidebar + 5 sections) | min 980×680, défaut 1240×820, title bar cachée |
+| **Fenêtre principale** | Shell complet (sidebar + 6 sections) | min 980×680, défaut 1240×820, title bar cachée |
 | **Écran verrou** | Setup / unlock / offline / checking | Carte glass centrée ~590 px |
 | **MenuBarExtra** | Accès rapide sans ouvrir la fenêtre | ~300 px, style `.window` |
 | **Jarvis Glance** | Panneau flottant multi-Space | 370×430, floating, déplaçable par fond |
@@ -107,8 +107,86 @@ Deep links `jarvis://` :
 |---|---|
 | `jarvis://today` (défaut) | Aujourd’hui |
 | `jarvis://chat` | Conversation |
+| `jarvis://tasks` | Tâches |
 | `jarvis://actions` | Actions |
 | `jarvis://system` | Système |
+
+---
+
+## 3 bis. Section « Tâches » — pilotage du moteur agentique
+
+Ajoutée en août 2026. C'est la surface où l'utilisateur **décide** : elle lit
+un plan, l'accepte ou le refuse, suit l'exécution, tranche les autorisations
+d'effet, et lit le rapport.
+
+### Ce que l'application ne fait pas
+
+L'app reste un client, et cette section ne change pas ce contrat. Elle
+n'appelle jamais un runtime d'exécution, ne connaît aucun identifiant de
+fournisseur, ne détient aucune clé de modèle, ne crée aucun commit, ne gère
+aucun worktree, et ne décide jamais qu'un run est terminé. Tout passe par
+`/api/task-control/*` et `/api/task-candidates/*`.
+
+### Disposition
+
+`NavigationSplitView` à trois colonnes :
+
+| Colonne | Contenu |
+|---|---|
+| Sections | À valider, Attention requise, Planifiées, En cours, Terminées, Bloquées / Échecs, Archives, Détectées — chacune avec son compteur |
+| Liste | Titre, icône de source, statut, phase, priorité, progression, badge d'attention ; recherche `.searchable` |
+| Détail | Six onglets : Résumé, Plan, Activité, Autorisations, Résultat, Contexte |
+
+### Raccourcis
+
+| Raccourci | Action |
+|---|---|
+| `⌘N` | Nouvelle tâche |
+| `⌘↩` | Accepter le plan affiché et lancer |
+| `⌘.` | Annuler la tâche |
+| `⌥⌘A` | Aller aux tâches demandant attention |
+
+### Ce que l'onglet Activité montre — et ne montre pas
+
+Agent actif, étape, outil appelé, fichier lu ou modifié, test lancé, erreur,
+blocage. Trois niveaux : Résumé, Détails, Technique.
+
+Jamais un raisonnement brut. Le serveur n'en émet pas — l'activité est
+reconstruite depuis une allowlist de champs — et l'écran n'a aucun champ où
+l'afficher.
+
+### Décision de plan
+
+Le bouton d'acceptation renvoie le **digest du plan affiché**. Si une révision
+est arrivée entre l'affichage et le clic, le serveur répond `409` et l'écran le
+dit, au lieu de lancer un travail que personne n'a lu.
+
+Un plan qui annonce un effet hors machine (`mail:send`, `message:send`,
+`calendar:write`, `git:push`) l'affiche en clair, avec la mention que chaque
+effet demandera sa propre autorisation le moment venu.
+
+### Notifications
+
+`UNUserNotificationCenter`, dédupliquées par état, groupées par tâche, retirées
+quand la tâche n'attend plus rien, badge d'application aligné sur le nombre de
+tâches en attente.
+
+Deux règles : aucun contenu sensible dans le corps (pas d'extrait d'e-mail, pas
+d'argument d'action) parce qu'il s'affiche sur l'écran verrouillé ; et **aucun
+bouton d'action n'accorde d'autorisation** — l'unique action ouvre la tâche,
+là où l'utilisateur voit l'effet exact avant de trancher.
+
+### Fichiers
+
+| Fichier | Rôle |
+|---|---|
+| `TaskControlModels.swift` | DTO et miroir de la machine à états |
+| `TaskControlAPI.swift` | Extension du client HTTP (cookie, Origin, CSRF réutilisés) |
+| `TaskControlStore.swift` | État observable, polling suspendu hors écran, reprise par rang |
+| `TasksView.swift` | Trois colonnes, feuille de création, lignes de candidat |
+| `TaskDetailView.swift` | Six onglets |
+| `TaskNotifications.swift` | Notifications et badge |
+| `JarvisMacTests/TaskControlDecodingTests.swift` | 14 tests (décodage, repli, machine à états) |
 
 ---
 
