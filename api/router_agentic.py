@@ -216,11 +216,27 @@ async def agentic_runtime_status() -> dict[str, Any]:
     return {"runtimes": _jsonable(runtimes)}
 
 
+def _reject_direct_run_when_plan_approval_required() -> None:
+    """Bloque le contournement HTTP de la porte de validation humaine (ADR-034)."""
+
+    if bool(getattr(config, "AGENTIC_REQUIRE_PLAN_APPROVAL", True)):
+        raise api_error(
+            409,
+            "plan_approval_required",
+            (
+                "Un plan doit être validé avant l'exécution. "
+                "Créez une tâche via /api/task-control/tasks, "
+                "puis approuvez le plan avant le démarrage."
+            ),
+        )
+
+
 @router.post("/runs", status_code=202)
 async def create_agentic_run(
     body: CreateRunRequest,
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> dict[str, Any]:
+    _reject_direct_run_when_plan_approval_required()
     if idempotency_key is not None and not _IDEMPOTENCY_RE.fullmatch(idempotency_key):
         raise api_error(400, "invalid_idempotency_key", "Clé d'idempotence invalide")
     runtime_id = body.runtime_id or str(getattr(config, "AGENTIC_RUNTIME", "auto"))

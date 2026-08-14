@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 import pytest
 
+import config
 from database import current_profile_id
 import database
 from database.agentic import AgenticRepository
@@ -27,6 +28,7 @@ def agentic_api(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     db_path = tmp_path / "agentic-api.db"
     monkeypatch.setattr("config.DB_PATH", str(db_path))
     monkeypatch.setattr("database.DB_PATH", db_path)
+    monkeypatch.setattr(config, "AGENTIC_REQUIRE_PLAN_APPROVAL", False)
 
     from database import init_db
     from api import router_agentic
@@ -156,6 +158,43 @@ def test_create_idempotency_key_rejects_a_different_canonical_payload(
     assert first.status_code == 202
     assert conflict.status_code == 409
     assert conflict.json()["detail"]["code"] == "idempotency_payload_conflict"
+
+
+def test_create_rejects_direct_run_when_plan_approval_required(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """POST /api/agentic/runs ne doit pas contourner la porte ADR-034."""
+
+    db_path = tmp_path / "agentic-plan-gate.db"
+    monkeypatch.setattr("config.DB_PATH", str(db_path))
+    monkeypatch.setattr("database.DB_PATH", db_path)
+    monkeypatch.setattr(config, "AGENTIC_REQUIRE_PLAN_APPROVAL", True)
+
+    from database import init_db
+    from api import router_agentic
+
+    init_db()
+    service = AgenticService(
+        repository=AgenticRepository(),
+        registry=RuntimeRegistry(manifests=()),
+    )
+    monkeypatch.setattr(router_agentic, "get_agentic_service", lambda: service)
+    app = FastAPI()
+    app.include_router(router_agentic.router)
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/agentic/runs",
+            json={
+                "title": "Publie le rapport avant vendredi",
+                "runtime_id": "missing-runtime",
+                "channel": "api",
+            },
+            headers={"Idempotency-Key": "api:plan-gate:00000001"},
+        )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "plan_approval_required"
+    assert service.list() == []
 
 
 def test_approval_listing_and_decision_are_exact_and_idempotent(agentic_api) -> None:
