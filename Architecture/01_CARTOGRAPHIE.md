@@ -9,8 +9,8 @@
 > juillet. La topologie frontend actuelle est définie par
 > `Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md`.
 
-Runtime SQLite canonique : **104 tables persistantes**, **109 tables physiques avec FTS5**, schéma généré : **111 déclarations de tables**.
-Structure API canonique : **299 opérations HTTP + 2 WebSockets**, **266 chemins OpenAPI**, **21 routeurs api/router_*.py + Fitness = 22 montés**, main.py **225 lignes**.
+Runtime SQLite canonique : **106 tables persistantes**, **111 tables physiques avec FTS5**, schéma généré : **113 déclarations de tables**.
+Structure API canonique : **313 opérations HTTP + 2 WebSockets**, **278 chemins OpenAPI**, **22 routeurs api/router_*.py + Fitness = 23 montés**, main.py **227 lignes**.
 
 ---
 

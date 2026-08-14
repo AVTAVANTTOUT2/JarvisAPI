@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-08-13T17:46:58.681016+00:00",
+  "generated_at": "2026-08-14T22:53:04.004406+00:00",
   "repo_root": ".",
   "canonical_formulation": {
-    "database": "Le projet crée 104 tables persistantes après init_db() + migrations, plus jusqu'à 5 objets FTS5, soit 109 tables physiques lorsque FTS5 est disponible.",
+    "database": "Le projet crée 106 tables persistantes après init_db() + migrations, plus jusqu'à 5 objets FTS5, soit 111 tables physiques lorsque FTS5 est disponible.",
     "frontends": "Le frontend canonique est frontend/ (Next.js 15 → frontend/out). web/src est uniquement sa bibliothèque de vues et n'est plus une application exécutable. web_mobile/ est l'interface mobile autonome servie sous /mobile/, sans build. Si frontend/out manque, le bureau répond explicitement 503. tv/ (5174) est réservé à la TV. FastAPI (8081) et le supervisor (9000) servent uniquement frontend/out via core.frontend_resolution."
   },
   "frontends": [
@@ -117,16 +117,16 @@
       "does_not_execute_schema_sql": true
     },
     "counts": {
-      "schema_py": 68,
-      "schema_sql_applicatives": 111,
+      "schema_py": 70,
+      "schema_sql_applicatives": 113,
       "migrations_unique_excluding_schema_and_fts": 30,
       "devagent": 6,
-      "persistantes_post_init": 104,
+      "persistantes_post_init": 106,
       "fts_objects_if_available": 5,
-      "physiques_max_default_fts_on": 109,
+      "physiques_max_default_fts_on": 111,
       "imessage_mirror": 9,
       "technique_estime": 19,
-      "metier_estime": 70
+      "metier_estime": 72
     },
     "lists": {
       "schema_py": [
@@ -143,6 +143,8 @@
         "agentic_workflows",
         "app_settings",
         "app_usage",
+        "apple_shortcut_registry",
+        "apple_shortcut_runs",
         "conversation_documents",
         "conversations",
         "cross_insights",
@@ -213,6 +215,8 @@
         "agentic_workflows",
         "app_settings",
         "app_usage",
+        "apple_shortcut_registry",
+        "apple_shortcut_runs",
         "auth_rate_limits",
         "commitments",
         "control_task_activity",
@@ -366,6 +370,8 @@
         "agentic_workflows",
         "app_settings",
         "app_usage",
+        "apple_shortcut_registry",
+        "apple_shortcut_runs",
         "auth_rate_limits",
         "commitments",
         "conversation_documents",
@@ -492,21 +498,21 @@
       ]
     },
     "explanations": {
-      "schema_sql": "111 tables applicatives dans database/schema.sql (dump non exécuté), hors sqlite_sequence.",
-      "persistantes": "104 tables créées par schema.py + migrations + DevAgent, hors objets FTS.",
-      "physiques_fts": "109 entrées sqlite_master avec les cinq objets FTS5 disponibles.",
+      "schema_sql": "113 tables applicatives dans database/schema.sql (dump non exécuté), hors sqlite_sequence.",
+      "persistantes": "106 tables créées par schema.py + migrations + DevAgent, hors objets FTS.",
+      "physiques_fts": "111 entrées sqlite_master avec les cinq objets FTS5 disponibles.",
       "historique": "Les totaux 44, 70, 71, 72, 73, 75, 76 et 78 décrivent des snapshots antérieurs, pas le runtime courant."
     }
   },
   "api_surface": {
     "coverage_scope": "Références statiques par chemin : la méthode HTTP et les assertions comportementales restent vérifiées par les suites de tests.",
     "counts": {
-      "operations": 301,
-      "paths": 268,
+      "operations": 315,
+      "paths": 280,
       "consumer_and_tested": 143,
       "consumer_without_path_test": 58,
-      "owned_non_frontend_and_tested": 48,
-      "owned_non_frontend_without_path_test": 52
+      "owned_non_frontend_and_tested": 51,
+      "owned_non_frontend_without_path_test": 63
     },
     "consumer_surfaces": [
       "android",
@@ -518,19 +524,52 @@
       "tv"
     ],
     "structure": {
-      "http_operations": 299,
+      "http_operations": 313,
       "websocket_operations": 2,
-      "openapi_paths": 266,
-      "domain_router_modules": 21,
-      "mounted_routers": 22,
-      "main_lines": 225
+      "openapi_paths": 278,
+      "domain_router_modules": 22,
+      "mounted_routers": 23,
+      "main_lines": 227
     },
     "ownership_policy": {
       "path": "Architecture/api_route_ownership.json",
-      "rules": 36,
+      "rules": 37,
       "findings": []
     },
     "routes": [
+      {
+        "method": "DELETE",
+        "path": "/api/apple/shortcuts/registry/{shortcut_id}",
+        "source": "api/router_apple.py",
+        "line": 123,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-apple-shortcuts",
+          "owner": "apple-shortcuts",
+          "audience": "operator",
+          "rationale": "Registre allowlisté, exécution confirmée et recettes/ingest Shortcuts.app ; pas encore d'écran frontend dédié."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "DELETE",
+        "path": "/api/apple/shortcuts/{plan_id}",
+        "source": "api/router_apple.py",
+        "line": 185,
+        "consumers": {},
+        "tests": [
+          "tests/test_apple_shortcuts.py",
+          "tests/test_security_middleware.py"
+        ],
+        "non_frontend_ownership": {
+          "rule_id": "operator-apple-shortcuts",
+          "owner": "apple-shortcuts",
+          "audience": "operator",
+          "rationale": "Registre allowlisté, exécution confirmée et recettes/ingest Shortcuts.app ; pas encore d'écran frontend dédié."
+        },
+        "classification": "owned_non_frontend_and_tested"
+      },
       {
         "method": "DELETE",
         "path": "/api/conversations/{conv_id}",
@@ -890,6 +929,96 @@
         "tests": [],
         "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/apple/shortcuts/installed",
+        "source": "api/router_apple.py",
+        "line": 94,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-apple-shortcuts",
+          "owner": "apple-shortcuts",
+          "audience": "operator",
+          "rationale": "Registre allowlisté, exécution confirmée et recettes/ingest Shortcuts.app ; pas encore d'écran frontend dédié."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/apple/shortcuts/recipes",
+        "source": "api/router_apple.py",
+        "line": 142,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-apple-shortcuts",
+          "owner": "apple-shortcuts",
+          "audience": "operator",
+          "rationale": "Registre allowlisté, exécution confirmée et recettes/ingest Shortcuts.app ; pas encore d'écran frontend dédié."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/apple/shortcuts/recipes/{recipe_id}",
+        "source": "api/router_apple.py",
+        "line": 147,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-apple-shortcuts",
+          "owner": "apple-shortcuts",
+          "audience": "operator",
+          "rationale": "Registre allowlisté, exécution confirmée et recettes/ingest Shortcuts.app ; pas encore d'écran frontend dédié."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/apple/shortcuts/registry",
+        "source": "api/router_apple.py",
+        "line": 101,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-apple-shortcuts",
+          "owner": "apple-shortcuts",
+          "audience": "operator",
+          "rationale": "Registre allowlisté, exécution confirmée et recettes/ingest Shortcuts.app ; pas encore d'écran frontend dédié."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/apple/shortcuts/runs",
+        "source": "api/router_apple.py",
+        "line": 135,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-apple-shortcuts",
+          "owner": "apple-shortcuts",
+          "audience": "operator",
+          "rationale": "Registre allowlisté, exécution confirmée et recettes/ingest Shortcuts.app ; pas encore d'écran frontend dédié."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/apple/shortcuts/status",
+        "source": "api/router_apple.py",
+        "line": 89,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-apple-shortcuts",
+          "owner": "apple-shortcuts",
+          "audience": "operator",
+          "rationale": "Registre allowlisté, exécution confirmée et recettes/ingest Shortcuts.app ; pas encore d'écran frontend dédié."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "GET",
@@ -3309,6 +3438,21 @@
       },
       {
         "method": "PATCH",
+        "path": "/api/apple/shortcuts/registry/{shortcut_id}",
+        "source": "api/router_apple.py",
+        "line": 115,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-apple-shortcuts",
+          "owner": "apple-shortcuts",
+          "audience": "operator",
+          "rationale": "Registre allowlisté, exécution confirmée et recettes/ingest Shortcuts.app ; pas encore d'écran frontend dédié."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "PATCH",
         "path": "/api/commitments/{commitment_id}",
         "source": "api/router_misc.py",
         "line": 250,
@@ -3602,6 +3746,86 @@
         ],
         "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/apple/shortcuts/ask",
+        "source": "api/router_apple.py",
+        "line": 154,
+        "consumers": {},
+        "tests": [
+          "tests/test_apple_shortcuts.py",
+          "tests/test_security_middleware.py"
+        ],
+        "non_frontend_ownership": {
+          "rule_id": "operator-apple-shortcuts",
+          "owner": "apple-shortcuts",
+          "audience": "operator",
+          "rationale": "Registre allowlisté, exécution confirmée et recettes/ingest Shortcuts.app ; pas encore d'écran frontend dédié."
+        },
+        "classification": "owned_non_frontend_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/apple/shortcuts/prepare",
+        "source": "api/router_apple.py",
+        "line": 130,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-apple-shortcuts",
+          "owner": "apple-shortcuts",
+          "audience": "operator",
+          "rationale": "Registre allowlisté, exécution confirmée et recettes/ingest Shortcuts.app ; pas encore d'écran frontend dédié."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/apple/shortcuts/registry",
+        "source": "api/router_apple.py",
+        "line": 108,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-apple-shortcuts",
+          "owner": "apple-shortcuts",
+          "audience": "operator",
+          "rationale": "Registre allowlisté, exécution confirmée et recettes/ingest Shortcuts.app ; pas encore d'écran frontend dédié."
+        },
+        "classification": "owned_non_frontend_without_path_test"
+      },
+      {
+        "method": "POST",
+        "path": "/api/apple/shortcuts/task",
+        "source": "api/router_apple.py",
+        "line": 164,
+        "consumers": {},
+        "tests": [
+          "tests/test_security_middleware.py"
+        ],
+        "non_frontend_ownership": {
+          "rule_id": "operator-apple-shortcuts",
+          "owner": "apple-shortcuts",
+          "audience": "operator",
+          "rationale": "Registre allowlisté, exécution confirmée et recettes/ingest Shortcuts.app ; pas encore d'écran frontend dédié."
+        },
+        "classification": "owned_non_frontend_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/apple/shortcuts/{plan_id}/confirm",
+        "source": "api/router_apple.py",
+        "line": 178,
+        "consumers": {},
+        "tests": [],
+        "non_frontend_ownership": {
+          "rule_id": "operator-apple-shortcuts",
+          "owner": "apple-shortcuts",
+          "audience": "operator",
+          "rationale": "Registre allowlisté, exécution confirmée et recettes/ingest Shortcuts.app ; pas encore d'écran frontend dédié."
+        },
+        "classification": "owned_non_frontend_without_path_test"
       },
       {
         "method": "POST",
@@ -5866,7 +6090,7 @@
         "method": "WEBSOCKET",
         "path": "/ws",
         "source": "main.py",
-        "line": 131,
+        "line": 133,
         "consumers": {
           "frontend_next": [
             "frontend/public/sw.js"
@@ -5906,7 +6130,7 @@
         "method": "WEBSOCKET",
         "path": "/ws/tv/events",
         "source": "main.py",
-        "line": 134,
+        "line": 136,
         "consumers": {
           "tv": [
             "tv/config.py"

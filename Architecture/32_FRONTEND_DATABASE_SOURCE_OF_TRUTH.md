@@ -4,11 +4,11 @@
 **Méthode** : audit du code exécutable sur `main` (pas de la documentation).  
 **Contrôle automatique** : `tools/audit_architecture_truth.py --check --schema-output database/schema.sql`
 
-Runtime SQLite canonique : **104 tables persistantes**, **109 tables physiques avec FTS5**, schéma généré : **111 déclarations de tables**.
+Runtime SQLite canonique : **106 tables persistantes**, **111 tables physiques avec FTS5**, schéma généré : **113 déclarations de tables**.
 
-Surface API canonique : **301 opérations**, **268 chemins**, **143 consommées et testées**, **58 consommées sans référence de test**, **48 non-frontend documentées et testées**, **52 non-frontend documentées sans référence de test**, **0 non attribuées**.
+Surface API canonique : **315 opérations**, **280 chemins**, **143 consommées et testées**, **58 consommées sans référence de test**, **51 non-frontend documentées et testées**, **63 non-frontend documentées sans référence de test**, **0 non attribuées**.
 
-Structure API canonique : **299 opérations HTTP + 2 WebSockets**, **266 chemins OpenAPI**, **21 routeurs api/router_*.py + Fitness = 22 montés**, main.py **225 lignes**.
+Structure API canonique : **313 opérations HTTP + 2 WebSockets**, **278 chemins OpenAPI**, **22 routeurs api/router_*.py + Fitness = 23 montés**, main.py **227 lignes**.
 
 > Ce document **remplace** les affirmations conflictuelles « 44 tables », « 72 tables », « 73 tables »
 > et les formulations ambiguës sur le « frontend principal ».  
@@ -45,7 +45,7 @@ Structure API canonique : **299 opérations HTTP + 2 WebSockets**, **266 chemins
 **Formulation canonique (à réutiliser partout) :**
 
 ```text
-Le projet crée 104 tables persistantes après init_db() + migrations, plus
+Le projet crée 106 tables persistantes après init_db() + migrations, plus
 5 objets FTS5 (messages_fts + 4 auxiliaires) lorsque FTS5 est disponible,
 soit 109 tables physiques sur une base neuve avec configuration par défaut.
 database/schema.sql est un miroir généré de 105 déclarations : les 104 tables

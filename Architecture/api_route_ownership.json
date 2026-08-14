@@ -353,6 +353,27 @@
       "methods": ["GET"],
       "paths": ["/api/developer/docs", "/api/developer/openapi.json"],
       "rationale": "Contrat et catalogue OpenAPI protégés, destinés aux intégrateurs authentifiés."
+    },
+    {
+      "id": "operator-apple-shortcuts",
+      "owner": "apple-shortcuts",
+      "audience": "operator",
+      "methods": ["DELETE", "GET", "PATCH", "POST"],
+      "paths": [
+        "/api/apple/shortcuts/ask",
+        "/api/apple/shortcuts/installed",
+        "/api/apple/shortcuts/prepare",
+        "/api/apple/shortcuts/recipes",
+        "/api/apple/shortcuts/recipes/{recipe_id}",
+        "/api/apple/shortcuts/registry",
+        "/api/apple/shortcuts/registry/{shortcut_id}",
+        "/api/apple/shortcuts/runs",
+        "/api/apple/shortcuts/status",
+        "/api/apple/shortcuts/task",
+        "/api/apple/shortcuts/{plan_id}",
+        "/api/apple/shortcuts/{plan_id}/confirm"
+      ],
+      "rationale": "Registre allowlisté, exécution confirmée et recettes/ingest Shortcuts.app ; pas encore d'écran frontend dédié."
     }
   ]
 }

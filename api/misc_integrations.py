@@ -31,6 +31,17 @@ from scripts.email_watcher import email_watcher
 logger = logging.getLogger("jarvis")
 
 
+def _apple_shortcuts_status_payload() -> dict[str, Any]:
+    """État du pont Raccourcis sans lancer de raccourci."""
+    try:
+        from integrations.apple_shortcuts import status as shortcuts_status
+
+        return shortcuts_status()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[integrations] apple_shortcuts status: %s", exc)
+        return {"available": False, "enabled": False, "error": "status_failed"}
+
+
 class WebPushKeysRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -84,6 +95,7 @@ async def api_integrations():
         "imessage_send": config.IMESSAGE_SEND_ENABLED,
         "email_watcher": email_watcher.running,
         "computer": _computer_status_payload(),
+        "apple_shortcuts": _apple_shortcuts_status_payload(),
         "location_tracking": getattr(config, "LOCATION_TRACKING", True),
         "audio_daemon": _audio_daemon_status_payload(),
     }

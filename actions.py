@@ -61,6 +61,8 @@ async def execute_action(action: dict) -> dict:
             out = await _action_tv(action)
         elif action_type == "food_order":
             out = await _action_food_order(action)
+        elif action_type == "run_shortcut":
+            out = await _action_run_shortcut(action)
         else:
             out = {"ok": False, "message": f"Type d'action inconnu : {action_type}"}
     except Exception as e:
@@ -525,6 +527,148 @@ async def _action_food_order(action: dict) -> dict:
     action["plan_id"] = plan.plan_id
     action["food_plan"] = plan_view
     return _food_confirmation_response(plan_view)
+
+
+async def _action_run_shortcut(action: dict) -> dict:
+    """Lance un raccourci Apple enregistré — plan opaque puis confirmation.
+
+    Un ``confirmed: true`` sans ``shortcut_plan_id`` serveur est ignoré : le
+    modèle ne peut pas exécuter un raccourci de sa seule initiative.
+    """
+    from database.apple_shortcuts import (
+        find_registered_shortcut,
+        get_registered_shortcut,
+        record_shortcut_run,
+    )
+    from integrations.apple_shortcuts import (
+        AppleShortcutsError,
+        consume_plan,
+        create_plan,
+        peek_plan,
+        run_shortcut_async,
+        status as shortcuts_status,
+    )
+
+    plan_id = str(
+        action.get("shortcut_plan_id") or action.get("plan_id") or ""
+    ).strip()
+    if plan_id:
+        if action.get("confirmed") is not True:
+            plan = peek_plan(plan_id)
+            if plan is None:
+                return {
+                    "ok": False,
+                    "message": "Plan de raccourci introuvable ou expiré.",
+                }
+            return {
+                "ok": True,
+                "needs_confirmation": True,
+                "shortcut_plan_id": plan.plan_id,
+                "message": (
+                    f"Raccourci « {plan.shortcut_name} » prêt. "
+                    "Confirme pour l'exécuter."
+                ),
+                **plan.to_public_dict(),
+            }
+        try:
+            plan = consume_plan(plan_id)
+        except AppleShortcutsError as exc:
+            return {"ok": False, "message": exc.message}
+        try:
+            result = await run_shortcut_async(
+                plan.shortcut_name,
+                input_text=plan.input_text,
+            )
+        except AppleShortcutsError as exc:
+            record_shortcut_run(
+                registry_id=plan.registry_id,
+                shortcut_name=plan.shortcut_name,
+                ok=False,
+                input_preview=plan.input_text,
+                output_preview=None,
+                error=exc.message,
+                plan_id=plan.plan_id,
+            )
+            return {"ok": False, "message": exc.message}
+        record_shortcut_run(
+            registry_id=plan.registry_id,
+            shortcut_name=plan.shortcut_name,
+            ok=True,
+            input_preview=plan.input_text,
+            output_preview=result.get("output"),
+            error=None,
+            plan_id=plan.plan_id,
+        )
+        return result
+
+    if action.get("confirmed") is True:
+        logger.warning(
+            "[run_shortcut] pré-confirmation ignorée : aucun plan serveur"
+        )
+
+    status = shortcuts_status()
+    if not status.get("available"):
+        if not status.get("enabled"):
+            return {
+                "ok": False,
+                "message": "Raccourcis Apple désactivés (APPLE_SHORTCUTS_ENABLED).",
+            }
+        return {
+            "ok": False,
+            "message": "CLI shortcuts indisponible sur cette machine.",
+        }
+
+    registry_id = action.get("registry_id")
+    name = (action.get("name") or action.get("shortcut") or "").strip()
+    alias = (action.get("alias") or "").strip()
+    row = None
+    if registry_id is not None:
+        try:
+            row = get_registered_shortcut(int(registry_id))
+        except (TypeError, ValueError):
+            row = None
+        if row is not None and not row["enabled"]:
+            row = None
+    if row is None:
+        row = find_registered_shortcut(
+            name=name or None,
+            alias=alias or None,
+            enabled_only=True,
+        )
+    if row is None:
+        return {
+            "ok": False,
+            "message": (
+                "Raccourci inconnu du registre. Enregistre-le d'abord via "
+                "POST /api/apple/shortcuts/registry."
+            ),
+        }
+
+    input_text = action.get("input")
+    if input_text is not None:
+        input_text = str(input_text)
+    try:
+        plan = create_plan(
+            shortcut_name=row["name"],
+            registry_id=int(row["id"]),
+            input_text=input_text,
+            allow_input=bool(row["allow_input"]),
+            risk=str(row["risk"]),
+        )
+    except AppleShortcutsError as exc:
+        return {"ok": False, "message": exc.message}
+
+    action["confirmed"] = False
+    action["shortcut_plan_id"] = plan.plan_id
+    return {
+        "ok": True,
+        "needs_confirmation": True,
+        "shortcut_plan_id": plan.plan_id,
+        "message": (
+            f"Raccourci « {row['name']} » prêt. Confirme pour l'exécuter."
+        ),
+        **plan.to_public_dict(),
+    }
 
 
 async def _generate_shell_commands(instruction: str) -> list[str] | dict:

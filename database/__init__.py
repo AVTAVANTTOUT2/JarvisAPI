@@ -281,6 +281,16 @@ from .food_orders import (
     record_food_order,
     update_food_order_delivery,
 )
+from .apple_shortcuts import (
+    delete_registered_shortcut,
+    find_registered_shortcut,
+    get_registered_shortcut,
+    list_registered_shortcuts,
+    list_shortcut_runs,
+    record_shortcut_run,
+    register_shortcut,
+    update_registered_shortcut,
+)
 from .facts import (
     add_fact,
     get_all_facts_summary,

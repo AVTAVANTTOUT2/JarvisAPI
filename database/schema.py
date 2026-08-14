@@ -222,6 +222,44 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_food_orders_placed_plan
 CREATE INDEX IF NOT EXISTS idx_food_orders_delivery
     ON food_orders(delivery_status) WHERE delivery_status IS NOT NULL;
 
+-- Raccourcis Apple (Shortcuts.app) : allowlist utilisateur + journal.
+-- Le LLM ne peut lancer que des noms présents ici, après confirmation.
+CREATE TABLE IF NOT EXISTS apple_shortcut_registry (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL COLLATE NOCASE,
+    alias TEXT NOT NULL DEFAULT '',
+    description TEXT NOT NULL DEFAULT '',
+    allow_input INTEGER NOT NULL DEFAULT 0 CHECK(allow_input IN (0, 1)),
+    requires_confirmation INTEGER NOT NULL DEFAULT 1
+        CHECK(requires_confirmation IN (0, 1)),
+    enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0, 1)),
+    risk TEXT NOT NULL DEFAULT 'medium'
+        CHECK(risk IN ('low', 'medium', 'high')),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    last_run_at DATETIME,
+    run_count INTEGER NOT NULL DEFAULT 0 CHECK(run_count >= 0),
+    UNIQUE(name COLLATE NOCASE)
+);
+
+CREATE INDEX IF NOT EXISTS idx_apple_shortcut_registry_enabled
+    ON apple_shortcut_registry(enabled, lower(name));
+
+CREATE TABLE IF NOT EXISTS apple_shortcut_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    registry_id INTEGER REFERENCES apple_shortcut_registry(id) ON DELETE SET NULL,
+    shortcut_name TEXT NOT NULL,
+    ok INTEGER NOT NULL CHECK(ok IN (0, 1)),
+    input_preview TEXT,
+    output_preview TEXT,
+    error TEXT,
+    plan_id TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_apple_shortcut_runs_created
+    ON apple_shortcut_runs(created_at DESC);
+
 -- Menus relevés en lecture seule sur les pages restaurant. Sert à proposer
 -- des articles réels : sans lui, une suggestion inventerait des plats qui
 -- n'existent pas et le panier échouerait au moment de l'ajout.

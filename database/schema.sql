@@ -206,6 +206,36 @@ CREATE TABLE app_usage (
     UNIQUE(device, app, date)
 );
 
+CREATE TABLE apple_shortcut_registry (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL COLLATE NOCASE,
+    alias TEXT NOT NULL DEFAULT '',
+    description TEXT NOT NULL DEFAULT '',
+    allow_input INTEGER NOT NULL DEFAULT 0 CHECK(allow_input IN (0, 1)),
+    requires_confirmation INTEGER NOT NULL DEFAULT 1
+        CHECK(requires_confirmation IN (0, 1)),
+    enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0, 1)),
+    risk TEXT NOT NULL DEFAULT 'medium'
+        CHECK(risk IN ('low', 'medium', 'high')),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    last_run_at DATETIME,
+    run_count INTEGER NOT NULL DEFAULT 0 CHECK(run_count >= 0),
+    UNIQUE(name COLLATE NOCASE)
+);
+
+CREATE TABLE apple_shortcut_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    registry_id INTEGER REFERENCES apple_shortcut_registry(id) ON DELETE SET NULL,
+    shortcut_name TEXT NOT NULL,
+    ok INTEGER NOT NULL CHECK(ok IN (0, 1)),
+    input_preview TEXT,
+    output_preview TEXT,
+    error TEXT,
+    plan_id TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE auth_rate_limits (
             client_key TEXT PRIMARY KEY,
             failed_attempts INTEGER NOT NULL DEFAULT 0,
@@ -1460,6 +1490,12 @@ CREATE INDEX idx_agent_steps_profile_run
 CREATE INDEX idx_agentic_conv ON agentic_workflows(conversation_id);
 
 CREATE INDEX idx_agentic_status ON agentic_workflows(status);
+
+CREATE INDEX idx_apple_shortcut_registry_enabled
+    ON apple_shortcut_registry(enabled, lower(name));
+
+CREATE INDEX idx_apple_shortcut_runs_created
+    ON apple_shortcut_runs(created_at DESC);
 
 CREATE INDEX idx_appusage_date ON app_usage(date);
 
