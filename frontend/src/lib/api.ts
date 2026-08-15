@@ -21,6 +21,12 @@ import type {
   ConversationSearchResult,
   ConversationSummary,
   DeviceInfo,
+  AppleShortcutInstalledRow,
+  AppleShortcutPlan,
+  AppleShortcutRecipe,
+  AppleShortcutRegistryRow,
+  AppleShortcutRunRow,
+  AppleShortcutsStatus,
   FoodCaptureStatus,
   FoodCartPlan,
   FoodMenuItem,
@@ -507,6 +513,83 @@ export const api = {
     }),
   stopFoodCapture: () =>
     request<FoodCaptureStatus>('/api/food/session/capture', { method: 'DELETE' }),
+
+  getAppleShortcutsStatus: () =>
+    request<AppleShortcutsStatus>('/api/apple/shortcuts/status'),
+  getAppleShortcutsInstalled: (folder?: string) =>
+    request<{
+      shortcuts: AppleShortcutInstalledRow[]
+      folders: string[]
+      count: number
+    }>(
+      `/api/apple/shortcuts/installed${
+        folder ? `?folder=${encodeURIComponent(folder)}` : ''
+      }`,
+    ),
+  getAppleShortcutsRegistry: (enabledOnly = false) =>
+    request<{ shortcuts: AppleShortcutRegistryRow[]; count: number }>(
+      `/api/apple/shortcuts/registry${enabledOnly ? '?enabled_only=true' : ''}`,
+    ),
+  createAppleShortcutRegistry: (body: {
+    name: string
+    alias?: string
+    description?: string
+    allow_input?: boolean
+    requires_confirmation?: boolean
+    enabled?: boolean
+    risk?: 'low' | 'medium' | 'high'
+  }) =>
+    request<AppleShortcutRegistryRow>('/api/apple/shortcuts/registry', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  updateAppleShortcutRegistry: (
+    id: number,
+    body: Partial<{
+      alias: string
+      description: string
+      allow_input: boolean
+      requires_confirmation: boolean
+      enabled: boolean
+      risk: 'low' | 'medium' | 'high'
+    }>,
+  ) =>
+    request<AppleShortcutRegistryRow>(`/api/apple/shortcuts/registry/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+  deleteAppleShortcutRegistry: (id: number) =>
+    request<{ status: string }>(`/api/apple/shortcuts/registry/${id}`, {
+      method: 'DELETE',
+    }),
+  prepareAppleShortcutRun: (body: {
+    name?: string
+    alias?: string
+    registry_id?: number
+    input?: string
+  }) =>
+    request<AppleShortcutPlan>('/api/apple/shortcuts/prepare', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  confirmAppleShortcutRun: (planId: string) =>
+    request<{ ok: boolean; shortcut_name: string; output: string; message: string }>(
+      `/api/apple/shortcuts/${encodeURIComponent(planId)}/confirm`,
+      { method: 'POST' },
+    ),
+  cancelAppleShortcutRun: (planId: string) =>
+    request<{ ok: boolean; revoked: boolean }>(
+      `/api/apple/shortcuts/${encodeURIComponent(planId)}`,
+      { method: 'DELETE' },
+    ),
+  getAppleShortcutsRecipes: () =>
+    request<{ recipes: AppleShortcutRecipe[]; count: number }>(
+      '/api/apple/shortcuts/recipes',
+    ),
+  getAppleShortcutsRuns: (limit = 20) =>
+    request<{ runs: AppleShortcutRunRow[]; count: number }>(
+      `/api/apple/shortcuts/runs?limit=${limit}`,
+    ),
 
   getFitnessDashboard: (date?: string) =>
     request(`/api/fitness/dashboard${date ? `?date=${encodeURIComponent(date)}` : ''}`),

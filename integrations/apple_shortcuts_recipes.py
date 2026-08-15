@@ -3,6 +3,10 @@
 Les fichiers ``.shortcut`` binaires signés ne sont pas versionnés ici : Apple
 exige une signature locale. Chaque recette décrit les actions à assembler dans
 l'app Raccourcis, avec les URLs et en-têtes exacts attendus par le backend.
+
+Frontière ADR-016 / ADR-029 :
+- Mail, Calendar, Messages, Contacts → AppleScript (données).
+- Raccourcis personnalisés (HomeKit, Siri, Back Tap, Focus) → CLI ``shortcuts``.
 """
 
 from __future__ import annotations
@@ -33,6 +37,7 @@ RECIPES: tuple[dict[str, Any], ...] = (
             ),
             "Automatisation : intervalle 5 minutes, exécuter sans demander",
         ],
+        "triggers": ["Automatisation Temps", "App Ouverture (optionnel)"],
         "endpoint": {"method": "POST", "path": "/api/location"},
         "auth": "Bearer LOCATION_API_TOKEN",
     },
@@ -54,6 +59,7 @@ RECIPES: tuple[dict[str, Any], ...] = (
             'Corps JSON : {"text": Magasin Texte, "source": "shortcut"}',
             "Afficher réponse.reply (Notification ou Dialogue)",
         ],
+        "triggers": ["Siri", "Back Tap", "Centre de contrôle", "Widget"],
         "endpoint": {"method": "POST", "path": "/api/apple/shortcuts/ask"},
         "auth": "Bearer APPLE_SHORTCUTS_INGEST_TOKEN",
     },
@@ -73,6 +79,7 @@ RECIPES: tuple[dict[str, Any], ...] = (
             'Corps : {"title": Texte, "priority": "medium", "source": "shortcut"}',
             "Afficher confirmation",
         ],
+        "triggers": ["Siri", "Back Tap", "Action Button", "Apple Watch"],
         "endpoint": {"method": "POST", "path": "/api/apple/shortcuts/task"},
         "auth": "Bearer APPLE_SHORTCUTS_INGEST_TOKEN",
     },
@@ -87,17 +94,56 @@ RECIPES: tuple[dict[str, Any], ...] = (
         ),
         "requires": ["APPLE_SHORTCUTS_ENABLED=true", "session web JARVIS"],
         "steps": [
-            "Créer le raccourci dans l'app Raccourcis (ex. HomeKit)",
-            "GET /api/apple/shortcuts/installed pour vérifier le nom exact",
-            (
-                "POST /api/apple/shortcuts/registry "
-                '{"name":"allume la chambre","alias":"chambre","risk":"medium"}'
-            ),
+            "Créer le raccourci dans l'app Raccourcis (ex. HomeKit / Contrôle maison)",
+            "Ouvrir /shortcuts dans JARVIS → onglet Installés",
+            "Cliquer « Enregistrer » sur le nom exact (ou POST registry)",
+            "Optionnel : définir un alias (« chambre ») et un risque",
             'Dire à JARVIS : « lance le raccourci chambre »',
-            "Confirmer le plan affiché",
+            "Confirmer le plan affiché dans le chat ou à la voix",
         ],
+        "triggers": ["Voix JARVIS", "Chat", "POST /prepare + /confirm"],
         "endpoint": {"method": "POST", "path": "/api/apple/shortcuts/registry"},
         "auth": "session cookie + CSRF",
+    },
+    {
+        "id": "siri_phrase_homekit",
+        "title": "Siri — phrase personnalisée vers un raccourci maison",
+        "platform": "ios_macos",
+        "summary": (
+            "Ajoute une phrase Siri sur un raccourci HomeKit déjà dans le "
+            "registre JARVIS, pour le déclencher hors JARVIS aussi."
+        ),
+        "requires": ["Raccourci HomeKit créé", "APPLE_SHORTCUTS_ENABLED=true"],
+        "steps": [
+            "Dans Raccourcis.app → raccourci → (i) → Ajouter à Siri",
+            "Choisir une phrase claire (« allume la chambre »)",
+            "Enregistrer le même nom exact dans /shortcuts (registre JARVIS)",
+            "Depuis JARVIS : voix ou chat → confirmation obligatoire",
+            "Depuis Siri : exécution native Apple, hors plan JARVIS",
+        ],
+        "triggers": ["Siri", "Voix JARVIS"],
+        "endpoint": {"method": "POST", "path": "/api/apple/shortcuts/prepare"},
+        "auth": "session cookie + CSRF (côté JARVIS)",
+    },
+    {
+        "id": "focus_mode_bridge",
+        "title": "Mode Concentration → notifier JARVIS",
+        "platform": "ios",
+        "summary": (
+            "Quand un mode Concentration s'active, envoie un signal texte à "
+            "JARVIS (ask) pour journaliser le contexte."
+        ),
+        "requires": ["APPLE_SHORTCUTS_INGEST_TOKEN"],
+        "steps": [
+            "Automatisation → Mode Concentration → Quand « Travail » s'active",
+            "POST /api/apple/shortcuts/ask avec "
+            '{"text":"Mode Travail activé","source":"focus"}',
+            "Authorization: Bearer <APPLE_SHORTCUTS_INGEST_TOKEN>",
+            "Exécuter sans demander",
+        ],
+        "triggers": ["Automatisation Concentration"],
+        "endpoint": {"method": "POST", "path": "/api/apple/shortcuts/ask"},
+        "auth": "Bearer APPLE_SHORTCUTS_INGEST_TOKEN",
     },
 )
 

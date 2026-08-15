@@ -181,11 +181,17 @@ async def test_action_run_shortcut_requires_registry_and_confirmation(
 
 def test_recipes_catalog_is_complete():
     recipes = list_recipes()
-    assert len(recipes) >= 3
+    assert len(recipes) >= 5
     ids = {r["id"] for r in recipes}
     assert "jarvis_location" in ids
     assert "jarvis_ask" in ids
+    assert "siri_phrase_homekit" in ids
+    assert "focus_mode_bridge" in ids
     assert get_recipe("jarvis_ask")["endpoint"]["path"] == "/api/apple/shortcuts/ask"
+    for recipe in recipes:
+        assert recipe["steps"]
+        assert recipe["endpoint"]["path"].startswith("/")
+        assert "triggers" in recipe
 
 
 @pytest.mark.asyncio
@@ -205,3 +211,44 @@ def test_llm_cannot_confirm_without_server_plan_is_documented_in_action():
     source = inspect.getsource(_action_run_shortcut)
     assert "pré-confirmation ignorée" in source
     assert "shortcut_plan_id" in source
+
+
+def test_abandoned_proposal_revokes_shortcut_plan(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(
+        "integrations.apple_shortcuts.resolve_shortcuts_bin",
+        lambda: "/usr/bin/shortcuts",
+    )
+    monkeypatch.setattr("integrations.apple_shortcuts.is_macos", lambda: True)
+    from api.action_confirmations import _revoke_action_plan
+    from integrations.apple_shortcuts import peek_plan
+
+    plan = create_plan(
+        shortcut_name="Snap",
+        registry_id=1,
+        input_text=None,
+        allow_input=False,
+        risk="low",
+    )
+    assert peek_plan(plan.plan_id) is not None
+    revoked = _revoke_action_plan(
+        {
+            "type": "run_shortcut",
+            "shortcut_plan_id": plan.plan_id,
+        }
+    )
+    assert revoked is True
+    assert peek_plan(plan.plan_id) is None
+
+
+@pytest.mark.asyncio
+async def test_action_unknown_shortcut_points_to_ui(monkeypatch: pytest.MonkeyPatch):
+    from actions import execute_action
+
+    monkeypatch.setattr(
+        "integrations.apple_shortcuts.resolve_shortcuts_bin",
+        lambda: "/usr/bin/shortcuts",
+    )
+    monkeypatch.setattr("integrations.apple_shortcuts.is_macos", lambda: True)
+    result = await execute_action({"type": "run_shortcut", "name": "ghost-ui"})
+    assert result["ok"] is False
+    assert "/shortcuts" in result["message"]

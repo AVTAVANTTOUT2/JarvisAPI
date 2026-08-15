@@ -33,6 +33,8 @@ ni offrir des recettes iOS fiables au-delà du POST GPS legacy.
 
 - JARVIS peut dire « allume la chambre » si le raccourci est enregistré.
 - Un raccourci inventé par le modèle est refusé avant toute exécution.
-- Les recettes iOS (position, demande, tâche) sont assemblables à la main
-  dans l'app Raccourcis en suivant `GET /api/apple/shortcuts/recipes`.
+- Les recettes iOS (position, demande, tâche, Focus, Siri) sont assemblables
+  à la main dans l'app Raccourcis via `GET /api/apple/shortcuts/recipes`
+  et l'UI `/shortcuts`.
+- L'abandon d'une proposition chat révoque le plan shortcut opaque.
 - Ne remplace pas AppleScript pour Mail/Calendar (ADR-016 inchangé).

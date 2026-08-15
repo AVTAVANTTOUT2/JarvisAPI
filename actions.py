@@ -639,8 +639,9 @@ async def _action_run_shortcut(action: dict) -> dict:
         return {
             "ok": False,
             "message": (
-                "Raccourci inconnu du registre. Enregistre-le d'abord via "
-                "POST /api/apple/shortcuts/registry."
+                "Raccourci inconnu du registre. Ouvre /shortcuts pour "
+                "enregistrer un raccourci installé, ou crée-le dans "
+                "Raccourcis.app puis ajoute-le au registre."
             ),
         }
 
@@ -660,6 +661,9 @@ async def _action_run_shortcut(action: dict) -> dict:
 
     action["confirmed"] = False
     action["shortcut_plan_id"] = plan.plan_id
+    action["shortcut_name"] = plan.shortcut_name
+    action["risk"] = plan.risk
+    action["input_preview"] = plan.to_public_dict().get("input_preview")
     return {
         "ok": True,
         "needs_confirmation": True,

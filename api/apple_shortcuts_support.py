@@ -192,8 +192,8 @@ def _resolve_target(
     if row is None:
         raise HTTPException(
             404,
-            "Raccourci inconnu du registre. Enregistre-le d'abord "
-            "(POST /api/apple/shortcuts/registry).",
+            "Raccourci inconnu du registre. Enregistre-le depuis /shortcuts "
+            "ou POST /api/apple/shortcuts/registry.",
         )
     return row
 
