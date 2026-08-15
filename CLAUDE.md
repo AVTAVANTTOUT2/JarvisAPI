@@ -30,8 +30,8 @@ Le bus applicatif est actif et conserve la compatibilité de construction histor
 
 - Les mutations de `database/tasks.py`, `notifications.py`, `conversations.py`, `episodes.py`, `facts.py`, `patterns.py` et `people.py` émettent **après commit**.
 - `database/event_log.py` journalise tous les événements dans la table SQLite `event_log`.
-Runtime SQLite canonique : **104 tables persistantes**, **109 tables physiques avec FTS5**, schéma généré : **111 déclarations de tables**.
-Structure API canonique : **299 opérations HTTP + 2 WebSockets**, **266 chemins OpenAPI**, **21 routeurs api/router_*.py + Fitness = 22 montés**, main.py **225 lignes**.
+Runtime SQLite canonique : **106 tables persistantes**, **111 tables physiques avec FTS5**, schéma généré : **113 déclarations de tables**.
+Structure API canonique : **313 opérations HTTP + 2 WebSockets**, **278 chemins OpenAPI**, **22 routeurs api/router_*.py + Fitness = 23 montés**, main.py **227 lignes**.
   `database/schema.sql` est désormais un miroir généré et contrôlé du schéma frais ;
   `init_db()` continue d'exécuter exclusivement `schema.py` puis `migrations.py`.
 - `websocket_registry.py` diffuse les événements de domaine aux sockets actives et `scripts/audio_daemon.py` traite les notifications `urgent/high`.
@@ -45,7 +45,7 @@ Depuis du code async, utiliser `await event_bus.emit(event)`. Depuis un chemin s
 
 `main.py` est un point d'assemblage : configuration FastAPI/CORS, montage de 20 `APIRouter` sous `api/router_*.py` plus Fitness, branchement des WebSockets de chat et de TV, configuration de `pipeline.py`, frontend et lancement Uvicorn. Le contrat public compte 283 opérations HTTP et 2 WebSockets ; l'OpenAPI expose 252 chemins.
 
-- `api/router_*.py` contient exactement 20 routeurs par domaine ; Fitness porte le 21e routeur monté et aucun routeur ne dépasse 483 lignes.
+- `api/router_*.py` contient exactement 22 routeurs par domaine ; Fitness porte le 23e routeur monté et aucun routeur ne dépasse 500 lignes.
 - `api/lifespan.py`, `api/middleware.py` et `api/frontend.py` portent le cycle de vie, la sécurité HTTP et le serving des frontends.
 - `api/ws_handler.py`, `api/ws_messages.py`, `api/chat_*.py` et `api/voice_*.py` séparent le transport WebSocket, le contexte, les actions et les pipelines texte/vocal.
 - Tous les modules `api/*.py` restent à 500 lignes au plus et aucun n'importe `main.py`.

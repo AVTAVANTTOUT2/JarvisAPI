@@ -33,6 +33,7 @@ from api.middleware import configured_cors_origins, security_middleware
 from api.openapi import install_openapi, stable_operation_id
 from api.router_auth import router as auth_router
 from api.router_agentic import router as agentic_router
+from api.router_apple import router as apple_router
 from api.router_conversations import router as conversations_router
 from api.router_daemon import router as daemon_router
 from api.router_devagent import router as devagent_router
@@ -108,6 +109,7 @@ app.middleware("http")(security_middleware)
 app.include_router(fitness_router)
 app.include_router(auth_router)
 app.include_router(agentic_router)
+app.include_router(apple_router)
 app.include_router(conversations_router)
 app.include_router(daemon_router)
 app.include_router(devagent_router)

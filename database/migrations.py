@@ -1683,6 +1683,50 @@ def _migrate_task_control(conn: sqlite3.Connection) -> None:
     migrate_task_control_tables(conn)
 
 
+def _migrate_apple_shortcuts(conn: sqlite3.Connection) -> None:
+    """Registre allowlisté des raccourcis Apple + journal d'exécution."""
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS apple_shortcut_registry (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL COLLATE NOCASE,
+            alias TEXT NOT NULL DEFAULT '',
+            description TEXT NOT NULL DEFAULT '',
+            allow_input INTEGER NOT NULL DEFAULT 0 CHECK(allow_input IN (0, 1)),
+            requires_confirmation INTEGER NOT NULL DEFAULT 1
+                CHECK(requires_confirmation IN (0, 1)),
+            enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0, 1)),
+            risk TEXT NOT NULL DEFAULT 'medium'
+                CHECK(risk IN ('low', 'medium', 'high')),
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            last_run_at DATETIME,
+            run_count INTEGER NOT NULL DEFAULT 0 CHECK(run_count >= 0),
+            UNIQUE(name COLLATE NOCASE)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_apple_shortcut_registry_enabled
+            ON apple_shortcut_registry(enabled, lower(name));
+
+        CREATE TABLE IF NOT EXISTS apple_shortcut_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            registry_id INTEGER REFERENCES apple_shortcut_registry(id)
+                ON DELETE SET NULL,
+            shortcut_name TEXT NOT NULL,
+            ok INTEGER NOT NULL CHECK(ok IN (0, 1)),
+            input_preview TEXT,
+            output_preview TEXT,
+            error TEXT,
+            plan_id TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_apple_shortcut_runs_created
+            ON apple_shortcut_runs(created_at DESC);
+        """
+    )
+
+
 def run_migrations(conn: sqlite3.Connection) -> None:
     """Applique dans un ordre stable toutes les migrations idempotentes."""
     _migrate_people_ai_description(conn)
@@ -1732,4 +1776,5 @@ def run_migrations(conn: sqlite3.Connection) -> None:
     _migrate_metric_samples(conn)
     _migrate_agentic_runtime(conn)
     _migrate_task_control(conn)
+    _migrate_apple_shortcuts(conn)
     _migrate_application_timestamps_to_utc_v2(conn)

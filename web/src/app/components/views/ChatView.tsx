@@ -1056,6 +1056,11 @@ function ActionBadge({
     mood: 'Humeur enregistree',
     note: 'Note enregistree',
     terminal: needsConfirm ? 'Commande en attente' : ok ? 'Commande executee' : 'Erreur commande',
+    run_shortcut: needsConfirm
+      ? `Raccourci en attente${pendingAction?.shortcut_name || result?.shortcut_name ? ` — ${String(pendingAction?.shortcut_name || result?.shortcut_name)}` : ''}`
+      : ok
+        ? `Raccourci execute${result?.shortcut_name ? ` — ${String(result.shortcut_name)}` : ''}`
+        : 'Erreur raccourci',
     find_file: `${Array.isArray(result?.files) ? (result.files as unknown[]).length : 0} fichier(s) trouve(s)`,
     search_conversations: `${result?.count || 0} resultat(s) trouve(s)`,
   }
@@ -1068,9 +1073,23 @@ function ActionBadge({
     : []
   const workspace = typeof shellPlan?.workspace === 'string' ? shellPlan.workspace : ''
   const impact = shellPlan?.impact_analysis as Record<string, unknown> | undefined
+  const shortcutName = String(
+    pendingAction?.shortcut_name || result?.shortcut_name || '',
+  ).trim()
+  const shortcutRisk = String(pendingAction?.risk || result?.risk || '').trim()
+  const shortcutInput = String(
+    pendingAction?.input_preview || result?.input_preview || '',
+  ).trim()
   return (
     <div className="bg-white/5 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white/50 font-mono space-y-1.5">
       <div>{labels[type] || type}</div>
+      {needsConfirm && type === 'run_shortcut' && shortcutName ? (
+        <div className="text-white/55 break-all">
+          Shortcuts.app · {shortcutName}
+          {shortcutRisk ? ` · risque ${shortcutRisk}` : ''}
+          {shortcutInput ? ` · entrée « ${shortcutInput} »` : ''}
+        </div>
+      ) : null}
       {needsConfirm && plannedCommands.length > 0 ? (
         <ol className="list-decimal pl-5 space-y-1 text-white/55">
           {plannedCommands.map((plannedCommand, index) => (

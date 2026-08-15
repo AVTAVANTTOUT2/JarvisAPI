@@ -48,6 +48,7 @@ ACTIONS_WITH_FOLLOWUP = frozenset({
     "day_route",
     "tv",
     "food_order",
+    "run_shortcut",
 })
 
 # Actions qui écrivent un état persistant, exécutées seulement après

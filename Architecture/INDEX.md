@@ -5,8 +5,8 @@
 **Dernière mise à jour** : 11 août 2026
 **Périmètre** : 273 fichiers Python (56 261 lignes), 99 fichiers source frontend (18 770 lignes),
 104 tables SQLite persistantes après `init_db()` et 109 tables physiques avec FTS5.
-Runtime SQLite canonique : **104 tables persistantes**, **109 tables physiques avec FTS5**, schéma généré : **111 déclarations de tables**.
-Structure API canonique : **299 opérations HTTP + 2 WebSockets**, **266 chemins OpenAPI**, **21 routeurs api/router_*.py + Fitness = 22 montés**, main.py **225 lignes**.
+Runtime SQLite canonique : **106 tables persistantes**, **111 tables physiques avec FTS5**, schéma généré : **113 déclarations de tables**.
+Structure API canonique : **313 opérations HTTP + 2 WebSockets**, **278 chemins OpenAPI**, **22 routeurs api/router_*.py + Fitness = 23 montés**, main.py **227 lignes**.
 Voir [32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md](./32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md).
 **État** : **Documentation officielle — toute modification du code doit rester cohérente avec ce dossier**
 
@@ -219,6 +219,7 @@ Chaque phase est **indépendante**, **réversible**, **testée**, et **sans inte
 - [33_API_PUBLIQUE_OPENAPI.md](./33_API_PUBLIQUE_OPENAPI.md) — ADR-025 contrat développeur
 - [34_SDK_DEVELOPPEURS.md](./34_SDK_DEVELOPPEURS.md) — ADR-026 SDK Python officiel
 - [adr/ADR-016](./adr/ADR-016-applescript-integration-apple.md) — AppleScript comme unique intégration Apple
+- [adr/ADR-029](./adr/ADR-029-apple-shortcuts-bridge.md) — Pont Shortcuts.app allowlisté (CLI + confirmation)
 - [adr/ADR-017](./adr/ADR-017-sqlite-base-unique.md) — SQLite comme base de données unique
 - [adr/ADR-018](./adr/ADR-018-dual-llm-router.md) — Architecture dual-LLM (local + cloud)
 - [adr/ADR-019](./adr/ADR-019-SUPERVISOR-FRONTEND-PRIORITY.md) — Priorité frontend supervisor

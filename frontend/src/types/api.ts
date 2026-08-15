@@ -434,6 +434,78 @@ export interface FoodSessionReport {
   capture: FoodCaptureStatus
 }
 
+export type AppleShortcutRisk = 'low' | 'medium' | 'high'
+
+export interface AppleShortcutsStatus {
+  enabled: boolean
+  available: boolean
+  macos: boolean
+  bin: string | null
+  registry_count: number
+  registry_enabled: number
+  ingest_configured: boolean
+  workspace?: string
+  reason?: string
+}
+
+export interface AppleShortcutRegistryRow {
+  id: number
+  name: string
+  alias: string
+  description: string
+  allow_input: boolean
+  requires_confirmation: boolean
+  enabled: boolean
+  risk: AppleShortcutRisk
+  created_at: string
+  updated_at: string
+}
+
+export interface AppleShortcutInstalledRow {
+  name: string
+  registered: boolean
+  registry_id: number | null
+  enabled: boolean
+}
+
+export interface AppleShortcutRecipe {
+  id: string
+  title: string
+  platform: string
+  summary: string
+  requires: string[]
+  steps: string[]
+  triggers?: string[]
+  endpoint: { method: string; path: string }
+  auth: string
+}
+
+export interface AppleShortcutRunRow {
+  id: number
+  registry_id: number | null
+  shortcut_name: string
+  ok: boolean
+  input_preview: string | null
+  output_preview: string | null
+  error: string | null
+  plan_id: string | null
+  created_at: string
+}
+
+export interface AppleShortcutPlan {
+  ok: boolean
+  needs_confirmation: boolean
+  message: string
+  plan_id: string
+  shortcut_name: string
+  registry_id: number
+  has_input: boolean
+  input_preview: string | null
+  allow_input: boolean
+  risk: AppleShortcutRisk
+  expires_at: number
+}
+
 export interface VoiceDebugTrace {
   id: number
   created_at: string

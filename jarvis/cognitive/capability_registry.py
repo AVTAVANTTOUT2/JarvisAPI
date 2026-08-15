@@ -109,6 +109,15 @@ class CapabilityRegistry:
                 "Ouvrir une application macOS",
                 action_type="open_app",
             ),
+            "apple.shortcuts.run": Capability(
+                "apple.shortcuts.run",
+                bool(getattr(config, "APPLE_SHORTCUTS_ENABLED", False)),
+                "medium",
+                True,
+                "jarvis_tool",
+                "Lancer un raccourci Shortcuts.app allowlisté (confirmation)",
+                action_type="run_shortcut",
+            ),
             "tv.control": Capability(
                 "tv.control", True, "low", False, "jarvis_tool",
                 "Commander la TV Philips (on/off/volume/navigation)",

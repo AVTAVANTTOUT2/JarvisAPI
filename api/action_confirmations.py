@@ -126,7 +126,8 @@ def _revoke_action_plan(action: dict) -> bool:
     """Révoque le plan serveur adossé à une proposition abandonnée.
 
     Une proposition remplacée, annulée ou expirée ne doit laisser derrière elle
-    aucun plan consommable : ni commande shell, ni panier prêt à payer.
+    aucun plan consommable : ni commande shell, ni panier prêt à payer,
+    ni raccourci Apple prêt à s'exécuter.
     """
     revoked = False
     shell_plan_id = str(action.get("shell_plan_id") or "").strip()
@@ -141,6 +142,14 @@ def _revoke_action_plan(action: dict) -> bool:
             from integrations.uber_eats import revoke_order_plan
 
             revoked = revoke_order_plan(food_plan_id) or revoked
+
+    shortcut_plan_id = str(
+        action.get("shortcut_plan_id") or action.get("plan_id") or ""
+    ).strip()
+    if shortcut_plan_id and str(action.get("type") or "") == "run_shortcut":
+        from integrations.apple_shortcuts import revoke_plan
+
+        revoked = revoke_plan(shortcut_plan_id) or revoked
 
     return revoked
 

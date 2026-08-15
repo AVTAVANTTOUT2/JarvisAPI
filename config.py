@@ -444,6 +444,30 @@ LLM_SHELL_WORKSPACE = _get(
 LLM_SHELL_MAX_COMMANDS = int(_get("LLM_SHELL_MAX_COMMANDS", "8"))
 LLM_SHELL_MAX_TIMEOUT = int(_get("LLM_SHELL_MAX_TIMEOUT", "120"))
 LLM_SHELL_PLAN_TTL_SECONDS = int(_get("LLM_SHELL_PLAN_TTL_SECONDS", "600"))
+
+# ── Apple Shortcuts (Raccourcis.app) ─────────────────────────
+# Opt-in : le LLM ne peut lancer que des raccourcis présents dans le registre
+# SQLite, après confirmation humaine (plan opaque à usage unique).
+APPLE_SHORTCUTS_ENABLED = _get("APPLE_SHORTCUTS_ENABLED", "false").lower() == "true"
+APPLE_SHORTCUTS_BIN = _get("APPLE_SHORTCUTS_BIN", "")
+APPLE_SHORTCUTS_WORKSPACE = _get(
+    "APPLE_SHORTCUTS_WORKSPACE",
+    str(BASE_DIR / "data" / "apple_shortcuts_workspace"),
+)
+APPLE_SHORTCUTS_PLAN_TTL_SECONDS = int(
+    _get("APPLE_SHORTCUTS_PLAN_TTL_SECONDS", "600")
+)
+APPLE_SHORTCUTS_RUN_TIMEOUT = float(_get("APPLE_SHORTCUTS_RUN_TIMEOUT", "60"))
+# Jeton Bearer pour les recettes iOS/macOS qui appellent JARVIS
+# (POST /api/apple/shortcuts/ask|task) — distinct de LOCATION_API_TOKEN.
+APPLE_SHORTCUTS_INGEST_TOKEN = _get("APPLE_SHORTCUTS_INGEST_TOKEN", "")
+APPLE_SHORTCUTS_INGEST_RATE_LIMIT = int(
+    _get("APPLE_SHORTCUTS_INGEST_RATE_LIMIT", "30")
+)
+APPLE_SHORTCUTS_INGEST_RATE_WINDOW_SECONDS = float(
+    _get("APPLE_SHORTCUTS_INGEST_RATE_WINDOW_SECONDS", "60")
+)
+
 # TV contrôle ADB + Google Cast fallback
 TV_IP = _get("TV_IP", "")
 TV_ADB_PORT = _get("TV_ADB_PORT", "5555")

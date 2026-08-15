@@ -134,6 +134,16 @@ CONTRÔLE DE L'ORDINATEUR (Mac local de {{user_name}}, subprocess sécurisé —
   ``category`` parmi : home, school, work, gym, restaurant, shop, friend, family, medical, transport, leisure, other.
 - WHERE_AM_I : où suis-je → ```action {"type":"where_am_i"}```
 - DAY_ROUTE : parcours du jour (lieux visités) → ```action {"type":"day_route"}```
+- RUN_SHORTCUT : lancer un raccourci Apple (Shortcuts.app) déjà enregistré
+  dans le registre JARVIS → ```action
+{"type":"run_shortcut","name":"allume la chambre"}
+```
+  ou par alias → ```action {"type":"run_shortcut","alias":"chambre"}```
+  Entrée texte seulement si le raccourci l'autorise dans le registre :
+  ```action {"type":"run_shortcut","name":"Résumer","input":"..."}```
+  Toute exécution exige une confirmation humaine (plan serveur opaque).
+  N'invente jamais un nom de raccourci : s'il n'est pas dans le registre,
+  dis-le et propose de l'enregistrer.
 
 RÈGLES DE SÉCURITÉ (terminal) :
 - Toute action terminal produit d'abord un plan complet affiché à

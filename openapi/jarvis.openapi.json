@@ -87,6 +87,28 @@
         "title": "ApprovalDecisionRequest",
         "type": "object"
       },
+      "AskRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "source": {
+            "default": "shortcut",
+            "maxLength": 40,
+            "title": "Source",
+            "type": "string"
+          },
+          "text": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "title": "AskRequest",
+        "type": "object"
+      },
       "Body_post_api_conversations_by_conv_id_upload": {
         "properties": {
           "cloud_consent": {
@@ -3079,6 +3101,61 @@
         "title": "PlanDecisionRequest",
         "type": "object"
       },
+      "PrepareRunRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "alias": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alias"
+          },
+          "input": {
+            "anyOf": [
+              {
+                "maxLength": 8000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "registry_id": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Registry Id"
+          }
+        },
+        "title": "PrepareRunRequest",
+        "type": "object"
+      },
       "ProfileCreateRequest": {
         "additionalProperties": false,
         "properties": {
@@ -3380,6 +3457,139 @@
           }
         },
         "title": "ProgramSessionUpdate",
+        "type": "object"
+      },
+      "RegistryCreateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "alias": {
+            "default": "",
+            "maxLength": 120,
+            "title": "Alias",
+            "type": "string"
+          },
+          "allow_input": {
+            "default": false,
+            "title": "Allow Input",
+            "type": "boolean"
+          },
+          "description": {
+            "default": "",
+            "maxLength": 500,
+            "title": "Description",
+            "type": "string"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "requires_confirmation": {
+            "default": true,
+            "title": "Requires Confirmation",
+            "type": "boolean"
+          },
+          "risk": {
+            "default": "medium",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "title": "Risk",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "RegistryCreateRequest",
+        "type": "object"
+      },
+      "RegistryUpdateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "alias": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alias"
+          },
+          "allow_input": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allow Input"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          },
+          "requires_confirmation": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requires Confirmation"
+          },
+          "risk": {
+            "anyOf": [
+              {
+                "enum": [
+                  "low",
+                  "medium",
+                  "high"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Risk"
+          }
+        },
+        "title": "RegistryUpdateRequest",
         "type": "object"
       },
       "RemoteScreenRequest": {
@@ -3967,9 +4177,9 @@
             "anyOf": [
               {
                 "enum": [
-                  "high",
+                  "low",
                   "medium",
-                  "low"
+                  "high"
                 ],
                 "type": "string"
               },
@@ -4082,6 +4292,44 @@
           }
         },
         "title": "TaskPlanRequest",
+        "type": "object"
+      },
+      "TaskRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "category": {
+            "default": "shortcut",
+            "maxLength": 40,
+            "title": "Category",
+            "type": "string"
+          },
+          "priority": {
+            "default": "medium",
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ],
+            "title": "Priority",
+            "type": "string"
+          },
+          "source": {
+            "default": "shortcut",
+            "maxLength": 40,
+            "title": "Source",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "title": "TaskRequest",
         "type": "object"
       },
       "TaskStatusRequest": {
@@ -5683,6 +5931,796 @@
           "app-usage"
         ],
         "x-jarvis-authentication": "session"
+      }
+    },
+    "/api/apple/shortcuts/ask": {
+      "post": {
+        "description": "Opération JARVIS `POST /api/apple/shortcuts/ask`.",
+        "operationId": "post_api_apple_shortcuts_ask",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AskRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Post Api Apple Shortcuts Ask",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [],
+        "summary": "Api Apple Shortcuts Ask",
+        "tags": [
+          "apple-shortcuts"
+        ],
+        "x-jarvis-authentication": "public"
+      }
+    },
+    "/api/apple/shortcuts/installed": {
+      "get": {
+        "description": "Opération JARVIS `GET /api/apple/shortcuts/installed`.",
+        "operationId": "get_api_apple_shortcuts_installed",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "folder",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 120,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Folder"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Api Apple Shortcuts Installed",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "428": {
+            "$ref": "#/components/responses/SetupRequired"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "summary": "Api Apple Shortcuts Installed",
+        "tags": [
+          "apple-shortcuts"
+        ],
+        "x-jarvis-authentication": "session"
+      }
+    },
+    "/api/apple/shortcuts/prepare": {
+      "post": {
+        "description": "Opération JARVIS `POST /api/apple/shortcuts/prepare`.",
+        "operationId": "post_api_apple_shortcuts_prepare",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PrepareRunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Post Api Apple Shortcuts Prepare",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "428": {
+            "$ref": "#/components/responses/SetupRequired"
+          }
+        },
+        "security": [
+          {
+            "csrfToken": [],
+            "sessionCookie": []
+          }
+        ],
+        "summary": "Api Apple Shortcuts Prepare",
+        "tags": [
+          "apple-shortcuts"
+        ],
+        "x-jarvis-authentication": "session",
+        "x-jarvis-csrf-origin-required": true
+      }
+    },
+    "/api/apple/shortcuts/recipes": {
+      "get": {
+        "description": "Opération JARVIS `GET /api/apple/shortcuts/recipes`.",
+        "operationId": "get_api_apple_shortcuts_recipes",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Api Apple Shortcuts Recipes",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "428": {
+            "$ref": "#/components/responses/SetupRequired"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "summary": "Api Apple Shortcuts Recipes",
+        "tags": [
+          "apple-shortcuts"
+        ],
+        "x-jarvis-authentication": "session"
+      }
+    },
+    "/api/apple/shortcuts/recipes/{recipe_id}": {
+      "get": {
+        "description": "Opération JARVIS `GET /api/apple/shortcuts/recipes/{recipe_id}`.",
+        "operationId": "get_api_apple_shortcuts_recipes_by_recipe_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "recipe_id",
+            "required": true,
+            "schema": {
+              "maxLength": 80,
+              "minLength": 1,
+              "title": "Recipe Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Api Apple Shortcuts Recipes By Recipe Id",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "428": {
+            "$ref": "#/components/responses/SetupRequired"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "summary": "Api Apple Shortcuts Recipe",
+        "tags": [
+          "apple-shortcuts"
+        ],
+        "x-jarvis-authentication": "session"
+      }
+    },
+    "/api/apple/shortcuts/registry": {
+      "get": {
+        "description": "Opération JARVIS `GET /api/apple/shortcuts/registry`.",
+        "operationId": "get_api_apple_shortcuts_registry",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "enabled_only",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Enabled Only",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Api Apple Shortcuts Registry",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "428": {
+            "$ref": "#/components/responses/SetupRequired"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "summary": "Api Apple Shortcuts Registry",
+        "tags": [
+          "apple-shortcuts"
+        ],
+        "x-jarvis-authentication": "session"
+      },
+      "post": {
+        "description": "Opération JARVIS `POST /api/apple/shortcuts/registry`.",
+        "operationId": "post_api_apple_shortcuts_registry",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegistryCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Post Api Apple Shortcuts Registry",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "428": {
+            "$ref": "#/components/responses/SetupRequired"
+          }
+        },
+        "security": [
+          {
+            "csrfToken": [],
+            "sessionCookie": []
+          }
+        ],
+        "summary": "Api Apple Shortcuts Registry Create",
+        "tags": [
+          "apple-shortcuts"
+        ],
+        "x-jarvis-authentication": "session",
+        "x-jarvis-csrf-origin-required": true
+      }
+    },
+    "/api/apple/shortcuts/registry/{shortcut_id}": {
+      "delete": {
+        "description": "Opération JARVIS `DELETE /api/apple/shortcuts/registry/{shortcut_id}`.",
+        "operationId": "delete_api_apple_shortcuts_registry_by_shortcut_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "shortcut_id",
+            "required": true,
+            "schema": {
+              "minimum": 1,
+              "title": "Shortcut Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Delete Api Apple Shortcuts Registry By Shortcut Id",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "428": {
+            "$ref": "#/components/responses/SetupRequired"
+          }
+        },
+        "security": [
+          {
+            "csrfToken": [],
+            "sessionCookie": []
+          }
+        ],
+        "summary": "Api Apple Shortcuts Registry Delete",
+        "tags": [
+          "apple-shortcuts"
+        ],
+        "x-jarvis-authentication": "session",
+        "x-jarvis-csrf-origin-required": true
+      },
+      "patch": {
+        "description": "Opération JARVIS `PATCH /api/apple/shortcuts/registry/{shortcut_id}`.",
+        "operationId": "patch_api_apple_shortcuts_registry_by_shortcut_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "shortcut_id",
+            "required": true,
+            "schema": {
+              "minimum": 1,
+              "title": "Shortcut Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegistryUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Patch Api Apple Shortcuts Registry By Shortcut Id",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "428": {
+            "$ref": "#/components/responses/SetupRequired"
+          }
+        },
+        "security": [
+          {
+            "csrfToken": [],
+            "sessionCookie": []
+          }
+        ],
+        "summary": "Api Apple Shortcuts Registry Update",
+        "tags": [
+          "apple-shortcuts"
+        ],
+        "x-jarvis-authentication": "session",
+        "x-jarvis-csrf-origin-required": true
+      }
+    },
+    "/api/apple/shortcuts/runs": {
+      "get": {
+        "description": "Opération JARVIS `GET /api/apple/shortcuts/runs`.",
+        "operationId": "get_api_apple_shortcuts_runs",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Api Apple Shortcuts Runs",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "428": {
+            "$ref": "#/components/responses/SetupRequired"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "summary": "Api Apple Shortcuts Runs",
+        "tags": [
+          "apple-shortcuts"
+        ],
+        "x-jarvis-authentication": "session"
+      }
+    },
+    "/api/apple/shortcuts/status": {
+      "get": {
+        "description": "Opération JARVIS `GET /api/apple/shortcuts/status`.",
+        "operationId": "get_api_apple_shortcuts_status",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Api Apple Shortcuts Status",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "428": {
+            "$ref": "#/components/responses/SetupRequired"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "summary": "Api Apple Shortcuts Status",
+        "tags": [
+          "apple-shortcuts"
+        ],
+        "x-jarvis-authentication": "session"
+      }
+    },
+    "/api/apple/shortcuts/task": {
+      "post": {
+        "description": "Opération JARVIS `POST /api/apple/shortcuts/task`.",
+        "operationId": "post_api_apple_shortcuts_task",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Post Api Apple Shortcuts Task",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [],
+        "summary": "Api Apple Shortcuts Task",
+        "tags": [
+          "apple-shortcuts"
+        ],
+        "x-jarvis-authentication": "public"
+      }
+    },
+    "/api/apple/shortcuts/{plan_id}": {
+      "delete": {
+        "description": "Opération JARVIS `DELETE /api/apple/shortcuts/{plan_id}`.",
+        "operationId": "delete_api_apple_shortcuts_by_plan_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "plan_id",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 8,
+              "title": "Plan Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Delete Api Apple Shortcuts By Plan Id",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "428": {
+            "$ref": "#/components/responses/SetupRequired"
+          }
+        },
+        "security": [
+          {
+            "csrfToken": [],
+            "sessionCookie": []
+          }
+        ],
+        "summary": "Api Apple Shortcuts Cancel",
+        "tags": [
+          "apple-shortcuts"
+        ],
+        "x-jarvis-authentication": "session",
+        "x-jarvis-csrf-origin-required": true
+      }
+    },
+    "/api/apple/shortcuts/{plan_id}/confirm": {
+      "post": {
+        "description": "Opération JARVIS `POST /api/apple/shortcuts/{plan_id}/confirm`.",
+        "operationId": "post_api_apple_shortcuts_by_plan_id_confirm",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "plan_id",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 8,
+              "title": "Plan Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Post Api Apple Shortcuts By Plan Id Confirm",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "428": {
+            "$ref": "#/components/responses/SetupRequired"
+          }
+        },
+        "security": [
+          {
+            "csrfToken": [],
+            "sessionCookie": []
+          }
+        ],
+        "summary": "Api Apple Shortcuts Confirm",
+        "tags": [
+          "apple-shortcuts"
+        ],
+        "x-jarvis-authentication": "session",
+        "x-jarvis-csrf-origin-required": true
       }
     },
     "/api/audio-daemon/continuous": {
@@ -20288,6 +21326,10 @@
     {
       "description": "Opérations du domaine JARVIS « app-usage ».",
       "name": "app-usage"
+    },
+    {
+      "description": "Opérations du domaine JARVIS « apple-shortcuts ».",
+      "name": "apple-shortcuts"
     },
     {
       "description": "Opérations du domaine JARVIS « audio-daemon ».",

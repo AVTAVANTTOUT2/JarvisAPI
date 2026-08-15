@@ -1004,6 +1004,8 @@ PUBLIC_BY_DESIGN: frozenset[tuple[str, str]] = frozenset({
     ("POST", "/api/auth/verify"),
     ("POST", "/api/location"),
     ("POST", "/api/location/batch"),
+    ("POST", "/api/apple/shortcuts/ask"),
+    ("POST", "/api/apple/shortcuts/task"),
     ("POST", "/api/devices/register"),
     ("POST", "/api/mobile/pairing/complete"),
     ("POST", "/api/mobile/session"),

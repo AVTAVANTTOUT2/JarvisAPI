@@ -307,6 +307,12 @@ def _bypasses_session_gate(method: str, path: str) -> bool:
         return True
     if method == "POST" and path in ("/api/location", "/api/location/batch"):
         return True
+    # Ingest Raccourcis iOS/macOS : jeton dédié, pas de cookie de session.
+    if method == "POST" and path in {
+        "/api/apple/shortcuts/ask",
+        "/api/apple/shortcuts/task",
+    }:
+        return True
     if method == "POST" and path == "/api/devices/register":
         return True
     if method == "POST" and path in {
