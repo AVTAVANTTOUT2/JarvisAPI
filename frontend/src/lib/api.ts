@@ -516,16 +516,16 @@ export const api = {
 
   getAppleShortcutsStatus: () =>
     request<AppleShortcutsStatus>('/api/apple/shortcuts/status'),
-  getAppleShortcutsInstalled: (folder?: string) =>
-    request<{
+  getAppleShortcutsInstalled: (folder?: string) => {
+    const sp = new URLSearchParams()
+    if (folder) sp.set('folder', folder)
+    const q = sp.toString()
+    return request<{
       shortcuts: AppleShortcutInstalledRow[]
       folders: string[]
       count: number
-    }>(
-      `/api/apple/shortcuts/installed${
-        folder ? `?folder=${encodeURIComponent(folder)}` : ''
-      }`,
-    ),
+    }>('/api/apple/shortcuts/installed' + (q ? `?${q}` : ''))
+  },
   getAppleShortcutsRegistry: (enabledOnly = false) =>
     request<{ shortcuts: AppleShortcutRegistryRow[]; count: number }>(
       `/api/apple/shortcuts/registry${enabledOnly ? '?enabled_only=true' : ''}`,
