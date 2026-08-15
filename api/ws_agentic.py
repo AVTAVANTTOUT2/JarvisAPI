@@ -95,6 +95,15 @@ def agentic_idempotency_key(
     return f"ws:{digest}"
 
 
+def _awaiting_plan_approval(agentic: dict[str, Any]) -> bool:
+    """Vrai quand le pipeline a créé une tâche planifiée sans run agentique."""
+
+    action_result = agentic.get("action_result")
+    if isinstance(action_result, dict) and action_result.get("awaiting_plan_approval"):
+        return True
+    return "task_control" in agentic and "agentic_run" not in agentic
+
+
 async def maybe_send_agentic_run(
     ws: WebSocket,
     request: str,
@@ -123,25 +132,41 @@ async def maybe_send_agentic_run(
     )
     if agentic is None:
         return None
+
+    emotion = str(agentic.get("emotion") or "neutral")
+    response_payload: dict[str, Any] = {
+        "type": "response",
+        "agent": str(agentic.get("agent") or "agentic"),
+        "content": agentic["text"],
+        "emotion": emotion,
+        "model": str(agentic.get("model") or "runtime"),
+        "tokens_in": 0,
+        "tokens_out": 0,
+        "cost": 0.0,
+    }
+    if _awaiting_plan_approval(agentic):
+        task_control = agentic.get("task_control")
+        if isinstance(task_control, dict):
+            response_payload["task_control"] = task_control
+        action = agentic.get("action")
+        if isinstance(action, dict):
+            response_payload["action"] = action
+        action_result = agentic.get("action_result")
+        if isinstance(action_result, dict):
+            response_payload["action_result"] = action_result
+        await ws.send_json(response_payload)
+        if send_tts:
+            await _send_tts_streaming(ws, agentic["text"], emotion)
+        return {"emotion": emotion, "response": agentic["text"]}
+
     run = agentic["agentic_run"]
     await ws.send_json({"type": "agentic_run", **run})
-    await ws.send_json(
-        {
-            "type": "response",
-            "agent": "agentic",
-            "content": agentic["text"],
-            "emotion": "neutral",
-            "model": "runtime",
-            "tokens_in": 0,
-            "tokens_out": 0,
-            "cost": 0.0,
-            "run_id": run["run_id"],
-        }
-    )
+    response_payload["run_id"] = run["run_id"]
+    await ws.send_json(response_payload)
     if send_tts:
-        await _send_tts_streaming(ws, agentic["text"], "neutral")
+        await _send_tts_streaming(ws, agentic["text"], emotion)
         _schedule_terminal_voice_summary(ws, run["run_id"])
-    return {"emotion": "neutral", "response": agentic["text"]}
+    return {"emotion": emotion, "response": agentic["text"]}
 
 
 async def maybe_send_legacy_delegation(

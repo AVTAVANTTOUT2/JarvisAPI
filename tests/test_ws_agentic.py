@@ -35,6 +35,58 @@ def test_client_context_parser_keeps_authenticated_device_and_bounds_metadata() 
 
 
 @pytest.mark.asyncio
+async def test_websocket_agentic_handles_plan_approval_without_agentic_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """La porte ADR-034 ne doit pas faire planter le WebSocket sur KeyError."""
+
+    async def _planned(_request, _conversation_id, **_kwargs):
+        return {
+            "text": "Un plan est prêt. Ouvrez la tâche pour l'accepter.",
+            "emotion": "neutral",
+            "action": {"type": "task_control_task", "task_id": "task-ws-plan"},
+            "action_result": {
+                "ok": True,
+                "accepted": True,
+                "awaiting_plan_approval": True,
+                "task_id": "task-ws-plan",
+                "status": "awaiting_plan_approval",
+            },
+            "task_control": {
+                "task_id": "task-ws-plan",
+                "status": "awaiting_plan_approval",
+            },
+            "agent": "agentic",
+            "model": "runtime",
+            "cost": 0.0,
+        }
+
+    monkeypatch.setattr(ws_agentic, "maybe_start_agentic_run", _planned)
+    ws = _WebSocket()
+
+    result = await ws_agentic.maybe_send_agentic_run(
+        ws,
+        "/agent prépare le rapport",
+        42,
+        voice_mode=False,
+        send_tts=False,
+        idempotency_key="ws:plan-gate:1",
+    )
+
+    assert result == {
+        "emotion": "neutral",
+        "response": "Un plan est prêt. Ouvrez la tâche pour l'accepter.",
+    }
+    assert len(ws.messages) == 1
+    payload = ws.messages[0]
+    assert payload["type"] == "response"
+    assert payload["action_result"]["awaiting_plan_approval"] is True
+    assert payload["task_control"]["task_id"] == "task-ws-plan"
+    assert "run_id" not in payload
+    assert not any(message.get("type") == "agentic_run" for message in ws.messages)
+
+
+@pytest.mark.asyncio
 async def test_websocket_agentic_propagates_client_context(monkeypatch) -> None:
     captured: dict[str, object] = {}
 
