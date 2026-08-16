@@ -260,8 +260,10 @@ def test_empty_response_is_logged_visibly_with_its_cause():
     # endroit qui voit la réponse brute du modèle et ses jetons. L'adaptateur
     # vocal, lui, ne reçoit qu'un texte déjà nettoyé — il ne peut plus
     # distinguer « rien du tout » de « seulement le tag [emotion] ».
+    # Ancre stable : le budget épuisé est toujours assigné avant les autres
+    # causes (ligne unique ou bloc parenthésé pour aucun_contenu / tag).
     source = (PROJECT_ROOT / "api" / "chat_processing.py").read_text(encoding="utf-8")
-    block = source[source.index('cause = "aucun_contenu"') :]
+    block = source[source.index('cause = "budget_epuise_avant_reponse"') :]
     block = block[: block.index("if persist_assistant")]
 
     assert "logger.warning" in block
@@ -281,6 +283,7 @@ def test_mail_stops_calling_after_repeated_timeouts(monkeypatch):
     from integrations import mail as mail_mod
 
     calls = 0
+    threshold = mail_mod._TIMEOUT_BREAKER_THRESHOLD
 
     class _Result:
         ok = False
@@ -303,13 +306,24 @@ def test_mail_stops_calling_after_repeated_timeouts(monkeypatch):
     monkeypatch.setattr(mail_mod, "run_applescript", fake_run)
     client = mail_mod.AppleMailClient()
 
+    # Premier appel : au plus une reprise (2 tentatives). Sous le seuil H24
+    # (3 timeouts), le disjoncteur reste fermé.
     assert client._run_applescript("tell app \"Mail\" to return 1") is None
     first_round = calls
     assert first_round <= 2, "au plus une reprise par appel"
+    assert client._consecutive_timeouts < threshold
+    assert client._breaker_open_until <= time.time()
 
-    # Le disjoncteur est ouvert : plus aucun sous-processus n'est lancé.
+    # Appels suivants jusqu'à ouverture du disjoncteur, puis silence total.
+    while client._breaker_open_until <= time.time():
+        before = calls
+        assert client._run_applescript("tell app \"Mail\" to return 1") is None
+        assert calls > before, "le disjoncteur aurait dû s'ouvrir avant un appel sans effet"
+        assert calls - before <= 2, "au plus une reprise par appel"
+    opened_at = calls
+
     assert client._run_applescript("tell app \"Mail\" to return 1") is None
-    assert calls == first_round, "un appel a été émis alors que le disjoncteur est ouvert"
+    assert calls == opened_at, "un appel a été émis alors que le disjoncteur est ouvert"
     assert client._breaker_open_until > time.time()
 
 
