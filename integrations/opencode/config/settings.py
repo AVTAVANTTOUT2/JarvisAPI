@@ -374,6 +374,15 @@ def provision_runtime_config(
     layout = layout or RuntimeLayout.default()
     layout.ensure()
     config = _load_object(OPENCODE_CONFIG_TEMPLATE)
-    config.update(normalize_runtime_config_overlay(runtime_config_overlay))
+    overlay = normalize_runtime_config_overlay(runtime_config_overlay)
+    # Fusion par serveur : l'overlay runtime (broker JARVIS) ne doit pas
+    # écraser d'autres MCP déjà déclarés dans le template (ex. jarvis-e2e).
+    if "mcp" in overlay:
+        existing = config.get("mcp")
+        merged: dict[str, Any] = (
+            dict(existing) if isinstance(existing, Mapping) else {}
+        )
+        merged.update(overlay["mcp"])
+        config["mcp"] = merged
     _atomic_write_json(layout.opencode_config_path, config)
     return layout.opencode_config_path
