@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -11,6 +12,51 @@ import config
 logger = logging.getLogger(__name__)
 
 SQLITE_UTC_FORMAT = "%Y-%m-%d %H:%M:%S"
+_FRENCH_MONTHS = {
+    "janvier": 1,
+    "février": 2,
+    "fevrier": 2,
+    "mars": 3,
+    "avril": 4,
+    "mai": 5,
+    "juin": 6,
+    "juillet": 7,
+    "août": 8,
+    "aout": 8,
+    "septembre": 9,
+    "octobre": 10,
+    "novembre": 11,
+    "décembre": 12,
+    "decembre": 12,
+}
+_FRENCH_MAIL_DATE_RE = re.compile(
+    r"^(?:(?:lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)\s+)?"
+    r"(\d{1,2})\s+([a-zéû]+)\s+(\d{4})\s+(?:à\s+)?"
+    r"(\d{1,2}):(\d{2}):(\d{2})$",
+    re.IGNORECASE,
+)
+
+
+def _parse_datetime_text(value: str) -> datetime:
+    raw = value.strip()
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        match = _FRENCH_MAIL_DATE_RE.fullmatch(raw.casefold())
+        if match is None:
+            raise
+    day, month_name, year, hour, minute, second = match.groups()
+    month = _FRENCH_MONTHS.get(month_name)
+    if month is None:
+        raise ValueError("unsupported_localized_month")
+    return datetime(
+        int(year),
+        month,
+        int(day),
+        int(hour),
+        int(minute),
+        int(second),
+    )
 
 
 def configured_timezone() -> ZoneInfo:
@@ -44,7 +90,7 @@ def utc_datetime(value: datetime | str | None = None) -> datetime:
     if value is None:
         parsed = datetime.now(timezone.utc)
     elif isinstance(value, str):
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = _parse_datetime_text(value)
     else:
         parsed = value
     if parsed.tzinfo is None:

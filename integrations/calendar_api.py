@@ -420,7 +420,7 @@ end tell
 tell application id "{CALENDAR_APP_ID}"
     set output to ""
     repeat with cal in calendars
-        set evts to (every event of cal whose start date >= rangeStart and start date < rangeEnd)
+        set evts to (every event of cal whose start date < rangeEnd and end date > rangeStart)
         repeat with e in evts
             set output to output & "---EVENT---" & linefeed
             try

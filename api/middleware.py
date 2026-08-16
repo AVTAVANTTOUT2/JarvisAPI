@@ -66,7 +66,13 @@ _PUBLIC_AUTH_ROUTES = frozenset(
 # minimum — `{"status": "ok"}` et rien d'autre. Le diagnostic détaillé
 # (`/api/health/detail`) reste derrière le verrou de session ; la comparaison
 # exacte du chemin garantit que ce préfixe n'ouvre rien de plus.
-_PUBLIC_HEALTH_ROUTES = frozenset({("GET", "/api/health/live")})
+_PUBLIC_HEALTH_ROUTES = frozenset(
+    {
+        ("GET", "/api/health/live"),
+        ("GET", "/health/live"),
+        ("GET", "/health/ready"),
+    }
+)
 
 # Ces routes contournent uniquement le cookie navigateur. Le routeur visual
 # exige ensuite un jeton de service `visual:read` et une source loopback ; ce
@@ -375,7 +381,9 @@ async def _dispatch_with_session_gate(request: Request, call_next) -> Response:
             # L'origine est obligatoire et doit correspondre exactement
             # (schéma + hôte + port) ou figurer dans la liste dev explicite.
             csrf_token = request.headers.get("x-csrf-token")
-            if not auth.verify_csrf_token(token, csrf_token) or not _csrf_origin_allowed(request):
+            if not auth.verify_csrf_token(
+                token, csrf_token
+            ) or not _csrf_origin_allowed(request):
                 return JSONResponse({"error": "csrf_check_failed"}, status_code=403)
 
     return await call_next(request)
@@ -395,14 +403,13 @@ _ROUTE_OVERRIDABLE_SECURITY_HEADERS = frozenset({"Content-Security-Policy"})
 def _apply_security_headers(response: Response) -> Response:
     """Ajoute la politique HTTP commune, y compris aux erreurs anticipées."""
     for key, value in _SECURITY_HEADERS.items():
-        if (
-            key in _ROUTE_OVERRIDABLE_SECURITY_HEADERS
-            and key in response.headers
-        ):
+        if key in _ROUTE_OVERRIDABLE_SECURITY_HEADERS and key in response.headers:
             continue
         response.headers[key] = value
     if config.WEB_HTTPS or config.WEB_HTTPS_BEHIND_PROXY:
-        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        response.headers["Strict-Transport-Security"] = (
+            "max-age=31536000; includeSubDomains"
+        )
     return response
 
 
@@ -442,6 +449,7 @@ async def security_middleware(request: Request, call_next):
     try:
         response = _content_length_error(request)
         if response is None:
+
             async def versioned_call_next(inner_request: Request):
                 return await sync_versioning_middleware(inner_request, call_next)
 

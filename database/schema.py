@@ -7,6 +7,7 @@ SCHEMA = """
 
 CREATE TABLE IF NOT EXISTS episodes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    recording_id INTEGER REFERENCES recordings(id) ON DELETE SET NULL,
     agent TEXT NOT NULL,
     content TEXT NOT NULL,
     summary TEXT,
@@ -80,6 +81,24 @@ CREATE TABLE IF NOT EXISTS people (
     ai_description TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Identités de contact normalisées, communes aux connecteurs locaux. Une
+-- identité ne contient aucun secret d'accès : seulement une adresse/handle
+-- normalisé et, lorsqu'il est connu, son rattachement à une personne.
+CREATE TABLE IF NOT EXISTS contact_identities (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    identity_type TEXT NOT NULL CHECK(identity_type IN ('email', 'phone', 'imessage', 'handle')),
+    normalized_value TEXT NOT NULL,
+    display_name TEXT NOT NULL DEFAULT '',
+    person_id INTEGER REFERENCES people(id) ON DELETE SET NULL,
+    source TEXT NOT NULL DEFAULT '',
+    confidence REAL NOT NULL DEFAULT 1.0 CHECK(confidence >= 0 AND confidence <= 1),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(identity_type, normalized_value)
+);
+CREATE INDEX IF NOT EXISTS idx_contact_identities_person
+    ON contact_identities(person_id, identity_type);
 
 CREATE TABLE IF NOT EXISTS people_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -167,7 +186,20 @@ CREATE TABLE IF NOT EXISTS email_summaries (
     summary TEXT,
     action_needed BOOLEAN DEFAULT 0,
     priority TEXT,
-    processed_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    processed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    body TEXT DEFAULT '',
+    received_at TEXT DEFAULT '',
+    received_at_utc TEXT,
+    source_updated_at_utc TEXT,
+    account_id TEXT,
+    mailbox_id TEXT,
+    category TEXT DEFAULT 'info',
+    is_read INTEGER DEFAULT 0,
+    content_complete INTEGER NOT NULL DEFAULT 0 CHECK(content_complete IN (0, 1)),
+    ingestion_completeness TEXT NOT NULL DEFAULT 'metadata'
+        CHECK(ingestion_completeness IN ('metadata', 'partial', 'complete')),
+    sender_identity_id INTEGER REFERENCES contact_identities(id) ON DELETE SET NULL,
+    created_at TEXT DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS daily_briefings (
@@ -492,6 +524,7 @@ CREATE INDEX IF NOT EXISTS idx_lifecontext_active ON life_context(active);
 
 CREATE TABLE IF NOT EXISTS recordings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    recording_session_id TEXT REFERENCES recording_sessions(id) ON DELETE SET NULL,
     conversation_id INTEGER REFERENCES conversations(id),
     label TEXT,
     title TEXT,
@@ -745,6 +778,8 @@ CREATE TABLE IF NOT EXISTS imessage_handles (
     country TEXT,
     service TEXT DEFAULT 'iMessage',
     uncanonicalized_id TEXT,
+    display_name TEXT NOT NULL DEFAULT '',
+    contact_identity_id INTEGER REFERENCES contact_identities(id) ON DELETE SET NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_imessage_handles_apple ON imessage_handles(apple_handle_id);
@@ -790,6 +825,11 @@ CREATE TABLE IF NOT EXISTS imessage_messages (
     associated_message_guid TEXT,
     associated_message_type INTEGER DEFAULT 0,
     content_hash TEXT UNIQUE,
+    occurred_at_utc TEXT,
+    source_updated_at_utc TEXT,
+    content_complete INTEGER NOT NULL DEFAULT 1 CHECK(content_complete IN (0, 1)),
+    ingestion_completeness TEXT NOT NULL DEFAULT 'complete'
+        CHECK(ingestion_completeness IN ('metadata', 'partial', 'complete')),
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_imessage_msg_rowid ON imessage_messages(apple_rowid);
@@ -947,6 +987,103 @@ CREATE TABLE IF NOT EXISTS calendar_events (
 );
 CREATE INDEX IF NOT EXISTS idx_calendar_events_start
     ON calendar_events(start_at, end_at);
+
+-- Liaison explicite entre un profil et une source locale. Le profil reste
+-- implicite dans le code (ContextVar + base dédiée) ; la colonne sert de
+-- garde-fou lorsque le worker parcourt plusieurs bases.
+CREATE TABLE IF NOT EXISTS connector_bindings (
+    source TEXT PRIMARY KEY,
+    profile_id TEXT NOT NULL,
+    connector_kind TEXT NOT NULL,
+    account_ref TEXT NOT NULL DEFAULT 'local',
+    device_id_hash TEXT NOT NULL DEFAULT '',
+    external_account_hash TEXT NOT NULL DEFAULT '',
+    permission_state TEXT NOT NULL DEFAULT 'unknown'
+        CHECK(permission_state IN ('unknown', 'granted', 'denied')),
+    consent_source TEXT NOT NULL DEFAULT 'explicit',
+    enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0, 1)),
+    sync_interval_seconds INTEGER NOT NULL DEFAULT 300 CHECK(sync_interval_seconds >= 15),
+    settings_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_connector_bindings_enabled
+    ON connector_bindings(enabled, source);
+
+CREATE TABLE IF NOT EXISTS ingestion_source_state (
+    source TEXT PRIMARY KEY,
+    profile_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'idle'
+        CHECK(status IN ('idle', 'running', 'degraded', 'error', 'disabled')),
+    cursor_json TEXT NOT NULL DEFAULT '{}',
+    coverage_start_utc TEXT,
+    coverage_end_utc TEXT,
+    completeness TEXT NOT NULL DEFAULT 'unknown'
+        CHECK(completeness IN ('unknown', 'partial', 'complete')),
+    last_attempt_at TEXT,
+    last_success_at TEXT,
+    last_item_at TEXT,
+    item_count INTEGER NOT NULL DEFAULT 0 CHECK(item_count >= 0),
+    heartbeat_at TEXT,
+    error_code TEXT,
+    error_message TEXT,
+    consecutive_failures INTEGER NOT NULL DEFAULT 0 CHECK(consecutive_failures >= 0),
+    generation INTEGER NOT NULL DEFAULT 0 CHECK(generation >= 0),
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_ingestion_source_health
+    ON ingestion_source_state(status, last_success_at);
+
+CREATE TABLE IF NOT EXISTS ingestion_jobs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_id TEXT NOT NULL,
+    source TEXT NOT NULL,
+    job_kind TEXT NOT NULL DEFAULT 'sync',
+    dedupe_key TEXT NOT NULL,
+    payload_json TEXT NOT NULL DEFAULT '{}',
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK(status IN ('pending', 'running', 'retry', 'done', 'dead', 'cancelled')),
+    attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts >= 0),
+    max_attempts INTEGER NOT NULL DEFAULT 5 CHECK(max_attempts >= 1),
+    available_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    lease_token TEXT,
+    lease_owner TEXT,
+    lease_expires_at TEXT,
+    last_error_code TEXT,
+    last_error_message TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    completed_at TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ingestion_jobs_active_dedupe
+    ON ingestion_jobs(source, job_kind, dedupe_key)
+    WHERE status IN ('pending', 'running', 'retry');
+CREATE INDEX IF NOT EXISTS idx_ingestion_jobs_claim
+    ON ingestion_jobs(status, available_at, lease_expires_at, id);
+
+-- L'audio est branché par le pipeline dédié. Cette table rend la capture
+-- durable avant STT sans que le worker d'ingestion ait accès au contenu brut.
+CREATE TABLE IF NOT EXISTS recording_sessions (
+    id TEXT PRIMARY KEY,
+    profile_id TEXT NOT NULL,
+    conversation_id INTEGER REFERENCES conversations(id) ON DELETE SET NULL,
+    label TEXT NOT NULL DEFAULT '',
+    state TEXT NOT NULL DEFAULT 'capturing'
+        CHECK(state IN ('capturing', 'queued', 'ready', 'processing', 'retry', 'partial', 'completed', 'failed', 'expired')),
+    spool_path TEXT NOT NULL,
+    size_bytes INTEGER NOT NULL DEFAULT 0 CHECK(size_bytes >= 0),
+    checksum TEXT NOT NULL DEFAULT '',
+    attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts >= 0),
+    error TEXT,
+    transcript TEXT,
+    summary TEXT,
+    desktop_notification_claimed_at TEXT,
+    retention_until TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_recording_sessions_due
+    ON recording_sessions(state, retention_until, updated_at);
 
 -- Projection locale multi-source utilisee par jarvis.retrieval. Les tables
 -- metier restent les sources de verite ; cet index ne contient que des

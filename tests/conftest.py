@@ -31,8 +31,12 @@ def _no_background_db_threads(monkeypatch: pytest.MonkeyPatch):
     `test_push_subscriptions.py`) surchargent cette fixture par une version
     vide du même nom.
     """
-    monkeypatch.setattr("database._dispatch_semantic_indexing", lambda *a, **k: None, raising=False)
-    monkeypatch.setattr("database._dispatch_push_notification", lambda *a, **k: None, raising=False)
+    monkeypatch.setattr(
+        "database._dispatch_semantic_indexing", lambda *a, **k: None, raising=False
+    )
+    monkeypatch.setattr(
+        "database._dispatch_push_notification", lambda *a, **k: None, raising=False
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -94,7 +98,7 @@ def _isolate_app_lifespan(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(scheduler_module, "shutdown_scheduler", lambda: None)
     monkeypatch.setattr(email_watcher, "start", _noop_start)
     monkeypatch.setattr(email_watcher, "stop", lambda: None)
-    monkeypatch.setattr("api.lifespan._calendar_subprocess_run", lambda *_a, **_k: None)
+
     # Le message d'accueil consulte Mail/Calendrier et appelle le LLM. Ces I/O
     # ne font pas partie du contrat des tests HTTP/WebSocket et peuvent laisser
     # l'exécuteur asyncio bloqué sur AppleScript à la fermeture du TestClient.

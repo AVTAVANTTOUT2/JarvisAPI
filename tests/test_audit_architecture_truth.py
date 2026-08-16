@@ -89,7 +89,7 @@ def fake_repo(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     (db / "core.py").write_text(
-        "from .schema import SCHEMA\n" "def init_db():\n" "    run_migrations(conn)\n",
+        "from .schema import SCHEMA\ndef init_db():\n    run_migrations(conn)\n",
         encoding="utf-8",
     )
 
@@ -263,9 +263,7 @@ def test_api_ownership_policy_is_exact_and_rejects_client_masking(
     assert by_path["/api/operator"]["classification"] == (
         "owned_non_frontend_and_tested"
     )
-    assert by_path["/ws"]["classification"] == (
-        "owned_non_frontend_without_path_test"
-    )
+    assert by_path["/ws"]["classification"] == ("owned_non_frontend_without_path_test")
 
     policy["rules"].append(
         {
@@ -280,8 +278,7 @@ def test_api_ownership_policy_is_exact_and_rejects_client_masking(
     policy_path.write_text(json.dumps(policy), encoding="utf-8")
     findings = audit.analyze_api_surface(fake_repo)["ownership_policy"]["findings"]
     assert any(
-        finding["kind"] == "ownership_rule_masks_client_route"
-        for finding in findings
+        finding["kind"] == "ownership_rule_masks_client_route" for finding in findings
     )
 
 
@@ -361,12 +358,12 @@ def test_check_mode_rejects_a_stale_report(fake_repo: Path, tmp_path: Path) -> N
 def test_real_repo_smoke_counts_stable() -> None:
     """Garde-fou : le dépôt réel produit les comptages attendus (code only)."""
     tables = audit.analyze_tables(ROOT)
-    assert tables["counts"]["schema_sql_applicatives"] == 120
+    assert tables["counts"]["schema_sql_applicatives"] == 125
     # Le versionnement, l'historique des métriques et le registre de profils
     # sont tous inclus dans ces comptages cumulés.
-    assert tables["counts"]["schema_py"] == 76
-    assert tables["counts"]["persistantes_post_init"] == 113
-    assert tables["counts"]["physiques_max_default_fts_on"] == 118
+    assert tables["counts"]["schema_py"] == 81
+    assert tables["counts"]["persistantes_post_init"] == 118
+    assert tables["counts"]["physiques_max_default_fts_on"] == 123
     assert tables["init_pipeline"]["does_not_execute_schema_sql"] is True
 
     resolution = audit.analyze_frontend_resolution(ROOT)
@@ -377,29 +374,29 @@ def test_real_repo_smoke_counts_stable() -> None:
 
     api_surface = audit.analyze_api_surface(ROOT)
     assert api_surface["counts"] == {
-        "operations": 315,
-        "paths": 280,
+        "operations": 316,
+        "paths": 281,
         "consumer_and_tested": 144,
         "consumer_without_path_test": 68,
-        "owned_non_frontend_and_tested": 50,
+        "owned_non_frontend_and_tested": 51,
         "owned_non_frontend_without_path_test": 53,
     }
     assert api_surface["structure"] == {
-        "http_operations": 313,
+        "http_operations": 314,
         "websocket_operations": 2,
-        "openapi_paths": 278,
+        "openapi_paths": 279,
         "domain_router_modules": 22,
         "mounted_routers": 23,
-        "main_lines": 227,
+        "main_lines": 269,
     }
-    assert api_surface["ownership_policy"]["rules"] == 38
+    assert api_surface["ownership_policy"]["rules"] == 39
     assert api_surface["ownership_policy"]["findings"] == []
 
 
 def test_generated_runtime_schema_replays_a_fresh_database() -> None:
     schema = audit.render_runtime_schema(ROOT)
     assert schema.startswith("-- GENERATED FILE — DO NOT EDIT.")
-    assert len(audit._extract_create_tables(schema)) == 120
+    assert len(audit._extract_create_tables(schema)) == 125
 
     conn = sqlite3.connect(":memory:")
     try:
@@ -410,7 +407,7 @@ def test_generated_runtime_schema_replays_a_fresh_database() -> None:
             """).fetchone()[0]
     finally:
         conn.close()
-    assert table_count == 128
+    assert table_count == 133
 
 
 def test_versioned_architecture_artifacts_match_runtime() -> None:

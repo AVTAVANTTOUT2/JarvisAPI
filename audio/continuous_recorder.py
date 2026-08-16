@@ -12,7 +12,19 @@ from pathlib import Path
 
 import config
 import llm
-from database import add_fact, create_task, save_episode, save_recording, upsert_person
+from audio.recording_spool import (
+    RecordingSpool,
+    purge_expired_recordings,
+    reconcile_recording_sessions,
+)
+from database import (
+    claim_recording_desktop_notification,
+    get_recording_session,
+    save_episode,
+    save_recording,
+    update_recording_session,
+)
+from jarvis.ingestion.models import IngestionJob, IngestionRunResult
 from jarvis.security.llm_data_boundary import (
     UNTRUSTED_DATA_SYSTEM_RULE,
     redact_for_external_llm,
@@ -121,7 +133,7 @@ ProgressFn = Callable[[str, dict[str, object]], Awaitable[None]] | None
 class ContinuousRecording:
     """Session d'écoute continue : chunks audio → traitement à l'arrêt."""
 
-    def __init__(self, conversation_id: int) -> None:
+    def __init__(self, conversation_id: int | None) -> None:
         self.conversation_id = conversation_id
         self.audio_chunks: list[bytes] = []
         self.started_at = datetime.now()
@@ -131,11 +143,31 @@ class ContinuousRecording:
         self.label = ""
         self.transcription = ""
         self.synthesis: dict | None = None
+        self.spool: RecordingSpool | None = None
         self._last_log_wall = time.monotonic()
+
+    def start(self, label: str = "Enregistrement") -> str:
+        """Persiste la session avant d'autoriser le premier chunk audio."""
+
+        if self.spool is not None:
+            raise RuntimeError("recording_already_started")
+        self.label = str(label or "Enregistrement").strip()[:200]
+        self.spool = RecordingSpool.create(
+            conversation_id=self.conversation_id,
+            label=self.label,
+        )
+        self.is_active = True
+        return self.spool.session_id
 
     def add_chunk(self, audio_bytes: bytes) -> None:
         if not self.is_active:
             return
+        if self.spool is None:
+            self.spool = RecordingSpool.create(
+                conversation_id=self.conversation_id,
+                label=self.label or "Enregistrement",
+            )
+        self.spool.append(audio_bytes)
         self.audio_chunks.append(audio_bytes)
         self.total_bytes += len(audio_bytes)
         now = time.monotonic()
@@ -146,10 +178,78 @@ class ContinuousRecording:
                 self.total_bytes / 1024.0,
             )
 
-    async def stop_and_process(self, progress: ProgressFn = None) -> dict:
-        """Transcrit, synthétise, applique les actions, persiste."""
+    def queue_for_processing(self) -> dict:
+        """Scelle le spool puis enfile le traitement idempotent."""
+
         self.is_active = False
         self.ended_at = datetime.now()
+        duration_sec = int((self.ended_at - self.started_at).total_seconds())
+        if self.spool is None:
+            return {
+                "ok": False,
+                "error": "Aucun audio reçu.",
+                "duration_seconds": duration_sec,
+                "label": self.label,
+            }
+        if duration_sec > config.RECORDING_MAX_DURATION_MIN * 60:
+            self.spool.mark_failed("recording_duration_exceeded", terminal=True)
+            return {
+                "ok": False,
+                "error": f"Durée maximale dépassée ({config.RECORDING_MAX_DURATION_MIN} min).",
+                "duration_seconds": duration_sec,
+                "label": self.label,
+            }
+        if self.total_bytes < 3000:
+            self.spool.mark_failed("recording_too_short", terminal=True)
+            return {
+                "ok": False,
+                "error": "Audio trop court pour être transcrit.",
+                "duration_seconds": duration_sec,
+                "label": self.label,
+            }
+        session_id = self.spool.enqueue(
+            label=self.label,
+            duration_seconds=duration_sec,
+        )
+        return {
+            "ok": True,
+            "queued": True,
+            "session_id": session_id,
+            "duration_seconds": duration_sec,
+            "label": self.label,
+        }
+
+    @classmethod
+    def from_spool(
+        cls,
+        session_id: str,
+        *,
+        duration_seconds: int | None = None,
+    ) -> "ContinuousRecording":
+        session = get_recording_session(session_id)
+        if session is None:
+            raise LookupError("recording_session_not_found")
+        spool = RecordingSpool.open(session_id)
+        recording = cls(session.conversation_id)
+        recording.label = session.label
+        recording.spool = spool
+        recording.audio_chunks = spool.read_chunks()
+        recording.total_bytes = spool.size_bytes
+        if session.created_at:
+            recording.started_at = datetime.fromisoformat(
+                session.created_at.replace("Z", "+00:00")
+            ).replace(tzinfo=None)
+        if duration_seconds is not None:
+            recording.ended_at = recording.started_at + timedelta(
+                seconds=max(0, int(duration_seconds))
+            )
+        return recording
+
+    async def stop_and_process(self, progress: ProgressFn = None) -> dict:
+        """Traite un spool déjà durable (appelé par le service ingestion)."""
+        self.is_active = False
+        if self.ended_at is None:
+            self.ended_at = datetime.now()
         duration_sec = int((self.ended_at - self.started_at).total_seconds())
         duration_min = duration_sec / 60.0
 
@@ -184,22 +284,17 @@ class ContinuousRecording:
             stt = None  # type: ignore[misc, assignment]
 
         if stt is None or not getattr(stt, "available", False):
-            return {"ok": False, "error": "STT indisponible.", "duration_seconds": duration_sec}
+            raise RuntimeError("recording_stt_unavailable")
 
         self.transcription = await self._transcribe_all(stt, progress)
         if not self.transcription.strip():
-            return {
-                "ok": False,
-                "error": "Transcription vide.",
-                "duration_seconds": duration_sec,
-                "label": self.label,
-            }
+            raise RuntimeError("recording_transcription_empty")
 
         if progress:
             await progress("recording_analyzing", {"message": "Analyse en cours…"})
 
         self.synthesis = await self._synthesize(self.transcription, duration_sec)
-        action_results = await self._apply_synthesis(self.synthesis)
+        proposal_results = self._proposal_summary(self.synthesis)
 
         title = (self.synthesis or {}).get("title") or self.label or "Enregistrement"
         summary_text = (self.synthesis or {}).get("summary") or ""
@@ -211,12 +306,25 @@ class ContinuousRecording:
             transcription=self.transcription,
             summary=summary_text,
             synthesis=self.synthesis or {},
-            actions=action_results,
+            actions=proposal_results,
             audio_size_kb=max(1, int(self.total_bytes / 1024)),
             title=title,
+            recording_session_id=self.spool.session_id if self.spool else None,
         )
 
+        # Les propositions et dérivés ne sont publiés qu'après la persistance
+        # canonique de l'enregistrement.
+        await self._apply_synthesis(
+            self.synthesis,
+            recording_id=rec_id,
+            session_id=self.spool.session_id if self.spool else None,
+        )
         turns_captured = await self._maybe_capture_turns(stt, rec_id)
+        if self.spool is not None:
+            self.spool.mark_succeeded(
+                transcript=self.transcription,
+                summary=summary_text,
+            )
 
         out = {
             "ok": True,
@@ -225,12 +333,12 @@ class ContinuousRecording:
             "title": title,
             "summary": summary_text,
             "duration_seconds": duration_sec,
-            "tasks_created": action_results.get("tasks_created", 0),
-            "events_created": action_results.get("events_created", 0),
-            "facts_stored": action_results.get("facts_stored", 0),
-            "people_updated": action_results.get("people_updated", 0),
+            "tasks_created": 0,
+            "events_created": 0,
+            "tasks_proposed": proposal_results.get("tasks_proposed", 0),
+            "events_proposed": proposal_results.get("events_proposed", 0),
             "synthesis": self.synthesis,
-            "actions": action_results,
+            "actions": proposal_results,
             "label": self.label,
         }
         if not config.RECORDING_SUMMARY_ONLY:
@@ -259,13 +367,16 @@ class ContinuousRecording:
                 segment_units.append(c)
 
         n = len(segment_units)
+        failed_segments: list[int] = []
         for i, seg in enumerate(segment_units, start=1):
             if progress:
                 await progress(
                     "recording_transcribing",
                     {"progress": f"segment {i}/{n}"},
                 )
-            logger.info("[recording] Transcription segment %d/%d (%d bytes)", i, n, len(seg))
+            logger.info(
+                "[recording] Transcription segment %d/%d (%d bytes)", i, n, len(seg)
+            )
             to = _stt_timeout_for_bytes(len(seg))
             try:
                 txt = await stt.transcribe(seg, language=config.LANGUAGE, timeout=to)
@@ -274,6 +385,11 @@ class ContinuousRecording:
                 txt = ""
             if txt and txt.strip():
                 parts_text.append(txt.strip())
+            else:
+                failed_segments.append(i)
+
+        if failed_segments:
+            raise RuntimeError("recording_stt_partial")
 
         return "\n\n".join(parts_text)
 
@@ -302,7 +418,9 @@ class ContinuousRecording:
             return 0
         try:
             turns = await stt.transcribe_with_diarization(
-                audio, language=config.LANGUAGE, timeout=_stt_timeout_for_bytes(len(audio)),
+                audio,
+                language=config.LANGUAGE,
+                timeout=_stt_timeout_for_bytes(len(audio)),
             )
         except Exception as e:
             logger.warning("[recording] Diarisation échouée : %s", e)
@@ -314,7 +432,11 @@ class ContinuousRecording:
         return save_conversation_turns(recording_id, turns)
 
     async def _synthesize(self, transcription: str, duration_sec: int) -> dict:
-        dur_human = f"{duration_sec // 3600}h {(duration_sec % 3600) // 60}min" if duration_sec >= 3600 else f"{duration_sec // 60} min {duration_sec % 60}s"
+        dur_human = (
+            f"{duration_sec // 3600}h {(duration_sec % 3600) // 60}min"
+            if duration_sec >= 3600
+            else f"{duration_sec // 60} min {duration_sec % 60}s"
+        )
         segments = []
         step = CHUNK_CHARS
         for i in range(0, len(transcription), step):
@@ -405,123 +527,144 @@ class ContinuousRecording:
             "patterns_observed": [],
         }
 
-    async def _apply_synthesis(self, synthesis: dict) -> dict:
-        results = {
-            "tasks_created": 0,
-            "events_created": 0,
-            "facts_stored": 0,
-            "people_updated": 0,
+    @staticmethod
+    def _proposal_summary(synthesis: dict) -> dict:
+        tasks = [
+            task
+            for task in (synthesis.get("tasks") or [])
+            if isinstance(task, dict) and task.get("title")
+        ]
+        events = [
+            event
+            for event in (synthesis.get("calendar_events") or [])
+            if isinstance(event, dict) and event.get("summary")
+        ]
+        return {
+            "requires_approval": True,
+            "tasks_proposed": len(tasks),
+            "events_proposed": len(events),
+            "task_proposals": tasks[:20],
+            "event_proposals": events[:20],
         }
 
-        for task in synthesis.get("tasks") or []:
-            if not isinstance(task, dict) or not task.get("title"):
-                continue
-            try:
-                cat = task.get("category") or "perso"
-                if isinstance(cat, str):
-                    c = cat.lower().strip()
-                    if c == "personal":
-                        c = "perso"
-                    if c not in ("school", "work", "perso"):
-                        c = "perso"
-                else:
-                    c = "perso"
-                create_task(
-                    title=str(task["title"])[:500],
-                    priority=task.get("priority") or "medium",
-                    due_date=task.get("due_date"),
-                    category=c,
-                )
-                results["tasks_created"] += 1
-            except Exception as e:
-                logger.exception("[recording] Tâche : %s", e)
+    async def _apply_synthesis(
+        self,
+        synthesis: dict,
+        *,
+        recording_id: int,
+        session_id: str | None,
+    ) -> dict:
+        """Publie uniquement des propositions ; aucun effet externe implicite."""
 
+        proposals = self._proposal_summary(synthesis)
+        title = str(synthesis.get("title") or self.label or "Enregistrement")[:500]
+        summary = str(synthesis.get("summary") or "")[:8000]
         try:
-            from integrations.calendar_api import calendar_client
-        except ImportError:
-            calendar_client = None  # type: ignore[misc, assignment]
-
-        for event in synthesis.get("calendar_events") or []:
-            if not isinstance(event, dict) or not event.get("summary") or not event.get("date"):
-                continue
-            try:
-                if not calendar_client or not calendar_client.is_available():
-                    logger.warning("[recording] Calendar indisponible — événement ignoré")
-                    continue
-                d = str(event["date"]).strip()[:10]
-                tm = event.get("time")
-                if tm is None or str(tm).lower() in ("null", ""):
-                    tm = "09:00"
-                tm = str(tm).strip()[:5]
-                start_s = f"{d} {tm}"
-                start_dt = datetime.strptime(start_s, "%Y-%m-%d %H:%M")
-                dur_m = int(event.get("duration_min") or 60)
-                end_dt = start_dt + timedelta(minutes=max(15, dur_m))
-                end_str = end_dt.strftime("%Y-%m-%d %H:%M")
-                r = await calendar_client.create_event(
-                    summary=str(event["summary"])[:200],
-                    start_date=start_s,
-                    end_date=end_str,
-                    location="",
-                    notes="Créé depuis un enregistrement JARVIS",
-                )
-                if r.get("ok"):
-                    results["events_created"] += 1
-            except Exception as e:
-                logger.exception("[recording] Calendrier : %s", e)
-
-        for fact in synthesis.get("facts") or []:
-            if not isinstance(fact, dict) or not fact.get("content"):
-                continue
-            try:
-                add_fact(
-                    category=str(fact.get("category") or "work"),
-                    content=str(fact["content"])[:2000],
-                    source="recording",
-                    confidence="medium",
-                )
-                results["facts_stored"] += 1
-            except Exception as e:
-                logger.exception("[recording] Fait : %s", e)
-
-        for person in synthesis.get("people") or []:
-            if not isinstance(person, dict) or not person.get("name"):
-                continue
-            try:
-                notes = str(person.get("notes") or "")[:4000]
-                upsert_person(
-                    str(person["name"]).strip()[:200],
-                    relationship=str(person.get("role") or "")[:500] or None,
-                    personality_notes=notes or None,
-                )
-                results["people_updated"] += 1
-            except Exception as e:
-                logger.exception("[recording] Personne : %s", e)
-
-        try:
-            summ = synthesis.get("summary") or ""
-            title = synthesis.get("title") or self.label or "Enregistrement"
-            tags = ["recording", (self.label or "")[:80]]
             save_episode(
                 agent="recording",
-                content=summ[:8000],
-                summary=title[:500],
+                content=summary,
+                summary=title,
                 importance=7,
-                tags=tags,
+                tags=["recording", (self.label or "")[:80]],
+                recording_id=recording_id,
             )
-        except Exception as e:
-            logger.exception("[recording] Épisode : %s", e)
+        except Exception as exc:
+            logger.exception("[recording] Épisode dérivé : %s", exc)
 
-        if config.DESKTOP_NOTIFICATIONS:
+        if proposals["tasks_proposed"] or proposals["events_proposed"]:
+            from jarvis.notification_service import notification_service
+
+            notification_service.create(
+                source="recording",
+                title=f"Propositions depuis « {title} »",
+                content=(
+                    f"{proposals['tasks_proposed']} tâche(s) et "
+                    f"{proposals['events_proposed']} événement(s) à valider."
+                ),
+                priority="medium",
+                idempotency_key=f"recording:{session_id or recording_id}:proposals",
+            )
+
+        if config.DESKTOP_NOTIFICATIONS and session_id is not None:
             try:
                 from integrations.notifications_macos import mac_notifier
 
-                await mac_notifier.notify(
-                    title="JARVIS — Enregistrement traité",
-                    message=f"{synthesis.get('title', 'Enregistrement')} — {results['tasks_created']} tâches, {results['events_created']} événements",
-                    sound=config.NOTIFICATION_SOUND or "Glass",
-                )
-            except Exception as e:
-                logger.exception("[recording] Notification : %s", e)
+                if claim_recording_desktop_notification(session_id):
+                    await mac_notifier.notify(
+                        title="JARVIS — Enregistrement traité",
+                        message=(
+                            f"{title} — {proposals['tasks_proposed']} tâche(s), "
+                            f"{proposals['events_proposed']} événement(s) proposé(s)"
+                        ),
+                        sound=config.NOTIFICATION_SOUND or "Glass",
+                    )
+            except Exception as exc:
+                logger.exception("[recording] Notification : %s", exc)
+        return proposals
 
-        return results
+
+async def process_recording_ingestion_job(
+    job: IngestionJob,
+    _binding,
+    _state,
+) -> IngestionRunResult:
+    """Handler durable appelé uniquement sous le profil capturé par le worker."""
+
+    session_id = str(job.payload.get("session_id") or "").strip()
+    if not session_id:
+        raise ValueError("recording_session_id_required")
+    session = get_recording_session(session_id)
+    if session is None:
+        raise LookupError("recording_session_not_found")
+    if session.state in {"completed", "ready"}:
+        if session.state == "ready":
+            update_recording_session(session_id, state="completed", error=None)
+        return IngestionRunResult(
+            status="ok",
+            item_count=1,
+            completeness="complete",
+        )
+    duration_seconds = int(job.payload.get("duration_seconds") or 0)
+    recording = ContinuousRecording.from_spool(
+        session_id,
+        duration_seconds=duration_seconds,
+    )
+    update_recording_session(session_id, state="processing", error=None)
+    try:
+        await recording.stop_and_process()
+    except Exception as exc:
+        assert recording.spool is not None
+        recording.spool.mark_failed(
+            type(exc).__name__,
+            terminal=job.attempts >= job.max_attempts,
+        )
+        raise
+    return IngestionRunResult(
+        status="ok",
+        item_count=1,
+        completeness="complete",
+    )
+
+
+def register_recording_ingestion_handler() -> None:
+    from jarvis.ingestion.service import (
+        register_ingestion_handler,
+        register_ingestion_maintenance_hook,
+    )
+
+    register_ingestion_handler(
+        "recording",
+        "recording_process",
+        process_recording_ingestion_job,
+        replace=True,
+    )
+    register_ingestion_maintenance_hook(
+        "recording-reconcile",
+        reconcile_recording_sessions,
+        replace=True,
+    )
+    register_ingestion_maintenance_hook(
+        "recording-retention",
+        purge_expired_recordings,
+        replace=True,
+    )

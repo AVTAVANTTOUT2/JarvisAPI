@@ -59,6 +59,14 @@
       "rationale": "Sonde de vie publique consommée par le superviseur, launchd et les reverse proxies ; le frontend ne fait que l'exclure explicitement de son cache."
     },
     {
+      "id": "operator-data-health",
+      "owner": "observability",
+      "audience": "operator",
+      "methods": ["GET"],
+      "paths": ["/api/data-health"],
+      "rationale": "Diagnostic authentifié de la couverture des connecteurs, du heartbeat d'ingestion et des files de travaux, sans contenu personnel."
+    },
+    {
       "id": "operator-cursor-control",
       "owner": "cursor-delegation",
       "audience": "operator",

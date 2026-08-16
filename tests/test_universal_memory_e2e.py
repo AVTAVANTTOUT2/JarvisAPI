@@ -216,7 +216,7 @@ async def test_seed_to_chat_context_recalls_yesterdays_cross_source_data(
         interaction_mode="chat",
     )
 
-    assert len(live_calls) == 1
+    assert live_calls == []
     payload = _decode_retrieval_context(context["retrieval_context"])
     hits_by_source = {hit["source_type"]: hit for hit in payload["hits"]}
     assert {"email", "imessage", "calendar", "recording"} <= set(hits_by_source)

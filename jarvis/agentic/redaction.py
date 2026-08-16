@@ -72,6 +72,19 @@ def redact_mapping(value: Mapping[str, Any] | None) -> dict[str, Any]:
     return dict(redact_value(value or {}))
 
 
+def redact_selected_context(value: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Préserve le retrieval serveur borné sans relâcher la redaction."""
+
+    source = value or {}
+    safe = redact_mapping(source)
+    retrieval = source.get("retrieval_context")
+    if isinstance(retrieval, str) and "[UNTRUSTED_DATA:" in retrieval:
+        for pattern in _SECRET_PATTERNS:
+            retrieval = pattern.sub(REDACTED, retrieval)
+        safe["retrieval_context"] = retrieval[:8_000]
+    return safe
+
+
 SAFE_EVENT_FIELDS: frozenset[str] = frozenset(
     {
         "action",
@@ -145,6 +158,7 @@ __all__ = [
     "SAFE_EVENT_FIELDS",
     "neutralize_event_payload",
     "redact_mapping",
+    "redact_selected_context",
     "redact_text",
     "redact_value",
 ]

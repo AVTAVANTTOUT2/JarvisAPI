@@ -32,6 +32,7 @@ from api.action_confirmations import (
 from api.chat_confirmation import resolve_pending_confirmation
 from api.chat_context import (
     _build_enriched_context,
+    prepare_turn,
 )
 from api.conversation_titles import (
     _maybe_title_conversation,
@@ -39,6 +40,7 @@ from api.conversation_titles import (
 )
 from api.llm_logging import _schedule_llm_log
 from database import save_message, update_conversation_activity
+from jarvis.agentic.turn_context import public_knowledge_payload
 
 logger = logging.getLogger("jarvis")
 
@@ -141,13 +143,15 @@ async def _process_message_internal(
                 save_message(conversation_id, "user", original_text)
             except Exception as exc:
                 logger.debug("[loop] save user internal : %s", exc)
-            return await _run_loop_mode_internal(
+            loop_result = await _run_loop_mode_internal(
                 loop_task.strip(),
                 conversation_id,
                 voice_mode=voice_mode,
                 confirmation_session_id=confirmation_session_id,
                 context=loop_context,
             )
+            loop_result.setdefault("knowledge", public_knowledge_payload(loop_context))
+            return loop_result
 
         agentic = await maybe_start_agentic_run(
             original_text,
@@ -192,6 +196,7 @@ async def _process_message_internal(
             unmatched_confirmation_reply_fn=unmatched_confirmation_reply,
             format_action_result_for_followup_fn=_format_action_result_for_followup,
             finalize_assistant_display_text_fn=finalize_assistant_display_text,
+            prepare_turn_fn=prepare_turn,
         )
         if confirmation is not None:
             return confirmation
@@ -287,6 +292,7 @@ async def _process_message_internal(
                         ),
                         conversation_id=conversation_id,
                         voice_mode=voice_mode,
+                        context=context,
                     )
                     emotion = fu.get("emotion", emotion)
                     display_text = finalize_assistant_display_text(
@@ -308,7 +314,10 @@ async def _process_message_internal(
                     }
                 else:
                     try:
-                        action_result = await execute_action(action)
+                        action_result = await execute_action(
+                            action,
+                            knowledge_context=context,
+                        )
                         logger.info(
                             "[internal-action] %s → ok=%s",
                             action.get("type"),
@@ -344,6 +353,7 @@ async def _process_message_internal(
                             ),
                             conversation_id=conversation_id,
                             voice_mode=voice_mode,
+                            context=context,
                         )
                         emotion = fu.get("emotion", emotion)
                         display_text = finalize_assistant_display_text(
@@ -433,6 +443,7 @@ async def _process_message_internal(
             "agent": final_meta.get("agent"),
             "model": final_meta.get("model"),
             "cost": float(final_meta.get("cost") or 0.0),
+            "knowledge": public_knowledge_payload(context),
             # Remonté jusqu'aux traces vocales : sans lui, un tour muet est
             # indiscernable d'un tour normal dans le journal de debug.
             "empty_response_cause": empty_response_cause,

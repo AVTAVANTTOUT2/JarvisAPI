@@ -27,7 +27,9 @@ def _detection_enabled() -> bool:
         return False
 
 
-async def ingest_email_for_detection(message: Mapping[str, Any]) -> dict[str, Any] | None:
+async def ingest_email_for_detection(
+    message: Mapping[str, Any],
+) -> dict[str, Any] | None:
     """Analyse un e-mail déjà lu et autorisé par le watcher.
 
     Retourne un petit résumé de ce qui a été créé, ou `None` si rien. Ne
@@ -106,6 +108,8 @@ async def create_task_from_user_request(
     *,
     channel: str = "voice",
     conversation_id: str | None = None,
+    metadata: Mapping[str, Any] | None = None,
+    planning_context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """Crée une tâche durable depuis une demande adressée à JARVIS.
 
@@ -132,6 +136,8 @@ async def create_task_from_user_request(
                 reference=f"conversation:{conversation_id}" if conversation_id else "",
             ),
             conversation_id=conversation_id,
+            metadata=metadata,
+            planning_context=planning_context,
             autoplan=True,
         )
         return {

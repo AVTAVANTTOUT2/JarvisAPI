@@ -175,6 +175,7 @@ class TaskControlService:
         conversation_id: str | None = None,
         due_at: datetime | None = None,
         metadata: Mapping[str, Any] | None = None,
+        planning_context: Mapping[str, Any] | None = None,
         autoplan: bool = True,
     ) -> ControlTask:
         """Crée une tâche **en attente de plan**. Ne démarre jamais rien."""
@@ -202,7 +203,7 @@ class TaskControlService:
         )
         await self._emit(task, "task.control.created")
         if autoplan:
-            task = await self.plan_task(task.task_id)
+            task = await self.plan_task(task.task_id, context=planning_context)
         return task
 
     # ── Planification (lecture seule) ─────────────────────────────────────
@@ -233,7 +234,28 @@ class TaskControlService:
                 )
 
             version = self.repository.next_plan_version(task_id)
-            planning_context = dict(context or {})
+            planning_context: dict[str, Any] = {}
+            try:
+                from jarvis.agentic.turn_context import (
+                    SNAPSHOT_METADATA_KEY,
+                    TurnKnowledgeSnapshot,
+                )
+
+                snapshot = TurnKnowledgeSnapshot.from_metadata(
+                    task.metadata.get(SNAPSHOT_METADATA_KEY),
+                    expected_profile_id=task.profile_id,
+                )
+                if snapshot is not None:
+                    planning_context.update(snapshot.planning_context())
+            except PermissionError:
+                raise
+            except Exception as exc:
+                logger.warning(
+                    "snapshot de planification invalide pour %s: %s",
+                    task_id,
+                    type(exc).__name__,
+                )
+            planning_context.update(dict(context or {}))
             if revision_comment:
                 planning_context["user_comments"] = revision_comment
             comments = self.repository.list_comments(task_id, limit=10)
@@ -390,6 +412,19 @@ class TaskControlService:
             return await self._launch_run(task_id)
 
     async def _launch_run(self, task_id: str) -> ControlTask:
+        import config
+        from jarvis.agentic import (
+            classify_agentic_request,
+            get_capability_profile,
+            select_capability_profile,
+        )
+        from jarvis.agentic.models import AgenticRequestCategory
+        from jarvis.agentic.turn_context import (
+            AGENTIC_ROUTING_METADATA_KEY,
+            SNAPSHOT_METADATA_KEY,
+            TurnKnowledgeSnapshot,
+        )
+
         from .models import ensure_executable
 
         task = self.repository.require_task(task_id)
@@ -403,6 +438,63 @@ class TaskControlService:
             else None
         )
         approved = ensure_executable(task, plan)
+
+        routing_raw = task.metadata.get(AGENTIC_ROUTING_METADATA_KEY)
+        routing = dict(routing_raw) if isinstance(routing_raw, Mapping) else {}
+        try:
+            category = AgenticRequestCategory(str(routing.get("category") or ""))
+        except ValueError:
+            category = classify_agentic_request(
+                approved.objective,
+                origin="user",
+                adaptive=True,
+            ).category
+        capability_profile_id = str(routing.get("capability_profile_id") or "").strip()
+        if capability_profile_id:
+            capability_profile = get_capability_profile(capability_profile_id)
+        else:
+            capability_profile = select_capability_profile(
+                approved.objective,
+                category,
+                default_profile_id=str(
+                    getattr(config, "AGENTIC_DEFAULT_PROFILE", "readonly-research")
+                ),
+                route_overrides=getattr(config, "AGENTIC_PROFILE_ROUTE_OVERRIDES", {}),
+            )
+            capability_profile_id = capability_profile.profile_id
+        raw_permissions = routing.get("permissions")
+        permissions = (
+            tuple(
+                dict.fromkeys(
+                    str(item)
+                    for item in raw_permissions
+                    if isinstance(item, str) and item
+                )
+            )
+            if isinstance(raw_permissions, (list, tuple))
+            else capability_profile.default_permissions
+        )
+        if not permissions:
+            permissions = capability_profile.default_permissions
+        refused = capability_profile.refused_permissions(permissions)
+        if refused:
+            raise PermissionError("permission hors du profil de capacités JARVIS")
+
+        selected_context: dict[str, Any] = {
+            "request": approved.objective,
+            "plan_version": approved.version,
+            "plan_digest": approved.digest,
+            "plan_steps": [step.title for step in approved.steps],
+        }
+        snapshot = TurnKnowledgeSnapshot.from_metadata(
+            task.metadata.get(SNAPSHOT_METADATA_KEY),
+            expected_profile_id=task.profile_id,
+        )
+        if snapshot is not None:
+            selected_context.update(snapshot.agentic_context())
+        classification_reason = str(routing.get("reason") or "").strip()
+        if classification_reason:
+            selected_context["classification"] = classification_reason
 
         task = self.repository.update_task(
             task_id, status=TaskStatus.QUEUED, current_phase="queued"
@@ -418,12 +510,13 @@ class TaskControlService:
                 else "api",
                 task_id=task.task_id,
                 conversation_id=task.conversation_id,
-                selected_context={
-                    "request": approved.objective,
-                    "plan_version": approved.version,
-                    "plan_digest": approved.digest,
-                    "plan_steps": [step.title for step in approved.steps],
-                },
+                device=str(routing.get("device") or "") or None,
+                locale=str(routing.get("locale") or "fr-FR"),
+                timezone_name=str(routing.get("timezone") or "Europe/Paris"),
+                permissions=permissions,
+                capability_profile_id=capability_profile_id,
+                selected_context=selected_context,
+                category=category,
             )
         except Exception as exc:
             logger.exception("démarrage du runtime impossible pour %s", task_id)
@@ -709,9 +802,7 @@ class TaskControlService:
         self.repository.append_activity(
             build_user_activity(
                 task_id=task.task_id,
-                summary=clamp_text(
-                    f"Révision de périmètre demandée : {comment}", 300
-                ),
+                summary=clamp_text(f"Révision de périmètre demandée : {comment}", 300),
                 event_type=TaskActivityType.DECISION_SUMMARY,
                 run_id=task.agentic_run_id,
             )
@@ -736,7 +827,9 @@ class TaskControlService:
             if task.agentic_run_id:
                 try:
                     self.repository.update_task(
-                        task_id, status=TaskStatus.CANCELLING, current_phase="cancelling"
+                        task_id,
+                        status=TaskStatus.CANCELLING,
+                        current_phase="cancelling",
                     )
                 except InvalidTaskTransition:
                     pass
@@ -804,9 +897,7 @@ class TaskControlService:
                 ]
                 if run is not None and getattr(run, "verification", None) is not None:
                     verification = {
-                        "verdict": str(
-                            getattr(run.verification.verdict, "value", "")
-                        ),
+                        "verdict": str(getattr(run.verification.verdict, "value", "")),
                         "summary": run.verification.summary,
                     }
                 if run is not None and run.started_at and run.finished_at:

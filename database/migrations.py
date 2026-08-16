@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
+from datetime import datetime, timedelta, timezone
 from . import dbapi as sqlite3
 import uuid
 
@@ -1723,6 +1725,258 @@ def _migrate_apple_shortcuts(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_durable_ingestion(conn: sqlite3.Connection) -> None:
+    """Contrats persistants des collecteurs locaux, idempotents et profilés."""
+
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS contact_identities (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            identity_type TEXT NOT NULL CHECK(identity_type IN ('email', 'phone', 'imessage', 'handle')),
+            normalized_value TEXT NOT NULL,
+            display_name TEXT NOT NULL DEFAULT '',
+            person_id INTEGER REFERENCES people(id) ON DELETE SET NULL,
+            source TEXT NOT NULL DEFAULT '',
+            confidence REAL NOT NULL DEFAULT 1.0 CHECK(confidence >= 0 AND confidence <= 1),
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(identity_type, normalized_value)
+        );
+        CREATE INDEX IF NOT EXISTS idx_contact_identities_person
+            ON contact_identities(person_id, identity_type);
+
+        CREATE TABLE IF NOT EXISTS connector_bindings (
+            source TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL,
+            connector_kind TEXT NOT NULL,
+            account_ref TEXT NOT NULL DEFAULT 'local',
+            consent_source TEXT NOT NULL DEFAULT 'explicit',
+            enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0, 1)),
+            sync_interval_seconds INTEGER NOT NULL DEFAULT 300 CHECK(sync_interval_seconds >= 15),
+            settings_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_connector_bindings_enabled
+            ON connector_bindings(enabled, source);
+
+        CREATE TABLE IF NOT EXISTS ingestion_source_state (
+            source TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'idle'
+                CHECK(status IN ('idle', 'running', 'degraded', 'error', 'disabled')),
+            cursor_json TEXT NOT NULL DEFAULT '{}',
+            coverage_start_utc TEXT,
+            coverage_end_utc TEXT,
+            completeness TEXT NOT NULL DEFAULT 'unknown'
+                CHECK(completeness IN ('unknown', 'partial', 'complete')),
+            last_attempt_at TEXT,
+            last_success_at TEXT,
+            last_item_at TEXT,
+            item_count INTEGER NOT NULL DEFAULT 0 CHECK(item_count >= 0),
+            heartbeat_at TEXT,
+            error_code TEXT,
+            error_message TEXT,
+            consecutive_failures INTEGER NOT NULL DEFAULT 0 CHECK(consecutive_failures >= 0),
+            generation INTEGER NOT NULL DEFAULT 0 CHECK(generation >= 0),
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_ingestion_source_health
+            ON ingestion_source_state(status, last_success_at);
+
+        CREATE TABLE IF NOT EXISTS ingestion_jobs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            profile_id TEXT NOT NULL,
+            source TEXT NOT NULL,
+            job_kind TEXT NOT NULL DEFAULT 'sync',
+            dedupe_key TEXT NOT NULL,
+            payload_json TEXT NOT NULL DEFAULT '{}',
+            status TEXT NOT NULL DEFAULT 'pending'
+                CHECK(status IN ('pending', 'running', 'retry', 'done', 'dead', 'cancelled')),
+            attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts >= 0),
+            max_attempts INTEGER NOT NULL DEFAULT 5 CHECK(max_attempts >= 1),
+            available_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            lease_token TEXT,
+            lease_owner TEXT,
+            lease_expires_at TEXT,
+            last_error_code TEXT,
+            last_error_message TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            completed_at TEXT
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_ingestion_jobs_active_dedupe
+            ON ingestion_jobs(source, job_kind, dedupe_key)
+            WHERE status IN ('pending', 'running', 'retry');
+        CREATE INDEX IF NOT EXISTS idx_ingestion_jobs_claim
+            ON ingestion_jobs(status, available_at, lease_expires_at, id);
+
+        CREATE TABLE IF NOT EXISTS recording_sessions (
+            id TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL,
+            conversation_id INTEGER REFERENCES conversations(id) ON DELETE SET NULL,
+            label TEXT NOT NULL DEFAULT '',
+            state TEXT NOT NULL DEFAULT 'capturing'
+                CHECK(state IN ('capturing', 'queued', 'ready', 'processing', 'retry', 'partial', 'completed', 'failed', 'expired')),
+            spool_path TEXT NOT NULL,
+            size_bytes INTEGER NOT NULL DEFAULT 0 CHECK(size_bytes >= 0),
+            checksum TEXT NOT NULL DEFAULT '',
+            attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts >= 0),
+            error TEXT,
+            transcript TEXT,
+            summary TEXT,
+            desktop_notification_claimed_at TEXT,
+            retention_until TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_recording_sessions_due
+            ON recording_sessions(state, retention_until, updated_at);
+        """
+    )
+
+    columns = {
+        "email_summaries": (
+            "received_at_utc TEXT",
+            "source_updated_at_utc TEXT",
+            "account_id TEXT",
+            "mailbox_id TEXT",
+            "content_complete INTEGER NOT NULL DEFAULT 0",
+            "ingestion_completeness TEXT NOT NULL DEFAULT 'metadata'",
+            "sender_identity_id INTEGER REFERENCES contact_identities(id) ON DELETE SET NULL",
+        ),
+        "imessage_handles": (
+            "display_name TEXT NOT NULL DEFAULT ''",
+            "contact_identity_id INTEGER REFERENCES contact_identities(id) ON DELETE SET NULL",
+        ),
+        "imessage_messages": (
+            "occurred_at_utc TEXT",
+            "source_updated_at_utc TEXT",
+            "content_complete INTEGER NOT NULL DEFAULT 1",
+            "ingestion_completeness TEXT NOT NULL DEFAULT 'complete'",
+        ),
+        "ingestion_source_state": ("item_count INTEGER NOT NULL DEFAULT 0",),
+        "episodes": (
+            "recording_id INTEGER REFERENCES recordings(id) ON DELETE SET NULL",
+        ),
+        "recordings": (
+            "recording_session_id TEXT REFERENCES recording_sessions(id) ON DELETE SET NULL",
+        ),
+        "recording_sessions": ("desktop_notification_claimed_at TEXT",),
+        "connector_bindings": (
+            "consent_source TEXT NOT NULL DEFAULT 'explicit'",
+            "device_id_hash TEXT NOT NULL DEFAULT ''",
+            "external_account_hash TEXT NOT NULL DEFAULT ''",
+            "permission_state TEXT NOT NULL DEFAULT 'unknown'",
+        ),
+    }
+    for table, declarations in columns.items():
+        existing = {
+            str(row[1])
+            for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+        }
+        for declaration in declarations:
+            name = declaration.split(maxsplit=1)[0]
+            if name not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {declaration}")
+
+    # Les sessions ``ready`` étaient considérées à tort comme retraitables.
+    # Elles représentent des traitements déjà terminés et sont normalisées
+    # avant que le worker ne puisse les réenfiler.
+    conn.execute(
+        "UPDATE recording_sessions SET state = 'completed' WHERE state = 'ready'"
+    )
+
+    # Nettoie les éventuels doublons historiques avant d'imposer les clés de
+    # convergence utilisées par les retries du pipeline recording.
+    conn.execute(
+        """
+        DELETE FROM conversation_turns
+        WHERE id NOT IN (
+            SELECT MIN(id) FROM conversation_turns
+            GROUP BY recording_id, turn_order
+        )
+        """
+    )
+    conn.executescript(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_recordings_session_unique
+            ON recordings(recording_session_id)
+            WHERE recording_session_id IS NOT NULL;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_episodes_recording_unique
+            ON episodes(recording_id)
+            WHERE recording_id IS NOT NULL;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_turns_recording_order_unique
+            ON conversation_turns(recording_id, turn_order);
+        """
+    )
+
+    # Les dates Mail naïves sont historiquement exprimées dans config.TIMEZONE.
+    from database.time_buckets import sqlite_utc_timestamp
+
+    for row in conn.execute(
+        "SELECT id, received_at FROM email_summaries "
+        "WHERE received_at_utc IS NULL AND COALESCE(received_at, '') <> ''"
+    ).fetchall():
+        try:
+            normalized = sqlite_utc_timestamp(str(row["received_at"]))
+        except (TypeError, ValueError):
+            continue
+        conn.execute(
+            "UPDATE email_summaries SET received_at_utc = ? WHERE id = ?",
+            (normalized, int(row["id"])),
+        )
+
+    apple_epoch = datetime(2001, 1, 1, tzinfo=timezone.utc)
+    for row in conn.execute(
+        "SELECT id, date FROM imessage_messages "
+        "WHERE occurred_at_utc IS NULL AND date IS NOT NULL"
+    ).fetchall():
+        try:
+            seconds = float(row["date"])
+            if abs(seconds) > 10_000_000_000:
+                seconds /= 1_000_000_000.0
+            occurred_at = (apple_epoch + timedelta(seconds=seconds)).isoformat()
+        except (TypeError, ValueError, OverflowError, OSError):
+            continue
+        conn.execute(
+            "UPDATE imessage_messages SET occurred_at_utc = ? WHERE id = ?",
+            (occurred_at, int(row["id"])),
+        )
+
+    # Amorçage local des identités existantes, sans lancer Contacts.app pendant
+    # une migration. Le prochain import enrichira display_name/person_id.
+    for row in conn.execute(
+        "SELECT id, handle FROM imessage_handles WHERE COALESCE(handle, '') <> ''"
+    ).fetchall():
+        raw = str(row["handle"]).strip()
+        if "@" in raw:
+            identity_type = "email"
+            normalized = raw.casefold()
+        else:
+            phone = re.sub(r"[^0-9+]", "", raw)
+            identity_type = "phone" if any(ch.isdigit() for ch in phone) else "handle"
+            normalized = phone or raw.casefold()
+        conn.execute(
+            """
+            INSERT INTO contact_identities(identity_type, normalized_value, source)
+            VALUES (?, ?, 'imessage')
+            ON CONFLICT(identity_type, normalized_value) DO UPDATE SET
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (identity_type, normalized),
+        )
+        identity = conn.execute(
+            "SELECT id FROM contact_identities WHERE identity_type = ? AND normalized_value = ?",
+            (identity_type, normalized),
+        ).fetchone()
+        if identity:
+            conn.execute(
+                "UPDATE imessage_handles SET contact_identity_id = ? WHERE id = ?",
+                (int(identity["id"]), int(row["id"])),
+            )
+
+
 def _migrate_knowledge_retrieval(conn: sqlite3.Connection) -> None:
     """Ajoute la projection de recherche universelle et sa file durable."""
 
@@ -2038,6 +2292,43 @@ def _install_knowledge_job_triggers(conn: sqlite3.Connection) -> None:
             """
         )
 
+    def queue_imessage_relation(expr: str) -> str:
+        return f"""INSERT INTO knowledge_index_jobs(
+                source_type, source_id, operation, status, attempts,
+                next_attempt_at, last_error_code, claimed_at, completed_at,
+                created_at, updated_at
+            ) VALUES (
+                'imessage', CAST({expr} AS TEXT), 'upsert',
+                'pending', 0, NULL, NULL, NULL, NULL,
+                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            )
+            ON CONFLICT(source_type, source_id) DO UPDATE SET
+                operation = 'upsert', status = 'pending', attempts = 0,
+                next_attempt_at = NULL, last_error_code = NULL,
+                claimed_at = NULL, completed_at = NULL,
+                updated_at = CURRENT_TIMESTAMP;"""
+
+    for relation in ("imessage_message_attachments", "imessage_reactions"):
+        if relation not in existing:
+            continue
+        conn.executescript(
+            f"""
+            CREATE TRIGGER IF NOT EXISTS knowledge_job_{relation}_ai
+            AFTER INSERT ON {relation} BEGIN
+                {queue_imessage_relation("new.message_id")}
+            END;
+            CREATE TRIGGER IF NOT EXISTS knowledge_job_{relation}_au
+            AFTER UPDATE ON {relation} BEGIN
+                {queue_imessage_relation("old.message_id")}
+                {queue_imessage_relation("new.message_id")}
+            END;
+            CREATE TRIGGER IF NOT EXISTS knowledge_job_{relation}_ad
+            AFTER DELETE ON {relation} BEGIN
+                {queue_imessage_relation("old.message_id")}
+            END;
+            """
+        )
+
 
 def run_migrations(conn: sqlite3.Connection) -> None:
     """Applique dans un ordre stable toutes les migrations idempotentes."""
@@ -2090,4 +2381,5 @@ def run_migrations(conn: sqlite3.Connection) -> None:
     _migrate_task_control(conn)
     _migrate_apple_shortcuts(conn)
     _migrate_application_timestamps_to_utc_v2(conn)
+    _migrate_durable_ingestion(conn)
     _migrate_knowledge_retrieval(conn)

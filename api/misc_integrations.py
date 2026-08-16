@@ -18,15 +18,16 @@ from agents.orchestrator import orchestrator
 from agents.productivity import productivity_agent
 from api.daemon_support import _audio_daemon_status_payload
 from api.errors import internal_error
+from api.chat_context import prepare_turn
 from api.misc_status import _computer_status_payload
 from database import (
     clear_llm_logs,
     get_event_replay_window,
+    get_ingestion_health_summary,
     get_llm_logs,
 )
 from integrations import calendar_client, imessage_bridge, mail_client, weather
 from jarvis.notification_service import notification_service
-from scripts.email_watcher import email_watcher
 
 logger = logging.getLogger("jarvis")
 
@@ -62,7 +63,6 @@ class WebPushUnsubscribeRequest(BaseModel):
     endpoint: str = Field(min_length=1, max_length=2048)
 
 
-
 # ── Productivité : intégrations + tâches + briefings ────────
 
 
@@ -72,6 +72,7 @@ async def api_integrations():
     Les checks osascript (Mail, Calendar) sont exécutés dans un thread séparé
     avec un timeout court pour ne jamais bloquer l'event loop.
     """
+
     async def _check(fn, fallback, timeout: float = 2.0):
         try:
             return await asyncio.wait_for(asyncio.to_thread(fn), timeout=timeout)
@@ -81,11 +82,25 @@ async def api_integrations():
     mail_ok, cal_status, weather_ok = await asyncio.gather(
         _check(lambda: mail_client.is_available() if mail_client else False, False),
         _check(
-            lambda: calendar_client.get_status() if calendar_client else {"available": False, "error": "Non initialisé"},
+            lambda: (
+                calendar_client.get_status()
+                if calendar_client
+                else {"available": False, "error": "Non initialisé"}
+            ),
             {"available": False, "error": "Timeout"},
         ),
         _check(lambda: weather.is_available() if weather else False, False),
     )
+    ingestion_health = get_ingestion_health_summary()
+    service_state = next(
+        (
+            item
+            for item in ingestion_health.get("states", [])
+            if item.get("source") == "__service__"
+        ),
+        {},
+    )
+    ingestion_running = service_state.get("status") in {"ok", "degraded"}
     return {
         "mail": mail_ok,
         "calendar": cal_status,
@@ -93,13 +108,15 @@ async def api_integrations():
         "imessage": imessage_bridge is not None and imessage_bridge.is_available(),
         "imessage_sourcing": config.IMESSAGE_SOURCING_ENABLED,
         "imessage_send": config.IMESSAGE_SEND_ENABLED,
-        "email_watcher": email_watcher.running,
+        # Clé historique conservée pour le frontend ; elle reflète désormais
+        # l'unique service ingestion, jamais l'ancien watcher en processus web.
+        "email_watcher": ingestion_running,
+        "ingestion": ingestion_health,
         "computer": _computer_status_payload(),
         "apple_shortcuts": _apple_shortcuts_status_payload(),
         "location_tracking": getattr(config, "LOCATION_TRACKING", True),
         "audio_daemon": _audio_daemon_status_payload(),
     }
-
 
 
 # ── Mission Control ──────────────────────────────────────────
@@ -245,28 +262,48 @@ async def mission_prompt(payload: dict[str, Any]):
 
     if conv_id_int is None and conversation_id == "mission-control":
         from database import create_conversation
+
         try:
             conv_id_int = create_conversation(agent="mission_control")
         except Exception as e:
             logger.warning("[mission] create_conversation: %s", e)
             conv_id_int = None
 
-    result = await orchestrator.handle(message, conv_id_int)
-    return result
+    snapshot = await prepare_turn(
+        message,
+        conv_id_int,
+        interaction_mode="chat",
+    )
+    result = await orchestrator.handle(
+        message,
+        conv_id_int,
+        context=snapshot.to_context(),
+    )
+    return {**result, "knowledge": snapshot.public_payload()}
 
 
 async def api_email_watcher_catchup():
-    """Force un cycle de rattrapage (réhydratation DB + analyse des non-lus absents de ``email_summaries``).
-
-    Réinitialise aussi le cache de disponibilité Mail (contourne le cooldown 120s après timeout).
-    Ouvre Mail.app avant d'appeler si le dernier test a expiré.
-    """
+    """Enfile un rattrapage Mail auprès de l'unique service ingestion."""
     try:
-        result = await email_watcher.run_catchup_cycle()
-        return result
+        from jarvis.ingestion.service import request_ingestion_freshness
+
+        states = await asyncio.to_thread(
+            request_ingestion_freshness,
+            ("mail",),
+            budget_ms=0,
+        )
+        state = states.get("mail")
+        return {
+            "ok": True,
+            "queued": True,
+            "source": "mail",
+            "status": state.status if state is not None else "pending",
+        }
     except Exception as e:
         logger.exception("api_email_watcher_catchup : %s", e)
-        raise internal_error("email_catchup_failed", "Rattrapage des emails impossible") from e
+        raise internal_error(
+            "email_catchup_failed", "Rattrapage des emails impossible"
+        ) from e
 
 
 # ── Réglages dynamiques (sans redémarrage) ──────────────────
@@ -422,12 +459,15 @@ async def api_briefing(kind: str = "morning"):
         return {"kind": kind, "content": text}
     except Exception as e:
         logger.exception("Erreur briefing")
-        raise internal_error("briefing_failed", "Génération du briefing impossible") from e
+        raise internal_error(
+            "briefing_failed", "Génération du briefing impossible"
+        ) from e
 
 
 async def api_emails(limit: int = 20):
     """Resumes emails recents (email_summaries)."""
     from database import get_recent_email_summaries
+
     summaries = get_recent_email_summaries(limit=limit)
     return {"emails": summaries, "count": len(summaries)}
 
@@ -435,7 +475,12 @@ async def api_emails(limit: int = 20):
 async def api_mood():
     """Dernier mood enregistre."""
     from database import get_recent_moods
+
     moods = get_recent_moods(limit=1)
     if moods:
-        return {"mood": moods[0].get("mood_score"), "energy": moods[0].get("energy_level"), "context": moods[0].get("context", "")}
+        return {
+            "mood": moods[0].get("mood_score"),
+            "energy": moods[0].get("energy_level"),
+            "context": moods[0].get("context", ""),
+        }
     return {"mood": None, "energy": None}

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -18,6 +19,23 @@ def knowledge_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setattr(database, "DB_PATH", db_path)
     database.init_db()
     return db_path
+
+
+def _mark_live_sources_complete() -> None:
+    from database.ingestion import bind_connector, update_ingestion_source_state
+
+    refreshed_at = datetime.now(timezone.utc).isoformat()
+    for source in ("mail", "calendar", "imessage"):
+        bind_connector(source, permission_state="granted")
+        update_ingestion_source_state(
+            source,
+            status="idle",
+            completeness="complete",
+            cursor={"full_history": True},
+            coverage_start_utc="1970-01-01T00:00:00Z",
+            coverage_end_utc="2100-01-01T00:00:00Z",
+            last_success_at=refreshed_at,
+        )
 
 
 def _seed_every_source() -> None:
@@ -186,6 +204,7 @@ def test_every_canonical_source_is_backfilled_and_searchable(
     )
 
     _seed_every_source()
+    _mark_live_sources_complete()
     report = rebuild_knowledge_index()
 
     assert report["status"] == "ok"
@@ -308,6 +327,7 @@ def test_latest_mail_intent_returns_read_and_unread_messages_in_date_order(
     from database import get_db
     from jarvis.retrieval import RetrievalRequest, search_knowledge
 
+    _mark_live_sources_complete()
     with get_db() as conn:
         conn.execute(
             """

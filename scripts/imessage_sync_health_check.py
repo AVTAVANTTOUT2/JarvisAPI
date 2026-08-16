@@ -12,18 +12,25 @@ Sortie JSON pour audit rapide:
 from __future__ import annotations
 
 import json
+import ssl
 import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
-
-from integrations.apple_data import apple_data
-from database import get_connection, profile_database_path
-
+from urllib.error import HTTPError, URLError
+from urllib.request import urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from database import get_connection, profile_database_path  # noqa: E402
+from integrations.apple_data import apple_data  # noqa: E402
+
+
 DB_PATH = profile_database_path()
 BACKEND_LOG = ROOT / "data" / ".jarvis_restart" / "backend.log"
-STATUS_URL = "https://127.0.0.1:8081/api/status"
+STATUS_URL = "https://127.0.0.1:8081/health/ready"
 
 
 def _run(cmd: list[str]) -> tuple[int, str, str]:
@@ -48,26 +55,42 @@ def check_backend() -> dict:
 
 def check_chat_db() -> dict:
     """Diagnostique chat.db via le point d'accès Apple centralisé."""
-    return apple_data.health()
+    report = apple_data.health()
+    if not report.get("readable"):
+        report["permission_state"] = "full_disk_access_required"
+        report["remediation"] = (
+            "Réglages Système > Confidentialité et sécurité > Accès complet au disque : "
+            "autoriser l'application ou le terminal qui lance com.jarvis.ingestion, "
+            "puis relancer ce LaunchAgent."
+        )
+    else:
+        report["permission_state"] = "granted"
+    return report
 
 
 def check_status_api() -> dict:
     out: dict = {"url": STATUS_URL}
     try:
-        code, stdout, stderr = _run(["curl", "-sk", STATUS_URL])
-        if code != 0 or not stdout:
-            raise RuntimeError(stderr or f"curl exit_code={code}")
-        payload = json.loads(stdout)
+        context = ssl._create_unverified_context()  # noqa: S323 -- loopback only
+        with urlopen(STATUS_URL, timeout=3.0, context=context) as response:  # noqa: S310
+            status_code = int(response.status)
+            payload = json.loads(response.read(64 * 1024).decode("utf-8"))
         out["reachable"] = True
-        out["imessage_available"] = payload.get("imessage", {}).get("available")
-        # `/api/status` ne renvoie plus le numéro cible : le diagnostic n'a
-        # besoin que de savoir s'il est configuré, pas de le réafficher.
-        out["imessage_target_configured"] = payload.get("imessage", {}).get("configured")
-        out["email_watcher_running"] = payload.get("email_watcher", {}).get("running")
-        out["people_count_api"] = payload.get("memory", {}).get("people")
-        out["relationship_profiles_count_api"] = payload.get("memory", {}).get("relationship_profiles")
+        out["http_status"] = status_code
+        out["ready"] = status_code == 200 and payload.get("status") == "ready"
+        out["status"] = payload.get("status")
+    except HTTPError as exc:
+        out["reachable"] = True
+        out["http_status"] = exc.code
+        out["ready"] = False
+        out["error"] = "unauthorized" if exc.code in {401, 403} else f"http_{exc.code}"
+    except URLError as exc:
+        out["reachable"] = False
+        out["ready"] = False
+        out["error"] = f"connection_error: {exc.reason}"
     except Exception as exc:
         out["reachable"] = False
+        out["ready"] = False
         out["error"] = f"{type(exc).__name__}: {exc}"
     return out
 
@@ -81,8 +104,12 @@ def check_jarvis_db() -> dict:
     conn = get_connection()
     cur = conn.cursor()
     out["people_count"] = cur.execute("SELECT COUNT(*) c FROM people").fetchone()["c"]
-    out["relationship_profiles_count"] = cur.execute("SELECT COUNT(*) c FROM relationship_profiles").fetchone()["c"]
-    out["analysis_cache_count"] = cur.execute("SELECT COUNT(*) c FROM imessage_analysis_cache").fetchone()["c"]
+    out["relationship_profiles_count"] = cur.execute(
+        "SELECT COUNT(*) c FROM relationship_profiles"
+    ).fetchone()["c"]
+    out["analysis_cache_count"] = cur.execute(
+        "SELECT COUNT(*) c FROM imessage_analysis_cache"
+    ).fetchone()["c"]
     out["analysis_cache_max_rowid"] = cur.execute(
         "SELECT COALESCE(MAX(last_analyzed_rowid),0) m FROM imessage_analysis_cache"
     ).fetchone()["m"]
@@ -110,11 +137,23 @@ def check_jarvis_db() -> dict:
 
 
 def check_recent_critical_errors() -> dict:
-    out: dict = {"log_path": str(BACKEND_LOG), "exists": BACKEND_LOG.exists(), "recent_errors": []}
+    out: dict = {
+        "log_path": str(BACKEND_LOG),
+        "exists": BACKEND_LOG.exists(),
+        "recent_errors": [],
+    }
     if not BACKEND_LOG.exists():
         return out
     lines = BACKEND_LOG.read_text(encoding="utf-8", errors="ignore").splitlines()
-    interesting = [ln for ln in lines if ("[CRITICAL]" in ln or "unable to open database file" in ln or "TIMEOUT" in ln)]
+    interesting = [
+        ln
+        for ln in lines
+        if (
+            "[CRITICAL]" in ln
+            or "unable to open database file" in ln
+            or "TIMEOUT" in ln
+        )
+    ]
     out["recent_errors"] = interesting[-20:]
     out["recent_errors_count"] = len(out["recent_errors"])
     return out

@@ -38,155 +38,227 @@ def _get_all_services_status() -> list[dict[str, object]]:
     # ── Audio Daemon ──
     try:
         from scripts.audio_daemon import audio_daemon
-        services.append({
-            "id": "audio_daemon",
-            "name": "Audio Daemon",
-            "description": "Micro natif + wake word + TTS",
-            "category": "audio",
-            "running": audio_daemon.enabled,
-            "state": audio_daemon.state,
-            # La cause voyage avec l'état. Sans elle, l'interface ne peut
-            # afficher que « ERROR » et l'utilisateur doit ouvrir les journaux
-            # du serveur pour apprendre qu'il manque un micro.
-            "error": getattr(audio_daemon, "_error_reason", None),
-            "can_control": True,
-        })
-    except Exception:
-        services.append({"id": "audio_daemon", "name": "Audio Daemon", "running": False, "can_control": True, "category": "audio", "description": "Micro natif + wake word + TTS"})
 
-    # ── Email Watcher ──
-    try:
-        from scripts.email_watcher import email_watcher as _ew
-        running = getattr(_ew, '_running', False) or getattr(_ew, 'running', False)
-        services.append({
-            "id": "email_watcher",
-            "name": "Email Watcher",
-            "description": "Surveillance Mail.app (analyse Haiku)",
-            "category": "integrations",
-            "running": running,
-            "can_control": True,
-        })
+        services.append(
+            {
+                "id": "audio_daemon",
+                "name": "Audio Daemon",
+                "description": "Micro natif + wake word + TTS",
+                "category": "audio",
+                "running": audio_daemon.enabled,
+                "state": audio_daemon.state,
+                # La cause voyage avec l'état. Sans elle, l'interface ne peut
+                # afficher que « ERROR » et l'utilisateur doit ouvrir les journaux
+                # du serveur pour apprendre qu'il manque un micro.
+                "error": getattr(audio_daemon, "_error_reason", None),
+                "can_control": True,
+            }
+        )
     except Exception:
-        services.append({"id": "email_watcher", "name": "Email Watcher", "running": False, "can_control": True, "category": "integrations", "description": "Surveillance Mail.app"})
+        services.append(
+            {
+                "id": "audio_daemon",
+                "name": "Audio Daemon",
+                "running": False,
+                "can_control": True,
+                "category": "audio",
+                "description": "Micro natif + wake word + TTS",
+            }
+        )
+
+    # Clé historique : l'ancien watcher ne peut plus être lancé dans l'API.
+    from database import get_ingestion_health_summary
+
+    ingestion = get_ingestion_health_summary()
+    service_state = next(
+        (
+            item
+            for item in ingestion.get("states", [])
+            if item.get("source") == "__service__"
+        ),
+        {},
+    )
+    services.append(
+        {
+            "id": "email_watcher",
+            "name": "Service ingestion",
+            "description": "Collecte Mail, iMessage, Calendar et recordings via launchd",
+            "category": "integrations",
+            "running": service_state.get("status") in {"ok", "degraded"},
+            "state": service_state.get("status") or "unavailable",
+            "can_control": False,
+            "managed_by": "com.jarvis.ingestion",
+        }
+    )
 
     # ── JARVIS Daemon ──
     try:
         from scripts.jarvis_daemon import daemon as _jd
-        running = getattr(_jd, '_running', False) or getattr(_jd, 'running', False)
-        services.append({
-            "id": "jarvis_daemon",
-            "name": "JARVIS Daemon",
-            "description": "Sentinelle permanente (triage notifications)",
-            "category": "core",
-            "running": running,
-            "can_control": True,
-        })
+
+        running = getattr(_jd, "_running", False) or getattr(_jd, "running", False)
+        services.append(
+            {
+                "id": "jarvis_daemon",
+                "name": "JARVIS Daemon",
+                "description": "Sentinelle permanente (triage notifications)",
+                "category": "core",
+                "running": running,
+                "can_control": True,
+            }
+        )
     except Exception:
-        services.append({"id": "jarvis_daemon", "name": "JARVIS Daemon", "running": False, "can_control": True, "category": "core", "description": "Sentinelle permanente"})
+        services.append(
+            {
+                "id": "jarvis_daemon",
+                "name": "JARVIS Daemon",
+                "running": False,
+                "can_control": True,
+                "category": "core",
+                "description": "Sentinelle permanente",
+            }
+        )
 
     # ── Screen Watcher (état propre, jamais dérivé du daemon) ──
     try:
         from scripts.screen_watcher import screen_watcher as _sw
+
         payload = _sw.status_payload()
         services.append(payload)
     except Exception as exc:
         logger.debug("screen_watcher status: %s", exc)
-        services.append({
-            "id": "screen_watcher",
-            "name": "Screen Watcher",
-            "running": False,
-            "status": "error",
-            "state": "error",
-            "can_control": True,
-            "category": "monitoring",
-            "description": "Analyse ecran Ollama vision",
-            "detail": "screen_watcher_status_unavailable",
-        })
+        services.append(
+            {
+                "id": "screen_watcher",
+                "name": "Screen Watcher",
+                "running": False,
+                "status": "error",
+                "state": "error",
+                "can_control": True,
+                "category": "monitoring",
+                "description": "Analyse ecran Ollama vision",
+                "detail": "screen_watcher_status_unavailable",
+            }
+        )
 
     # ── Scheduler ──
     try:
         from scripts.scheduler import scheduler as _sched
-        sched_running = _sched.running if hasattr(_sched, 'running') else getattr(_sched, 'state', 0) == 1
+
+        sched_running = (
+            _sched.running
+            if hasattr(_sched, "running")
+            else getattr(_sched, "state", 0) == 1
+        )
         jobs_count = len(_sched.get_jobs()) if sched_running else 0
-        services.append({
-            "id": "scheduler",
-            "name": "Scheduler",
-            "description": f"APScheduler ({jobs_count} jobs)",
-            "category": "core",
-            "running": sched_running,
-            "can_control": True,
-        })
+        services.append(
+            {
+                "id": "scheduler",
+                "name": "Scheduler",
+                "description": f"APScheduler ({jobs_count} jobs)",
+                "category": "core",
+                "running": sched_running,
+                "can_control": True,
+            }
+        )
     except Exception:
-        services.append({"id": "scheduler", "name": "Scheduler", "running": False, "can_control": True, "category": "core", "description": "APScheduler"})
+        services.append(
+            {
+                "id": "scheduler",
+                "name": "Scheduler",
+                "running": False,
+                "can_control": True,
+                "category": "core",
+                "description": "APScheduler",
+            }
+        )
 
     # ── Relationship Analyzer ──
     try:
         from scripts.relationship_analyzer import analyzer as _rel
-        running_rel = getattr(_rel, '_running', False)
-        services.append({
-            "id": "relationship_analyzer",
-            "name": "Relationship Analyzer",
-            "description": "Analyse iMessage -> profils relationnels",
-            "category": "analysis",
-            "running": running_rel,
-            "can_control": True,
-        })
+
+        running_rel = getattr(_rel, "_running", False)
+        services.append(
+            {
+                "id": "relationship_analyzer",
+                "name": "Relationship Analyzer",
+                "description": "Analyse iMessage -> profils relationnels",
+                "category": "analysis",
+                "running": running_rel,
+                "can_control": True,
+            }
+        )
     except Exception:
-        services.append({"id": "relationship_analyzer", "name": "Relationship Analyzer", "running": False, "can_control": True, "category": "analysis", "description": "Analyse iMessage"})
+        services.append(
+            {
+                "id": "relationship_analyzer",
+                "name": "Relationship Analyzer",
+                "running": False,
+                "can_control": True,
+                "category": "analysis",
+                "description": "Analyse iMessage",
+            }
+        )
 
     # ── Ollama (health HTTP réel) ──
     try:
         from integrations.ollama_control import check_ollama_health
 
         health = check_ollama_health()
-        services.append({
-            "id": "ollama",
-            "name": "Ollama",
-            "description": "LLM local (vision + triage)",
-            "category": "external",
-            "running": bool(health.get("healthy")),
-            "status": health.get("status"),
-            "state": health.get("status"),
-            "healthy": bool(health.get("healthy")),
-            "port": health.get("port"),
-            "latency_ms": health.get("latency_ms"),
-            "models": health.get("models"),
-            "vision_model": health.get("vision_model"),
-            "vision_model_resolved": health.get("vision_model_resolved"),
-            "vision_model_available": health.get("vision_model_available"),
-            "error": "ollama_unavailable" if health.get("error") else None,
-            "can_control": True,
-        })
+        services.append(
+            {
+                "id": "ollama",
+                "name": "Ollama",
+                "description": "LLM local (vision + triage)",
+                "category": "external",
+                "running": bool(health.get("healthy")),
+                "status": health.get("status"),
+                "state": health.get("status"),
+                "healthy": bool(health.get("healthy")),
+                "port": health.get("port"),
+                "latency_ms": health.get("latency_ms"),
+                "models": health.get("models"),
+                "vision_model": health.get("vision_model"),
+                "vision_model_resolved": health.get("vision_model_resolved"),
+                "vision_model_available": health.get("vision_model_available"),
+                "error": "ollama_unavailable" if health.get("error") else None,
+                "can_control": True,
+            }
+        )
     except Exception as exc:
         logger.debug("ollama status: %s", exc)
-        services.append({
-            "id": "ollama",
-            "name": "Ollama",
-            "description": "LLM local (vision + triage)",
-            "category": "external",
-            "running": False,
-            "status": "error",
-            "healthy": False,
-            "can_control": True,
-            "error": "ollama_status_unavailable",
-        })
+        services.append(
+            {
+                "id": "ollama",
+                "name": "Ollama",
+                "description": "LLM local (vision + triage)",
+                "category": "external",
+                "running": False,
+                "status": "error",
+                "healthy": False,
+                "can_control": True,
+                "error": "ollama_status_unavailable",
+            }
+        )
 
     # ── TV Dashboard (port 5174) ──
     import socket as _sock
+
     tv_running = False
     try:
         with _sock.create_connection(("127.0.0.1", 5174), timeout=1):
             tv_running = True
     except Exception:
         pass
-    services.append({
-        "id": "tv_dashboard",
-        "name": "TV Dashboard",
-        "description": "Dashboard War Room (port 5174)",
-        "category": "external",
-        "running": tv_running,
-        "can_control": True,
-    })
+    services.append(
+        {
+            "id": "tv_dashboard",
+            "name": "TV Dashboard",
+            "description": "Dashboard War Room (port 5174)",
+            "category": "external",
+            "running": tv_running,
+            "can_control": True,
+        }
+    )
 
     return services
 
@@ -197,27 +269,34 @@ async def _start_service(service: str) -> dict[str, object]:
 
     if svc == "audio_daemon":
         from scripts.audio_daemon import audio_daemon as _ad
+
         if _ad.enabled and _ad._running:
             return {"ok": True, "message": "Deja actif"}
-        _service_tasks["audio_daemon"] = asyncio.create_task(_ad.start(), name="audio_daemon_ctrl")
+        _service_tasks["audio_daemon"] = asyncio.create_task(
+            _ad.start(), name="audio_daemon_ctrl"
+        )
         return {"ok": True, "message": "Audio daemon demarre"}
 
     if svc == "email_watcher":
-        from scripts.email_watcher import email_watcher as _ew
-        if getattr(_ew, '_running', False) or getattr(_ew, 'running', False):
-            return {"ok": True, "message": "Deja actif"}
-        _service_tasks["email_watcher"] = asyncio.create_task(_ew.start(), name="email_watcher_ctrl")
-        return {"ok": True, "message": "Email watcher demarre"}
+        return {
+            "ok": False,
+            "error": "managed_by_launchd",
+            "message": "Le service ingestion est géré exclusivement par launchd.",
+        }
 
     if svc == "jarvis_daemon":
         from scripts.jarvis_daemon import daemon as _jd
-        if getattr(_jd, '_running', False) or getattr(_jd, 'running', False):
+
+        if getattr(_jd, "_running", False) or getattr(_jd, "running", False):
             return {"ok": True, "message": "Deja actif"}
-        _service_tasks["jarvis_daemon"] = asyncio.create_task(_jd.start(), name="jarvis_daemon_ctrl")
+        _service_tasks["jarvis_daemon"] = asyncio.create_task(
+            _jd.start(), name="jarvis_daemon_ctrl"
+        )
         return {"ok": True, "message": "JARVIS daemon demarre"}
 
     if svc == "screen_watcher":
         from scripts.screen_watcher import screen_watcher as _sw
+
         result = await _sw.ensure_started(require_ollama=True, autostart=False)
         if result.get("ok"):
             task = _sw._loop_task
@@ -227,11 +306,13 @@ async def _start_service(service: str) -> dict[str, object]:
 
     if svc == "scheduler":
         from scripts.scheduler import start_scheduler as _start_sched
+
         _start_sched()
         return {"ok": True, "message": "Scheduler demarre"}
 
     if svc == "relationship_analyzer":
         from scripts.relationship_analyzer import analyzer as _rel
+
         _service_tasks["relationship_analyzer"] = asyncio.create_task(
             _rel.run_initial_scan(), name="relationship_analyzer_ctrl"
         )
@@ -262,6 +343,7 @@ async def _stop_service(service: str) -> dict[str, object]:
 
     if svc == "audio_daemon":
         from scripts.audio_daemon import audio_daemon as _ad
+
         await _ad.stop()
         task = _service_tasks.pop("audio_daemon", None)
         if task and not task.done():
@@ -269,15 +351,15 @@ async def _stop_service(service: str) -> dict[str, object]:
         return {"ok": True, "message": "Audio daemon arrete"}
 
     if svc == "email_watcher":
-        from scripts.email_watcher import email_watcher as _ew
-        _ew.stop()
-        task = _service_tasks.pop("email_watcher", None)
-        if task and not task.done():
-            task.cancel()
-        return {"ok": True, "message": "Email watcher arrete"}
+        return {
+            "ok": False,
+            "error": "managed_by_launchd",
+            "message": "Le service ingestion est géré exclusivement par launchd.",
+        }
 
     if svc == "jarvis_daemon":
         from scripts.jarvis_daemon import daemon as _jd
+
         _jd.stop()
         task = _service_tasks.pop("jarvis_daemon", None)
         if task and not task.done():
@@ -286,12 +368,14 @@ async def _stop_service(service: str) -> dict[str, object]:
 
     if svc == "screen_watcher":
         from scripts.screen_watcher import screen_watcher as _sw
+
         result = await _sw.stop_async(reason="manual")
         _service_tasks.pop("screen_watcher", None)
         return result
 
     if svc == "scheduler":
         from scripts.scheduler import shutdown_scheduler as _stop_sched
+
         _stop_sched()
         return {"ok": True, "message": "Scheduler arrete"}
 
@@ -322,7 +406,9 @@ async def _stop_service(service: str) -> dict[str, object]:
     if svc == "tv_dashboard":
         result = subprocess.run(
             ["lsof", "-nP", "-iTCP:5174", "-sTCP:LISTEN", "-t"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         pids = result.stdout.strip().split()
         for pid in pids:

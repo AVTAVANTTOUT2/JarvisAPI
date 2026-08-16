@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from email.utils import parseaddr
+
 from .core import get_db
+from .ingestion import upsert_contact_identity
 from .time_buckets import sqlite_utc_timestamp
 
 
@@ -83,15 +86,36 @@ def save_email_full(
     category: str = "info",
     priority: str = "low",
     is_read: bool = False,
+    content_complete: bool = True,
+    ingestion_completeness: str | None = None,
+    account_id: str | None = None,
+    mailbox_id: str | None = None,
 ) -> int:
     now_iso = sqlite_utc_timestamp()
     normalized_received_at = received_at
+    received_at_utc: str | None = None
     if received_at:
         try:
             normalized_received_at = sqlite_utc_timestamp(received_at)
+            received_at_utc = normalized_received_at
         except (TypeError, ValueError):
             # Compatibilité des anciennes dates Mail localisées déjà persistées.
             normalized_received_at = received_at
+    completeness = ingestion_completeness or (
+        "complete" if content_complete else "metadata"
+    )
+    if completeness not in {"metadata", "partial", "complete"}:
+        raise ValueError("email_ingestion_completeness_invalid")
+    display_name, sender_address = parseaddr(str(sender or ""))
+    sender_identity_id: int | None = None
+    if sender_address:
+        identity = upsert_contact_identity(
+            "email",
+            sender_address,
+            display_name=display_name,
+            source="mail",
+        )
+        sender_identity_id = int(identity["id"])
     with get_db() as conn:
         existing = conn.execute(
             "SELECT id FROM email_summaries WHERE gmail_id = ?", (gmail_id,)
@@ -99,29 +123,40 @@ def save_email_full(
         if existing:
             conn.execute(
                 """UPDATE email_summaries SET
-                       sender = ?, subject = ?, body = ?, received_at = ?,
+                       sender = ?, subject = ?, body = ?, received_at = ?, received_at_utc = ?,
                        summary = ?, category = ?, priority = ?, is_read = ?,
-                       created_at = ?
+                       account_id = COALESCE(?, account_id),
+                       mailbox_id = COALESCE(?, mailbox_id),
+                       source_updated_at_utc = ?, content_complete = ?,
+                       ingestion_completeness = ?, sender_identity_id = ?
                    WHERE gmail_id = ?""",
                 (
                     sender,
                     subject,
                     body,
                     normalized_received_at,
+                    received_at_utc,
                     summary,
                     category,
                     priority,
                     int(is_read),
+                    account_id,
+                    mailbox_id,
                     now_iso,
+                    int(content_complete),
+                    completeness,
+                    sender_identity_id,
                     gmail_id,
                 ),
             )
             return int(existing["id"])
         cursor = conn.execute(
             """INSERT INTO email_summaries
-               (gmail_id, sender, subject, body, received_at, summary,
-                category, priority, is_read, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (gmail_id, sender, subject, body, received_at, summary,
+                category, priority, is_read, created_at, received_at_utc,
+                source_updated_at_utc, account_id, mailbox_id, content_complete,
+                ingestion_completeness, sender_identity_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 gmail_id,
                 sender,
@@ -133,6 +168,13 @@ def save_email_full(
                 priority,
                 int(is_read),
                 now_iso,
+                received_at_utc,
+                now_iso,
+                account_id,
+                mailbox_id,
+                int(content_complete),
+                completeness,
+                sender_identity_id,
             ),
         )
         return int(cursor.lastrowid)
@@ -146,12 +188,16 @@ def cache_email_preview(
     preview: str,
     received_at: str,
     is_read: bool,
+    account_id: str | None = None,
+    mailbox_id: str | None = None,
 ) -> int:
     """Met à jour le cache live sans écraser un corps complet déjà analysé."""
 
     with get_db() as conn:
         existing = conn.execute(
-            "SELECT body, summary, category, priority FROM email_summaries WHERE gmail_id = ?",
+            """SELECT body, summary, category, priority, content_complete,
+                      ingestion_completeness, account_id, mailbox_id
+               FROM email_summaries WHERE gmail_id = ?""",
             (gmail_id,),
         ).fetchone()
     if existing:
@@ -166,6 +212,7 @@ def cache_email_preview(
         summary = subject
         category = "info"
         priority = "low"
+    already_complete = bool(existing and existing["content_complete"])
     return save_email_full(
         gmail_id=gmail_id,
         sender=sender,
@@ -176,6 +223,16 @@ def cache_email_preview(
         category=category,
         priority=priority,
         is_read=is_read,
+        content_complete=already_complete,
+        ingestion_completeness=(
+            str(existing["ingestion_completeness"] or "complete")
+            if already_complete
+            else "metadata"
+        ),
+        account_id=account_id
+        or (str(existing["account_id"] or "") if existing else None),
+        mailbox_id=mailbox_id
+        or (str(existing["mailbox_id"] or "") if existing else None),
     )
 
 

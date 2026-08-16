@@ -581,15 +581,12 @@ class OrchestratorAgent(BaseAgent):
         # retrieval. Les appels directs à l'orchestrateur gardent ce fallback.
         ctx.setdefault("history", self._build_history(conversation_id))
         if not ctx.get("__retrieval_done"):
-            from dataclasses import replace
-
             from jarvis.retrieval import (
                 RetrievalRequest,
                 RetrievalResult,
                 format_retrieval_context,
                 search_knowledge,
             )
-            from jarvis.retrieval.live_sources import refresh_live_sources
 
             recent_user_turns = tuple(
                 str(message.get("content") or "")
@@ -601,38 +598,10 @@ class OrchestratorAgent(BaseAgent):
                 conversation_id=conversation_id,
                 recent_user_turns=recent_user_turns,
                 interaction_mode="voice" if voice_mode else "chat",
+                freshness_budget_ms=700 if voice_mode else 1_500,
             )
             try:
-                live_report = await refresh_live_sources(request)
                 result = await asyncio.to_thread(search_knowledge, request)
-                live_failures = {
-                    str(source): str(status)
-                    for source, status in live_report.items()
-                    if str(status) in {"degraded", "unavailable"}
-                }
-                if live_failures:
-                    result = replace(
-                        result,
-                        status=(
-                            "unavailable"
-                            if not result.verified_sources and not result.hits
-                            else "degraded"
-                        ),
-                        unavailable_sources=tuple(
-                            sorted(set(result.unavailable_sources).union(live_failures))
-                        ),
-                        diagnostics=tuple(
-                            dict.fromkeys(
-                                (
-                                    *result.diagnostics,
-                                    *(
-                                        f"live:{source}:{status}"
-                                        for source, status in live_failures.items()
-                                    ),
-                                )
-                            )
-                        ),
-                    )
             except Exception as exc:
                 logger.warning(
                     "[retrieval] fallback orchestrateur indisponible: %s",

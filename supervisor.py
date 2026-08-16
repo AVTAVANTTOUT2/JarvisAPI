@@ -13,6 +13,7 @@ import asyncio
 import fcntl
 import logging
 import os
+import shlex
 import signal
 import socket
 from database import dbapi as sqlite3
@@ -109,7 +110,10 @@ app.middleware("http")(security_middleware)
 # ── Etat global ─────────────────────────────────────────────────────────
 _start_time = time.time()
 _managed: dict[str, subprocess.Popen | None] = {
-    "backend": None, "tv_dashboard": None, "ollama": None, "claw3d": None,
+    "backend": None,
+    "tv_dashboard": None,
+    "ollama": None,
+    "claw3d": None,
 }
 _caffeinate_proc: subprocess.Popen | None = None
 _ws_clients: set[WebSocket] = set()
@@ -226,6 +230,7 @@ def _validate_supervisor_startup_security() -> None:
     )
     load_supervisor_control_token(create=True)
 
+
 # ── Lock file — empeche deux supervisors de tourner en meme temps ───────
 _lock_file: Any = None  # objet fichier pour fcntl.flock
 
@@ -264,6 +269,7 @@ def _release_singleton_lock() -> None:
 # HELPERS
 # ══════════════════════════════════════════════════════════════════════════
 
+
 def _managed_pids() -> set[int]:
     """Retourne les PIDs de tous les processus geres encore vivants."""
     pids: set[int] = {os.getpid()}  # le supervisor lui-meme
@@ -290,7 +296,9 @@ def _pids_on_port(port: int) -> list[int]:
     try:
         r = subprocess.run(
             ["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"],
-            capture_output=True, text=True, timeout=3,
+            capture_output=True,
+            text=True,
+            timeout=3,
         )
         return [int(p) for p in r.stdout.strip().split() if p.isdigit()]
     except Exception:
@@ -303,7 +311,9 @@ def _kill_port(port: int) -> None:
     pids = [p for p in _pids_on_port(port) if p not in our_pids]
     if not pids:
         return
-    log.warning("Port %d occupe par %d processus orphelin(s) — nettoyage", port, len(pids))
+    log.warning(
+        "Port %d occupe par %d processus orphelin(s) — nettoyage", port, len(pids)
+    )
     for pid in pids:
         try:
             os.kill(pid, signal.SIGTERM)
@@ -325,7 +335,9 @@ def _force_kill_port(port: int) -> None:
     pids = [p for p in _pids_on_port(port) if p not in our_pids]
     if not pids:
         return
-    log.warning("Force kill port %d — %d processus resistant(s) : %s", port, len(pids), pids)
+    log.warning(
+        "Force kill port %d — %d processus resistant(s) : %s", port, len(pids), pids
+    )
     for pid in pids:
         try:
             os.kill(pid, signal.SIGKILL)
@@ -340,7 +352,9 @@ def _child_pids(pid: int) -> list[int]:
     try:
         r = subprocess.run(
             ["pgrep", "-P", str(pid)],
-            capture_output=True, text=True, timeout=3,
+            capture_output=True,
+            text=True,
+            timeout=3,
         )
     except Exception:
         return []
@@ -376,7 +390,9 @@ def _kill_orphan_tts_sidecars() -> int:
         try:
             r = subprocess.run(
                 ["pgrep", "-f", marker],
-                capture_output=True, text=True, timeout=3,
+                capture_output=True,
+                text=True,
+                timeout=3,
             )
         except Exception:
             continue
@@ -398,7 +414,8 @@ def _kill_orphan_tts_sidecars() -> int:
             ppid = int(
                 subprocess.check_output(
                     ["ps", "-o", "ppid=", "-p", str(pid)],
-                    text=True, timeout=2,
+                    text=True,
+                    timeout=2,
                 ).strip()
                 or "0"
             )
@@ -421,6 +438,87 @@ def _kill_orphan_tts_sidecars() -> int:
             log.warning("Sidecar TTS résistant — SIGKILL PID %d", pid)
             _kill_process_tree(pid, sig=signal.SIGKILL)
     return len(terminated)
+
+
+def _process_cwd(pid: int) -> Path | None:
+    """Résout le cwd d'un PID sans suivre de chemin fourni par le processus."""
+
+    try:
+        result = subprocess.run(
+            ["lsof", "-a", "-p", str(pid), "-d", "cwd", "-Fn"],
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+    except Exception:
+        return None
+    for line in result.stdout.splitlines():
+        if line.startswith("n"):
+            try:
+                return Path(line[1:]).resolve(strict=True)
+            except (OSError, RuntimeError):
+                return None
+    return None
+
+
+def _is_jarvis_backend_process(pid: int) -> bool:
+    """Valide strictement un ancien ``main.py`` appartenant à ce checkout."""
+
+    if pid <= 1 or pid == os.getpid() or pid in _managed_pids():
+        return False
+    if _process_cwd(pid) != PROJECT_DIR:
+        return False
+    try:
+        command = subprocess.check_output(
+            ["ps", "-ww", "-o", "command=", "-p", str(pid)],
+            text=True,
+            timeout=3,
+        ).strip()
+        argv = shlex.split(command)
+    except Exception:
+        return False
+    return any(
+        token == "main.py"
+        or Path(token).resolve(strict=False) == PROJECT_DIR / "main.py"
+        for token in argv[1:]
+    )
+
+
+def _kill_orphan_backend_processes() -> int:
+    """Nettoie seulement les backends JARVIS validés et non gérés.
+
+    Un ancien backend peut rester bloqué avant l'ouverture du port (fork
+    après chargement OpenMP). Le nettoyage par port ne peut pas le voir.
+    """
+
+    try:
+        result = subprocess.run(
+            ["pgrep", "-f", "main.py"],
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+    except Exception:
+        return 0
+    candidates = [
+        int(raw)
+        for raw in result.stdout.split()
+        if raw.isdigit() and _is_jarvis_backend_process(int(raw))
+    ]
+    for pid in candidates:
+        log.warning("Backend JARVIS orphelin validé — SIGTERM PID %d", pid)
+        _kill_process_tree(pid, sig=signal.SIGTERM)
+    if candidates:
+        time.sleep(1.0)
+    for pid in candidates:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            continue
+        if _is_jarvis_backend_process(pid):
+            log.warning("Backend JARVIS orphelin résistant — SIGKILL PID %d", pid)
+            _kill_process_tree(pid, sig=signal.SIGKILL)
+    return len(candidates)
 
 
 def _tail_log(log_name: str, lines: int = 5) -> str:
@@ -451,9 +549,30 @@ async def _broadcast(event: dict[str, Any]) -> None:
 # ══════════════════════════════════════════════════════════════════════════
 
 SERVICES = [
-    {"id": "backend", "name": "Backend JARVIS", "description": "FastAPI principal (agents, LLM, daemons)", "category": "core", "port": BACKEND_PORT, "can_control": True},
-    {"id": "tv_dashboard", "name": "TV Dashboard", "description": "Dashboard War Room (port 5174)", "category": "external", "port": 5174, "can_control": True},
-    {"id": "ollama", "name": "Ollama", "description": "LLM local (qwen2.5-vl, triage)", "category": "external", "port": 11434, "can_control": True},
+    {
+        "id": "backend",
+        "name": "Backend JARVIS",
+        "description": "FastAPI principal (agents, LLM, daemons)",
+        "category": "core",
+        "port": BACKEND_PORT,
+        "can_control": True,
+    },
+    {
+        "id": "tv_dashboard",
+        "name": "TV Dashboard",
+        "description": "Dashboard War Room (port 5174)",
+        "category": "external",
+        "port": 5174,
+        "can_control": True,
+    },
+    {
+        "id": "ollama",
+        "name": "Ollama",
+        "description": "LLM local (qwen2.5-vl, triage)",
+        "category": "external",
+        "port": 11434,
+        "can_control": True,
+    },
     {
         "id": "claw3d",
         "name": "Claw3D",
@@ -558,6 +677,7 @@ async def _stop_screen_watcher_via_backend() -> dict:
 # CONTROLE SERVICES
 # ══════════════════════════════════════════════════════════════════════════
 
+
 def _log_backend_tls_plan() -> None:
     """Affiche le protocole réellement attendu pour le backend JARVIS."""
     if config.WEB_HTTPS and not config.WEB_SSL_AVAILABLE:
@@ -638,9 +758,7 @@ def _claw3d_child_environment() -> dict:
     Claw3D vient de son ``.env`` généré, pas de l'environnement du superviseur.
     """
     child = {
-        name: os.environ[name]
-        for name in _CLAW3D_ENV_ALLOWLIST
-        if os.environ.get(name)
+        name: os.environ[name] for name in _CLAW3D_ENV_ALLOWLIST if os.environ.get(name)
     }
     child.setdefault("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
     child["PYTHONUNBUFFERED"] = "1"
@@ -716,7 +834,12 @@ def _start_claw3d_sync() -> dict:
             }
         _managed["claw3d"] = None
         pid = claw3d_manager.running_pid(PROJECT_DIR)
-        log.info("Claw3D démarré%s — http://%s:%d/office", f" (PID {pid})" if pid else "", host, port)
+        log.info(
+            "Claw3D démarré%s — http://%s:%d/office",
+            f" (PID {pid})" if pid else "",
+            host,
+            port,
+        )
         return {
             "ok": True,
             "message": f"Claw3D démarré (http://{host}:{port}/office)",
@@ -807,12 +930,18 @@ def _start_sync(sid: str) -> dict:
             if managed_proc is not None and managed_proc.poll() is None:
                 return {"ok": True, "message": "Backend deja actif"}
             # Port occupe par un processus inconnu — nettoyage force
-            log.warning("Port %d occupe par un processus orphelin — nettoyage force", BACKEND_PORT)
+            log.warning(
+                "Port %d occupe par un processus orphelin — nettoyage force",
+                BACKEND_PORT,
+            )
             _kill_port(BACKEND_PORT)
             time.sleep(0.5)
             if _port_open(BACKEND_PORT):
                 # Premier nettoyage insuffisant → kill -9
-                log.warning("Port %d toujours occupe apres SIGTERM — kill -9 force", BACKEND_PORT)
+                log.warning(
+                    "Port %d toujours occupe apres SIGTERM — kill -9 force",
+                    BACKEND_PORT,
+                )
                 _force_kill_port(BACKEND_PORT)
                 time.sleep(1)
                 if _port_open(BACKEND_PORT):
@@ -824,10 +953,18 @@ def _start_sync(sid: str) -> dict:
         else:
             # Port libre mais on nettoie par precaution
             _kill_port(BACKEND_PORT)
+        orphan_backends = _kill_orphan_backend_processes()
+        if orphan_backends:
+            log.warning(
+                "Nettoyage pre-start : %d backend(s) JARVIS orphelin(s)",
+                orphan_backends,
+            )
         # Sidecars TTS orphelins d'un crash précédent (hors arbre main.py).
         orphan_tts = _kill_orphan_tts_sidecars()
         if orphan_tts:
-            log.warning("Nettoyage pre-start : %d sidecar(s) TTS orphelin(s)", orphan_tts)
+            log.warning(
+                "Nettoyage pre-start : %d sidecar(s) TTS orphelin(s)", orphan_tts
+            )
         (LOGS_DIR / "backend.log").parent.mkdir(parents=True, exist_ok=True)
         backend_env = {**os.environ, "PYTHONUNBUFFERED": "1"}
         if config.WEB_HTTPS:
@@ -942,6 +1079,7 @@ def _stop_sync(sid: str) -> dict:
 # ROUTES API — /api/supervisor/*
 # ══════════════════════════════════════════════════════════════════════════
 
+
 @app.get("/api/supervisor/status")
 async def api_status():
     svcs = []
@@ -989,7 +1127,9 @@ async def api_resources():
 @app.post("/api/supervisor/{sid}/start")
 async def api_start(sid: str):
     result = await _run_sync_control(_start_sync, sid, "start")
-    await _broadcast({"type": "service_update", "service": sid, "action": "start", **result})
+    await _broadcast(
+        {"type": "service_update", "service": sid, "action": "start", **result}
+    )
     return result
 
 
@@ -1001,7 +1141,9 @@ async def api_stop(sid: str):
     result = await _run_sync_control(_stop_sync, sid, "stop")
     if sw_result is not None:
         result = {**result, "screen_watcher": sw_result}
-    await _broadcast({"type": "service_update", "service": sid, "action": "stop", **result})
+    await _broadcast(
+        {"type": "service_update", "service": sid, "action": "stop", **result}
+    )
     return result
 
 
@@ -1018,7 +1160,9 @@ async def api_restart(sid: str):
             **result,
             "screen_watcher_note": "Screen Watcher arrêté — démarrage manuel requis",
         }
-    await _broadcast({"type": "service_update", "service": sid, "action": "restart", **result})
+    await _broadcast(
+        {"type": "service_update", "service": sid, "action": "restart", **result}
+    )
     return result
 
 
@@ -1059,7 +1203,9 @@ async def api_restart_all():
             await asyncio.sleep(1)
         if sid == "backend":
             await asyncio.sleep(3)
-    await _broadcast({"type": "bulk_update", "action": "restart-all", "results": results})
+    await _broadcast(
+        {"type": "bulk_update", "action": "restart-all", "results": results}
+    )
     return {"results": results}
 
 
@@ -1096,6 +1242,7 @@ async def api_logs(sid: str, lines: int = 50):
 
 
 # ── Sous-services ────────────────────────────────────────────────────────
+
 
 @app.get("/api/supervisor/sub-services")
 async def api_sub_services(request: Request):
@@ -1242,6 +1389,7 @@ async def api_screen_watcher_action(action: str, request: Request):
 # WEBSOCKET — etat temps reel
 # ══════════════════════════════════════════════════════════════════════════
 
+
 @app.websocket("/ws/supervisor")
 async def ws_supervisor(ws: WebSocket):
     try:
@@ -1279,6 +1427,7 @@ async def ws_supervisor(ws: WebSocket):
 # ══════════════════════════════════════════════════════════════════════════
 # PROXY — /api/* vers le backend (quand actif)
 # ══════════════════════════════════════════════════════════════════════════
+
 
 def _build_proxy_headers(incoming: dict[str, str]) -> dict[str, str]:
     """Prépare les en-têtes transmis au backend.
@@ -1323,17 +1472,23 @@ async def proxy_to_backend(request: Request, path: str):
     resp: httpx.Response | None = None
     try:
         proxied = _http.build_request(
-            method=request.method, url=url, headers=headers, content=body,
+            method=request.method,
+            url=url,
+            headers=headers,
+            content=body,
         )
         if wants_sse:
             # Flux longue durée : pas de read-timeout, sinon coupure toutes les 30 s.
-            proxied.extensions["timeout"] = httpx.Timeout(
-                None, connect=5.0
-            ).as_dict()
+            proxied.extensions["timeout"] = httpx.Timeout(None, connect=5.0).as_dict()
         resp = await _http.send(proxied, stream=True, follow_redirects=False)
         resp_headers = {}
         for k, v in resp.headers.items():
-            if k.lower() in ("transfer-encoding", "content-encoding", "connection", "content-length"):
+            if k.lower() in (
+                "transfer-encoding",
+                "content-encoding",
+                "connection",
+                "content-length",
+            ):
                 continue
             resp_headers[k] = v
 
@@ -1420,6 +1575,7 @@ def _build_ws_proxy_headers(incoming: Any) -> dict[str, str]:
         headers.update(supervisor_control_headers())
     return headers
 
+
 @app.websocket("/ws")
 async def ws_passthrough(client_ws: WebSocket):
     import ssl
@@ -1444,6 +1600,7 @@ async def ws_passthrough(client_ws: WebSocket):
             additional_headers=extra_headers,
             max_size=64 * 1024 * 1024,
         ) as backend_ws:
+
             async def client_to_backend():
                 while True:
                     msg = await client_ws.receive()
@@ -1466,7 +1623,8 @@ async def ws_passthrough(client_ws: WebSocket):
                 asyncio.create_task(backend_to_client()),
             ]
             _done, pending = await asyncio.wait(
-                tasks, return_when=asyncio.FIRST_COMPLETED,
+                tasks,
+                return_when=asyncio.FIRST_COMPLETED,
             )
             for task in pending:
                 task.cancel()
@@ -1578,7 +1736,9 @@ async def _health_check_loop() -> None:
     _consecutive_failures = 0
     MAX_CONSECUTIVE_FAILURES = 3
     _last_crash_tail = ""
-    _healing_triggered = False  # une seule tentative self-healing par episode de crash-loop
+    _healing_triggered = (
+        False  # une seule tentative self-healing par episode de crash-loop
+    )
 
     while True:
         await asyncio.sleep(_health_check_interval)
@@ -1595,20 +1755,27 @@ async def _health_check_loop() -> None:
                 log.warning(
                     "Backend detecte mort (restart #%d, echec #%d) — "
                     "dernieres lignes du log :\n%s",
-                    _backend_restart_count, _consecutive_failures, crash_tail,
+                    _backend_restart_count,
+                    _consecutive_failures,
+                    crash_tail,
                 )
                 await asyncio.to_thread(_start_sync, "backend")
-                await _broadcast({
-                    "type": "service_update",
-                    "service": "backend",
-                    "action": "auto_restart",
-                    "restart_count": _backend_restart_count,
-                    "ok": True,
-                })
+                await _broadcast(
+                    {
+                        "type": "service_update",
+                        "service": "backend",
+                        "action": "auto_restart",
+                        "restart_count": _backend_restart_count,
+                        "ok": True,
+                    }
+                )
 
             elif not proc_alive and port_open:
                 # Port occupe mais pas par notre processus → orphelin resistant
-                log.warning("Backend orphelin detecte sur port %d — force kill + restart", BACKEND_PORT)
+                log.warning(
+                    "Backend orphelin detecte sur port %d — force kill + restart",
+                    BACKEND_PORT,
+                )
                 _consecutive_failures += 1
                 await asyncio.to_thread(_force_kill_port, BACKEND_PORT)
                 await asyncio.sleep(1)
@@ -1617,21 +1784,27 @@ async def _health_check_loop() -> None:
                     log.error(
                         "Port %d toujours occupe apres force kill — abandon pour ce cycle. "
                         "PIDs restants : %s",
-                        BACKEND_PORT, _pids_on_port(BACKEND_PORT),
+                        BACKEND_PORT,
+                        _pids_on_port(BACKEND_PORT),
                     )
                 else:
                     _backend_restart_count += 1
                     await asyncio.to_thread(_start_sync, "backend")
-                    await _broadcast({
-                        "type": "service_update",
-                        "service": "backend",
-                        "action": "orphan_cleanup",
-                        "restart_count": _backend_restart_count,
-                        "ok": True,
-                    })
+                    await _broadcast(
+                        {
+                            "type": "service_update",
+                            "service": "backend",
+                            "action": "orphan_cleanup",
+                            "restart_count": _backend_restart_count,
+                            "ok": True,
+                        }
+                    )
 
             elif proc_alive and not port_open:
-                log.debug("Backend en cours de demarrage (PID %d) — port pas encore pret", managed_proc.pid)
+                log.debug(
+                    "Backend en cours de demarrage (PID %d) — port pas encore pret",
+                    managed_proc.pid,
+                )
 
             else:
                 # Backend vivant et port ouvert → tout va bien
@@ -1650,9 +1823,13 @@ async def _health_check_loop() -> None:
                     try:
                         from scripts.self_healing import handle_crash_loop
 
-                        asyncio.create_task(handle_crash_loop(_last_crash_tail), name="self_healing")
+                        asyncio.create_task(
+                            handle_crash_loop(_last_crash_tail), name="self_healing"
+                        )
                     except Exception:
-                        log.exception("Erreur au declenchement self-healing (ignoree, jamais bloquant)")
+                        log.exception(
+                            "Erreur au declenchement self-healing (ignoree, jamais bloquant)"
+                        )
 
             # Garde-fou RAM / orphelins JARVIS (jamais Codex/IDE)
             try:
@@ -1669,6 +1846,7 @@ async def _health_check_loop() -> None:
 # ══════════════════════════════════════════════════════════════════════════
 # LIFECYCLE
 # ══════════════════════════════════════════════════════════════════════════
+
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
@@ -1690,13 +1868,18 @@ async def lifespan(_app: FastAPI):
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
-            log.info("Caffeinate actif — veille systeme desactivee (affichage, idle, disque, sleep)")
+            log.info(
+                "Caffeinate actif — veille systeme desactivee (affichage, idle, disque, sleep)"
+            )
         except Exception as e:
             log.warning("Caffeinate indisponible : %s", e)
 
     # Ollama d'abord (health) pour que le Screen Watcher puisse s'autostarter
     ollama_autostart = getattr(config, "OLLAMA_AUTOSTART", True)
-    if os.getenv("OLLAMA_AUTOSTART", "true" if ollama_autostart else "false").lower() == "true":
+    if (
+        os.getenv("OLLAMA_AUTOSTART", "true" if ollama_autostart else "false").lower()
+        == "true"
+    ):
         try:
             log.info("Auto-start Ollama...")
             ollama_result = _start_sync("ollama")
@@ -1715,7 +1898,9 @@ async def lifespan(_app: FastAPI):
         else:
             managed_proc = _managed.get("backend")
             if managed_proc is None or managed_proc.poll() is not None:
-                log.warning("Port %d occupe au demarrage — nettoyage orphelin", BACKEND_PORT)
+                log.warning(
+                    "Port %d occupe au demarrage — nettoyage orphelin", BACKEND_PORT
+                )
                 _force_kill_port(BACKEND_PORT)
                 time.sleep(1)
                 _start_sync("backend")

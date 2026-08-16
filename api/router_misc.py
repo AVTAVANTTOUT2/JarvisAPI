@@ -5,8 +5,10 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from api.health_support import (
+    api_data_health,
     api_health_detail,
     api_health_live,
+    api_health_ready,
     api_metrics_history,
 )
 from api.misc_status import (
@@ -98,6 +100,16 @@ from api.misc_relationships import (
 router = APIRouter()
 
 router.add_api_route(
+    "/health/live",
+    api_health_live,
+    methods=["GET"],
+)
+router.add_api_route(
+    "/health/ready",
+    api_health_ready,
+    methods=["GET"],
+)
+router.add_api_route(
     "/api/health/live",
     api_health_live,
     methods=["GET"],
@@ -105,6 +117,11 @@ router.add_api_route(
 router.add_api_route(
     "/api/health/detail",
     api_health_detail,
+    methods=["GET"],
+)
+router.add_api_route(
+    "/api/data-health",
+    api_data_health,
     methods=["GET"],
 )
 router.add_api_route(

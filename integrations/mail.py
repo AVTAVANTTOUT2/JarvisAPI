@@ -39,6 +39,7 @@ _TIMEOUT_BREAKER_THRESHOLD = 3
 _TIMEOUT_BREAKER_COOLDOWN = 90.0  # 1,5 min — assez pour Mail, pas une coupure H24
 PREVIEW_MAX_CHARS = 1000
 BODY_MAX_CHARS = 3000
+HYDRATION_BODY_MAX_CHARS = 1_000_000
 MSG_SEPARATOR = "---MSG---"
 MAIL_DATE_HANDLERS = """on jarvisPad2(value)
     set rendered to value as string
@@ -60,6 +61,9 @@ class MailQueryResult:
     status: Literal["ok", "unavailable"]
     messages: tuple[dict, ...] = ()
     error: str | None = None
+    next_offset: int | None = None
+    has_more: bool = False
+    complete: bool = True
 
 
 class AppleMailClient:
@@ -190,7 +194,7 @@ class AppleMailClient:
 
         if result.ok:
             self._available = True
-            logger.info("[Mail] Mail.app accessible — comptes : %s", result.stdout)
+            logger.info("[Mail] Mail.app accessible")
             return True
 
         self._available = False
@@ -296,6 +300,7 @@ end tell'''
         max_results: int = 20,
         *,
         include_preview: bool = True,
+        offset: int = 0,
     ) -> MailQueryResult:
         """Interroge les derniers messages sans confondre vide et indisponible.
 
@@ -305,8 +310,9 @@ end tell'''
         AppleScript était la cause principale des timeouts 8 s.
         """
         bounded = max(1, min(int(max_results or 20), 100))
+        page_offset = max(0, int(offset or 0))
         if include_preview:
-            preview_block = f'''
+            preview_block = f"""
         set rawContent to ""
         try
             set rawContent to content of m
@@ -314,12 +320,12 @@ end tell'''
         if length of rawContent > {PREVIEW_MAX_CHARS} then
             set rawContent to text 1 thru {PREVIEW_MAX_CHARS} of rawContent
         end if
-        set output to output & "PREVIEW:" & rawContent & linefeed'''
+        set output to output & "PREVIEW:" & rawContent & linefeed"""
             # Aperçus = lent ; budget long + 2 essais.
             fetch_timeout = OSASCRIPT_TIMEOUT_LONG
             fetch_attempts = 2
         else:
-            preview_block = "\n        set output to output & \"PREVIEW:\" & linefeed"
+            preview_block = '\n        set output to output & "PREVIEW:" & linefeed'
             # Métadonnées seules : Mail répond en général en quelques secondes.
             fetch_timeout = OSASCRIPT_TIMEOUT
             fetch_attempts = 2
@@ -327,18 +333,30 @@ end tell'''
 tell application "Mail"
     set output to ""
     set allMsgs to messages of inbox
-    set maxCount to {bounded}
-    if (count of allMsgs) < maxCount then set maxCount to (count of allMsgs)
-    repeat with i from 1 to maxCount
-        set m to item i of allMsgs
-        set output to output & "{MSG_SEPARATOR}" & linefeed
-        set output to output & "ID:" & (id of m as string) & linefeed
-        set output to output & "FROM:" & (sender of m) & linefeed
-        set output to output & "SUBJECT:" & (subject of m) & linefeed
-        set output to output & "DATE:" & my jarvisIsoDate(date received of m) & linefeed
-        set output to output & "READ:" & (read status of m as string) & linefeed{preview_block}
-    end repeat
-    return output
+    set totalCount to count of allMsgs
+    set firstIndex to {page_offset + 1}
+    set lastIndex to firstIndex + {bounded - 1}
+    if lastIndex > totalCount then set lastIndex to totalCount
+    if firstIndex <= lastIndex then
+        repeat with i from firstIndex to lastIndex
+            set m to item i of allMsgs
+            set msgAccount to ""
+            set msgMailbox to ""
+            try
+                set msgMailbox to name of mailbox of m
+                set msgAccount to name of account of mailbox of m
+            end try
+            set output to output & "{MSG_SEPARATOR}" & linefeed
+            set output to output & "ID:" & (id of m as string) & linefeed
+            set output to output & "ACCOUNT:" & msgAccount & linefeed
+            set output to output & "MAILBOX:" & msgMailbox & linefeed
+            set output to output & "FROM:" & (sender of m) & linefeed
+            set output to output & "SUBJECT:" & (subject of m) & linefeed
+            set output to output & "DATE:" & my jarvisIsoDate(date received of m) & linefeed
+            set output to output & "READ:" & (read status of m as string) & linefeed{preview_block}
+        end repeat
+    end if
+    return "TOTAL:" & (totalCount as string) & linefeed & output
 end tell'''
 
         loop = asyncio.get_event_loop()
@@ -359,9 +377,34 @@ end tell'''
             )
         if raw is None:
             return MailQueryResult(status="unavailable", error="mail_no_response")
+        messages = tuple(self._parse_message_list(raw))
+        total_match = re.search(r"(?:^|\n)TOTAL:(\d+)", raw)
+        total_count = (
+            int(total_match.group(1)) if total_match else page_offset + len(messages)
+        )
+        next_offset = page_offset + len(messages)
+        has_more = next_offset < total_count
         return MailQueryResult(
             status="ok",
-            messages=tuple(self._parse_message_list(raw)),
+            messages=messages,
+            next_offset=next_offset if has_more else None,
+            has_more=has_more,
+            complete=not has_more,
+        )
+
+    async def get_recent_page_result(
+        self,
+        max_results: int = 20,
+        *,
+        offset: int = 0,
+        include_preview: bool = True,
+    ) -> MailQueryResult:
+        """Page bornée des messages, avec curseur explicite et état complet."""
+
+        return await self.get_recent_result(
+            max_results,
+            include_preview=include_preview,
+            offset=offset,
         )
 
     async def get_recent(self, max_results: int = 20) -> list[dict]:
@@ -370,12 +413,27 @@ end tell'''
         result = await self.get_recent_result(max_results)
         return list(result.messages)
 
-    async def get_message(self, msg_id: str) -> dict | None:
-        """Récupère un message complet par son ID."""
-        safe_id = int(msg_id) if str(msg_id).isdigit() else msg_id
+    async def get_message(
+        self,
+        msg_id: str,
+        *,
+        max_body_chars: int = BODY_MAX_CHARS,
+    ) -> dict | None:
+        """Récupère un message par ID avec une borne explicite sur le corps."""
+        body_limit = max(1, min(int(max_body_chars), HYDRATION_BODY_MAX_CHARS))
+        if not str(msg_id).isdigit():
+            logger.warning("[Mail] get_message refuse un identifiant non numérique")
+            return None
+        safe_id = int(msg_id)
         script = f"""{MAIL_DATE_HANDLERS}
 tell application "Mail"
     set m to first message of inbox whose id is {safe_id}
+    set msgAccount to ""
+    set msgMailbox to ""
+    try
+        set msgMailbox to name of mailbox of m
+        set msgAccount to name of account of mailbox of m
+    end try
     set msgFrom to sender of m
     set msgTo to ""
     try
@@ -385,10 +443,17 @@ tell application "Mail"
     set msgDate to my jarvisIsoDate(date received of m)
     set msgRead to read status of m as string
     set msgBody to ""
+    set msgBodyLength to 0
+    set msgBodyTruncated to false
     try
-        set msgBody to content of m
+        set msgBody to content of m as string
+        set msgBodyLength to count characters of msgBody
+        if msgBodyLength > {body_limit} then
+            set msgBody to text 1 thru {body_limit} of msgBody
+            set msgBodyTruncated to true
+        end if
     end try
-    return "FROM:" & msgFrom & linefeed & "TO:" & msgTo & linefeed & "SUBJECT:" & msgSubject & linefeed & "DATE:" & msgDate & linefeed & "READ:" & msgRead & linefeed & "BODY:" & msgBody
+    return "ACCOUNT:" & msgAccount & linefeed & "MAILBOX:" & msgMailbox & linefeed & "FROM:" & msgFrom & linefeed & "TO:" & msgTo & linefeed & "SUBJECT:" & msgSubject & linefeed & "DATE:" & msgDate & linefeed & "READ:" & msgRead & linefeed & "BODY_CHARS:" & msgBodyLength & linefeed & "BODY_TRUNCATED:" & (msgBodyTruncated as string) & linefeed & "BODY:" & msgBody
 end tell"""
 
         loop = asyncio.get_event_loop()
@@ -401,7 +466,7 @@ end tell"""
         if not raw:
             return None
 
-        return self._parse_single_message(raw, msg_id)
+        return self._parse_single_message(raw, msg_id, max_body_chars=body_limit)
 
     async def get_unread_ids(self, max_results: int = 100) -> list[str]:
         """Retourne uniquement les IDs des mails non lus (rapide, sans contenu).
@@ -534,6 +599,8 @@ end tell'''
             messages.append(
                 {
                     "id": msg_id,
+                    "account_id": self._extract_field(block, "ACCOUNT"),
+                    "mailbox_id": self._extract_field(block, "MAILBOX"),
                     "from": self._extract_field(block, "FROM"),
                     "subject": self._extract_field(block, "SUBJECT"),
                     "date": self._extract_field(block, "DATE"),
@@ -544,21 +611,45 @@ end tell'''
             )
         return messages
 
-    def _parse_single_message(self, raw: str, msg_id: str) -> dict:
+    def _parse_single_message(
+        self,
+        raw: str,
+        msg_id: str,
+        *,
+        max_body_chars: int = BODY_MAX_CHARS,
+    ) -> dict:
         """Parse le stdout de get_message en dict."""
         body_match = re.search(r"^BODY:(.*)", raw, re.MULTILINE | re.DOTALL)
         body = body_match.group(1).strip() if body_match else ""
-        if len(body) > BODY_MAX_CHARS:
-            body = body[:BODY_MAX_CHARS] + "\n[…tronqué…]"
+        declared_count = self._extract_field(raw, "BODY_CHARS")
+        try:
+            body_char_count = max(len(body), int(declared_count))
+        except (TypeError, ValueError):
+            body_char_count = len(body)
+        body_limit = max(1, min(int(max_body_chars), HYDRATION_BODY_MAX_CHARS))
+        declared_truncated = self._extract_field(raw, "BODY_TRUNCATED").lower() in {
+            "true",
+            "yes",
+            "1",
+        }
+        body_truncated = declared_truncated or body_char_count > body_limit
+        if len(body) > body_limit:
+            body = body[:body_limit] + "\n[…tronqué…]"
+        elif body_truncated and not body.endswith("[…tronqué…]"):
+            body += "\n[…tronqué…]"
 
         return {
             "id": msg_id,
+            "account_id": self._extract_field(raw, "ACCOUNT"),
+            "mailbox_id": self._extract_field(raw, "MAILBOX"),
             "from": self._extract_field(raw, "FROM"),
             "to": self._extract_field(raw, "TO"),
             "subject": self._extract_field(raw, "SUBJECT"),
             "date": self._extract_field(raw, "DATE"),
             "is_read": self._extract_field(raw, "READ").lower() in {"true", "yes", "1"},
             "body": body,
+            "body_char_count": body_char_count,
+            "body_truncated": body_truncated,
         }
 
 

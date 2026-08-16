@@ -144,7 +144,8 @@ def test_kill_orphan_tts_sidecars_never_escalates_on_a_spared_sidecar(monkeypatc
     monkeypatch.setattr(supervisor.subprocess, "run", fake_run)
     monkeypatch.setattr(supervisor.subprocess, "check_output", fake_check_output)
     monkeypatch.setattr(
-        supervisor, "_kill_process_tree",
+        supervisor,
+        "_kill_process_tree",
         lambda pid, *, sig: killed.append((pid, int(sig))),
     )
     monkeypatch.setattr(supervisor.os, "kill", fake_kill)
@@ -155,3 +156,45 @@ def test_kill_orphan_tts_sidecars_never_escalates_on_a_spared_sidecar(monkeypatc
     assert sorted({pid for pid, _ in killed}) == [orphan]
     assert (attached, int(supervisor.signal.SIGKILL)) not in killed
     assert (orphan, int(supervisor.signal.SIGKILL)) in killed
+
+
+def test_backend_orphan_identity_requires_checkout_and_entrypoint(monkeypatch):
+    import supervisor
+
+    monkeypatch.setattr(supervisor, "_managed_pids", lambda: set())
+    monkeypatch.setattr(supervisor, "_process_cwd", lambda _pid: supervisor.PROJECT_DIR)
+    monkeypatch.setattr(
+        supervisor.subprocess,
+        "check_output",
+        lambda *_a, **_k: f"/usr/bin/python3 {supervisor.PROJECT_DIR / 'main.py'}",
+    )
+    assert supervisor._is_jarvis_backend_process(4242) is True
+
+    monkeypatch.setattr(supervisor, "_process_cwd", lambda _pid: Path("/tmp"))
+    assert supervisor._is_jarvis_backend_process(4242) is False
+
+
+def test_backend_orphan_cleanup_targets_only_validated_pids(monkeypatch):
+    import supervisor
+
+    killed: list[tuple[int, int]] = []
+    monkeypatch.setattr(
+        supervisor.subprocess,
+        "run",
+        lambda *_a, **_k: SimpleNamespace(stdout="41\n42\n", returncode=0),
+    )
+    monkeypatch.setattr(supervisor, "_is_jarvis_backend_process", lambda pid: pid == 42)
+    monkeypatch.setattr(supervisor.time, "sleep", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        supervisor.os,
+        "kill",
+        lambda *_a, **_k: (_ for _ in ()).throw(ProcessLookupError()),
+    )
+    monkeypatch.setattr(
+        supervisor,
+        "_kill_process_tree",
+        lambda pid, *, sig: killed.append((pid, int(sig))),
+    )
+
+    assert supervisor._kill_orphan_backend_processes() == 1
+    assert killed == [(42, int(supervisor.signal.SIGTERM))]

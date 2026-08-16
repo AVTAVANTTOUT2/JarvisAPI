@@ -9906,6 +9906,42 @@
         "x-jarvis-authentication": "session"
       }
     },
+    "/api/data-health": {
+      "get": {
+        "description": "Diagnostic authentifié des couvertures et files d'ingestion.",
+        "operationId": "get_api_data_health",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Api Data Health",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "428": {
+            "$ref": "#/components/responses/SetupRequired"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "summary": "Api Data Health",
+        "tags": [
+          "data-health"
+        ],
+        "x-jarvis-authentication": "session"
+      }
+    },
     "/api/day-scores": {
       "get": {
         "description": "Top jours par score (jour exceptionnel ou indice de chance).",
@@ -11390,7 +11426,7 @@
     },
     "/api/email-watcher/catchup": {
       "post": {
-        "description": "Force un cycle de rattrapage (réhydratation DB + analyse des non-lus absents de ``email_summaries``).\n\nRéinitialise aussi le cache de disponibilité Mail (contourne le cooldown 120s après timeout).\nOuvre Mail.app avant d'appeler si le dernier test a expiré.",
+        "description": "Enfile un rattrapage Mail auprès de l'unique service ingestion.",
         "operationId": "post_api_email_watcher_catchup",
         "responses": {
           "200": {
@@ -21250,6 +21286,60 @@
         "x-jarvis-authentication": "session"
       }
     },
+    "/health/live": {
+      "get": {
+        "description": "Sonde de vie minimale — aucun accès disque, aucune donnée.",
+        "operationId": "get_health_live",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Health Live",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [],
+        "summary": "Api Health Live",
+        "tags": [
+          "health"
+        ],
+        "x-jarvis-authentication": "public"
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "description": "Readiness publique minimale : aucun détail de source ou de profil.",
+        "operationId": "get_health_ready",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Get Health Ready",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [],
+        "summary": "Api Health Ready",
+        "tags": [
+          "health"
+        ],
+        "x-jarvis-authentication": "public"
+      }
+    },
     "/upload": {
       "post": {
         "description": "Upload d'un document scolaire.\n\n- PDF : extraction texte via PyMuPDF\n- .txt / .md : lecture directe\n- images : sauvegarde brute (OCR à venir)\n\nLe document est référencé dans `school_documents` (titre = nom sans extension,\ncontent = texte extrait, doc_type, file_path).",
@@ -21374,6 +21464,10 @@
     {
       "description": "Opérations du domaine JARVIS « costs ».",
       "name": "costs"
+    },
+    {
+      "description": "Opérations du domaine JARVIS « data-health ».",
+      "name": "data-health"
     },
     {
       "description": "Opérations du domaine JARVIS « day-scores ».",

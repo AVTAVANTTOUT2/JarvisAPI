@@ -74,7 +74,9 @@ OWNED_CASES = (
     ),
     (
         "jarvis_agent",
-        _proc(17, f"Python {ROOT}/scripts/jarvis_agent.py --server https://127.0.0.1:8081"),
+        _proc(
+            17, f"Python {ROOT}/scripts/jarvis_agent.py --server https://127.0.0.1:8081"
+        ),
     ),
     (
         "ollama",
@@ -102,7 +104,11 @@ OWNED_CASES = (
     ),
     (
         "frontend_dev",
-        _proc(21, "node /Users/zeldris/JARVIS/frontend/node_modules/next/dist/bin/next", cwd=f"{ROOT}/frontend"),
+        _proc(
+            21,
+            "node /Users/zeldris/JARVIS/frontend/node_modules/next/dist/bin/next",
+            cwd=f"{ROOT}/frontend",
+        ),
     ),
 )
 
@@ -121,7 +127,11 @@ PROTECTED_CASES = (
     ),
     _proc(103, "python -m pytest tests/test_jarvis_stack.py", cwd=str(ROOT)),
     _proc(104, f"Python {ROOT}/scripts/jarvis_launchd.py stop", cwd=str(ROOT)),
-    _proc(105, f"Python {ROOT}/venv/bin/python {ROOT}/scripts/jarvis_stack.py", cwd=str(ROOT)),
+    _proc(
+        105,
+        f"Python {ROOT}/venv/bin/python {ROOT}/scripts/jarvis_stack.py",
+        cwd=str(ROOT),
+    ),
     _proc(106, "/usr/bin/python3 /other/project/main.py", cwd="/other/project"),
     _proc(107, "node /usr/local/bin/vite", cwd="/Users/zeldris/other-app"),
     _proc(108, "postgres"),
@@ -158,7 +168,7 @@ def test_select_owned_keeps_orphan_caffeinate_after_supervisor_is_listed():
 
 def test_launchd_labels_cover_known_agents():
     assert "com.jarvis.supervisor" in LAUNCHD_LABELS
-    assert "com.jarvis.imessage-daemon" in LAUNCHD_LABELS
+    assert "com.jarvis.ingestion" in LAUNCHD_LABELS
 
 
 def test_stop_stack_bootouts_then_signals_owned_never_foreign():
@@ -179,7 +189,11 @@ def test_stop_stack_bootouts_then_signals_owned_never_foreign():
 
     def stop_managers() -> dict[str, object]:
         managers.append("agentic_runtime")
-        return {"agentic_runtime": {"ok": True}, "claw3d": {"ok": True}, "ollama": {"ok": True}}
+        return {
+            "agentic_runtime": {"ok": True},
+            "claw3d": {"ok": True},
+            "ollama": {"ok": True},
+        }
 
     def signal_pid(pid: int, sig: int) -> None:
         signals.append((pid, sig))
@@ -504,5 +518,8 @@ def test_classify_port_occupancy_splits_owned_and_foreign():
 
 def test_wait_predicate_is_bounded():
     clock = _Clock()
-    assert wait_predicate(lambda: False, timeout_s=0.3, sleep=clock.sleep, clock=clock) is False
+    assert (
+        wait_predicate(lambda: False, timeout_s=0.3, sleep=clock.sleep, clock=clock)
+        is False
+    )
     assert clock.now >= 0.3

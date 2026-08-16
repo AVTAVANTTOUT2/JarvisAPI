@@ -268,6 +268,36 @@ CREATE TABLE commitments (
             resolved_at DATETIME
         );
 
+CREATE TABLE connector_bindings (
+    source TEXT PRIMARY KEY,
+    profile_id TEXT NOT NULL,
+    connector_kind TEXT NOT NULL,
+    account_ref TEXT NOT NULL DEFAULT 'local',
+    device_id_hash TEXT NOT NULL DEFAULT '',
+    external_account_hash TEXT NOT NULL DEFAULT '',
+    permission_state TEXT NOT NULL DEFAULT 'unknown'
+        CHECK(permission_state IN ('unknown', 'granted', 'denied')),
+    consent_source TEXT NOT NULL DEFAULT 'explicit',
+    enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0, 1)),
+    sync_interval_seconds INTEGER NOT NULL DEFAULT 300 CHECK(sync_interval_seconds >= 15),
+    settings_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE contact_identities (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    identity_type TEXT NOT NULL CHECK(identity_type IN ('email', 'phone', 'imessage', 'handle')),
+    normalized_value TEXT NOT NULL,
+    display_name TEXT NOT NULL DEFAULT '',
+    person_id INTEGER REFERENCES people(id) ON DELETE SET NULL,
+    source TEXT NOT NULL DEFAULT '',
+    confidence REAL NOT NULL DEFAULT 1.0 CHECK(confidence >= 0 AND confidence <= 1),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(identity_type, normalized_value)
+);
+
 CREATE TABLE control_task_activity (
     activity_id TEXT PRIMARY KEY,
     task_id TEXT NOT NULL REFERENCES control_tasks(task_id) ON DELETE CASCADE,
@@ -624,11 +654,25 @@ CREATE TABLE email_summaries (
     summary TEXT,
     action_needed BOOLEAN DEFAULT 0,
     priority TEXT,
-    processed_at DATETIME DEFAULT CURRENT_TIMESTAMP
-, body TEXT DEFAULT '', received_at TEXT DEFAULT '', category TEXT DEFAULT 'info', is_read INTEGER DEFAULT 0, created_at TEXT DEFAULT '');
+    processed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    body TEXT DEFAULT '',
+    received_at TEXT DEFAULT '',
+    received_at_utc TEXT,
+    source_updated_at_utc TEXT,
+    account_id TEXT,
+    mailbox_id TEXT,
+    category TEXT DEFAULT 'info',
+    is_read INTEGER DEFAULT 0,
+    content_complete INTEGER NOT NULL DEFAULT 0 CHECK(content_complete IN (0, 1)),
+    ingestion_completeness TEXT NOT NULL DEFAULT 'metadata'
+        CHECK(ingestion_completeness IN ('metadata', 'partial', 'complete')),
+    sender_identity_id INTEGER REFERENCES contact_identities(id) ON DELETE SET NULL,
+    created_at TEXT DEFAULT ''
+);
 
 CREATE TABLE episodes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    recording_id INTEGER REFERENCES recordings(id) ON DELETE SET NULL,
     agent TEXT NOT NULL,
     content TEXT NOT NULL,
     summary TEXT,
@@ -842,6 +886,8 @@ CREATE TABLE imessage_handles (
     country TEXT,
     service TEXT DEFAULT 'iMessage',
     uncanonicalized_id TEXT,
+    display_name TEXT NOT NULL DEFAULT '',
+    contact_identity_id INTEGER REFERENCES contact_identities(id) ON DELETE SET NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -869,6 +915,11 @@ CREATE TABLE imessage_messages (
     associated_message_guid TEXT,
     associated_message_type INTEGER DEFAULT 0,
     content_hash TEXT UNIQUE,
+    occurred_at_utc TEXT,
+    source_updated_at_utc TEXT,
+    content_complete INTEGER NOT NULL DEFAULT 1 CHECK(content_complete IN (0, 1)),
+    ingestion_completeness TEXT NOT NULL DEFAULT 'complete'
+        CHECK(ingestion_completeness IN ('metadata', 'partial', 'complete')),
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -894,6 +945,50 @@ CREATE TABLE imessage_sync_cursor (
     last_sync_at DATETIME,
     status TEXT DEFAULT 'idle' CHECK(status IN ('importing', 'idle', 'error')),
     error_message TEXT
+);
+
+CREATE TABLE ingestion_jobs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_id TEXT NOT NULL,
+    source TEXT NOT NULL,
+    job_kind TEXT NOT NULL DEFAULT 'sync',
+    dedupe_key TEXT NOT NULL,
+    payload_json TEXT NOT NULL DEFAULT '{}',
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK(status IN ('pending', 'running', 'retry', 'done', 'dead', 'cancelled')),
+    attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts >= 0),
+    max_attempts INTEGER NOT NULL DEFAULT 5 CHECK(max_attempts >= 1),
+    available_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    lease_token TEXT,
+    lease_owner TEXT,
+    lease_expires_at TEXT,
+    last_error_code TEXT,
+    last_error_message TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    completed_at TEXT
+);
+
+CREATE TABLE ingestion_source_state (
+    source TEXT PRIMARY KEY,
+    profile_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'idle'
+        CHECK(status IN ('idle', 'running', 'degraded', 'error', 'disabled')),
+    cursor_json TEXT NOT NULL DEFAULT '{}',
+    coverage_start_utc TEXT,
+    coverage_end_utc TEXT,
+    completeness TEXT NOT NULL DEFAULT 'unknown'
+        CHECK(completeness IN ('unknown', 'partial', 'complete')),
+    last_attempt_at TEXT,
+    last_success_at TEXT,
+    last_item_at TEXT,
+    item_count INTEGER NOT NULL DEFAULT 0 CHECK(item_count >= 0),
+    heartbeat_at TEXT,
+    error_code TEXT,
+    error_message TEXT,
+    consecutive_failures INTEGER NOT NULL DEFAULT 0 CHECK(consecutive_failures >= 0),
+    generation INTEGER NOT NULL DEFAULT 0 CHECK(generation >= 0),
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE jarvis_journal (
@@ -1254,8 +1349,29 @@ CREATE TABLE push_subscriptions (
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
 
+CREATE TABLE recording_sessions (
+    id TEXT PRIMARY KEY,
+    profile_id TEXT NOT NULL,
+    conversation_id INTEGER REFERENCES conversations(id) ON DELETE SET NULL,
+    label TEXT NOT NULL DEFAULT '',
+    state TEXT NOT NULL DEFAULT 'capturing'
+        CHECK(state IN ('capturing', 'queued', 'ready', 'processing', 'retry', 'partial', 'completed', 'failed', 'expired')),
+    spool_path TEXT NOT NULL,
+    size_bytes INTEGER NOT NULL DEFAULT 0 CHECK(size_bytes >= 0),
+    checksum TEXT NOT NULL DEFAULT '',
+    attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts >= 0),
+    error TEXT,
+    transcript TEXT,
+    summary TEXT,
+    desktop_notification_claimed_at TEXT,
+    retention_until TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE recordings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    recording_session_id TEXT REFERENCES recording_sessions(id) ON DELETE SET NULL,
     conversation_id INTEGER REFERENCES conversations(id),
     label TEXT,
     title TEXT,
@@ -1602,6 +1718,12 @@ CREATE INDEX idx_calendar_events_start
 
 CREATE INDEX idx_commitments_status ON commitments(status);
 
+CREATE INDEX idx_connector_bindings_enabled
+    ON connector_bindings(enabled, source);
+
+CREATE INDEX idx_contact_identities_person
+    ON contact_identities(person_id, identity_type);
+
 CREATE INDEX idx_control_task_activity_task
     ON control_task_activity(profile_id, task_id, sequence);
 
@@ -1654,6 +1776,10 @@ CREATE INDEX idx_email_summaries_gmail ON email_summaries(gmail_id);
 CREATE INDEX idx_episodes_agent ON episodes(agent);
 
 CREATE INDEX idx_episodes_created ON episodes(created_at);
+
+CREATE UNIQUE INDEX idx_episodes_recording_unique
+            ON episodes(recording_id)
+            WHERE recording_id IS NOT NULL;
 
 CREATE INDEX idx_event_log_timestamp ON event_log(timestamp);
 
@@ -1731,6 +1857,16 @@ CREATE UNIQUE INDEX idx_imessage_msg_rowid ON imessage_messages(apple_rowid);
 
 CREATE INDEX idx_imessage_reactions_msg ON imessage_reactions(message_id);
 
+CREATE UNIQUE INDEX idx_ingestion_jobs_active_dedupe
+    ON ingestion_jobs(source, job_kind, dedupe_key)
+    WHERE status IN ('pending', 'running', 'retry');
+
+CREATE INDEX idx_ingestion_jobs_claim
+    ON ingestion_jobs(status, available_at, lease_expires_at, id);
+
+CREATE INDEX idx_ingestion_source_health
+    ON ingestion_source_state(status, last_success_at);
+
 CREATE INDEX idx_knowledge_embeddings_hash
     ON knowledge_embeddings(content_hash);
 
@@ -1797,7 +1933,14 @@ CREATE INDEX idx_places_name ON places(name);
 
 CREATE INDEX idx_presence_arrived ON presence_sessions(arrived_at);
 
+CREATE INDEX idx_recording_sessions_due
+    ON recording_sessions(state, retention_until, updated_at);
+
 CREATE INDEX idx_recordings_date ON recordings(created_at);
+
+CREATE UNIQUE INDEX idx_recordings_session_unique
+            ON recordings(recording_session_id)
+            WHERE recording_session_id IS NOT NULL;
 
 CREATE INDEX idx_relevents_date ON relationship_events(event_date);
 
@@ -1829,6 +1972,9 @@ CREATE INDEX idx_tasks_status ON tasks(status);
 CREATE INDEX idx_trips_date ON trips(started_at);
 
 CREATE INDEX idx_turns_recording ON conversation_turns(recording_id);
+
+CREATE UNIQUE INDEX idx_turns_recording_order_unique
+            ON conversation_turns(recording_id, turn_order);
 
 CREATE INDEX idx_user_profiles_active
             ON user_profiles(is_active, display_name);
@@ -3789,6 +3935,74 @@ CREATE TRIGGER knowledge_job_food_preferences_wellbeing_au
                     updated_at = CURRENT_TIMESTAMP;
             END;
 
+CREATE TRIGGER knowledge_job_imessage_message_attachments_ad
+            AFTER DELETE ON imessage_message_attachments BEGIN
+                INSERT INTO knowledge_index_jobs(
+                source_type, source_id, operation, status, attempts,
+                next_attempt_at, last_error_code, claimed_at, completed_at,
+                created_at, updated_at
+            ) VALUES (
+                'imessage', CAST(old.message_id AS TEXT), 'upsert',
+                'pending', 0, NULL, NULL, NULL, NULL,
+                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            )
+            ON CONFLICT(source_type, source_id) DO UPDATE SET
+                operation = 'upsert', status = 'pending', attempts = 0,
+                next_attempt_at = NULL, last_error_code = NULL,
+                claimed_at = NULL, completed_at = NULL,
+                updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_imessage_message_attachments_ai
+            AFTER INSERT ON imessage_message_attachments BEGIN
+                INSERT INTO knowledge_index_jobs(
+                source_type, source_id, operation, status, attempts,
+                next_attempt_at, last_error_code, claimed_at, completed_at,
+                created_at, updated_at
+            ) VALUES (
+                'imessage', CAST(new.message_id AS TEXT), 'upsert',
+                'pending', 0, NULL, NULL, NULL, NULL,
+                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            )
+            ON CONFLICT(source_type, source_id) DO UPDATE SET
+                operation = 'upsert', status = 'pending', attempts = 0,
+                next_attempt_at = NULL, last_error_code = NULL,
+                claimed_at = NULL, completed_at = NULL,
+                updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_imessage_message_attachments_au
+            AFTER UPDATE ON imessage_message_attachments BEGIN
+                INSERT INTO knowledge_index_jobs(
+                source_type, source_id, operation, status, attempts,
+                next_attempt_at, last_error_code, claimed_at, completed_at,
+                created_at, updated_at
+            ) VALUES (
+                'imessage', CAST(old.message_id AS TEXT), 'upsert',
+                'pending', 0, NULL, NULL, NULL, NULL,
+                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            )
+            ON CONFLICT(source_type, source_id) DO UPDATE SET
+                operation = 'upsert', status = 'pending', attempts = 0,
+                next_attempt_at = NULL, last_error_code = NULL,
+                claimed_at = NULL, completed_at = NULL,
+                updated_at = CURRENT_TIMESTAMP;
+                INSERT INTO knowledge_index_jobs(
+                source_type, source_id, operation, status, attempts,
+                next_attempt_at, last_error_code, claimed_at, completed_at,
+                created_at, updated_at
+            ) VALUES (
+                'imessage', CAST(new.message_id AS TEXT), 'upsert',
+                'pending', 0, NULL, NULL, NULL, NULL,
+                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            )
+            ON CONFLICT(source_type, source_id) DO UPDATE SET
+                operation = 'upsert', status = 'pending', attempts = 0,
+                next_attempt_at = NULL, last_error_code = NULL,
+                claimed_at = NULL, completed_at = NULL,
+                updated_at = CURRENT_TIMESTAMP;
+            END;
+
 CREATE TRIGGER knowledge_job_imessage_messages_imessage_ad
             AFTER DELETE ON imessage_messages BEGIN
                 INSERT INTO knowledge_index_jobs(
@@ -3853,6 +4067,74 @@ CREATE TRIGGER knowledge_job_imessage_messages_imessage_au
                     claimed_at = NULL,
                     completed_at = NULL,
                     updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_imessage_reactions_ad
+            AFTER DELETE ON imessage_reactions BEGIN
+                INSERT INTO knowledge_index_jobs(
+                source_type, source_id, operation, status, attempts,
+                next_attempt_at, last_error_code, claimed_at, completed_at,
+                created_at, updated_at
+            ) VALUES (
+                'imessage', CAST(old.message_id AS TEXT), 'upsert',
+                'pending', 0, NULL, NULL, NULL, NULL,
+                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            )
+            ON CONFLICT(source_type, source_id) DO UPDATE SET
+                operation = 'upsert', status = 'pending', attempts = 0,
+                next_attempt_at = NULL, last_error_code = NULL,
+                claimed_at = NULL, completed_at = NULL,
+                updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_imessage_reactions_ai
+            AFTER INSERT ON imessage_reactions BEGIN
+                INSERT INTO knowledge_index_jobs(
+                source_type, source_id, operation, status, attempts,
+                next_attempt_at, last_error_code, claimed_at, completed_at,
+                created_at, updated_at
+            ) VALUES (
+                'imessage', CAST(new.message_id AS TEXT), 'upsert',
+                'pending', 0, NULL, NULL, NULL, NULL,
+                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            )
+            ON CONFLICT(source_type, source_id) DO UPDATE SET
+                operation = 'upsert', status = 'pending', attempts = 0,
+                next_attempt_at = NULL, last_error_code = NULL,
+                claimed_at = NULL, completed_at = NULL,
+                updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_imessage_reactions_au
+            AFTER UPDATE ON imessage_reactions BEGIN
+                INSERT INTO knowledge_index_jobs(
+                source_type, source_id, operation, status, attempts,
+                next_attempt_at, last_error_code, claimed_at, completed_at,
+                created_at, updated_at
+            ) VALUES (
+                'imessage', CAST(old.message_id AS TEXT), 'upsert',
+                'pending', 0, NULL, NULL, NULL, NULL,
+                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            )
+            ON CONFLICT(source_type, source_id) DO UPDATE SET
+                operation = 'upsert', status = 'pending', attempts = 0,
+                next_attempt_at = NULL, last_error_code = NULL,
+                claimed_at = NULL, completed_at = NULL,
+                updated_at = CURRENT_TIMESTAMP;
+                INSERT INTO knowledge_index_jobs(
+                source_type, source_id, operation, status, attempts,
+                next_attempt_at, last_error_code, claimed_at, completed_at,
+                created_at, updated_at
+            ) VALUES (
+                'imessage', CAST(new.message_id AS TEXT), 'upsert',
+                'pending', 0, NULL, NULL, NULL, NULL,
+                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            )
+            ON CONFLICT(source_type, source_id) DO UPDATE SET
+                operation = 'upsert', status = 'pending', attempts = 0,
+                next_attempt_at = NULL, last_error_code = NULL,
+                claimed_at = NULL, completed_at = NULL,
+                updated_at = CURRENT_TIMESTAMP;
             END;
 
 CREATE TRIGGER knowledge_job_jarvis_journal_journal_ad

@@ -8,8 +8,50 @@ Usage :
     → http://localhost:8080
 """
 
+import fcntl
 import logging
+import os
 from pathlib import Path
+
+
+_BACKEND_INSTANCE_LOCK = None
+
+
+def _acquire_backend_instance_lock(lock_path: Path | None = None):
+    """Refuse une seconde instance avant les imports IA coûteux.
+
+    Le descripteur reste ouvert pendant toute la vie du processus. ``flock``
+    est libéré automatiquement par le noyau en cas de crash, contrairement
+    à un simple fichier PID qui peut devenir orphelin.
+    """
+
+    if lock_path is None:
+        lock_path = (
+            Path(__file__).resolve().parent / "data" / "runtime" / "backend.lock"
+        )
+    runtime_dir = lock_path.parent
+    runtime_dir.mkdir(parents=True, exist_ok=True)
+    handle = lock_path.open("a+", encoding="utf-8")
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError as exc:
+        handle.close()
+        raise SystemExit(
+            f"Une instance backend JARVIS est déjà active (verrou {lock_path})."
+        ) from exc
+    handle.seek(0)
+    handle.truncate()
+    handle.write(f"pid={os.getpid()}\n")
+    handle.flush()
+    os.fsync(handle.fileno())
+    return handle
+
+
+# ``python main.py`` exécute cette section avant d'importer Torch, uvloop et
+# le pipeline. L'import ``main:app`` effectué ensuite par Uvicorn ne reprend
+# pas le verrou : il appartient déjà au processus lanceur.
+if __name__ == "__main__":
+    _BACKEND_INSTANCE_LOCK = _acquire_backend_instance_lock()
 
 import uvicorn
 from fastapi import FastAPI

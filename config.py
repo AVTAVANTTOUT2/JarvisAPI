@@ -606,6 +606,15 @@ MISSED_OPPORTUNITIES_ENABLED = (
 EMAIL_CHECK_INTERVAL = float(_get("EMAIL_CHECK_INTERVAL", "120"))
 EMAIL_WATCHER_LOCK_PATH = _get("EMAIL_WATCHER_LOCK_PATH", "")
 
+# ── Service d'ingestion supervisé ────────────────────────────
+# Un seul service launchd possède les connecteurs et le worker knowledge.
+INGESTION_SERVICE_ENABLED = _get("INGESTION_SERVICE_ENABLED", "true").lower() == "true"
+INGESTION_HEARTBEAT_INTERVAL_S = float(_get("INGESTION_HEARTBEAT_INTERVAL_S", "10"))
+INGESTION_HEARTBEAT_MAX_AGE_S = float(_get("INGESTION_HEARTBEAT_MAX_AGE_S", "30"))
+INGESTION_IMESSAGE_INTERVAL_S = float(_get("INGESTION_IMESSAGE_INTERVAL_S", "30"))
+INGESTION_MAIL_INTERVAL_S = float(_get("INGESTION_MAIL_INTERVAL_S", "120"))
+INGESTION_CALENDAR_INTERVAL_S = float(_get("INGESTION_CALENDAR_INTERVAL_S", "300"))
+
 # ── Daemon JARVIS (sentinelle permanente) ───────────────────
 # Le daemon tourne en parallèle du serveur web : screen watcher,
 # notifications proactives, wake word, TTS local.

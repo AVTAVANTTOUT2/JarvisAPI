@@ -43,6 +43,8 @@ APP_BIN = APP_DIR / "Contents" / "MacOS" / "JARVIS"
 APP_PLIST = APP_DIR / "Contents" / "Info.plist"
 LAUNCHD_DIR = Path(HOME) / "Library" / "LaunchAgents"
 LAUNCHD_DEST = LAUNCHD_DIR / "com.jarvis.supervisor.plist"
+INGESTION_LAUNCHD_DEST = LAUNCHD_DIR / "com.jarvis.ingestion.plist"
+LEGACY_IMESSAGE_LAUNCHD_DEST = LAUNCHD_DIR / "com.jarvis.imessage-daemon.plist"
 BUNDLE_ID = "fr.avity.jarvis"
 SUPERVISOR_LOG = str(LOGS_DIR / "supervisor.log")
 CLI_SRC = PROJECT_DIR / "scripts" / "jarvis"
@@ -60,6 +62,9 @@ def _install_app() -> None:
         'export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"\n'
         "export PYTHONUNBUFFERED=1\n"
         f"cd {shlex.quote(str(PROJECT_DIR))}\n"
+        'if [ "${1:-}" = "--ingestion" ]; then\n'
+        f"  exec {shlex.quote(str(VENV_PYTHON))} scripts/ingestion_service.py\n"
+        "fi\n"
         f"exec {shlex.quote(str(VENV_PYTHON))} supervisor.py\n",
         encoding="utf-8",
     )
@@ -91,14 +96,16 @@ def _install_app() -> None:
 
 
 def _install_launchd_plist() -> None:
-    """Génère le plist supervisor depuis le checkout et le venv réels."""
+    """Génère les plists supervisor et ingestion depuis le checkout réel."""
     written = write_launch_agents(
         output_dir=LAUNCHD_DIR,
         repo_root=PROJECT_DIR,
         venv_dir=VENV_DIR,
-        services=("supervisor",),
+        services=("supervisor", "ingestion"),
+        ingestion_app_executable=APP_BIN,
     )
     print(f"Plist launchd installe : {written['supervisor']}")
+    print(f"Plist launchd installe : {written['ingestion']}")
 
 
 def _install_cli() -> None:
@@ -113,28 +120,35 @@ def _install_cli() -> None:
 
 
 def _bootstrap() -> bool:
-    """Charge le service dans launchd. Retourne True si succes."""
+    """Charge les deux propriétaires launchd, après retrait du daemon legacy."""
     uid = os.getuid()
-    # Decharger d'abord si existant
-    subprocess.run(
-        ["launchctl", "bootout", f"gui/{uid}/{LAUNCHD_DEST.name}"],
-        capture_output=True,
-    )
-    result = subprocess.run(
-        ["launchctl", "bootstrap", f"gui/{uid}", str(LAUNCHD_DEST)],
-        capture_output=True,
-        text=True,
-    )
-    return result.returncode == 0
+    for label in (
+        "com.jarvis.imessage-daemon",
+        "com.jarvis.ingestion",
+        "com.jarvis.supervisor",
+    ):
+        subprocess.run(
+            ["launchctl", "bootout", f"gui/{uid}/{label}"],
+            capture_output=True,
+        )
+    for destination in (INGESTION_LAUNCHD_DEST, LAUNCHD_DEST):
+        result = subprocess.run(
+            ["launchctl", "bootstrap", f"gui/{uid}", str(destination)],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            return False
+    return True
 
 
 def cmd_install() -> int:
     try:
+        _install_app()
         _install_launchd_plist()
     except (OSError, RuntimeError, ValueError) as exc:
         print(f"Erreur : installation LaunchAgent impossible : {exc}")
         return 1
-    _install_app()
     _install_cli()
 
     if not _bootstrap():
@@ -146,36 +160,49 @@ def cmd_install() -> int:
     print()
     print("  Demarrage auto au boot     : oui")
     print("  Relance auto apres crash   : oui (KeepAlive)")
+    print("  Permissions ingestion      : identité fr.avity.jarvis (JARVIS.app)")
     print(f"  Logs                       : {SUPERVISOR_LOG}")
     print("  CLI                        : jarvis stop | start | restart | maj")
     print()
     print("  Lance manuellement pour les permissions :")
     print(f"    open {APP_DIR}")
+    print("  Lie explicitement les connecteurs au profil propriétaire :")
+    print(
+        f"    {VENV_PYTHON} scripts/ingestion_service.py bind-local "
+        "--source mail imessage calendar"
+    )
     return 0
 
 
 def cmd_uninstall() -> int:
     cmd_stop()
     uid = os.getuid()
-    subprocess.run(
-        ["launchctl", "bootout", f"gui/{uid}/com.jarvis.supervisor"],
-        capture_output=True,
-    )
-    if LAUNCHD_DEST.exists():
-        LAUNCHD_DEST.unlink()
+    for label in (
+        "com.jarvis.supervisor",
+        "com.jarvis.ingestion",
+        "com.jarvis.imessage-daemon",
+    ):
+        subprocess.run(
+            ["launchctl", "bootout", f"gui/{uid}/{label}"],
+            capture_output=True,
+        )
+    for path in (LAUNCHD_DEST, INGESTION_LAUNCHD_DEST, LEGACY_IMESSAGE_LAUNCHD_DEST):
+        if path.exists():
+            path.unlink()
     print("Service launchd desinstalle. CLI conserve : jarvis install pour revenir.")
     return 0
 
 
 def cmd_status() -> int:
-    if not LAUNCHD_DEST.exists():
+    if not LAUNCHD_DEST.exists() or not INGESTION_LAUNCHD_DEST.exists():
         print("Service NON INSTALLE")
         return 1
 
     uid = os.getuid()
     result = subprocess.run(
         ["launchctl", "print", f"gui/{uid}/com.jarvis.supervisor"],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     if result.returncode == 0:
         print("Service INSTALLE")
@@ -213,14 +240,16 @@ def cmd_open() -> int:
         print(f"Erreur open : {result.stderr}")
         return 1
     print("JARVIS.app ouvert.")
-    print("macOS va demander les permissions : Microphone, Apple Events, Mail, Calendar, Messages.")
+    print(
+        "macOS va demander les permissions : Microphone, Apple Events, Mail, Calendar, Messages."
+    )
     print("Verifier dans Reglages > Confidentialite apres accord.")
     return 0
 
 
-def _service_loaded(uid: int) -> bool:
+def _service_loaded(uid: int, label: str = "com.jarvis.supervisor") -> bool:
     result = subprocess.run(
-        ["launchctl", "print", f"gui/{uid}/com.jarvis.supervisor"],
+        ["launchctl", "print", f"gui/{uid}/{label}"],
         capture_output=True,
     )
     return result.returncode == 0
@@ -276,12 +305,16 @@ def cmd_stop() -> int:
 
 def cmd_start() -> int:
     """Charge le LaunchAgent et attend supervisor + backend."""
-    if not LAUNCHD_DEST.exists() or not APP_BIN.exists():
+    if (
+        not LAUNCHD_DEST.exists()
+        or not INGESTION_LAUNCHD_DEST.exists()
+        or not APP_BIN.exists()
+    ):
         print("Service non installé — installation…")
         return cmd_install()
 
     uid = os.getuid()
-    if not _service_loaded(uid):
+    if not _service_loaded(uid) or not _service_loaded(uid, "com.jarvis.ingestion"):
         print("Chargement LaunchAgent…")
         if not _bootstrap():
             print("Erreur : launchctl bootstrap a échoué.")

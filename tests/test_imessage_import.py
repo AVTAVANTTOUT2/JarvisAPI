@@ -47,7 +47,7 @@ class TestAppleTimestampConversion:
         """Un timestamp en nanosecondes (> 1e15) est divise par 1e9."""
         # 0 secondes * 1e9 = 0 nanosecondes (bizarre mais valide)
         # Un vrai timestamp nano : ~ 6e17 pour 2020
-        ts_nano = 600000000000000000   # ~ 2020
+        ts_nano = 600000000000000000  # ~ 2020
         result = _apple_ts_to_iso(ts_nano)
         assert result is not None
         assert "2020" in result or "2019" in result or "2021" in result
@@ -275,34 +275,46 @@ class TestHandleImport:
         """Import de 3 handles → 3 lignes dans imessage_handles."""
         importer, chat_db = importer_with_memory_db
 
-        _seed_handles(chat_db, [
-            {"id": "+33600000001", "country": "fr", "service": "iMessage"},
-            {"id": "+33600000002", "country": "fr", "service": "iMessage"},
-            {"id": "test@email.com", "country": None, "service": "iMessage"},
-        ])
+        _seed_handles(
+            chat_db,
+            [
+                {"id": "+33600000001", "country": "fr", "service": "iMessage"},
+                {"id": "+33600000002", "country": "fr", "service": "iMessage"},
+                {"id": "test@email.com", "country": None, "service": "iMessage"},
+            ],
+        )
 
         mapping = importer._import_handles(chat_db)
         assert len(mapping) == 3
 
         from database import get_db
+
         with get_db() as conn:
-            count = conn.execute("SELECT COUNT(*) c FROM imessage_handles").fetchone()["c"]
+            count = conn.execute("SELECT COUNT(*) c FROM imessage_handles").fetchone()[
+                "c"
+            ]
             assert count == 3
 
     def test_import_same_handles_twice_no_duplicates(self, importer_with_memory_db):
         """Deux imports de la meme liste ne creent pas de doublons."""
         importer, chat_db = importer_with_memory_db
 
-        _seed_handles(chat_db, [
-            {"id": "+33600000001", "country": "fr", "service": "iMessage"},
-        ])
+        _seed_handles(
+            chat_db,
+            [
+                {"id": "+33600000001", "country": "fr", "service": "iMessage"},
+            ],
+        )
 
         importer._import_handles(chat_db)
         importer._import_handles(chat_db)
 
         from database import get_db
+
         with get_db() as conn:
-            count = conn.execute("SELECT COUNT(*) c FROM imessage_handles").fetchone()["c"]
+            count = conn.execute("SELECT COUNT(*) c FROM imessage_handles").fetchone()[
+                "c"
+            ]
             assert count == 1
 
 
@@ -319,17 +331,26 @@ class TestMessageDedup:
         _seed_chats(chat_db, [{"identifier": "+33600000001", "style": 0}])
         chats_map = importer._import_chats(chat_db)
 
-        mids = _seed_messages(chat_db, [{
-            "guid": "guid-001",
-            "text": "Hello world",
-            "handle_id": hids[0],
-            "date": 600000000,
-            "is_from_me": 0,
-            "cache_roomnames": "+33600000001",
-        }])
+        mids = _seed_messages(
+            chat_db,
+            [
+                {
+                    "guid": "guid-001",
+                    "text": "Hello world",
+                    "handle_id": hids[0],
+                    "date": 600000000,
+                    "is_from_me": 0,
+                    "cache_roomnames": "+33600000001",
+                }
+            ],
+        )
 
         result = importer._import_message_batch(
-            chat_db, handles_map, chats_map, from_rowid=1, to_rowid=mids[-1],
+            chat_db,
+            handles_map,
+            chats_map,
+            from_rowid=1,
+            to_rowid=mids[-1],
         )
         assert result["imported"] == 1
         assert result["skipped"] == 0
@@ -343,22 +364,35 @@ class TestMessageDedup:
         _seed_chats(chat_db, [{"identifier": "+33600000001", "style": 0}])
         chats_map = importer._import_chats(chat_db)
 
-        _seed_messages(chat_db, [{
-            "guid": "guid-001",
-            "text": "Hello",
-            "handle_id": hids[0],
-            "date": 600000000,
-            "is_from_me": 0,
-            "cache_roomnames": "+33600000001",
-        }])
+        _seed_messages(
+            chat_db,
+            [
+                {
+                    "guid": "guid-001",
+                    "text": "Hello",
+                    "handle_id": hids[0],
+                    "date": 600000000,
+                    "is_from_me": 0,
+                    "cache_roomnames": "+33600000001",
+                }
+            ],
+        )
 
         # Premier import
         importer._import_message_batch(
-            chat_db, handles_map, chats_map, from_rowid=1, to_rowid=1,
+            chat_db,
+            handles_map,
+            chats_map,
+            from_rowid=1,
+            to_rowid=1,
         )
         # Deuxieme import — les memes messages
         result = importer._import_message_batch(
-            chat_db, handles_map, chats_map, from_rowid=1, to_rowid=1,
+            chat_db,
+            handles_map,
+            chats_map,
+            from_rowid=1,
+            to_rowid=1,
         )
         assert result["imported"] == 0
         assert result["skipped"] == 1
@@ -373,29 +407,47 @@ class TestMessageDedup:
         chats_map = importer._import_chats(chat_db)
 
         # Message 1
-        _seed_messages(chat_db, [{
-            "guid": "same-guid",
-            "text": "Message 1",
-            "handle_id": hids[0],
-            "date": 600000000,
-            "is_from_me": 0,
-            "cache_roomnames": "+33600000001",
-        }])
+        _seed_messages(
+            chat_db,
+            [
+                {
+                    "guid": "same-guid",
+                    "text": "Message 1",
+                    "handle_id": hids[0],
+                    "date": 600000000,
+                    "is_from_me": 0,
+                    "cache_roomnames": "+33600000001",
+                }
+            ],
+        )
         importer._import_message_batch(
-            chat_db, handles_map, chats_map, from_rowid=1, to_rowid=1,
+            chat_db,
+            handles_map,
+            chats_map,
+            from_rowid=1,
+            to_rowid=1,
         )
 
         # Message 2 — meme GUID, ROWID different
-        _seed_messages(chat_db, [{
-            "guid": "same-guid",
-            "text": "Message 2 (different)",
-            "handle_id": hids[0],
-            "date": 600000001,
-            "is_from_me": 1,
-            "cache_roomnames": "+33600000001",
-        }])
+        _seed_messages(
+            chat_db,
+            [
+                {
+                    "guid": "same-guid",
+                    "text": "Message 2 (different)",
+                    "handle_id": hids[0],
+                    "date": 600000001,
+                    "is_from_me": 1,
+                    "cache_roomnames": "+33600000001",
+                }
+            ],
+        )
         result = importer._import_message_batch(
-            chat_db, handles_map, chats_map, from_rowid=2, to_rowid=2,
+            chat_db,
+            handles_map,
+            chats_map,
+            from_rowid=2,
+            to_rowid=2,
         )
         assert result["imported"] == 0
         assert result["skipped"] == 1
@@ -427,16 +479,25 @@ class TestMessageDedup:
 
         # Maintenant, tenter d'importer un message different (ROWID 1, GUID guid-a)
         # mais avec le MEME hash
-        _seed_messages(chat_db, [{
-            "guid": guid,
-            "text": text,
-            "handle_id": handle_id,
-            "date": date,
-            "is_from_me": 0,
-            "cache_roomnames": "+33600000001",
-        }])
+        _seed_messages(
+            chat_db,
+            [
+                {
+                    "guid": guid,
+                    "text": text,
+                    "handle_id": handle_id,
+                    "date": date,
+                    "is_from_me": 0,
+                    "cache_roomnames": "+33600000001",
+                }
+            ],
+        )
         result = importer._import_message_batch(
-            chat_db, handles_map, chats_map, from_rowid=1, to_rowid=1,
+            chat_db,
+            handles_map,
+            chats_map,
+            from_rowid=1,
+            to_rowid=1,
         )
         assert result["imported"] == 0  # skip car hash identique
         assert result["skipped"] == 1
@@ -457,8 +518,11 @@ class TestCursorManagement:
         """_update_cursor cree la ligne si elle n'existe pas."""
         importer, chat_db = importer_with_memory_db
         importer._update_cursor(
-            last_rowid=42, last_date=100, last_guid="guid-x",
-            total_imported=10, status="idle",
+            last_rowid=42,
+            last_date=100,
+            last_guid="guid-x",
+            total_imported=10,
+            status="idle",
         )
         cursor = importer._get_cursor()
         assert cursor["last_apple_rowid"] == 42
@@ -471,10 +535,13 @@ class TestCursorManagement:
         """_update_cursor met a jour la ligne existante."""
         importer, chat_db = importer_with_memory_db
         importer._update_cursor(
-            last_rowid=10, status="importing",
+            last_rowid=10,
+            status="importing",
         )
         importer._update_cursor(
-            last_rowid=100, total_imported=50, status="idle",
+            last_rowid=100,
+            total_imported=50,
+            status="idle",
         )
         cursor = importer._get_cursor()
         assert cursor["last_apple_rowid"] == 100
@@ -522,10 +589,13 @@ class TestReconciliation:
         # Ajouter des messages dans chat_db
         hids = _seed_handles(chat_db, [{"id": "+33600000001"}])
         _seed_chats(chat_db, [{"identifier": "+33600000001"}])
-        _seed_messages(chat_db, [
-            {"guid": "g1", "text": "Hello", "handle_id": hids[0], "date": 1},
-            {"guid": "g2", "text": "World", "handle_id": hids[0], "date": 2},
-        ])
+        _seed_messages(
+            chat_db,
+            [
+                {"guid": "g1", "text": "Hello", "handle_id": hids[0], "date": 1},
+                {"guid": "g2", "text": "World", "handle_id": hids[0], "date": 2},
+            ],
+        )
 
         with patch.object(importer, "is_available", return_value=True):
             with patch.object(importer, "_open_chat_db", return_value=chat_db):
@@ -577,6 +647,27 @@ class TestImporterLifecycle:
         assert isinstance(status, dict)
         assert "status" in status
 
+    def test_negative_availability_cache_expires_and_can_be_reset(self, tmp_path):
+        """Une permission retablie est detectee sans redemarrer le processus."""
+        service = MagicMock()
+        service.db_path = tmp_path / "chat.db"
+        service.db_path.touch()
+        service.count_messages.side_effect = [sqlite3.OperationalError("denied"), 1, 1]
+        importer = IMessageImporter(data_service=service)
+
+        with patch(
+            "integrations.imessage_import.time.monotonic",
+            side_effect=[10.0, 10.1, 41.0],
+        ):
+            assert importer.is_available() is False
+            assert importer.is_available() is False
+            assert service.count_messages.call_count == 1
+            assert importer.is_available() is True
+
+        importer.reset_availability_cache()
+        assert importer.is_available() is True
+        assert service.count_messages.call_count == 3
+
 
 class TestCLIScript:
     """Tests du script CLI via subprocess."""
@@ -589,7 +680,10 @@ class TestCLIScript:
         """Le script CLI est syntaxiquement correct."""
         # Ne pas executer, juste verifier que ca parse
         import ast
-        source = Path(Path(__file__).resolve().parent.parent / "scripts" / "imessage_import.py").read_text()
+
+        source = Path(
+            Path(__file__).resolve().parent.parent / "scripts" / "imessage_import.py"
+        ).read_text()
         ast.parse(source)
 
     @staticmethod
@@ -677,10 +771,13 @@ class TestIdempotency:
         """Importer les memes handles 2x ne cree pas de doublons."""
         importer, chat_db = importer_with_memory_db
 
-        _seed_handles(chat_db, [
-            {"id": "+33600000001", "service": "iMessage"},
-            {"id": "+33600000002", "service": "iMessage"},
-        ])
+        _seed_handles(
+            chat_db,
+            [
+                {"id": "+33600000001", "service": "iMessage"},
+                {"id": "+33600000002", "service": "iMessage"},
+            ],
+        )
 
         mapping1 = importer._import_handles(chat_db)
         mapping2 = importer._import_handles(chat_db)
@@ -690,8 +787,11 @@ class TestIdempotency:
         assert mapping1 == mapping2  # Memes ids
 
         from database import get_db
+
         with get_db() as conn:
-            count = conn.execute("SELECT COUNT(*) c FROM imessage_handles").fetchone()["c"]
+            count = conn.execute("SELECT COUNT(*) c FROM imessage_handles").fetchone()[
+                "c"
+            ]
             assert count == 2
 
     def test_triple_message_batch_idempotent(self, importer_with_memory_db):
@@ -699,27 +799,120 @@ class TestIdempotency:
         importer, chat_db = importer_with_memory_db
         from database import get_db
 
-        hids = _seed_handles(chat_db, [
-            {"id": "+33600000001", "service": "iMessage"},
-        ])
+        hids = _seed_handles(
+            chat_db,
+            [
+                {"id": "+33600000001", "service": "iMessage"},
+            ],
+        )
         handles_map = importer._import_handles(chat_db)
         _seed_chats(chat_db, [{"identifier": "+33600000001", "style": 0}])
         chats_map = importer._import_chats(chat_db)
 
-        _seed_messages(chat_db, [
-            {"guid": "g1", "text": "M1", "handle_id": hids[0], "date": 1, "cache_roomnames": "+33600000001"},
-            {"guid": "g2", "text": "M2", "handle_id": hids[0], "date": 2, "cache_roomnames": "+33600000001"},
-        ])
+        _seed_messages(
+            chat_db,
+            [
+                {
+                    "guid": "g1",
+                    "text": "M1",
+                    "handle_id": hids[0],
+                    "date": 1,
+                    "cache_roomnames": "+33600000001",
+                },
+                {
+                    "guid": "g2",
+                    "text": "M2",
+                    "handle_id": hids[0],
+                    "date": 2,
+                    "cache_roomnames": "+33600000001",
+                },
+            ],
+        )
 
         # Import 3 fois
         for _ in range(3):
             importer._import_message_batch(
-                chat_db, handles_map, chats_map, from_rowid=1, to_rowid=2,
+                chat_db,
+                handles_map,
+                chats_map,
+                from_rowid=1,
+                to_rowid=2,
             )
 
         with get_db() as conn:
-            count = conn.execute("SELECT COUNT(*) c FROM imessage_messages").fetchone()["c"]
+            count = conn.execute("SELECT COUNT(*) c FROM imessage_messages").fetchone()[
+                "c"
+            ]
             assert count == 2
+
+
+class TestAttachmentOnlyMessages:
+    """Les medias sans texte restent des messages recuperables."""
+
+    def test_attachment_only_message_is_imported_and_linked(
+        self, importer_with_memory_db
+    ):
+        importer, chat_db = importer_with_memory_db
+        from database import get_db
+
+        message_id = chat_db.execute(
+            """INSERT INTO message (guid, text, attributedBody, date, is_from_me)
+               VALUES ('attachment-only', NULL, NULL, 600000000, 0)"""
+        ).lastrowid
+        attachment_id = chat_db.execute(
+            """INSERT INTO attachment
+               (guid, filename, mime_type, transfer_name, total_bytes)
+               VALUES ('attachment-guid', '/tmp/photo.jpg', 'image/jpeg', 'photo.jpg', 42)"""
+        ).lastrowid
+        chat_db.execute(
+            "INSERT INTO message_attachment_join (message_id, attachment_id) VALUES (?, ?)",
+            (message_id, attachment_id),
+        )
+
+        result = importer._import_message_batch(
+            chat_db, {}, {}, from_rowid=message_id, to_rowid=message_id
+        )
+        links = importer._import_attachments(chat_db)
+
+        assert result["imported"] == 1
+        assert result["last_contiguous_rowid"] == message_id
+        assert links["linked"] == 1
+        with get_db() as conn:
+            message = conn.execute(
+                "SELECT text FROM imessage_messages WHERE guid = 'attachment-only'"
+            ).fetchone()
+            assert message is not None
+            assert not message["text"]
+
+    def test_deletion_reconciliation_requires_and_uses_full_source_inventory(
+        self, importer_with_memory_db
+    ):
+        importer, chat_db = importer_with_memory_db
+        from database import get_db
+
+        message_id = _seed_messages(
+            chat_db,
+            [{"guid": "deleted-guid", "text": "gone", "date": 1}],
+        )[0]
+        importer._import_message_batch(
+            chat_db, {}, {}, from_rowid=message_id, to_rowid=message_id
+        )
+        chat_db.execute("DELETE FROM message WHERE ROWID = ?", (message_id,))
+
+        with (
+            patch.object(importer, "is_available", return_value=True),
+            patch.object(importer, "_open_chat_db", return_value=chat_db),
+            patch.object(importer, "_close_chat_db"),
+        ):
+            assert importer.reconcile_deleted_messages() == 1
+
+        with get_db() as conn:
+            assert (
+                conn.execute(
+                    "SELECT 1 FROM imessage_messages WHERE guid = 'deleted-guid'"
+                ).fetchone()
+                is None
+            )
 
 
 class TestHandleZeroResolution:
@@ -769,13 +962,18 @@ class TestHandleZeroResolution:
             (cids[0], hids[0]),
         )
 
-        mids = _seed_messages(chat_db, [{
-            "guid": "guid-zero",
-            "text": "Via chat join",
-            "handle_id": 0,
-            "date": 600000000,
-            "is_from_me": 0,
-        }])
+        mids = _seed_messages(
+            chat_db,
+            [
+                {
+                    "guid": "guid-zero",
+                    "text": "Via chat join",
+                    "handle_id": 0,
+                    "date": 600000000,
+                    "is_from_me": 0,
+                }
+            ],
+        )
         chat_db.execute(
             "INSERT INTO chat_message_join (chat_id, message_id) VALUES (?, ?)",
             (cids[0], mids[0]),
@@ -786,7 +984,11 @@ class TestHandleZeroResolution:
         importer._import_chat_handles(chat_db, handles_map, chats_map)
 
         result = importer._import_message_batch(
-            chat_db, handles_map, chats_map, from_rowid=mids[0], to_rowid=mids[0],
+            chat_db,
+            handles_map,
+            chats_map,
+            from_rowid=mids[0],
+            to_rowid=mids[0],
         )
         assert result["imported"] == 1
 

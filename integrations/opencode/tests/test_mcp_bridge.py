@@ -463,14 +463,16 @@ def test_knowledge_tools_scope_profile_and_uid_hydration_are_fail_closed(
         ) -> None:
             self.uid = uid
             self.source_type = source_type
+            self.source_id = uid
             self.content = content
             self.cloud_policy = cloud_policy
+            self.metadata = {"content_completeness": "complete"}
 
         def as_dict(self) -> dict[str, Any]:
             return {
                 "uid": self.uid,
                 "source_type": self.source_type,
-                "source_id": self.uid,
+                "source_id": self.source_id,
                 "title": "Résultat",
                 "excerpt": self.content[:40],
                 "content": self.content,
@@ -484,12 +486,16 @@ def test_knowledge_tools_scope_profile_and_uid_hydration_are_fail_closed(
 
         def as_dict(self) -> dict[str, Any]:
             return {
-                "status": "ok",
+                "status": "degraded",
                 "query": "hostile replacement",
                 "hits": [hit.as_dict() for hit in self.hits],
                 "candidate_count": 99,
                 "verified_sources": ["email", "calendar"],
                 "unavailable_sources": ["imessage", "calendar"],
+                "source_coverage": [
+                    {"source_type": "email", "status": "partial"},
+                    {"source_type": "imessage", "status": "unavailable"},
+                ],
                 "index_freshness_at": None,
                 "diagnostics": {},
             }
@@ -541,6 +547,12 @@ def test_knowledge_tools_scope_profile_and_uid_hydration_are_fail_closed(
     }
     assert captured_requests[0].interaction_mode == "agentic"
     assert search_response["data"]["query"] == "mail de Grégoire"
+    assert search_response["data"]["status"] == "degraded"
+    assert "imessage" in search_response["data"]["unavailable_sources"]
+    assert search_response["data"]["live_sources"] == {
+        "email": "partial",
+        "imessage": "unavailable",
+    }
     assert search_response["data"]["candidate_count"] == 2
     assert [hit["uid"] for hit in search_response["data"]["hits"]] == [
         "email:1",

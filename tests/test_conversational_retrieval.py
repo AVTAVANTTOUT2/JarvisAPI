@@ -47,17 +47,11 @@ async def test_chat_context_runs_one_bounded_retrieval_with_recent_turns(
         latency_ms=17,
     )
     requests = []
-    live_requests = []
-
-    async def _refresh(request):
-        live_requests.append(request)
-        return {"email": "ok"}
 
     def _search(request):
         requests.append(request)
         return result
 
-    monkeypatch.setattr(chat_context, "refresh_live_sources", _refresh)
     monkeypatch.setattr(chat_context, "search_knowledge", _search)
     monkeypatch.setattr(
         chat_context,
@@ -78,7 +72,6 @@ async def test_chat_context_runs_one_bounded_retrieval_with_recent_turns(
     )
 
     assert len(requests) == 1
-    assert live_requests == requests
     request = requests[0]
     assert request.query == current
     assert request.conversation_id == 9
@@ -86,6 +79,7 @@ async def test_chat_context_runs_one_bounded_retrieval_with_recent_turns(
     assert request.max_candidates == 20
     assert request.max_hits == 8
     assert request.char_budget == 8_000
+    assert request.freshness_budget_ms == 700
     assert list(request.recent_user_turns) == [
         "Il s'est passé quoi hier ?",
         "Résume mes mails",
@@ -97,7 +91,7 @@ async def test_chat_context_runs_one_bounded_retrieval_with_recent_turns(
     assert context["__retrieval_references"] == [
         {"uid": "email:42", "source_type": "email", "source_id": "42"}
     ]
-    assert context["__retrieval_live"] == {"email": "ok"}
+    assert context["__retrieval_live"] == {}
     assert context["__retrieval_done"] is True
 
 
@@ -114,20 +108,17 @@ async def test_chat_context_keeps_degraded_status_and_source_provenance(
         lambda _conversation_id, *, limit: [],
     )
 
-    async def _mail_unavailable(_request):
-        return {"email": "unavailable"}
-
-    monkeypatch.setattr(chat_context, "refresh_live_sources", _mail_unavailable)
     monkeypatch.setattr(
         chat_context,
         "search_knowledge",
         lambda _request: RetrievalResult(
-            status="ok",
+            status="degraded",
             query="Grégoire m'a écrit ?",
             hits=(),
             candidate_count=0,
             verified_sources=("conversation", "email"),
-            unavailable_sources=(),
+            unavailable_sources=("email",),
+            diagnostics=("ingestion:mail:unavailable",),
         ),
     )
 
@@ -146,7 +137,7 @@ async def test_chat_context_keeps_degraded_status_and_source_provenance(
     assert payload["status"] == "degraded"
     assert payload["verified_sources"] == ["conversation", "email"]
     assert payload["unavailable_sources"] == ["email"]
-    assert context["__retrieval"]["diagnostics"] == ["live:email:unavailable"]
+    assert context["__retrieval"]["diagnostics"] == ["ingestion:mail:unavailable"]
 
 
 @pytest.mark.asyncio
@@ -160,7 +151,6 @@ async def test_chat_context_exposes_retrieval_failure_without_claiming_no_result
         "get_conversation_history",
         lambda _conversation_id, *, limit: [],
     )
-    monkeypatch.setattr(chat_context, "refresh_live_sources", _no_live_refresh)
 
     def _offline(_request):
         raise RuntimeError("offline")

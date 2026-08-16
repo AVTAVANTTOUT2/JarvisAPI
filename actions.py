@@ -7,6 +7,7 @@ Chaque action type retourne un dict {"ok": bool, "message": str, ...}.
 """
 
 import asyncio
+from collections.abc import Mapping
 import json
 import logging
 import time
@@ -14,7 +15,11 @@ import time
 logger = logging.getLogger(__name__)
 
 
-async def execute_action(action: dict) -> dict:
+async def execute_action(
+    action: dict,
+    *,
+    knowledge_context: Mapping[str, object] | None = None,
+) -> dict:
     """Dispatch vers le handler correspondant au type d'action."""
     action_type = action.get("type", "")
     logger.info("[action] type=%s", action_type)
@@ -28,7 +33,7 @@ async def execute_action(action: dict) -> dict:
         elif action_type == "mail":
             out = await _action_mail(action)
         elif action_type == "mail_read":
-            out = await _action_mail_read()
+            out = await _action_mail_read(action, knowledge_context=knowledge_context)
         elif action_type == "weather":
             out = await _action_weather(action)
         elif action_type == "calendar":
@@ -56,7 +61,10 @@ async def execute_action(action: dict) -> dict:
         elif action_type == "day_route":
             out = await _action_day_route(action)
         elif action_type == "search_conversations":
-            out = await _action_search_conversations(action)
+            out = await _action_search_conversations(
+                action,
+                knowledge_context=knowledge_context,
+            )
         elif action_type == "tv":
             out = await _action_tv(action)
         elif action_type == "food_order":
@@ -171,37 +179,111 @@ async def _action_mail(action: dict) -> dict:
     }
 
 
-async def _action_mail_read() -> dict:
-    """Lit les emails non lus depuis la DB (instantané, pas d'AppleScript).
+def _knowledge_from_prepared_turn(
+    context: Mapping[str, object] | None,
+    *,
+    source_types: frozenset[str],
+    action_type: str,
+) -> dict | None:
+    """Réutilise le snapshot du tour au lieu de relancer une collecte."""
 
-    Les emails sont pré-traités par ``email_watcher`` à leur arrivée
-    (contenu intégral + résumé DeepSeek stockés en DB).
-    """
-    from database import get_email_stats, get_unread_emails_from_db
+    if not context or not context.get("__retrieval_done"):
+        return None
+    from jarvis.agentic.turn_context import public_knowledge_payload
 
-    stats = get_email_stats()
-    emails = get_unread_emails_from_db(limit=12)
-
-    # Format pour le LLM : résumés prêts à l'emploi
-    formatted = [
-        {
-            "from": e.get("sender", ""),
-            "subject": e.get("subject", ""),
-            "summary": e.get("summary", ""),
-            "category": e.get("category", "info"),
-            "priority": e.get("priority", "low"),
-            "date": e.get("received_at", ""),
-        }
-        for e in emails
-    ]
-
-    return {
-        "ok": True,
-        "type": "mail_read",
-        "stats": stats,
-        "emails": formatted,
-        "data": formatted,
+    knowledge = public_knowledge_payload(context)
+    covered = {
+        str(item)
+        for key in ("verified_sources", "partial_sources", "unavailable_sources")
+        for item in knowledge.get(key, [])
     }
+    covered.update(
+        str(item.get("source_type") or "")
+        for item in knowledge.get("references", [])
+        if isinstance(item, Mapping)
+    )
+    if not covered.intersection(source_types):
+        return None
+    status = str(knowledge.get("status") or "unavailable")
+    return {
+        "ok": status != "unavailable",
+        "type": action_type,
+        "status": status,
+        "knowledge": knowledge,
+        "uses_turn_snapshot": True,
+        "message": (
+            "La source demandée est indisponible ; ne concluez pas à une absence."
+            if status == "unavailable"
+            else "Synthétisez les données correspondantes déjà présentes dans le contexte knowledge du tour."
+        ),
+        "data": [],
+    }
+
+
+def _retrieval_action_payload(result, *, action_type: str) -> dict:
+    hits = [
+        {
+            "uid": hit.uid,
+            "source_type": hit.source_type,
+            "source_id": hit.source_id,
+            "title": hit.title,
+            "excerpt": hit.excerpt,
+            "occurred_at": hit.occurred_at,
+            "provenance": dict(hit.provenance),
+        }
+        for hit in result.hits
+    ]
+    status = str(result.status)
+    if status == "unavailable":
+        message = "La source demandée est indisponible ; aucune absence n'est établie."
+    elif status == "degraded" and not hits:
+        message = "La recherche est incomplète ; aucune absence n'est établie."
+    elif not hits:
+        message = "Aucun résultat dans les sources vérifiées."
+    else:
+        message = f"{len(hits)} résultat(s) vérifié(s)."
+    return {
+        "ok": status != "unavailable",
+        "type": action_type,
+        "status": status,
+        "verified_sources": list(result.verified_sources),
+        "unavailable_sources": list(result.unavailable_sources),
+        "message": message,
+        "data": hits,
+    }
+
+
+async def _action_mail_read(
+    action: dict,
+    *,
+    knowledge_context: Mapping[str, object] | None = None,
+) -> dict:
+    """Façade typée sur le retrieval mail, lus et non lus confondus."""
+
+    prepared = _knowledge_from_prepared_turn(
+        knowledge_context,
+        source_types=frozenset({"email"}),
+        action_type="mail_read",
+    )
+    if prepared is not None:
+        return prepared
+    from jarvis.retrieval import RetrievalRequest, search_knowledge
+
+    raw_limit = action.get("limit", 8)
+    limit = max(1, min(8, int(raw_limit) if str(raw_limit).isdigit() else 8))
+    query = str(action.get("query") or f"mes {limit} derniers mails")
+    result = await asyncio.to_thread(
+        search_knowledge,
+        RetrievalRequest(
+            query=query,
+            source_types=("email",),
+            latest_n=limit,
+            max_candidates=20,
+            max_hits=limit,
+            char_budget=8_000,
+        ),
+    )
+    return _retrieval_action_payload(result, action_type="mail_read")
 
 
 async def _action_weather(action: dict) -> dict:
@@ -1074,27 +1156,35 @@ async def _action_day_route(action: dict) -> dict:
     return {"ok": True, "message": route, "summary": s}
 
 
-async def _action_search_conversations(action: dict) -> dict:
-    """Recherche dans les anciennes conversations (titres + messages)."""
-    from database import search_conversations
-
+async def _action_search_conversations(
+    action: dict,
+    *,
+    knowledge_context: Mapping[str, object] | None = None,
+) -> dict:
+    """Recherche typée dans conversations JARVIS et iMessage."""
     query = (action.get("query") or "").strip()
     if not query:
         return {"ok": False, "message": "Requête de recherche manquante."}
-    results = search_conversations(query, limit=10)
-    if not results:
-        return {
-            "ok": True,
-            "messages": "Aucune conversation trouvée pour cette recherche.",
-            "count": 0,
-        }
-    formatted = "\n".join(
-        [
-            f"[Conv #{r['id']}: {r.get('title') or 'Sans titre'} — {str(r.get('match_date') or '')[:16]}]\n  → {str(r.get('matching_message') or '')[:200]}"
-            for r in results
-        ]
+    prepared = _knowledge_from_prepared_turn(
+        knowledge_context,
+        source_types=frozenset({"conversation", "message", "imessage"}),
+        action_type="search_conversations",
     )
-    return {"ok": True, "messages": formatted, "count": len(results)}
+    if prepared is not None:
+        return prepared
+    from jarvis.retrieval import RetrievalRequest, search_knowledge
+
+    result = await asyncio.to_thread(
+        search_knowledge,
+        RetrievalRequest(
+            query=query,
+            source_types=("conversation", "message", "imessage"),
+            max_candidates=20,
+            max_hits=8,
+            char_budget=8_000,
+        ),
+    )
+    return _retrieval_action_payload(result, action_type="search_conversations")
 
 
 # ── TV Control ──────────────────────────────────────────────────────────────

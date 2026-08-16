@@ -49,6 +49,38 @@ from .knowledge import (
     save_knowledge_references,
     upsert_calendar_events,
 )
+from .ingestion import (
+    ConnectorBindingRequired,
+    IngestionProfileMismatch,
+    bind_connector,
+    claim_ingestion_jobs,
+    claim_recording_desktop_notification,
+    complete_ingestion_job,
+    connector_binding_allows_external_account,
+    connector_binding_health,
+    create_recording_session,
+    enqueue_ingestion_job,
+    fail_ingestion_job,
+    get_connector_binding,
+    get_contact_identity,
+    get_ingestion_health_summary,
+    get_ingestion_source_state,
+    get_recording_session,
+    list_connector_bindings,
+    list_due_recording_sessions,
+    list_expired_recording_sessions,
+    list_ingestion_jobs,
+    list_ingestion_source_states,
+    list_pending_recording_sessions,
+    normalize_contact_identity,
+    renew_ingestion_job_lease,
+    touch_ingestion_heartbeat,
+    unbind_connector,
+    update_connector_permission,
+    update_ingestion_source_state,
+    update_recording_session,
+    upsert_contact_identity,
+)
 
 
 from .conversations import (

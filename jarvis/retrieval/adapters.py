@@ -105,6 +105,21 @@ _STOPWORDS = frozenset(
         "demain",
         "semaine",
         "avant",
+        "janvier",
+        "février",
+        "fevrier",
+        "mars",
+        "avril",
+        "mai",
+        "juin",
+        "juillet",
+        "août",
+        "aout",
+        "septembre",
+        "octobre",
+        "novembre",
+        "décembre",
+        "decembre",
         "deux",
         "trois",
         "quatre",
@@ -1058,14 +1073,19 @@ def build_default_adapters() -> tuple[RetrievalAdapter, ...]:
                        AS searchable_text,
                    COALESCE(e.summary, '') AS summary,
                    COALESCE(e.sender, '') AS people_text,
-                   COALESCE(NULLIF(e.received_at, ''), e.processed_at, NULLIF(e.created_at, ''))
+                   COALESCE(NULLIF(e.received_at_utc, ''), NULLIF(e.received_at, ''),
+                            e.processed_at, NULLIF(e.created_at, ''))
                        AS occurred_at,
-                   COALESCE(NULLIF(e.created_at, ''), e.processed_at) AS source_updated_at,
+                   COALESCE(NULLIF(e.source_updated_at_utc, ''),
+                            NULLIF(e.created_at, ''), e.processed_at) AS source_updated_at,
                    NULL AS conversation_id, 'private' AS sensitivity,
                    'redact' AS cloud_policy, 'untrusted_stored_data' AS trust,
                    e.gmail_id AS meta_external_id, e.sender AS meta_sender,
+                   e.account_id AS meta_account_id, e.mailbox_id AS meta_mailbox_id,
                    e.category AS meta_category, e.priority AS meta_priority,
-                   e.is_read AS meta_is_read, e.action_needed AS meta_action_needed
+                   e.is_read AS meta_is_read, e.action_needed AS meta_action_needed,
+                   e.content_complete AS meta_content_complete,
+                   e.ingestion_completeness AS meta_content_completeness
             FROM email_summaries e
             """,
         ),
@@ -1093,22 +1113,74 @@ def build_default_adapters() -> tuple[RetrievalAdapter, ...]:
             "imessage",
             """
             SELECT m.rowid AS _cursor, CAST(m.id AS TEXT) AS source_id,
-                   COALESCE(NULLIF(h.handle, ''), NULLIF(c.display_name, ''), 'iMessage')
+                   COALESCE(NULLIF(ci.display_name, ''), NULLIF(c.display_name, ''),
+                            NULLIF(h.display_name, ''),
+                            NULLIF(h.handle, ''), 'iMessage')
                        AS title,
-                   COALESCE(m.text, '') AS searchable_text, '' AS summary,
-                   COALESCE(NULLIF(h.handle, ''), NULLIF(c.display_name, ''), '')
+                   TRIM(COALESCE(ci.display_name, '') || ' ' ||
+                        COALESCE(c.display_name, '') || ' ' ||
+                        COALESCE(h.display_name, '') || ' ' ||
+                        COALESCE(h.handle, '') || ' ' || COALESCE(m.text, '') || ' ' ||
+                        COALESCE((
+                            SELECT GROUP_CONCAT(
+                                TRIM(COALESCE(a.transfer_name, '') || ' ' ||
+                                     COALESCE(a.filename, '') || ' ' ||
+                                     COALESCE(a.mime_type, '')),
+                                ' '
+                            )
+                            FROM imessage_message_attachments ma
+                            JOIN imessage_attachments a ON a.id = ma.attachment_id
+                            WHERE ma.message_id = m.id
+                        ), '') || ' ' ||
+                        COALESCE((
+                            SELECT GROUP_CONCAT('reaction ' || r.reaction_type, ' ')
+                            FROM imessage_reactions r WHERE r.message_id = m.id
+                        ), ''))
+                       AS searchable_text,
+                   '' AS summary,
+                   TRIM(COALESCE(ci.display_name, '') || '|' ||
+                        COALESCE(c.display_name, '') || '|' ||
+                        COALESCE(h.display_name, '') || '|' || COALESCE(h.handle, ''))
                        AS people_text,
-                   m.created_at AS occurred_at, m.created_at AS source_updated_at,
+                   COALESCE(m.occurred_at_utc, m.created_at) AS occurred_at,
+                   COALESCE(m.source_updated_at_utc, m.occurred_at_utc, m.created_at)
+                       AS source_updated_at,
                    NULL AS conversation_id, 'private' AS sensitivity,
                    'redact' AS cloud_policy, 'untrusted_stored_data' AS trust,
                    m.guid AS meta_guid, m.date AS meta_apple_date,
                    m.is_from_me AS meta_is_from_me, m.is_read AS meta_is_read,
                    c.chat_identifier AS meta_chat_identifier,
-                   c.display_name AS meta_chat_name, h.handle AS meta_handle
+                   c.display_name AS meta_chat_name, h.handle AS meta_handle,
+                   ci.display_name AS meta_contact_name,
+                   ci.person_id AS meta_person_id,
+                   m.content_complete AS meta_content_complete,
+                   m.ingestion_completeness AS meta_ingestion_completeness,
+                   (SELECT COUNT(*) FROM imessage_message_attachments ma
+                    WHERE ma.message_id = m.id) AS meta_attachment_count,
+                   (SELECT COUNT(*) FROM imessage_reactions r
+                    WHERE r.message_id = m.id) AS meta_reaction_count
             FROM imessage_messages m
             LEFT JOIN imessage_handles h ON h.id = m.handle_id
             LEFT JOIN imessage_chats c ON c.id = m.chat_id
+            LEFT JOIN contact_identities ci
+              ON ci.id = h.contact_identity_id
+              OR (h.contact_identity_id IS NULL
+              AND ci.identity_type = CASE
+                    WHEN INSTR(h.handle, '@') > 0 THEN 'email' ELSE 'phone'
+                 END
+             AND ci.normalized_value = CASE
+                    WHEN INSTR(h.handle, '@') > 0 THEN LOWER(TRIM(h.handle, '<>'))
+                    ELSE REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+                         h.handle, ' ', ''), '-', ''), '(', ''), ')', ''), '.', '')
+                 END)
             WHERE COALESCE(m.text, '') <> ''
+               OR EXISTS (
+                    SELECT 1 FROM imessage_message_attachments ma
+                    WHERE ma.message_id = m.id
+               )
+               OR EXISTS (
+                    SELECT 1 FROM imessage_reactions r WHERE r.message_id = m.id
+               )
             """,
         ),
         SQLProjectionAdapter(
@@ -1321,7 +1393,7 @@ def build_default_adapters() -> tuple[RetrievalAdapter, ...]:
 def _query_terms(value: str) -> list[str]:
     tokens = []
     for token in _WORD_RE.findall(str(value).casefold()):
-        if len(token) < 2 or token in _STOPWORDS:
+        if len(token) < 2 or token.isdigit() or token in _STOPWORDS:
             continue
         if token not in tokens:
             tokens.append(token)

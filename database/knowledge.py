@@ -402,24 +402,62 @@ def get_missing_knowledge_embeddings(
     model: str,
     limit: int = 50,
 ) -> list[dict[str, Any]]:
-    """Sélection durable des projections sans vecteur courant."""
+    """Sélectionne 80 % d'éléments chauds et 20 % de dette historique.
+
+    Le quota chaud empêche un gros backfill de retarder de plusieurs jours les
+    nouveaux mails/messages. Le quota froid garantit que la dette continue de
+    décroître sans affamer les éléments récents.
+    """
 
     result_limit = max(1, min(500, int(limit)))
+    backfill_limit = max(1, result_limit // 5) if result_limit > 1 else 0
+    hot_limit = result_limit - backfill_limit
     with get_db() as conn:
-        rows = conn.execute(
+        hot_rows = conn.execute(
             """
-            SELECT k.uid, k.content_hash, k.title, k.searchable_text, k.summary
+            SELECT k.id, k.uid, k.content_hash, k.title,
+                   k.searchable_text, k.summary
             FROM knowledge_items k
             LEFT JOIN knowledge_embeddings e
               ON e.knowledge_item_id = k.id AND e.model = ?
             WHERE k.deleted_at IS NULL
               AND (e.id IS NULL OR e.content_hash <> k.content_hash)
-            ORDER BY k.indexed_at, k.id
+            ORDER BY k.indexed_at DESC, k.id DESC
             LIMIT ?
             """,
-            (str(model), result_limit),
+            (str(model), hot_limit),
         ).fetchall()
-    return [dict(row) for row in rows]
+        cold_rows: Sequence[Any] = ()
+        if backfill_limit:
+            hot_ids = tuple(int(row["id"]) for row in hot_rows)
+            exclusion = ""
+            params: list[Any] = [str(model)]
+            if hot_ids:
+                placeholders = ",".join("?" for _ in hot_ids)
+                exclusion = f" AND k.id NOT IN ({placeholders})"
+                params.extend(hot_ids)
+            params.append(backfill_limit)
+            cold_rows = conn.execute(
+                """
+                SELECT k.id, k.uid, k.content_hash, k.title,
+                       k.searchable_text, k.summary
+                FROM knowledge_items k
+                LEFT JOIN knowledge_embeddings e
+                  ON e.knowledge_item_id = k.id AND e.model = ?
+                WHERE k.deleted_at IS NULL
+                  AND (e.id IS NULL OR e.content_hash <> k.content_hash)
+                """
+                + exclusion
+                + " ORDER BY k.indexed_at ASC, k.id ASC LIMIT ?",
+                tuple(params),
+            ).fetchall()
+    return [
+        {
+            key: row[key]
+            for key in ("uid", "content_hash", "title", "searchable_text", "summary")
+        }
+        for row in (*hot_rows, *cold_rows)
+    ]
 
 
 def enqueue_knowledge_job(

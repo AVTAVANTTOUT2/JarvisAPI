@@ -1,7 +1,8 @@
 """Rafraîchissement borné des sources Apple avant une recherche explicite.
 
-Le retrieval principal reste local et synchrone. Ce module ne contacte Mail ou
-Calendar que lorsqu'une requête les nomme, avec singleflight et cache durable.
+Le retrieval principal reste local et synchrone. Ce module ne contacte les
+sources live que lorsqu'une requête les nomme ou demande une timeline large,
+avec singleflight et cache durable.
 """
 
 from __future__ import annotations
@@ -11,7 +12,7 @@ import logging
 import re
 import threading
 import time
-from datetime import datetime, time as datetime_time, timedelta
+from datetime import datetime, time as datetime_time, timedelta, timezone
 
 from database.core import current_profile_id
 from database.email import cache_email_preview, get_recent_emails_from_db
@@ -44,9 +45,21 @@ _locks: dict[tuple[str, str], asyncio.Lock] = {}
 _last_refresh: dict[tuple[str, str], float] = {}
 
 
+def _update_live_source_state(*args: object, **kwargs: object) -> None:
+    """La télémétrie de couverture ne doit jamais rendre le cache illisible."""
+
+    try:
+        update_knowledge_source_state(*args, **kwargs)
+    except Exception as exc:
+        logger.warning("[retrieval] source state non persisté : %s", exc)
+
+
 async def refresh_live_sources(request: RetrievalRequest) -> dict[str, str]:
     """Rafraîchit uniquement les sources live explicitement demandées."""
 
+    from .coordinator import prepare_retrieval_request
+
+    request = prepare_retrieval_request(request)
     # Les suivis elliptiques (par ex. « et celui de Grégoire ? ») ont besoin
     # des tours récents pour sélectionner la même source live que le tour initial.
     query = request.effective_query
@@ -54,7 +67,11 @@ async def refresh_live_sources(request: RetrievalRequest) -> dict[str, str]:
     if _MAIL_TERMS.search(query) or "email" in request.source_types:
         report["email"] = await _refresh_mail(query)
     if _CALENDAR_TERMS.search(query) or "calendar" in request.source_types:
-        report["calendar"] = await _refresh_calendar(query)
+        report["calendar"] = await _refresh_calendar(
+            query,
+            from_iso=request.from_iso,
+            to_iso=request.to_iso,
+        )
     if _IMESSAGE_TERMS.search(query) or "imessage" in request.source_types:
         report["imessage"] = await _refresh_imessage(query)
     return report
@@ -90,7 +107,7 @@ async def _refresh_mail(query: str) -> str:
                     is_read=bool(message.get("is_read")),
                 )
             now = sqlite_utc_timestamp()
-            update_knowledge_source_state(
+            _update_live_source_state(
                 "email_live",
                 "email",
                 status="ok",
@@ -103,7 +120,7 @@ async def _refresh_mail(query: str) -> str:
         except Exception as exc:
             cached = get_recent_emails_from_db(limit=1)
             status = "degraded" if cached else "unavailable"
-            update_knowledge_source_state(
+            _update_live_source_state(
                 "email_live",
                 "email",
                 status=status,
@@ -114,7 +131,12 @@ async def _refresh_mail(query: str) -> str:
             return status
 
 
-async def _refresh_calendar(query: str) -> str:
+async def _refresh_calendar(
+    query: str,
+    *,
+    from_iso: str | None = None,
+    to_iso: str | None = None,
+) -> str:
     cache_key = _profile_source_key("calendar")
     source_lock = _source_lock(cache_key)
     if _cache_is_fresh(cache_key, _CALENDAR_TTL_SECONDS):
@@ -127,7 +149,7 @@ async def _refresh_calendar(query: str) -> str:
 
             if calendar_client is None or not calendar_client.is_available():
                 raise RuntimeError("calendar_unavailable")
-            start, end = _calendar_window(query)
+            start, end = _calendar_window(query, from_iso=from_iso, to_iso=to_iso)
             get_result = getattr(calendar_client, "get_events_result", None)
             if callable(get_result):
                 result = await get_result(start.isoformat(), end.isoformat())
@@ -146,7 +168,7 @@ async def _refresh_calendar(query: str) -> str:
                 window_end=end.isoformat(),
             )
             now = sqlite_utc_timestamp()
-            update_knowledge_source_state(
+            _update_live_source_state(
                 "calendar_live",
                 "calendar",
                 status="ok",
@@ -160,7 +182,7 @@ async def _refresh_calendar(query: str) -> str:
         except Exception as exc:
             # La projection locale reste utilisable ; le coordinator indiquera
             # sa fraîcheur au modèle.
-            update_knowledge_source_state(
+            _update_live_source_state(
                 "calendar_live",
                 "calendar",
                 status="degraded",
@@ -192,7 +214,7 @@ async def _refresh_imessage(query: str) -> str:
             if result.errors:
                 raise RuntimeError(result.errors[0])
             now = sqlite_utc_timestamp()
-            update_knowledge_source_state(
+            _update_live_source_state(
                 "imessage_live",
                 "imessage",
                 status="ok",
@@ -203,7 +225,7 @@ async def _refresh_imessage(query: str) -> str:
             _last_refresh[cache_key] = time.monotonic()
             return "ok"
         except Exception as exc:
-            update_knowledge_source_state(
+            _update_live_source_state(
                 "imessage_live",
                 "imessage",
                 status="degraded",
@@ -213,8 +235,32 @@ async def _refresh_imessage(query: str) -> str:
             return "degraded"
 
 
-def _calendar_window(query: str) -> tuple[datetime, datetime]:
+def _calendar_window(
+    query: str,
+    *,
+    from_iso: str | None = None,
+    to_iso: str | None = None,
+) -> tuple[datetime, datetime]:
     tz = configured_timezone()
+    if from_iso or to_iso:
+        try:
+            start = datetime.fromisoformat(
+                str(from_iso or to_iso).replace("Z", "+00:00")
+            )
+            end = datetime.fromisoformat(str(to_iso or from_iso).replace("Z", "+00:00"))
+            if start.tzinfo is None:
+                start = start.replace(tzinfo=timezone.utc)
+            if end.tzinfo is None:
+                end = end.replace(tzinfo=timezone.utc)
+            start = start.astimezone(tz)
+            end = end.astimezone(tz)
+            if to_iso:
+                end += timedelta(seconds=1)
+            if end <= start:
+                end = start + timedelta(days=1)
+            return start, end
+        except (TypeError, ValueError):
+            pass
     now = datetime.now(tz)
     folded = query.casefold()
     target = now.date()
