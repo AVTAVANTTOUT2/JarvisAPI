@@ -38,7 +38,6 @@ SKIPPED_SCAN_DIRS = frozenset(
     }
 )
 CHAT_DB_CONSUMERS = (
-    "api/lifespan.py",
     "integrations/imessage.py",
     "integrations/imessage_import.py",
     "integrations/imessage_reader.py",
