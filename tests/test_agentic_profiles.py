@@ -44,6 +44,24 @@ def test_catalog_contains_exactly_the_eight_minimal_profiles() -> None:
     assert "git:push" not in CAPABILITY_PROFILES["coding"].permissions
     assert "financial:act" not in CAPABILITY_PROFILES["invoice"].permissions
     assert "privilege:elevate" not in CAPABILITY_PROFILES["desktop"].permissions
+    personal_read_scopes = {
+        "communications:read",
+        "calendar:read",
+        "conversations:read",
+        "memory:read",
+        "contacts:read",
+        "media:read",
+        "documents:read",
+        "tasks:read",
+        "project_state:read",
+    }
+    readonly = CAPABILITY_PROFILES["readonly-research"]
+    assert personal_read_scopes.issubset(readonly.permissions)
+    assert personal_read_scopes.issubset(readonly.default_permissions)
+    assert (
+        "communications:read"
+        in CAPABILITY_PROFILES["communication"].default_permissions
+    )
     assert CAPABILITY_PROFILES["communication"].approval_permissions == (
         "communications:send",
     )

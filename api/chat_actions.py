@@ -33,23 +33,25 @@ logger = logging.getLogger("jarvis")
 
 _ACTION_RE = re.compile(r"```action\s*\n?(.*?)```", re.DOTALL | re.IGNORECASE)
 
-ACTIONS_WITH_FOLLOWUP = frozenset({
-    "terminal",
-    "find_file",
-    "system_info",
-    "search_conversations",
-    "weather",
-    "calendar",
-    "calendar_create",
-    "open_app",
-    "mail_read",
-    "name_place",
-    "where_am_i",
-    "day_route",
-    "tv",
-    "food_order",
-    "run_shortcut",
-})
+ACTIONS_WITH_FOLLOWUP = frozenset(
+    {
+        "terminal",
+        "find_file",
+        "system_info",
+        "search_conversations",
+        "weather",
+        "calendar",
+        "calendar_create",
+        "open_app",
+        "mail_read",
+        "name_place",
+        "where_am_i",
+        "day_route",
+        "tv",
+        "food_order",
+        "run_shortcut",
+    }
+)
 
 # Actions qui écrivent un état persistant, exécutées seulement après
 # confirmation explicite (proposal_id / « oui » exact), jamais sur la seule
@@ -63,12 +65,14 @@ ACTIONS_WITH_FOLLOWUP = frozenset({
 #     « ouvre OBS » vocal doit ouvrir OBS, sans second tour de parole.
 # `terminal` et `food_order` ne figurent pas ici : ils ont déjà leur propre
 # confirmation par plan serveur opaque dans `actions.py`, plus stricte.
-ACTIONS_REQUIRING_CONFIRMATION = frozenset({
-    "calendar_create",
-    "task",
-    "reminder",
-    "name_place",
-})
+ACTIONS_REQUIRING_CONFIRMATION = frozenset(
+    {
+        "calendar_create",
+        "task",
+        "reminder",
+        "name_place",
+    }
+)
 
 # Types d'actions qui peuvent déclencher la boucle agentique (multi-étapes)
 AGENTIC_ACTION_TYPES = frozenset({"terminal"})
@@ -95,19 +99,30 @@ async def _run_loop_mode_ws(
     *,
     voice_mode: bool = False,
     confirmation_session_id: str,
+    context: dict | None = None,
 ) -> dict:
     """Exécute le mode /loop autonome avec événements WebSocket temps réel."""
-    context = await _build_enriched_context(task, conversation_id)
+    context = (
+        dict(context)
+        if context is not None
+        else await _build_enriched_context(
+            task,
+            conversation_id,
+            interaction_mode="voice" if voice_mode else "stream",
+        )
+    )
     if voice_mode:
         context["voice_mode"] = True
 
     async def _on_event(event_type: str, data: dict) -> None:
         await ws.send_json({"type": event_type, **data})
 
-    await ws.send_json({
-        "type": "status",
-        "content": f"Mode autonome activé — {task[:120]}",
-    })
+    await ws.send_json(
+        {
+            "type": "status",
+            "content": f"Mode autonome activé — {task[:120]}",
+        }
+    )
 
     loop_result = await run_autonomous_loop(
         task,
@@ -144,20 +159,22 @@ async def _run_loop_mode_ws(
     except Exception as exc:
         logger.warning("[loop] save_message : %s", exc)
 
-    await ws.send_json({
-        "type": "response",
-        "agent": "loop",
-        "category": "LOOP",
-        "content": display_text,
-        "model": config.LOOP_MODEL,
-        "cost": loop_result.get("total_cost", 0.0),
-        "emotion": emotion,
-        "loop": {
-            "status": loop_result.get("final_status"),
-            "steps": loop_result.get("step_count"),
-            "llm_calls": loop_result.get("total_llm_calls"),
-        },
-    })
+    await ws.send_json(
+        {
+            "type": "response",
+            "agent": "loop",
+            "category": "LOOP",
+            "content": display_text,
+            "model": config.LOOP_MODEL,
+            "cost": loop_result.get("total_cost", 0.0),
+            "emotion": emotion,
+            "loop": {
+                "status": loop_result.get("final_status"),
+                "steps": loop_result.get("step_count"),
+                "llm_calls": loop_result.get("total_llm_calls"),
+            },
+        }
+    )
 
     return {"emotion": emotion, "response": display_text, "loop_result": loop_result}
 
@@ -168,9 +185,18 @@ async def _run_loop_mode_internal(
     *,
     voice_mode: bool = False,
     confirmation_session_id: str,
+    context: dict | None = None,
 ) -> dict:
     """Mode /loop sans WebSocket (REST, daemon, iMessage)."""
-    context = await _build_enriched_context(task, conversation_id)
+    context = (
+        dict(context)
+        if context is not None
+        else await _build_enriched_context(
+            task,
+            conversation_id,
+            interaction_mode="voice" if voice_mode else "chat",
+        )
+    )
     if voice_mode:
         context["voice_mode"] = True
 
@@ -209,10 +235,23 @@ async def _run_loop_mode_internal(
 
 
 _PROPOSAL_MARKERS = (
-    "veux-tu", "veux tu", "voulez-vous", "souhaites-tu", "souhaites tu",
-    "dois-je", "dois je", "puis-je", "puis je", "tu confirmes",
-    "confirmer", "je peux le", "je peux la", "je peux les",
-    "shall i", "want me to", "should i",
+    "veux-tu",
+    "veux tu",
+    "voulez-vous",
+    "souhaites-tu",
+    "souhaites tu",
+    "dois-je",
+    "dois je",
+    "puis-je",
+    "puis je",
+    "tu confirmes",
+    "confirmer",
+    "je peux le",
+    "je peux la",
+    "je peux les",
+    "shall i",
+    "want me to",
+    "should i",
 )
 
 
@@ -297,7 +336,10 @@ def _maybe_store_pending_proposal(
 
 
 async def _check_pending_proposal(
-    ws, text: str, conversation_id: int, confirmation_session_id: str,
+    ws,
+    text: str,
+    conversation_id: int,
+    confirmation_session_id: str,
 ) -> dict | None:
     """Vérifie si l'utilisateur confirme une proposition en attente.
 
@@ -311,10 +353,12 @@ async def _check_pending_proposal(
     if action is None:
         return None
 
-    await ws.send_json({
-        "type": "status",
-        "content": f"Exécution de l'action : {action.get('type')}…",
-    })
+    await ws.send_json(
+        {
+            "type": "status",
+            "content": f"Exécution de l'action : {action.get('type')}…",
+        }
+    )
 
     try:
         return await execute_action(action)
@@ -345,7 +389,7 @@ def _extract_action_from_text(text: str) -> tuple[dict | None, str]:
     m = _ACTION_RE.search(text)
     if m:
         json_str = m.group(1).strip()
-        clean = (text[: m.start()] + text[m.end():]).strip()
+        clean = (text[: m.start()] + text[m.end() :]).strip()
         try:
             action = _json.loads(json_str)
             if isinstance(action, dict) and "type" in action:

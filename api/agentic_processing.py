@@ -21,6 +21,7 @@ from jarvis.agentic.models import (
     ApprovalDecision,
     normalize_agentic_client_context,
 )
+from api.agentic_context import agentic_memory_context as _agentic_memory_context
 
 
 logger = logging.getLogger(__name__)
@@ -314,6 +315,7 @@ async def maybe_start_agentic_run(
     device: str | None = None,
     locale: str | None = None,
     timezone_name: str | None = None,
+    enriched_context: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """Retourne une prise en charge immédiate, ou ``None`` pour le legacy."""
 
@@ -396,6 +398,25 @@ async def maybe_start_agentic_run(
     ):
         return None
 
+    if enriched_context is None:
+        # Import local pour garder agentic_processing indépendant des transports
+        # tout en utilisant exactement le même builder que chat/stream/voix.
+        from api.chat_context import _build_enriched_context
+
+        interaction_mode = (
+            "voice" if voice_mode else "stream" if channel == "websocket" else "chat"
+        )
+        enriched_context = await _build_enriched_context(
+            request,
+            conversation_id,
+            interaction_mode=interaction_mode,
+        )
+
+    selected_context = {
+        "request": request,
+        "classification": classification.reason,
+        **_agentic_memory_context(enriched_context),
+    }
     desktop_workspace = resolve_desktop_workspace(request)
     run = await service.create_and_start(
         title=request,
@@ -409,7 +430,7 @@ async def maybe_start_agentic_run(
         timezone_name=timezone_name,
         permissions=capability_profile.default_permissions,
         capability_profile_id=capability_profile.profile_id,
-        selected_context={"request": request, "classification": classification.reason},
+        selected_context=selected_context,
         category=classification.category,
         workspace=str(desktop_workspace) if desktop_workspace is not None else None,
         idempotency_key=idempotency_key,

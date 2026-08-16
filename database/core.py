@@ -25,6 +25,14 @@ _active_profile_id: ContextVar[str] = ContextVar(
     "jarvis_active_profile_id",
     default=DEFAULT_PROFILE_ID,
 )
+_ambient_connection: ContextVar[sqlite3.Connection | None] = ContextVar(
+    "jarvis_ambient_db_connection",
+    default=None,
+)
+_ambient_connection_profile: ContextVar[str | None] = ContextVar(
+    "jarvis_ambient_db_profile",
+    default=None,
+)
 
 
 def normalize_profile_id(profile_id: str | None) -> str:
@@ -69,7 +77,9 @@ def profile_database_path(profile_id: str | None = None) -> Path:
     if selected == DEFAULT_PROFILE_ID:
         return base_path
     if str(base_path) == ":memory:":
-        raise RuntimeError("Les profils additionnels exigent une base SQLite sur disque")
+        raise RuntimeError(
+            "Les profils additionnels exigent une base SQLite sur disque"
+        )
     return base_path.parent / "profiles" / selected / base_path.name
 
 
@@ -120,6 +130,12 @@ def get_connection() -> sqlite3.Connection:
 @contextmanager
 def get_db() -> Iterator[sqlite3.Connection]:
     """Fournit une transaction avec commit, rollback et fermeture garantis."""
+    ambient = _ambient_connection.get()
+    if ambient is not None:
+        if _ambient_connection_profile.get() != current_profile_id():
+            raise RuntimeError("ambient_db_profile_mismatch")
+        yield ambient
+        return
     conn = get_connection()
     try:
         yield conn
@@ -128,6 +144,32 @@ def get_db() -> Iterator[sqlite3.Connection]:
         conn.rollback()
         raise
     finally:
+        conn.close()
+        harden_sqlite_permissions()
+
+
+@contextmanager
+def db_transaction() -> Iterator[sqlite3.Connection]:
+    """Regroupe explicitement plusieurs écritures métier dans une transaction."""
+
+    ambient = _ambient_connection.get()
+    if ambient is not None:
+        if _ambient_connection_profile.get() != current_profile_id():
+            raise RuntimeError("ambient_db_profile_mismatch")
+        yield ambient
+        return
+    conn = get_connection()
+    token = _ambient_connection.set(conn)
+    profile_token = _ambient_connection_profile.set(current_profile_id())
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        _ambient_connection.reset(token)
+        _ambient_connection_profile.reset(profile_token)
         conn.close()
         harden_sqlite_permissions()
 
@@ -181,16 +223,21 @@ def build_full_context() -> dict:
 def count_memory_stats() -> dict:
     """Compteurs pour tableaux de bord /api/status."""
     with get_db() as conn:
+
         def _one(query: str, params: tuple = ()) -> int:
             return int(conn.execute(query, params).fetchone()[0])
 
         return {
             "user_facts": _one("SELECT COUNT(*) FROM user_facts WHERE is_current = 1"),
             "relationship_profiles": _one("SELECT COUNT(*) FROM relationship_profiles"),
-            "patterns_active": _one("SELECT COUNT(*) FROM patterns WHERE status = 'active'"),
+            "patterns_active": _one(
+                "SELECT COUNT(*) FROM patterns WHERE status = 'active'"
+            ),
             "episodes": _one("SELECT COUNT(*) FROM episodes"),
             "people": _one("SELECT COUNT(*) FROM people"),
-            "cross_insights": _one("SELECT COUNT(*) FROM cross_insights WHERE status = 'active'"),
+            "cross_insights": _one(
+                "SELECT COUNT(*) FROM cross_insights WHERE status = 'active'"
+            ),
         }
 
 

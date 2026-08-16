@@ -3,30 +3,212 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 import logging
 import uuid
+from collections.abc import Mapping
 from typing import Any
 
 from fastapi import WebSocket
 
-import config
 from api.llm_logging import _schedule_llm_log
-from database import (
-    get_all_people,
-    get_app_usage,
-    get_conversation_documents,
-    get_conversations,
-    get_current_screen_context,
-    get_recordings,
-    get_school_documents,
-    get_tasks,
+from database import get_conversation_history
+from integrations import weather
+from jarvis.retrieval import (
+    RetrievalRequest,
+    format_retrieval_context,
+    search_knowledge,
 )
-from integrations import calendar_client, mail_client, weather
-from jarvis.document_privacy import document_strict_local_enabled
-from jarvis.pii.boundary import DataBoundary
+from jarvis.retrieval.live_sources import refresh_live_sources
 from jarvis.security.llm_data_boundary import wrap_untrusted_data
 
 logger = logging.getLogger("jarvis")
+
+_RETRIEVAL_CONTEXT_MAX_CHARS = 8_000
+_RETRIEVAL_HISTORY_LIMIT = 30
+_RETRIEVAL_RECENT_USER_TURNS = 6
+
+
+def _history_for_context(
+    conversation_id: int,
+    current_text: str,
+    *,
+    limit: int = _RETRIEVAL_HISTORY_LIMIT,
+) -> list[dict[str, Any]]:
+    """Charge une fois l'historique utile au LLM et à la résolution de références."""
+
+    try:
+        rows = get_conversation_history(conversation_id, limit=limit)
+    except Exception as exc:
+        logger.warning(
+            "[ctx] historique conversation %s indisponible : %s", conversation_id, exc
+        )
+        return []
+
+    history: list[dict[str, Any]] = []
+    for row in rows:
+        role = str(row.get("role") or "")
+        content = str(row.get("content") or "").strip()
+        if role not in {"user", "assistant"} or not content:
+            continue
+        history.append(
+            {
+                "role": role,
+                "content": content,
+                "created_at": row.get("created_at"),
+            }
+        )
+
+    # Certains transports persistent le tour utilisateur avant l'enrichissement,
+    # d'autres après. Le texte courant est déjà porté par RetrievalRequest.query.
+    if (
+        history
+        and history[-1]["role"] == "user"
+        and history[-1]["content"].strip() == (current_text or "").strip()
+    ):
+        history.pop()
+    return history
+
+
+def _retrieval_hit_references(hits: Any) -> list[dict[str, Any]]:
+    """Expose uniquement les identifiants opaques nécessaires à un run agentique."""
+
+    references: list[dict[str, Any]] = []
+    for hit in list(hits or [])[:8]:
+        if isinstance(hit, Mapping):
+            raw = dict(hit)
+        else:
+            raw = {
+                key: getattr(hit, key)
+                for key in (
+                    "uid",
+                    "reference",
+                    "source_type",
+                    "source_id",
+                    "canonical_id",
+                    "id",
+                )
+                if hasattr(hit, key)
+            }
+        reference = {
+            key: raw[key]
+            for key in (
+                "uid",
+                "reference",
+                "source_type",
+                "source_id",
+                "canonical_id",
+                "id",
+            )
+            if raw.get(key) not in (None, "")
+        }
+        if reference:
+            references.append(reference)
+    return references
+
+
+def _diagnostic_value(value: Any) -> Any:
+    return getattr(value, "value", value)
+
+
+def _merge_live_source_status(result: Any, live_report: Mapping[str, Any]) -> Any:
+    """Conserve les hits en cache tout en signalant un contrôle live incomplet."""
+
+    failures = {
+        str(source): str(status)
+        for source, status in (live_report or {}).items()
+        if str(status) in {"degraded", "unavailable"}
+    }
+    if not failures:
+        return result
+
+    unavailable = tuple(sorted(set(result.unavailable_sources).union(failures)))
+    diagnostics = tuple(
+        dict.fromkeys(
+            (
+                *result.diagnostics,
+                *(f"live:{source}:{status}" for source, status in failures.items()),
+            )
+        )
+    )
+    status = (
+        "unavailable" if not result.verified_sources and not result.hits else "degraded"
+    )
+    return replace(
+        result,
+        status=status,
+        unavailable_sources=unavailable,
+        diagnostics=diagnostics,
+    )
+
+
+async def _attach_retrieval_context(
+    context: dict[str, Any],
+    *,
+    text: str,
+    conversation_id: int,
+    interaction_mode: str,
+) -> None:
+    """Effectue l'unique recherche mémoire du tour et conserve sa provenance."""
+
+    history = _history_for_context(conversation_id, text)
+    context["history"] = history
+    recent_user_turns = [
+        str(message["content"]) for message in history if message.get("role") == "user"
+    ][-_RETRIEVAL_RECENT_USER_TURNS:]
+    mode = (
+        interaction_mode if interaction_mode in {"chat", "voice", "stream"} else "chat"
+    )
+    request = RetrievalRequest(
+        query=text,
+        conversation_id=conversation_id,
+        recent_user_turns=recent_user_turns,
+        interaction_mode=mode,
+        max_candidates=20,
+        max_hits=8,
+        char_budget=_RETRIEVAL_CONTEXT_MAX_CHARS,
+    )
+
+    try:
+        live_report = await refresh_live_sources(request)
+        if live_report:
+            context["__retrieval_live"] = dict(live_report)
+        result = await asyncio.to_thread(search_knowledge, request)
+        result = _merge_live_source_status(result, live_report)
+        formatted = format_retrieval_context(
+            result,
+            max_chars=_RETRIEVAL_CONTEXT_MAX_CHARS,
+        )
+        if not formatted.strip():
+            raise ValueError("retrieval_context_vide")
+    except Exception as exc:
+        logger.exception("[ctx] retrieval unifié indisponible")
+        context["retrieval_context"] = wrap_untrusted_data(
+            "KNOWLEDGE_RETRIEVAL",
+            f"Recherche mémoire indisponible ({type(exc).__name__}).",
+            max_chars=500,
+        )
+        context["__retrieval"] = {
+            "status": "unavailable",
+            "verified_sources": [],
+            "unavailable_sources": ["retrieval"],
+            "diagnostics": [f"retrieval:{type(exc).__name__}"],
+            "latency_ms": None,
+        }
+        context["__retrieval_references"] = []
+        context["__retrieval_done"] = True
+        return
+
+    context["retrieval_context"] = formatted
+    context["__retrieval"] = {
+        "status": _diagnostic_value(result.status),
+        "verified_sources": list(result.verified_sources),
+        "unavailable_sources": list(result.unavailable_sources),
+        "diagnostics": list(getattr(result, "diagnostics", ())),
+        "latency_ms": getattr(result, "latency_ms", None),
+    }
+    context["__retrieval_references"] = _retrieval_hit_references(result.hits)
+    context["__retrieval_done"] = True
 
 
 async def _send_tts_streaming(
@@ -58,7 +240,11 @@ async def _send_tts_streaming(
     from jarvis.audio.tts.wav import pcm_to_wav
 
     audio_mime = DEFAULT_TTS_MIME
-    payload: dict[str, Any] = {"type": "speaking", "emotion": emotion, "audio_mime": audio_mime}
+    payload: dict[str, Any] = {
+        "type": "speaking",
+        "emotion": emotion,
+        "audio_mime": audio_mime,
+    }
     if turn_id:
         payload["turn_id"] = turn_id
     await ws.send_json(payload)
@@ -106,7 +292,9 @@ async def _send_tts_streaming(
         sample_rate = provider.info().sample_rate
         channels = provider.info().channels
         async for chunk in provider.stream(
-            text, request_id=request_id, utterance_id=request_id,
+            text,
+            request_id=request_id,
+            utterance_id=request_id,
         ):
             if _cancelled():
                 await provider.cancel(request_id)
@@ -117,7 +305,9 @@ async def _send_tts_streaming(
                 channels = chunk.channels
         if pcm and not _cancelled():
             audio = pcm_to_wav(
-                b"".join(pcm), sample_rate=sample_rate, channels=channels,
+                b"".join(pcm),
+                sample_rate=sample_rate,
+                channels=channels,
             )
     except asyncio.CancelledError:
         await ws.send_json({"type": "speech_cancelled", "turn_id": turn_id})
@@ -147,289 +337,68 @@ async def _send_tts_streaming(
     return "completed"
 
 
-async def _build_enriched_context(text: str, conversation_id: int) -> dict:
-    """Construit le contexte enrichi à partir de toutes les sources de données.
+async def _build_enriched_context(
+    text: str,
+    conversation_id: int,
+    *,
+    interaction_mode: str = "chat",
+) -> dict:
+    """Construit un contexte unique : retrieval borné + services non mémoriels."""
 
-    Appelé par _process_message (WS) ET _process_message_internal (REST).
-    Contexte permanent : documents de la conversation.
-    Contexte conditionnel : mails, calendar, météo, tâches, localisation, fichiers,
-    enregistrements, conversations passées — détectés par mots-clés dans le texte.
-    """
     context: dict = {}
-    lower = text.lower()
+    await _attach_retrieval_context(
+        context,
+        text=text,
+        conversation_id=conversation_id,
+        interaction_mode=interaction_mode,
+    )
 
-    # ─── CONTEXTE PERMANENT ───────────────────────────────────────────────────
-    # Documents attachés : jamais de contenu brut vers l'orchestrateur cloud.
-    # Le consentement est propre à chaque upload et le mode strict local reste
-    # prioritaire même pour un document précédemment autorisé.
-    try:
-        conv_docs = get_conversation_documents(conversation_id)
-        eligible_docs = [
-            doc
-            for doc in conv_docs
-            if doc.get("extracted_text") and bool(doc.get("cloud_consent"))
-        ]
-        if eligible_docs and not document_strict_local_enabled():
-            limit = max(1, int(config.DOCUMENT_CLOUD_MAX_CHARS))
-            docs_parts: list[str] = []
-            remaining = limit
-            for doc in eligible_docs:
-                prefix = f"[DOCUMENT_{doc['id']}]\n"
-                available = max(0, remaining - len(prefix))
-                if available <= 0:
-                    break
-                fragment = str(doc.get("extracted_text") or "")[:available]
-                docs_parts.append(prefix + fragment)
-                remaining -= len(prefix) + len(fragment)
-
-            raw_context = "\n\n".join(docs_parts)[:limit]
-            if raw_context:
-                safe_context = wrap_untrusted_data(
-                    "ATTACHED_DOCUMENTS",
-                    raw_context,
-                    max_chars=limit,
-                )
-                DataBoundary().check(safe_context)
-                context["documents_context"] = safe_context
-    except Exception as e:
-        logger.warning("[ctx] document cloud bloqué par la frontière de données : %s", e)
-
-    # ─── CONTEXTE CONDITIONNEL ────────────────────────────────────────────────
-
-    # Mails — mention explicite ou nom d'une personne connue
-    mail_triggers = ["mail", "email", "courrier", "boîte", "inbox", "reçu", "envoyé",
-                     "message de", "écrit", "mails", "messagerie"]
-    people_names: list[str] = []
-    try:
-        people_names = [p["name"].lower() for p in get_all_people() if p.get("name")]
-    except Exception:
-        pass
-
-    if any(t in lower for t in mail_triggers) or any(n in lower for n in people_names):
-        try:
-            if mail_client and mail_client.is_available():
-                emails = await mail_client.get_unread(10)
-                if emails:
-                    email_lines = "\n".join([
-                        f"- De: {e.get('from', '')} | Objet: {e.get('subject', '')} | "
-                        f"{str(e.get('preview', '') or e.get('snippet', ''))[:300]}"
-                        for e in emails
-                    ])
-                    context["emails_context"] = wrap_untrusted_data(
-                        "MAIL_APP",
-                        email_lines,
-                        max_chars=5_000,
-                    )
-        except Exception as ex:
-            logger.warning("[ctx] mail : %s", ex)
-
-    # Calendar — planning, agenda, dates
-    calendar_triggers = ["planning", "agenda", "rdv", "rendez-vous", "calendrier",
-                         "emploi du temps", "semaine", "demain", "aujourd'hui",
-                         "ce soir", "ce matin", "cours", "quand", "horaire", "programme"]
-    if any(t in lower for t in calendar_triggers):
-        try:
-            if calendar_client and calendar_client.is_available():
-                events = await calendar_client.get_today_events()
-                if events:
-                    context["calendar_context"] = "\n".join([
-                        f"- {e.get('start', '?')} → {e.get('end', '?')} : {e.get('summary', '?')}"
-                        for e in events
-                    ])
-        except Exception as ex:
-            logger.warning("[ctx] calendar : %s", ex)
-
-    # Météo — conditions climatiques
-    weather_triggers = ["météo", "meteo", "temps", "pluie", "soleil", "parapluie",
-                        "température", "chaud", "froid", "dehors", "sortir"]
-    if any(t in lower for t in weather_triggers):
+    # La météo est un service instantané, pas une donnée de mémoire. Toutes les
+    # autres données personnelles passent exclusivement par le coordinator.
+    lower = text.casefold()
+    weather_triggers = (
+        "météo",
+        "meteo",
+        "pluie",
+        "soleil",
+        "parapluie",
+        "température",
+    )
+    if any(trigger in lower for trigger in weather_triggers):
         try:
             if weather and weather.is_available():
-                w = await weather.get_current()
-                if w:
+                current = await weather.get_current()
+                if current:
                     context["weather_context"] = (
-                        f"{w.get('city', '?')} : {w.get('temp', '?')}°C, "
-                        f"{w.get('description', '?')}"
+                        f"{current.get('city', '?')} : {current.get('temp', '?')}°C, "
+                        f"{current.get('description', '?')}"
                     )
-        except Exception as ex:
-            logger.warning("[ctx] weather : %s", ex)
+        except Exception as exc:
+            logger.warning("[ctx] météo indisponible : %s", type(exc).__name__)
 
-    # Tâches — todo, deadlines
-    task_triggers = ["tâche", "tache", "todo", "faire", "à faire", "en retard",
-                     "priorité", "rappel", "deadline", "échéance", "tâches"]
-    if any(t in lower for t in task_triggers):
-        try:
-            tasks = get_tasks()
-            if tasks:
-                context["tasks_context"] = "\n".join([
-                    f"- [{t['priority']}] {t['title']} ({t['status']})" +
-                    (f" — échéance {t['due_date']}" if t.get("due_date") else "")
-                    for t in tasks[:10]
-                ])
-        except Exception as ex:
-            logger.warning("[ctx] tasks : %s", ex)
-
-    # Pilotage de tâches — plans à valider, exécutions en cours, livrables.
-    # Déclencheurs propres et étroits : la tranche est plus riche que la liste
-    # de tâches simples et n'a pas à s'inviter à chaque tour de parole.
     try:
-        from jarvis.task_control.context import (
-            build_task_control_context,
-            should_include_task_control,
-        )
+        from jarvis.cognitive import route_request
 
-        if should_include_task_control(text) or any(t in lower for t in task_triggers):
-            context.update(build_task_control_context())
-    except Exception as ex:
-        logger.warning("[ctx] task_control : %s", ex)
-
-    # Localisation — lieu actuel, position GPS
-    location_triggers = ["où", "position", "lieu", "ici", "maison", "bureau", "salle",
-                         "adresse", "localisation", "trajet", "déplacement"]
-    if any(t in lower for t in location_triggers):
-        try:
-            from integrations.location import location_manager
-            status = await location_manager.get_status()
-            if status:
-                loc_text = ""
-                if status.get("current_visit"):
-                    loc_text = f"Actuellement à : {status['current_visit'].get('place_name', '?')}"
-                elif status.get("current_location"):
-                    loc = status["current_location"]
-                    loc_text = f"Position : {loc.get('latitude', '?')}, {loc.get('longitude', '?')}"
-                if loc_text:
-                    context["location_context"] = loc_text
-        except Exception:
-            pass
-
-    # Fichiers / documents scolaires
-    file_triggers = ["fichier", "document", "cours", "pdf", "rapport", "devoir",
-                     "dissertation", "fiche", "upload", "télécharger", "documents"]
-    if any(t in lower for t in file_triggers):
-        try:
-            docs = get_school_documents(limit=10)
-            if docs:
-                context["school_docs_context"] = "\n".join([
-                    f"- {d['title']} ({d.get('doc_type', '?')})"
-                    for d in docs
-                ])
-        except Exception:
-            pass
-        try:
-            recs = get_recordings(limit=5)
-            if recs:
-                recording_lines = "\n".join([
-                    f"- {r.get('title', r.get('label', '?'))} ({r.get('duration_seconds', 0)}s)"
-                    for r in recs
-                ])
-                context["recordings_context"] = wrap_untrusted_data(
-                    "TRANSCRIPTION_METADATA",
-                    recording_lines,
-                    max_chars=2_000,
-                )
-        except Exception:
-            pass
-
-    # Conversations passées — référence au passé
-    memory_triggers = ["on avait", "la dernière fois", "tu te souviens", "on a parlé",
-                       "rappelle", "avant", "hier on", "la semaine dernière", "souviens-toi"]
-    if any(t in lower for t in memory_triggers):
-        try:
-            recent_convs = get_conversations(limit=5)
-            if recent_convs:
-                recent_lines = "\n".join([
-                    f"- [{c.get('title', 'Sans titre')}] {str(c.get('last_message', ''))[:100]}"
-                    for c in recent_convs
-                ])
-                context["recent_conversations"] = wrap_untrusted_data(
-                    "CONVERSATION_HISTORY_SEARCH",
-                    recent_lines,
-                    max_chars=2_000,
-                )
-        except Exception:
-            pass
-
-    # Contexte écran (toujours injecté si disponible — c'est gratuit côté tokens cachés)
-    try:
-        screen_ctx = get_current_screen_context()
-        if screen_ctx:
-            context["screen_context"] = (
-                f"Écran : {screen_ctx.get('app', '?')} — "
-                f"{screen_ctx.get('activity', '?')} (mood: {screen_ctx.get('mood', '?')})"
-            )
-    except Exception:
-        pass
-
-    # Temps par app aujourd'hui — uniquement si la question concerne la productivité
-    screen_triggers = [
-        "temps", "productivité", "productif", "travaillé", "passé combien",
-        "app", "application", "écran", "screen time", "distrait", "procrastin",
-    ]
-    if any(t in lower for t in screen_triggers):
-        try:
-            usage = get_app_usage()
-            if usage:
-                top = sorted(usage, key=lambda x: x.get("duration_seconds", 0), reverse=True)[:10]
-                context["screen_time_context"] = "\n".join([
-                    f"- {u['app']} : {int(u.get('duration_seconds', 0)) // 60} min"
-                    for u in top
-                ])
-        except Exception:
-            pass
-
-    # ── ContextPlanner : budget + traçabilité (« pourquoi cette donnée ? ») ──
-    try:
-        from jarvis.cognitive import plan_context, route_request
-
-        intent = route_request(text, interaction_mode="chat")
-        planner_input = {
-            "calendar": context.get("calendar_context"),
-            "tasks": context.get("tasks_context"),
-            "emails": context.get("emails_context"),
-            "weather": context.get("weather_context"),
-            "location": context.get("location_context"),
-            "memory_hits": context.get("recent_conversations"),
-            "screen_context": context.get("screen_context"),
-        }
-        planned = plan_context(intent, planner_input)
-        # Budget réel : tronque les tranches conditionnelles selon l'intent.
-        slice_to_ctx_key = {
-            "CALENDAR": "calendar_context",
-            "TASKS": "tasks_context",
-            "EMAILS": "emails_context",
-            "WEATHER": "weather_context",
-            "LOCATION": "location_context",
-            "MEMORY": "recent_conversations",
-            "SCREEN": "screen_context",
-        }
-        budget = planned.char_budget()
-        used = 0
-        for s in sorted(planned.slices, key=lambda x: -x.relevance):
-            ctx_key = slice_to_ctx_key.get(s.key)
-            if not ctx_key or ctx_key not in context:
-                continue
-            remaining = max(0, budget - used)
-            value = str(context[ctx_key])
-            if len(value) > remaining:
-                if remaining < 200:
-                    context.pop(ctx_key, None)
-                    continue
-                context[ctx_key] = value[:remaining]
-            used += len(str(context.get(ctx_key, "")))
+        intent = route_request(text, interaction_mode=interaction_mode)
         context["__routing"] = intent.to_diagnostic()
-        context["__context_trace"] = planned.to_diagnostic()
-    except Exception as e:
-        logger.debug("[ctx] context planner : %s", e)
+        context["__context_trace"] = {
+            "selected": ["KNOWLEDGE_HITS"],
+            "status": context.get("__retrieval", {}).get("status"),
+            "budget_chars": _RETRIEVAL_CONTEXT_MAX_CHARS,
+        }
+    except Exception as exc:
+        logger.debug("[ctx] routage diagnostic indisponible : %s", type(exc).__name__)
 
     _schedule_llm_log(
         agent="system",
         action_type="context_enrichment",
         payload={
             "conversation_id": conversation_id,
-            "keys": sorted(k for k in context.keys() if not k.startswith("__")),
+            "keys": sorted(k for k in context if not k.startswith("__")),
             "key_count": len(context),
             "routing": context.get("__routing"),
             "context_trace": context.get("__context_trace"),
+            "retrieval": context.get("__retrieval"),
         },
         status="success",
     )

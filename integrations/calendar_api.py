@@ -7,11 +7,14 @@ Permissions : Automation pour Calendar.app au premier appel osascript.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import re
 import subprocess
 import time
+from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import Literal
 
 from dateutil import parser as date_parser
 
@@ -43,6 +46,15 @@ _MONTH_NAMES_AS = (
 )
 
 
+@dataclass(frozen=True, slots=True)
+class CalendarQueryResult:
+    """Distingue une fenêtre vide d'une collecte Calendar indisponible."""
+
+    status: Literal["ok", "unavailable"]
+    events: tuple[dict, ...] = ()
+    error: str | None = None
+
+
 class AppleCalendarClient:
     """Lecture et création d’événements via Calendar.app."""
 
@@ -59,7 +71,9 @@ class AppleCalendarClient:
     def _escape_as(s: str) -> str:
         return escape_applescript_string(s)
 
-    def _run_applescript(self, script: str, timeout: float = OSASCRIPT_TIMEOUT) -> str | None:
+    def _run_applescript(
+        self, script: str, timeout: float = OSASCRIPT_TIMEOUT
+    ) -> str | None:
         """Exécute osascript ; une retry si timeout (API historique : stdout ou None)."""
         for attempt in range(2):
             diag = self._run_applescript_detailed(script, timeout=timeout)
@@ -68,7 +82,9 @@ class AppleCalendarClient:
                 return diag["stdout"]
 
             if diag.get("reason") == "timeout":
-                logger.warning("[Calendar] osascript timeout (tentative %s)", attempt + 1)
+                logger.warning(
+                    "[Calendar] osascript timeout (tentative %s)", attempt + 1
+                )
                 if attempt == 0:
                     continue
                 return None
@@ -127,7 +143,9 @@ class AppleCalendarClient:
             timeout=2.0,
         )
         if hide.ok:
-            logger.debug("[Calendar] Focus restauré (Calendar avait volé le premier plan)")
+            logger.debug(
+                "[Calendar] Focus restauré (Calendar avait volé le premier plan)"
+            )
             return
         # Repli : réactiver explicitement l'app d'avant
         if front_before:
@@ -137,9 +155,13 @@ class AppleCalendarClient:
             )
             logger.debug("[Calendar] Focus forcé vers %s", front_before)
 
-    async def _run_applescript_async(self, script: str, timeout: float = OSASCRIPT_TIMEOUT) -> str | None:
+    async def _run_applescript_async(
+        self, script: str, timeout: float = OSASCRIPT_TIMEOUT
+    ) -> str | None:
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, lambda: self._run_applescript(script, timeout=timeout))
+        return await loop.run_in_executor(
+            None, lambda: self._run_applescript(script, timeout=timeout)
+        )
 
     @staticmethod
     def _calendar_process_running() -> bool:
@@ -209,7 +231,11 @@ class AppleCalendarClient:
             return diag
 
         stderr = (diag.get("stderr") or "").strip()
-        if "-600" in stderr or "L’application n’est pas ouverte" in stderr or "Application isn’t running" in stderr:
+        if (
+            "-600" in stderr
+            or "L’application n’est pas ouverte" in stderr
+            or "Application isn’t running" in stderr
+        ):
             return self._open_calendar_background()
 
         return diag
@@ -219,7 +245,9 @@ class AppleCalendarClient:
         available = self.is_available()
         return {
             "available": available,
-            "error": None if available else (self._last_error or "Calendar.app indisponible"),
+            "error": None
+            if available
+            else (self._last_error or "Calendar.app indisponible"),
             "details": None if available else self._last_error_details,
         }
 
@@ -227,7 +255,10 @@ class AppleCalendarClient:
         if self._available is True:
             return True
         # Court-circuit si le dernier échec est récent (évite les retries osascript en boucle)
-        if self._available is False and time.monotonic() - self._last_failed_check < self._FAILURE_COOLDOWN:
+        if (
+            self._available is False
+            and time.monotonic() - self._last_failed_check < self._FAILURE_COOLDOWN
+        ):
             return False
         self._last_error = None
         self._last_error_details = None
@@ -241,8 +272,8 @@ class AppleCalendarClient:
             if "Not authorized to send Apple events" in stderr:
                 self._last_error = "Permission refusée (Automation)"
                 logger.critical(
-                    '🚨 PERMISSION REFUSÉE : Va dans Réglages Système > Confidentialité et sécurité > Automatisation, '
-                    'et autorise le Terminal/Cursor à contrôler Calendrier.'
+                    "🚨 PERMISSION REFUSÉE : Va dans Réglages Système > Confidentialité et sécurité > Automatisation, "
+                    "et autorise le Terminal/Cursor à contrôler Calendrier."
                 )
             elif launch_diag.get("reason") == "timeout":
                 self._last_error = "Timeout au lancement de Calendar.app"
@@ -276,8 +307,8 @@ class AppleCalendarClient:
         if "Not authorized to send Apple events" in stderr:
             self._last_error = "Permission refusée (Automation)"
             logger.critical(
-                '🚨 PERMISSION REFUSÉE : Va dans Réglages Système > Confidentialité et sécurité > Automatisation, '
-                'et autorise le Terminal/Cursor à contrôler Calendrier.'
+                "🚨 PERMISSION REFUSÉE : Va dans Réglages Système > Confidentialité et sécurité > Automatisation, "
+                "et autorise le Terminal/Cursor à contrôler Calendrier."
             )
         elif diag.get("reason") == "timeout":
             self._last_error = "Timeout (osascript) — prompt Automation possible"
@@ -311,26 +342,24 @@ set todayEnd to todayStart + ({days} * days)
 tell application id "{CALENDAR_APP_ID}"
     set output to ""
     repeat with cal in calendars
-        try
-            set evts to (every event of cal whose start date >= todayStart and start date < todayEnd)
-            repeat with e in evts
-                set output to output & "---EVENT---" & linefeed
-                set output to output & "SUMMARY:" & (summary of e) & linefeed
-                set output to output & "START:" & (start date of e) & linefeed
-                set output to output & "END:" & (end date of e) & linefeed
-                try
-                    set output to output & "LOCATION:" & (location of e) & linefeed
-                on error
-                    set output to output & "LOCATION:" & linefeed
-                end try
-                try
-                    set output to output & "NOTES:" & (description of e) & linefeed
-                on error
-                    set output to output & "NOTES:" & linefeed
-                end try
-                set output to output & "CALENDAR:" & (name of cal) & linefeed
-            end repeat
-        end try
+        set evts to (every event of cal whose start date >= todayStart and start date < todayEnd)
+        repeat with e in evts
+            set output to output & "---EVENT---" & linefeed
+            set output to output & "SUMMARY:" & (summary of e) & linefeed
+            set output to output & "START:" & (start date of e) & linefeed
+            set output to output & "END:" & (end date of e) & linefeed
+            try
+                set output to output & "LOCATION:" & (location of e) & linefeed
+            on error
+                set output to output & "LOCATION:" & linefeed
+            end try
+            try
+                set output to output & "NOTES:" & (description of e) & linefeed
+            on error
+                set output to output & "NOTES:" & linefeed
+            end try
+            set output to output & "CALENDAR:" & (name of cal) & linefeed
+        end repeat
     end repeat
     return output
 end tell
@@ -391,26 +420,29 @@ end tell
 tell application id "{CALENDAR_APP_ID}"
     set output to ""
     repeat with cal in calendars
-        try
-            set evts to (every event of cal whose start date >= rangeStart and start date < rangeEnd)
-            repeat with e in evts
-                set output to output & "---EVENT---" & linefeed
-                set output to output & "SUMMARY:" & (summary of e) & linefeed
-                set output to output & "START:" & (start date of e) & linefeed
-                set output to output & "END:" & (end date of e) & linefeed
-                try
-                    set output to output & "LOCATION:" & (location of e) & linefeed
-                on error
-                    set output to output & "LOCATION:" & linefeed
-                end try
-                try
-                    set output to output & "NOTES:" & (description of e) & linefeed
-                on error
-                    set output to output & "NOTES:" & linefeed
-                end try
-                set output to output & "CALENDAR:" & (name of cal) & linefeed
-            end repeat
-        end try
+        set evts to (every event of cal whose start date >= rangeStart and start date < rangeEnd)
+        repeat with e in evts
+            set output to output & "---EVENT---" & linefeed
+            try
+                set output to output & "UID:" & (uid of e as string) & linefeed
+            on error
+                set output to output & "UID:" & linefeed
+            end try
+            set output to output & "SUMMARY:" & (summary of e) & linefeed
+            set output to output & "START:" & (start date of e) & linefeed
+            set output to output & "END:" & (end date of e) & linefeed
+            try
+                set output to output & "LOCATION:" & (location of e) & linefeed
+            on error
+                set output to output & "LOCATION:" & linefeed
+            end try
+            try
+                set output to output & "NOTES:" & (description of e) & linefeed
+            on error
+                set output to output & "NOTES:" & linefeed
+            end try
+            set output to output & "CALENDAR:" & (name of cal) & linefeed
+        end repeat
     end repeat
     return output
 end tell
@@ -431,15 +463,21 @@ end tell
             summary = row.get("SUMMARY", "(sans titre)")
             start_s = row.get("START", "")
             end_s = row.get("END", "")
+            calendar_name = row.get("CALENDAR", "")
+            external_id = row.get("UID", "").strip()
+            if not external_id:
+                external_id = hashlib.sha256(
+                    f"{calendar_name}|{summary}|{start_s}|{end_s}".encode("utf-8")
+                ).hexdigest()
             events.append(
                 {
-                    "id": f"{summary[:20]}_{start_s}".replace(" ", "_"),
+                    "id": external_id,
                     "title": summary,
                     "start": self._to_iso(start_s),
                     "end": self._to_iso(end_s),
                     "location": row.get("LOCATION", ""),
                     "notes": row.get("NOTES", ""),
-                    "calendar": row.get("CALENDAR", ""),
+                    "calendar": calendar_name,
                 }
             )
         events.sort(key=lambda e: e.get("start") or "")
@@ -456,36 +494,79 @@ end tell
         except Exception:
             return s
 
-    async def get_events(self, start_date: str, end_date: str) -> list[dict]:
-        """Récupère les événements entre deux dates ISO."""
-        if not self.is_available():
-            return []
+    async def get_events_result(
+        self,
+        start_date: str,
+        end_date: str,
+    ) -> CalendarQueryResult:
+        """Collecte une fenêtre complète sans confondre vide et panne."""
+
         start_dt = self._parse_user_datetime(start_date)
         end_dt = self._parse_user_datetime(end_date)
         if not start_dt or not end_dt:
-            return []
+            return CalendarQueryResult(
+                status="unavailable", error="calendar_range_invalid"
+            )
+        if end_dt <= start_dt:
+            return CalendarQueryResult(
+                status="unavailable", error="calendar_range_invalid"
+            )
+        if not self.is_available():
+            return CalendarQueryResult(
+                status="unavailable", error="calendar_unavailable"
+            )
         raw = await self._run_applescript_async(
             self._events_range_script(start_dt, end_dt), timeout=15.0
         )
         if raw is None:
-            return []
-        return self._parse_events_output_full(raw)
+            return CalendarQueryResult(
+                status="unavailable", error="calendar_no_response"
+            )
+        return CalendarQueryResult(
+            status="ok",
+            events=tuple(self._parse_events_output_full(raw)),
+        )
+
+    async def get_events(self, start_date: str, end_date: str) -> list[dict]:
+        """Compatibilité historique : retourne seulement les événements."""
+
+        result = await self.get_events_result(start_date, end_date)
+        return list(result.events) if result.status == "ok" else []
+
+    async def _get_relative_events_result(self, days: int) -> CalendarQueryResult:
+        """Collecte un horizon local sans rabattre une panne sur une liste vide."""
+
+        if not self.is_available():
+            return CalendarQueryResult(
+                status="unavailable", error="calendar_unavailable"
+            )
+        raw = await self._run_applescript_async(self._events_script(days))
+        if raw is None:
+            return CalendarQueryResult(
+                status="unavailable", error="calendar_no_response"
+            )
+        return CalendarQueryResult(
+            status="ok",
+            events=tuple(self._parse_events_output(raw)),
+        )
+
+    async def get_today_events_result(self) -> CalendarQueryResult:
+        return await self._get_relative_events_result(1)
+
+    async def get_week_events_result(self) -> CalendarQueryResult:
+        return await self._get_relative_events_result(7)
 
     async def get_today_events(self) -> list[dict]:
-        if not self.is_available():
-            return []
-        raw = await self._run_applescript_async(self._events_script(1))
-        if raw is None:
-            return []
-        return self._parse_events_output(raw)
+        """Compatibilité historique : retourne seulement les événements du jour."""
+
+        result = await self.get_today_events_result()
+        return list(result.events) if result.status == "ok" else []
 
     async def get_week_events(self) -> list[dict]:
-        if not self.is_available():
-            return []
-        raw = await self._run_applescript_async(self._events_script(7))
-        if raw is None:
-            return []
-        return self._parse_events_output(raw)
+        """Compatibilité historique : retourne seulement les événements de la semaine."""
+
+        result = await self.get_week_events_result()
+        return list(result.events) if result.status == "ok" else []
 
     async def get_calendars(self) -> list[str]:
         if not self.is_available():
@@ -621,7 +702,9 @@ set seconds of {var_name} to 0"""
                 "ok": False,
                 "message": f"Date de début invalide : {start_date!r}. Formats acceptés: YYYY-MM-DD HH:MM, demain 14h, vendredi 10:00, 14:00.",
             }
-        end_dt = self._parse_user_datetime(end_date) if (end_date or "").strip() else None
+        end_dt = (
+            self._parse_user_datetime(end_date) if (end_date or "").strip() else None
+        )
         if end_dt is None:
             end_dt = start_dt + timedelta(hours=1)
         if end_dt <= start_dt:
@@ -635,7 +718,9 @@ set seconds of {var_name} to 0"""
             calendars = await self.get_calendars()
             if not calendars:
                 return {"ok": False, "message": "Aucun calendrier disponible"}
-            cal_spec = next((c for c in calendars if "icloud" in c.lower()), calendars[0])
+            cal_spec = next(
+                (c for c in calendars if "icloud" in c.lower()), calendars[0]
+            )
         cal_esc = self._escape_as(cal_spec)
 
         start_block = self._build_set_date_block("startDT", start_dt)
@@ -650,10 +735,17 @@ tell application id "{CALENDAR_APP_ID}"
 set newEvent to make new event at end of events of targetCal with properties {{start date:startDT, end date:endDT, summary:"{summ}", location:"{loc}", description:"{note}"}}
 end tell
 """
-        out = await self._run_applescript_async(script.strip(), timeout=OSASCRIPT_TIMEOUT)
+        out = await self._run_applescript_async(
+            script.strip(), timeout=OSASCRIPT_TIMEOUT
+        )
         if out is None:
             return {"ok": False, "message": "Échec AppleScript (Calendar.app)."}
-        logger.info("[Calendar] Événement créé : %s — %s -> %s", summary[:80], start_dt.isoformat(), end_dt.isoformat())
+        logger.info(
+            "[Calendar] Événement créé : %s — %s -> %s",
+            summary[:80],
+            start_dt.isoformat(),
+            end_dt.isoformat(),
+        )
         return {
             "ok": True,
             "summary": summary,

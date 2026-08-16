@@ -7,7 +7,7 @@ signalé. Seuls deux types d'emails sont notifiés :
 
 Tout le reste (newsletters, promos, notifs auto) est silencieusement ignoré.
 
-Au premier cycle après démarrage : les non-lus **déjà** présents dans
+Au premier cycle après démarrage : les messages récents **déjà** présents dans
 `email_summaries` sont ignorés ; les autres sont **analysés** (rattrapage
 après une longue coupure). Les cycles suivants traitent les nouveaux IDs.
 """
@@ -27,6 +27,7 @@ import llm
 from database import (
     create_task,
     get_all_processed_email_ids,
+    mark_email_read,
     save_email_full,
 )
 from jarvis.notification_service import notification_service
@@ -42,6 +43,8 @@ PROMPT_PATH = Path(__file__).resolve().parent.parent / "prompts" / "email_analyz
 
 MAX_BODY_CHARS = 1500
 MAX_UNREAD_PER_CYCLE = 20
+# Après N analyses LLM/JSON ratées, on archive en low pour ne plus bloquer le cycle.
+MAX_ANALYSIS_FAILURES = 3
 
 
 def _email_process_lock_path() -> Path:
@@ -110,7 +113,7 @@ def _parse_json(raw: str) -> dict | None:
         start = payload.find("{")
         end = payload.rfind("}")
         if start != -1 and end != -1 and end > start:
-            payload = payload[start:end + 1]
+            payload = payload[start : end + 1]
 
     try:
         return json.loads(payload)
@@ -143,6 +146,7 @@ class EmailWatcher:
         self._initialized: bool = False
         self._cycle_lock = asyncio.Lock()
         self._last_cycle_stats: dict[str, Any] = {}
+        self._analysis_failures: dict[str, int] = {}
 
     # ── Lifecycle ──────────────────────────────────────────────
 
@@ -220,6 +224,7 @@ class EmailWatcher:
                 "first_cycle_to_analyze": 0,
                 "incremental_new": 0,
                 "analysis_failed": 0,
+                "quarantined": 0,
             }
             self._last_cycle_stats = stats
 
@@ -240,17 +245,28 @@ class EmailWatcher:
                 return
 
             try:
-                unread = await mail_client.get_unread(MAX_UNREAD_PER_CYCLE)
+                recent = await self._fetch_recent_messages(
+                    mail_client, MAX_UNREAD_PER_CYCLE, stats
+                )
             except Exception as e:
-                logger.error(f"[email_watcher] get_unread : {e}")
+                logger.error(f"[email_watcher] get_recent : {e}")
+                stats["mode"] = "mail_fetch_error"
                 return
 
-            stats["unread_fetched"] = len(unread)
+            if recent is None:
+                # Panne Mail ≠ boîte vide : ne pas marquer le premier cycle comme fait.
+                return
 
-            if not unread:
+            # Clé historique conservée pour les dashboards existants.
+            stats["unread_fetched"] = sum(
+                1 for email in recent if not email.get("is_read")
+            )
+            stats["recent_fetched"] = len(recent)
+
+            if not recent:
                 if not self._initialized:
                     self._initialized = True
-                    logger.info("[email_watcher] Premier cycle : 0 non-lus")
+                    logger.info("[email_watcher] Premier cycle : 0 message récent")
                     stats["mode"] = "first_cycle_empty"
                 return
 
@@ -261,12 +277,13 @@ class EmailWatcher:
                 processed_in_db = get_all_processed_email_ids()
                 fresh: list[dict] = []
                 already = 0
-                for e in unread:
+                for e in recent:
                     eid = e.get("id")
                     if not eid:
                         continue
                     if eid in processed_in_db:
                         self.last_processed_ids.add(eid)
+                        mark_email_read(eid, bool(e.get("is_read")))
                         already += 1
                     else:
                         fresh.append(e)
@@ -278,20 +295,19 @@ class EmailWatcher:
                     len(fresh),
                 )
                 for email_summary in fresh:
-                    email_id = email_summary["id"]
-                    try:
-                        processed = await self._analyze_email(email_summary)
-                    except Exception as e:
-                        logger.exception(f"[email_watcher] _analyze_email {email_id} : {e}")
-                        processed = False
-                    if processed:
-                        self.last_processed_ids.add(email_id)
-                    else:
-                        stats["analysis_failed"] += 1
+                    await self._process_one_email(email_summary, stats)
                 return
 
             stats["mode"] = "incremental"
-            new = [e for e in unread if e.get("id") and e["id"] not in self.last_processed_ids]
+            for email in recent:
+                eid = email.get("id")
+                if eid and eid in self.last_processed_ids:
+                    mark_email_read(eid, bool(email.get("is_read")))
+            new = [
+                email
+                for email in recent
+                if email.get("id") and email["id"] not in self.last_processed_ids
+            ]
             stats["incremental_new"] = len(new)
             if not new:
                 return
@@ -299,22 +315,128 @@ class EmailWatcher:
             logger.info(f"[email_watcher] {len(new)} nouveau(x) email(s) à analyser")
 
             for email_summary in new:
-                email_id = email_summary["id"]
-                try:
-                    processed = await self._analyze_email(email_summary)
-                except Exception as e:
-                    logger.exception(f"[email_watcher] _analyze_email {email_id} : {e}")
-                    processed = False
-                if processed:
-                    self.last_processed_ids.add(email_id)
-                else:
-                    stats["analysis_failed"] += 1
+                await self._process_one_email(email_summary, stats)
+
+    async def _fetch_recent_messages(
+        self,
+        mail_client: Any,
+        limit: int,
+        stats: dict[str, Any],
+    ) -> list[dict] | None:
+        """Récupère les messages récents. ``None`` = Mail indisponible (réessayer)."""
+        get_recent_result = getattr(mail_client, "get_recent_result", None)
+        if get_recent_result is not None:
+            try:
+                result = await get_recent_result(limit, include_preview=False)
+            except TypeError:
+                # Doubles de test / anciennes signatures sans include_preview.
+                result = await get_recent_result(limit)
+            status = getattr(result, "status", None)
+            if status == "unavailable":
+                err = getattr(result, "error", None) or "mail_unavailable"
+                stats["mode"] = "mail_unavailable"
+                stats["mail_error"] = err
+                logger.warning(
+                    "[email_watcher] Mail indisponible (%s) — cycle reporté, "
+                    "rattrapage reporté",
+                    err,
+                )
+                return None
+            if status == "ok":
+                return list(getattr(result, "messages", ()) or ())
+            # Compat : objet inattendu → traite comme liste vide contrôlée.
+            messages = getattr(result, "messages", None)
+            if messages is not None:
+                return list(messages)
+
+        fetch_recent = getattr(mail_client, "get_recent", None)
+        if fetch_recent is None:
+            fetch_recent = mail_client.get_unread
+        return list(await fetch_recent(limit))
+
+    async def _process_one_email(
+        self, email_summary: dict, stats: dict[str, Any]
+    ) -> None:
+        """Analyse un mail ; après trop d'échecs, quarantine pour ne pas bloquer H24."""
+        email_id = email_summary["id"]
+        try:
+            processed = await self._analyze_email(email_summary)
+        except Exception as e:
+            logger.exception(f"[email_watcher] _analyze_email {email_id} : {e}")
+            processed = False
+        if processed:
+            self.last_processed_ids.add(email_id)
+            self._analysis_failures.pop(email_id, None)
+            return
+
+        stats["analysis_failed"] = int(stats.get("analysis_failed") or 0) + 1
+        fails = self._analysis_failures.get(email_id, 0) + 1
+        self._analysis_failures[email_id] = fails
+        if fails < MAX_ANALYSIS_FAILURES:
+            return
+
+        logger.warning(
+            "[email_watcher] Quarantaine après %d échecs : %s — %s",
+            fails,
+            email_id,
+            (email_summary.get("subject") or "")[:80],
+        )
+        if await self._quarantine_email(email_summary):
+            self.last_processed_ids.add(email_id)
+            self._analysis_failures.pop(email_id, None)
+            stats["quarantined"] = int(stats.get("quarantined") or 0) + 1
+
+    async def _quarantine_email(self, email_summary: dict) -> bool:
+        """Persiste un mail sans LLM pour sortir de la boucle d'échec."""
+        from integrations import mail_client
+
+        email_id = str(email_summary.get("id") or "")
+        if not email_id:
+            return False
+        full: dict[str, Any] | None = None
+        if mail_client is not None:
+            try:
+                full = await mail_client.get_message(email_id)
+            except Exception as e:
+                logger.debug("[email_watcher] quarantine get_message : %s", e)
+        sender = (
+            (full or {}).get("from")
+            or email_summary.get("from")
+            or email_summary.get("sender")
+            or "?"
+        )
+        sender_short = str(sender).split("<")[0].strip() or str(sender)
+        subject = (
+            (full or {}).get("subject")
+            or email_summary.get("subject")
+            or "(sans sujet)"
+        )
+        try:
+            save_email_full(
+                gmail_id=email_id,
+                sender=sender_short,
+                subject=str(subject),
+                body=str((full or {}).get("body") or email_summary.get("snippet") or ""),
+                received_at=str(
+                    (full or {}).get("date") or email_summary.get("date") or ""
+                ),
+                summary=f"Analyse différée : {subject}"[:200],
+                category="notification",
+                priority="low",
+                is_read=bool(
+                    (full or {}).get("is_read", email_summary.get("is_read", False))
+                ),
+            )
+        except Exception as e:
+            logger.error(f"[email_watcher] quarantine save : {e}")
+            return False
+        return True
 
     # ── Analyse d'un email ─────────────────────────────────────
 
     async def _analyze_email(self, email_summary: dict) -> bool:
         """Récupère le body → DeepSeek → JSON → agit si notify=true.
-        
+
         Stocke également le contenu intégral et le résumé en DB
         via ``save_email_full`` pour une lecture vocale instantanée (sans AppleScript).
         """
@@ -363,16 +485,23 @@ class EmailWatcher:
 
         # ── Toujours sauvegarder le contenu intégral + résumé en DB ──────
         try:
-            category = "finance" if reason == "payment" else ("pro" if reason == "request" else "notification")
+            category = (
+                "finance"
+                if reason == "payment"
+                else ("pro" if reason == "request" else "notification")
+            )
             save_email_full(
                 gmail_id=email_id,
                 sender=sender_short,
                 subject=subject,
-                body=body_full,         # contenu intégral, pas tronqué
+                body=body_full,  # contenu intégral, pas tronqué
                 received_at=received_at,
                 summary=summary or subject,
                 category=category,
-                priority="high" if reason == "payment" else ("medium" if reason == "request" else "low"),
+                priority="high"
+                if reason == "payment"
+                else ("medium" if reason == "request" else "low"),
+                is_read=bool(full.get("is_read")),
             )
         except Exception as e:
             logger.error(f"[email_watcher] save_email_full : {e}")
@@ -384,9 +513,7 @@ class EmailWatcher:
             return True
 
         # DeepSeek dit de notifier → on agit
-        logger.info(
-            f"[email_watcher] NOTIF ({reason}) : {sender_short} — {summary}"
-        )
+        logger.info(f"[email_watcher] NOTIF ({reason}) : {sender_short} — {summary}")
 
         amount = analysis.get("amount")
         from_name = analysis.get("from_name")
@@ -403,6 +530,7 @@ class EmailWatcher:
 
         try:
             from integrations.notifications_macos import mac_notifier
+
             if config.DESKTOP_NOTIFICATIONS and mac_notifier.is_available():
                 if priority == "high" or reason == "payment":
                     await mac_notifier.notify_urgent(
@@ -482,9 +610,13 @@ class EmailWatcher:
         from database import is_dnd_active
 
         if config.is_quiet_hours():
-            logger.info("[email_watcher] heures calmes — iMessage non envoyé : %s", subject[:60])
+            logger.info(
+                "[email_watcher] heures calmes — iMessage non envoyé : %s", subject[:60]
+            )
         elif is_dnd_active() and priority != "urgent":
-            logger.info("[email_watcher] DND actif — iMessage non envoyé : %s", subject[:60])
+            logger.info(
+                "[email_watcher] DND actif — iMessage non envoyé : %s", subject[:60]
+            )
         else:
             display_name = from_name or sender_short
             imsg = f"Mail de {display_name} : {summary}"
@@ -514,10 +646,8 @@ class EmailWatcher:
             ),
             max_chars=2_500,
         )
-        return (
-            self._prompt_template
-            .replace("{{email_data}}", email_data)
-            .replace("{{user_name}}", config.USER_NAME)
+        return self._prompt_template.replace("{{email_data}}", email_data).replace(
+            "{{user_name}}", config.USER_NAME
         )
 
     # ── iMessage ───────────────────────────────────────────────

@@ -59,16 +59,31 @@ _PROFILES = (
     CapabilityProfile(
         profile_id="readonly-research",
         permissions=(
+            "communications:read",
+            "calendar:read",
+            "conversations:read",
             "memory:read",
+            "contacts:read",
+            "media:read",
             "documents:read",
+            "tasks:read",
+            "project_state:read",
             "research:search",
             "workspace:read",
-            "tasks:read",
         ),
-        # Le coeur actuel expose la mémoire documentaire par ses façades
-        # workspace/tasks. Les scopes plus fins restent accordables uniquement
-        # lorsqu'un runtime les déclare explicitement.
-        default_permissions=("workspace:read", "tasks:read"),
+        default_permissions=(
+            "communications:read",
+            "calendar:read",
+            "conversations:read",
+            "memory:read",
+            "contacts:read",
+            "media:read",
+            "documents:read",
+            "tasks:read",
+            "project_state:read",
+            "research:search",
+            "workspace:read",
+        ),
         denied_permissions=(
             "workspace:write",
             "shell:unrestricted",
@@ -101,12 +116,14 @@ _PROFILES = (
     CapabilityProfile(
         profile_id="communication",
         permissions=(
+            "communications:read",
             "conversations:read",
             "drafts:write",
             "contacts:read",
             "communications:send",
         ),
         default_permissions=(
+            "communications:read",
             "conversations:read",
             "drafts:write",
             "contacts:read",

@@ -14,6 +14,8 @@ from database import get_recording, get_recordings
 
 router = APIRouter()
 logger = logging.getLogger("jarvis")
+_LEGACY_SEMANTIC_SOURCE_TYPES = frozenset({"episode", "recording"})
+_SEMANTIC_COORDINATOR_MAX_HITS = 8
 
 
 class SpeakerAssignmentRequest(BaseModel):
@@ -30,7 +32,9 @@ async def api_recordings_list(limit: int = 20):
         rows = get_recordings(limit=lim)
     except Exception as e:
         logger.exception("api_recordings_list : %s", e)
-        raise internal_error("recordings_unavailable", "Enregistrements indisponibles") from e
+        raise internal_error(
+            "recordings_unavailable", "Enregistrements indisponibles"
+        ) from e
     return {"recordings": rows}
 
 
@@ -41,7 +45,10 @@ async def api_recordings_detail(recording_id: int):
     if not row:
         raise HTTPException(404, "Enregistrement introuvable")
     if config.RECORDING_SUMMARY_ONLY and row.get("transcription"):
-        row = {**row, "transcription": "[omis — RECORDING_SUMMARY_ONLY dans la configuration]"}
+        row = {
+            **row,
+            "transcription": "[omis — RECORDING_SUMMARY_ONLY dans la configuration]",
+        }
     return row
 
 
@@ -94,15 +101,63 @@ async def api_recording_assign_speaker(
 
 
 @router.get("/api/memory/search-semantic")
-async def api_memory_search_semantic(q: str, limit: int = 10, source_type: str | None = None):
-    """Recherche sémantique (similarité de sens, pas seulement mots-clés) sur la mémoire indexée."""
+async def api_memory_search_semantic(
+    q: str, limit: int = 10, source_type: str | None = None
+):
+    """Recherche la mémoire via le coordinateur, au format historique de l'API.
+
+    L'ancien index vectoriel ne couvrait que les épisodes et enregistrements ;
+    cette frontière explicite est conservée. Le coordinateur borne actuellement
+    ses réponses à huit hits, même lorsque le ``limit`` historique est supérieur.
+    """
     if not q or not q.strip():
         raise HTTPException(400, "`q` requis")
+    result_limit = int(limit)
+    if result_limit <= 0:
+        return {"results": []}
+    requested_sources = tuple(sorted(_LEGACY_SEMANTIC_SOURCE_TYPES))
+    if source_type is not None:
+        normalized_source = source_type.strip().lower()
+        if normalized_source not in _LEGACY_SEMANTIC_SOURCE_TYPES:
+            return {"results": []}
+        requested_sources = (normalized_source,)
     try:
-        from scripts.semantic_search import SemanticSearchUnavailable, semantic_search
+        from jarvis.retrieval import RetrievalRequest, search_knowledge
 
-        results = await asyncio.to_thread(semantic_search, q.strip(), limit, source_type)
-    except SemanticSearchUnavailable as e:
-        logger.warning("[semantic-search] indisponible : %s", e)
-        raise api_error(503, "semantic_search_unavailable", "Recherche sémantique indisponible") from e
+        retrieval = await asyncio.to_thread(
+            search_knowledge,
+            RetrievalRequest(
+                query=q.strip(),
+                interaction_mode="legacy_semantic_api",
+                source_types=requested_sources,
+                max_candidates=20,
+                max_hits=min(result_limit, _SEMANTIC_COORDINATOR_MAX_HITS),
+                char_budget=8_000,
+            ),
+        )
+    except Exception as exc:
+        logger.warning("[semantic-search] coordinateur indisponible : %s", exc)
+        raise api_error(
+            503,
+            "semantic_search_unavailable",
+            "Recherche sémantique indisponible",
+        ) from exc
+    if retrieval.status == "unavailable":
+        raise api_error(
+            503,
+            "semantic_search_unavailable",
+            "Recherche sémantique indisponible",
+        )
+    results = [
+        {
+            "source_type": hit.source_type,
+            "source_id": int(hit.source_id)
+            if hit.source_id.isdigit()
+            else hit.source_id,
+            "text_preview": hit.excerpt[:500],
+            "score": round(float(hit.score), 4),
+        }
+        for hit in retrieval.hits[:result_limit]
+        if hit.source_type in _LEGACY_SEMANTIC_SOURCE_TYPES
+    ]
     return {"results": results}

@@ -930,6 +930,115 @@ CREATE TABLE IF NOT EXISTS metric_samples (
 );
 CREATE INDEX IF NOT EXISTS idx_metric_samples_recorded
     ON metric_samples(recorded_at);
+
+-- Cache local des evenements Calendar. Le connecteur Apple reste responsable
+-- du rafraichissement ; la recherche ne depend jamais d'un appel live.
+CREATE TABLE IF NOT EXISTS calendar_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    external_id TEXT NOT NULL UNIQUE,
+    calendar_name TEXT NOT NULL DEFAULT '',
+    title TEXT NOT NULL,
+    start_at TEXT NOT NULL,
+    end_at TEXT,
+    location TEXT NOT NULL DEFAULT '',
+    notes TEXT NOT NULL DEFAULT '',
+    is_all_day INTEGER NOT NULL DEFAULT 0 CHECK(is_all_day IN (0, 1)),
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_calendar_events_start
+    ON calendar_events(start_at, end_at);
+
+-- Projection locale multi-source utilisee par jarvis.retrieval. Les tables
+-- metier restent les sources de verite ; cet index ne contient que des
+-- documents de recherche regenerables et leurs pointeurs de provenance.
+CREATE TABLE IF NOT EXISTS knowledge_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    uid TEXT NOT NULL UNIQUE,
+    source_type TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    chunk_index INTEGER NOT NULL DEFAULT 0 CHECK(chunk_index >= 0),
+    conversation_id INTEGER REFERENCES conversations(id) ON DELETE SET NULL,
+    title TEXT NOT NULL DEFAULT '',
+    searchable_text TEXT NOT NULL,
+    summary TEXT NOT NULL DEFAULT '',
+    people_json TEXT NOT NULL DEFAULT '[]',
+    occurred_at TEXT,
+    source_updated_at TEXT,
+    indexed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    content_hash TEXT NOT NULL,
+    sensitivity TEXT NOT NULL DEFAULT 'personal',
+    cloud_policy TEXT NOT NULL DEFAULT 'redact',
+    trust TEXT NOT NULL DEFAULT 'untrusted_stored_data',
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    deleted_at TEXT,
+    UNIQUE(source_type, source_id, chunk_index)
+);
+CREATE INDEX IF NOT EXISTS idx_knowledge_items_source_time
+    ON knowledge_items(source_type, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_knowledge_items_conversation
+    ON knowledge_items(conversation_id, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_knowledge_items_hash
+    ON knowledge_items(content_hash);
+
+CREATE TABLE IF NOT EXISTS knowledge_embeddings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    knowledge_item_id INTEGER NOT NULL REFERENCES knowledge_items(id) ON DELETE CASCADE,
+    model TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
+    embedding BLOB NOT NULL,
+    embedded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(knowledge_item_id, model)
+);
+CREATE INDEX IF NOT EXISTS idx_knowledge_embeddings_hash
+    ON knowledge_embeddings(content_hash);
+
+CREATE TABLE IF NOT EXISTS knowledge_index_jobs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_type TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    operation TEXT NOT NULL DEFAULT 'upsert'
+        CHECK(operation IN ('upsert', 'delete')),
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK(status IN ('pending', 'running', 'retry', 'done', 'dead')),
+    attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts >= 0),
+    next_attempt_at TEXT,
+    last_error_code TEXT,
+    claimed_at TEXT,
+    completed_at TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(source_type, source_id)
+);
+CREATE INDEX IF NOT EXISTS idx_knowledge_jobs_pending
+    ON knowledge_index_jobs(status, next_attempt_at, created_at);
+
+CREATE TABLE IF NOT EXISTS knowledge_source_state (
+    source_key TEXT PRIMARY KEY,
+    source_type TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'ok'
+        CHECK(status IN ('ok', 'degraded', 'unavailable')),
+    cursor TEXT,
+    item_count INTEGER NOT NULL DEFAULT 0 CHECK(item_count >= 0),
+    last_indexed_at TEXT,
+    last_backfill_at TEXT,
+    last_error_code TEXT,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_knowledge_source_state_type
+    ON knowledge_source_state(source_type, status);
+
+CREATE TABLE IF NOT EXISTS knowledge_retrieval_references (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    uid TEXT NOT NULL,
+    source_type TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    rank INTEGER NOT NULL DEFAULT 0 CHECK(rank >= 0),
+    referenced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(conversation_id, uid)
+);
+CREATE INDEX IF NOT EXISTS idx_knowledge_references_conversation
+    ON knowledge_retrieval_references(conversation_id, referenced_at DESC, rank);
 """
 
 # Noyau agentique provider-neutral. Conservé séparément pour rendre explicite

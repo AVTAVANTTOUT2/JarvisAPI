@@ -15,6 +15,8 @@ import asyncio
 import logging
 import re
 import time
+from dataclasses import dataclass
+from typing import Literal
 
 from ._applescript import escape_applescript_string, run_applescript
 
@@ -28,20 +30,36 @@ _FAILURE_COOLDOWN = 120.0  # secondes avant de retenter après un échec
 
 # Disjoncteur sur timeouts consécutifs.
 #
-# Un `osascript` qui expire à 30 s n'a aucune raison de répondre au coup
-# suivant : Mail.app est bloqué, pas lent. L'ancien comportement retentait
-# immédiatement, donc chaque appel coûtait 2 × 30 s de travail bloqué — toutes
-# les deux minutes, puisque le watcher rappelle à `EMAIL_CHECK_INTERVAL`. La
-# machine passait ainsi la moitié de son temps à attendre un processus mort,
-# au détriment du moteur vocal local qui partage le même CPU.
-#
-# Après ce seuil, on cesse d'appeler pendant la fenêtre de repos. On ne perd
-# rien : ces appels échouaient déjà.
-_TIMEOUT_BREAKER_THRESHOLD = 2
-_TIMEOUT_BREAKER_COOLDOWN = 600.0  # 10 minutes
+# Un `osascript` qui expire vraiment (Mail figé) ne doit pas être martelé :
+# chaque essai immobilise un thread. Mais une fenêtre de 10 min coupait le
+# watcher H24 pour de simples ralentissements Mail (sync, gros inbox).
+# Seuil un peu plus haut + cooldown court : on protège le CPU sans arrêt
+# de service prolongé. À la reprise, `reset_availability_cache` rouvre aussi.
+_TIMEOUT_BREAKER_THRESHOLD = 3
+_TIMEOUT_BREAKER_COOLDOWN = 90.0  # 1,5 min — assez pour Mail, pas une coupure H24
 PREVIEW_MAX_CHARS = 1000
 BODY_MAX_CHARS = 3000
 MSG_SEPARATOR = "---MSG---"
+MAIL_DATE_HANDLERS = """on jarvisPad2(value)
+    set rendered to value as string
+    if (count of rendered) is 1 then set rendered to "0" & rendered
+    return rendered
+end jarvisPad2
+
+on jarvisIsoDate(value)
+    set yearText to ((year of value) as integer) as string
+    set monthNumber to (month of value) as integer
+    return yearText & "-" & my jarvisPad2(monthNumber) & "-" & my jarvisPad2(day of value) & "T" & my jarvisPad2(hours of value) & ":" & my jarvisPad2(minutes of value) & ":" & my jarvisPad2(seconds of value)
+end jarvisIsoDate"""
+
+
+@dataclass(frozen=True, slots=True)
+class MailQueryResult:
+    """Résultat typé : une panne ne peut plus ressembler à une boîte vide."""
+
+    status: Literal["ok", "unavailable"]
+    messages: tuple[dict, ...] = ()
+    error: str | None = None
 
 
 class AppleMailClient:
@@ -61,7 +79,13 @@ class AppleMailClient:
         """Échappe les caractères spéciaux pour injection dans une string AppleScript."""
         return escape_applescript_string(text)
 
-    def _run_applescript(self, script: str, timeout: float | None = None) -> str | None:
+    def _run_applescript(
+        self,
+        script: str,
+        timeout: float | None = None,
+        *,
+        attempts: int = 2,
+    ) -> str | None:
         """Exécute un AppleScript via osascript. Retourne stdout ou None.
 
         Une seule reprise sur timeout, et un disjoncteur au-delà : Mail.app qui
@@ -73,7 +97,8 @@ class AppleMailClient:
             return None
 
         eff_timeout = timeout or OSASCRIPT_TIMEOUT
-        for attempt in range(2):
+        max_attempts = max(1, min(int(attempts or 1), 2))
+        for attempt in range(max_attempts):
             result = run_applescript(script, timeout=eff_timeout)
             if result.ok:
                 if self._consecutive_timeouts:
@@ -93,28 +118,37 @@ class AppleMailClient:
                         "[Mail] %d timeouts consécutifs — Mail.app ne répond pas. "
                         "Appels suspendus %.0f min. Vérifiez que Mail.app est "
                         "lancé et que l'autorisation Automation est accordée.",
-                        self._consecutive_timeouts, _TIMEOUT_BREAKER_COOLDOWN / 60,
+                        self._consecutive_timeouts,
+                        _TIMEOUT_BREAKER_COOLDOWN / 60,
                     )
                     return None
                 logger.warning(
-                    "[Mail] osascript timeout (tentative %s/2, timeout=%.0fs)",
-                    attempt + 1, eff_timeout,
+                    "[Mail] osascript timeout (tentative %s/%s, timeout=%.0fs)",
+                    attempt + 1,
+                    max_attempts,
+                    eff_timeout,
                 )
-                if attempt == 0:
+                if attempt + 1 < max_attempts:
                     continue
                 return None
             if result.reason == "not_found":
                 logger.error("[Mail] osascript introuvable — pas un macOS ?")
                 return None
 
-            logger.error("[Mail] osascript erreur (rc=%s) stderr=%s", result.returncode, result.stderr)
+            logger.error(
+                "[Mail] osascript erreur (rc=%s) stderr=%s",
+                result.returncode,
+                result.stderr,
+            )
             if result.is_permission_denied():
                 logger.critical(
                     "[Mail] PERMISSION REFUSEE : Reglages Systeme > Confidentialite et securite "
                     "> Automatisation > autorise Terminal/Cursor a controler Mail."
                 )
             elif result.is_app_not_running():
-                logger.error("[Mail] Mail.app ne semble pas tourner — tentative de lancement...")
+                logger.error(
+                    "[Mail] Mail.app ne semble pas tourner — tentative de lancement..."
+                )
             return None
         return None
 
@@ -127,6 +161,8 @@ class AppleMailClient:
         """
         self._available = None
         self._last_failed_check = 0.0
+        self._consecutive_timeouts = 0
+        self._breaker_open_until = 0.0
 
     def is_available(self) -> bool:
         """Vérifie que Mail.app est accessible via AppleScript.
@@ -136,7 +172,10 @@ class AppleMailClient:
         """
         if self._available is True:
             return True
-        if self._available is False and time.monotonic() - self._last_failed_check < _FAILURE_COOLDOWN:
+        if (
+            self._available is False
+            and time.monotonic() - self._last_failed_check < _FAILURE_COOLDOWN
+        ):
             return False
 
         logger.info("[Mail] Verification disponibilite Mail.app...")
@@ -186,7 +225,9 @@ class AppleMailClient:
                 result.stderr[:500],
             )
 
-        logger.warning("[Mail] Mail.app INACTIF — retry dans %ds", int(_FAILURE_COOLDOWN))
+        logger.warning(
+            "[Mail] Mail.app INACTIF — retry dans %ds", int(_FAILURE_COOLDOWN)
+        )
         return False
 
     # ── Lecture ─────────────────────────────────────────────────
@@ -200,7 +241,8 @@ class AppleMailClient:
         limité à PREVIEW_MAX_CHARS pour ne pas exploser les tokens.
         """
         scan_limit = max_results * 5
-        script = f'''tell application "Mail"
+        script = f'''{MAIL_DATE_HANDLERS}
+tell application "Mail"
     set output to ""
     set collected to 0
     set maxCount to {max_results}
@@ -215,7 +257,7 @@ class AppleMailClient:
             set output to output & "ID:" & (id of m as string) & linefeed
             set output to output & "FROM:" & (sender of m) & linefeed
             set output to output & "SUBJECT:" & (subject of m) & linefeed
-            set output to output & "DATE:" & (date received of m as string) & linefeed
+            set output to output & "DATE:" & my jarvisIsoDate(date received of m) & linefeed
             set rawContent to ""
             try
                 set rawContent to content of m
@@ -232,7 +274,14 @@ end tell'''
 
         loop = asyncio.get_event_loop()
         try:
-            raw = await loop.run_in_executor(None, self._run_applescript, script)
+            raw = await loop.run_in_executor(
+                None,
+                lambda: self._run_applescript(
+                    script,
+                    timeout=OSASCRIPT_TIMEOUT,
+                    attempts=2,
+                ),
+            )
         except Exception as e:
             logger.error(f"[Mail] get_unread : {e}")
             return []
@@ -242,10 +291,90 @@ end tell'''
 
         return self._parse_message_list(raw)
 
+    async def get_recent_result(
+        self,
+        max_results: int = 20,
+        *,
+        include_preview: bool = True,
+    ) -> MailQueryResult:
+        """Interroge les derniers messages sans confondre vide et indisponible.
+
+        Cette vue sert de source canonique aux demandes « derniers mails » et
+        au cache local. Elle reste bornée. ``include_preview=False`` ne lit que
+        les métadonnées (watcher H24) — charger le corps de 20 mails via
+        AppleScript était la cause principale des timeouts 8 s.
+        """
+        bounded = max(1, min(int(max_results or 20), 100))
+        if include_preview:
+            preview_block = f'''
+        set rawContent to ""
+        try
+            set rawContent to content of m
+        end try
+        if length of rawContent > {PREVIEW_MAX_CHARS} then
+            set rawContent to text 1 thru {PREVIEW_MAX_CHARS} of rawContent
+        end if
+        set output to output & "PREVIEW:" & rawContent & linefeed'''
+            # Aperçus = lent ; budget long + 2 essais.
+            fetch_timeout = OSASCRIPT_TIMEOUT_LONG
+            fetch_attempts = 2
+        else:
+            preview_block = "\n        set output to output & \"PREVIEW:\" & linefeed"
+            # Métadonnées seules : Mail répond en général en quelques secondes.
+            fetch_timeout = OSASCRIPT_TIMEOUT
+            fetch_attempts = 2
+        script = f'''{MAIL_DATE_HANDLERS}
+tell application "Mail"
+    set output to ""
+    set allMsgs to messages of inbox
+    set maxCount to {bounded}
+    if (count of allMsgs) < maxCount then set maxCount to (count of allMsgs)
+    repeat with i from 1 to maxCount
+        set m to item i of allMsgs
+        set output to output & "{MSG_SEPARATOR}" & linefeed
+        set output to output & "ID:" & (id of m as string) & linefeed
+        set output to output & "FROM:" & (sender of m) & linefeed
+        set output to output & "SUBJECT:" & (subject of m) & linefeed
+        set output to output & "DATE:" & my jarvisIsoDate(date received of m) & linefeed
+        set output to output & "READ:" & (read status of m as string) & linefeed{preview_block}
+    end repeat
+    return output
+end tell'''
+
+        loop = asyncio.get_event_loop()
+        try:
+            raw = await loop.run_in_executor(
+                None,
+                lambda t=fetch_timeout, a=fetch_attempts: self._run_applescript(
+                    script,
+                    timeout=t,
+                    attempts=a,
+                ),
+            )
+        except Exception as exc:
+            logger.error("[Mail] get_recent : %s", exc)
+            return MailQueryResult(
+                status="unavailable",
+                error=type(exc).__name__,
+            )
+        if raw is None:
+            return MailQueryResult(status="unavailable", error="mail_no_response")
+        return MailQueryResult(
+            status="ok",
+            messages=tuple(self._parse_message_list(raw)),
+        )
+
+    async def get_recent(self, max_results: int = 20) -> list[dict]:
+        """API historique : retourne les messages, avec statut disponible à part."""
+
+        result = await self.get_recent_result(max_results)
+        return list(result.messages)
+
     async def get_message(self, msg_id: str) -> dict | None:
         """Récupère un message complet par son ID."""
         safe_id = int(msg_id) if str(msg_id).isdigit() else msg_id
-        script = f'''tell application "Mail"
+        script = f"""{MAIL_DATE_HANDLERS}
+tell application "Mail"
     set m to first message of inbox whose id is {safe_id}
     set msgFrom to sender of m
     set msgTo to ""
@@ -253,13 +382,14 @@ end tell'''
         set msgTo to address of to recipient 1 of m
     end try
     set msgSubject to subject of m
-    set msgDate to date received of m as string
+    set msgDate to my jarvisIsoDate(date received of m)
+    set msgRead to read status of m as string
     set msgBody to ""
     try
         set msgBody to content of m
     end try
-    return "FROM:" & msgFrom & linefeed & "TO:" & msgTo & linefeed & "SUBJECT:" & msgSubject & linefeed & "DATE:" & msgDate & linefeed & "BODY:" & msgBody
-end tell'''
+    return "FROM:" & msgFrom & linefeed & "TO:" & msgTo & linefeed & "SUBJECT:" & msgSubject & linefeed & "DATE:" & msgDate & linefeed & "READ:" & msgRead & linefeed & "BODY:" & msgBody
+end tell"""
 
         loop = asyncio.get_event_loop()
         try:
@@ -280,7 +410,7 @@ end tell'''
         Boucle directement sur les messages (sans `whose` qui force un scan
         complet et timeout sur les grosses boîtes).
         """
-        script = f'''tell application "Mail"
+        script = f"""tell application "Mail"
     set output to ""
     set maxCount to {max_results}
     set allMsgs to messages of inbox
@@ -293,7 +423,7 @@ end tell'''
         end if
     end repeat
     return output
-end tell'''
+end tell"""
         loop = asyncio.get_event_loop()
         try:
             raw = await loop.run_in_executor(
@@ -310,9 +440,9 @@ end tell'''
 
     async def get_unread_count(self) -> int:
         """Nombre de mails non lus (appel rapide)."""
-        script = '''tell application "Mail"
+        script = """tell application "Mail"
     return (count of (messages of inbox whose read status is false))
-end tell'''
+end tell"""
         loop = asyncio.get_event_loop()
         try:
             raw = await loop.run_in_executor(None, self._run_applescript, script)
@@ -330,9 +460,9 @@ end tell'''
     async def mark_read(self, msg_id: str) -> bool:
         """Marque un message comme lu."""
         safe_id = int(msg_id) if str(msg_id).isdigit() else msg_id
-        script = f'''tell application "Mail"
+        script = f"""tell application "Mail"
     set read status of (first message of inbox whose id is {safe_id}) to true
-end tell'''
+end tell"""
         loop = asyncio.get_event_loop()
         try:
             result = await loop.run_in_executor(None, self._run_applescript, script)
@@ -344,9 +474,9 @@ end tell'''
     async def flag_message(self, msg_id: str) -> bool:
         """Pose un drapeau (flag rouge) sur un message — mails urgents."""
         safe_id = int(msg_id) if str(msg_id).isdigit() else msg_id
-        script = f'''tell application "Mail"
+        script = f"""tell application "Mail"
     set flagged status of (first message of inbox whose id is {safe_id}) to true
-end tell'''
+end tell"""
         loop = asyncio.get_event_loop()
         try:
             result = await loop.run_in_executor(None, self._run_applescript, script)
@@ -401,13 +531,17 @@ end tell'''
             if not msg_id:
                 continue
             preview = self._extract_field(block, "PREVIEW")
-            messages.append({
-                "id": msg_id,
-                "from": self._extract_field(block, "FROM"),
-                "subject": self._extract_field(block, "SUBJECT"),
-                "date": self._extract_field(block, "DATE"),
-                "snippet": preview[:PREVIEW_MAX_CHARS],
-            })
+            messages.append(
+                {
+                    "id": msg_id,
+                    "from": self._extract_field(block, "FROM"),
+                    "subject": self._extract_field(block, "SUBJECT"),
+                    "date": self._extract_field(block, "DATE"),
+                    "is_read": self._extract_field(block, "READ").lower()
+                    in {"true", "yes", "1"},
+                    "snippet": preview[:PREVIEW_MAX_CHARS],
+                }
+            )
         return messages
 
     def _parse_single_message(self, raw: str, msg_id: str) -> dict:
@@ -423,6 +557,7 @@ end tell'''
             "to": self._extract_field(raw, "TO"),
             "subject": self._extract_field(raw, "SUBJECT"),
             "date": self._extract_field(raw, "DATE"),
+            "is_read": self._extract_field(raw, "READ").lower() in {"true", "yes", "1"},
             "body": body,
         }
 

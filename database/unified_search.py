@@ -5,17 +5,21 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
-from .conversations import search_conversations
 from .core import get_db
 
 _MIN_QUERY_LENGTH = 2
 _MAX_QUERY_LENGTH = 200
 _MAX_RESULTS = 100
-
-
-def _like_pattern(query: str) -> str:
-    escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-    return f"%{escaped}%"
+_COORDINATOR_MAX_HITS = 8
+_LEGACY_SOURCE_TYPES = (
+    "conversation",
+    "message",
+    "person",
+    "task",
+    "document",
+    "episode",
+    "fact",
+)
 
 
 def _compact(value: Any, limit: int = 180) -> str:
@@ -58,157 +62,177 @@ def _rows(sql: str, params: Iterable[Any]) -> list[dict[str, Any]]:
         return [dict(row) for row in conn.execute(sql, tuple(params)).fetchall()]
 
 
+def _legacy_identifier(value: Any) -> int | str | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if ":" in text:
+        _, text = text.rsplit(":", 1)
+    try:
+        return int(text)
+    except ValueError:
+        return text
+
+
+def _conversation_checkpoints(conversation_ids: set[int]) -> dict[int, str | None]:
+    if not conversation_ids:
+        return {}
+    ordered = sorted(conversation_ids)
+    placeholders = ",".join("?" for _ in ordered)
+    rows = _rows(
+        f"SELECT id, checkpoint_id FROM conversations WHERE id IN ({placeholders})",
+        ordered,
+    )
+    return {int(row["id"]): row.get("checkpoint_id") for row in rows}
+
+
+def _legacy_result(
+    hit: Any,
+    query: str,
+    checkpoints: dict[int, str | None],
+) -> dict[str, Any] | None:
+    source_type = str(getattr(hit, "source_type", "") or "")
+    source_id = _legacy_identifier(getattr(hit, "source_id", None))
+    title = str(getattr(hit, "title", "") or "")
+    body = str(getattr(hit, "content", None) or getattr(hit, "excerpt", "") or "")
+    occurred_at = getattr(hit, "occurred_at", None)
+    metadata = dict(getattr(hit, "metadata", {}) or {})
+
+    if source_type in {"conversation", "message"}:
+        conversation_id = getattr(hit, "conversation_id", None) or source_id
+        try:
+            conversation_id = int(conversation_id)
+        except (TypeError, ValueError):
+            return None
+        return {
+            "type": "conversation",
+            "category": "conversations",
+            "id": conversation_id,
+            "checkpoint_id": checkpoints.get(conversation_id),
+            "title": title or "Conversation sans titre",
+            "subtitle": _excerpt(body, query),
+            "meta": occurred_at,
+            "url": f"/chat?conversation={conversation_id}",
+            "score": _score(query, title, body, base=20),
+        }
+
+    if source_type == "person":
+        return {
+            "type": "person",
+            "category": "contacts",
+            "id": source_id,
+            "title": title,
+            "subtitle": _excerpt(body, query),
+            "meta": occurred_at,
+            "url": f"/contacts?person={source_id}",
+            "score": _score(query, title, body, base=15),
+        }
+
+    if source_type == "task":
+        return {
+            "type": "task",
+            "category": "tasks",
+            "id": source_id,
+            "title": title,
+            "subtitle": _excerpt(body, query),
+            "meta": " · ".join(
+                str(value)
+                for value in (
+                    metadata.get("status"),
+                    metadata.get("priority"),
+                    metadata.get("due_at"),
+                )
+                if value
+            ),
+            "url": f"/tasks?task={source_id}",
+            "score": _score(query, title, body, base=10),
+        }
+
+    if source_type == "document":
+        # L'ancienne recherche unifiée ne couvrait que school_documents. Les
+        # pièces jointes de conversation gardent leur politique dédiée.
+        if metadata.get("adapter") != "school_documents":
+            return None
+        return {
+            "type": "document",
+            "category": "documents",
+            "id": source_id,
+            "title": title,
+            "subtitle": _excerpt(body, query),
+            "meta": metadata.get("file_type") or occurred_at,
+            "url": f"/documents?document={source_id}",
+            "score": _score(query, title, body, base=10),
+        }
+
+    if source_type in {"episode", "fact"}:
+        meta = (
+            metadata.get("agent")
+            if source_type == "episode"
+            else metadata.get("confidence")
+        )
+        return {
+            "type": source_type,
+            "category": "memory",
+            "id": source_id,
+            "title": _compact(title, 100),
+            "subtitle": _excerpt(body, query),
+            "meta": meta or occurred_at,
+            "url": f"/data?entry={source_type}-{source_id}",
+            "score": _score(query, title, body, base=5),
+        }
+    return None
+
+
 def unified_search(query: str, limit: int = 50) -> list[dict[str, Any]]:
     """Retourne des résultats homogènes, classés et directement navigables.
 
-    Le moteur FTS5 existant est utilisé pour les conversations. Les autres
-    domaines s'appuient sur des requêtes SQLite bornées ; les caractères ``%``
-    et ``_`` sont échappés pour qu'une saisie utilisateur ne devienne jamais un
-    joker involontaire.
+    Le nouveau coordinateur fournit désormais les candidats et ce module ne
+    conserve que l'adaptation vers le contrat historique du frontend. Le
+    coordinateur borne actuellement une recherche à huit hits : le paramètre
+    ``limit`` historique reste accepté et borné à 100, mais un appel ne peut pas
+    retourner plus de huit éléments tant que le coordinateur n'expose pas de
+    pagination.
     """
     normalized = " ".join((query or "").strip().split())[:_MAX_QUERY_LENGTH]
-    if len(normalized) < _MIN_QUERY_LENGTH or not any(char.isalnum() for char in normalized):
+    if len(normalized) < _MIN_QUERY_LENGTH or not any(
+        char.isalnum() for char in normalized
+    ):
         return []
 
     result_limit = max(1, min(int(limit or 50), _MAX_RESULTS))
-    per_source = max(8, min(30, result_limit))
-    like = _like_pattern(normalized)
-    results: list[dict[str, Any]] = []
+    from jarvis.retrieval import RetrievalRequest, search_knowledge
 
-    for row in search_conversations(normalized, limit=per_source):
-        title = row.get("title") or "Conversation sans titre"
-        snippet = row.get("matching_message") or ""
-        results.append(
-            {
-                "type": "conversation",
-                "category": "conversations",
-                "id": row.get("id"),
-                "checkpoint_id": row.get("checkpoint_id"),
-                "title": title,
-                "subtitle": _excerpt(snippet, normalized),
-                "meta": row.get("match_date") or row.get("last_message_at"),
-                "url": f"/chat?conversation={row.get('id')}",
-                "score": _score(normalized, title, snippet, base=20),
-            }
+    retrieval = search_knowledge(
+        RetrievalRequest(
+            query=normalized,
+            interaction_mode="legacy_unified_search",
+            source_types=_LEGACY_SOURCE_TYPES,
+            max_candidates=20,
+            max_hits=min(result_limit, _COORDINATOR_MAX_HITS),
+            char_budget=8_000,
         )
-
-    people = _rows(
-        """
-        SELECT id, name, relationship, ai_description, last_mentioned
-        FROM people
-        WHERE name LIKE ? ESCAPE '\\' COLLATE NOCASE
-           OR relationship LIKE ? ESCAPE '\\' COLLATE NOCASE
-           OR personality_notes LIKE ? ESCAPE '\\' COLLATE NOCASE
-           OR ai_description LIKE ? ESCAPE '\\' COLLATE NOCASE
-        ORDER BY last_mentioned IS NULL, last_mentioned DESC
-        LIMIT ?
-        """,
-        (like, like, like, like, per_source),
     )
-    for row in people:
-        body = f"{row.get('relationship') or ''} {row.get('ai_description') or ''}"
-        results.append(
-            {
-                "type": "person",
-                "category": "contacts",
-                "id": row["id"],
-                "title": row["name"],
-                "subtitle": _excerpt(body, normalized),
-                "meta": row.get("last_mentioned"),
-                "url": f"/contacts?person={row['id']}",
-                "score": _score(normalized, row["name"], body, base=15),
-            }
+    conversation_ids = {
+        int(conversation_id)
+        for hit in retrieval.hits
+        if hit.source_type in {"conversation", "message"}
+        for conversation_id in (
+            hit.conversation_id or _legacy_identifier(hit.source_id),
         )
+        if conversation_id is not None and str(conversation_id).isdigit()
+    }
+    checkpoints = _conversation_checkpoints(conversation_ids)
+    deduplicated: dict[tuple[str, Any], dict[str, Any]] = {}
+    for hit in retrieval.hits:
+        item = _legacy_result(hit, normalized, checkpoints)
+        if item is None:
+            continue
+        key = (str(item["type"]), item.get("id"))
+        previous = deduplicated.get(key)
+        if previous is None or int(item["score"]) > int(previous["score"]):
+            deduplicated[key] = item
 
-    tasks = _rows(
-        """
-        SELECT id, title, description, priority, status, due_date, category
-        FROM tasks
-        WHERE title LIKE ? ESCAPE '\\' COLLATE NOCASE
-           OR description LIKE ? ESCAPE '\\' COLLATE NOCASE
-           OR category LIKE ? ESCAPE '\\' COLLATE NOCASE
-        ORDER BY status = 'done', due_date IS NULL, due_date
-        LIMIT ?
-        """,
-        (like, like, like, per_source),
-    )
-    for row in tasks:
-        results.append(
-            {
-                "type": "task",
-                "category": "tasks",
-                "id": row["id"],
-                "title": row["title"],
-                "subtitle": _excerpt(row.get("description"), normalized),
-                "meta": " · ".join(
-                    str(value)
-                    for value in (row.get("status"), row.get("priority"), row.get("due_date"))
-                    if value
-                ),
-                "url": f"/tasks?task={row['id']}",
-                "score": _score(normalized, row["title"], row.get("description"), base=10),
-            }
-        )
-
-    documents = _rows(
-        """
-        SELECT id, title, content, doc_type, created_at
-        FROM school_documents
-        WHERE title LIKE ? ESCAPE '\\' COLLATE NOCASE
-           OR content LIKE ? ESCAPE '\\' COLLATE NOCASE
-           OR doc_type LIKE ? ESCAPE '\\' COLLATE NOCASE
-        ORDER BY created_at DESC
-        LIMIT ?
-        """,
-        (like, like, like, per_source),
-    )
-    for row in documents:
-        results.append(
-            {
-                "type": "document",
-                "category": "documents",
-                "id": row["id"],
-                "title": row["title"],
-                "subtitle": _excerpt(row.get("content"), normalized),
-                "meta": row.get("doc_type") or row.get("created_at"),
-                "url": f"/documents?document={row['id']}",
-                "score": _score(normalized, row["title"], row.get("content"), base=10),
-            }
-        )
-
-    memories = _rows(
-        """
-        SELECT 'episode' AS source_type, id, COALESCE(summary, content) AS title,
-               content AS body, agent AS meta, created_at
-        FROM episodes
-        WHERE summary LIKE ? ESCAPE '\\' COLLATE NOCASE
-           OR content LIKE ? ESCAPE '\\' COLLATE NOCASE
-           OR tags LIKE ? ESCAPE '\\' COLLATE NOCASE
-        UNION ALL
-        SELECT 'fact' AS source_type, id, category AS title,
-               content AS body, confidence AS meta, updated_at AS created_at
-        FROM user_facts
-        WHERE is_current = 1
-          AND (category LIKE ? ESCAPE '\\' COLLATE NOCASE
-               OR content LIKE ? ESCAPE '\\' COLLATE NOCASE)
-        ORDER BY created_at DESC
-        LIMIT ?
-        """,
-        (like, like, like, like, like, per_source),
-    )
-    for row in memories:
-        results.append(
-            {
-                "type": row["source_type"],
-                "category": "memory",
-                "id": row["id"],
-                "title": _compact(row["title"], 100),
-                "subtitle": _excerpt(row.get("body"), normalized),
-                "meta": row.get("meta") or row.get("created_at"),
-                "url": f"/data?entry={row['source_type']}-{row['id']}",
-                "score": _score(normalized, row["title"], row.get("body"), base=5),
-            }
-        )
+    results = list(deduplicated.values())
 
     results.sort(
         key=lambda item: (

@@ -965,9 +965,7 @@ def _create_voice_debug_table(conn: sqlite3.Connection) -> None:
 def _migrate_voice_debug_timestamps_to_utc(conn: sqlite3.Connection) -> None:
     """Convertit une fois les traces vocales locales historiques en UTC."""
     marker = "voice_debug_timestamp_utc_v1"
-    if conn.execute(
-        "SELECT 1 FROM app_settings WHERE key = ?", (marker,)
-    ).fetchone():
+    if conn.execute("SELECT 1 FROM app_settings WHERE key = ?", (marker,)).fetchone():
         return
 
     from datetime import datetime, timezone
@@ -985,9 +983,7 @@ def _migrate_voice_debug_timestamps_to_utc(conn: sqlite3.Connection) -> None:
                 parsed = parsed.replace(tzinfo=zone)
             canonical = parsed.astimezone(timezone.utc).strftime(SQLITE_UTC_FORMAT)
         except (TypeError, ValueError):
-            logger.warning(
-                "Timestamp voice_debug_log invalide ignoré: id=%s", trace_id
-            )
+            logger.warning("Timestamp voice_debug_log invalide ignoré: id=%s", trace_id)
             continue
         conn.execute(
             "UPDATE voice_debug_log SET created_at = ? WHERE id = ?",
@@ -1727,6 +1723,322 @@ def _migrate_apple_shortcuts(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_knowledge_retrieval(conn: sqlite3.Connection) -> None:
+    """Ajoute la projection de recherche universelle et sa file durable."""
+
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS calendar_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            external_id TEXT NOT NULL UNIQUE,
+            calendar_name TEXT NOT NULL DEFAULT '',
+            title TEXT NOT NULL,
+            start_at TEXT NOT NULL,
+            end_at TEXT,
+            location TEXT NOT NULL DEFAULT '',
+            notes TEXT NOT NULL DEFAULT '',
+            is_all_day INTEGER NOT NULL DEFAULT 0 CHECK(is_all_day IN (0, 1)),
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_calendar_events_start
+            ON calendar_events(start_at, end_at);
+
+        CREATE TABLE IF NOT EXISTS knowledge_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            uid TEXT NOT NULL UNIQUE,
+            source_type TEXT NOT NULL,
+            source_id TEXT NOT NULL,
+            chunk_index INTEGER NOT NULL DEFAULT 0 CHECK(chunk_index >= 0),
+            conversation_id INTEGER REFERENCES conversations(id) ON DELETE SET NULL,
+            title TEXT NOT NULL DEFAULT '',
+            searchable_text TEXT NOT NULL,
+            summary TEXT NOT NULL DEFAULT '',
+            people_json TEXT NOT NULL DEFAULT '[]',
+            occurred_at TEXT,
+            source_updated_at TEXT,
+            indexed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            content_hash TEXT NOT NULL,
+            sensitivity TEXT NOT NULL DEFAULT 'personal',
+            cloud_policy TEXT NOT NULL DEFAULT 'redact',
+            trust TEXT NOT NULL DEFAULT 'untrusted_stored_data',
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            deleted_at TEXT,
+            UNIQUE(source_type, source_id, chunk_index)
+        );
+        CREATE INDEX IF NOT EXISTS idx_knowledge_items_source_time
+            ON knowledge_items(source_type, occurred_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_knowledge_items_conversation
+            ON knowledge_items(conversation_id, occurred_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_knowledge_items_hash
+            ON knowledge_items(content_hash);
+
+        CREATE TABLE IF NOT EXISTS knowledge_embeddings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            knowledge_item_id INTEGER NOT NULL
+                REFERENCES knowledge_items(id) ON DELETE CASCADE,
+            model TEXT NOT NULL,
+            content_hash TEXT NOT NULL,
+            embedding BLOB NOT NULL,
+            embedded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(knowledge_item_id, model)
+        );
+        CREATE INDEX IF NOT EXISTS idx_knowledge_embeddings_hash
+            ON knowledge_embeddings(content_hash);
+
+        CREATE TABLE IF NOT EXISTS knowledge_index_jobs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_type TEXT NOT NULL,
+            source_id TEXT NOT NULL,
+            operation TEXT NOT NULL DEFAULT 'upsert'
+                CHECK(operation IN ('upsert', 'delete')),
+            status TEXT NOT NULL DEFAULT 'pending'
+                CHECK(status IN ('pending', 'running', 'retry', 'done', 'dead')),
+            attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts >= 0),
+            next_attempt_at TEXT,
+            last_error_code TEXT,
+            claimed_at TEXT,
+            completed_at TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(source_type, source_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_knowledge_jobs_pending
+            ON knowledge_index_jobs(status, next_attempt_at, created_at);
+
+        CREATE TABLE IF NOT EXISTS knowledge_source_state (
+            source_key TEXT PRIMARY KEY,
+            source_type TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'ok'
+                CHECK(status IN ('ok', 'degraded', 'unavailable')),
+            cursor TEXT,
+            item_count INTEGER NOT NULL DEFAULT 0 CHECK(item_count >= 0),
+            last_indexed_at TEXT,
+            last_backfill_at TEXT,
+            last_error_code TEXT,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_knowledge_source_state_type
+            ON knowledge_source_state(source_type, status);
+
+        CREATE TABLE IF NOT EXISTS knowledge_retrieval_references (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+            uid TEXT NOT NULL,
+            source_type TEXT NOT NULL,
+            source_id TEXT NOT NULL,
+            rank INTEGER NOT NULL DEFAULT 0 CHECK(rank >= 0),
+            referenced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(conversation_id, uid)
+        );
+        CREATE INDEX IF NOT EXISTS idx_knowledge_references_conversation
+            ON knowledge_retrieval_references(conversation_id, referenced_at DESC, rank);
+        """
+    )
+
+    try:
+        conn.execute(
+            """
+            CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_items_fts USING fts5(
+                title,
+                searchable_text,
+                summary,
+                content='knowledge_items', content_rowid='id',
+                tokenize='unicode61 remove_diacritics 2'
+            )
+            """
+        )
+    except sqlite3.OperationalError as exc:
+        logger.warning("[DB] FTS5 knowledge indisponible (%s) — fallback LIKE", exc)
+    else:
+        conn.executescript(
+            """
+            CREATE TRIGGER IF NOT EXISTS knowledge_items_fts_ai
+            AFTER INSERT ON knowledge_items BEGIN
+                INSERT INTO knowledge_items_fts(rowid, title, searchable_text, summary)
+                VALUES (new.id, new.title, new.searchable_text, new.summary);
+            END;
+            CREATE TRIGGER IF NOT EXISTS knowledge_items_fts_ad
+            AFTER DELETE ON knowledge_items BEGIN
+                INSERT INTO knowledge_items_fts(
+                    knowledge_items_fts, rowid, title, searchable_text, summary
+                ) VALUES (
+                    'delete', old.id, old.title, old.searchable_text, old.summary
+                );
+            END;
+            CREATE TRIGGER IF NOT EXISTS knowledge_items_fts_au
+            AFTER UPDATE OF title, searchable_text, summary ON knowledge_items BEGIN
+                INSERT INTO knowledge_items_fts(
+                    knowledge_items_fts, rowid, title, searchable_text, summary
+                ) VALUES (
+                    'delete', old.id, old.title, old.searchable_text, old.summary
+                );
+                INSERT INTO knowledge_items_fts(rowid, title, searchable_text, summary)
+                VALUES (new.id, new.title, new.searchable_text, new.summary);
+            END;
+            """
+        )
+        item_count = conn.execute("SELECT COUNT(*) FROM knowledge_items").fetchone()[0]
+        fts_count = conn.execute("SELECT COUNT(*) FROM knowledge_items_fts").fetchone()[
+            0
+        ]
+        if item_count != fts_count:
+            conn.execute(
+                "INSERT INTO knowledge_items_fts(knowledge_items_fts) VALUES ('rebuild')"
+            )
+
+    conn.executescript(
+        """
+        CREATE TRIGGER IF NOT EXISTS memory_embeddings_episode_au
+        AFTER UPDATE ON episodes BEGIN
+            DELETE FROM memory_embeddings
+            WHERE source_type = 'episode' AND source_id = CAST(old.id AS TEXT);
+        END;
+        CREATE TRIGGER IF NOT EXISTS memory_embeddings_episode_ad
+        AFTER DELETE ON episodes BEGIN
+            DELETE FROM memory_embeddings
+            WHERE source_type = 'episode' AND source_id = CAST(old.id AS TEXT);
+        END;
+        CREATE TRIGGER IF NOT EXISTS memory_embeddings_recording_au
+        AFTER UPDATE ON recordings BEGIN
+            DELETE FROM memory_embeddings
+            WHERE source_type = 'recording' AND source_id = CAST(old.id AS TEXT);
+        END;
+        CREATE TRIGGER IF NOT EXISTS memory_embeddings_recording_ad
+        AFTER DELETE ON recordings BEGIN
+            DELETE FROM memory_embeddings
+            WHERE source_type = 'recording' AND source_id = CAST(old.id AS TEXT);
+        END;
+        """
+    )
+    _install_knowledge_job_triggers(conn)
+
+
+def _install_knowledge_job_triggers(conn: sqlite3.Connection) -> None:
+    """Installe des hooks transactionnels sans coupler les modules metier."""
+
+    sources = (
+        ("conversations", "conversation", "{row}.id"),
+        ("messages", "message", "{row}.id"),
+        ("email_summaries", "email", "{row}.id"),
+        ("calendar_events", "calendar", "{row}.id"),
+        ("imessage_messages", "imessage", "{row}.id"),
+        ("notifications", "notification", "{row}.id"),
+        ("recordings", "recording", "{row}.id"),
+        ("conversation_turns", "conversation_turn", "{row}.id"),
+        ("episodes", "episode", "{row}.id"),
+        ("episodes", "note", "{row}.id"),
+        ("jarvis_journal", "journal", "{row}.id"),
+        ("user_facts", "fact", "{row}.id"),
+        ("life_context", "life_context", "'context:' || {row}.id"),
+        ("life_profile", "life_context", "'profile:' || {row}.id"),
+        ("patterns", "pattern", "{row}.id"),
+        ("cross_insights", "insight", "'cross:' || {row}.id"),
+        ("message_insights", "insight", "'message:' || {row}.id"),
+        ("daily_briefings", "briefing", "'daily:' || {row}.id"),
+        ("weekly_summaries", "briefing", "'weekly:' || {row}.id"),
+        ("commitments", "commitment", "{row}.id"),
+        ("places", "location", "'place:' || {row}.id"),
+        ("location_patterns", "location", "'pattern:' || {row}.id"),
+        ("mood_log", "wellbeing", "'mood:' || {row}.id"),
+        ("wellbeing_logs", "wellbeing", "'wellbeing:' || {row}.id"),
+        ("fitness_weight_logs", "wellbeing", "'weight:' || {row}.id"),
+        ("meals", "wellbeing", "'meal:' || {row}.id"),
+        ("food_preferences", "wellbeing", "'food-pref:' || {row}.id"),
+        ("food_orders", "wellbeing", "'food-order:' || {row}.id"),
+        ("fitness_programs", "wellbeing", "'fitness-program:' || {row}.id"),
+        (
+            "fitness_program_sessions",
+            "wellbeing",
+            "'fitness-session:' || {row}.id",
+        ),
+        (
+            "fitness_session_progress",
+            "wellbeing",
+            "'fitness-progress:' || {row}.id",
+        ),
+        ("mood_signals", "wellbeing", "'mood-signal:' || {row}.id"),
+        ("school_documents", "document", "'school:' || {row}.id"),
+        ("school_documents", "school_document", "{row}.id"),
+        (
+            "conversation_documents",
+            "document",
+            "'conversation:' || {row}.id",
+        ),
+        ("conversation_documents", "conversation_document", "{row}.id"),
+        ("people", "person", "{row}.id"),
+        ("people_events", "people_event", "{row}.id"),
+        ("relationship_profiles", "relationship", "{row}.id"),
+        ("relationship_events", "relationship_event", "{row}.id"),
+        ("tasks", "task", "{row}.id"),
+        ("control_tasks", "control_task", "{row}.task_id"),
+        ("control_task_plans", "control_plan", "{row}.plan_id"),
+        ("control_task_comments", "control_comment", "{row}.comment_id"),
+        ("control_task_reports", "control_report", "{row}.report_id"),
+        ("control_task_activity", "control_activity", "{row}.activity_id"),
+        ("dev_projects", "project", "{row}.id"),
+        ("agent_runs", "agent_run", "{row}.run_id"),
+        ("agent_steps", "agent_step", "{row}.step_id"),
+        ("agent_approvals", "agent_approval", "{row}.approval_id"),
+        ("agent_artifacts", "agent_artifact", "{row}.artifact_id"),
+        ("agentic_workflows", "agentic_workflow", "{row}.id"),
+        (
+            "cursor_delegation_jobs",
+            "cursor_job",
+            "COALESCE({row}.job_id, CAST({row}.id AS TEXT))",
+        ),
+        ("scheduler_job_runs", "scheduler_job", "{row}.id"),
+    )
+    existing = {
+        str(row[0])
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'"
+        ).fetchall()
+    }
+    for table, source_type, source_expr in sources:
+        if table not in existing:
+            continue
+        trigger_prefix = f"knowledge_job_{table}_{source_type}"
+        new_expr = source_expr.format(row="new")
+        old_expr = source_expr.format(row="old")
+
+        def queue_sql(expr: str, operation: str) -> str:
+            return f"""INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    '{source_type}', CAST({expr} AS TEXT), '{operation}',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;"""
+
+        conn.executescript(
+            f"""
+            CREATE TRIGGER IF NOT EXISTS {trigger_prefix}_ai
+            AFTER INSERT ON {table} BEGIN
+                {queue_sql(new_expr, "upsert")}
+            END;
+            CREATE TRIGGER IF NOT EXISTS {trigger_prefix}_au
+            AFTER UPDATE ON {table} BEGIN
+                {queue_sql(new_expr, "upsert")}
+            END;
+            CREATE TRIGGER IF NOT EXISTS {trigger_prefix}_ad
+            AFTER DELETE ON {table} BEGIN
+                {queue_sql(old_expr, "delete")}
+            END;
+            """
+        )
+
+
 def run_migrations(conn: sqlite3.Connection) -> None:
     """Applique dans un ordre stable toutes les migrations idempotentes."""
     _migrate_people_ai_description(conn)
@@ -1778,3 +2090,4 @@ def run_migrations(conn: sqlite3.Connection) -> None:
     _migrate_task_control(conn)
     _migrate_apple_shortcuts(conn)
     _migrate_application_timestamps_to_utc_v2(conn)
+    _migrate_knowledge_retrieval(conn)

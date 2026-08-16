@@ -29,10 +29,23 @@ def _get_horodatage() -> str:
     Format : ``[HORODATAGE] lundi 29 janvier 2026, 18:30 — Europe/Paris``
     """
     from datetime import datetime
+
     now = datetime.now()
     JOURS = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]
-    MOIS = ["janvier", "février", "mars", "avril", "mai", "juin",
-            "juillet", "août", "septembre", "octobre", "novembre", "décembre"]
+    MOIS = [
+        "janvier",
+        "février",
+        "mars",
+        "avril",
+        "mai",
+        "juin",
+        "juillet",
+        "août",
+        "septembre",
+        "octobre",
+        "novembre",
+        "décembre",
+    ]
     return (
         f"[HORODATAGE] {JOURS[now.weekday()]} {now.day} {MOIS[now.month - 1]} "
         f"{now.year}, {now.strftime('%H:%M')} — Europe/Paris"
@@ -90,13 +103,23 @@ class BaseAgent(ABC):
         trusted_prefix = f"{horodatage}\n\n{UNTRUSTED_DATA_SYSTEM_RULE}"
         if self.inject_persona:
             persona = _load_persona()
-            base = f"{trusted_prefix}\n\n{persona}\n\n---\n\n{agent_prompt}" if persona else f"{trusted_prefix}\n\n{agent_prompt}"
+            base = (
+                f"{trusted_prefix}\n\n{persona}\n\n---\n\n{agent_prompt}"
+                if persona
+                else f"{trusted_prefix}\n\n{agent_prompt}"
+            )
         else:
             base = f"{trusted_prefix}\n\n{agent_prompt}"
 
         if context:
+            retrieval_context = context.get("retrieval_context")
             for key, value in context.items():
-                if key in ("voice_mode", "history", "history_text"):
+                if key in (
+                    "voice_mode",
+                    "history",
+                    "history_text",
+                    "retrieval_context",
+                ) or key.startswith("__"):
                     continue
                 if key in {"user_name", "city", "language", "timezone"}:
                     replacement = str(value)
@@ -107,6 +130,12 @@ class BaseAgent(ABC):
                         max_chars=8_000,
                     )
                 base = base.replace(f"{{{{{key}}}}}", replacement)
+            # Le retrieval est transversal : il ne dépend d'aucun placeholder
+            # spécialisé et atteint donc chaque agent, y compris Info et DevOps.
+            # `_build_enriched_context` fournit déjà une enveloppe non fiable
+            # bornée; ne pas la rewrapper ni la promouvoir en instruction.
+            if retrieval_context:
+                base += f"\n\n---\n\n{retrieval_context}"
             if context.get("voice_mode"):
                 base += (
                     "\n\n---\n"
@@ -122,7 +151,7 @@ class BaseAgent(ABC):
                     "Ne verbalise jamais ton raisonnement interne.\n\n"
                     "IMPORTANT — TU PEUX AGIR ET RÉPONDRE EN MÊME TEMPS :\n"
                     "- Pour les actions simples (météo, calendrier, tâche, humeur, mail) : "
-                    "utilise ```action {{\"type\":\"...\"}}```\n"
+                    'utilise ```action {{"type":"..."}}```\n'
                     "- Une action terminal devient toujours un plan allowlisté dans un "
                     "workspace isolé et attend la confirmation de l'utilisateur.\n"
                     "- Pour les tâches complexes de code, déploiement ou debug, préfère "
@@ -133,14 +162,22 @@ class BaseAgent(ABC):
                     "- Si tu proposes de faire quelque chose et que l'utilisateur dit 'oui' ou 'vas-y', "
                     "tu DOIS immédiatement produire le bloc action correspondant dans ta réponse.\n\n"
                     "EXEMPLES :\n"
-                    "- User demande la météo → Toi: ```action {{\"type\":\"weather\",\"city\":\"Lille\"}}```\n"
-                    "- User: \"liste les fichiers du workspace\" → Toi: ```action {{\"type\":\"terminal\",\"command\":\"ls -la .\"}}```\n"
-                    "- User: \"cherche les erreurs dans les logs du workspace\" → Toi: ```action {{\"type\":\"terminal\",\"command\":\"rg erreur .\"}}```"
+                    '- User demande la météo → Toi: ```action {{"type":"weather","city":"Lille"}}```\n'
+                    '- User: "liste les fichiers du workspace" → Toi: ```action {{"type":"terminal","command":"ls -la ."}}```\n'
+                    '- User: "cherche les erreurs dans les logs du workspace" → Toi: ```action {{"type":"terminal","command":"rg erreur ."}}```'
                 )
         return base
 
     _EMOTION_RE = re.compile(r"^\s*\[(\w+)\]\s*\n?", re.MULTILINE)
-    _VALID_EMOTIONS = {"neutral", "warm", "serious", "concerned", "amused", "urgent", "encouraging"}
+    _VALID_EMOTIONS = {
+        "neutral",
+        "warm",
+        "serious",
+        "concerned",
+        "amused",
+        "urgent",
+        "encouraging",
+    }
 
     def _extract_emotion(self, response: str) -> tuple[str, str]:
         """Extrait le tag [emotion] en début de réponse.
@@ -152,24 +189,30 @@ class BaseAgent(ABC):
         m = self._EMOTION_RE.match(response)
         if m and m.group(1).lower() in self._VALID_EMOTIONS:
             emotion = m.group(1).lower()
-            cleaned = response[m.end():]
+            cleaned = response[m.end() :]
             return emotion, cleaned
         return "neutral", response
 
     @abstractmethod
-    async def handle(self, user_message: str, conversation_id: int = None,
-                     context: dict = None) -> dict:
+    async def handle(
+        self, user_message: str, conversation_id: int = None, context: dict = None
+    ) -> dict:
         """Traite un message. Retourne {response, agent, model, tokens_in, tokens_out, cost, emotion}."""
         pass
 
-    async def _call_claude(self, user_message: str, conversation_id: int = None,
-                           context: dict = None, history: list = None,
-                           model: str = None, temperature: float = 0.7,
-                           voice_mode: bool = False,
-                           max_tokens: int | None = None,
-                           persist: bool = True,
-                           strip_fences: bool = True,
-                           ) -> dict:
+    async def _call_claude(
+        self,
+        user_message: str,
+        conversation_id: int = None,
+        context: dict = None,
+        history: list = None,
+        model: str = None,
+        temperature: float = 0.7,
+        voice_mode: bool = False,
+        max_tokens: int | None = None,
+        persist: bool = True,
+        strip_fences: bool = True,
+    ) -> dict:
         """Helper : appelle Claude avec le bon system prompt + historique.
 
         L'historique est lu depuis ``context["history"]`` ou ``history``. Il
@@ -197,11 +240,13 @@ class BaseAgent(ABC):
 
         t_start = _time.time()
 
-        await event_bus.emit(JarvisEvent(
-            type="agent.start",
-            agent=self.name,
-            data={"model": eff_model, "message": user_message[:120]},
-        ))
+        await event_bus.emit(
+            JarvisEvent(
+                type="agent.start",
+                agent=self.name,
+                data={"model": eff_model, "message": user_message[:120]},
+            )
+        )
 
         result = await llm.chat(
             messages=messages,
@@ -212,16 +257,11 @@ class BaseAgent(ABC):
         )
         response_max_tokens = mt
         retry_attempted = False
-        _, response_payload = self._extract_emotion(
-            str(result.get("content") or "")
-        )
-        budget_exhausted = (
-            not response_payload.strip()
-            and (
-                str(result.get("stop_reason") or "") == "length"
-                or (mt > 0 and int(result.get("tokens_out") or 0) >= mt)
-                or (mt > 0 and int(result.get("reasoning_tokens") or 0) >= mt)
-            )
+        _, response_payload = self._extract_emotion(str(result.get("content") or ""))
+        budget_exhausted = not response_payload.strip() and (
+            str(result.get("stop_reason") or "") == "length"
+            or (mt > 0 and int(result.get("tokens_out") or 0) >= mt)
+            or (mt > 0 and int(result.get("reasoning_tokens") or 0) >= mt)
         )
         if is_voice and budget_exhausted:
             retry_attempted = True
@@ -265,23 +305,25 @@ class BaseAgent(ABC):
 
         latency_ms = int((_time.time() - t_start) * 1000)
 
-        await event_bus.emit(JarvisEvent(
-            type="agent.response",
-            agent=self.name,
-            data={
-                "content": result["content"][:300],
-                "model": result["model"],
-                "tokens_in": result.get("tokens_in", 0),
-                "tokens_out": result.get("tokens_out", 0),
-                "cost": result.get("cost", 0),
-                "latency_ms": latency_ms,
-                "stop_reason": result.get("stop_reason"),
-                "reasoning_tokens": result.get("reasoning_tokens", 0),
-                "reasoning_chars": result.get("reasoning_chars", 0),
-                "max_tokens": response_max_tokens,
-                "retry_attempted": retry_attempted,
-            },
-        ))
+        await event_bus.emit(
+            JarvisEvent(
+                type="agent.response",
+                agent=self.name,
+                data={
+                    "content": result["content"][:300],
+                    "model": result["model"],
+                    "tokens_in": result.get("tokens_in", 0),
+                    "tokens_out": result.get("tokens_out", 0),
+                    "cost": result.get("cost", 0),
+                    "latency_ms": latency_ms,
+                    "stop_reason": result.get("stop_reason"),
+                    "reasoning_tokens": result.get("reasoning_tokens", 0),
+                    "reasoning_chars": result.get("reasoning_chars", 0),
+                    "max_tokens": response_max_tokens,
+                    "retry_attempted": retry_attempted,
+                },
+            )
+        )
 
         emotion, clean_text = self._extract_emotion(result["content"])
         # Les blocs ```action``` doivent rester dans ``response`` pour que le
@@ -354,7 +396,7 @@ class BaseAgent(ABC):
         m = self._ACTION_RE.search(response)
         if m:
             json_str = m.group(1).strip()
-            clean_text = (response[: m.start()] + response[m.end():]).strip()
+            clean_text = (response[: m.start()] + response[m.end() :]).strip()
             try:
                 action = _json.loads(json_str)
                 if isinstance(action, dict) and "type" in action:
@@ -372,9 +414,9 @@ class BaseAgent(ABC):
                 depth = 0
                 end = start
                 for i, ch in enumerate(response[start:], start):
-                    if ch == '{':
+                    if ch == "{":
                         depth += 1
-                    elif ch == '}':
+                    elif ch == "}":
                         depth -= 1
                         if depth == 0:
                             end = i + 1
@@ -389,8 +431,13 @@ class BaseAgent(ABC):
 
         return None, response
 
-    async def _route_task(self, user_message: str, conversation_id: int = None,
-                          context: dict = None, history: list = None) -> dict:
+    async def _route_task(
+        self,
+        user_message: str,
+        conversation_id: int = None,
+        context: dict = None,
+        history: list = None,
+    ) -> dict:
         """Routeur intra-agent : détecte les productions lourdes.
 
         Tout passe par DeepSeek. Les tâches lourdes (dissertation, exercice
@@ -412,7 +459,9 @@ class BaseAgent(ABC):
         route = await llm.classify_task_type(user_message)
 
         if route == "heavy":
-            logger.info(f"[{self.name}] Route → DeepSeek main (tâche lourde, max_tokens élevé)")
+            logger.info(
+                f"[{self.name}] Route → DeepSeek main (tâche lourde, max_tokens élevé)"
+            )
             return await self._call_claude(
                 user_message,
                 conversation_id=conversation_id,
@@ -459,6 +508,7 @@ class BaseAgent(ABC):
         if conversation_id:
             try:
                 from database import create_agentic_workflow, update_agentic_workflow
+
                 workflow_id = create_agentic_workflow(
                     conversation_id, user_message, initial_action
                 )
@@ -473,7 +523,9 @@ class BaseAgent(ABC):
         for step in range(self.MAX_AGENTIC_STEPS):
             logger.info(
                 "[agentic] Step %d/%d: type=%s",
-                step + 1, self.MAX_AGENTIC_STEPS, current_action.get("type", "?"),
+                step + 1,
+                self.MAX_AGENTIC_STEPS,
+                current_action.get("type", "?"),
             )
 
             try:
@@ -481,11 +533,13 @@ class BaseAgent(ABC):
             except Exception as e:
                 result = {"ok": False, "message": str(e)}
 
-            results.append({
-                "step": step + 1,
-                "action": current_action,
-                "result": result,
-            })
+            results.append(
+                {
+                    "step": step + 1,
+                    "action": current_action,
+                    "result": result,
+                }
+            )
 
             total_output_chars += len(
                 str(result.get("output", result.get("message", "")))
@@ -498,21 +552,25 @@ class BaseAgent(ABC):
 
             # Abandon si 2 échecs consécutifs
             if consecutive_failures >= 2:
-                results.append({
-                    "step": "aborted",
-                    "reason": (
-                        f"Échecs répétés ({consecutive_failures}) : "
-                        f"{result.get('message', result.get('error', 'inconnu'))}"
-                    ),
-                })
+                results.append(
+                    {
+                        "step": "aborted",
+                        "reason": (
+                            f"Échecs répétés ({consecutive_failures}) : "
+                            f"{result.get('message', result.get('error', 'inconnu'))}"
+                        ),
+                    }
+                )
                 break
 
             # Limite de sortie
             if total_output_chars > self.MAX_AGENTIC_OUTPUT_CHARS:
-                results.append({
-                    "step": "truncated",
-                    "reason": f"Limite de sortie atteinte ({self.MAX_AGENTIC_OUTPUT_CHARS} chars)",
-                })
+                results.append(
+                    {
+                        "step": "truncated",
+                        "reason": f"Limite de sortie atteinte ({self.MAX_AGENTIC_OUTPUT_CHARS} chars)",
+                    }
+                )
                 break
 
             # Dernière étape → pas besoin de demander
@@ -520,12 +578,14 @@ class BaseAgent(ABC):
                 break
 
             # Demander au LLM si une nouvelle action est nécessaire
-            raw_context_summary = "\n".join([
-                f"Step {r['step']}: {r['action'].get('type')} → "
-                f"{str(r['result'].get('output', r['result'].get('message', '')))[:500]}"
-                for r in results
-                if isinstance(r.get("step"), int)
-            ])
+            raw_context_summary = "\n".join(
+                [
+                    f"Step {r['step']}: {r['action'].get('type')} → "
+                    f"{str(r['result'].get('output', r['result'].get('message', '')))[:500]}"
+                    for r in results
+                    if isinstance(r.get("step"), int)
+                ]
+            )
             context_summary = wrap_untrusted_data(
                 "AGENTIC_ACTION_RESULTS",
                 raw_context_summary,
@@ -536,7 +596,7 @@ class BaseAgent(ABC):
                 f"Contexte d'exécution :\n{context_summary}\n\n"
                 f"Question originale : {user_message}\n\n"
                 "Décide : faut-il une action supplémentaire pour répondre complètement ?\n"
-                "Si OUI → ```action {\"type\":\"terminal\",\"command\":\"...\",\"complex\":true}```\n"
+                'Si OUI → ```action {"type":"terminal","command":"...","complex":true}```\n'
                 "Si NON → réponds TERMINE"
             )
 
@@ -565,8 +625,10 @@ class BaseAgent(ABC):
                 break
 
         final_status = (
-            "failed" if consecutive_failures >= 2
-            else "partial" if consecutive_failures > 0
+            "failed"
+            if consecutive_failures >= 2
+            else "partial"
+            if consecutive_failures > 0
             else "completed"
         )
         step_count = len([r for r in results if isinstance(r.get("step"), int)])
@@ -574,6 +636,7 @@ class BaseAgent(ABC):
         if workflow_id:
             try:
                 from database import update_agentic_workflow
+
                 update_agentic_workflow(
                     workflow_id,
                     steps_json=_json.dumps(results, ensure_ascii=False, default=str),

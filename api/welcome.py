@@ -19,7 +19,6 @@ _WELCOME_MARKER = BASE_DIR / "data" / ".welcome_day"
 logger = logging.getLogger("jarvis")
 
 
-
 def _welcome_already_sent_today() -> bool:
     today = local_datetime().date().isoformat()
     try:
@@ -31,7 +30,9 @@ def _welcome_already_sent_today() -> bool:
 def _mark_welcome_sent() -> None:
     try:
         _WELCOME_MARKER.parent.mkdir(parents=True, exist_ok=True)
-        _WELCOME_MARKER.write_text(local_datetime().date().isoformat(), encoding="utf-8")
+        _WELCOME_MARKER.write_text(
+            local_datetime().date().isoformat(), encoding="utf-8"
+        )
     except OSError as e:
         logger.warning("welcome marker : %s", e)
 
@@ -47,9 +48,7 @@ async def _maybe_send_daily_welcome(ws: WebSocket) -> None:
         mood_line = ""
         if moods:
             m = moods[0]
-            mood_line = (
-                f"Dernier mood : {m.get('mood_score')}/10, énergie {m.get('energy_level')}/10."
-            )
+            mood_line = f"Dernier mood : {m.get('mood_score')}/10, énergie {m.get('energy_level')}/10."
         local_now = local_datetime()
         h = local_now.hour
         if 5 <= h < 12:
@@ -82,20 +81,31 @@ async def _maybe_send_daily_welcome(ws: WebSocket) -> None:
                 unread = len(u or [])
             except Exception as e:
                 logger.warning("welcome mail : %s", e)
-        next_ev = ""
-        if calendar_client and calendar_client.is_available():
+        next_ev = "non vérifiable"
+        if calendar_client:
             try:
-                evs = await calendar_client.get_today_events()
+                calendar_result = await calendar_client.get_today_events_result()
+                if calendar_result.status == "ok":
+                    evs = list(calendar_result.events)
+                    next_ev = "aucun"
+                else:
+                    evs = []
+                    logger.warning(
+                        "welcome calendar indisponible : %s",
+                        calendar_result.error or "calendar_unavailable",
+                    )
                 if evs:
                     e0 = evs[0]
-                    next_ev = f"{e0.get('summary', '')} {e0.get('start', '')}"
+                    next_ev = (
+                        f"{e0.get('summary') or '(sans titre)'} {e0.get('start') or ''}"
+                    ).strip()
             except Exception as e:
                 logger.warning("welcome calendar : %s", e)
         prompt = (
             f"Une à deux phrases max. JARVIS, majordome britannique, français, "
             f"pas d'emoji, concis, poli. Période : {period}. {mood_line} "
             f"Tâches en retard (estimé) : {overdue_n}. Mails non lus (estimé) : {unread}. "
-            f"Prochain événement aujourd’hui : {next_ev or 'aucun'}. "
+            f"Prochain événement aujourd’hui : {next_ev}. "
             f"Utilisateur : {config.USER_NAME}."
         )
         r = await llm.chat(

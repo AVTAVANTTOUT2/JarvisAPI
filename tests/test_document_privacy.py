@@ -68,7 +68,10 @@ def test_strict_local_setting_can_be_changed_dynamically(privacy_env):
     policy = get_document_privacy_policy()
     assert policy["mode"] == "hybrid"
     assert policy["cloud_summary_available"] is True
-    assert "per_upload_consent" in policy["features"]["conversation_document"]["cloud_summary"]
+    assert (
+        "per_upload_consent"
+        in policy["features"]["conversation_document"]["cloud_summary"]
+    )
 
 
 @pytest.mark.asyncio
@@ -179,7 +182,9 @@ def test_api_rejects_cloud_consent_before_storing_in_strict_mode(privacy_env):
 
     assert response.status_code == 409
     assert "strictement local" in response.json()["detail"]
-    assert not upload_root.exists() or not any(path.is_file() for path in upload_root.rglob("*"))
+    assert not upload_root.exists() or not any(
+        path.is_file() for path in upload_root.rglob("*")
+    )
 
 
 def test_api_defaults_to_local_and_exposes_processing_metadata(privacy_env):
@@ -251,7 +256,9 @@ def test_privacy_api_requires_explicit_per_upload_consent(privacy_env, monkeypat
 
 
 @pytest.mark.asyncio
-async def test_chat_context_excludes_unconsented_docs_and_masks_consented_pii(privacy_env):
+async def test_chat_context_excludes_unconsented_docs_and_masks_consented_pii(
+    privacy_env,
+):
     from api.chat_context import _build_enriched_context
     from database import create_conversation, save_conversation_document
     from jarvis.document_privacy import set_document_strict_local
@@ -279,9 +286,9 @@ async def test_chat_context_excludes_unconsented_docs_and_masks_consented_pii(pr
     )
     set_document_strict_local(False)
 
-    context = await _build_enriched_context("question neutre", conversation_id)
+    context = await _build_enriched_context("résume mes documents", conversation_id)
 
-    document_context = context["documents_context"]
+    document_context = context["retrieval_context"]
     assert "CONTENU_AUTORISE" in document_context
     assert "NE_DOIT_PAS_SORTIR" not in document_context
     assert "bob@example.com" not in document_context
@@ -290,7 +297,9 @@ async def test_chat_context_excludes_unconsented_docs_and_masks_consented_pii(pr
 
 
 @pytest.mark.asyncio
-async def test_strict_local_excludes_even_previously_consented_docs_from_chat(privacy_env):
+async def test_strict_local_excludes_even_previously_consented_docs_from_chat(
+    privacy_env,
+):
     from api.chat_context import _build_enriched_context
     from database import create_conversation, save_conversation_document
 

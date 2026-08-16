@@ -51,23 +51,18 @@ _ENTITY_PRIORITY: dict[str, int] = {
 
 # ── Regex déterministes ──────────────────────────────────────
 # Email : sous-ensemble pragmatique de RFC 5322 (suffisant pour la détection).
-_EMAIL_RE = re.compile(
-    r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b"
-)
+_EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b")
 
 # IBAN : 2 lettres pays + 2 chiffres clé + 11 à 30 caractères alphanumériques.
-_IBAN_RE = re.compile(
-    r"\b[A-Z]{2}\d{2}(?:[ ]?[A-Za-z0-9]){11,30}\b"
-)
+_IBAN_RE = re.compile(r"\b[A-Z]{2}\d{2}(?:[ ]?[A-Za-z0-9]){11,30}\b")
 
 # Carte bancaire : 13 à 19 chiffres, séparateurs espace/tiret tolérés.
-_CARD_RE = re.compile(
-    r"\b(?:\d[ \-]?){12}\d(?:[ \-]?\d){0,6}\b"
-)
+_CARD_RE = re.compile(r"\b(?:\d[ \-]?){12}\d(?:[ \-]?\d){0,6}\b")
 
 # Téléphone FR / international : +33, 0033, ou 0 suivi de 9 chiffres groupés.
 _PHONE_RE = re.compile(
-    r"(?<![\w.])(?:(?:\+|00)\d{1,3}[ .\-]?)?(?:\(0\)[ .\-]?)?"
+    r"(?<![\w.])(?!\d{4}-\d{2}-\d{2}[ T]\d{2}:)"
+    r"(?:(?:\+|00)\d{1,3}[ .\-]?)?(?:\(0\)[ .\-]?)?"
     r"(?:\d[ .\-]?){8,12}\d(?![\w])"
 )
 
@@ -88,9 +83,7 @@ _CIVILITY_NAME_RE = re.compile(
     r"\s+([A-ZÀ-Ÿ][\wÀ-ÿ'\-]+(?:\s+[A-ZÀ-Ÿ][\wÀ-ÿ'\-]+){0,2})"
 )
 # Séquence de 2+ mots capitalisés consécutifs (heuristique nom complet).
-_CAP_SEQUENCE_RE = re.compile(
-    r"\b[A-ZÀ-Ÿ][a-zà-ÿ'\-]+(?:\s+[A-ZÀ-Ÿ][a-zà-ÿ'\-]+)+\b"
-)
+_CAP_SEQUENCE_RE = re.compile(r"\b[A-ZÀ-Ÿ][a-zà-ÿ'\-]+(?:\s+[A-ZÀ-Ÿ][a-zà-ÿ'\-]+)+\b")
 
 # Token opaque tel qu'inséré dans le texte : [TYPE_N].
 _TOKEN_RE = re.compile(r"\[[^\[\]]{1,64}\]")
@@ -249,7 +242,9 @@ class PIIAnonymizer:
         if not mapping:
             return text
 
-        lookup = {_normalize_token_key(token): value for token, value in mapping.items()}
+        lookup = {
+            _normalize_token_key(token): value for token, value in mapping.items()
+        }
 
         def _restore(match: re.Match[str]) -> str:
             key = _normalize_token_key(match.group(0))
@@ -276,14 +271,18 @@ class PIIAnonymizer:
         return [
             match
             for match in matches
-            if not any(match.start < end and match.end > start for start, end in token_spans)
+            if not any(
+                match.start < end and match.end > start for start, end in token_spans
+            )
         ]
 
     def _detect_pii_regex(self, text: str) -> list[PIIMatch]:
         """Détecte les entités structurées par regex (fallback inclus)."""
         found: list[PIIMatch] = []
 
-        def _collect(pattern: re.Pattern[str], entity_type: str, group: int = 0) -> None:
+        def _collect(
+            pattern: re.Pattern[str], entity_type: str, group: int = 0
+        ) -> None:
             for m in pattern.finditer(text):
                 start, end = m.span(group)
                 value = m.group(group)
@@ -320,7 +319,9 @@ class PIIAnonymizer:
         try:
             doc = nlp(text)
         except Exception as exc:
-            logger.warning("Échec NER spaCy (%s) — entités linguistiques ignorées.", exc)
+            logger.warning(
+                "Échec NER spaCy (%s) — entités linguistiques ignorées.", exc
+            )
             return []
         for ent in doc.ents:
             entity_type = label_map.get(ent.label_)

@@ -69,22 +69,40 @@ def _dedupe(items: list[BriefingItem]) -> list[BriefingItem]:
 
 
 def _prio_rank(p: Priority) -> int:
-    return {"critique": 0, "aujourd_hui": 1, "surveiller": 2, "information": 3}.get(p, 9)
+    return {"critique": 0, "aujourd_hui": 1, "surveiller": 2, "information": 3}.get(
+        p, 9
+    )
 
 
-async def collect_briefing_sources() -> tuple[list[BriefingItem], list[dict[str, str]], dict[str, Any]]:
+async def collect_briefing_sources() -> tuple[
+    list[BriefingItem], list[dict[str, str]], dict[str, Any]
+]:
     """Collecte déterministe des sources — jamais un dump brut."""
     items: list[BriefingItem] = []
     unavailable: list[dict[str, str]] = []
     raw: dict[str, Any] = {}
 
     # Agenda
+    raw["calendar"] = []
+    raw["calendar_status"] = "unavailable"
     try:
         from integrations import calendar_client
 
-        events = []
-        if calendar_client and calendar_client.is_available():
-            events = await calendar_client.get_today_events() or []
+        if not calendar_client:
+            calendar_error = "calendar_unavailable"
+            unavailable.append({"source": "calendar", "reason": calendar_error})
+            raw["calendar_error"] = calendar_error
+            events = []
+        else:
+            calendar_result = await calendar_client.get_today_events_result()
+            if calendar_result.status == "ok":
+                events = list(calendar_result.events)
+                raw["calendar_status"] = "ok"
+            else:
+                calendar_error = calendar_result.error or "calendar_unavailable"
+                unavailable.append({"source": "calendar", "reason": calendar_error})
+                raw["calendar_error"] = calendar_error
+                events = []
         raw["calendar"] = events
         for i, ev in enumerate(events[:8]):
             items.append(
@@ -100,7 +118,9 @@ async def collect_briefing_sources() -> tuple[list[BriefingItem], list[dict[str,
                 )
             )
     except Exception as exc:
-        unavailable.append({"source": "calendar", "reason": str(exc)})
+        logger.error("[briefing] calendar fetch : %s", exc)
+        raw["calendar_error"] = "calendar_query_failed"
+        unavailable.append({"source": "calendar", "reason": "calendar_query_failed"})
 
     # Tâches
     try:
@@ -122,7 +142,13 @@ async def collect_briefing_sources() -> tuple[list[BriefingItem], list[dict[str,
                     priority=prio,  # type: ignore[arg-type]
                     source="tasks",
                     freshness="db",
-                    actions=[{"type": "complete_task", "label": "Terminer", "id": str(t.get("id"))}],
+                    actions=[
+                        {
+                            "type": "complete_task",
+                            "label": "Terminer",
+                            "id": str(t.get("id")),
+                        }
+                    ],
                     dedupe_key=f"task:{t.get('id')}",
                 )
             )
@@ -136,13 +162,17 @@ async def collect_briefing_sources() -> tuple[list[BriefingItem], list[dict[str,
         emails = get_recent_email_summaries(15)
         raw["emails"] = emails
         for e in emails or []:
-            if (e.get("priority") or "").lower() in ("high", "urgent") or e.get("action_needed"):
+            if (e.get("priority") or "").lower() in ("high", "urgent") or e.get(
+                "action_needed"
+            ):
                 items.append(
                     BriefingItem(
                         id=f"email-{e.get('id')}",
                         title=str(e.get("subject") or "(sans objet)"),
                         detail=f"De {e.get('sender')}: {e.get('summary') or ''}"[:240],
-                        priority="critique" if (e.get("priority") or "") == "urgent" else "aujourd_hui",
+                        priority="critique"
+                        if (e.get("priority") or "") == "urgent"
+                        else "aujourd_hui",
                         source="email",
                         freshness="email_summaries",
                         actions=[{"type": "open_email", "label": "Ouvrir"}],
@@ -178,7 +208,11 @@ async def collect_briefing_sources() -> tuple[list[BriefingItem], list[dict[str,
     try:
         from integrations import weather
 
-        w = await weather.get_weather(config.WEATHER_CITY) if hasattr(weather, "get_weather") else None
+        w = (
+            await weather.get_weather(config.WEATHER_CITY)
+            if hasattr(weather, "get_weather")
+            else None
+        )
         if w is None and hasattr(weather, "current"):
             w = await weather.current()
         raw["weather"] = w
@@ -211,13 +245,27 @@ async def collect_briefing_sources() -> tuple[list[BriefingItem], list[dict[str,
                         title=f"Cursor: {j.get('title')}",
                         detail=f"Statut {j.get('status')}"
                         + (f" — {j.get('pr_url')}" if j.get("pr_url") else ""),
-                        priority="aujourd_hui" if j.get("status") == "pr_opened" else "surveiller",
+                        priority="aujourd_hui"
+                        if j.get("status") == "pr_opened"
+                        else "surveiller",
                         source="cursor",
                         freshness="db",
                         actions=(
-                            [{"type": "open_pr", "label": "Ouvrir PR", "url": j["pr_url"]}]
+                            [
+                                {
+                                    "type": "open_pr",
+                                    "label": "Ouvrir PR",
+                                    "url": j["pr_url"],
+                                }
+                            ]
                             if j.get("pr_url")
-                            else [{"type": "open_job", "label": "Voir job", "id": j.get("job_id", "")}]
+                            else [
+                                {
+                                    "type": "open_job",
+                                    "label": "Voir job",
+                                    "id": j.get("job_id", ""),
+                                }
+                            ]
                         ),
                         dedupe_key=f"cursor:{j.get('job_id')}",
                     )
@@ -322,7 +370,8 @@ async def generate_structured_briefing(
         seen_keys = _load_items_snapshot()
         if seen_keys:
             items = [
-                i for i in items
+                i
+                for i in items
                 if (i.dedupe_key or f"{i.source}:{i.title.lower()}") not in seen_keys
             ]
 
@@ -335,14 +384,28 @@ async def generate_structured_briefing(
             continue
         bullet_lines.append(f"## {p.replace('_', ' ').title()}")
         for i in group:
-            bullet_lines.append(f"- [{i.source}] {i.title} — {i.detail} (fraîcheur: {i.freshness})")
+            bullet_lines.append(
+                f"- [{i.source}] {i.title} — {i.detail} (fraîcheur: {i.freshness})"
+            )
 
     if bullet_lines:
         structure = "\n".join(bullet_lines)
+    elif unavailable:
+        structure = "(certaines sources sont indisponibles)"
     elif kind == "delta":
         structure = "(rien de nouveau depuis ce matin)"
     else:
         structure = "(aucune donnée disponible)"
+
+    if unavailable:
+        unavailable_sources = sorted(
+            {str(entry.get("source") or "source inconnue") for entry in unavailable}
+        )
+        unavailable_lines = [
+            f"- [{source}] indisponible — ne pas conclure que cette source est vide."
+            for source in unavailable_sources
+        ]
+        structure += "\n\n## Sources indisponibles\n" + "\n".join(unavailable_lines)
 
     safe_structure = wrap_untrusted_data(
         "BRIEFING_SOURCES",
@@ -381,7 +444,9 @@ async def generate_structured_briefing(
                 max_tokens=1200,
                 temperature=0.4,
             )
-            full_text = finalize_assistant_display_text(result.get("content") or structure)
+            full_text = finalize_assistant_display_text(
+                result.get("content") or structure
+            )
         except Exception as exc:
             logger.error("[briefing] génération Main échouée : %s", exc)
             unavailable.append({"source": "deepseek_main", "reason": str(exc)})

@@ -22,6 +22,7 @@ from .core import (
     build_full_context,
     count_memory_stats,
     current_profile_id,
+    db_transaction,
     get_connection,
     get_db,
     get_usage_stats,
@@ -41,6 +42,13 @@ from .encryption import (
     replace_database_from_plaintext,
 )
 from .event_log import EventReplayWindow, get_event_log, get_event_replay_window
+from .knowledge import (
+    get_cached_calendar_events,
+    get_knowledge_observability,
+    get_recent_knowledge_references,
+    save_knowledge_references,
+    upsert_calendar_events,
+)
 
 
 from .conversations import (
