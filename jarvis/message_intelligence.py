@@ -49,11 +49,40 @@ async def analyze_recent_messages(
     import database
 
     raw_messages = database.get_messages_since(since_id, limit=batch_size)
+    return await analyze_message_batch(
+        raw_messages,
+        since_id=since_id,
+        source="jarvis_conversation",
+    )
+
+
+async def analyze_message_batch(
+    raw_messages: list[dict[str, Any]],
+    *,
+    since_id: int,
+    source: str,
+) -> dict[str, Any]:
+    """Analyse un lot déjà lu depuis sa source canonique.
+
+    ``since_id`` appartient explicitement à ``source``. Cette séparation évite
+    qu'un ROWID Apple soit interprété comme un identifiant de la table JARVIS
+    ``messages``.
+    """
     if not raw_messages:
-        return {"status": "no_new_messages"}
+        return {"status": "no_new_messages", "source": source}
+
+    def _label(message: dict[str, Any]) -> str:
+        if "role" in message:
+            return str(message.get("role") or "?")
+        if message.get("is_from_me"):
+            return "moi"
+        return str(message.get("handle") or "contact")
+
+    def _content(message: dict[str, Any]) -> str:
+        return str(message.get("content") or message.get("text") or "")
 
     raw_text = "\n".join(
-        f"{m.get('role', '?')}: {m.get('content', '')}" for m in raw_messages
+        f"{_label(message)}: {_content(message)}" for message in raw_messages
     )
 
     router = _ensure_components()
@@ -95,6 +124,8 @@ async def analyze_recent_messages(
     final_response = _anonymizer.deanonymize(deepseek_response, anon.mapping)
     anon.mapping.clear()
 
+    import database
+
     insight_id = database.save_message_insight(
         since_id=since_id,
         raw_response=final_response,
@@ -105,4 +136,5 @@ async def analyze_recent_messages(
         "insight_id": insight_id,
         "result": final_response,
         "backend": "deepseek_flash_anonymized",
+        "source": source,
     }

@@ -21,6 +21,7 @@ from agents.devagent.agentic_runtime import (
 from agents.display_text import strip_assistant_code_fences
 from jarvis.security.llm_data_boundary import (
     UNTRUSTED_DATA_SYSTEM_RULE,
+    sanitize_history_messages,
     wrap_untrusted_data,
 )
 
@@ -165,6 +166,29 @@ def _build_context_summary(results: list[dict]) -> str:
     return "\n".join(lines) if lines else "(aucune étape exécutée)"
 
 
+def _loop_selected_context(context: dict | None, routing: dict) -> dict:
+    """Transmet au runtime les références et tours déjà sélectionnés par JARVIS."""
+
+    ctx = context or {}
+    selected: dict = {"routing": routing}
+    if ctx.get("retrieval_context"):
+        selected["retrieval_context"] = ctx["retrieval_context"]
+    references = ctx.get("__retrieval_references")
+    if isinstance(references, list):
+        selected["retrieval_references"] = references[:8]
+    retrieval_meta = ctx.get("__retrieval")
+    if isinstance(retrieval_meta, dict):
+        selected["retrieval_status"] = retrieval_meta
+    history = sanitize_history_messages(
+        ctx.get("history"),
+        max_messages=6,
+        max_chars_per_message=1_000,
+    )
+    if history:
+        selected["conversation_history"] = history
+    return selected
+
+
 async def _emit(
     callback: LoopEventCallback | None,
     event_type: str,
@@ -204,9 +228,23 @@ async def run_autonomous_loop(
     if unlimited is None:
         unlimited = config.LOOP_UNLIMITED
 
-    max_steps = None if unlimited else _effective_limit(config.LOOP_MAX_STEPS, HARD_SAFETY_MAX_STEPS)
-    max_output = None if unlimited else (None if config.LOOP_MAX_OUTPUT_CHARS == 0 else config.LOOP_MAX_OUTPUT_CHARS)
-    max_llm = None if unlimited else (None if config.LOOP_MAX_LLM_CALLS == 0 else config.LOOP_MAX_LLM_CALLS)
+    max_steps = (
+        None
+        if unlimited
+        else _effective_limit(config.LOOP_MAX_STEPS, HARD_SAFETY_MAX_STEPS)
+    )
+    max_output = (
+        None
+        if unlimited
+        else (
+            None if config.LOOP_MAX_OUTPUT_CHARS == 0 else config.LOOP_MAX_OUTPUT_CHARS
+        )
+    )
+    max_llm = (
+        None
+        if unlimited
+        else (None if config.LOOP_MAX_LLM_CALLS == 0 else config.LOOP_MAX_LLM_CALLS)
+    )
 
     if max_steps is None and unlimited:
         max_steps = HARD_SAFETY_MAX_STEPS  # garde-fou technique uniquement
@@ -226,9 +264,19 @@ async def run_autonomous_loop(
 
     if not user_message or not str(user_message).strip():
         synthesis = "Tâche vide — précisez : /loop [description]"
-        await _emit(on_event, "loop_done", {"status": "failed", "steps": 0, "synthesis": synthesis})
+        await _emit(
+            on_event,
+            "loop_done",
+            {"status": "failed", "steps": 0, "synthesis": synthesis},
+        )
         return _finalize_loop(
-            [], workflow_id, "failed", 0, 0, 0.0, synthesis,
+            [],
+            workflow_id,
+            "failed",
+            0,
+            0,
+            0.0,
+            synthesis,
         )
 
     # ── Toute boucle explicite passe d'abord par le runtime générique.
@@ -241,12 +289,15 @@ async def run_autonomous_loop(
         logger.warning("[loop] routage cognitif indisponible: %s", exc)
 
     routing = intent.to_diagnostic() if intent is not None else {}
+    selected_context = _loop_selected_context(context, routing)
     is_technical = intent is not None and getattr(intent, "execution_type", None) in {
         "agentic",
         "cursor",
     }
     try:
-        request_digest = hashlib.sha256(str(user_message).encode("utf-8")).hexdigest()[:24]
+        request_digest = hashlib.sha256(str(user_message).encode("utf-8")).hexdigest()[
+            :24
+        ]
         idempotency_key = f"loop:{conversation_id or 'none'}:{request_digest}"
         if is_technical:
             await _emit(
@@ -260,7 +311,8 @@ async def run_autonomous_loop(
             delegation: dict = await delegate_engineering_task(
                 title=str(user_message)[:120],
                 user_request=str(user_message),
-                template_id=getattr(intent, "template_id", None) or "feature_implementation",
+                template_id=getattr(intent, "template_id", None)
+                or "feature_implementation",
                 workflow_id=str(workflow_id) if workflow_id is not None else None,
                 risk=str(routing.get("risk") or "medium"),
                 interaction_mode="loop",
@@ -268,7 +320,7 @@ async def run_autonomous_loop(
                 channel="loop",
                 task_id=str(workflow_id) if workflow_id is not None else None,
                 idempotency_key=idempotency_key,
-                selected_context={"routing": routing},
+                selected_context=selected_context,
                 acceptance_criteria=(),
                 required_tests=(select_test_command(Path(config.BASE_DIR), routing),),
                 auto_start=True,
@@ -301,7 +353,7 @@ async def run_autonomous_loop(
                 ),
                 idempotency_key=idempotency_key,
                 permissions=("tasks:read", "tasks:write"),
-                selected_context={"routing": routing},
+                selected_context=selected_context,
                 auto_start=True,
                 wait=False,
             )
@@ -379,12 +431,16 @@ async def run_autonomous_loop(
     if ctx.get("screen_context"):
         memory_hint += f"\n[ÉCRAN]\n{ctx['screen_context']}"
 
-    await _emit(on_event, "loop_started", {
-        "task": user_message,
-        "max_steps": max_steps,
-        "unlimited": unlimited,
-        "model": model,
-    })
+    await _emit(
+        on_event,
+        "loop_started",
+        {
+            "task": user_message,
+            "max_steps": max_steps,
+            "unlimited": unlimited,
+            "model": model,
+        },
+    )
 
     async def _llm_decide(prompt: str, *, use_main: bool = False) -> str:
         nonlocal total_llm_calls, total_cost
@@ -406,11 +462,15 @@ async def run_autonomous_loop(
         return resp.get("content") or ""
 
     # ── Planification initiale ──
-    safe_memory_hint = wrap_untrusted_data(
-        "AUTONOMOUS_CONTEXT",
-        memory_hint,
-        max_chars=3_000,
-    ) if memory_hint else ""
+    safe_memory_hint = (
+        wrap_untrusted_data(
+            "AUTONOMOUS_CONTEXT",
+            memory_hint,
+            max_chars=3_000,
+        )
+        if memory_hint
+        else ""
+    )
     initial_prompt = (
         f"TÂCHE À ACCOMPLIR AUTONOMEMENT :\n{user_message}\n"
         f"{safe_memory_hint}\n\n"
@@ -421,8 +481,13 @@ async def run_autonomous_loop(
         initial_response = await _llm_decide(initial_prompt, use_main=True)
     except AutonomousLoopError as exc:
         return _finalize_loop(
-            results, workflow_id, "failed", total_output_chars,
-            total_llm_calls, total_cost, str(exc),
+            results,
+            workflow_id,
+            "failed",
+            total_output_chars,
+            total_llm_calls,
+            total_cost,
+            str(exc),
         )
 
     action, description, done = _extract_action_from_llm(initial_response)
@@ -431,18 +496,36 @@ async def run_autonomous_loop(
 
     if done and not action:
         synthesis = description or "Tâche déjà accomplie ou aucune action requise."
-        await _emit(on_event, "loop_done", {"status": "completed", "steps": 0, "synthesis": synthesis})
+        await _emit(
+            on_event,
+            "loop_done",
+            {"status": "completed", "steps": 0, "synthesis": synthesis},
+        )
         return _finalize_loop(
-            results, workflow_id, "completed", total_output_chars,
-            total_llm_calls, total_cost, synthesis,
+            results,
+            workflow_id,
+            "completed",
+            total_output_chars,
+            total_llm_calls,
+            total_cost,
+            synthesis,
         )
 
     if not action:
         synthesis = description or "Impossible de planifier la première action."
-        await _emit(on_event, "loop_done", {"status": "failed", "steps": 0, "synthesis": synthesis})
+        await _emit(
+            on_event,
+            "loop_done",
+            {"status": "failed", "steps": 0, "synthesis": synthesis},
+        )
         return _finalize_loop(
-            results, workflow_id, "failed", total_output_chars,
-            total_llm_calls, total_cost, synthesis,
+            results,
+            workflow_id,
+            "failed",
+            total_output_chars,
+            total_llm_calls,
+            total_cost,
+            synthesis,
         )
 
     current_action = _prepare_action_for_loop(action)
@@ -456,12 +539,16 @@ async def run_autonomous_loop(
             current_action.get("type", "?"),
         )
 
-        await _emit(on_event, "loop_step", {
-            "step": step + 1,
-            "action_type": current_action.get("type"),
-            "preview": _summarize_result(current_action, 200),
-            "status": "running",
-        })
+        await _emit(
+            on_event,
+            "loop_step",
+            {
+                "step": step + 1,
+                "action_type": current_action.get("type"),
+                "preview": _summarize_result(current_action, 200),
+                "status": "running",
+            },
+        )
 
         try:
             result = await execute_action(current_action)
@@ -473,24 +560,32 @@ async def run_autonomous_loop(
         output_text = _summarize_result(result, 2000)
         total_output_chars += len(output_text)
 
-        await _emit(on_event, "loop_step", {
-            "step": step + 1,
-            "action_type": current_action.get("type"),
-            "ok": result.get("ok"),
-            "output_preview": output_text[:500],
-            "status": "done" if result.get("ok") else "failed",
-        })
+        await _emit(
+            on_event,
+            "loop_step",
+            {
+                "step": step + 1,
+                "action_type": current_action.get("type"),
+                "ok": result.get("ok"),
+                "output_preview": output_text[:500],
+                "status": "done" if result.get("ok") else "failed",
+            },
+        )
 
         if result.get("needs_confirmation"):
             synthesis = (
                 "La boucle est en pause : le plan shell doit être confirmé "
                 "explicitement avant toute exécution."
             )
-            await _emit(on_event, "loop_done", {
-                "status": "awaiting_confirmation",
-                "steps": step + 1,
-                "synthesis": synthesis,
-            })
+            await _emit(
+                on_event,
+                "loop_done",
+                {
+                    "status": "awaiting_confirmation",
+                    "steps": step + 1,
+                    "synthesis": synthesis,
+                },
+            )
             finalized = _finalize_loop(
                 results,
                 workflow_id,
@@ -508,7 +603,9 @@ async def run_autonomous_loop(
         else:
             consecutive_failures += 1
             action_key = json.dumps(current_action, sort_keys=True, default=str)
-            same_action_failures[action_key] = same_action_failures.get(action_key, 0) + 1
+            same_action_failures[action_key] = (
+                same_action_failures.get(action_key, 0) + 1
+            )
 
         if consecutive_failures >= config.LOOP_MAX_CONSECUTIVE_FAILURES:
             reason = (
@@ -519,10 +616,12 @@ async def run_autonomous_loop(
             break
 
         if max_output is not None and total_output_chars > max_output:
-            results.append({
-                "step": "truncated",
-                "reason": f"Limite de sortie ({max_output} chars)",
-            })
+            results.append(
+                {
+                    "step": "truncated",
+                    "reason": f"Limite de sortie ({max_output} chars)",
+                }
+            )
             break
 
         context_summary = _build_context_summary(results)
@@ -560,10 +659,12 @@ async def run_autonomous_loop(
         action_key = json.dumps(next_prepared, sort_keys=True, default=str)
         if same_action_failures.get(action_key, 0) >= 2:
             logger.warning("[loop] Action répétée trop souvent, arrêt")
-            results.append({
-                "step": "aborted",
-                "reason": "Action répétée après échecs multiples",
-            })
+            results.append(
+                {
+                    "step": "aborted",
+                    "reason": "Action répétée après échecs multiples",
+                }
+            )
             break
 
         current_action = next_prepared
@@ -598,25 +699,36 @@ async def run_autonomous_loop(
 
     step_count = len([r for r in results if isinstance(r.get("step"), int)])
     final_status = (
-        "failed" if consecutive_failures >= config.LOOP_MAX_CONSECUTIVE_FAILURES
-        else "partial" if any(
+        "failed"
+        if consecutive_failures >= config.LOOP_MAX_CONSECUTIVE_FAILURES
+        else "partial"
+        if any(
             isinstance(r.get("step"), int) and not r.get("result", {}).get("ok")
             for r in results
         )
         else "completed"
     )
 
-    await _emit(on_event, "loop_done", {
-        "status": final_status,
-        "steps": step_count,
-        "synthesis": synthesis,
-        "total_llm_calls": total_llm_calls,
-        "total_cost": round(total_cost, 6),
-    })
+    await _emit(
+        on_event,
+        "loop_done",
+        {
+            "status": final_status,
+            "steps": step_count,
+            "synthesis": synthesis,
+            "total_llm_calls": total_llm_calls,
+            "total_cost": round(total_cost, 6),
+        },
+    )
 
     return _finalize_loop(
-        results, workflow_id, final_status, total_output_chars,
-        total_llm_calls, total_cost, synthesis,
+        results,
+        workflow_id,
+        final_status,
+        total_output_chars,
+        total_llm_calls,
+        total_cost,
+        synthesis,
     )
 
 
@@ -638,9 +750,7 @@ def _finalize_loop(
             # Le schéma historique ne connaît que running/completed/failed/partial.
             # L'état public plus précis reste ``awaiting_confirmation``.
             persisted_status = (
-                "partial"
-                if final_status == "awaiting_confirmation"
-                else final_status
+                "partial" if final_status == "awaiting_confirmation" else final_status
             )
             update_agentic_workflow(
                 workflow_id,

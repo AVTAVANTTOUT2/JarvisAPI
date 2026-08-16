@@ -64,7 +64,9 @@ def test_unified_search_covers_every_frontend_category(tmp_db):
         "documents",
         "memory",
     }
-    conversation = next(result for result in results if result["type"] == "conversation")
+    conversation = next(
+        result for result in results if result["type"] == "conversation"
+    )
     document = next(result for result in results if result["type"] == "document")
     assert conversation["checkpoint_id"]
     assert conversation["url"] == "/chat?conversation=1"
@@ -79,6 +81,66 @@ def test_unified_search_escapes_sql_wildcards_and_clamps_limits(tmp_db):
     _seed()
     assert unified_search("%%") == []
     assert len(unified_search("alpha", limit=1)) == 1
+
+
+def test_unified_search_delegates_and_preserves_frontend_shape(
+    tmp_db, monkeypatch: pytest.MonkeyPatch
+):
+    import jarvis.retrieval as retrieval_module
+    from database import unified_search
+    from jarvis.retrieval import RetrievalHit, RetrievalResult
+
+    captured = []
+
+    def fake_search(request):
+        captured.append(request)
+        return RetrievalResult(
+            status="ok",
+            query=request.query,
+            hits=(
+                RetrievalHit(
+                    uid="task:7",
+                    source_type="task",
+                    source_id="7",
+                    title="alpha",
+                    excerpt="Préparer Atlas",
+                    score=16.0,
+                    metadata={
+                        "status": "todo",
+                        "priority": "high",
+                        "due_at": "2026-08-20",
+                    },
+                ),
+            ),
+            verified_sources=("task",),
+        )
+
+    monkeypatch.setattr(retrieval_module, "search_knowledge", fake_search)
+
+    assert unified_search("alpha", limit=50) == [
+        {
+            "type": "task",
+            "category": "tasks",
+            "id": 7,
+            "title": "alpha",
+            "subtitle": "Préparer Atlas",
+            "meta": "todo · high · 2026-08-20",
+            "url": "/tasks?task=7",
+            "score": 110,
+        }
+    ]
+    assert captured[0].query == "alpha"
+    assert set(captured[0].source_types) == {
+        "conversation",
+        "message",
+        "person",
+        "task",
+        "document",
+        "episode",
+        "fact",
+    }
+    assert captured[0].max_hits == 8
+    assert captured[0].interaction_mode == "legacy_unified_search"
 
 
 def test_api_search_returns_counts_for_the_frontend(tmp_db):

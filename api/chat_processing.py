@@ -29,6 +29,7 @@ from api.action_confirmations import (
     peek_pending_proposal,
     unmatched_confirmation_reply,
 )
+from api.chat_confirmation import resolve_pending_confirmation
 from api.chat_context import (
     _build_enriched_context,
 )
@@ -75,7 +76,9 @@ async def _process_message_internal(
     messages hors de la boucle asyncio, sans dupliquer le moteur de tour.
     """
     try:
-        confirmation_session_id = confirmation_session_id or f"internal:{conversation_id}"
+        confirmation_session_id = (
+            confirmation_session_id or f"internal:{conversation_id}"
+        )
         empty_response_cause: str | None = None
         jarvis_patterns = (
             "noté, monsieur",
@@ -83,8 +86,13 @@ async def _process_message_internal(
             "bien noté",
             "je m'en occupe",
         )
-        if isinstance(text, str) and any(text.strip().lower().startswith(p) for p in jarvis_patterns):
-            logger.warning("[anti-loop] Message ignoré (ressemble à une réponse JARVIS): %s", text[:80])
+        if isinstance(text, str) and any(
+            text.strip().lower().startswith(p) for p in jarvis_patterns
+        ):
+            logger.warning(
+                "[anti-loop] Message ignoré (ressemble à une réponse JARVIS): %s",
+                text[:80],
+            )
             return {
                 "text": "",
                 "emotion": "neutral",
@@ -109,6 +117,11 @@ async def _process_message_internal(
                     "model": config.LOOP_MODEL,
                     "cost": 0.0,
                 }
+            loop_context = await _build_enriched_context(
+                loop_task.strip(),
+                conversation_id,
+                interaction_mode="voice" if voice_mode else "chat",
+            )
             agentic = await maybe_start_agentic_run(
                 f"/agent {loop_task.strip()}",
                 conversation_id,
@@ -120,6 +133,7 @@ async def _process_message_internal(
                 device=agentic_device,
                 locale=agentic_locale,
                 timezone_name=agentic_timezone,
+                enriched_context=loop_context,
             )
             if agentic is not None:
                 return agentic
@@ -132,6 +146,7 @@ async def _process_message_internal(
                 conversation_id,
                 voice_mode=voice_mode,
                 confirmation_session_id=confirmation_session_id,
+                context=loop_context,
             )
 
         agentic = await maybe_start_agentic_run(
@@ -158,116 +173,35 @@ async def _process_message_internal(
         if legacy is not None:
             return legacy
 
-        # Confirmation « oui / vas-y » sur une action en attente (REST)
-        pending_action = peek_pending_proposal(
-            conversation_id=conversation_id,
-            session_id=confirmation_session_id,
-        )
-        confirmed_action = _pop_pending_action_if_confirmed(
+        confirmation = await resolve_pending_confirmation(
             original_text,
             conversation_id,
-            confirmation_session_id,
+            confirmation_session_id=confirmation_session_id,
+            voice_mode=voice_mode,
+            persist_assistant=persist_assistant,
+            trace=trace,
+            execute_action_fn=execute_action,
+            orchestrator_handle_fn=orchestrator.handle,
+            save_message_fn=save_message,
+            update_conversation_activity_fn=update_conversation_activity,
+            mark_voice_trace_fn=_mark_voice_trace,
+            actions_with_followup=ACTIONS_WITH_FOLLOWUP,
+            peek_pending_proposal_fn=peek_pending_proposal,
+            pop_pending_action_fn=_pop_pending_action_if_confirmed,
+            imperative_confirmation_fn=is_imperative_confirmation,
+            unmatched_confirmation_reply_fn=unmatched_confirmation_reply,
+            format_action_result_for_followup_fn=_format_action_result_for_followup,
+            finalize_assistant_display_text_fn=finalize_assistant_display_text,
         )
-        if confirmed_action is not None:
-            _mark_voice_trace(
-                trace,
-                "ACTION_STARTED",
-                action_type=confirmed_action.get("type") or "?",
-            )
-            try:
-                action_result = await execute_action(confirmed_action)
-            except Exception as e:
-                logger.exception("[internal-pending] execute_action : %s", e)
-                action_result = {"ok": False, "message": str(e)}
-            _mark_voice_trace(
-                trace,
-                "ACTION_COMPLETED",
-                action_type=confirmed_action.get("type") or "?",
-                ok=bool(action_result.get("ok")),
-            )
-
-            display_text = str(action_result.get("message", "Action exécutée."))
-            emotion = "neutral"
-            final_meta: dict = {
-                "agent": "orchestrator",
-                "model": None,
-                "tokens_in": 0,
-                "tokens_out": 0,
-                "cost": 0.0,
-            }
-
-            if (
-                action_result.get("ok")
-                and not action_result.get("needs_confirmation")
-                and confirmed_action.get("type") in ACTIONS_WITH_FOLLOWUP
-            ):
-                try:
-                    payload = _format_action_result_for_followup(confirmed_action, action_result)
-                    fu = await orchestrator.handle(
-                        (
-                            f"Résultat brut de l'action :\n\n{payload}\n\n"
-                            f"Question originale : {original_text}\n\n"
-                            "Résume ce résultat de façon claire et utile. Pas de bloc action."
-                        ),
-                        conversation_id=conversation_id,
-                        voice_mode=voice_mode,
-                    )
-                    emotion = fu.get("emotion", emotion)
-                    display_text = finalize_assistant_display_text(fu.get("response", display_text))
-                    final_meta = fu
-                except Exception as e:
-                    logger.exception("[internal-pending-followup] %s", e)
-
-            display_text = re.sub(
-                r'```(?:json|action|save)\s*\{[\s\S]*?\}\s*```', '', display_text
-            ).strip() or display_text
-
-            if persist_assistant:
-                try:
-                    save_message(
-                        conversation_id, "assistant", display_text,
-                        agent=final_meta.get("agent"),
-                        model=final_meta.get("model"),
-                        tokens_in=final_meta.get("tokens_in", 0),
-                        tokens_out=final_meta.get("tokens_out", 0),
-                        cost=final_meta.get("cost", 0.0),
-                    )
-                except Exception as e:
-                    logger.error("[internal-pending] save assistant : %s", e)
-
-            return {
-                "text": display_text,
-                "emotion": emotion,
-                "action": pending_action,
-                "action_result": action_result,
-                "agent": final_meta.get("agent"),
-                "model": final_meta.get("model"),
-                "cost": float(final_meta.get("cost") or 0.0),
-            }
-
-        if is_imperative_confirmation(original_text):
-            reply = unmatched_confirmation_reply()
-            if persist_assistant:
-                try:
-                    save_message(
-                        conversation_id,
-                        "assistant",
-                        reply["text"],
-                        agent="orchestrator",
-                        tokens_in=0,
-                        tokens_out=0,
-                        cost=0.0,
-                    )
-                except Exception as e:
-                    logger.error("[internal-confirmation] save assistant : %s", e)
-            try:
-                update_conversation_activity(conversation_id)
-            except Exception:
-                pass
-            return reply
+        if confirmation is not None:
+            return confirmation
 
         _mark_voice_trace(trace, "CONTEXT_BUILD_STARTED")
-        context = await _build_enriched_context(text, conversation_id)
+        context = await _build_enriched_context(
+            text,
+            conversation_id,
+            interaction_mode="voice" if voice_mode else "chat",
+        )
         _mark_voice_trace(trace, "CONTEXT_BUILD_COMPLETED")
 
         if voice_mode:
@@ -282,7 +216,10 @@ async def _process_message_internal(
         _mark_voice_trace(trace, "LLM_QUEUE_ENTERED", model=llm_model)
         _mark_voice_trace(trace, "LLM_REQUEST_STARTED", model=llm_model, pass_index=1)
         result = await orchestrator.handle(
-            text, conversation_id=conversation_id, voice_mode=voice_mode, context=context
+            text,
+            conversation_id=conversation_id,
+            voice_mode=voice_mode,
+            context=context,
         )
         _mark_voice_trace(
             trace,
@@ -324,12 +261,14 @@ async def _process_message_internal(
                     context=context,
                     initial_action=action,
                 )
-                results_text = "\n".join([
-                    f"Étape {r['step']}: "
-                    f"{str(r['result'].get('output', r['result'].get('message', '')))[:1000]}"
-                    for r in loop_result.get("results", [])
-                    if isinstance(r.get("step"), int)
-                ])
+                results_text = "\n".join(
+                    [
+                        f"Étape {r['step']}: "
+                        f"{str(r['result'].get('output', r['result'].get('message', '')))[:1000]}"
+                        for r in loop_result.get("results", [])
+                        if isinstance(r.get("step"), int)
+                    ]
+                )
                 action_result = {
                     "ok": loop_result.get("final_status") != "failed",
                     "output": results_text,
@@ -394,7 +333,9 @@ async def _process_message_internal(
                     and action_result.get("ok")
                 ):
                     try:
-                        payload = _format_action_result_for_followup(action, action_result)
+                        payload = _format_action_result_for_followup(
+                            action, action_result
+                        )
                         fu = await orchestrator.handle(
                             (
                                 f"Résultat brut de l'action :\n\n{payload}\n\n"
@@ -405,7 +346,9 @@ async def _process_message_internal(
                             voice_mode=voice_mode,
                         )
                         emotion = fu.get("emotion", emotion)
-                        display_text = finalize_assistant_display_text(fu.get("response", display_text))
+                        display_text = finalize_assistant_display_text(
+                            fu.get("response", display_text)
+                        )
                         final_meta = fu
                     except Exception as e:
                         logger.exception("[internal-followup] %s", e)
@@ -419,8 +362,10 @@ async def _process_message_internal(
 
         # Nettoyage final
         raw_display_text = str(display_text or "")
-        display_text = re.sub(r'```(?:json|action|save)\s*\{[\s\S]*?\}\s*```', '', display_text).strip()
-        display_text = re.sub(r'^\s*\[\w+\]\s*\n?', '', display_text).strip()
+        display_text = re.sub(
+            r"```(?:json|action|save)\s*\{[\s\S]*?\}\s*```", "", display_text
+        ).strip()
+        display_text = re.sub(r"^\s*\[\w+\]\s*\n?", "", display_text).strip()
         if not display_text:
             # Distinguer un budget épuisé d'un modèle muet ou d'un tag émotion
             # seul, sans prétendre que la demande utilisateur a été comprise.
@@ -428,18 +373,19 @@ async def _process_message_internal(
             max_tokens = int(final_meta.get("max_tokens") or 0)
             reasoning_tokens = int(final_meta.get("reasoning_tokens") or 0)
             stop_reason = str(final_meta.get("stop_reason") or "")
-            budget_exhausted = (
-                not raw_display_text.strip()
-                and (
-                    stop_reason == "length"
-                    or (max_tokens > 0 and tokens_out >= max_tokens)
-                    or (max_tokens > 0 and reasoning_tokens >= max_tokens)
-                )
+            budget_exhausted = not raw_display_text.strip() and (
+                stop_reason == "length"
+                or (max_tokens > 0 and tokens_out >= max_tokens)
+                or (max_tokens > 0 and reasoning_tokens >= max_tokens)
             )
             if budget_exhausted:
                 cause = "budget_epuise_avant_reponse"
             else:
-                cause = "aucun_contenu" if not raw_display_text.strip() else "tag_emotion_seul"
+                cause = (
+                    "aucun_contenu"
+                    if not raw_display_text.strip()
+                    else "tag_emotion_seul"
+                )
             logger.warning(
                 "[internal] Reponse vide (%s) — agent=%s tokens_out=%d "
                 "reasoning_tokens=%d max_tokens=%d stop_reason=%s raw_chars=%d : "
@@ -458,7 +404,9 @@ async def _process_message_internal(
         if persist_assistant:
             try:
                 save_message(
-                    conversation_id, "assistant", display_text,
+                    conversation_id,
+                    "assistant",
+                    display_text,
                     agent=final_meta.get("agent"),
                     model=final_meta.get("model"),
                     tokens_in=final_meta.get("tokens_in", 0),
@@ -473,7 +421,9 @@ async def _process_message_internal(
         except Exception:
             pass
 
-        schedule_conversation_title(conversation_id, title_factory=_maybe_title_conversation)
+        schedule_conversation_title(
+            conversation_id, title_factory=_maybe_title_conversation
+        )
 
         return {
             "text": display_text,

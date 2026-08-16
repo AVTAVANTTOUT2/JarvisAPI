@@ -11,6 +11,7 @@ import asyncio
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 from .apple_data import (
     AppleDataService,
@@ -119,7 +120,9 @@ class IMessageReader:
         try:
             return self._apple_data.get_conversation_with(name_or_handle, limit=limit)
         except Exception as exc:
-            logger.error("[iMsgReader] get_conversation_with(%s) : %s", name_or_handle, exc)
+            logger.error(
+                "[iMsgReader] get_conversation_with(%s) : %s", name_or_handle, exc
+            )
             return []
 
     def get_conversation_for_period(
@@ -162,7 +165,11 @@ class IMessageReader:
         return count
 
     def scan_new_messages_with_last_id(self) -> tuple[int, int]:
-        """Retourne ``(nombre de nouveaux messages, dernier ROWID)``."""
+        """Retourne ``(nombre de nouveaux messages, dernier ROWID)``.
+
+        Compat historique : avance le curseur immédiatement. Le chemin H24
+        (`periodic_scan`) utilise ``peek_new_messages`` + avance après succès.
+        """
         if not self.is_available():
             return 0, 0
         try:
@@ -177,24 +184,94 @@ class IMessageReader:
             logger.warning("[imessage_reader] scan_new_messages_with_last_id : %s", exc)
             return 0, 0
 
+    def peek_new_messages(self, *, limit: int = 100) -> tuple[list[dict], int]:
+        """Lit les nouveaux messages SANS avancer le curseur.
+
+        Retourne ``(messages, since_rowid)``. Le curseur n'avance qu'après un
+        traitement réussi — sinon les messages restent à retravailler.
+        """
+        if not self.is_available():
+            return [], 0
+        try:
+            current_max = self._apple_data.get_max_rowid()
+            last_max = initialize_consumer_cursor(self.cursor_name, current_max)
+            if current_max <= last_max:
+                return [], last_max
+            messages = self._apple_data.get_new_messages(last_max, limit=limit)
+            return list(messages), last_max
+        except Exception as exc:
+            logger.warning("[imessage_reader] peek_new_messages : %s", exc)
+            return [], 0
+
+    def sync_knowledge_mirror(self) -> dict[str, Any]:
+        """Alimente ``imessage_messages`` (source de vérité du retrieval)."""
+        try:
+            from integrations.imessage_import import IMessageImporter
+
+            importer = IMessageImporter()
+            if not importer.is_available():
+                return {"status": "unavailable"}
+            result = importer.sync_incremental()
+            if result.errors == ["sync_already_running"]:
+                return {"status": "busy"}
+            if result.errors:
+                return {
+                    "status": "error",
+                    "imported": result.total_messages,
+                    "errors": list(result.errors)[:5],
+                }
+            return {
+                "status": "ok",
+                "imported": int(result.total_messages or 0),
+                "skipped": int(result.total_skipped or 0),
+            }
+        except Exception as exc:
+            logger.warning("[imessage_reader] sync_knowledge_mirror : %s", exc)
+            return {"status": "error", "error": type(exc).__name__}
+
     async def periodic_scan(self, interval: int = 300) -> None:
-        """Boucle périodique de sourcing iMessage en lecture seule."""
-        logger.info("[imessage_reader] Scan périodique démarré (interval=%ds)", interval)
+        """Boucle H24 : miroir connaissance + intelligence (curseur après succès)."""
+        logger.info(
+            "[imessage_reader] Scan périodique démarré (interval=%ds)", interval
+        )
         while True:
             try:
                 if self.is_available():
-                    count, last_id = self.scan_new_messages_with_last_id()
-                    if count:
+                    sync_stats = await asyncio.to_thread(self.sync_knowledge_mirror)
+                    if sync_stats.get("status") == "ok" and sync_stats.get("imported"):
                         logger.info(
-                            "[imessage_reader] %d nouveaux messages sourcés "
-                            "(jusqu'à rowid=%d)",
-                            count,
-                            last_id,
+                            "[imessage_reader] Miroir iMessage +%s msg "
+                            "(skip=%s)",
+                            sync_stats.get("imported"),
+                            sync_stats.get("skipped"),
                         )
-                        asyncio.create_task(
-                            _trigger_message_intelligence(since_id=last_id - count),
-                            name="message_intelligence",
+                    elif sync_stats.get("status") not in {"ok", "busy", "unavailable"}:
+                        logger.warning(
+                            "[imessage_reader] Sync miroir : %s", sync_stats
                         )
+
+                    messages, since_rowid = await asyncio.to_thread(
+                        self.peek_new_messages, limit=100
+                    )
+                    if messages:
+                        logger.info(
+                            "[imessage_reader] %d nouveaux messages à analyser "
+                            "(depuis rowid=%d)",
+                            len(messages),
+                            since_rowid,
+                        )
+                        ok = await _trigger_message_intelligence(
+                            since_rowid=since_rowid,
+                            messages=messages,
+                        )
+                        if ok:
+                            max_rowid = max(int(m["rowid"]) for m in messages)
+                            advance_consumer_cursor(self.cursor_name, max_rowid)
+                        else:
+                            logger.warning(
+                                "[imessage_reader] Intelligence échouée — "
+                                "curseur non avancé (retry prochain cycle)"
+                            )
             except Exception as exc:
                 logger.error(
                     "[imessage_reader] ÉCHEC scan — sourcing pourrait être bloqué : %s",
@@ -204,19 +281,38 @@ class IMessageReader:
             await asyncio.sleep(interval)
 
 
-async def _trigger_message_intelligence(since_id: int) -> None:
-    """Déclenche l'analyse asynchrone après un scan réussi."""
-    try:
-        from jarvis.message_intelligence import analyze_recent_messages
+async def _trigger_message_intelligence(
+    since_rowid: int,
+    messages: list[dict] | None = None,
+) -> bool:
+    """Analyse le lot Apple sans mélanger ses ROWID avec ``messages.id``.
 
-        result = await analyze_recent_messages(since_id=since_id)
-        if result.get("status") != "ok":
+    Retourne True seulement si l'analyse a abouti — le curseur peut alors avancer.
+    """
+    try:
+        from jarvis.message_intelligence import analyze_message_batch
+
+        batch = (
+            list(messages)
+            if messages is not None
+            else apple_data.get_new_messages(since_rowid, limit=100)
+        )
+        result = await analyze_message_batch(
+            batch,
+            since_id=since_rowid,
+            source="imessage",
+        )
+        status = result.get("status")
+        if status != "ok":
             logger.debug(
                 "[imessage_reader] message_intelligence terminé : %s",
-                result.get("status"),
+                status,
             )
+            return False
+        return True
     except Exception as exc:
         logger.warning("[imessage_reader] message_intelligence erreur : %s", exc)
+        return False
 
 
 imessage_reader = IMessageReader()

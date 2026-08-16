@@ -17,6 +17,96 @@
         "timeout_s": 60
       },
       {
+        "name": "project_state.read",
+        "scope": "project_state:read",
+        "description": "Read projects and agentic execution state from the active JARVIS profile",
+        "risk_level": "low",
+        "requires_approval": false,
+        "reversible": true,
+        "timeout_s": 30
+      },
+      {
+        "name": "communications.read",
+        "scope": "communications:read",
+        "description": "Read emails, iMessages, and notifications from the active JARVIS profile",
+        "risk_level": "low",
+        "requires_approval": false,
+        "reversible": true,
+        "timeout_s": 30
+      },
+      {
+        "name": "calendar.read",
+        "scope": "calendar:read",
+        "description": "Read calendar entries from the active JARVIS profile",
+        "risk_level": "low",
+        "requires_approval": false,
+        "reversible": true,
+        "timeout_s": 30
+      },
+      {
+        "name": "conversations.read",
+        "scope": "conversations:read",
+        "description": "Read conversations and messages from the active JARVIS profile",
+        "risk_level": "low",
+        "requires_approval": false,
+        "reversible": true,
+        "timeout_s": 30
+      },
+      {
+        "name": "memory.read",
+        "scope": "memory:read",
+        "description": "Read structured personal memory from the active JARVIS profile",
+        "risk_level": "low",
+        "requires_approval": false,
+        "reversible": true,
+        "timeout_s": 30
+      },
+      {
+        "name": "contacts.read",
+        "scope": "contacts:read",
+        "description": "Read people and relationships from the active JARVIS profile",
+        "risk_level": "low",
+        "requires_approval": false,
+        "reversible": true,
+        "timeout_s": 30
+      },
+      {
+        "name": "media.read",
+        "scope": "media:read",
+        "description": "Read recordings and transcripts from the active JARVIS profile",
+        "risk_level": "low",
+        "requires_approval": false,
+        "reversible": true,
+        "timeout_s": 30
+      },
+      {
+        "name": "documents.read",
+        "scope": "documents:read",
+        "description": "Read personal documents from the active JARVIS profile",
+        "risk_level": "low",
+        "requires_approval": false,
+        "reversible": true,
+        "timeout_s": 30
+      },
+      {
+        "name": "documentation.read",
+        "scope": "documentation:read",
+        "description": "Read documentation available to the development runtime",
+        "risk_level": "low",
+        "requires_approval": false,
+        "reversible": true,
+        "timeout_s": 30
+      },
+      {
+        "name": "research.search",
+        "scope": "research:search",
+        "description": "Search external research without implicit personal-data access",
+        "risk_level": "low",
+        "requires_approval": false,
+        "reversible": true,
+        "timeout_s": 60
+      },
+      {
         "name": "workspace.edit",
         "scope": "workspace:write",
         "description": "Apply reversible edits confined to the selected workspace",

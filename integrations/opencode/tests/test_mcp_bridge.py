@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 import json
 import os
 import socket
@@ -20,7 +21,10 @@ from integrations.opencode.mcp import idempotency as idempotency_module
 from integrations.opencode.mcp import server as server_module
 from integrations.opencode.mcp.capabilities import CapabilityEnvelope, CapabilityError
 from integrations.opencode.mcp.idempotency import IdempotencyJournal
-from integrations.opencode.mcp.registry import ToolRegistry
+from integrations.opencode.mcp.registry import (
+    KNOWLEDGE_SOURCE_TYPES_BY_SCOPE,
+    ToolRegistry,
+)
 from integrations.opencode.mcp.server import BrokerEndpoint, MCPBroker, MCPServer
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -383,6 +387,317 @@ def test_tool_schema_and_arguments_never_delegate_authority_to_model(
             "jarvis_tasks_list",
             {"status": "todo", "unexpected": True, "_jarvis": trusted},
         )
+
+
+def test_knowledge_tools_scope_profile_and_uid_hydration_are_fail_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import database
+    import jarvis.retrieval as retrieval_module
+
+    capability = _capability(tmp_path, scopes=("communications:read",))
+    registry = ToolRegistry(
+        capability, journal=IdempotencyJournal(tmp_path / "knowledge-journal.json")
+    )
+    tools = {tool["name"]: tool for tool in registry.list_tools()}
+    assert {"jarvis_knowledge_search", "jarvis_knowledge_get"}.issubset(tools)
+    for name in ("jarvis_knowledge_search", "jarvis_knowledge_get"):
+        schema = tools[name]
+        assert "profile_id" not in schema["inputSchema"]["properties"]
+        assert schema["inputSchema"]["additionalProperties"] is False
+        assert schema["annotations"]["readOnlyHint"] is True
+
+    trusted = {
+        "run_id": capability.run_id,
+        "tool_call_id": "mcp:knowledge",
+        "origin": "agent_runtime",
+        "bypass_agentic_reclassification": True,
+    }
+    with pytest.raises(CapabilityError, match="knowledge_uid_not_authorized"):
+        registry.call(
+            "jarvis_knowledge_get",
+            {"uid": "email:1", "_jarvis": trusted},
+        )
+    with pytest.raises(CapabilityError, match="knowledge_source_scope_denied"):
+        registry.call(
+            "jarvis_knowledge_search",
+            {
+                "query": "demain",
+                "source_types": ["calendar"],
+                "_jarvis": trusted,
+            },
+        )
+    with pytest.raises(ValueError, match="tool_arguments_invalid"):
+        registry.call(
+            "jarvis_knowledge_search",
+            {
+                "query": "Grégoire",
+                "profile_id": "other",
+                "_jarvis": trusted,
+            },
+        )
+
+    active_profiles: list[str] = []
+    captured_requests: list[Any] = []
+
+    @contextmanager
+    def recording_profile(profile_id: str):
+        active_profiles.append(profile_id)
+        try:
+            yield
+        finally:
+            active_profiles.pop()
+
+    class FakeRequest:
+        def __init__(self, **kwargs: Any) -> None:
+            vars(self).update(kwargs)
+
+    class FakeHit:
+        def __init__(
+            self,
+            uid: str,
+            source_type: str,
+            content: str,
+            *,
+            cloud_policy: str = "redact",
+        ) -> None:
+            self.uid = uid
+            self.source_type = source_type
+            self.content = content
+            self.cloud_policy = cloud_policy
+
+        def as_dict(self) -> dict[str, Any]:
+            return {
+                "uid": self.uid,
+                "source_type": self.source_type,
+                "source_id": self.uid,
+                "title": "Résultat",
+                "excerpt": self.content[:40],
+                "content": self.content,
+                "metadata": {"private": self.content},
+                "cloud_policy": self.cloud_policy,
+            }
+
+    class FakeResult:
+        def __init__(self, hits: tuple[FakeHit, ...]) -> None:
+            self.hits = hits
+
+        def as_dict(self) -> dict[str, Any]:
+            return {
+                "status": "ok",
+                "query": "hostile replacement",
+                "hits": [hit.as_dict() for hit in self.hits],
+                "candidate_count": 99,
+                "verified_sources": ["email", "calendar"],
+                "unavailable_sources": ["imessage", "calendar"],
+                "index_freshness_at": None,
+                "diagnostics": {},
+            }
+
+    sensitive = (
+        "Bearer sk-test-secret-123456 gregoire@example.test "
+        "+33612345678 /Users/alice/private "
+    )
+
+    def fake_search(request: Any) -> FakeResult:
+        assert active_profiles == [capability.profile_id]
+        captured_requests.append(request)
+        return FakeResult(
+            (
+                FakeHit("email:1", "email", sensitive + "Message complet"),
+                FakeHit(
+                    "email:local",
+                    "email",
+                    "Secret strictement local",
+                    cloud_policy="local_only",
+                ),
+                FakeHit("calendar:forged", "calendar", "Source hors scope"),
+            )
+        )
+
+    def fake_get(uid: str, *, max_chars: int = 12_000) -> FakeHit:
+        assert active_profiles == [capability.profile_id]
+        assert uid == "email:1"
+        assert max_chars == 12_000
+        return FakeHit(uid, "email", sensitive + ("M" * 5_000))
+
+    monkeypatch.setattr(database, "use_profile", recording_profile)
+    monkeypatch.setattr(
+        retrieval_module, "RetrievalRequest", FakeRequest, raising=False
+    )
+    monkeypatch.setattr(
+        retrieval_module, "search_knowledge", fake_search, raising=False
+    )
+    monkeypatch.setattr(retrieval_module, "get_knowledge_item", fake_get, raising=False)
+
+    search_response = registry.call(
+        "jarvis_knowledge_search",
+        {"query": "mail de Grégoire", "_jarvis": trusted},
+    )
+    assert set(captured_requests[0].source_types) == {
+        "email",
+        "imessage",
+        "notification",
+    }
+    assert captured_requests[0].interaction_mode == "agentic"
+    assert search_response["data"]["query"] == "mail de Grégoire"
+    assert search_response["data"]["candidate_count"] == 2
+    assert [hit["uid"] for hit in search_response["data"]["hits"]] == [
+        "email:1",
+        "email:local",
+    ]
+    assert "content" not in search_response["data"]["hits"][0]
+    search_serialized = json.dumps(search_response["data"], ensure_ascii=False)
+    assert "sk-test-secret-123456" not in search_serialized
+    assert "gregoire@example.test" not in search_serialized
+    assert "+33612345678" not in search_serialized
+    assert "/Users/alice/private" not in search_serialized
+    assert search_response["data"]["verified_sources"] == ["email"]
+    assert search_response["data"]["hits"][1] == {
+        "uid": "email:local",
+        "source_type": "email",
+        "source_id": "email:local",
+        "local_only": True,
+    }
+    with pytest.raises(CapabilityError, match="knowledge_local_only"):
+        registry.call(
+            "jarvis_knowledge_get",
+            {
+                "uid": "email:local",
+                "_jarvis": {**trusted, "tool_call_id": "mcp:get-local"},
+            },
+        )
+
+    get_response = registry.call(
+        "jarvis_knowledge_get",
+        {"uid": "email:1", "_jarvis": {**trusted, "tool_call_id": "mcp:get"}},
+    )
+    get_serialized = json.dumps(get_response["data"], ensure_ascii=False)
+    assert "sk-test-secret-123456" not in get_serialized
+    assert "gregoire@example.test" not in get_serialized
+    assert "+33612345678" not in get_serialized
+    assert "/Users/alice/private" not in get_serialized
+    assert "[LOCAL_HOME]" in get_serialized
+
+    monkeypatch.setattr(
+        retrieval_module,
+        "get_knowledge_item",
+        lambda _uid, *, max_chars=12_000: FakeHit(
+            "email:1",
+            "email",
+            "Policy changed after search",
+            cloud_policy="local_only",
+        ),
+    )
+    with pytest.raises(CapabilityError, match="knowledge_local_only"):
+        registry.call(
+            "jarvis_knowledge_get",
+            {
+                "uid": "email:1",
+                "_jarvis": {**trusted, "tool_call_id": "mcp:get-policy-change"},
+            },
+        )
+
+    second_registry = ToolRegistry(
+        capability,
+        journal=IdempotencyJournal(tmp_path / "second-knowledge-journal.json"),
+    )
+    with pytest.raises(CapabilityError, match="knowledge_uid_not_authorized"):
+        second_registry.call(
+            "jarvis_knowledge_get",
+            {"uid": "email:1", "_jarvis": trusted},
+        )
+
+
+def test_research_scope_alone_exposes_no_personal_knowledge_tool(
+    tmp_path: Path,
+) -> None:
+    registry = ToolRegistry(
+        _capability(tmp_path, scopes=("research:search",)),
+        journal=IdempotencyJournal(tmp_path / "research-journal.json"),
+    )
+
+    names = {tool["name"] for tool in registry.list_tools()}
+    assert "jarvis_knowledge_search" not in names
+    assert "jarvis_knowledge_get" not in names
+    with pytest.raises(CapabilityError, match="capability_scope_denied"):
+        registry.call(
+            "jarvis_knowledge_search",
+            {
+                "query": "private data",
+                "_jarvis": {
+                    "run_id": registry.capability.run_id,
+                    "tool_call_id": "mcp:research-only",
+                    "origin": "agent_runtime",
+                    "bypass_agentic_reclassification": True,
+                },
+            },
+        )
+
+
+def test_knowledge_source_types_are_partitioned_by_exact_read_scope() -> None:
+    from jarvis.retrieval.models import CANONICAL_SOURCE_TYPES
+
+    project_sources = {
+        "project",
+        "agent_run",
+        "agent_step",
+        "agent_approval",
+        "agent_artifact",
+        "agentic_workflow",
+        "cursor_job",
+        "scheduler_job",
+        "work_session",
+    }
+    expected = {
+        "communications:read": {"email", "imessage", "notification"},
+        "calendar:read": {"calendar"},
+        "conversations:read": {"conversation", "message"},
+        "memory:read": {
+            "episode",
+            "note",
+            "journal",
+            "fact",
+            "life_context",
+            "pattern",
+            "insight",
+            "briefing",
+            "commitment",
+            "location",
+            "wellbeing",
+            "activity",
+        },
+        "contacts:read": {
+            "person",
+            "people_event",
+            "relationship",
+            "relationship_event",
+        },
+        "media:read": {"recording", "conversation_turn"},
+        "documents:read": {"school_document", "conversation_document"},
+        "documentation:read": {"school_document", "conversation_document"},
+        "tasks:read": {
+            "task",
+            "control_task",
+            "control_plan",
+            "control_comment",
+            "control_report",
+            "control_activity",
+        },
+        "project_state:read": project_sources,
+        "workspace:read": project_sources,
+    }
+    assert {
+        scope: set(source_types)
+        for scope, source_types in KNOWLEDGE_SOURCE_TYPES_BY_SCOPE.items()
+    } == expected
+    assert "research:search" not in KNOWLEDGE_SOURCE_TYPES_BY_SCOPE
+    scoped_source_types = {
+        source_type
+        for source_types in KNOWLEDGE_SOURCE_TYPES_BY_SCOPE.values()
+        for source_type in source_types
+    }
+    assert scoped_source_types.issubset(CANONICAL_SOURCE_TYPES)
 
 
 def test_tasks_write_never_mutates_without_explicit_jarvis_approval(
@@ -778,6 +1093,8 @@ def test_broker_exposes_only_exact_opaque_capability_and_rejects_wrong_bearer(
             {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}},
         )
         assert [tool["name"] for tool in response["result"]["tools"]] == [
+            "jarvis_knowledge_search",
+            "jarvis_knowledge_get",
             "jarvis_tasks_list",
             "jarvis_tasks_create",
         ]
@@ -975,6 +1292,8 @@ def test_stdio_proxy_relays_without_receiving_capability_fields(tmp_path: Path) 
     response = json.loads(stdout)
     assert response["id"] == "list-1"
     assert [tool["name"] for tool in response["result"]["tools"]] == [
+        "jarvis_knowledge_search",
+        "jarvis_knowledge_get",
         "jarvis_tasks_list",
         "jarvis_tasks_create",
     ]

@@ -159,3 +159,24 @@ def test_restore_focus_noop_if_user_was_already_in_calendar():
     with patch("integrations.calendar_api.run_applescript") as mock_run:
         client._restore_focus_if_calendar_stole("Calendar")
         mock_run.assert_not_called()
+
+
+def test_calendar_event_fallback_ids_do_not_collide_across_calendars():
+    from integrations.calendar_api import AppleCalendarClient
+
+    raw = """
+---EVENT---
+SUMMARY:Présentation stratégique Alpha
+START:Saturday, August 15, 2026 at 10:00:00 AM
+END:Saturday, August 15, 2026 at 11:00:00 AM
+CALENDAR:Travail
+---EVENT---
+SUMMARY:Présentation stratégique Beta
+START:Saturday, August 15, 2026 at 10:00:00 AM
+END:Saturday, August 15, 2026 at 11:00:00 AM
+CALENDAR:Personnel
+"""
+    events = AppleCalendarClient()._parse_events_output_full(raw)
+
+    assert len(events) == 2
+    assert events[0]["id"] != events[1]["id"]

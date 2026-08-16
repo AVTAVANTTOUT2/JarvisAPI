@@ -22,7 +22,13 @@ from agents.journal import journal_agent
 from agents.memory import memory_agent
 from agents.productivity import productivity_agent
 from agents.school import school_agent
-from database import get_active_device, init_db, register_local_device, set_active_device
+from api.lifespan_helpers import connect_tv_adb
+from database import (
+    get_active_device,
+    init_db,
+    register_local_device,
+    set_active_device,
+)
 from integrations import imessage_bridge
 from integrations.apple_data import apple_data
 from jarvis.event_bus import event_bus
@@ -68,7 +74,9 @@ async def _auto_pull_ollama(model: str) -> None:
             if resp.status_code == 200:
                 logger.info("[startup] Ollama : %s pulle avec succes", model)
             else:
-                logger.warning("[startup] Ollama pull %s : HTTP %s", model, resp.status_code)
+                logger.warning(
+                    "[startup] Ollama pull %s : HTTP %s", model, resp.status_code
+                )
     except Exception as e:
         logger.warning("[startup] Ollama pull erreur : %s", e)
 
@@ -90,6 +98,23 @@ async def lifespan(app: FastAPI):
     run_startup_migrations()
     event_bus.bind_loop(asyncio.get_running_loop())
 
+    knowledge_worker_stop = asyncio.Event()
+    knowledge_worker_task = None
+    if config.KNOWLEDGE_WORKER_ENABLED:
+        try:
+            from jarvis.retrieval.worker import run_knowledge_worker
+
+            knowledge_worker_task = asyncio.create_task(
+                run_knowledge_worker(knowledge_worker_stop),
+                name="knowledge_retrieval_worker",
+            )
+            logger.info("[startup] worker de connaissance lancé en arrière-plan")
+        except Exception as exc:
+            logger.warning(
+                "[startup] worker de connaissance indisponible : %s",
+                type(exc).__name__,
+            )
+
     # Cache Contacts.app (résolution numéro / email → nom affiché)
     # build_cache() est synchrone et peut bloquer >20s : lancé en background
     # task pour ne pas retarder le démarrage FastAPI.
@@ -100,7 +125,9 @@ async def lifespan(app: FastAPI):
             if contacts_reader.is_available():
                 loop = asyncio.get_running_loop()
                 await loop.run_in_executor(None, contacts_reader.build_cache)
-                logger.info("[contacts] Cache : %d entrées", len(contacts_reader._cache))
+                logger.info(
+                    "[contacts] Cache : %d entrées", len(contacts_reader._cache)
+                )
                 for handle, cn in list(contacts_reader._cache.items())[:5]:
                     logger.info("[contacts]   %s → %s", handle, cn)
         except Exception as e:
@@ -117,7 +144,10 @@ async def lifespan(app: FastAPI):
                 _health.get("message_count", 0),
             )
         elif _health.get("exists"):
-            logger.error("[imessage] chat.db illisible : %s", _health.get("error", "erreur inconnue"))
+            logger.error(
+                "[imessage] chat.db illisible : %s",
+                _health.get("error", "erreur inconnue"),
+            )
         else:
             logger.warning("[imessage] chat.db absent à %s", apple_data.db_path)
     except Exception as _e:
@@ -157,10 +187,16 @@ async def lifespan(app: FastAPI):
     if config.IMESSAGE_DAEMON_ENABLED:
         try:
             import signal as _sig
+
             daemon_script = str(BASE_DIR / "scripts" / "imessage_daemon.py")
             if Path(daemon_script).exists():
                 _imessage_daemon_process = subprocess.Popen(
-                    [sys.executable, daemon_script, "--port", str(config.IMESSAGE_DAEMON_PORT)],
+                    [
+                        sys.executable,
+                        daemon_script,
+                        "--port",
+                        str(config.IMESSAGE_DAEMON_PORT),
+                    ],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                     preexec_fn=lambda: _sig.signal(_sig.SIGINT, _sig.SIG_IGN),
@@ -177,6 +213,7 @@ async def lifespan(app: FastAPI):
     if config.IMESSAGE_DAEMON_ENABLED:
         try:
             from integrations.imessage_daemon_client import daemon_client
+
             health = daemon_client.health()
             if health.ok and health.data.get("ok"):
                 logger.info(
@@ -194,7 +231,6 @@ async def lifespan(app: FastAPI):
     # ── Helper : scan initial de l'analyse relationnelle ──
     async def _initial_relationship_scan(analyzer, reader) -> None:
         try:
-
             logger.info("[analyzer] Lancement du scan initial iMessage…")
             stats = await analyzer.run_initial_scan()
             logger.info("[analyzer] Scan initial terminé : %s", stats)
@@ -229,13 +265,9 @@ async def lifespan(app: FastAPI):
                     "(Full Disk Access manquant ?)"
                 )
         else:
-            logger.info(
-                "iMessage sourcing désactivé (IMESSAGE_SOURCING_ENABLED=false)"
-            )
+            logger.info("iMessage sourcing désactivé (IMESSAGE_SOURCING_ENABLED=false)")
     except ImportError:
-        logger.warning(
-            "[startup] modules iMessage reader / analyzer non importables"
-        )
+        logger.warning("[startup] modules iMessage reader / analyzer non importables")
     except Exception as e:
         logger.warning("[startup] iMessage sourcing erreur : %s", e)
 
@@ -289,6 +321,7 @@ async def lifespan(app: FastAPI):
     # Auto-pull du modèle vision Ollama si dispo mais modèle manquant
     try:
         import httpx as _httpx
+
         resp = _httpx.get("http://localhost:11434/api/tags", timeout=3)
         if resp.status_code == 200:
             models = [m["name"] for m in resp.json().get("models", [])]
@@ -315,40 +348,15 @@ async def lifespan(app: FastAPI):
                 publish_audio_daemon_state(event)
 
             audio_daemon.set_broadcast(_broadcast_daemon_state)
-            audio_daemon_task = asyncio.create_task(audio_daemon.start(), name="audio_daemon")
+            audio_daemon_task = asyncio.create_task(
+                audio_daemon.start(), name="audio_daemon"
+            )
             logger.info("[startup] Audio daemon démarré (wake word + micro natif)")
         except Exception as e:
             logger.warning("[startup] Audio daemon non démarré : %s", e)
 
-    # Connexion ADB automatique à la TV au démarrage (prépare le terrain,
-    # évite la latence de adb connect au premier "allume la télé")
-    try:
-        import asyncio as _asyncio
-        tv_ip = getattr(config, "TV_IP", "")
-        tv_port = int(getattr(config, "TV_ADB_PORT", "5555") or "5555")
-        if tv_ip:
-            proc = await _asyncio.create_subprocess_exec(
-                "adb", "connect", f"{tv_ip}:{tv_port}",
-                stdout=_asyncio.subprocess.PIPE,
-                stderr=_asyncio.subprocess.PIPE,
-            )
-            try:
-                stdout, stderr = await _asyncio.wait_for(
-                    proc.communicate(),
-                    timeout=5.0,
-                )
-            except BaseException:
-                if proc.returncode is None:
-                    proc.kill()
-                await proc.communicate()
-                raise
-            output = (stdout + stderr).decode(errors="replace").strip()
-            if "connected" in output.lower() or "already" in output.lower():
-                logger.info("[startup] ADB connecté à la TV (%s:%s) — %s", tv_ip, tv_port, output.split("\n")[0][:80])
-            else:
-                logger.debug("[startup] ADB TV non joignable (%s) : %s", tv_ip, output[:100])
-    except Exception as e:
-        logger.debug("[startup] ADB TV skip : %s", e)
+    # Prépare ADB avant la première commande TV, sans rendre le démarrage fatal.
+    await connect_tv_adb()
 
     logger.info(f"JARVIS prêt → http://localhost:{config.WEB_PORT}")
 
@@ -389,10 +397,9 @@ async def lifespan(app: FastAPI):
         logger.warning("[startup] finaliseur agentique indisponible : %s", exc)
 
     # Délégation historique, uniquement comme fallback explicitement configuré.
-    if (
-        str(getattr(config, "AGENTIC_RUNTIME_FALLBACK", "disabled")).lower() == "legacy"
-        and getattr(config, "CURSOR_DELEGATION_ENABLED", True)
-    ):
+    if str(
+        getattr(config, "AGENTIC_RUNTIME_FALLBACK", "disabled")
+    ).lower() == "legacy" and getattr(config, "CURSOR_DELEGATION_ENABLED", True):
         try:
             from integrations.cursor_delegation import cursor_delegation
 
@@ -412,6 +419,12 @@ async def lifespan(app: FastAPI):
     from scripts.scheduler import shutdown_scheduler
 
     shutdown_scheduler()
+    knowledge_worker_stop.set()
+    if knowledge_worker_task is not None:
+        try:
+            await asyncio.wait_for(knowledge_worker_task, timeout=5.0)
+        except (TimeoutError, asyncio.CancelledError):
+            knowledge_worker_task.cancel()
     agentic_finalizer_stop.set()
     if agentic_finalizer_task is not None:
         try:

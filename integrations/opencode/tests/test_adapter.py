@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 import hashlib
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -18,6 +19,7 @@ from integrations.opencode.client.models import (
 )
 from integrations.opencode.config import RuntimeLayout
 from integrations.opencode.event_mapper import map_opencode_event
+from integrations.opencode.register import create_runtime
 from jarvis.agentic.models import (
     AgenticContext,
     AgenticRequestCategory,
@@ -501,6 +503,88 @@ def test_mcp_is_not_mounted_without_task_scope_and_aliases_are_normalized(
         broker.stop()
 
 
+def test_mcp_normalizes_all_read_scopes_for_personal_knowledge(
+    tmp_path: Path,
+) -> None:
+    runtime, run = _state(tmp_path, "résultat")
+    state = runtime._states[run.run_id]
+    integration_root = tmp_path / "provider-knowledge"
+    integration_root.mkdir()
+    runtime.layout = RuntimeLayout.from_integration_root(integration_root)
+    runtime.layout.ensure()
+    context = AgenticContext(
+        run_id=run.run_id,
+        profile_id=run.profile_id,
+        channel=run.channel,
+        origin=run.origin,
+        permissions=(
+            "communications.read",
+            "calendar:read",
+            "conversations.read",
+            "memory:read",
+            "contacts.read",
+            "media:read",
+            "documents.read",
+            "documentation:read",
+            "tasks.read",
+            "project_state.read",
+            "workspace:read",
+            "research.search",
+        ),
+    )
+
+    broker, overlay = runtime._capability_overlay(run, context, state.workspace)
+
+    assert broker is not None
+    try:
+        assert broker.capability.scopes == frozenset(
+            {
+                "communications:read",
+                "calendar:read",
+                "conversations:read",
+                "memory:read",
+                "contacts:read",
+                "media:read",
+                "documents:read",
+                "documentation:read",
+                "tasks:read",
+                "project_state:read",
+                "workspace:read",
+                "research:search",
+            }
+        )
+        names = {tool["name"] for tool in broker.registry.list_tools()}
+        assert "jarvis_knowledge_search" in names
+        assert "jarvis_knowledge_get" in names
+        assert "jarvis_tasks_list" in names
+        assert overlay["mcp"]["jarvis"]["enabled"] is True
+    finally:
+        broker.stop()
+
+
+def test_plugin_manifest_and_default_runtime_declare_knowledge_scopes() -> None:
+    manifest_path = Path(__file__).resolve().parents[1] / "plugin.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    declared = {
+        (item["name"], item["scope"]) for item in manifest["runtime"]["capabilities"]
+    }
+    runtime = create_runtime()
+    registered = {(item.name, item.scope) for item in runtime.capabilities}
+
+    assert declared == registered
+    assert {
+        ("communications.read", "communications:read"),
+        ("calendar.read", "calendar:read"),
+        ("project_state.read", "project_state:read"),
+        ("conversations.read", "conversations:read"),
+        ("memory.read", "memory:read"),
+        ("contacts.read", "contacts:read"),
+        ("media.read", "media:read"),
+        ("documents.read", "documents:read"),
+        ("documentation.read", "documentation:read"),
+    }.issubset(declared)
+
+
 @pytest.mark.asyncio
 async def test_health_allows_verified_first_run_provisioning() -> None:
     runtime = object.__new__(OpenCodeRuntime)
@@ -676,7 +760,9 @@ def test_select_model_uses_configured_id_present_in_catalog(
     monkeypatch.setattr(
         opencode_adapter,
         "_configured_model_ids",
-        lambda *, coding: ("deepseek-v4-flash",) if not coding else ("deepseek-v4-pro",),
+        lambda *, coding: (
+            ("deepseek-v4-flash",) if not coding else ("deepseek-v4-pro",)
+        ),
     )
     catalog = SimpleNamespace(
         connected=("deepseek", "opencode"),

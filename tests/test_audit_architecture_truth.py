@@ -361,12 +361,12 @@ def test_check_mode_rejects_a_stale_report(fake_repo: Path, tmp_path: Path) -> N
 def test_real_repo_smoke_counts_stable() -> None:
     """Garde-fou : le dépôt réel produit les comptages attendus (code only)."""
     tables = audit.analyze_tables(ROOT)
-    assert tables["counts"]["schema_sql_applicatives"] == 113
+    assert tables["counts"]["schema_sql_applicatives"] == 120
     # Le versionnement, l'historique des métriques et le registre de profils
     # sont tous inclus dans ces comptages cumulés.
-    assert tables["counts"]["schema_py"] == 70
-    assert tables["counts"]["persistantes_post_init"] == 106
-    assert tables["counts"]["physiques_max_default_fts_on"] == 111
+    assert tables["counts"]["schema_py"] == 76
+    assert tables["counts"]["persistantes_post_init"] == 113
+    assert tables["counts"]["physiques_max_default_fts_on"] == 118
     assert tables["init_pipeline"]["does_not_execute_schema_sql"] is True
 
     resolution = audit.analyze_frontend_resolution(ROOT)
@@ -399,7 +399,7 @@ def test_real_repo_smoke_counts_stable() -> None:
 def test_generated_runtime_schema_replays_a_fresh_database() -> None:
     schema = audit.render_runtime_schema(ROOT)
     assert schema.startswith("-- GENERATED FILE — DO NOT EDIT.")
-    assert len(audit._extract_create_tables(schema)) == 113
+    assert len(audit._extract_create_tables(schema)) == 120
 
     conn = sqlite3.connect(":memory:")
     try:
@@ -410,7 +410,7 @@ def test_generated_runtime_schema_replays_a_fresh_database() -> None:
             """).fetchone()[0]
     finally:
         conn.close()
-    assert table_count == 117
+    assert table_count == 128
 
 
 def test_versioned_architecture_artifacts_match_runtime() -> None:

@@ -293,9 +293,8 @@ def _select_agent(run: AgenticRun, context: AgenticContext) -> str:
     """
 
     permissions = set(context.permissions) | set(run.permissions)
-    can_edit = (
-        run.category is not AgenticRequestCategory.AGENTIC_READONLY
-        and bool({"workspace.edit", "workspace:write"} & permissions)
+    can_edit = run.category is not AgenticRequestCategory.AGENTIC_READONLY and bool(
+        {"workspace.edit", "workspace:write"} & permissions
     )
     if can_edit:
         return "jarvis-coding"
@@ -992,10 +991,35 @@ class OpenCodeRuntime:
         runtime_layout: RuntimeLayout | None = None,
     ) -> tuple[MCPBroker | None, dict[str, Any]]:
         scope_aliases = {
+            "communications.read": "communications:read",
+            "communications:read": "communications:read",
+            "calendar.read": "calendar:read",
+            "calendar:read": "calendar:read",
+            "conversations.read": "conversations:read",
+            "conversations:read": "conversations:read",
+            "memory.read": "memory:read",
+            "memory:read": "memory:read",
+            "contacts.read": "contacts:read",
+            "contacts:read": "contacts:read",
+            "media.read": "media:read",
+            "media:read": "media:read",
+            "documents.read": "documents:read",
+            "documents:read": "documents:read",
+            "documentation.read": "documentation:read",
+            "documentation:read": "documentation:read",
             "tasks.read": "tasks:read",
             "tasks:read": "tasks:read",
             "tasks.write": "tasks:write",
             "tasks:write": "tasks:write",
+            "project_state.read": "project_state:read",
+            "project_state:read": "project_state:read",
+            "workspace.read": "workspace:read",
+            "workspace:read": "workspace:read",
+            # This capability can mount the private broker for future research
+            # tools, but the knowledge registry intentionally maps it to no
+            # personal source type.
+            "research.search": "research:search",
+            "research:search": "research:search",
         }
         scopes = tuple(
             dict.fromkeys(
@@ -1802,7 +1826,6 @@ class OpenCodeRuntime:
         await self._cleanup_runtime(state, purge=True)
         # Un ACK SSE manquant n'est pas un échec métier : le process détenu
         # a été arrêté. JARVIS classe alors cancelled/forced, pas failed.
-
 
     async def answer_approval(
         self,

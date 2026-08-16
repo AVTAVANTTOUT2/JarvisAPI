@@ -139,7 +139,10 @@ class JarvisDaemon:
                 if gid:
                     self.known_mail_ids.add(str(gid))
             if self.known_mail_ids:
-                logger.info("[daemon] %d mail(s) connus hydratés depuis email_summaries", len(self.known_mail_ids))
+                logger.info(
+                    "[daemon] %d mail(s) connus hydratés depuis email_summaries",
+                    len(self.known_mail_ids),
+                )
         except Exception as e:
             logger.warning("[daemon] hydratation known_mail_ids : %s", e)
 
@@ -151,7 +154,9 @@ class JarvisDaemon:
             asyncio.create_task(self._device_health_loop(), name="daemon_health"),
         ]
         if self.wake_word_enabled:
-            tasks.append(asyncio.create_task(self._wake_word_loop(), name="daemon_wake"))
+            tasks.append(
+                asyncio.create_task(self._wake_word_loop(), name="daemon_wake")
+            )
 
         try:
             await asyncio.gather(*tasks)
@@ -259,7 +264,9 @@ class JarvisDaemon:
             logger.info("[daemon] notification écran invalidée par un tour vocal")
             return
         if self.screen_watcher._is_voice_busy():
-            logger.info("[daemon] notification écran abandonnée — voix devenue prioritaire")
+            logger.info(
+                "[daemon] notification écran abandonnée — voix devenue prioritaire"
+            )
             return
         if elapsed_s > self.screen_notification_ttl_s:
             logger.info(
@@ -308,15 +315,22 @@ class JarvisDaemon:
     async def _check_imessage(self) -> None:
         """Lit les nouveaux messages pour notification vocale uniquement.
 
-        IMPORTANT: si le bridge iMessage est actif, le daemon n'interroge pas
-        chat.db pour éviter tout double traitement. Le bridge reste l'unique
-        composant autorisé à répondre aux messages.
+        Si le bridge tourne, il reste seul à *répondre* sur ``IMESSAGE_TARGET``.
+        Le daemon continue de scanner les autres contacts — sinon plus aucune
+        connaissance proactive dès que le bridge est actif.
         """
+        bridge_running = False
+        bridge_target = ""
         try:
             from integrations.imessage import imessage_bridge
+
             if imessage_bridge and getattr(imessage_bridge, "running", False):
-                logger.debug("[daemon] iMessage check ignoré (bridge actif)")
-                return
+                bridge_running = True
+                bridge_target = str(
+                    getattr(imessage_bridge, "target", None)
+                    or getattr(config, "IMESSAGE_TARGET", "")
+                    or ""
+                ).strip()
         except Exception:
             pass
 
@@ -338,7 +352,9 @@ class JarvisDaemon:
             )
 
             last_rowid = get_consumer_cursor(self.imessage_cursor_name)
-            rows = apple_data.get_new_messages(last_rowid, limit=10)
+            rows = apple_data.get_new_messages(
+                last_rowid, limit=50, incoming_only=True
+            )
         except Exception as e:
             logger.warning("[daemon] iMessage scan : %s", e)
             return
@@ -360,6 +376,9 @@ class JarvisDaemon:
                 continue
 
             handle = row["handle"] or ""
+            if bridge_running and bridge_target and handle == bridge_target:
+                continue
+
             text = (row["text"] or "").strip()
             if not text:
                 continue
@@ -372,7 +391,7 @@ class JarvisDaemon:
                 pass
 
             should_notify = await self._local_triage(
-                f"Message iMessage de {sender} : \"{text[:200]}\""
+                f'Message iMessage de {sender} : "{text[:200]}"'
             )
 
             if should_notify:
@@ -416,7 +435,10 @@ class JarvisDaemon:
         """Notifications vocales mail — délégué à email_watcher si actif."""
         try:
             from scripts.email_watcher import email_watcher as _ew
-            if _ew and (getattr(_ew, "_running", False) or getattr(_ew, "running", False)):
+
+            if _ew and (
+                getattr(_ew, "_running", False) or getattr(_ew, "running", False)
+            ):
                 return
         except Exception:
             pass
@@ -483,10 +505,10 @@ class JarvisDaemon:
 
             response = await llm.chat(
                 messages=[{"role": "user", "content": prompt}],
-                model=getattr(config, "TRIAGE_MODEL", None) or config.DEEPSEEK_FAST_MODEL,
+                model=getattr(config, "TRIAGE_MODEL", None)
+                or config.DEEPSEEK_FAST_MODEL,
                 system=(
-                    UNTRUSTED_DATA_SYSTEM_RULE
-                    + "\nRéponds uniquement OUI ou NON."
+                    UNTRUSTED_DATA_SYSTEM_RULE + "\nRéponds uniquement OUI ou NON."
                 ),
                 max_tokens=5,
                 temperature=0.0,
@@ -507,8 +529,16 @@ class JarvisDaemon:
             try:
                 from integrations.calendar_api import calendar_client
 
-                if calendar_client and calendar_client.is_available():
-                    events = await calendar_client.get_today_events() or []
+                if calendar_client:
+                    calendar_result = await calendar_client.get_today_events_result()
+                    if calendar_result.status == "ok":
+                        events = list(calendar_result.events)
+                    else:
+                        events = []
+                        logger.warning(
+                            "[daemon] calendar indisponible : %s",
+                            calendar_result.error or "calendar_unavailable",
+                        )
                     now = datetime.now()
 
                     for event in events:
@@ -517,15 +547,19 @@ class JarvisDaemon:
                             if not start_str:
                                 continue
                             if len(start_str) <= 5:
-                                start_time = datetime.strptime(start_str, "%H:%M").replace(
-                                    year=now.year, month=now.month, day=now.day
-                                )
+                                start_time = datetime.strptime(
+                                    start_str, "%H:%M"
+                                ).replace(year=now.year, month=now.month, day=now.day)
                             else:
                                 # ISO ou "YYYY-MM-DD HH:MM"
                                 try:
-                                    start_time = datetime.fromisoformat(start_str.replace("Z", ""))
+                                    start_time = datetime.fromisoformat(
+                                        start_str.replace("Z", "")
+                                    )
                                 except ValueError:
-                                    start_time = datetime.strptime(start_str, "%Y-%m-%d %H:%M")
+                                    start_time = datetime.strptime(
+                                        start_str, "%Y-%m-%d %H:%M"
+                                    )
 
                             delta = (start_time - now).total_seconds() / 60
                             event_id = f"{event.get('summary', '')}_{start_str}"
@@ -539,6 +573,10 @@ class JarvisDaemon:
                                 )
                         except Exception:
                             continue
+                else:
+                    logger.warning(
+                        "[daemon] calendar indisponible : calendar_unavailable"
+                    )
             except Exception as e:
                 logger.warning("[daemon] calendar check : %s", e)
             await asyncio.sleep(300)
@@ -597,7 +635,10 @@ class JarvisDaemon:
                     self.last_tts_time = now + wait_s
                     task = asyncio.create_task(
                         self._enqueue_voice_after(
-                            wait_s, str(text), str(emotion), priority,
+                            wait_s,
+                            str(text),
+                            str(emotion),
+                            priority,
                         ),
                         name="daemon_voice_delayed",
                     )
@@ -607,7 +648,9 @@ class JarvisDaemon:
                 self.last_tts_time = now
 
             logger.info("[daemon] File vocale (%s) : %s", priority.name, str(text)[:80])
-            await voice_queue.enqueue(str(text), emotion=str(emotion), priority=priority)
+            await voice_queue.enqueue(
+                str(text), emotion=str(emotion), priority=priority
+            )
 
     async def _enqueue_voice_after(
         self,
@@ -673,7 +716,8 @@ class JarvisDaemon:
                             )
                             if device.get("is_active"):
                                 online_devices = [
-                                    d for d in devices
+                                    d
+                                    for d in devices
                                     if d["device_id"] != device["device_id"]
                                     and d.get("is_online")
                                 ]

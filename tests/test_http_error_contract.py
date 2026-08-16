@@ -129,7 +129,7 @@ def test_calendar_read_exception_is_a_structured_502(api_client, monkeypatch):
             return True
 
         @staticmethod
-        async def get_events(_start: str, _end: str):
+        async def get_events_result(_start: str, _end: str):
             raise RuntimeError("détail Calendar privé")
 
     monkeypatch.setattr("api.misc_relationships.calendar_client", BrokenCalendar())
@@ -140,6 +140,50 @@ def test_calendar_read_exception_is_a_structured_502(api_client, monkeypatch):
     )
     _assert_error(response, 502, "calendar_read_failed")
     assert "Calendar privé" not in response.text
+
+
+def test_calendar_read_unavailable_result_is_not_an_empty_200(api_client, monkeypatch):
+    from integrations.calendar_api import CalendarQueryResult
+
+    class UnavailableCalendar:
+        @staticmethod
+        async def get_events_result(_start: str, _end: str):
+            return CalendarQueryResult(
+                status="unavailable",
+                error="calendar_no_response",
+            )
+
+    monkeypatch.setattr("api.misc_relationships.calendar_client", UnavailableCalendar())
+
+    response = api_client.get(
+        "/api/calendar",
+        params={"start": "2026-08-03", "end": "2026-08-04"},
+    )
+
+    _assert_error(response, 502, "calendar_read_failed")
+
+
+def test_calendar_read_invalid_range_is_a_structured_400(api_client, monkeypatch):
+    from integrations.calendar_api import CalendarQueryResult
+
+    class InvalidRangeCalendar:
+        @staticmethod
+        async def get_events_result(_start: str, _end: str):
+            return CalendarQueryResult(
+                status="unavailable",
+                error="calendar_range_invalid",
+            )
+
+    monkeypatch.setattr(
+        "api.misc_relationships.calendar_client", InvalidRangeCalendar()
+    )
+
+    response = api_client.get(
+        "/api/calendar",
+        params={"start": "2026-08-04", "end": "2026-08-03"},
+    )
+
+    _assert_error(response, 400, "calendar_range_invalid")
 
 
 def test_contacts_failure_is_a_structured_503(api_client, monkeypatch):

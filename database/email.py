@@ -82,8 +82,16 @@ def save_email_full(
     summary: str,
     category: str = "info",
     priority: str = "low",
+    is_read: bool = False,
 ) -> int:
     now_iso = sqlite_utc_timestamp()
+    normalized_received_at = received_at
+    if received_at:
+        try:
+            normalized_received_at = sqlite_utc_timestamp(received_at)
+        except (TypeError, ValueError):
+            # Compatibilité des anciennes dates Mail localisées déjà persistées.
+            normalized_received_at = received_at
     with get_db() as conn:
         existing = conn.execute(
             "SELECT id FROM email_summaries WHERE gmail_id = ?", (gmail_id,)
@@ -92,16 +100,18 @@ def save_email_full(
             conn.execute(
                 """UPDATE email_summaries SET
                        sender = ?, subject = ?, body = ?, received_at = ?,
-                       summary = ?, category = ?, priority = ?, created_at = ?
+                       summary = ?, category = ?, priority = ?, is_read = ?,
+                       created_at = ?
                    WHERE gmail_id = ?""",
                 (
                     sender,
                     subject,
                     body,
-                    received_at,
+                    normalized_received_at,
                     summary,
                     category,
                     priority,
+                    int(is_read),
                     now_iso,
                     gmail_id,
                 ),
@@ -111,20 +121,62 @@ def save_email_full(
             """INSERT INTO email_summaries
                (gmail_id, sender, subject, body, received_at, summary,
                 category, priority, is_read, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 gmail_id,
                 sender,
                 subject,
                 body,
-                received_at,
+                normalized_received_at,
                 summary,
                 category,
                 priority,
+                int(is_read),
                 now_iso,
             ),
         )
         return int(cursor.lastrowid)
+
+
+def cache_email_preview(
+    *,
+    gmail_id: str,
+    sender: str,
+    subject: str,
+    preview: str,
+    received_at: str,
+    is_read: bool,
+) -> int:
+    """Met à jour le cache live sans écraser un corps complet déjà analysé."""
+
+    with get_db() as conn:
+        existing = conn.execute(
+            "SELECT body, summary, category, priority FROM email_summaries WHERE gmail_id = ?",
+            (gmail_id,),
+        ).fetchone()
+    if existing:
+        body = str(existing["body"] or "")
+        if len(preview or "") > len(body):
+            body = preview or ""
+        summary = str(existing["summary"] or "") or subject
+        category = str(existing["category"] or "info")
+        priority = str(existing["priority"] or "low")
+    else:
+        body = preview or ""
+        summary = subject
+        category = "info"
+        priority = "low"
+    return save_email_full(
+        gmail_id=gmail_id,
+        sender=sender,
+        subject=subject,
+        body=body,
+        received_at=received_at,
+        summary=summary,
+        category=category,
+        priority=priority,
+        is_read=is_read,
+    )
 
 
 def get_unread_emails_from_db(limit: int = 20) -> list[dict]:
@@ -149,7 +201,8 @@ def get_recent_emails_from_db(
                 """SELECT gmail_id, sender, subject, body, received_at,
                           summary, category, priority, is_read
                    FROM email_summaries WHERE category = ?
-                   ORDER BY created_at DESC LIMIT ?""",
+                   ORDER BY COALESCE(NULLIF(received_at, ''), created_at) DESC,
+                            created_at DESC LIMIT ?""",
                 (category, limit),
             ).fetchall()
         else:
@@ -157,17 +210,18 @@ def get_recent_emails_from_db(
                 """SELECT gmail_id, sender, subject, body, received_at,
                           summary, category, priority, is_read
                    FROM email_summaries
-                   ORDER BY created_at DESC LIMIT ?""",
+                   ORDER BY COALESCE(NULLIF(received_at, ''), created_at) DESC,
+                            created_at DESC LIMIT ?""",
                 (limit,),
             ).fetchall()
     return [dict(row) for row in rows]
 
 
-def mark_email_read(gmail_id: str) -> None:
+def mark_email_read(gmail_id: str, is_read: bool = True) -> None:
     with get_db() as conn:
         conn.execute(
-            "UPDATE email_summaries SET is_read = 1 WHERE gmail_id = ?",
-            (gmail_id,),
+            "UPDATE email_summaries SET is_read = ? WHERE gmail_id = ?",
+            (int(is_read), gmail_id),
         )
 
 

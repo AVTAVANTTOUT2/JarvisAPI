@@ -26,13 +26,26 @@ def upsert_memory_embedding(
         return int(cursor.lastrowid)
 
 
-def get_all_memory_embeddings(source_type: str | None = None) -> list[dict]:
+def get_all_memory_embeddings(
+    source_type: str | None = None,
+    limit: int | None = None,
+) -> list[dict]:
+    suffix = ""
+    params: list[object] = []
+    if source_type:
+        params.append(source_type)
+    if limit is not None:
+        suffix = " ORDER BY id DESC LIMIT ?"
+        params.append(max(1, min(5_000, int(limit))))
     with get_db() as conn:
         if source_type:
             rows = conn.execute(
-                "SELECT * FROM memory_embeddings WHERE source_type = ?",
-                (source_type,),
+                "SELECT * FROM memory_embeddings WHERE source_type = ?" + suffix,
+                tuple(params),
             ).fetchall()
         else:
-            rows = conn.execute("SELECT * FROM memory_embeddings").fetchall()
+            rows = conn.execute(
+                "SELECT * FROM memory_embeddings" + suffix,
+                tuple(params),
+            ).fetchall()
     return [dict(row) for row in rows]

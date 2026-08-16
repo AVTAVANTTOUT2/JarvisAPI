@@ -14,180 +14,11 @@ import config
 import llm
 from agents import BaseAgent, get_agent
 from agents.display_text import finalize_assistant_display_text
-from database import (
-    build_full_context,
-    get_all_people,
-    get_conversation_history,
-    get_recent_email_summaries,
-)
+from database import get_conversation_history
 from jarvis.event_bus import JarvisEvent, event_bus
-from jarvis.security.llm_data_boundary import (
-    sanitize_history_messages,
-    wrap_untrusted_data,
-)
+from jarvis.security.llm_data_boundary import sanitize_history_messages
 
 logger = logging.getLogger(__name__)
-
-# Mots-clés : question sur la boîte mail → enrichir memory_context avant l’agent (tous flux).
-_MAIL_INJECT_KEYWORDS = (
-    "mail",
-    "mails",
-    "email",
-    "courrier",
-    "inbox",
-    "boîte mail",
-    "boite mail",
-    "non lu",
-    "non lus",
-    "message de",
-    "m'a écrit",
-    "m'a ecrit",
-    "écrit par",
-    "ecrit par",
-    "envoyé",
-    "envoye",
-    "reçu",
-    "recu",
-    "expéditeur",
-    "expediteur",
-    "expéditrice",
-    "objet:",
-    "que me veut",
-    "qu'est-ce que",
-    "quest-ce que",
-    "qu’est ce que",
-)
-
-
-def _user_message_requests_mail_context(msg: str, category: str) -> bool:
-    if category == "PRODUCTIVITY":
-        return True
-    m = (msg or "").lower()
-    if any(k in m for k in _MAIL_INJECT_KEYWORDS):
-        return True
-    try:
-        for p in get_all_people():
-            name = (p.get("name") or "").strip().lower()
-            if len(name) >= 2 and name in m:
-                return True
-    except Exception:
-        pass
-    return False
-
-
-def _format_email_summaries_block(summaries: list[dict]) -> str:
-    """Résumés déjà en base (email_watcher) — utile si les mails ne sont plus « non lus »."""
-    if not summaries:
-        return ""
-    lines = []
-    for s in summaries[:20]:
-        sender = s.get("sender") or "?"
-        sub = s.get("subject") or "(sans objet)"
-        summ = (s.get("summary") or "").replace("\n", " ").strip()[:400]
-        lines.append(f"- De: {sender} | Objet: {sub} | Résumé: {summ}")
-    body = "\n".join(lines)
-    return wrap_untrusted_data(
-        "EMAIL_SUMMARIES_DB",
-        "Mails récemment analysés (y compris déjà lus) :\n" + body,
-        max_chars=8_000,
-    )
-
-
-def _format_live_emails_block(emails: list[dict], preview_max: int = 220) -> str:
-    if not emails:
-        return wrap_untrusted_data(
-            "MAIL_APP",
-            "(Aucun mail non lu listé depuis Mail.app, ou liste vide.)",
-            max_chars=500,
-        )
-    lines = []
-    for e in emails[:12]:
-        prev = (
-            str(e.get("snippet") or e.get("preview") or "").replace("\n", " ").strip()
-        )[:preview_max]
-        frm = str(e.get("from") or "?")
-        sub = str(e.get("subject") or "(sans objet)")
-        lines.append(f"- De: {frm} | Objet: {sub} | Aperçu: {prev}")
-    body = "\n".join(lines)
-    return wrap_untrusted_data(
-        "MAIL_APP",
-        "Mails non lus récents (Mail.app) :\n" + body,
-        max_chars=6_000,
-    )
-
-
-async def append_recent_mails_to_context(ctx: dict, user_message: str, category: str) -> None:
-    """Injecte une synthèse des non-lus dans memory_context pour questions « mail » / hors productivité.
-
-    Les agents lisent cette zone via {{memory_context}} ; pas besoin de l’action mail_read.
-    Catégorie PRODUCTIVITY : emails_context est fourni par `_collect_pro_context` — on évite le doublon.
-    """
-    if category == "PRODUCTIVITY":
-        return
-    if not _user_message_requests_mail_context(user_message, category):
-        return
-    block = ""
-    try:
-        from integrations.mail import mail_client
-
-        ok = mail_client and mail_client.is_available()
-        logger.info(
-            "[mail] enrich context mail_client=%s available=%s",
-            mail_client is not None,
-            ok if mail_client else False,
-        )
-        if ok:
-            emails = await mail_client.get_unread(12)
-            block = _format_live_emails_block(emails or [])
-        else:
-            block = (
-                "[EMAILS_CONTEXT]\n"
-                "Apple Mail indisponible : ouvre Mail.app et autorise Automation pour Terminal.\n"
-                "[/EMAILS_CONTEXT]"
-            )
-    except Exception as ex:
-        logger.warning("[mail] enrich context erreur : %s", ex)
-        block = f"[EMAILS_CONTEXT]\nLecture mails impossible ({type(ex).__name__}).\n[/EMAILS_CONTEXT]"
-
-    summaries_block = ""
-    try:
-        summaries_block = _format_email_summaries_block(get_recent_email_summaries(limit=20))
-    except Exception as ex:
-        logger.warning("[mail] email_summaries enrich : %s", ex)
-
-    mem = (ctx.get("memory_context") or "").strip()
-    merged = block.strip()
-    if summaries_block.strip() and summaries_block.strip() not in mem:
-        merged = f"{merged}\n\n{summaries_block.strip()}".strip() if merged else summaries_block.strip()
-
-    if merged.strip() and merged.strip() in mem:
-        return
-    ctx["memory_context"] = (mem + "\n\n" + merged).strip() if mem else merged
-
-
-def _append_task_control_to_context(ctx: dict) -> None:
-    """Replie les tranches du pilotage de tâches dans ``memory_context``.
-
-    Les agents lisent cette zone via ``{{memory_context}}`` ; poser une clé
-    séparée n'aurait servi à rien tant qu'aucun gabarit ne la référence. Le
-    contenu est déjà borné et sans raisonnement : c'est ce qui permet à JARVIS
-    de dire « la tâche X attend votre validation » sans relayer autre chose.
-    """
-    blocks: list[str] = []
-    overview = (ctx.get("task_control_context") or "").strip()
-    focus = (ctx.get("task_control_focus") or "").strip()
-    if overview:
-        blocks.append(f"[TÂCHES_PILOTÉES]\n{overview}")
-    if focus:
-        blocks.append(f"[TÂCHE_DÉTAIL]\n{focus}")
-    if not blocks:
-        return
-    merged = "\n\n".join(blocks)
-    mem = (ctx.get("memory_context") or "").strip()
-    if merged in mem:
-        return
-    ctx["memory_context"] = (mem + "\n\n" + merged).strip() if mem else merged
-
 
 CATEGORIES = ["SCHOOL", "PRODUCTIVITY", "COACH", "INFO", "JOURNAL", "DEVOPS", "FOOD"]
 CATEGORY_TO_AGENT = {
@@ -208,84 +39,236 @@ CATEGORY_TO_AGENT = {
 # Le fallback LLM (quick_classify) n'est appelé que si aucun mot-clé ne matche.
 
 DEVOPS_KEYWORDS = [
-    "code", "bug", "debug", "erreur", "exception", "stack trace", "crash",
-    "git", "commit", "push", "pull request", "merge", "branch", "repo",
-    "api", "endpoint", "rest", "graphql", "webhook", "requête http",
-    "serveur", "deploy", "déploiement", "production", "staging",
-    "docker", "container", "image docker", "kubernetes", "k8s",
-    "base de données", "sql", "sqlite", "postgres", "migration", "schema",
-    "architecture", "infra", "infrastructure", "pipeline", "ci/cd",
-    "sécurité", "vulnérabilité", "cve", "firewall", "tls", "ssl", "certificat",
-    "script", "shell", "bash", "terminal", "process", "processus", "daemon",
-    "cloudflare", "tailscale", "dns", "reverse proxy", "nginx", "ssh",
-    "config", "variable d'environnement", "env", "log", "logs", "monitoring",
-    "performance", "latence", "optimisation", "refactor", "test unitaire",
-    "package", "dépendance", "venv", "requirements", "build", "compile",
+    "code",
+    "bug",
+    "debug",
+    "erreur",
+    "exception",
+    "stack trace",
+    "crash",
+    "git",
+    "commit",
+    "push",
+    "pull request",
+    "merge",
+    "branch",
+    "repo",
+    "api",
+    "endpoint",
+    "rest",
+    "graphql",
+    "webhook",
+    "requête http",
+    "serveur",
+    "deploy",
+    "déploiement",
+    "production",
+    "staging",
+    "docker",
+    "container",
+    "image docker",
+    "kubernetes",
+    "k8s",
+    "base de données",
+    "sql",
+    "sqlite",
+    "postgres",
+    "migration",
+    "schema",
+    "architecture",
+    "infra",
+    "infrastructure",
+    "pipeline",
+    "ci/cd",
+    "sécurité",
+    "vulnérabilité",
+    "cve",
+    "firewall",
+    "tls",
+    "ssl",
+    "certificat",
+    "script",
+    "shell",
+    "bash",
+    "terminal",
+    "process",
+    "processus",
+    "daemon",
+    "cloudflare",
+    "tailscale",
+    "dns",
+    "reverse proxy",
+    "nginx",
+    "ssh",
+    "config",
+    "variable d'environnement",
+    "env",
+    "log",
+    "logs",
+    "monitoring",
+    "performance",
+    "latence",
+    "optimisation",
+    "refactor",
+    "test unitaire",
+    "package",
+    "dépendance",
+    "venv",
+    "requirements",
+    "build",
+    "compile",
 ]
 
 # Commande de repas — volontairement étroit. Le mot « commande » seul est banni :
 # « lance la commande git status » doit rester DEVOPS, pas une commande Uber Eats.
 FOOD_PATTERNS = [
-    "uber eats", "ubereats",
-    "j'ai faim", "jai faim", "je meurs de faim", "je crève de faim",
-    "commande à manger", "commande a manger",
-    "commander à manger", "commander a manger",
-    "commande de la nourriture", "commander de la nourriture",
-    "commande un repas", "commander un repas", "commande le repas",
-    "commande à bouffer", "commande a bouffer",
-    "livraison de repas", "se faire livrer", "fais-toi livrer",
-    "commande une pizza", "commander une pizza",
-    "commande des sushis", "commander des sushis",
+    "uber eats",
+    "ubereats",
+    "j'ai faim",
+    "jai faim",
+    "je meurs de faim",
+    "je crève de faim",
+    "commande à manger",
+    "commande a manger",
+    "commander à manger",
+    "commander a manger",
+    "commande de la nourriture",
+    "commander de la nourriture",
+    "commande un repas",
+    "commander un repas",
+    "commande le repas",
+    "commande à bouffer",
+    "commande a bouffer",
+    "livraison de repas",
+    "se faire livrer",
+    "fais-toi livrer",
+    "commande une pizza",
+    "commander une pizza",
+    "commande des sushis",
+    "commander des sushis",
 ]
 
 COACH_PATTERNS = [
     # Accentué
-    "stressé", "anxiété", "triste", "déprimé", "peur", "dispute", "conflit",
-    "fatigué", "épuisé", "découragé", "inquiet",
+    "stressé",
+    "anxiété",
+    "triste",
+    "déprimé",
+    "peur",
+    "dispute",
+    "conflit",
+    "fatigué",
+    "épuisé",
+    "découragé",
+    "inquiet",
     # Sans accent (messages tapés au clavier)
-    "stresse", "stress", "anxieux", "anxiete", "deprime", "fatigue",
-    "epuise", "decourage",
+    "stresse",
+    "stress",
+    "anxieux",
+    "anxiete",
+    "deprime",
+    "fatigue",
+    "epuise",
+    "decourage",
     # Expressions
-    "je me sens", "j'en peux plus", "je n'arrive pas",
+    "je me sens",
+    "j'en peux plus",
+    "je n'arrive pas",
 ]
 
 SCHOOL_PATTERNS = [
     # Accentué
-    "exercice", "devoir", "devoirs", "cours", "examen", "contrôle",
-    "professeur", "prof", "note scolaire", "td", "tp", "partiel",
-    "révision", "diplôme",
+    "exercice",
+    "devoir",
+    "devoirs",
+    "cours",
+    "examen",
+    "contrôle",
+    "professeur",
+    "prof",
+    "note scolaire",
+    "td",
+    "tp",
+    "partiel",
+    "révision",
+    "diplôme",
     # Sans accent
-    "controle", "partiels", "diplome", "revision", "matiere",
+    "controle",
+    "partiels",
+    "diplome",
+    "revision",
+    "matiere",
 ]
 
 PRODUCTIVITY_PATTERNS = [
     # Accentué
-    "tâche", "rappel", "rendez-vous", "réunion", "délai", "échéance",
+    "tâche",
+    "rappel",
+    "rendez-vous",
+    "réunion",
+    "délai",
+    "échéance",
     # Sans accent
-    "tache", "todo", "planning", "agenda", "deadline",
-    "calendrier", "reunion", "delai", "echeance",
-    "organiser ma journee", "organiser ma journée",
+    "tache",
+    "todo",
+    "planning",
+    "agenda",
+    "deadline",
+    "calendrier",
+    "reunion",
+    "delai",
+    "echeance",
+    "organiser ma journee",
+    "organiser ma journée",
 ]
 
 # Contrôle Mac / apps — avant SCHOOL/LLM pour éviter open_app stripé par school/journal
 # Sans espace final : _match_any exige une frontière de mot (sinon « ouvre » + « Roblox » échoue).
 COMPUTER_PATTERNS = [
-    "ouvre", "ouvrir", "lance", "lancer", "ferme", "fermer",
-    "open app", "open -a", "sur mon mac", "sur le mac",
+    "ouvre",
+    "ouvrir",
+    "lance",
+    "lancer",
+    "ferme",
+    "fermer",
+    "open app",
+    "open -a",
+    "sur mon mac",
+    "sur le mac",
     "quitte",
 ]
 
 INFO_PATTERNS = [
-    "météo", "meteo", "quel temps", "quelle heure",
-    "définition", "definition", "c'est quoi", "combien de",
-    "calcule", "convertir", "explique", "cherche", "trouve",
-    "blague", "capitale", "raconte", "donne-moi", "donne moi",
-    "salut", "ça va", "ca va", "bonjour",
+    "météo",
+    "meteo",
+    "quel temps",
+    "quelle heure",
+    "définition",
+    "definition",
+    "c'est quoi",
+    "combien de",
+    "calcule",
+    "convertir",
+    "explique",
+    "cherche",
+    "trouve",
+    "blague",
+    "capitale",
+    "raconte",
+    "donne-moi",
+    "donne moi",
+    "salut",
+    "ça va",
+    "ca va",
+    "bonjour",
 ]
 
 JOURNAL_PATTERNS = [
-    "aujourd'hui j'ai", "je voulais raconter", "ma journée",
-    "j'ai vécu", "je tenais à noter",
+    "aujourd'hui j'ai",
+    "je voulais raconter",
+    "ma journée",
+    "j'ai vécu",
+    "je tenais à noter",
 ]
 
 VALID_CATEGORIES = (
@@ -335,14 +318,27 @@ async def classify_category(message: str) -> str:
 
     def _resolve(cat: str, method: str) -> str:
         elapsed = int((_time.time() - t0) * 1000)
-        asyncio.create_task(event_bus.emit(JarvisEvent(
-            type="orchestrator.classify",
-            data={"message": message[:80], "category": cat, "method": method, "latency_ms": elapsed},
-        )))
-        asyncio.create_task(event_bus.emit(JarvisEvent(
-            type="orchestrator.route",
-            data={"agent": cat.lower(), "message": message[:80]},
-        )))
+        asyncio.create_task(
+            event_bus.emit(
+                JarvisEvent(
+                    type="orchestrator.classify",
+                    data={
+                        "message": message[:80],
+                        "category": cat,
+                        "method": method,
+                        "latency_ms": elapsed,
+                    },
+                )
+            )
+        )
+        asyncio.create_task(
+            event_bus.emit(
+                JarvisEvent(
+                    type="orchestrator.route",
+                    data={"agent": cat.lower(), "message": message[:80]},
+                )
+            )
+        )
         return cat
 
     if _match_any(message, COACH_PATTERNS):
@@ -380,6 +376,7 @@ async def classify_category(message: str) -> str:
 
     return _resolve("INFO", "fallback")
 
+
 # Agent fallback si le ciblé n'existe pas encore (Phase 1 : seul `info` est implémenté)
 DEFAULT_AGENT = "info"
 
@@ -396,7 +393,9 @@ class OrchestratorAgent(BaseAgent):
     inject_persona = False  # routeur interne, ne parle pas à l'utilisateur
 
     @staticmethod
-    def _build_history(conversation_id: int | None, limit: int = HISTORY_LIMIT) -> list[dict]:
+    def _build_history(
+        conversation_id: int | None, limit: int = HISTORY_LIMIT
+    ) -> list[dict]:
         """Récupère les N derniers messages de la conversation et les formate
         pour l'API Claude (liste de ``{role, content}``).
 
@@ -409,7 +408,9 @@ class OrchestratorAgent(BaseAgent):
         try:
             rows = get_conversation_history(conversation_id, limit=limit)
         except Exception as exc:
-            logger.error("Erreur récupération historique conv %s : %s", conversation_id, exc)
+            logger.error(
+                "Erreur récupération historique conv %s : %s", conversation_id, exc
+            )
             return []
 
         messages: list[dict] = []
@@ -419,7 +420,13 @@ class OrchestratorAgent(BaseAgent):
             content = (msg.get("content") or "").strip()
             if not content:
                 continue
-            messages.append({"role": msg["role"], "content": content, "created_at": msg.get("created_at")})
+            messages.append(
+                {
+                    "role": msg["role"],
+                    "content": content,
+                    "created_at": msg.get("created_at"),
+                }
+            )
 
         if messages and messages[-1]["role"] == "user":
             messages.pop()
@@ -459,14 +466,27 @@ class OrchestratorAgent(BaseAgent):
 
         if heuristic:
             elapsed = int((_time.time() - t0) * 1000)
-            asyncio.create_task(event_bus.emit(JarvisEvent(
-                type="orchestrator.classify",
-                data={"message": user_message[:80], "category": heuristic, "method": "keyword", "latency_ms": elapsed},
-            )))
-            asyncio.create_task(event_bus.emit(JarvisEvent(
-                type="orchestrator.route",
-                data={"agent": heuristic.lower(), "message": user_message[:80]},
-            )))
+            asyncio.create_task(
+                event_bus.emit(
+                    JarvisEvent(
+                        type="orchestrator.classify",
+                        data={
+                            "message": user_message[:80],
+                            "category": heuristic,
+                            "method": "keyword",
+                            "latency_ms": elapsed,
+                        },
+                    )
+                )
+            )
+            asyncio.create_task(
+                event_bus.emit(
+                    JarvisEvent(
+                        type="orchestrator.route",
+                        data={"agent": heuristic.lower(), "message": user_message[:80]},
+                    )
+                )
+            )
             return heuristic
 
         # ── 2. LLM (pour les cas ambigus) ──
@@ -485,7 +505,9 @@ class OrchestratorAgent(BaseAgent):
                 raw = (result.get("content") or "").strip().upper()
             except Exception as e:
                 logger.warning(
-                    "Classification LLM échec (tentative %d) : %s", attempt, e,
+                    "Classification LLM échec (tentative %d) : %s",
+                    attempt,
+                    e,
                 )
             if raw:
                 break
@@ -501,155 +523,45 @@ class OrchestratorAgent(BaseAgent):
                 logger.info("Classification LLM '%s' → fallback INFO", raw[:40])
 
         elapsed = int((_time.time() - t0) * 1000)
-        asyncio.create_task(event_bus.emit(JarvisEvent(
-            type="orchestrator.classify",
-            data={"message": user_message[:80], "category": final_cat, "method": "llm", "latency_ms": elapsed},
-        )))
-        asyncio.create_task(event_bus.emit(JarvisEvent(
-            type="orchestrator.route",
-            data={"agent": final_cat.lower(), "message": user_message[:80]},
-        )))
+        asyncio.create_task(
+            event_bus.emit(
+                JarvisEvent(
+                    type="orchestrator.classify",
+                    data={
+                        "message": user_message[:80],
+                        "category": final_cat,
+                        "method": "llm",
+                        "latency_ms": elapsed,
+                    },
+                )
+            )
+        )
+        asyncio.create_task(
+            event_bus.emit(
+                JarvisEvent(
+                    type="orchestrator.route",
+                    data={"agent": final_cat.lower(), "message": user_message[:80]},
+                )
+            )
+        )
         return final_cat
 
     def build_context(self) -> dict:
-        """Construit le contexte dense pour Sonnet/Opus.
+        """Conserve seulement l'identité stable ; le reste vient du retrieval."""
 
-        Tout vient de la DB — données déjà structurées par Haiku.
-        Sonnet ne voit JAMAIS de messages bruts. Caché via prompt caching.
-        """
-        try:
-            ctx = build_full_context()
-        except Exception as e:
-            logger.error(f"Erreur build_context (full) : {e}")
-            ctx = {
-                "user_facts": {}, "life_profile": {},
-                "active_patterns": [], "active_life_context": [],
-                "recent_moods": [], "people_profiles": [],
-                "cross_insights": [], "recent_episodes": [],
-                "current_location": None, "current_visit": None,
-                "today_visits": [], "location_patterns": [],
-            }
-
-        # Life profile
-        profile_text = ""
-        for cat, items in ctx["life_profile"].items():
-            profile_text += f"\n{cat.upper()} :\n"
-            for item in items:
-                profile_text += f"- {item}\n"
-        profile_text = profile_text.strip() or "(profil non encore renseigné)"
-
-        # Faits utilisateur (dense)
-        facts_text = ""
-        for cat, facts in ctx["user_facts"].items():
-            facts_text += f"\n{cat.upper()} :\n"
-            for f in facts:
-                facts_text += f"- {f['content']}\n"
-        facts_text = facts_text.strip() or "(aucun fait enregistré)"
-
-        # Profils relationnels (dense)
-        people_text = ""
-        for p in ctx["people_profiles"][:15]:
-            name = p.get("name", "?")
-            rel = p.get("relationship") or "?"
-            people_text += f"\n### {name} ({rel})\n"
-            if p.get("communication_style"):
-                people_text += f"Style : {p['communication_style']}\n"
-            if p.get("dynamics") or p.get("power_dynamic"):
-                people_text += f"Dynamique : {p.get('power_dynamic') or p.get('dynamics', '?')}\n"
-            if p.get("sentiment"):
-                people_text += f"Sentiment : {p['sentiment']}\n"
-            if p.get("topics"):
-                people_text += f"Sujets : {p['topics']}\n"
-            if p.get("trust_level"):
-                people_text += f"Confiance : {p['trust_level']}\n"
-        people_text = people_text.strip() or "(aucune personne enregistrée)"
-
-        # Épisodes récents
-        episodes_text = "\n".join(
-            f"- [{e['agent']}] {e.get('summary') or e['content'][:120]}"
-            for e in ctx["recent_episodes"]
-        ) or "(aucun épisode récent)"
-
-        # Patterns actifs
-        patterns_text = "\n".join(
-            f"- [{p['pattern_type']}] {p['description']} (×{p['occurrences']})"
-            for p in ctx["active_patterns"]
-        ) or "(aucun pattern actif)"
-
-        # Insights cross-relations
-        insights_text = "\n".join(
-            f"- [{i['insight_type']}] {i['content']}"
-            for i in ctx["cross_insights"]
-        ) or "(aucun insight)"
-
-        # Contexte de vie actuel
-        life_ctx_text = "\n".join(
-            f"- {lc['context_type']} : {lc['description']}"
-            for lc in ctx["active_life_context"]
-        ) or "(pas de contexte de vie actif)"
-
-        # Moods récents (condensé)
-        moods = ctx["recent_moods"]
-        if moods:
-            avg_mood = sum(m["mood_score"] for m in moods if m.get("mood_score")) / max(len(moods), 1)
-            avg_energy = sum(m["energy_level"] for m in moods if m.get("energy_level")) / max(len(moods), 1)
-            mood_text = f"Mood moyen 14j : {avg_mood:.1f}/10, Énergie : {avg_energy:.1f}/10"
-        else:
-            mood_text = "Pas de données mood"
-
-        cloc = ctx.get("current_location")
-        cvis = ctx.get("current_visit")
-        today_v = ctx.get("today_visits") or []
-        loc_pat = ctx.get("location_patterns") or []
-
-        if cvis:
-            location_text = (
-                f"Lieu actuel (nommé) : {cvis.get('place_name', '?')} "
-                f"(depuis {cvis.get('arrived_at')})"
-            )
-        elif cloc:
-            try:
-                lat, lng = float(cloc["latitude"]), float(cloc["longitude"])
-                location_text = f"Position récente : {lat:.4f}, {lng:.4f} (hors lieu nommé ou en transit)"
-            except (KeyError, TypeError, ValueError):
-                location_text = "Position récente partielle."
-        else:
-            location_text = "Position récente inconnue (aucun point GPS < 10 min)."
-
-        if today_v:
-            names = [str(v.get("place_name") or "?") for v in today_v]
-            location_text += "\nAujourd'hui — parcours : " + " → ".join(names)
-
-        if loc_pat:
-            bits = [str(p.get("description") or "")[:160] for p in loc_pat[:6]]
-            location_text += "\nPatterns géo : " + " ; ".join(b for b in bits if b)
-
-        # ── Horodatage (recalculé à CHAQUE appel, source unique) ──────────
-        from agents import _get_horodatage
-        datetime_block = _get_horodatage() + "\n"
-
-        memory_context = (
-            f"{datetime_block}\n"
-            f"[LIFE_PROFILE]\n{profile_text}\n\n"
-            f"[USER_FACTS]\n{facts_text}\n\n"
-            f"[PEOPLE]\n{people_text}\n\n"
-            f"[RECENT_EPISODES]\n{episodes_text}\n\n"
-            f"[ACTIVE_PATTERNS]\n{patterns_text}\n\n"
-            f"[CROSS_INSIGHTS]\n{insights_text}\n\n"
-            f"[LIFE_CONTEXT]\n{life_ctx_text}\n\n"
-            f"[MOOD]\n{mood_text}\n\n"
-            f"[LOCATION]\n{location_text}"
+        stable_profile = (
+            "[PROFIL_STABLE]\n"
+            f"Nom : {config.USER_NAME}\n"
+            f"Ville : {config.WEATHER_CITY}\n"
+            f"Langue : {config.LANGUAGE}\n"
+            f"Fuseau : {config.TIMEZONE}"
         )
-        prior = (getattr(config, "PRIOR_SESSION_SUMMARY", None) or "").strip()
-        if prior:
-            memory_context += f"\n\n[DERNIÈRE_SESSION]\n{prior}"
-
         return {
             "user_name": config.USER_NAME,
             "city": config.WEATHER_CITY,
             "language": config.LANGUAGE,
             "timezone": config.TIMEZONE,
-            "memory_context": memory_context,
+            "memory_context": stable_profile,
         }
 
     async def _prepare_dispatch_context(
@@ -661,27 +573,111 @@ class OrchestratorAgent(BaseAgent):
         voice_mode: bool,
         base_context: dict | None = None,
     ) -> tuple[dict, BaseAgent | None]:
-        """Contexte identique pour chat texte, streaming et voix (mails, historique, agent)."""
+        """Contexte identique pour chat texte, streaming et voix."""
         ctx = dict(base_context) if base_context is not None else self.build_context()
         if voice_mode:
             ctx["voice_mode"] = True
-        ctx["history"] = self._build_history(conversation_id)
-        await append_recent_mails_to_context(ctx, user_message, category)
-        _append_task_control_to_context(ctx)
+        # `_build_enriched_context` charge l'historique en même temps que le
+        # retrieval. Les appels directs à l'orchestrateur gardent ce fallback.
+        ctx.setdefault("history", self._build_history(conversation_id))
+        if not ctx.get("__retrieval_done"):
+            from dataclasses import replace
+
+            from jarvis.retrieval import (
+                RetrievalRequest,
+                RetrievalResult,
+                format_retrieval_context,
+                search_knowledge,
+            )
+            from jarvis.retrieval.live_sources import refresh_live_sources
+
+            recent_user_turns = tuple(
+                str(message.get("content") or "")
+                for message in ctx.get("history", [])
+                if isinstance(message, dict) and message.get("role") == "user"
+            )[-6:]
+            request = RetrievalRequest(
+                query=user_message,
+                conversation_id=conversation_id,
+                recent_user_turns=recent_user_turns,
+                interaction_mode="voice" if voice_mode else "chat",
+            )
+            try:
+                live_report = await refresh_live_sources(request)
+                result = await asyncio.to_thread(search_knowledge, request)
+                live_failures = {
+                    str(source): str(status)
+                    for source, status in live_report.items()
+                    if str(status) in {"degraded", "unavailable"}
+                }
+                if live_failures:
+                    result = replace(
+                        result,
+                        status=(
+                            "unavailable"
+                            if not result.verified_sources and not result.hits
+                            else "degraded"
+                        ),
+                        unavailable_sources=tuple(
+                            sorted(set(result.unavailable_sources).union(live_failures))
+                        ),
+                        diagnostics=tuple(
+                            dict.fromkeys(
+                                (
+                                    *result.diagnostics,
+                                    *(
+                                        f"live:{source}:{status}"
+                                        for source, status in live_failures.items()
+                                    ),
+                                )
+                            )
+                        ),
+                    )
+            except Exception as exc:
+                logger.warning(
+                    "[retrieval] fallback orchestrateur indisponible: %s",
+                    type(exc).__name__,
+                )
+                result = RetrievalResult(
+                    status="unavailable",
+                    query=user_message,
+                    unavailable_sources=("knowledge",),
+                    diagnostics=(f"orchestrator:{type(exc).__name__}",),
+                )
+            ctx["retrieval_context"] = format_retrieval_context(result)
+            ctx["__retrieval_done"] = True
+            ctx["__retrieval_status"] = result.status
+            ctx["__retrieval_references"] = [
+                {
+                    "uid": hit.uid,
+                    "source_type": hit.source_type,
+                    "source_id": hit.source_id,
+                }
+                for hit in result.hits[:8]
+            ]
 
         agent_name = CATEGORY_TO_AGENT.get(category, DEFAULT_AGENT)
         agent = get_agent(agent_name) or get_agent(DEFAULT_AGENT)
         if agent is None:
             return ctx, None
 
-        if agent.name == "productivity" and hasattr(agent, "_collect_pro_context"):
-            ctx.update(await agent._collect_pro_context())
-        elif hasattr(agent, "_enrich_context") and callable(getattr(agent, "_enrich_context")):
+        # Productivity enrichit lui-même handle/handle_stream. Le faire ici
+        # lançait une deuxième collecte Mail/Calendar dans le même tour.
+        if (
+            agent.name != "productivity"
+            and hasattr(agent, "_enrich_context")
+            and callable(getattr(agent, "_enrich_context"))
+        ):
             ctx = agent._enrich_context(ctx)
         return ctx, agent
 
-    async def handle(self, user_message: str, conversation_id: int = None,
-                     context: dict = None, voice_mode: bool = False) -> dict:
+    async def handle(
+        self,
+        user_message: str,
+        conversation_id: int = None,
+        context: dict = None,
+        voice_mode: bool = False,
+    ) -> dict:
         """Classifie → dispatche → retourne la réponse de l'agent ciblé.
 
         ``user_message`` est le texte brut utilisateur (transcription ou saisie).
@@ -696,7 +692,11 @@ class OrchestratorAgent(BaseAgent):
             base_ctx.update(context)
 
         ctx, agent = await self._prepare_dispatch_context(
-            user_message, conversation_id, category, voice_mode=voice_mode, base_context=base_ctx
+            user_message,
+            conversation_id,
+            category,
+            voice_mode=voice_mode,
+            base_context=base_ctx,
         )
 
         if agent is None:
@@ -711,12 +711,19 @@ class OrchestratorAgent(BaseAgent):
             }
 
         to_agent = f"[VOICE_MODE] {user_message}" if voice_mode else user_message
-        result = await agent.handle(to_agent, conversation_id=conversation_id, context=ctx)
+        result = await agent.handle(
+            to_agent, conversation_id=conversation_id, context=ctx
+        )
         result["category"] = category
         return result
 
-    async def handle_stream(self, user_message: str, conversation_id: int = None,
-                             context: dict = None, voice_mode: bool = False) -> AsyncGenerator[dict, None]:
+    async def handle_stream(
+        self,
+        user_message: str,
+        conversation_id: int = None,
+        context: dict = None,
+        voice_mode: bool = False,
+    ) -> AsyncGenerator[dict, None]:
         """Version streaming : yield {type, ...} successifs.
 
         Si l'agent ciblé expose `handle_stream()`, on lui délègue (ex : SchoolAgent
@@ -740,22 +747,41 @@ class OrchestratorAgent(BaseAgent):
             base_ctx.update(context)
 
         ctx, agent = await self._prepare_dispatch_context(
-            user_message, conversation_id, category, voice_mode=voice_mode, base_context=base_ctx
+            user_message,
+            conversation_id,
+            category,
+            voice_mode=voice_mode,
+            base_context=base_ctx,
         )
 
-        yield {"type": "classification", "category": category, "agent": agent.name if agent else DEFAULT_AGENT}
+        yield {
+            "type": "classification",
+            "category": category,
+            "agent": agent.name if agent else DEFAULT_AGENT,
+        }
 
         if agent is None:
             yield {"type": "chunk", "content": "Aucun agent disponible."}
-            yield {"type": "done", "tokens_in": 0, "tokens_out": 0, "cost": 0.0, "model": self.model, "agent": "orchestrator"}
+            yield {
+                "type": "done",
+                "tokens_in": 0,
+                "tokens_out": 0,
+                "cost": 0.0,
+                "model": self.model,
+                "agent": "orchestrator",
+            }
             return
 
         to_agent = f"[VOICE_MODE] {user_message}" if voice_mode else user_message
 
         # Si l'agent a son propre streaming (cas school avec _route_task), on lui délègue.
         # conversation_id=None pour éviter un double save (c'est le handler WebSocket qui persiste).
-        if hasattr(agent, "handle_stream") and callable(getattr(agent, "handle_stream")):
-            async for event in agent.handle_stream(to_agent, conversation_id=None, context=ctx):
+        if hasattr(agent, "handle_stream") and callable(
+            getattr(agent, "handle_stream")
+        ):
+            async for event in agent.handle_stream(
+                to_agent, conversation_id=None, context=ctx
+            ):
                 if event.get("type") == "classification":
                     event["category"] = category
                 yield event
@@ -790,7 +816,7 @@ class OrchestratorAgent(BaseAgent):
                 m = re.match(r"^\s*\[(\w+)\]\s*\n?", full_response)
                 if m and m.group(1).lower() in agent._VALID_EMOTIONS:
                     detected_emotion = m.group(1).lower()
-                    clean = full_response[m.end():]
+                    clean = full_response[m.end() :]
                     emotion_tag_stripped = True
                     if clean:
                         yield {"type": "chunk", "content": clean}

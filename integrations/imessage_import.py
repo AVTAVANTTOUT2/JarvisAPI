@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import sqlite3
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -29,6 +30,9 @@ from integrations.apple_data import (
     apple_epoch_to_datetime,
 )
 from integrations.imessage_body import message_text_from_row
+
+# Une seule sync à la fois (daemon HTTP + periodic_scan + retrieval live).
+_SYNC_LOCK = threading.Lock()
 
 def _message_batch_sql(conn: sqlite3.Connection) -> str:
     """Construit la lecture compatible avec plusieurs générations de chat.db."""
@@ -441,6 +445,19 @@ class IMessageImporter:
         if not self.is_available():
             raise RuntimeError("chat.db inaccessible — verifier Full Disk Access")
 
+        if not _SYNC_LOCK.acquire(blocking=False):
+            # ponytail: skip si déjà en cours — le prochain cycle H24 rattrape.
+            logger.info("[imessage_import] Sync déjà en cours — cycle ignoré")
+            skipped = ImportResult(mode="incremental")
+            skipped.errors.append("sync_already_running")
+            return skipped
+
+        try:
+            return self._sync_incremental_locked()
+        finally:
+            _SYNC_LOCK.release()
+
+    def _sync_incremental_locked(self) -> ImportResult:
         t0 = datetime.now()
         result = ImportResult(mode="incremental")
 

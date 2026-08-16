@@ -198,6 +198,60 @@ def test_runtime_config_accepts_only_a_confined_local_mcp_overlay(
     assert config["autoupdate"] is False
 
 
+def test_runtime_mcp_overlay_merges_without_wiping_template_servers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Le broker JARVIS ne doit pas effacer un MCP de preuve déjà au template."""
+    from integrations.opencode.config import settings as settings_mod
+
+    template = tmp_path / "opencode.json"
+    template.write_text(
+        json.dumps(
+            {
+                "server": {"cors": [], "hostname": "127.0.0.1", "mdns": False},
+                "share": "disabled",
+                "autoupdate": False,
+                "mcp": {
+                    "jarvis-e2e": {
+                        "type": "local",
+                        "command": [str(tmp_path / "python"), "-m", "fixture"],
+                        "enabled": True,
+                        "environment": {"PYTHONPATH": str(tmp_path)},
+                        "timeout": 5000,
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(settings_mod, "OPENCODE_CONFIG_TEMPLATE", template)
+    layout = _layout(tmp_path)
+    overlay = {
+        "mcp": {
+            "jarvis": {
+                "type": "local",
+                "command": [
+                    str(tmp_path / "python"),
+                    "-m",
+                    "integrations.opencode.mcp.server",
+                    "--capability-file",
+                    str(tmp_path / "capabilities.json"),
+                ],
+                "environment": {"PYTHONPATH": str(tmp_path)},
+                "enabled": True,
+                "timeout": 5000,
+            }
+        }
+    }
+
+    path = provision_runtime_config(layout, runtime_config_overlay=overlay)
+    config = json.loads(path.read_text(encoding="utf-8"))
+
+    assert set(config["mcp"]) == {"jarvis-e2e", "jarvis"}
+    assert config["mcp"]["jarvis"] == overlay["mcp"]["jarvis"]
+    assert config["mcp"]["jarvis-e2e"]["command"][-1] == "fixture"
+
+
 @pytest.mark.parametrize(
     "forbidden", ["server", "share", "autoupdate", "provider", "agent", "tool_output"]
 )

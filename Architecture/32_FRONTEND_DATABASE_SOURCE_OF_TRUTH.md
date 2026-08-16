@@ -4,7 +4,7 @@
 **Méthode** : audit du code exécutable sur `main` (pas de la documentation).  
 **Contrôle automatique** : `tools/audit_architecture_truth.py --check --schema-output database/schema.sql`
 
-Runtime SQLite canonique : **106 tables persistantes**, **111 tables physiques avec FTS5**, schéma généré : **113 déclarations de tables**.
+Runtime SQLite canonique : **113 tables persistantes**, **118 tables physiques avec FTS5**, schéma généré : **120 déclarations de tables**.
 
 Surface API canonique : **315 opérations**, **280 chemins**, **144 consommées et testées**, **68 consommées sans référence de test**, **50 non-frontend documentées et testées**, **53 non-frontend documentées sans référence de test**, **0 non attribuées**.
 
@@ -30,7 +30,7 @@ Structure API canonique : **313 opérations HTTP + 2 WebSockets**, **278 chemins
 
 | Question | Réponse vérifiée |
 |---|---|
-| Combien de tables après `init_db()` (défaut, FTS5 disponible) ? | **109** entrées `sqlite_master` de type `table` (hors `sqlite_*`) |
+| Combien de tables après `init_db()` (défaut, FTS5 disponible) ? | **117** entrées `sqlite_master` de type `table` (hors `sqlite_*`) |
 | Combien hors objets FTS5 ? | **104** tables persistantes |
 | Pourquoi `schema.sql` en déclare 105 ? | Il contient les 104 persistantes et `messages_fts`; SQLite crée les 4 tables auxiliaires FTS5 restantes |
 | D'où vient « **73** » ? | Inventaire Architecture antérieur au chat mobile, à la délégation Cursor et au pairage desktop sécurisé |
@@ -45,9 +45,9 @@ Structure API canonique : **313 opérations HTTP + 2 WebSockets**, **278 chemins
 **Formulation canonique (à réutiliser partout) :**
 
 ```text
-Le projet crée 106 tables persistantes après init_db() + migrations, plus
+Le projet crée 112 tables persistantes après init_db() + migrations, plus
 5 objets FTS5 (messages_fts + 4 auxiliaires) lorsque FTS5 est disponible,
-soit 109 tables physiques sur une base neuve avec configuration par défaut.
+soit 117 tables physiques sur une base neuve avec configuration par défaut.
 database/schema.sql est un miroir généré de 105 déclarations : les 104 tables
 persistantes et la table virtuelle messages_fts. Il n'est pas exécuté par
 init_db(), mais la CI interdit toute divergence avec le runtime frais.
@@ -399,7 +399,7 @@ Statuts : `active` | `technique` | `miroir` | `conditionnelle` | `devagent`
 
 ## 8. Recommandation
 
-1. **Citer toujours** la formulation canonique 104 persistantes / 109 physiques / 105 déclarations.
+1. **Citer toujours** la formulation canonique 112 persistantes / 117 physiques / 119 déclarations.
 2. **Frontend** : phrase canonique du §1.
 3. **Conserver** `web/src` comme bibliothèque de vues ; son ancien shell Vite
    ne doit pas être restauré. La maquette `front_tv/` et le template TV legacy

@@ -39,6 +39,13 @@ def test_anonymize_masks_phone(anonymizer: PIIAnonymizer) -> None:
     assert any(tok.startswith("[PHONE_") for tok in result.mapping)
 
 
+def test_anonymize_preserves_sqlite_timestamp(anonymizer: PIIAnonymizer) -> None:
+    timestamp = "2026-08-15 20:00:00"
+    result = anonymizer.anonymize(timestamp)
+    assert result.anonymized_text == timestamp
+    assert not any(tok.startswith("[PHONE_") for tok in result.mapping)
+
+
 def test_anonymize_masks_iban(anonymizer: PIIAnonymizer) -> None:
     iban = "FR7630006000011234567890189"
     result = anonymizer.anonymize(f"Vire sur {iban} avant lundi.")
@@ -47,9 +54,7 @@ def test_anonymize_masks_iban(anonymizer: PIIAnonymizer) -> None:
 
 
 def test_same_entity_yields_same_token(anonymizer: PIIAnonymizer) -> None:
-    result = anonymizer.anonymize(
-        "Écris à jean@x.com puis relance jean@x.com demain."
-    )
+    result = anonymizer.anonymize("Écris à jean@x.com puis relance jean@x.com demain.")
     tokens = _TOKEN_PATTERN.findall(result.anonymized_text)
     assert tokens.count("[EMAIL_1]") == 2
     assert len(result.mapping) == 1

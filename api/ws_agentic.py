@@ -106,6 +106,7 @@ async def maybe_send_agentic_run(
     device: str | None = None,
     locale: str | None = None,
     timezone_name: str | None = None,
+    enriched_context: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """Crée éventuellement un run puis émet son accusé générique sur la socket."""
 
@@ -120,6 +121,7 @@ async def maybe_send_agentic_run(
         device=device,
         locale=locale,
         timezone_name=timezone_name,
+        enriched_context=enriched_context,
     )
     if agentic is None:
         return None

@@ -86,7 +86,12 @@ def test_session_tokens_cannot_cross_profile_boundaries(profile_db: Path) -> Non
 def test_http_profile_binding_is_fail_closed(profile_db: Path) -> None:
     import auth
     import config
-    from database import create_task, create_user_profile, current_profile_id, use_profile
+    from database import (
+        create_task,
+        create_user_profile,
+        current_profile_id,
+        use_profile,
+    )
     from main import app
 
     auth.setup_secret("9999")
@@ -103,9 +108,22 @@ def test_http_profile_binding_is_fail_closed(profile_db: Path) -> None:
         assert "Tâche privée" in response.text
         assert response.headers["X-Jarvis-Profile"] == alice["id"]
 
-        assert client.get("/api/tasks", headers={"X-Jarvis-Profile": "default"}).status_code == 401
-        assert client.get("/api/tasks", headers={"X-Jarvis-Profile": "ghost"}).status_code == 404
-        assert client.get("/api/tasks", headers={"X-Jarvis-Profile": "../alice"}).status_code == 400
+        assert (
+            client.get(
+                "/api/tasks", headers={"X-Jarvis-Profile": "default"}
+            ).status_code
+            == 401
+        )
+        assert (
+            client.get("/api/tasks", headers={"X-Jarvis-Profile": "ghost"}).status_code
+            == 404
+        )
+        assert (
+            client.get(
+                "/api/tasks", headers={"X-Jarvis-Profile": "../alice"}
+            ).status_code
+            == 400
+        )
 
     assert current_profile_id() == "default"
 
@@ -127,7 +145,9 @@ def test_event_subscribers_are_partitioned_by_profile(profile_db: Path) -> None:
             event = JarvisEvent(type="task.created", data={"title": "privé"})
             await bus.emit(event)
 
-        assert (await asyncio.wait_for(alice_queue.get(), timeout=1)).profile_id == alice["id"]
+        assert (
+            await asyncio.wait_for(alice_queue.get(), timeout=1)
+        ).profile_id == alice["id"]
         assert bob_queue.empty()
 
     asyncio.run(scenario())
@@ -186,7 +206,9 @@ def test_profile_management_routes_require_default_admin(profile_db: Path) -> No
 
     with TestClient(app) as client:
         client.cookies.set(config.SESSION_COOKIE_NAME, token)
-        listing = client.get("/api/auth/profiles", headers={"X-Jarvis-Profile": "default"})
+        listing = client.get(
+            "/api/auth/profiles", headers={"X-Jarvis-Profile": "default"}
+        )
         assert listing.status_code == 200
         assert listing.json()["profiles"][0]["id"] == "default"
 
@@ -206,7 +228,12 @@ def test_profile_management_routes_require_default_admin(profile_db: Path) -> No
         )
         assert deactivated.status_code == 200
         assert profile_path.is_file()
-        assert client.get("/api/tasks", headers={"X-Jarvis-Profile": profile_id}).status_code == 404
+        assert (
+            client.get(
+                "/api/tasks", headers={"X-Jarvis-Profile": profile_id}
+            ).status_code
+            == 404
+        )
 
     # Session secondaire : création / désactivation refusées (frontière de privilège).
     guest = create_user_profile("Guest Admin Check")
@@ -263,7 +290,9 @@ def test_create_user_profile_rolls_back_registry_when_init_fails(
         assert not any(profiles_dir.rglob("*.db"))
 
 
-def test_create_user_profile_rejects_empty_or_oversized_display_name(profile_db: Path) -> None:
+def test_create_user_profile_rejects_empty_or_oversized_display_name(
+    profile_db: Path,
+) -> None:
     from database import create_user_profile
 
     with pytest.raises(ValueError, match="1 et 80"):
@@ -272,7 +301,9 @@ def test_create_user_profile_rejects_empty_or_oversized_display_name(profile_db:
         create_user_profile("x" * 81)
 
 
-def test_semantic_indexing_thread_keeps_active_profile(profile_db: Path, monkeypatch) -> None:
+def test_semantic_indexing_thread_keeps_active_profile(
+    profile_db: Path, monkeypatch
+) -> None:
     from database import create_user_profile, current_profile_id, use_profile
     from database.episodes import _dispatch_semantic_indexing
 
@@ -302,6 +333,21 @@ def test_semantic_indexing_thread_keeps_active_profile(profile_db: Path, monkeyp
     assert observed == [alice["id"]]
 
 
+def test_ambient_transaction_rejects_profile_switch(profile_db: Path) -> None:
+    """An ambient transaction must never leak across profile boundaries."""
+    from database import create_user_profile, db_transaction, get_db, use_profile
+
+    alice = create_user_profile("Alice ambient")
+    bob = create_user_profile("Bob ambient")
+
+    with use_profile(alice["id"]):
+        with db_transaction():
+            with use_profile(bob["id"]):
+                with pytest.raises(RuntimeError, match="ambient_db_profile_mismatch"):
+                    with get_db():
+                        pass
+
+
 def test_push_thread_keeps_active_profile(profile_db: Path, monkeypatch) -> None:
     from database import create_user_profile, current_profile_id, use_profile
     from database.notifications import _dispatch_push_notification
@@ -323,7 +369,9 @@ def test_push_thread_keeps_active_profile(profile_db: Path, monkeypatch) -> None
         return []
 
     monkeypatch.setattr(threading, "Thread", DeferredThread)
-    monkeypatch.setattr("database.notifications.get_all_push_subscriptions", fake_subscriptions)
+    monkeypatch.setattr(
+        "database.notifications.get_all_push_subscriptions", fake_subscriptions
+    )
     monkeypatch.setattr("database.mobile.get_active_mobile_push_tokens", lambda: [])
     with use_profile(alice["id"]):
         _dispatch_push_notification("Privé", "profil Alice", "high")

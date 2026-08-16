@@ -244,6 +244,19 @@ CREATE TABLE auth_rate_limits (
             updated_at TEXT NOT NULL
         );
 
+CREATE TABLE calendar_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    external_id TEXT NOT NULL UNIQUE,
+    calendar_name TEXT NOT NULL DEFAULT '',
+    title TEXT NOT NULL,
+    start_at TEXT NOT NULL,
+    end_at TEXT,
+    location TEXT NOT NULL DEFAULT '',
+    notes TEXT NOT NULL DEFAULT '',
+    is_all_day INTEGER NOT NULL DEFAULT 0 CHECK(is_all_day IN (0, 1)),
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE commitments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             content TEXT NOT NULL,
@@ -890,6 +903,89 @@ CREATE TABLE jarvis_journal (
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
 
+CREATE TABLE knowledge_embeddings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    knowledge_item_id INTEGER NOT NULL REFERENCES knowledge_items(id) ON DELETE CASCADE,
+    model TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
+    embedding BLOB NOT NULL,
+    embedded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(knowledge_item_id, model)
+);
+
+CREATE TABLE knowledge_index_jobs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_type TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    operation TEXT NOT NULL DEFAULT 'upsert'
+        CHECK(operation IN ('upsert', 'delete')),
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK(status IN ('pending', 'running', 'retry', 'done', 'dead')),
+    attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts >= 0),
+    next_attempt_at TEXT,
+    last_error_code TEXT,
+    claimed_at TEXT,
+    completed_at TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(source_type, source_id)
+);
+
+CREATE TABLE knowledge_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    uid TEXT NOT NULL UNIQUE,
+    source_type TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    chunk_index INTEGER NOT NULL DEFAULT 0 CHECK(chunk_index >= 0),
+    conversation_id INTEGER REFERENCES conversations(id) ON DELETE SET NULL,
+    title TEXT NOT NULL DEFAULT '',
+    searchable_text TEXT NOT NULL,
+    summary TEXT NOT NULL DEFAULT '',
+    people_json TEXT NOT NULL DEFAULT '[]',
+    occurred_at TEXT,
+    source_updated_at TEXT,
+    indexed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    content_hash TEXT NOT NULL,
+    sensitivity TEXT NOT NULL DEFAULT 'personal',
+    cloud_policy TEXT NOT NULL DEFAULT 'redact',
+    trust TEXT NOT NULL DEFAULT 'untrusted_stored_data',
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    deleted_at TEXT,
+    UNIQUE(source_type, source_id, chunk_index)
+);
+
+CREATE VIRTUAL TABLE knowledge_items_fts USING fts5(
+                title,
+                searchable_text,
+                summary,
+                content='knowledge_items', content_rowid='id',
+                tokenize='unicode61 remove_diacritics 2'
+            );
+
+CREATE TABLE knowledge_retrieval_references (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    uid TEXT NOT NULL,
+    source_type TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    rank INTEGER NOT NULL DEFAULT 0 CHECK(rank >= 0),
+    referenced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(conversation_id, uid)
+);
+
+CREATE TABLE knowledge_source_state (
+    source_key TEXT PRIMARY KEY,
+    source_type TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'ok'
+        CHECK(status IN ('ok', 'degraded', 'unavailable')),
+    cursor TEXT,
+    item_count INTEGER NOT NULL DEFAULT 0 CHECK(item_count >= 0),
+    last_indexed_at TEXT,
+    last_backfill_at TEXT,
+    last_error_code TEXT,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE life_context (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     period_start DATE,
@@ -1501,6 +1597,9 @@ CREATE INDEX idx_appusage_date ON app_usage(date);
 
 CREATE INDEX idx_auth_rate_limits_updated ON auth_rate_limits(updated_at);
 
+CREATE INDEX idx_calendar_events_start
+    ON calendar_events(start_at, end_at);
+
 CREATE INDEX idx_commitments_status ON commitments(status);
 
 CREATE INDEX idx_control_task_activity_task
@@ -1632,6 +1731,27 @@ CREATE UNIQUE INDEX idx_imessage_msg_rowid ON imessage_messages(apple_rowid);
 
 CREATE INDEX idx_imessage_reactions_msg ON imessage_reactions(message_id);
 
+CREATE INDEX idx_knowledge_embeddings_hash
+    ON knowledge_embeddings(content_hash);
+
+CREATE INDEX idx_knowledge_items_conversation
+    ON knowledge_items(conversation_id, occurred_at DESC);
+
+CREATE INDEX idx_knowledge_items_hash
+    ON knowledge_items(content_hash);
+
+CREATE INDEX idx_knowledge_items_source_time
+    ON knowledge_items(source_type, occurred_at DESC);
+
+CREATE INDEX idx_knowledge_jobs_pending
+    ON knowledge_index_jobs(status, next_attempt_at, created_at);
+
+CREATE INDEX idx_knowledge_references_conversation
+    ON knowledge_retrieval_references(conversation_id, referenced_at DESC, rank);
+
+CREATE INDEX idx_knowledge_source_state_type
+    ON knowledge_source_state(source_type, status);
+
 CREATE INDEX idx_lifecontext_active ON life_context(active);
 
 CREATE INDEX idx_llm_logs_action_type ON llm_action_logs(action_type);
@@ -1728,6 +1848,3620 @@ CREATE INDEX idx_wellbeing_date ON wellbeing_logs(date);
 CREATE INDEX idx_workouts_date ON workouts(date);
 
 CREATE INDEX idx_worksessions_date ON work_sessions(started_at);
+
+CREATE TRIGGER knowledge_items_fts_ad
+            AFTER DELETE ON knowledge_items BEGIN
+                INSERT INTO knowledge_items_fts(
+                    knowledge_items_fts, rowid, title, searchable_text, summary
+                ) VALUES (
+                    'delete', old.id, old.title, old.searchable_text, old.summary
+                );
+            END;
+
+CREATE TRIGGER knowledge_items_fts_ai
+            AFTER INSERT ON knowledge_items BEGIN
+                INSERT INTO knowledge_items_fts(rowid, title, searchable_text, summary)
+                VALUES (new.id, new.title, new.searchable_text, new.summary);
+            END;
+
+CREATE TRIGGER knowledge_items_fts_au
+            AFTER UPDATE OF title, searchable_text, summary ON knowledge_items BEGIN
+                INSERT INTO knowledge_items_fts(
+                    knowledge_items_fts, rowid, title, searchable_text, summary
+                ) VALUES (
+                    'delete', old.id, old.title, old.searchable_text, old.summary
+                );
+                INSERT INTO knowledge_items_fts(rowid, title, searchable_text, summary)
+                VALUES (new.id, new.title, new.searchable_text, new.summary);
+            END;
+
+CREATE TRIGGER knowledge_job_agent_approvals_agent_approval_ad
+            AFTER DELETE ON agent_approvals BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'agent_approval', CAST(old.approval_id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_agent_approvals_agent_approval_ai
+            AFTER INSERT ON agent_approvals BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'agent_approval', CAST(new.approval_id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_agent_approvals_agent_approval_au
+            AFTER UPDATE ON agent_approvals BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'agent_approval', CAST(new.approval_id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_agent_artifacts_agent_artifact_ad
+            AFTER DELETE ON agent_artifacts BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'agent_artifact', CAST(old.artifact_id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_agent_artifacts_agent_artifact_ai
+            AFTER INSERT ON agent_artifacts BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'agent_artifact', CAST(new.artifact_id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_agent_artifacts_agent_artifact_au
+            AFTER UPDATE ON agent_artifacts BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'agent_artifact', CAST(new.artifact_id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_agent_runs_agent_run_ad
+            AFTER DELETE ON agent_runs BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'agent_run', CAST(old.run_id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_agent_runs_agent_run_ai
+            AFTER INSERT ON agent_runs BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'agent_run', CAST(new.run_id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_agent_runs_agent_run_au
+            AFTER UPDATE ON agent_runs BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'agent_run', CAST(new.run_id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_agent_steps_agent_step_ad
+            AFTER DELETE ON agent_steps BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'agent_step', CAST(old.step_id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_agent_steps_agent_step_ai
+            AFTER INSERT ON agent_steps BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'agent_step', CAST(new.step_id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_agent_steps_agent_step_au
+            AFTER UPDATE ON agent_steps BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'agent_step', CAST(new.step_id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_agentic_workflows_agentic_workflow_ad
+            AFTER DELETE ON agentic_workflows BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'agentic_workflow', CAST(old.id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_agentic_workflows_agentic_workflow_ai
+            AFTER INSERT ON agentic_workflows BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'agentic_workflow', CAST(new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_agentic_workflows_agentic_workflow_au
+            AFTER UPDATE ON agentic_workflows BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'agentic_workflow', CAST(new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_calendar_events_calendar_ad
+            AFTER DELETE ON calendar_events BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'calendar', CAST(old.id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_calendar_events_calendar_ai
+            AFTER INSERT ON calendar_events BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'calendar', CAST(new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_calendar_events_calendar_au
+            AFTER UPDATE ON calendar_events BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'calendar', CAST(new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_commitments_commitment_ad
+            AFTER DELETE ON commitments BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'commitment', CAST(old.id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_commitments_commitment_ai
+            AFTER INSERT ON commitments BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'commitment', CAST(new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_commitments_commitment_au
+            AFTER UPDATE ON commitments BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'commitment', CAST(new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_control_task_activity_control_activity_ad
+            AFTER DELETE ON control_task_activity BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'control_activity', CAST(old.activity_id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_control_task_activity_control_activity_ai
+            AFTER INSERT ON control_task_activity BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'control_activity', CAST(new.activity_id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_control_task_activity_control_activity_au
+            AFTER UPDATE ON control_task_activity BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'control_activity', CAST(new.activity_id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_control_task_comments_control_comment_ad
+            AFTER DELETE ON control_task_comments BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'control_comment', CAST(old.comment_id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_control_task_comments_control_comment_ai
+            AFTER INSERT ON control_task_comments BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'control_comment', CAST(new.comment_id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_control_task_comments_control_comment_au
+            AFTER UPDATE ON control_task_comments BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'control_comment', CAST(new.comment_id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_control_task_plans_control_plan_ad
+            AFTER DELETE ON control_task_plans BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'control_plan', CAST(old.plan_id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_control_task_plans_control_plan_ai
+            AFTER INSERT ON control_task_plans BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'control_plan', CAST(new.plan_id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_control_task_plans_control_plan_au
+            AFTER UPDATE ON control_task_plans BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'control_plan', CAST(new.plan_id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_control_task_reports_control_report_ad
+            AFTER DELETE ON control_task_reports BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'control_report', CAST(old.report_id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_control_task_reports_control_report_ai
+            AFTER INSERT ON control_task_reports BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'control_report', CAST(new.report_id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_control_task_reports_control_report_au
+            AFTER UPDATE ON control_task_reports BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'control_report', CAST(new.report_id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_control_tasks_control_task_ad
+            AFTER DELETE ON control_tasks BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'control_task', CAST(old.task_id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_control_tasks_control_task_ai
+            AFTER INSERT ON control_tasks BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'control_task', CAST(new.task_id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_control_tasks_control_task_au
+            AFTER UPDATE ON control_tasks BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'control_task', CAST(new.task_id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_conversation_documents_conversation_document_ad
+            AFTER DELETE ON conversation_documents BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'conversation_document', CAST(old.id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_conversation_documents_conversation_document_ai
+            AFTER INSERT ON conversation_documents BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'conversation_document', CAST(new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_conversation_documents_conversation_document_au
+            AFTER UPDATE ON conversation_documents BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'conversation_document', CAST(new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_conversation_documents_document_ad
+            AFTER DELETE ON conversation_documents BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'document', CAST('conversation:' || old.id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_conversation_documents_document_ai
+            AFTER INSERT ON conversation_documents BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'document', CAST('conversation:' || new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_conversation_documents_document_au
+            AFTER UPDATE ON conversation_documents BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'document', CAST('conversation:' || new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_conversation_turns_conversation_turn_ad
+            AFTER DELETE ON conversation_turns BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'conversation_turn', CAST(old.id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_conversation_turns_conversation_turn_ai
+            AFTER INSERT ON conversation_turns BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'conversation_turn', CAST(new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_conversation_turns_conversation_turn_au
+            AFTER UPDATE ON conversation_turns BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'conversation_turn', CAST(new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_conversations_conversation_ad
+            AFTER DELETE ON conversations BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'conversation', CAST(old.id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_conversations_conversation_ai
+            AFTER INSERT ON conversations BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'conversation', CAST(new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_conversations_conversation_au
+            AFTER UPDATE ON conversations BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'conversation', CAST(new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_cross_insights_insight_ad
+            AFTER DELETE ON cross_insights BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'insight', CAST('cross:' || old.id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_cross_insights_insight_ai
+            AFTER INSERT ON cross_insights BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'insight', CAST('cross:' || new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_cross_insights_insight_au
+            AFTER UPDATE ON cross_insights BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'insight', CAST('cross:' || new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_cursor_delegation_jobs_cursor_job_ad
+            AFTER DELETE ON cursor_delegation_jobs BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'cursor_job', CAST(COALESCE(old.job_id, CAST(old.id AS TEXT)) AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_cursor_delegation_jobs_cursor_job_ai
+            AFTER INSERT ON cursor_delegation_jobs BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'cursor_job', CAST(COALESCE(new.job_id, CAST(new.id AS TEXT)) AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_cursor_delegation_jobs_cursor_job_au
+            AFTER UPDATE ON cursor_delegation_jobs BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'cursor_job', CAST(COALESCE(new.job_id, CAST(new.id AS TEXT)) AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_daily_briefings_briefing_ad
+            AFTER DELETE ON daily_briefings BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'briefing', CAST('daily:' || old.id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_daily_briefings_briefing_ai
+            AFTER INSERT ON daily_briefings BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'briefing', CAST('daily:' || new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_daily_briefings_briefing_au
+            AFTER UPDATE ON daily_briefings BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'briefing', CAST('daily:' || new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_dev_projects_project_ad
+            AFTER DELETE ON dev_projects BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'project', CAST(old.id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_dev_projects_project_ai
+            AFTER INSERT ON dev_projects BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'project', CAST(new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_dev_projects_project_au
+            AFTER UPDATE ON dev_projects BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'project', CAST(new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_email_summaries_email_ad
+            AFTER DELETE ON email_summaries BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'email', CAST(old.id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_email_summaries_email_ai
+            AFTER INSERT ON email_summaries BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'email', CAST(new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_email_summaries_email_au
+            AFTER UPDATE ON email_summaries BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'email', CAST(new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_episodes_episode_ad
+            AFTER DELETE ON episodes BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'episode', CAST(old.id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_episodes_episode_ai
+            AFTER INSERT ON episodes BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'episode', CAST(new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_episodes_episode_au
+            AFTER UPDATE ON episodes BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'episode', CAST(new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_episodes_note_ad
+            AFTER DELETE ON episodes BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'note', CAST(old.id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_episodes_note_ai
+            AFTER INSERT ON episodes BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'note', CAST(new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_episodes_note_au
+            AFTER UPDATE ON episodes BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'note', CAST(new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_fitness_program_sessions_wellbeing_ad
+            AFTER DELETE ON fitness_program_sessions BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'wellbeing', CAST('fitness-session:' || old.id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_fitness_program_sessions_wellbeing_ai
+            AFTER INSERT ON fitness_program_sessions BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'wellbeing', CAST('fitness-session:' || new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_fitness_program_sessions_wellbeing_au
+            AFTER UPDATE ON fitness_program_sessions BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'wellbeing', CAST('fitness-session:' || new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_fitness_programs_wellbeing_ad
+            AFTER DELETE ON fitness_programs BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'wellbeing', CAST('fitness-program:' || old.id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_fitness_programs_wellbeing_ai
+            AFTER INSERT ON fitness_programs BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'wellbeing', CAST('fitness-program:' || new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_fitness_programs_wellbeing_au
+            AFTER UPDATE ON fitness_programs BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'wellbeing', CAST('fitness-program:' || new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_fitness_session_progress_wellbeing_ad
+            AFTER DELETE ON fitness_session_progress BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'wellbeing', CAST('fitness-progress:' || old.id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_fitness_session_progress_wellbeing_ai
+            AFTER INSERT ON fitness_session_progress BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'wellbeing', CAST('fitness-progress:' || new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_fitness_session_progress_wellbeing_au
+            AFTER UPDATE ON fitness_session_progress BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'wellbeing', CAST('fitness-progress:' || new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_fitness_weight_logs_wellbeing_ad
+            AFTER DELETE ON fitness_weight_logs BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'wellbeing', CAST('weight:' || old.id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_fitness_weight_logs_wellbeing_ai
+            AFTER INSERT ON fitness_weight_logs BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'wellbeing', CAST('weight:' || new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_fitness_weight_logs_wellbeing_au
+            AFTER UPDATE ON fitness_weight_logs BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'wellbeing', CAST('weight:' || new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_food_orders_wellbeing_ad
+            AFTER DELETE ON food_orders BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'wellbeing', CAST('food-order:' || old.id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_food_orders_wellbeing_ai
+            AFTER INSERT ON food_orders BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'wellbeing', CAST('food-order:' || new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_food_orders_wellbeing_au
+            AFTER UPDATE ON food_orders BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'wellbeing', CAST('food-order:' || new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_food_preferences_wellbeing_ad
+            AFTER DELETE ON food_preferences BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'wellbeing', CAST('food-pref:' || old.id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_food_preferences_wellbeing_ai
+            AFTER INSERT ON food_preferences BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'wellbeing', CAST('food-pref:' || new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_food_preferences_wellbeing_au
+            AFTER UPDATE ON food_preferences BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'wellbeing', CAST('food-pref:' || new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_imessage_messages_imessage_ad
+            AFTER DELETE ON imessage_messages BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'imessage', CAST(old.id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_imessage_messages_imessage_ai
+            AFTER INSERT ON imessage_messages BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'imessage', CAST(new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_imessage_messages_imessage_au
+            AFTER UPDATE ON imessage_messages BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'imessage', CAST(new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_jarvis_journal_journal_ad
+            AFTER DELETE ON jarvis_journal BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'journal', CAST(old.id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_jarvis_journal_journal_ai
+            AFTER INSERT ON jarvis_journal BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'journal', CAST(new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_jarvis_journal_journal_au
+            AFTER UPDATE ON jarvis_journal BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'journal', CAST(new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_life_context_life_context_ad
+            AFTER DELETE ON life_context BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'life_context', CAST('context:' || old.id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_life_context_life_context_ai
+            AFTER INSERT ON life_context BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'life_context', CAST('context:' || new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_life_context_life_context_au
+            AFTER UPDATE ON life_context BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'life_context', CAST('context:' || new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_life_profile_life_context_ad
+            AFTER DELETE ON life_profile BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'life_context', CAST('profile:' || old.id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_life_profile_life_context_ai
+            AFTER INSERT ON life_profile BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'life_context', CAST('profile:' || new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_life_profile_life_context_au
+            AFTER UPDATE ON life_profile BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'life_context', CAST('profile:' || new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_location_patterns_location_ad
+            AFTER DELETE ON location_patterns BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'location', CAST('pattern:' || old.id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_location_patterns_location_ai
+            AFTER INSERT ON location_patterns BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'location', CAST('pattern:' || new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_location_patterns_location_au
+            AFTER UPDATE ON location_patterns BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'location', CAST('pattern:' || new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_meals_wellbeing_ad
+            AFTER DELETE ON meals BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'wellbeing', CAST('meal:' || old.id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_meals_wellbeing_ai
+            AFTER INSERT ON meals BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'wellbeing', CAST('meal:' || new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_meals_wellbeing_au
+            AFTER UPDATE ON meals BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'wellbeing', CAST('meal:' || new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_message_insights_insight_ad
+            AFTER DELETE ON message_insights BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'insight', CAST('message:' || old.id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_message_insights_insight_ai
+            AFTER INSERT ON message_insights BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'insight', CAST('message:' || new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_message_insights_insight_au
+            AFTER UPDATE ON message_insights BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'insight', CAST('message:' || new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_messages_message_ad
+            AFTER DELETE ON messages BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'message', CAST(old.id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_messages_message_ai
+            AFTER INSERT ON messages BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'message', CAST(new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_messages_message_au
+            AFTER UPDATE ON messages BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'message', CAST(new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_mood_log_wellbeing_ad
+            AFTER DELETE ON mood_log BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'wellbeing', CAST('mood:' || old.id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_mood_log_wellbeing_ai
+            AFTER INSERT ON mood_log BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'wellbeing', CAST('mood:' || new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_mood_log_wellbeing_au
+            AFTER UPDATE ON mood_log BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'wellbeing', CAST('mood:' || new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_mood_signals_wellbeing_ad
+            AFTER DELETE ON mood_signals BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'wellbeing', CAST('mood-signal:' || old.id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_mood_signals_wellbeing_ai
+            AFTER INSERT ON mood_signals BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'wellbeing', CAST('mood-signal:' || new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_mood_signals_wellbeing_au
+            AFTER UPDATE ON mood_signals BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'wellbeing', CAST('mood-signal:' || new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_notifications_notification_ad
+            AFTER DELETE ON notifications BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'notification', CAST(old.id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_notifications_notification_ai
+            AFTER INSERT ON notifications BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'notification', CAST(new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_notifications_notification_au
+            AFTER UPDATE ON notifications BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'notification', CAST(new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_patterns_pattern_ad
+            AFTER DELETE ON patterns BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'pattern', CAST(old.id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_patterns_pattern_ai
+            AFTER INSERT ON patterns BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'pattern', CAST(new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_patterns_pattern_au
+            AFTER UPDATE ON patterns BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'pattern', CAST(new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_people_events_people_event_ad
+            AFTER DELETE ON people_events BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'people_event', CAST(old.id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_people_events_people_event_ai
+            AFTER INSERT ON people_events BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'people_event', CAST(new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_people_events_people_event_au
+            AFTER UPDATE ON people_events BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'people_event', CAST(new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_people_person_ad
+            AFTER DELETE ON people BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'person', CAST(old.id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_people_person_ai
+            AFTER INSERT ON people BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'person', CAST(new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_people_person_au
+            AFTER UPDATE ON people BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'person', CAST(new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_places_location_ad
+            AFTER DELETE ON places BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'location', CAST('place:' || old.id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_places_location_ai
+            AFTER INSERT ON places BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'location', CAST('place:' || new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_places_location_au
+            AFTER UPDATE ON places BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'location', CAST('place:' || new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_recordings_recording_ad
+            AFTER DELETE ON recordings BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'recording', CAST(old.id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_recordings_recording_ai
+            AFTER INSERT ON recordings BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'recording', CAST(new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_recordings_recording_au
+            AFTER UPDATE ON recordings BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'recording', CAST(new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_relationship_events_relationship_event_ad
+            AFTER DELETE ON relationship_events BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'relationship_event', CAST(old.id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_relationship_events_relationship_event_ai
+            AFTER INSERT ON relationship_events BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'relationship_event', CAST(new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_relationship_events_relationship_event_au
+            AFTER UPDATE ON relationship_events BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'relationship_event', CAST(new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_relationship_profiles_relationship_ad
+            AFTER DELETE ON relationship_profiles BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'relationship', CAST(old.id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_relationship_profiles_relationship_ai
+            AFTER INSERT ON relationship_profiles BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'relationship', CAST(new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_relationship_profiles_relationship_au
+            AFTER UPDATE ON relationship_profiles BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'relationship', CAST(new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_scheduler_job_runs_scheduler_job_ad
+            AFTER DELETE ON scheduler_job_runs BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'scheduler_job', CAST(old.id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_scheduler_job_runs_scheduler_job_ai
+            AFTER INSERT ON scheduler_job_runs BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'scheduler_job', CAST(new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_scheduler_job_runs_scheduler_job_au
+            AFTER UPDATE ON scheduler_job_runs BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'scheduler_job', CAST(new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_school_documents_document_ad
+            AFTER DELETE ON school_documents BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'document', CAST('school:' || old.id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_school_documents_document_ai
+            AFTER INSERT ON school_documents BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'document', CAST('school:' || new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_school_documents_document_au
+            AFTER UPDATE ON school_documents BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'document', CAST('school:' || new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_school_documents_school_document_ad
+            AFTER DELETE ON school_documents BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'school_document', CAST(old.id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_school_documents_school_document_ai
+            AFTER INSERT ON school_documents BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'school_document', CAST(new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_school_documents_school_document_au
+            AFTER UPDATE ON school_documents BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'school_document', CAST(new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_tasks_task_ad
+            AFTER DELETE ON tasks BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'task', CAST(old.id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_tasks_task_ai
+            AFTER INSERT ON tasks BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'task', CAST(new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_tasks_task_au
+            AFTER UPDATE ON tasks BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'task', CAST(new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_user_facts_fact_ad
+            AFTER DELETE ON user_facts BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'fact', CAST(old.id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_user_facts_fact_ai
+            AFTER INSERT ON user_facts BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'fact', CAST(new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_user_facts_fact_au
+            AFTER UPDATE ON user_facts BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'fact', CAST(new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_weekly_summaries_briefing_ad
+            AFTER DELETE ON weekly_summaries BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'briefing', CAST('weekly:' || old.id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_weekly_summaries_briefing_ai
+            AFTER INSERT ON weekly_summaries BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'briefing', CAST('weekly:' || new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_weekly_summaries_briefing_au
+            AFTER UPDATE ON weekly_summaries BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'briefing', CAST('weekly:' || new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_wellbeing_logs_wellbeing_ad
+            AFTER DELETE ON wellbeing_logs BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'wellbeing', CAST('wellbeing:' || old.id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_wellbeing_logs_wellbeing_ai
+            AFTER INSERT ON wellbeing_logs BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'wellbeing', CAST('wellbeing:' || new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_wellbeing_logs_wellbeing_au
+            AFTER UPDATE ON wellbeing_logs BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'wellbeing', CAST('wellbeing:' || new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER memory_embeddings_episode_ad
+        AFTER DELETE ON episodes BEGIN
+            DELETE FROM memory_embeddings
+            WHERE source_type = 'episode' AND source_id = CAST(old.id AS TEXT);
+        END;
+
+CREATE TRIGGER memory_embeddings_episode_au
+        AFTER UPDATE ON episodes BEGIN
+            DELETE FROM memory_embeddings
+            WHERE source_type = 'episode' AND source_id = CAST(old.id AS TEXT);
+        END;
+
+CREATE TRIGGER memory_embeddings_recording_ad
+        AFTER DELETE ON recordings BEGIN
+            DELETE FROM memory_embeddings
+            WHERE source_type = 'recording' AND source_id = CAST(old.id AS TEXT);
+        END;
+
+CREATE TRIGGER memory_embeddings_recording_au
+        AFTER UPDATE ON recordings BEGIN
+            DELETE FROM memory_embeddings
+            WHERE source_type = 'recording' AND source_id = CAST(old.id AS TEXT);
+        END;
 
 CREATE TRIGGER messages_fts_ad AFTER DELETE ON messages BEGIN
             INSERT INTO messages_fts(messages_fts, rowid, content)

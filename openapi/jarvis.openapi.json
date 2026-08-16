@@ -15290,7 +15290,7 @@
     },
     "/api/memory/search-semantic": {
       "get": {
-        "description": "Recherche sémantique (similarité de sens, pas seulement mots-clés) sur la mémoire indexée.",
+        "description": "Recherche la mémoire via le coordinateur, au format historique de l'API.\n\nL'ancien index vectoriel ne couvrait que les épisodes et enregistrements ;\ncette frontière explicite est conservée. Le coordinateur borne actuellement\nses réponses à huit hits, même lorsque le ``limit`` historique est supérieur.",
         "operationId": "get_api_memory_search_semantic",
         "parameters": [
           {

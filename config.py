@@ -203,9 +203,14 @@ VOICE_ADDRESS_POLICY = _get("VOICE_ADDRESS_POLICY", "rare").strip().lower()
 # accepté. `long_jobs_only` (défaut) l'autorise dans ce seul cas ; `never` le
 # supprime entièrement. Masquer le temps de premier jeton d'un LLM par une
 # phrase creuse n'est pas une option : c'était le défaut corrigé.
-VOICE_PROGRESS_ACK_POLICY = _get(
-    "VOICE_PROGRESS_ACK_POLICY", "long_jobs_only",
-).strip().lower()
+VOICE_PROGRESS_ACK_POLICY = (
+    _get(
+        "VOICE_PROGRESS_ACK_POLICY",
+        "long_jobs_only",
+    )
+    .strip()
+    .lower()
+)
 STT_VAD_FILTER = _get("STT_VAD_FILTER", str(DEFAULT_STT_VAD_FILTER)).lower() in (
     "true",
     "1",
@@ -454,16 +459,12 @@ APPLE_SHORTCUTS_WORKSPACE = _get(
     "APPLE_SHORTCUTS_WORKSPACE",
     str(BASE_DIR / "data" / "apple_shortcuts_workspace"),
 )
-APPLE_SHORTCUTS_PLAN_TTL_SECONDS = int(
-    _get("APPLE_SHORTCUTS_PLAN_TTL_SECONDS", "600")
-)
+APPLE_SHORTCUTS_PLAN_TTL_SECONDS = int(_get("APPLE_SHORTCUTS_PLAN_TTL_SECONDS", "600"))
 APPLE_SHORTCUTS_RUN_TIMEOUT = float(_get("APPLE_SHORTCUTS_RUN_TIMEOUT", "60"))
 # Jeton Bearer pour les recettes iOS/macOS qui appellent JARVIS
 # (POST /api/apple/shortcuts/ask|task) — distinct de LOCATION_API_TOKEN.
 APPLE_SHORTCUTS_INGEST_TOKEN = _get("APPLE_SHORTCUTS_INGEST_TOKEN", "")
-APPLE_SHORTCUTS_INGEST_RATE_LIMIT = int(
-    _get("APPLE_SHORTCUTS_INGEST_RATE_LIMIT", "30")
-)
+APPLE_SHORTCUTS_INGEST_RATE_LIMIT = int(_get("APPLE_SHORTCUTS_INGEST_RATE_LIMIT", "30"))
 APPLE_SHORTCUTS_INGEST_RATE_WINDOW_SECONDS = float(
     _get("APPLE_SHORTCUTS_INGEST_RATE_WINDOW_SECONDS", "60")
 )
@@ -585,6 +586,10 @@ RELATIONSHIP_ALERTS_ENABLED = (
     _get("RELATIONSHIP_ALERTS_ENABLED", "true").lower() == "true"
 )
 DB_MAINTENANCE_ENABLED = _get("DB_MAINTENANCE_ENABLED", "true").lower() == "true"
+KNOWLEDGE_WORKER_ENABLED = _get("KNOWLEDGE_WORKER_ENABLED", "true").lower() == "true"
+KNOWLEDGE_WORKER_INTERVAL_SECONDS = float(
+    _get("KNOWLEDGE_WORKER_INTERVAL_SECONDS", "60")
+)
 LLM_BUDGET_CHECK_ENABLED = _get("LLM_BUDGET_CHECK_ENABLED", "true").lower() == "true"
 BREAK_ALERTS_ENABLED = _get("BREAK_ALERTS_ENABLED", "true").lower() == "true"
 MOOD_SIGNALS_ENABLED = _get("MOOD_SIGNALS_ENABLED", "true").lower() == "true"
@@ -661,7 +666,9 @@ OLLAMA_URL = _get(
 )
 OLLAMA_AUTOSTART = _get("OLLAMA_AUTOSTART", "true").lower() == "true"
 # Claw3D — UI visuelle optionnelle, pilotée par le superviseur (pas de LaunchAgent dédié)
-CLAW3D_MANAGED_BY_SUPERVISOR = _get("CLAW3D_MANAGED_BY_SUPERVISOR", "true").lower() == "true"
+CLAW3D_MANAGED_BY_SUPERVISOR = (
+    _get("CLAW3D_MANAGED_BY_SUPERVISOR", "true").lower() == "true"
+)
 CLAW3D_HOST = _get("CLAW3D_HOST", "127.0.0.1")
 CLAW3D_PORT = _positive_int("CLAW3D_PORT", 3000)
 CLAW3D_MODE = _get("CLAW3D_MODE", "jarvis-readonly")
@@ -1076,7 +1083,9 @@ AGENTIC_EVENT_RETENTION_DAYS = _positive_int("AGENTIC_EVENT_RETENTION_DAYS", 30)
 # ── Pilotage de tâches (capture → plan → validation humaine → exécution) ──
 # La détection ne décide jamais d'exécuter : au-dessus du seuil « auto », elle
 # crée une tâche qui attend son plan, pas une tâche qui démarre.
-TASK_DETECTION_ENABLED = _get("TASK_DETECTION_ENABLED", "true").strip().lower() == "true"
+TASK_DETECTION_ENABLED = (
+    _get("TASK_DETECTION_ENABLED", "true").strip().lower() == "true"
+)
 TASK_DETECTION_MIN_CONFIDENCE = _positive_float("TASK_DETECTION_MIN_CONFIDENCE", 0.45)
 TASK_DETECTION_AUTO_CONFIDENCE = _positive_float("TASK_DETECTION_AUTO_CONFIDENCE", 0.85)
 TASK_DETECTION_DISABLED_SOURCES = _get("TASK_DETECTION_DISABLED_SOURCES", "").strip()
@@ -1095,9 +1104,7 @@ SUPERVISOR_RESTART_LOCK_TIMEOUT_S = _positive_float(
 SUPERVISOR_RESTART_PORT_TIMEOUT_S = _positive_float(
     "SUPERVISOR_RESTART_PORT_TIMEOUT_S", 15.0
 )
-AGENTIC_CANCEL_ACK_TIMEOUT_S = _positive_float(
-    "AGENTIC_CANCEL_ACK_TIMEOUT_S", 10.0
-)
+AGENTIC_CANCEL_ACK_TIMEOUT_S = _positive_float("AGENTIC_CANCEL_ACK_TIMEOUT_S", 10.0)
 
 # ── CI locale (pré-commit) ───────────────────────────────────
 LOCAL_CI_RUN_FRONTEND_BUILD = (

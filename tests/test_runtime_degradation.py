@@ -261,7 +261,8 @@ def test_empty_response_is_logged_visibly_with_its_cause():
     # vocal, lui, ne reçoit qu'un texte déjà nettoyé — il ne peut plus
     # distinguer « rien du tout » de « seulement le tag [emotion] ».
     source = (PROJECT_ROOT / "api" / "chat_processing.py").read_text(encoding="utf-8")
-    block = source[source.index('cause = "aucun_contenu"') :]
+    marker = '"aucun_contenu"'
+    block = source[source.index(marker) - 200 :]
     block = block[: block.index("if persist_assistant")]
 
     assert "logger.warning" in block
@@ -307,10 +308,15 @@ def test_mail_stops_calling_after_repeated_timeouts(monkeypatch):
     first_round = calls
     assert first_round <= 2, "au plus une reprise par appel"
 
-    # Le disjoncteur est ouvert : plus aucun sous-processus n'est lancé.
+    # Seuil H24 = 3 : un second appel peut encore partir, puis le disjoncteur coupe.
     assert client._run_applescript("tell app \"Mail\" to return 1") is None
-    assert calls == first_round, "un appel a été émis alors que le disjoncteur est ouvert"
+    opened_at = calls
+    assert opened_at > first_round
     assert client._breaker_open_until > time.time()
+
+    # Disjoncteur ouvert : plus aucun sous-processus.
+    assert client._run_applescript("tell app \"Mail\" to return 1") is None
+    assert calls == opened_at, "un appel a été émis alors que le disjoncteur est ouvert"
 
 
 def test_mail_recovers_when_the_cooldown_expires(monkeypatch):

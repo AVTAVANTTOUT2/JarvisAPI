@@ -31,13 +31,12 @@ from integrations import calendar_client
 logger = logging.getLogger("jarvis")
 
 
-
 # ── Calendar ──────────────────────────────────────────────────
 
 
 async def api_calendar_get(start: str = "", end: str = ""):
     """Récupère les événements Calendar.app entre deux dates ISO."""
-    if not calendar_client or not calendar_client.is_available():
+    if not calendar_client:
         raise api_error(503, "calendar_unavailable", "Calendar.app indisponible")
     if not start or not end:
         raise api_error(
@@ -46,12 +45,20 @@ async def api_calendar_get(start: str = "", end: str = ""):
             "Paramètres start et end requis (ISO 8601)",
         )
     try:
-        events = await calendar_client.get_events(start, end)
+        result = await calendar_client.get_events_result(start, end)
     except Exception as exc:
         logger.exception("[calendar/list] échec")
         raise api_error(
             502, "calendar_read_failed", "Lecture du calendrier impossible"
         ) from exc
+    if result.status != "ok":
+        error = result.error or "calendar_read_failed"
+        if error == "calendar_range_invalid":
+            raise api_error(400, error, "Plage de calendrier invalide")
+        if error == "calendar_unavailable":
+            raise api_error(503, error, "Calendar.app indisponible")
+        raise api_error(502, "calendar_read_failed", "Lecture du calendrier impossible")
+    events = list(result.events)
     return {"events": events, "count": len(events)}
 
 
@@ -112,6 +119,7 @@ async def api_analyze_contact(payload: AnalyzeContactRequest):
     """Lance l'analyse Haiku d'un contact iMessage. Body : {"name": "Bertille"}."""
     try:
         from scripts.relationship_analyzer import analyzer
+
         result = await analyzer.analyze_single_contact(payload.name)
         if result is None:
             raise api_error(404, "contact_messages_not_found", "Aucun message trouvé")
@@ -120,7 +128,9 @@ async def api_analyze_contact(payload: AnalyzeContactRequest):
         raise
     except Exception as e:
         logger.exception("Erreur analyze-contact")
-        raise internal_error("contact_analysis_failed", "Analyse du contact impossible") from e
+        raise internal_error(
+            "contact_analysis_failed", "Analyse du contact impossible"
+        ) from e
 
 
 async def api_relationship_detail(name: str):
@@ -131,7 +141,9 @@ async def api_relationship_detail(name: str):
         raise api_error(404, "person_not_found", "Contact non trouvé")
 
     profile = get_relationship_profile(person["id"]) if person.get("id") else None
-    timeline = get_relationship_timeline(person["id"], limit=30) if person.get("id") else []
+    timeline = (
+        get_relationship_timeline(person["id"], limit=30) if person.get("id") else []
+    )
 
     return {
         "person": person,
@@ -182,12 +194,14 @@ async def api_mac_contacts():
                 disp = contacts_reader.resolve_handle(handle or "")
             else:
                 disp = handle
-            contacts.append({
-                "handle": handle,
-                "name": disp,
-                "msg_count": c.get("msg_count"),
-                "last_date": c.get("last_date"),
-            })
+            contacts.append(
+                {
+                    "handle": handle,
+                    "name": disp,
+                    "msg_count": c.get("msg_count"),
+                    "last_date": c.get("last_date"),
+                }
+            )
         return {"contacts": contacts}
     except Exception as e:
         logger.warning("[api/contacts] %s", e)
@@ -203,7 +217,9 @@ async def api_contacts_sync():
         return result
     except Exception as e:
         logger.error("[api/contacts/sync] %s", e)
-        raise internal_error("contacts_sync_failed", "Synchronisation des contacts impossible") from e
+        raise internal_error(
+            "contacts_sync_failed", "Synchronisation des contacts impossible"
+        ) from e
 
 
 async def api_search(q: str = "", limit: int = 50):
@@ -224,7 +240,9 @@ async def api_search(q: str = "", limit: int = 50):
 async def api_export_dump(format: str = "json"):
     """Dump JSON agrégé pour sauvegarde locale (pas de secrets tiers)."""
     if format.lower() != "json":
-        raise api_error(400, "unsupported_export_format", "Seul format=json est supporté")
+        raise api_error(
+            400, "unsupported_export_format", "Seul format=json est supporté"
+        )
 
     try:
         from database.location_helpers import get_all_places

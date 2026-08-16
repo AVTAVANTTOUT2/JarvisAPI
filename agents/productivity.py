@@ -25,6 +25,7 @@ from database import (
     save_daily_briefing,
 )
 from integrations import calendar_client, mail_client, weather
+from integrations.calendar_api import CalendarQueryResult
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +43,15 @@ def _format_emails(emails: list[dict], max_items: int = 10) -> str:
     return "\n".join(lines)
 
 
-def _format_calendar(events: list[dict]) -> str:
+def _format_calendar(
+    events: list[dict],
+    *,
+    status: str = "ok",
+    error: str | None = None,
+) -> str:
+    if status != "ok":
+        reason = f" ({error})" if error else ""
+        return f"(agenda indisponible{reason} — ne pas conclure que l'agenda est vide)"
     if not events:
         return "(agenda vide)"
     lines = []
@@ -109,13 +118,21 @@ class ProductivityAgent(BaseAgent):
     description = "Emails, calendrier, tâches, briefings"
     model = config.DEEPSEEK_MAIN_MODEL
 
-    async def _collect_pro_context(self, use_email_summaries: bool = False) -> dict:
+    async def _collect_pro_context(
+        self,
+        use_email_summaries: bool = False,
+        *,
+        skip_mail: bool = False,
+    ) -> dict:
         """Collecte en parallèle emails / calendar / météo / tâches.
 
         Si `use_email_summaries=True`, on lit les résumés déjà produits par
         `email_watcher` au lieu de re-analyser les non-lus à chaque appel.
         Recommandé pour `morning_briefing()` (économise des tokens Haiku).
+        `skip_mail=True` est réservé au pipeline conversationnel lorsque le
+        retrieval unifié a déjà traité cette source pendant le même tour.
         """
+
         async def _safe(coro, default):
             try:
                 return await coro
@@ -123,8 +140,21 @@ class ProductivityAgent(BaseAgent):
                 logger.error(f"[productivity] context fetch : {e}")
                 return default
 
+        async def _calendar_today_result() -> CalendarQueryResult:
+            if not calendar_client:
+                return CalendarQueryResult(
+                    status="unavailable", error="calendar_unavailable"
+                )
+            try:
+                return await calendar_client.get_today_events_result()
+            except Exception as e:
+                logger.error("[productivity] calendar fetch : %s", e)
+                return CalendarQueryResult(
+                    status="unavailable", error="calendar_query_failed"
+                )
+
         # En mode briefing, on ne refait pas l'appel Gmail (les résumés DB suffisent).
-        if use_email_summaries:
+        if skip_mail or use_email_summaries:
             email_coro = asyncio.sleep(0, result=[])
         elif mail_client and mail_client.is_available():
             email_coro = _safe(mail_client.get_unread(10), [])
@@ -133,14 +163,22 @@ class ProductivityAgent(BaseAgent):
 
         results = await asyncio.gather(
             email_coro,
-            _safe(calendar_client.get_today_events(), []) if calendar_client and calendar_client.is_available() else asyncio.sleep(0, result=[]),
-            _safe(weather.get_current(), None) if weather and weather.is_available() else asyncio.sleep(0, result=None),
+            _calendar_today_result(),
+            _safe(weather.get_current(), None)
+            if weather and weather.is_available()
+            else asyncio.sleep(0, result=None),
         )
-        emails, cal_events, current_weather = results
+        emails, calendar_result, current_weather = results
+        calendar_status = calendar_result.status
+        calendar_error = calendar_result.error
+        cal_events = list(calendar_result.events) if calendar_status == "ok" else []
         tasks = get_tasks()  # synchrone, rapide
 
         # Email context : soit live (handle), soit pré-analysé (briefing)
-        if use_email_summaries:
+        if skip_mail:
+            analyzed = []
+            emails_context = ""
+        elif use_email_summaries:
             try:
                 analyzed = get_recent_email_summaries(limit=15)
             except Exception as e:
@@ -162,37 +200,51 @@ class ProductivityAgent(BaseAgent):
             "emails": emails,
             "email_summaries": analyzed,
             "calendar_events": cal_events,
+            "calendar_status": calendar_status,
+            "calendar_error": calendar_error,
             "weather": current_weather,
             "tasks": tasks,
             "notifications": notifs,
             "emails_context": emails_context,
-            "calendar_context": _format_calendar(cal_events),
+            "calendar_context": _format_calendar(
+                cal_events,
+                status=calendar_status,
+                error=calendar_error,
+            ),
             "weather_context": _format_weather(current_weather),
             "tasks_context": _format_tasks(tasks),
             "notifications_context": _format_notifications(notifs),
-            "pro_context": (
-                f"Date : {datetime.now().strftime('%A %d %B %Y, %H:%M')}"
-            ),
+            "pro_context": (f"Date : {datetime.now().strftime('%A %d %B %Y, %H:%M')}"),
         }
 
-    async def handle(self, user_message: str, conversation_id: int = None,
-                     context: dict = None) -> dict:
+    async def handle(
+        self, user_message: str, conversation_id: int = None, context: dict = None
+    ) -> dict:
         ctx = dict(context or {})
-        ctx.update(await self._collect_pro_context())
+        ctx.update(
+            await self._collect_pro_context(
+                skip_mail=bool(ctx.get("__retrieval_done")),
+            )
+        )
         return await self._route_task(user_message, conversation_id, ctx)
 
-    async def handle_stream(self, user_message: str, conversation_id: int = None,
-                            context: dict = None) -> AsyncGenerator[dict, None]:
+    async def handle_stream(
+        self, user_message: str, conversation_id: int = None, context: dict = None
+    ) -> AsyncGenerator[dict, None]:
         yield {"type": "classification", "agent": self.name}
 
         ctx = dict(context or {})
-        ctx.update(await self._collect_pro_context())
+        ctx.update(
+            await self._collect_pro_context(
+                skip_mail=bool(ctx.get("__retrieval_done")),
+            )
+        )
 
         result = await self._route_task(user_message, conversation_id, ctx)
         response_text = result.get("response", "")
 
         for i in range(0, len(response_text), STREAM_CHUNK_SIZE):
-            yield {"type": "chunk", "content": response_text[i:i + STREAM_CHUNK_SIZE]}
+            yield {"type": "chunk", "content": response_text[i : i + STREAM_CHUNK_SIZE]}
             await asyncio.sleep(0.01)
 
         yield {
@@ -225,7 +277,8 @@ class ProductivityAgent(BaseAgent):
         ctx["user_name"] = config.USER_NAME
         notif_count = len(ctx.get("notifications") or [])
         urgent_count = sum(
-            1 for n in (ctx.get("notifications") or [])
+            1
+            for n in (ctx.get("notifications") or [])
             if (n.get("priority") or "").lower() == "urgent"
         )
         prefix = "Génère le briefing du matin."
@@ -274,7 +327,9 @@ class ProductivityAgent(BaseAgent):
             role = m.get("role", "?")
             content = (m.get("content") or "").replace("\n", " ")[:120]
             conv_summary_lines.append(f"[{role}] {content}")
-        conv_summary = "\n".join(conv_summary_lines) or "(aucune conversation aujourd'hui)"
+        conv_summary = (
+            "\n".join(conv_summary_lines) or "(aucune conversation aujourd'hui)"
+        )
 
         ctx = {
             "user_name": config.USER_NAME,
@@ -306,7 +361,9 @@ class ProductivityAgent(BaseAgent):
         except Exception as e:
             logger.error(f"[productivity] save evening : {e}")
 
-        logger.info(f"[productivity] Evening summary généré ({result['tokens_out']} tokens)")
+        logger.info(
+            f"[productivity] Evening summary généré ({result['tokens_out']} tokens)"
+        )
         return summary
 
 
