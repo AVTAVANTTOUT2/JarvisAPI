@@ -20,12 +20,19 @@ def test_web_lifespan_starts_no_ingestion_worker_or_apple_watcher() -> None:
     assert [token for token in forbidden if token in source] == []
 
 
-def test_launchagent_owns_the_single_ingestion_entrypoint() -> None:
+def test_launchagent_owns_the_single_ingestion_entrypoint(tmp_path: Path) -> None:
     from scripts.launchagents import build_launch_agent_payloads
+
+    # Le générateur exige un venv réel (bin/python). CI n'a pas ROOT/.venv :
+    # on fabrique le minimum comme tests/test_launchagents.py.
+    venv_python = tmp_path / "venv" / "bin" / "python"
+    venv_python.parent.mkdir(parents=True)
+    venv_python.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    venv_python.chmod(0o755)
 
     payloads = build_launch_agent_payloads(
         repo_root=ROOT,
-        venv_dir=ROOT / ".venv",
+        venv_dir=venv_python.parent.parent,
     )
     ingestion = payloads["ingestion"]
     assert ingestion["Label"] == "com.jarvis.ingestion"

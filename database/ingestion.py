@@ -10,7 +10,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable, Mapping, Sequence
 
-from database import dbapi as sqlite3
+from . import dbapi as sqlite3
 from database.core import current_profile_id, get_connection, get_db
 from database.time_buckets import sqlite_utc_timestamp
 from jarvis.ingestion.models import (
