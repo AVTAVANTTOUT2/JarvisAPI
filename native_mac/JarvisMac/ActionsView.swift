@@ -10,25 +10,34 @@ struct ActionsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 SectionHeader(
-                    eyebrow: "EXÉCUTION",
-                    title: "Actions",
-                    subtitle: "Décider vite, laisser Jarvis suivre le reste."
+                    eyebrow: "VOTRE LISTE",
+                    title: "À faire",
+                    subtitle: "Des éléments simples à ajouter puis cocher. Pour un travail confié à Jarvis, créez une mission."
                 )
                 quickAdd
-                HStack(alignment: .top, spacing: 16) {
-                    taskList
-                    agenda
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: 16) {
+                        taskList.frame(minWidth: 390)
+                        agenda.frame(width: 300)
+                    }
+                    .frame(minWidth: 720)
+
+                    VStack(spacing: 16) {
+                        taskList
+                        agenda
+                    }
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(28)
         }
-        .navigationTitle("Actions")
+        .navigationTitle("À faire")
     }
 
     private var quickAdd: some View {
         HStack(spacing: 12) {
             Image(systemName: "plus.circle.fill").foregroundStyle(JarvisPalette.cyan).font(.title2)
-            TextField("Ajouter une action…", text: $newTask)
+            TextField("Ajouter à ma liste…", text: $newTask)
                 .textFieldStyle(.plain)
                 .font(.title3)
                 .onSubmit { addTask() }
@@ -50,17 +59,21 @@ struct ActionsView: View {
     private var taskList: some View {
         VStack(alignment: .leading, spacing: 13) {
             HStack {
-                Label("À faire", systemImage: "checklist").font(.headline)
+                Label("Liste personnelle", systemImage: "checklist").font(.headline)
                 Spacer()
                 Text("\(model.snapshot.tasks.count)").font(.caption).foregroundStyle(.secondary)
             }
             if model.snapshot.tasks.isEmpty {
-                EmptyState(symbol: "checkmark.seal.fill", title: "Liste vide", subtitle: "Ajoutez une action ou demandez à Jarvis de le faire.")
+                EmptyState(symbol: "checkmark.seal.fill", title: "Liste vide", subtitle: "Ajoutez un élément ici. Les travaux confiés à Jarvis vivent dans Missions Jarvis.")
                     .frame(height: 280)
             } else {
-                ForEach(model.snapshot.tasks) { task in
-                    TaskRow(task: task) { Task { await model.toggleTask(task) } }
-                    if task.id != model.snapshot.tasks.last?.id { Divider().opacity(0.45) }
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(model.snapshot.tasks.enumerated()), id: \.element.id) { index, task in
+                        TaskRow(task: task) { Task { await model.toggleTask(task) } }
+                        if index < model.snapshot.tasks.count - 1 {
+                            Divider().opacity(0.45)
+                        }
+                    }
                 }
             }
         }
@@ -98,7 +111,7 @@ struct ActionsView: View {
             .buttonStyle(JarvisSecondaryButtonStyle())
         }
         .jarvisCardPadding()
-        .frame(width: 330, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
         .jarvisGlass()
     }
 

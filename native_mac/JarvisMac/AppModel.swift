@@ -322,8 +322,8 @@ final class AppModel: ObservableObject {
         guard url.scheme == "jarvis" else { return }
         switch url.host {
         case "chat": selectedSection = .chat
-        case "tasks": selectedSection = .tasks
-        case "actions": selectedSection = .actions
+        case "missions", "tasks": selectedSection = .missions
+        case "todos", "actions": selectedSection = .todos
         case "terminal": selectedSection = .terminal
         case "system": selectedSection = .system
         default: selectedSection = .today

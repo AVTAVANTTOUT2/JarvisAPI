@@ -126,6 +126,19 @@ enum TaskControlSection: String, CaseIterable, Identifiable {
         }
     }
 
+    var subtitle: String {
+        switch self {
+        case .toApprove: "Plans prêts pour votre décision"
+        case .attention: "Autorisations ou blocages à traiter"
+        case .planned: "Missions acceptées avant démarrage"
+        case .running: "Travail actuellement exécuté par Jarvis"
+        case .completed: "Résultats prêts à consulter"
+        case .failed: "Missions interrompues ou bloquées"
+        case .archived: "Historique rangé"
+        case .candidates: "Demandes repérées à confirmer"
+        }
+    }
+
     var symbol: String {
         switch self {
         case .toApprove: "checkmark.rectangle.stack"

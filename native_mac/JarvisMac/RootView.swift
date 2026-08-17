@@ -49,8 +49,8 @@ struct RootView: View {
                 switch model.selectedSection {
                 case .today: TodayView()
                 case .chat: ChatView()
-                case .tasks: TasksView(api: model.api)
-                case .actions: ActionsView()
+                case .missions: TasksView(api: model.api)
+                case .todos: ActionsView()
                 case .memory: MemoryView()
                 case .terminal: TerminalView()
                 case .system: SystemView()
@@ -68,13 +68,15 @@ struct RootView: View {
                         Label("Demander à Jarvis", systemImage: "command")
                     }
                     .help("Palette Jarvis (⇧⌘J)")
-                    Button {
-                        Task { await model.refresh() }
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
+                    if model.selectedSection != .missions {
+                        Button {
+                            Task { await model.refresh() }
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                        }
+                        .disabled(model.isRefreshing)
+                        .help("Actualiser")
                     }
-                    .disabled(model.isRefreshing)
-                    .help("Actualiser")
                 }
             }
         }
@@ -96,9 +98,24 @@ struct RootView: View {
             .padding(.bottom, 20)
 
             List(AppSection.allCases, selection: $model.selectedSection) { section in
-                Label(section.title, systemImage: section.symbol)
-                    .tag(section)
-                    .padding(.vertical, 4)
+                HStack(spacing: 10) {
+                    Image(systemName: section.symbol)
+                        .frame(width: 18)
+                        .foregroundStyle(
+                            section == .missions ? JarvisPalette.cyan : .primary
+                        )
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(section.title)
+                        if let hint = section.sidebarHint {
+                            Text(hint)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .tag(section)
+                .padding(.vertical, section.sidebarHint == nil ? 4 : 6)
+                .accessibilityElement(children: .combine)
             }
             .listStyle(.sidebar)
             .scrollContentBackground(.hidden)

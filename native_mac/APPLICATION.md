@@ -94,7 +94,7 @@ L’app expose **cinq scènes / surfaces** distinctes :
 
 | Surface | Rôle | Taille / style |
 |---|---|---|
-| **Fenêtre principale** | Shell complet (sidebar + 6 sections) | min 980×680, défaut 1240×820, title bar cachée |
+| **Fenêtre principale** | Shell complet (sidebar + 7 sections) | min 980×680, défaut 1240×820, title bar cachée |
 | **Écran verrou** | Setup / unlock / offline / checking | Carte glass centrée ~590 px |
 | **MenuBarExtra** | Accès rapide sans ouvrir la fenêtre | ~300 px, style `.window` |
 | **Jarvis Glance** | Panneau flottant multi-Space | 370×430, floating, déplaçable par fond |
@@ -107,13 +107,13 @@ Deep links `jarvis://` :
 |---|---|
 | `jarvis://today` (défaut) | Aujourd’hui |
 | `jarvis://chat` | Conversation |
-| `jarvis://tasks` | Tâches |
-| `jarvis://actions` | Actions |
+| `jarvis://missions` (`jarvis://tasks` reste accepté) | Missions Jarvis |
+| `jarvis://todos` (`jarvis://actions` reste accepté) | À faire |
 | `jarvis://system` | Système |
 
 ---
 
-## 3 bis. Section « Tâches » — pilotage du moteur agentique
+## 3 bis. Section « Missions Jarvis » — pilotage du moteur agentique
 
 Ajoutée en août 2026. C'est la surface où l'utilisateur **décide** : elle lit
 un plan, l'accepte ou le refuse, suit l'exécution, tranche les autorisations
@@ -141,10 +141,10 @@ aucun worktree, et ne décide jamais qu'un run est terminé. Tout passe par
 
 | Raccourci | Action |
 |---|---|
-| `⌘N` | Nouvelle tâche |
+| `⌘N` | Nouvelle mission |
 | `⌘↩` | Accepter le plan affiché et lancer |
-| `⌘.` | Annuler la tâche |
-| `⌥⌘A` | Aller aux tâches demandant attention |
+| `⌘.` | Annuler la mission |
+| `⌥⌘A` | Aller aux missions demandant attention |
 
 ### Ce que l'onglet Activité montre — et ne montre pas
 
@@ -167,9 +167,9 @@ effet demandera sa propre autorisation le moment venu.
 
 ### Notifications
 
-`UNUserNotificationCenter`, dédupliquées par état, groupées par tâche, retirées
-quand la tâche n'attend plus rien, badge d'application aligné sur le nombre de
-tâches en attente.
+`UNUserNotificationCenter`, dédupliquées par état, groupées par mission, retirées
+quand la mission n'attend plus rien, badge d'application aligné sur le nombre de
+missions en attente.
 
 Deux règles : aucun contenu sensible dans le corps (pas d'extrait d'e-mail, pas
 d'argument d'action) parce qu'il s'affiche sur l'écran verrouillé ; et **aucun
@@ -251,7 +251,7 @@ C’est le **marque-signe** de l’app — l’équivalent d’un logo animé di
 
 100 % **SF Symbols** (pas d’illustration custom dans le code) :
 
-- Sections : `sparkles`, `bubble.left.and.bubble.right.fill`, `checkmark.circle.fill`, `brain.head.profile.fill`, `waveform.path.ecg`
+- Sections : `sparkles`, `bubble.left.and.bubble.right.fill`, `gearshape.2.fill`, `checkmark.circle.fill`, `brain.head.profile.fill`, `terminal.fill`, `waveform.path.ecg`
 - Actions récurrentes : `command`, `arrow.clockwise`, `mic.fill`, `arrow.up`, `pin.fill`, `sun.max`, `scope`
 
 ### Motion
@@ -266,7 +266,8 @@ Vocabulaire volontairement **formel / majordome**, aligné persona JARVIS :
 
 - « signaux » (pas « notifications »)
 - « cœur » (pas « serveur »)
-- « actions » (pas « todos »)
+- « Missions Jarvis » pour le travail planifié et exécuté par l’agent
+- « À faire » pour la liste personnelle simple (pas « tâches » ou « actions »)
 - « Jarvis Pulse »
 - « Que puis-je faire pour vous ? »
 - « Votre journée est sous contrôle. »
@@ -337,9 +338,10 @@ Après `ready` :
 |---|---|---|
 | **Aujourd’hui** | ⌘1 | Dashboard du jour |
 | **Conversation** | ⌘2 | Chat split + historique |
-| **Actions** | ⌘3 | Tâches + agenda |
+| **Missions Jarvis** | ⌘3 | Plans, validations, exécution et résultats |
+| **À faire** | ⌘4 | Liste personnelle + agenda |
 | **Mémoire** | — | Grille conversations / recherche |
-| **Terminal** | ⌘4 | Session SSH sur une machine du tailnet |
+| **Terminal** | ⌘5 | Session SSH sur une machine du tailnet |
 | **Système** | — | Capacités + diagnostics |
 
 ### Toolbar détail
@@ -361,7 +363,7 @@ Après `ready` :
 **Job-to-be-done** : en un regard, savoir quoi faire maintenant.
 
 - Hero date + greeting + résumé dynamique + grand orbe
-- 4 métriques : actions ouvertes, signaux, événements, LIVE/SYNC
+- 4 métriques : éléments à faire, signaux, événements, LIVE/SYNC
 - Grille 2×2 :
   - **Focus** — première tâche, priorité, terminer
   - **Agenda** — jusqu’à 4 événements (heure monospaced cyan)
@@ -395,10 +397,10 @@ Bulles :
 
 Événements WS gérés : `connected`, `chunk`, `response`, `response_followup`, `response_clean`, `transcript`, `done`, `speech_done`, `status`, `routing`, `processing`, `error`, `conversation_updated`, `action_pending`, …
 
-### 8.3 Actions (`ActionsView`)
+### 8.3 À faire (`ActionsView`)
 
 - Quick-add glass : titre + picker priorité + Ajouter
-- Liste tâches (toggle done, pills, catégorie, échéance)
+- Liste personnelle (toggle done, pills, catégorie, échéance)
 - Colonne « Prochainement » agenda + ouvrir Calendar.app
 
 ### 8.4 Mémoire (`MemoryView`)
@@ -436,7 +438,7 @@ Conception, garde-fous et limites : **§17**.
 Sheet glass 590 px :
 
 - Champ « Chercher une commande ou poser une question… »
-- Commandes filtrables : Aujourd’hui, Nouvelle conversation, Glance, Créer action, Briefing, Capacités
+- Commandes filtrables : Aujourd’hui, Nouvelle conversation, Glance, Missions Jarvis, À faire, Briefing, Capacités
 - Entrée sur une requête libre → envoie en chat
 - Pill statut live en bas
 
@@ -444,7 +446,7 @@ Sheet glass 590 px :
 
 - Orbe + phase
 - Champ « Demander rapidement… » (si ready)
-- Compteurs actions / signaux
+- Compteurs À faire / signaux
 - Ouvrir Jarvis / Nouvelle conversation / Glance / Quitter
 
 Icône menu : `sparkles` si ready, sinon `circle.dashed`.
@@ -453,7 +455,7 @@ Icône menu : `sparkles` si ready, sinon `circle.dashed`.
 
 Fenêtre flottante (level `.floating`, tous Spaces, title bar cachée) :
 
-- Prochaine action
+- Prochain élément À faire
 - 3 métriques
 - Premier signal
 - Parler / Actualiser / pill phase
@@ -484,7 +486,7 @@ Fenêtre flottante (level `.floating`, tous Spaces, title bar cachée) :
 | `POST /api/auth/setup` | Premier secret |
 | `POST /api/auth/unlock` | Déverrouillage |
 | `POST /api/auth/logout` | Verrouiller |
-| `GET/POST/PATCH /api/tasks…` | Actions |
+| `GET/POST/PATCH /api/tasks…` | À faire |
 | `GET /api/notifications` | Signaux |
 | `POST /api/notifications/{id}/read` | Marquer lu |
 | `GET /api/calendar` | Agenda |
@@ -649,8 +651,8 @@ L’app Mac est une **coque de présence** : elle rend Jarvis tangible sur le bu
 ## 15. Synthèse direction artistique + UX (en une page)
 
 **Univers** : sombre, froid-cyan, glass Liquid Glass, orbe sparkles, typo rounded pour les moments « héros ».  
-**Personnalité** : majordome britannique discret — vocabulaire « cœur / signaux / actions », zéro emoji.  
-**Architecture UX** : shell split + 5 destinations + 4 surfaces satellites (menu, glance, settings, widget).  
+**Personnalité** : majordome britannique discret — vocabulaire « cœur / signaux / Missions Jarvis / À faire », zéro emoji.
+**Architecture UX** : shell split + 7 destinations + 4 surfaces satellites (menu, glance, settings, widget).
 **Interaction** : clavier, chat unifié, micro, TTS optionnel, refresh explicite, fail-closed.  
 **Maturité** : prototype **0.1.0** fonctionnel pour le quotidien (today / chat / tasks / statut), pas un port complet de toutes les vues web.  
 **Critère de réussite esthétique** : si on retire la sidebar, l’orbe + le cyan + le greeting suffisent encore à reconnaître Jarvis.

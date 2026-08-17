@@ -4,8 +4,10 @@ import SwiftUI
 enum AppSection: String, CaseIterable, Identifiable {
     case today
     case chat
-    case tasks
-    case actions
+    /// Travaux confiés à JARVIS : plan, validation, exécution et résultat.
+    case missions
+    /// Liste personnelle simple : ajout, priorité et case à cocher.
+    case todos
     case memory
     case terminal
     case system
@@ -16,11 +18,19 @@ enum AppSection: String, CaseIterable, Identifiable {
         switch self {
         case .today: "Aujourd’hui"
         case .chat: "Conversation"
-        case .tasks: "Tâches"
-        case .actions: "Actions"
+        case .missions: "Missions Jarvis"
+        case .todos: "À faire"
         case .memory: "Mémoire"
         case .terminal: "Terminal"
         case .system: "Système"
+        }
+    }
+
+    var sidebarHint: String? {
+        switch self {
+        case .missions: "Jarvis planifie et exécute"
+        case .todos: "Votre liste à cocher"
+        default: nil
         }
     }
 
@@ -28,8 +38,8 @@ enum AppSection: String, CaseIterable, Identifiable {
         switch self {
         case .today: "sparkles"
         case .chat: "bubble.left.and.bubble.right.fill"
-        case .tasks: "checklist"
-        case .actions: "checkmark.circle.fill"
+        case .missions: "gearshape.2.fill"
+        case .todos: "checkmark.circle.fill"
         case .memory: "brain.head.profile.fill"
         case .terminal: "terminal.fill"
         case .system: "waveform.path.ecg"

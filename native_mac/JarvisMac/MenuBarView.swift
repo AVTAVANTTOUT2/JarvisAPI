@@ -31,7 +31,7 @@ struct MenuBarView: View {
                 .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 12))
 
                 HStack {
-                    Label("\(model.snapshot.tasks.count) actions", systemImage: "checklist")
+                    Label("\(model.snapshot.tasks.count) à faire", systemImage: "checklist")
                     Spacer()
                     Label("\(model.snapshot.notifications.count) signaux", systemImage: "bell")
                 }

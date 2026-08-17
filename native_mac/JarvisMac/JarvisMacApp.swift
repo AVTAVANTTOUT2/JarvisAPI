@@ -20,9 +20,9 @@ struct JarvisMacApp: App {
                     .keyboardShortcut("1", modifiers: .command)
                 Button("Conversation") { model.selectedSection = .chat }
                     .keyboardShortcut("2", modifiers: .command)
-                Button("Tâches") { model.selectedSection = .tasks }
+                Button("Missions Jarvis") { model.selectedSection = .missions }
                     .keyboardShortcut("3", modifiers: .command)
-                Button("Actions") { model.selectedSection = .actions }
+                Button("À faire") { model.selectedSection = .todos }
                     .keyboardShortcut("4", modifiers: .command)
                 Button("Terminal") { model.selectedSection = .terminal }
                     .keyboardShortcut("5", modifiers: .command)

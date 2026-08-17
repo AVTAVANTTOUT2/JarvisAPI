@@ -18,10 +18,13 @@ struct CommandPaletteView: View {
             .init(title: "Afficher Jarvis Glance", subtitle: "Le compagnon flottant sur tous les bureaux", symbol: "rectangle.on.rectangle.angled") {
                 openWindow(id: "glance")
             },
-            .init(title: "Créer une action", subtitle: "Ouvrir la liste des tâches", symbol: "checkmark.circle.fill") {
-                model.selectedSection = .actions
+            .init(title: "Ouvrir À faire", subtitle: "Votre liste personnelle à cocher", symbol: "checkmark.circle.fill") {
+                model.selectedSection = .todos
             },
-            .init(title: "Préparer mon briefing", subtitle: "Agenda, tâches et signaux importants", symbol: "sun.max.fill") {
+            .init(title: "Ouvrir Missions Jarvis", subtitle: "Planifier, valider et suivre le travail confié", symbol: "gearshape.2.fill") {
+                model.selectedSection = .missions
+            },
+            .init(title: "Préparer mon briefing", subtitle: "Agenda, liste À faire et signaux importants", symbol: "sun.max.fill") {
                 Task { await model.generateBriefing() }
                 model.selectedSection = .today
             },

@@ -9,7 +9,7 @@ Cette app SwiftUI est une nouvelle surface pour le cœur JARVIS existant. Elle n
 3. L’app détecte automatiquement les installations locales usuelles (`https://127.0.0.1:8081`, supervisor `9000`, puis HTTP `8080/8081/9000`). L’adresse retenue reste modifiable dans Réglages. Les certificats autosignés ne sont acceptés que pour les adresses loopback locales.
 4. Déverrouiller avec le même PIN/passphrase que le dashboard web.
 
-La fenêtre principale propose Aujourd’hui, Conversation, Actions, Mémoire, Terminal et Système. La barre des menus offre un accès rapide et « Jarvis Glance » ouvre un panneau compact flottant. Une extension WidgetKit est incluse dans l’app pour préfigurer le widget de bureau.
+La fenêtre principale distingue explicitement **Missions Jarvis** (travaux planifiés, validés puis exécutés par l’agent) et **À faire** (liste personnelle simple à cocher), aux côtés d’Aujourd’hui, Conversation, Mémoire, Terminal et Système. La barre des menus offre un accès rapide et « Jarvis Glance » ouvre un panneau compact flottant. Une extension WidgetKit est incluse dans l’app pour préfigurer le widget de bureau.
 
 ## Terminal distant (⌘4)
 

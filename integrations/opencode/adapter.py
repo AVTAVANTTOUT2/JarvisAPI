@@ -13,6 +13,7 @@ import math
 import os
 from pathlib import Path
 import re
+import shutil
 import stat
 import sys
 import threading
@@ -32,6 +33,7 @@ from jarvis.agentic.models import (
     RuntimeHealthStatus,
     ToolCapability,
 )
+from jarvis.agentic.profiles import capability_profile_id_from_context
 
 from .client import BasicAuthCredentials, OpenCodeClient
 from .client.models import ModelSelection, TextPart
@@ -78,6 +80,17 @@ _MISSING_DEEPSEEK_KEY_MESSAGE = (
     "OpenCode ne reçoit cette clé que via l'allowlist du runtime ; "
     "aucune configuration secrète OpenCode indépendante n'est supportée."
 )
+
+
+def _apple_music_mcp_path() -> str | None:
+    """Trouve le binaire installé sans dépendre du PATH réduit d'une app macOS."""
+
+    candidate = shutil.which("apple-music-mcp")
+    if candidate is None:
+        local_binary = Path.home() / ".local" / "bin" / "apple-music-mcp"
+        if local_binary.is_file() and os.access(local_binary, os.X_OK):
+            candidate = str(local_binary)
+    return str(Path(candidate).resolve()) if candidate else None
 
 
 def _model_provider_environment() -> dict[str, str]:
@@ -1077,6 +1090,17 @@ class OpenCodeRuntime:
                 )
             }
         }
+        if (
+            capability_profile_id_from_context(context.selected_context) == "media"
+            and "media:publish" in context.permissions
+            and (apple_music_mcp := _apple_music_mcp_path()) is not None
+        ):
+            overlay["mcp"]["apple-music"] = {
+                "type": "local",
+                "command": [apple_music_mcp, "serve"],
+                "enabled": True,
+                "timeout": 30_000,
+            }
         return broker, overlay
 
     async def create_run(self, run: AgenticRun, context: AgenticContext) -> str | None:

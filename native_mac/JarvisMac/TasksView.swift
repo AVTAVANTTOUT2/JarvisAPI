@@ -1,11 +1,11 @@
 import AppKit
 import SwiftUI
 
-/// Section « Tâches » — pilotage du moteur agentique.
+/// Section « Missions Jarvis » — pilotage du moteur agentique.
 ///
-/// Trois colonnes natives : sections, liste, détail. La colonne de détail
-/// porte l'essentiel du parcours produit (plan, activité, autorisations,
-/// résultat) et vit dans `TaskDetailView`.
+/// Deux panneaux natifs : navigation/liste et détail. Ne pas imbriquer un
+/// second `NavigationSplitView` dans celui de `RootView` : SwiftUI décale
+/// alors les sidebars hors écran aux largeurs usuelles.
 struct TasksView: View {
     @StateObject private var store: TaskControlStore
 
@@ -17,19 +17,16 @@ struct TasksView: View {
     }
 
     var body: some View {
-        NavigationSplitView {
-            sectionList
-                .navigationSplitViewColumnWidth(min: 210, ideal: 230, max: 280)
-        } content: {
-            taskColumn
-                .navigationSplitViewColumnWidth(min: 300, ideal: 360, max: 460)
-        } detail: {
+        HSplitView {
+            missionBrowser
+                .frame(minWidth: 300, idealWidth: 340, maxWidth: 440)
             detailColumn
+                .frame(minWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
         }
-        .navigationTitle("Tâches")
+        .navigationTitle("Missions Jarvis")
         .toolbar { toolbarItems }
         .sheet(isPresented: $isCreating) {
-            NewTaskSheet { title, description, priority, dueAt, project, comment in
+            NewMissionSheet { title, description, priority, dueAt, project, comment in
                 Task {
                     await store.createTask(
                         title: title,
@@ -43,16 +40,16 @@ struct TasksView: View {
             }
         }
         .confirmationDialog(
-            "Annuler cette tâche ?",
+            "Annuler cette mission ?",
             isPresented: $isCancelConfirmPresented,
             titleVisibility: .visible
         ) {
-            Button("Annuler la tâche", role: .destructive) {
+            Button("Annuler la mission", role: .destructive) {
                 Task { await store.cancelTask(reason: "Annulée depuis macOS") }
             }
             Button("Continuer", role: .cancel) {}
         } message: {
-            Text("L'exécution en cours sera interrompue. Le travail déjà produit reste consultable.")
+            Text("Jarvis interrompra l'exécution. Le travail déjà produit restera consultable.")
         }
         .onAppear {
             store.appear()
@@ -76,60 +73,129 @@ struct TasksView: View {
         }
     }
 
-    // MARK: - Colonne 1 : sections
+    // MARK: - Navigation et liste
 
-    private var sectionList: some View {
-        List(TaskControlSection.allCases, selection: sectionBinding) { section in
-            HStack {
-                Label(section.title, systemImage: section.symbol)
-                Spacer()
-                let count = store.count(for: section)
-                if count > 0 {
-                    Text("\(count)")
-                        .font(.caption.monospacedDigit())
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 2)
-                        .background(
-                            Capsule().fill(
-                                section == .attention
-                                    ? Color.orange.opacity(0.25)
-                                    : Color.secondary.opacity(0.15)
-                            )
-                        )
-                        .accessibilityLabel("\(count) tâches")
-                }
-            }
-            .tag(section)
-            .padding(.vertical, 3)
-        }
-        .listStyle(.sidebar)
-        .accessibilityLabel("Sections des tâches")
-    }
-
-    private var sectionBinding: Binding<TaskControlSection?> {
-        Binding(
-            get: { store.section },
-            set: { newValue in
-                guard let newValue else { return }
-                store.section = newValue
-                store.select(taskID: nil)
-                Task { await store.refresh() }
-            }
-        )
-    }
-
-    // MARK: - Colonne 2 : liste
-
-    @ViewBuilder
-    private var taskColumn: some View {
+    private var missionBrowser: some View {
         VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 12) {
+                Label("MISSIONS JARVIS", systemImage: "gearshape.2.fill")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(JarvisPalette.cyan)
+                Text("Jarvis prépare un plan. Vous validez. Il exécute.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(.secondary)
+                    TextField("Rechercher une mission", text: $store.searchText)
+                        .textFieldStyle(.plain)
+                    if !store.searchText.isEmpty {
+                        Button { store.searchText = "" } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Effacer la recherche")
+                    }
+                }
+                .padding(9)
+                .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(14)
+            .background(.regularMaterial)
+
+            Divider()
+
+            listHeader
+            Divider()
             if store.section.isCandidateSection {
                 candidateList
             } else {
                 taskList
             }
         }
-        .searchable(text: $store.searchText, prompt: "Filtrer les tâches")
+    }
+
+    private var sectionMenu: some View {
+        Menu {
+            Section("À décider") {
+                sectionButton(.toApprove)
+                sectionButton(.attention)
+            }
+            Section("Suivi") {
+                sectionButton(.planned)
+                sectionButton(.running)
+            }
+            Section("Historique") {
+                sectionButton(.completed)
+                sectionButton(.failed)
+                sectionButton(.archived)
+            }
+            Section("Suggestions") {
+                sectionButton(.candidates)
+            }
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: store.section.symbol)
+                    .font(.title3)
+                    .foregroundStyle(store.section == .attention ? .orange : JarvisPalette.cyan)
+                    .frame(width: 28, height: 28)
+                    .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(store.section.title).font(.headline)
+                    Text(store.section.subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 4)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .menuStyle(.borderlessButton)
+        .accessibilityLabel("Filtrer les missions : \(store.section.title)")
+    }
+
+    private func sectionButton(_ section: TaskControlSection) -> some View {
+        Button {
+            select(section)
+        } label: {
+            HStack {
+                Label(section.title, systemImage: section.symbol)
+                Spacer()
+                Text("\(store.count(for: section))")
+                    .monospacedDigit()
+            }
+        }
+    }
+
+    private func select(_ section: TaskControlSection) {
+        guard store.section != section else { return }
+        store.section = section
+        store.select(taskID: nil)
+        Task { await store.refresh() }
+    }
+
+    private var listHeader: some View {
+        HStack(spacing: 12) {
+            sectionMenu
+            Spacer(minLength: 8)
+            if store.isLoading {
+                ProgressView().controlSize(.small)
+            } else {
+                Text("\(store.count(for: store.section))")
+                    .font(.title3.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel("\(store.count(for: store.section)) missions")
+            }
+        }
+        .padding(14)
+        .background(.regularMaterial)
     }
 
     private var taskList: some View {
@@ -142,7 +208,7 @@ struct TasksView: View {
                 )
             } else {
                 List(store.visibleTasks, selection: taskSelectionBinding) { task in
-                    TaskRow(task: task).tag(task.id)
+                    MissionRow(task: task).tag(task.id)
                 }
                 .listStyle(.inset)
             }
@@ -153,8 +219,8 @@ struct TasksView: View {
         switch store.section {
         case .toApprove: "Aucun plan n'attend votre validation."
         case .attention: "Rien ne réclame votre attention."
-        case .running: "Aucune tâche en cours d'exécution."
-        default: "Aucune tâche dans cette section."
+        case .running: "Jarvis n'exécute aucune mission actuellement."
+        default: "Aucune mission dans cette section."
         }
     }
 
@@ -181,7 +247,7 @@ struct TasksView: View {
         }
     }
 
-    // MARK: - Colonne 3 : détail
+    // MARK: - Détail
 
     @ViewBuilder
     private var detailColumn: some View {
@@ -192,12 +258,52 @@ struct TasksView: View {
                 onRequestCancel: { isCancelConfirmPresented = true }
             )
         } else {
-            EmptyState(
-                symbol: "sidebar.right",
-                title: "Sélectionnez une tâche",
-                subtitle: "Le plan, l'activité et le résultat s'affichent ici."
-            )
+            missionPlaceholder
         }
+    }
+
+    private var missionPlaceholder: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            VStack(alignment: .leading, spacing: 7) {
+                Image(systemName: "gearshape.2.fill")
+                    .font(.system(size: 34))
+                    .foregroundStyle(JarvisPalette.cyan)
+                Text("Pilotez le travail confié à Jarvis")
+                    .font(.title2.weight(.semibold))
+                Text("Sélectionnez une mission pour vérifier son plan, suivre son exécution et récupérer son résultat.")
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            VStack(spacing: 10) {
+                workflowStep(1, "Jarvis prépare", "Un plan lisible, sans démarrer le travail.", "doc.text.magnifyingglass")
+                workflowStep(2, "Vous décidez", "Validez, demandez une modification ou refusez.", "checkmark.shield")
+                workflowStep(3, "Jarvis exécute", "Suivez l'activité et récupérez les livrables.", "shippingbox.fill")
+            }
+        }
+        .padding(28)
+        .frame(maxWidth: 620, maxHeight: .infinity, alignment: .center)
+        .frame(maxWidth: .infinity)
+    }
+
+    private func workflowStep(
+        _ number: Int, _ title: String, _ subtitle: String, _ symbol: String
+    ) -> some View {
+        HStack(spacing: 14) {
+            Text("\(number)")
+                .font(.caption.monospacedDigit().weight(.bold))
+                .frame(width: 26, height: 26)
+                .background(JarvisPalette.blue.opacity(0.22), in: Circle())
+            Image(systemName: symbol)
+                .foregroundStyle(JarvisPalette.cyan)
+                .frame(width: 22)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.callout.weight(.semibold))
+                Text(subtitle).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+        }
+        .padding(12)
+        .jarvisGlass(cornerRadius: 14)
     }
 
     // MARK: - Barre d'outils
@@ -218,7 +324,7 @@ struct TasksView: View {
                 } label: {
                     Label("\(store.attentionCount)", systemImage: "bell.badge.fill")
                 }
-                .help("Afficher les tâches demandant votre attention (⌥⌘A)")
+                .help("Afficher les missions demandant votre attention (⌥⌘A)")
                 .keyboardShortcut("a", modifiers: [.option, .command])
             }
             Button {
@@ -232,29 +338,34 @@ struct TasksView: View {
             Button {
                 isCreating = true
             } label: {
-                Label("Nouvelle tâche", systemImage: "plus")
+                Label("Nouvelle mission", systemImage: "plus")
             }
             .keyboardShortcut("n", modifiers: .command)
-            .help("Nouvelle tâche (⌘N)")
+            .help("Nouvelle mission Jarvis (⌘N)")
         }
     }
 }
 
 // MARK: - Ligne de tâche
 
-private struct TaskRow: View {
+private struct MissionRow: View {
     let task: ControlTask
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: task.source.sourceType.symbol)
-                .foregroundStyle(.secondary)
-                .frame(width: 18)
-                .accessibilityLabel(task.source.sourceType.label)
+        HStack(alignment: .top, spacing: 11) {
+            RoundedRectangle(cornerRadius: 2)
+                .fill(task.status.tint)
+                .frame(width: 3)
             VStack(alignment: .leading, spacing: 4) {
                 Text(task.title)
                     .font(.body.weight(.medium))
                     .lineLimit(2)
+                if !task.description.isEmpty {
+                    Text(task.description)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
                 HStack(spacing: 8) {
                     Label(task.status.label, systemImage: task.status.symbol)
                         .font(.caption)
@@ -271,6 +382,9 @@ private struct TaskRow: View {
                             .foregroundStyle(.orange)
                     }
                 }
+                Label(task.source.sourceType.label, systemImage: task.source.sourceType.symbol)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
                 if task.status.isExecuting, task.progress > 0 {
                     ProgressView(value: task.progress)
                         .progressViewStyle(.linear)
@@ -286,7 +400,7 @@ private struct TaskRow: View {
                     .accessibilityLabel("Attention requise")
             }
         }
-        .padding(.vertical, 5)
+        .padding(.vertical, 7)
         .accessibilityElement(children: .combine)
     }
 }
@@ -312,12 +426,12 @@ private struct CandidateRow: View {
                     .foregroundStyle(.secondary)
             }
             if let duplicate = candidate.duplicateOf {
-                Text("Une tâche ouverte existe déjà pour cette source (\(duplicate)).")
+                Text("Une mission ouverte existe déjà pour cette source (\(duplicate)).")
                     .font(.caption2)
                     .foregroundStyle(.orange)
             }
             HStack(spacing: 8) {
-                Button("Créer la tâche") { onDecision("accepted") }
+                Button("Créer la mission") { onDecision("accepted") }
                     .buttonStyle(.borderedProminent)
                 Button("Ignorer") { onDecision("ignored") }
                 Button("Faux positif") { onDecision("false_positive") }
@@ -331,7 +445,7 @@ private struct CandidateRow: View {
 
 // MARK: - Feuille de création
 
-private struct NewTaskSheet: View {
+private struct NewMissionSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var title = ""
@@ -348,8 +462,15 @@ private struct NewTaskSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             Form {
                 Section {
-                    TextField("Titre", text: $title)
-                    TextField("Description", text: $description, axis: .vertical)
+                    Label("Nouvelle mission Jarvis", systemImage: "gearshape.2.fill")
+                        .font(.title2.weight(.semibold))
+                    Text("Décrivez le résultat attendu. Jarvis préparera un plan avant toute exécution.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                Section {
+                    TextField("Résultat attendu", text: $title)
+                    TextField("Contexte et contraintes", text: $description, axis: .vertical)
                         .lineLimit(3...8)
                 }
                 Section {
@@ -374,14 +495,14 @@ private struct NewTaskSheet: View {
             Divider()
             HStack {
                 Label(
-                    "La tâche ne démarrera pas : un plan sera préparé, puis soumis à votre validation.",
+                    "La mission ne démarrera pas : son plan sera d'abord soumis à votre validation.",
                     systemImage: "info.circle"
                 )
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 Spacer()
                 Button("Annuler", role: .cancel) { dismiss() }
-                Button("Créer") {
+                Button("Préparer le plan") {
                     onCreate(
                         title.trimmingCharacters(in: .whitespacesAndNewlines),
                         description,

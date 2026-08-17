@@ -213,6 +213,20 @@ final class TaskControlDecodingTests: XCTestCase {
 /// mensonge d'interface.
 final class TaskControlStateTests: XCTestCase {
 
+    func testNavigationSeparatesPersonalTodosFromJarvisMissions() {
+        XCTAssertEqual(AppSection.missions.title, "Missions Jarvis")
+        XCTAssertEqual(AppSection.todos.title, "À faire")
+        XCTAssertEqual(AppSection.missions.sidebarHint, "Jarvis planifie et exécute")
+        XCTAssertEqual(AppSection.todos.sidebarHint, "Votre liste à cocher")
+        XCTAssertNotEqual(AppSection.missions.symbol, AppSection.todos.symbol)
+    }
+
+    func testEveryMissionSectionExplainsItsPurpose() {
+        for section in TaskControlSection.allCases {
+            XCTAssertFalse(section.subtitle.isEmpty, "\(section.rawValue) doit être explicite")
+        }
+    }
+
     func testOnlyAwaitingApprovalIsDecidable() {
         for status in TaskControlStatus.allCases {
             let task = ControlTask(

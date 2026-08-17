@@ -50,7 +50,7 @@ struct TodayView: View {
 
     private var metrics: some View {
         HStack(spacing: 12) {
-            metric(symbol: "checklist", value: "\(model.snapshot.tasks.count)", label: "actions ouvertes", color: JarvisPalette.blue)
+            metric(symbol: "checklist", value: "\(model.snapshot.tasks.count)", label: "éléments à faire", color: JarvisPalette.blue)
             metric(symbol: "bell.badge.fill", value: "\(model.snapshot.notifications.count)", label: "signaux à lire", color: .orange)
             metric(symbol: "calendar", value: "\(model.snapshot.calendar.count)", label: "événements proches", color: .purple)
             metric(
@@ -81,7 +81,7 @@ struct TodayView: View {
 
     private var focusCard: some View {
         VStack(alignment: .leading, spacing: 16) {
-            cardHeader("Focus", symbol: "scope", action: "Tout voir") { model.selectedSection = .actions }
+            cardHeader("Focus", symbol: "scope", action: "Tout voir") { model.selectedSection = .todos }
             if let task = model.snapshot.tasks.first {
                 VStack(alignment: .leading, spacing: 11) {
                     StatusPill(text: task.priorityLabel, color: task.priority == "high" ? .orange : JarvisPalette.blue)
@@ -110,7 +110,7 @@ struct TodayView: View {
 
     private var agendaCard: some View {
         VStack(alignment: .leading, spacing: 14) {
-            cardHeader("Agenda", symbol: "calendar.day.timeline.left", action: "Actions") { model.selectedSection = .actions }
+            cardHeader("Agenda", symbol: "calendar.day.timeline.left", action: "À faire") { model.selectedSection = .todos }
             if model.snapshot.calendar.isEmpty {
                 EmptyState(symbol: "calendar.badge.checkmark", title: "Agenda dégagé", subtitle: "Aucun événement remonté pour les prochaines 48 heures.")
                     .frame(minHeight: 165)
@@ -231,7 +231,7 @@ struct TodayView: View {
         let tasks = model.snapshot.tasks.count
         let signals = model.snapshot.notifications.count
         if tasks == 0 && signals == 0 { return "Votre journée est sous contrôle." }
-        return "\(tasks) action\(tasks > 1 ? "s" : "") et \(signals) signal\(signals > 1 ? "s" : "") méritent votre attention."
+        return "\(tasks) élément\(tasks > 1 ? "s" : "") à faire et \(signals) signal\(signals > 1 ? "s" : "") méritent votre attention."
     }
 
     private func eventTime(_ value: String) -> String {

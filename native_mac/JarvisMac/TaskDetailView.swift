@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// Détail d'une tâche pilotée.
+/// Détail d'une mission pilotée.
 ///
 /// L'onglet Activité s'inspire des outils de développement agentiques : on y
 /// voit l'agent actif, l'étape, l'outil, le fichier, le test. On n'y voit
@@ -79,7 +79,7 @@ struct TaskDetailView: View {
             if task.status.isExecuting {
                 ProgressView(value: task.progress)
                     .progressViewStyle(.linear)
-                    .accessibilityLabel("Progression de la tâche")
+                    .accessibilityLabel("Progression de la mission")
                     .accessibilityValue("\(Int(task.progress * 100)) %")
             }
             actionBar
@@ -115,9 +115,9 @@ struct TaskDetailView: View {
                 .disabled(store.isMutating)
             }
             if task.isCancellable {
-                Button("Annuler la tâche", role: .destructive, action: onRequestCancel)
+                Button("Annuler la mission", role: .destructive, action: onRequestCancel)
                     .keyboardShortcut(".", modifiers: .command)
-                    .help("Annuler la tâche (⌘.)")
+                    .help("Annuler la mission (⌘.)")
                     .disabled(store.isMutating)
             }
             if store.isMutating { ProgressView().controlSize(.small) }
