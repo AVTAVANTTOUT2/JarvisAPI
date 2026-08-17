@@ -36,10 +36,21 @@ modules se dégradent proprement (avertissements au démarrage, pas d'erreur).
 - Le démarrage est fail-closed : `config.validate_required_runtime_config()`
   exige un `DEEPSEEK_API_KEY` non vide et différent de `sk-...`. Sans lui, le
   backend refuse de démarrer.
-- `.env` est gitignored et n'est donc pas fourni. Pour le dev cloud, en créer
-  un minimal : une clé DeepSeek factice (`sk-dev-...`) suffit pour tout ce qui
-  ne fait pas d'appel LLM (auth, tâches, navigation UI, santé). Les vraies
-  fonctions LLM exigent une vraie clé — l'ajouter comme secret `DEEPSEEK_API_KEY`.
+- La vraie clé est fournie comme **secret Cursor injecté** (variable
+  d'environnement `DEEPSEEK_API_KEY`). Les modèles `deepseek-v4-flash` /
+  `deepseek-v4-pro` sont réels sur cette API.
+- **Ne pas mettre `DEEPSEEK_API_KEY` dans `.env`** : `env_loader.py` charge
+  `.env` avec `override=True`, donc une valeur locale (même factice) masque le
+  secret injecté et fait échouer les appels LLM. Laisser `.env` pour les
+  bascules non-secrètes uniquement. `.env` est gitignored ; en créer un minimal
+  pour le dev (voir bascules ci-dessous).
+- Lancer le backend depuis un shell qui a bien la variable `DEEPSEEK_API_KEY`.
+  Piège tmux : le serveur tmux partagé peut avoir démarré avant l'injection du
+  secret ; propager la variable avec
+  `tmux set-environment -g DEEPSEEK_API_KEY "$DEEPSEEK_API_KEY"` puis recréer la
+  session, sinon le backend démarre en `ConfigurationError`.
+- Sans vraie clé, une clé factice (`sk-dev-...`) dans `.env` suffit pour tout ce
+  qui ne fait pas d'appel LLM (auth, tâches, navigation UI, santé).
 - Sur le VM Linux, désactiver les services macOS/daemons dans `.env` pour un run
   propre : `DAEMON_ENABLED`, `SCREEN_WATCHER_ENABLED`, `RESOURCE_GUARD_ENABLED`,
   `OLLAMA_AUTOSTART`, `IMESSAGE_SOURCING_ENABLED`, `IMESSAGE_DAEMON_ENABLED`,
