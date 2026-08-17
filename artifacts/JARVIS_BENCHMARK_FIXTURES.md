@@ -1,6 +1,6 @@
 # Jeu de données — Benchmark conversationnel JARVIS
 
-Version : 17 août 2026  
+Version : 17 août 2026
 Compagnon de [`JARVIS_BENCHMARK_PROMPTS.md`](./JARVIS_BENCHMARK_PROMPTS.md).
 
 Ce document fixe les **valeurs concrètes** derrière les placeholders du benchmark et décrit comment les injecter dans un profil SQLite dédié (`benchmark`). Toutes les données sont **fictives** ; n'utilisez jamais de vraies coordonnées, IBAN ou clés API.

@@ -1,6 +1,6 @@
 # Benchmark conversationnel JARVIS
 
-Version : 17 août 2026  
+Version : 17 août 2026
 Périmètre : chat, voix, mémoire, agents spécialisés, actions, intégrations et garde-fous.
 
 Ce benchmark évalue le comportement, pas la formulation exacte. Pour chaque cas :
