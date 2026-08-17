@@ -3,11 +3,8 @@
 from __future__ import annotations
 
 import ast
-import subprocess
 from pathlib import Path
 from unittest.mock import patch
-
-import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -50,57 +47,10 @@ def _open_calendar_calls(path: Path) -> list[tuple[int, list[str]]]:
     return hits
 
 
-def test_lifespan_opens_calendar_in_background_only():
-    """Startup : open doit utiliser -g/-j (jamais ramener Calendar au premier plan)."""
+def test_lifespan_does_not_own_calendar_ingestion():
+    """Le backend ne lance plus Calendar : le service ingestion en est propriétaire."""
     hits = _open_calendar_calls(ROOT / "api" / "lifespan.py")
-    assert hits, "lifespan doit encore lancer Calendar en arrière-plan (anti -600)"
-    for lineno, parts in hits:
-        assert "-g" in parts or "-gj" in parts, (
-            f"api/lifespan.py:{lineno} ouvre Calendar sans flag arrière-plan : {parts}"
-        )
-
-
-@pytest.mark.asyncio
-async def test_lifespan_reaps_the_calendar_open_helper(monkeypatch):
-    """Le processus `open` est attendu ; seul Calendar continue en arrière-plan."""
-
-    from api import lifespan as lifespan_module
-
-    calls: list[tuple[list[str], dict[str, object]]] = []
-
-    def fake_run(argv, **kwargs):
-        calls.append((argv, kwargs))
-        return subprocess.CompletedProcess(argv, 0)
-
-    monkeypatch.setattr(lifespan_module, "_calendar_subprocess_run", fake_run)
-
-    await lifespan_module._wake_calendar_background()
-
-    assert calls == [
-        (
-            ["open", "-gj", "-b", "com.apple.iCal"],
-            {
-                "check": True,
-                "stdout": subprocess.DEVNULL,
-                "stderr": subprocess.DEVNULL,
-                "timeout": 15,
-            },
-        )
-    ]
-
-
-@pytest.mark.asyncio
-async def test_calendar_wakeup_failure_never_aborts_startup(monkeypatch, caplog):
-    from api import lifespan as lifespan_module
-
-    def missing_open(*_args, **_kwargs):
-        raise FileNotFoundError("open absent")
-
-    monkeypatch.setattr(lifespan_module, "_calendar_subprocess_run", missing_open)
-
-    await lifespan_module._wake_calendar_background()
-
-    assert "Impossible de lancer Calendar.app" in caplog.text
+    assert hits == []
 
 
 def test_calendar_api_fallback_open_is_background():

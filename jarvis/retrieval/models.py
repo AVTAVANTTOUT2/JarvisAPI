@@ -12,10 +12,18 @@ from typing import Any, Literal, Mapping
 
 
 RetrievalStatus = Literal["ok", "degraded", "unavailable"]
+CoverageStatus = Literal["complete", "partial", "unknown", "unavailable"]
 
 _CONTEXT_REFERENCE_RE = re.compile(
     r"\b(?:ce|cet|cette|ces|celui|celle|ceux|celles|ça|cela|il|elle|ils|elles)\b"
     r"|\bdont\s+(?:je|on|nous)\s+(?:parlais|parlait|parlions)\b",
+    re.IGNORECASE,
+)
+_IMPERSONAL_REFERENCE_RE = re.compile(
+    r"\bil\s+(?:(?:s|c)['’]?est\s+pass[eé]|y\s+a|faut|semble)\b"
+    r"|\bs['’]?est[- ]il\s+pass[eé]\b"
+    r"|\b(?:qu['’]?)?est[- ]il\s+(?:arriv[eé]|pass[eé])\b"
+    r"|\b(?:qu['’]?est-ce|est-ce)\b",
     re.IGNORECASE,
 )
 
@@ -67,6 +75,50 @@ CANONICAL_SOURCE_TYPES = frozenset(
 )
 
 
+def _has_context_reference(value: str) -> bool:
+    """Écarte les tournures impersonnelles avant de détecter une coréférence."""
+
+    scrubbed = _IMPERSONAL_REFERENCE_RE.sub("", str(value or ""))
+    return bool(_CONTEXT_REFERENCE_RE.search(scrubbed))
+
+
+@dataclass(frozen=True, slots=True)
+class SourceCoverage:
+    """Preuve bornée de la portion d'une source réellement interrogeable."""
+
+    source_type: str
+    status: CoverageStatus
+    source_keys: tuple[str, ...] = ()
+    covered_from_iso: str | None = None
+    covered_to_iso: str | None = None
+    refreshed_at: str | None = None
+    item_count: int | None = None
+    reason: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.status not in {"complete", "partial", "unknown", "unavailable"}:
+            raise ValueError(f"invalid_coverage_status:{self.status}")
+        object.__setattr__(
+            self,
+            "source_keys",
+            tuple(dict.fromkeys(str(key).strip() for key in self.source_keys if key)),
+        )
+        if self.item_count is not None:
+            object.__setattr__(self, "item_count", max(0, int(self.item_count)))
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "source_type": self.source_type,
+            "status": self.status,
+            "source_keys": list(self.source_keys),
+            "covered_from_iso": self.covered_from_iso,
+            "covered_to_iso": self.covered_to_iso,
+            "refreshed_at": self.refreshed_at,
+            "item_count": self.item_count,
+            "reason": self.reason,
+        }
+
+
 @dataclass(frozen=True, slots=True)
 class RetrievalRequest:
     """Demande bornee de recherche multi-source."""
@@ -80,6 +132,8 @@ class RetrievalRequest:
     person: str | None = None
     from_iso: str | None = None
     to_iso: str | None = None
+    latest_n: int | None = None
+    freshness_budget_ms: int = 150
     max_candidates: int = 20
     max_hits: int = 8
     char_budget: int = 8_000
@@ -122,6 +176,15 @@ class RetrievalRequest:
         object.__setattr__(self, "conversation_id", conversation_id)
         object.__setattr__(self, "from_iso", _clean_iso(self.from_iso))
         object.__setattr__(self, "to_iso", _clean_iso(self.to_iso))
+        latest_n = self.latest_n
+        if latest_n is not None:
+            latest_n = max(1, min(8, int(latest_n)))
+        object.__setattr__(self, "latest_n", latest_n)
+        object.__setattr__(
+            self,
+            "freshness_budget_ms",
+            max(0, min(5_000, int(self.freshness_budget_ms))),
+        )
         object.__setattr__(
             self, "max_candidates", max(1, min(20, int(self.max_candidates)))
         )
@@ -136,13 +199,13 @@ class RetrievalRequest:
 
         parts = [self.query] if self.query else []
         parts.extend(self.entities)
-        if _CONTEXT_REFERENCE_RE.search(self.query):
+        if _has_context_reference(self.query):
             parts.extend(self.recent_user_turns)
         return " ".join(dict.fromkeys(part for part in parts if part))[:4_000]
 
     @property
     def uses_context_reference(self) -> bool:
-        return bool(_CONTEXT_REFERENCE_RE.search(self.query))
+        return _has_context_reference(self.query)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -155,6 +218,8 @@ class RetrievalRequest:
             "person": self.person,
             "from_iso": self.from_iso,
             "to_iso": self.to_iso,
+            "latest_n": self.latest_n,
+            "freshness_budget_ms": self.freshness_budget_ms,
             "max_candidates": self.max_candidates,
             "max_hits": self.max_hits,
             "char_budget": self.char_budget,
@@ -232,7 +297,9 @@ class RetrievalResult:
     hits: tuple[RetrievalHit, ...] = ()
     candidate_count: int = 0
     verified_sources: tuple[str, ...] = ()
+    partial_sources: tuple[str, ...] = ()
     unavailable_sources: tuple[str, ...] = ()
+    source_coverage: tuple[SourceCoverage, ...] = ()
     index_freshness_at: str | None = None
     index_lag_seconds: float | None = None
     latency_ms: float | None = None
@@ -249,7 +316,11 @@ class RetrievalResult:
             "hits": [hit.as_dict() for hit in self.hits],
             "candidate_count": self.candidate_count,
             "verified_sources": list(self.verified_sources),
+            "partial_sources": list(self.partial_sources),
             "unavailable_sources": list(self.unavailable_sources),
+            "source_coverage": [
+                coverage.as_dict() for coverage in self.source_coverage
+            ],
             "index_freshness_at": self.index_freshness_at,
             "index_lag_seconds": self.index_lag_seconds,
             "latency_ms": self.latency_ms,

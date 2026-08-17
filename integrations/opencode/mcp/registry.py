@@ -441,6 +441,7 @@ class ToolRegistry:
                 max_candidates=20,
                 max_hits=raw_max_hits,
                 char_budget=8_000,
+                freshness_budget_ms=5_000,
             )
             with use_profile(self.capability.profile_id):
                 result = search_knowledge(request)
@@ -500,6 +501,12 @@ class ToolRegistry:
                     ]
                 else:
                     safe_result[key] = []
+            coverage_rows = safe_result.get("source_coverage") or []
+            safe_result["live_sources"] = {
+                str(row.get("source_type")): str(row.get("status"))
+                for row in coverage_rows
+                if isinstance(row, Mapping) and row.get("source_type")
+            }
             self._remember_knowledge_uids(filtered_hits)
             return safe_result
 
@@ -533,8 +540,22 @@ class ToolRegistry:
             from database import use_profile
             from jarvis.retrieval import get_knowledge_item
 
+            hydration_status: str | None = None
             with use_profile(self.capability.profile_id):
                 item = get_knowledge_item(uid, max_chars=raw_max_chars)
+                if item is not None and item.source_type == "email":
+                    completeness = str(
+                        item.metadata.get("content_completeness") or ""
+                    ).lower()
+                    if completeness != "complete":
+                        from jarvis.ingestion.service import request_email_hydration
+
+                        hydration_status = request_email_hydration(
+                            item.source_id,
+                            budget_ms=5_000,
+                        )
+                        if hydration_status == "complete":
+                            item = get_knowledge_item(uid, max_chars=raw_max_chars)
             if item is None:
                 return {"item": None}
             serialized = _serializable(item)
@@ -558,6 +579,8 @@ class ToolRegistry:
             )
             safe_item["uid"] = uid
             safe_item["source_type"] = returned_source_type
+            if hydration_status is not None:
+                safe_item["hydration_status"] = hydration_status
             return {"item": safe_item}
 
         object_schema = {"type": "object", "additionalProperties": True}

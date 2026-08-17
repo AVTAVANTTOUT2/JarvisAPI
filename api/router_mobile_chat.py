@@ -17,6 +17,7 @@ from api.action_confirmations import (
     consume_pending_proposal,
 )
 from api.chat_processing import _process_message_internal
+from api.chat_context import prepare_turn
 from api.router_auth import _require_mobile_device
 from database import (
     create_conversation,
@@ -136,7 +137,10 @@ async def api_mobile_chat(
             )
         except LookupError as exc:
             raise HTTPException(404, "Checkpoint de conversation introuvable") from exc
-        if conversation_id is not None and conversation_id != checkpoint_conversation_id:
+        if (
+            conversation_id is not None
+            and conversation_id != checkpoint_conversation_id
+        ):
             raise HTTPException(409, "Conversation et checkpoint incohérents")
         conversation_id = checkpoint_conversation_id
 
@@ -169,9 +173,7 @@ async def api_mobile_chat(
     response_text = str(result.get("text") or "").strip()
     action = result.get("action")
     action_result = result.get("action_result")
-    needs_confirmation = bool(
-        action_result and action_result.get("needs_confirmation")
-    )
+    needs_confirmation = bool(action_result and action_result.get("needs_confirmation"))
 
     payload: dict[str, Any] = {
         "conversation_id": conversation_id,
@@ -183,6 +185,7 @@ async def api_mobile_chat(
         "cost": float(result.get("cost") or 0.0),
         "action": action,
         "action_result": action_result,
+        "knowledge": result.get("knowledge") or {},
         "needs_confirmation": needs_confirmation,
         "client_message_id": client_message_id,
         "idempotent_replay": False,
@@ -227,10 +230,28 @@ async def api_mobile_chat_confirm(
         )
     except ProposalError as exc:
         raise HTTPException(409, str(exc)) from exc
+    action_subject = next(
+        (
+            str(action.get(key) or "").strip()
+            for key in ("query", "title", "summary", "recipient", "name")
+            if action.get(key)
+        ),
+        "",
+    )
+    turn_query = " ".join(
+        part for part in (str(action.get("type") or "action"), action_subject) if part
+    )[:1000]
+    snapshot = await prepare_turn(
+        turn_query,
+        conversation_id,
+        interaction_mode="chat",
+    )
     action_result = await execute_action(action)
     response_text = str(action_result.get("message") or "Action exécutée.")
     try:
-        save_message(conversation_id, "assistant", response_text, agent="action_executor")
+        save_message(
+            conversation_id, "assistant", response_text, agent="action_executor"
+        )
     except Exception as exc:
         logger.debug("[mobile_chat] save confirmation : %s", exc)
     return {
@@ -240,4 +261,5 @@ async def api_mobile_chat_confirm(
         "response_text": response_text,
         "action_type": action.get("type"),
         "action_result": action_result,
+        "knowledge": snapshot.public_payload(),
     }

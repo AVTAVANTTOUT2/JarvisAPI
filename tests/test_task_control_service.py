@@ -311,13 +311,16 @@ async def test_lattente_dautorisation_remonte_en_attention(service):
     assert updated.status is TaskStatus.AWAITING_PERMISSION
     assert updated.needs_attention is True
     assert any(
-        entry["title"] == "Autorisation requise" for entry in service.notifications.created
+        entry["title"] == "Autorisation requise"
+        for entry in service.notifications.created
     )
 
 
 @pytest.mark.asyncio
 async def test_evenement_dun_run_inconnu_est_ignore(service):
-    assert await service.on_runtime_event("agent.run.started", {"run_id": "run_x"}) is None
+    assert (
+        await service.on_runtime_event("agent.run.started", {"run_id": "run_x"}) is None
+    )
 
 
 @pytest.mark.asyncio
@@ -523,3 +526,34 @@ async def test_une_demande_agentique_devient_une_tache_a_valider(
     assert task.status is TaskStatus.AWAITING_PLAN_APPROVAL
     assert task.source.source_type is TaskSourceType.USER_REQUEST
     assert task.source.channel is TaskSourceChannel.VOICE
+
+
+@pytest.mark.asyncio
+async def test_agentic_planning_failure_never_starts_without_approval(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from api import agentic_processing
+    from jarvis.task_control import ingest as ingest_module
+
+    async def unavailable(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(ingest_module, "create_task_from_user_request", unavailable)
+
+    response = await agentic_processing._plan_instead_of_running(
+        "analyse mes messages et prépare un rapport",
+        conversation_id=42,
+        channel="websocket",
+        voice_mode=False,
+        persist_assistant=False,
+    )
+
+    assert response is not None
+    assert response["action"] is None
+    assert response["action_result"] == {
+        "ok": False,
+        "accepted": False,
+        "awaiting_plan_approval": False,
+        "error": "planning_unavailable",
+    }
+    assert "Rien n'a été lancé" in response["text"]

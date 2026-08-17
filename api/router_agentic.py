@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import fields, is_dataclass
 from datetime import datetime
 from enum import Enum
+import hashlib
+import json
 from pathlib import Path
 import re
 from typing import Annotated, Any, Literal, Mapping
@@ -22,7 +24,10 @@ from database.agentic import (
     ApprovalAlreadyDecided,
     ApprovalExpired,
 )
-from jarvis.agentic import get_agentic_service
+from jarvis.agentic import (
+    get_agentic_service,
+    select_capability_profile,
+)
 from jarvis.agentic.classifier import classify_agentic_request
 from jarvis.agentic.models import (
     AgenticRunStatus,
@@ -43,10 +48,28 @@ _RESERVED_CONTEXT_KEYS = frozenset(
         "_jarvis",
         "bypass_agentic_reclassification",
         "category",
+        "conversation_history",
         "origin",
         "permissions",
+        "retrieval_context",
+        "retrieval_references",
+        "retrieval_status",
+        "turn_snapshot_id",
     }
 )
+
+
+def _request_idempotency_digest(body: "CreateRunRequest") -> str:
+    """Hash only the caller-controlled request, not time-varying enrichment."""
+
+    payload = body.model_dump(mode="json", exclude_none=False)
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 class RunBudgetRequest(BaseModel):
@@ -229,6 +252,28 @@ async def create_agentic_run(
         request_text,
         origin="user",
     ).category
+    capability_profile = select_capability_profile(
+        request_text,
+        trusted_category,
+        default_profile_id=str(
+            getattr(config, "AGENTIC_DEFAULT_PROFILE", "readonly-research")
+        ),
+        route_overrides=getattr(config, "AGENTIC_PROFILE_ROUTE_OVERRIDES", {}),
+    )
+    from api.chat_context import prepare_turn
+
+    snapshot = await prepare_turn(
+        request_text,
+        int(body.conversation_id)
+        if body.conversation_id and body.conversation_id.isdecimal()
+        else None,
+        interaction_mode="voice" if body.channel == "voice" else "agentic",
+    )
+    permissions = (
+        tuple(body.permissions)
+        if body.permissions
+        else capability_profile.default_permissions
+    )
     try:
         run = await get_agentic_service().create_and_start(
             title=body.title,
@@ -241,19 +286,24 @@ async def create_agentic_run(
             device=body.device,
             locale=body.locale,
             timezone_name=body.timezone,
-            permissions=tuple(body.permissions),
+            permissions=permissions,
+            capability_profile_id=capability_profile.profile_id,
             selected_context={
                 **body.selected_context,
                 "request": request_text,
+                **snapshot.agentic_context(),
             },
             category=trusted_category,
             budget=body.budget.to_domain() if body.budget else None,
             idempotency_key=idempotency_key,
+            idempotency_digest=(
+                _request_idempotency_digest(body) if idempotency_key else None
+            ),
             run_id=body.run_id,
         )
     except Exception as exc:
         raise _translate_domain_error(exc) from exc
-    return {"run": _jsonable(run)}
+    return {"run": _jsonable(run), "knowledge": snapshot.public_payload()}
 
 
 @router.get("/runs")

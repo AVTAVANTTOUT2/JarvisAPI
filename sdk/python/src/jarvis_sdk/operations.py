@@ -400,6 +400,14 @@ _OPERATIONS = {
         tag='cognitive',
         summary='Cursor Status',
     ),
+    'get_api_data_health': Operation(
+        operation_id='get_api_data_health',
+        method='GET',
+        path='/api/data-health',
+        auth='session',
+        tag='data-health',
+        summary='Api Data Health',
+    ),
     'get_api_day_scores': Operation(
         operation_id='get_api_day_scores',
         method='GET',
@@ -1279,6 +1287,22 @@ _OPERATIONS = {
         auth='session',
         tag='cognitive',
         summary='Voice Metrics',
+    ),
+    'get_health_live': Operation(
+        operation_id='get_health_live',
+        method='GET',
+        path='/health/live',
+        auth='public',
+        tag='health',
+        summary='Api Health Live',
+    ),
+    'get_health_ready': Operation(
+        operation_id='get_health_ready',
+        method='GET',
+        path='/health/ready',
+        auth='public',
+        tag='health',
+        summary='Api Health Ready',
     ),
     'patch_api_apple_shortcuts_registry_by_shortcut_id': Operation(
         operation_id='patch_api_apple_shortcuts_registry_by_shortcut_id',

@@ -23,10 +23,14 @@ from typing import Any, Iterator, Mapping
 
 LAUNCHD_LABELS: tuple[str, ...] = (
     "com.jarvis.supervisor",
-    "com.jarvis.imessage-daemon",
+    "com.jarvis.ingestion",
     "com.jarvis.tv",
     "com.jarvis.tv-browser",
 )
+
+# Ancien collecteur à désactiver pendant le cutover afin de garantir un seul
+# propriétaire de Mail/iMessage/Calendar.
+LEGACY_LAUNCHD_LABELS: tuple[str, ...] = ("com.jarvis.imessage-daemon",)
 
 PROTECTED_MARKERS: tuple[str, ...] = (
     "Cursor Helper",
@@ -48,6 +52,7 @@ CLI_MUTEX_PATH = "/tmp/jarvis_cli.lock"
 
 class RestartBlocked(RuntimeError):
     """Relance refusée : arrêt incomplet, verrou ou port tiers."""
+
 
 SCRIPT_SERVICES: tuple[tuple[str, str], ...] = (
     ("scripts/imessage_daemon.py", "imessage_daemon"),
@@ -163,7 +168,9 @@ def classify_process(snapshot: ProcessSnapshot, root: Path) -> str | None:
     ):
         return "backend"
 
-    node_like = "node " in f"{text} " or text.startswith("node") or "next-server" in text
+    node_like = (
+        "node " in f"{text} " or text.startswith("node") or "next-server" in text
+    )
     if node_like:
         for folder, service in (
             (root / "frontend", "frontend_dev"),
@@ -293,7 +300,7 @@ def default_list_snapshots(root: Path) -> list[ProcessSnapshot]:
 def default_bootout(*, uid: int | None = None) -> list[str]:
     user = os.getuid() if uid is None else uid
     unloaded: list[str] = []
-    for label in LAUNCHD_LABELS:
+    for label in (*LAUNCHD_LABELS, *LEGACY_LAUNCHD_LABELS):
         result = subprocess.run(
             ["launchctl", "bootout", f"gui/{user}/{label}"],
             capture_output=True,
@@ -444,7 +451,8 @@ def stop_stack(
     still = [
         item.pid
         for item in ordered
-        if alive_fn(item.pid) and item.pid in {proc.pid for proc in select_owned(listing(), root)}
+        if alive_fn(item.pid)
+        and item.pid in {proc.pid for proc in select_owned(listing(), root)}
     ]
     return StopReport(
         ok=not still,
@@ -534,9 +542,7 @@ def acquire_cli_mutex(
             raise
 
     try:
-        if not wait_predicate(
-            _try, timeout_s=timeout_s, sleep=sleep, clock=clock
-        ):
+        if not wait_predicate(_try, timeout_s=timeout_s, sleep=sleep, clock=clock):
             raise RestartBlocked("une autre commande jarvis maj est en cours")
         yield
     finally:
@@ -574,7 +580,9 @@ def classify_port_occupancy(
     list_snapshots: Callable[[], Sequence[ProcessSnapshot]],
 ) -> tuple[tuple[int, ...], tuple[int, ...]]:
     """Sépare les PID JARVIS des occupants tiers. Un PID inconnu est tiers."""
-    pids = tuple(dict.fromkeys(int(pid) for pid in list_listeners(port) if int(pid) > 0))
+    pids = tuple(
+        dict.fromkeys(int(pid) for pid in list_listeners(port) if int(pid) > 0)
+    )
     if not pids:
         return (), ()
     owned_ids = {item.pid for item in select_owned(list_snapshots(), root)}

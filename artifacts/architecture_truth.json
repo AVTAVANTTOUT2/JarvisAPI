@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-08-16T10:24:29.825498+00:00",
+  "generated_at": "2026-08-16T15:07:23.589177+00:00",
   "repo_root": ".",
   "canonical_formulation": {
-    "database": "Le projet crée 113 tables persistantes après init_db() + migrations, plus jusqu'à 5 objets FTS5, soit 118 tables physiques lorsque FTS5 est disponible.",
+    "database": "Le projet crée 118 tables persistantes après init_db() + migrations, plus jusqu'à 5 objets FTS5, soit 123 tables physiques lorsque FTS5 est disponible.",
     "frontends": "Le frontend canonique est frontend/ (Next.js 15 → frontend/out). web/src est uniquement sa bibliothèque de vues et n'est plus une application exécutable. web_mobile/ est l'interface mobile autonome servie sous /mobile/, sans build. Si frontend/out manque, le bureau répond explicitement 503. tv/ (5174) est réservé à la TV. FastAPI (8081) et le supervisor (9000) servent uniquement frontend/out via core.frontend_resolution."
   },
   "frontends": [
@@ -117,16 +117,16 @@
       "does_not_execute_schema_sql": true
     },
     "counts": {
-      "schema_py": 76,
-      "schema_sql_applicatives": 120,
+      "schema_py": 81,
+      "schema_sql_applicatives": 125,
       "migrations_unique_excluding_schema_and_fts": 31,
       "devagent": 6,
-      "persistantes_post_init": 113,
+      "persistantes_post_init": 118,
       "fts_objects_if_available": 5,
-      "physiques_max_default_fts_on": 118,
+      "physiques_max_default_fts_on": 123,
       "imessage_mirror": 9,
       "technique_estime": 19,
-      "metier_estime": 79
+      "metier_estime": 84
     },
     "lists": {
       "schema_py": [
@@ -146,6 +146,8 @@
         "apple_shortcut_registry",
         "apple_shortcut_runs",
         "calendar_events",
+        "connector_bindings",
+        "contact_identities",
         "conversation_documents",
         "conversations",
         "cross_insights",
@@ -171,6 +173,8 @@
         "imessage_messages",
         "imessage_reactions",
         "imessage_sync_cursor",
+        "ingestion_jobs",
+        "ingestion_source_state",
         "knowledge_embeddings",
         "knowledge_index_jobs",
         "knowledge_items",
@@ -189,6 +193,7 @@
         "people",
         "people_events",
         "places",
+        "recording_sessions",
         "recordings",
         "relationship_events",
         "relationship_profiles",
@@ -226,6 +231,8 @@
         "auth_rate_limits",
         "calendar_events",
         "commitments",
+        "connector_bindings",
+        "contact_identities",
         "control_task_activity",
         "control_task_candidates",
         "control_task_comments",
@@ -272,6 +279,8 @@
         "imessage_messages",
         "imessage_reactions",
         "imessage_sync_cursor",
+        "ingestion_jobs",
+        "ingestion_source_state",
         "jarvis_journal",
         "knowledge_embeddings",
         "knowledge_index_jobs",
@@ -304,6 +313,7 @@
         "places",
         "presence_sessions",
         "push_subscriptions",
+        "recording_sessions",
         "recordings",
         "relationship_events",
         "relationship_profiles",
@@ -389,6 +399,8 @@
         "auth_rate_limits",
         "calendar_events",
         "commitments",
+        "connector_bindings",
+        "contact_identities",
         "conversation_documents",
         "conversation_turns",
         "conversations",
@@ -429,6 +441,8 @@
         "imessage_messages",
         "imessage_reactions",
         "imessage_sync_cursor",
+        "ingestion_jobs",
+        "ingestion_source_state",
         "jarvis_journal",
         "knowledge_embeddings",
         "knowledge_index_jobs",
@@ -460,6 +474,7 @@
         "places",
         "presence_sessions",
         "push_subscriptions",
+        "recording_sessions",
         "recordings",
         "relationship_events",
         "relationship_profiles",
@@ -519,20 +534,20 @@
       ]
     },
     "explanations": {
-      "schema_sql": "120 tables applicatives dans database/schema.sql (dump non exécuté), hors sqlite_sequence.",
-      "persistantes": "113 tables créées par schema.py + migrations + DevAgent, hors objets FTS.",
-      "physiques_fts": "118 entrées sqlite_master avec les cinq objets FTS5 disponibles.",
+      "schema_sql": "125 tables applicatives dans database/schema.sql (dump non exécuté), hors sqlite_sequence.",
+      "persistantes": "118 tables créées par schema.py + migrations + DevAgent, hors objets FTS.",
+      "physiques_fts": "123 entrées sqlite_master avec les cinq objets FTS5 disponibles.",
       "historique": "Les totaux 44, 70, 71, 72, 73, 75, 76 et 78 décrivent des snapshots antérieurs, pas le runtime courant."
     }
   },
   "api_surface": {
     "coverage_scope": "Références statiques par chemin : la méthode HTTP et les assertions comportementales restent vérifiées par les suites de tests.",
     "counts": {
-      "operations": 315,
-      "paths": 280,
+      "operations": 316,
+      "paths": 281,
       "consumer_and_tested": 144,
       "consumer_without_path_test": 68,
-      "owned_non_frontend_and_tested": 50,
+      "owned_non_frontend_and_tested": 51,
       "owned_non_frontend_without_path_test": 53
     },
     "consumer_surfaces": [
@@ -545,16 +560,16 @@
       "tv"
     ],
     "structure": {
-      "http_operations": 313,
+      "http_operations": 314,
       "websocket_operations": 2,
-      "openapi_paths": 278,
+      "openapi_paths": 279,
       "domain_router_modules": 22,
       "mounted_routers": 23,
-      "main_lines": 227
+      "main_lines": 269
     },
     "ownership_policy": {
       "path": "Architecture/api_route_ownership.json",
-      "rules": 38,
+      "rules": 39,
       "findings": []
     },
     "routes": [
@@ -678,7 +693,7 @@
         "method": "DELETE",
         "path": "/api/life-profile/{entry_id}",
         "source": "api/router_misc.py",
-        "line": 390,
+        "line": 407,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -695,7 +710,7 @@
         "method": "DELETE",
         "path": "/api/logs",
         "source": "api/router_misc.py",
-        "line": 340,
+        "line": 357,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -803,7 +818,7 @@
         "method": "GET",
         "path": "/api/agentic/runs",
         "source": "api/router_agentic.py",
-        "line": 259,
+        "line": 309,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/agenticApi.ts"
@@ -827,7 +842,7 @@
         "method": "GET",
         "path": "/api/agentic/runs/{run_id}",
         "source": "api/router_agentic.py",
-        "line": 287,
+        "line": 337,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/agenticApi.ts"
@@ -850,7 +865,7 @@
         "method": "GET",
         "path": "/api/agentic/runs/{run_id}/approvals",
         "source": "api/router_agentic.py",
-        "line": 309,
+        "line": 359,
         "consumers": {
           "android": [
             "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
@@ -869,7 +884,7 @@
         "method": "GET",
         "path": "/api/agentic/runs/{run_id}/artifacts",
         "source": "api/router_agentic.py",
-        "line": 302,
+        "line": 352,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/agenticApi.ts"
@@ -891,7 +906,7 @@
         "method": "GET",
         "path": "/api/agentic/runs/{run_id}/events",
         "source": "api/router_agentic.py",
-        "line": 292,
+        "line": 342,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/agenticApi.ts"
@@ -914,7 +929,7 @@
         "method": "GET",
         "path": "/api/agentic/runtime/status",
         "source": "api/router_agentic.py",
-        "line": 210,
+        "line": 233,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/agenticApi.ts"
@@ -1135,7 +1150,7 @@
         "method": "GET",
         "path": "/api/backups",
         "source": "api/router_misc.py",
-        "line": 130,
+        "line": 147,
         "consumers": {},
         "tests": [],
         "non_frontend_ownership": {
@@ -1150,7 +1165,7 @@
         "method": "GET",
         "path": "/api/backups/cloud",
         "source": "api/router_misc.py",
-        "line": 145,
+        "line": 162,
         "consumers": {},
         "tests": [
           "tests/test_cloud_backup.py"
@@ -1167,7 +1182,7 @@
         "method": "GET",
         "path": "/api/briefing",
         "source": "api/router_misc.py",
-        "line": 360,
+        "line": 377,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -1196,7 +1211,7 @@
         "method": "GET",
         "path": "/api/calendar",
         "source": "api/router_misc.py",
-        "line": 425,
+        "line": 442,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -1263,7 +1278,7 @@
         "method": "GET",
         "path": "/api/commitments",
         "source": "api/router_misc.py",
-        "line": 245,
+        "line": 262,
         "consumers": {},
         "tests": [],
         "non_frontend_ownership": {
@@ -1278,7 +1293,7 @@
         "method": "GET",
         "path": "/api/commitments/consistency",
         "source": "api/router_misc.py",
-        "line": 255,
+        "line": 272,
         "consumers": {},
         "tests": [
           "tests/test_lot1_endpoints.py"
@@ -1295,7 +1310,7 @@
         "method": "GET",
         "path": "/api/contacts",
         "source": "api/router_misc.py",
-        "line": 460,
+        "line": 477,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -1457,7 +1472,7 @@
         "method": "GET",
         "path": "/api/costs",
         "source": "api/router_misc.py",
-        "line": 125,
+        "line": 142,
         "consumers": {},
         "tests": [],
         "non_frontend_ownership": {
@@ -1518,9 +1533,26 @@
       },
       {
         "method": "GET",
+        "path": "/api/data-health",
+        "source": "api/router_misc.py",
+        "line": 122,
+        "consumers": {},
+        "tests": [
+          "tests/test_health_contract.py"
+        ],
+        "non_frontend_ownership": {
+          "rule_id": "operator-data-health",
+          "owner": "observability",
+          "audience": "operator",
+          "rationale": "Diagnostic authentifié de la couverture des connecteurs, du heartbeat d'ingestion et des files de travaux, sans contenu personnel."
+        },
+        "classification": "owned_non_frontend_and_tested"
+      },
+      {
+        "method": "GET",
         "path": "/api/day-scores",
         "source": "api/router_misc.py",
-        "line": 215,
+        "line": 232,
         "consumers": {},
         "tests": [
           "tests/test_lot1_endpoints.py"
@@ -1537,7 +1569,7 @@
         "method": "GET",
         "path": "/api/day-scores/{date}",
         "source": "api/router_misc.py",
-        "line": 220,
+        "line": 237,
         "consumers": {},
         "tests": [
           "tests/test_lot1_endpoints.py"
@@ -1678,7 +1710,7 @@
         "method": "GET",
         "path": "/api/doomscroll",
         "source": "api/router_misc.py",
-        "line": 195,
+        "line": 212,
         "consumers": {},
         "tests": [
           "tests/test_lot1_endpoints.py"
@@ -1695,7 +1727,7 @@
         "method": "GET",
         "path": "/api/emails",
         "source": "api/router_misc.py",
-        "line": 365,
+        "line": 382,
         "consumers": {
           "mobile_web": [
             "web_mobile/js/api.js"
@@ -1713,7 +1745,7 @@
         "method": "GET",
         "path": "/api/events/stream",
         "source": "api/router_misc.py",
-        "line": 290,
+        "line": 307,
         "consumers": {
           "frontend_vite": [
             "web/src/app/components/views/FoodView.tsx",
@@ -1733,7 +1765,7 @@
         "method": "GET",
         "path": "/api/export",
         "source": "api/router_misc.py",
-        "line": 475,
+        "line": 492,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -2104,7 +2136,7 @@
         "method": "GET",
         "path": "/api/health/detail",
         "source": "api/router_misc.py",
-        "line": 105,
+        "line": 117,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -2123,7 +2155,7 @@
         "method": "GET",
         "path": "/api/health/live",
         "source": "api/router_misc.py",
-        "line": 100,
+        "line": 112,
         "consumers": {},
         "tests": [
           "frontend/src/lib/api-offline.test.ts",
@@ -2144,7 +2176,7 @@
         "method": "GET",
         "path": "/api/imessage-import/status",
         "source": "api/router_misc.py",
-        "line": 165,
+        "line": 182,
         "consumers": {},
         "tests": [],
         "non_frontend_ownership": {
@@ -2174,7 +2206,7 @@
         "method": "GET",
         "path": "/api/integrations",
         "source": "api/router_misc.py",
-        "line": 285,
+        "line": 302,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -2196,7 +2228,7 @@
         "method": "GET",
         "path": "/api/jarvis-journal",
         "source": "api/router_misc.py",
-        "line": 205,
+        "line": 222,
         "consumers": {},
         "tests": [
           "tests/test_lot1_endpoints.py",
@@ -2214,7 +2246,7 @@
         "method": "GET",
         "path": "/api/journal",
         "source": "api/router_misc.py",
-        "line": 410,
+        "line": 427,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -2233,7 +2265,7 @@
         "method": "GET",
         "path": "/api/life-context",
         "source": "api/router_misc.py",
-        "line": 395,
+        "line": 412,
         "consumers": {},
         "tests": [
           "tests/test_life_context_endpoint.py",
@@ -2252,7 +2284,7 @@
         "method": "GET",
         "path": "/api/life-profile",
         "source": "api/router_misc.py",
-        "line": 375,
+        "line": 392,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -2324,7 +2356,7 @@
         "method": "GET",
         "path": "/api/logs",
         "source": "api/router_misc.py",
-        "line": 335,
+        "line": 352,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -2344,7 +2376,7 @@
         "method": "GET",
         "path": "/api/meetings",
         "source": "api/router_misc.py",
-        "line": 260,
+        "line": 277,
         "consumers": {},
         "tests": [],
         "non_frontend_ownership": {
@@ -2359,7 +2391,7 @@
         "method": "GET",
         "path": "/api/memory",
         "source": "api/router_misc.py",
-        "line": 265,
+        "line": 282,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -2393,7 +2425,7 @@
         "method": "GET",
         "path": "/api/metrics/history",
         "source": "api/router_misc.py",
-        "line": 110,
+        "line": 127,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -2457,7 +2489,7 @@
         "method": "GET",
         "path": "/api/mood",
         "source": "api/router_misc.py",
-        "line": 370,
+        "line": 387,
         "consumers": {
           "tv": [
             "tv/server.py",
@@ -2472,7 +2504,7 @@
         "method": "GET",
         "path": "/api/mood/signals",
         "source": "api/router_misc.py",
-        "line": 175,
+        "line": 192,
         "consumers": {},
         "tests": [],
         "non_frontend_ownership": {
@@ -2487,7 +2519,7 @@
         "method": "GET",
         "path": "/api/notifications",
         "source": "api/router_misc.py",
-        "line": 315,
+        "line": 332,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -2520,7 +2552,7 @@
         "method": "GET",
         "path": "/api/notifications/all",
         "source": "api/router_misc.py",
-        "line": 345,
+        "line": 362,
         "consumers": {},
         "tests": [],
         "non_frontend_ownership": {
@@ -2535,7 +2567,7 @@
         "method": "GET",
         "path": "/api/outputs",
         "source": "api/router_misc.py",
-        "line": 275,
+        "line": 292,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -2552,7 +2584,7 @@
         "method": "GET",
         "path": "/api/outputs/{filepath:path}",
         "source": "api/router_misc.py",
-        "line": 280,
+        "line": 297,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -2566,7 +2598,7 @@
         "method": "GET",
         "path": "/api/patterns",
         "source": "api/router_misc.py",
-        "line": 420,
+        "line": 437,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -2682,7 +2714,7 @@
         "method": "GET",
         "path": "/api/places/favorites",
         "source": "api/router_misc.py",
-        "line": 185,
+        "line": 202,
         "consumers": {},
         "tests": [
           "tests/test_lot1_endpoints.py"
@@ -2699,7 +2731,7 @@
         "method": "GET",
         "path": "/api/places/missed-opportunities",
         "source": "api/router_misc.py",
-        "line": 190,
+        "line": 207,
         "consumers": {},
         "tests": [
           "tests/test_lot1_endpoints.py"
@@ -2730,7 +2762,7 @@
         "method": "GET",
         "path": "/api/predictions/messages",
         "source": "api/router_misc.py",
-        "line": 180,
+        "line": 197,
         "consumers": {},
         "tests": [
           "tests/test_lot1_endpoints.py"
@@ -2747,7 +2779,7 @@
         "method": "GET",
         "path": "/api/presence",
         "source": "api/router_misc.py",
-        "line": 225,
+        "line": 242,
         "consumers": {},
         "tests": [],
         "non_frontend_ownership": {
@@ -2781,7 +2813,7 @@
         "method": "GET",
         "path": "/api/procrastination/cost",
         "source": "api/router_misc.py",
-        "line": 200,
+        "line": 217,
         "consumers": {},
         "tests": [
           "tests/test_lot1_endpoints.py"
@@ -2798,7 +2830,7 @@
         "method": "GET",
         "path": "/api/productivity/score",
         "source": "api/router_misc.py",
-        "line": 170,
+        "line": 187,
         "consumers": {},
         "tests": [],
         "non_frontend_ownership": {
@@ -2813,7 +2845,7 @@
         "method": "GET",
         "path": "/api/push/vapid-public-key",
         "source": "api/router_misc.py",
-        "line": 320,
+        "line": 337,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -2921,7 +2953,7 @@
         "method": "GET",
         "path": "/api/relationship-graph",
         "source": "api/router_misc.py",
-        "line": 450,
+        "line": 467,
         "consumers": {},
         "tests": [
           "tests/test_relationship_graph.py"
@@ -2938,7 +2970,7 @@
         "method": "GET",
         "path": "/api/relationship/{name}",
         "source": "api/router_misc.py",
-        "line": 445,
+        "line": 462,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -3027,7 +3059,7 @@
         "method": "GET",
         "path": "/api/search",
         "source": "api/router_misc.py",
-        "line": 470,
+        "line": 487,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -3041,7 +3073,7 @@
         "method": "GET",
         "path": "/api/self-healing/status",
         "source": "api/router_misc.py",
-        "line": 230,
+        "line": 247,
         "consumers": {},
         "tests": [],
         "non_frontend_ownership": {
@@ -3056,7 +3088,7 @@
         "method": "GET",
         "path": "/api/settings/tts",
         "source": "api/router_misc.py",
-        "line": 305,
+        "line": 322,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -3073,7 +3105,7 @@
         "method": "GET",
         "path": "/api/stats/compare",
         "source": "api/router_misc.py",
-        "line": 240,
+        "line": 257,
         "consumers": {},
         "tests": [],
         "non_frontend_ownership": {
@@ -3088,7 +3120,7 @@
         "method": "GET",
         "path": "/api/stats/weekly",
         "source": "api/router_misc.py",
-        "line": 120,
+        "line": 137,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -3106,7 +3138,7 @@
         "method": "GET",
         "path": "/api/status",
         "source": "api/router_misc.py",
-        "line": 115,
+        "line": 132,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -3300,7 +3332,7 @@
         "method": "GET",
         "path": "/api/time-machine/{date}",
         "source": "api/router_misc.py",
-        "line": 455,
+        "line": 472,
         "consumers": {},
         "tests": [
           "tests/test_http_error_contract.py",
@@ -3468,7 +3500,7 @@
         "method": "PATCH",
         "path": "/api/commitments/{commitment_id}",
         "source": "api/router_misc.py",
-        "line": 250,
+        "line": 267,
         "consumers": {},
         "tests": [
           "tests/test_crud_not_found.py",
@@ -3589,7 +3621,7 @@
         "method": "PATCH",
         "path": "/api/settings/tts",
         "source": "api/router_misc.py",
-        "line": 310,
+        "line": 327,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -3648,7 +3680,7 @@
         "method": "POST",
         "path": "/api/agentic/runs",
         "source": "api/router_agentic.py",
-        "line": 219,
+        "line": 242,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/agenticApi.ts"
@@ -3672,7 +3704,7 @@
         "method": "POST",
         "path": "/api/agentic/runs/{run_id}/approvals/{approval_id}/decision",
         "source": "api/router_agentic.py",
-        "line": 341,
+        "line": 391,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/agenticApi.ts"
@@ -3695,7 +3727,7 @@
         "method": "POST",
         "path": "/api/agentic/runs/{run_id}/cancel",
         "source": "api/router_agentic.py",
-        "line": 336,
+        "line": 386,
         "consumers": {
           "android": [
             "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
@@ -3712,7 +3744,7 @@
         "method": "POST",
         "path": "/api/agentic/runs/{run_id}/pause",
         "source": "api/router_agentic.py",
-        "line": 326,
+        "line": 376,
         "consumers": {
           "android": [
             "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
@@ -3731,7 +3763,7 @@
         "method": "POST",
         "path": "/api/agentic/runs/{run_id}/resume",
         "source": "api/router_agentic.py",
-        "line": 331,
+        "line": 381,
         "consumers": {
           "android": [
             "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
@@ -3748,7 +3780,7 @@
         "method": "POST",
         "path": "/api/analyze-contact",
         "source": "api/router_misc.py",
-        "line": 440,
+        "line": 457,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -4086,7 +4118,7 @@
         "method": "POST",
         "path": "/api/backups/cloud/{name}/restore",
         "source": "api/router_misc.py",
-        "line": 150,
+        "line": 167,
         "consumers": {},
         "tests": [
           "tests/test_cloud_backup.py",
@@ -4104,7 +4136,7 @@
         "method": "POST",
         "path": "/api/backups/run",
         "source": "api/router_misc.py",
-        "line": 135,
+        "line": 152,
         "consumers": {},
         "tests": [
           "tests/test_public_openapi.py"
@@ -4121,7 +4153,7 @@
         "method": "POST",
         "path": "/api/backups/{name}/restore",
         "source": "api/router_misc.py",
-        "line": 140,
+        "line": 157,
         "consumers": {},
         "tests": [],
         "non_frontend_ownership": {
@@ -4151,7 +4183,7 @@
         "method": "POST",
         "path": "/api/calendar",
         "source": "api/router_misc.py",
-        "line": 430,
+        "line": 447,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -4188,7 +4220,7 @@
         "method": "POST",
         "path": "/api/calendar/test",
         "source": "api/router_misc.py",
-        "line": 435,
+        "line": 452,
         "consumers": {},
         "tests": [
           "tests/test_http_error_contract.py"
@@ -4220,7 +4252,7 @@
         "method": "POST",
         "path": "/api/contacts/sync",
         "source": "api/router_misc.py",
-        "line": 465,
+        "line": 482,
         "consumers": {},
         "tests": [],
         "non_frontend_ownership": {
@@ -4745,7 +4777,7 @@
         "method": "POST",
         "path": "/api/email-watcher/catchup",
         "source": "api/router_misc.py",
-        "line": 300,
+        "line": 317,
         "consumers": {},
         "tests": [],
         "non_frontend_ownership": {
@@ -5098,7 +5130,7 @@
         "method": "POST",
         "path": "/api/imessage-import/run",
         "source": "api/router_misc.py",
-        "line": 160,
+        "line": 177,
         "consumers": {},
         "tests": [],
         "non_frontend_ownership": {
@@ -5128,7 +5160,7 @@
         "method": "POST",
         "path": "/api/jarvis-journal/generate",
         "source": "api/router_misc.py",
-        "line": 210,
+        "line": 227,
         "consumers": {},
         "tests": [
           "tests/test_insights_input_contract.py",
@@ -5146,7 +5178,7 @@
         "method": "POST",
         "path": "/api/journal",
         "source": "api/router_misc.py",
-        "line": 415,
+        "line": 432,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -5165,7 +5197,7 @@
         "method": "POST",
         "path": "/api/life-context",
         "source": "api/router_misc.py",
-        "line": 400,
+        "line": 417,
         "consumers": {},
         "tests": [
           "tests/test_life_context_endpoint.py",
@@ -5184,7 +5216,7 @@
         "method": "POST",
         "path": "/api/life-context/{context_id}/close",
         "source": "api/router_misc.py",
-        "line": 405,
+        "line": 422,
         "consumers": {},
         "tests": [
           "tests/test_life_context_endpoint.py"
@@ -5201,7 +5233,7 @@
         "method": "POST",
         "path": "/api/life-profile",
         "source": "api/router_misc.py",
-        "line": 380,
+        "line": 397,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -5281,7 +5313,7 @@
         "method": "POST",
         "path": "/api/maintenance/run",
         "source": "api/router_misc.py",
-        "line": 155,
+        "line": 172,
         "consumers": {},
         "tests": [],
         "non_frontend_ownership": {
@@ -5311,7 +5343,7 @@
         "method": "POST",
         "path": "/api/mission/prompt",
         "source": "api/router_misc.py",
-        "line": 295,
+        "line": 312,
         "consumers": {
           "frontend_vite": [
             "web/src/pages/MissionControl.tsx"
@@ -5342,7 +5374,7 @@
         "method": "POST",
         "path": "/api/mobile/chat",
         "source": "api/router_mobile_chat.py",
-        "line": 106,
+        "line": 107,
         "consumers": {
           "android": [
             "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
@@ -5360,7 +5392,7 @@
         "method": "POST",
         "path": "/api/mobile/chat/confirm",
         "source": "api/router_mobile_chat.py",
-        "line": 197,
+        "line": 200,
         "consumers": {
           "android": [
             "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
@@ -5377,7 +5409,7 @@
         "method": "POST",
         "path": "/api/mobile/conversations",
         "source": "api/router_mobile_chat.py",
-        "line": 65,
+        "line": 66,
         "consumers": {
           "android": [
             "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
@@ -5515,7 +5547,7 @@
         "method": "POST",
         "path": "/api/notifications/read-all",
         "source": "api/router_misc.py",
-        "line": 355,
+        "line": 372,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -5529,7 +5561,7 @@
         "method": "POST",
         "path": "/api/notifications/{notif_id}/read",
         "source": "api/router_misc.py",
-        "line": 350,
+        "line": 367,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -5674,7 +5706,7 @@
         "method": "POST",
         "path": "/api/push/subscribe",
         "source": "api/router_misc.py",
-        "line": 325,
+        "line": 342,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -5690,7 +5722,7 @@
         "method": "POST",
         "path": "/api/push/unsubscribe",
         "source": "api/router_misc.py",
-        "line": 330,
+        "line": 347,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -5846,7 +5878,7 @@
         "method": "POST",
         "path": "/api/self-healing/diagnose",
         "source": "api/router_misc.py",
-        "line": 235,
+        "line": 252,
         "consumers": {},
         "tests": [
           "tests/test_insights_input_contract.py"
@@ -6009,7 +6041,7 @@
         "method": "POST",
         "path": "/upload",
         "source": "api/router_misc.py",
-        "line": 270,
+        "line": 287,
         "consumers": {
           "frontend_next": [
             "frontend/public/sw.js",
@@ -6046,7 +6078,7 @@
         "method": "PUT",
         "path": "/api/life-profile/{entry_id}",
         "source": "api/router_misc.py",
-        "line": 385,
+        "line": 402,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -6100,7 +6132,7 @@
         "method": "WEBSOCKET",
         "path": "/ws",
         "source": "main.py",
-        "line": 133,
+        "line": 175,
         "consumers": {
           "frontend_next": [
             "frontend/public/sw.js"
@@ -6140,7 +6172,7 @@
         "method": "WEBSOCKET",
         "path": "/ws/tv/events",
         "source": "main.py",
-        "line": 136,
+        "line": 178,
         "consumers": {
           "tv": [
             "tv/config.py"

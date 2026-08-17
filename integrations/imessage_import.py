@@ -14,15 +14,23 @@ Architecture :
 from __future__ import annotations
 
 import hashlib
+import fcntl
 import logging
+import os
 import sqlite3
 import threading
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
 import config
-from database import get_db
+from database import (
+    current_profile_id,
+    get_db,
+    normalize_contact_identity,
+    profile_database_path,
+)
 from integrations.apple_data import (
     DEFAULT_CHAT_DB_PATH,
     AppleDataService,
@@ -33,6 +41,24 @@ from integrations.imessage_body import message_text_from_row
 
 # Une seule sync à la fois (daemon HTTP + periodic_scan + retrieval live).
 _SYNC_LOCK = threading.Lock()
+_AVAILABILITY_FAILURE_COOLDOWN = 30.0
+
+
+def _try_acquire_process_sync_lock():
+    """Verrou inter-processus profilé pour daemon, API et worker durable."""
+
+    db_path = profile_database_path(current_profile_id())
+    lock_path = db_path.parent / f".{db_path.name}.imessage-sync.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    handle = os.fdopen(fd, "a+")
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return handle
+    except BlockingIOError:
+        handle.close()
+        return None
+
 
 def _message_batch_sql(conn: sqlite3.Connection) -> str:
     """Construit la lecture compatible avec plusieurs générations de chat.db."""
@@ -47,6 +73,7 @@ def _message_batch_sql(conn: sqlite3.Connection) -> str:
     has_body = "attributedBody" in message_columns
     has_chat_join = "chat_message_join" in tables
     has_handle_join = has_chat_join and "chat_handle_join" in tables
+    has_attachment_join = "message_attachment_join" in tables
 
     attributed_body = "m.attributedBody" if has_body else "NULL AS attributedBody"
     resolved_handle = "m.handle_id"
@@ -78,6 +105,18 @@ def _message_batch_sql(conn: sqlite3.Connection) -> str:
            )"""
 
     body_filter = " OR m.attributedBody IS NOT NULL" if has_body else ""
+    attachment_filter = (
+        " OR EXISTS(SELECT 1 FROM message_attachment_join maj "
+        "WHERE maj.message_id = m.ROWID)"
+        if has_attachment_join
+        else ""
+    )
+    has_attachment = (
+        "EXISTS(SELECT 1 FROM message_attachment_join maj "
+        "WHERE maj.message_id = m.ROWID)"
+        if has_attachment_join
+        else "0"
+    )
     return f"""
         SELECT m.ROWID,
                m.guid,
@@ -93,13 +132,23 @@ def _message_batch_sql(conn: sqlite3.Connection) -> str:
                m.associated_message_guid,
                m.associated_message_type,
                m.cache_roomnames,
+               {has_attachment} AS has_attachment,
                {resolved_handle} AS resolved_handle_id,
                {resolved_chat} AS resolved_chat_identifier
         FROM message m
         WHERE m.ROWID BETWEEN ? AND ?
-          AND (m.text IS NOT NULL{body_filter})
+          AND (m.text IS NOT NULL{body_filter}{attachment_filter})
         ORDER BY m.ROWID ASC
     """
+
+
+def _count_importable_messages(conn: sqlite3.Connection) -> int:
+    row = conn.execute(
+        f"SELECT COUNT(*) AS count FROM ({_message_batch_sql(conn)})",
+        (0, 9_223_372_036_854_775_807),
+    ).fetchone()
+    return int(row["count"] if row else 0)
+
 
 logger = logging.getLogger(__name__)
 
@@ -123,7 +172,8 @@ REACTION_TYPE_NAMES: dict[int, str] = {
 @dataclass
 class ImportResult:
     """Resultat d'un import (initial ou incremental)."""
-    mode: str = "initial"            # "initial" ou "incremental"
+
+    mode: str = "initial"  # "initial" ou "incremental"
     total_handles: int = 0
     total_chats: int = 0
     total_messages: int = 0
@@ -140,6 +190,7 @@ class ImportResult:
 @dataclass
 class ReconciliationReport:
     """Rapport de reconciliation post-import."""
+
     chat_db_messages: int = 0
     jarvis_db_messages: int = 0
     chat_db_chats: int = 0
@@ -158,7 +209,11 @@ def _apple_ts_to_iso(ts: int | float | None) -> str | None:
     if ts is None:
         return None
     converted = apple_epoch_to_datetime(ts, zero_is_none=False)
-    return converted.isoformat() if converted else None
+    if converted is None:
+        return None
+    if converted.tzinfo is None:
+        converted = converted.replace(tzinfo=timezone.utc)
+    return converted.astimezone(timezone.utc).isoformat()
 
 
 def _compute_content_hash(
@@ -201,6 +256,7 @@ class IMessageImporter:
         self.batch_size = batch_size
         self._chat_db_conn: sqlite3.Connection | None = None
         self._available: bool | None = None
+        self._last_failed_check = 0.0
         self._apple_data_override = data_service
 
     def _data_service(self) -> AppleDataService:
@@ -211,16 +267,26 @@ class IMessageImporter:
 
     def is_available(self) -> bool:
         """Verifie l'acces a chat.db en lecture seule."""
-        if self._available is not None:
-            return self._available
+        if self._available is True:
+            return True
+        if (
+            self._available is False
+            and time.monotonic() - self._last_failed_check
+            < _AVAILABILITY_FAILURE_COOLDOWN
+        ):
+            return False
         service = self._data_service()
         if not service.db_path.exists():
-            logger.warning("[imessage_import] chat.db introuvable : %s", service.db_path)
+            logger.warning(
+                "[imessage_import] chat.db introuvable : %s", service.db_path
+            )
             self._available = False
+            self._last_failed_check = time.monotonic()
             return False
         try:
             service.count_messages()
             self._available = True
+            self._last_failed_check = 0.0
             logger.info("[imessage_import] chat.db accessible en lecture")
         except (sqlite3.OperationalError, jarvis_sqlite.OperationalError) as e:
             logger.warning(
@@ -229,7 +295,14 @@ class IMessageImporter:
                 e,
             )
             self._available = False
+            self._last_failed_check = time.monotonic()
         return self._available
+
+    def reset_availability_cache(self) -> None:
+        """Force un nouveau probe après une modification de permission macOS."""
+
+        self._available = None
+        self._last_failed_check = 0.0
 
     def _open_chat_db(self) -> sqlite3.Connection:
         """Ouvre chat.db en lecture seule."""
@@ -268,22 +341,24 @@ class IMessageImporter:
     def _update_cursor(
         self,
         last_rowid: int,
-        last_date: int = 0,
-        last_guid: str = "",
-        total_imported: int = 0,
-        total_failed: int = 0,
+        last_date: int | None = None,
+        last_guid: str | None = None,
+        total_imported: int | None = None,
+        total_failed: int | None = None,
         status: str = "idle",
         error_message: str = "",
     ) -> None:
         """Met a jour le curseur de synchronisation."""
         with get_db() as conn:
-            cur = conn.execute("SELECT id FROM imessage_sync_cursor WHERE id = 1").fetchone()
+            cur = conn.execute(
+                "SELECT id FROM imessage_sync_cursor WHERE id = 1"
+            ).fetchone()
             if cur:
                 conn.execute(
                     """UPDATE imessage_sync_cursor
                        SET last_apple_rowid = ?,
-                           last_date = ?,
-                           last_guid = ?,
+                           last_date = COALESCE(?, last_date),
+                           last_guid = COALESCE(?, last_guid),
                            total_imported = COALESCE(?, total_imported),
                            total_failed = COALESCE(?, total_failed),
                            last_sync_at = CURRENT_TIMESTAMP,
@@ -291,9 +366,16 @@ class IMessageImporter:
                            status = ?,
                            error_message = ?
                        WHERE id = 1""",
-                    (last_rowid, last_date, last_guid,
-                     total_imported, total_failed,
-                     status, status, error_message),
+                    (
+                        last_rowid,
+                        last_date,
+                        last_guid,
+                        total_imported,
+                        total_failed,
+                        status,
+                        status,
+                        error_message,
+                    ),
                 )
             else:
                 conn.execute(
@@ -301,8 +383,15 @@ class IMessageImporter:
                        (id, last_apple_rowid, last_date, last_guid, total_imported,
                         total_failed, started_at, status, error_message)
                        VALUES (1, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?)""",
-                    (last_rowid, last_date, last_guid,
-                     total_imported, total_failed, status, error_message),
+                    (
+                        last_rowid,
+                        last_date or 0,
+                        last_guid or "",
+                        total_imported or 0,
+                        total_failed or 0,
+                        status,
+                        error_message,
+                    ),
                 )
 
     def reset_cursor(self) -> None:
@@ -382,33 +471,56 @@ class IMessageImporter:
             result.total_skipped = msg_result["skipped"]
             result.total_failed = msg_result["failed"]
             result.errors = msg_result.get("errors", [])
+            safe_rowid = max(
+                int(cursor["last_apple_rowid"] or 0),
+                int(msg_result.get("last_contiguous_rowid", 0)),
+            )
+            safe_date = cursor["last_date"]
+            safe_guid = cursor["last_guid"]
+            if safe_rowid:
+                last_message = chat_conn.execute(
+                    "SELECT date, guid FROM message WHERE ROWID <= ? ORDER BY ROWID DESC LIMIT 1",
+                    (safe_rowid,),
+                ).fetchone()
+                if last_message:
+                    safe_date = int(last_message["date"] or safe_date or 0)
+                    safe_guid = str(last_message["guid"] or safe_guid or "")
             logger.info(
                 "[imessage_import] Messages : %d importes, %d skippes, %d echoues",
-                result.total_messages, result.total_skipped, result.total_failed,
+                result.total_messages,
+                result.total_skipped,
+                result.total_failed,
             )
 
             # 5. Attachments
             logger.info("[imessage_import] Phase 4/5 : attachments...")
             att_result = self._import_attachments(chat_conn)
             result.total_attachments = att_result["imported"]
-            logger.info("[imessage_import] %d attachments importes", result.total_attachments)
+            logger.info(
+                "[imessage_import] %d attachments importes", result.total_attachments
+            )
 
             # 6. Reactions
             logger.info("[imessage_import] Phase 5/5 : reactions...")
             reac_result = self._import_reactions(chat_conn, handles_map)
             result.total_reactions = reac_result["imported"]
-            logger.info("[imessage_import] %d reactions importees", result.total_reactions)
+            logger.info(
+                "[imessage_import] %d reactions importees", result.total_reactions
+            )
 
             self._close_chat_db()
 
             # Curseur final
-            max_rowid = self._get_max_chat_rowid() if self.is_available() else 0
             self._update_cursor(
-                last_rowid=max_rowid,
+                last_rowid=safe_rowid,
+                last_date=safe_date,
+                last_guid=safe_guid,
                 total_imported=result.total_messages,
                 total_failed=result.total_failed,
-                status="idle",
-                error_message="",
+                status="error" if result.total_failed else "idle",
+                error_message="; ".join(result.errors[:3])
+                if result.total_failed
+                else "",
             )
 
             # Reconciliation automatique
@@ -429,8 +541,7 @@ class IMessageImporter:
         result.duration_seconds = (datetime.now() - t0).total_seconds()
         result.completed_at = datetime.now(timezone.utc).isoformat()
         logger.info(
-            "[imessage_import] Import termine en %.1fs — "
-            "%d msg / %d skip / %d erreurs",
+            "[imessage_import] Import termine en %.1fs — %d msg / %d skip / %d erreurs",
             result.duration_seconds,
             result.total_messages,
             result.total_skipped,
@@ -450,11 +561,24 @@ class IMessageImporter:
             logger.info("[imessage_import] Sync déjà en cours — cycle ignoré")
             skipped = ImportResult(mode="incremental")
             skipped.errors.append("sync_already_running")
+            skipped.total_failed = 1
             return skipped
 
+        process_lock = _try_acquire_process_sync_lock()
+        if process_lock is None:
+            _SYNC_LOCK.release()
+            logger.info(
+                "[imessage_import] Sync active dans un autre processus — cycle reporté"
+            )
+            skipped = ImportResult(mode="incremental")
+            skipped.errors.append("sync_already_running")
+            skipped.total_failed = 1
+            return skipped
         try:
             return self._sync_incremental_locked()
         finally:
+            fcntl.flock(process_lock.fileno(), fcntl.LOCK_UN)
+            process_lock.close()
             _SYNC_LOCK.release()
 
     def _sync_incremental_locked(self) -> ImportResult:
@@ -466,7 +590,11 @@ class IMessageImporter:
 
         chat_max_rowid = self._get_max_chat_rowid()
         if chat_max_rowid <= last_rowid:
-            logger.info("[imessage_import] Aucun nouveau message (cursor=%d, max=%d)", last_rowid, chat_max_rowid)
+            logger.info(
+                "[imessage_import] Aucun nouveau message (cursor=%d, max=%d)",
+                last_rowid,
+                chat_max_rowid,
+            )
             result.duration_seconds = (datetime.now() - t0).total_seconds()
             result.completed_at = datetime.now(timezone.utc).isoformat()
             result.reconciliation = self.reconcile().__dict__
@@ -474,7 +602,9 @@ class IMessageImporter:
 
         logger.info(
             "[imessage_import] Sync incrementale : ROWID %d → %d (%d nouveaux)",
-            last_rowid, chat_max_rowid, chat_max_rowid - last_rowid,
+            last_rowid,
+            chat_max_rowid,
+            chat_max_rowid - last_rowid,
         )
 
         self._update_cursor(
@@ -497,28 +627,51 @@ class IMessageImporter:
             self._import_chat_handles(chat_conn, handles_map, chats_map)
 
             # 4. Nouveaux messages
-            msg_result = self._import_messages_since(chat_conn, last_rowid, handles_map, chats_map)
+            msg_result = self._import_messages_since(
+                chat_conn, last_rowid, handles_map, chats_map
+            )
             result.total_messages = msg_result["imported"]
             result.total_skipped = msg_result["skipped"]
             result.total_failed = msg_result["failed"]
             result.errors = msg_result.get("errors", [])
+            safe_rowid = max(
+                last_rowid,
+                int(msg_result.get("last_contiguous_rowid", last_rowid)),
+            )
+            safe_date = cursor["last_date"]
+            safe_guid = cursor["last_guid"]
+            if safe_rowid > last_rowid:
+                last_message = chat_conn.execute(
+                    "SELECT date, guid FROM message WHERE ROWID <= ? ORDER BY ROWID DESC LIMIT 1",
+                    (safe_rowid,),
+                ).fetchone()
+                if last_message:
+                    safe_date = int(last_message["date"] or safe_date or 0)
+                    safe_guid = str(last_message["guid"] or safe_guid or "")
 
             # 5. Nouveaux attachments
             att_batch = self._import_new_attachments(chat_conn, last_rowid)
             result.total_attachments = att_batch["imported"]
 
             # 6. Nouvelles reactions
-            reac_batch = self._import_reactions_since(chat_conn, last_rowid, handles_map)
+            reac_batch = self._import_reactions_since(
+                chat_conn, last_rowid, handles_map
+            )
             result.total_reactions = reac_batch["imported"]
 
             self._close_chat_db()
 
             # Mise a jour du curseur
             self._update_cursor(
-                last_rowid=chat_max_rowid,
+                last_rowid=safe_rowid,
+                last_date=safe_date,
+                last_guid=safe_guid,
                 total_imported=result.total_messages,
                 total_failed=result.total_failed,
-                status="idle",
+                status="error" if result.total_failed else "idle",
+                error_message="; ".join(result.errors[:3])
+                if result.total_failed
+                else "",
             )
 
             result.reconciliation = self.reconcile().__dict__
@@ -530,6 +683,7 @@ class IMessageImporter:
                 status="error",
                 error_message=f"{type(e).__name__}: {e}",
             )
+            result.total_failed += 1
             result.errors.append(f"Erreur fatale : {type(e).__name__}: {e}")
         finally:
             self._close_chat_db()
@@ -588,22 +742,89 @@ class IMessageImporter:
                 """INSERT OR IGNORE INTO imessage_handles
                    (apple_handle_id, handle, country, service, uncanonicalized_id)
                    VALUES (?, ?, ?, ?, ?)""",
-                (apple_handle_id, handle, country, service or "iMessage", uncanonicalized_id),
+                (
+                    apple_handle_id,
+                    handle,
+                    country,
+                    service or "iMessage",
+                    uncanonicalized_id,
+                ),
             )
-            if cur.lastrowid:
-                return cur.lastrowid
-            # Deja existant — recuperer l'id
-            row = conn.execute(
-                "SELECT id FROM imessage_handles WHERE apple_handle_id = ?",
-                (apple_handle_id,),
-            ).fetchone()
-            return row["id"] if row else None
+            jarvis_id = int(cur.lastrowid) if cur.lastrowid else None
         except (sqlite3.IntegrityError, jarvis_sqlite.IntegrityError):
+            jarvis_id = None
+        if jarvis_id is None:
             row = conn.execute(
                 "SELECT id FROM imessage_handles WHERE apple_handle_id = ?",
                 (apple_handle_id,),
             ).fetchone()
-            return row["id"] if row else None
+            jarvis_id = int(row["id"]) if row else None
+        if jarvis_id is not None:
+            self._enrich_handle_identity(conn, jarvis_id, handle)
+        return jarvis_id
+
+    def _enrich_handle_identity(
+        self,
+        conn: sqlite3.Connection,
+        handle_id: int,
+        handle: str,
+        *,
+        display_name: str | None = None,
+    ) -> None:
+        """Relie un handle à l'identité Contacts.app sans changer de profil."""
+
+        resolved_name = str(display_name or "").strip()
+        if not resolved_name:
+            try:
+                candidate = str(
+                    self._data_service().resolve_handle(handle) or ""
+                ).strip()
+            except Exception:
+                candidate = ""
+            if candidate and candidate.casefold() != str(handle).strip().casefold():
+                resolved_name = candidate
+        identity_type, normalized = normalize_contact_identity("imessage", handle)
+        person_id: int | None = None
+        if resolved_name:
+            person = conn.execute(
+                "SELECT id FROM people WHERE name = ? COLLATE NOCASE LIMIT 1",
+                (resolved_name,),
+            ).fetchone()
+            person_id = int(person["id"]) if person else None
+        conn.execute(
+            """
+            INSERT INTO contact_identities(
+                identity_type, normalized_value, display_name, person_id,
+                source, confidence, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, 'imessage', 1.0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ON CONFLICT(identity_type, normalized_value) DO UPDATE SET
+                display_name = CASE WHEN excluded.display_name <> ''
+                    THEN excluded.display_name ELSE contact_identities.display_name END,
+                person_id = COALESCE(excluded.person_id, contact_identities.person_id),
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (identity_type, normalized, resolved_name, person_id),
+        )
+        identity = conn.execute(
+            "SELECT id, display_name FROM contact_identities "
+            "WHERE identity_type = ? AND normalized_value = ?",
+            (identity_type, normalized),
+        ).fetchone()
+        if identity:
+            conn.execute(
+                """
+                UPDATE imessage_handles
+                SET contact_identity_id = ?,
+                    display_name = CASE WHEN ? <> '' THEN ? ELSE display_name END
+                WHERE id = ?
+                """,
+                (
+                    int(identity["id"]),
+                    str(identity["display_name"] or ""),
+                    str(identity["display_name"] or ""),
+                    int(handle_id),
+                ),
+            )
 
     # ── Import chats ───────────────────────────────────────────
 
@@ -644,23 +865,52 @@ class IMessageImporter:
         is_filtered: int,
     ) -> int | None:
         try:
-            cur = conn.execute(
-                """INSERT OR IGNORE INTO imessage_chats
-                   (apple_chat_id, chat_identifier, display_name, group_id, style, is_filtered)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (apple_chat_id, chat_identifier, display_name, group_id, style, is_filtered),
+            conn.execute(
+                """
+                INSERT INTO imessage_chats(
+                    apple_chat_id, chat_identifier, display_name, group_id, style, is_filtered
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(apple_chat_id) DO UPDATE SET
+                    chat_identifier = COALESCE(excluded.chat_identifier, imessage_chats.chat_identifier),
+                    display_name = CASE WHEN COALESCE(excluded.display_name, '') <> ''
+                        THEN excluded.display_name ELSE imessage_chats.display_name END,
+                    group_id = COALESCE(excluded.group_id, imessage_chats.group_id),
+                    style = excluded.style,
+                    is_filtered = excluded.is_filtered
+                """,
+                (
+                    apple_chat_id,
+                    chat_identifier,
+                    display_name,
+                    group_id,
+                    style,
+                    is_filtered,
+                ),
             )
-            if cur.lastrowid:
-                return cur.lastrowid
-            row = conn.execute(
-                "SELECT id FROM imessage_chats WHERE apple_chat_id = ?", (apple_chat_id,),
-            ).fetchone()
-            return row["id"] if row else None
         except (sqlite3.IntegrityError, jarvis_sqlite.IntegrityError):
-            row = conn.execute(
-                "SELECT id FROM imessage_chats WHERE apple_chat_id = ?", (apple_chat_id,),
+            pass
+        row = conn.execute(
+            "SELECT id FROM imessage_chats WHERE apple_chat_id = ?",
+            (apple_chat_id,),
+        ).fetchone()
+        jarvis_id = int(row["id"]) if row else None
+        if display_name and chat_identifier:
+            handle = conn.execute(
+                """
+                SELECT id, handle FROM imessage_handles
+                WHERE handle = ? OR uncanonicalized_id = ?
+                ORDER BY id LIMIT 1
+                """,
+                (chat_identifier, chat_identifier),
             ).fetchone()
-            return row["id"] if row else None
+            if handle:
+                self._enrich_handle_identity(
+                    conn,
+                    int(handle["id"]),
+                    str(handle["handle"]),
+                    display_name=display_name,
+                )
+        return jarvis_id
 
     # ── Import chat_handles ────────────────────────────────────
 
@@ -707,8 +957,11 @@ class IMessageImporter:
             "SELECT COALESCE(MAX(ROWID), 0) m FROM message"
         ).fetchone()["m"]
         return self._import_message_batch(
-            chat_conn, handles_map, chats_map,
-            from_rowid=0, to_rowid=max_rowid,
+            chat_conn,
+            handles_map,
+            chats_map,
+            from_rowid=0,
+            to_rowid=max_rowid,
         )
 
     def _import_messages_since(
@@ -723,10 +976,20 @@ class IMessageImporter:
             "SELECT COALESCE(MAX(ROWID), 0) m FROM message"
         ).fetchone()["m"]
         if max_rowid <= since_rowid:
-            return {"imported": 0, "skipped": 0, "failed": 0, "errors": []}
+            return {
+                "imported": 0,
+                "skipped": 0,
+                "failed": 0,
+                "errors": [],
+                "failed_rowids": [],
+                "last_contiguous_rowid": since_rowid,
+            }
         return self._import_message_batch(
-            chat_conn, handles_map, chats_map,
-            from_rowid=since_rowid + 1, to_rowid=max_rowid,
+            chat_conn,
+            handles_map,
+            chats_map,
+            from_rowid=since_rowid + 1,
+            to_rowid=max_rowid,
         )
 
     def _import_message_batch(
@@ -742,6 +1005,7 @@ class IMessageImporter:
         total_skipped = 0
         total_failed = 0
         errors: list[str] = []
+        failed_rowids: list[int] = []
         current = from_rowid
 
         while current <= to_rowid:
@@ -759,7 +1023,7 @@ class IMessageImporter:
                                 r["text"],
                                 r["attributedBody"],
                             )
-                            if not text:
+                            if not text and not bool(r["has_attachment"]):
                                 total_skipped += 1
                                 continue
 
@@ -775,7 +1039,9 @@ class IMessageImporter:
                                 guid=str(r["guid"] or ""),
                                 apple_handle_id=resolved_handle,
                                 handles_map=handles_map,
-                                apple_chat_roomname=str(r["resolved_chat_identifier"] or ""),
+                                apple_chat_roomname=str(
+                                    r["resolved_chat_identifier"] or ""
+                                ),
                                 chats_map=chats_map,
                                 text=text,
                                 attributed_body=r["attributedBody"],
@@ -785,8 +1051,13 @@ class IMessageImporter:
                                 is_read=int(r["is_read"] or 0),
                                 item_type=int(r["item_type"] or 0),
                                 group_title=str(r["group_title"] or "") or None,
-                                associated_message_guid=str(r["associated_message_guid"] or "") or None,
-                                associated_message_type=int(r["associated_message_type"] or 0),
+                                associated_message_guid=str(
+                                    r["associated_message_guid"] or ""
+                                )
+                                or None,
+                                associated_message_type=int(
+                                    r["associated_message_type"] or 0
+                                ),
                             )
                             if inserted:
                                 total_imported += 1
@@ -794,6 +1065,7 @@ class IMessageImporter:
                                 total_skipped += 1
                         except Exception as e:
                             total_failed += 1
+                            failed_rowids.append(int(r["ROWID"]))
                             err = f"Message ROWID={r['ROWID']}: {type(e).__name__}: {e}"
                             errors.append(err)
                             if len(errors) <= 10:
@@ -801,13 +1073,18 @@ class IMessageImporter:
 
                 logger.debug(
                     "[imessage_import] Batch %d-%d : %d importes",
-                    current, batch_end, total_imported,
+                    current,
+                    batch_end,
+                    total_imported,
                 )
 
             except (sqlite3.Error, jarvis_sqlite.Error) as e:
                 total_failed += 1
+                failed_rowids.append(current)
                 errors.append(f"Batch {current}-{batch_end}: {e}")
-                logger.error("[imessage_import] Echec batch %d-%d : %s", current, batch_end, e)
+                logger.error(
+                    "[imessage_import] Echec batch %d-%d : %s", current, batch_end, e
+                )
 
             current = batch_end + 1
 
@@ -816,6 +1093,10 @@ class IMessageImporter:
             "skipped": total_skipped,
             "failed": total_failed,
             "errors": errors,
+            "failed_rowids": failed_rowids,
+            "last_contiguous_rowid": min(failed_rowids) - 1
+            if failed_rowids
+            else to_rowid,
         }
 
     def _resolve_chat_id(
@@ -870,6 +1151,9 @@ class IMessageImporter:
         """Insere ou ignore un message. Retourne True si insere, False si skip."""
         content_hash = _compute_content_hash(date, apple_handle_id, text, guid)
         body_blob = bytes(attributed_body) if attributed_body else None
+        occurred_at_utc = _apple_ts_to_iso(date)
+        source_updated_at_utc = datetime.now(timezone.utc).isoformat()
+        content_complete = bool((text or "").strip())
 
         # Verifications pre-insert (deduplication)
         existing = conn.execute(
@@ -887,9 +1171,21 @@ class IMessageImporter:
             # Mettre a jour les metadonnees si necessaire
             conn.execute(
                 """UPDATE imessage_messages
-                   SET apple_rowid = ?, date_read = ?, is_read = ?, is_from_me = ?
-                   WHERE guid = ? AND apple_rowid IS NULL OR apple_rowid != ?""",
-                (apple_rowid, date_read, is_read, is_from_me, guid, apple_rowid),
+                   SET apple_rowid = ?, date = ?, occurred_at_utc = ?,
+                       source_updated_at_utc = ?, date_read = ?, is_read = ?,
+                       is_from_me = ?
+                   WHERE guid = ? AND (apple_rowid IS NULL OR apple_rowid != ?)""",
+                (
+                    apple_rowid,
+                    date,
+                    occurred_at_utc,
+                    source_updated_at_utc,
+                    date_read,
+                    is_read,
+                    is_from_me,
+                    guid,
+                    apple_rowid,
+                ),
             )
             return False  # deja present par GUID
 
@@ -905,7 +1201,10 @@ class IMessageImporter:
 
         # Resolution du chat jarvis
         jarvis_chat_id = self._resolve_chat_id(
-            conn, apple_chat_roomname, chats_map, apple_handle_id,
+            conn,
+            apple_chat_roomname,
+            chats_map,
+            apple_handle_id,
         )
 
         try:
@@ -913,13 +1212,30 @@ class IMessageImporter:
                 """INSERT INTO imessage_messages
                    (apple_rowid, guid, chat_id, handle_id, text, attributed_body,
                     date, date_read, is_from_me, is_read, item_type, group_title,
-                    associated_message_guid, associated_message_type, content_hash)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    associated_message_guid, associated_message_type, content_hash,
+                    occurred_at_utc, source_updated_at_utc, content_complete,
+                    ingestion_completeness)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
-                    apple_rowid, guid, jarvis_chat_id, jarvis_handle_id,
-                    text, body_blob, date, date_read, is_from_me, is_read, item_type,
-                    group_title, associated_message_guid, associated_message_type,
+                    apple_rowid,
+                    guid,
+                    jarvis_chat_id,
+                    jarvis_handle_id,
+                    text,
+                    body_blob,
+                    date,
+                    date_read,
+                    is_from_me,
+                    is_read,
+                    item_type,
+                    group_title,
+                    associated_message_guid,
+                    associated_message_type,
                     content_hash,
+                    occurred_at_utc,
+                    source_updated_at_utc,
+                    int(content_complete),
+                    "complete" if content_complete else "metadata",
                 ),
             )
             return True
@@ -1128,7 +1444,12 @@ class IMessageImporter:
                         """INSERT OR IGNORE INTO imessage_reactions
                            (message_id, reactor_handle_id, reaction_type, apple_associated_guid)
                            VALUES (?, ?, ?, ?)""",
-                        (target["id"], reactor_jarvis_id, reaction_type, r["associated_message_guid"]),
+                        (
+                            target["id"],
+                            reactor_jarvis_id,
+                            reaction_type,
+                            r["associated_message_guid"],
+                        ),
                     )
                     if cur.rowcount > 0:
                         imported += 1
@@ -1167,10 +1488,14 @@ class IMessageImporter:
                     if not apple_row:
                         continue
 
-                    text = message_text_from_row(
-                        apple_row["text"],
-                        apple_row["attributedBody"],
-                    ) or (row["text"] or "").strip() or None
+                    text = (
+                        message_text_from_row(
+                            apple_row["text"],
+                            apple_row["attributedBody"],
+                        )
+                        or (row["text"] or "").strip()
+                        or None
+                    )
 
                     resolved_handle = apple_row["resolved_handle_id"]
                     if resolved_handle in (None, 0):
@@ -1220,6 +1545,49 @@ class IMessageImporter:
 
         return stats
 
+    def reconcile_deleted_messages(self) -> int:
+        """Supprime localement uniquement après un inventaire complet de chat.db."""
+
+        if not self.is_available():
+            raise RuntimeError("chat.db inaccessible — reconciliation impossible")
+        chat_conn = self._open_chat_db()
+        try:
+            source_rows = {
+                int(row["ROWID"]): str(row["guid"] or "")
+                for row in chat_conn.execute(
+                    "SELECT ROWID, guid FROM message"
+                ).fetchall()
+            }
+        finally:
+            self._close_chat_db()
+
+        with get_db() as jarvis_conn:
+            cached = jarvis_conn.execute(
+                "SELECT id, apple_rowid, guid FROM imessage_messages"
+            ).fetchall()
+            stale_ids = [
+                int(row["id"])
+                for row in cached
+                if int(row["apple_rowid"]) not in source_rows
+                or source_rows[int(row["apple_rowid"])] != str(row["guid"] or "")
+            ]
+            if not stale_ids:
+                return 0
+            placeholders = ",".join("?" for _ in stale_ids)
+            jarvis_conn.execute(
+                f"DELETE FROM imessage_reactions WHERE message_id IN ({placeholders})",  # noqa: S608
+                stale_ids,
+            )
+            jarvis_conn.execute(
+                f"DELETE FROM imessage_message_attachments WHERE message_id IN ({placeholders})",  # noqa: S608
+                stale_ids,
+            )
+            jarvis_conn.execute(
+                f"DELETE FROM imessage_messages WHERE id IN ({placeholders})",  # noqa: S608
+                stale_ids,
+            )
+        return len(stale_ids)
+
     # ── Reconciliation ─────────────────────────────────────────
 
     def reconcile(self) -> ReconciliationReport:
@@ -1233,9 +1601,7 @@ class IMessageImporter:
         chat_conn = self._open_chat_db()
         try:
             # Comptages chat.db
-            report.chat_db_messages = chat_conn.execute(
-                "SELECT COUNT(*) c FROM message WHERE text IS NOT NULL"
-            ).fetchone()["c"]
+            report.chat_db_messages = _count_importable_messages(chat_conn)
             report.chat_db_chats = chat_conn.execute(
                 "SELECT COUNT(*) c FROM chat"
             ).fetchone()["c"]
@@ -1316,14 +1682,17 @@ class IMessageImporter:
             logger.info(
                 "[imessage_import] Reconciliation OK — "
                 "%d messages (chat.db=%d), %d orphelins fixes, %d doublons supprimes",
-                report.jarvis_db_messages, report.chat_db_messages,
-                report.orphan_fixed, report.duplicates_removed,
+                report.jarvis_db_messages,
+                report.chat_db_messages,
+                report.orphan_fixed,
+                report.duplicates_removed,
             )
         else:
             logger.warning(
                 "[imessage_import] Reconciliation : ecart detecte — "
                 "chat.db=%d messages, jarvis.db=%d messages",
-                report.chat_db_messages, report.jarvis_db_messages,
+                report.chat_db_messages,
+                report.jarvis_db_messages,
             )
 
         return report

@@ -11,9 +11,14 @@ from fastapi import BackgroundTasks, HTTPException
 import config
 from api.daemon_support import _audio_daemon_status_payload
 from api.errors import api_error, internal_error
-from database import count_memory_stats, get_cost_summary, get_daily_activity_stats, get_usage_stats
+from database import (
+    count_memory_stats,
+    get_cost_summary,
+    get_daily_activity_stats,
+    get_ingestion_health_summary,
+    get_usage_stats,
+)
 from integrations import imessage_bridge
-from scripts.email_watcher import email_watcher
 
 try:
     from audio import stt
@@ -44,8 +49,8 @@ def _tts_status_payload() -> dict:
     payload["tts_provider_configured"] = settings.provider
     return payload
 
-logger = logging.getLogger("jarvis")
 
+logger = logging.getLogger("jarvis")
 
 
 def _computer_status_payload() -> dict:
@@ -93,7 +98,10 @@ async def api_status():
 
     loc_payload: dict[str, Any] = {}
     try:
-        from database.location_helpers import get_active_location_patterns, get_today_visits
+        from database.location_helpers import (
+            get_active_location_patterns,
+            get_today_visits,
+        )
         from integrations.location import location_manager
 
         st = await location_manager.get_status()
@@ -120,12 +128,22 @@ async def api_status():
         agentic_service = get_agentic_service()
         runtimes = await agentic_service.runtime_status()
         recent_runs = agentic_service.list(limit=100, offset=0)
-        terminal = {"completed", "failed", "cancelled", "expired", "provider_unavailable"}
+        terminal = {
+            "completed",
+            "failed",
+            "cancelled",
+            "expired",
+            "provider_unavailable",
+        }
         active_runs = [
-            run for run in recent_runs if str(getattr(run.status, "value", run.status)) not in terminal
+            run
+            for run in recent_runs
+            if str(getattr(run.status, "value", run.status)) not in terminal
         ]
         agentic_payload = {
-            "available": any(item.get("status") in {"healthy", "degraded"} for item in runtimes),
+            "available": any(
+                item.get("status") in {"healthy", "degraded"} for item in runtimes
+            ),
             "runtimes": runtimes,
             "active_run_count": len(active_runs),
             "attention_required_count": sum(
@@ -151,6 +169,16 @@ async def api_status():
             },
         }
 
+    ingestion_health = get_ingestion_health_summary()
+    service_state = next(
+        (
+            item
+            for item in ingestion_health.get("states", [])
+            if item.get("source") == "__service__"
+        ),
+        {},
+    )
+
     return {
         "user": config.USER_NAME,
         "models": {
@@ -170,7 +198,9 @@ async def api_status():
         "today": stats,
         "audio": {
             "stt_available": stt is not None and getattr(stt, "available", False),
-            "stt_engine": stt.get_backend_name() if (stt and getattr(stt, "available", False)) else "none",
+            "stt_engine": stt.get_backend_name()
+            if (stt and getattr(stt, "available", False))
+            else "none",
             "stt_model": getattr(config, "STT_MODEL", config.DEFAULT_STT_MODEL),
             **_tts_status_payload(),
         },
@@ -181,10 +211,11 @@ async def api_status():
         },
         "imessage": _imessage_status_payload(),
         "email_watcher": {
-            "running": email_watcher.running,
-            "check_interval": email_watcher.check_interval,
-            "processed_count": len(email_watcher.last_processed_ids),
+            "running": service_state.get("status") in {"ok", "degraded"},
+            "managed_by": "com.jarvis.ingestion",
+            "deprecated": True,
         },
+        "ingestion": ingestion_health,
         "computer": _computer_status_payload(),
         "memory": _safe_memory_stats(),
         "location": loc_payload,
@@ -293,7 +324,9 @@ async def api_cloud_backups_list():
         backups = await asyncio.to_thread(list_cloud_backups)
     except CloudBackupError as exc:
         logger.error("list_cloud_backups : %s", exc)
-        raise api_error(502, "cloud_backup_unavailable", "Cloud de sauvegarde indisponible") from exc
+        raise api_error(
+            502, "cloud_backup_unavailable", "Cloud de sauvegarde indisponible"
+        ) from exc
     return {"cloud": status, "backups": backups}
 
 
@@ -305,7 +338,9 @@ async def api_cloud_backup_restore(name: str):
         return await asyncio.to_thread(restore_cloud_backup, name)
     except CloudBackupError as exc:
         logger.error("restore_cloud_backup %s : %s", name, exc)
-        raise api_error(400, "cloud_backup_restore_failed", "Restauration cloud impossible") from exc
+        raise api_error(
+            400, "cloud_backup_restore_failed", "Restauration cloud impossible"
+        ) from exc
 
 
 async def api_maintenance_run():
@@ -320,6 +355,7 @@ async def api_maintenance_run():
 
 
 # ── Import iMessage ─────────────────────────────────────────
+
 
 async def api_imessage_import_run(background_tasks: BackgroundTasks):
     """Declenche un import iMessage en arriere-plan.

@@ -53,7 +53,12 @@ from .profiles import (
     get_capability_profile,
     select_capability_profile,
 )
-from .redaction import neutralize_event_payload, redact_mapping, redact_text
+from .redaction import (
+    neutralize_event_payload,
+    redact_mapping,
+    redact_selected_context,
+    redact_text,
+)
 from .registry import RuntimePluginError, RuntimeRegistry
 from .verifier import (
     CompletionVerifier,
@@ -148,9 +153,7 @@ _WRITE_CATEGORIES = frozenset(
         AgenticRequestCategory.AGENTIC_HIGH_RISK,
     }
 )
-_WRITE_PERMISSIONS = frozenset(
-    {"workspace:write", "workspace.edit", "tasks:write"}
-)
+_WRITE_PERMISSIONS = frozenset({"workspace:write", "workspace.edit", "tasks:write"})
 _ACTIVE_RUN_STATUSES = (
     AgenticRunStatus.PROVISIONING,
     AgenticRunStatus.PLANNING,
@@ -229,6 +232,7 @@ def _config_int(name: str, default: int) -> int:
 def _cancel_ack_timeout_s() -> float:
     try:
         import config as jarvis_config
+
         value = float(getattr(jarvis_config, "AGENTIC_CANCEL_ACK_TIMEOUT_S", 10.0))
     except (TypeError, ValueError, ImportError):
         return 10.0
@@ -502,6 +506,7 @@ class AgenticService:
         budget: RunBudget | None = None,
         workspace: str | Path | None = None,
         idempotency_key: str | None = None,
+        idempotency_digest: str | None = None,
         run_id: str | None = None,
     ) -> AgenticRun:
         selected_profile = normalize_profile_id(profile_id or current_profile_id())
@@ -547,11 +552,12 @@ class AgenticService:
             locale=locale,
             timezone=timezone_name,
             permissions=requested_permissions,
-            selected_context=redact_mapping(context_payload),
+            selected_context=redact_selected_context(context_payload),
             category=selected_category,
             budget=budget or build_run_budget(),
             workspace=str(workspace) if workspace is not None else None,
             idempotency_key=idempotency_key,
+            idempotency_digest=idempotency_digest,
         )
         stored, created = self.repository.create_run(run)
         if created:
@@ -685,9 +691,7 @@ class AgenticService:
                         statuses=(AgenticRunStatus.QUEUED,),
                         limit=1000,
                     )
-                hold_reason = self._admission_hold_reason(
-                    run, active_runs, queued_runs
-                )
+                hold_reason = self._admission_hold_reason(run, active_runs, queued_runs)
                 if hold_reason is not None:
                     await self._record_and_emit(
                         run,
@@ -1144,6 +1148,7 @@ class AgenticService:
         budget: RunBudget | None = None,
         workspace: str | Path | None = None,
         idempotency_key: str | None = None,
+        idempotency_digest: str | None = None,
         run_id: str | None = None,
     ) -> AgenticRun:
         """Persiste immédiatement puis programme le démarrage sans attendre le run."""
@@ -1166,6 +1171,7 @@ class AgenticService:
             budget=budget,
             workspace=workspace,
             idempotency_key=idempotency_key,
+            idempotency_digest=idempotency_digest,
             run_id=run_id,
         )
         if run.status in {
@@ -1322,10 +1328,14 @@ class AgenticService:
     ) -> ApprovalRequest:
         async with self._lock(approval.run_id):
             run = self.repository.require_run(approval.run_id)
-            if run.status in {
-                AgenticRunStatus.CANCELLING,
-                AgenticRunStatus.CANCELLED,
-            } or run.terminal:
+            if (
+                run.status
+                in {
+                    AgenticRunStatus.CANCELLING,
+                    AgenticRunStatus.CANCELLED,
+                }
+                or run.terminal
+            ):
                 raise ValueError("approbation refusée: run annulé ou terminal")
             if run.status is not AgenticRunStatus.AWAITING_APPROVAL:
                 validate_run_transition(run.status, AgenticRunStatus.AWAITING_APPROVAL)

@@ -13,7 +13,7 @@ import logging
 import re
 import time
 from datetime import datetime
-from typing import Any
+from typing import Any, Mapping
 
 import config
 import llm
@@ -21,11 +21,14 @@ from api.voice_support import _broadcast_voice_debug, _save_voice_messages
 from database import _save_voice_debug_trace
 from jarvis.cognitive import route_request
 from jarvis.cognitive.models import TaskIntent
+from jarvis.security.llm_data_boundary import UNTRUSTED_DATA_SYSTEM_RULE
 
 logger = logging.getLogger("jarvis")
 
 
-def build_voice_debug_trace(text: str, intent: TaskIntent, routing_ms: int) -> dict[str, Any]:
+def build_voice_debug_trace(
+    text: str, intent: TaskIntent, routing_ms: int
+) -> dict[str, Any]:
     return {
         "timestamp": datetime.now().strftime("%H:%M:%S"),
         "input_text": text,
@@ -44,7 +47,8 @@ def build_voice_debug_trace(text: str, intent: TaskIntent, routing_ms: int) -> d
         "latency_llm_pass2_ms": 0,
         "latency_tts_ms": 0,
         "latency_total_ms": 0,
-        "model": getattr(config, "VOICE_REASONING_MODEL", None) or config.DEEPSEEK_FAST_MODEL,
+        "model": getattr(config, "VOICE_REASONING_MODEL", None)
+        or config.DEEPSEEK_FAST_MODEL,
         "tokens_in": 0,
         "tokens_out": 0,
         "cost": 0.0,
@@ -57,7 +61,10 @@ def _detect_briefing_variant(text: str) -> dict[str, Any]:
     """Kind + filtres du briefing selon la formulation vocale."""
     t = (text or "").lower()
     kind = "morning"
-    if re.search(r"\b(soir|soirée|soiree|résumé\s+du\s+soir|resume\s+du\s+soir|journée\s+écoulée)\b", t):
+    if re.search(
+        r"\b(soir|soirée|soiree|résumé\s+du\s+soir|resume\s+du\s+soir|journée\s+écoulée)\b",
+        t,
+    ):
         kind = "evening"
     if re.search(r"\bqu[''\s]est[- ]ce\s+qui\s+a\s+changé|depuis\s+ce\s+matin\b", t):
         kind = "delta"
@@ -65,7 +72,12 @@ def _detect_briefing_variant(text: str) -> dict[str, Any]:
     if re.search(r"\b(urgence|urgences|urgent|critique)\b", t):
         filter_priority = "critique"
     voice_only = bool(re.search(r"\b(version\s+courte|courte?|rapide|bref)\b", t))
-    work_only = bool(re.search(r"\b(seulement\s+le\s+travail|que\s+le\s+travail|le\s+travail\s+uniquement)\b", t))
+    work_only = bool(
+        re.search(
+            r"\b(seulement\s+le\s+travail|que\s+le\s+travail|le\s+travail\s+uniquement)\b",
+            t,
+        )
+    )
     return {
         "kind": kind,
         "filter_priority": filter_priority,
@@ -85,13 +97,14 @@ def _finalize_voice_reply(
     emotion: str = "warm",
     action: dict[str, Any] | None = None,
     cost: float = 0.0,
+    knowledge: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     debug_trace["response_clean"] = reply
     debug_trace["latency_total_ms"] = round((time.time() - t0) * 1000)
     _save_voice_messages(conversation_id, text, reply, cost)
     asyncio.create_task(_broadcast_voice_debug(debug_trace))
     trace_id = _save_voice_debug_trace(debug_trace)
-    return {
+    response = {
         "text": reply,
         "emotion": emotion,
         "cost": cost,
@@ -101,6 +114,9 @@ def _finalize_voice_reply(
         "trace_id": trace_id,
         "routing": intent.to_diagnostic(),
     }
+    if knowledge:
+        response["knowledge"] = dict(knowledge)
+    return response
 
 
 async def maybe_handle_cognitive_voice(
@@ -117,10 +133,12 @@ async def maybe_handle_cognitive_voice(
     routing_ms = round((time.time() - t_route) * 1000)
     debug_trace = build_voice_debug_trace(text, intent, routing_ms)
     debug_trace["latency_stt_ms"] = int(stt_ms or 0)
-    confirmation_session_id = confirmation_session_id or f"local-voice:{conversation_id}"
-    legacy_agentic_fallback = str(
-        getattr(config, "AGENTIC_RUNTIME_FALLBACK", "disabled")
-    ).lower() == "legacy"
+    confirmation_session_id = (
+        confirmation_session_id or f"local-voice:{conversation_id}"
+    )
+    legacy_agentic_fallback = (
+        str(getattr(config, "AGENTIC_RUNTIME_FALLBACK", "disabled")).lower() == "legacy"
+    )
 
     # ── Confirmation vocale d'une délégation en attente (« lance », « vas-y ») ──
     from api.action_confirmations import peek_pending_proposal
@@ -152,7 +170,12 @@ async def maybe_handle_cognitive_voice(
                 ack = "Je lance l'analyse. Cursor démarre sur la branche isolée."
                 debug_trace["cursor_job_id"] = job.get("job_id")
                 return _finalize_voice_reply(
-                    debug_trace, conversation_id, text, ack, intent, t0,
+                    debug_trace,
+                    conversation_id,
+                    text,
+                    ack,
+                    intent,
+                    t0,
                     action={"type": "cursor_confirm", "job_id": job.get("job_id")},
                 )
             ack = cursor_confirmation_unavailable_message(reason)
@@ -184,9 +207,7 @@ async def maybe_handle_cognitive_voice(
 
     # ── Tâche technique → proposition Cursor (pas d'auto-start) ──
     if legacy_agentic_fallback and intent.execution_type in {"agentic", "cursor"}:
-        ack = (
-            "J'ai préparé la délégation à Cursor. Dites « lance » pour démarrer."
-        )
+        ack = "J'ai préparé la délégation à Cursor. Dites « lance » pour démarrer."
         job_id = None
         try:
             from integrations.cursor_delegation import cursor_delegation
@@ -212,7 +233,12 @@ async def maybe_handle_cognitive_voice(
             debug_trace["error"] = str(exc)
 
         return _finalize_voice_reply(
-            debug_trace, conversation_id, text, ack, intent, t0,
+            debug_trace,
+            conversation_id,
+            text,
+            ack,
+            intent,
+            t0,
             action={"type": "cursor_propose", "job_id": job_id} if job_id else None,
         )
 
@@ -231,25 +257,49 @@ async def maybe_handle_cognitive_voice(
             voice_text = briefing.voice_text or briefing.full_text[:500]
             debug_trace["briefing_kind"] = variant["kind"]
             return _finalize_voice_reply(
-                debug_trace, conversation_id, text, voice_text, intent, t0,
+                debug_trace,
+                conversation_id,
+                text,
+                voice_text,
+                intent,
+                t0,
             )
         except Exception as exc:
             logger.warning("[voice_fast] briefing engine : %s", exc)
             # → chute vers le pipeline Flash classique (réponse honnête)
 
     # ── Réflexion lourde non technique : ack Flash + suivi Main en fond ──
-    if intent.complexity == "heavy" and intent.execution_type == "answer" and intent.voice_ack:
+    if (
+        intent.complexity == "heavy"
+        and intent.execution_type == "answer"
+        and intent.voice_ack
+    ):
         ack = intent.voice_ack
+        from api.chat_context import prepare_turn
+
+        snapshot = await prepare_turn(
+            text,
+            conversation_id,
+            interaction_mode="voice",
+        )
+        debug_trace["knowledge_snapshot_id"] = snapshot.snapshot_id
+        debug_trace["knowledge_status"] = snapshot.retrieval_status.get("status")
 
         async def _heavy_followup() -> None:
             try:
+                messages = [dict(item) for item in snapshot.conversation_history]
+                messages.append({"role": "user", "content": text})
+                system = (
+                    "Tu es JARVIS. Analyse structuree, francaise, sans emoji. "
+                    "Le resultat complet sera lu dans l'interface ; reste clair.\n\n"
+                    f"{UNTRUSTED_DATA_SYSTEM_RULE}"
+                )
+                if snapshot.retrieval_context:
+                    system += f"\n\n{snapshot.retrieval_context}"
                 result = await llm.chat(
-                    messages=[{"role": "user", "content": text}],
+                    messages=messages,
                     model=intent.prompt_model or config.DEEPSEEK_MAIN_MODEL,
-                    system=(
-                        "Tu es JARVIS. Analyse structuree, francaise, sans emoji. "
-                        "Le resultat complet sera lu dans l'interface ; reste clair."
-                    ),
+                    system=system,
                     max_tokens=getattr(config, "HEAVY_TASK_MAX_TOKENS", 8192),
                     temperature=0.4,
                 )
@@ -275,14 +325,16 @@ async def maybe_handle_cognitive_voice(
                 voice_summary = ""
                 try:
                     vs = await llm.chat(
-                        messages=[{
-                            "role": "user",
-                            "content": (
-                                "Résume ce plan en 2 phrases orales maximum, puis propose "
-                                "UNE action concrète à faire maintenant. Ton JARVIS, pas de markdown.\n\n"
-                                f"{body[:4000]}"
-                            ),
-                        }],
+                        messages=[
+                            {
+                                "role": "user",
+                                "content": (
+                                    "Résume ce plan en 2 phrases orales maximum, puis propose "
+                                    "UNE action concrète à faire maintenant. Ton JARVIS, pas de markdown.\n\n"
+                                    f"{body[:4000]}"
+                                ),
+                            }
+                        ],
                         model=config.DEEPSEEK_FAST_MODEL,
                         system="Tu es JARVIS à l'oral. Concision absolue.",
                         max_tokens=120,
@@ -303,7 +355,13 @@ async def maybe_handle_cognitive_voice(
 
         asyncio.create_task(_heavy_followup(), name="voice-heavy-followup")
         return _finalize_voice_reply(
-            debug_trace, conversation_id, text, ack, intent, t0,
+            debug_trace,
+            conversation_id,
+            text,
+            ack,
+            intent,
+            t0,
+            knowledge=snapshot.public_payload(),
         )
 
     # Continuer le pipeline Flash classique — propager le routing dans le trace

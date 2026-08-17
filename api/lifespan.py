@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import subprocess
-import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -29,38 +27,12 @@ from database import (
     register_local_device,
     set_active_device,
 )
-from integrations import imessage_bridge
-from integrations.apple_data import apple_data
 from jarvis.event_bus import event_bus
 from jarvis.tv_events import publish_audio_daemon_state
-from scripts.email_watcher import email_watcher
 from websocket_registry import broadcast_ws
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 logger = logging.getLogger("jarvis")
-_calendar_subprocess_run = subprocess.run
-
-
-def _run_calendar_open() -> None:
-    _calendar_subprocess_run(
-        ["open", "-gj", "-b", "com.apple.iCal"],
-        check=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        timeout=15,
-    )
-
-
-async def _wake_calendar_background() -> None:
-    """Réveille Calendar sans bloquer la boucle ni abandonner le lanceur ``open``."""
-
-    try:
-        await asyncio.to_thread(_run_calendar_open)
-        logger.info("[startup] Calendar.app lancé en arrière-plan (sans focus)")
-    except Exception as exc:
-        logger.warning(
-            "[startup] Impossible de lancer Calendar.app en arrière-plan : %s", exc
-        )
 
 
 async def _auto_pull_ollama(model: str) -> None:
@@ -98,23 +70,6 @@ async def lifespan(app: FastAPI):
     run_startup_migrations()
     event_bus.bind_loop(asyncio.get_running_loop())
 
-    knowledge_worker_stop = asyncio.Event()
-    knowledge_worker_task = None
-    if config.KNOWLEDGE_WORKER_ENABLED:
-        try:
-            from jarvis.retrieval.worker import run_knowledge_worker
-
-            knowledge_worker_task = asyncio.create_task(
-                run_knowledge_worker(knowledge_worker_stop),
-                name="knowledge_retrieval_worker",
-            )
-            logger.info("[startup] worker de connaissance lancé en arrière-plan")
-        except Exception as exc:
-            logger.warning(
-                "[startup] worker de connaissance indisponible : %s",
-                type(exc).__name__,
-            )
-
     # Cache Contacts.app (résolution numéro / email → nom affiché)
     # build_cache() est synchrone et peut bloquer >20s : lancé en background
     # task pour ne pas retarder le démarrage FastAPI.
@@ -134,28 +89,6 @@ async def lifespan(app: FastAPI):
             logger.warning("[contacts] init cache : %s", e)
 
     asyncio.create_task(_build_contacts_cache())
-
-    # Diagnostic iMessage : lecture de chat.db (nécessite Full Disk Access pour le terminal / Cursor).
-    try:
-        _health = apple_data.health()
-        if _health.get("readable"):
-            logger.info(
-                "[imessage] chat.db accessible — %s messages dans la table message",
-                _health.get("message_count", 0),
-            )
-        elif _health.get("exists"):
-            logger.error(
-                "[imessage] chat.db illisible : %s",
-                _health.get("error", "erreur inconnue"),
-            )
-        else:
-            logger.warning("[imessage] chat.db absent à %s", apple_data.db_path)
-    except Exception as _e:
-        logger.error("[imessage] Impossible de lire chat.db : %s", _e)
-        logger.error(
-            "[imessage] → Réglages Système > Confidentialité et sécurité > Accès complet au disque : "
-            "ajoute Terminal, iTerm ou Cursor selon l’app qui lance JARVIS."
-        )
 
     # Enregistrement des agents
     register_agent(info_agent)
@@ -178,110 +111,12 @@ async def lifespan(app: FastAPI):
     harden_upload_tree_permissions()
     harden_backup_permissions()
 
-    # Calendar.app : réveil arrière-plan uniquement (-g/-j) pour éviter les -600
-    # AppleScript SANS voler le focus (open -a Calendar ramenait Calendrier au 1er plan).
-    await _wake_calendar_background()
-
-    # ── Daemon iMessage ──
-    _imessage_daemon_process = None
-    if config.IMESSAGE_DAEMON_ENABLED:
-        try:
-            import signal as _sig
-
-            daemon_script = str(BASE_DIR / "scripts" / "imessage_daemon.py")
-            if Path(daemon_script).exists():
-                _imessage_daemon_process = subprocess.Popen(
-                    [
-                        sys.executable,
-                        daemon_script,
-                        "--port",
-                        str(config.IMESSAGE_DAEMON_PORT),
-                    ],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    preexec_fn=lambda: _sig.signal(_sig.SIGINT, _sig.SIG_IGN),
-                )
-                logger.info(
-                    "[startup] Daemon iMessage lance (PID=%d, port=%d)",
-                    _imessage_daemon_process.pid,
-                    config.IMESSAGE_DAEMON_PORT,
-                )
-        except Exception as e:
-            logger.warning("[startup] Echec lancement daemon iMessage: %s", e)
-
-    # ── Diagnostic iMessage (uniquement si le daemon est censé tourner) ──
-    if config.IMESSAGE_DAEMON_ENABLED:
-        try:
-            from integrations.imessage_daemon_client import daemon_client
-
-            health = daemon_client.health()
-            if health.ok and health.data.get("ok"):
-                logger.info(
-                    "[imessage] Daemon OK — %s msg dans jarvis.db",
-                    health.data.get("messages_in_db", "?"),
-                )
-            else:
-                logger.warning(
-                    "[imessage] Daemon: chat.db inaccessible — %s",
-                    health.data.get("error", health.error),
-                )
-        except Exception:
-            pass
-
-    # ── Helper : scan initial de l'analyse relationnelle ──
-    async def _initial_relationship_scan(analyzer, reader) -> None:
-        try:
-            logger.info("[analyzer] Lancement du scan initial iMessage…")
-            stats = await analyzer.run_initial_scan()
-            logger.info("[analyzer] Scan initial terminé : %s", stats)
-        except Exception as e:
-            logger.error("[analyzer] Scan initial échoué : %s", e)
-
-    # ── iMessage sourcing (lecture seule, chat.db) ──
-    _imessage_scan_task = None
-    _imessage_relationship_task = None
-    try:
-        if config.IMESSAGE_SOURCING_ENABLED:
-            from integrations.imessage_reader import imessage_reader
-
-            if imessage_reader.is_available():
-                from scripts.relationship_analyzer import analyzer
-
-                _imessage_relationship_task = asyncio.create_task(
-                    _initial_relationship_scan(analyzer, imessage_reader),
-                    name="imessage_relationship_scan",
-                )
-                _imessage_scan_task = asyncio.create_task(
-                    imessage_reader.periodic_scan(config.IMESSAGE_SCAN_INTERVAL),
-                    name="imessage_sourcing_scan",
-                )
-                logger.info(
-                    "iMessage sourcing activé (lecture seule, scan %ss)",
-                    config.IMESSAGE_SCAN_INTERVAL,
-                )
-            else:
-                logger.warning(
-                    "[startup] imessage_reader indisponible "
-                    "(Full Disk Access manquant ?)"
-                )
-        else:
-            logger.info("iMessage sourcing désactivé (IMESSAGE_SOURCING_ENABLED=false)")
-    except ImportError:
-        logger.warning("[startup] modules iMessage reader / analyzer non importables")
-    except Exception as e:
-        logger.warning("[startup] iMessage sourcing erreur : %s", e)
-
-    # ── iMessage bridge (envoi) — VOLONTAIREMENT NON DÉMARRÉ ──
-    # Le bridge n'est pas lancé au startup. L'envoi reste bloqué
-    # au niveau de integrations/imessage.py tant que
-    # IMESSAGE_SEND_ENABLED=false (défaut .env).
-
-    # Email watcher — surveillance proactive des mails non lus.
-    email_task = asyncio.create_task(email_watcher.start())
-    logger.info(
-        "Email watcher lancé — scan toutes les %.0fs",
-        config.EMAIL_CHECK_INTERVAL,
-    )
+    # L'ingestion Apple est un service launchd indépendant. Le backend ne
+    # doit jamais forker après le chargement de Torch/uvloop : cela a déjà
+    # laissé des processus bloqués dans les handlers OpenMP de ``fork``.
+    # La readiness et /api/data-health exposent l'état du service externe.
+    if getattr(config, "INGESTION_SERVICE_ENABLED", True):
+        logger.info("[startup] ingestion gérée par com.jarvis.ingestion")
 
     try:
         from scripts.sync_contacts import sync_people_names
@@ -419,40 +254,12 @@ async def lifespan(app: FastAPI):
     from scripts.scheduler import shutdown_scheduler
 
     shutdown_scheduler()
-    knowledge_worker_stop.set()
-    if knowledge_worker_task is not None:
-        try:
-            await asyncio.wait_for(knowledge_worker_task, timeout=5.0)
-        except (TimeoutError, asyncio.CancelledError):
-            knowledge_worker_task.cancel()
     agentic_finalizer_stop.set()
     if agentic_finalizer_task is not None:
         try:
             await asyncio.wait_for(agentic_finalizer_task, timeout=5.0)
         except (TimeoutError, asyncio.CancelledError):
             agentic_finalizer_task.cancel()
-    if imessage_bridge is not None:
-        imessage_bridge.stop()
-    # Annulation des tâches de sourcing iMessage
-    for _task, _label in [
-        (_imessage_scan_task, "imessage_scan"),
-        (_imessage_relationship_task, "imessage_relationship"),
-    ]:
-        if _task is not None:
-            _task.cancel()
-            try:
-                await _task
-            except (asyncio.CancelledError, Exception):
-                pass
-
-    email_watcher.stop()
-    if email_task is not None:
-        email_task.cancel()
-        try:
-            await email_task
-        except (asyncio.CancelledError, Exception):
-            pass
-
     if daemon_task is not None:
         try:
             from scripts.jarvis_daemon import daemon as _daemon

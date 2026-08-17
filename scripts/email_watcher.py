@@ -27,8 +27,10 @@ import llm
 from database import (
     create_task,
     get_all_processed_email_ids,
+    get_ingestion_source_state,
     mark_email_read,
     save_email_full,
+    update_ingestion_source_state,
 )
 from jarvis.notification_service import notification_service
 from jarvis.security.llm_data_boundary import (
@@ -43,6 +45,7 @@ PROMPT_PATH = Path(__file__).resolve().parent.parent / "prompts" / "email_analyz
 
 MAX_BODY_CHARS = 1500
 MAX_UNREAD_PER_CYCLE = 20
+MAX_MAIL_PAGES_PER_CYCLE = 10
 # Après N analyses LLM/JSON ratées, on archive en low pour ne plus bloquer le cycle.
 MAX_ANALYSIS_FAILURES = 3
 
@@ -324,6 +327,78 @@ class EmailWatcher:
         stats: dict[str, Any],
     ) -> list[dict] | None:
         """Récupère les messages récents. ``None`` = Mail indisponible (réessayer)."""
+        get_recent_page_result = getattr(mail_client, "get_recent_page_result", None)
+        if get_recent_page_result is not None:
+            state = get_ingestion_source_state("mail")
+            resume_offset = 0
+            if state and state.completeness == "partial":
+                resume_offset = max(0, int(state.cursor.get("offset", 0)) - limit)
+            offset = resume_offset
+            resuming = resume_offset > 0
+            collected: list[dict] = []
+            complete = False
+            pages = 0
+            while pages < MAX_MAIL_PAGES_PER_CYCLE:
+                try:
+                    result = await get_recent_page_result(
+                        limit,
+                        offset=offset,
+                        include_preview=False,
+                    )
+                except TypeError:
+                    result = await get_recent_page_result(limit, offset=offset)
+                status = getattr(result, "status", None)
+                if status == "unavailable":
+                    error = getattr(result, "error", None) or "mail_unavailable"
+                    stats["mode"] = "mail_unavailable"
+                    stats["mail_error"] = error
+                    update_ingestion_source_state(
+                        "mail",
+                        status="degraded",
+                        last_attempt_at=None,
+                        error_code=str(error),
+                        consecutive_failures=(state.consecutive_failures + 1)
+                        if state
+                        else 1,
+                    )
+                    return None
+                page = list(getattr(result, "messages", ()) or ())
+                collected.extend(page)
+                pages += 1
+                has_more = bool(getattr(result, "has_more", False))
+                next_offset = getattr(result, "next_offset", None)
+                if not has_more or next_offset is None:
+                    complete = True
+                    offset = 0
+                    break
+                # En mode incrémental, rencontrer une page entièrement connue
+                # prouve que la frontière durable a été rejointe. Lors d'une
+                # reprise partielle, l'overlap connu est attendu et ne stoppe pas.
+                page_ids = {str(item.get("id")) for item in page if item.get("id")}
+                if (
+                    not resuming
+                    and page_ids
+                    and page_ids.issubset(self.last_processed_ids)
+                ):
+                    complete = True
+                    offset = 0
+                    break
+                offset = max(offset + len(page), int(next_offset))
+                resuming = False
+
+            stats["mail_pages"] = pages
+            stats["mail_page_complete"] = complete
+            update_ingestion_source_state(
+                "mail",
+                status="idle",
+                cursor={"offset": 0 if complete else offset},
+                completeness="complete" if complete else "partial",
+                error_code=None,
+                error_message=None,
+                consecutive_failures=0,
+            )
+            return collected
+
         get_recent_result = getattr(mail_client, "get_recent_result", None)
         if get_recent_result is not None:
             try:
@@ -416,7 +491,9 @@ class EmailWatcher:
                 gmail_id=email_id,
                 sender=sender_short,
                 subject=str(subject),
-                body=str((full or {}).get("body") or email_summary.get("snippet") or ""),
+                body=str(
+                    (full or {}).get("body") or email_summary.get("snippet") or ""
+                ),
                 received_at=str(
                     (full or {}).get("date") or email_summary.get("date") or ""
                 ),

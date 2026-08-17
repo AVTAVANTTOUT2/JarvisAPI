@@ -5,13 +5,15 @@ from __future__ import annotations
 import hashlib
 import json
 
-EXPECTED_ROUTE_COUNT = 314
-EXPECTED_ROUTE_SIGNATURE = "386d4d1492c6a09f97c7b0e95a81fb1ae719d1f1ab38b33c6f25e4940377e50c"
-EXPECTED_OPENAPI_PATH_COUNT = 278
+EXPECTED_ROUTE_COUNT = 315
+EXPECTED_ROUTE_SIGNATURE = (
+    "bae015b6d1063a5e2e65ed7cd9355f161bb018c296acac0f7ed3cfb7a5c48b39"
+)
+EXPECTED_OPENAPI_PATH_COUNT = 281
 # Empreinte stable : chemins + méthodes uniquement (indépendante de la version
 # FastAPI/Pydantic qui fait varier les composants du schéma complet).
 EXPECTED_OPENAPI_PATHS_SIGNATURE = (
-    "415fe2516c01118158a34b756160ca2724fcb7d0a39914d38bf3dde68df2b451"
+    "bc7ae3fb45346853b08d6aa768aa8aa04e4a612aba526e09ce45ee0449e9d45f"
 )
 
 
@@ -30,7 +32,9 @@ def _iter_app_routes(app_routes: list) -> list:
     collected: list[tuple[str, str, str]] = []
     for route in app_routes:
         if type(route).__name__ == "_IncludedRouter":
-            nested = getattr(getattr(route, "original_router", None), "routes", None) or []
+            nested = (
+                getattr(getattr(route, "original_router", None), "routes", None) or []
+            )
             collected.extend(_iter_app_routes(nested))
             continue
         path = getattr(route, "path", None)
@@ -51,7 +55,11 @@ def _openapi_paths_contract(schema: dict) -> dict[str, list[str]]:
     for path, methods in (schema.get("paths") or {}).items():
         if not isinstance(methods, dict):
             continue
-        verbs = sorted(k for k in methods if k in {"get", "post", "put", "patch", "delete", "head", "options"})
+        verbs = sorted(
+            k
+            for k in methods
+            if k in {"get", "post", "put", "patch", "delete", "head", "options"}
+        )
         out[path] = verbs
     return out
 

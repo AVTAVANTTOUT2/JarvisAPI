@@ -125,8 +125,13 @@ async def maybe_send_agentic_run(
     )
     if agentic is None:
         return None
-    run = agentic["agentic_run"]
-    await ws.send_json({"type": "agentic_run", **run})
+    run = agentic.get("agentic_run")
+    task_control = agentic.get("task_control")
+    if isinstance(run, dict):
+        await ws.send_json({"type": "agentic_run", **run})
+    elif isinstance(task_control, dict):
+        await ws.send_json({"type": "task_control", **task_control})
+    knowledge = agentic.get("knowledge") or {}
     await ws.send_json(
         {
             "type": "response",
@@ -137,13 +142,22 @@ async def maybe_send_agentic_run(
             "tokens_in": 0,
             "tokens_out": 0,
             "cost": 0.0,
-            "run_id": run["run_id"],
+            "run_id": run.get("run_id") if isinstance(run, dict) else None,
+            "task_id": (
+                task_control.get("task_id") if isinstance(task_control, dict) else None
+            ),
+            "knowledge": knowledge,
         }
     )
     if send_tts:
         await _send_tts_streaming(ws, agentic["text"], "neutral")
-        _schedule_terminal_voice_summary(ws, run["run_id"])
-    return {"emotion": "neutral", "response": agentic["text"]}
+        if isinstance(run, dict) and run.get("run_id"):
+            _schedule_terminal_voice_summary(ws, run["run_id"])
+    return {
+        "emotion": "neutral",
+        "response": agentic["text"],
+        "knowledge": knowledge,
+    }
 
 
 async def maybe_send_legacy_delegation(

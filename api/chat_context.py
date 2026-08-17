@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import replace
 import logging
 import uuid
 from collections.abc import Mapping
@@ -14,12 +13,15 @@ from fastapi import WebSocket
 from api.llm_logging import _schedule_llm_log
 from database import get_conversation_history
 from integrations import weather
+from jarvis.agentic.turn_context import TurnKnowledgeSnapshot
 from jarvis.retrieval import (
     RetrievalRequest,
     format_retrieval_context,
     search_knowledge,
 )
-from jarvis.retrieval.live_sources import refresh_live_sources
+from jarvis.retrieval.live_sources import (
+    refresh_live_sources as refresh_live_sources,  # noqa: F401 - compat tests/plugins
+)
 from jarvis.security.llm_data_boundary import wrap_untrusted_data
 
 logger = logging.getLogger("jarvis")
@@ -30,7 +32,7 @@ _RETRIEVAL_RECENT_USER_TURNS = 6
 
 
 def _history_for_context(
-    conversation_id: int,
+    conversation_id: int | None,
     current_text: str,
     *,
     limit: int = _RETRIEVAL_HISTORY_LIMIT,
@@ -111,42 +113,11 @@ def _diagnostic_value(value: Any) -> Any:
     return getattr(value, "value", value)
 
 
-def _merge_live_source_status(result: Any, live_report: Mapping[str, Any]) -> Any:
-    """Conserve les hits en cache tout en signalant un contrôle live incomplet."""
-
-    failures = {
-        str(source): str(status)
-        for source, status in (live_report or {}).items()
-        if str(status) in {"degraded", "unavailable"}
-    }
-    if not failures:
-        return result
-
-    unavailable = tuple(sorted(set(result.unavailable_sources).union(failures)))
-    diagnostics = tuple(
-        dict.fromkeys(
-            (
-                *result.diagnostics,
-                *(f"live:{source}:{status}" for source, status in failures.items()),
-            )
-        )
-    )
-    status = (
-        "unavailable" if not result.verified_sources and not result.hits else "degraded"
-    )
-    return replace(
-        result,
-        status=status,
-        unavailable_sources=unavailable,
-        diagnostics=diagnostics,
-    )
-
-
 async def _attach_retrieval_context(
     context: dict[str, Any],
     *,
     text: str,
-    conversation_id: int,
+    conversation_id: int | None,
     interaction_mode: str,
 ) -> None:
     """Effectue l'unique recherche mémoire du tour et conserve sa provenance."""
@@ -167,14 +138,11 @@ async def _attach_retrieval_context(
         max_candidates=20,
         max_hits=8,
         char_budget=_RETRIEVAL_CONTEXT_MAX_CHARS,
+        freshness_budget_ms=700 if mode == "voice" else 1_500,
     )
 
     try:
-        live_report = await refresh_live_sources(request)
-        if live_report:
-            context["__retrieval_live"] = dict(live_report)
         result = await asyncio.to_thread(search_knowledge, request)
-        result = _merge_live_source_status(result, live_report)
         formatted = format_retrieval_context(
             result,
             max_chars=_RETRIEVAL_CONTEXT_MAX_CHARS,
@@ -200,12 +168,19 @@ async def _attach_retrieval_context(
         return
 
     context["retrieval_context"] = formatted
+    context["__retrieval_live"] = {
+        coverage.source_type: coverage.status
+        for coverage in getattr(result, "source_coverage", ())
+    }
     context["__retrieval"] = {
         "status": _diagnostic_value(result.status),
         "verified_sources": list(result.verified_sources),
+        "partial_sources": list(getattr(result, "partial_sources", ())),
         "unavailable_sources": list(result.unavailable_sources),
         "diagnostics": list(getattr(result, "diagnostics", ())),
         "latency_ms": getattr(result, "latency_ms", None),
+        "index_freshness_at": getattr(result, "index_freshness_at", None),
+        "index_lag_seconds": getattr(result, "index_lag_seconds", None),
     }
     context["__retrieval_references"] = _retrieval_hit_references(result.hits)
     context["__retrieval_done"] = True
@@ -337,9 +312,9 @@ async def _send_tts_streaming(
     return "completed"
 
 
-async def _build_enriched_context(
+async def _collect_enriched_context(
     text: str,
-    conversation_id: int,
+    conversation_id: int | None,
     *,
     interaction_mode: str = "chat",
 ) -> dict:
@@ -400,6 +375,53 @@ async def _build_enriched_context(
             "context_trace": context.get("__context_trace"),
             "retrieval": context.get("__retrieval"),
         },
-        status="success",
+        status=str(context.get("__retrieval", {}).get("status") or "unavailable"),
     )
     return context
+
+
+async def prepare_turn(
+    text: str,
+    conversation_id: int | None,
+    *,
+    interaction_mode: str = "chat",
+    enriched_context: Mapping[str, Any] | None = None,
+) -> TurnKnowledgeSnapshot:
+    """Prepare exactement une tranche knowledge et la rend reutilisable.
+
+    Un contexte deja prepare est capture sans nouvel appel live/retrieval. Cette
+    branche est celle utilisee par WebSocket, les follow-ups et `/loop`.
+    """
+
+    context = (
+        dict(enriched_context)
+        if enriched_context is not None
+        else await _collect_enriched_context(
+            text,
+            conversation_id,
+            interaction_mode=interaction_mode,
+        )
+    )
+    snapshot = TurnKnowledgeSnapshot.capture(
+        query=text,
+        conversation_id=conversation_id,
+        interaction_mode=interaction_mode,
+        context=context,
+    )
+    return snapshot
+
+
+async def _build_enriched_context(
+    text: str,
+    conversation_id: int | None,
+    *,
+    interaction_mode: str = "chat",
+) -> dict[str, Any]:
+    """Compatibilite historique : retourne le contexte du snapshot prepare."""
+
+    snapshot = await prepare_turn(
+        text,
+        conversation_id,
+        interaction_mode=interaction_mode,
+    )
+    return snapshot.to_context()

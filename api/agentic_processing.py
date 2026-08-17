@@ -8,20 +8,23 @@ import unicodedata
 from typing import Any
 
 import config
+from api.agentic_context import (  # noqa: F401 - private compatibility export
+    agentic_memory_context as _agentic_memory_context,
+)
 from database import current_profile_id, save_message
 from jarvis.agentic import (
     classify_agentic_request,
     get_agentic_service,
     select_capability_profile,
 )
-from jarvis.cognitive import route_request
 from jarvis.agentic.desktop_workspace import resolve_desktop_workspace
 from jarvis.agentic.models import (
     AgenticRequestCategory,
     ApprovalDecision,
     normalize_agentic_client_context,
 )
-from api.agentic_context import agentic_memory_context as _agentic_memory_context
+from jarvis.agentic.turn_context import TurnKnowledgeSnapshot
+from jarvis.cognitive import route_request
 
 
 logger = logging.getLogger(__name__)
@@ -241,66 +244,31 @@ async def _plan_instead_of_running(
     channel: str,
     voice_mode: bool,
     persist_assistant: bool,
+    snapshot: TurnKnowledgeSnapshot | None = None,
+    classification: Any | None = None,
+    capability_profile: Any | None = None,
+    origin: str = "user",
+    device: str | None = None,
+    locale: str | None = None,
+    timezone_name: str | None = None,
 ) -> dict[str, Any] | None:
-    """Crée une tâche en attente de plan plutôt que de lancer un run.
+    from api.agentic_planning import plan_instead_of_running
 
-    Retourne ``None`` si le pilotage est indisponible : mieux vaut retomber sur
-    le comportement historique que de perdre la demande de l'utilisateur. Le
-    cas est journalisé, jamais silencieux.
-    """
-
-    try:
-        from jarvis.task_control.ingest import create_task_from_user_request
-    except Exception:
-        logger.warning("pilotage de tâches indisponible : démarrage direct")
-        return None
-
-    created = await create_task_from_user_request(
+    return await plan_instead_of_running(
         request,
-        channel="voice" if voice_mode else channel,
-        conversation_id=str(conversation_id),
+        conversation_id,
+        channel=channel,
+        voice_mode=voice_mode,
+        persist_assistant=persist_assistant,
+        save_message_fn=save_message,
+        snapshot=snapshot,
+        classification=classification,
+        capability_profile=capability_profile,
+        origin=origin,
+        device=device,
+        locale=locale,
+        timezone_name=timezone_name,
     )
-    if created is None:
-        return None
-
-    acknowledgement = (
-        "J'ai préparé un plan. Il attend votre validation avant tout démarrage."
-        if voice_mode
-        else "Un plan est prêt. Ouvrez la tâche pour l'accepter, le refuser ou demander une correction."
-    )
-    if persist_assistant:
-        try:
-            save_message(
-                conversation_id,
-                "assistant",
-                acknowledgement,
-                agent="agentic",
-                model="runtime",
-                tokens_in=0,
-                tokens_out=0,
-                cost=0.0,
-            )
-        except Exception:
-            logger.exception("persistance de l'accusé de planification impossible")
-    return {
-        "text": acknowledgement,
-        "emotion": "neutral",
-        "action": {"type": "task_control_task", "task_id": created["task_id"]},
-        "action_result": {
-            "ok": True,
-            "accepted": True,
-            "awaiting_plan_approval": True,
-            "task_id": created["task_id"],
-            "status": created["status"],
-        },
-        "task_control": {
-            "task_id": created["task_id"],
-            "status": created["status"],
-        },
-        "agent": "agentic",
-        "model": "runtime",
-        "cost": 0.0,
-    }
 
 
 async def maybe_start_agentic_run(
@@ -372,17 +340,46 @@ async def maybe_start_agentic_run(
         route_overrides=getattr(config, "AGENTIC_PROFILE_ROUTE_OVERRIDES", {}),
     )
 
+    interaction_mode = (
+        "voice" if voice_mode else "stream" if channel == "websocket" else "chat"
+    )
+    snapshot: TurnKnowledgeSnapshot | None = None
+    if enriched_context is not None:
+        from api.chat_context import prepare_turn
+
+        snapshot = await prepare_turn(
+            request,
+            conversation_id,
+            interaction_mode=interaction_mode,
+            enriched_context=enriched_context,
+        )
+
     # Porte de validation humaine. Une demande adressée à JARVIS — tapée,
     # dictée ou reçue — devient une tâche **planifiée**, pas une exécution.
     # C'est le même invariant que pour les tâches créées à la main : personne
     # n'est nécessairement devant l'écran au moment où le travail commencerait.
     if bool(getattr(config, "AGENTIC_REQUIRE_PLAN_APPROVAL", True)):
+        if snapshot is None:
+            from api.chat_context import prepare_turn
+
+            snapshot = await prepare_turn(
+                request,
+                conversation_id,
+                interaction_mode=interaction_mode,
+            )
         planned = await _plan_instead_of_running(
             request,
             conversation_id,
             channel=channel,
             voice_mode=voice_mode,
             persist_assistant=persist_assistant,
+            snapshot=snapshot,
+            classification=classification,
+            capability_profile=capability_profile,
+            origin=origin,
+            device=device,
+            locale=locale,
+            timezone_name=timezone_name,
         )
         if planned is not None:
             return planned
@@ -398,15 +395,12 @@ async def maybe_start_agentic_run(
     ):
         return None
 
-    if enriched_context is None:
+    if snapshot is None:
         # Import local pour garder agentic_processing indépendant des transports
         # tout en utilisant exactement le même builder que chat/stream/voix.
-        from api.chat_context import _build_enriched_context
+        from api.chat_context import prepare_turn
 
-        interaction_mode = (
-            "voice" if voice_mode else "stream" if channel == "websocket" else "chat"
-        )
-        enriched_context = await _build_enriched_context(
+        snapshot = await prepare_turn(
             request,
             conversation_id,
             interaction_mode=interaction_mode,
@@ -415,7 +409,7 @@ async def maybe_start_agentic_run(
     selected_context = {
         "request": request,
         "classification": classification.reason,
-        **_agentic_memory_context(enriched_context),
+        **snapshot.agentic_context(),
     }
     desktop_workspace = resolve_desktop_workspace(request)
     run = await service.create_and_start(
@@ -481,6 +475,7 @@ async def maybe_start_agentic_run(
             "reason": classification.reason,
             "capability_profile": capability_profile.profile_id,
         },
+        "knowledge": snapshot.public_payload(),
     }
 
 

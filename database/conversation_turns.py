@@ -11,7 +11,12 @@ def save_conversation_turns(recording_id: int, turns: list[dict]) -> int:
             conn.execute(
                 """INSERT INTO conversation_turns
                    (recording_id, turn_order, speaker_label, text, start_ms, end_ms)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(recording_id, turn_order) DO UPDATE SET
+                       speaker_label = excluded.speaker_label,
+                       text = excluded.text,
+                       start_ms = excluded.start_ms,
+                       end_ms = excluded.end_ms""",
                 (
                     recording_id,
                     index,
@@ -21,6 +26,10 @@ def save_conversation_turns(recording_id: int, turns: list[dict]) -> int:
                     turn.get("end_ms"),
                 ),
             )
+        conn.execute(
+            "DELETE FROM conversation_turns WHERE recording_id = ? AND turn_order >= ?",
+            (recording_id, len(turns)),
+        )
     return len(turns)
 
 

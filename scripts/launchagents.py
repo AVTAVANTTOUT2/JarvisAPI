@@ -20,7 +20,7 @@ from pathlib import Path
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 LAUNCH_AGENT_FILENAMES = {
     "supervisor": "com.jarvis.supervisor.plist",
-    "imessage-daemon": "com.jarvis.imessage-daemon.plist",
+    "ingestion": "com.jarvis.ingestion.plist",
 }
 
 
@@ -44,7 +44,7 @@ def build_launch_agent_payloads(
     repo_root: Path | str,
     venv_dir: Path | str,
     supervisor_port: int = 9000,
-    imessage_port: int = 8193,
+    ingestion_app_executable: Path | str | None = None,
 ) -> dict[str, dict[str, object]]:
     """Construit les payloads plist et vérifie tous leurs chemins runtime."""
     repo = _resolved_directory(repo_root)
@@ -55,10 +55,23 @@ def build_launch_agent_payloads(
         executable=True,
     )
     supervisor = _required_file(repo / "supervisor.py", "Entrypoint supervisor")
-    imessage_daemon = _required_file(
-        repo / "scripts" / "imessage_daemon.py",
-        "Entrypoint daemon iMessage",
+    ingestion_service = _required_file(
+        repo / "scripts" / "ingestion_service.py",
+        "Entrypoint du service d'ingestion",
     )
+    ingestion_program = [str(python), str(ingestion_service)]
+    ingestion_environment: dict[str, str] = {}
+    if ingestion_app_executable is not None:
+        responsible_app = _required_file(
+            Path(ingestion_app_executable).expanduser().resolve(),
+            "Exécutable responsable TCC de JARVIS.app",
+            executable=True,
+        )
+        ingestion_program = [str(responsible_app), "--ingestion"]
+        ingestion_environment = {
+            "JARVIS_TCC_EXECUTION_MODE": "app_bundle",
+            "JARVIS_TCC_BUNDLE_ID": "fr.avity.jarvis",
+        }
     logs_dir = repo / "data" / "logs"
     environment = {
         "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
@@ -80,21 +93,16 @@ def build_launch_agent_payloads(
                 "SUPERVISOR_PORT": str(supervisor_port),
             },
         },
-        "imessage-daemon": {
-            "Label": "com.jarvis.imessage-daemon",
-            "ProgramArguments": [
-                str(python),
-                str(imessage_daemon),
-                "--port",
-                str(imessage_port),
-            ],
+        "ingestion": {
+            "Label": "com.jarvis.ingestion",
+            "ProgramArguments": ingestion_program,
             "WorkingDirectory": str(repo),
             "RunAtLoad": True,
-            "KeepAlive": True,
+            "KeepAlive": {"SuccessfulExit": False},
             "ThrottleInterval": 5,
-            "StandardOutPath": str(logs_dir / "imessage-daemon.log"),
-            "StandardErrorPath": str(logs_dir / "imessage-daemon.log"),
-            "EnvironmentVariables": environment,
+            "StandardOutPath": str(logs_dir / "ingestion.log"),
+            "StandardErrorPath": str(logs_dir / "ingestion.log"),
+            "EnvironmentVariables": {**environment, **ingestion_environment},
         },
     }
 
@@ -104,6 +112,7 @@ def validate_launch_agent_payloads(
     *,
     repo_root: Path | str,
     venv_dir: Path | str,
+    ingestion_app_executable: Path | str | None = None,
 ) -> None:
     """Vérifie ProgramArguments, WorkingDirectory et chemins de logs."""
     repo = _resolved_directory(repo_root)
@@ -111,21 +120,30 @@ def validate_launch_agent_payloads(
     expected_python = venv / "bin" / "python"
     expected_entrypoints = {
         "supervisor": repo / "supervisor.py",
-        "imessage-daemon": repo / "scripts" / "imessage_daemon.py",
+        "ingestion": repo / "scripts" / "ingestion_service.py",
     }
     expected_logs = {
         "supervisor": repo / "data" / "logs" / "supervisor.log",
-        "imessage-daemon": repo / "data" / "logs" / "imessage-daemon.log",
+        "ingestion": repo / "data" / "logs" / "ingestion.log",
     }
 
     for service, payload in payloads.items():
         arguments = payload.get("ProgramArguments")
         if not isinstance(arguments, list) or len(arguments) < 2:
             raise ValueError(f"ProgramArguments invalide pour {service}")
-        if Path(str(arguments[0])) != expected_python:
-            raise ValueError(f"Interpréteur inattendu pour {service}: {arguments[0]}")
-        if Path(str(arguments[1])) != expected_entrypoints[service]:
-            raise ValueError(f"Entrypoint inattendu pour {service}: {arguments[1]}")
+        if service == "ingestion" and ingestion_app_executable is not None:
+            expected_app = Path(ingestion_app_executable).expanduser().resolve()
+            if arguments != [str(expected_app), "--ingestion"]:
+                raise ValueError(
+                    f"Responsable TCC inattendu pour ingestion: {arguments}"
+                )
+        else:
+            if Path(str(arguments[0])) != expected_python:
+                raise ValueError(
+                    f"Interpréteur inattendu pour {service}: {arguments[0]}"
+                )
+            if Path(str(arguments[1])) != expected_entrypoints[service]:
+                raise ValueError(f"Entrypoint inattendu pour {service}: {arguments[1]}")
         if Path(str(payload.get("WorkingDirectory", ""))) != repo:
             raise ValueError(f"WorkingDirectory invalide pour {service}")
         for key in ("StandardOutPath", "StandardErrorPath"):
@@ -139,7 +157,9 @@ def validate_plists_with_plutil(paths: Iterable[Path]) -> None:
         return
     plutil = shutil.which("plutil")
     if plutil is None:
-        raise RuntimeError("plutil est obligatoire pour valider les LaunchAgents sur macOS")
+        raise RuntimeError(
+            "plutil est obligatoire pour valider les LaunchAgents sur macOS"
+        )
     for path in paths:
         result = subprocess.run(
             [plutil, "-lint", str(path)],
@@ -158,9 +178,9 @@ def write_launch_agents(
     output_dir: Path | str,
     repo_root: Path | str = PROJECT_DIR,
     venv_dir: Path | str | None = None,
-    services: Iterable[str] = ("supervisor", "imessage-daemon"),
+    services: Iterable[str] = ("supervisor", "ingestion"),
     supervisor_port: int = 9000,
-    imessage_port: int = 8193,
+    ingestion_app_executable: Path | str | None = None,
 ) -> dict[str, Path]:
     """Écrit les services sélectionnés et retourne leurs chemins."""
     repo = _resolved_directory(repo_root)
@@ -177,10 +197,15 @@ def write_launch_agents(
         repo_root=repo,
         venv_dir=venv,
         supervisor_port=supervisor_port,
-        imessage_port=imessage_port,
+        ingestion_app_executable=ingestion_app_executable,
     )
     payloads = {service: all_payloads[service] for service in selected}
-    validate_launch_agent_payloads(payloads, repo_root=repo, venv_dir=venv)
+    validate_launch_agent_payloads(
+        payloads,
+        repo_root=repo,
+        venv_dir=venv,
+        ingestion_app_executable=ingestion_app_executable,
+    )
 
     destination = Path(output_dir).expanduser().resolve()
     destination.mkdir(parents=True, exist_ok=True)
@@ -215,7 +240,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--supervisor-port", type=int, default=9000)
-    parser.add_argument("--imessage-port", type=int, default=8193)
+    parser.add_argument(
+        "--ingestion-app-executable",
+        type=Path,
+        help="exécutable JARVIS.app responsable des permissions TCC",
+    )
     return parser
 
 
@@ -232,7 +261,7 @@ def main(argv: list[str] | None = None) -> int:
             venv_dir=args.venv,
             services=args.service,
             supervisor_port=args.supervisor_port,
-            imessage_port=args.imessage_port,
+            ingestion_app_executable=args.ingestion_app_executable,
         )
     except (OSError, RuntimeError, ValueError) as exc:
         print(f"Erreur : {exc}", file=sys.stderr)
@@ -241,7 +270,9 @@ def main(argv: list[str] | None = None) -> int:
     for service, path in written.items():
         print(f"{service}: {path}")
     if args.command == "install":
-        print("Plist(s) installé(s). Charge-les avec launchctl bootstrap gui/$(id -u) <plist>.")
+        print(
+            "Plist(s) installé(s). Charge-les avec launchctl bootstrap gui/$(id -u) <plist>."
+        )
     return 0
 
 

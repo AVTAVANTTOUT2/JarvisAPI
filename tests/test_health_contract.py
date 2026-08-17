@@ -104,6 +104,68 @@ def test_liveness_never_touches_the_database(tmp_db):
     assert response.status_code == 200
 
 
+def _seed_ready_ingestion() -> None:
+    from datetime import datetime, timezone
+
+    from database import bind_connector, update_ingestion_source_state
+
+    now = datetime.now(timezone.utc).isoformat()
+    update_ingestion_source_state(
+        "__service__",
+        status="running",
+        heartbeat_at=now,
+        last_success_at=now,
+    )
+    for source in ("mail", "imessage", "calendar"):
+        bind_connector(source, permission_state="granted")
+        update_ingestion_source_state(
+            source,
+            status="idle",
+            completeness="complete",
+            last_attempt_at=now,
+            last_success_at=now,
+            heartbeat_at=now,
+        )
+
+
+def test_public_readiness_is_minimal_and_fails_closed_when_unbound(tmp_db):
+    with _client() as client:
+        response = client.get("/health/ready")
+
+    assert response.status_code == 503
+    assert response.json() == {"status": "not_ready"}
+
+
+def test_public_readiness_requires_fresh_bound_connectors(tmp_db):
+    _seed_ready_ingestion()
+    with _client() as client:
+        response = client.get("/health/ready")
+        liveness = client.get("/health/live")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ready"}
+    assert liveness.json() == {"status": "ok"}
+
+
+def test_data_health_is_authenticated_and_contains_no_job_payload(tmp_db):
+    import auth
+
+    _seed_ready_ingestion()
+    auth.setup_secret(TEST_AUTH_SECRET)
+    with _client() as client:
+        assert client.get("/api/data-health").status_code == 401
+        authenticate(client)
+        response = client.get("/api/data-health")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ready"
+    assert set(payload["connectors"]) == {"mail", "imessage", "calendar"}
+    serialized = str(payload).lower()
+    assert "payload" not in serialized
+    assert "profile_id" not in serialized
+
+
 # ── Diagnostic authentifié ───────────────────────────────────
 
 
@@ -158,7 +220,9 @@ def test_detail_returns_the_full_contract_once_authenticated(tmp_db):
     for component in payload["components"]:
         assert set(component) == {"name", "state", "critical", "reason", "details"}
         assert component["state"] in health.VALID_STATES
-        assert component["reason"] is None or component["reason"] in health.PUBLIC_REASONS
+        assert (
+            component["reason"] is None or component["reason"] in health.PUBLIC_REASONS
+        )
 
     assert response.headers["cache-control"] == "no-store"
 
@@ -219,7 +283,10 @@ def test_detail_answers_503_when_a_critical_component_is_down(tmp_db, monkeypatc
     assert payload["status"] == health.UNAVAILABLE
     # La panne d'un composant ne doit pas empêcher de diagnostiquer les autres.
     assert len(payload["components"]) == len(health.PROBES)
-    assert any(c["name"] == "backend" and c["state"] == health.HEALTHY for c in payload["components"])
+    assert any(
+        c["name"] == "backend" and c["state"] == health.HEALTHY
+        for c in payload["components"]
+    )
 
 
 # ── Absence de fuite ─────────────────────────────────────────
@@ -268,7 +335,10 @@ def test_probe_timeout_is_reported_as_unknown(monkeypatch):
 
 def test_unknown_reason_codes_are_replaced():
     assert health.public_reason("database_unreachable") == "database_unreachable"
-    assert health.public_reason("/Users/nolann/data/jarvis.db manquant") == "internal_error"
+    assert (
+        health.public_reason("/Users/nolann/data/jarvis.db manquant")
+        == "internal_error"
+    )
     assert health.public_reason(None) is None
 
 
@@ -320,7 +390,12 @@ def _c(name: str, state: str) -> health.ComponentHealth:
 
 
 def test_aggregate_all_healthy():
-    assert health.aggregate_state([_c("backend", health.HEALTHY), _c("database", health.HEALTHY)]) == health.HEALTHY
+    assert (
+        health.aggregate_state(
+            [_c("backend", health.HEALTHY), _c("database", health.HEALTHY)]
+        )
+        == health.HEALTHY
+    )
     assert (
         health.aggregate_state(
             [
@@ -439,4 +514,15 @@ def test_optional_runtime_probes_never_mark_jarvis_unavailable(tmp_path, monkeyp
     assert claw.state == health.UNKNOWN
     assert claw.reason == "optional_ui_absent"
     assert health.UNAVAILABLE not in {plugin.state, claw.state}
-    assert health.aggregate_state([core, plugin, claw, _c("backend", health.HEALTHY), _c("database", health.HEALTHY)]) == health.HEALTHY
+    assert (
+        health.aggregate_state(
+            [
+                core,
+                plugin,
+                claw,
+                _c("backend", health.HEALTHY),
+                _c("database", health.HEALTHY),
+            ]
+        )
+        == health.HEALTHY
+    )

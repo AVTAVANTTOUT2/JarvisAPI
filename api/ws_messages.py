@@ -39,6 +39,7 @@ from api.ws_agentic import (
 )
 from api.ws_shortcuts import handle_loop_or_quick_reply, handle_pending_action
 from database import save_message, update_conversation_activity
+from jarvis.agentic.turn_context import public_knowledge_payload
 
 logger = logging.getLogger("jarvis")
 
@@ -81,6 +82,7 @@ async def _process_message(
             extra_context = {}
 
         extra_context["__defer_persist"] = True
+        knowledge = public_knowledge_payload(extra_context)
 
         if "documents_context" in extra_context:
             content = extra_context.pop("documents_context") + "\n\n" + content
@@ -208,6 +210,7 @@ async def _process_message(
                     "tokens_out": result["tokens_out"],
                     "cost": result["cost"],
                     "emotion": emotion,
+                    "knowledge": knowledge,
                 }
             )
 
@@ -220,6 +223,7 @@ async def _process_message(
                 {"type": "response_clean", "content": display_text or ""}
             )
             if pending_done is not None:
+                pending_done = {**pending_done, "knowledge": knowledge}
                 await ws.send_json(pending_done)
         elif display_text != full_response:
             await ws.send_json({"type": "response_clean", "content": display_text})
@@ -304,6 +308,7 @@ async def _process_message(
                         ),
                         conversation_id=conversation_id,
                         voice_mode=voice_mode,
+                        context=extra_context,
                     )
                     display_text = finalize_assistant_display_text(
                         fu.get("response", display_text)
@@ -314,6 +319,7 @@ async def _process_message(
                         {
                             "type": "response_followup",
                             "content": display_text,
+                            "knowledge": knowledge,
                         }
                     )
             else:
@@ -349,7 +355,10 @@ async def _process_message(
                         )
 
                     try:
-                        action_result = await execute_action(action)
+                        action_result = await execute_action(
+                            action,
+                            knowledge_context=extra_context,
+                        )
                         pending_client_action = None
                         if action_result.get("needs_confirmation"):
                             pending_client_action = _maybe_store_pending_proposal(
@@ -415,6 +424,7 @@ async def _process_message(
                             ),
                             conversation_id=conversation_id,
                             voice_mode=voice_mode,
+                            context=extra_context,
                         )
                         display_text = finalize_assistant_display_text(
                             fu.get("response", "")
@@ -431,6 +441,7 @@ async def _process_message(
                             {
                                 "type": "response_followup",
                                 "content": display_text,
+                                "knowledge": knowledge,
                             }
                         )
                     except Exception as e:
@@ -468,7 +479,11 @@ async def _process_message(
         if send_tts and tts_text:
             await _send_tts_streaming(ws, tts_text, emotion)
 
-        return {"emotion": emotion, "response": display_text}
+        return {
+            "emotion": emotion,
+            "response": display_text,
+            "knowledge": knowledge,
+        }
     except Exception as e:
         logger.exception("_process_message : %s", e)
         detail = f"{type(e).__name__}: {e}"[:200]

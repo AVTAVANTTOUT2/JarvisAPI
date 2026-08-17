@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import io
 import struct
 import wave
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -142,15 +143,29 @@ async def test_screen_watcher_skips_second_start() -> None:
 
 
 @pytest.mark.asyncio
-async def test_check_mail_skips_when_email_watcher_running() -> None:
+async def test_check_mail_reads_persisted_summaries_from_ingestion() -> None:
+    """Le daemon annonce les mails déjà persistés ; l'ingestion possède le watcher."""
     from scripts.jarvis_daemon import JarvisDaemon
 
     daemon = JarvisDaemon()
-    mock_ew = MagicMock()
-    mock_ew._running = True
-    mock_ew.running = False
+    daemon.known_mail_ids = set()
+    daemon.tts_queue = asyncio.Queue()
 
-    with patch("scripts.email_watcher.email_watcher", mock_ew):
-        with patch("database.get_recent_email_summaries") as mock_summaries:
-            await daemon._check_mail()
-            mock_summaries.assert_not_called()
+    summaries = [
+        {
+            "gmail_id": "msg-1",
+            "sender": "Alice",
+            "subject": "Facture",
+            "summary": "À payer",
+            "priority": "high",
+        }
+    ]
+
+    with patch("database.get_recent_email_summaries", return_value=summaries):
+        with patch.object(daemon, "_local_triage", AsyncMock(return_value=False)):
+            with patch(
+                "scripts.jarvis_daemon.notification_service.create"
+            ) as mock_notif:
+                await daemon._check_mail()
+                mock_notif.assert_called_once()
+                assert "msg-1" in daemon.known_mail_ids

@@ -30,6 +30,7 @@ async def resolve_pending_confirmation(
     unmatched_confirmation_reply_fn: Callable[..., dict[str, Any]],
     format_action_result_for_followup_fn: Callable[..., str],
     finalize_assistant_display_text_fn: Callable[..., str],
+    prepare_turn_fn: Callable[..., Any],
 ) -> dict[str, Any] | None:
     """Exécute une confirmation en attente ou répond à une confirmation orpheline."""
 
@@ -43,6 +44,30 @@ async def resolve_pending_confirmation(
         confirmation_session_id,
     )
     if confirmed_action is not None:
+        action_subject = next(
+            (
+                str(confirmed_action.get(key) or "").strip()
+                for key in ("query", "title", "summary", "recipient", "name")
+                if confirmed_action.get(key)
+            ),
+            "",
+        )
+        turn_query = " ".join(
+            part
+            for part in (
+                original_text,
+                str(confirmed_action.get("type") or "action"),
+                action_subject,
+            )
+            if part
+        )[:1000]
+        snapshot = await prepare_turn_fn(
+            turn_query,
+            conversation_id,
+            interaction_mode="voice" if voice_mode else "chat",
+        )
+        turn_context = snapshot.to_context()
+        knowledge = snapshot.public_payload()
         mark_voice_trace_fn(
             trace,
             "ACTION_STARTED",
@@ -87,6 +112,7 @@ async def resolve_pending_confirmation(
                     ),
                     conversation_id=conversation_id,
                     voice_mode=voice_mode,
+                    context=turn_context,
                 )
                 emotion = followup.get("emotion", emotion)
                 display_text = finalize_assistant_display_text_fn(
@@ -126,6 +152,7 @@ async def resolve_pending_confirmation(
             "agent": final_meta.get("agent"),
             "model": final_meta.get("model"),
             "cost": float(final_meta.get("cost") or 0.0),
+            "knowledge": knowledge,
         }
 
     if not imperative_confirmation_fn(original_text):

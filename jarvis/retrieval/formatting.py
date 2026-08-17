@@ -32,7 +32,13 @@ def format_retrieval_context(
         "query": _redacted(result.query, max_chars=800),
         "candidate_count": result.candidate_count,
         "verified_sources": list(result.verified_sources),
+        "partial_sources": list(result.partial_sources),
         "unavailable_sources": list(result.unavailable_sources),
+        "source_coverage": [
+            coverage.as_dict()
+            for coverage in result.source_coverage
+            if coverage.status != "complete"
+        ],
         "index_freshness_at": result.index_freshness_at,
         "index_lag_seconds": result.index_lag_seconds,
         "latency_ms": result.latency_ms,
@@ -60,6 +66,7 @@ def format_retrieval_context(
         {
             "status": result.status,
             "candidate_count": result.candidate_count,
+            "partial_sources": list(result.partial_sources),
             "truncated": True,
             "hits": [],
         },

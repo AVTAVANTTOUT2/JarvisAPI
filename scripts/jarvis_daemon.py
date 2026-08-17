@@ -30,7 +30,6 @@ from agents.info import info_agent
 from audio.voice_queue import VoicePriority, priority_from_string, voice_queue
 from database import (
     get_all_devices,
-    get_all_processed_email_ids,
     mark_device_offline,
     set_active_device,
 )
@@ -120,37 +119,9 @@ class JarvisDaemon:
         # PyAudio tant que AUDIO_DAEMON_ENABLED=false.
         await self._ensure_voice_output()
 
-        # Initialiser le dernier ROWID iMessage pour ne pas retraiter le backlog
-        try:
-            if apple_data.is_available():
-                max_rowid = apple_data.get_max_rowid()
-                from integrations.imessage_cursor import initialize_consumer_cursor
-
-                start_rowid = initialize_consumer_cursor(
-                    self.imessage_cursor_name, max_rowid
-                )
-                logger.info("[daemon] iMessage starting rowid: %s", start_rowid)
-        except Exception as e:
-            logger.warning("[daemon] init iMessage rowid échoué : %s", e)
-
-        # Hydrater le cache mail depuis la DB (évite re-notif au redémarrage)
-        try:
-            for gid in get_all_processed_email_ids():
-                if gid:
-                    self.known_mail_ids.add(str(gid))
-            if self.known_mail_ids:
-                logger.info(
-                    "[daemon] %d mail(s) connus hydratés depuis email_summaries",
-                    len(self.known_mail_ids),
-                )
-        except Exception as e:
-            logger.warning("[daemon] hydratation known_mail_ids : %s", e)
-
         tasks = [
             asyncio.create_task(self._tts_loop(), name="daemon_tts"),
-            asyncio.create_task(self._notification_loop(), name="daemon_notif"),
             asyncio.create_task(self._screen_watcher_autostart(), name="daemon_screen"),
-            asyncio.create_task(self._calendar_reminder_loop(), name="daemon_calendar"),
             asyncio.create_task(self._device_health_loop(), name="daemon_health"),
         ]
         if self.wake_word_enabled:
@@ -352,9 +323,7 @@ class JarvisDaemon:
             )
 
             last_rowid = get_consumer_cursor(self.imessage_cursor_name)
-            rows = apple_data.get_new_messages(
-                last_rowid, limit=50, incoming_only=True
-            )
+            rows = apple_data.get_new_messages(last_rowid, limit=50, incoming_only=True)
         except Exception as e:
             logger.warning("[daemon] iMessage scan : %s", e)
             return
@@ -432,17 +401,7 @@ class JarvisDaemon:
                 logger.debug("[daemon] détection de tâche iMessage : %s", e)
 
     async def _check_mail(self) -> None:
-        """Notifications vocales mail — délégué à email_watcher si actif."""
-        try:
-            from scripts.email_watcher import email_watcher as _ew
-
-            if _ew and (
-                getattr(_ew, "_running", False) or getattr(_ew, "running", False)
-            ):
-                return
-        except Exception:
-            pass
-
+        """Annonce les propositions Mail déjà persistées par l'ingestion."""
         from database import get_recent_email_summaries
 
         try:

@@ -19,7 +19,7 @@ def _fake_checkout(tmp_path: Path) -> tuple[Path, Path]:
     scripts = repo / "scripts"
     scripts.mkdir(parents=True)
     (repo / "supervisor.py").write_text("# supervisor\n", encoding="utf-8")
-    (scripts / "imessage_daemon.py").write_text("# daemon\n", encoding="utf-8")
+    (scripts / "ingestion_service.py").write_text("# ingestion\n", encoding="utf-8")
     python = repo / "venv backend" / "bin" / "python"
     python.parent.mkdir(parents=True)
     python.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
@@ -45,7 +45,7 @@ def test_cli_generates_both_plists_in_paths_with_spaces(tmp_path: Path) -> None:
             "--service",
             "supervisor",
             "--service",
-            "imessage-daemon",
+            "ingestion",
         ],
         capture_output=True,
         check=False,
@@ -56,7 +56,7 @@ def test_cli_generates_both_plists_in_paths_with_spaces(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     expected = {
         "com.jarvis.supervisor.plist": repo / "supervisor.py",
-        "com.jarvis.imessage-daemon.plist": repo / "scripts" / "imessage_daemon.py",
+        "com.jarvis.ingestion.plist": repo / "scripts" / "ingestion_service.py",
     }
     for filename, entrypoint in expected.items():
         path = output / filename
@@ -79,3 +79,30 @@ def test_generation_fails_when_backend_venv_is_missing(tmp_path: Path) -> None:
             venv_dir=repo / "venv-absent",
             services=("supervisor",),
         )
+
+
+def test_ingestion_launchagent_uses_explicit_tcc_app_identity(tmp_path: Path) -> None:
+    from scripts.launchagents import build_launch_agent_payloads
+
+    repo, venv = _fake_checkout(tmp_path)
+    app = tmp_path / "Applications" / "JARVIS.app" / "Contents" / "MacOS" / "JARVIS"
+    app.parent.mkdir(parents=True)
+    app.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    app.chmod(0o755)
+
+    payload = build_launch_agent_payloads(
+        repo_root=repo,
+        venv_dir=venv,
+        ingestion_app_executable=app,
+    )["ingestion"]
+
+    assert payload["ProgramArguments"] == [str(app), "--ingestion"]
+    assert payload["EnvironmentVariables"]["JARVIS_TCC_EXECUTION_MODE"] == "app_bundle"
+    assert payload["EnvironmentVariables"]["JARVIS_TCC_BUNDLE_ID"] == "fr.avity.jarvis"
+
+
+def test_bind_local_accepts_documented_multi_source_command() -> None:
+    from scripts.ingestion_service import _parse_args
+
+    args = _parse_args(["bind-local", "--source", "mail", "imessage", "calendar"])
+    assert args.source == ["mail", "imessage", "calendar"]

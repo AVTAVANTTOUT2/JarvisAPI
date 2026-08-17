@@ -64,6 +64,7 @@ def _screen_png_b64(width: int = 16, height: int = 12) -> str:
 
 # ── Verrou de session sur /api/* ──────────────────────────────
 
+
 def test_protected_route_returns_428_when_not_configured(tmp_db):
     with _client() as client:
         r = client.get("/api/jarvis-journal")
@@ -170,6 +171,7 @@ def test_static_and_spa_routes_are_not_gated(tmp_db):
 
 
 # ── CSRF (Origin/Referer) ──────────────────────────────────────
+
 
 def test_post_with_mismatched_origin_rejected(tmp_db):
     with _client() as client:
@@ -418,8 +420,9 @@ def test_handler_cannot_weaken_non_csp_security_headers():
 
     assert response.headers["X-Frame-Options"] == SECURITY_HEADERS["X-Frame-Options"]
     assert response.headers["Referrer-Policy"] == SECURITY_HEADERS["Referrer-Policy"]
-    assert response.headers["X-Content-Type-Options"] == (
-        SECURITY_HEADERS["X-Content-Type-Options"]
+    assert (
+        response.headers["X-Content-Type-Options"]
+        == (SECURITY_HEADERS["X-Content-Type-Options"])
     )
     # CSP fournie par la route : conservée (plus stricte / liée au contenu).
     assert response.headers["Content-Security-Policy"] == "default-src 'none'"
@@ -428,9 +431,7 @@ def test_handler_cannot_weaken_non_csp_security_headers():
 def test_route_overridable_security_headers_is_csp_only():
     from api.middleware import _ROUTE_OVERRIDABLE_SECURITY_HEADERS
 
-    assert _ROUTE_OVERRIDABLE_SECURITY_HEADERS == frozenset(
-        {"Content-Security-Policy"}
-    )
+    assert _ROUTE_OVERRIDABLE_SECURITY_HEADERS == frozenset({"Content-Security-Policy"})
 
 
 def test_proxy_https_sets_hsts_and_secure_session_cookie(tmp_db, monkeypatch):
@@ -446,6 +447,7 @@ def test_proxy_https_sets_hsts_and_secure_session_cookie(tmp_db, monkeypatch):
 
 
 # ── Flux /api/auth/* complet ────────────────────────────────────
+
 
 def test_setup_then_unlock_then_logout_flow(tmp_db):
     with _client() as client:
@@ -525,9 +527,10 @@ def test_loopback_recovery_clears_global_lock_and_opens_session(tmp_db, monkeypa
         auth.client_rate_key("203.0.113.2", channel="web"),
         channel="web",
     )
-    assert auth.rate_limit_status(
-        auth.client_rate_key("127.0.0.1", channel="web")
-    ).scope == "global"
+    assert (
+        auth.rate_limit_status(auth.client_rate_key("127.0.0.1", channel="web")).scope
+        == "global"
+    )
 
     with _client() as client:
         status = client.get("/api/auth/status").json()
@@ -543,9 +546,10 @@ def test_loopback_recovery_clears_global_lock_and_opens_session(tmp_db, monkeypa
         assert recovered.json()["recovered"] is True
         assert client.get("/api/jarvis-journal").status_code == 200
 
-    assert auth.rate_limit_status(
-        auth.client_rate_key("127.0.0.1", channel="web")
-    ).blocked is False
+    assert (
+        auth.rate_limit_status(auth.client_rate_key("127.0.0.1", channel="web")).blocked
+        is False
+    )
 
 
 def test_change_secret_uses_unlock_lockout(tmp_db, monkeypatch):
@@ -607,6 +611,7 @@ def test_revoke_unknown_session_404(tmp_db):
 
 # ── Jeton device (heartbeat / screen) ───────────────────────────
 
+
 def test_device_register_then_heartbeat_requires_token(tmp_db):
     with _client() as client:
         token = _pair_remote_device(client)
@@ -660,7 +665,9 @@ def test_remote_screen_uses_public_analysis_api(tmp_db, monkeypatch):
     assert analyze.await_args.kwargs["window_info"] == {"width": 16, "height": 12}
 
 
-def test_remote_screen_rejects_excessive_pixel_count_before_analysis(tmp_db, monkeypatch):
+def test_remote_screen_rejects_excessive_pixel_count_before_analysis(
+    tmp_db, monkeypatch
+):
     import config
     from scripts.screen_watcher import screen_watcher
 
@@ -680,7 +687,9 @@ def test_remote_screen_rejects_excessive_pixel_count_before_analysis(tmp_db, mon
     analyze.assert_not_awaited()
 
 
-def test_remote_screen_content_length_is_rejected_before_json_parse(tmp_db, monkeypatch):
+def test_remote_screen_content_length_is_rejected_before_json_parse(
+    tmp_db, monkeypatch
+):
     import config
 
     monkeypatch.setattr(config, "REMOTE_SCREEN_MAX_REQUEST_BYTES", 100)
@@ -759,6 +768,7 @@ def test_activate_device_requires_session_not_device_token(tmp_db):
 
 # ── Jeton localisation partagé (Shortcuts iOS) ─────────────────
 
+
 def test_location_post_closed_when_token_unset(tmp_db, monkeypatch):
     monkeypatch.setattr("config.LOCATION_API_TOKEN", "")
     with _client() as client:
@@ -770,7 +780,9 @@ def test_location_post_closed_when_token_unset(tmp_db, monkeypatch):
 def test_location_post_requires_token_when_configured(tmp_db, monkeypatch):
     monkeypatch.setattr("config.LOCATION_API_TOKEN", "shared-secret-token")
     with _client() as client:
-        no_token = client.post("/api/location", json={"latitude": 50.6, "longitude": 3.0})
+        no_token = client.post(
+            "/api/location", json={"latitude": 50.6, "longitude": 3.0}
+        )
         assert no_token.status_code == 401
 
         ok = client.post(
@@ -847,6 +859,7 @@ def test_location_ingestion_is_rate_limited_before_auth(tmp_db, monkeypatch):
 
 
 # ── WebSocket ────────────────────────────────────────────────────
+
 
 def test_ws_rejected_when_not_configured(tmp_db):
     import main
@@ -992,30 +1005,34 @@ def test_routes_without_declared_limit_still_accept_streamed_bodies():
 #: Routes délibérément atteignables sans cookie de session. Chacune
 #: s'authentifie autrement (secret d'ouverture, code d'appairage, jeton device
 #: ou jeton de localisation) ou sert précisément à ouvrir une session.
-PUBLIC_BY_DESIGN: frozenset[tuple[str, str]] = frozenset({
-    # Sonde de vie : publique par nécessité, et volontairement muette —
-    # `tests/test_health_contract.py` verrouille le fait qu'elle ne renvoie
-    # rien d'autre que `{"status": "ok"}`.
-    ("GET", "/api/health/live"),
-    ("GET", "/api/auth/status"),
-    ("POST", "/api/auth/setup"),
-    ("POST", "/api/auth/unlock"),
-    ("POST", "/api/auth/local-unlock"),
-    ("POST", "/api/auth/verify"),
-    ("POST", "/api/location"),
-    ("POST", "/api/location/batch"),
-    ("POST", "/api/apple/shortcuts/ask"),
-    ("POST", "/api/apple/shortcuts/task"),
-    ("POST", "/api/devices/register"),
-    ("POST", "/api/mobile/pairing/complete"),
-    ("POST", "/api/mobile/session"),
-    ("POST", "/api/mobile/push-token"),
-    ("POST", "/api/mobile/capabilities"),
-    ("POST", "/api/mobile/voice/turn"),
-    ("POST", "/api/mobile/conversations"),
-    ("POST", "/api/mobile/chat"),
-    ("POST", "/api/mobile/chat/confirm"),
-})
+PUBLIC_BY_DESIGN: frozenset[tuple[str, str]] = frozenset(
+    {
+        # Sonde de vie : publique par nécessité, et volontairement muette —
+        # `tests/test_health_contract.py` verrouille le fait qu'elle ne renvoie
+        # rien d'autre que `{"status": "ok"}`.
+        ("GET", "/api/health/live"),
+        ("GET", "/health/live"),
+        ("GET", "/health/ready"),
+        ("GET", "/api/auth/status"),
+        ("POST", "/api/auth/setup"),
+        ("POST", "/api/auth/unlock"),
+        ("POST", "/api/auth/local-unlock"),
+        ("POST", "/api/auth/verify"),
+        ("POST", "/api/location"),
+        ("POST", "/api/location/batch"),
+        ("POST", "/api/apple/shortcuts/ask"),
+        ("POST", "/api/apple/shortcuts/task"),
+        ("POST", "/api/devices/register"),
+        ("POST", "/api/mobile/pairing/complete"),
+        ("POST", "/api/mobile/session"),
+        ("POST", "/api/mobile/push-token"),
+        ("POST", "/api/mobile/capabilities"),
+        ("POST", "/api/mobile/voice/turn"),
+        ("POST", "/api/mobile/conversations"),
+        ("POST", "/api/mobile/chat"),
+        ("POST", "/api/mobile/chat/confirm"),
+    }
+)
 
 
 def _declared_operations() -> list[tuple[str, str]]:
@@ -1053,9 +1070,8 @@ def test_no_route_escapes_the_session_gate(tmp_db):
             if response.status_code not in (401, 403, 428, 405):
                 reachable.append((response.status_code, method, path))
 
-    assert reachable == [], (
-        "routes atteignables sans session : "
-        + ", ".join(f"{s} {m} {p}" for s, m, p in reachable)
+    assert reachable == [], "routes atteignables sans session : " + ", ".join(
+        f"{s} {m} {p}" for s, m, p in reachable
     )
 
 
