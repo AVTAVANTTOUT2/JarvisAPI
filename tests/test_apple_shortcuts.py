@@ -252,3 +252,82 @@ async def test_action_unknown_shortcut_points_to_ui(monkeypatch: pytest.MonkeyPa
     result = await execute_action({"type": "run_shortcut", "name": "ghost-ui"})
     assert result["ok"] is False
     assert "/shortcuts" in result["message"]
+
+
+def _ingest_request(*, host: str = "127.0.0.1", headers: dict[str, str] | None = None):
+    from starlette.requests import Request
+
+    encoded = [
+        (key.lower().encode("latin-1"), value.encode("latin-1"))
+        for key, value in (headers or {}).items()
+    ]
+    return Request(
+        {
+            "type": "http",
+            "asgi": {"version": "3.0"},
+            "http_version": "1.1",
+            "method": "POST",
+            "scheme": "http",
+            "path": "/api/apple/shortcuts/task",
+            "raw_path": b"/api/apple/shortcuts/task",
+            "query_string": b"",
+            "headers": encoded,
+            "client": (host, 54321),
+            "server": ("test", 80),
+        }
+    )
+
+
+def test_require_ingest_token_fail_closed_without_secret(monkeypatch: pytest.MonkeyPatch):
+    from fastapi import HTTPException
+
+    from api.apple_shortcuts_support import require_ingest_token
+
+    monkeypatch.setattr("config.APPLE_SHORTCUTS_INGEST_TOKEN", "")
+    with pytest.raises(HTTPException) as exc:
+        require_ingest_token(_ingest_request())
+    assert exc.value.status_code == 503
+
+
+def test_require_ingest_token_accepts_bearer_or_header(monkeypatch: pytest.MonkeyPatch):
+    from fastapi import HTTPException
+
+    from api.apple_shortcuts_support import require_ingest_token
+
+    monkeypatch.setattr("config.APPLE_SHORTCUTS_INGEST_TOKEN", "shortcut-secret")
+    with pytest.raises(HTTPException) as exc:
+        require_ingest_token(
+            _ingest_request(headers={"Authorization": "Bearer wrong"})
+        )
+    assert exc.value.status_code == 401
+
+    require_ingest_token(
+        _ingest_request(headers={"Authorization": "Bearer shortcut-secret"})
+    )
+    require_ingest_token(
+        _ingest_request(headers={"X-Apple-Shortcuts-Token": "shortcut-secret"})
+    )
+
+
+def test_enforce_ingest_rate_limit_returns_429(monkeypatch: pytest.MonkeyPatch):
+    from fastapi import HTTPException
+
+    from api import apple_shortcuts_support as support
+
+    monkeypatch.setattr("config.APPLE_SHORTCUTS_INGEST_RATE_LIMIT", 2)
+    monkeypatch.setattr("config.APPLE_SHORTCUTS_INGEST_RATE_WINDOW_SECONDS", 60)
+    with support._ingest_rate_lock:
+        support._ingest_rate_buckets.clear()
+
+    try:
+        support.enforce_ingest_rate_limit(_ingest_request(host="10.0.0.8"))
+        support.enforce_ingest_rate_limit(_ingest_request(host="10.0.0.8"))
+        with pytest.raises(HTTPException) as exc:
+            support.enforce_ingest_rate_limit(_ingest_request(host="10.0.0.8"))
+        assert exc.value.status_code == 429
+        assert int(exc.value.headers["Retry-After"]) >= 1
+        # Un autre client n'est pas bloqué par le bucket voisin.
+        support.enforce_ingest_rate_limit(_ingest_request(host="10.0.0.9"))
+    finally:
+        with support._ingest_rate_lock:
+            support._ingest_rate_buckets.clear()
