@@ -235,17 +235,26 @@ def _configured_interval(source: str, binding: ConnectorBinding) -> int:
     return max(15, int(explicit if explicit is not None else configured))
 
 
+def _in_failure_backoff(
+    binding: ConnectorBinding, state: IngestionSourceState | None
+) -> bool:
+    if state is None or state.consecutive_failures <= 0 or not state.last_attempt_at:
+        return False
+    last_attempt = _parse_utc(state.last_attempt_at)
+    retry_seconds = max(
+        _configured_interval(binding.source, binding),
+        min(3600, 2 ** min(state.consecutive_failures, 12)),
+    )
+    if last_attempt is None:
+        return False
+    return datetime.now(timezone.utc) - last_attempt < timedelta(
+        seconds=retry_seconds
+    )
+
+
 def _is_due(binding: ConnectorBinding, state: IngestionSourceState | None) -> bool:
-    if state is not None and state.consecutive_failures > 0 and state.last_attempt_at:
-        last_attempt = _parse_utc(state.last_attempt_at)
-        retry_seconds = max(
-            _configured_interval(binding.source, binding),
-            min(3600, 2 ** min(state.consecutive_failures, 12)),
-        )
-        if last_attempt and datetime.now(timezone.utc) - last_attempt < timedelta(
-            seconds=retry_seconds
-        ):
-            return False
+    if _in_failure_backoff(binding, state):
+        return False
     if (
         binding.source == "calendar"
         and state is not None
@@ -339,6 +348,9 @@ def request_ingestion_freshness(
             state = update_ingestion_source_state(
                 source, status="idle", completeness="unknown"
             )
+        if _in_failure_backoff(binding, state):
+            result[source] = state
+            continue
         if not _is_due(binding, state) and _coverage_satisfies(state, from_iso, to_iso):
             result[source] = state
             continue
