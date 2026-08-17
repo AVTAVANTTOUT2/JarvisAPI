@@ -562,6 +562,48 @@ def test_mcp_normalizes_all_read_scopes_for_personal_knowledge(
         broker.stop()
 
 
+def test_media_profile_mounts_installed_apple_music_mcp(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runtime, run = _state(tmp_path, "résultat")
+    state = runtime._states[run.run_id]
+    runtime.layout = RuntimeLayout.from_integration_root(tmp_path / "provider-music")
+    runtime.layout.ensure()
+    context = AgenticContext(
+        run_id=run.run_id,
+        profile_id=run.profile_id,
+        channel=run.channel,
+        origin=run.origin,
+        permissions=("media:read", "media:publish"),
+        selected_context={"capability_profile_id": "media"},
+    )
+    monkeypatch.setattr(
+        opencode_adapter, "_apple_music_mcp_path", lambda: "/opt/bin/apple-music-mcp"
+    )
+
+    read_only_broker, read_only_overlay = runtime._capability_overlay(
+        run, replace(context, permissions=("media:read",)), state.workspace
+    )
+    assert read_only_broker is not None
+    try:
+        assert "apple-music" not in read_only_overlay["mcp"]
+    finally:
+        read_only_broker.stop()
+
+    broker, overlay = runtime._capability_overlay(run, context, state.workspace)
+
+    assert broker is not None
+    try:
+        assert overlay["mcp"]["apple-music"] == {
+            "type": "local",
+            "command": ["/opt/bin/apple-music-mcp", "serve"],
+            "enabled": True,
+            "timeout": 30_000,
+        }
+    finally:
+        broker.stop()
+
+
 def test_plugin_manifest_and_default_runtime_declare_knowledge_scopes() -> None:
     manifest_path = Path(__file__).resolve().parents[1] / "plugin.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))

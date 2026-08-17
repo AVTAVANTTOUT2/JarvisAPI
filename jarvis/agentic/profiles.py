@@ -284,6 +284,12 @@ _INTENT_HINTS: tuple[tuple[str, frozenset[str]], ...] = (
                 "transcrire",
                 "montage",
                 "preview",
+                "apple music",
+                "musique",
+                "music",
+                "playlist",
+                "morceau",
+                "chanson",
             }
         ),
     ),
