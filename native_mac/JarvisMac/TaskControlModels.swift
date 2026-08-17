@@ -390,6 +390,15 @@ struct TaskPlan: Codable, Hashable, Identifiable {
     var expectedDeliverables: [String] = []
     var toolsExpected: [String] = []
     var permissionsExpected: [String] = []
+    /// Liste canonique remise au runtime au démarrage. C'est elle que la
+    /// décision humaine engage : approuver le plan, c'est approuver ces
+    /// capacités et aucune autre.
+    ///
+    /// Optionnelle à dessein : un serveur antérieur à ce contrat n'envoie pas
+    /// la clé, et la synthèse `Decodable` de Swift échouerait sur tout le plan
+    /// au lieu de l'afficher sans la liste. L'absence se lit comme une liste
+    /// vide — ce que le serveur refuse d'exécuter, donc aucun droit implicite.
+    var executionPermissions: [String]?
     var risks: [String] = []
     var assumptions: [String] = []
     var successCriteria: [String] = []
@@ -411,6 +420,7 @@ struct TaskPlan: Codable, Hashable, Identifiable {
         case expectedDeliverables = "expected_deliverables"
         case toolsExpected = "tools_expected"
         case permissionsExpected = "permissions_expected"
+        case executionPermissions = "execution_permissions"
         case successCriteria = "success_criteria"
         case knownLimits = "known_limits"
         case estimatedDurationS = "estimated_duration_s"

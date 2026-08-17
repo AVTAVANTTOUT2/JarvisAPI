@@ -88,6 +88,7 @@ final class TaskControlDecodingTests: XCTestCase {
               "expected_deliverables": ["Rapport"],
               "tools_expected": ["write_file", "mail_send"],
               "permissions_expected": ["workspace:write", "mail:send"],
+              "execution_permissions": ["workspace:read", "workspace:write", "tests:run"],
               "risks": [], "assumptions": [], "success_criteria": [], "known_limits": [],
               "estimated_duration_s": 1800, "estimated_cost": null,
               "created_by": "jarvis.planner", "created_at": "2026-08-13T09:00:00+00:00",
@@ -99,6 +100,40 @@ final class TaskControlDecodingTests: XCTestCase {
         XCTAssertEqual(plan.steps.count, 2)
         XCTAssertEqual(plan.externalEffectPermissions, ["mail:send"])
         XCTAssertEqual(plan.estimatedDurationLabel, "environ 30 min")
+        // La liste affichée avant la décision est exactement celle du serveur,
+        // sans réordonnancement ni complétion côté client.
+        XCTAssertEqual(
+            plan.executionPermissions,
+            ["workspace:read", "workspace:write", "tests:run"]
+        )
+    }
+
+    /// Un plan servi par un backend antérieur au contrat reste lisible, et la
+    /// liste d'autorisations reste vide : l'application n'en invente aucune.
+    func testPlanSansPermissionsDexecutionResteDecodable() throws {
+        let plan = try decode(
+            TaskPlan.self,
+            """
+            {
+              "plan_id": "plan_2", "task_id": "task_abc", "version": 1,
+              "objective": "Analyser", "summary": "",
+              "context_understood": "",
+              "steps": [
+                {"index": 1, "title": "Lire", "detail": "", "expected_result": "",
+                 "tools": [], "permissions": []}
+              ],
+              "expected_deliverables": [], "tools_expected": [],
+              "permissions_expected": [],
+              "risks": [], "assumptions": [], "success_criteria": [], "known_limits": [],
+              "estimated_duration_s": null, "estimated_cost": null,
+              "created_by": "jarvis.planner", "created_at": "2026-08-13T09:00:00+00:00",
+              "decision": "pending", "decision_at": null, "decision_by": null,
+              "decision_comment": "", "digest": "def456"
+            }
+            """
+        )
+        XCTAssertNil(plan.executionPermissions)
+        XCTAssertEqual(plan.executionPermissions ?? [], [])
     }
 
     func testReportExtractsDeliveriesFromNestedData() throws {

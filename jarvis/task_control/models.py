@@ -21,7 +21,7 @@ import hashlib
 import json
 import re
 from types import MappingProxyType
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 import uuid
 
 _SLUG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
@@ -408,7 +408,16 @@ class PlanStep:
 
 @dataclass(frozen=True)
 class TaskPlan:
-    """Version immuable d'un plan. Modifier un plan crée une nouvelle version."""
+    """Version immuable d'un plan. Modifier un plan crée une nouvelle version.
+
+    Deux listes de permissions cohabitent, et elles ne disent pas la même
+    chose. ``permissions_expected`` est **annoncé par le planificateur** : il
+    prévient qu'un effet externe (`mail:send`, `git:push`…) demandera plus tard
+    son autorisation propre. ``execution_permissions`` est la **liste canonique
+    exacte remise au runtime** au démarrage : c'est elle que l'utilisateur
+    approuve, elle entre dans le digest, et le lancement est refusé si le
+    routage en réclame une autre.
+    """
 
     plan_id: str
     task_id: str
@@ -420,6 +429,7 @@ class TaskPlan:
     expected_deliverables: tuple[str, ...] = ()
     tools_expected: tuple[str, ...] = ()
     permissions_expected: tuple[str, ...] = ()
+    execution_permissions: tuple[str, ...] = ()
     risks: tuple[str, ...] = ()
     assumptions: tuple[str, ...] = ()
     success_criteria: tuple[str, ...] = ()
@@ -453,6 +463,7 @@ class TaskPlan:
             "expected_deliverables",
             "tools_expected",
             "permissions_expected",
+            "execution_permissions",
             "risks",
             "assumptions",
             "success_criteria",
@@ -487,6 +498,7 @@ class TaskPlan:
             "expected_deliverables": list(self.expected_deliverables),
             "tools_expected": list(self.tools_expected),
             "permissions_expected": list(self.permissions_expected),
+            "execution_permissions": list(self.execution_permissions),
             "risks": list(self.risks),
             "assumptions": list(self.assumptions),
             "success_criteria": list(self.success_criteria),
@@ -520,6 +532,7 @@ def compute_plan_digest(plan: TaskPlan) -> str:
         "expected_deliverables": list(plan.expected_deliverables),
         "tools_expected": list(plan.tools_expected),
         "permissions_expected": list(plan.permissions_expected),
+        "execution_permissions": list(plan.execution_permissions),
         "success_criteria": list(plan.success_criteria),
     }
     encoded = json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str)
@@ -671,6 +684,36 @@ def ensure_executable(task: ControlTask, plan: TaskPlan | None) -> TaskPlan:
             f"l'état {task.status.value} n'autorise pas le démarrage"
         )
     return plan
+
+
+def ensure_permission_fidelity(
+    plan: TaskPlan, resolved: Sequence[str]
+) -> tuple[str, ...]:
+    """Le run reçoit la liste approuvée, ou rien ne démarre.
+
+    Approuver un plan, c'est approuver des capacités d'exécution nommées. Si le
+    routage recalcule une autre liste au moment du départ — plus large comme
+    plus étroite — l'utilisateur n'a pas consenti à *cette* exécution : le
+    démarrage est refusé avant toute création de runtime, et une élévation
+    légitime passe par une nouvelle version de plan donc une nouvelle décision.
+
+    Un plan approuvé sans liste est un plan écrit avant ce contrat. Il est
+    refusé plutôt que rattrapé : lui prêter la liste recalculée reviendrait à
+    accorder des droits que personne n'a lus.
+    """
+
+    approved = tuple(plan.execution_permissions)
+    if not approved:
+        raise TaskExecutionRefused(
+            "ce plan a été approuvé sans liste d'autorisations d'exécution ; "
+            "demandez une nouvelle version du plan"
+        )
+    if approved != tuple(dict.fromkeys(str(item) for item in resolved)):
+        raise TaskExecutionRefused(
+            "les autorisations d'exécution ont changé depuis l'approbation ; "
+            "une nouvelle version du plan doit être validée"
+        )
+    return approved
 
 
 @dataclass(frozen=True)
@@ -838,6 +881,7 @@ __all__ = [
     "clamp_text",
     "compute_plan_digest",
     "ensure_executable",
+    "ensure_permission_fidelity",
     "new_id",
     "utc_now",
     "validate_identifier",

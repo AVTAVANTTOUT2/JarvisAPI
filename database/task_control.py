@@ -109,6 +109,7 @@ CREATE TABLE IF NOT EXISTS control_task_plans (
     deliverables_json TEXT NOT NULL DEFAULT '[]',
     tools_json TEXT NOT NULL DEFAULT '[]',
     permissions_json TEXT NOT NULL DEFAULT '[]',
+    execution_permissions_json TEXT NOT NULL DEFAULT '[]',
     risks_json TEXT NOT NULL DEFAULT '[]',
     assumptions_json TEXT NOT NULL DEFAULT '[]',
     success_criteria_json TEXT NOT NULL DEFAULT '[]',
@@ -304,6 +305,7 @@ def _row_to_plan(row: sqlite3.Row) -> TaskPlan:
         expected_deliverables=tuple(_loads(row["deliverables_json"], [])),
         tools_expected=tuple(_loads(row["tools_json"], [])),
         permissions_expected=tuple(_loads(row["permissions_json"], [])),
+        execution_permissions=tuple(_loads(row["execution_permissions_json"], [])),
         risks=tuple(_loads(row["risks_json"], [])),
         assumptions=tuple(_loads(row["assumptions_json"], [])),
         success_criteria=tuple(_loads(row["success_criteria_json"], [])),
@@ -635,11 +637,12 @@ class TaskControlRepository:
                 INSERT INTO control_task_plans (
                     plan_id, task_id, profile_id, version, objective, summary,
                     context_understood, steps_json, deliverables_json, tools_json,
-                    permissions_json, risks_json, assumptions_json,
+                    permissions_json, execution_permissions_json, risks_json,
+                    assumptions_json,
                     success_criteria_json, known_limits_json, estimated_duration_s,
                     estimated_cost, created_by, created_at, decision, decision_at,
                     decision_by, decision_comment, digest
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     plan.plan_id,
@@ -653,6 +656,7 @@ class TaskControlRepository:
                     _dumps(list(plan.expected_deliverables)),
                     _dumps(list(plan.tools_expected)),
                     _dumps(list(plan.permissions_expected)),
+                    _dumps(list(plan.execution_permissions)),
                     _dumps(list(plan.risks)),
                     _dumps(list(plan.assumptions)),
                     _dumps(list(plan.success_criteria)),
@@ -1078,6 +1082,18 @@ def migrate_task_control_tables(conn: sqlite3.Connection) -> None:
     """
 
     conn.executescript(TASK_CONTROL_SCHEMA)
+    # Les plans écrits avant le contrat de fidélité des permissions reçoivent
+    # une liste **vide**, jamais une liste devinée : `ensure_permission_fidelity`
+    # refuse alors le démarrage et réclame une nouvelle version du plan. Leur
+    # digest persisté n'est pas recalculé, donc leur lecture reste valide.
+    plan_columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(control_task_plans)")
+    }
+    if "execution_permissions_json" not in plan_columns:
+        conn.execute(
+            "ALTER TABLE control_task_plans "
+            "ADD COLUMN execution_permissions_json TEXT NOT NULL DEFAULT '[]'"
+        )
     existing = conn.execute(
         "SELECT COUNT(*) FROM control_tasks WHERE legacy_task_id IS NOT NULL"
     ).fetchone()

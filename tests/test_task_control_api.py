@@ -193,6 +193,24 @@ def test_approbation_demarre_lexecution(api):
     assert len(service.agentic.starts) == 1
 
 
+def test_le_detail_expose_les_permissions_donnees_au_run(api):
+    """L'écran de validation lit la liste exacte que le runtime recevra."""
+
+    client, service = api
+    created = client.post(
+        "/api/task-control/tasks", json={"title": "Analyser le dépôt"}
+    ).json()["task"]
+    detail = client.get(f"/api/task-control/tasks/{created['task_id']}").json()
+    announced = detail["current_plan"]["execution_permissions"]
+    assert announced
+
+    client.post(
+        f"/api/task-control/tasks/{created['task_id']}/plans/1/decision",
+        json={"decision": "approved"},
+    )
+    assert list(service.agentic.starts[0]["permissions"]) == announced
+
+
 def test_refus_du_plan_nexecute_rien(api):
     client, service = api
     created = client.post(

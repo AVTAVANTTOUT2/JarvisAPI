@@ -13,9 +13,10 @@ Aucun autre chemin de ce module n'appelle le runtime.
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from datetime import datetime
 import logging
-from typing import Any, Iterable, Mapping
+from typing import Any, Iterable, Mapping, NamedTuple
 
 from database.core import current_profile_id
 from database.task_control import (
@@ -111,6 +112,74 @@ _NOTIFICATION_BY_STATUS: dict[TaskStatus, tuple[str, str, str]] = {
         "medium",
     ),
 }
+
+
+class ExecutionGrant(NamedTuple):
+    """Ce que le runtime recevra : catégorie, profil, permissions exactes."""
+
+    category: Any
+    capability_profile_id: str
+    permissions: tuple[str, ...]
+
+
+def resolve_execution_grant(task: ControlTask, objective: str) -> ExecutionGrant:
+    """Calcule la borne de capacités d'une tâche, sans rien démarrer.
+
+    Une seule fonction, appelée deux fois : à la planification pour écrire dans
+    le plan ce que l'utilisateur va approuver, puis au démarrage pour vérifier
+    que rien n'a bougé. C'est la racine du défaut corrigé ici — le plan et le
+    run lisaient chacun leur propre source de permissions.
+
+    La résolution est déterministe (classification par mots-clés, table de
+    profils figée, surcharges de configuration), donc deux appels sur le même
+    objectif et les mêmes métadonnées donnent la même liste.
+    """
+
+    import config
+    from jarvis.agentic import (
+        classify_agentic_request,
+        get_capability_profile,
+        select_capability_profile,
+    )
+    from jarvis.agentic.models import AgenticRequestCategory
+    from jarvis.agentic.turn_context import AGENTIC_ROUTING_METADATA_KEY
+
+    routing_raw = task.metadata.get(AGENTIC_ROUTING_METADATA_KEY)
+    routing = dict(routing_raw) if isinstance(routing_raw, Mapping) else {}
+    try:
+        category = AgenticRequestCategory(str(routing.get("category") or ""))
+    except ValueError:
+        category = classify_agentic_request(
+            objective, origin="user", adaptive=True
+        ).category
+    capability_profile_id = str(routing.get("capability_profile_id") or "").strip()
+    if capability_profile_id:
+        capability_profile = get_capability_profile(capability_profile_id)
+    else:
+        capability_profile = select_capability_profile(
+            objective,
+            category,
+            default_profile_id=str(
+                getattr(config, "AGENTIC_DEFAULT_PROFILE", "readonly-research")
+            ),
+            route_overrides=getattr(config, "AGENTIC_PROFILE_ROUTE_OVERRIDES", {}),
+        )
+        capability_profile_id = capability_profile.profile_id
+    raw_permissions = routing.get("permissions")
+    permissions = (
+        tuple(
+            dict.fromkeys(
+                str(item) for item in raw_permissions if isinstance(item, str) and item
+            )
+        )
+        if isinstance(raw_permissions, (list, tuple))
+        else capability_profile.default_permissions
+    )
+    if not permissions:
+        permissions = capability_profile.default_permissions
+    if capability_profile.refused_permissions(permissions):
+        raise PermissionError("permission hors du profil de capacités JARVIS")
+    return ExecutionGrant(category, capability_profile_id, permissions)
 
 
 class TaskControlService:
@@ -269,6 +338,17 @@ class TaskControlService:
                 plan: TaskPlan = await self._planner(
                     task, version=version, context=planning_context
                 )
+                # Le plan que l'utilisateur va lire annonce les capacités
+                # exactes du futur run. Les recalculer au démarrage sans les
+                # avoir écrites ici, c'était faire approuver autre chose que
+                # ce qui s'exécute.
+                plan = replace(
+                    plan,
+                    execution_permissions=resolve_execution_grant(
+                        task, plan.objective
+                    ).permissions,
+                    digest="",
+                )
             except Exception:
                 logger.exception("planification impossible pour %s", task_id)
                 task = self.repository.update_task(
@@ -412,20 +492,13 @@ class TaskControlService:
             return await self._launch_run(task_id)
 
     async def _launch_run(self, task_id: str) -> ControlTask:
-        import config
-        from jarvis.agentic import (
-            classify_agentic_request,
-            get_capability_profile,
-            select_capability_profile,
-        )
-        from jarvis.agentic.models import AgenticRequestCategory
         from jarvis.agentic.turn_context import (
             AGENTIC_ROUTING_METADATA_KEY,
             SNAPSHOT_METADATA_KEY,
             TurnKnowledgeSnapshot,
         )
 
-        from .models import ensure_executable
+        from .models import ensure_executable, ensure_permission_fidelity
 
         task = self.repository.require_task(task_id)
         if task.agentic_run_id:
@@ -441,44 +514,13 @@ class TaskControlService:
 
         routing_raw = task.metadata.get(AGENTIC_ROUTING_METADATA_KEY)
         routing = dict(routing_raw) if isinstance(routing_raw, Mapping) else {}
-        try:
-            category = AgenticRequestCategory(str(routing.get("category") or ""))
-        except ValueError:
-            category = classify_agentic_request(
-                approved.objective,
-                origin="user",
-                adaptive=True,
-            ).category
-        capability_profile_id = str(routing.get("capability_profile_id") or "").strip()
-        if capability_profile_id:
-            capability_profile = get_capability_profile(capability_profile_id)
-        else:
-            capability_profile = select_capability_profile(
-                approved.objective,
-                category,
-                default_profile_id=str(
-                    getattr(config, "AGENTIC_DEFAULT_PROFILE", "readonly-research")
-                ),
-                route_overrides=getattr(config, "AGENTIC_PROFILE_ROUTE_OVERRIDES", {}),
-            )
-            capability_profile_id = capability_profile.profile_id
-        raw_permissions = routing.get("permissions")
-        permissions = (
-            tuple(
-                dict.fromkeys(
-                    str(item)
-                    for item in raw_permissions
-                    if isinstance(item, str) and item
-                )
-            )
-            if isinstance(raw_permissions, (list, tuple))
-            else capability_profile.default_permissions
-        )
-        if not permissions:
-            permissions = capability_profile.default_permissions
-        refused = capability_profile.refused_permissions(permissions)
-        if refused:
-            raise PermissionError("permission hors du profil de capacités JARVIS")
+        grant = resolve_execution_grant(task, approved.objective)
+        # Le run reçoit littéralement la liste approuvée. Aucune permission
+        # n'est ajoutée ici : toute divergence avec le recalcul est refusée
+        # avant qu'un runtime existe.
+        permissions = ensure_permission_fidelity(approved, grant.permissions)
+        category = grant.category
+        capability_profile_id = grant.capability_profile_id
 
         selected_context: dict[str, Any] = {
             "request": approved.objective,
