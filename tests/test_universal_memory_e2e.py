@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import json
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
 
-YESTERDAY = "2026-08-15"
+from database.time_buckets import local_datetime
+
+
+def _yesterday_iso() -> str:
+    return (local_datetime().date() - timedelta(days=1)).isoformat()
 
 
 @pytest.fixture()
@@ -22,11 +27,12 @@ def universal_memory_db(
     monkeypatch.setattr(config, "DB_PATH", str(db_path))
     monkeypatch.setattr(database, "DB_PATH", db_path)
     database.init_db()
-    _seed_universal_memory()
+    yesterday = _yesterday_iso()
+    _seed_universal_memory(yesterday)
     return db_path
 
 
-def _seed_universal_memory() -> None:
+def _seed_universal_memory(yesterday: str) -> None:
     from database import get_db
     from database.email import save_email_full
     from database.knowledge import upsert_calendar_events
@@ -45,7 +51,7 @@ def _seed_universal_memory() -> None:
             "Camille <camille@example.test>",
             "Préparation de la semaine",
             "Troisième message récent.",
-            f"{YESTERDAY}T07:00:00+00:00",
+            f"{yesterday}T07:00:00+00:00",
             False,
         ),
         (
@@ -53,7 +59,7 @@ def _seed_universal_memory() -> None:
             "Grégoire <gregoire@example.test>",
             "Accord Orion",
             "Hier, Grégoire a confirmé la validation Orion. Ce mail est déjà lu.",
-            f"{YESTERDAY}T09:00:00+00:00",
+            f"{yesterday}T09:00:00+00:00",
             True,
         ),
         (
@@ -61,7 +67,7 @@ def _seed_universal_memory() -> None:
             "Nora <nora@example.test>",
             "Rapport final",
             "Message le plus récent.",
-            f"{YESTERDAY}T12:00:00+00:00",
+            f"{yesterday}T12:00:00+00:00",
             True,
         ),
     )
@@ -93,7 +99,7 @@ def _seed_universal_memory() -> None:
                 handle_id,
                 "Hier, Grégoire a confirmé Orion par iMessage.",
                 1,
-                f"{YESTERDAY}T10:00:00Z",
+                f"{yesterday}T10:00:00Z",
             ),
         )
         conn.execute(
@@ -108,7 +114,7 @@ def _seed_universal_memory() -> None:
                 42,
                 "Hier, la note vocale rappelle la décision Orion de Grégoire.",
                 "Décision Orion enregistrée hier.",
-                f"{YESTERDAY}T11:00:00Z",
+                f"{yesterday}T11:00:00Z",
             ),
         )
         conn.execute(
@@ -170,8 +176,8 @@ def _seed_universal_memory() -> None:
                     "external_id": "calendar-orion-yesterday",
                     "calendar_name": "Travail",
                     "title": "Point Orion avec Grégoire",
-                    "start_at": f"{YESTERDAY}T15:00:00+00:00",
-                    "end_at": f"{YESTERDAY}T16:00:00+00:00",
+                    "start_at": f"{yesterday}T15:00:00+00:00",
+                    "end_at": f"{yesterday}T16:00:00+00:00",
                     "location": "Lille",
                     "notes": "Hier, validation Orion avec Grégoire.",
                 }
@@ -241,6 +247,7 @@ def test_formatted_context_preserves_yesterday_dates_for_every_source(
         search_knowledge,
     )
 
+    yesterday = _yesterday_iso()
     result = search_knowledge(
         RetrievalRequest(
             query="Orion Grégoire hier",
@@ -250,7 +257,7 @@ def test_formatted_context_preserves_yesterday_dates_for_every_source(
     )
     raw_hits = {hit.source_type: hit for hit in result.hits}
     assert all(
-        str(raw_hits[source_type].occurred_at).startswith(YESTERDAY)
+        str(raw_hits[source_type].occurred_at).startswith(yesterday)
         for source_type in ("email", "imessage", "calendar", "recording")
     )
     payload = _decode_retrieval_context(format_retrieval_context(result))
@@ -258,7 +265,7 @@ def test_formatted_context_preserves_yesterday_dates_for_every_source(
     invalid_dates = {
         source_type: hits_by_source[source_type]["occurred_at"]
         for source_type in ("email", "imessage", "calendar", "recording")
-        if not str(hits_by_source[source_type]["occurred_at"]).startswith(YESTERDAY)
+        if not str(hits_by_source[source_type]["occurred_at"]).startswith(yesterday)
     }
 
     assert not invalid_dates, invalid_dates
