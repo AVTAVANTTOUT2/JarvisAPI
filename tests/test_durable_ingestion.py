@@ -51,6 +51,43 @@ def test_connector_binding_is_explicit_and_profile_isolated(ingestion_db: Path) 
     assert get_connector_binding("mail") is not None
 
 
+def test_periodic_scheduler_backs_off_after_repeated_failures(
+    ingestion_db: Path,
+) -> None:
+    from database import get_db
+    from database.ingestion import bind_connector, update_ingestion_source_state
+    from jarvis.ingestion.service import (
+        register_ingestion_handler,
+        schedule_due_ingestion_jobs,
+    )
+
+    register_ingestion_handler("mail", "sync", lambda *_args: None, replace=True)
+    bind_connector("mail", permission_state="granted", sync_interval_seconds=30)
+    update_ingestion_source_state(
+        "mail",
+        status="error",
+        last_attempt_at=datetime.now(timezone.utc).isoformat(),
+        consecutive_failures=20,
+    )
+    assert schedule_due_ingestion_jobs() == 0
+
+    update_ingestion_source_state(
+        "mail",
+        last_attempt_at=(
+            datetime.now(timezone.utc) - timedelta(seconds=3601)
+        ).isoformat(),
+    )
+    assert schedule_due_ingestion_jobs() == 1
+    with get_db() as conn:
+        assert (
+            conn.execute(
+                "SELECT COUNT(*) FROM ingestion_jobs WHERE source = 'mail' "
+                "AND status IN ('pending', 'running', 'retry')"
+            ).fetchone()[0]
+            == 1
+        )
+
+
 def test_connector_binding_denied_device_and_account_are_fail_closed(
     ingestion_db: Path,
 ) -> None:
@@ -457,6 +494,7 @@ class _PagedMail:
     def __init__(self, messages: list[dict[str, Any]]) -> None:
         self.messages = messages
         self.offsets: list[int] = []
+        self.include_previews: list[bool] = []
 
     def is_available(self) -> bool:
         return True
@@ -468,7 +506,7 @@ class _PagedMail:
         offset: int = 0,
         include_preview: bool = True,
     ):
-        del include_preview
+        self.include_previews.append(include_preview)
         from integrations.mail import MailQueryResult
 
         self.offsets.append(offset)
@@ -523,6 +561,7 @@ async def test_partial_mail_scan_never_deletes_cached_messages(
     state = get_ingestion_source_state("mail")
     assert state is not None
     assert state.completeness == "partial"
+    assert fake.include_previews == [False]
     assert (
         state.cursor["deletion_reconciliation"]
         == "unsupported_without_full_mailbox_scan"

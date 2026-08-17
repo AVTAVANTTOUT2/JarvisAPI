@@ -236,6 +236,16 @@ def _configured_interval(source: str, binding: ConnectorBinding) -> int:
 
 
 def _is_due(binding: ConnectorBinding, state: IngestionSourceState | None) -> bool:
+    if state is not None and state.consecutive_failures > 0 and state.last_attempt_at:
+        last_attempt = _parse_utc(state.last_attempt_at)
+        retry_seconds = max(
+            _configured_interval(binding.source, binding),
+            min(3600, 2 ** min(state.consecutive_failures, 12)),
+        )
+        if last_attempt and datetime.now(timezone.utc) - last_attempt < timedelta(
+            seconds=retry_seconds
+        ):
+            return False
     if (
         binding.source == "calendar"
         and state is not None
@@ -433,7 +443,7 @@ async def _mail_sync(
         result = await mail_client.get_recent_page_result(
             page_size,
             offset=offset,
-            include_preview=True,
+            include_preview=False,
         )
         if result.status != "ok":
             return IngestionRunResult(
@@ -769,11 +779,15 @@ async def _calendar_sync(
     update_connector_permission("calendar", "granted")
     events = list(result.events)
     configured_calendars = binding.settings.get("calendar_names")
-    allowed_calendars = {
-        str(value).strip().casefold()
-        for value in configured_calendars
-        if str(value).strip()
-    } if isinstance(configured_calendars, list) else set()
+    allowed_calendars = (
+        {
+            str(value).strip().casefold()
+            for value in configured_calendars
+            if str(value).strip()
+        }
+        if isinstance(configured_calendars, list)
+        else set()
+    )
     if allowed_calendars:
         events = [
             event
@@ -803,9 +817,7 @@ async def _calendar_sync(
         aggregate = conn.execute(
             "SELECT COUNT(*) AS count, MAX(start_at) AS last_at FROM calendar_events"
         ).fetchone()
-    merged_windows = _merge_calendar_windows(
-        windows, (window_start, window_end)
-    )
+    merged_windows = _merge_calendar_windows(windows, (window_start, window_end))
     contiguous_end = _contiguous_calendar_end(merged_windows, history_start)
     full_history = bool(contiguous_end and contiguous_end >= backfill_target)
     serialized_windows = [
