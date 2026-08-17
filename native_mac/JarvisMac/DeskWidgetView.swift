@@ -22,16 +22,16 @@ struct DeskWidgetView: View {
                 Text(model.snapshot.tasks.first?.title ?? "Tout est sous contrôle.")
                     .font(.title3.weight(.semibold)).lineLimit(3)
                 if let task = model.snapshot.tasks.first {
-                    Text("Prochaine action · \(task.priorityLabel)")
+                    Text("Prochain élément à faire · \(task.priorityLabel)")
                         .font(.caption).foregroundStyle(.secondary)
                 } else {
-                    Text("Aucune action urgente").font(.caption).foregroundStyle(.secondary)
+                    Text("Rien d’urgent dans À faire").font(.caption).foregroundStyle(.secondary)
                 }
             }
             .frame(maxWidth: .infinity, minHeight: 75, alignment: .leading)
 
             HStack(spacing: 10) {
-                glanceMetric("\(model.snapshot.tasks.count)", "actions", "checkmark.circle")
+                glanceMetric("\(model.snapshot.tasks.count)", "à faire", "checkmark.circle")
                 glanceMetric("\(model.snapshot.notifications.count)", "signaux", "bell")
                 glanceMetric("\(model.snapshot.calendar.count)", "agenda", "calendar")
             }

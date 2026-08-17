@@ -1,7 +1,7 @@
 import Foundation
 import SwiftUI
 
-/// État observable de la section Tâches.
+/// État observable de la section Missions Jarvis.
 ///
 /// Trois règles tenues ici :
 ///
@@ -113,17 +113,18 @@ final class TaskControlStore: ObservableObject {
                 await loadDetail(taskID: selectedTaskID, force: false)
             }
         } catch {
+            if error is CancellationError { return }
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "\(error)"
         }
     }
 
     var visibleTasks: [ControlTask] {
-        let needle = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let needle = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !needle.isEmpty else { return tasks }
         return tasks.filter {
-            $0.title.lowercased().contains(needle)
-                || $0.description.lowercased().contains(needle)
-                || $0.source.subject.lowercased().contains(needle)
+            $0.title.localizedCaseInsensitiveContains(needle)
+                || $0.description.localizedCaseInsensitiveContains(needle)
+                || $0.source.subject.localizedCaseInsensitiveContains(needle)
         }
     }
 
@@ -136,6 +137,8 @@ final class TaskControlStore: ObservableObject {
     // MARK: - Détail
 
     func select(taskID: String?) {
+        detailTask?.cancel()
+        detailTask = nil
         selectedTaskID = taskID
         detail = nil
         activity = []
@@ -144,7 +147,9 @@ final class TaskControlStore: ObservableObject {
         report = nil
         lastActivitySequence = 0
         guard let taskID else { return }
-        Task { await loadDetail(taskID: taskID, force: true) }
+        detailTask = Task { [weak self] in
+            await self?.loadDetail(taskID: taskID, force: true)
+        }
     }
 
     func loadDetail(taskID: String, force: Bool) async {
@@ -152,6 +157,7 @@ final class TaskControlStore: ObservableObject {
         defer { isDetailLoading = false }
         do {
             let envelope = try await api.controlTaskDetail(id: taskID)
+            try Task.checkCancellation()
             guard selectedTaskID == taskID else { return }
             detail = envelope
             report = envelope.report
@@ -160,6 +166,7 @@ final class TaskControlStore: ObservableObject {
                 id: taskID,
                 afterSequence: force ? 0 : lastActivitySequence
             )
+            try Task.checkCancellation()
             guard selectedTaskID == taskID else { return }
             if force {
                 activity = increment.activity
@@ -178,6 +185,8 @@ final class TaskControlStore: ObservableObject {
                 }
             }
             errorMessage = nil
+        } catch is CancellationError {
+            return
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "\(error)"
         }
@@ -202,7 +211,7 @@ final class TaskControlStore: ObservableObject {
         projectID: String?,
         comment: String
     ) async {
-        await mutate("Tâche créée — le plan attend votre validation.") {
+        await mutate("Mission créée — le plan attend votre validation.") {
             let task = try await self.api.createControlTask(
                 title: title,
                 description: description,
@@ -255,7 +264,7 @@ final class TaskControlStore: ObservableObject {
 
     func cancelTask(reason: String = "") async {
         guard let task = selectedTask else { return }
-        await mutate("Tâche annulée.") {
+        await mutate("Mission annulée.") {
             _ = try await self.api.cancelControlTask(taskID: task.id, reason: reason)
             await self.refresh()
             await self.loadDetail(taskID: task.id, force: true)
@@ -282,7 +291,7 @@ final class TaskControlStore: ObservableObject {
     func decideCandidate(_ candidate: TaskCandidate, decision: String) async {
         await mutate(
             decision == "accepted"
-                ? "Tâche créée — son plan attend votre validation."
+                ? "Mission créée — son plan attend votre validation."
                 : "Suggestion écartée."
         ) {
             let envelope = try await self.api.decideTaskCandidate(

@@ -84,15 +84,15 @@ final class TaskNotificationCenter {
             content.body = "« \(task.title) » attend votre validation avant tout démarrage."
         case .awaitingPermission:
             content.title = "JARVIS requiert votre attention"
-            content.body = "Une autorisation est nécessaire pour continuer la tâche « \(task.title) »."
+            content.body = "Une autorisation est nécessaire pour continuer la mission « \(task.title) »."
         case .blocked:
-            content.title = "Tâche bloquée"
+            content.title = "Mission bloquée"
             content.body = "« \(task.title) » ne peut pas continuer sans intervention."
         case .failed:
-            content.title = "Tâche en échec"
+            content.title = "Mission en échec"
             content.body = "« \(task.title) » s'est arrêtée sans aboutir."
         case .completed:
-            content.title = "Tâche terminée"
+            content.title = "Mission terminée"
             content.body = "Le résultat de « \(task.title) » est disponible."
         default:
             return
