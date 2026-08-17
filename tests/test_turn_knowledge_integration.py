@@ -282,7 +282,9 @@ async def test_raw_agentic_api_assigns_profile_scopes_and_snapshot(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from api import chat_context, router_agentic
+    import config
 
+    monkeypatch.setattr(config, "AGENTIC_REQUIRE_PLAN_APPROVAL", False)
     snapshot = _snapshot()
     monkeypatch.setattr(chat_context, "prepare_turn", AsyncMock(return_value=snapshot))
     captured: dict[str, Any] = {}

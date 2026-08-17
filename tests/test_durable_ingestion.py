@@ -51,6 +51,57 @@ def test_connector_binding_is_explicit_and_profile_isolated(ingestion_db: Path) 
     assert get_connector_binding("mail") is not None
 
 
+def test_freshness_respects_failure_backoff(ingestion_db: Path) -> None:
+    from database import get_db
+    from database.ingestion import (
+        bind_connector,
+        claim_ingestion_jobs,
+        enqueue_ingestion_job,
+        fail_ingestion_job,
+        list_ingestion_jobs,
+        update_ingestion_source_state,
+    )
+    from jarvis.ingestion.service import request_ingestion_freshness
+
+    bind_connector("mail", permission_state="granted", sync_interval_seconds=30)
+    enqueue_ingestion_job("mail", job_kind="sync", dedupe_key="sync:periodic")
+    claimed = claim_ingestion_jobs("worker", handler_pairs=[("mail", "sync")])[0]
+    update_ingestion_source_state(
+        "mail",
+        status="error",
+        last_attempt_at=datetime.now(timezone.utc).isoformat(),
+        consecutive_failures=5,
+    )
+    assert fail_ingestion_job(
+        claimed.id,
+        claimed.lease_token,
+        error_code="timeout",
+        retry_delay_seconds=3600,
+    )
+
+    with get_db() as conn:
+        backoff_available = conn.execute(
+            "SELECT available_at FROM ingestion_jobs WHERE id = ?",
+            (claimed.id,),
+        ).fetchone()["available_at"]
+
+    before_count = len(list_ingestion_jobs(source="mail"))
+    request_ingestion_freshness(
+        ("mail",),
+        from_iso="2020-01-01T00:00:00Z",
+        to_iso="2026-01-01T00:00:00Z",
+        budget_ms=0,
+    )
+
+    with get_db() as conn:
+        after_available = conn.execute(
+            "SELECT available_at FROM ingestion_jobs WHERE id = ?",
+            (claimed.id,),
+        ).fetchone()["available_at"]
+    assert after_available == backoff_available
+    assert len(list_ingestion_jobs(source="mail")) == before_count
+
+
 def test_periodic_scheduler_backs_off_after_repeated_failures(
     ingestion_db: Path,
 ) -> None:
