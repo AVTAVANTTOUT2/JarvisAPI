@@ -17,6 +17,7 @@ from dataclasses import replace
 from datetime import datetime
 import logging
 from typing import Any, Iterable, Mapping, NamedTuple
+import uuid
 
 from database.core import current_profile_id
 from database.task_control import (
@@ -60,7 +61,10 @@ _RUN_STATUS_TO_TASK: dict[str, TaskStatus] = {
     "classified": TaskStatus.QUEUED,
     "queued": TaskStatus.QUEUED,
     "resource_wait": TaskStatus.RESOURCE_WAIT,
-    "provisioning": TaskStatus.RUNNING,
+    # `provisioning` prépare l'espace de travail : le runtime n'a pas encore
+    # démarré. L'afficher « en cours » annonçait un travail qui n'avait pas
+    # commencé — `running` n'arrive qu'avec `agent.run.started`.
+    "provisioning": TaskStatus.QUEUED,
     "planning": TaskStatus.RUNNING,
     "running": TaskStatus.RUNNING,
     "awaiting_approval": TaskStatus.AWAITING_PERMISSION,
@@ -77,6 +81,20 @@ _RUN_STATUS_TO_TASK: dict[str, TaskStatus] = {
     "expired": TaskStatus.FAILED,
     "provider_unavailable": TaskStatus.FAILED,
 }
+
+#: L'attente d'admission n'est pas un état de run : le run reste `queued` et
+#: c'est le **type** d'événement qui porte l'information. Sans cette table, une
+#: tâche retenue par la mémoire s'affichait simplement « en file ».
+_RUN_EVENT_TO_TASK: dict[str, TaskStatus] = {
+    "agent.run.resource_wait": TaskStatus.RESOURCE_WAIT,
+}
+
+
+def task_status_for_run(status_value: str, *, event_type: str = "") -> TaskStatus | None:
+    """Seule conversion état de run → état de tâche, pour tous les appelants."""
+
+    return _RUN_EVENT_TO_TASK.get(event_type) or _RUN_STATUS_TO_TASK.get(status_value)
+
 
 _TERMINAL_RESULTS = {
     TaskStatus.COMPLETED,
@@ -538,11 +556,21 @@ class TaskControlService:
         if classification_reason:
             selected_context["classification"] = classification_reason
 
+        # L'identifiant du run est frappé ici et **associé avant** que le
+        # runtime existe. `create_and_start` programme le démarrage sans
+        # l'attendre : ses premiers événements (`queued`, `resource_wait`)
+        # partaient donc avant que `find_task_by_run` puisse retrouver la
+        # tâche, et étaient perdus. L'association d'abord ferme cette fenêtre.
+        run_id = str(uuid.uuid4())
         task = self.repository.update_task(
-            task_id, status=TaskStatus.QUEUED, current_phase="queued"
+            task_id,
+            agentic_run_id=run_id,
+            status=TaskStatus.QUEUED,
+            current_phase="queued",
         )
         try:
             run = await self.agentic.create_and_start(
+                run_id=run_id,
                 title=task.title,
                 profile_id=task.profile_id,
                 origin="user",
@@ -564,6 +592,9 @@ class TaskControlService:
             logger.exception("démarrage du runtime impossible pour %s", task_id)
             task = self.repository.update_task(
                 task_id,
+                # Aucun run n'a été créé : garder l'association laisserait la
+                # tâche pointer vers un identifiant qui n'existe nulle part.
+                agentic_run_id=None,
                 status=TaskStatus.FAILED,
                 current_phase="start_failed",
                 attention_required=True,
@@ -581,24 +612,49 @@ class TaskControlService:
             await self.finalize(task_id, error="Le runtime n'a pas pu démarrer.")
             return self.repository.require_task(task_id)
 
-        task = self.repository.update_task(
-            task_id,
-            agentic_run_id=run.run_id,
-            current_phase="running",
-            status=TaskStatus.RUNNING,
+        if run.run_id != run_id:
+            # Le service a rendu un autre run que celui demandé (idempotence) :
+            # c'est lui qui fait foi, l'association le suit.
+            task = self.repository.update_task(task_id, agentic_run_id=run.run_id)
+            run_id = run.run_id
+
+        # État **réel** du run, relu après la tentative — jamais un `running`
+        # supposé. `expected_status` protège la relecture : si un événement
+        # d'admission a déjà fait avancer la tâche pendant l'appel, c'est lui
+        # qui fait foi et cette écriture s'efface plutôt que de le régresser.
+        current = self.agentic.get(run_id) or run
+        target = (
+            task_status_for_run(str(getattr(current.status, "value", current.status)))
+            or TaskStatus.QUEUED
         )
+        if target is not TaskStatus.QUEUED:
+            try:
+                task = self.repository.update_task(
+                    task_id,
+                    expected_status=TaskStatus.QUEUED,
+                    status=target,
+                    current_phase=str(
+                        getattr(current.status, "value", current.status)
+                    ),
+                )
+            except (TaskPersistenceConflict, InvalidTaskTransition):
+                pass
+        # Relecture finale : des événements du run ont pu trancher pendant
+        # l'appel. Rendre l'objet lu avant `create_and_start` ferait répondre à
+        # l'API un état déjà périmé — la panne visible du rapport.
+        task = self.repository.require_task(task_id)
         self.repository.append_activity(
             build_user_activity(
                 task_id=task_id,
-                summary="Exécution lancée après validation du plan.",
+                summary="Plan validé : exécution confiée au runtime.",
                 event_type=TaskActivityType.AGENT_STARTED,
             )
         )
         await self._emit(
             task,
             "task.control.started",
-            run_id=run.run_id,
-            spoken_summary="Je lance la tâche.",
+            run_id=run_id,
+            spoken_summary="La tâche est en file d'exécution.",
         )
         return task
 
@@ -626,7 +682,7 @@ class TaskControlService:
             self.repository.append_activity(activity)
 
         status_value = str(payload.get("status") or "")
-        target = _RUN_STATUS_TO_TASK.get(status_value)
+        target = task_status_for_run(status_value, event_type=event_type)
         progress = payload.get("progress")
         updates: dict[str, Any] = {}
         if isinstance(progress, (int, float)):

@@ -32,6 +32,7 @@ from .models import (
 _READABLE_PAYLOAD_FIELDS = frozenset(
     {
         "action",
+        "admission_reason",
         "approval_id",
         "artifact_id",
         "decision",
@@ -57,6 +58,17 @@ _PHASE_LABELS = {
     "verification": "Vérification",
 }
 
+#: Motifs d'attente d'admission — vocabulaire fermé produit par le service
+#: agentique. Les libellés sont écrits ici, comme le reste : un motif inconnu
+#: n'est pas affiché plutôt que recopié.
+_ADMISSION_REASON_LABELS = {
+    "memory_pressure": "mémoire insuffisante",
+    "provider_cooldown": "runtime en récupération",
+    "write_concurrency": "une autre écriture est en cours",
+    "background_concurrency": "un autre travail de fond est en cours",
+    "user_priority": "une demande interactive passe d'abord",
+}
+
 #: `type d'événement runtime` → `(type d'activité, rôle d'agent, gabarit, niveau)`
 _EVENT_MAP: dict[str, tuple[TaskActivityType, str, str, TaskActivityLevel]] = {
     "agent.run.started": (
@@ -70,6 +82,20 @@ _EVENT_MAP: dict[str, tuple[TaskActivityType, str, str, TaskActivityLevel]] = {
         "executor",
         "Préparation de l'espace de travail.",
         TaskActivityLevel.DETAIL,
+    ),
+    "agent.run.queued": (
+        TaskActivityType.AGENT_SUMMARY,
+        "executor",
+        "Mise en file d'exécution.",
+        TaskActivityLevel.DETAIL,
+    ),
+    # Niveau résumé : une tâche qui n'avance pas doit dire pourquoi dès la
+    # première vue, sans qu'on aille chercher le détail technique.
+    "agent.run.resource_wait": (
+        TaskActivityType.AGENT_SUMMARY,
+        "executor",
+        "En attente de ressources.",
+        TaskActivityLevel.SUMMARY,
     ),
     "agent.run.phase_changed": (
         TaskActivityType.PLAN_STEP_STARTED,
@@ -255,6 +281,12 @@ def build_activity(
                 activity_type = TaskActivityType.TEST_RESULT
         else:
             summary = f"{template} ({tool})"
+    elif event_type == "agent.run.resource_wait":
+        label = _ADMISSION_REASON_LABELS.get(
+            clamp_text(safe.get("admission_reason") or "", 60)
+        )
+        if label:
+            summary = f"{template} Motif : {label}."
     elif event_type == "agent.approval.resolved":
         decision = clamp_text(safe.get("decision") or "", 40)
         summary = {

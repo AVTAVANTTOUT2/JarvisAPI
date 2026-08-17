@@ -62,6 +62,30 @@ final class TaskControlDecodingTests: XCTestCase {
         XCTAssertFalse(wrapper.status.isExecuting)
     }
 
+    /// Une mission retenue par l'admission dit qu'elle attend, pas qu'elle
+    /// travaille. C'est exactement ce que l'écran affichait de travers.
+    func testResourceWaitSaysWaitingNotRunning() throws {
+        struct Wrapper: Decodable { let status: TaskControlStatus }
+        let wrapper = try decode(Wrapper.self, #"{"status": "resource_wait"}"#)
+        XCTAssertEqual(wrapper.status, .resourceWait)
+        XCTAssertEqual(wrapper.status.label, "En attente de ressources")
+        XCTAssertNotEqual(wrapper.status.label, TaskControlStatus.running.label)
+        // Elle reste dans la section « en cours d'exécution » : le travail est
+        // engagé, il n'a simplement pas commencé.
+        XCTAssertTrue(wrapper.status.isExecuting)
+        XCTAssertFalse(wrapper.status.needsAttention)
+    }
+
+    /// `queued` est l'état juste après l'approbation : la tâche est confiée au
+    /// runtime, elle n'est pas « En cours ».
+    func testQueuedIsNotDisplayedAsRunning() throws {
+        struct Wrapper: Decodable { let status: TaskControlStatus }
+        let wrapper = try decode(Wrapper.self, #"{"status": "queued"}"#)
+        XCTAssertEqual(wrapper.status, .queued)
+        XCTAssertEqual(wrapper.status.label, "En file")
+        XCTAssertNotEqual(wrapper.status.label, TaskControlStatus.running.label)
+    }
+
     func testUnknownSourceTypeFallsBack() throws {
         struct Wrapper: Decodable { let source: TaskControlSource }
         let wrapper = try decode(
