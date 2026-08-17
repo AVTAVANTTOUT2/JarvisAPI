@@ -125,6 +125,31 @@ def test_raw_recording_is_purged_only_after_seven_day_retention(
     assert not spool.path.exists()
 
 
+def test_recording_purge_rejects_symlinked_session_dir(
+    tmp_db, tmp_path, monkeypatch
+) -> None:
+    from audio import recording_spool as spool_module
+    from database import create_conversation, update_recording_session
+
+    monkeypatch.setattr(spool_module, "_SPOOL_ROOT", tmp_path / "spool")
+    spool = spool_module.RecordingSpool.create(
+        conversation_id=create_conversation(agent="voice"),
+        label="Note",
+    )
+    spool.mark_succeeded(transcript="texte", summary="résumé")
+    update_recording_session(
+        spool.session_id,
+        retention_until=(datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat(),
+    )
+    target = spool.path.with_name("target")
+    spool.path.rename(target)
+    spool.path.symlink_to(target, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="recording_spool_path_invalid"):
+        spool_module.purge_recording_audio(spool.session_id)
+    assert target.is_dir()
+
+
 def test_recording_actions_are_proposals_not_implicit_effects() -> None:
     from audio.continuous_recorder import ContinuousRecording
 

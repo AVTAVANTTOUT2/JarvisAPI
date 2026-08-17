@@ -54,11 +54,24 @@ def _fsync_dir(path: Path) -> None:
 
 
 def _validated_session_dir(path: Path) -> Path:
-    root = _SPOOL_ROOT.resolve()
-    candidate = path.resolve(strict=True)
+    raw_root = _SPOOL_ROOT.absolute()
+    raw_candidate = path.absolute()
+    if (
+        raw_root.is_symlink()
+        or raw_candidate == raw_root
+        or raw_root not in raw_candidate.parents
+    ):
+        raise ValueError("recording_spool_path_outside_root")
+    current = raw_root
+    for part in raw_candidate.relative_to(raw_root).parts:
+        current /= part
+        if current.is_symlink():
+            raise ValueError("recording_spool_path_invalid")
+    root = raw_root.resolve(strict=True)
+    candidate = raw_candidate.resolve(strict=True)
     if candidate == root or root not in candidate.parents:
         raise ValueError("recording_spool_path_outside_root")
-    if candidate.is_symlink() or not candidate.is_dir():
+    if not candidate.is_dir():
         raise ValueError("recording_spool_path_invalid")
     return candidate
 
