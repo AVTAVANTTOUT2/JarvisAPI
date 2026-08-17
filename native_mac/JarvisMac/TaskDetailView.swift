@@ -216,7 +216,8 @@ struct TaskDetailView: View {
                 }
                 bulletBlock("Livrables attendus", plan.expectedDeliverables)
                 bulletBlock("Outils nécessaires", plan.toolsExpected)
-                bulletBlock("Autorisations anticipées", plan.permissionsExpected)
+                bulletBlock("Autorisations accordées au démarrage", plan.executionPermissions ?? [])
+                bulletBlock("Autorisations anticipées par le plan", plan.permissionsExpected)
                 bulletBlock("Risques", plan.risks)
                 bulletBlock("Hypothèses", plan.assumptions)
                 bulletBlock("Critères de réussite", plan.successCriteria)

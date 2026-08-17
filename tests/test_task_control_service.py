@@ -7,7 +7,7 @@ une exécution sans approbation, le compteur le dit.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -31,7 +31,7 @@ from jarvis.task_control.models import (
     TaskStatus,
     new_id,
 )
-from jarvis.task_control.service import TaskControlService
+from jarvis.task_control.service import TaskControlService, resolve_execution_grant
 
 
 # ── Doubles ────────────────────────────────────────────────────────────────
@@ -557,3 +557,252 @@ async def test_agentic_planning_failure_never_starts_without_approval(
         "error": "planning_unavailable",
     }
     assert "Rien n'a été lancé" in response["text"]
+
+
+# ── Fidélité des permissions approuvées ────────────────────────────────────
+#
+# Le plan lu par l'utilisateur doit annoncer exactement les capacités remises
+# au runtime. Avant ce contrat, le plan affichait la liste du planificateur et
+# le run recevait celle du profil de capacités : deux sources, un consentement
+# faux.
+
+
+def _routing(category: str, profile_id: str, permissions: list[str]) -> dict[str, Any]:
+    from jarvis.agentic.turn_context import AGENTIC_ROUTING_METADATA_KEY
+
+    return {
+        AGENTIC_ROUTING_METADATA_KEY: {
+            "category": category,
+            "capability_profile_id": profile_id,
+            "permissions": permissions,
+        }
+    }
+
+
+@pytest.mark.asyncio
+async def test_plan_de_lecture_affiche_les_permissions_donnees_au_run(service):
+    task = await service.create_task(
+        title="Analyser mes messages",
+        metadata=_routing(
+            "agentic_readonly", "readonly-research", ["workspace:read", "memory:read"]
+        ),
+    )
+    plan = service.repository.get_plan(task.task_id, 1)
+    assert plan.execution_permissions == ("workspace:read", "memory:read")
+
+    await service.decide_plan(
+        task.task_id, 1, decision=PlanDecision.APPROVED, actor="session:1"
+    )
+    assert service.agentic.starts[0]["permissions"] == plan.execution_permissions
+
+
+@pytest.mark.asyncio
+async def test_plan_decriture_annonce_workspace_write_et_tests_run(service):
+    task = await service.create_task(
+        title="Crée une petite application HTML de liste de tâches",
+        metadata=_routing(
+            "agentic_reversible",
+            "coding",
+            ["workspace:read", "workspace:write", "tests:run"],
+        ),
+    )
+    plan = service.repository.get_plan(task.task_id, 1)
+    # Le défaut d'origine : ces deux permissions n'apparaissaient qu'après
+    # l'approbation. Elles doivent être lisibles avant la décision.
+    assert "workspace:write" in plan.execution_permissions
+    assert "tests:run" in plan.execution_permissions
+    assert plan.to_dict()["execution_permissions"] == list(plan.execution_permissions)
+
+    # Même sans métadonnées de routage (tâche saisie à la main), une demande
+    # d'écriture dérive le profil `coding` : le plan annonce l'écriture au lieu
+    # de la masquer.
+    manual = service.repository.require_task(task.task_id)
+    derived = resolve_execution_grant(
+        replace(manual, metadata={}),
+        "Crée une petite application HTML de liste de tâches sur mon Bureau",
+    )
+    assert derived.capability_profile_id == "coding"
+    assert "workspace:write" in derived.permissions
+
+    await service.decide_plan(
+        task.task_id, 1, decision=PlanDecision.APPROVED, actor="session:1"
+    )
+    assert service.agentic.starts[0]["permissions"] == plan.execution_permissions
+
+
+@pytest.mark.asyncio
+async def test_les_permissions_entrent_dans_le_digest(service):
+    from dataclasses import replace as dataclass_replace
+
+    from jarvis.task_control.models import compute_plan_digest
+
+    task = await service.create_task(title="Comparer deux devis")
+    plan = service.repository.get_plan(task.task_id, 1)
+    elevated = dataclass_replace(
+        plan, execution_permissions=plan.execution_permissions + ("workspace:write",)
+    )
+    assert compute_plan_digest(elevated) != plan.digest
+
+
+@pytest.mark.asyncio
+async def test_elevation_apres_approbation_refusee_avant_tout_runtime(service):
+    task = await service.create_task(
+        title="Analyser le dépôt",
+        metadata=_routing("agentic_readonly", "readonly-research", ["workspace:read"]),
+    )
+    task = await service.decide_plan(
+        task.task_id,
+        1,
+        decision=PlanDecision.APPROVED,
+        actor="session:1",
+        autostart=False,
+    )
+    assert service.agentic.starts == []
+
+    # Le routage réclame maintenant l'écriture : le plan approuvé ne l'annonçait
+    # pas, donc rien ne démarre.
+    service.repository.update_task(
+        task.task_id,
+        metadata=_routing(
+            "agentic_reversible",
+            "coding",
+            ["workspace:read", "workspace:write", "tests:run"],
+        ),
+    )
+    with pytest.raises(TaskExecutionRefused):
+        await service.start_execution(task.task_id)
+    assert service.agentic.starts == []
+    assert service.repository.require_task(task.task_id).agentic_run_id is None
+
+
+@pytest.mark.asyncio
+async def test_revision_avec_permissions_differentes_exige_une_nouvelle_approbation(
+    service,
+):
+    task = await service.create_task(
+        title="Analyser le dépôt",
+        metadata=_routing("agentic_readonly", "readonly-research", ["workspace:read"]),
+    )
+    first = service.repository.get_plan(task.task_id, 1)
+    service.repository.update_task(
+        task.task_id,
+        metadata=_routing(
+            "agentic_reversible",
+            "coding",
+            ["workspace:read", "workspace:write", "tests:run"],
+        ),
+    )
+    task = await service.decide_plan(
+        task.task_id,
+        1,
+        decision=PlanDecision.REVISION_REQUESTED,
+        actor="session:1",
+        comment="Il faut aussi écrire le correctif",
+    )
+
+    second = service.repository.get_plan(task.task_id, 2)
+    assert second.execution_permissions != first.execution_permissions
+    assert second.digest != first.digest
+    assert task.status is TaskStatus.AWAITING_PLAN_APPROVAL
+    assert task.approved_plan_version is None
+    assert service.agentic.starts == []
+
+    await service.decide_plan(
+        task.task_id, 2, decision=PlanDecision.APPROVED, actor="session:1"
+    )
+    assert service.agentic.starts[0]["permissions"] == second.execution_permissions
+
+
+@pytest.mark.asyncio
+async def test_ancien_plan_sans_permissions_est_refuse_fail_closed(service):
+    """Un plan approuvé avant ce contrat ne démarre pas et n'hérite de rien."""
+
+    task = await service.create_task(title="Tâche héritée")
+    with database.get_db() as conn:
+        conn.execute(
+            "UPDATE control_task_plans SET execution_permissions_json = '[]' "
+            "WHERE task_id = ?",
+            (task.task_id,),
+        )
+    legacy = service.repository.get_plan(task.task_id, 1)
+    assert legacy.execution_permissions == ()
+
+    task = await service.decide_plan(
+        task.task_id,
+        1,
+        decision=PlanDecision.APPROVED,
+        actor="session:1",
+        autostart=False,
+    )
+    with pytest.raises(TaskExecutionRefused):
+        await service.start_execution(task.task_id)
+    assert service.agentic.starts == []
+
+
+@pytest.mark.asyncio
+async def test_le_run_persiste_exactement_les_permissions_approuvees(
+    task_db: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """L'invariant de bout en bout, avec le vrai service agentique.
+
+    Le défaut d'origine se voyait sur la ligne persistée du run : le plan lu
+    annonçait `workspace:read`, le run stocké portait aussi `workspace:write`
+    et `tests:run`. Ce test lit la même ligne.
+    """
+
+    from jarvis.agentic.service import AgenticService
+
+    monkeypatch.setattr(config, "AGENTIC_RUNTIME_FALLBACK", "disabled")
+    agentic = AgenticService()
+    service = TaskControlService(
+        agentic_service=agentic,
+        notifications=FakeNotifications(),
+        bus=EventBus(),
+        planner=_stub_planner,
+        detector=TaskCandidateDetector(),
+    )
+    try:
+        task = await service.create_task(
+            title="Crée une petite application HTML",
+            metadata=_routing(
+                "agentic_reversible",
+                "coding",
+                ["workspace:read", "workspace:write", "tests:run"],
+            ),
+        )
+        plan = service.repository.get_plan(task.task_id, 1)
+        task = await service.decide_plan(
+            task.task_id, 1, decision=PlanDecision.APPROVED, actor="session:1"
+        )
+
+        run = agentic.get(task.agentic_run_id)
+        assert run is not None
+        assert run.permissions == plan.execution_permissions
+    finally:
+        await agentic.dispose()
+
+
+def test_migration_ajoute_la_colonne_sans_accorder_de_droits(tmp_path: Path):
+    """Une base d'avant le contrat gagne la colonne, vide — pas des droits."""
+
+    import sqlite3
+
+    from database.task_control import TASK_CONTROL_SCHEMA, migrate_task_control_tables
+
+    legacy_schema = TASK_CONTROL_SCHEMA.replace(
+        "    execution_permissions_json TEXT NOT NULL DEFAULT '[]',\n", ""
+    )
+    assert "execution_permissions_json" not in legacy_schema
+
+    conn = sqlite3.connect(tmp_path / "legacy.db")
+    try:
+        conn.executescript(legacy_schema)
+        migrate_task_control_tables(conn)
+        columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(control_task_plans)")
+        }
+        assert "execution_permissions_json" in columns
+        # Idempotence : rejouer la migration ne casse rien.
+        migrate_task_control_tables(conn)
+    finally:
+        conn.close()

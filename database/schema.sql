@@ -357,6 +357,7 @@ CREATE TABLE control_task_plans (
     deliverables_json TEXT NOT NULL DEFAULT '[]',
     tools_json TEXT NOT NULL DEFAULT '[]',
     permissions_json TEXT NOT NULL DEFAULT '[]',
+    execution_permissions_json TEXT NOT NULL DEFAULT '[]',
     risks_json TEXT NOT NULL DEFAULT '[]',
     assumptions_json TEXT NOT NULL DEFAULT '[]',
     success_criteria_json TEXT NOT NULL DEFAULT '[]',

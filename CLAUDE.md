@@ -254,6 +254,31 @@ entre la lecture et le démarrage, et change dès qu'une permission apparaît. L
 client macOS renvoie le digest affiché ; s'il ne correspond plus, le serveur
 répond `409 plan_digest_mismatch` plutôt que d'approuver un texte non lu.
 
+### Les capacités approuvées sont celles du run
+
+Le plan porte deux listes d'autorisations, et elles ne disent pas la même
+chose. `permissions_expected` est **annoncée par le planificateur** : elle
+prévient qu'un effet externe demandera plus tard son autorisation propre.
+`execution_permissions` est la **liste canonique exacte remise au runtime**.
+
+`resolve_execution_grant()` dans `jarvis/task_control/service.py` la calcule —
+catégorie, profil de capacités, permissions — et il est appelé **deux fois avec
+la même entrée** : à la planification pour l'écrire dans le plan, au démarrage
+pour vérifier que rien n'a bougé. C'est la correction d'un défaut réel : le plan
+affichait la liste du planificateur pendant que le run recevait celle du profil,
+donc l'utilisateur approuvait moins que ce qui s'exécutait.
+
+`ensure_permission_fidelity()` refuse le démarrage **avant toute création de
+runtime** dès que les deux listes diffèrent, dans un sens comme dans l'autre.
+Une élévation légitime passe donc par une nouvelle version de plan, un nouveau
+digest et une nouvelle décision. Un plan approuvé sans liste — écrit avant ce
+contrat — est refusé plutôt que rattrapé : lui prêter la liste recalculée
+accorderait des droits que personne n'a lus. La migration ajoute la colonne
+vide et ne devine rien.
+
+Cette barrière ne remplace pas les approbations d'effet : le plan borne les
+capacités du run, l'approbation d'effet autorise un acte précis une seule fois.
+
 ### Deux pouvoirs, jamais interchangeables
 
 | Approbation | Autorise |
