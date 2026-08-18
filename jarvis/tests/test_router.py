@@ -73,7 +73,7 @@ async def test_mail_sends_address_verbatim() -> None:
         captured["prompt"] = prompt
         captured["system"] = system or ""
         assert "marie@acme.com" in prompt
-        return f"Réponse pour marie@acme.com"
+        return "Réponse pour marie@acme.com"
 
     deepseek.generate = AsyncMock(side_effect=fake_generate)
     payload = EmailPayload(
