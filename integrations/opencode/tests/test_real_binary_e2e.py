@@ -921,3 +921,81 @@ async def test_real_binary_generic_facade_rejects_edit_and_proves_positive_limit
     assert any(event.type == "agent.approval.requested" for event in events)
     assert any(event.type == "agent.approval.resolved" for event in events)
     assert not any(item.type == "changed_file" for item in artifacts)
+
+
+@pytest.mark.asyncio
+async def test_real_binary_repeated_identical_tool_call_is_stopped_early(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Le vrai binaire boucle sur un appel identique ; le garde l'arrête tôt.
+
+    Le fournisseur loopback rejoue la forme exacte de l'incident : il redemande
+    indéfiniment ``read`` avec les mêmes arguments et ne rend jamais de réponse
+    finale. Sans garde, la session tournerait jusqu'à épuiser le budget — dix
+    appels en production. Ici l'arrêt doit tomber sur la troisième répétition.
+    """
+
+    manifest = ReleaseManifest.load()
+    integration_root = tmp_path / "loop-plugin"
+    integration_root.mkdir()
+    layout = RuntimeLayout.from_integration_root(integration_root)
+    _install_real_binary(layout)
+    workspace = tmp_path / "loop-worktree"
+    workspace.mkdir()
+    looped_file = workspace / "notes.txt"
+    looped_file.write_text("LOOP_SOURCE\n", encoding="utf-8")
+    _init_git_worktree(workspace, looped_file)
+
+    provider = LoopbackOpenAIProvider()
+    provider.register_file_scenario(
+        "LOOP_E2E",
+        looped_file,
+        initial="LOOP_SOURCE\n",
+        corrected="LOOP_SOURCE\n",
+    )
+    provider.start()
+    template_path = tmp_path / "loop-opencode.json"
+    _write_provider_template(template_path, provider, edit_permission="deny")
+    monkeypatch.setattr(config_settings, "OPENCODE_CONFIG_TEMPLATE", template_path)
+    runtime = _real_runtime(layout, _runtime_settings(), manifest)
+    try:
+        run, context = _agentic_case(
+            workspace,
+            run_id="real-loop",
+            request="LOOP_E2E",
+            category=AgenticRequestCategory.AGENTIC_READONLY,
+            permissions=("workspace.read",),
+        )
+        await runtime.create_run(run, context)
+        await runtime.start(run)
+        # `_collect_facade_terminal` relit les artefacts après le terminal ;
+        # ici l'échec purge déjà l'état du run, donc on draine simplement le
+        # flux d'événements jusqu'au terminal.
+        events = []
+        stream = cast(
+            AsyncGenerator[RuntimeEvent, None], runtime.stream_events(run.run_id)
+        )
+        async with asyncio.timeout(45):
+            async with aclosing(stream):
+                async for event in stream:
+                    events.append(event)
+                    if event.type in {"agent.run.completed", "agent.run.failed"}:
+                        break
+    finally:
+        try:
+            await runtime.dispose()
+        finally:
+            provider.close()
+
+    failure = events[-1]
+    assert failure.type == "agent.run.failed"
+    assert failure.payload["violation"] == "doom_loop_same_action"
+    assert failure.payload["repetitions"] == 3
+    assert failure.payload["abort_acknowledged"] is True
+    # Le fichier n'a pas bougé : la boucle était une lecture, et l'arrêt
+    # n'introduit aucun effet.
+    assert looped_file.read_text(encoding="utf-8") == "LOOP_SOURCE\n"
+    starts = [event for event in events if event.type == "agent.tool.started"]
+    assert len(starts) <= 4, "l'incident réel produisait dix démarrages"
+    assert str(failure.payload.get("tool") or "").endswith("read")

@@ -140,6 +140,35 @@ _APPROVAL_EXPIRED_NOTIFICATION = (
 )
 _EVENT_PROCESSING_LEASE_SECONDS = 60
 _APPROVAL_SWEEP_INTERVAL_SECONDS = 15.0
+
+#: Violations de boucle d'outils. Le message rendu à l'utilisateur nomme
+#: l'outil et le nombre de répétitions ; le runtime, lui, n'a jamais transmis
+#: les arguments — l'empreinte les a hachés et l'allowlist les écarterait.
+_LOOP_VIOLATIONS = frozenset(
+    {"doom_loop_same_action", "doom_loop_same_error", "doom_loop_no_progress"}
+)
+
+
+def _budget_failure_message(violation: str, payload: Mapping[str, Any]) -> str:
+    """Rend une erreur exploitable plutôt qu'un « budget dépassé » nu."""
+
+    if violation not in _LOOP_VIOLATIONS:
+        return "le runtime a franchi une limite de budget"
+    tool = redact_text(payload.get("tool") or "", max_chars=120) or "un outil"
+    try:
+        repetitions = max(0, int(payload.get("repetitions") or 0))
+    except (TypeError, ValueError):
+        repetitions = 0
+    counted = (
+        f"{repetitions} fois de suite sans progrès"
+        if repetitions
+        else "en boucle sans progrès"
+    )
+    next_action = redact_text(payload.get("next_action") or "", max_chars=160)
+    suffix = f" {next_action}" if next_action else ""
+    return f"La tâche a été arrêtée : {tool} a été appelé {counted}.{suffix}"
+
+
 _INTERACTIVE_ORIGINS = frozenset(
     {"user", "voice", "imessage", "macos", "android", "api", "web"}
 )
@@ -976,10 +1005,11 @@ class AgenticService:
             if current.terminal:
                 return
             raw_code = str(event.payload.get("error_code") or "").strip().lower()
+            violation = str(event.payload.get("violation") or "").strip()
             if raw_code == AgenticErrorCode.BUDGET_EXCEEDED.value:
                 error = AgenticError(
                     AgenticErrorCode.BUDGET_EXCEEDED,
-                    "le runtime a franchi une limite de budget",
+                    _budget_failure_message(violation, event.payload),
                 )
             else:
                 error = AgenticError(
@@ -993,6 +1023,14 @@ class AgenticService:
                 payload={
                     "error_code": error.code.value,
                     "violation": event.payload.get("violation"),
+                    # Détail de boucle, quand il existe : l'utilisateur doit
+                    # savoir quel outil a tourné en rond et combien de fois,
+                    # sans jamais voir les arguments de l'appel.
+                    **{
+                        key: event.payload[key]
+                        for key in ("tool", "repetitions", "next_action")
+                        if key in event.payload
+                    },
                 },
             )
 

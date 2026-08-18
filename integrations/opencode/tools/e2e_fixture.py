@@ -185,6 +185,7 @@ class LoopbackOpenAIProvider:
                             "CODING_E2E",
                             "GATE_E2E",
                             "APPROVAL_E2E",
+                            "LOOP_E2E",
                         )
                         if _contains_text(body.get("messages"), marker)
                     ),
@@ -220,7 +221,14 @@ class LoopbackOpenAIProvider:
                     read_calls = _tool_call_count(messages, "read")
                     edit_calls = _tool_call_count(messages, "edit")
                     gate_calls = _tool_call_count(messages, "fixture_gate")
-                    if scenario == "READONLY_E2E" and read_calls == 0:
+                    if scenario == "LOOP_E2E":
+                        # Reproduit l'incident de production : toujours le même
+                        # appel, mêmes arguments, jamais de réponse finale. Le
+                        # fournisseur ne s'arrête pas — c'est au garde
+                        # anti-boucle de l'arrêter.
+                        tool_name = _select_tool(tool_names, "read")
+                        arguments = {"filePath": str(file_path)}
+                    elif scenario == "READONLY_E2E" and read_calls == 0:
                         tool_name = _select_tool(tool_names, "read")
                         arguments = {"filePath": str(file_path)}
                     elif scenario in {"CODING_E2E", "APPROVAL_E2E"} and edit_calls == 0:
@@ -420,6 +428,7 @@ class LoopbackOpenAIProvider:
             "CODING_E2E",
             "GATE_E2E",
             "APPROVAL_E2E",
+            "LOOP_E2E",
         }:
             raise ValueError("marqueur de scénario E2E inconnu")
         candidate = path.resolve(strict=True)
