@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-17T11:55:14.152791+00:00",
+  "generated_at": "2026-08-18T15:36:14.207488+00:00",
   "repo_root": ".",
   "canonical_formulation": {
     "database": "Le projet crée 118 tables persistantes après init_db() + migrations, plus jusqu'à 5 objets FTS5, soit 123 tables physiques lorsque FTS5 est disponible.",
@@ -818,7 +818,7 @@
         "method": "GET",
         "path": "/api/agentic/runs",
         "source": "api/router_agentic.py",
-        "line": 325,
+        "line": 338,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/agenticApi.ts"
@@ -842,7 +842,7 @@
         "method": "GET",
         "path": "/api/agentic/runs/{run_id}",
         "source": "api/router_agentic.py",
-        "line": 353,
+        "line": 366,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/agenticApi.ts"
@@ -865,7 +865,7 @@
         "method": "GET",
         "path": "/api/agentic/runs/{run_id}/approvals",
         "source": "api/router_agentic.py",
-        "line": 375,
+        "line": 388,
         "consumers": {
           "android": [
             "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
@@ -884,7 +884,7 @@
         "method": "GET",
         "path": "/api/agentic/runs/{run_id}/artifacts",
         "source": "api/router_agentic.py",
-        "line": 368,
+        "line": 381,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/agenticApi.ts"
@@ -906,7 +906,7 @@
         "method": "GET",
         "path": "/api/agentic/runs/{run_id}/events",
         "source": "api/router_agentic.py",
-        "line": 358,
+        "line": 371,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/agenticApi.ts"
@@ -3704,7 +3704,7 @@
         "method": "POST",
         "path": "/api/agentic/runs/{run_id}/approvals/{approval_id}/decision",
         "source": "api/router_agentic.py",
-        "line": 407,
+        "line": 420,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/agenticApi.ts"
@@ -3727,7 +3727,7 @@
         "method": "POST",
         "path": "/api/agentic/runs/{run_id}/cancel",
         "source": "api/router_agentic.py",
-        "line": 402,
+        "line": 415,
         "consumers": {
           "android": [
             "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
@@ -3744,7 +3744,7 @@
         "method": "POST",
         "path": "/api/agentic/runs/{run_id}/pause",
         "source": "api/router_agentic.py",
-        "line": 392,
+        "line": 405,
         "consumers": {
           "android": [
             "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
@@ -3763,7 +3763,7 @@
         "method": "POST",
         "path": "/api/agentic/runs/{run_id}/resume",
         "source": "api/router_agentic.py",
-        "line": 397,
+        "line": 410,
         "consumers": {
           "android": [
             "android/app/src/main/kotlin/fr/jarvis/companion/network/JarvisApiService.kt"
