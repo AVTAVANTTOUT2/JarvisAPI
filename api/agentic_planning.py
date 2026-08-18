@@ -67,6 +67,62 @@ def _planning_unavailable_response(
     return response
 
 
+def constraint_blocked_response(
+    classification: Any,
+    conversation_id: int,
+    *,
+    voice_mode: bool,
+    persist_assistant: bool,
+    save_message_fn: Callable[..., Any],
+) -> dict[str, Any]:
+    """Explique la limite plutôt que d'inventer un résultat ou de démarrer.
+
+    La demande avait la forme d'un travail agentique — c'est ce que porte
+    ``blocked_category`` — mais elle interdit l'exécution. Aucune tâche n'est
+    créée, aucun run n'est lancé, et surtout aucun modèle n'est invité à
+    deviner un état qu'il ne peut pas observer.
+    """
+
+    constraints = classification.constraints
+    quoted = constraints.evidence[0] if constraints.evidence else "cette interdiction"
+    text = (
+        "Répondre demanderait de lancer ce travail, et vous l'avez interdit "
+        f"(« {quoted} »). Je ne peux pas en connaître l'état actuel sans "
+        "l'exécuter, et je ne vais pas le supposer. Levez l'interdiction, ou "
+        "indiquez-moi un rapport déjà produit que je peux lire."
+    )
+    if voice_mode:
+        text = (
+            "Répondre demanderait de lancer ce travail, et vous l'avez interdit. "
+            "Je ne peux pas en connaître l'état sans l'exécuter."
+        )
+    if persist_assistant:
+        _persist_assistant(save_message_fn, conversation_id, text)
+    return {
+        "text": text,
+        "emotion": "neutral",
+        "action": None,
+        "action_result": {
+            "ok": True,
+            "accepted": False,
+            "started": False,
+            "task_created": False,
+            "reason": "execution_constraint",
+        },
+        "agent": "agentic",
+        "model": "runtime",
+        "cost": 0.0,
+        "routing": {
+            "category": classification.category.value,
+            "reason": classification.reason,
+            "blocked_category": classification.blocked_category.value
+            if classification.blocked_category is not None
+            else None,
+            "constraints": constraints.public_payload(),
+        },
+    }
+
+
 async def plan_instead_of_running(
     request: str,
     conversation_id: int,

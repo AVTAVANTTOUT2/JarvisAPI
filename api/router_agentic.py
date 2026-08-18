@@ -264,10 +264,23 @@ async def create_agentic_run(
         raise api_error(400, "invalid_idempotency_key", "Clé d'idempotence invalide")
     runtime_id = body.runtime_id or str(getattr(config, "AGENTIC_RUNTIME", "auto"))
     request_text = body.request or body.title
-    trusted_category = classify_agentic_request(
+    trusted_classification = classify_agentic_request(
         request_text,
         origin="user",
-    ).category
+    )
+    if trusted_classification.blocked_category is not None:
+        # Même verdict que sur les canaux conversationnels : une demande qui
+        # interdit l'exécution ne peut pas démarrer un run par HTTP direct.
+        raise api_error(
+            409,
+            "execution_constraint",
+            (
+                "La demande interdit explicitement l'exécution "
+                f"({', '.join(trusted_classification.constraints.evidence)}). "
+                "Aucun run n'a été créé."
+            ),
+        )
+    trusted_category = trusted_classification.category
     capability_profile = select_capability_profile(
         request_text,
         trusted_category,

@@ -159,6 +159,7 @@ def resolve_execution_grant(task: ControlTask, objective: str) -> ExecutionGrant
         get_capability_profile,
         select_capability_profile,
     )
+    from jarvis.agentic.profiles import constrain_capability_profile_for_request
     from jarvis.agentic.models import AgenticRequestCategory
     from jarvis.agentic.turn_context import AGENTIC_ROUTING_METADATA_KEY
 
@@ -172,7 +173,12 @@ def resolve_execution_grant(task: ControlTask, objective: str) -> ExecutionGrant
         ).category
     capability_profile_id = str(routing.get("capability_profile_id") or "").strip()
     if capability_profile_id:
-        capability_profile = get_capability_profile(capability_profile_id)
+        # Le profil persisté est ré-borné par les interdictions de l'objectif.
+        # Sans cela, un identifiant de profil enregistré rendrait au run une
+        # capacité que la demande interdisait explicitement.
+        capability_profile = constrain_capability_profile_for_request(
+            get_capability_profile(capability_profile_id), objective
+        )
     else:
         capability_profile = select_capability_profile(
             objective,

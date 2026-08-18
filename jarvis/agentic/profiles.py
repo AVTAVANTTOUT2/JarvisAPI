@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 import unicodedata
 
+from .constraints import RequestConstraints, extract_request_constraints
 from .models import AgenticRequestCategory
 
 
@@ -338,6 +339,45 @@ _INTENT_HINTS: tuple[tuple[str, frozenset[str]], ...] = (
 )
 
 
+def constrain_capability_profile(
+    profile: CapabilityProfile,
+    constraints: RequestConstraints,
+) -> CapabilityProfile:
+    """Retire du profil les permissions que la demande interdit explicitement.
+
+    La permission est retirée de ``permissions``, pas seulement des valeurs par
+    défaut : ``refused_permissions()`` refuse ensuite toute liste persistée qui
+    la contiendrait encore. Une capacité interdite ne peut donc pas
+    réapparaître plus loin dans le pipeline via des métadonnées de routage.
+    """
+
+    blocked = constraints.blocked_permissions
+    if not blocked or not blocked.intersection(profile.permissions):
+        return profile
+    return CapabilityProfile(
+        profile_id=profile.profile_id,
+        permissions=tuple(p for p in profile.permissions if p not in blocked),
+        default_permissions=tuple(
+            p for p in profile.default_permissions if p not in blocked
+        ),
+        denied_permissions=tuple(
+            dict.fromkeys(profile.denied_permissions + tuple(sorted(blocked)))
+        ),
+        approval_permissions=tuple(
+            p for p in profile.approval_permissions if p not in blocked
+        ),
+        constraints=profile.constraints + constraints.tags,
+    )
+
+
+def constrain_capability_profile_for_request(
+    profile: CapabilityProfile, request: str
+) -> CapabilityProfile:
+    """Ré-applique les interdictions de la demande à un profil déjà résolu."""
+
+    return constrain_capability_profile(profile, extract_request_constraints(request))
+
+
 def get_capability_profile(profile_id: str) -> CapabilityProfile:
     """Résout un identifiant exact ou refuse un profil inconnu."""
 
@@ -380,28 +420,36 @@ def select_capability_profile(
 
     selected_category = AgenticRequestCategory(category)
     compatible = _CATEGORY_COMPATIBLE[selected_category]
+    # Les interdictions de la demande bornent le profil quelle que soit la
+    # branche empruntée — surcharge de configuration comprise. Une surcharge
+    # ne peut pas rendre à un run une capacité que l'utilisateur a interdite.
+    constraints = extract_request_constraints(request)
     configured = (route_overrides or {}).get(selected_category.value)
     if configured is not None:
         configured_profile = get_capability_profile(configured)
         if configured_profile.profile_id not in compatible:
             raise ValueError("surcharge de profil incompatible avec la catégorie")
-        return configured_profile
+        return constrain_capability_profile(configured_profile, constraints)
 
     fixed_default = _CATEGORY_DEFAULTS.get(selected_category)
     if fixed_default is not None:
-        return CAPABILITY_PROFILES[fixed_default]
+        return constrain_capability_profile(
+            CAPABILITY_PROFILES[fixed_default], constraints
+        )
 
     normalized_request = _normalized(request)
     for profile_id, hints in _INTENT_HINTS:
         if profile_id in compatible and any(
             hint in normalized_request for hint in hints
         ):
-            return CAPABILITY_PROFILES[profile_id]
+            return constrain_capability_profile(
+                CAPABILITY_PROFILES[profile_id], constraints
+            )
 
     fallback = get_capability_profile(default_profile_id)
     if fallback.profile_id not in compatible:
         fallback = CAPABILITY_PROFILES["readonly-research"]
-    return fallback
+    return constrain_capability_profile(fallback, constraints)
 
 
 __all__ = [
@@ -409,6 +457,8 @@ __all__ = [
     "CAPABILITY_PROFILES",
     "CapabilityProfile",
     "capability_profile_id_from_context",
+    "constrain_capability_profile",
+    "constrain_capability_profile_for_request",
     "get_capability_profile",
     "select_capability_profile",
 ]

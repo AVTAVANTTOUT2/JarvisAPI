@@ -19,6 +19,8 @@ from typing import Any, Mapping
 import uuid
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from .constraints import RequestConstraints
+
 
 _DEFAULT_AGENTIC_LOCALE = "fr-FR"
 _DEFAULT_AGENTIC_TIMEZONE = "Europe/Paris"
@@ -451,6 +453,13 @@ class AgenticClassification:
     category: AgenticRequestCategory
     reason: str
     bypassed: bool = False
+    # Interdictions explicites lues dans la demande. Elles voyagent avec la
+    # classification pour que le choix de profil, le plan et la réponse
+    # publique lisent tous la même décision.
+    constraints: RequestConstraints = field(default_factory=RequestConstraints)
+    # Catégorie que la demande aurait reçue sans son interdiction : c'est la
+    # preuve que répondre exigeait l'action interdite.
+    blocked_category: AgenticRequestCategory | None = None
 
 
 @dataclass(frozen=True)
