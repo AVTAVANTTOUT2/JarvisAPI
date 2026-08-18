@@ -70,12 +70,19 @@ def _context_run(service: Any, conversation_id: int, text: str) -> Any | None:
     )
 
 
-def _control_response(text: str, run: Any | None = None) -> dict[str, Any]:
+def _control_response(
+    text: str,
+    run: Any | None = None,
+    *,
+    error_code: str | None = None,
+) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "text": text,
-        "emotion": "neutral",
+        "emotion": "serious" if error_code else "neutral",
         "action": None,
-        "action_result": None,
+        "action_result": (
+            {"ok": False, "error_code": error_code} if error_code else None
+        ),
         "agent": "agentic",
         "model": "runtime",
         "cost": 0.0,
@@ -315,8 +322,6 @@ async def maybe_start_agentic_run(
             "cost": 0.0,
         }
     runtime_setting = str(getattr(config, "AGENTIC_RUNTIME", "auto")).strip().lower()
-    if runtime_setting == "disabled":
-        return None
     intent = route_request(
         request,
         interaction_mode="voice" if voice_mode else "chat",
@@ -330,6 +335,12 @@ async def maybe_start_agentic_run(
     )
     if classification.category not in _DELEGATED_CATEGORIES:
         return None
+    if runtime_setting == "disabled":
+        return _control_response(
+            "Le runtime de développement est désactivé "
+            "(AGENTIC_RUNTIME=disabled). Cette tâche ne sera pas lancée.",
+            error_code="runtime_disabled",
+        )
 
     capability_profile = select_capability_profile(
         request,
@@ -354,10 +365,7 @@ async def maybe_start_agentic_run(
             enriched_context=enriched_context,
         )
 
-    # Porte de validation humaine. Une demande adressée à JARVIS — tapée,
-    # dictée ou reçue — devient une tâche **planifiée**, pas une exécution.
-    # C'est le même invariant que pour les tâches créées à la main : personne
-    # n'est nécessairement devant l'écran au moment où le travail commencerait.
+    # Porte humaine : la demande devient une tâche planifiée, jamais un run.
     if bool(getattr(config, "AGENTIC_REQUIRE_PLAN_APPROVAL", True)):
         if snapshot is None:
             from api.chat_context import prepare_turn
@@ -388,12 +396,14 @@ async def maybe_start_agentic_run(
     runtime_id = service.resolve_runtime_id(
         None if runtime_setting == "auto" else runtime_setting
     )
-    if (
-        runtime_id is None
-        and str(getattr(config, "AGENTIC_RUNTIME_FALLBACK", "disabled")).lower()
-        == "legacy"
-    ):
-        return None
+    if runtime_id is None:
+        if str(getattr(config, "AGENTIC_RUNTIME_FALLBACK", "disabled")).lower() == "legacy":
+            return None
+        return _control_response(
+            "Aucun runtime de développement n'est disponible. "
+            "Installez OpenCode ou vérifiez AGENTIC_RUNTIME.",
+            error_code="runtime_unavailable",
+        )
 
     if snapshot is None:
         # Import local pour garder agentic_processing indépendant des transports

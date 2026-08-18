@@ -201,3 +201,98 @@ async def test_sensitive_voice_approval_requires_exact_id_and_explicit_decision(
         "decided_by": "voice:mac-mini",
         "decision_id": "voice:approval:00000001",
     }
+
+
+@pytest.mark.asyncio
+async def test_disabled_runtime_returns_explicit_error_for_delegated_task(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    import config
+    from api import agentic_processing
+    from jarvis.agentic.models import AgenticRequestCategory
+
+    monkeypatch.setattr(config, "AGENTIC_RUNTIME", "disabled")
+    monkeypatch.setattr(config, "AGENTIC_RUNTIME_FALLBACK", "disabled")
+    monkeypatch.setattr(
+        agentic_processing,
+        "route_request",
+        lambda *_args, **_kwargs: SimpleNamespace(execution_type="agentic"),
+    )
+    monkeypatch.setattr(
+        agentic_processing,
+        "classify_agentic_request",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            category=AgenticRequestCategory.AGENTIC_REVERSIBLE,
+            reason="test",
+        ),
+    )
+
+    response = await agentic_processing.maybe_start_agentic_run(
+        "/agent crée une page html",
+        1,
+        channel="chat",
+        voice_mode=False,
+        persist_assistant=False,
+    )
+
+    assert response is not None
+    assert response["action_result"]["ok"] is False
+    assert response["action_result"]["error_code"] == "runtime_disabled"
+    assert "désactivé" in response["text"]
+
+
+@pytest.mark.asyncio
+async def test_missing_runtime_returns_explicit_error_instead_of_false_start(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    import config
+    from api import agentic_processing
+    from jarvis.agentic.models import AgenticRequestCategory
+
+    monkeypatch.setattr(config, "AGENTIC_RUNTIME", "auto")
+    monkeypatch.setattr(config, "AGENTIC_RUNTIME_FALLBACK", "disabled")
+    monkeypatch.setattr(config, "AGENTIC_REQUIRE_PLAN_APPROVAL", False)
+    monkeypatch.setattr(
+        agentic_processing,
+        "route_request",
+        lambda *_args, **_kwargs: SimpleNamespace(execution_type="agentic"),
+    )
+    monkeypatch.setattr(
+        agentic_processing,
+        "classify_agentic_request",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            category=AgenticRequestCategory.AGENTIC_REVERSIBLE,
+            reason="test",
+        ),
+    )
+    monkeypatch.setattr(
+        agentic_processing,
+        "select_capability_profile",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            profile_id="coding",
+            default_permissions=(),
+        ),
+    )
+
+    class _Empty:
+        def resolve_runtime_id(self, requested=None):
+            return None
+
+    monkeypatch.setattr(agentic_processing, "get_agentic_service", lambda: _Empty())
+
+    response = await agentic_processing.maybe_start_agentic_run(
+        "/agent crée une page html",
+        1,
+        channel="chat",
+        voice_mode=False,
+        persist_assistant=False,
+    )
+
+    assert response is not None
+    assert response["action_result"]["ok"] is False
+    assert response["action_result"]["error_code"] == "runtime_unavailable"
+    assert "disponible" in response["text"]
