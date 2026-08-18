@@ -229,13 +229,19 @@ async def test_scenario_a_creation_manuelle(e2e):
     task = await service.decide_plan(
         task.task_id, 1, decision=PlanDecision.APPROVED, actor="session:1"
     )
-    assert task.status is TaskStatus.RUNNING
+    # L'approbation confie la tâche au runtime ; « en cours » attend un
+    # événement réel du run.
+    assert task.status is TaskStatus.QUEUED
     assert len(service.agentic.starts) == 1
 
     run_id = task.agentic_run_id
     service.agentic.artifacts_by_run[run_id] = [
         _Artifact(artifact_id="a1", type="file", reference="data/outputs/rapport.md")
     ]
+    started = await service.on_runtime_event(
+        "agent.run.started", {"run_id": run_id, "status": "running"}
+    )
+    assert started.status is TaskStatus.RUNNING
     await service.on_runtime_event(
         "agent.tool.started",
         {"run_id": run_id, "tool": "read_file", "status": "running"},
@@ -293,13 +299,14 @@ async def test_scenario_b_demande_vocale(e2e):
     task = await service.decide_plan(
         task.task_id, 1, decision=PlanDecision.APPROVED, actor="session:macos"
     )
-    assert task.status is TaskStatus.RUNNING
+    assert task.status is TaskStatus.QUEUED
 
     run_id = task.agentic_run_id
-    await service.on_runtime_event(
+    running = await service.on_runtime_event(
         "agent.run.phase_changed",
         {"run_id": run_id, "status": "running", "phase": "runtime_started", "progress": 0.4},
     )
+    assert running.status is TaskStatus.RUNNING
     focused = build_task_control_context(service=service, focus_task_id=task.task_id)
     assert "Analyser ce dépôt" in focused["task_control_focus"]
 

@@ -166,10 +166,19 @@ ALLOWED_TASK_TRANSITIONS: Mapping[TaskStatus, frozenset[TaskStatus]] = (
                     TaskStatus.FAILED,
                 }
             ),
+            # Le run est la source de vérité de son avancement, et ses
+            # événements peuvent arriver hors séquence ou être rejoués. Une
+            # tâche en file dont le run annonce une autorisation, une
+            # vérification ou une fin doit pouvoir suivre : refuser l'arête
+            # laisserait l'écran bloqué sur « en file » pour toujours — la
+            # panne même que ces états servent à éviter.
             TaskStatus.QUEUED: frozenset(
                 {
                     TaskStatus.RESOURCE_WAIT,
                     TaskStatus.RUNNING,
+                    TaskStatus.AWAITING_PERMISSION,
+                    TaskStatus.VERIFYING,
+                    TaskStatus.COMPLETED,
                     TaskStatus.CANCELLING,
                     TaskStatus.BLOCKED,
                     TaskStatus.FAILED,
@@ -179,6 +188,9 @@ ALLOWED_TASK_TRANSITIONS: Mapping[TaskStatus, frozenset[TaskStatus]] = (
                 {
                     TaskStatus.QUEUED,
                     TaskStatus.RUNNING,
+                    TaskStatus.AWAITING_PERMISSION,
+                    TaskStatus.VERIFYING,
+                    TaskStatus.COMPLETED,
                     TaskStatus.CANCELLING,
                     TaskStatus.BLOCKED,
                     TaskStatus.FAILED,

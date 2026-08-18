@@ -64,6 +64,11 @@ class _FakeAgenticService:
         self.starts.append(kwargs)
         return _FakeRun(run_id=f"run_{len(self.starts)}")
 
+    def get(self, run_id: str) -> _FakeRun:
+        """Task Control relit l'état réel du run après le démarrage."""
+
+        return _FakeRun(run_id=run_id)
+
 
 @dataclass
 class _FakeNotifications:

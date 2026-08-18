@@ -164,7 +164,8 @@ async def test_approbation_declenche_lexecution_une_seule_fois(service):
     task = await service.decide_plan(
         task.task_id, 1, decision=PlanDecision.APPROVED, actor="session:1"
     )
-    assert task.status is TaskStatus.RUNNING
+    # Le runtime n'a encore rien annoncé : la tâche est confiée, pas en cours.
+    assert task.status is TaskStatus.QUEUED
     assert task.agentic_run_id == "run_1"
     assert len(service.agentic.starts) == 1
 

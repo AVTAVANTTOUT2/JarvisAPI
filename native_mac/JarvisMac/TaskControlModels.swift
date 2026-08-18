@@ -45,7 +45,7 @@ enum TaskControlStatus: String, Codable, CaseIterable {
         case .planRevisionRequested: "Révision demandée"
         case .approved: "Approuvée"
         case .queued: "En file"
-        case .resourceWait: "Attente de ressources"
+        case .resourceWait: "En attente de ressources"
         case .running: "En cours"
         case .awaitingPermission: "Autorisation requise"
         case .cancelling: "Annulation"

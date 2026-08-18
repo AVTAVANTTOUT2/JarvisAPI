@@ -189,7 +189,9 @@ def test_approbation_demarre_lexecution(api):
         json={"decision": "approved"},
     )
     assert response.status_code == 200
-    assert response.json()["task"]["status"] == "running"
+    # « running » n'est plus affirmé au moment de l'approbation : la tâche est
+    # remise au runtime, et son état suit les événements réels du run.
+    assert response.json()["task"]["status"] == "queued"
     assert len(service.agentic.starts) == 1
 
 

@@ -279,6 +279,39 @@ vide et ne devine rien.
 Cette barrière ne remplace pas les approbations d'effet : le plan borne les
 capacités du run, l'approbation d'effet autorise un acte précis une seule fois.
 
+### L'état affiché est celui du run, jamais un état supposé
+
+`create_and_start()` **programme** le démarrage sans l'attendre. Ses premiers
+événements — `agent.run.queued`, `agent.run.resource_wait` — partaient donc
+avant que `task.agentic_run_id` soit persisté : `find_task_by_run()` ne
+trouvait rien et les jetait. `_launch_run()` écrivait ensuite un `RUNNING`
+supposé. Une mission retenue par le garde mémoire s'affichait « En cours »
+sans qu'aucun travail ait commencé, et l'actualisation n'y changeait rien
+puisque la base elle-même était fausse.
+
+Trois règles ferment la course :
+
+1. **L'identifiant du run est frappé par Task Control et associé à la tâche
+   avant que le runtime existe.** Il n'y a plus de fenêtre pendant laquelle un
+   événement peut ne pas trouver sa tâche.
+2. **Après la tentative, l'état écrit est relu du run**, jamais déduit. La
+   relecture est conditionnée par `expected_status` : si un événement a déjà
+   fait avancer la tâche pendant l'appel, c'est lui qui fait foi.
+3. **`running` n'arrive qu'avec `agent.run.started`.** `provisioning` prépare
+   l'espace de travail et reste `queued` côté tâche ; l'attente d'admission
+   devient `resource_wait`, avec son motif dans l'activité.
+
+`task_status_for_run()` est la seule conversion run → tâche. Elle lit d'abord
+le **type** d'événement, parce que l'attente de ressources n'est pas un état de
+run : le run reste `queued` et seul `agent.run.resource_wait` porte
+l'information. Sans cela, une tâche bloquée par la mémoire affichait
+simplement « en file », sans dire pourquoi.
+
+Une tâche en file dont le run annonce une autorisation, une vérification ou
+une fin suit directement : refuser ces arêtes laisserait l'écran figé sur
+« en file » si l'événement `started` se perdait — la panne même que ces états
+servent à éviter.
+
 ### Deux pouvoirs, jamais interchangeables
 
 | Approbation | Autorise |
