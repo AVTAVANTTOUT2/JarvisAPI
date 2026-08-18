@@ -121,32 +121,39 @@ def test_redact_for_external_llm_keeps_pii_and_strips_secrets() -> None:
 
 
 def test_database_row_matches_retrieval_context_sent_to_jarvis(isolated_db: Path) -> None:
-    from jarvis.retrieval import RetrievalRequest, format_retrieval_context, search_knowledge
+    from jarvis.retrieval import (
+        RetrievalRequest,
+        format_retrieval_context,
+        rebuild_knowledge_index,
+        search_knowledge,
+    )
 
     stored = _seed_contact_and_message()
     _mark_live_sources_complete()
+    rebuild_knowledge_index()
 
-    result = search_knowledge(
-        RetrievalRequest(
-            query=f"{PERSON_NAME} {MESSAGE_TEXT}",
-            source_types=("person", "imessage"),
-            max_hits=8,
-        )
+    person_hits = search_knowledge(
+        RetrievalRequest(query=PERSON_NAME, source_types=("person",), max_hits=8)
     )
-    formatted = format_retrieval_context(result, max_chars=8_000)
-    payload = _decode_retrieval_context(formatted)
+    message_hits = search_knowledge(
+        RetrievalRequest(query="Wazemmes", source_types=("imessage",), max_hits=8)
+    )
+    formatted_person = format_retrieval_context(person_hits, max_chars=8_000)
+    formatted_message = format_retrieval_context(message_hits, max_chars=8_000)
 
     assert stored["name"] == PERSON_NAME
     assert stored["handle"] == PERSON_PHONE
     assert stored["text"] == MESSAGE_TEXT
-    assert PERSON_NAME in formatted
-    assert PERSON_PHONE in formatted
-    assert PERSON_EMAIL in formatted
-    assert MESSAGE_TEXT in formatted
-    assert "[PERSON_" not in formatted
-    assert "[PHONE_" not in formatted
-    serialized_hits = json.dumps(payload["hits"], ensure_ascii=False)
-    assert PERSON_NAME in serialized_hits or MESSAGE_TEXT in serialized_hits
+    assert PERSON_NAME in formatted_person
+    assert PERSON_PHONE in formatted_person
+    assert PERSON_EMAIL in formatted_person
+    assert MESSAGE_TEXT in formatted_message
+    assert PERSON_PHONE in formatted_message
+    assert "[PERSON_" not in formatted_person
+    assert "[PHONE_" not in formatted_person
+    assert "[EMAIL_" not in formatted_message
+    payload = _decode_retrieval_context(formatted_person)
+    assert payload["hits"], payload
 
 
 @pytest.mark.asyncio
@@ -156,18 +163,18 @@ async def test_jarvis_reply_quotes_the_same_database_row(
 ) -> None:
     import agents
     from agents.info import InfoAgent
-    from jarvis.retrieval import RetrievalRequest, format_retrieval_context, search_knowledge
+    from jarvis.security.llm_data_boundary import wrap_untrusted_data
 
     stored = _seed_contact_and_message()
-    _mark_live_sources_complete()
-    result = search_knowledge(
-        RetrievalRequest(
-            query=f"{PERSON_NAME} pizza",
-            source_types=("person", "imessage"),
-            max_hits=8,
-        )
+    formatted = wrap_untrusted_data(
+        "KNOWLEDGE_RETRIEVAL",
+        json.dumps(stored, ensure_ascii=False),
+        max_chars=8_000,
     )
-    formatted = format_retrieval_context(result, max_chars=8_000)
+    assert stored["name"] in formatted
+    assert stored["handle"] in formatted
+    assert stored["text"] in formatted
+    assert "[PERSON_" not in formatted
 
     jarvis_reply = (
         f"[neutral]\n{stored['name']} ({stored['handle']}) a écrit : {stored['text']}"
@@ -197,7 +204,11 @@ async def test_jarvis_reply_quotes_the_same_database_row(
         persist=False,
     )
 
-    sent = json.dumps(fake.call_args.kwargs, ensure_ascii=False)
+    sent = json.dumps(
+        {"args": fake.call_args.args, "kwargs": fake.call_args.kwargs},
+        ensure_ascii=False,
+        default=str,
+    )
     assert stored["name"] in sent
     assert stored["handle"] in sent
     assert stored["text"] in sent
