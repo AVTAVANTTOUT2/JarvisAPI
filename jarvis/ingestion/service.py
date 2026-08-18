@@ -790,6 +790,7 @@ async def _calendar_sync(
         )
     update_connector_permission("calendar", "granted")
     events = list(result.events)
+    fetched_event_count = len(events)
     configured_calendars = binding.settings.get("calendar_names")
     allowed_calendars = (
         {
@@ -823,6 +824,25 @@ async def _calendar_sync(
                 binding, str(event.get("account_id") or "")
             )
         ]
+
+    if fetched_event_count > 0 and not events:
+        logger.warning(
+            "calendar sync: %d événements récupérés mais tous exclus par les filtres "
+            "(fenêtre %s..%s)",
+            fetched_event_count,
+            from_iso,
+            to_iso,
+        )
+        return IngestionRunResult(
+            status="degraded",
+            completeness="partial",
+            coverage_start_utc=from_iso,
+            coverage_end_utc=to_iso,
+            error_code="calendar_filter_excluded_all",
+            error_message=(
+                "tous les événements ont été exclus par le filtre du connecteur"
+            ),
+        )
 
     upsert_calendar_events(events, window_start=from_iso, window_end=to_iso)
     with get_db() as conn:

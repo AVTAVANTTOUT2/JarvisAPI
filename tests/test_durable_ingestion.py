@@ -893,3 +893,81 @@ async def test_calendar_periodic_sync_requires_binding_and_persists_window(
     assert len(state.cursor["coverage_windows"]) == 1
     assert state.coverage_start_utc == history_start.isoformat()
     assert state.item_count == 1
+
+
+@pytest.mark.asyncio
+async def test_calendar_filter_excluding_all_events_preserves_cached_rows(
+    ingestion_db: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Un filtre mal configuré ne doit pas purger toute la fenêtre en cache."""
+
+    from database import get_cached_calendar_events, get_db
+    from database.ingestion import bind_connector
+    from database.knowledge import upsert_calendar_events
+    from integrations import calendar_api
+    from integrations.calendar_api import CalendarQueryResult
+    from jarvis.ingestion.service import _calendar_sync
+    from jarvis.ingestion.models import IngestionJob
+
+    window_start = datetime(2026, 8, 10, 8, 0, tzinfo=timezone.utc)
+    window_end = datetime(2026, 8, 20, 8, 0, tzinfo=timezone.utc)
+    upsert_calendar_events(
+        [
+            {
+                "uid": "kept-event",
+                "title": "Réunion existante",
+                "start": window_start.isoformat(),
+                "end": window_end.isoformat(),
+                "calendar": "Travail",
+            }
+        ],
+        window_start=window_start.isoformat(),
+        window_end=window_end.isoformat(),
+    )
+    assert len(get_cached_calendar_events()) == 1
+
+    class _Calendar:
+        async def get_events_result(self, start: str, end: str) -> CalendarQueryResult:
+            return CalendarQueryResult(
+                status="ok",
+                events=(
+                    {
+                        "uid": "fresh-event",
+                        "title": "Nouveau",
+                        "start": start,
+                        "end": end,
+                        "calendar": "Travail",
+                    },
+                ),
+            )
+
+    monkeypatch.setattr(calendar_api, "calendar_client", _Calendar())
+    binding = bind_connector(
+        "calendar",
+        consent_source="explicit_test",
+        settings={"calendar_names": ["Calendrier inexistant"]},
+    )
+    job = IngestionJob(
+        id=1,
+        profile_id="default",
+        source="calendar",
+        job_kind="sync",
+        dedupe_key="sync:test",
+        payload={
+            "from_iso": window_start.isoformat(),
+            "to_iso": window_end.isoformat(),
+        },
+    )
+
+    result = await _calendar_sync(job, binding, None)
+
+    assert result.status == "degraded"
+    assert result.error_code == "calendar_filter_excluded_all"
+    assert len(get_cached_calendar_events()) == 1
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT external_id FROM calendar_events WHERE external_id = ?",
+            ("kept-event",),
+        ).fetchone()
+    assert row is not None
