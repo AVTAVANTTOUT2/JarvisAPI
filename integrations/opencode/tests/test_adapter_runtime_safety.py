@@ -137,6 +137,7 @@ class _Client:
         self.events: asyncio.Queue[SSEEvent] = asyncio.Queue()
         self.abort_count = 0
         self.prompt_count = 0
+        self.prompts: list[str] = []
         self.reconcile_count = 0
         self.approval_trace: list[tuple[Any, ...]] = []
         self.reply_result = True
@@ -162,15 +163,21 @@ class _Client:
     async def create_session(self, **_kwargs: Any) -> SimpleNamespace:
         return SimpleNamespace(id=self.session_id)
 
-    async def prompt_async(self, *_args: Any, **_kwargs: Any) -> None:
+    async def prompt_async(self, *args: Any, **_kwargs: Any) -> None:
         self.prompt_count += 1
+        parts = args[1] if len(args) > 1 else ()
+        self.prompts.append(
+            "\n".join(str(getattr(part, "text", "")) for part in parts)
+        )
 
     async def stream_events(self, **_kwargs: Any):
         while not self.closed:
             yield await self.events.get()
 
-    async def abort(self, *_args: Any, **_kwargs: Any) -> None:
+    async def abort(self, *_args: Any, **_kwargs: Any) -> bool:
+        # Le vrai client exige un booléen : `session.abort` acquitte l'arrêt.
         self.abort_count += 1
+        return True
 
     async def reconcile(self, *_args: Any, **_kwargs: Any) -> SimpleNamespace:
         if self.closed:
@@ -1227,7 +1234,7 @@ async def test_orphan_cleanup_refuses_unowned_state_and_bounds_enumeration(
     assert bounded_processes.instances == []
 
 
-@pytest.mark.parametrize("pattern", ("same_error", "alternation", "no_progress"))
+@pytest.mark.parametrize("pattern", ("same_error", "no_progress"))
 @pytest.mark.asyncio
 async def test_generic_doom_loop_patterns_abort_without_leaking_details(
     tmp_path: Path,
@@ -1247,9 +1254,6 @@ async def test_generic_doom_loop_patterns_abort_without_leaking_details(
         if pattern == "same_error":
             tools = ["read"] * 3
             statuses = ["failed"] * 3
-        elif pattern == "alternation":
-            tools = ["read", "grep"] * 3
-            statuses = ["running"] * 6
         else:
             tools = [f"tool-{index}" for index in range(8)]
             statuses = ["running"] * 8
@@ -1276,7 +1280,6 @@ async def test_generic_doom_loop_patterns_abort_without_leaking_details(
         events = await asyncio.wait_for(_collect(runtime, run.run_id), timeout=1)
         expected = {
             "same_error": "doom_loop_same_error",
-            "alternation": "doom_loop_alternation",
             "no_progress": "doom_loop_no_progress",
         }[pattern]
         assert events[-1].payload["violation"] == expected
@@ -1522,3 +1525,383 @@ async def test_real_uninstall_stops_isolated_process_before_removing_state(
                 capture_output=True,
                 timeout=5,
             )
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Boucles d'outils : empreinte, doublon provider, retry, feedback, arrêt
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def _tool_event(
+    session_id: str,
+    event_id: str,
+    *,
+    call_id: str,
+    tool: str = "jarvis_jarvis_knowledge_search",
+    status: str = "running",
+    tool_input: dict[str, Any] | None = None,
+    error: str | None = None,
+) -> SSEEvent:
+    state: dict[str, Any] = {
+        "status": status,
+        "input": tool_input if tool_input is not None else {"query": "bilan"},
+    }
+    if error is not None:
+        state["error"] = error
+    return _event(
+        session_id,
+        event_id,
+        "message.part.updated",
+        {"part": {"type": "tool", "tool": tool, "callID": call_id, "state": state}},
+    )
+
+
+async def _close_session_ok(state: Any) -> None:
+    """Termine la session comme un vrai run réussi : télémétrie puis idle.
+
+    Sans télémétrie d'usage, la complétion échoue volontairement (fail-closed) :
+    ce n'est pas la boucle d'outils qui est testée ici.
+    """
+
+    await state.client.events.put(
+        _assistant_usage_event(state.session_id, "usage-final")
+    )
+    await state.client.events.put(
+        _event(state.session_id, "done", "session.idle", {})
+    )
+
+
+async def _loop_runtime(
+    tmp_path: Path, run_id: str, *, budget: RunBudget | None = None
+) -> tuple[OpenCodeRuntime, AgenticRun]:
+    runtime = _runtime(_layout(tmp_path), _ProcessFactory(), _ClientFactory())
+    run = _run(
+        tmp_path,
+        run_id=run_id,
+        profile_id="default",
+        budget=budget
+        or RunBudget(max_retries=3, max_tool_calls=50, concurrency_limit=1),
+    )
+    await runtime.create_run(run, _context(run))
+    await runtime.start(run)
+    return runtime, run
+
+
+@pytest.mark.asyncio
+async def test_duplicate_provider_tool_event_yields_a_single_started_event(
+    tmp_path: Path,
+) -> None:
+    """Le même ``callID`` réémis (pending puis running) ne persiste qu'une fois."""
+
+    runtime, run = await _loop_runtime(tmp_path, "dup")
+    try:
+        state = runtime._states[run.run_id]
+        for index, status in enumerate(("pending", "running", "running")):
+            await state.client.events.put(
+                _tool_event(
+                    state.session_id,
+                    f"sse-{index}",
+                    call_id="call-identique",
+                    status=status,
+                )
+            )
+        await _close_session_ok(state)
+        events = await asyncio.wait_for(_collect(runtime, run.run_id), timeout=2)
+        starts = [item for item in events if item.type == "agent.tool.started"]
+        assert len(starts) == 1
+        # Le doublon ne doit pas non plus compter comme une répétition.
+        assert not any(item.type == "agent.run.failed" for item in events)
+    finally:
+        await runtime.dispose()
+
+
+@pytest.mark.asyncio
+async def test_identical_calls_get_feedback_then_stop_on_the_third(
+    tmp_path: Path,
+) -> None:
+    """Deux appels identiques → consigne réinjectée ; le troisième arrête."""
+
+    runtime, run = await _loop_runtime(tmp_path, "loop")
+    try:
+        state = runtime._states[run.run_id]
+        prompts_before = len(state.client.prompts)
+        for index in range(3):
+            await state.client.events.put(
+                _tool_event(
+                    state.session_id,
+                    f"sse-{index}",
+                    call_id=f"call-{index}",
+                    tool_input={"query": "bilan de la semaine"},
+                )
+            )
+        events = await asyncio.wait_for(_collect(runtime, run.run_id), timeout=2)
+
+        injected = state.client.prompts[prompts_before:]
+        assert len(injected) == 1, "un seul feedback, pas un par appel"
+        feedback = injected[0]
+        assert "jarvis_jarvis_knowledge_search" in feedback
+        assert "synthétise" in feedback
+        # La consigne nomme l'outil mais jamais les arguments.
+        assert "bilan de la semaine" not in feedback
+
+        failure = events[-1]
+        assert failure.type == "agent.run.failed"
+        assert failure.payload["violation"] == "doom_loop_same_action"
+        assert failure.payload["tool"] == "jarvis_jarvis_knowledge_search"
+        assert failure.payload["repetitions"] == 3
+        assert failure.payload["next_action"]
+        assert failure.payload["abort_acknowledged"] is True
+        # Très loin des dix appels observés en production.
+        assert sum(1 for item in events if item.type == "agent.tool.started") < 10
+    finally:
+        await runtime.dispose()
+
+
+@pytest.mark.asyncio
+async def test_same_tool_with_different_arguments_is_never_a_loop(
+    tmp_path: Path,
+) -> None:
+    """Six recherches réellement différentes ne déclenchent aucun arrêt."""
+
+    runtime, run = await _loop_runtime(tmp_path, "distinct")
+    try:
+        state = runtime._states[run.run_id]
+        for index in range(6):
+            await state.client.events.put(
+                _tool_event(
+                    state.session_id,
+                    f"sse-{index}",
+                    call_id=f"call-{index}",
+                    tool_input={"query": f"sujet-{index}"},
+                )
+            )
+        await _close_session_ok(state)
+        events = await asyncio.wait_for(_collect(runtime, run.run_id), timeout=2)
+        assert not any(item.type == "agent.run.failed" for item in events)
+        assert state.client.prompts[1:] == [], "aucun feedback sur des appels distincts"
+    finally:
+        await runtime.dispose()
+
+
+@pytest.mark.asyncio
+async def test_paginated_reads_are_not_treated_as_repetition(tmp_path: Path) -> None:
+    """Une lecture paginée change d'offset : autant d'empreintes distinctes."""
+
+    runtime, run = await _loop_runtime(tmp_path, "paginated")
+    try:
+        state = runtime._states[run.run_id]
+        for index in range(5):
+            await state.client.events.put(
+                _tool_event(
+                    state.session_id,
+                    f"sse-{index}",
+                    call_id=f"call-{index}",
+                    tool="read",
+                    tool_input={"path": "/notes.md", "offset": index * 100},
+                )
+            )
+        await _close_session_ok(state)
+        events = await asyncio.wait_for(_collect(runtime, run.run_id), timeout=2)
+        assert not any(item.type == "agent.run.failed" for item in events)
+    finally:
+        await runtime.dispose()
+
+
+@pytest.mark.asyncio
+async def test_retry_after_transient_error_stays_within_budget(tmp_path: Path) -> None:
+    """Un échec justifie une nouvelle tentative identique : pas de faux positif."""
+
+    runtime, run = await _loop_runtime(
+        tmp_path,
+        "retry",
+        budget=RunBudget(max_retries=2, max_tool_calls=50, concurrency_limit=1),
+    )
+    try:
+        state = runtime._states[run.run_id]
+        payload = {"query": "bilan"}
+        # Deux tentatives, chacune suivie d'un échec transitoire : la troisième
+        # tentative reste légitime alors qu'elle est identique aux précédentes.
+        for index in range(2):
+            await state.client.events.put(
+                _tool_event(
+                    state.session_id,
+                    f"start-{index}",
+                    call_id=f"call-{index}",
+                    tool_input=payload,
+                )
+            )
+            await state.client.events.put(
+                _tool_event(
+                    state.session_id,
+                    f"fail-{index}",
+                    call_id=f"call-{index}",
+                    status="error",
+                    tool_input=payload,
+                    error=f"timeout transitoire {index}",
+                )
+            )
+        await state.client.events.put(
+            _tool_event(
+                state.session_id,
+                "start-2",
+                call_id="call-2",
+                tool_input=payload,
+            )
+        )
+        await _close_session_ok(state)
+        events = await asyncio.wait_for(_collect(runtime, run.run_id), timeout=2)
+        assert not any(item.type == "agent.run.failed" for item in events)
+    finally:
+        await runtime.dispose()
+
+
+@pytest.mark.asyncio
+async def test_started_and_completed_events_stay_paired(tmp_path: Path) -> None:
+    """Chaque démarrage a exactement une fin : aucun appariement perdu."""
+
+    runtime, run = await _loop_runtime(tmp_path, "paired")
+    try:
+        state = runtime._states[run.run_id]
+        for index in range(3):
+            await state.client.events.put(
+                _tool_event(
+                    state.session_id,
+                    f"start-{index}",
+                    call_id=f"call-{index}",
+                    tool_input={"query": f"sujet-{index}"},
+                )
+            )
+            await state.client.events.put(
+                _tool_event(
+                    state.session_id,
+                    f"end-{index}",
+                    call_id=f"call-{index}",
+                    status="completed",
+                    tool_input={"query": f"sujet-{index}"},
+                )
+            )
+        await _close_session_ok(state)
+        events = await asyncio.wait_for(_collect(runtime, run.run_id), timeout=2)
+        starts = [item for item in events if item.type == "agent.tool.started"]
+        ends = [item for item in events if item.type == "agent.tool.completed"]
+        assert len(starts) == len(ends) == 3
+    finally:
+        await runtime.dispose()
+
+
+@pytest.mark.asyncio
+async def test_loop_abort_is_acknowledged_and_leaves_no_state(tmp_path: Path) -> None:
+    """L'arrêt confirme l'ACK d'``/abort`` et termine dans un état canonique."""
+
+    runtime, run = await _loop_runtime(tmp_path, "ack")
+    try:
+        state = runtime._states[run.run_id]
+        client = state.client
+        for index in range(3):
+            await state.client.events.put(
+                _tool_event(
+                    state.session_id, f"sse-{index}", call_id=f"call-{index}"
+                )
+            )
+        events = await asyncio.wait_for(_collect(runtime, run.run_id), timeout=2)
+        assert client.abort_count == 1
+        assert events[-1].type == "agent.run.failed"
+        assert events[-1].payload["abort_acknowledged"] is True
+        assert events[-1].payload["error_code"] == "budget_exceeded"
+        assert run.run_id not in runtime._states
+    finally:
+        await runtime.dispose()
+
+
+@pytest.mark.asyncio
+async def test_loop_failure_never_leaks_tool_arguments(tmp_path: Path) -> None:
+    """Le message d'échec nomme l'outil, jamais les arguments sensibles."""
+
+    runtime, run = await _loop_runtime(tmp_path, "redacted")
+    try:
+        state = runtime._states[run.run_id]
+        for index in range(3):
+            await state.client.events.put(
+                _tool_event(
+                    state.session_id,
+                    f"sse-{index}",
+                    call_id=f"call-{index}",
+                    tool_input={
+                        "query": "mot de passe bancaire",
+                        "token": "sk-secret-value",
+                    },
+                )
+            )
+        events = await asyncio.wait_for(_collect(runtime, run.run_id), timeout=2)
+        rendered = repr(events[-1].payload)
+        assert "sk-secret-value" not in rendered
+        assert "mot de passe bancaire" not in rendered
+        assert "jarvis_jarvis_knowledge_search" in rendered
+    finally:
+        await runtime.dispose()
+
+
+@pytest.mark.asyncio
+async def test_guided_workflow_searches_once_then_answers(tmp_path: Path) -> None:
+    """Une recherche puis une réponse textuelle : succès, sans fichier produit."""
+
+    runtime, run = await _loop_runtime(tmp_path, "guided")
+    try:
+        state = runtime._states[run.run_id]
+        await state.client.events.put(
+            _tool_event(state.session_id, "search", call_id="call-1")
+        )
+        await state.client.events.put(
+            _tool_event(
+                state.session_id,
+                "search-end",
+                call_id="call-1",
+                status="completed",
+            )
+        )
+        await _close_session_ok(state)
+        events = await asyncio.wait_for(_collect(runtime, run.run_id), timeout=2)
+        assert not any(item.type == "agent.run.failed" for item in events)
+        assert events[-1].type == "agent.run.completed"
+    finally:
+        await runtime.dispose()
+
+
+@pytest.mark.asyncio
+async def test_real_incident_shape_stops_long_before_ten_calls(tmp_path: Path) -> None:
+    """Rejoue la forme de l'incident : recherches identiques entrecoupées.
+
+    Le compteur historique était consécutif : intercaler ``tasks_list``
+    remettait la répétition à zéro, et la boucle atteignait dix appels. Le
+    compteur par empreinte n'est pas dupé par l'entrelacement.
+    """
+
+    runtime, run = await _loop_runtime(tmp_path, "incident")
+    try:
+        state = runtime._states[run.run_id]
+        sequence = [
+            "jarvis_jarvis_knowledge_search",
+            "jarvis_jarvis_tasks_list",
+            "jarvis_jarvis_knowledge_search",
+            "jarvis_jarvis_tasks_list",
+            "jarvis_jarvis_knowledge_search",
+        ]
+        for index, tool in enumerate(sequence):
+            await state.client.events.put(
+                _tool_event(
+                    state.session_id,
+                    f"sse-{index}",
+                    call_id=f"call-{index}",
+                    tool=tool,
+                    tool_input={"query": "bilan"},
+                )
+            )
+        events = await asyncio.wait_for(_collect(runtime, run.run_id), timeout=2)
+        failure = events[-1]
+        assert failure.type == "agent.run.failed"
+        assert failure.payload["violation"] == "doom_loop_same_action"
+        assert failure.payload["tool"] == "jarvis_jarvis_knowledge_search"
+        started = sum(1 for item in events if item.type == "agent.tool.started")
+        assert started <= 5, "l'incident réel en produisait dix"
+    finally:
+        await runtime.dispose()

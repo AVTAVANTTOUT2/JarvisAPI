@@ -113,6 +113,14 @@ SAFE_EVENT_FIELDS: frozenset[str] = frozenset(
         # nu : le run échoue sans que rien ne dise quelle borne a cédé, et le
         # champ posé par le service était silencieusement supprimé ici.
         "violation",
+        # Détail exploitable d'une boucle d'outils : combien de fois l'appel
+        # identique s'est répété, et quoi faire ensuite. `tool` est déjà
+        # au-dessus et déjà redacté. Les arguments, eux, n'entrent jamais.
+        "repetitions",
+        "next_action",
+        # Acquittement du `/abort` envoyé au runtime : sans lui, rien ne
+        # distingue un arrêt confirmé d'un arrêt supposé.
+        "abort_acknowledged",
     }
 )
 
@@ -133,7 +141,7 @@ def neutralize_event_payload(value: Mapping[str, Any] | None) -> dict[str, Any]:
                 safe[key] = max(0.0, min(float(item), 1.0))
             except (TypeError, ValueError):
                 continue
-        elif key == "needs_attention":
+        elif key in {"needs_attention", "abort_acknowledged"}:
             safe[key] = bool(item)
         elif key == "sanitized_arguments" and isinstance(item, Mapping):
             safe[key] = redact_mapping(item)
@@ -143,7 +151,7 @@ def neutralize_event_payload(value: Mapping[str, Any] | None) -> dict[str, Any]:
             and not isinstance(item, (str, bytes, bytearray))
         ):
             safe[key] = [redact_text(risk, max_chars=240) for risk in list(item)[:20]]
-        elif key == "sequence":
+        elif key in {"sequence", "repetitions"}:
             try:
                 safe[key] = max(0, int(item))
             except (TypeError, ValueError):

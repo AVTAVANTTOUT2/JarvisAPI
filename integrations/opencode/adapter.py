@@ -526,7 +526,44 @@ def _request_prompt(run: AgenticRun, context: AgenticContext) -> str:
     )
 
 
-def _tool_action_fingerprint(event: Any) -> tuple[str, str] | None:
+#: Répétitions identiques **sans progrès** avant d'injecter un feedback au
+#: runtime, puis avant d'arrêter. Deux appels identiques n'apprennent rien de
+#: plus que le premier : on le dit au modèle. Un troisième prouve qu'il ne
+#: peut pas s'en sortir seul, et la tâche s'arrête — très loin des dix appels
+#: observés en production.
+_LOOP_FEEDBACK_REPEATS = 2
+_LOOP_ABORT_REPEATS = 3
+
+#: Consigne réinjectée dans la session. Elle nomme l'outil (jamais ses
+#: arguments) et ferme les issues possibles : synthétiser, changer de
+#: stratégie, ou demander une précision.
+_LOOP_FEEDBACK_TEMPLATE = (
+    "Tu viens d'appeler {tool} {count} fois avec exactement les mêmes "
+    "arguments, sans obtenir d'information nouvelle. N'appelle plus cet outil "
+    "avec ces arguments. Choisis maintenant l'une de ces trois issues : "
+    "synthétise ce que tu sais déjà et rends ta réponse ; change de stratégie "
+    "(autre outil, ou mêmes outils avec d'autres arguments) ; ou demande à "
+    "l'utilisateur la précision qui te manque. Une tentative identique "
+    "supplémentaire arrêtera la tâche sans livrable."
+)
+
+#: Vocabulaire fermé rendu à l'utilisateur avec l'échec. Aucun argument
+#: d'outil n'y entre, seulement le nom de l'outil et un compte.
+_LOOP_NEXT_ACTION = (
+    "Reformulez la demande ou fournissez le contexte manquant, "
+    "puis relancez la tâche."
+)
+
+
+def _tool_action_fingerprint(event: Any) -> tuple[str, str, str] | None:
+    """Retourne ``(call_id, outil, empreinte)`` d'un démarrage d'outil.
+
+    L'empreinte est ``sha256(outil + arguments normalisés)``. ``_safe_value``
+    normalise et redacte les arguments avant hachage : deux recherches
+    réellement différentes donnent deux empreintes, une même recherche répétée
+    donne la même, et aucun argument ne survit au hachage.
+    """
+
     data = event.data if isinstance(getattr(event, "data", None), Mapping) else {}
     properties = data.get("properties")
     if not isinstance(properties, Mapping):
@@ -543,20 +580,20 @@ def _tool_action_fingerprint(event: Any) -> tuple[str, str] | None:
     call_id = str(part.get("callID") or part.get("id") or "")[:256]
     if not call_id:
         return None
-    normalized = {
-        "tool": str(part.get("tool") or "")[:256],
-        "input": _safe_value(state.get("input")),
-    }
+    tool = str(part.get("tool") or "")[:256]
+    normalized = {"tool": tool, "input": _safe_value(state.get("input"))}
     encoded = json.dumps(
         normalized,
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),
     ).encode()
-    return call_id, hashlib.sha256(encoded).hexdigest()
+    return call_id, tool, hashlib.sha256(encoded).hexdigest()
 
 
-def _tool_failure_fingerprint(event: Any) -> str | None:
+def _tool_failure_fingerprint(event: Any) -> tuple[str, str] | None:
+    """Retourne ``(call_id, empreinte d'erreur)`` d'un échec d'outil."""
+
     data = event.data if isinstance(getattr(event, "data", None), Mapping) else {}
     properties = data.get("properties")
     if not isinstance(properties, Mapping):
@@ -570,6 +607,7 @@ def _tool_failure_fingerprint(event: Any) -> str | None:
         "failed",
     }:
         return None
+    call_id = str(part.get("callID") or part.get("id") or "")[:256]
     normalized = {
         "tool": str(part.get("tool") or "")[:256],
         "error": _safe_value(state.get("error") or state.get("output")),
@@ -580,7 +618,7 @@ def _tool_failure_fingerprint(event: Any) -> str | None:
         sort_keys=True,
         separators=(",", ":"),
     ).encode()
-    return hashlib.sha256(encoded).hexdigest()
+    return call_id, hashlib.sha256(encoded).hexdigest()
 
 
 def _nonnegative_int(value: Any) -> int | None:
@@ -638,9 +676,20 @@ class _RunState:
     budget_watchdog: asyncio.Task[None] | None = None
     terminal_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     seen_tool_calls: set[str] = field(default_factory=set)
-    last_action_fingerprint: str | None = None
-    repeated_action_count: int = 0
-    recent_action_fingerprints: list[str] = field(default_factory=list)
+    # ``callID`` → empreinte d'action. Sert à deux choses : écarter le doublon
+    # provider (même ``callID`` réémis en ``pending`` puis ``running``), et
+    # retrouver l'action d'un appel qui échoue pour lui accorder son retry.
+    call_fingerprints: dict[str, str] = field(default_factory=dict)
+    # Compteur **par empreinte**, pas consécutif. Le compteur consécutif
+    # historique était remis à zéro par n'importe quel autre outil : une boucle
+    # qui intercalait un second outil n'était vue qu'au dixième appel.
+    action_counts: dict[str, int] = field(default_factory=dict)
+    # Répétitions déjà justifiées par un échec : un retry après erreur
+    # transitoire n'est pas une boucle stérile.
+    retry_allowance: dict[str, int] = field(default_factory=dict)
+    feedback_sent: set[str] = field(default_factory=set)
+    pending_feedback: tuple[str, int] | None = None
+    violation_detail: dict[str, Any] = field(default_factory=dict)
     last_error_fingerprint: str | None = None
     repeated_error_count: int = 0
     tool_calls_since_progress: int = 0
@@ -1348,14 +1397,17 @@ class OpenCodeRuntime:
             ):
                 watchdog.cancel()
                 await asyncio.gather(watchdog, return_exceptions=True)
+            acknowledged = False
             try:
-                await state.client.abort(
-                    state.session_id,
-                    directory=str(state.workspace),
+                acknowledged = bool(
+                    await state.client.abort(
+                        state.session_id,
+                        directory=str(state.workspace),
+                    )
                 )
             except Exception:
                 # L'événement canonique doit quand même signaler la limite franchie.
-                pass
+                acknowledged = False
             failure_event = RuntimeEvent.new(
                 run_id=state.run.run_id,
                 type="agent.run.failed",
@@ -1364,6 +1416,10 @@ class OpenCodeRuntime:
                     "error_code": error_code,
                     "violation": violation,
                     "needs_attention": True,
+                    "abort_acknowledged": acknowledged,
+                    # Détail exploitable de la boucle : nom d'outil et compte,
+                    # jamais les arguments. Vide pour les autres violations.
+                    **state.violation_detail,
                 },
             )
             while state.queue.full():
@@ -1373,6 +1429,43 @@ class OpenCodeRuntime:
                     break
             state.queue.put_nowait(failure_event)
             return True
+
+    def _duplicate_tool_start(self, state: _RunState, event: Any) -> bool:
+        """Vrai si ce démarrage d'outil a déjà été vu sous le même ``callID``.
+
+        Le ``callID`` est l'identifiant externe de l'appel : deux événements
+        qui le partagent décrivent le **même** appel, quel que soit leur
+        identifiant SSE. Un vrai retry, lui, porte un nouveau ``callID``.
+        """
+
+        action = _tool_action_fingerprint(event)
+        if action is None:
+            return False
+        call_id, _tool, fingerprint = action
+        if call_id in state.seen_tool_calls:
+            return True
+        state.seen_tool_calls.add(call_id)
+        state.call_fingerprints[call_id] = fingerprint
+        return False
+
+    async def _inject_loop_feedback(
+        self, state: _RunState, tool: str, repeats: int
+    ) -> None:
+        """Réinjecte une consigne explicite au lieu de laisser la boucle courir."""
+
+        if state.finished or state.cancelled or state.paused:
+            return
+        try:
+            await self._send_prompt(
+                state,
+                _LOOP_FEEDBACK_TEMPLATE.format(tool=tool, count=repeats),
+            )
+        except Exception:
+            # Le feedback est une chance donnée au modèle, pas une garantie :
+            # s'il n'arrive pas, la troisième répétition arrêtera la tâche.
+            logger.warning(
+                "feedback anti-boucle non délivré run_id=%s", state.run.run_id
+            )
 
     def _event_budget_violation(
         self,
@@ -1392,13 +1485,30 @@ class OpenCodeRuntime:
         if isinstance(completed_steps, int) and completed_steps > state.completed_steps:
             state.completed_steps = completed_steps
             state.tool_calls_since_progress = 0
+            # Une étape franchie est du progrès réel : le contexte a changé,
+            # donc refaire la même recherche peut légitimement rapporter autre
+            # chose. Les compteurs repartent de zéro. La complétion d'un
+            # **outil**, elle, ne remet rien à zéro : une recherche qui répond
+            # deux fois la même chose est exactement la panne à arrêter.
+            state.action_counts.clear()
+            state.retry_allowance.clear()
+            state.feedback_sent.clear()
         if mapped.type == "agent.tool.completed":
             state.tool_calls_since_progress = 0
             state.last_error_fingerprint = None
             state.repeated_error_count = 0
         if mapped.type == "agent.tool.failed":
-            error_fingerprint = _tool_failure_fingerprint(event)
-            if error_fingerprint is not None:
+            failure = _tool_failure_fingerprint(event)
+            if failure is not None:
+                failed_call_id, error_fingerprint = failure
+                # L'échec autorise une nouvelle tentative identique, dans la
+                # limite de `max_retries` déjà budgétée. Sans cette franchise,
+                # un retry après erreur transitoire déclencherait la boucle.
+                action_fingerprint = state.call_fingerprints.get(failed_call_id)
+                if action_fingerprint is not None:
+                    granted = state.retry_allowance.get(action_fingerprint, 0)
+                    if granted < state.run.budget.max_retries:
+                        state.retry_allowance[action_fingerprint] = granted + 1
                 if error_fingerprint == state.last_error_fingerprint:
                     state.repeated_error_count += 1
                 else:
@@ -1413,30 +1523,24 @@ class OpenCodeRuntime:
         action = _tool_action_fingerprint(event)
         if action is None:
             return None
-        call_id, fingerprint = action
-        if call_id in state.seen_tool_calls:
-            return None
-        state.seen_tool_calls.add(call_id)
+        _call_id, tool, fingerprint = action
+        # La déduplication par ``callID`` a déjà eu lieu dans la pompe : tout
+        # ce qui arrive ici est un appel distinct, pas un doublon provider.
         if len(state.seen_tool_calls) > state.run.budget.max_tool_calls:
             return "max_tool_calls"
-        if fingerprint == state.last_action_fingerprint:
-            state.repeated_action_count += 1
-        else:
-            state.last_action_fingerprint = fingerprint
-            state.repeated_action_count = 1
-        allowed_attempts = max(1, state.run.budget.max_retries + 1)
-        if state.repeated_action_count > allowed_attempts:
+        count = state.action_counts.get(fingerprint, 0) + 1
+        state.action_counts[fingerprint] = count
+        repeats = count - state.retry_allowance.get(fingerprint, 0)
+        if repeats >= _LOOP_ABORT_REPEATS:
+            state.violation_detail = {
+                "tool": tool,
+                "repetitions": repeats,
+                "next_action": _LOOP_NEXT_ACTION,
+            }
             return "doom_loop_same_action"
-        state.recent_action_fingerprints.append(fingerprint)
-        del state.recent_action_fingerprints[:-6]
-        recent = state.recent_action_fingerprints
-        if (
-            len(recent) == 6
-            and recent[0] == recent[2] == recent[4]
-            and recent[1] == recent[3] == recent[5]
-            and recent[0] != recent[1]
-        ):
-            return "doom_loop_alternation"
+        if repeats >= _LOOP_FEEDBACK_REPEATS and fingerprint not in state.feedback_sent:
+            state.feedback_sent.add(fingerprint)
+            state.pending_feedback = (tool, repeats)
         state.tool_calls_since_progress += 1
         no_progress_threshold = max(
             1,
@@ -1640,6 +1744,15 @@ class OpenCodeRuntime:
                 )
                 if mapped is None:
                     continue
+                if mapped.type == "agent.tool.started" and self._duplicate_tool_start(
+                    state, event
+                ):
+                    # OpenCode réémet la même part d'outil (`pending` puis
+                    # `running`) sous un `callID` identique. C'est un doublon
+                    # provider, pas un second appel : un seul événement doit
+                    # persister, et il ne doit consommer ni budget ni compteur
+                    # de répétition.
+                    continue
                 state.event_count += 1
                 if state.event_count > state.max_events:
                     await self._emit_failure(
@@ -1656,6 +1769,10 @@ class OpenCodeRuntime:
                         violation=violation,
                     )
                     return
+                if state.pending_feedback is not None:
+                    tool, repeats = state.pending_feedback
+                    state.pending_feedback = None
+                    await self._inject_loop_feedback(state, tool, repeats)
                 if mapped.type == "agent.run.completed" and (
                     state.paused or state.cancelled
                 ):

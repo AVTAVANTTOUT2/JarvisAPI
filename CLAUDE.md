@@ -464,6 +464,42 @@ plugin laisse JARVIS importable, avec l'API générique et un runtime
 - Claw3D reste une UI lecture seule optionnelle (ADR-027) ; son absence ne
   dégrade pas la santé globale.
 
+### Boucles d'outils : compter par empreinte, parler avant d'arrêter
+
+Un workflow réel a produit **dix** démarrages de `knowledge_search` avant
+l'abort. Le garde comptait pourtant les répétitions — mais **consécutivement** :
+intercaler un second outil remettait le compteur à zéro, et la boucle passait
+sous le radar jusqu'à la limite de budget.
+
+`_tool_action_fingerprint()` hache `outil + arguments normalisés et redactés`.
+Le compteur vit désormais **par empreinte** (`action_counts`), donc
+l'entrelacement ne le dupe plus. Quatre situations qui se ressemblaient sont
+maintenant distinctes :
+
+| Situation | Signal | Traitement |
+|---|---|---|
+| Doublon provider | même `callID` | événement écarté avant la file |
+| Retry après échec | `agent.tool.failed` précède | franchise `retry_allowance`, bornée par `max_retries` |
+| Recherche différente | empreinte différente | rien, c'est du travail |
+| Répétition stérile | même empreinte, pas de progrès | feedback puis arrêt |
+
+Deux répétitions déclenchent une **consigne réinjectée dans la session** —
+synthétiser, changer de stratégie, ou demander une précision. La troisième
+arrête le run. Le seuil est fixe et non budgétaire : dix appels identiques
+coûtent cher avant que le moindre budget cède.
+
+Seul un **progrès d'étape** (`completed_steps`) remet les compteurs à zéro. La
+complétion d'un *outil* ne remet rien : une recherche qui répond deux fois la
+même chose est exactement la panne à arrêter.
+
+L'échec porte de quoi agir — `violation`, `tool`, `repetitions`, `next_action`,
+`abort_acknowledged` — et jamais les arguments : l'empreinte les a hachés, et
+l'allowlist de `jarvis/agentic/redaction.py` les écarterait de toute façon.
+
+`doom_loop_alternation` a été retiré : le comptage par empreinte le devance
+toujours d'un événement, et il transformait un retry légitime alterné en faux
+positif.
+
 ## Routing des tâches — standard vs tâche lourde
 
 Tout passe par **DeepSeek**. `llm.classify_task_type()` (fast model, ~10 tokens)
