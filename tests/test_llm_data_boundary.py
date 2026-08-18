@@ -306,3 +306,17 @@ def test_chat_router_no_longer_makes_false_local_privacy_claim():
     lowered = _CHAT_SYSTEM_DEFAULT.lower()
     assert "ces échanges sont strictement privés" not in lowered
     assert "tu tournes en local :" not in lowered
+
+
+def test_llm_egress_keeps_contact_pii_and_redacts_api_keys():
+    from jarvis.security.llm_data_boundary import redact_for_external_llm, wrap_untrusted_data
+
+    secret = "sk-historyBoundary123456789"
+    raw = "Marie Martin +33612345678 marie.martin@gmail.com " + secret
+    wrapped = wrap_untrusted_data("CONTEXT_PEOPLE", raw, max_chars=2_000)
+    assert "Marie Martin" in wrapped
+    assert "+33612345678" in wrapped
+    assert "marie.martin@gmail.com" in wrapped
+    assert secret not in wrapped
+    assert "[PERSON_" not in wrapped
+    assert redact_for_external_llm(raw).count("Marie Martin") == 1

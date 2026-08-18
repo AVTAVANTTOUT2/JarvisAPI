@@ -106,9 +106,8 @@ def _format_hit(hit: object) -> dict[str, object]:
 def _redacted(value: object, *, max_chars: int) -> str:
     """Redacte les champs textuels avant leur sérialisation JSON.
 
-    La frontière globale redéfait volontairement la même opération : elle reste
-    ainsi sûre si ce formateur est réutilisé ailleurs, tandis que le JSON interne
-    ne peut plus être coupé au milieu d'une chaîne.
+    La frontière globale redéfait volontairement la même opération (secrets
+    uniquement) : le JSON interne ne peut plus être coupé au milieu d'une chaîne.
     """
 
     return redact_for_external_llm(value, max_chars=max_chars)

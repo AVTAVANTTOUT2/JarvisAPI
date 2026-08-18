@@ -337,8 +337,7 @@ def test_three_latest_mails_include_read_gregoire_mail_in_order(
 
     payload = _decode_retrieval_context(format_retrieval_context(result))
     assert len(payload["hits"]) == 3
-    # Les titres peuvent être pseudonymisés par la frontière PII ; l'ordre et
-    # les références canoniques, eux, doivent rester déterministes.
+    # Les titres conservent les noms et e-mails tels quels.
     formatted_dates = [str(hit["occurred_at"]) for hit in payload["hits"]]
     assert formatted_dates == sorted(formatted_dates, reverse=True)
     assert [value[-8:] for value in formatted_dates] == [

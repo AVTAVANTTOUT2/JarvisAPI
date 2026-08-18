@@ -1,7 +1,7 @@
-"""Couche de protection des données personnelles (PII).
+"""Couche PII locale (logs, persistance). La sortie LLM n'anonymise plus.
 
-- ``PIIAnonymizer`` : pseudonymisation réversible par tokens opaques.
-- ``DataBoundary``  : garde-fou interdisant toute fuite de données messages.
+- ``PIIAnonymizer`` : tokens opaques pour les journaux et les jobs persistés.
+- ``DataBoundary``  : validation de type, plus de blocage de contenu personnel.
 """
 
 from jarvis.pii.anonymizer import (
