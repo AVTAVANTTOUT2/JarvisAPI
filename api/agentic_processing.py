@@ -17,9 +17,9 @@ from jarvis.agentic import (
     get_agentic_service,
     select_capability_profile,
 )
+from jarvis.agentic.classifier import DELEGATED_CATEGORIES as _DELEGATED_CATEGORIES
 from jarvis.agentic.desktop_workspace import resolve_desktop_workspace
 from jarvis.agentic.models import (
-    AgenticRequestCategory,
     ApprovalDecision,
     normalize_agentic_client_context,
 )
@@ -31,16 +31,6 @@ logger = logging.getLogger(__name__)
 
 _UUID_PATTERN = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}"
 _APPROVAL_ID_PATTERN = r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}"
-
-_DELEGATED_CATEGORIES = frozenset(
-    {
-        AgenticRequestCategory.WORKFLOW,
-        AgenticRequestCategory.AGENTIC_READONLY,
-        AgenticRequestCategory.AGENTIC_REVERSIBLE,
-        AgenticRequestCategory.AGENTIC_EXTERNAL_EFFECT,
-        AgenticRequestCategory.AGENTIC_HIGH_RISK,
-    }
-)
 
 
 def _strip_explicit_command(text: str) -> tuple[str, bool]:
@@ -271,6 +261,73 @@ async def _plan_instead_of_running(
     )
 
 
+def _constraint_blocked_response(
+    classification: Any,
+    conversation_id: int,
+    *,
+    voice_mode: bool,
+    persist_assistant: bool,
+) -> dict[str, Any]:
+    """Explique la limite plutôt que d'inventer un résultat ou de démarrer.
+
+    La demande avait la forme d'un travail agentique — c'est ce que porte
+    ``blocked_category`` — mais elle interdit l'exécution. Aucune tâche n'est
+    créée, aucun run n'est lancé, et surtout aucun modèle n'est invité à
+    deviner un état qu'il ne peut pas observer.
+    """
+
+    constraints = classification.constraints
+    quoted = constraints.evidence[0] if constraints.evidence else "cette interdiction"
+    text = (
+        "Répondre demanderait de lancer ce travail, et vous l'avez interdit "
+        f"(« {quoted} »). Je ne peux pas en connaître l'état actuel sans "
+        "l'exécuter, et je ne vais pas le supposer. Levez l'interdiction, ou "
+        "indiquez-moi un rapport déjà produit que je peux lire."
+    )
+    if voice_mode:
+        text = (
+            "Répondre demanderait de lancer ce travail, et vous l'avez interdit. "
+            "Je ne peux pas en connaître l'état sans l'exécuter."
+        )
+    if persist_assistant:
+        try:
+            save_message(
+                conversation_id,
+                "assistant",
+                text,
+                agent="agentic",
+                model="runtime",
+                tokens_in=0,
+                tokens_out=0,
+                cost=0.0,
+            )
+        except Exception:
+            logger.exception("persistance de la réponse de contrainte impossible")
+    return {
+        "text": text,
+        "emotion": "neutral",
+        "action": None,
+        "action_result": {
+            "ok": True,
+            "accepted": False,
+            "started": False,
+            "task_created": False,
+            "reason": "execution_constraint",
+        },
+        "agent": "agentic",
+        "model": "runtime",
+        "cost": 0.0,
+        "routing": {
+            "category": classification.category.value,
+            "reason": classification.reason,
+            "blocked_category": classification.blocked_category.value
+            if classification.blocked_category is not None
+            else None,
+            "constraints": constraints.public_payload(),
+        },
+    }
+
+
 async def maybe_start_agentic_run(
     text: str,
     conversation_id: int,
@@ -328,6 +385,16 @@ async def maybe_start_agentic_run(
         adaptive=explicit or cognitive_agentic,
         requires_multiple_steps=True if explicit else None,
     )
+    if classification.blocked_category is not None:
+        # Élévation refusée par la demande elle-même : ni tâche, ni run, ni
+        # réponse inventée. Le même verdict sur chat, voix, iMessage et API,
+        # puisque tous les canaux passent par ici.
+        return _constraint_blocked_response(
+            classification,
+            conversation_id,
+            voice_mode=voice_mode,
+            persist_assistant=persist_assistant,
+        )
     if classification.category not in _DELEGATED_CATEGORIES:
         return None
 
@@ -474,6 +541,7 @@ async def maybe_start_agentic_run(
             "category": classification.category.value,
             "reason": classification.reason,
             "capability_profile": capability_profile.profile_id,
+            "constraints": classification.constraints.public_payload(),
         },
         "knowledge": snapshot.public_payload(),
     }
