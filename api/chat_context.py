@@ -202,7 +202,6 @@ async def _attach_retrieval_context(
         try:
             from database import get_person
             from database.person_history import digest_for_history, digest_for_identity
-            from jarvis.security.llm_data_boundary import wrap_untrusted_data
 
             person = get_person(person_name)
             if person:
