@@ -620,6 +620,16 @@ INGESTION_IMESSAGE_WATCH_DEBOUNCE_MS = int(
 )
 INGESTION_MAIL_INTERVAL_S = float(_get("INGESTION_MAIL_INTERVAL_S", "120"))
 INGESTION_CALENDAR_INTERVAL_S = float(_get("INGESTION_CALENDAR_INTERVAL_S", "300"))
+# Chapitres mensuels par personne (job d'ingestion, jamais chat.db).
+PERSON_HISTORY_MAX_CHAPTERS_PER_RUN = int(
+    _get("PERSON_HISTORY_MAX_CHAPTERS_PER_RUN", "8")
+)
+PERSON_HISTORY_MAX_MESSAGES_PER_CHAPTER = int(
+    _get("PERSON_HISTORY_MAX_MESSAGES_PER_CHAPTER", "400")
+)
+PERSON_HISTORY_DAILY_TOKEN_BUDGET = int(
+    _get("PERSON_HISTORY_DAILY_TOKEN_BUDGET", "80000")
+)
 
 # ── Daemon JARVIS (sentinelle permanente) ───────────────────
 # Le daemon tourne en parallèle du serveur web : screen watcher,

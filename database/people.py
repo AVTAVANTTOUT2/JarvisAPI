@@ -398,22 +398,33 @@ def get_all_life_context(limit: int = 100) -> list:
 def get_analysis_cursor(handle: str) -> int:
     with get_db() as conn:
         row = conn.execute(
-            "SELECT last_analyzed_rowid FROM imessage_analysis_cache WHERE handle = ?",
+            """
+            SELECT COALESCE(last_extracted_rowid, 0) AS last_extracted_rowid
+            FROM imessage_analysis_cache WHERE handle = ?
+            """,
             (handle,),
         ).fetchone()
-        return row["last_analyzed_rowid"] if row else 0
+        return int(row["last_extracted_rowid"]) if row else 0
 
 
 def update_analysis_cursor(handle: str, last_rowid: int, messages_count: int) -> None:
     with get_db() as conn:
         conn.execute(
-            """INSERT INTO imessage_analysis_cache (handle, last_analyzed_rowid, last_analyzed_at, total_messages_analyzed)
-               VALUES (?, ?, CURRENT_TIMESTAMP, ?)
+            """INSERT INTO imessage_analysis_cache (
+                   handle, last_analyzed_rowid, last_extracted_rowid,
+                   last_analyzed_at, total_messages_analyzed
+               )
+               VALUES (?, ?, ?, CURRENT_TIMESTAMP, ?)
                ON CONFLICT(handle)
-               DO UPDATE SET last_analyzed_rowid = excluded.last_analyzed_rowid,
+               DO UPDATE SET last_extracted_rowid = excluded.last_extracted_rowid,
+                            last_analyzed_rowid = MAX(
+                                imessage_analysis_cache.last_analyzed_rowid,
+                                excluded.last_analyzed_rowid
+                            ),
                             last_analyzed_at = excluded.last_analyzed_at,
-                            total_messages_analyzed = total_messages_analyzed + excluded.total_messages_analyzed""",
-            (handle, last_rowid, messages_count),
+                            total_messages_analyzed = total_messages_analyzed
+                                + excluded.total_messages_analyzed""",
+            (handle, last_rowid, last_rowid, messages_count),
         )
 
 
@@ -474,6 +485,24 @@ def _merge_people_ids(conn: sqlite3.Connection, keep_id: int, drop_id: int) -> N
     conn.execute("UPDATE people_events SET person_id = ? WHERE person_id = ?", (keep_id, drop_id))
     conn.execute("UPDATE relationship_events SET person_id = ? WHERE person_id = ?", (keep_id, drop_id))
     conn.execute("UPDATE relationship_profiles SET person_id = ? WHERE person_id = ?", (keep_id, drop_id))
+    tables = {
+        str(row[0])
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'"
+        ).fetchall()
+    }
+    if "person_month_chapters" in tables:
+        conn.execute(
+            """
+            UPDATE OR IGNORE person_month_chapters
+            SET person_id = ? WHERE person_id = ?
+            """,
+            (keep_id, drop_id),
+        )
+        conn.execute(
+            "DELETE FROM person_month_chapters WHERE person_id = ?",
+            (drop_id,),
+        )
     conn.execute("DELETE FROM people WHERE id = ?", (drop_id,))
 
 
@@ -589,8 +618,10 @@ def force_upsert_people_from_mac_sync(records: list[dict[str, Any]]) -> dict[str
             if raw_handle:
                 conn.execute(
                     """
-                    INSERT INTO imessage_analysis_cache (handle, last_analyzed_rowid, last_analyzed_at, total_messages_analyzed)
-                    VALUES (?, ?, CURRENT_TIMESTAMP, ?)
+                    INSERT INTO imessage_analysis_cache (
+                        handle, last_analyzed_rowid, last_analyzed_at, total_messages_analyzed
+                    )
+                    VALUES (?, ?, CURRENT_TIMESTAMP, 0)
                     ON CONFLICT(handle)
                     DO UPDATE SET
                         last_analyzed_rowid = CASE
@@ -598,14 +629,9 @@ def force_upsert_people_from_mac_sync(records: list[dict[str, Any]]) -> dict[str
                                 THEN excluded.last_analyzed_rowid
                             ELSE imessage_analysis_cache.last_analyzed_rowid
                         END,
-                        last_analyzed_at = excluded.last_analyzed_at,
-                        total_messages_analyzed = CASE
-                            WHEN excluded.total_messages_analyzed > imessage_analysis_cache.total_messages_analyzed
-                                THEN excluded.total_messages_analyzed
-                            ELSE imessage_analysis_cache.total_messages_analyzed
-                        END
+                        last_analyzed_at = excluded.last_analyzed_at
                     """,
-                    (raw_handle, last_rowid, msg_count),
+                    (raw_handle, last_rowid),
                 )
                 stats["cache_upserted"] += 1
 

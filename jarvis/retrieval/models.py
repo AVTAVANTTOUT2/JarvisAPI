@@ -56,6 +56,7 @@ CANONICAL_SOURCE_TYPES = frozenset(
         "people_event",
         "relationship",
         "relationship_event",
+        "person_month",
         "task",
         "control_task",
         "control_plan",

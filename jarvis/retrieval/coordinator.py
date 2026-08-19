@@ -121,7 +121,35 @@ _PERSON_CANDIDATE_STOPWORDS = frozenset(
         "mes",
         "ne",
         "n",
+        "le",
+        "la",
+        "les",
+        "un",
+        "une",
+        "des",
+        "ce",
+        "cet",
+        "cette",
+        "l",
+        "d",
+        "du",
+        "de",
     }
+)
+_PERSON_DOSSIER_SOURCES: tuple[str, ...] = (
+    "person",
+    "people_event",
+    "relationship",
+    "relationship_event",
+    "person_month",
+)
+_PERSON_IDENTITY_RE = re.compile(
+    r"(?i)\b(?:qui\s+est(?:[- ]ce)?(?:\s+que)?|(?:c['’]est|cest|c est)\s+qui)\b"
+)
+_PERSON_HISTORY_RE = re.compile(
+    r"(?i)\b(?:histoire(?:\s+\w+){0,3}\s+avec|"
+    r"ce qui s['’]?est\s+pass[eé]\s+avec|"
+    r"depuis le d[ée]but)\b"
 )
 _SOURCE_INTENTS: tuple[tuple[re.Pattern[str], tuple[str, ...]], ...] = (
     (_MAIL_SOURCE_RE, ("email",)),
@@ -288,6 +316,25 @@ _SCORING_STOPWORDS = frozenset(
 )
 
 
+def _person_query_kind(query: str) -> str | None:
+    """Classe identité / histoire / fait récent avant tout appel de modèle."""
+
+    text = str(query or "")
+    person = _extract_structured_person(text)
+    if not person:
+        return None
+    if _PERSON_IDENTITY_RE.search(text):
+        return "identity"
+    if _PERSON_HISTORY_RE.search(text):
+        return "history"
+    folded = _fold(text)
+    if re.search(
+        r"\b(hier|semaine|dernier|derniere|aujourd|week[- ]?end)\b", folded
+    ):
+        return "recent"
+    return None
+
+
 def _extract_structured_person(query: str) -> str | None:
     """Extrait prudemment une personne explicite sans transformer tout nom commun."""
 
@@ -297,6 +344,16 @@ def _extract_structured_person(query: str) -> str | None:
         r"(?:\s+[A-ZÀ-ÖØ-Þ][\wÀ-ÖØ-öø-ÿ'’\-]*){0,2}"
     )
     patterns = (
+        (rf"(?i)\bqui\s+est(?:[- ]ce)?(?:\s+que)?\s+({name})\s*[?.!]?\s*$", re.I),
+        (
+            rf"(?i)\b(?:c['’]est|cest|c est)\s+qui(?:\s*[,:—-])?\s+({name})\s*[?.!]?\s*$",
+            re.I,
+        ),
+        (
+            rf"(?i)\bhistoire(?:\s+\w+){{0,3}}\s+(?:avec|de|d['’])\s+({name})\b",
+            re.I,
+        ),
+        (rf"(?i)\bce qui s['’]est\s+pass[eé]\s+avec\s+({name})\b", re.I),
         (rf"\b(?i:de|d['’]|par|avec|concernant)\s+({titled_name})", 0),
         (
             rf"^\s*(?:(?:qu['’]?est-ce\s+que|est-ce\s+que|que|et)\s+)?"
@@ -328,6 +385,9 @@ def _with_structured_constraints(
     person = request.person or _extract_structured_person(request.query)
     if person and request.person is None:
         diagnostics.append("structured_person")
+    kind = _person_query_kind(request.query)
+    if kind:
+        diagnostics.append(f"person_query_kind:{kind}")
 
     latest_n = request.latest_n
     if latest_n is None:
@@ -1328,6 +1388,7 @@ def _hit_from_document(
         people=document.people,
         request=request,
         conversation_id=document.conversation_id,
+        source_type=document.source_type,
     )
     score, reasons = _apply_trust_preference(score, reasons, document.trust)
     return RetrievalHit(
@@ -1361,6 +1422,7 @@ def _hit_from_index_row(row: dict[str, Any], request: RetrievalRequest) -> Retri
         people=people,
         request=request,
         conversation_id=_optional_int(row.get("conversation_id")),
+        source_type=str(row.get("source_type") or ""),
     )
     if row.get("fts_rank") is not None:
         score += 1.0
@@ -1398,6 +1460,7 @@ def _score(
     people: Sequence[str],
     request: RetrievalRequest,
     conversation_id: int | None,
+    source_type: str = "",
 ) -> tuple[float, tuple[str, ...]]:
     normalized_title = _fold(title)
     normalized_text = _fold(text)
@@ -1443,6 +1506,16 @@ def _score(
         ):
             score += 8.0
             reasons.append("person_filter")
+    kind = _person_query_kind(request.query)
+    if kind in {"identity", "history"} and source_type in _PERSON_DOSSIER_SOURCES:
+        score += 10.0
+        reasons.append("person_dossier")
+    if kind == "identity" and source_type == "person":
+        score += 8.0
+        reasons.append("identity_person")
+    if kind == "history" and source_type == "person_month":
+        score += 8.0
+        reasons.append("history_chapter")
     if (
         request.conversation_id is not None
         and conversation_id == request.conversation_id
@@ -1476,6 +1549,11 @@ def _requested_source_types(
     if request.source_types:
         return tuple(request.source_types)
     available = set(registry.source_types)
+    kind = _person_query_kind(request.query)
+    if kind in {"identity", "history"}:
+        selected = [source for source in _PERSON_DOSSIER_SOURCES if source in available]
+        if selected:
+            return tuple(selected)
     selected: list[str] = []
     for pattern, source_types in _SOURCE_INTENTS:
         if not pattern.search(request.effective_query):
@@ -1878,6 +1956,8 @@ def _hit_timestamp(hit: RetrievalHit) -> float:
 
 
 def _expected_live_sources(request: RetrievalRequest) -> tuple[str, ...]:
+    if _person_query_kind(request.query) in {"identity", "history"}:
+        return ()
     explicit: list[str] = []
     source_query = (
         request.effective_query if request.uses_context_reference else request.query

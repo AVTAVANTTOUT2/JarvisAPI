@@ -110,6 +110,7 @@ EVENT_TYPES: tuple[str, ...] = (
     # est défini comme les dix derniers types et doit rester aligné sur les
     # dix classes typées de jarvis/events.py.
     "food.order_updated",
+    "person.chapter_updated",
     # Pilotage de tâches — capture, plan, validation humaine, exécution.
     # Même contrainte de position que le bloc ci-dessus : `DOMAIN_EVENT_TYPES`
     # est défini comme les dix derniers types et doit rester aligné sur les dix

@@ -57,6 +57,15 @@ JOB_SPECS: dict[str, JobSpec] = {
         "daily",
         None,
     ),
+    "person_history": JobSpec(
+        "person_history",
+        "Chapitres mensuels par personne",
+        "Distille un récit borné par mois et par contact, sans dump iMessage.",
+        "daily",
+        "03:30",
+        "daily",
+        None,
+    ),
     "db_backup": JobSpec(
         "db_backup",
         "Sauvegarde SQLite",

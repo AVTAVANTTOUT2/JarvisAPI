@@ -928,6 +928,14 @@ _OPERATIONS = {
         tag='people',
         summary='Api Person Description',
     ),
+    'get_api_people_by_name_history': Operation(
+        operation_id='get_api_people_by_name_history',
+        method='GET',
+        path='/api/people/{name}/history',
+        auth='session',
+        tag='people',
+        summary='Api People History',
+    ),
     'get_api_people_by_name_timeline': Operation(
         operation_id='get_api_people_by_name_timeline',
         method='GET',
@@ -2271,6 +2279,14 @@ _OPERATIONS = {
         auth='session',
         tag='people',
         summary='Api Person Description Refresh',
+    ),
+    'post_api_people_by_name_history_rebuild': Operation(
+        operation_id='post_api_people_by_name_history_rebuild',
+        method='POST',
+        path='/api/people/{name}/history/rebuild',
+        auth='session',
+        tag='people',
+        summary='Api People History Rebuild',
     ),
     'post_api_people_by_name_remind': Operation(
         operation_id='post_api_people_by_name_remind',

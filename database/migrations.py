@@ -2241,6 +2241,7 @@ def _install_knowledge_job_triggers(conn: sqlite3.Connection) -> None:
             "COALESCE({row}.job_id, CAST({row}.id AS TEXT))",
         ),
         ("scheduler_job_runs", "scheduler_job", "{row}.id"),
+        ("person_month_chapters", "person_month", "{row}.id"),
     )
     existing = {
         str(row[0])
@@ -2383,3 +2384,51 @@ def run_migrations(conn: sqlite3.Connection) -> None:
     _migrate_application_timestamps_to_utc_v2(conn)
     _migrate_durable_ingestion(conn)
     _migrate_knowledge_retrieval(conn)
+    _migrate_person_history(conn)
+
+
+def _migrate_person_history(conn: sqlite3.Connection) -> None:
+    """Chapitres mensuels par personne + curseur d'extraction iMessage distinct."""
+
+    columns = {
+        str(row[1])
+        for row in conn.execute(
+            "PRAGMA table_info(imessage_analysis_cache)"
+        ).fetchall()
+    }
+    if columns and "last_extracted_rowid" not in columns:
+        conn.execute(
+            "ALTER TABLE imessage_analysis_cache "
+            "ADD COLUMN last_extracted_rowid INTEGER NOT NULL DEFAULT 0"
+        )
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS person_month_chapters (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+            year_month TEXT NOT NULL CHECK(year_month GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]'),
+            period_start_utc TEXT NOT NULL,
+            period_end_utc TEXT NOT NULL,
+            status TEXT NOT NULL CHECK(status IN ('empty', 'partial', 'complete')),
+            message_count INTEGER NOT NULL DEFAULT 0,
+            sent_count INTEGER NOT NULL DEFAULT 0,
+            recv_count INTEGER NOT NULL DEFAULT 0,
+            highlights_json TEXT NOT NULL DEFAULT '[]',
+            narrative TEXT NOT NULL DEFAULT '',
+            mood_arc TEXT NOT NULL DEFAULT '',
+            source_rowid_min INTEGER,
+            source_rowid_max INTEGER,
+            content_hash TEXT NOT NULL DEFAULT '',
+            model TEXT,
+            tokens_in INTEGER NOT NULL DEFAULT 0,
+            tokens_out INTEGER NOT NULL DEFAULT 0,
+            cost REAL NOT NULL DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(person_id, year_month)
+        );
+        CREATE INDEX IF NOT EXISTS idx_person_month_chapters_person
+            ON person_month_chapters(person_id, year_month);
+        """
+    )
+    _install_knowledge_job_triggers(conn)

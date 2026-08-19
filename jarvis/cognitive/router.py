@@ -104,6 +104,15 @@ _TOOL_PATTERNS: list[tuple[str, str]] = [
 
 _CONTACT_PATTERNS = (
     r"\b(appelle|contact|maman|papa|numéro|numero|message\s+à|message\s+a)\b",
+    r"\bqui\s+est(?:[- ]ce)?(?!\s+(?:le|la|les|un|une|ce|cet|cette)\b)",
+    r"\b(?:c['’]est|cest|c est)\s+qui\b",
+    r"\bhistoire\s+avec\b",
+    r"\bce qui s['’]est\s+pass[eé]\s+avec\b",
+)
+_CONTACT_HISTORY_PATTERNS = (
+    r"\bhistoire\s+avec\b",
+    r"\bce qui s['’]est\s+pass[eé]\s+avec\b",
+    r"\bdepuis le d[ée]but\b",
 )
 
 _BRIEFING_PATTERNS = (
@@ -269,16 +278,26 @@ class CognitiveRouter:
 
         # 4) Contacts
         if force_domain == "contacts" or _matches_any(folded, _CONTACT_PATTERNS):
+            history = _matches_any(folded, _CONTACT_HISTORY_PATTERNS)
             return TaskIntent(
                 interaction_mode=mode,  # type: ignore[arg-type]
                 domain="contacts",
-                complexity="instant",
-                execution_type="tool",
-                reasoning_model=_FAST(),
-                reason="résolution de contact déterministe + formulation Flash",
+                complexity="heavy" if history else "instant",
+                execution_type="tool" if not history else "answer",
+                reasoning_model=_MAIN() if history else _FAST(),
+                prompt_model=_MAIN() if history else None,
+                reason=(
+                    "synthèse d'histoire relationnelle"
+                    if history
+                    else "résolution de contact déterministe + formulation Flash"
+                ),
                 context_budget="contact",
-                risk_level="medium" if "envoie" in folded or "envoi" in folded else "low",
-                requires_confirmation="envoie" in folded or "envoi" in folded or "appelle" in folded,
+                risk_level="medium"
+                if "envoie" in folded or "envoi" in folded
+                else "low",
+                requires_confirmation="envoie" in folded
+                or "envoi" in folded
+                or "appelle" in folded,
             )
 
         # 5) Outils déterministes

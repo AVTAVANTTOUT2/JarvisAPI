@@ -185,6 +185,57 @@ async def _attach_retrieval_context(
     context["__retrieval_references"] = _retrieval_hit_references(result.hits)
     context["__retrieval_done"] = True
 
+    kind = None
+    person_name = None
+    try:
+        from jarvis.retrieval.coordinator import (
+            _extract_structured_person,
+            _person_query_kind,
+        )
+
+        kind = _person_query_kind(text)
+        person_name = _extract_structured_person(text)
+    except Exception:
+        logger.debug("[ctx] classification personne indisponible", exc_info=True)
+
+    if kind in {"identity", "history"} and person_name:
+        try:
+            from database import get_person
+            from database.person_history import digest_for_history, digest_for_identity
+
+            person = get_person(person_name)
+            if person:
+                person_id = int(person["id"])
+                digest = (
+                    digest_for_identity(person_id)
+                    if kind == "identity" or mode == "voice"
+                    else digest_for_history(person_id)
+                )
+                pending = False
+                if kind == "history":
+                    from scripts.person_history import ensure_history_coverage
+
+                    pending = bool(ensure_history_coverage(person_name))
+                    retrieval_meta = context.get("__retrieval")
+                    if pending and isinstance(retrieval_meta, dict):
+                        diagnostics = list(retrieval_meta.get("diagnostics") or [])
+                        diagnostics.append("person_history_pending")
+                        retrieval_meta["diagnostics"] = diagnostics
+                if pending:
+                    digest = (
+                        digest + "\nConstruction des mois manquants en cours."
+                    ).strip()
+                if digest:
+                    context["retrieval_context"] = (
+                        str(context.get("retrieval_context") or "")
+                        + "\n\n"
+                        + wrap_untrusted_data(
+                            "PERSON_HISTORY", digest, max_chars=8_000
+                        )
+                    ).strip()
+        except Exception:
+            logger.exception("[ctx] digest d'histoire indisponible")
+
 
 async def _send_tts_streaming(
     ws: WebSocket,

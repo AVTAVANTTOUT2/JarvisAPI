@@ -144,6 +144,21 @@ def test_contacts_no_cursor():
     assert intent.execution_type == "tool"
 
 
+def test_contacts_identity_uses_flash():
+    intent = route_request("qui est Ada", interaction_mode="chat")
+    assert intent.domain == "contacts"
+    assert intent.complexity == "instant"
+    assert intent.execution_type == "tool"
+
+
+def test_contacts_history_uses_main():
+    intent = route_request("histoire avec Ada", interaction_mode="chat")
+    assert intent.domain == "contacts"
+    assert intent.complexity == "heavy"
+    assert intent.execution_type == "answer"
+    assert intent.prompt_model
+
+
 def test_context_planner_contact_budget():
     intent = route_request("Appelle maman", interaction_mode="voice")
     planned = plan_context(

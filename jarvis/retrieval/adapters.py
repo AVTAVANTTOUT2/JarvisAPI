@@ -750,6 +750,31 @@ def _fine_grained_adapters() -> tuple[RetrievalAdapter, ...]:
             indexable=False,
         ),
         _table_adapter(
+            "person_month_chapters",
+            "person_month",
+            "person_month_chapters t LEFT JOIN people p ON p.id = t.person_id",
+            source_id="t.id",
+            title=(
+                "'Chapitre ' || COALESCE(p.name, '') || ' ' || COALESCE(t.year_month, '')"
+            ),
+            searchable_text=(
+                "TRIM(COALESCE(p.name, '') || ' ' || COALESCE(t.year_month, '') || ' ' "
+                "|| COALESCE(t.narrative, '') || ' ' || COALESCE(t.highlights_json, '') "
+                "|| ' ' || COALESCE(t.mood_arc, ''))"
+            ),
+            summary="COALESCE(t.narrative, '')",
+            people_text="COALESCE(p.name, '')",
+            occurred_at="t.period_start_utc",
+            source_updated_at="t.updated_at",
+            sensitivity="'private'",
+            cloud_policy="'redact'",
+            metadata=(
+                ("person_id", "t.person_id"),
+                ("year_month", "t.year_month"),
+                ("status", "t.status"),
+            ),
+        ),
+        _table_adapter(
             "people_events",
             "people_event",
             "people_events t LEFT JOIN people p ON p.id = t.person_id",
