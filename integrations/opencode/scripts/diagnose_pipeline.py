@@ -12,8 +12,9 @@ import subprocess
 import sys
 from typing import Any, Mapping
 
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
+PLUGIN_ROOT = Path(__file__).resolve().parents[1]
+ROOT = PLUGIN_ROOT.parents[1]
+if __package__ in {None, ""} and str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 
@@ -53,7 +54,9 @@ def _agentic_runtime() -> str:
 
         return str(getattr(config, "AGENTIC_RUNTIME", "auto")).strip().lower() or "auto"
     except Exception:
-        return str(os.environ.get("AGENTIC_RUNTIME") or "auto").strip().lower() or "auto"
+        return (
+            str(os.environ.get("AGENTIC_RUNTIME") or "auto").strip().lower() or "auto"
+        )
 
 
 def _plan_approval_required() -> bool:
@@ -65,9 +68,7 @@ def _plan_approval_required() -> bool:
         return True
 
 
-def probe_binary(
-    binary: Path, *, timeout_seconds: float = 5.0
-) -> dict[str, Any]:
+def probe_binary(binary: Path, *, timeout_seconds: float = 5.0) -> dict[str, Any]:
     """Lance ``opencode --version`` hors TTY, avec timeout, sans secret."""
 
     if not binary.exists() or not binary.is_file():
@@ -137,7 +138,7 @@ def diagnose(
     from jarvis.agentic.registry import discover_runtime_plugins
 
     resolved = layout if layout is not None else RuntimeLayout.default()
-    plugin_path = ROOT / "integrations" / "opencode" / "plugin.json"
+    plugin_path = PLUGIN_ROOT / "plugin.json"
     checks: list[dict[str, Any]] = []
 
     plugin_enabled = False
@@ -149,12 +150,16 @@ def diagnose(
                 "plugin",
                 "PASS" if plugin_enabled else "FAIL",
                 code="ok" if plugin_enabled else "plugin_disabled",
-                detail="plugin.json enabled" if plugin_enabled else "plugin.json disabled",
+                detail="plugin.json enabled"
+                if plugin_enabled
+                else "plugin.json disabled",
             )
         )
     except (OSError, json.JSONDecodeError) as exc:
         checks.append(
-            _check("plugin", "FAIL", code="plugin_unreadable", detail=type(exc).__name__)
+            _check(
+                "plugin", "FAIL", code="plugin_unreadable", detail=type(exc).__name__
+            )
         )
 
     runtime_setting = _agentic_runtime()
@@ -199,9 +204,7 @@ def diagnose(
         manifest = ReleaseManifest.load()
         probed_version = str(probe.get("version") or "")
         if probe["status"] == "PASS" and probed_version == manifest.version:
-            checks.append(
-                _check("install", "PASS", code="ok", detail=probed_version)
-            )
+            checks.append(_check("install", "PASS", code="ok", detail=probed_version))
         elif probe["status"] == "PASS":
             checks.append(
                 _check(
@@ -283,7 +286,7 @@ def diagnose(
         )
 
     discovered = {
-        item.runtime_id for item in discover_runtime_plugins(ROOT / "integrations")
+        item.runtime_id for item in discover_runtime_plugins(PLUGIN_ROOT.parent)
     }
     checks.append(
         _check(

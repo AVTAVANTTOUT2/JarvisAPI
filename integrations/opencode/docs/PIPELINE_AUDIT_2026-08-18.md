@@ -64,15 +64,31 @@ Le vocal n'est pas sur ce chemin (STT/TTS inchangés). Les contrôles vocaux d'u
 |---|---|
 | `integrations/opencode/lifecycle/process.py` | `health()` à froid → `HealthReport(error_code="not_started")`, plus d'exception |
 | `api/agentic_processing.py` | `runtime_disabled` et `runtime_unavailable` renvoyés comme erreur parlée, `action_result.ok=false` |
-| `scripts/diagnose_opencode_pipeline.py` | **nouveau** — PASS/WARN/FAIL, probe `--version` borné, aucun secret |
+| `integrations/opencode/scripts/diagnose_pipeline.py` | **nouveau** — PASS/WARN/FAIL, probe `--version` borné, aucun secret |
 | tests + rapport | couverture des silences, timeout, logs, binaire absent |
 
-Pas de nouveau runner. Pas de `.env` modifié. Pas de refonte. `api/agentic_processing.py` reste sous 500 lignes (492).
+Pas de nouveau runner. Pas de `.env` modifié. Pas de refonte. `api/agentic_processing.py` reste sous 500 lignes (498).
+
+### La frontière du plugin est tenue
+
+`integrations/opencode/tools/removal_proof.py` interdit toute mention du
+fournisseur hors du dossier du plugin, dans le code **comme** dans la
+documentation livrée. Trois conséquences pour ce lot :
+
+- le message d'erreur du cœur reste générique — « Installez un plugin
+  d'exécution ou vérifiez `AGENTIC_RUNTIME` », jamais un nom de moteur ;
+- le script de diagnostic et son test vivent sous
+  `integrations/opencode/` : retirer le dossier les emporte, comme le
+  runtime qu'ils inspectent ;
+- ce rapport lui-même est un document du plugin, pas un document du cœur.
+
+Un diagnostic qui survivrait à la suppression du plugin décrirait un moteur
+absent.
 
 ## Étape 5 — Script de diagnostic
 
 ```bash
-python scripts/diagnose_opencode_pipeline.py
+python -m integrations.opencode.scripts.diagnose_pipeline
 ```
 
 Sortie JSON + ligne finale `PASS` / `WARN` / `FAIL`. Code de sortie 1 seulement si `FAIL`.
@@ -89,7 +105,7 @@ Lancés :
 
 ```text
 ruff check <fichiers touchés>                    OK
-pytest tests/test_diagnose_opencode_pipeline.py
+pytest integrations/opencode/tests/test_diagnose_pipeline.py
       tests/test_agentic_processing.py
       integrations/opencode/tests/test_provider_process.py
       tests/test_cognitive_routing.py

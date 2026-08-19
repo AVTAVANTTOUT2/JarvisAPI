@@ -61,10 +61,7 @@ def _context_run(service: Any, conversation_id: int, text: str) -> Any | None:
 
 
 def _control_response(
-    text: str,
-    run: Any | None = None,
-    *,
-    error_code: str | None = None,
+    text: str, run: Any | None = None, *, error_code: str | None = None
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "text": text,
@@ -368,7 +365,10 @@ async def maybe_start_agentic_run(
             enriched_context=enriched_context,
         )
 
-    # Porte humaine : la demande devient une tâche planifiée, jamais un run.
+    # Porte de validation humaine. Une demande adressée à JARVIS — tapée,
+    # dictée ou reçue — devient une tâche **planifiée**, pas une exécution.
+    # C'est le même invariant que pour les tâches créées à la main : personne
+    # n'est nécessairement devant l'écran au moment où le travail commencerait.
     if bool(getattr(config, "AGENTIC_REQUIRE_PLAN_APPROVAL", True)):
         if snapshot is None:
             from api.chat_context import prepare_turn
@@ -400,11 +400,13 @@ async def maybe_start_agentic_run(
         None if runtime_setting == "auto" else runtime_setting
     )
     if runtime_id is None:
-        if str(getattr(config, "AGENTIC_RUNTIME_FALLBACK", "disabled")).lower() == "legacy":
+        fallback = str(getattr(config, "AGENTIC_RUNTIME_FALLBACK", "disabled"))
+        if fallback.strip().lower() == "legacy":
             return None
+        # Le cœur ne nomme aucun fournisseur : la preuve de retrait le vérifie.
         return _control_response(
             "Aucun runtime de développement n'est disponible. "
-            "Installez OpenCode ou vérifiez AGENTIC_RUNTIME.",
+            "Installez un plugin d'exécution ou vérifiez AGENTIC_RUNTIME.",
             error_code="runtime_unavailable",
         )
 

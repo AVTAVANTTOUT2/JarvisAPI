@@ -226,6 +226,7 @@ async def test_disabled_runtime_returns_explicit_error_for_delegated_task(
         lambda *_args, **_kwargs: SimpleNamespace(
             category=AgenticRequestCategory.AGENTIC_REVERSIBLE,
             reason="test",
+            blocked_category=None,
         ),
     )
 
@@ -267,6 +268,7 @@ async def test_missing_runtime_returns_explicit_error_instead_of_false_start(
         lambda *_args, **_kwargs: SimpleNamespace(
             category=AgenticRequestCategory.AGENTIC_REVERSIBLE,
             reason="test",
+            blocked_category=None,
         ),
     )
     monkeypatch.setattr(

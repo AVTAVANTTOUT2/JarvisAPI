@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from integrations.opencode.config import RuntimeLayout
-from scripts.diagnose_opencode_pipeline import diagnose, probe_binary
+from integrations.opencode.scripts.diagnose_pipeline import diagnose, probe_binary
 
 
 def _layout(tmp_path: Path) -> RuntimeLayout:
