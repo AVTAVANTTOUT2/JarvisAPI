@@ -25,6 +25,7 @@ from integrations.imessage_import import (
     ReconciliationReport,
     _apple_ts_to_iso,
     _compute_content_hash,
+    normalize_associated_message_guid,
 )
 
 
@@ -114,6 +115,24 @@ class TestContentHash:
         assert isinstance(h, str)
         assert len(h) == 64
         assert all(c in "0123456789abcdef" for c in h)
+
+    def test_different_rowid_different_hash(self):
+        """Un apple_rowid distinct produit un hash distinct."""
+        h1 = _compute_content_hash(10000, 1, "Hello", "guid-1", 1)
+        h2 = _compute_content_hash(10000, 1, "Hello", "guid-1", 2)
+        assert h1 != h2
+
+
+class TestAssociatedMessageGuid:
+    def test_strips_apple_part_prefix(self):
+        assert normalize_associated_message_guid("p:0/ABC-GUID") == "ABC-GUID"
+
+    def test_keeps_bare_guid(self):
+        assert normalize_associated_message_guid("ABC-GUID") == "ABC-GUID"
+
+    def test_empty(self):
+        assert normalize_associated_message_guid("") == ""
+        assert normalize_associated_message_guid(None) == ""
 
 
 # ═══════════════════════════════════════════════════════════
@@ -253,15 +272,19 @@ def _seed_messages(
     for m in messages:
         cur = chat_db.execute(
             """INSERT INTO message
-               (guid, text, handle_id, date, is_from_me, cache_roomnames)
-               VALUES (?, ?, ?, ?, ?, ?)""",
+               (guid, text, attributedBody, handle_id, date, is_from_me,
+                cache_roomnames, associated_message_guid, associated_message_type)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 m["guid"],
-                m["text"],
+                m.get("text"),
+                m.get("attributedBody"),
                 m.get("handle_id"),
                 m.get("date", 0),
                 m.get("is_from_me", 0),
                 m.get("cache_roomnames"),
+                m.get("associated_message_guid"),
+                m.get("associated_message_type", 0),
             ),
         )
         ids.append(cur.lastrowid)
@@ -453,7 +476,7 @@ class TestMessageDedup:
         assert result["skipped"] == 1
 
     def test_same_hash_skipped(self, importer_with_memory_db):
-        """Meme hash → skip meme avec ROWID et GUID differents."""
+        """Un apple_rowid distinct s'importe meme si le hash contenu coincide."""
         importer, chat_db = importer_with_memory_db
         from database import get_db
 
@@ -499,8 +522,11 @@ class TestMessageDedup:
             from_rowid=1,
             to_rowid=1,
         )
-        assert result["imported"] == 0  # skip car hash identique
-        assert result["skipped"] == 1
+        assert result["imported"] == 1
+        with get_db() as conn:
+            assert conn.execute("SELECT COUNT(*) c FROM imessage_messages").fetchone()[
+                "c"
+            ] == 2
 
 
 class TestCursorManagement:
@@ -583,26 +609,39 @@ class TestReconciliation:
                 assert report.ok is True
 
     def test_reconcile_detects_mismatch(self, importer_with_memory_db):
-        """Si jarvis.db a moins de messages que chat.db, ok=False."""
+        """Un ecart de rowids est rattrape : les messages manquants sont importes."""
         importer, chat_db = importer_with_memory_db
 
-        # Ajouter des messages dans chat_db
         hids = _seed_handles(chat_db, [{"id": "+33600000001"}])
         _seed_chats(chat_db, [{"identifier": "+33600000001"}])
         _seed_messages(
             chat_db,
             [
-                {"guid": "g1", "text": "Hello", "handle_id": hids[0], "date": 1},
-                {"guid": "g2", "text": "World", "handle_id": hids[0], "date": 2},
+                {
+                    "guid": "g1",
+                    "text": "Hello",
+                    "handle_id": hids[0],
+                    "date": 1,
+                    "cache_roomnames": "+33600000001",
+                },
+                {
+                    "guid": "g2",
+                    "text": "World",
+                    "handle_id": hids[0],
+                    "date": 2,
+                    "cache_roomnames": "+33600000001",
+                },
             ],
         )
 
         with patch.object(importer, "is_available", return_value=True):
             with patch.object(importer, "_open_chat_db", return_value=chat_db):
-                report = importer.reconcile()
-                assert report.chat_db_messages == 2
-                assert report.jarvis_db_messages == 0
-                assert report.ok is False
+                with patch.object(importer, "_close_chat_db"):
+                    report = importer.reconcile()
+                    assert report.chat_db_messages == 2
+                    assert report.jarvis_db_messages == 2
+                    assert report.missing_imported == 2
+                    assert report.ok is True
 
 
 class TestImportResult:
@@ -622,6 +661,8 @@ class TestImportResult:
         r = ReconciliationReport()
         assert r.ok is False
         assert r.orphan_messages == 0
+        assert r.missing_imported == 0
+        assert r.refreshed == 0
 
 
 class TestImporterLifecycle:
@@ -1003,6 +1044,173 @@ class TestHandleZeroResolution:
             assert row["text"] == "Via chat join"
             assert row["handle"] == "+33600000099"
             assert row["chat_identifier"] == "+33600000099"
+
+
+class TestMessageFidelity:
+    """Fidélité chat.db → jarvis.db : rien n'est jeté, les mises à jour passent."""
+
+    def test_undecodable_attributed_body_is_still_inserted(
+        self, importer_with_memory_db
+    ):
+        importer, chat_db = importer_with_memory_db
+        from database import get_db
+
+        hids = _seed_handles(chat_db, [{"id": "+33600000011", "service": "iMessage"}])
+        _seed_chats(chat_db, [{"identifier": "+33600000011", "style": 0}])
+        handles_map = importer._import_handles(chat_db)
+        chats_map = importer._import_chats(chat_db)
+        blob = b"\x00\x01\x02opaque"
+        mids = _seed_messages(
+            chat_db,
+            [
+                {
+                    "guid": "guid-opaque",
+                    "text": None,
+                    "attributedBody": blob,
+                    "handle_id": hids[0],
+                    "date": 600000000,
+                    "cache_roomnames": "+33600000011",
+                }
+            ],
+        )
+        result = importer._import_message_batch(
+            chat_db, handles_map, chats_map, from_rowid=mids[0], to_rowid=mids[0]
+        )
+        assert result["imported"] == 1
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT text, attributed_body, content_complete FROM imessage_messages WHERE guid = ?",
+                ("guid-opaque",),
+            ).fetchone()
+        assert row is not None
+        assert not (row["text"] or "").strip()
+        assert bytes(row["attributed_body"]) == blob
+        assert int(row["content_complete"]) == 0
+
+    def test_existing_row_date_is_refreshed(self, importer_with_memory_db):
+        importer, chat_db = importer_with_memory_db
+        from database import get_db
+
+        hids = _seed_handles(chat_db, [{"id": "+33600000012", "service": "iMessage"}])
+        _seed_chats(chat_db, [{"identifier": "+33600000012", "style": 0}])
+        handles_map = importer._import_handles(chat_db)
+        chats_map = importer._import_chats(chat_db)
+        mids = _seed_messages(
+            chat_db,
+            [
+                {
+                    "guid": "guid-edit",
+                    "text": "hello",
+                    "handle_id": hids[0],
+                    "date": 100,
+                    "cache_roomnames": "+33600000012",
+                }
+            ],
+        )
+        importer._import_message_batch(
+            chat_db, handles_map, chats_map, from_rowid=mids[0], to_rowid=mids[0]
+        )
+        chat_db.execute("UPDATE message SET date = 999 WHERE ROWID = ?", (mids[0],))
+        result = importer._import_message_batch(
+            chat_db, handles_map, chats_map, from_rowid=mids[0], to_rowid=mids[0]
+        )
+        assert result["updated"] == 1
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT date FROM imessage_messages WHERE guid = 'guid-edit'"
+            ).fetchone()
+        assert int(row["date"]) == 999
+
+    def test_tapback_guid_prefix_is_resolved(self, importer_with_memory_db):
+        importer, chat_db = importer_with_memory_db
+        from database import get_db
+
+        hids = _seed_handles(chat_db, [{"id": "+33600000013", "service": "iMessage"}])
+        _seed_chats(chat_db, [{"identifier": "+33600000013", "style": 0}])
+        handles_map = importer._import_handles(chat_db)
+        chats_map = importer._import_chats(chat_db)
+        target_id = _seed_messages(
+            chat_db,
+            [
+                {
+                    "guid": "target-guid",
+                    "text": "react to me",
+                    "handle_id": hids[0],
+                    "date": 100,
+                    "cache_roomnames": "+33600000013",
+                }
+            ],
+        )[0]
+        importer._import_message_batch(
+            chat_db, handles_map, chats_map, from_rowid=target_id, to_rowid=target_id
+        )
+        _seed_messages(
+            chat_db,
+            [
+                {
+                    "guid": "tapback-guid",
+                    "text": None,
+                    "handle_id": hids[0],
+                    "date": 101,
+                    "associated_message_guid": "p:0/target-guid",
+                    "associated_message_type": 2000,
+                    "cache_roomnames": "+33600000013",
+                }
+            ],
+        )
+        imported = importer._import_reactions(chat_db, handles_map)
+        assert imported["imported"] == 1
+        with get_db() as conn:
+            n = conn.execute("SELECT COUNT(*) c FROM imessage_reactions").fetchone()["c"]
+        assert n == 1
+
+    def test_from_me_tapback_without_handle_is_stored(self, importer_with_memory_db):
+        importer, chat_db = importer_with_memory_db
+        from database import get_db
+
+        hids = _seed_handles(chat_db, [{"id": "+33600000014", "service": "iMessage"}])
+        _seed_chats(chat_db, [{"identifier": "+33600000014", "style": 0}])
+        handles_map = importer._import_handles(chat_db)
+        chats_map = importer._import_chats(chat_db)
+        target_id = _seed_messages(
+            chat_db,
+            [
+                {
+                    "guid": "loved-guid",
+                    "text": "love this",
+                    "handle_id": hids[0],
+                    "date": 100,
+                    "cache_roomnames": "+33600000014",
+                }
+            ],
+        )[0]
+        importer._import_message_batch(
+            chat_db, handles_map, chats_map, from_rowid=target_id, to_rowid=target_id
+        )
+        _seed_messages(
+            chat_db,
+            [
+                {
+                    "guid": "my-tapback",
+                    "text": None,
+                    "handle_id": 0,
+                    "is_from_me": 1,
+                    "date": 101,
+                    "associated_message_guid": "p:0/loved-guid",
+                    "associated_message_type": 2001,
+                }
+            ],
+        )
+        imported = importer._import_reactions(chat_db, handles_map)
+        assert imported["imported"] == 1
+        with get_db() as conn:
+            row = conn.execute(
+                """SELECT r.reaction_type, h.apple_handle_id
+                   FROM imessage_reactions r
+                   JOIN imessage_handles h ON h.id = r.reactor_handle_id"""
+            ).fetchone()
+        assert int(row["reaction_type"]) == 2001
+        assert int(row["apple_handle_id"]) == 0
 
 
 # ── CLI : repli quand le daemon est injoignable ──────────────────
