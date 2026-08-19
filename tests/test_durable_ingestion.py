@@ -1035,3 +1035,86 @@ async def test_calendar_filter_excluding_all_events_preserves_cached_rows(
             ("kept-event",),
         ).fetchone()
     assert row is not None
+
+
+@pytest.mark.asyncio
+async def test_calendar_filter_excluded_all_preserves_source_cursor(
+    ingestion_db: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Un filtre qui exclut tout ne doit pas écraser un sync ok (cursor, item_count)."""
+
+    from database.ingestion import (
+        bind_connector,
+        enqueue_ingestion_job,
+        get_ingestion_source_state,
+    )
+    from integrations import calendar_api
+    from integrations.calendar_api import CalendarQueryResult
+    from jarvis.ingestion.service import run_ingestion_maintenance_once
+
+    class _Calendar:
+        async def get_events_result(self, start: str, end: str) -> CalendarQueryResult:
+            return CalendarQueryResult(
+                status="ok",
+                events=(
+                    {
+                        "uid": "spanning-event",
+                        "title": "Projet Atlas",
+                        "start": start,
+                        "end": end,
+                        "calendar": "Travail",
+                    },
+                ),
+            )
+
+    monkeypatch.setattr(calendar_api, "calendar_client", _Calendar())
+    history_start = datetime.now(timezone.utc) - timedelta(days=30)
+    bind_connector(
+        "calendar",
+        permission_state="granted",
+        consent_source="explicit_test",
+        sync_interval_seconds=15,
+        settings={
+            "history_start_utc": history_start.isoformat(),
+            "backfill_chunk_days": 365,
+        },
+    )
+    await run_ingestion_maintenance_once()
+    ok = get_ingestion_source_state("calendar")
+    assert ok is not None
+    assert ok.status == "idle"
+    assert ok.item_count == 1
+    saved_cursor = dict(ok.cursor)
+    saved_coverage = (ok.coverage_start_utc, ok.coverage_end_utc)
+    assert saved_cursor
+
+    bind_connector(
+        "calendar",
+        permission_state="granted",
+        consent_source="explicit_test",
+        sync_interval_seconds=15,
+        settings={
+            "history_start_utc": history_start.isoformat(),
+            "backfill_chunk_days": 365,
+            "calendar_names": ["Calendrier inexistant"],
+        },
+    )
+    enqueue_ingestion_job(
+        "calendar",
+        job_kind="sync",
+        dedupe_key="sync:filter-all",
+        payload={
+            "from_iso": history_start.isoformat(),
+            "to_iso": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+    await run_ingestion_maintenance_once()
+
+    state = get_ingestion_source_state("calendar")
+    assert state is not None
+    assert state.status == "degraded"
+    assert state.error_code == "calendar_filter_excluded_all"
+    assert state.item_count == 1
+    assert dict(state.cursor) == saved_cursor
+    assert (state.coverage_start_utc, state.coverage_end_utc) == saved_coverage
