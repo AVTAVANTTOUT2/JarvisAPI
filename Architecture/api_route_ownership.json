@@ -63,6 +63,14 @@
       "rationale": "Diagnostic de résolution et synchronisation manuelle du carnet de contacts."
     },
     {
+      "id": "operator-person-history",
+      "owner": "personal-memory",
+      "audience": "operator",
+      "methods": ["GET", "POST"],
+      "paths": ["/api/people/{name}/history", "/api/people/{name}/history/rebuild"],
+      "rationale": "Lecture et reconstruction des chapitres mensuels par personne ; l'UI Contacts ne consomme pas ces routes."
+    },
+    {
       "id": "operator-service-detail",
       "owner": "service-control",
       "audience": "operator",
@@ -333,20 +341,6 @@
         "/api/life-context/{context_id}/close"
       ],
       "rationale": "Administration des périodes de contexte de vie en l'absence d'un écran spécialisé."
-    },
-    {
-      "id": "operator-person-history",
-      "owner": "personal-memory",
-      "audience": "operator",
-      "methods": [
-        "GET",
-        "POST"
-      ],
-      "paths": [
-        "/api/people/{name}/history",
-        "/api/people/{name}/history/rebuild"
-      ],
-      "rationale": "Consultation et reconstruction manuelle des chapitres mensuels par personne, hors écran Contacts dédié."
     },
     {
       "id": "operator-meetings",

@@ -378,8 +378,8 @@ def test_real_repo_smoke_counts_stable() -> None:
         "paths": 283,
         "consumer_and_tested": 144,
         "consumer_without_path_test": 68,
-        "owned_non_frontend_and_tested": 51,
-        "owned_non_frontend_without_path_test": 55,
+        "owned_non_frontend_and_tested": 53,
+        "owned_non_frontend_without_path_test": 53,
     }
     assert api_surface["structure"] == {
         "http_operations": 316,

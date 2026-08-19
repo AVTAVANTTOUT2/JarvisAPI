@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-19T11:41:48.125219+00:00",
+  "generated_at": "2026-08-19T11:51:23.074378+00:00",
   "repo_root": ".",
   "canonical_formulation": {
     "database": "Le projet crée 119 tables persistantes après init_db() + migrations, plus jusqu'à 5 objets FTS5, soit 124 tables physiques lorsque FTS5 est disponible.",
@@ -550,8 +550,8 @@
       "paths": 283,
       "consumer_and_tested": 144,
       "consumer_without_path_test": 68,
-      "owned_non_frontend_and_tested": 51,
-      "owned_non_frontend_without_path_test": 55
+      "owned_non_frontend_and_tested": 53,
+      "owned_non_frontend_without_path_test": 53
     },
     "consumer_surfaces": [
       "android",
@@ -2683,14 +2683,16 @@
         "source": "api/router_people.py",
         "line": 355,
         "consumers": {},
-        "tests": [],
+        "tests": [
+          "tests/test_person_history.py"
+        ],
         "non_frontend_ownership": {
           "rule_id": "operator-person-history",
           "owner": "personal-memory",
           "audience": "operator",
-          "rationale": "Consultation et reconstruction manuelle des chapitres mensuels par personne, hors écran Contacts dédié."
+          "rationale": "Lecture et reconstruction des chapitres mensuels par personne ; l'UI Contacts ne consomme pas ces routes."
         },
-        "classification": "owned_non_frontend_without_path_test"
+        "classification": "owned_non_frontend_and_tested"
       },
       {
         "method": "GET",
@@ -5649,14 +5651,16 @@
         "source": "api/router_people.py",
         "line": 375,
         "consumers": {},
-        "tests": [],
+        "tests": [
+          "tests/test_person_history.py"
+        ],
         "non_frontend_ownership": {
           "rule_id": "operator-person-history",
           "owner": "personal-memory",
           "audience": "operator",
-          "rationale": "Consultation et reconstruction manuelle des chapitres mensuels par personne, hors écran Contacts dédié."
+          "rationale": "Lecture et reconstruction des chapitres mensuels par personne ; l'UI Contacts ne consomme pas ces routes."
         },
-        "classification": "owned_non_frontend_without_path_test"
+        "classification": "owned_non_frontend_and_tested"
       },
       {
         "method": "POST",
