@@ -153,6 +153,17 @@ async def _relationship_analysis_daily_job() -> Any:
     return ok("Analyse relationnelle quotidienne terminée")
 
 
+@tracked("person_history")
+async def _person_history_job() -> Any:
+    """Enfile les chapitres mensuels ; l'écriture reste au worker d'ingestion."""
+    from scripts.person_history import enqueue_person_history
+
+    job = await asyncio.to_thread(enqueue_person_history)
+    if job is None:
+        return skipped("file d'ingestion indisponible")
+    return ok(f"Job {job.id} enfilé")
+
+
 @tracked("relationship_alerts")
 async def _relationship_alerts_job() -> Any:
     if not config.RELATIONSHIP_ALERTS_ENABLED:
@@ -521,6 +532,7 @@ JOB_RUNNERS: dict[str, JobFn] = {
     "evening_summary": scheduled_evening_summary,
     "weekly_summary": scheduled_weekly_summary,
     "relationship_analysis_daily": _relationship_analysis_daily_job,
+    "person_history": _person_history_job,
     "db_backup": _db_backup_job,
     "db_maintenance": _db_maintenance_job,
     "llm_budget": _llm_budget_job,
@@ -620,6 +632,12 @@ def setup_scheduler() -> None:
         _relationship_analysis_daily_job,
         CronTrigger(hour=3, minute=0),
         id="relationship_analysis_daily",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        _person_history_job,
+        CronTrigger(hour=3, minute=30),
+        id="person_history",
         replace_existing=True,
     )
     scheduler.add_job(

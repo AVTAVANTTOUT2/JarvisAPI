@@ -891,6 +891,9 @@ def _register_builtin_handlers() -> None:
     register_ingestion_handler("mail", "hydrate", _mail_hydrate, replace=True)
     register_ingestion_handler("imessage", "sync", _imessage_sync, replace=True)
     register_ingestion_handler("calendar", "sync", _calendar_sync, replace=True)
+    from scripts.person_history import register_person_history_handler
+
+    register_person_history_handler()
 
 
 async def _invoke_handler(

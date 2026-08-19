@@ -495,6 +495,33 @@ CREATE TABLE IF NOT EXISTS relationship_events (
 CREATE INDEX IF NOT EXISTS idx_relevents_person ON relationship_events(person_id);
 CREATE INDEX IF NOT EXISTS idx_relevents_date ON relationship_events(event_date);
 
+CREATE TABLE IF NOT EXISTS person_month_chapters (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+    year_month TEXT NOT NULL CHECK(year_month GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]'),
+    period_start_utc TEXT NOT NULL,
+    period_end_utc TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('empty', 'partial', 'complete')),
+    message_count INTEGER NOT NULL DEFAULT 0,
+    sent_count INTEGER NOT NULL DEFAULT 0,
+    recv_count INTEGER NOT NULL DEFAULT 0,
+    highlights_json TEXT NOT NULL DEFAULT '[]',
+    narrative TEXT NOT NULL DEFAULT '',
+    mood_arc TEXT NOT NULL DEFAULT '',
+    source_rowid_min INTEGER,
+    source_rowid_max INTEGER,
+    content_hash TEXT NOT NULL DEFAULT '',
+    model TEXT,
+    tokens_in INTEGER NOT NULL DEFAULT 0,
+    tokens_out INTEGER NOT NULL DEFAULT 0,
+    cost REAL NOT NULL DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(person_id, year_month)
+);
+CREATE INDEX IF NOT EXISTS idx_person_month_chapters_person
+    ON person_month_chapters(person_id, year_month);
+
 CREATE TABLE IF NOT EXISTS cross_insights (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     insight_type TEXT,
@@ -621,6 +648,7 @@ CREATE TABLE IF NOT EXISTS imessage_analysis_cache (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     handle TEXT NOT NULL,
     last_analyzed_rowid INTEGER DEFAULT 0,
+    last_extracted_rowid INTEGER NOT NULL DEFAULT 0,
     last_analyzed_at DATETIME,
     total_messages_analyzed INTEGER DEFAULT 0
 );

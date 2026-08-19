@@ -352,6 +352,41 @@ async def api_people_upsert(payload: PersonCreateRequest):
     return get_person(name) or {"id": person_id, "name": name}
 
 
+@router.get("/api/people/{name}/history")
+async def api_people_history(
+    name: str, from_month: str | None = None, to_month: str | None = None
+):
+    """Chapitres mensuels déjà distillés pour une personne — lecture seule."""
+    decoded = _decode_person_path(name)
+    person = get_person(decoded) or get_person(name.strip())
+    if not person:
+        raise HTTPException(404, f"Personne inconnue : {decoded}")
+    from database.person_history import list_chapters
+
+    try:
+        chapters = list_chapters(
+            int(person["id"]), from_month=from_month, to_month=to_month
+        )
+    except ValueError:
+        raise HTTPException(400, "bornes year_month invalides") from None
+    return {"person": person["name"], "chapters": chapters}
+
+
+@router.post("/api/people/{name}/history/rebuild", status_code=202)
+async def api_people_history_rebuild(name: str):
+    """Enfile un job d'ingestion pour reconstruire les mois manquants."""
+    decoded = _decode_person_path(name)
+    person = get_person(decoded) or get_person(name.strip())
+    if not person:
+        raise HTTPException(404, f"Personne inconnue : {decoded}")
+    from scripts.person_history import enqueue_person_history
+
+    job = enqueue_person_history(person_id=int(person["id"]))
+    if job is None:
+        raise HTTPException(503, "file d'ingestion indisponible")
+    return {"job_id": job.id, "status": "queued"}
+
+
 
 router.add_api_route(
     "/api/people/{name}/ask",

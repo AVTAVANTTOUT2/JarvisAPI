@@ -137,6 +137,19 @@ def utc_bounds_for_local_dates(
     )
 
 
+def utc_bounds_for_local_month(year: int, month: int) -> tuple[str, str]:
+    """Bornes UTC exclusives d'un mois civil dans ``TIMEZONE``."""
+
+    if month < 1 or month > 12:
+        raise ValueError("month_out_of_range")
+    start = date(int(year), int(month), 1)
+    if month == 12:
+        end = date(int(year) + 1, 1, 1)
+    else:
+        end = date(int(year), int(month) + 1, 1)
+    return utc_bounds_for_local_dates(start, end)
+
+
 def utc_bounds_for_local_day(value: date | str) -> tuple[str, str]:
     """Retourne les bornes UTC exclusives d'une journée civile locale."""
     local_day = date.fromisoformat(value) if isinstance(value, str) else value
