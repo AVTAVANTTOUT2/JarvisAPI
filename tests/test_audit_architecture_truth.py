@@ -358,12 +358,12 @@ def test_check_mode_rejects_a_stale_report(fake_repo: Path, tmp_path: Path) -> N
 def test_real_repo_smoke_counts_stable() -> None:
     """Garde-fou : le dépôt réel produit les comptages attendus (code only)."""
     tables = audit.analyze_tables(ROOT)
-    assert tables["counts"]["schema_sql_applicatives"] == 125
+    assert tables["counts"]["schema_sql_applicatives"] == 126
     # Le versionnement, l'historique des métriques et le registre de profils
     # sont tous inclus dans ces comptages cumulés.
-    assert tables["counts"]["schema_py"] == 81
-    assert tables["counts"]["persistantes_post_init"] == 118
-    assert tables["counts"]["physiques_max_default_fts_on"] == 123
+    assert tables["counts"]["schema_py"] == 82
+    assert tables["counts"]["persistantes_post_init"] == 119
+    assert tables["counts"]["physiques_max_default_fts_on"] == 124
     assert tables["init_pipeline"]["does_not_execute_schema_sql"] is True
 
     resolution = audit.analyze_frontend_resolution(ROOT)
@@ -374,29 +374,29 @@ def test_real_repo_smoke_counts_stable() -> None:
 
     api_surface = audit.analyze_api_surface(ROOT)
     assert api_surface["counts"] == {
-        "operations": 316,
-        "paths": 281,
+        "operations": 318,
+        "paths": 283,
         "consumer_and_tested": 144,
         "consumer_without_path_test": 68,
         "owned_non_frontend_and_tested": 51,
-        "owned_non_frontend_without_path_test": 53,
+        "owned_non_frontend_without_path_test": 55,
     }
     assert api_surface["structure"] == {
-        "http_operations": 314,
+        "http_operations": 316,
         "websocket_operations": 2,
-        "openapi_paths": 279,
+        "openapi_paths": 281,
         "domain_router_modules": 22,
         "mounted_routers": 23,
         "main_lines": 269,
     }
-    assert api_surface["ownership_policy"]["rules"] == 39
+    assert api_surface["ownership_policy"]["rules"] == 40
     assert api_surface["ownership_policy"]["findings"] == []
 
 
 def test_generated_runtime_schema_replays_a_fresh_database() -> None:
     schema = audit.render_runtime_schema(ROOT)
     assert schema.startswith("-- GENERATED FILE — DO NOT EDIT.")
-    assert len(audit._extract_create_tables(schema)) == 125
+    assert len(audit._extract_create_tables(schema)) == 126
 
     conn = sqlite3.connect(":memory:")
     try:
@@ -407,7 +407,7 @@ def test_generated_runtime_schema_replays_a_fresh_database() -> None:
             """).fetchone()[0]
     finally:
         conn.close()
-    assert table_count == 133
+    assert table_count == 134
 
 
 def test_versioned_architecture_artifacts_match_runtime() -> None:
