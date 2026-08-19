@@ -17,9 +17,9 @@ from jarvis.agentic import (
     get_agentic_service,
     select_capability_profile,
 )
+from jarvis.agentic.classifier import DELEGATED_CATEGORIES as _DELEGATED_CATEGORIES
 from jarvis.agentic.desktop_workspace import resolve_desktop_workspace
 from jarvis.agentic.models import (
-    AgenticRequestCategory,
     ApprovalDecision,
     normalize_agentic_client_context,
 )
@@ -31,16 +31,6 @@ logger = logging.getLogger(__name__)
 
 _UUID_PATTERN = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}"
 _APPROVAL_ID_PATTERN = r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}"
-
-_DELEGATED_CATEGORIES = frozenset(
-    {
-        AgenticRequestCategory.WORKFLOW,
-        AgenticRequestCategory.AGENTIC_READONLY,
-        AgenticRequestCategory.AGENTIC_REVERSIBLE,
-        AgenticRequestCategory.AGENTIC_EXTERNAL_EFFECT,
-        AgenticRequestCategory.AGENTIC_HIGH_RISK,
-    }
-)
 
 
 def _strip_explicit_command(text: str) -> tuple[str, bool]:
@@ -333,6 +323,19 @@ async def maybe_start_agentic_run(
         adaptive=explicit or cognitive_agentic,
         requires_multiple_steps=True if explicit else None,
     )
+    if classification.blocked_category is not None:
+        # Élévation refusée par la demande elle-même : ni tâche, ni run, ni
+        # réponse inventée. Le même verdict sur chat, voix, iMessage et API,
+        # puisque tous les canaux passent par ici.
+        from api.agentic_planning import constraint_blocked_response
+
+        return constraint_blocked_response(
+            classification,
+            conversation_id,
+            voice_mode=voice_mode,
+            persist_assistant=persist_assistant,
+            save_message_fn=save_message,
+        )
     if classification.category not in _DELEGATED_CATEGORIES:
         return None
     if runtime_setting == "disabled":
@@ -484,6 +487,7 @@ async def maybe_start_agentic_run(
             "category": classification.category.value,
             "reason": classification.reason,
             "capability_profile": capability_profile.profile_id,
+            "constraints": classification.constraints.public_payload(),
         },
         "knowledge": snapshot.public_payload(),
     }

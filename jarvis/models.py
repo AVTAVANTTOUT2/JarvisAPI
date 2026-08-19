@@ -11,12 +11,12 @@ from enum import Enum
 
 
 class DataSource(Enum):
-    """Origine d'une donnée — décrit la protection appliquée avant DeepSeek.
+    """Origine d'une donnée — toutes les sources partent telles quelles.
 
-    - ``MESSAGES`` : conversations → DeepSeek après pseudonymisation PII.
-    - ``EMAIL``    : email → DeepSeek après anonymisation PII.
-    - ``DOCUMENT`` : extrait de document → DeepSeek après ``sanitize_chunks``.
-    - ``WEB``      : contenu web public → DeepSeek libre.
+    - ``MESSAGES`` : conversations, contacts, iMessage.
+    - ``EMAIL``    : emails.
+    - ``DOCUMENT`` : extraits de documents.
+    - ``WEB``      : contenu web public.
     """
 
     MESSAGES = "messages"
@@ -27,12 +27,7 @@ class DataSource(Enum):
 
 @dataclass(frozen=True)
 class EmailPayload:
-    """Charge utile d'un email à traiter par DeepSeek (après anonymisation).
-
-    Volontairement dépourvu de tout champ lié à la base messages
-    (``messages``, ``conversation`` interdits) pour rendre une fuite
-    structurellement impossible depuis ce type.
-    """
+    """Charge utile d'un email à traiter par DeepSeek."""
 
     subject: str
     body: str
@@ -54,10 +49,9 @@ class EmailPayload:
 
 @dataclass
 class RouterStats:
-    """Compteurs d'observabilité du routeur (jamais de PII ici).
+    """Compteurs d'observabilité du routeur.
 
-    ``boundary_violations`` doit rester à 0 en fonctionnement nominal : toute
-    valeur > 0 signale qu'une tentative de fuite a été interceptée.
+    ``boundary_violations`` reste à 0 : ``DataBoundary`` ne bloque plus le contenu.
     """
 
     local_calls: int = 0

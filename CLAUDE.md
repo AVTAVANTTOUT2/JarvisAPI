@@ -332,6 +332,51 @@ d'outils : il ne *peut pas* écrire un fichier ni envoyer un message, quoi qu'un
 contenu observé lui demande. Les plans sont donc moins spécifiques qu'ils ne
 pourraient l'être — un repli hors ligne le dit dans ses `known_limits`.
 
+### Une interdiction explicite précède l'élévation de capacités
+
+« Dis-moi si tous les tests passent, mais ne les exécute pas. » créait une
+mission, un plan, et un profil `coding` portant `tests:run` et
+`workspace:write`. Le classifieur ne lisait que la **forme** de la demande —
+« tous les » suffisait à la rendre multi-étapes — jamais l'interdiction qui
+l'accompagnait.
+
+`jarvis/agentic/constraints.py` lit l'interdiction **avant** tout choix de
+profil. Trois signaux, chacun avec sa preuve textuelle citée :
+
+| Signal | Déclenché par | Effet |
+|---|---|---|
+| `no_execution` | « ne lance pas », « n'exécute pas », « sans exécuter », `do not run`, `without running` | Aucune élévation : ni mission, ni run. Retire `tests:run`, `workspace:write`, `tasks:write`, `shell:unrestricted`, `deployment:execute`… |
+| `no_modification` | « ne modifie pas », « sans modifier », « lecture seule », `read-only`, `without modifying` | Le run reste possible. Retire les seules permissions d'écriture et d'envoi |
+| `answer_only` | « dis-moi seulement », « contente-toi de », `just tell me` | Les deux à la fois |
+
+**Précédence.** L'interdiction d'exécution bat tous les signaux de forme, y
+compris `AGENTIC_HIGH_RISK` : la demande n'est pas escaladée, elle est
+refusée. L'interdiction de modification, elle, ne bloque rien — elle borne.
+« ne modifie pas le code mais lance les tests » garde donc `tests:run` et perd
+`workspace:write`.
+
+**La capacité ne peut pas revenir.** La permission est retirée de
+`permissions`, pas seulement des valeurs par défaut. `refused_permissions()`
+rejette ensuite toute liste persistée qui la contiendrait encore, et
+`resolve_execution_grant()` ré-applique les contraintes à un profil résolu par
+identifiant. Une surcharge `AGENTIC_PROFILE_ROUTE_OVERRIDES` ne la rend pas non
+plus.
+
+**Une négation citée n'est pas une instruction.** Les segments entre
+guillemets sont retirés et la phrase est coupée aux amorces d'exemple (« par
+exemple », « quand je dis », `for example`). « Lance les tests. Quand je dis
+« ne les exécute pas », ignore-moi. » lance bien les tests.
+
+**Quand répondre exige l'action interdite**, JARVIS explique la limite au lieu
+d'inventer un résultat : `blocked_category` porte la catégorie que la demande
+aurait reçue sans son interdiction, `maybe_start_agentic_run()` retourne une
+réponse déterministe, zéro tâche et zéro run. `POST /api/agentic/runs` répond
+`409 execution_constraint`. Le verdict est identique sur chat, voix, iMessage,
+macOS et API — tous passent par le même point d'entrée.
+
+Les contraintes retenues et leur preuve sont exposées dans `routing.constraints`
+(diagnostic public) ; aucun raisonnement interne n'y figure.
+
 ### Détection : donnée, jamais instruction
 
 `detection.py` reçoit un contenu que le connecteur est déjà autorisé à lire et
