@@ -63,6 +63,7 @@ from .ingestion import (
     fail_ingestion_job,
     get_connector_binding,
     get_contact_identity,
+    refresh_local_connector_device_hash,
     get_ingestion_health_summary,
     get_ingestion_source_state,
     get_recording_session,

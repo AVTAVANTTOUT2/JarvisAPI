@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Daemon iMessage — seul processus autorise a ouvrir chat.db.
+"""Daemon iMessage — diagnostic HTTP local (n'importe plus en H24).
 
-Execute sous launchd (herite des permissions TCC de la session login).
-Expose une API HTTP locale (127.0.0.1 uniquement) pour tous les composants
-JARVIS (Cursor, PWA, API, scripts CLI).
+L'import incrémental appartient à ``com.jarvis.ingestion``. Ce process reste
+un outil opérateur (status, doctor, import/sync manuels).
 
 Endpoints :
   GET  /health           — health check (+ verification chat.db)
@@ -323,23 +322,6 @@ class DaemonServer(HTTPServer):
     daemon_threads = True
 
 
-def _auto_sync_loop(interval: int) -> None:
-    """Sync incrémentale H24 — ``IIMPORT_SYNC_INTERVAL`` n'était jamais câblé."""
-    # Laisse le démarrage HTTP et le health check se stabiliser.
-    time.sleep(min(30, max(5, interval // 10)))
-    while True:
-        try:
-            ok, err = _check_access()
-            state.health_ok = ok
-            state.health_error = err if not ok else ""
-            state.last_health_check = datetime.now(timezone.utc)
-            if ok and _try_claim_operation("Sync H24..."):
-                _sync_bg()
-        except Exception:
-            logger.exception("[daemon] auto-sync")
-        time.sleep(max(60, int(interval)))
-
-
 def run_daemon(port: int = DEFAULT_PORT) -> None:
     init_db()
     ok, err = _check_access()
@@ -353,14 +335,7 @@ def run_daemon(port: int = DEFAULT_PORT) -> None:
     state.last_health_check = datetime.now(timezone.utc)
 
     threading.Thread(target=_watchdog, args=(60,), daemon=True, name="watchdog").start()
-    sync_interval = int(getattr(cfg, "IIMPORT_SYNC_INTERVAL", 300) or 300)
-    threading.Thread(
-        target=_auto_sync_loop,
-        args=(sync_interval,),
-        daemon=True,
-        name="auto-sync",
-    ).start()
-    logger.info("[daemon] Auto-sync H24 toutes les %ds", sync_interval)
+    logger.info("[daemon] Auto-sync H24 retiré — propriétaire : com.jarvis.ingestion")
 
     server = DaemonServer((BIND_ADDRESS, port), Handler)
     logger.info("[daemon] %s:%s PID=%d", BIND_ADDRESS, port, os.getpid())

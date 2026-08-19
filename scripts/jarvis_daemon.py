@@ -38,7 +38,6 @@ from jarvis.security.llm_data_boundary import (
     UNTRUSTED_DATA_SYSTEM_RULE,
     wrap_untrusted_data,
 )
-from integrations.apple_data import apple_data
 from scripts.screen_watcher import normalize_screen_notable, screen_watcher
 
 logger = logging.getLogger(__name__)
@@ -323,7 +322,9 @@ class JarvisDaemon:
             )
 
             last_rowid = get_consumer_cursor(self.imessage_cursor_name)
-            rows = apple_data.get_new_messages(last_rowid, limit=50, incoming_only=True)
+            rows = imessage_reader.get_new_messages(
+                last_rowid, limit=50, incoming_only=True
+            )
         except Exception as e:
             logger.warning("[daemon] iMessage scan : %s", e)
             return

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import sqlite3
 
 import database
 import pytest
@@ -16,21 +15,72 @@ from integrations.imessage_cursor import (
 from integrations.imessage_reader import IMessageReader
 
 
-def _create_cursor_table(db_path) -> None:
-    database.DB_PATH = db_path
-    with database.get_db() as conn:
+def _init_mirror(db_path, monkeypatch) -> None:
+    monkeypatch.setattr(database, "DB_PATH", db_path)
+    monkeypatch.setattr("config.DB_PATH", str(db_path))
+    from database import init_db
+
+    init_db()
+
+
+def _insert_message(
+    *,
+    apple_rowid: int,
+    text: str,
+    handle: str = "+33600000000",
+    is_from_me: int = 0,
+    display_name: str = "",
+    guid: str | None = None,
+) -> None:
+    from database import get_db
+
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT id FROM imessage_handles WHERE handle = ?", (handle,)
+        ).fetchone()
+        if row:
+            handle_id = int(row["id"])
+        else:
+            conn.execute(
+                """INSERT INTO imessage_handles
+                   (apple_handle_id, handle, display_name)
+                   VALUES (?, ?, ?)""",
+                (apple_rowid, handle, display_name),
+            )
+            handle_id = int(
+                conn.execute(
+                    "SELECT id FROM imessage_handles WHERE handle = ?",
+                    (handle,),
+                ).fetchone()["id"]
+            )
         conn.execute(
-            """CREATE TABLE imessage_consumer_cursors (
-                consumer TEXT PRIMARY KEY,
-                last_apple_rowid INTEGER NOT NULL DEFAULT 0,
-                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-            )"""
+            """INSERT INTO imessage_messages
+               (apple_rowid, guid, handle_id, text, date, is_from_me)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (
+                apple_rowid,
+                guid or f"guid-{apple_rowid}",
+                handle_id,
+                text,
+                700_000_000 + apple_rowid,
+                is_from_me,
+            ),
         )
 
 
 def test_consumer_offsets_are_independent_and_monotone(tmp_path, monkeypatch):
     monkeypatch.setattr(database, "DB_PATH", tmp_path / "jarvis.db")
-    _create_cursor_table(database.DB_PATH)
+    from database import get_db, init_db
+
+    init_db()
+    with get_db() as conn:
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS imessage_consumer_cursors (
+                consumer TEXT PRIMARY KEY,
+                last_apple_rowid INTEGER NOT NULL DEFAULT 0,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )"""
+        )
 
     assert initialize_consumer_cursor("reader", 10) == 10
     assert initialize_consumer_cursor("reader", 99) == 10
@@ -42,27 +92,18 @@ def test_consumer_offsets_are_independent_and_monotone(tmp_path, monkeypatch):
 
 def test_reader_cursor_survives_reader_restart(tmp_path, monkeypatch):
     jarvis_db = tmp_path / "jarvis.db"
-    monkeypatch.setattr(database, "DB_PATH", jarvis_db)
-    _create_cursor_table(jarvis_db)
-
-    chat_db = tmp_path / "chat.db"
-    with sqlite3.connect(chat_db) as conn:
-        conn.execute("CREATE TABLE message (text TEXT)")
-        conn.executemany("INSERT INTO message(text) VALUES (?)", [("a",), ("b",)])
+    _init_mirror(jarvis_db, monkeypatch)
+    _insert_message(apple_rowid=1, text="a")
+    _insert_message(apple_rowid=2, text="b")
 
     reader = IMessageReader()
-    reader.db_path = chat_db
-    reader._available = True
     assert reader.scan_new_messages_with_last_id() == (0, 2)
 
-    with sqlite3.connect(chat_db) as conn:
-        conn.execute("INSERT INTO message(text) VALUES ('c')")
+    _insert_message(apple_rowid=3, text="c")
 
     assert reader.scan_new_messages_with_last_id() == (1, 3)
 
     restarted = IMessageReader()
-    restarted.db_path = chat_db
-    restarted._available = True
     assert restarted.scan_new_messages_with_last_id() == (0, 3)
 
 
@@ -77,12 +118,6 @@ async def test_intelligence_uses_apple_rows_not_jarvis_message_ids(monkeypatch):
         }
     ]
 
-    class AppleStub:
-        def get_new_messages(self, since_rowid: int, *, limit: int):
-            assert since_rowid == 41
-            assert limit == 100
-            return messages
-
     captured = {}
 
     async def fake_analyze(raw_messages, *, since_id, source):
@@ -95,7 +130,11 @@ async def test_intelligence_uses_apple_rows_not_jarvis_message_ids(monkeypatch):
 
     import jarvis.message_intelligence as intelligence
 
-    monkeypatch.setattr(reader_module, "apple_data", AppleStub())
+    monkeypatch.setattr(
+        reader_module.imessage_reader,
+        "get_new_messages",
+        lambda since_rowid, limit=100, **_k: messages,
+    )
     monkeypatch.setattr(intelligence, "analyze_message_batch", fake_analyze)
 
     ok = await reader_module._trigger_message_intelligence(since_rowid=41)
@@ -114,7 +153,10 @@ async def test_periodic_path_advances_cursor_only_after_intelligence_ok(
 ):
     jarvis_db = tmp_path / "jarvis.db"
     monkeypatch.setattr(database, "DB_PATH", jarvis_db)
-    _create_cursor_table(jarvis_db)
+    from database import init_db
+
+    init_db()
+    initialize_consumer_cursor("reader.intelligence", 10)
 
     messages = [
         {
@@ -124,18 +166,6 @@ async def test_periodic_path_advances_cursor_only_after_intelligence_ok(
             "handle": "+33600000000",
         }
     ]
-    initialize_consumer_cursor("reader.intelligence", 10)
-
-    class AppleStub:
-        def is_available(self) -> bool:
-            return True
-
-        def get_max_rowid(self) -> int:
-            return 11
-
-        def get_new_messages(self, since_rowid: int, limit: int = 100, **_kwargs):
-            assert since_rowid == 10
-            return messages
 
     async def fail_analyze(*_a, **_k):
         return {"status": "error"}
@@ -144,8 +174,9 @@ async def test_periodic_path_advances_cursor_only_after_intelligence_ok(
 
     reader = IMessageReader()
     reader.cursor_name = "reader.intelligence"
-    reader._apple_data = AppleStub()
     reader._available = True
+    reader.get_max_rowid = lambda: 11  # type: ignore[method-assign]
+    reader.get_new_messages = lambda since_rowid, **_k: messages  # type: ignore[method-assign]
     monkeypatch.setattr(intelligence, "analyze_message_batch", fail_analyze)
     monkeypatch.setattr(reader, "sync_knowledge_mirror", lambda: {"status": "ok"})
 
@@ -180,8 +211,14 @@ async def test_daemon_still_scans_when_bridge_running_for_other_contacts(
         running = True
         target = "+33611111111"
 
-    class AppleStub:
-        def get_new_messages(self, since_rowid, limit=50, incoming_only=False):
+    class ReaderStub:
+        @staticmethod
+        def is_available() -> bool:
+            return True
+
+        @staticmethod
+        def get_new_messages(since_rowid, limit=50, incoming_only=False, **_k):
+            del incoming_only, limit
             return [
                 {
                     "rowid": since_rowid + 1,
@@ -207,9 +244,8 @@ async def test_daemon_still_scans_when_bridge_running_for_other_contacts(
     monkeypatch.setattr("integrations.imessage.imessage_bridge", Bridge())
     monkeypatch.setattr(
         "integrations.imessage_reader.imessage_reader",
-        type("R", (), {"is_available": staticmethod(lambda: True)})(),
+        ReaderStub(),
     )
-    monkeypatch.setattr("scripts.jarvis_daemon.apple_data", AppleStub())
     monkeypatch.setattr("scripts.jarvis_daemon.notification_service", Notif)
     monkeypatch.setattr(
         "integrations.imessage_cursor.get_consumer_cursor", lambda _n: 100

@@ -240,15 +240,13 @@ async def test_calendar_failure_keeps_cached_window(live_source_db, monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_imessage_refresh_runs_incremental_sync(live_source_db, monkeypatch):
+async def test_imessage_refresh_does_not_run_incremental_sync(
+    live_source_db, monkeypatch
+):
     from jarvis.retrieval import RetrievalRequest
     from jarvis.retrieval.live_sources import refresh_live_sources
 
     calls = []
-
-    class ImportResult:
-        total_messages = 3
-        errors: list = []
 
     class Importer:
         def is_available(self) -> bool:
@@ -256,7 +254,7 @@ async def test_imessage_refresh_runs_incremental_sync(live_source_db, monkeypatc
 
         def sync_incremental(self):
             calls.append("sync")
-            return ImportResult()
+            raise AssertionError("retrieval must not open chat.db")
 
     monkeypatch.setattr(
         "integrations.imessage_import.IMessageImporter",
@@ -267,4 +265,4 @@ async def test_imessage_refresh_runs_incremental_sync(live_source_db, monkeypatc
         RetrievalRequest(query="qu'est-ce que Grégoire m'a écrit en message ?")
     )
     assert report == {"imessage": "ok"}
-    assert calls == ["sync"]
+    assert calls == []

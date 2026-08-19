@@ -707,6 +707,70 @@ async def test_imessage_reconciliation_failure_is_degraded_not_success(
     assert result.cursor["full_history"] is False
 
 
+@pytest.mark.asyncio
+async def test_imessage_sync_already_running_is_not_a_coverage_failure(
+    ingestion_db: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    from database.ingestion import bind_connector
+    from integrations import imessage_import as imessage_module
+    from jarvis.ingestion.service import _imessage_sync
+
+    class _Importer:
+        @staticmethod
+        def is_available() -> bool:
+            return True
+
+        @staticmethod
+        def sync_incremental() -> SimpleNamespace:
+            return SimpleNamespace(
+                reconciliation={},
+                total_failed=0,
+                errors=["sync_already_running"],
+            )
+
+        @staticmethod
+        def reconcile_deleted_messages() -> int:
+            raise AssertionError("busy sync must not reconcile")
+
+    monkeypatch.setattr(imessage_module, "imessage_importer", _Importer())
+    binding = bind_connector(
+        "imessage", permission_state="granted", consent_source="explicit_test"
+    )
+    result = await _imessage_sync(None, binding, None)  # type: ignore[arg-type]
+    assert result.status == "ok"
+    assert result.error_code is None
+
+
+def test_refresh_device_hash_keeps_granted_imessage_binding(
+    ingestion_db: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from database.ingestion import (
+        bind_connector,
+        get_connector_binding,
+        refresh_local_connector_device_hash,
+    )
+
+    monkeypatch.setattr("database.ingestion.socket.gethostname", lambda: "old-host")
+    bind_connector(
+        "imessage",
+        permission_state="granted",
+        consent_source="explicit_test",
+    )
+    assert get_connector_binding("imessage") is not None
+
+    monkeypatch.setattr("database.ingestion.socket.gethostname", lambda: "new-host")
+    assert get_connector_binding("imessage") is None
+
+    refreshed = refresh_local_connector_device_hash("imessage")
+    assert refreshed is not None
+    assert refreshed.permission_state == "granted"
+    assert get_connector_binding("imessage") is not None
+
+
 def test_imessage_failed_rowid_is_retried_before_cursor_advances(
     ingestion_db: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -802,7 +866,7 @@ def test_imessage_persists_true_utc_date_and_contact_identity(
             associated_message_guid=None,
             associated_message_type=0,
         )
-        assert inserted is True
+        assert inserted == "inserted"
     with get_db() as conn:
         row = conn.execute(
             """

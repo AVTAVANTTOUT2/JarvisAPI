@@ -1,14 +1,12 @@
 """Moteur d'import iMessage — importe chat.db dans jarvis.db.
 
-Import idempotent, incremental, avec triple cle de deduplication :
-  1. apple_rowid (message.ROWID de chat.db)
-  2. guid (identifiant Apple du message)
-  3. content_hash (SHA256 de date+handle+text+guid)
+Import idempotent, incremental, avec deduplication par apple_rowid puis guid.
+content_hash inclut apple_rowid : deux lignes distinctes ne se masquent pas.
 
 Architecture :
   - Import initial : lit tout chat.db par batches, importe handles → chats → messages → attachments → reactions
   - Sync incrementale : repart du curseur imessage_sync_cursor, ne lit que ROWID > last_apple_rowid
-  - Reconciliation : audit post-import, detection/correction des incohérences
+  - Reconciliation : réparation — rowids importables manquants, dates périmées, tapbacks
 """
 
 from __future__ import annotations
@@ -22,7 +20,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
 
 import config
 from database import (
@@ -39,8 +37,23 @@ from integrations.apple_data import (
 )
 from integrations.imessage_body import message_text_from_row
 
-# Une seule sync à la fois (daemon HTTP + periodic_scan + retrieval live).
+_ASSOCIATED_GUID_PREFIX = ("p:", "P:")
+
+
+def normalize_associated_message_guid(guid: str | None) -> str:
+    """Retire le préfixe Apple ``p:0/<guid>`` des tapbacks."""
+    value = str(guid or "").strip()
+    if not value:
+        return ""
+    if "/" in value and value[:2] in _ASSOCIATED_GUID_PREFIX:
+        return value.rsplit("/", 1)[-1].strip()
+    return value
+
+# Une seule sync à la fois (worker d'ingestion + diagnostic HTTP).
+# Un event pendant le lock pose un dirty flag plutôt que d'être jeté.
 _SYNC_LOCK = threading.Lock()
+_DIRTY = threading.Event()
+_MAX_DIRTY_LOOPS = 8
 _AVAILABILITY_FAILURE_COOLDOWN = 30.0
 
 
@@ -60,8 +73,43 @@ def _try_acquire_process_sync_lock():
         return None
 
 
-def _message_batch_sql(conn: sqlite3.Connection) -> str:
-    """Construit la lecture compatible avec plusieurs générations de chat.db."""
+def _skipped_already_running() -> ImportResult:
+    skipped = ImportResult(mode="incremental")
+    skipped.errors.append("sync_already_running")
+    return skipped
+
+
+def _requeue_dirty_sync() -> None:
+    """Le cycle courant n'a pas tout vu : un job d'ingestion reprendra."""
+
+    try:
+        from database.ingestion import ConnectorBindingRequired, enqueue_ingestion_job
+
+        enqueue_ingestion_job("imessage", job_kind="sync", dedupe_key="sync:dirty")
+    except ConnectorBindingRequired:
+        logger.info("[imessage_import] cycle dirty, connecteur non lié")
+    except Exception:
+        logger.exception("[imessage_import] réenfilement dirty impossible")
+
+
+def _merge_incremental_results(acc: ImportResult, nxt: ImportResult) -> ImportResult:
+    acc.total_messages += nxt.total_messages
+    acc.total_skipped += nxt.total_skipped
+    acc.total_failed += nxt.total_failed
+    acc.total_handles += nxt.total_handles
+    acc.total_chats += nxt.total_chats
+    acc.total_attachments += nxt.total_attachments
+    acc.total_reactions += nxt.total_reactions
+    acc.errors.extend(nxt.errors)
+    if nxt.reconciliation:
+        acc.reconciliation = nxt.reconciliation
+    acc.duration_seconds += nxt.duration_seconds
+    acc.completed_at = nxt.completed_at or acc.completed_at
+    return acc
+
+
+def _chat_message_sql_parts(conn: sqlite3.Connection) -> dict[str, str]:
+    """Fragments SQL partagés : lecture batch et inventaire léger (sans BLOB)."""
     tables = {
         str(row["name"] if isinstance(row, sqlite3.Row) else row[0])
         for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
@@ -75,7 +123,13 @@ def _message_batch_sql(conn: sqlite3.Connection) -> str:
     has_handle_join = has_chat_join and "chat_handle_join" in tables
     has_attachment_join = "message_attachment_join" in tables
 
-    attributed_body = "m.attributedBody" if has_body else "NULL AS attributedBody"
+    body_filter = " OR m.attributedBody IS NOT NULL" if has_body else ""
+    attachment_filter = (
+        " OR EXISTS(SELECT 1 FROM message_attachment_join maj "
+        "WHERE maj.message_id = m.ROWID)"
+        if has_attachment_join
+        else ""
+    )
     resolved_handle = "m.handle_id"
     if has_handle_join:
         resolved_handle = """CASE
@@ -104,24 +158,30 @@ def _message_batch_sql(conn: sqlite3.Connection) -> str:
                )
            )"""
 
-    body_filter = " OR m.attributedBody IS NOT NULL" if has_body else ""
-    attachment_filter = (
-        " OR EXISTS(SELECT 1 FROM message_attachment_join maj "
-        "WHERE maj.message_id = m.ROWID)"
-        if has_attachment_join
-        else ""
-    )
-    has_attachment = (
-        "EXISTS(SELECT 1 FROM message_attachment_join maj "
-        "WHERE maj.message_id = m.ROWID)"
-        if has_attachment_join
-        else "0"
-    )
+    return {
+        "attributed_body": (
+            "m.attributedBody" if has_body else "NULL AS attributedBody"
+        ),
+        "resolved_handle": resolved_handle,
+        "resolved_chat": resolved_chat,
+        "has_attachment": (
+            "EXISTS(SELECT 1 FROM message_attachment_join maj "
+            "WHERE maj.message_id = m.ROWID)"
+            if has_attachment_join
+            else "0"
+        ),
+        "importable_predicate": f"(m.text IS NOT NULL{body_filter}{attachment_filter})",
+    }
+
+
+def _message_batch_sql(conn: sqlite3.Connection) -> str:
+    """Construit la lecture compatible avec plusieurs générations de chat.db."""
+    parts = _chat_message_sql_parts(conn)
     return f"""
         SELECT m.ROWID,
                m.guid,
                m.text,
-               {attributed_body},
+               {parts["attributed_body"]},
                m.handle_id,
                m.date,
                m.date_read,
@@ -132,12 +192,12 @@ def _message_batch_sql(conn: sqlite3.Connection) -> str:
                m.associated_message_guid,
                m.associated_message_type,
                m.cache_roomnames,
-               {has_attachment} AS has_attachment,
-               {resolved_handle} AS resolved_handle_id,
-               {resolved_chat} AS resolved_chat_identifier
+               {parts["has_attachment"]} AS has_attachment,
+               {parts["resolved_handle"]} AS resolved_handle_id,
+               {parts["resolved_chat"]} AS resolved_chat_identifier
         FROM message m
         WHERE m.ROWID BETWEEN ? AND ?
-          AND (m.text IS NOT NULL{body_filter}{attachment_filter})
+          AND {parts["importable_predicate"]}
         ORDER BY m.ROWID ASC
     """
 
@@ -201,6 +261,9 @@ class ReconciliationReport:
     orphan_fixed: int = 0
     duplicates_found: int = 0
     duplicates_removed: int = 0
+    missing_imported: int = 0
+    refreshed: int = 0
+    reactions_imported: int = 0
     ok: bool = False
 
 
@@ -221,17 +284,19 @@ def _compute_content_hash(
     handle_id: int | None,
     text: str | None,
     guid: str | None,
+    apple_rowid: int | None = None,
 ) -> str:
     """Calcule un hash SHA256 unique pour un message.
 
     Combine date brute (timestamp Apple), handle_id (ROWID du handle dans chat.db),
-    texte + guid pour produire une empreinte stable.
+    texte, guid et apple_rowid pour produire une empreinte stable par ligne.
     """
     components = [
         str(date_raw or 0),
         str(handle_id or 0),
         (text or "").strip(),
         (guid or "").strip(),
+        str(apple_rowid or 0),
     ]
     combined = "||".join(components).encode("utf-8")
     return hashlib.sha256(combined).hexdigest()
@@ -552,34 +617,52 @@ class IMessageImporter:
     # ── Sync incrementale ──────────────────────────────────────
 
     def sync_incremental(self) -> ImportResult:
-        """Sync incrementale : uniquement les nouveaux messages depuis le curseur."""
+        """Sync incrementale : uniquement les nouveaux messages depuis le curseur.
+
+        Si un autre cycle tient le verrou, le dirty flag est posé et un job
+        ``sync:dirty`` est enfilé — plus aucun event n'est silencieusement jeté.
+        """
         if not self.is_available():
             raise RuntimeError("chat.db inaccessible — verifier Full Disk Access")
 
-        if not _SYNC_LOCK.acquire(blocking=False):
-            # ponytail: skip si déjà en cours — le prochain cycle H24 rattrape.
-            logger.info("[imessage_import] Sync déjà en cours — cycle ignoré")
-            skipped = ImportResult(mode="incremental")
-            skipped.errors.append("sync_already_running")
-            skipped.total_failed = 1
-            return skipped
+        acquired = _SYNC_LOCK.acquire(blocking=False)
+        if not acquired:
+            _DIRTY.set()
+            acquired = _SYNC_LOCK.acquire(timeout=0.05)
+            if not acquired:
+                logger.info(
+                    "[imessage_import] Sync déjà en cours — cycle marqué dirty"
+                )
+                _requeue_dirty_sync()
+                return _skipped_already_running()
 
         process_lock = _try_acquire_process_sync_lock()
         if process_lock is None:
+            _DIRTY.set()
             _SYNC_LOCK.release()
             logger.info(
                 "[imessage_import] Sync active dans un autre processus — cycle reporté"
             )
-            skipped = ImportResult(mode="incremental")
-            skipped.errors.append("sync_already_running")
-            skipped.total_failed = 1
-            return skipped
+            _requeue_dirty_sync()
+            return _skipped_already_running()
         try:
-            return self._sync_incremental_locked()
+            combined = ImportResult(mode="incremental")
+            loops = 0
+            while True:
+                _DIRTY.clear()
+                loops += 1
+                _merge_incremental_results(combined, self._sync_incremental_locked())
+                if not _DIRTY.is_set() or loops >= _MAX_DIRTY_LOOPS:
+                    break
+            if _DIRTY.is_set():
+                _requeue_dirty_sync()
+            return combined
         finally:
             fcntl.flock(process_lock.fileno(), fcntl.LOCK_UN)
             process_lock.close()
             _SYNC_LOCK.release()
+            if _DIRTY.is_set():
+                _requeue_dirty_sync()
 
     def _sync_incremental_locked(self) -> ImportResult:
         t0 = datetime.now()
@@ -761,6 +844,25 @@ class IMessageImporter:
             jarvis_id = int(row["id"]) if row else None
         if jarvis_id is not None:
             self._enrich_handle_identity(conn, jarvis_id, handle)
+        return jarvis_id
+
+    def _ensure_self_handle(
+        self,
+        conn: sqlite3.Connection,
+        handles_map: dict[int, int],
+    ) -> int | None:
+        """Handle synthétique pour les tapbacks / messages envoyés (handle_id Apple = 0)."""
+        cached = handles_map.get(0)
+        if cached:
+            return cached
+        jarvis_id = self._upsert_handle(
+            conn,
+            apple_handle_id=0,
+            handle="__self__",
+            service="iMessage",
+        )
+        if jarvis_id:
+            handles_map[0] = jarvis_id
         return jarvis_id
 
     def _enrich_handle_identity(
@@ -978,6 +1080,7 @@ class IMessageImporter:
         if max_rowid <= since_rowid:
             return {
                 "imported": 0,
+                "updated": 0,
                 "skipped": 0,
                 "failed": 0,
                 "errors": [],
@@ -1004,6 +1107,7 @@ class IMessageImporter:
         total_imported = 0
         total_skipped = 0
         total_failed = 0
+        total_updated = 0
         errors: list[str] = []
         failed_rowids: list[int] = []
         current = from_rowid
@@ -1023,7 +1127,12 @@ class IMessageImporter:
                                 r["text"],
                                 r["attributedBody"],
                             )
-                            if not text and not bool(r["has_attachment"]):
+                            has_body = r["attributedBody"] is not None
+                            if (
+                                not text
+                                and not bool(r["has_attachment"])
+                                and not has_body
+                            ):
                                 total_skipped += 1
                                 continue
 
@@ -1033,7 +1142,7 @@ class IMessageImporter:
                             else:
                                 resolved_handle = int(resolved_handle)
 
-                            inserted = self._insert_message(
+                            outcome = self._insert_message(
                                 jarvis_conn,
                                 apple_rowid=r["ROWID"],
                                 guid=str(r["guid"] or ""),
@@ -1059,8 +1168,10 @@ class IMessageImporter:
                                     r["associated_message_type"] or 0
                                 ),
                             )
-                            if inserted:
+                            if outcome == "inserted":
                                 total_imported += 1
+                            elif outcome == "updated":
+                                total_updated += 1
                             else:
                                 total_skipped += 1
                         except Exception as e:
@@ -1090,6 +1201,7 @@ class IMessageImporter:
 
         return {
             "imported": total_imported,
+            "updated": total_updated,
             "skipped": total_skipped,
             "failed": total_failed,
             "errors": errors,
@@ -1147,65 +1259,112 @@ class IMessageImporter:
         associated_message_guid: str | None,
         associated_message_type: int,
         attributed_body: bytes | memoryview | None = None,
-    ) -> bool:
-        """Insere ou ignore un message. Retourne True si insere, False si skip."""
-        content_hash = _compute_content_hash(date, apple_handle_id, text, guid)
+    ) -> Literal["inserted", "updated", "skipped"]:
+        """Insère, met à jour (date/texte) ou ignore un message Apple."""
         body_blob = bytes(attributed_body) if attributed_body else None
         occurred_at_utc = _apple_ts_to_iso(date)
         source_updated_at_utc = datetime.now(timezone.utc).isoformat()
-        content_complete = bool((text or "").strip())
 
-        # Verifications pre-insert (deduplication)
-        existing = conn.execute(
-            "SELECT id FROM imessage_messages WHERE apple_rowid = ?",
-            (apple_rowid,),
-        ).fetchone()
-        if existing:
-            return False  # deja present par ROWID
-
-        existing = conn.execute(
-            "SELECT id FROM imessage_messages WHERE guid = ?",
-            (guid,),
-        ).fetchone()
-        if existing:
-            # Mettre a jour les metadonnees si necessaire
-            conn.execute(
-                """UPDATE imessage_messages
-                   SET apple_rowid = ?, date = ?, occurred_at_utc = ?,
-                       source_updated_at_utc = ?, date_read = ?, is_read = ?,
-                       is_from_me = ?
-                   WHERE guid = ? AND (apple_rowid IS NULL OR apple_rowid != ?)""",
-                (
-                    apple_rowid,
-                    date,
-                    occurred_at_utc,
-                    source_updated_at_utc,
-                    date_read,
-                    is_read,
-                    is_from_me,
-                    guid,
-                    apple_rowid,
-                ),
+        if (apple_handle_id in (None, 0)) and int(is_from_me):
+            jarvis_handle_id = self._ensure_self_handle(conn, handles_map)
+        else:
+            jarvis_handle_id = (
+                handles_map.get(apple_handle_id) if apple_handle_id else None
             )
-            return False  # deja present par GUID
-
-        existing = conn.execute(
-            "SELECT id FROM imessage_messages WHERE content_hash = ?",
-            (content_hash,),
-        ).fetchone()
-        if existing:
-            return False  # deja present par hash
-
-        # Resolution du handle jarvis
-        jarvis_handle_id = handles_map.get(apple_handle_id) if apple_handle_id else None
-
-        # Resolution du chat jarvis
         jarvis_chat_id = self._resolve_chat_id(
             conn,
             apple_chat_roomname,
             chats_map,
             apple_handle_id,
         )
+
+        existing = conn.execute(
+            """SELECT id, date, guid, is_from_me, text, attributed_body
+               FROM imessage_messages WHERE apple_rowid = ?""",
+            (apple_rowid,),
+        ).fetchone()
+        if existing:
+            stored_text = existing["text"] or ""
+            incoming = (text or "").strip()
+            effective_text = text if incoming else stored_text
+            content_hash = _compute_content_hash(
+                date, apple_handle_id, effective_text, guid, apple_rowid
+            )
+            content_complete = bool((effective_text or "").strip())
+            same = (
+                int(existing["date"] or 0) == date
+                and (existing["guid"] or "") == (guid or "")
+                and int(existing["is_from_me"] or 0) == int(is_from_me)
+                and stored_text == (effective_text or "")
+            )
+            if same:
+                return "skipped"
+            conn.execute(
+                """UPDATE imessage_messages
+                   SET guid = ?, chat_id = COALESCE(?, chat_id),
+                       handle_id = COALESCE(?, handle_id),
+                       text = ?, attributed_body = COALESCE(?, attributed_body),
+                       date = ?, date_read = ?, is_from_me = ?, is_read = ?,
+                       item_type = ?, group_title = ?,
+                       associated_message_guid = ?, associated_message_type = ?,
+                       content_hash = ?, occurred_at_utc = ?,
+                       source_updated_at_utc = ?, content_complete = ?,
+                       ingestion_completeness = ?
+                   WHERE apple_rowid = ?""",
+                (
+                    guid,
+                    jarvis_chat_id,
+                    jarvis_handle_id,
+                    effective_text,
+                    body_blob,
+                    date,
+                    date_read,
+                    is_from_me,
+                    is_read,
+                    item_type,
+                    group_title,
+                    associated_message_guid,
+                    associated_message_type,
+                    content_hash,
+                    occurred_at_utc,
+                    source_updated_at_utc,
+                    int(content_complete),
+                    "complete" if content_complete else "metadata",
+                    apple_rowid,
+                ),
+            )
+            return "updated"
+
+        if guid:
+            existing_guid = conn.execute(
+                "SELECT id FROM imessage_messages WHERE guid = ?",
+                (guid,),
+            ).fetchone()
+            if existing_guid:
+                conn.execute(
+                    """UPDATE imessage_messages
+                       SET apple_rowid = ?, date = ?, occurred_at_utc = ?,
+                           source_updated_at_utc = ?, date_read = ?, is_read = ?,
+                           is_from_me = ?
+                       WHERE guid = ? AND (apple_rowid IS NULL OR apple_rowid != ?)""",
+                    (
+                        apple_rowid,
+                        date,
+                        occurred_at_utc,
+                        source_updated_at_utc,
+                        date_read,
+                        is_read,
+                        is_from_me,
+                        guid,
+                        apple_rowid,
+                    ),
+                )
+                return "skipped"
+
+        content_hash = _compute_content_hash(
+            date, apple_handle_id, text, guid, apple_rowid
+        )
+        content_complete = bool((text or "").strip())
 
         try:
             conn.execute(
@@ -1238,11 +1397,11 @@ class IMessageImporter:
                     "complete" if content_complete else "metadata",
                 ),
             )
-            return True
+            return "inserted"
         except (sqlite3.IntegrityError, jarvis_sqlite.IntegrityError) as e:
             err_str = str(e).lower()
             if "unique" in err_str:
-                return False  # contrainte UNIQUE violee → skip
+                return "skipped"
             raise
 
     # ── Import attachments ─────────────────────────────────────
@@ -1351,49 +1510,47 @@ class IMessageImporter:
 
     # ── Import reactions ───────────────────────────────────────
 
-    def _import_reactions(
+    def _store_reactions(
         self,
-        chat_conn: sqlite3.Connection,
+        rows: list[Any],
         handles_map: dict[int, int],
     ) -> dict[str, int]:
-        """Importe les reactions (tapbacks iMessage).
-
-        Dans chat.db, les reactions sont des messages avec associated_message_type
-        dans la plage 2000-2999 (les tapbacks) ou des lignes dediees.
-        On lit les messages avec associated_message_guid ET associated_message_type > 0.
-        """
-        rows = chat_conn.execute(
-            """SELECT ROWID, handle_id, associated_message_guid, associated_message_type, is_from_me
-               FROM message
-               WHERE associated_message_type > 0
-                 AND associated_message_guid IS NOT NULL"""
-        ).fetchall()
-
+        """Persiste les tapbacks 2000-2999, GUID normalisé, handle __self__ si from_me."""
         imported = 0
         with get_db() as jarvis_conn:
             for r in rows:
-                # Trouver le message cible (le message auquel on reagit)
+                assoc_guid = normalize_associated_message_guid(
+                    r["associated_message_guid"]
+                )
+                if not assoc_guid:
+                    continue
+                reaction_type = int(r["associated_message_type"] or 0)
+                if reaction_type < 2000 or reaction_type > 2999:
+                    continue
                 target = jarvis_conn.execute(
                     "SELECT id FROM imessage_messages WHERE guid = ?",
-                    (r["associated_message_guid"],),
+                    (assoc_guid,),
                 ).fetchone()
                 if not target:
                     continue
-
-                reactor_jarvis_id = handles_map.get(r["handle_id"])
+                apple_handle_id = r["handle_id"]
+                if apple_handle_id in (None, 0) and int(r["is_from_me"] or 0):
+                    reactor_jarvis_id = self._ensure_self_handle(
+                        jarvis_conn, handles_map
+                    )
+                else:
+                    reactor_jarvis_id = handles_map.get(apple_handle_id)
                 if not reactor_jarvis_id:
                     continue
-
-                reaction_type = int(r["associated_message_type"] or 0)
-                # Reaction_type 2000-2999 = iMessage tapbacks
-                if reaction_type < 2000 or reaction_type > 2999:
-                    continue
-
                 try:
                     cur = jarvis_conn.execute(
-                        """INSERT OR IGNORE INTO imessage_reactions
-                           (message_id, reactor_handle_id, reaction_type, apple_associated_guid)
-                           VALUES (?, ?, ?, ?)""",
+                        """INSERT INTO imessage_reactions
+                           (message_id, reactor_handle_id, reaction_type,
+                            apple_associated_guid)
+                           VALUES (?, ?, ?, ?)
+                           ON CONFLICT(message_id, reactor_handle_id) DO UPDATE SET
+                               reaction_type = excluded.reaction_type,
+                               apple_associated_guid = excluded.apple_associated_guid""",
                         (
                             target["id"],
                             reactor_jarvis_id,
@@ -1405,8 +1562,25 @@ class IMessageImporter:
                         imported += 1
                 except (sqlite3.IntegrityError, jarvis_sqlite.IntegrityError):
                     pass
-
         return {"imported": imported}
+
+    def _import_reactions(
+        self,
+        chat_conn: sqlite3.Connection,
+        handles_map: dict[int, int],
+    ) -> dict[str, int]:
+        """Importe les reactions (tapbacks iMessage).
+
+        Dans chat.db, les reactions sont des messages avec associated_message_type
+        dans la plage 2000-2999 (les tapbacks) ou des lignes dediees.
+        """
+        rows = chat_conn.execute(
+            """SELECT ROWID, handle_id, associated_message_guid, associated_message_type, is_from_me
+               FROM message
+               WHERE associated_message_type > 0
+                 AND associated_message_guid IS NOT NULL"""
+        ).fetchall()
+        return self._store_reactions(rows, handles_map)
 
     def _import_reactions_since(
         self,
@@ -1423,40 +1597,7 @@ class IMessageImporter:
                  AND associated_message_guid IS NOT NULL""",
             (since_rowid,),
         ).fetchall()
-
-        imported = 0
-        with get_db() as jarvis_conn:
-            for r in rows:
-                target = jarvis_conn.execute(
-                    "SELECT id FROM imessage_messages WHERE guid = ?",
-                    (r["associated_message_guid"],),
-                ).fetchone()
-                if not target:
-                    continue
-                reactor_jarvis_id = handles_map.get(r["handle_id"])
-                if not reactor_jarvis_id:
-                    continue
-                reaction_type = int(r["associated_message_type"] or 0)
-                if reaction_type < 2000 or reaction_type > 2999:
-                    continue
-                try:
-                    cur = jarvis_conn.execute(
-                        """INSERT OR IGNORE INTO imessage_reactions
-                           (message_id, reactor_handle_id, reaction_type, apple_associated_guid)
-                           VALUES (?, ?, ?, ?)""",
-                        (
-                            target["id"],
-                            reactor_jarvis_id,
-                            reaction_type,
-                            r["associated_message_guid"],
-                        ),
-                    )
-                    if cur.rowcount > 0:
-                        imported += 1
-                except (sqlite3.IntegrityError, jarvis_sqlite.IntegrityError):
-                    pass
-
-        return {"imported": imported}
+        return self._store_reactions(rows, handles_map)
 
     # ── Backfill metadata ──────────────────────────────────────
 
@@ -1499,13 +1640,15 @@ class IMessageImporter:
 
                     resolved_handle = apple_row["resolved_handle_id"]
                     if resolved_handle in (None, 0):
-                        resolved_handle = None
+                        if int(apple_row["is_from_me"] or 0):
+                            jarvis_handle_id = self._ensure_self_handle(
+                                jarvis_conn, handles_map
+                            )
+                        else:
+                            jarvis_handle_id = None
                     else:
                         resolved_handle = int(resolved_handle)
-
-                    jarvis_handle_id = (
-                        handles_map.get(resolved_handle) if resolved_handle else None
-                    )
+                        jarvis_handle_id = handles_map.get(resolved_handle)
                     jarvis_chat_id = self._resolve_chat_id(
                         jarvis_conn,
                         str(apple_row["resolved_chat_identifier"] or ""),
@@ -1537,9 +1680,6 @@ class IMessageImporter:
                             params,
                         )
                         stats["updated"] += 1
-
-            batch = self._import_all_messages(chat_conn, handles_map, chats_map)
-            stats["imported"] = int(batch.get("imported", 0))
         finally:
             self._close_chat_db()
 
@@ -1588,19 +1728,101 @@ class IMessageImporter:
             )
         return len(stale_ids)
 
+    def _ensure_message_parity(
+        self,
+        chat_conn: sqlite3.Connection,
+        handles_map: dict[int, int],
+        chats_map: dict[int, int],
+    ) -> dict[str, int]:
+        """Importe les rowids importables absents et rafraîchit les dates périmées.
+
+        Inventaire léger (ROWID + date seulement) — pas de re-décodage des 41k BLOB.
+        Apple reste la source de vérité ; les extras jarvis sont laissés en place.
+        """
+        max_rowid = int(
+            chat_conn.execute(
+                "SELECT COALESCE(MAX(ROWID), 0) AS m FROM message"
+            ).fetchone()["m"]
+        )
+        if max_rowid <= 0:
+            return {"missing_imported": 0, "refreshed": 0, "still_missing": 0}
+
+        parts = _chat_message_sql_parts(chat_conn)
+        apple_rows = chat_conn.execute(
+            f"""
+            SELECT m.ROWID AS ROWID, m.date AS date
+            FROM message m
+            WHERE m.ROWID BETWEEN ? AND ?
+              AND {parts["importable_predicate"]}
+            ORDER BY m.ROWID ASC
+            """,
+            (0, max_rowid),
+        ).fetchall()
+
+        with get_db() as jarvis_conn:
+            jarvis_index = {
+                int(row["apple_rowid"]): int(row["date"] or 0)
+                for row in jarvis_conn.execute(
+                    "SELECT apple_rowid, date FROM imessage_messages "
+                    "WHERE apple_rowid IS NOT NULL"
+                )
+            }
+
+        missing_imported = 0
+        refreshed = 0
+        for apple_row in apple_rows:
+            rid = int(apple_row["ROWID"])
+            apple_date = int(apple_row["date"] or 0)
+            stored_date = jarvis_index.get(rid)
+            if stored_date is None:
+                result = self._import_message_batch(
+                    chat_conn,
+                    handles_map,
+                    chats_map,
+                    from_rowid=rid,
+                    to_rowid=rid,
+                )
+                missing_imported += int(result["imported"])
+                if result["imported"]:
+                    jarvis_index[rid] = apple_date
+            elif stored_date != apple_date:
+                result = self._import_message_batch(
+                    chat_conn,
+                    handles_map,
+                    chats_map,
+                    from_rowid=rid,
+                    to_rowid=rid,
+                )
+                refreshed += int(result.get("updated", 0))
+                if result.get("updated"):
+                    jarvis_index[rid] = apple_date
+
+        still_missing = sum(
+            1 for row in apple_rows if int(row["ROWID"]) not in jarvis_index
+        )
+        return {
+            "missing_imported": missing_imported,
+            "refreshed": refreshed,
+            "still_missing": still_missing,
+        }
+
     # ── Reconciliation ─────────────────────────────────────────
 
     def reconcile(self) -> ReconciliationReport:
-        """Audit post-import : compare chat.db et jarvis.db, corrige si possible."""
+        """Répare la parité chat.db → jarvis.db, puis audite.
+
+        ``ok`` uniquement si chaque rowid importable Apple est présent dans jarvis.
+        Les extras jarvis ne font pas échouer le rapport.
+        """
         report = ReconciliationReport()
 
         if not self.is_available():
             report.ok = False
             return report
 
+        still_missing = 0
         chat_conn = self._open_chat_db()
         try:
-            # Comptages chat.db
             report.chat_db_messages = _count_importable_messages(chat_conn)
             report.chat_db_chats = chat_conn.execute(
                 "SELECT COUNT(*) c FROM chat"
@@ -1608,6 +1830,18 @@ class IMessageImporter:
             report.chat_db_handles = chat_conn.execute(
                 "SELECT COUNT(*) c FROM handle"
             ).fetchone()["c"]
+
+            handles_map = self._import_handles(chat_conn)
+            chats_map = self._import_chats(chat_conn)
+            self._import_chat_handles(chat_conn, handles_map, chats_map)
+
+            parity = self._ensure_message_parity(chat_conn, handles_map, chats_map)
+            report.missing_imported = parity["missing_imported"]
+            report.refreshed = parity["refreshed"]
+            still_missing = parity["still_missing"]
+
+            reac = self._import_reactions(chat_conn, handles_map)
+            report.reactions_imported = int(reac.get("imported", 0))
         finally:
             self._close_chat_db()
 
@@ -1622,7 +1856,6 @@ class IMessageImporter:
                 "SELECT COUNT(*) c FROM imessage_handles"
             ).fetchone()["c"]
 
-            # Messages orphelins : chat_id ou handle_id NULL ou inexistant
             report.orphan_messages = jarvis_conn.execute(
                 """SELECT COUNT(*) c FROM imessage_messages m
                    WHERE m.chat_id IS NULL
@@ -1631,7 +1864,6 @@ class IMessageImporter:
                       OR m.handle_id NOT IN (SELECT id FROM imessage_handles)"""
             ).fetchone()["c"]
 
-            # Tentative de correction : reassocier les messages orphelins
             if report.orphan_messages > 0:
                 backfill_stats = self.backfill_orphan_messages()
                 report.orphan_fixed = int(backfill_stats.get("updated", 0))
@@ -1643,7 +1875,6 @@ class IMessageImporter:
                        WHERE m.chat_id IS NULL OR m.handle_id IS NULL"""
                 ).fetchone()["c"]
 
-            # Doublons (meme guid ou meme apple_rowid)
             report.duplicates_found = jarvis_conn.execute(
                 """SELECT COUNT(*) c FROM (
                        SELECT guid, COUNT(*) cnt FROM imessage_messages
@@ -1651,7 +1882,6 @@ class IMessageImporter:
                    )"""
             ).fetchone()["c"]
             if report.duplicates_found > 0:
-                # Supprimer les doublons : garder le plus ancien (id le plus petit)
                 jarvis_conn.execute(
                     """DELETE FROM imessage_messages WHERE id NOT IN (
                            SELECT MIN(id) FROM imessage_messages GROUP BY guid
@@ -1665,32 +1895,26 @@ class IMessageImporter:
                 ).fetchone()["c"]
                 report.duplicates_removed = report.duplicates_found - remaining
 
-        # Considerer OK si les DBs sont vides, ou si le taux de couverture est >= 98%
-        # et qu'il y a moins de 1% d'orphelins
-        if report.chat_db_messages == 0 and report.jarvis_db_messages == 0:
-            report.ok = True
-        else:
-            report.ok = (
-                report.jarvis_db_messages >= report.chat_db_messages * 0.98
-                and (
-                    report.jarvis_db_messages == 0
-                    or report.orphan_messages < report.jarvis_db_messages * 0.01
-                )
-            )
+        report.ok = still_missing == 0
 
         if report.ok:
             logger.info(
                 "[imessage_import] Reconciliation OK — "
-                "%d messages (chat.db=%d), %d orphelins fixes, %d doublons supprimes",
+                "%d messages (chat.db=%d), manquants rattrapés=%d, dates=%d, "
+                "tapbacks=%d, %d orphelins fixes, %d doublons supprimes",
                 report.jarvis_db_messages,
                 report.chat_db_messages,
+                report.missing_imported,
+                report.refreshed,
+                report.reactions_imported,
                 report.orphan_fixed,
                 report.duplicates_removed,
             )
         else:
             logger.warning(
-                "[imessage_import] Reconciliation : ecart detecte — "
+                "[imessage_import] Reconciliation : %d rowids importables encore absents — "
                 "chat.db=%d messages, jarvis.db=%d messages",
+                still_missing,
                 report.chat_db_messages,
                 report.jarvis_db_messages,
             )

@@ -1,88 +1,238 @@
-"""Lecteur iMessage compatible, adossé à :mod:`integrations.apple_data`.
+"""Lecteur iMessage — source unique : le miroir ``jarvis.db``.
 
-Le reader conserve l'API historique utilisée par les analyseurs relationnels
-et les jobs périodiques. Toute lecture SQLite de Messages.app passe désormais
-par ``AppleDataService``.
+``chat.db`` n'est ouvert que par l'importeur. Ici on lit ``imessage_messages``
+(reçus et envoyés), y compris quand Messages.app verrouille le fichier Apple.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from .apple_data import (
-    AppleDataService,
-    apple_data,
-    apple_epoch_to_datetime,
-)
-from .imessage_cursor import (
+from database import DB_PATH, get_db
+from integrations.apple_data import apple_epoch_to_datetime
+from integrations.imessage_cursor import (
     advance_consumer_cursor,
     initialize_consumer_cursor,
 )
 
+
 logger = logging.getLogger(__name__)
 
-# Alias rétrocompatibles : la conversion n'est implémentée que dans apple_data.py.
 _apple_ts_to_datetime = apple_epoch_to_datetime
 _apple_ts_to_datetime_from_value = apple_epoch_to_datetime
 
+_MESSAGE_PREDICATE = "m.text IS NOT NULL AND LENGTH(TRIM(m.text)) > 0"
+
 
 class IMessageReader:
-    """API de lecture iMessage historique, sans ouverture directe de ``chat.db``."""
+    """API historique, branchée sur le miroir JARVIS plutôt que sur ``chat.db``."""
 
-    def __init__(self, data_service: AppleDataService | None = None) -> None:
-        self._apple_data = data_service or apple_data
+    def __init__(self, data_service: Any | None = None) -> None:
+        del data_service
         self._available: bool | None = None
         self.cursor_name = "reader.intelligence"
 
     @property
     def db_path(self) -> Path:
-        """Chemin exposé pour compatibilité et injection dans les tests."""
-        return self._apple_data.db_path
+        return Path(str(DB_PATH))
 
     @db_path.setter
     def db_path(self, value: str | Path) -> None:
-        self._apple_data = self._apple_data.with_db_path(value)
+        del value
         self._available = None
 
     def is_available(self) -> bool:
-        """Vérifie une fois la disponibilité du service Apple local."""
+        """True si le miroir ``imessage_messages`` est lisible — pas ``chat.db``."""
         if self._available is not None:
             return self._available
-        logger.info("[imessage_reader] Tentative accès chat.db : %s", self.db_path)
-        logger.info("[imessage_reader] Fichier existe : %s", self.db_path.exists())
-        self._available = self._apple_data.is_available()
-        if self._available:
-            logger.info("[iMsgReader] chat.db accessible en lecture")
-        else:
-            logger.warning(
-                "[iMsgReader] chat.db inaccessible — Full Disk Access requis "
-                "pour l'app qui lance JARVIS"
-            )
+        try:
+            with get_db() as conn:
+                conn.execute("SELECT 1 FROM imessage_messages LIMIT 1")
+            self._available = True
+            logger.info("[iMsgReader] miroir jarvis.db lisible")
+        except Exception as exc:
+            self._available = False
+            logger.warning("[iMsgReader] miroir iMessage illisible : %s", exc)
         return self._available
 
+    def count_messages(self) -> int:
+        if not self.is_available():
+            return 0
+        try:
+            with get_db() as conn:
+                row = conn.execute(
+                    f"SELECT COUNT(*) AS c FROM imessage_messages m WHERE {_MESSAGE_PREDICATE}"
+                ).fetchone()
+            return int(row["c"] if row else 0)
+        except Exception as exc:
+            logger.warning("[iMsgReader] count_messages : %s", exc)
+            return 0
+
+    def get_max_rowid(self) -> int:
+        if not self.is_available():
+            return 0
+        try:
+            with get_db() as conn:
+                row = conn.execute(
+                    "SELECT COALESCE(MAX(apple_rowid), 0) AS m FROM imessage_messages"
+                ).fetchone()
+            return int(row["m"] if row else 0)
+        except Exception as exc:
+            logger.warning("[iMsgReader] get_max_rowid : %s", exc)
+            return 0
+
+    def get_new_messages(
+        self,
+        since_rowid: int,
+        *,
+        handle: str | None = None,
+        incoming_only: bool = False,
+        limit: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Messages ``apple_rowid > since``, ordre croissant — reçus et envoyés."""
+        if not self.is_available():
+            return []
+        predicates = ["m.apple_rowid > ?", _MESSAGE_PREDICATE]
+        parameters: list[Any] = [int(since_rowid)]
+        if incoming_only:
+            predicates.append("m.is_from_me = 0")
+        if handle is not None:
+            predicates.append("h.handle = ?")
+            parameters.append(handle)
+        limit_sql = ""
+        if limit is not None:
+            limit_sql = " LIMIT ?"
+            parameters.append(max(0, int(limit)))
+        query = f"""
+            SELECT m.apple_rowid AS rowid, m.text, m.date, m.is_from_me,
+                   h.handle AS handle
+            FROM imessage_messages m
+            LEFT JOIN imessage_handles h ON h.id = m.handle_id
+            WHERE {' AND '.join(predicates)}
+            ORDER BY m.apple_rowid ASC{limit_sql}
+        """
+        try:
+            with get_db() as conn:
+                rows = conn.execute(query, parameters).fetchall()
+        except Exception as exc:
+            logger.error("[iMsgReader] get_new_messages : %s", exc)
+            return []
+        return [
+            {
+                "rowid": int(row["rowid"]),
+                "text": row["text"] or "",
+                "date": row["date"],
+                "is_from_me": bool(row["is_from_me"]),
+                "handle": row["handle"],
+                "handle_id": row["handle"],
+            }
+            for row in rows
+        ]
+
+    def get_recent_messages(
+        self,
+        *,
+        limit: int = 50,
+        incoming_only: bool = False,
+    ) -> list[dict[str, Any]]:
+        if not self.is_available():
+            return []
+        incoming_clause = "AND m.is_from_me = 0" if incoming_only else ""
+        try:
+            with get_db() as conn:
+                rows = conn.execute(
+                    f"""
+                    SELECT m.apple_rowid AS rowid, m.text, m.date, m.is_from_me,
+                           h.handle AS handle
+                    FROM imessage_messages m
+                    LEFT JOIN imessage_handles h ON h.id = m.handle_id
+                    WHERE {_MESSAGE_PREDICATE} {incoming_clause}
+                    ORDER BY m.date DESC, m.apple_rowid DESC
+                    LIMIT ?
+                    """,
+                    (max(0, int(limit)),),
+                ).fetchall()
+        except Exception as exc:
+            logger.error("[iMsgReader] get_recent_messages : %s", exc)
+            return []
+        return [dict(row) for row in rows]
+
     def get_all_contacts(self) -> list[dict]:
-        """Contacts uniques avec nombre de messages et dernière date."""
         if not self.is_available():
             return []
         try:
-            return self._apple_data.get_contacts()
+            with get_db() as conn:
+                rows = conn.execute(
+                    f"""
+                    SELECT h.handle AS handle, COUNT(m.id) AS msg_count,
+                           MAX(m.date) AS last_date
+                    FROM imessage_messages m
+                    JOIN imessage_handles h ON m.handle_id = h.id
+                    WHERE {_MESSAGE_PREDICATE}
+                    GROUP BY h.handle
+                    ORDER BY msg_count DESC
+                    """
+                ).fetchall()
         except Exception as exc:
             logger.error("[imessage_reader] get_all_contacts : %s", exc)
             return []
+        result: list[dict] = []
+        for row in rows:
+            date = apple_epoch_to_datetime(row["last_date"])
+            result.append(
+                {
+                    "handle": row["handle"],
+                    "msg_count": int(row["msg_count"] or 0),
+                    "last_date": date.isoformat() if date else None,
+                }
+            )
+        return result
 
     def get_all_conversation_stats_full(self) -> list[dict]:
-        """Retourne toutes les conversations distinctes avec leurs statistiques."""
         if not self.is_available():
             return []
         try:
-            return self._apple_data.get_all_conversation_stats()
+            with get_db() as conn:
+                rows = conn.execute(
+                    f"""
+                    SELECT h.handle AS handle, COUNT(m.id) AS msg_count,
+                           MIN(m.date) AS first_date_raw,
+                           MAX(m.date) AS last_date_raw,
+                           MAX(m.apple_rowid) AS last_rowid
+                    FROM imessage_handles h
+                    JOIN imessage_messages m ON m.handle_id = h.id
+                    WHERE {_MESSAGE_PREDICATE}
+                    GROUP BY h.handle
+                    ORDER BY msg_count DESC
+                    """
+                ).fetchall()
         except Exception as exc:
             logger.error("[iMsgReader] get_all_conversation_stats_full : %s", exc)
             return []
+        result: list[dict] = []
+        for row in rows:
+            first = apple_epoch_to_datetime(row["first_date_raw"])
+            last = apple_epoch_to_datetime(row["last_date_raw"])
+            result.append(
+                {
+                    "handle": row["handle"],
+                    "msg_count": int(row["msg_count"] or 0),
+                    "first_message_at": first.isoformat() if first else None,
+                    "last_message_at": last.isoformat() if last else None,
+                    "first_unix_ts": (
+                        first.replace(tzinfo=timezone.utc).timestamp() if first else 0.0
+                    ),
+                    "last_unix_ts": (
+                        last.replace(tzinfo=timezone.utc).timestamp() if last else 0.0
+                    ),
+                    "last_rowid": int(row["last_rowid"] or 0),
+                }
+            )
+        return result
 
     def get_conversation(
         self,
@@ -90,40 +240,80 @@ class IMessageReader:
         limit: int = 100,
         since_rowid: int = 0,
     ) -> list[dict]:
-        """Messages d'un contact depuis un ROWID donné."""
-        if not self.is_available():
+        if not self.is_available() or not (handle or "").strip():
             return []
         try:
-            return self._apple_data.get_conversation(
-                handle,
-                limit=limit,
-                since_rowid=since_rowid,
-            )
+            with get_db() as conn:
+                rows = conn.execute(
+                    f"""
+                    SELECT m.apple_rowid AS rowid, m.text, m.date, m.is_from_me,
+                           h.handle AS handle
+                    FROM imessage_messages m
+                    JOIN imessage_handles h ON m.handle_id = h.id
+                    WHERE h.handle = ? AND m.apple_rowid > ?
+                      AND {_MESSAGE_PREDICATE}
+                    ORDER BY m.apple_rowid ASC
+                    LIMIT ?
+                    """,
+                    (handle, int(since_rowid), max(0, int(limit))),
+                ).fetchall()
         except Exception as exc:
             logger.error("[iMsgReader] get_conversation(%s) : %s", handle, exc)
             return []
+        return [self._format_conversation_row(row) for row in rows]
 
     def get_recent_conversation(self, handle: str, limit: int = 30) -> list[dict]:
-        """Derniers messages avec ce handle, en ordre chronologique."""
-        if not self.is_available():
+        """N derniers messages du handle, y compris ``is_from_me = 1``."""
+        if not self.is_available() or not (handle or "").strip():
             return []
         try:
-            return self._apple_data.get_recent_conversation(handle, limit=limit)
+            with get_db() as conn:
+                rows = conn.execute(
+                    f"""
+                    SELECT m.apple_rowid AS rowid, m.text, m.date, m.is_from_me,
+                           h.handle AS handle
+                    FROM imessage_messages m
+                    JOIN imessage_handles h ON m.handle_id = h.id
+                    WHERE h.handle = ? AND {_MESSAGE_PREDICATE}
+                    ORDER BY m.apple_rowid DESC
+                    LIMIT ?
+                    """,
+                    (handle, max(0, int(limit))),
+                ).fetchall()
         except Exception as exc:
             logger.error("[iMsgReader] get_recent_conversation(%s) : %s", handle, exc)
             return []
+        return [self._format_conversation_row(row) for row in reversed(rows)]
 
     def get_conversation_with(self, name_or_handle: str, limit: int = 50) -> list[dict]:
-        """Cherche un handle par motif puis renvoie le fil récent."""
+        """Fil par handle / nom d'identité — jamais un LIKE sur le texte d'un autre contact."""
         if not self.is_available():
             return []
+        handles = self._matching_handles(name_or_handle)
+        if not handles:
+            return []
+        placeholders = ",".join("?" * len(handles))
+        ids = [handle_id for handle_id, _ in handles]
         try:
-            return self._apple_data.get_conversation_with(name_or_handle, limit=limit)
+            with get_db() as conn:
+                rows = conn.execute(
+                    f"""
+                    SELECT m.apple_rowid AS rowid, m.text, m.date, m.is_from_me,
+                           h.handle AS handle
+                    FROM imessage_messages m
+                    JOIN imessage_handles h ON m.handle_id = h.id
+                    WHERE m.handle_id IN ({placeholders}) AND {_MESSAGE_PREDICATE}
+                    ORDER BY m.apple_rowid DESC
+                    LIMIT ?
+                    """,
+                    (*ids, max(0, int(limit))),
+                ).fetchall()
         except Exception as exc:
             logger.error(
                 "[iMsgReader] get_conversation_with(%s) : %s", name_or_handle, exc
             )
             return []
+        return [self._format_conversation_row(row) for row in reversed(rows)]
 
     def get_conversation_for_period(
         self,
@@ -131,7 +321,6 @@ class IMessageReader:
         days: int = 90,
         limit: int = 5000,
     ) -> list[dict]:
-        """Messages récents filtrés par période, avec la forme historique."""
         if not self.is_available():
             return []
         cap = min(max(limit * 4, 500), 20_000)
@@ -150,30 +339,48 @@ class IMessageReader:
         return result[-limit:] if len(result) > limit else result
 
     def search_messages(self, query: str, limit: int = 20) -> list[dict]:
-        """Recherche textuelle dans les messages iMessage."""
-        if not self.is_available():
+        if not self.is_available() or not (query or "").strip():
             return []
         try:
-            return self._apple_data.search_messages(query, limit=limit)
+            with get_db() as conn:
+                rows = conn.execute(
+                    f"""
+                    SELECT m.apple_rowid AS rowid, m.text, m.date, m.is_from_me,
+                           h.handle AS handle
+                    FROM imessage_messages m
+                    JOIN imessage_handles h ON m.handle_id = h.id
+                    WHERE m.text LIKE ? AND {_MESSAGE_PREDICATE}
+                    ORDER BY m.date DESC
+                    LIMIT ?
+                    """,
+                    (f"%{query}%", max(0, int(limit))),
+                ).fetchall()
         except Exception as exc:
             logger.error("[iMsgReader] search_messages : %s", exc)
             return []
+        result: list[dict] = []
+        for row in rows:
+            date = apple_epoch_to_datetime(row["date"])
+            result.append(
+                {
+                    "rowid": int(row["rowid"]),
+                    "text": row["text"],
+                    "date": date.isoformat() if date else None,
+                    "is_from_me": bool(row["is_from_me"]),
+                    "handle": row["handle"],
+                }
+            )
+        return result
 
     def scan_new_messages(self) -> int:
-        """Retourne le nombre de nouveaux messages depuis le dernier scan."""
         count, _ = self.scan_new_messages_with_last_id()
         return count
 
     def scan_new_messages_with_last_id(self) -> tuple[int, int]:
-        """Retourne ``(nombre de nouveaux messages, dernier ROWID)``.
-
-        Compat historique : avance le curseur immédiatement. Le chemin H24
-        (`periodic_scan`) utilise ``peek_new_messages`` + avance après succès.
-        """
         if not self.is_available():
             return 0, 0
         try:
-            current_max = self._apple_data.get_max_rowid()
+            current_max = self.get_max_rowid()
             last_max = initialize_consumer_cursor(self.cursor_name, current_max)
             if current_max <= last_max:
                 return 0, current_max
@@ -184,72 +391,45 @@ class IMessageReader:
             logger.warning("[imessage_reader] scan_new_messages_with_last_id : %s", exc)
             return 0, 0
 
-    def peek_new_messages(self, *, limit: int = 100) -> tuple[list[dict], int]:
-        """Lit les nouveaux messages SANS avancer le curseur.
-
-        Retourne ``(messages, since_rowid)``. Le curseur n'avance qu'après un
-        traitement réussi — sinon les messages restent à retravailler.
-        """
+    def peek_new_messages(
+        self,
+        *,
+        limit: int = 100,
+        incoming_only: bool = False,
+        handle: str | None = None,
+    ) -> tuple[list[dict], int]:
         if not self.is_available():
             return [], 0
         try:
-            current_max = self._apple_data.get_max_rowid()
+            current_max = self.get_max_rowid()
             last_max = initialize_consumer_cursor(self.cursor_name, current_max)
             if current_max <= last_max:
                 return [], last_max
-            messages = self._apple_data.get_new_messages(last_max, limit=limit)
+            messages = self.get_new_messages(
+                last_max,
+                limit=limit,
+                incoming_only=incoming_only,
+                handle=handle,
+            )
             return list(messages), last_max
         except Exception as exc:
             logger.warning("[imessage_reader] peek_new_messages : %s", exc)
             return [], 0
 
     def sync_knowledge_mirror(self) -> dict[str, Any]:
-        """Alimente ``imessage_messages`` (source de vérité du retrieval)."""
-        try:
-            from integrations.imessage_import import IMessageImporter
-
-            importer = IMessageImporter()
-            if not importer.is_available():
-                return {"status": "unavailable"}
-            result = importer.sync_incremental()
-            if result.errors == ["sync_already_running"]:
-                return {"status": "busy"}
-            if result.errors:
-                return {
-                    "status": "error",
-                    "imported": result.total_messages,
-                    "errors": list(result.errors)[:5],
-                }
-            return {
-                "status": "ok",
-                "imported": int(result.total_messages or 0),
-                "skipped": int(result.total_skipped or 0),
-            }
-        except Exception as exc:
-            logger.warning("[imessage_reader] sync_knowledge_mirror : %s", exc)
-            return {"status": "error", "error": type(exc).__name__}
+        """L'import appartient au worker d'ingestion, plus à ce reader."""
+        if not self.is_available():
+            return {"status": "unavailable"}
+        return {"status": "ok", "imported": 0, "skipped": 0, "owner": "ingestion"}
 
     async def periodic_scan(self, interval: int = 300) -> None:
-        """Boucle H24 : miroir connaissance + intelligence (curseur après succès)."""
+        """Intelligence sur le miroir — n'importe plus ``chat.db``."""
         logger.info(
             "[imessage_reader] Scan périodique démarré (interval=%ds)", interval
         )
         while True:
             try:
                 if self.is_available():
-                    sync_stats = await asyncio.to_thread(self.sync_knowledge_mirror)
-                    if sync_stats.get("status") == "ok" and sync_stats.get("imported"):
-                        logger.info(
-                            "[imessage_reader] Miroir iMessage +%s msg "
-                            "(skip=%s)",
-                            sync_stats.get("imported"),
-                            sync_stats.get("skipped"),
-                        )
-                    elif sync_stats.get("status") not in {"ok", "busy", "unavailable"}:
-                        logger.warning(
-                            "[imessage_reader] Sync miroir : %s", sync_stats
-                        )
-
                     messages, since_rowid = await asyncio.to_thread(
                         self.peek_new_messages, limit=100
                     )
@@ -280,22 +460,96 @@ class IMessageReader:
                 )
             await asyncio.sleep(interval)
 
+    def _matching_handles(self, name_or_handle: str) -> list[tuple[int, str]]:
+        needle = (name_or_handle or "").strip()
+        if not needle:
+            return []
+        lowered = needle.casefold()
+        try:
+            with get_db() as conn:
+                rows = conn.execute(
+                    """
+                    SELECT h.id, h.handle,
+                           h.display_name AS handle_display,
+                           ci.display_name AS identity_display,
+                           p.name AS person_name
+                    FROM imessage_handles h
+                    LEFT JOIN contact_identities ci ON ci.id = h.contact_identity_id
+                    LEFT JOIN people p ON p.id = ci.person_id
+                    """
+                ).fetchall()
+        except Exception as exc:
+            logger.error("[iMsgReader] _matching_handles : %s", exc)
+            return []
+        exact: list[tuple[int, str]] = []
+        fuzzy: list[tuple[int, str]] = []
+        for row in rows:
+            handle = str(row["handle"] or "")
+            labels = [
+                handle,
+                str(row["handle_display"] or ""),
+                str(row["identity_display"] or ""),
+                str(row["person_name"] or ""),
+            ]
+            if any(label.casefold() == lowered for label in labels if label):
+                exact.append((int(row["id"]), handle))
+            elif any(lowered in label.casefold() for label in labels if label):
+                fuzzy.append((int(row["id"]), handle))
+        matches = exact or fuzzy
+        if exact or len(matches) <= 1:
+            return matches
+        return self._most_recent_handle_group(matches)
+
+    def _most_recent_handle_group(
+        self, matches: list[tuple[int, str]]
+    ) -> list[tuple[int, str]]:
+        ids = [handle_id for handle_id, _ in matches]
+        placeholders = ",".join("?" * len(ids))
+        try:
+            with get_db() as conn:
+                row = conn.execute(
+                    f"""
+                    SELECT handle_id FROM imessage_messages
+                    WHERE handle_id IN ({placeholders})
+                    ORDER BY apple_rowid DESC LIMIT 1
+                    """,
+                    ids,
+                ).fetchone()
+        except Exception:
+            return matches[:1]
+        if row is None:
+            return matches[:1]
+        chosen = int(row["handle_id"])
+        return [item for item in matches if item[0] == chosen] or matches[:1]
+
+    @staticmethod
+    def _format_conversation_row(row: Any) -> dict[str, Any]:
+        date = apple_epoch_to_datetime(row["date"])
+        payload = {
+            "rowid": int(row["rowid"]),
+            "text": row["text"],
+            "date": date.isoformat() if date else None,
+            "date_short": date.strftime("%d/%m %H:%M") if date else "?",
+            "is_from_me": bool(row["is_from_me"]),
+        }
+        handle = row["handle"] if "handle" in row.keys() else None
+        if handle:
+            payload["handle"] = handle
+        return payload
+
 
 async def _trigger_message_intelligence(
     since_rowid: int,
     messages: list[dict] | None = None,
 ) -> bool:
-    """Analyse le lot Apple sans mélanger ses ROWID avec ``messages.id``.
-
-    Retourne True seulement si l'analyse a abouti — le curseur peut alors avancer.
-    """
+    """Analyse le lot miroir sans mélanger ses ROWID avec ``messages.id``."""
     try:
         from jarvis.message_intelligence import analyze_message_batch
 
         batch = (
             list(messages)
             if messages is not None
-            else apple_data.get_new_messages(since_rowid, limit=100)
+            else imessage_reader.get_new_messages(since_rowid, limit=100)
         )
         result = await analyze_message_batch(
             batch,

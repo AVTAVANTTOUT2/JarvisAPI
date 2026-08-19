@@ -16,6 +16,8 @@ def test_web_lifespan_starts_no_ingestion_worker_or_apple_watcher() -> None:
         "imessage_reader.periodic_scan",
         "scripts/imessage_daemon.py",
         "subprocess.Popen",
+        "imessage_watch",
+        "IMessageFileWatcher",
     )
     assert [token for token in forbidden if token in source] == []
 
@@ -54,6 +56,8 @@ def test_voice_daemon_does_not_poll_owned_ingestion_sources() -> None:
 def test_ingestion_service_owns_knowledge_maintenance() -> None:
     source = (ROOT / "jarvis" / "ingestion" / "service.py").read_text(encoding="utf-8")
     assert "run_knowledge_maintenance_once" in source
+    assert "_run_imessage_file_watch" in source
+    assert "refresh_local_connector_device_hash" in source
 
 
 def test_api_cannot_restart_the_legacy_email_watcher() -> None:
