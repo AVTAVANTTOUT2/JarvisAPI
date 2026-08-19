@@ -473,7 +473,8 @@ class TestMessageDedup:
             to_rowid=2,
         )
         assert result["imported"] == 0
-        assert result["skipped"] == 1
+        assert result["updated"] == 1
+        assert result["skipped"] == 0
 
     def test_same_hash_skipped(self, importer_with_memory_db):
         """Un apple_rowid distinct s'importe meme si le hash contenu coincide."""
@@ -642,6 +643,62 @@ class TestReconciliation:
                     assert report.jarvis_db_messages == 2
                     assert report.missing_imported == 2
                     assert report.ok is True
+
+    def test_incremental_noop_skips_reconcile(self, importer_with_memory_db):
+        """Sans nouveau ROWID, pas d'inventaire complet de reconciliation."""
+        importer, _chat_db = importer_with_memory_db
+        importer._update_cursor(last_rowid=42, status="idle")
+        with (
+            patch.object(importer, "_get_max_chat_rowid", return_value=42),
+            patch.object(importer, "reconcile") as rec,
+        ):
+            rec.return_value = ReconciliationReport(ok=True)
+            result = importer._sync_incremental_locked()
+        rec.assert_not_called()
+        assert result.reconciliation == {}
+        assert result.mode == "incremental"
+
+    def test_guid_rowid_refresh_is_present_in_parity(self, importer_with_memory_db):
+        """Un GUID déjà miroir avec un ROWID périmé n'est pas still_missing."""
+        importer, chat_db = importer_with_memory_db
+        from database import get_db
+
+        hids = _seed_handles(chat_db, [{"id": "+33600000001"}])
+        handles_map = importer._import_handles(chat_db)
+        _seed_chats(chat_db, [{"identifier": "+33600000001"}])
+        chats_map = importer._import_chats(chat_db)
+        mids = _seed_messages(
+            chat_db,
+            [
+                {
+                    "guid": "same-guid",
+                    "text": "Hello",
+                    "handle_id": hids[0],
+                    "date": 1,
+                    "cache_roomnames": "+33600000001",
+                }
+            ],
+        )
+        apple_rowid = mids[0]
+        importer._import_message_batch(
+            chat_db,
+            handles_map,
+            chats_map,
+            from_rowid=apple_rowid,
+            to_rowid=apple_rowid,
+        )
+        with get_db() as conn:
+            conn.execute(
+                "UPDATE imessage_messages SET apple_rowid = 99999 WHERE guid = 'same-guid'"
+            )
+
+        stats = importer._ensure_message_parity(chat_db, handles_map, chats_map)
+        assert stats["still_missing"] == 0
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT apple_rowid FROM imessage_messages WHERE guid = 'same-guid'"
+            ).fetchone()
+        assert int(row["apple_rowid"]) == apple_rowid
 
 
 class TestImportResult:
