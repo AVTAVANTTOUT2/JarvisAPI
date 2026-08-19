@@ -13,6 +13,10 @@ from jarvis.backends.local import LocalBackend
 from jarvis.models import DataSource, EmailPayload, RouterStats
 from jarvis.pii.anonymizer import PIIAnonymizer
 from jarvis.pii.boundary import DataBoundary
+from jarvis.security.llm_data_boundary import (
+    DEFAULT_TEXT_LIMIT,
+    redact_for_external_llm,
+)
 
 _CHAT_SYSTEM_DEFAULT = (
     "Tu es JARVIS, l'assistant personnel d'Elias. Concis, précis, en français. "
@@ -73,17 +77,13 @@ class JARVISRouter:
             f"Question : {query}\n\n"
             "Réponds uniquement à partir du contexte ci-dessus, en français."
         )
-        result = await self.deepseek.generate(prompt=prompt)
-        self.stats.deepseek_calls += 1
-        return result
+        return await self._send_deepseek(prompt)
 
     async def task(self, description: str) -> str:
         """Traite une tâche autonome via DeepSeek."""
         if not isinstance(description, str) or not description.strip():
             raise ValueError("task() : description vide.")
-        result = await self.deepseek.generate(prompt=description)
-        self.stats.deepseek_calls += 1
-        return result
+        return await self._send_deepseek(description)
 
     async def summarize(self, text: str, source: DataSource) -> str:
         """Résume ``text`` via DeepSeek, contenu intact."""
@@ -97,11 +97,20 @@ class JARVISRouter:
             instruction="Résume ce contenu de façon concise, en français.",
         )
 
-    async def _deepseek_passthrough(self, text: str, instruction: str) -> str:
-        """Envoie le texte tel quel. Plus d'anonymisation aller-retour."""
-        prompt = f"{instruction}\n\n{text}"
-        raw_response = await self.deepseek.generate(
-            prompt=prompt, system=_CHAT_SYSTEM_DEFAULT
+    async def _send_deepseek(self, prompt: str, *, system: str | None = None) -> str:
+        safe = redact_for_external_llm(
+            prompt, max_chars=max(DEFAULT_TEXT_LIMIT, len(prompt))
         )
+        raw = await self.deepseek.generate(prompt=safe, system=system)
         self.stats.deepseek_calls += 1
-        return raw_response
+        return raw
+
+    async def _deepseek_passthrough(self, text: str, instruction: str) -> str:
+        """Envoie le texte après masquage des secrets, PII intactes."""
+        safe_text = redact_for_external_llm(
+            text, max_chars=max(DEFAULT_TEXT_LIMIT, len(str(text)))
+        )
+        return await self._send_deepseek(
+            f"{instruction}\n\n{safe_text}",
+            system=_CHAT_SYSTEM_DEFAULT,
+        )

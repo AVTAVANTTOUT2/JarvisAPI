@@ -15,6 +15,11 @@ from typing import Any, Optional
 from jarvis.exceptions import JARVISError
 from jarvis.pii.boundary import DataBoundary
 from jarvis.router import JARVISRouter
+from jarvis.security.llm_data_boundary import (
+    DEFAULT_TEXT_LIMIT,
+    UNTRUSTED_DATA_SYSTEM_RULE,
+    wrap_untrusted_data,
+)
 
 logger = logging.getLogger("jarvis.message_intelligence")
 
@@ -77,6 +82,11 @@ async def analyze_message_batch(
     raw_text = "\n".join(
         f"{_label(message)}: {_content(message)}" for message in raw_messages
     )
+    wrapped = wrap_untrusted_data(
+        "IMESSAGE",
+        raw_text,
+        max_chars=max(DEFAULT_TEXT_LIMIT, len(raw_text)),
+    )
 
     router = _ensure_components()
 
@@ -88,13 +98,16 @@ async def analyze_message_batch(
         "3. Suggestions proactives (max 2)\n\n"
         "JSON strict : "
         '{"announcements": [...], "tasks": [...], "suggestions": [...]}\n\n'
-        f"Messages :\n{raw_text}"
+        f"{wrapped}"
     )
 
     try:
         deepseek_response = await router.deepseek.generate(
             prompt=deepseek_prompt,
-            system="Tu analyses des messages. JSON uniquement.",
+            system=(
+                UNTRUSTED_DATA_SYSTEM_RULE
+                + "\nTu analyses des messages. JSON uniquement."
+            ),
             max_tokens=800,
         )
     except JARVISError as e:

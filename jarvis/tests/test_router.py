@@ -101,3 +101,23 @@ async def test_task_routes_to_deepseek() -> None:
     assert out == "fait"
     deepseek.generate.assert_awaited_once()
     local.generate.assert_not_awaited()
+
+
+async def test_passthrough_redacts_api_key_keeps_email() -> None:
+    router, _local, deepseek = _make_router()
+    captured: dict[str, str] = {}
+    secret = "sk-passThroughSecret123456789"
+    email = "jean@example.com"
+
+    async def fake_generate(prompt: str, system=None, **kwargs):
+        captured["prompt"] = prompt
+        return "ok"
+
+    deepseek.generate = AsyncMock(side_effect=fake_generate)
+    out = await router.summarize(
+        f"Contact {email} DEEPSEEK_API_KEY={secret}",
+        DataSource.DOCUMENT,
+    )
+    assert out == "ok"
+    assert email in captured["prompt"]
+    assert secret not in captured["prompt"]

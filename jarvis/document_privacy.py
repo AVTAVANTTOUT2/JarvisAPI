@@ -153,7 +153,7 @@ async def summarize_document(
         summary = await active_router.summarize(payload, DataSource.DOCUMENT)
         return DocumentSummaryResult(
             summary=summary.strip() or local_summary,
-            processing_mode="cloud_anonymized",
+            processing_mode="cloud",
             cloud_consent=True,
             cloud_request_attempted=True,
             data_left_device=True,

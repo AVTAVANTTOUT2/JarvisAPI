@@ -123,7 +123,7 @@ async def test_cloud_consent_sends_pii_verbatim(privacy_env):
         router=router,
     )
 
-    assert result.processing_mode == "cloud_anonymized"
+    assert result.processing_mode == "cloud"
     assert result.cloud_request_attempted is True
     assert result.data_left_device is True
     assert result.pii_entities_masked == 0
@@ -217,7 +217,7 @@ def test_privacy_api_requires_explicit_per_upload_consent(privacy_env, monkeypat
         calls.append(cloud_consent)
         return DocumentSummaryResult(
             summary="Résumé sûr",
-            processing_mode="cloud_anonymized" if cloud_consent else "local",
+            processing_mode="cloud" if cloud_consent else "local",
             cloud_consent=cloud_consent,
             cloud_request_attempted=cloud_consent,
             data_left_device=cloud_consent,
