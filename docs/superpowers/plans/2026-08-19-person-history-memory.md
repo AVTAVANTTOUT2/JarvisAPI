@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** JARVIS sait qui est une personne et ce qui s’est passé avec elle, sans dump iMessage dans le tour de parole, sans OpenCode sur SQLite, et avec une autonomie d’ingestion (job + file) plutôt qu’une tâche agentique par question.
+**Goal:** JARVIS sait qui est une personne et ce qui s’est passé avec elle, sans dump iMessage dans le tour de parole, sans runtime agentique sur SQLite, et avec une autonomie d’ingestion (job + file) plutôt qu’une tâche agentique par question.
 
-**Architecture:** Vérité brute dans `imessage_messages`. Un job d’ingestion distille un chapitre par personne et par mois civil (`person_month_chapters`). Le tour de chat classe la question (identité / histoire / fait récent) avant tout LLM, lit les chapitres, et enfile un job s’il manque un mois. OpenCode n’entre que pour de l’ingénierie.
+**Architecture:** Vérité brute dans `imessage_messages`. Un job d’ingestion distille un chapitre par personne et par mois civil (`person_month_chapters`). Le tour de chat classe la question (identité / histoire / fait récent) avant tout LLM, lit les chapitres, et enfile un job s’il manque un mois. Le runtime agentique n’entre que pour de l’ingénierie.
 
 **Tech Stack:** SQLite (`schema.py` + migration), FastAPI (`router_people.py`), retrieval (`jarvis/retrieval/coordinator.py`), ingestion (`scripts/ingestion_worker.py` + job dédié), event bus (`person.chapter_updated`).
 
@@ -18,7 +18,7 @@
 - Plafonds : `PERSON_HISTORY_MAX_CHAPTERS_PER_RUN=8`, `PERSON_HISTORY_MAX_MESSAGES_PER_CHAPTER=400`, budget tokens journalier
 - Chapitre : **modèle rapide** + JSON strict. Synthèse d’histoire au moment de la question : **modèle principal**. Identité vocale : 3 phrases
 - Écriture SQLite : uniquement LaunchAgent `com.jarvis.ingestion`. Le chat enfile, il n’écrit pas
-- OpenCode / runtime agentique : **interdit** d’écrire `person_month_chapters` ; autorisé seulement pour corriger le code (plan task-control)
+- Runtime agentique : **interdit** d’écrire `person_month_chapters` ; autorisé seulement pour corriger le code (plan task-control)
 - Tests : fixtures fictives (`Ada`, `AliceTest`), jamais `chat.db` réel
 - Ne pas merger avec la PR iMessage fidélité (#265)
 
@@ -252,6 +252,6 @@ Pas de log de contenu iMessage.
 
 - Fusion automatique de fiches people
 - Diarisation
-- OpenCode / runtime agentique pour SQL personnel
+- Runtime agentique pour SQL personnel
 - UI Contacts dédiée (peut suivre)
 - Relance massive de `relationship_analyzer` sur 5000 messages

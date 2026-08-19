@@ -5,7 +5,7 @@ Statut: proposé (en attente de validation)
 
 ## Objectif
 
-Quand tu demandes *qui est Bertille* ou *ce qui s’est passé dans notre histoire*, JARVIS répond à partir d’une **mémoire déjà distillée**, pas d’une recherche mot-clé sur 40 000 messages. S’il lui manque un morceau, il **le construit** (job d’ingestion), il ne prétend pas que l’index est vide et il n’envoie pas OpenCode fouiller SQLite.
+Quand tu demandes *qui est Bertille* ou *ce qui s’est passé dans notre histoire*, JARVIS répond à partir d’une **mémoire déjà distillée**, pas d’une recherche mot-clé sur 40 000 messages. S’il lui manque un morceau, il **le construit** (job d’ingestion), il ne prétend pas que l’index est vide et il n’envoie pas un runtime agentique fouiller SQLite.
 
 ## Le vrai trou (constaté le 19 août)
 
@@ -26,7 +26,7 @@ Ton idée (une table de résumés mensuels + citations, puis synthèse à la que
 | 1 table = 1 mois × 1 personne | Oui, **chapitre** versionné, pas un dump. Unique `(person_id, year_month)`. |
 | Citations des moments forts | Identifiants `apple_rowid` + extraits **courts** bornés. Jamais le mois entier dans le LLM au moment de la question. |
 | « Select tous les résumés puis synthétise » | Oui pour une question d’*histoire*. Pas pour « qu’est-ce qu’elle m’a dit hier » (là, messages bruts de la fenêtre). |
-| OpenCode + plusieurs agents qui SQL la base | **Non comme chemin principal.** OpenCode = code / git / CI en worktree. La mémoire personnelle passe par retrieval + jobs d’ingestion. Un run agentique *peut* lire les chapitres déjà indexés via le MCP knowledge (lecture seule), il n’écrit pas dans SQLite. |
+| Runtime agentique + plusieurs agents qui SQL la base | **Non comme chemin principal.** Le runtime agentique sert au code / git / CI en worktree. La mémoire personnelle passe par retrieval + jobs d’ingestion. Un run agentique *peut* lire les chapitres déjà indexés via le MCP knowledge (lecture seule), il n’écrit pas dans SQLite. |
 
 JARVIS « se débrouille » = **détecter le trou, enfiler un job, répondre avec ce qui existe, prévenir quand le reste est prêt**. Pas lancer un coding agent sur `data/jarvis.db`.
 
@@ -62,7 +62,7 @@ retrieval (source person_month) + synthèse bornée
 knowledge job / job d’ingestion « chapter missing months »
         │
         ▼  seulement si la demande est une tâche logicielle
-runtime agentique + OpenCode (worktree, plan approuvé)
+runtime agentique (worktree, plan approuvé)
 ```
 
 Une seule écriture propriétaire : le LaunchAgent `com.jarvis.ingestion` (identité TCC). Le chat ne fait que lire et **enfiler**.
@@ -137,7 +137,7 @@ Le sync Mac n’a plus le droit de avancer `last_extracted_rowid`. Sans ça, les
 
 Le coach / `build_full_context()` n’injecte **pas** 200 chapitres. Il injecte, si une personne est résolue dans le tour : dossier + liste `year_month + status` (pas les narratifs ; ceux-là viennent du retrieval du tour).
 
-## Autonomie : trou → job, pas OpenCode
+## Autonomie : trou → job, pas de runtime agentique
 
 ```
 question histoire
@@ -151,14 +151,14 @@ question histoire
 
 C’est le même patron que `knowledge_index_jobs` : idempotent, lease, retry. **Pas** une tâche agentique par défaut : pas de worktree, pas d’approbation de plan, pas de modèle coding. Une question personnelle ne doit pas ouvrir un checkout Git.
 
-## Où l’agentique / OpenCode a sa place
+## Où le runtime agentique a sa place
 
 | Demande | Chemin |
 |---|---|
 | Histoire / qui est | Chapitres + retrieval (ci-dessus) |
 | « Analyse Bertille » / dossier périmé | Job `person_history` immédiat (comme aujourd’hui `POST /api/analyze-contact`, étendu) |
-| « Prépare un cadeau / un message, tu connais l’histoire » | Chat normal **avec** chapitres dans le snapshot de tour. Si l’utilisateur veut une *production* (brouillon long, fichier), **là** task-control + plan à valider. OpenCode peut *lire* les UID knowledge du tour (MCP déjà read-only), pas SQL libre. |
-| « Le job de chapitres est cassé, corrige le code » | Runtime agentique + OpenCode, plan approuvé, worktree. C’est de l’ingénierie. |
+| « Prépare un cadeau / un message, tu connais l’histoire » | Chat normal **avec** chapitres dans le snapshot de tour. Si l’utilisateur veut une *production* (brouillon long, fichier), **là** task-control + plan à valider. Le runtime agentique peut *lire* les UID knowledge du tour (MCP déjà read-only), pas SQL libre. |
+| « Le job de chapitres est cassé, corrige le code » | Runtime agentique, plan approuvé, worktree. C’est de l’ingénierie. |
 
 Plusieurs agents qui « cherchent dans la base » dupliqueraient `search_knowledge` en plus dangereux (PII dans un worktree). On ne le fait pas.
 
@@ -185,7 +185,7 @@ Voix : identité = 3 phrases du dossier. Histoire = « trop long à l’oral, j�
 - Job : 3 messages en janvier → 1 chapitre `complete` ; 0 message en février → ligne `empty` ; même hash → 0 appel LLM.
 - Sync Mac ne bouge plus `last_extracted_rowid`.
 - Trou : question histoire sans janvier → job enqueued + réponse sans prétendre l’absence de traces.
-- Scan statique : aucun chemin OpenCode / agentic n’importe `person_month_chapters` en écriture.
+- Scan statique : aucun chemin agentic n’importe `person_month_chapters` en écriture.
 
 ## Hors scope (volontaire)
 
@@ -193,7 +193,7 @@ Voix : identité = 3 phrases du dossier. Histoire = « trop long à l’oral, j�
 - Fusion magique de deux fiches people distinctes.
 - Résumés par *semaine* (trop cher, trop bruyant).
 - Envoi iMessage.
-- Faire d’OpenCode un client SQL.
+- Faire du runtime agentique un client SQL.
 
 ## Critère d’acceptation produit
 
