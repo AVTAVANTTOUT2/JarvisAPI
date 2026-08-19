@@ -346,6 +346,35 @@ def get_connector_binding(
     return binding if include_disabled or _binding_is_authorized(binding) else None
 
 
+def refresh_local_connector_device_hash(source: str) -> ConnectorBinding | None:
+    """Réaligne ``device_id_hash`` sur l'hôte courant sans redemander le consentement.
+
+    Un hostname qui change (cloud, DHCP, image CI) ne doit pas délier un
+    connecteur déjà ``granted`` et activé. Le hash sert à reconnaître *cette*
+    machine, pas à révoquer un consentement déjà donné.
+    """
+
+    source_key = _source(source)
+    binding = get_connector_binding(source_key, include_disabled=True)
+    if binding is None:
+        return None
+    if not binding.enabled or binding.permission_state != "granted":
+        return get_connector_binding(source_key)
+    expected = _current_device_digest(binding.profile_id)
+    if binding.device_id_hash == expected:
+        return binding
+    now = sqlite_utc_timestamp()
+    with get_db() as conn:
+        conn.execute(
+            """UPDATE connector_bindings
+               SET device_id_hash = ?, updated_at = ?
+               WHERE source = ? AND profile_id = ?
+                 AND enabled = 1 AND permission_state = 'granted'""",
+            (expected, now, source_key, current_profile_id()),
+        )
+    return get_connector_binding(source_key)
+
+
 def list_connector_bindings(
     *, include_disabled: bool = False
 ) -> list[ConnectorBinding]:
@@ -1223,6 +1252,7 @@ __all__ = [
     "fail_ingestion_job",
     "get_connector_binding",
     "get_contact_identity",
+    "refresh_local_connector_device_hash",
     "get_ingestion_source_state",
     "get_ingestion_health_summary",
     "get_recording_session",

@@ -193,7 +193,7 @@ async def _refresh_calendar(
 
 
 async def _refresh_imessage(query: str) -> str:
-    """Rattrape le miroir ``imessage_messages`` avant une question messages."""
+    """Couverture depuis le miroir local — n'ouvre pas ``chat.db`` à la question."""
     del query  # réserve pour filtres futurs (contact nommé, etc.)
     cache_key = _profile_source_key("imessage")
     source_lock = _source_lock(cache_key)
@@ -203,22 +203,18 @@ async def _refresh_imessage(query: str) -> str:
         if _cache_is_fresh(cache_key, _IMESSAGE_TTL_SECONDS):
             return "cached"
         try:
-            from integrations.imessage_import import IMessageImporter
+            from integrations.imessage_reader import IMessageReader
 
-            importer = IMessageImporter()
-            if not importer.is_available():
+            reader = IMessageReader()
+            if not await asyncio.to_thread(reader.is_available):
                 raise RuntimeError("imessage_unavailable")
-            result = await asyncio.to_thread(importer.sync_incremental)
-            if result.errors == ["sync_already_running"]:
-                return "cached"
-            if result.errors:
-                raise RuntimeError(result.errors[0])
+            count = await asyncio.to_thread(reader.count_messages)
             now = sqlite_utc_timestamp()
             _update_live_source_state(
                 "imessage_live",
                 "imessage",
                 status="ok",
-                item_count=int(result.total_messages or 0),
+                item_count=int(count),
                 last_indexed_at=now,
                 error_code=None,
             )

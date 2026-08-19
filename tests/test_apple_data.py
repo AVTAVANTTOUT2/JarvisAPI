@@ -38,16 +38,12 @@ SKIPPED_SCAN_DIRS = frozenset(
     }
 )
 CHAT_DB_CONSUMERS = (
-    "integrations/imessage.py",
     "integrations/imessage_import.py",
-    "integrations/imessage_reader.py",
     "scripts/backfill_imessages.py",
     "scripts/imessage_daemon.py",
     "scripts/imessage_import.py",
     "scripts/imessage_sync_health_check.py",
-    "scripts/jarvis_daemon.py",
     "scripts/test_macos_permissions.py",
-    "tv/data_sources/messages.py",
 )
 
 

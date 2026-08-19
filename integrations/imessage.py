@@ -1,12 +1,12 @@
 """Bridge iMessage (macOS uniquement).
 
 Principe :
-  - Lecture en READONLY de ~/Library/Messages/chat.db (table `message`)
+  - Lecture du miroir ``jarvis.db`` (``imessage_messages``), jamais de ``chat.db``
   - Polling toutes les N secondes pour détecter les nouveaux messages reçus
-  - Envoi des réponses via `osascript` qui pilote Messages.app
+  - Envoi des réponses via `osascript` qui pilote Messages.app (opt-in)
 
 Permissions macOS requises :
-  - Full Disk Access pour Terminal/iTerm (sinon SQLite refuse de lire chat.db)
+  - Full Disk Access pour le worker d'ingestion (import chat.db → jarvis.db)
   - Automation pour Messages.app (demandée au 1er envoi)
 
 Sécurité : on ne traite QUE les messages venant de `IMESSAGE_TARGET` (ton propre
@@ -18,16 +18,17 @@ import logging
 import re
 import uuid
 from pathlib import Path
+from typing import Any
 
 import config
 
 from ._applescript import escape_applescript_string, run_applescript
-from .apple_data import AppleDataService, apple_data
 from .imessage_cursor import (
     advance_consumer_cursor,
     get_consumer_cursor,
     initialize_consumer_cursor,
 )
+from .imessage_reader import IMessageReader, imessage_reader
 
 logger = logging.getLogger(__name__)
 
@@ -68,10 +69,12 @@ class IMessageBridge:
     def __init__(
         self,
         target_address: str,
-        data_service: AppleDataService | None = None,
+        data_service: Any | None = None,
+        reader: IMessageReader | None = None,
     ) -> None:
+        del data_service
         self.target = (target_address or "").strip()
-        self._apple_data = data_service or apple_data
+        self._reader = reader or imessage_reader
         self.cursor_name = f"bridge.reply:{self.target}"
         # Le checkpoint déterministe conserve le même fil JARVIS après un
         # redémarrage du bridge sans persister l'adresse iMessage en clair.
@@ -96,12 +99,12 @@ class IMessageBridge:
 
     @property
     def db_path(self) -> Path:
-        """Chemin de la base exposé pour compatibilité."""
-        return self._apple_data.db_path
+        """Chemin du miroir JARVIS (plus ``chat.db``)."""
+        return self._reader.db_path
 
     @db_path.setter
     def db_path(self, value: str | Path) -> None:
-        self._apple_data = self._apple_data.with_db_path(value)
+        del value
 
     def _remember_outgoing(self, text: str) -> None:
         """Garde une trace des N dernières réponses envoyées (anti-écho)."""
@@ -122,7 +125,7 @@ class IMessageBridge:
     # ── État ─────────────────────────────────────────────────
 
     def is_available(self) -> bool:
-        """Vérifie l'accès à chat.db. Retourne False si pas configuré ou pas accessible."""
+        """Vérifie le miroir JARVIS. Retourne False si pas configuré ou pas lisible."""
         if not self.target:
             logger.info(
                 "[iMessage] Bridge desactive — IMESSAGE_TARGET non configure dans .env"
@@ -131,36 +134,27 @@ class IMessageBridge:
         if validate_imessage_address(self.target) is None:
             logger.error("[iMessage] Destinataire invalide : %r", self.target)
             return False
-        if not self.db_path.exists():
-            logger.error(
-                "[iMessage] chat.db INTROUVABLE : %s — "
-                "Verifiez que Messages.app a ete ouvert au moins une fois sur ce Mac.",
-                self.db_path,
-            )
-            return False
         try:
-            count = self._apple_data.count_messages()
-            logger.info("[iMessage] chat.db accessible (%d messages)", count)
-            return True
-        except Exception as e:
-            err = str(e).lower()
-            if "unable to open" in err or "authorization" in err or "permission" in err:
-                logger.critical(
-                    "[iMessage] ACCES REFUSE a chat.db (%s) — "
-                    "Reglages Systeme > Confidentialite et securite > Acces complet au disque "
-                    "> ajoutez Terminal / Cursor / l'app qui lance JARVIS.",
-                    e,
-                )
+            available = self._reader.is_available()
+            if available:
+                count = self._reader.count_messages()
+                logger.info("[iMessage] miroir jarvis.db lisible (%d messages)", count)
             else:
-                logger.error("[iMessage] Erreur accès chat.db : %s", e)
+                logger.error(
+                    "[iMessage] miroir iMessage illisible — "
+                    "attendre le worker d'ingestion (com.jarvis.ingestion)."
+                )
+            return available
+        except Exception as e:
+            logger.error("[iMessage] Erreur accès miroir iMessage : %s", e)
             return False
 
     # ── Lecture chat.db ──────────────────────────────────────
 
     def _max_rowid(self) -> int:
-        """Récupère le ROWID max actuel de la table message (pour init)."""
+        """Récupère le apple_rowid max du miroir (pour init)."""
         try:
-            return self._apple_data.get_max_rowid()
+            return self._reader.get_max_rowid()
         except Exception as e:
             logger.error(f"[iMessage] _max_rowid : {e}")
             return 0
@@ -171,12 +165,12 @@ class IMessageBridge:
         On filtre côté SQL pour ne JAMAIS prendre en compte :
           - `is_from_me = 0` → messages reçus uniquement (CRITIQUE :
             sans ce filtre, JARVIS retraiterait ses propres réponses → boucle)
-          - `text IS NOT NULL` → skip réactions, fichiers attachés sans texte
-          - `h.id = self.target` → skip tous les autres contacts
+          - texte non vide → skip réactions, fichiers attachés sans texte
+          - handle = self.target → skip tous les autres contacts
         """
         last_check_rowid = get_consumer_cursor(self.cursor_name)
         try:
-            rows = self._apple_data.get_new_messages(
+            rows = self._reader.get_new_messages(
                 last_check_rowid,
                 handle=self.target,
                 incoming_only=True,

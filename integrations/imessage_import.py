@@ -39,8 +39,11 @@ from integrations.apple_data import (
 )
 from integrations.imessage_body import message_text_from_row
 
-# Une seule sync à la fois (daemon HTTP + periodic_scan + retrieval live).
+# Une seule sync à la fois (worker d'ingestion + diagnostic HTTP).
+# Un event pendant le lock pose un dirty flag plutôt que d'être jeté.
 _SYNC_LOCK = threading.Lock()
+_DIRTY = threading.Event()
+_MAX_DIRTY_LOOPS = 8
 _AVAILABILITY_FAILURE_COOLDOWN = 30.0
 
 
@@ -58,6 +61,41 @@ def _try_acquire_process_sync_lock():
     except BlockingIOError:
         handle.close()
         return None
+
+
+def _skipped_already_running() -> ImportResult:
+    skipped = ImportResult(mode="incremental")
+    skipped.errors.append("sync_already_running")
+    return skipped
+
+
+def _requeue_dirty_sync() -> None:
+    """Le cycle courant n'a pas tout vu : un job d'ingestion reprendra."""
+
+    try:
+        from database.ingestion import ConnectorBindingRequired, enqueue_ingestion_job
+
+        enqueue_ingestion_job("imessage", job_kind="sync", dedupe_key="sync:dirty")
+    except ConnectorBindingRequired:
+        logger.info("[imessage_import] cycle dirty, connecteur non lié")
+    except Exception:
+        logger.exception("[imessage_import] réenfilement dirty impossible")
+
+
+def _merge_incremental_results(acc: ImportResult, nxt: ImportResult) -> ImportResult:
+    acc.total_messages += nxt.total_messages
+    acc.total_skipped += nxt.total_skipped
+    acc.total_failed += nxt.total_failed
+    acc.total_handles += nxt.total_handles
+    acc.total_chats += nxt.total_chats
+    acc.total_attachments += nxt.total_attachments
+    acc.total_reactions += nxt.total_reactions
+    acc.errors.extend(nxt.errors)
+    if nxt.reconciliation:
+        acc.reconciliation = nxt.reconciliation
+    acc.duration_seconds += nxt.duration_seconds
+    acc.completed_at = nxt.completed_at or acc.completed_at
+    return acc
 
 
 def _message_batch_sql(conn: sqlite3.Connection) -> str:
@@ -552,34 +590,52 @@ class IMessageImporter:
     # ── Sync incrementale ──────────────────────────────────────
 
     def sync_incremental(self) -> ImportResult:
-        """Sync incrementale : uniquement les nouveaux messages depuis le curseur."""
+        """Sync incrementale : uniquement les nouveaux messages depuis le curseur.
+
+        Si un autre cycle tient le verrou, le dirty flag est posé et un job
+        ``sync:dirty`` est enfilé — plus aucun event n'est silencieusement jeté.
+        """
         if not self.is_available():
             raise RuntimeError("chat.db inaccessible — verifier Full Disk Access")
 
-        if not _SYNC_LOCK.acquire(blocking=False):
-            # ponytail: skip si déjà en cours — le prochain cycle H24 rattrape.
-            logger.info("[imessage_import] Sync déjà en cours — cycle ignoré")
-            skipped = ImportResult(mode="incremental")
-            skipped.errors.append("sync_already_running")
-            skipped.total_failed = 1
-            return skipped
+        acquired = _SYNC_LOCK.acquire(blocking=False)
+        if not acquired:
+            _DIRTY.set()
+            acquired = _SYNC_LOCK.acquire(timeout=0.05)
+            if not acquired:
+                logger.info(
+                    "[imessage_import] Sync déjà en cours — cycle marqué dirty"
+                )
+                _requeue_dirty_sync()
+                return _skipped_already_running()
 
         process_lock = _try_acquire_process_sync_lock()
         if process_lock is None:
+            _DIRTY.set()
             _SYNC_LOCK.release()
             logger.info(
                 "[imessage_import] Sync active dans un autre processus — cycle reporté"
             )
-            skipped = ImportResult(mode="incremental")
-            skipped.errors.append("sync_already_running")
-            skipped.total_failed = 1
-            return skipped
+            _requeue_dirty_sync()
+            return _skipped_already_running()
         try:
-            return self._sync_incremental_locked()
+            combined = ImportResult(mode="incremental")
+            loops = 0
+            while True:
+                _DIRTY.clear()
+                loops += 1
+                _merge_incremental_results(combined, self._sync_incremental_locked())
+                if not _DIRTY.is_set() or loops >= _MAX_DIRTY_LOOPS:
+                    break
+            if _DIRTY.is_set():
+                _requeue_dirty_sync()
+            return combined
         finally:
             fcntl.flock(process_lock.fileno(), fcntl.LOCK_UN)
             process_lock.close()
             _SYNC_LOCK.release()
+            if _DIRTY.is_set():
+                _requeue_dirty_sync()
 
     def _sync_incremental_locked(self) -> ImportResult:
         t0 = datetime.now()

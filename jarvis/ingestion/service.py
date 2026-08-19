@@ -29,6 +29,7 @@ from database import (
     init_db,
     list_connector_bindings,
     list_ingestion_jobs,
+    refresh_local_connector_device_hash,
     renew_ingestion_job_lease,
     touch_ingestion_heartbeat,
     update_connector_permission,
@@ -647,6 +648,19 @@ async def _imessage_sync(
         )
     update_connector_permission("imessage", "granted")
     result = await asyncio.to_thread(imessage_importer.sync_incremental)
+    skipped_busy = bool(result.errors) and all(
+        error == "sync_already_running" for error in result.errors
+    )
+    if skipped_busy:
+        return IngestionRunResult(
+            status="ok",
+            item_count=state.item_count if state else 0,
+            cursor=dict(state.cursor) if state else {},
+            completeness=state.completeness if state else "unknown",
+            coverage_start_utc=state.coverage_start_utc if state else None,
+            coverage_end_utc=state.coverage_end_utc if state else None,
+            last_item_at=state.last_item_at if state else None,
+        )
     reconciliation = (
         result.reconciliation if isinstance(result.reconciliation, dict) else {}
     )
@@ -1070,6 +1084,8 @@ async def run_ingestion_maintenance_once(
         try:
             with use_profile(profile_id):
                 init_db()
+                for source in ("imessage", "mail", "calendar"):
+                    refresh_local_connector_device_hash(source)
                 touch_ingestion_heartbeat()
                 profile_summary = await _process_profile_jobs(
                     worker_id,
@@ -1092,6 +1108,16 @@ async def run_ingestion_maintenance_once(
     return summary
 
 
+async def _run_imessage_file_watch(stop: asyncio.Event) -> None:
+    """kqueue/debounce → jobs d'ingestion. Absent du process FastAPI."""
+
+    from jarvis.ingestion.imessage_watch import IMessageFileWatcher
+
+    debounce_ms = int(getattr(config, "INGESTION_IMESSAGE_WATCH_DEBOUNCE_MS", 300))
+    watcher = IMessageFileWatcher(debounce_s=max(0.05, debounce_ms / 1000.0))
+    await watcher.run_until(stop)
+
+
 async def run_ingestion_worker(stop_event: asyncio.Event | None = None) -> None:
     """Boucle supervisable ; l'appelant contrôle l'arrêt via ``stop_event``."""
 
@@ -1102,41 +1128,55 @@ async def run_ingestion_worker(stop_event: asyncio.Event | None = None) -> None:
         2.0, float(getattr(config, "INGESTION_HEARTBEAT_INTERVAL_S", 10))
     )
     consecutive_failures = 0
-    while not stop.is_set():
-        delay = heartbeat_interval
-        try:
-            summary = await run_ingestion_maintenance_once()
-            if summary.get("errors"):
-                raise RuntimeError("ingestion_maintenance_degraded")
-            consecutive_failures = 0
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            consecutive_failures += 1
-            logger.exception("[ingestion] worker pass failed")
+    watch_task: asyncio.Task[None] | None = None
+    if bool(getattr(config, "INGESTION_IMESSAGE_WATCH_ENABLED", True)):
+        watch_task = asyncio.create_task(
+            _run_imessage_file_watch(stop),
+            name="ingestion_imessage_watch",
+        )
+    try:
+        while not stop.is_set():
+            delay = heartbeat_interval
             try:
-                profiles = list_user_profiles()
-            except Exception:
-                profiles = []
-            for profile in profiles:
+                summary = await run_ingestion_maintenance_once()
+                if summary.get("errors"):
+                    raise RuntimeError("ingestion_maintenance_degraded")
+                consecutive_failures = 0
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                consecutive_failures += 1
+                logger.exception("[ingestion] worker pass failed")
                 try:
-                    with use_profile(str(profile["id"])):
-                        update_ingestion_source_state(
-                            "__service__",
-                            status="degraded",
-                            heartbeat_at=sqlite_utc_timestamp(),
-                            error_code=type(exc).__name__,
-                            error_message=None,
-                            consecutive_failures=consecutive_failures,
-                        )
+                    profiles = list_user_profiles()
                 except Exception:
-                    logger.exception("[ingestion] failed to persist degraded heartbeat")
-            base = min(300.0, 5.0 * (2 ** min(consecutive_failures - 1, 6)))
-            delay = min(300.0, base + random.uniform(0.0, min(5.0, base * 0.1)))
-        try:
-            await asyncio.wait_for(stop.wait(), timeout=delay)
-        except TimeoutError:
-            pass
+                    profiles = []
+                for profile in profiles:
+                    try:
+                        with use_profile(str(profile["id"])):
+                            update_ingestion_source_state(
+                                "__service__",
+                                status="degraded",
+                                heartbeat_at=sqlite_utc_timestamp(),
+                                error_code=type(exc).__name__,
+                                error_message=None,
+                                consecutive_failures=consecutive_failures,
+                            )
+                    except Exception:
+                        logger.exception(
+                            "[ingestion] failed to persist degraded heartbeat"
+                        )
+                base = min(300.0, 5.0 * (2 ** min(consecutive_failures - 1, 6)))
+                delay = min(300.0, base + random.uniform(0.0, min(5.0, base * 0.1)))
+            try:
+                await asyncio.wait_for(stop.wait(), timeout=delay)
+            except TimeoutError:
+                pass
+    finally:
+        if watch_task is not None:
+            watch_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await watch_task
 
 
 def ingestion_lock_path() -> Path:

@@ -1,8 +1,7 @@
 """Derniers messages — iMessage + chat JARVIS.
 
-Lit les messages iMessage depuis ~/Library/Messages/chat.db (read-only)
-et les messages chat JARVIS depuis jarvis.db, puis les fusionne
-triés par timestamp descendant.
+Lit les iMessages depuis le miroir ``jarvis.db`` (pas ``chat.db``)
+et les messages chat JARVIS, puis les fusionne triés par timestamp.
 """
 
 from __future__ import annotations
@@ -13,7 +12,8 @@ from pathlib import Path
 from typing import Any
 
 import config as cfg
-from integrations.apple_data import apple_data, apple_epoch_to_datetime
+from integrations.apple_data import apple_epoch_to_datetime
+from integrations.imessage_reader import imessage_reader
 
 logger = logging.getLogger(__name__)
 
@@ -50,17 +50,17 @@ def _resolve_handle_name(handle: str) -> str:
 
 
 def _get_imessages() -> list[dict[str, Any]]:
-    """Lit les derniers iMessages reçus depuis chat.db (macOS)."""
-    if not apple_data.db_path.exists():
-        logger.debug("chat.db non accessible à %s", apple_data.db_path)
+    """Lit les derniers iMessages reçus depuis le miroir JARVIS."""
+    if not imessage_reader.is_available():
+        logger.debug("miroir iMessage indisponible")
         return []
     try:
-        rows = apple_data.get_recent_messages(
+        rows = imessage_reader.get_recent_messages(
             limit=cfg.MAX_IMESSAGES,
             incoming_only=True,
         )
     except Exception as exc:
-        logger.warning("iMessage DB indisponible: %s", exc)
+        logger.warning("iMessage miroir indisponible: %s", exc)
         return []
 
     results: list[dict[str, Any]] = []
