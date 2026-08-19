@@ -109,8 +109,10 @@ class RequestConstraints:
 
 # Une négation citée décrit une instruction sans en être une. On retire les
 # segments entre guillemets avant toute recherche de motif.
+# Apostrophes ASCII exclues : « don't » / « n'exécute » / « c'est » ne sont
+# pas des citations. Seuls les vrais guillemets (y compris ‘…’ appariés) le sont.
 _QUOTED = re.compile(
-    r"«[^»]*»|\"[^\"]*\"|“[^”]*”|‘[^’]*’|'(?:[^']{2,})'|`[^`]*`",
+    r"«[^»]*»|\"[^\"]*\"|“[^”]*”|‘[^’]*’|`[^`]*`",
 )
 
 # Une négation présentée comme exemple ne s'applique pas non plus. On coupe la
@@ -136,12 +138,14 @@ _WRITE_VERBS = (
     r"publiez|modify|change|edit|write|writes|fix|fixes|delete|deletes|send|"
     r"sends|publish|publishes|commit|push|apply|applies"
 )
+# « ne les/la/leur/lui/l'/le/me … » — l' élidé et lui manquaient.
+_CLITICS = r"(?:les?\s+|la\s+|leur\s+|lui\s+|[ml]es\s+|l\s*'?\s*)?"
 
 _NO_EXECUTION_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(
-        rf"\bne\s+(?:les?\s+|la\s+|leur\s+|[ml]es\s+)?(?:{_EXEC_VERBS})\s+pas\b"
+        rf"\bne\s+{_CLITICS}(?:{_EXEC_VERBS})\s+(?:pas|rien)\b"
     ),
-    re.compile(rf"\bn\s*'?\s*(?:{_EXEC_VERBS})\s+pas\b"),
+    re.compile(rf"\bn\s*'?\s*(?:{_EXEC_VERBS})\s+(?:pas|rien)\b"),
     re.compile(rf"\bsans\s+(?:les?\s+|la\s+)?(?:{_EXEC_VERBS})\b"),
     re.compile(rf"\b(?:do\s+not|don\s*'?\s*t|never)\s+(?:{_EXEC_VERBS})\b"),
     re.compile(rf"\bwithout\s+(?:{_EXEC_VERBS})(?:ning|ing)?\b"),
@@ -152,9 +156,9 @@ _NO_EXECUTION_PATTERNS: tuple[re.Pattern[str], ...] = (
 
 _NO_MODIFICATION_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(
-        rf"\bne\s+(?:les?\s+|la\s+|leur\s+|[ml]es\s+)?(?:{_WRITE_VERBS})\s+pas\b"
+        rf"\bne\s+{_CLITICS}(?:{_WRITE_VERBS})\s+(?:pas|rien)\b"
     ),
-    re.compile(rf"\bn\s*'?\s*(?:{_WRITE_VERBS})\s+pas\b"),
+    re.compile(rf"\bn\s*'?\s*(?:{_WRITE_VERBS})\s+(?:pas|rien)\b"),
     re.compile(rf"\bsans\s+(?:les?\s+|la\s+|rien\s+)?(?:{_WRITE_VERBS})r?\b"),
     re.compile(rf"\b(?:do\s+not|don\s*'?\s*t|never)\s+(?:{_WRITE_VERBS})\b"),
     re.compile(r"\bsans\s+(?:rien\s+)?(?:modifier|changer|toucher|ecrire|envoyer)\b"),
