@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -361,3 +363,210 @@ def test_people_history_http_routes(history_db: Path) -> None:
         rebuild = client.post("/api/people/Ada/history/rebuild")
         assert rebuild.status_code == 202
         assert rebuild.json()["status"] == "queued"
+
+
+def _upsert_month(person_id: int, year_month: str, **overrides: object) -> None:
+    from database.person_history import upsert_chapter
+
+    payload = {
+        "person_id": int(person_id),
+        "year_month": year_month,
+        "status": "complete",
+        "message_count": 1,
+        "sent_count": 0,
+        "recv_count": 1,
+        "highlights": [],
+        "narrative": f"Récit {year_month}.",
+        "mood_arc": "calme",
+        "source_rowid_min": 1,
+        "source_rowid_max": 1,
+        "content_hash": year_month,
+        "period_start_utc": f"{year_month}-01T00:00:00Z",
+        "period_end_utc": f"{year_month}-28T00:00:00Z",
+    }
+    payload.update(overrides)
+    upsert_chapter(**payload)  # type: ignore[arg-type]
+
+
+def test_daily_and_person_targets_rebuild_existing_closed_and_current(
+    history_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from database import get_db
+    from scripts.person_history import _select_targets
+
+    monkeypatch.setattr(
+        "scripts.person_history.local_datetime",
+        lambda: datetime(2026, 8, 15, 12, 0, tzinfo=ZoneInfo("Europe/Paris")),
+    )
+    with get_db() as conn:
+        person_id = _seed_ada_with_noise(conn)
+    _upsert_month(int(person_id), "2026-07")
+    _upsert_month(int(person_id), "2026-08")
+
+    daily = _select_targets({})
+    person = _select_targets({"person_id": int(person_id)})
+    assert (int(person_id), "2026-07") in daily
+    assert (int(person_id), "2026-08") in daily
+    assert (int(person_id), "2026-07") in person
+    assert (int(person_id), "2026-08") in person
+
+
+def test_highlight_quote_must_be_substring_of_source_message(
+    history_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import asyncio
+
+    from database import get_db
+    from scripts.person_history import build_chapter
+
+    async def _chat(**_kwargs):
+        return {
+            "content": json.dumps(
+                {
+                    "highlights": [
+                        {
+                            "apple_rowid": 101,
+                            "occurred_at_utc": "2026-01-15T10:00:00Z",
+                            "quote": "inventé de toutes pièces",
+                            "kind": "plan",
+                        },
+                        {
+                            "apple_rowid": 101,
+                            "occurred_at_utc": "2026-01-15T10:00:00Z",
+                            "quote": "Ada prend l'avion",
+                            "kind": "plan",
+                        },
+                    ],
+                    "narrative": "Janvier a été calme.",
+                    "mood_arc": "stable",
+                }
+            ),
+            "tokens_in": 12,
+            "tokens_out": 30,
+            "cost": 0.0,
+            "model": "deepseek-v4-flash",
+        }
+
+    monkeypatch.setattr("llm.chat", _chat)
+    with get_db() as conn:
+        person_id = _seed_ada_with_noise(conn)
+    result = asyncio.run(build_chapter(int(person_id), "2026-01"))
+    quotes = [item["quote"] for item in result["highlights"]]
+    assert "Ada prend l'avion" in quotes
+    assert "inventé de toutes pièces" not in quotes
+
+
+def test_history_digest_keeps_recent_months_and_highlights(history_db: Path) -> None:
+    from database import get_db
+    from database.person_history import digest_for_history
+
+    with get_db() as conn:
+        person_id = conn.execute("INSERT INTO people(name) VALUES ('Ada')").lastrowid
+    long_text = "x" * 3000
+    for month in ("2020-01", "2020-02", "2020-03", "2026-07", "2026-08"):
+        highlights = []
+        if month == "2026-08":
+            highlights = [
+                {
+                    "apple_rowid": 101,
+                    "occurred_at_utc": "2026-08-02T10:00:00Z",
+                    "quote": "on se voit mardi",
+                    "kind": "plan",
+                }
+            ]
+        _upsert_month(
+            int(person_id),
+            month,
+            narrative=f"{month} {long_text}",
+            highlights=highlights,
+        )
+    digest = digest_for_history(int(person_id))
+    assert "2026-08" in digest
+    assert "2026-07" in digest
+    assert "on se voit mardi" in digest
+    assert "2020-01" not in digest
+
+
+def test_missing_year_months_uses_local_month_not_utc(
+    history_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from database import get_db
+    from scripts.person_history import missing_year_months
+
+    monkeypatch.setattr("config.TIMEZONE", "Europe/Paris")
+    with get_db() as conn:
+        person_id = conn.execute(
+            "INSERT INTO people(name) VALUES ('Ada')"
+        ).lastrowid
+        handle_id = conn.execute(
+            "INSERT INTO imessage_handles(apple_handle_id, handle) VALUES (?, ?)",
+            (1, "+33600000001"),
+        ).lastrowid
+        conn.execute(
+            "INSERT INTO relationship_profiles(person_id, handle) VALUES (?, ?)",
+            (person_id, "+33600000001"),
+        )
+        conn.execute(
+            """
+            INSERT INTO imessage_messages(
+                apple_rowid, guid, handle_id, text, occurred_at_utc, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                1,
+                "guid-dst",
+                handle_id,
+                "bonne année",
+                "2026-01-31T23:30:00Z",
+                "2026-01-31T23:30:00Z",
+            ),
+        )
+    assert missing_year_months(int(person_id)) == ["2026-02"]
+
+
+def test_missing_year_months_does_not_loop_every_timestamp() -> None:
+    import inspect
+
+    from scripts.person_history import missing_year_months
+
+    assert "for row in rows" not in inspect.getsource(missing_year_months)
+
+
+def test_sync_imessage_counts_uses_mirror_not_extractor_cache(
+    history_db: Path,
+) -> None:
+    from database import get_db
+    from database.people import get_person, sync_imessage_counts_to_people
+
+    with get_db() as conn:
+        _seed_ada_with_noise(conn)
+        conn.execute(
+            """
+            INSERT INTO imessage_messages(
+                apple_rowid, guid, handle_id, text, occurred_at_utc, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                102,
+                "guid-ada-102",
+                conn.execute(
+                    "SELECT id FROM imessage_handles WHERE handle = ?",
+                    ("+33600000001",),
+                ).fetchone()["id"],
+                "deuxième",
+                "2026-01-16T10:00:00Z",
+                "2026-01-16T10:00:00Z",
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO imessage_analysis_cache(
+                handle, last_analyzed_rowid, total_messages_analyzed
+            ) VALUES (?, 0, 0)
+            """,
+            ("+33600000001",),
+        )
+    sync_imessage_counts_to_people()
+    person = get_person("Ada")
+    assert person is not None
+    assert int(person["imessage_count"] or 0) == 2

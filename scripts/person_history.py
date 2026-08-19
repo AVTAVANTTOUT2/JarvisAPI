@@ -19,7 +19,6 @@ from database.ingestion import (
 from database.person_history import (
     HIGHLIGHT_KINDS,
     get_chapter,
-    list_chapters,
     upsert_chapter,
 )
 from database.time_buckets import (
@@ -182,12 +181,9 @@ def _tokens_used_today() -> int:
 
 
 def missing_year_months(person_id: int) -> list[str]:
-    with get_db() as conn:
-        rows = conn.execute(
-            """
-            SELECT COALESCE(m.occurred_at_utc, m.created_at) AS occurred_at
-            FROM imessage_messages m
-            WHERE m.handle_id IN (
+    person_id = int(person_id)
+    handle_sql = """
+            m.handle_id IN (
                 SELECT h.id FROM imessage_handles h
                 WHERE lower(h.handle) IN (
                     SELECT lower(rp.handle)
@@ -202,23 +198,57 @@ def missing_year_months(person_id: int) -> list[str]:
                       AND TRIM(ci.normalized_value) != ''
                 )
             )
+    """
+    with get_db() as conn:
+        bounds = conn.execute(
+            f"""
+            SELECT MIN(COALESCE(m.occurred_at_utc, m.created_at)) AS first_at,
+                   MAX(COALESCE(m.occurred_at_utc, m.created_at)) AS last_at
+            FROM imessage_messages m
+            WHERE {handle_sql}
             """,
-            (int(person_id), int(person_id)),
-        ).fetchall()
-    months: set[str] = set()
-    zone = local_datetime().tzinfo
-    for row in rows:
-        raw = str(row["occurred_at"] or "").strip()
-        if not raw:
-            continue
+            (person_id, person_id),
+        ).fetchone()
+        existing = {
+            str(row["year_month"])
+            for row in conn.execute(
+                "SELECT year_month FROM person_month_chapters WHERE person_id = ?",
+                (person_id,),
+            )
+        }
+        if not bounds or not str(bounds["first_at"] or "").strip():
+            return []
         try:
-            parsed = sqlite_utc_datetime(raw.replace("Z", "+00:00"))
+            first = sqlite_utc_datetime(str(bounds["first_at"]).replace("Z", "+00:00"))
+            last = sqlite_utc_datetime(str(bounds["last_at"]).replace("Z", "+00:00"))
         except ValueError:
-            continue
-        local = parsed.astimezone(zone)
-        months.add(f"{local.year:04d}-{local.month:02d}")
-    existing = {chapter["year_month"] for chapter in list_chapters(int(person_id))}
-    return sorted(month for month in months if month not in existing)
+            return []
+        zone = local_datetime().tzinfo
+        start = first.astimezone(zone)
+        end = last.astimezone(zone)
+        missing: list[str] = []
+        year, month = start.year, start.month
+        while (year, month) <= (end.year, end.month):
+            year_month = f"{year:04d}-{month:02d}"
+            if year_month not in existing:
+                start_utc, end_utc = utc_bounds_for_local_month(year, month)
+                hit = conn.execute(
+                    f"""
+                    SELECT 1 FROM imessage_messages m
+                    WHERE {handle_sql}
+                      AND COALESCE(m.occurred_at_utc, m.created_at) >= ?
+                      AND COALESCE(m.occurred_at_utc, m.created_at) < ?
+                    LIMIT 1
+                    """,
+                    (person_id, person_id, start_utc, end_utc),
+                ).fetchone()
+                if hit:
+                    missing.append(year_month)
+            if month == 12:
+                year, month = year + 1, 1
+            else:
+                month += 1
+    return missing
 
 
 async def build_chapter(person_id: int, year_month: str) -> dict[str, Any]:
@@ -301,7 +331,11 @@ async def build_chapter(person_id: int, year_month: str) -> dict[str, Any]:
     if parsed:
         raw_highlights = parsed.get("highlights")
         if isinstance(raw_highlights, list):
-            known = {int(row["apple_rowid"]) for row in messages if row.get("apple_rowid")}
+            known = {
+                int(row["apple_rowid"]): str(row.get("text") or "")
+                for row in messages
+                if row.get("apple_rowid")
+            }
             for item in raw_highlights:
                 if not isinstance(item, Mapping):
                     continue
@@ -309,16 +343,20 @@ async def build_chapter(person_id: int, year_month: str) -> dict[str, Any]:
                     apple_rowid = int(item.get("apple_rowid") or 0)
                 except (TypeError, ValueError):
                     continue
-                if apple_rowid not in known:
+                source_text = known.get(apple_rowid)
+                if source_text is None:
                     continue
                 kind = str(item.get("kind") or "")
                 if kind not in HIGHLIGHT_KINDS:
+                    continue
+                quote = str(item.get("quote") or "")[:200]
+                if not quote or quote not in source_text:
                     continue
                 highlights.append(
                     {
                         "apple_rowid": apple_rowid,
                         "occurred_at_utc": str(item.get("occurred_at_utc") or "")[:64],
-                        "quote": str(item.get("quote") or "")[:200],
+                        "quote": quote,
                         "kind": kind,
                     }
                 )
@@ -397,38 +435,37 @@ def _priority_person_ids(limit: int) -> list[int]:
     return ordered
 
 
+def _rolling_months(today: date | None = None) -> tuple[str, str]:
+    day = today or local_datetime().date()
+    previous = date(day.year, day.month, 1) - timedelta(days=1)
+    return (
+        f"{previous.year:04d}-{previous.month:02d}",
+        f"{day.year:04d}-{day.month:02d}",
+    )
+
+
 def _select_targets(payload: Mapping[str, Any]) -> list[tuple[int, str]]:
     person_id = payload.get("person_id")
     months = payload.get("year_months") or ()
     if payload.get("year_month"):
         months = (payload.get("year_month"), *tuple(months))
+    closed, current = _rolling_months()
+    cap = _max_chapters_per_run()
     if person_id is not None:
         person_id = int(person_id)
         if months:
             return [(person_id, str(month)) for month in dict.fromkeys(months)]
         missing = missing_year_months(person_id)
-        today = local_datetime().date()
-        current = f"{today.year:04d}-{today.month:02d}"
-        if current not in missing:
-            missing.append(current)
-        return [(person_id, month) for month in missing[: _max_chapters_per_run()]]
+        ordered = list(dict.fromkeys([*missing, closed, current]))
+        return [(person_id, month) for month in ordered[:cap]]
 
     targets: list[tuple[int, str]] = []
-    today = local_datetime().date()
-    previous = (date(today.year, today.month, 1) - timedelta(days=1))
-    closed = f"{previous.year:04d}-{previous.month:02d}"
-    current = f"{today.year:04d}-{today.month:02d}"
-    for person_id in _priority_person_ids(15):
-        existing = {
-            chapter["year_month"]: chapter for chapter in list_chapters(person_id)
-        }
-        if closed not in existing:
-            targets.append((person_id, closed))
-        elif current not in existing:
-            targets.append((person_id, current))
-        if len(targets) >= _max_chapters_per_run():
+    for pid in _priority_person_ids(15):
+        targets.append((pid, closed))
+        targets.append((pid, current))
+        if len(targets) >= cap:
             break
-    return targets
+    return targets[:cap]
 
 
 async def handle_person_history(

@@ -439,23 +439,29 @@ def get_total_messages_analyzed(handle: str) -> int:
 
 
 def sync_imessage_counts_to_people() -> int:
-    """Synchronise les compteurs imessage_count dans people depuis la cache d'analyse.
-
-    Returns le nombre de mises à jour effectuées.
-    """
+    """Synchronise people.imessage_count depuis le miroir, pas l'extracteur."""
     with get_db() as conn:
-        # Mise à jour via JOIN entre people (via relationship_profiles.handle) et imessage_analysis_cache
         result = conn.execute(
             """
             UPDATE people SET imessage_count = (
-                SELECT iac.total_messages_analyzed
-                FROM relationship_profiles rp
-                JOIN imessage_analysis_cache iac ON LOWER(rp.handle) = LOWER(iac.handle)
-                WHERE rp.person_id = people.id
+                SELECT COUNT(*)
+                FROM imessage_messages m
+                WHERE m.handle_id IN (
+                    SELECT h.id FROM imessage_handles h
+                    WHERE lower(h.handle) IN (
+                        SELECT lower(rp.handle)
+                        FROM relationship_profiles rp
+                        WHERE rp.person_id = people.id
+                          AND rp.handle IS NOT NULL
+                          AND TRIM(rp.handle) != ''
+                    )
+                )
             )
-            WHERE id IN (
-                SELECT rp.person_id FROM relationship_profiles rp
-                JOIN imessage_analysis_cache iac ON LOWER(rp.handle) = LOWER(iac.handle)
+            WHERE EXISTS (
+                SELECT 1 FROM relationship_profiles rp
+                WHERE rp.person_id = people.id
+                  AND rp.handle IS NOT NULL
+                  AND TRIM(rp.handle) != ''
             )
             """
         )
