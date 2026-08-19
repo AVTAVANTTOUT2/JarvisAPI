@@ -313,3 +313,51 @@ def test_chapter_updated_event_is_declared_without_shifting_domain_events() -> N
     assert "person.chapter_updated" in VALID_EVENT_TYPES
     assert "person.chapter_updated" not in DOMAIN_EVENT_TYPES
     assert tuple(event.EVENT_TYPE for event in DOMAIN_EVENT_CLASSES) == DOMAIN_EVENT_TYPES
+
+
+def test_people_history_http_routes(history_db: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    from database import get_db
+    from database.person_history import upsert_chapter
+    from main import app
+    from tests.conftest import authenticate
+
+    with get_db() as conn:
+        person_id = _seed_ada_with_noise(conn)
+    upsert_chapter(
+        person_id=int(person_id),
+        year_month="2026-01",
+        status="complete",
+        message_count=1,
+        sent_count=0,
+        recv_count=1,
+        highlights=[
+            {
+                "apple_rowid": 101,
+                "occurred_at_utc": "2026-01-15T10:00:00Z",
+                "quote": "Ada prend l'avion",
+                "kind": "plan",
+            }
+        ],
+        narrative="En janvier, Ada est partie au Portugal.",
+        mood_arc="calme",
+        source_rowid_min=101,
+        source_rowid_max=101,
+        content_hash="abc",
+        period_start_utc="2026-01-01T00:00:00Z",
+        period_end_utc="2026-02-01T00:00:00Z",
+    )
+
+    with TestClient(app) as client:
+        authenticate(client)
+        missing = client.get("/api/people/Inconnue/history")
+        assert missing.status_code == 404
+        listing = client.get("/api/people/Ada/history")
+        assert listing.status_code == 200
+        body = listing.json()
+        assert body["person"] == "Ada"
+        assert body["chapters"]
+        rebuild = client.post("/api/people/Ada/history/rebuild")
+        assert rebuild.status_code == 202
+        assert rebuild.json()["status"] == "queued"

@@ -35,6 +35,14 @@
       "rationale": "Diagnostic de résolution et synchronisation manuelle du carnet de contacts."
     },
     {
+      "id": "operator-person-history",
+      "owner": "personal-memory",
+      "audience": "operator",
+      "methods": ["GET", "POST"],
+      "paths": ["/api/people/{name}/history", "/api/people/{name}/history/rebuild"],
+      "rationale": "Lecture et reconstruction des chapitres mensuels par personne ; l'UI Contacts ne consomme pas ces routes."
+    },
+    {
       "id": "operator-service-detail",
       "owner": "service-control",
       "audience": "operator",

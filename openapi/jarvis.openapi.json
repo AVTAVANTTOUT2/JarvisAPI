@@ -16975,6 +16975,149 @@
         "x-jarvis-csrf-origin-required": true
       }
     },
+    "/api/people/{name}/history": {
+      "get": {
+        "description": "Chapitres mensuels déjà distillés pour une personne — lecture seule.",
+        "operationId": "get_api_people_by_name_history",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "from_month",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "From Month"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to_month",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "To Month"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "428": {
+            "$ref": "#/components/responses/SetupRequired"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "summary": "Api People History",
+        "tags": [
+          "people"
+        ],
+        "x-jarvis-authentication": "session"
+      }
+    },
+    "/api/people/{name}/history/rebuild": {
+      "post": {
+        "description": "Enfile un job d'ingestion pour reconstruire les mois manquants.",
+        "operationId": "post_api_people_by_name_history_rebuild",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "428": {
+            "$ref": "#/components/responses/SetupRequired"
+          }
+        },
+        "security": [
+          {
+            "csrfToken": [],
+            "sessionCookie": []
+          }
+        ],
+        "summary": "Api People History Rebuild",
+        "tags": [
+          "people"
+        ],
+        "x-jarvis-authentication": "session",
+        "x-jarvis-csrf-origin-required": true
+      }
+    },
     "/api/people/{name}/remind": {
       "post": {
         "description": "Opération JARVIS `POST /api/people/{name}/remind`.",

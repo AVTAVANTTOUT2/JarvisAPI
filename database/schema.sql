@@ -837,6 +837,7 @@ CREATE TABLE imessage_analysis_cache (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     handle TEXT NOT NULL,
     last_analyzed_rowid INTEGER DEFAULT 0,
+    last_extracted_rowid INTEGER NOT NULL DEFAULT 0,
     last_analyzed_at DATETIME,
     total_messages_analyzed INTEGER DEFAULT 0
 );
@@ -1314,6 +1315,31 @@ CREATE TABLE perf_benchmarks (
             duration_ms REAL NOT NULL,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
+
+CREATE TABLE person_month_chapters (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+    year_month TEXT NOT NULL CHECK(year_month GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]'),
+    period_start_utc TEXT NOT NULL,
+    period_end_utc TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('empty', 'partial', 'complete')),
+    message_count INTEGER NOT NULL DEFAULT 0,
+    sent_count INTEGER NOT NULL DEFAULT 0,
+    recv_count INTEGER NOT NULL DEFAULT 0,
+    highlights_json TEXT NOT NULL DEFAULT '[]',
+    narrative TEXT NOT NULL DEFAULT '',
+    mood_arc TEXT NOT NULL DEFAULT '',
+    source_rowid_min INTEGER,
+    source_rowid_max INTEGER,
+    content_hash TEXT NOT NULL DEFAULT '',
+    model TEXT,
+    tokens_in INTEGER NOT NULL DEFAULT 0,
+    tokens_out INTEGER NOT NULL DEFAULT 0,
+    cost REAL NOT NULL DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(person_id, year_month)
+);
 
 CREATE TABLE places (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1927,6 +1953,9 @@ CREATE INDEX idx_notif_read ON notifications(read);
 CREATE INDEX idx_people_name ON people(name);
 
 CREATE INDEX idx_perf_scope ON perf_benchmarks(scope, created_at DESC);
+
+CREATE INDEX idx_person_month_chapters_person
+    ON person_month_chapters(person_id, year_month);
 
 CREATE INDEX idx_places_category ON places(category);
 
@@ -4982,6 +5011,72 @@ CREATE TRIGGER knowledge_job_people_person_au
                     created_at, updated_at
                 ) VALUES (
                     'person', CAST(new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_person_month_chapters_person_month_ad
+            AFTER DELETE ON person_month_chapters BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'person_month', CAST(old.id AS TEXT), 'delete',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_person_month_chapters_person_month_ai
+            AFTER INSERT ON person_month_chapters BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'person_month', CAST(new.id AS TEXT), 'upsert',
+                    'pending', 0, NULL, NULL, NULL, NULL,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(source_type, source_id) DO UPDATE SET
+                    operation = excluded.operation,
+                    status = 'pending',
+                    attempts = 0,
+                    next_attempt_at = NULL,
+                    last_error_code = NULL,
+                    claimed_at = NULL,
+                    completed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP;
+            END;
+
+CREATE TRIGGER knowledge_job_person_month_chapters_person_month_au
+            AFTER UPDATE ON person_month_chapters BEGIN
+                INSERT INTO knowledge_index_jobs(
+                    source_type, source_id, operation, status, attempts,
+                    next_attempt_at, last_error_code, claimed_at, completed_at,
+                    created_at, updated_at
+                ) VALUES (
+                    'person_month', CAST(new.id AS TEXT), 'upsert',
                     'pending', 0, NULL, NULL, NULL, NULL,
                     CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                 )
