@@ -866,7 +866,7 @@ def test_imessage_persists_true_utc_date_and_contact_identity(
             associated_message_guid=None,
             associated_message_type=0,
         )
-        assert inserted is True
+        assert inserted == "inserted"
     with get_db() as conn:
         row = conn.execute(
             """
