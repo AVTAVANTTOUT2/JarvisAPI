@@ -57,7 +57,7 @@ def get_document_privacy_policy() -> dict:
         "cloud_summary_available": not strict_local,
         "explicit_consent_required": True,
         "cloud_max_chars": cloud_max_chars,
-        "pii_protection": "pseudonymisation réversible locale avant envoi",
+        "pii_protection": "aucune sur le contenu consenti — envoi tel quel",
         "features": {
             "school_upload": {
                 "storage": "local",
@@ -72,12 +72,12 @@ def get_document_privacy_policy() -> dict:
                 "cloud_summary": (
                     "blocked"
                     if strict_local
-                    else "optional_with_per_upload_consent_and_pii_masking"
+                    else "optional_with_per_upload_consent"
                 ),
                 "cloud_chat_context": (
                     "blocked"
                     if strict_local
-                    else "only_consented_documents_with_pii_masking"
+                    else "only_consented_documents"
                 ),
                 "data_leaving_device": (
                     "none"
@@ -119,7 +119,7 @@ async def summarize_document(
     cloud_consent: bool,
     router: JARVISRouter | None = None,
 ) -> DocumentSummaryResult:
-    """Résume localement par défaut, ou via DeepSeek anonymisé avec consentement."""
+    """Résume localement par défaut, ou via DeepSeek avec consentement."""
     ensure_cloud_summary_allowed(cloud_consent)
     local_summary = local_document_summary(text)
     if not local_summary:

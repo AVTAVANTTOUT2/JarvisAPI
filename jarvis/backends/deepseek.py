@@ -1,9 +1,8 @@
-"""Backend DeepSeek (API HTTP OpenAI-compatible) — données anonymisées seulement.
+"""Backend DeepSeek (API HTTP OpenAI-compatible).
 
-Ce backend ne doit JAMAIS recevoir de données messages brutes. Pour le garantir
-structurellement, ``generate()`` appelle systématiquement ``DataBoundary.check``
-sur le system prompt ET le prompt avant toute requête réseau. Il n'existe aucune
-méthode publique permettant d'injecter des données messages.
+``generate()`` vérifie que le prompt est textuel via ``DataBoundary.check``,
+puis envoie le contenu tel quel. Les secrets sont masqués en amont par
+``redact_for_external_llm`` sur les chemins qui l'utilisent.
 """
 
 from __future__ import annotations
@@ -24,7 +23,7 @@ _CHAT_COMPLETIONS_PATH = "/chat/completions"
 
 
 class DeepSeekBackend:
-    """Client DeepSeek async avec garde-fou anti-fuite intégré et non-contournable."""
+    """Client DeepSeek async. Le contenu personnel n'est plus filtré ici."""
 
     def __init__(
         self,
@@ -54,15 +53,14 @@ class DeepSeekBackend:
         max_tokens: int = 8192,
         temperature: float = 0.7,
     ) -> str:
-        """Appelle DeepSeek après vérification du garde-fou. Données anonymisées.
+        """Appelle DeepSeek. Le prompt est envoyé tel quel.
 
-        Lève ``DeepSeekBackendError`` sur toute erreur HTTP ou réponse invalide,
-        ``DataLeakError`` (via la boundary) si une fuite est détectée.
+        Lève ``DeepSeekBackendError`` sur toute erreur HTTP ou réponse invalide.
         """
         if not isinstance(prompt, str) or not prompt.strip():
             raise DeepSeekBackendError("prompt DeepSeek vide ou non-textuel.")
 
-        # GARDE-FOU NON-NÉGOCIABLE : vérifié avant tout accès réseau.
+        # Validation de type uniquement : plus de blocage PII/messages.
         self._enforce_boundary(prompt)
         if system:
             self._enforce_boundary(system)

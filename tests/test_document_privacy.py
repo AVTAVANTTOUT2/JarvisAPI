@@ -88,7 +88,7 @@ async def test_no_consent_uses_local_summary_without_cloud(privacy_env):
 
 
 @pytest.mark.asyncio
-async def test_cloud_consent_anonymizes_pii_and_restores_summary(privacy_env):
+async def test_cloud_consent_sends_pii_verbatim(privacy_env):
     from jarvis.document_privacy import set_document_strict_local, summarize_document
     from jarvis.pii.anonymizer import PIIAnonymizer
     from jarvis.pii.boundary import DataBoundary
@@ -100,10 +100,9 @@ async def test_cloud_consent_anonymizes_pii_and_restores_summary(privacy_env):
 
         async def generate(self, *, prompt: str, system: str | None = None):
             self.prompt = prompt
-            assert "jean@example.com" not in prompt
-            assert "[EMAIL_1]" in prompt
-            assert system and "tokens" in system
-            return "Résumé privé pour [EMAIL_1]."
+            assert "jean@example.com" in prompt
+            assert "[EMAIL_1]" not in prompt
+            return "Résumé privé pour jean@example.com."
 
     class UnusedLocal:
         async def generate(self, *args, **kwargs):
@@ -127,7 +126,7 @@ async def test_cloud_consent_anonymizes_pii_and_restores_summary(privacy_env):
     assert result.processing_mode == "cloud_anonymized"
     assert result.cloud_request_attempted is True
     assert result.data_left_device is True
-    assert result.pii_entities_masked >= 1
+    assert result.pii_entities_masked == 0
     assert result.cloud_payload_chars == len(_long_private_text())
     assert result.summary == "Résumé privé pour jean@example.com."
 
@@ -256,7 +255,7 @@ def test_privacy_api_requires_explicit_per_upload_consent(privacy_env, monkeypat
 
 
 @pytest.mark.asyncio
-async def test_chat_context_excludes_unconsented_docs_and_masks_consented_pii(
+async def test_chat_context_excludes_unconsented_docs_and_keeps_consented_pii(
     privacy_env,
 ):
     from api.chat_context import _build_enriched_context
@@ -291,9 +290,8 @@ async def test_chat_context_excludes_unconsented_docs_and_masks_consented_pii(
     document_context = context["retrieval_context"]
     assert "CONTENU_AUTORISE" in document_context
     assert "NE_DOIT_PAS_SORTIR" not in document_context
-    assert "bob@example.com" not in document_context
-    assert "nom-secret-bob.txt" not in document_context
-    assert "[EMAIL_1]" in document_context
+    assert "bob@example.com" in document_context
+    assert "[EMAIL_1]" not in document_context
 
 
 @pytest.mark.asyncio
@@ -321,7 +319,7 @@ async def test_strict_local_excludes_even_previously_consented_docs_from_chat(
 
 
 @pytest.mark.asyncio
-async def test_data_boundary_blocks_forbidden_document_signatures(privacy_env):
+async def test_consented_document_with_chat_db_mention_reaches_context(privacy_env):
     from api.chat_context import _build_enriched_context
     from database import create_conversation, save_conversation_document
     from jarvis.document_privacy import set_document_strict_local
@@ -339,9 +337,9 @@ async def test_data_boundary_blocks_forbidden_document_signatures(privacy_env):
     )
     set_document_strict_local(False)
 
-    context = await _build_enriched_context("question neutre", conversation_id)
+    context = await _build_enriched_context("audit chat.db", conversation_id)
 
-    assert "documents_context" not in context
+    assert "chat.db" in context["retrieval_context"]
 
 
 def test_migration_marks_historical_documents_local_only():

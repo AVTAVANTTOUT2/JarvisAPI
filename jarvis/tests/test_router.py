@@ -1,10 +1,9 @@
-"""Tests du routage JARVISRouter — DeepSeek + anonymisation (politique 2026).
+"""Tests du routage JARVISRouter — DeepSeek, contenu intact.
 
 Garantit que :
-- chat() et summarize() passent par DeepSeek après anonymisation ;
+- chat() et summarize() passent par DeepSeek ;
 - aucun appel LocalBackend sur les chemins conversationnels ;
-- l'anonymisation/dé-anonymisation encadre les flux sensibles ;
-- les chunks RAG sont sanitizés avant envoi.
+- e-mails et extraits partent tels quels.
 """
 
 from __future__ import annotations
@@ -37,7 +36,7 @@ def _make_router(
     return router, local, deepseek
 
 
-async def test_chat_routes_to_deepseek_anonymized() -> None:
+async def test_chat_routes_to_deepseek() -> None:
     router, local, deepseek = _make_router(deepseek_return="Bonjour Monsieur.")
     out = await router.chat("Salut")
     assert out == "Bonjour Monsieur."
@@ -65,7 +64,7 @@ async def test_summarize_document_routes_to_deepseek() -> None:
     assert router.stats.deepseek_calls == 1
 
 
-async def test_mail_anonymizes_then_deepseek_then_deanonymizes() -> None:
+async def test_mail_sends_address_verbatim() -> None:
     router, _local, deepseek = _make_router()
 
     captured: dict[str, str] = {}
@@ -73,8 +72,8 @@ async def test_mail_anonymizes_then_deepseek_then_deanonymizes() -> None:
     async def fake_generate(prompt: str, system=None, **kwargs):
         captured["prompt"] = prompt
         captured["system"] = system or ""
-        assert "marie@acme.com" not in prompt
-        return "Réponse pour le destinataire masqué"
+        assert "marie@acme.com" in prompt
+        return "Réponse pour marie@acme.com"
 
     deepseek.generate = AsyncMock(side_effect=fake_generate)
     payload = EmailPayload(
@@ -83,12 +82,12 @@ async def test_mail_anonymizes_then_deepseek_then_deanonymizes() -> None:
         sender="bob@example.com",
     )
     out = await router.mail(payload)
-    assert "marie@acme.com" not in captured["prompt"]
-    assert isinstance(out, str)
+    assert "marie@acme.com" in captured["prompt"]
+    assert "marie@acme.com" in out
     assert router.stats.deepseek_calls == 1
 
 
-async def test_rag_sanitizes_chunks() -> None:
+async def test_rag_forwards_chunks() -> None:
     router, local, deepseek = _make_router(deepseek_return="ok")
     out = await router.rag("question", ["chunk A", "chunk B"])
     assert out == "ok"

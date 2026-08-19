@@ -1,13 +1,11 @@
-"""JARVIS — Architecture dual-LLM avec séparation stricte des données.
+"""JARVIS — Architecture dual-LLM.
 
 Deux backends LLM, deux rôles non-interchangeables :
 
 - ``LocalBackend`` (MLX-LM / Qwen3-30B) : traite UNIQUEMENT les messages d'Elias.
-  Les données ne quittent jamais le Mac.
-- ``DeepSeekBackend`` (api.deepseek.com) : traite tout le reste (mail, RAG,
-  tâches, documents, résumés non-messages). Toute PII est pseudonymisée par
-  ``PIIAnonymizer`` avant l'envoi, et ``DataBoundary`` interdit toute fuite de
-  données issues de la base messages.
+- ``DeepSeekBackend`` (api.deepseek.com) : chat, mail, RAG, tâches, documents.
+  Contacts et messages partent tels quels. Les secrets (clés, jetons) restent
+  masqués par ``redact_for_external_llm``.
 
 Le point d'entrée unique est ``JARVISRouter`` (jarvis.router).
 """

@@ -9,7 +9,7 @@ from dataclasses import asdict, dataclass, is_dataclass
 from datetime import date, datetime
 from typing import AbstractSet, Any, Callable, Mapping
 
-from jarvis.security.llm_data_boundary import redact_for_external_llm
+from jarvis.security.redaction import redact_persisted_text
 
 from .approvals import ApprovalLedger, arguments_digest
 from .capabilities import CapabilityEnvelope, CapabilityError
@@ -21,6 +21,26 @@ DYNAMIC_APPROVAL_TOOLS = frozenset({"jarvis_tasks_create"})
 _SECRET_KEY = re.compile(
     r"(token|secret|password|cookie|authorization|api[_-]?key)", re.I
 )
+# OpenCode est un tiers : secrets + PII + chemins home, pas le pass-through LLM JARVIS.
+_LOCAL_HOME_PATTERNS = (
+    re.compile(r"(?<!\w)/(?:Users|home)/[^/\s\"']+"),
+    re.compile(r"(?i)\b[A-Z]:\\Users\\[^\\\s\"']+"),
+)
+
+
+def _redact_for_opencode(text: str, *, max_chars: int) -> str:
+    """Anonymise le contenu knowledge avant export MCP (fail-closed PII)."""
+    safe = text.replace("\x00", "")
+    for pattern in _LOCAL_HOME_PATTERNS:
+        safe = pattern.sub("/[LOCAL_HOME]", safe)
+    safe = redact_persisted_text(safe)
+    limit = max(0, int(max_chars))
+    if limit and len(safe) > limit:
+        marker = "\n[…TRONQUÉ…]"
+        safe = safe[: max(0, limit - len(marker))] + marker
+    elif limit == 0:
+        safe = ""
+    return safe
 KNOWLEDGE_SOURCE_TYPES_BY_SCOPE: Mapping[str, frozenset[str]] = {
     "communications:read": frozenset({"email", "imessage", "notification"}),
     "calendar:read": frozenset({"calendar"}),
@@ -194,10 +214,10 @@ def _redact_knowledge_payload(
     if isinstance(value, str):
         if field_name in _KNOWLEDGE_ROUTING_KEYS:
             return value[:512]
-        return redact_for_external_llm(value, max_chars=max_string_chars)
+        return _redact_for_opencode(value, max_chars=max_string_chars)
     if isinstance(value, (bool, int, float)) or value is None:
         return value
-    return redact_for_external_llm(str(value), max_chars=min(1_000, max_string_chars))
+    return _redact_for_opencode(str(value), max_chars=min(1_000, max_string_chars))
 
 
 def _strict_object(

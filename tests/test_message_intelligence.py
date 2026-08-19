@@ -1,7 +1,7 @@
-"""Tests du pipeline message_intelligence et du DataBoundary étendu.
+"""Tests du pipeline message_intelligence et du DataBoundary.
 
-Couvre : blocage téléphones/emails bruts dans les payloads sortants,
-round-trip anonymisation, et intégrité du garde-fou DataBoundary.
+Le contenu personnel n'est plus bloqué à la sortie LLM. L'anonymiseur
+reste testé pour les journaux / la persistance.
 Aucun appel réseau — tous les tests sont unitaires et déterministes.
 """
 
@@ -13,7 +13,6 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 import pytest
 
-from jarvis.exceptions import DataLeakError
 from jarvis.pii.anonymizer import PIIAnonymizer
 from jarvis.pii.boundary import DataBoundary
 
@@ -28,25 +27,21 @@ def anonymizer() -> PIIAnonymizer:
     return PIIAnonymizer()
 
 
-# ── DataBoundary — nouveaux patterns (téléphones, emails bruts) ──
+# ── DataBoundary — le contenu personnel passe ──
 
-def test_boundary_blocks_raw_phone(boundary: DataBoundary) -> None:
-    with pytest.raises(DataLeakError):
-        boundary.check("Contacte +33612345678 pour confirmer")
-
-
-def test_boundary_blocks_raw_email(boundary: DataBoundary) -> None:
-    with pytest.raises(DataLeakError):
-        boundary.check("Re ponds a marie.martin@gmail.com")
+def test_boundary_allows_raw_phone(boundary: DataBoundary) -> None:
+    boundary.check("Contacte +33612345678 pour confirmer")
 
 
-def test_boundary_blocks_chat_db_reference(boundary: DataBoundary) -> None:
-    with pytest.raises(DataLeakError):
-        boundary.check("le scan de chat.db a trouve 42 messages")
+def test_boundary_allows_raw_email(boundary: DataBoundary) -> None:
+    boundary.check("Re ponds a marie.martin@gmail.com")
+
+
+def test_boundary_allows_chat_db_reference(boundary: DataBoundary) -> None:
+    boundary.check("le scan de chat.db a trouve 42 messages")
 
 
 def test_boundary_allows_anonymized_text(boundary: DataBoundary) -> None:
-    # Ne doit pas lever — les tokens PII sont autorises.
     boundary.check("Re ponds a [PERSON_1] via [EMAIL_1]")
 
 
@@ -94,16 +89,14 @@ def test_anonymizer_roundtrip_iban(anonymizer: PIIAnonymizer) -> None:
     assert iban in restored
 
 
-# ── Anti-régression : les anciens patterns fonctionnent toujours ──
+# ── Les anciennes signatures bloquées passent désormais ──
 
 def test_legacy_boundary_message_id(boundary: DataBoundary) -> None:
-    with pytest.raises(DataLeakError):
-        boundary.check("voici message_id=42 dans le payload")
+    boundary.check("voici message_id=42 dans le payload")
 
 
 def test_legacy_boundary_select_from_messages(boundary: DataBoundary) -> None:
-    with pytest.raises(DataLeakError):
-        boundary.check("SELECT text FROM messages WHERE id > 0")
+    boundary.check("SELECT text FROM messages WHERE id > 0")
 
 
 # ── Migration DB : table message_insights ──

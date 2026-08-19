@@ -558,7 +558,7 @@ export function ChatView() {
             processing_mode: result.processing_mode,
           }])
           const privacyLabel = result.data_left_device
-            ? `Cloud anonymisé · ${result.pii_entities_masked} PII masquée(s)`
+            ? `Cloud · contenu envoyé tel quel`
             : 'Traitement local · aucune donnée envoyée'
           setMessages(prev => [...prev, {
             role: 'system',
