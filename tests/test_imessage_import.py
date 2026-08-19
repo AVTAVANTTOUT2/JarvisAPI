@@ -1059,7 +1059,7 @@ class TestMessageFidelity:
         _seed_chats(chat_db, [{"identifier": "+33600000011", "style": 0}])
         handles_map = importer._import_handles(chat_db)
         chats_map = importer._import_chats(chat_db)
-        blob = b"\x00\x01\x02opaque"
+        blob = b"\xff\xfe\x00\x01\x02\x03"
         mids = _seed_messages(
             chat_db,
             [
