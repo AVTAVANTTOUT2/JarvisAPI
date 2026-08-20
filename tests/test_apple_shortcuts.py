@@ -13,10 +13,16 @@ from database.apple_shortcuts import (
     register_shortcut,
 )
 from integrations.apple_shortcuts import (
+    MAX_INPUT_CHARS,
+    MAX_SHORTCUT_NAME_LEN,
     AppleShortcutsError,
+    _validate_input,
+    _validate_shortcut_name,
     consume_plan,
     create_plan,
+    peek_plan,
     reset_plans_for_tests,
+    revoke_plan,
     run_shortcut,
     status,
 )
@@ -99,6 +105,105 @@ def test_create_plan_rejects_input_when_not_allowed(monkeypatch: pytest.MonkeyPa
             risk="low",
         )
     assert exc.value.code == "input_forbidden"
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "",
+        "   ",
+        "a" * (MAX_SHORTCUT_NAME_LEN + 1),
+        "evil\x00name",
+        "line\nbreak",
+        "line\rbreak",
+    ],
+)
+def test_validate_shortcut_name_rejects_injection_and_bounds(name: str):
+    with pytest.raises(AppleShortcutsError) as exc:
+        _validate_shortcut_name(name)
+    assert exc.value.code == "invalid_name"
+
+
+def test_validate_shortcut_name_strips_and_accepts_plain_label():
+    assert _validate_shortcut_name("  Allume la chambre  ") == "Allume la chambre"
+
+
+@pytest.mark.parametrize(
+    ("text", "code"),
+    [
+        ("x\x00y", "invalid_input"),
+        ("z" * (MAX_INPUT_CHARS + 1), "input_too_long"),
+    ],
+)
+def test_validate_input_rejects_null_and_oversize(text: str, code: str):
+    with pytest.raises(AppleShortcutsError) as exc:
+        _validate_input(text, allow_input=True)
+    assert exc.value.code == code
+
+
+def test_create_plan_rejects_injected_shortcut_name(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(
+        "integrations.apple_shortcuts.resolve_shortcuts_bin",
+        lambda: "/usr/bin/shortcuts",
+    )
+    monkeypatch.setattr("integrations.apple_shortcuts.is_macos", lambda: True)
+    with pytest.raises(AppleShortcutsError) as exc:
+        create_plan(
+            shortcut_name="ok\n--malicious",
+            registry_id=1,
+            input_text=None,
+            allow_input=False,
+            risk="low",
+        )
+    assert exc.value.code == "invalid_name"
+
+
+def test_revoke_plan_is_idempotent_and_blocks_consume(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(
+        "integrations.apple_shortcuts.resolve_shortcuts_bin",
+        lambda: "/usr/bin/shortcuts",
+    )
+    monkeypatch.setattr("integrations.apple_shortcuts.is_macos", lambda: True)
+    plan = create_plan(
+        shortcut_name="Snap",
+        registry_id=1,
+        input_text=None,
+        allow_input=False,
+        risk="low",
+    )
+    assert revoke_plan(plan.plan_id) is True
+    assert revoke_plan(plan.plan_id) is False
+    assert peek_plan(plan.plan_id) is None
+    with pytest.raises(AppleShortcutsError) as exc:
+        consume_plan(plan.plan_id)
+    assert exc.value.code == "plan_not_found"
+
+
+def test_expired_plan_is_purged_on_peek_and_consume(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(
+        "integrations.apple_shortcuts.resolve_shortcuts_bin",
+        lambda: "/usr/bin/shortcuts",
+    )
+    monkeypatch.setattr("integrations.apple_shortcuts.is_macos", lambda: True)
+    monkeypatch.setattr("config.APPLE_SHORTCUTS_PLAN_TTL_SECONDS", 30)
+    plan = create_plan(
+        shortcut_name="Snap",
+        registry_id=1,
+        input_text=None,
+        allow_input=False,
+        risk="low",
+    )
+    # TTL minimum = 30s : avancer l'horloge monotone de create_plan.
+    monkeypatch.setattr(
+        "integrations.apple_shortcuts.time.time",
+        lambda: plan.expires_at + 0.1,
+    )
+    assert peek_plan(plan.plan_id) is None
+    with pytest.raises(AppleShortcutsError) as exc:
+        consume_plan(plan.plan_id)
+    assert exc.value.code == "plan_not_found"
 
 
 def test_run_shortcut_writes_controlled_input_file(
