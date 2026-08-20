@@ -2,11 +2,11 @@
 
 > **For agentic workers:** Implement task-by-task. Steps use checkbox syntax.
 
-**Goal:** « met du werenoi » joue Werenoi dans Music.app au tour suivant, sans tâche, sans plan, sans OpenCode. Le Control Center (`/control`) affiche si le MCP est up ou down.
+**Goal:** « met du werenoi » joue Werenoi dans Music.app au tour suivant, sans tâche, sans plan, sans runtime agentique. Le Control Center (`/control`) affiche si le MCP est up ou down.
 
-**Symptom today:** `musique` / `apple music` / `playlist` sont des effets externes (`jarvis/agentic/classifier.py`). `maybe_start_agentic_run` crée un plan (`AGENTIC_REQUIRE_PLAN_APPROVAL=true`). Le MCP n’est monté que dans OpenCode après `media:publish`. Le chat DeepSeek n’a aucune action `music_*`. « execute » n’approuve pas le plan. « met du werenoi » sans mot-clé tombe sur une recherche de conversation.
+**Symptom today:** `musique` / `apple music` / `playlist` sont des effets externes (`jarvis/agentic/classifier.py`). `maybe_start_agentic_run` crée un plan (`AGENTIC_REQUIRE_PLAN_APPROVAL=true`). Le MCP n’est monté que dans le runtime agentique après `media:publish`. Le chat DeepSeek n’a aucune action `music_*`. « execute » n’approuve pas le plan. « met du werenoi » sans mot-clé tombe sur une recherche de conversation.
 
-**Architecture:** même patron que Mail / Calendar / météo — outil JARVIS local, pas une mission. Un module `integrations/apple_music.py` parle au binaire déjà installé `apple-music-mcp` (v0.1.0, stdio). Le runtime OpenCode continue de le monter pour les vrais workflows média (ffmpeg, transcode) ; le playback simple n’y passe plus.
+**Architecture:** même patron que Mail / Calendar / météo — outil JARVIS local, pas une mission. Un module `integrations/apple_music.py` parle au binaire déjà installé `apple-music-mcp` (v0.1.0, stdio). Le runtime agentique continue de le monter pour les vrais workflows média (ffmpeg, transcode) ; le playback simple n’y passe plus.
 
 **Tech stack:** Python 3.12, FastAPI existant, `actions.execute_action`, Control Center `/api/control/services`, pytest. Aucune nouvelle dépendance. Aucune route HTTP nouvelle si possible (évite le bump OpenAPI).
 
@@ -15,7 +15,7 @@
 ## Décisions
 
 1. **Outil direct, pas agentique.** Retirer `apple music`, `musique`, `playlist` de `_EXTERNAL_EFFECT_TERMS`. Les garder comme *hints* du profil `media` uniquement pour un workflow multi-étapes (transcode, ffmpeg, « puis »). « Joue Werenoi sur Apple Music » devient `DIRECT_ACTION` et n’entre plus dans `maybe_start_agentic_run`.
-2. **Un client, deux consommateurs.** Extraire `_apple_music_mcp_path()` de `integrations/opencode/adapter.py` vers `integrations/apple_music.py`. OpenCode importe le même résolveur. Pas de second binaire, pas de copie AppleScript parallèle (ADR-016 : on ne réécrit pas Music.app ; on consomme le MCP déjà là).
+2. **Un client, deux consommateurs.** Extraire `_apple_music_mcp_path()` de l’adapter du runtime d’exécution média vers `integrations/apple_music.py`. Le runtime agentique importe le même résolveur. Pas de second binaire, pas de copie AppleScript parallèle (ADR-016 : on ne réécrit pas Music.app ; on consomme le MCP déjà là).
 3. **Pas de daemon.** `apple-music-mcp serve` est stdio à la demande. Control Center : `can_control: false` (comme l’ingestion launchd). `running` / `healthy` = binaire présent + `doctor` OK. Pas de start/stop.
 4. **Sonde doctor, pas tools/list.** `apple-music-mcp doctor` (~600 ms, non destructif) + `capabilities`. Cache processus ~10 s pour ne pas spammer Apple Events à chaque poll Control / Health.
 5. **Confirmation : playback non, mutation playlist oui.** play / pause / next / previous / volume / shuffle = immédiat. create/delete/rename playlist = confirmation comme `run_shortcut`. Pas de paiement, pas de réseau tiers.
@@ -103,12 +103,12 @@ Follow-up LLM : uniquement `state` (lire le titre). Play/pause n’ont pas besoi
 ### Task 1: Façade `integrations/apple_music.py` + sonde Control Center
 
 - [x] Module : `resolve_binary()`, `status()` via `doctor`/`capabilities` (timeout 2 s, cache 10 s), `call_tool(name, arguments)` session stdio MCP courte (initialize + tools/call + close).
-- [x] Déplacer `_apple_music_mcp_path` hors de l’adapter OpenCode ; l’adapter appelle `resolve_binary()`.
+- [x] Déplacer `_apple_music_mcp_path` hors de l’adapter du runtime d’exécution ; l’adapter appelle `resolve_binary()`.
 - [x] Ajouter la carte dans `_get_all_services_status()` ; `get_service_detail("apple_music")` renvoie le status sans chemin.
 - [x] Brancher `api/misc_integrations.py` → `apple_music`.
 - [x] `ControlView` : icône `apple_music`. `HealthView` seulement si Task 3 est faite en même temps, sinon attendre Task 3.
-- [x] Tests : binaire absent → `running=false`, `error=binary_missing` ; doctor mocké OK → `running=true` ; aucun path dans le JSON. Adapter OpenCode : test existant `test_media_profile_mounts_installed_apple_music_mcp` inchangé en comportement.
-- [x] Vérifier : `python -m pytest integrations/opencode/tests/test_adapter.py tests/test_control_plane_auth.py -q` + un nouveau `tests/test_apple_music.py`.
+- [x] Tests : binaire absent → `running=false`, `error=binary_missing` ; doctor mocké OK → `running=true` ; aucun path dans le JSON. Adapter du runtime : test existant `test_media_profile_mounts_installed_apple_music_mcp` inchangé en comportement.
+- [x] Vérifier : `python -m pytest` sur les tests d’adapter du runtime d’exécution + `tests/test_control_plane_auth.py -q` + un nouveau `tests/test_apple_music.py`.
 
 ### Task 2: Sortir le playback du classifieur agentique
 
@@ -133,7 +133,7 @@ Follow-up LLM : uniquement `state` (lire le titre). Play/pause n’ont pas besoi
 
 - [x] `probe_apple_music()` dans `jarvis/health.py` + `PUBLIC_DETAIL_KEYS` si besoin (`engine` existe déjà).
 - [x] Tests `tests/test_health_contract.py` : composant présent, raisons publiques, pas de path.
-- [x] ADR-036 (10–20 lignes) : Music.app via MCP binaire local = outil JARVIS ; OpenCode garde le même binaire pour `media:publish` ; playback simple n’est plus un effet externe agentique. Amendement volontaire d’ADR-016 (pas osascript maison). (ADR-035 est déjà la délégation de vie.)
+- [x] ADR-036 (10–20 lignes) : Music.app via MCP binaire local = outil JARVIS ; le runtime agentique garde le même binaire pour `media:publish` ; playback simple n’est plus un effet externe agentique. Amendement volontaire d’ADR-016 (pas osascript maison). (ADR-035 est déjà la délégation de vie.)
 - [x] Mémoire Serena `integrations/apple_music_mcp` : remplacer « routé vers profil media + porte de plan » par le fast-path.
 - [x] Vérifier : `python -m pytest tests/test_health_contract.py -q` ; `python3 tools/audit_architecture_truth.py` si l’ADR / le graphe santé change le contrat documenté.
 
