@@ -1,7 +1,7 @@
 """Routeur de compatibilité JARVIS vers DeepSeek.
 
-Les chemins publics ``chat`` et ``summarize`` envoient le texte tel quel.
-Les secrets restent masqués plus bas, dans ``redact_for_external_llm``.
+Les chemins publics ``chat`` et ``summarize`` envoient le texte via DeepSeek.
+``DataBoundary.check`` masque les secrets et laisse les PII intactes.
 """
 
 from __future__ import annotations

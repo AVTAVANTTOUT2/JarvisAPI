@@ -1,8 +1,7 @@
 """Backend DeepSeek (API HTTP OpenAI-compatible).
 
-``generate()`` vérifie que le prompt est textuel via ``DataBoundary.check``,
-puis envoie le contenu tel quel. Les secrets sont masqués en amont par
-``redact_for_external_llm`` sur les chemins qui l'utilisent.
+``generate()`` passe le prompt par ``DataBoundary.check`` : PII intactes,
+secrets masqués, puis HTTP.
 """
 
 from __future__ import annotations
@@ -23,7 +22,7 @@ _CHAT_COMPLETIONS_PATH = "/chat/completions"
 
 
 class DeepSeekBackend:
-    """Client DeepSeek async. Le contenu personnel n'est plus filtré ici."""
+    """Client DeepSeek async. PII intactes, secrets masqués par DataBoundary."""
 
     def __init__(
         self,
@@ -53,17 +52,16 @@ class DeepSeekBackend:
         max_tokens: int = 8192,
         temperature: float = 0.7,
     ) -> str:
-        """Appelle DeepSeek. Le prompt est envoyé tel quel.
+        """Appelle DeepSeek après filtrage DataBoundary.
 
         Lève ``DeepSeekBackendError`` sur toute erreur HTTP ou réponse invalide.
         """
         if not isinstance(prompt, str) or not prompt.strip():
             raise DeepSeekBackendError("prompt DeepSeek vide ou non-textuel.")
 
-        # Validation de type uniquement : plus de blocage PII/messages.
-        self._enforce_boundary(prompt)
+        prompt = self._enforce_boundary(prompt)
         if system:
-            self._enforce_boundary(system)
+            system = self._enforce_boundary(system)
 
         payload = self._build_payload(prompt, system, max_tokens, temperature)
         data = await self._post(payload)
@@ -77,15 +75,8 @@ class DeepSeekBackend:
 
     # ── Helpers internes ─────────────────────────────────────
 
-    def _enforce_boundary(self, text: str) -> None:
-        from jarvis.exceptions import DataLeakError
-
-        try:
-            self._boundary.check(text)
-        except DataLeakError:
-            if self._stats is not None:
-                self._stats.boundary_violations += 1
-            raise
+    def _enforce_boundary(self, text: str) -> str:
+        return self._boundary.check(text)
 
     def _build_payload(
         self, prompt: str, system: Optional[str], max_tokens: int, temperature: float

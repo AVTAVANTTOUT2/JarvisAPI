@@ -57,11 +57,14 @@ def _source_label(source: str) -> str:
     return label[:48] or "UNKNOWN"
 
 
-def redact_for_external_llm(text: Any, *, max_chars: int = DEFAULT_TEXT_LIMIT) -> str:
+def redact_for_external_llm(
+    text: Any, *, max_chars: int | None = DEFAULT_TEXT_LIMIT
+) -> str:
     """Rend une valeur textuelle sûre pour un fournisseur LLM externe.
 
     Les secrets (clés, jetons) sont masqués. Noms, téléphones, e-mails et
     corps de messages restent intacts : le modèle travaille sur la donnée réelle.
+    ``max_chars=None`` : pas de troncature.
     """
     raw = "" if text is None else str(text)
     secret_safe = raw.replace("\x00", "")
@@ -69,6 +72,8 @@ def redact_for_external_llm(text: Any, *, max_chars: int = DEFAULT_TEXT_LIMIT) -
         secret_safe = pattern.sub("/[LOCAL_HOME]", secret_safe)
     safe = redact_sensitive_text(secret_safe)
 
+    if max_chars is None:
+        return safe
     limit = max(0, int(max_chars))
     if limit and len(safe) > limit:
         marker = "\n[…TRONQUÉ À LA FRONTIÈRE LLM…]"

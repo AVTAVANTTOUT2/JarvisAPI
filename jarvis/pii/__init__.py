@@ -1,7 +1,7 @@
 """Couche PII locale (logs, persistance). La sortie LLM n'anonymise plus.
 
 - ``PIIAnonymizer`` : tokens opaques pour les journaux et les jobs persistés.
-- ``DataBoundary``  : validation de type, plus de blocage de contenu personnel.
+- ``DataBoundary``  : masque les secrets, laisse les PII intactes.
 """
 
 from jarvis.pii.anonymizer import (
