@@ -85,7 +85,7 @@ describe('shared API client', () => {
   it('sends document cloud consent as an explicit per-upload form field', async () => {
     const fetchImpl = vi.fn(async () => new Response(JSON.stringify({
       ok: true,
-      processing_mode: 'cloud_anonymized',
+      processing_mode: 'cloud',
       data_left_device: true,
     }), { status: 200 }))
     vi.stubGlobal('fetch', fetchImpl)

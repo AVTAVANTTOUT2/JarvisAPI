@@ -47,6 +47,7 @@ from jarvis.security.redaction import (
     diagnostic_cursor_job_view,
     public_cursor_job_view,
     redact_persisted_mapping,
+    redact_persisted_text,
     redact_sensitive_text,
 )
 
@@ -653,11 +654,10 @@ class CursorDelegationService:
                 "gh", "pr", "create",
                 "--draft",
                 "--base", base_branch,
-                "--title", redact_for_external_llm(job["title"], max_chars=80),
-                "--body", redact_for_external_llm(
-                    f"Job Cursor `{job_id}`\n\n{str(parsed.get('body', ''))[:3000]}",
-                    max_chars=3_200,
-                ),
+                "--title", redact_persisted_text(str(job.get("title") or ""))[:80],
+                "--body", redact_persisted_text(
+                    f"Job Cursor `{job_id}`\n\n{str(parsed.get('body', ''))[:3000]}"
+                )[:3_200],
                 "--head", live_branch,
             ],
             cwd=str(wt_path),

@@ -154,7 +154,7 @@ export interface ConversationUploadResult {
   size: number
   content_length: number
   summary?: string | null
-  processing_mode: 'local' | 'cloud_anonymized' | 'local_fallback'
+  processing_mode: 'local' | 'cloud' | 'local_fallback'
   cloud_consent: boolean
   cloud_request_attempted: boolean
   data_left_device: boolean

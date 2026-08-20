@@ -325,6 +325,55 @@ def test_pr_creation_command_failure_returns_explicit_reason(
     assert error == "Création de la PR échouée: no commits between branches"
 
 
+def test_pr_body_anonymise_email_du_rapport_cursor(delegation_env, monkeypatch):
+    """GitHub n'est pas un LLM : un e-mail du stdout Cursor ne part pas en clair."""
+
+    service, repo = delegation_env["service"], delegation_env["repo"]
+    captured: dict[str, list[str]] = {}
+    monkeypatch.setattr(
+        service,
+        "_git",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess(
+            args=["git", "push"], returncode=0, stdout="", stderr=""
+        ),
+    )
+
+    def _capture_gh(args, **_kwargs):
+        captured["args"] = list(args)
+        return subprocess.CompletedProcess(
+            args=args,
+            returncode=0,
+            stdout="https://github.com/example/repo/pull/9\n",
+            stderr="",
+        )
+
+    monkeypatch.setattr(
+        "integrations.cursor_delegation.subprocess.run",
+        _capture_gh,
+    )
+
+    email = "camille.riviere@example.test"
+    pr_url, error = service._maybe_open_pr(
+        {
+            "allow_push": True,
+            "title": f"Fix login for {email}",
+            "routing": {"base_branch": "main"},
+        },
+        "job-pii",
+        repo,
+        "jarvis/cursor/job-pii",
+        {"body": f"Reproduced with {email} in the fixture."},
+    )
+
+    assert error is None
+    assert pr_url is not None
+    argv = captured["args"]
+    body = argv[argv.index("--body") + 1]
+    title = argv[argv.index("--title") + 1]
+    assert email not in body
+    assert email not in title
+
+
 def test_pr_only_succeeds_only_with_a_pr_url(delegation_env, monkeypatch):
     service, repo = delegation_env["service"], delegation_env["repo"]
     monkeypatch.setattr(config, "CURSOR_ALLOW_PUSH", True)

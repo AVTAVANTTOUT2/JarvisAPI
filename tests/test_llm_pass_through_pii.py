@@ -261,3 +261,46 @@ async def test_message_intelligence_sends_handle_and_body_verbatim(
     assert "[PERSON_" not in captured["prompt"]
     assert result["status"] == "ok"
     assert stored["text"] in result["result"]
+
+
+@pytest.mark.asyncio
+async def test_message_intelligence_wraps_untrusted_and_redacts_secrets(
+    isolated_db: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from jarvis import message_intelligence
+    from jarvis.security.llm_data_boundary import UNTRUSTED_DATA_SYSTEM_RULE
+
+    captured: dict[str, str] = {}
+
+    async def fake_generate(prompt: str, system=None, **_kwargs):
+        captured["prompt"] = prompt
+        captured["system"] = system or ""
+        return '{"announcements":[],"tasks":[],"suggestions":[]}'
+
+    class FakeRouter:
+        deepseek = types.SimpleNamespace(generate=fake_generate)
+
+    monkeypatch.setattr(message_intelligence, "_ensure_components", lambda: FakeRouter())
+
+    result = await message_intelligence.analyze_message_batch(
+        [
+            {
+                "handle": PERSON_PHONE,
+                "text": f"{MESSAGE_TEXT} clé {SECRET} {PERSON_EMAIL}",
+                "is_from_me": 0,
+            }
+        ],
+        since_id=42,
+        source="imessage",
+    )
+
+    prompt = captured["prompt"]
+    assert result["status"] == "ok"
+    assert "[UNTRUSTED_DATA:" in prompt
+    assert "[/UNTRUSTED_DATA:" in prompt
+    assert PERSON_EMAIL in prompt
+    assert PERSON_PHONE in prompt
+    assert MESSAGE_TEXT in prompt
+    assert SECRET not in prompt
+    assert UNTRUSTED_DATA_SYSTEM_RULE in captured["system"]
