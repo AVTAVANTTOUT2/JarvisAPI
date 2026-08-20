@@ -128,7 +128,9 @@ _EXAMPLE_LEAD_IN = re.compile(
 # n'est pas une interdiction d'exécution.
 _EXEC_VERBS = (
     r"execute|executes|executez|exec|lance|lances|lancez|lancer|demarre|demarres|"
-    r"demarrez|demarrer|run|runs|start|starts|trigger|triggers|launch|launches"
+    r"demarrez|demarrer|run|runs|start|starts|trigger|triggers|launch|launches|"
+    r"deploies|deploient|deployez|deployer|deploys|deploying|deploie|deploy|"
+    r"merging|merges|mergez|merge|fusionnes|fusionnez|fusionner|fusionne"
 )
 _WRITE_VERBS = (
     r"modifie|modifies|modifiez|modifier|change|changes|changez|changer|touche|"
@@ -149,9 +151,9 @@ _NO_EXECUTION_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(rf"\bsans\s+(?:les?\s+|la\s+)?(?:{_EXEC_VERBS})\b"),
     re.compile(rf"\b(?:do\s+not|don\s*'?\s*t|never)\s+(?:{_EXEC_VERBS})\b"),
     re.compile(rf"\bwithout\s+(?:{_EXEC_VERBS})(?:ning|ing)?\b"),
-    re.compile(r"\bsans\s+(?:rien\s+)?(?:executer|lancer|demarrer)\b"),
-    re.compile(r"\bwithout\s+(?:running|executing|starting|launching)\b"),
-    re.compile(r"\bne\s+rien\s+(?:executer|lancer|demarrer)\b"),
+    re.compile(r"\bsans\s+(?:rien\s+)?(?:executer|lancer|demarrer|deployer|fusionner)\b"),
+    re.compile(r"\bwithout\s+(?:running|executing|starting|launching|deploying|merging)\b"),
+    re.compile(r"\bne\s+rien\s+(?:executer|lancer|demarrer|deployer|fusionner)\b"),
 )
 
 _NO_MODIFICATION_PATTERNS: tuple[re.Pattern[str], ...] = (

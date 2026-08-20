@@ -49,6 +49,11 @@ REPRO = "Dis-moi si tous les tests passent, mais ne les exécute pas."
         "analyse le code sans exécuter quoi que ce soit",
         "fais le tour du dépôt sans lancer les tests",
         "ne rien exécuter, juste regarder",
+        "ne déploie pas en production",
+        "ne merge pas cette PR",
+        "ne fusionne pas cette branche",
+        "analyse le plan sans déployer",
+        "inspecte le diff sans fusionner",
     ],
 )
 def test_interdictions_execution_francaises(request_text: str) -> None:
@@ -65,6 +70,11 @@ def test_interdictions_execution_francaises(request_text: str) -> None:
         "review the repo without running anything",
         "never execute the migration",
         "check the build without starting the server",
+        "don't deploy this",
+        "don't merge this",
+        "never deploy to production",
+        "review the PR without deploying",
+        "inspect the branch without merging",
     ],
 )
 def test_interdictions_execution_anglaises(request_text: str) -> None:
@@ -141,6 +151,9 @@ def test_negation_citee_ou_exemple_nannule_pas(request_text: str) -> None:
         "corrige le bug puis lance les tests",
         "run the full test suite",
         "ne me dérange pas pendant que tu lances les tests",
+        "déploie en production",
+        "merge this PR",
+        "fusionne la branche",
     ],
 )
 def test_demandes_positives_sans_contrainte(request_text: str) -> None:
@@ -217,6 +230,25 @@ def test_interdiction_execution_bat_le_signal_haut_risque() -> None:
     classification = classify_agentic_request(
         "ne déploie pas en production, dis-moi seulement l'état", adaptive=True
     )
+    assert classification.category is AgenticRequestCategory.DIRECT_ACTION
+    assert classification.blocked_category is AgenticRequestCategory.AGENTIC_HIGH_RISK
+
+
+def test_interdiction_deploy_sans_formule_reponse_seule() -> None:
+    # Sans « dis-moi seulement », l'interdiction tient au verbe, pas à answer_only.
+    classification = classify_agentic_request(
+        "ne déploie pas en production", adaptive=True
+    )
+    assert classification.constraints.no_execution is True
+    assert classification.constraints.answer_only is False
+    assert classification.category is AgenticRequestCategory.DIRECT_ACTION
+    assert classification.blocked_category is AgenticRequestCategory.AGENTIC_HIGH_RISK
+
+
+def test_interdiction_merge_sans_formule_reponse_seule() -> None:
+    classification = classify_agentic_request("don't merge this", adaptive=True)
+    assert classification.constraints.no_execution is True
+    assert classification.constraints.answer_only is False
     assert classification.category is AgenticRequestCategory.DIRECT_ACTION
     assert classification.blocked_category is AgenticRequestCategory.AGENTIC_HIGH_RISK
 
