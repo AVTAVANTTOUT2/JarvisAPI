@@ -235,19 +235,46 @@ def digest_for_identity(person_id: int) -> str:
 
 
 def digest_for_history(person_id: int) -> str:
-    return _format_digest(list_chapters(int(person_id)), limit=8_000)
+    return _format_digest(
+        list_chapters(int(person_id)),
+        limit=8_000,
+        newest_first=True,
+        include_highlights=True,
+    )
 
 
-def _format_digest(chapters: Sequence[Mapping[str, Any]], *, limit: int) -> str:
+def _format_digest(
+    chapters: Sequence[Mapping[str, Any]],
+    *,
+    limit: int,
+    newest_first: bool = False,
+    include_highlights: bool = False,
+) -> str:
+    source = list(reversed(chapters)) if newest_first else list(chapters)
     parts: list[str] = []
     used = 0
-    for chapter in chapters:
+    for chapter in source:
         month = str(chapter.get("year_month") or "")
         status = str(chapter.get("status") or "")
         narrative = str(chapter.get("narrative") or "").strip()
-        block = f"[{month} | {status}] {narrative}".strip()
+        extra = ""
+        if include_highlights:
+            bits: list[str] = []
+            for item in chapter.get("highlights") or ():
+                if not isinstance(item, Mapping):
+                    continue
+                quote = str(item.get("quote") or "").strip()
+                if not quote:
+                    continue
+                kind = str(item.get("kind") or "").strip()
+                bits.append(f"{kind}: {quote}" if kind else quote)
+            if bits:
+                extra = " " + " ; ".join(bits)
+        block = f"[{month} | {status}] {narrative}{extra}".strip()
         if used + len(block) + 1 > limit:
             break
         parts.append(block)
         used += len(block) + 1
+    if newest_first:
+        parts.reverse()
     return "\n".join(parts)
