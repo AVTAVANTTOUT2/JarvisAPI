@@ -138,6 +138,8 @@ def test_process_start_uses_loopback_dynamic_port_private_auth_and_no_secret_in_
     assert "password" not in persisted
     if os.name != "nt":
         assert layout.auth_state_path.stat().st_mode & 0o777 == 0o600
+    assert (layout.logs_dir / "server.stdout.log").is_file()
+    assert (layout.logs_dir / "server.stderr.log").is_file()
 
 
 def test_process_start_rejects_non_inheritable_or_duplicate_descriptors(
@@ -343,3 +345,86 @@ def test_uninstall_stops_isolated_and_root_processes_before_removal(
 
     assert result == {"action": "uninstall", "changed": True, "ok": True}
     assert events == ["stop-runs", "stop-root", "remove"]
+
+
+def test_health_of_idle_runtime_is_not_started_not_an_exception(tmp_path: Path) -> None:
+    layout = _layout(tmp_path)
+    manager = OpenCodeProcessManager(
+        layout=layout,
+        install_manager=_Installed(layout.binary_path),  # type: ignore[arg-type]
+    )
+    report = manager.health()
+    status = manager.status()
+    assert report.error_code == "not_started"
+    assert report.healthy is False
+    assert status.error_code == "not_started"
+
+
+def test_start_fails_clearly_when_binary_is_invalid(tmp_path: Path) -> None:
+    layout = _layout(tmp_path)
+
+    class _Missing:
+        def verify(self, *, execute_binary: bool = True) -> VerificationReport:
+            return VerificationReport(
+                False,
+                "1.18.16",
+                "darwin-arm64",
+                layout.binary_path,
+                ("binaire absent",),
+            )
+
+    manager = OpenCodeProcessManager(
+        layout=layout,
+        install_manager=_Missing(),  # type: ignore[arg-type]
+    )
+    with pytest.raises(Exception, match="binaire absent"):
+        manager.start()
+
+
+def test_start_fails_when_child_exits_immediately(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    layout = _layout(tmp_path)
+
+    class _Dead:
+        pid = 17
+        returncode = 9
+
+        def poll(self) -> int:
+            return 9
+
+    monkeypatch.setattr(
+        "integrations.opencode.lifecycle.process.subprocess.Popen",
+        lambda *args, **kwargs: _Dead(),
+    )
+    manager = OpenCodeProcessManager(
+        layout=layout,
+        settings=OpenCodeSettings(startup_timeout_seconds=1),
+        manifest=ReleaseManifest.load(),
+        install_manager=_Installed(layout.binary_path),  # type: ignore[arg-type]
+    )
+    with pytest.raises(ProcessManagerError, match="code 9"):
+        manager.start()
+
+
+def test_start_times_out_when_health_never_arrives(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    layout = _layout(tmp_path)
+    monkeypatch.setattr(
+        "integrations.opencode.lifecycle.process.subprocess.Popen",
+        lambda *args, **kwargs: _FakeProcess(),
+    )
+    monkeypatch.setattr(
+        "integrations.opencode.lifecycle.process.check_health",
+        lambda *args, **kwargs: HealthReport(False, None, None, "startup"),
+    )
+    monkeypatch.setattr(OpenCodeProcessManager, "stop", lambda self, **kwargs: True)
+    manager = OpenCodeProcessManager(
+        layout=layout,
+        settings=OpenCodeSettings(startup_timeout_seconds=0.2),
+        manifest=ReleaseManifest.load(),
+        install_manager=_Installed(layout.binary_path),  # type: ignore[arg-type]
+    )
+    with pytest.raises(ProcessManagerError, match="Health-check OpenCode expiré"):
+        manager.start()

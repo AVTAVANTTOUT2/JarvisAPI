@@ -20,6 +20,7 @@ Version intégrée : **OpenCode 1.18.16**, tag `v1.18.16`, commit amont
 - [Désinstallation](REMOVAL.md), [runbook de retrait](UNPLUG_RUNBOOK.md)
   et [preuve de suppression](REMOVAL_PROOF.md)
 - [Rapport de validation](TEST_REPORT.md)
+- [Audit du pipeline du 18 août 2026](PIPELINE_AUDIT_2026-08-18.md)
 
 Les valeurs faisant foi sont `plugin.json`, `release-manifest.json`,
 `config/defaults.json` et `config/opencode.json`. Toute divergence entre ces

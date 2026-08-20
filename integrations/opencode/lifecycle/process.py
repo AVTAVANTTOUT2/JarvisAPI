@@ -336,8 +336,9 @@ class OpenCodeProcessManager:
         )
 
     def health(self) -> HealthReport:
-        state = self._read_state(optional=False)
-        assert state is not None
+        state = self._read_state(optional=True)
+        if state is None:
+            return HealthReport(False, None, None, "not_started")
         auth = self._read_auth(state)
         return check_health(
             state.base_url,
