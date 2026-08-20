@@ -502,27 +502,70 @@ def test_event_bus_probe_reports_an_unbound_loop(monkeypatch):
 
 
 def test_optional_runtime_probes_never_mark_jarvis_unavailable(tmp_path, monkeypatch):
+    from integrations.apple_music import reset_status_cache
+
     monkeypatch.setattr(health, "_PROJECT_DIR", tmp_path)
+    monkeypatch.setattr("integrations.apple_music.resolve_binary", lambda: None)
+    reset_status_cache()
 
     core = health.probe_agentic_core()
     plugin = health.probe_agentic_plugin()
     claw = health.probe_claw3d()
+    music = health.probe_apple_music()
 
     assert core.state == health.HEALTHY
     assert plugin.state == health.UNKNOWN
     assert plugin.reason in {"optional_runtime_absent", "runtime_not_probed"}
     assert claw.state == health.UNKNOWN
     assert claw.reason == "optional_ui_absent"
-    assert health.UNAVAILABLE not in {plugin.state, claw.state}
+    assert music.name == "apple_music"
+    assert music.state == health.UNKNOWN
+    assert music.reason == "optional_runtime_absent"
+    assert "apple_music" not in health.CRITICAL_COMPONENTS
+    rendered = str(music.to_public_dict())
+    assert "/System/" not in rendered
+    assert "/Users/" not in rendered
+    assert health.UNAVAILABLE not in {plugin.state, claw.state, music.state}
     assert (
         health.aggregate_state(
             [
                 core,
                 plugin,
                 claw,
+                music,
                 _c("backend", health.HEALTHY),
                 _c("database", health.HEALTHY),
             ]
         )
         == health.HEALTHY
     )
+
+
+def test_apple_music_probe_maps_closed_reasons(monkeypatch):
+    from integrations.apple_music import reset_status_cache
+
+    reset_status_cache()
+    monkeypatch.setattr("integrations.apple_music.resolve_binary", lambda: None)
+    missing = health.probe_apple_music()
+    assert missing.state == health.UNKNOWN
+    assert missing.reason == "optional_runtime_absent"
+    assert missing.to_public_dict()["reason"] in health.PUBLIC_REASONS
+
+    monkeypatch.setattr(
+        "integrations.apple_music.status",
+        lambda **_kwargs: {
+            "healthy": False,
+            "error": "automation_denied",
+            "backend": "musicapp",
+        },
+    )
+    denied = health.probe_apple_music()
+    assert denied.state == health.DEGRADED
+    assert denied.reason == "automation_denied"
+    assert health.aggregate_state(
+        [
+            denied,
+            _c("backend", health.HEALTHY),
+            _c("database", health.HEALTHY),
+        ]
+    ) == health.DEGRADED

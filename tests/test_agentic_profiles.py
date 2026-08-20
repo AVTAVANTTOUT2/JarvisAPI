@@ -108,7 +108,7 @@ def test_catalog_contains_exactly_the_eight_minimal_profiles() -> None:
             "media",
         ),
         (
-            "Joue Werenoi sur Apple Music",
+            "Transcode cette vidéo puis crée la preview",
             AgenticRequestCategory.AGENTIC_EXTERNAL_EFFECT,
             "media",
         ),
@@ -307,7 +307,7 @@ async def test_natural_language_tech_task_starts_coding_run_without_slash_agent(
 
 
 @pytest.mark.asyncio
-async def test_natural_language_apple_music_task_starts_media_run(
+async def test_natural_language_apple_music_does_not_start_agentic_run(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from api import agentic_processing
@@ -321,10 +321,8 @@ async def test_natural_language_apple_music_task_starts_media_run(
         persist_assistant=False,
     )
 
-    assert response is not None
-    assert captured["capability_profile_id"] == "media"
-    assert "media:publish" in captured["permissions"]
-    assert captured["category"] is AgenticRequestCategory.AGENTIC_EXTERNAL_EFFECT
+    assert response is None
+    assert captured == {}
 
 
 @pytest.mark.asyncio

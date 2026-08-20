@@ -199,6 +199,27 @@ def _get_all_services_status() -> list[dict[str, object]]:
             }
         )
 
+    # ── Apple Music MCP (stdio à la demande, pas un daemon) ──
+    try:
+        from integrations.apple_music import control_payload as apple_music_payload
+
+        services.append(apple_music_payload())
+    except Exception as exc:
+        logger.debug("apple_music status: %s", exc)
+        services.append(
+            {
+                "id": "apple_music",
+                "name": "Apple Music MCP",
+                "description": "Music.app via MCP local",
+                "category": "integrations",
+                "running": False,
+                "healthy": False,
+                "state": "unknown",
+                "can_control": False,
+                "error": "doctor_failed",
+            }
+        )
+
     # ── Ollama (health HTTP réel) ──
     try:
         from integrations.ollama_control import check_ollama_health
@@ -427,6 +448,10 @@ async def get_service_detail(service: str) -> dict[str, object]:
 
         health = await asyncio.to_thread(check_ollama_health)
         return {"ok": True, **health}
+    if svc == "apple_music":
+        from integrations.apple_music import control_payload as apple_music_payload
+
+        return {"ok": True, **apple_music_payload()}
     if svc == "screen_watcher":
         from scripts.screen_watcher import screen_watcher as _sw
         from integrations.ollama_control import check_ollama_health

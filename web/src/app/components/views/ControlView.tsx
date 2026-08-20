@@ -20,7 +20,7 @@ import {
   Activity, Brain, Clock, Mic, Mail, MessageSquare,
   Monitor, RefreshCw, Search, Settings2,
   Tv, Play, Square, RotateCw,
-  TerminalSquare, Server, Cpu,
+  TerminalSquare, Server, Cpu, Disc3,
 } from 'lucide-react'
 import {
   ApiError,
@@ -77,6 +77,7 @@ const SERVICE_ICONS: Record<string, React.ComponentType<{ size?: number; classNa
   imessage_bridge: MessageSquare,
   scheduler: Clock,
   relationship_analyzer: Search,
+  apple_music: Disc3,
 }
 
 type GlobalAction = 'start-all' | 'stop-all' | 'restart-all' | null

@@ -32,6 +32,17 @@ from jarvis.notification_service import notification_service
 logger = logging.getLogger("jarvis")
 
 
+def _apple_music_status_payload() -> dict[str, Any]:
+    """État du MCP Apple Music sans lancer de lecture."""
+    try:
+        from integrations.apple_music import integrations_payload
+
+        return integrations_payload()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[integrations] apple_music status: %s", exc)
+        return {"available": False, "healthy": False, "error": "status_failed"}
+
+
 def _apple_shortcuts_status_payload() -> dict[str, Any]:
     """État du pont Raccourcis sans lancer de raccourci."""
     try:
@@ -114,6 +125,7 @@ async def api_integrations():
         "ingestion": ingestion_health,
         "computer": _computer_status_payload(),
         "apple_shortcuts": _apple_shortcuts_status_payload(),
+        "apple_music": _apple_music_status_payload(),
         "location_tracking": getattr(config, "LOCATION_TRACKING", True),
         "audio_daemon": _audio_daemon_status_payload(),
     }

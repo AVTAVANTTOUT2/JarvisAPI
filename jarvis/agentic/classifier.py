@@ -35,9 +35,6 @@ _EXTERNAL_EFFECT_TERMS = frozenset(
         "push",
         "crée une pull request",
         "démarre le live",
-        "apple music",
-        "musique",
-        "playlist",
     }
 )
 _READONLY_TERMS = frozenset(

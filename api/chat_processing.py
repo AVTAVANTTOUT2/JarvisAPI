@@ -14,6 +14,7 @@ from agents.display_text import extract_leading_emotion, finalize_assistant_disp
 from agents.orchestrator import orchestrator
 from api.agentic_processing import maybe_start_agentic_run
 from api.chat_cognitive import maybe_handle_legacy_agentic_chat
+from integrations.apple_music import maybe_handle_music_intent
 from api.chat_actions import (
     ACTIONS_WITH_FOLLOWUP,
     _extract_action_from_text,
@@ -152,6 +153,24 @@ async def _process_message_internal(
             )
             loop_result.setdefault("knowledge", public_knowledge_payload(loop_context))
             return loop_result
+
+        music = await maybe_handle_music_intent(original_text)
+        if music is not None:
+            if persist_assistant:
+                try:
+                    save_message(
+                        conversation_id,
+                        "assistant",
+                        music["text"],
+                        agent=music.get("agent"),
+                        model=music.get("model"),
+                        tokens_in=0,
+                        tokens_out=0,
+                        cost=0.0,
+                    )
+                except Exception as exc:
+                    logger.debug("[music] save assistant internal : %s", exc)
+            return music
 
         agentic = await maybe_start_agentic_run(
             original_text,

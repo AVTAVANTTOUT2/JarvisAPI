@@ -13,6 +13,17 @@ logger = logging.getLogger(__name__)
 Executor = Literal["jarvis_tool", "agentic", "cursor", "deepseek", "system"]
 
 
+def _apple_music_available() -> bool:
+    """Présence du binaire seulement — pas de subprocess dans ``refresh()``."""
+
+    try:
+        from integrations.apple_music import resolve_binary
+
+        return resolve_binary() is not None
+    except Exception:
+        return False
+
+
 @dataclass(frozen=True)
 class Capability:
     name: str
@@ -128,6 +139,24 @@ class CapabilityRegistry:
                 "low", False, "jarvis_tool",
                 "Position courante et lieux nommés",
                 action_type="where_am_i",
+            ),
+            "music.play": Capability(
+                "music.play",
+                _apple_music_available(),
+                "low",
+                False,
+                "jarvis_tool",
+                "Lire un artiste ou une piste de la bibliothèque Music.app",
+                action_type="music",
+            ),
+            "music.control": Capability(
+                "music.control",
+                _apple_music_available(),
+                "low",
+                False,
+                "jarvis_tool",
+                "Pause, piste suivante, volume — Music.app via MCP local",
+                action_type="music",
             ),
             "cursor.delegate": Capability(
                 "cursor.delegate", cursor_on, "medium", True, "cursor",

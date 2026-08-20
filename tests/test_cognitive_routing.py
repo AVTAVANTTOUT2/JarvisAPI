@@ -21,6 +21,12 @@ from integrations.cursor_cli import inspect_cursor_cli, resolve_cursor_agent_pat
 from integrations.contact_resolver import resolve_contact_query, _fold
 
 
+def test_apple_music_play_routes_to_media_tool_not_agentic():
+    intent = route_request("Joue Werenoi sur Apple Music", interaction_mode="chat")
+    assert intent.execution_type == "tool"
+    assert intent.domain == "media"
+
+
 def test_voice_simple_routes_to_flash():
     intent = route_request("Quel temps fait-il ?", interaction_mode="voice")
     assert intent.reasoning_model  # configured

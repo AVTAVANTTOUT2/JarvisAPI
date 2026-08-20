@@ -71,6 +71,8 @@ async def execute_action(
             out = await _action_food_order(action)
         elif action_type == "run_shortcut":
             out = await _action_run_shortcut(action)
+        elif action_type == "music":
+            out = await _action_music(action)
         else:
             out = {"ok": False, "message": f"Type d'action inconnu : {action_type}"}
     except Exception as e:
@@ -777,6 +779,14 @@ async def _action_food_order(action: dict) -> dict:
     action["plan_id"] = plan.plan_id
     action["food_plan"] = plan_view
     return _food_confirmation_response(plan_view)
+
+
+async def _action_music(action: dict) -> dict:
+    """Lecture Music.app via le MCP local — pas de confirmation pour play/pause."""
+
+    from integrations.apple_music import execute_music_action
+
+    return await asyncio.to_thread(execute_music_action, action)
 
 
 async def _action_run_shortcut(action: dict) -> dict:

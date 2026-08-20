@@ -66,6 +66,7 @@ PUBLIC_REASONS = frozenset(
         "optional_runtime_absent",
         "optional_ui_absent",
         "runtime_not_probed",
+        "automation_denied",
     }
 )
 
@@ -428,6 +429,61 @@ def probe_claw3d() -> ComponentHealth:
     )
 
 
+def probe_apple_music() -> ComponentHealth:
+    """MCP Apple Music optionnel : absent ≠ panne JARVIS."""
+
+    try:
+        from integrations.apple_music import status as apple_music_status
+
+        probe = apple_music_status()
+    except Exception:
+        logger.exception("[health] apple music illisible")
+        return ComponentHealth(
+            name="apple_music",
+            state=UNKNOWN,
+            reason="internal_error",
+        )
+    error = probe.get("error")
+    if error == "binary_missing":
+        return ComponentHealth(
+            name="apple_music",
+            state=UNKNOWN,
+            reason="optional_runtime_absent",
+            details={"plugin_present": False, "offline": True},
+        )
+    details = {
+        "plugin_present": True,
+        "offline": True,
+        "engine": str(probe.get("backend") or "musicapp"),
+    }
+    if probe.get("healthy"):
+        return ComponentHealth(
+            name="apple_music",
+            state=HEALTHY,
+            details=details,
+        )
+    if error == "automation_denied":
+        return ComponentHealth(
+            name="apple_music",
+            state=DEGRADED,
+            reason="automation_denied",
+            details=details,
+        )
+    if error == "doctor_failed":
+        return ComponentHealth(
+            name="apple_music",
+            state=UNKNOWN,
+            reason="probe_timeout",
+            details=details,
+        )
+    return ComponentHealth(
+        name="apple_music",
+        state=UNKNOWN,
+        reason="optional_runtime_absent",
+        details=details,
+    )
+
+
 #: Ordre d'affichage stable : le contrat JSON ne doit pas dépendre du hasard
 #: d'un dictionnaire ou de l'ordonnancement asyncio.
 PROBES: tuple[tuple[str, Callable[[], ComponentHealth]], ...] = (
@@ -440,6 +496,7 @@ PROBES: tuple[tuple[str, Callable[[], ComponentHealth]], ...] = (
     ("agentic_core", probe_agentic_core),
     ("agentic_plugin", probe_agentic_plugin),
     ("claw3d", probe_claw3d),
+    ("apple_music", probe_apple_music),
 )
 
 
@@ -574,6 +631,7 @@ __all__ = [
     "probe_resources",
     "probe_speech_to_text",
     "probe_text_to_speech",
+    "probe_apple_music",
     "public_details",
     "public_reason",
     "reset_cache",
