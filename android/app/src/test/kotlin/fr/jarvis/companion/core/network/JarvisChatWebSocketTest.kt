@@ -108,6 +108,7 @@ class JarvisChatWebSocketTest {
 
         val connected = CountDownLatch(1)
         val incoming = CountDownLatch(1)
+        val agenticIncoming = CountDownLatch(1)
         val received = AtomicReference<WsIncomingMessage>()
         val socket = JarvisChatWebSocket(context, httpClient)
         socket.setListener(
@@ -115,6 +116,9 @@ class JarvisChatWebSocketTest {
                 override fun onWsMessage(message: WsIncomingMessage) {
                     received.set(message)
                     incoming.countDown()
+                    if (message.agenticEvent != null) {
+                        agenticIncoming.countDown()
+                    }
                 }
 
                 override fun onWsConnectionState(state: WsConnectionState) {
@@ -153,6 +157,7 @@ class JarvisChatWebSocketTest {
             )
             withTimeout(3_000) { nextEvent.await() }
         }
+        assertTrue(agenticIncoming.await(3, TimeUnit.SECONDS))
         assertEquals("run-android", agenticEvent.run_id)
         assertEquals("apr_opaque-42", agenticEvent.approval_id)
         assertEquals("awaiting_approval", agenticEvent.phase)
