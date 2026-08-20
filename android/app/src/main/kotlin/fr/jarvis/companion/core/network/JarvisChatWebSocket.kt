@@ -231,7 +231,6 @@ class JarvisChatWebSocket(
             val parsed = runCatching { gson.fromJson(text, JsonObject::class.java) }.getOrNull() ?: return
             val type = parsed.get("type")?.asString ?: return
             val agenticEvent = parseAgenticRealtimeEvent(parsed, type)
-            agenticEvent?.let(_agenticEvents::tryEmit)
             val incoming = if (agenticEvent != null) {
                 WsIncomingMessage(
                     type = type,
@@ -250,7 +249,11 @@ class JarvisChatWebSocket(
                     raw = parsed,
                 )
             }
+            // Listener before SharedFlow: tryEmit may resume collectors on another
+            // thread immediately, and tests/UI that await agenticEvents then read
+            // the last onWsMessage must not still see the previous frame.
             listener?.onWsMessage(incoming)
+            agenticEvent?.let(_agenticEvents::tryEmit)
         }
 
         override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
