@@ -212,6 +212,40 @@ def test_requested_sync_windows_merge_and_running_job_gets_followup(
     assert followup.dedupe_key.startswith("sync:requested:followup")
 
 
+def test_watch_sync_during_running_job_gets_followup(ingestion_db: Path) -> None:
+    """Un event kqueue pendant un sync iMessage ne doit pas être jeté."""
+    from database.ingestion import (
+        bind_connector,
+        claim_ingestion_jobs,
+        enqueue_ingestion_job,
+    )
+
+    bind_connector("imessage", permission_state="granted")
+    first = enqueue_ingestion_job(
+        "imessage",
+        job_kind="sync",
+        dedupe_key="sync:watch",
+    )
+    claimed = claim_ingestion_jobs("worker", handler_pairs=[("imessage", "sync")])[0]
+    assert claimed.id == first.id
+
+    followup = enqueue_ingestion_job(
+        "imessage",
+        job_kind="sync",
+        dedupe_key="sync:watch",
+    )
+    assert followup.id != claimed.id
+    assert followup.status == "pending"
+    assert followup.dedupe_key.startswith("sync:watch:followup")
+
+    merged = enqueue_ingestion_job(
+        "imessage",
+        job_kind="sync",
+        dedupe_key="sync:watch",
+    )
+    assert merged.id == followup.id
+
+
 def test_calendar_coverage_never_bridges_uncollected_gaps(ingestion_db: Path) -> None:
     from database.ingestion import update_ingestion_source_state
     from jarvis.ingestion.service import _coverage_satisfies

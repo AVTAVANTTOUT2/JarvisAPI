@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import select
+import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -14,7 +17,11 @@ from integrations.imessage_import import (
     _SYNC_LOCK,
 )
 from integrations.imessage_reader import IMessageReader
-from jarvis.ingestion.imessage_watch import IMessageFileWatcher, NullWatchBackend
+from jarvis.ingestion.imessage_watch import (
+    IMessageFileWatcher,
+    KqueueWatchBackend,
+    NullWatchBackend,
+)
 
 
 def _init_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
@@ -83,6 +90,50 @@ def _insert_message(
                 is_from_me,
             ),
         )
+
+
+@pytest.mark.skipif(
+    not hasattr(select, "kqueue"), reason="kqueue Darwin uniquement"
+)
+@pytest.mark.parametrize("fflag_name", ["KQ_NOTE_DELETE", "KQ_NOTE_RENAME"])
+def test_kqueue_delete_or_rename_rearms_file_descriptors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fflag_name: str,
+) -> None:
+    """WAL recréé (DELETE/RENAME) : réouvrir les fds, ne pas garder l'inode mort."""
+    target = tmp_path / "chat.db"
+    target.write_text("x", encoding="utf-8")
+    instances: list[object] = []
+    fflag = getattr(select, fflag_name)
+
+    class FakeKq:
+        def __init__(self) -> None:
+            self.polls = 0
+            instances.append(self)
+
+        def control(self, changelist, max_events, timeout=None):
+            del max_events, timeout
+            if changelist is not None:
+                return []
+            self.polls += 1
+            if len(instances) == 1 and self.polls == 1:
+                return [SimpleNamespace(fflags=fflag)]
+            return []
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(select, "kqueue", FakeKq)
+    backend = KqueueWatchBackend()
+    notified: list[int] = []
+    backend.start([target], lambda: notified.append(1))
+    deadline = time.monotonic() + 2.0
+    while len(instances) < 2 and time.monotonic() < deadline:
+        time.sleep(0.02)
+    backend.stop()
+    assert notified == [1]
+    assert len(instances) >= 2
 
 
 def test_watcher_debounce_enqueues_once_then_again_after_new_event() -> None:

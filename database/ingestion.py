@@ -638,10 +638,7 @@ def enqueue_ingestion_job(
                 assert refreshed is not None
                 return _job_from_row(refreshed)
 
-            requested_window = bool(
-                payload and (payload.get("from_iso") or payload.get("to_iso"))
-            )
-            if kind != "sync" or not requested_window:
+            if kind != "sync":
                 return existing
 
             followup = conn.execute(

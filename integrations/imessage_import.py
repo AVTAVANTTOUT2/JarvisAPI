@@ -680,7 +680,6 @@ class IMessageImporter:
             )
             result.duration_seconds = (datetime.now() - t0).total_seconds()
             result.completed_at = datetime.now(timezone.utc).isoformat()
-            result.reconciliation = self.reconcile().__dict__
             return result
 
         logger.info(
@@ -1359,7 +1358,7 @@ class IMessageImporter:
                         apple_rowid,
                     ),
                 )
-                return "skipped"
+                return "updated"
 
         content_hash = _compute_content_hash(
             date, apple_handle_id, text, guid, apple_rowid
@@ -1783,7 +1782,7 @@ class IMessageImporter:
                     to_rowid=rid,
                 )
                 missing_imported += int(result["imported"])
-                if result["imported"]:
+                if result["imported"] or result.get("updated"):
                     jarvis_index[rid] = apple_date
             elif stored_date != apple_date:
                 result = self._import_message_batch(

@@ -113,8 +113,15 @@ class KqueueWatchBackend:
                     continue
                 while not self._stop.is_set():
                     events = kq.control(None, 8, 0.5)
-                    if events:
-                        on_event()
+                    if not events:
+                        continue
+                    on_event()
+                    if any(
+                        ev.fflags
+                        & (select.KQ_NOTE_DELETE | select.KQ_NOTE_RENAME)
+                        for ev in events
+                    ):
+                        break
             except Exception:
                 logger.exception("[imessage_watch] kqueue")
                 self._stop.wait(1.0)
