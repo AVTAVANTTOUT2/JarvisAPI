@@ -13,6 +13,8 @@ from fastapi import WebSocket
 import config
 from api.agentic_processing import maybe_start_agentic_run
 from api.chat_context import _send_tts_streaming
+from database import save_message
+from integrations.apple_music import maybe_handle_music_intent
 
 logger = logging.getLogger("jarvis")
 
@@ -109,6 +111,46 @@ async def maybe_send_agentic_run(
     enriched_context: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """Crée éventuellement un run puis émet son accusé générique sur la socket."""
+
+    music = await maybe_handle_music_intent(request)
+    if music is not None:
+        text = str(music.get("text") or "")
+        knowledge = music.get("knowledge") or {}
+        try:
+            save_message(
+                conversation_id,
+                "assistant",
+                text,
+                agent=str(music.get("agent") or "info"),
+                model=str(music.get("model") or "runtime"),
+                tokens_in=0,
+                tokens_out=0,
+                cost=0.0,
+            )
+        except Exception:
+            logger.debug("impossible de persister la réponse musique", exc_info=True)
+        await ws.send_json(
+            {
+                "type": "response",
+                "agent": music.get("agent") or "info",
+                "content": text,
+                "emotion": "neutral",
+                "model": music.get("model") or "runtime",
+                "tokens_in": 0,
+                "tokens_out": 0,
+                "cost": 0.0,
+                "action": music.get("action"),
+                "action_result": music.get("action_result"),
+                "knowledge": knowledge,
+            }
+        )
+        if send_tts:
+            await _send_tts_streaming(ws, text, "neutral")
+        return {
+            "emotion": "neutral",
+            "response": text,
+            "knowledge": knowledge,
+        }
 
     agentic = await maybe_start_agentic_run(
         request,

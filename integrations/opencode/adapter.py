@@ -13,7 +13,6 @@ import math
 import os
 from pathlib import Path
 import re
-import shutil
 import stat
 import sys
 import threading
@@ -85,12 +84,9 @@ _MISSING_DEEPSEEK_KEY_MESSAGE = (
 def _apple_music_mcp_path() -> str | None:
     """Trouve le binaire installé sans dépendre du PATH réduit d'une app macOS."""
 
-    candidate = shutil.which("apple-music-mcp")
-    if candidate is None:
-        local_binary = Path.home() / ".local" / "bin" / "apple-music-mcp"
-        if local_binary.is_file() and os.access(local_binary, os.X_OK):
-            candidate = str(local_binary)
-    return str(Path(candidate).resolve()) if candidate else None
+    from integrations.apple_music import resolve_binary
+
+    return resolve_binary()
 
 
 def _model_provider_environment() -> dict[str, str]:

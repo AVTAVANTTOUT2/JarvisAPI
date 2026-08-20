@@ -403,6 +403,15 @@ async def _collect_enriched_context(
             logger.warning("[ctx] météo indisponible : %s", type(exc).__name__)
 
     try:
+        from integrations.apple_music import maybe_music_context
+
+        music_line = await maybe_music_context(text)
+        if music_line:
+            context["music_context"] = music_line
+    except Exception as exc:
+        logger.warning("[ctx] apple music indisponible : %s", type(exc).__name__)
+
+    try:
         from jarvis.cognitive import route_request
 
         intent = route_request(text, interaction_mode=interaction_mode)

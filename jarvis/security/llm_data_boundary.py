@@ -335,6 +335,19 @@ def format_action_result_for_external_llm(
         structured["count"] = action_result.get(
             "count", len(structured["results"])
         )
+    elif action_type == "music":
+        for key, limit in (
+            ("message", 400),
+            ("artist", 120),
+            ("track", 200),
+            ("player_state", 40),
+            ("error", 80),
+        ):
+            if action_result.get(key):
+                structured[key] = _text(action_result[key], limit)
+        volume = action_result.get("volume")
+        if isinstance(volume, int):
+            structured["volume"] = volume
     else:
         # Filet défensif : jamais de dump générique d'un résultat inconnu.
         for key, limit in (("message", 600), ("error", 500), ("status", 100)):

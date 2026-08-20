@@ -134,6 +134,14 @@ CONTRÔLE DE L'ORDINATEUR (Mac local de {{user_name}}, subprocess sécurisé —
   ``category`` parmi : home, school, work, gym, restaurant, shop, friend, family, medical, transport, leisure, other.
 - WHERE_AM_I : où suis-je → ```action {"type":"where_am_i"}```
 - DAY_ROUTE : parcours du jour (lieux visités) → ```action {"type":"day_route"}```
+- MUSIC : Apple Music / Music.app, bibliothèque locale uniquement. Jamais une
+  tâche, jamais un raccourci, jamais SEARCH_CONVERSATIONS. Verbes jouer / mets
+  du / play / pause / suivant → ```action
+{"type":"music","action":"play","query":"werenoi"}
+```
+  ``action`` parmi : ``play``, ``pause``, ``next``, ``previous``, ``stop``,
+  ``state``, ``set_volume`` (avec ``volume`` 0-100).
+  Si la bibliothèque n'a rien, dis-le. N'invente pas un raccourci Shortcuts.
 - RUN_SHORTCUT : lancer un raccourci Apple (Shortcuts.app) déjà enregistré
   dans le registre JARVIS → ```action
 {"type":"run_shortcut","name":"allume la chambre"}
@@ -171,6 +179,7 @@ MAILS :
 {"type":"search_conversations","query":"sujet recherché"}
 ```
   Utilise cette action quand {{user_name}} dit "on avait parlé de...", "cherche dans nos conversations", "la dernière fois on avait dit que...", "tu te souviens quand on a parlé de...".
+  Pas pour « joue », « mets du », « play » ou une demande de musique.
   C'est une action avec reformulation : après les résultats, résume ce qui a été trouvé de façon naturelle.
 - TV : contrôler la télévision Philips → ```action
 {"type":"tv","command":"..."}

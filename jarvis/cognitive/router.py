@@ -95,6 +95,11 @@ _TOOL_PATTERNS: list[tuple[str, str]] = [
     (r"\b(météo|meteo|parapluie|température|temperature|quel temps|le temps qu)\b", "info"),
     (r"\b(crée|cree|ajoute)\s+(une?\s+)?tâche", "productivity"),
     (r"\b(agenda|calendrier|rendez[- ]vous|rdv|demain|aujourd['']hui)\b", "productivity"),
+    (
+        r"\b(musique|apple music|morceau|chanson|playlist)\b|"
+        r"\b(joue|play|mets? du|met du|pause la musique)\b",
+        "media",
+    ),
     (r"\b(ouvre|lance)\s+\w+", "system"),
     (r"\b(où\s+suis[- ]je|localisation|où\s+est)\b", "location"),
     (r"\b(envoie|envoi|message|sms|imessage)\s+(à|a)\b", "contacts"),

@@ -36,6 +36,7 @@ import {
   Server,
   Volume2,
   XCircle,
+  Disc3,
 } from 'lucide-react';
 import {
   api,
@@ -71,6 +72,7 @@ const COMPONENT_LABELS: Record<string, string> = {
   resources: 'Ressources mémoire',
   speech_to_text: 'Reconnaissance vocale',
   text_to_speech: 'Synthèse vocale',
+  apple_music: 'Apple Music',
 };
 
 const COMPONENT_ICONS: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
@@ -80,6 +82,7 @@ const COMPONENT_ICONS: Record<string, React.ComponentType<{ size?: number; class
   resources: Gauge,
   speech_to_text: Mic,
   text_to_speech: Volume2,
+  apple_music: Disc3,
 };
 
 /**
@@ -100,6 +103,8 @@ const REASON_LABELS: Record<string, string> = {
   stt_unavailable: 'Moteur de transcription indisponible',
   tts_provider_misconfigured: 'Fournisseur vocal mal configuré',
   tts_engine_not_probed: 'Moteur non exercé depuis le démarrage',
+  optional_runtime_absent: 'Composant optionnel absent',
+  automation_denied: 'Automation macOS refusée',
 };
 
 const DETAIL_LABELS: Record<string, string> = {
