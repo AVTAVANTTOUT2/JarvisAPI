@@ -849,9 +849,12 @@ async def _calendar_sync(
         )
         return IngestionRunResult(
             status="degraded",
-            completeness="partial",
-            coverage_start_utc=from_iso,
-            coverage_end_utc=to_iso,
+            item_count=state.item_count if state else 0,
+            cursor=dict(state.cursor) if state and state.cursor else {},
+            completeness=state.completeness if state else "partial",
+            coverage_start_utc=state.coverage_start_utc if state else from_iso,
+            coverage_end_utc=state.coverage_end_utc if state else to_iso,
+            last_item_at=state.last_item_at if state else None,
             error_code="calendar_filter_excluded_all",
             error_message=(
                 "tous les événements ont été exclus par le filtre du connecteur"
