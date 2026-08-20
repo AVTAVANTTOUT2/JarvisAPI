@@ -118,6 +118,48 @@ async def test_history_token_never_reaches_fake_llm_prompt(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_current_user_turn_secret_redacted_before_http(monkeypatch):
+    import llm as llm_module
+
+    secret = "sk-currentTurnBoundary123456789"
+    captured: dict = {}
+
+    class _FakeResponse:
+        status_code = 200
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return {
+                "choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}],
+                "usage": {
+                    "prompt_tokens": 1,
+                    "completion_tokens": 1,
+                    "prompt_cache_hit_tokens": 0,
+                },
+            }
+
+    async def _fake_post(_url, json=None, headers=None):
+        captured["payload"] = json
+        return _FakeResponse()
+
+    client = types.SimpleNamespace(post=_fake_post, is_closed=False)
+    monkeypatch.setattr(llm_module, "_get_http_client", lambda: client)
+    monkeypatch.setattr("config.DEEPSEEK_API_KEY", "sk-test-api-key-for-boundary")
+
+    await llm_module.chat(
+        messages=[{"role": "user", "content": f"Ma clé DeepSeek est {secret}"}],
+        system="",
+    )
+
+    payload = captured.get("payload") or {}
+    user_content = payload["messages"][-1]["content"]
+    assert secret not in user_content
+    assert "Ma clé DeepSeek est" in user_content
+
+
+@pytest.mark.asyncio
 async def test_terminal_stdout_token_is_redacted_before_second_fake_llm_pass(
     monkeypatch,
 ):

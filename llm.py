@@ -9,6 +9,7 @@ from typing import Any
 import httpx
 
 import config
+from jarvis.security.llm_data_boundary import sanitize_outbound_chat_messages
 
 logger = logging.getLogger(__name__)
 
@@ -154,6 +155,7 @@ async def chat(
         stop_reason.
     """
     model = model or config.DEEPSEEK_MAIN_MODEL
+    system, messages = sanitize_outbound_chat_messages(messages, system=system)
 
     api_messages: list[dict] = []
     if system:
@@ -252,6 +254,7 @@ async def chat_stream(
         str: Chunk de texte généré par le modèle.
     """
     model = model or config.DEEPSEEK_MAIN_MODEL
+    system, messages = sanitize_outbound_chat_messages(messages, system=system)
 
     api_messages: list[dict] = []
     if system:
@@ -333,6 +336,7 @@ async def chat_stream_collect(
     estimés et ``usage_estimated`` le signale plutôt que d'afficher 0.
     """
     model = model or config.DEEPSEEK_MAIN_MODEL
+    system, messages = sanitize_outbound_chat_messages(messages, system=system)
 
     api_messages: list[dict] = []
     if system:

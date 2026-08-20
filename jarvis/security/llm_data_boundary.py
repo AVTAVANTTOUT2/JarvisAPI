@@ -134,6 +134,31 @@ def sanitize_history_messages(
     return cleaned
 
 
+def sanitize_outbound_chat_messages(
+    messages: Sequence[Mapping[str, Any]] | None,
+    *,
+    system: str = "",
+    max_chars: int | None = None,
+) -> tuple[str, list[dict[str, str]]]:
+    """Dernière passe avant HTTP DeepSeek : masque les secrets, conserve les PII."""
+    safe_system = (
+        redact_for_external_llm(system, max_chars=max_chars) if system else ""
+    )
+    safe_messages: list[dict[str, str]] = []
+    for message in messages or ():
+        role = str(message.get("role") or "")
+        content = message.get("content")
+        if content is None:
+            continue
+        safe_messages.append(
+            {
+                "role": role,
+                "content": redact_for_external_llm(content, max_chars=max_chars),
+            }
+        )
+    return safe_system, safe_messages
+
+
 def redact_external_value(
     value: Any,
     *,
