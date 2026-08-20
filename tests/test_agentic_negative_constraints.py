@@ -148,6 +148,34 @@ def test_demandes_positives_sans_contrainte(request_text: str) -> None:
     assert constraints.no_execution is False
 
 
+@pytest.mark.parametrize(
+    "request_text",
+    [
+        "don't run tests, it's important",
+        "c'est simple, n'exécute pas les tests",
+        "n'exécute pas les tests, c'est une demande réelle",
+        "Dis-moi si tous les tests passent, ne l'exécute pas.",
+        "ne l'exécute pas",
+        "ne lui lance pas les tests",
+        "n'exécute rien",
+    ],
+)
+def test_interdiction_execution_survit_aux_apostrophes(request_text: str) -> None:
+    """Contractions ASCII et clitique « l' » ne sont pas des citations."""
+
+    constraints = extract_request_constraints(request_text)
+    assert constraints.no_execution is True
+    assert constraints.evidence
+
+
+def test_ne_modifie_rien_interdit_lecriture_sans_bloquer_lexecution() -> None:
+    constraints = extract_request_constraints(
+        "corrige le bug puis lance les tests, ne modifie rien"
+    )
+    assert constraints.no_modification is True
+    assert constraints.no_execution is False
+
+
 # --------------------------------------------------------------------------
 # 2. Classifieur — l'interdiction précède l'élévation
 # --------------------------------------------------------------------------
@@ -165,6 +193,21 @@ def test_repro_anglais_ne_produit_aucune_categorie_deleguee() -> None:
     classification = classify_agentic_request(
         "Tell me if all the tests pass, but do not run them.", adaptive=True
     )
+    assert classification.category is AgenticRequestCategory.DIRECT_ACTION
+    assert classification.blocked_category is not None
+
+
+@pytest.mark.parametrize(
+    "request_text",
+    [
+        "c'est simple, n'exécute pas les tests",
+        "Dis-moi si tous les tests passent, ne l'exécute pas.",
+        "don't run tests, it's important",
+    ],
+)
+def test_apostrophes_ne_relancent_pas_un_run(request_text: str) -> None:
+    classification = classify_agentic_request(request_text, adaptive=True)
+    assert classification.constraints.no_execution is True
     assert classification.category is AgenticRequestCategory.DIRECT_ACTION
     assert classification.blocked_category is not None
 
