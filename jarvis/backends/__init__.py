@@ -4,7 +4,7 @@ Deux classes strictement séparées, sans héritage commun, pour rendre impossib
 toute confusion de routage :
 
 - ``LocalBackend``    : MLX-LM en subprocess, données privées d'Elias.
-- ``DeepSeekBackend`` : API HTTP DeepSeek, données anonymisées uniquement.
+- ``DeepSeekBackend`` : API HTTP DeepSeek, PII intactes, secrets masqués.
 """
 
 from jarvis.backends.deepseek import DeepSeekBackend

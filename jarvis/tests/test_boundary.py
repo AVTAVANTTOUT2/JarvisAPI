@@ -1,14 +1,19 @@
 """Tests unitaires de DataBoundary.
 
 Le contenu personnel (téléphones, e-mails, extraits de messages) n'est plus
-bloqué. Seul un payload non textuel est refusé.
+bloqué. ``check`` filtre les secrets et laisse les PII intactes.
 """
 
 from __future__ import annotations
 
 import pytest
 
+from jarvis.exceptions import DataLeakError
 from jarvis.pii.boundary import DataBoundary
+
+_EMAIL = "marie.martin@gmail.com"
+_PHONE = "+33612345678"
+_SECRET = "sk-passThroughSecret123456789"
 
 
 @pytest.fixture()
@@ -37,7 +42,35 @@ def test_db_messages_access_is_allowed(boundary: DataBoundary) -> None:
 
 
 def test_raw_phone_and_email_are_allowed(boundary: DataBoundary) -> None:
-    boundary.check("Contacte +33612345678 ou marie.martin@gmail.com")
+    boundary.check(f"Contacte {_PHONE} ou {_EMAIL}")
+
+
+def test_check_does_not_raise_data_leak_on_pii(boundary: DataBoundary) -> None:
+    try:
+        boundary.check(
+            f"Contacte {_PHONE} ou {_EMAIL}. message_id=42 SELECT text FROM messages"
+        )
+    except DataLeakError as exc:
+        pytest.fail(
+            f"DataBoundary ne doit plus traiter les PII comme une fuite : {exc}"
+        )
+
+
+def test_check_redacts_secrets_keeps_pii(boundary: DataBoundary) -> None:
+    filtered = boundary.check(
+        f"Écris à {_EMAIL} ({_PHONE}) avec la clé {_SECRET}"
+    )
+    assert _EMAIL in filtered
+    assert _PHONE in filtered
+    assert _SECRET not in filtered
+    assert "sk-" in filtered
+
+
+def test_check_does_not_truncate_long_pii_payload(boundary: DataBoundary) -> None:
+    body = f"{_EMAIL}\n" + ("x" * 8_000)
+    filtered = boundary.check(body)
+    assert _EMAIL in filtered
+    assert len(filtered) >= 8_000
 
 
 def test_chat_db_reference_is_allowed(boundary: DataBoundary) -> None:

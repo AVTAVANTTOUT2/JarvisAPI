@@ -20,9 +20,10 @@ class DeepSeekBackendError(JARVISError):
 
 
 class DataLeakError(JARVISError):
-    """Une donnée interdite (messages bruts / métadonnées DB) allait fuiter.
+    """Exception historique : une donnée interdite allait quitter la machine.
 
-    Levée par :class:`jarvis.pii.boundary.DataBoundary` avant tout appel réseau
-    vers DeepSeek. C'est un garde-fou non-négociable : aucune requête ne part si
-    cette exception est levée.
+    ``DataBoundary.check`` ne lève plus cette exception. Les messages, e-mails
+    et métadonnées DB partent tels quels ; les secrets sont masqués dans le
+    texte retourné, pas refusés. Conservée pour les ``except DataLeakError``
+    des appelants externes.
     """
