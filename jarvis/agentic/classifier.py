@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from .constraints import RequestConstraints, extract_request_constraints
 from .models import AgenticClassification, AgenticRequestCategory
 
@@ -60,6 +62,34 @@ _WORKFLOW_TERMS = frozenset(
     {"puis", "ensuite", "étapes", "workflow", "chaque", "tous les", "de bout en bout"}
 )
 
+# ponytail: motifs bornés, pas la sous-chaîne « book » (facebook, notebook).
+# Un catalogue d'intentions dédié si le monde ouvert dépasse voyage/logement.
+_BOOKING_OBJECT = (
+    r"(?:hotel|hôtel|hostel|airbnb|chambre|logement|"
+    r"hébergement|hebergement|flight|flights|vol|vols|"
+    r"train|trains|ticket|tickets|billet|billets|room|rooms)"
+)
+_BOOKING_ARTICLE = r"(?:a|an|the|some|un|une|le|la|les)\s+"
+_OPEN_WORLD_BOOKING_RE = re.compile(
+    rf"""
+    (?:
+        \bbook(?:ing)?\s+me\b
+      | \bbook(?:ing)?\s+(?:{_BOOKING_ARTICLE})?{_BOOKING_OBJECT}\b
+      | \b(?:find|get)\s+(?:me\s+)?(?:{_BOOKING_ARTICLE})?{_BOOKING_OBJECT}\b
+      | \b(?:reserve|r[ée]serve(?:r)?)(?:-moi)?
+        (?:\s+moi)?\s+(?:{_BOOKING_ARTICLE})?{_BOOKING_OBJECT}\b
+      | \br[ée]serve-moi\b
+      | \btrouve(?:-moi)?\s+(?:moi\s+)?(?:{_BOOKING_ARTICLE})?{_BOOKING_OBJECT}\b
+      | \b(?:hotel|hôtel|airbnb)\s+reservations?\b
+      | \br[ée]servation\s+(?:d'|de\s+)?(?:h[ôo]tel|airbnb|vol)\b
+      | \b(?:plan|organise|organize)\s+(?:me\s+)?(?:{_BOOKING_ARTICLE})?
+        (?:trip|voyage|travel)\b
+      | \b(?:planifie|organise)\s+(?:moi\s+)?(?:un\s+)?voyage\b
+    )
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
 DELEGATED_CATEGORIES = frozenset(
     {
         AgenticRequestCategory.WORKFLOW,
@@ -92,8 +122,10 @@ def _classify_shape(
             "effet sensible ou périmètre critique",
         )
 
-    detected_external = external_effect or any(
-        term in text for term in _EXTERNAL_EFFECT_TERMS
+    detected_external = (
+        external_effect
+        or any(term in text for term in _EXTERNAL_EFFECT_TERMS)
+        or _OPEN_WORLD_BOOKING_RE.search(text) is not None
     )
     if detected_external:
         return (
@@ -211,10 +243,22 @@ def classify_agentic_request(
     return AgenticClassification(category, reason, constraints=constraints)
 
 
+def is_open_world_booking_request(request: str) -> bool:
+    """True si la demande est une réservation / un voyage à planifier.
+
+    Déterministe : le même texte produit le même verdict sur chat, voix et
+    planification de repli. Ne paie rien et n'ouvre aucun navigateur.
+    """
+
+    text = " ".join((request or "").lower().split())
+    return bool(text) and _OPEN_WORLD_BOOKING_RE.search(text) is not None
+
+
 __all__ = [
     "DELEGATED_CATEGORIES",
     "AgenticRecursionError",
     "RequestConstraints",
     "classify_agentic_request",
     "extract_request_constraints",
+    "is_open_world_booking_request",
 ]

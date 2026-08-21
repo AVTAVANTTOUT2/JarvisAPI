@@ -204,6 +204,10 @@ def test_classifier_covers_exact_categories_and_blocks_recursion():
         is AgenticRequestCategory.AGENTIC_EXTERNAL_EFFECT
     )
     assert (
+        classify_agentic_request("book me a hotel in Barcelona").category
+        is AgenticRequestCategory.AGENTIC_EXTERNAL_EFFECT
+    )
+    assert (
         classify_agentic_request("Joue Werenoi sur Apple Music").category
         is AgenticRequestCategory.DIRECT_ACTION
     )
