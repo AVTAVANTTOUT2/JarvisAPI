@@ -154,6 +154,7 @@ def test_opencode_declares_browser_scopes_of_the_hotel_profile() -> None:
         "réserve-moi une table au restaurant",
         "book me a restaurant in Paris",
         "trouve-moi un billet de concert",
+        "book tickets for Saturday",
     ],
 )
 def test_daily_life_requests_select_browser_profile(request_text: str) -> None:
@@ -163,3 +164,11 @@ def test_daily_life_requests_select_browser_profile(request_text: str) -> None:
     assert profile.profile_id == "browser"
     assert "browser:control" in profile.default_permissions
     assert "financial:act" not in profile.permissions
+
+
+def test_support_ticket_request_does_not_select_browser() -> None:
+    profile = select_capability_profile(
+        "envoie un ticket au support",
+        AgenticRequestCategory.AGENTIC_EXTERNAL_EFFECT,
+    )
+    assert profile.profile_id != "browser"

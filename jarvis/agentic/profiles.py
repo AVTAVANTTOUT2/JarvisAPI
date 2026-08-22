@@ -334,7 +334,9 @@ _INTENT_HINTS: tuple[tuple[str, frozenset[str]], ...] = (
                 "restaurant",
                 "resto",
                 "billet",
-                "ticket",
+                "tickets",
+                "a ticket",
+                "the ticket",
                 "concert",
             }
         ),
