@@ -647,6 +647,84 @@ def test_research_scope_alone_exposes_no_personal_knowledge_tool(
         )
 
 
+def test_browser_scope_exposes_jarvis_browser_and_starts_the_loop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from integrations.browser import BrowserElement, close_session, set_driver_factory
+
+    class _Driver:
+        url = ""
+        elements = [BrowserElement("e1", "link", "Hotel Casa", 0)]
+
+        async def open(self, url: str) -> None:
+            self.url = url
+
+        async def observe(self):
+            return self.url, "Hotels", "Casa 120 EUR", list(self.elements)
+
+        async def click(self, element: BrowserElement) -> None:
+            return None
+
+        async def fill(self, element: BrowserElement, text: str) -> None:
+            return None
+
+        async def press(self, element: BrowserElement, key: str) -> None:
+            return None
+
+        async def close(self) -> None:
+            return None
+
+    set_driver_factory(lambda: _Driver())
+    monkeypatch.setattr(
+        "integrations.browser.validate_browser_target",
+        lambda url, **_kwargs: url,
+    )
+    registry = ToolRegistry(
+        _capability(tmp_path, scopes=("browser:control",)),
+        journal=IdempotencyJournal(tmp_path / "browser-journal.json"),
+    )
+    names = {tool["name"] for tool in registry.list_tools()}
+    assert "jarvis_browser" in names
+    assert "jarvis_knowledge_search" not in names
+
+    trusted = {
+        "run_id": registry.capability.run_id,
+        "tool_call_id": "mcp:browser-open",
+        "origin": "agent_runtime",
+        "bypass_agentic_reclassification": True,
+    }
+    result = registry.call(
+        "jarvis_browser",
+        {"op": "open", "url": "https://hotels.example/search", "_jarvis": trusted},
+    )
+    assert result["ok"] is True
+    assert result["data"]["started"] is True
+    assert result["data"]["url"] == "https://hotels.example/search"
+    close_session(registry.capability.run_id)
+    set_driver_factory(None)
+
+    denied_root = tmp_path / "denied"
+    denied_root.mkdir()
+    readonly = ToolRegistry(
+        _capability(denied_root, scopes=("research:search",)),
+        journal=IdempotencyJournal(tmp_path / "browser-denied.json"),
+    )
+    assert "jarvis_browser" not in {tool["name"] for tool in readonly.list_tools()}
+    with pytest.raises(CapabilityError, match="capability_scope_denied"):
+        readonly.call(
+            "jarvis_browser",
+            {
+                "op": "see",
+                "_jarvis": {
+                    "run_id": readonly.capability.run_id,
+                    "tool_call_id": "mcp:browser-denied",
+                    "origin": "agent_runtime",
+                    "bypass_agentic_reclassification": True,
+                },
+            },
+        )
+
+
 def test_knowledge_source_types_are_partitioned_by_exact_read_scope() -> None:
     from jarvis.retrieval.models import CANONICAL_SOURCE_TYPES
 

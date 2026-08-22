@@ -531,6 +531,14 @@ UBER_EATS_NAV_TIMEOUT_MS = int(_get("UBER_EATS_NAV_TIMEOUT_MS", "30000"))
 UBER_EATS_ACTION_TIMEOUT_MS = int(_get("UBER_EATS_ACTION_TIMEOUT_MS", "10000"))
 UBER_EATS_PLAN_TTL_SECONDS = int(_get("UBER_EATS_PLAN_TTL_SECONDS", "600"))
 
+# ── Navigateur agentique générique (yeux + mains) ────────────
+# Distinct d'Uber Eats : n'importe quel HTTPS public, jamais un paiement.
+BROWSER_ENABLED = _get("BROWSER_ENABLED", "true").lower() == "true"
+BROWSER_HEADLESS = _get("BROWSER_HEADLESS", "true").lower() == "true"
+BROWSER_NAV_TIMEOUT_MS = int(_get("BROWSER_NAV_TIMEOUT_MS", "20000"))
+BROWSER_ACTION_TIMEOUT_MS = int(_get("BROWSER_ACTION_TIMEOUT_MS", "8000"))
+BROWSER_ALLOW_LOOPBACK = _get("BROWSER_ALLOW_LOOPBACK", "false").lower() == "true"
+
 # ── Suggestions de repas et suivi de livraison ───────────────
 # Le relevé de menus est en lecture seule : il ne peut rien acheter, mais il
 # reste une automatisation de navigateur soumise aux mêmes conditions d'usage.

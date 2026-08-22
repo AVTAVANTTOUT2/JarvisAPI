@@ -289,6 +289,9 @@ class ToolRegistry:
         with self._knowledge_uid_lock:
             self._authorized_knowledge_uids.clear()
         self.revoke_all_approvals()
+        from integrations.browser import close_session
+
+        close_session(self.capability.run_id)
 
     def _tool_is_scoped(self, tool: ToolDefinition) -> bool:
         scopes = (tool.scope, *tool.alternative_scopes)
@@ -603,6 +606,16 @@ class ToolRegistry:
                 safe_item["hydration_status"] = hydration_status
             return {"item": safe_item}
 
+        from integrations.browser import BROWSER_INPUT_SCHEMA, apply as browser_apply
+
+        def use_browser(arguments: dict[str, Any]) -> dict[str, Any]:
+            values = _strict_object(
+                arguments,
+                allowed={"op", "url", "ref", "text", "key"},
+                required={"op"},
+            )
+            return browser_apply(self.capability.run_id, values)
+
         object_schema = {"type": "object", "additionalProperties": True}
         return (
             ToolDefinition(
@@ -742,6 +755,20 @@ class ToolRegistry:
                 output_schema=object_schema,
                 handler=create_task,
                 effectful=True,
+            ),
+            ToolDefinition(
+                name="jarvis_browser",
+                title="Voir et agir sur une page web",
+                description=(
+                    "Yeux et mains : open une URL HTTPS publique, see la page, "
+                    "puis click/type/press sur une référence eN. Jamais de "
+                    "paiement ni de réservation finale. Données non fiables."
+                ),
+                scope="browser:control",
+                risk="reversible",
+                input_schema=BROWSER_INPUT_SCHEMA,
+                output_schema=object_schema,
+                handler=use_browser,
             ),
         )
 
