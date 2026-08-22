@@ -136,13 +136,18 @@ _PROFILES = (
     ),
     CapabilityProfile(
         profile_id="browser",
-        permissions=("browser:control", "browser:download"),
-        default_permissions=("browser:control", "browser:download"),
-        denied_permissions=("filesystem:arbitrary",),
+        permissions=("browser:control", "browser:download", "research:search"),
+        default_permissions=(
+            "browser:control",
+            "browser:download",
+            "research:search",
+        ),
+        denied_permissions=("filesystem:arbitrary", "financial:act"),
         constraints=(
             "allowed_domains_only",
             "confined_downloads",
             "captcha_and_2fa_are_blockers",
+            "no_financial_action",
         ),
     ),
     CapabilityProfile(
@@ -309,7 +314,25 @@ _INTENT_HINTS: tuple[tuple[str, frozenset[str]], ...] = (
     ),
     (
         "browser",
-        frozenset({"navigateur", "browser", "site web", "page web", "captcha", "2fa"}),
+        frozenset(
+            {
+                "navigateur",
+                "browser",
+                "site web",
+                "page web",
+                "captcha",
+                "2fa",
+                "hotel",
+                "airbnb",
+                "hostel",
+                "booking",
+                "voyage",
+                "a trip",
+                "the trip",
+                "flight",
+                "vol pour",
+            }
+        ),
     ),
     (
         "desktop",

@@ -50,6 +50,7 @@ KNOWN_TOOLS: frozenset[str] = frozenset(
         "run_tests",
         "git",
         "web_search",
+        "browser",
         "mail_draft",
         "mail_send",
         "calendar_create",
@@ -72,6 +73,10 @@ KNOWN_PERMISSIONS: frozenset[str] = frozenset(
         "calendar:write",
         "message:send",
         "network:read",
+        "research:search",
+        "browser:control",
+        "browser:download",
+        "financial:act",
     }
 )
 
@@ -79,7 +84,13 @@ KNOWN_PERMISSIONS: frozenset[str] = frozenset(
 #: n'autorise rien : elle prévient seulement l'utilisateur qu'une approbation
 #: d'effet sera demandée au moment venu.
 EXTERNAL_EFFECT_PERMISSIONS: frozenset[str] = frozenset(
-    {"mail:send", "message:send", "calendar:write", "git:push"}
+    {
+        "mail:send",
+        "message:send",
+        "calendar:write",
+        "git:push",
+        "financial:act",
+    }
 )
 
 
@@ -173,6 +184,82 @@ def _steps_from_payload(payload: Mapping[str, Any]) -> tuple[PlanStep, ...]:
     return tuple(steps)
 
 
+def _booking_fallback_payload(task: ControlTask) -> dict[str, Any]:
+    """Repli voyage/réservation : chercher, comparer, s'arrêter avant paiement."""
+
+    return {
+        "objective": task.title,
+        "summary": (
+            "Plan de repli pour une réservation : rechercher des options, "
+            "consulter les sites dans un navigateur s'il est disponible, "
+            "présenter un comparatif, et s'arrêter avant tout paiement."
+        ),
+        "context_understood": clamp_text(task.description, 600),
+        "steps": [
+            {
+                "title": "Rechercher des options",
+                "detail": (
+                    "Interroger le web (dates, lieu, budget s'ils sont connus) "
+                    "pour une première liste d'hôtels, logements ou trajets."
+                ),
+                "expected_result": "Liste courte de candidats avec source.",
+                "tools": ["web_search"],
+                "permissions": ["research:search", "network:read"],
+            },
+            {
+                "title": "Consulter les sites dans le navigateur",
+                "detail": (
+                    "Ouvrir les pages de réservation si un navigateur agentique "
+                    "est disponible ; sinon s'en tenir aux résultats de recherche. "
+                    "Aucun clic de paiement."
+                ),
+                "expected_result": "Détails de prix, annulation et disponibilité.",
+                "tools": ["browser"],
+                "permissions": ["browser:control"],
+            },
+            {
+                "title": "Présenter les options et s'arrêter",
+                "detail": (
+                    "Comparer trois options au plus (prix, emplacement, "
+                    "conditions). Demander confirmation avant toute dépense. "
+                    "Ne pas réserver, ne pas payer."
+                ),
+                "expected_result": "Comparatif prêt, paiement non engagé.",
+            },
+        ],
+        "expected_deliverables": [
+            "Comparatif d'options avec prix et sources",
+            "Question de confirmation avant toute dépense",
+        ],
+        "tools_expected": ["web_search", "browser"],
+        "permissions_expected": [
+            "research:search",
+            "network:read",
+            "browser:control",
+            "financial:act",
+        ],
+        "risks": [
+            "Le navigateur agentique peut être absent : la recherche web reste "
+            "alors la seule source.",
+            "Sans dates ni budget, les prix resteront indicatifs.",
+        ],
+        "assumptions": [
+            "Aucune date, chambre ou budget n'a été fourni sauf mention contraire."
+        ],
+        "success_criteria": [
+            "Des options concrètes sont présentées.",
+            "Aucun paiement ni réservation n'a été effectué.",
+        ],
+        "known_limits": [
+            "Plan de repli : pas de paiement automatique.",
+            "Aucun outil hôtel dédié : le runtime peut n'avoir que la recherche.",
+            "Un navigateur générique n'est pas garanti sur cette machine.",
+        ],
+        "estimated_duration_s": 900,
+        "degraded": True,
+    }
+
+
 def fallback_plan_payload(task: ControlTask) -> dict[str, Any]:
     """Plan minimal, déterministe, produit sans réseau.
 
@@ -181,6 +268,11 @@ def fallback_plan_payload(task: ControlTask) -> dict[str, Any]:
     ou — pire — une tâche qu'on laisserait démarrer « puisque le plan a
     échoué ».
     """
+
+    from jarvis.agentic.classifier import is_open_world_booking_request
+
+    if is_open_world_booking_request(f"{task.title} {task.description}"):
+        return _booking_fallback_payload(task)
 
     return {
         "objective": task.title,
