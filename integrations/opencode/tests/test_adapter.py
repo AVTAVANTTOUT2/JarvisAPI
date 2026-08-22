@@ -562,6 +562,35 @@ def test_mcp_normalizes_all_read_scopes_for_personal_knowledge(
         broker.stop()
 
 
+def test_browser_permissions_mount_jarvis_browser(
+    tmp_path: Path,
+) -> None:
+    runtime, run = _state(tmp_path, "hôtel")
+    state = runtime._states[run.run_id]
+    runtime.layout = RuntimeLayout.from_integration_root(tmp_path / "provider-browser")
+    runtime.layout.ensure()
+    context = AgenticContext(
+        run_id=run.run_id,
+        profile_id=run.profile_id,
+        channel=run.channel,
+        origin=run.origin,
+        permissions=("browser:control", "browser:download", "research:search"),
+    )
+
+    broker, overlay = runtime._capability_overlay(run, context, state.workspace)
+
+    assert broker is not None
+    try:
+        assert broker.capability.scopes == frozenset(
+            {"browser:control", "browser:download", "research:search"}
+        )
+        names = {tool["name"] for tool in broker.registry.list_tools()}
+        assert "jarvis_browser" in names
+        assert overlay["mcp"]["jarvis"]["enabled"] is True
+    finally:
+        broker.stop()
+
+
 def test_media_profile_mounts_installed_apple_music_mcp(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

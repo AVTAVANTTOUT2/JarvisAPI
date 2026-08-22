@@ -6,7 +6,11 @@ import socket
 
 import pytest
 
-from core.outbound_security import OutboundURLRejected, validate_public_https_url
+from core.outbound_security import (
+    OutboundURLRejected,
+    validate_open_world_https_url,
+    validate_public_https_url,
+)
 
 
 def _resolver(*addresses: str):
@@ -57,5 +61,36 @@ def test_destination_rejects_private_loopback_and_link_local_resolution(address)
             "https://fcm.googleapis.com/fcm/send/abc",
             allowed_hosts="fcm.googleapis.com",
             resolver=_resolver(address),
+        )
+    assert caught.value.code == "non_public_address"
+
+
+def _any_host_resolver(*addresses: str):
+    def resolve(host: str, port: int, *, type: int):
+        assert port == 443
+        assert type == socket.SOCK_STREAM
+        return [
+            (socket.AF_INET, type, 6, "", (address, port)) for address in addresses
+        ]
+
+    return resolve
+
+
+def test_open_world_https_accepts_any_public_host():
+    endpoint = "https://hotels.example/search?city=Barcelona"
+    assert (
+        validate_open_world_https_url(
+            endpoint,
+            resolver=_any_host_resolver("8.8.8.8"),
+        )
+        == endpoint
+    )
+
+
+def test_open_world_https_still_rejects_private_resolution():
+    with pytest.raises(OutboundURLRejected) as caught:
+        validate_open_world_https_url(
+            "https://hotels.example/search",
+            resolver=_any_host_resolver("10.0.0.2"),
         )
     assert caught.value.code == "non_public_address"

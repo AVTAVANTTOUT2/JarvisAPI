@@ -60,6 +60,18 @@ _DEFAULT_CAPABILITIES = (
         "Recherche externe sans accès implicite aux données personnelles",
     ),
     ToolCapability(
+        "browser.control",
+        "browser:control",
+        "Ouvrir une page HTTPS publique, la voir, puis cliquer ou taper",
+        risk_level=RiskLevel.MEDIUM,
+    ),
+    ToolCapability(
+        "browser.download",
+        "browser:download",
+        "Téléchargement confiné annoncé pour le profil navigateur",
+        risk_level=RiskLevel.MEDIUM,
+    ),
+    ToolCapability(
         "workspace.edit",
         "workspace:write",
         "Édition réversible confinée au workspace",

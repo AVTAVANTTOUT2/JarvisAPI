@@ -107,6 +107,24 @@
         "timeout_s": 60
       },
       {
+        "name": "browser.control",
+        "scope": "browser:control",
+        "description": "Open a public HTTPS page, see it, then click or type. Never pay or complete a booking.",
+        "risk_level": "medium",
+        "requires_approval": false,
+        "reversible": true,
+        "timeout_s": 60
+      },
+      {
+        "name": "browser.download",
+        "scope": "browser:download",
+        "description": "Confined download permission declared for browser-profile runs",
+        "risk_level": "medium",
+        "requires_approval": false,
+        "reversible": true,
+        "timeout_s": 60
+      },
+      {
         "name": "workspace.edit",
         "scope": "workspace:write",
         "description": "Apply reversible edits confined to the selected workspace",
