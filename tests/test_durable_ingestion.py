@@ -1152,3 +1152,43 @@ async def test_calendar_filter_excluded_all_preserves_source_cursor(
     assert state.item_count == 1
     assert dict(state.cursor) == saved_cursor
     assert (state.coverage_start_utc, state.coverage_end_utc) == saved_coverage
+
+
+def test_calendar_upsert_skips_reconciliation_when_events_unpersistable(
+    ingestion_db: Path,
+) -> None:
+    """Des événements sans titre/date ne doivent pas purger la fenêtre en cache."""
+
+    from database import get_cached_calendar_events, get_db
+    from database.knowledge import upsert_calendar_events
+
+    window_start = datetime(2026, 8, 10, 8, 0, tzinfo=timezone.utc)
+    window_end = datetime(2026, 8, 20, 8, 0, tzinfo=timezone.utc)
+    upsert_calendar_events(
+        [
+            {
+                "uid": "kept-event",
+                "title": "Réunion existante",
+                "start": window_start.isoformat(),
+                "end": window_end.isoformat(),
+                "calendar": "Travail",
+            }
+        ],
+        window_start=window_start.isoformat(),
+        window_end=window_end.isoformat(),
+    )
+    assert len(get_cached_calendar_events()) == 1
+
+    upsert_calendar_events(
+        [{"uid": "bad-event", "title": "", "start": "", "calendar": "Travail"}],
+        window_start=window_start.isoformat(),
+        window_end=window_end.isoformat(),
+    )
+
+    assert len(get_cached_calendar_events()) == 1
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT external_id FROM calendar_events WHERE external_id = ?",
+            ("kept-event",),
+        ).fetchone()
+    assert row is not None

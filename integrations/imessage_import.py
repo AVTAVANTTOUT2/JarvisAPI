@@ -1697,6 +1697,12 @@ class IMessageImporter:
                     "SELECT ROWID, guid FROM message"
                 ).fetchall()
             }
+            handle_count = int(
+                chat_conn.execute("SELECT COUNT(*) c FROM handle").fetchone()["c"]
+            )
+            chat_count = int(
+                chat_conn.execute("SELECT COUNT(*) c FROM chat").fetchone()["c"]
+            )
         finally:
             self._close_chat_db()
 
@@ -1704,6 +1710,12 @@ class IMessageImporter:
             cached = jarvis_conn.execute(
                 "SELECT id, apple_rowid, guid FROM imessage_messages"
             ).fetchall()
+            if not source_rows and cached and handle_count == 0 and chat_count == 0:
+                raise RuntimeError(
+                    "chat.db sans messages, handles ni chats alors que jarvis.db "
+                    "contient des messages — réconciliation annulée pour éviter "
+                    "une purge totale"
+                )
             stale_ids = [
                 int(row["id"])
                 for row in cached
