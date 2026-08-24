@@ -900,6 +900,8 @@ def upsert_calendar_events(
                     (str(window_end), str(window_start)),
                 ).fetchall()
             }
+            if input_count == 0 and cached_ids:
+                return 0
             stale_ids = sorted(cached_ids - present_ids)
             if stale_ids:
                 conn.executemany(

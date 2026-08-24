@@ -861,6 +861,31 @@ async def _calendar_sync(
             ),
         )
 
+    if fetched_event_count == 0:
+        from database.knowledge import get_cached_calendar_events
+
+        if get_cached_calendar_events(from_iso=from_iso, to_iso=to_iso, limit=1):
+            logger.warning(
+                "calendar sync: réponse vide de Calendar.app mais des événements "
+                "restent en cache pour la fenêtre %s..%s",
+                from_iso,
+                to_iso,
+            )
+            return IngestionRunResult(
+                status="degraded",
+                item_count=state.item_count if state else 0,
+                cursor=dict(state.cursor) if state and state.cursor else {},
+                completeness=state.completeness if state else "partial",
+                coverage_start_utc=state.coverage_start_utc if state else from_iso,
+                coverage_end_utc=state.coverage_end_utc if state else to_iso,
+                last_item_at=state.last_item_at if state else None,
+                error_code="calendar_empty_fetch_with_cache",
+                error_message=(
+                    "Calendar a renvoyé une fenêtre vide alors que le cache contient "
+                    "encore des événements"
+                ),
+            )
+
     upsert_calendar_events(events, window_start=from_iso, window_end=to_iso)
     with get_db() as conn:
         aggregate = conn.execute(
