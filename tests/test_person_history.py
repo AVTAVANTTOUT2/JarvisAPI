@@ -570,3 +570,51 @@ def test_sync_imessage_counts_uses_mirror_not_extractor_cache(
     person = get_person("Ada")
     assert person is not None
     assert int(person["imessage_count"] or 0) == 2
+
+
+def test_merge_people_preserves_conflicting_month_chapters(history_db: Path) -> None:
+    from database import get_db
+    from database.people import _merge_people_ids
+    from database.person_history import get_chapter
+
+    with get_db() as conn:
+        keep_id = conn.execute(
+            "INSERT INTO people(name) VALUES ('Ada')"
+        ).lastrowid
+        drop_id = conn.execute(
+            "INSERT INTO people(name) VALUES ('+33600000001')"
+        ).lastrowid
+        conn.execute(
+            """
+            INSERT INTO person_month_chapters (
+                person_id, year_month, period_start_utc, period_end_utc, status,
+                message_count, sent_count, recv_count, highlights_json, narrative,
+                mood_arc, content_hash
+            ) VALUES (?, '2026-08', '2026-08-01T00:00:00Z', '2026-08-31T23:59:59Z',
+                      'complete', 10, 6, 4, '[]', 'Chapitre conservé.', '', 'keep-hash')
+            """,
+            (keep_id,),
+        )
+        conn.execute(
+            """
+            INSERT INTO person_month_chapters (
+                person_id, year_month, period_start_utc, period_end_utc, status,
+                message_count, sent_count, recv_count, highlights_json, narrative,
+                mood_arc, content_hash
+            ) VALUES (?, '2026-08', '2026-08-01T00:00:00Z', '2026-08-31T23:59:59Z',
+                      'partial', 5, 2, 3, '[]', 'Chapitre fusionné.', '', 'drop-hash')
+            """,
+            (drop_id,),
+        )
+        _merge_people_ids(conn, int(keep_id), int(drop_id))
+        remaining = conn.execute(
+            "SELECT COUNT(*) AS c FROM person_month_chapters WHERE person_id = ?",
+            (drop_id,),
+        ).fetchone()["c"]
+        assert int(remaining) == 0
+
+    chapter = get_chapter(int(keep_id), "2026-08")
+    assert chapter is not None
+    assert chapter["message_count"] == 15
+    assert "Chapitre conservé." in chapter["narrative"]
+    assert "Chapitre fusionné." in chapter["narrative"]
