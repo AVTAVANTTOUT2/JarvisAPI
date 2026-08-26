@@ -618,3 +618,34 @@ def test_merge_people_preserves_conflicting_month_chapters(history_db: Path) -> 
     assert chapter["message_count"] == 15
     assert "Chapitre conservé." in chapter["narrative"]
     assert "Chapitre fusionné." in chapter["narrative"]
+
+
+def test_sync_contacts_merge_preserves_month_chapters(history_db: Path) -> None:
+    from database import get_db
+    from database.person_history import get_chapter
+    from scripts.sync_contacts import _merge_into_existing
+
+    with get_db() as conn:
+        keep_id = conn.execute(
+            "INSERT INTO people(name) VALUES ('Marie Martin')"
+        ).lastrowid
+        drop_id = conn.execute(
+            "INSERT INTO people(name) VALUES ('+33612345678')"
+        ).lastrowid
+        conn.execute(
+            """
+            INSERT INTO person_month_chapters (
+                person_id, year_month, period_start_utc, period_end_utc, status,
+                message_count, sent_count, recv_count, highlights_json, narrative,
+                mood_arc, content_hash
+            ) VALUES (?, '2026-07', '2026-07-01T00:00:00Z', '2026-07-31T23:59:59Z',
+                      'complete', 3, 1, 2, '[]', 'Chapitre juillet.', '', 'july-hash')
+            """,
+            (drop_id,),
+        )
+        _merge_into_existing(conn, int(keep_id), int(drop_id))
+
+    chapter = get_chapter(int(keep_id), "2026-07")
+    assert chapter is not None
+    assert chapter["message_count"] == 3
+    assert "Chapitre juillet." in chapter["narrative"]
