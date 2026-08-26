@@ -1,5 +1,10 @@
 # 33 — Validation fonctionnelle du frontend canonique via le supervisor
 
+> **ARCHIVE — campagne locale du 16 juillet 2026.** Les résultats ci-dessous
+> sont une photographie historique, pas l’état courant. Les captures dynamiques
+> ont été retirées du dépôt public le 27 août 2026 car certaines contenaient des
+> données locales ; seuls les rapports textuels expurgés sont conservés.
+
 **Date** : 16 juillet 2026, 00:10 – 01:30 (clôture complément ciblé)  
 **URL testée** : `http://localhost:9000` (supervisor) + auth isolée `http://127.0.0.1:8099`  
 **Frontend servi** : `next_canonical` — build `frontend/out` (Next.js 15.5.20 / React 19.2.7)  
@@ -139,24 +144,18 @@ VAL-02/VAL-03 ont été corrigées côté supervisor (routage, pas de contrat m�
 
 ## Captures
 
-Dans `artifacts/validation_screenshots/` (aucune donnée personnelle sensible :
-états vides ou données techniques uniquement) :
-
-- `chat_desktop_avant_ws_fix.png` — chat avant correctif (sidebar vide, bug VAL-01)
-- `chat_desktop_apres_ws_fix.png` — chat après fix (conversations + écran bienvenue)
-- `dashboard_desktop.png` — dashboard desktop (revalidé 01:05 — CUR-01 visible: msgs 24h = 0)
-- `tasks_desktop_vide.png` — état vide tâches
-- `map_etat_vide.png` — état vide cartographie
-- `tasks_mobile_375px.png` — layout mobile 375 px
-- `mission_control_apres_fix.png` — Mission Control avec SSE live
-- `erreur_404_route.body.json` — route inconnue → `{"error":"Page introuvable"}`
-- `supervisor_status_diagnostic.json` — diagnostic `next_canonical`
+Les PNG produits pendant la campagne ne sont plus versionnés. Une validation
+future doit utiliser exclusivement des fixtures synthétiques avant de publier
+une image. Les rapports JSON expurgés
+`artifacts/validation_screenshots/erreur_404_route.body.json` et
+`artifacts/validation_screenshots/supervisor_status_diagnostic.json` restent
+consultables.
 
 ## Validation complémentaire ciblée (01:10 – 01:30)
 
 Quatre zones fermées via Playwright (`frontend/complement_validation.cjs` + retests).
-Rapport machine : `artifacts/complement_report.json`. Captures :
-`artifacts/validation_screenshots/complement/` (38 fichiers).
+Rapport machine : `artifacts/complement_report.json`. Les captures locales de
+cette campagne ont été retirées du dépôt public.
 
 | Zone | Résultat | Preuve |
 |---|---|---|

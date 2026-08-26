@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-19T11:51:23.074378+00:00",
+  "generated_at": "2026-08-27T09:33:58.081098+00:00",
   "repo_root": ".",
   "canonical_formulation": {
     "database": "Le projet crée 119 tables persistantes après init_db() + migrations, plus jusqu'à 5 objets FTS5, soit 124 tables physiques lorsque FTS5 est disponible.",
@@ -6224,6 +6224,776 @@
         "classification": "consumer_and_tested"
       }
     ]
+  },
+  "project_truth": {
+    "schema_version": 1,
+    "reviewed_at": "2026-08-27",
+    "generated_status_document": "Architecture/28_VALIDATION_COHERENCE.md",
+    "documentation": {
+      "governed_roots": [
+        "Architecture"
+      ],
+      "current": [
+        {
+          "path": "README.md",
+          "required_claims": [
+            "frontend"
+          ]
+        },
+        {
+          "path": "CLAUDE.md",
+          "required_claims": [
+            "database",
+            "api_structure",
+            "frontend"
+          ]
+        },
+        {
+          "path": "STARTUP_PROTOCOL.md",
+          "required_claims": [
+            "frontend"
+          ]
+        },
+        {
+          "path": "Architecture/INDEX.md",
+          "required_claims": [
+            "database",
+            "api_surface",
+            "api_structure"
+          ]
+        },
+        {
+          "path": "Architecture/28_VALIDATION_COHERENCE.md",
+          "required_claims": [
+            "database",
+            "api_surface",
+            "api_structure"
+          ]
+        },
+        {
+          "path": "Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md",
+          "required_claims": [
+            "database",
+            "api_surface",
+            "api_structure",
+            "frontend"
+          ]
+        },
+        {
+          "path": "Architecture/adr/ADR-017-sqlite-base-unique.md",
+          "required_claims": [
+            "database"
+          ]
+        },
+        {
+          "path": "prompts/cursor/release_build.md",
+          "required_claims": [
+            "frontend"
+          ]
+        },
+        {
+          "path": "prompts/cursor/frontend_feature.md",
+          "required_claims": [
+            "frontend"
+          ]
+        },
+        {
+          "path": "Architecture/00_VISION.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/04_ADR.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/07_FEUILLE_DE_ROUTE.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/08_ARCHITECTURE_CIBLE.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/09_DATA_OWNERSHIP.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/10_GOUVERNANCE_EVENTS.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/11_QUEUE_ENGINE.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/12_OBSERVABILITE.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/15_SAUVEGARDES.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/17_DEFINITION_OF_DONE.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/18_GOUVERNANCE.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/20_CONTRATS_INTERNES.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/21_DEPENDENCY_RULES.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/22_FITNESS_FUNCTIONS.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/23_TECHNICAL_DEBT.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/24_GOUVERNANCE_ADR.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/25_REVUE_ARCHITECTURE.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/30_PLAN_STABILISATION_AUDIO.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/33_API_PUBLIQUE_OPENAPI.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/34_SDK_DEVELOPPEURS.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/36_CANAL_WEBSOCKET_TV.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/BRIEFING_ENGINE.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/CAPABILITY_REGISTRY.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/COGNITIVE_ROUTING.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/CURSOR_DELEGATION.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/ENGINEERING_TEAM.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/FITNESS_MODULE.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/LLM_POLICY.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/SELF_IMPROVEMENT.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/SELF_REPAIR.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/VOICE_PIPELINE.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/adr/ADR-016-applescript-integration-apple.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/adr/ADR-018-dual-llm-router.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/adr/ADR-019-SUPERVISOR-FRONTEND-PRIORITY.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/adr/ADR-020-android-offline-first-bearer.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/adr/ADR-021-android-offline-location-batch.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/adr/ADR-022-DATA-AT-REST.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/adr/ADR-023-PROFILS-UTILISATEUR.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/adr/ADR-024-SAUVEGARDE-CLOUD-CHIFFREE.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/adr/ADR-025-CONTRAT-OPENAPI-PUBLIC.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/adr/ADR-026-SDK-DEVELOPPEURS.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/adr/ADR-027-claw3d-ui-optionnelle.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/adr/ADR-028-politique-de-parole-vocale.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/adr/ADR-029-apple-shortcuts-bridge.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/adr/ADR-029-worktree-lifecycle.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/adr/ADR-030-annulation-agentique.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/adr/ADR-031-approbations-dynamiques.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/adr/ADR-032-admission-concurrence.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/adr/ADR-033-git-ownership.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/adr/ADR-034-cycle-de-vie-des-taches-agentiques.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/adr/ADR-036-apple-music-outil-jarvis.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/diagrams/README.md",
+          "required_claims": []
+        }
+      ],
+      "historical": [
+        {
+          "path": "Architecture/01_CARTOGRAPHIE.md",
+          "snapshot_at": "2026-07-11"
+        },
+        {
+          "path": "Architecture/03_AUDIT_TECHNIQUE.md",
+          "snapshot_at": "2026-07-11"
+        },
+        {
+          "path": "Architecture/26_SCORE_SANTE.md",
+          "snapshot_at": "2026-07-11"
+        },
+        {
+          "path": "Architecture/27_RAPPORT_PRET_REFACTORING.md",
+          "snapshot_at": "2026-07-11"
+        },
+        {
+          "path": "Architecture/AUDIT_SECURITE_2026-08.md",
+          "snapshot_at": "2026-08"
+        },
+        {
+          "path": "android/docs/PRODUCTION_GAP_ANALYSIS.md",
+          "snapshot_at": "2026-07-14"
+        },
+        {
+          "path": "android/docs/validation/ANDROID_UI_REDESIGN_VALIDATION.md",
+          "snapshot_at": "2026-08-10"
+        },
+        {
+          "path": "Architecture/02_ANALYSE_PROBLEMES.md",
+          "snapshot_at": "2026-07-11"
+        },
+        {
+          "path": "Architecture/05_PLAN_MIGRATION.md",
+          "snapshot_at": "2026-07-11"
+        },
+        {
+          "path": "Architecture/06_PLAN_TESTS.md",
+          "snapshot_at": "2026-07-14"
+        },
+        {
+          "path": "Architecture/19_VALIDATION_FINALE.md",
+          "snapshot_at": "2026-07-14"
+        },
+        {
+          "path": "Architecture/33_CANONICAL_FRONTEND_VALIDATION.md",
+          "snapshot_at": "2026-07-16"
+        },
+        {
+          "path": "Architecture/34_RAPPORT_CAMPAGNE_FRONTEND_16-07-2026.md",
+          "snapshot_at": "2026-07-16"
+        },
+        {
+          "path": "Architecture/35_CAHIER_DES_CHARGES_WEB_MOBILE.md",
+          "snapshot_at": "2026-07-30"
+        },
+        {
+          "path": "Architecture/35_PROMPT_DESIGN_WEB_MOBILE.md",
+          "snapshot_at": "2026-07-30"
+        },
+        {
+          "path": "Architecture/35_PROMPT_EXECUTION_WEB_MOBILE.md",
+          "snapshot_at": "2026-07-30"
+        },
+        {
+          "path": "Architecture/audit/CLAW3D_OPENCLAW_GAP_AUDIT_2026-08-11.md",
+          "snapshot_at": "2026-08-11"
+        },
+        {
+          "path": "Architecture/audit/PROMPTS_AUDIT_LIGNE_PAR_LIGNE.md",
+          "snapshot_at": "2026-07-31"
+        },
+        {
+          "path": "Architecture/audit/RAPPORT_PIRE_AUDIT.md",
+          "snapshot_at": "2026-07-31"
+        },
+        {
+          "path": "Architecture/audit/README.md",
+          "snapshot_at": "2026-07-31"
+        },
+        {
+          "path": "Architecture/audit/rapports_bruts/P01_bootstrap_config_assemblage.md",
+          "snapshot_at": "2026-07-31"
+        },
+        {
+          "path": "Architecture/audit/rapports_bruts/P02_auth_securite_http.md",
+          "snapshot_at": "2026-07-31"
+        },
+        {
+          "path": "Architecture/audit/rapports_bruts/P03_api_rest_routeurs.md",
+          "snapshot_at": "2026-07-31"
+        },
+        {
+          "path": "Architecture/audit/rapports_bruts/P04_websocket_chat_voix_actions.md",
+          "snapshot_at": "2026-07-31"
+        },
+        {
+          "path": "Architecture/audit/rapports_bruts/P05_agents_llm_prompts.md",
+          "snapshot_at": "2026-07-31"
+        },
+        {
+          "path": "Architecture/audit/rapports_bruts/P06_database_migrations.md",
+          "snapshot_at": "2026-07-31"
+        },
+        {
+          "path": "Architecture/audit/rapports_bruts/P07_event_bus_notifications.md",
+          "snapshot_at": "2026-07-31"
+        },
+        {
+          "path": "Architecture/audit/rapports_bruts/P08_integrations_os_cloud.md",
+          "snapshot_at": "2026-07-31"
+        },
+        {
+          "path": "Architecture/audit/rapports_bruts/P09_audio_stt_tts.md",
+          "snapshot_at": "2026-07-31"
+        },
+        {
+          "path": "Architecture/audit/rapports_bruts/P10_daemon_multi_device_screen.md",
+          "snapshot_at": "2026-07-31"
+        },
+        {
+          "path": "Architecture/audit/rapports_bruts/P11_workers_scheduler_qualite.md",
+          "snapshot_at": "2026-07-31"
+        },
+        {
+          "path": "Architecture/audit/rapports_bruts/P12_cognitif_cursor_devagent.md",
+          "snapshot_at": "2026-07-31"
+        },
+        {
+          "path": "Architecture/audit/rapports_bruts/P13_module_fitness.md",
+          "snapshot_at": "2026-07-31"
+        },
+        {
+          "path": "Architecture/audit/rapports_bruts/P14_frontend_bureau_jarvis_auth.md",
+          "snapshot_at": "2026-07-31"
+        },
+        {
+          "path": "Architecture/audit/rapports_bruts/P15_web_mobile.md",
+          "snapshot_at": "2026-07-31"
+        },
+        {
+          "path": "Architecture/audit/rapports_bruts/P16_android_companion.md",
+          "snapshot_at": "2026-07-31"
+        },
+        {
+          "path": "Architecture/audit/rapports_bruts/P17_tv_war_room_mcp.md",
+          "snapshot_at": "2026-07-31"
+        },
+        {
+          "path": "Architecture/audit/rapports_bruts/P18_tests_ci_docs.md",
+          "snapshot_at": "2026-07-31"
+        },
+        {
+          "path": "Architecture/audit/rapports_bruts/extras/EXTRA_MISC_5fddf477.md",
+          "snapshot_at": "2026-07-31"
+        },
+        {
+          "path": "Architecture/audit/rapports_bruts/extras/EXTRA_P09_1c90db94.md",
+          "snapshot_at": "2026-07-31"
+        },
+        {
+          "path": "Architecture/13_PLUGINS.md",
+          "snapshot_at": "2026-07-11"
+        },
+        {
+          "path": "Architecture/14_AI_SERVICE.md",
+          "snapshot_at": "2026-07-11"
+        },
+        {
+          "path": "Architecture/16_CONTRATS_API.md",
+          "snapshot_at": "2026-07-11"
+        }
+      ],
+      "superseded": [
+        {
+          "path": "Architecture/29_JARVIS_ANDROID_H24.md",
+          "superseded_by": "android/README.md"
+        },
+        {
+          "path": "android/docs/ARCHITECTURE.md",
+          "superseded_by": "android/README.md"
+        }
+      ]
+    },
+    "entries": [
+      {
+        "id": "backend-api",
+        "domain": "Backend / API",
+        "scope": "main",
+        "status": "IMPLEMENTED_VERIFIED",
+        "summary": "Assemblage FastAPI modulaire et inventaire statique route-consommateur-test contrôlés en CI.",
+        "evidence": [
+          {
+            "kind": "code",
+            "path": "main.py"
+          },
+          {
+            "kind": "test",
+            "path": "tests/test_audit_architecture_truth.py"
+          }
+        ],
+        "gaps": [],
+        "validation_gates": []
+      },
+      {
+        "id": "database-migrations",
+        "domain": "DB / migrations",
+        "scope": "main",
+        "status": "IMPLEMENTED_VERIFIED",
+        "summary": "Le schéma frais est construit par schema.py puis migrations.py et devagent.py ; schema.sql est un miroir généré.",
+        "evidence": [
+          {
+            "kind": "code",
+            "path": "database/core.py"
+          },
+          {
+            "kind": "test",
+            "path": "tests/test_audit_architecture_truth.py"
+          }
+        ],
+        "gaps": [],
+        "validation_gates": []
+      },
+      {
+        "id": "memory",
+        "domain": "Mémoire",
+        "scope": "main",
+        "status": "IMPLEMENTED_VERIFIED",
+        "summary": "La mémoire conversationnelle et l'historique personnel disposent d'une persistance et de contrats automatisés.",
+        "evidence": [
+          {
+            "kind": "code",
+            "path": "agents/memory.py"
+          },
+          {
+            "kind": "test",
+            "path": "tests/test_person_history.py"
+          }
+        ],
+        "gaps": [],
+        "validation_gates": []
+      },
+      {
+        "id": "agentic-task-control",
+        "domain": "Agentique / task-control",
+        "scope": "main",
+        "status": "PARTIAL",
+        "summary": "Le service, la persistance et l'approbation fail-closed existent côté backend et bureau canonique.",
+        "evidence": [
+          {
+            "kind": "code",
+            "path": "jarvis/task_control/service.py"
+          },
+          {
+            "kind": "test",
+            "path": "tests/test_task_control_service.py"
+          }
+        ],
+        "gaps": [
+          "La parité de contrôle n'est pas démontrée sur toutes les surfaces clientes.",
+          "Le flux complet doit encore être validé avec un fournisseur réel et des tâches longues."
+        ],
+        "validation_gates": []
+      },
+      {
+        "id": "opencode",
+        "domain": "OpenCode",
+        "scope": "main",
+        "status": "IMPLEMENTED_NEEDS_REAL_VALIDATION",
+        "summary": "L'adaptateur, le cycle de vie, le pont MCP et les garde-fous sont couverts hors processus réel.",
+        "evidence": [
+          {
+            "kind": "code",
+            "path": "integrations/opencode/adapter.py"
+          },
+          {
+            "kind": "test",
+            "path": "integrations/opencode/tests/test_adapter.py"
+          }
+        ],
+        "gaps": [],
+        "validation_gates": [
+          "Exécuter integrations/opencode/tests/test_real_binary_e2e.py avec le binaire et un fournisseur réels."
+        ]
+      },
+      {
+        "id": "browser",
+        "domain": "Navigateur",
+        "scope": "main",
+        "status": "PARTIAL",
+        "summary": "Le routage de capacité et des intégrations spécialisées existent, mais pas un adaptateur navigateur agentique générique exploitable.",
+        "evidence": [
+          {
+            "kind": "code",
+            "path": "jarvis/agentic/profiles.py"
+          },
+          {
+            "kind": "test",
+            "path": "tests/test_agentic_open_world.py"
+          }
+        ],
+        "gaps": [
+          "Aucun fournisseur navigateur générique n'est relié au runtime agentique de main.",
+          "Les preuves d'exécution navigateur réelles et la reprise après interruption restent à établir."
+        ],
+        "validation_gates": []
+      },
+      {
+        "id": "audio",
+        "domain": "Audio",
+        "scope": "main",
+        "status": "IMPLEMENTED_NEEDS_REAL_VALIDATION",
+        "summary": "Les pipelines STT/TTS, la sortie audio et le daemon disposent de tests sans matériel.",
+        "evidence": [
+          {
+            "kind": "code",
+            "path": "scripts/audio_daemon.py"
+          },
+          {
+            "kind": "test",
+            "path": "tests/test_audio_pipeline_fixes.py"
+          }
+        ],
+        "gaps": [],
+        "validation_gates": [
+          "Valider micro, haut-parleur, interruption et latence sur le Mac cible."
+        ]
+      },
+      {
+        "id": "long-recordings",
+        "domain": "Enregistrements longs",
+        "scope": "main",
+        "status": "PARTIAL",
+        "summary": "Le spool backend reprend, réconcilie et purge les sessions de façon testée.",
+        "evidence": [
+          {
+            "kind": "code",
+            "path": "audio/recording_spool.py"
+          },
+          {
+            "kind": "test",
+            "path": "tests/test_recording_spool.py"
+          }
+        ],
+        "gaps": [
+          "Aucune capture produit canonique ne démontre encore les scénarios 1, 30 et 180 minutes.",
+          "Le parcours client de démarrage, reprise, progression et export reste à livrer."
+        ],
+        "validation_gates": []
+      },
+      {
+        "id": "frontend",
+        "domain": "Frontend",
+        "scope": "main",
+        "status": "IMPLEMENTED_VERIFIED",
+        "summary": "frontend/ est l'unique bureau Next exporté ; web/src est sa bibliothèque et web_mobile reste autonome.",
+        "evidence": [
+          {
+            "kind": "code",
+            "path": "core/frontend_resolution.py"
+          },
+          {
+            "kind": "test",
+            "path": "tests/test_frontend_runtime_uniqueness.py"
+          }
+        ],
+        "gaps": [],
+        "validation_gates": []
+      },
+      {
+        "id": "android",
+        "domain": "Android",
+        "scope": "main",
+        "status": "IMPLEMENTED_NEEDS_REAL_VALIDATION",
+        "summary": "L'application native, les tests JVM/instrumentés et les garde-fous release sont versionnés.",
+        "evidence": [
+          {
+            "kind": "code",
+            "path": "android/app/build.gradle"
+          },
+          {
+            "kind": "test",
+            "path": "tests/test_ci_android_release.py"
+          }
+        ],
+        "gaps": [],
+        "validation_gates": [
+          "Rejouer les tests instrumentés et les parcours réseau/audio sur un appareil physique cible."
+        ]
+      },
+      {
+        "id": "macos",
+        "domain": "macOS",
+        "scope": "main",
+        "status": "IMPLEMENTED_NEEDS_REAL_VALIDATION",
+        "summary": "L'app SwiftUI, le widget, une cible de tests et la compilation Release CI sont définis.",
+        "evidence": [
+          {
+            "kind": "code",
+            "path": "native_mac/project.yml"
+          },
+          {
+            "kind": "test",
+            "path": "tests/test_ci_macos.py"
+          }
+        ],
+        "gaps": [],
+        "validation_gates": [
+          "Valider signature, permissions, lancement, widget et services Apple sur le Mac cible."
+        ]
+      },
+      {
+        "id": "security",
+        "domain": "Sécurité",
+        "scope": "main",
+        "status": "PARTIAL",
+        "summary": "Auth, CSRF/origine et hygiène des artefacts publics disposent de contrôles automatisés ; la preuve globale egress, release et matériel reste ouverte.",
+        "evidence": [
+          {
+            "kind": "code",
+            "path": "api/middleware.py"
+          },
+          {
+            "kind": "test",
+            "path": "tests/test_security_middleware.py"
+          },
+          {
+            "kind": "code",
+            "path": "tools/audit_architecture_truth.py"
+          },
+          {
+            "kind": "test",
+            "path": "tests/test_audit_architecture_truth.py"
+          }
+        ],
+        "gaps": [
+          "La PR de sécurité #282 reste une livraison séparée tant qu'aucun SHA fusionné n'est prouvé sur main.",
+          "Les frontières egress complètes, la signature de distribution et les parcours matériels ne sont pas attestés par les seuls tests middleware."
+        ],
+        "validation_gates": []
+      },
+      {
+        "id": "observability",
+        "domain": "Observabilité",
+        "scope": "main",
+        "status": "PARTIAL",
+        "summary": "Les sondes live/ready/detail et l'historique de métriques sont présents.",
+        "evidence": [
+          {
+            "kind": "code",
+            "path": "api/health_support.py"
+          },
+          {
+            "kind": "test",
+            "path": "tests/test_health_contract.py"
+          }
+        ],
+        "gaps": [
+          "L'export Prometheus, les alertes et les SLO opérationnels ne sont pas livrés."
+        ],
+        "validation_gates": []
+      },
+      {
+        "id": "release",
+        "domain": "Release",
+        "scope": "main",
+        "status": "PARTIAL",
+        "summary": "Les builds CI, contrats de versionnement et checklists existent, sans preuve de livraison finale signée.",
+        "evidence": [
+          {
+            "kind": "ci",
+            "path": ".github/workflows/ci.yml"
+          },
+          {
+            "kind": "test",
+            "path": "tests/test_release_soak.py"
+          }
+        ],
+        "gaps": [
+          "RELEASE_CHECKLIST.md reste à exécuter et signer sur les artefacts candidats.",
+          "Les essais prolongés et la validation matérielle finale ne sont pas attestés."
+        ],
+        "validation_gates": []
+      }
+    ],
+    "sha256": "d5b4264b89477915c349c2fbc83fd39b093e3b17aa291792f9f90157feeee346",
+    "path": "Architecture/project_truth_registry.json"
   },
   "documentation_findings": [],
   "source_of_truth_doc": "Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md"

@@ -1,5 +1,12 @@
 # Plan d’implémentation — mémoire historique par personne
 
+> **Statut : implémenté sur `origin/main` @ `6becf26` ; plan archivé avec
+> validations de données réelles ouvertes.** **Preuve :** table
+> `person_month_chapters` dans `database/schema.py`,
+> `database/person_history.py`, `scripts/person_history.py`, enregistrement dans
+> `jarvis/ingestion/service.py` et `tests/test_person_history.py`. Les cases
+> restent le journal initial et ne sont pas cochées rétroactivement.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** JARVIS sait qui est une personne et ce qui s’est passé avec elle, sans dump iMessage dans le tour de parole, sans runtime agentique sur SQLite, et avec une autonomie d’ingestion (job + file) plutôt qu’une tâche agentique par question.

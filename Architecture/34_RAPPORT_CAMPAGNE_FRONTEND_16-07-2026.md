@@ -5,7 +5,7 @@
 > `Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md`.
 
 **Période** : 15–16 juillet 2026  
-**Dépôt** : `AVTAVANTTOUT2/JarvisAPI` (workspace local `/Users/zeldris/JARVIS`)  
+**Dépôt** : `AVTAVANTTOUT2/JarvisAPI` (workspace local `/Users/<user>/JARVIS`)
 **Périmètre** : quatre missions successives demandées dans la même campagne  
 **Verdict global** : **OBJECTIFS ATTEINTS AVEC LIMITATIONS DOCUMENTÉES**
 
@@ -129,7 +129,7 @@ Valider réellement (navigateur / HTTP) le frontend canonique derrière le super
 - `Architecture/33_CANONICAL_FRONTEND_VALIDATION.md`
 - `artifacts/frontend_validation.json`
 - `.ai/workspaces/ws12/HANDOFF_TO_CURSOR.md` (CUR-01)
-- Captures `artifacts/validation_screenshots/`
+- Captures locales retirées du dépôt public le 27 août 2026 (PII potentielle)
 - Tests : `web/src/services/websocket.test.ts`, `frontend/src/lib/api-supervisor-ws.test.ts`
 
 ### Verdict M3
@@ -177,7 +177,7 @@ Fermer uniquement 4 zones, sans élargir le scope métier.
 
 ### Livrables M4
 - `artifacts/complement_report.json`
-- Captures `artifacts/validation_screenshots/complement/` (38 fichiers)
+- Captures locales M4 retirées du dépôt public le 27 août 2026
 - Scripts : `frontend/complement_validation.cjs`, `retest_back.cjs`, `retest_switch.cjs`
 - Mise à jour doc 33 + JSON validation + handoff CUR-02
 
@@ -232,8 +232,8 @@ Fermer uniquement 4 zones, sans élargir le scope métier.
 - `artifacts/complement_report.json`
 
 ### Captures
-- `artifacts/validation_screenshots/` (validation M3)
-- `artifacts/validation_screenshots/complement/` (M4)
+- PNG M3/M4 retirés du dépôt public ; les rapports textuels expurgés restent la
+  seule preuve versionnée.
 
 ### Tests automatisés (état à clôture)
 - Vitest `frontend/` : **13 passed**

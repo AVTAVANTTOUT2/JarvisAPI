@@ -1,5 +1,9 @@
 # Validation — Refonte UI Android JARVIS Companion
 
+> **ARCHIVE — snapshot du 16 juillet 2026.** Cette validation de branche ne
+> remplace pas l’état Android courant ni une validation sur appareil. Voir
+> [`android/README.md`](../../README.md).
+
 Branche : `feat/android-ui-redesign`  
 Date : 2026-07-16  
 Version : `2.1.0-ui` (`versionCode` 10)
@@ -37,8 +41,8 @@ SHA-256 (voir aussi `APK_SHA256.txt`) :
 
 ## Appareil
 
-- Samsung Galaxy S24 (`SM_S921B`, serial `RFCX51B4HHM`)
-- Install : `adb -s RFCX51B4HHM install -r app/build/outputs/apk/debug/app-debug.apk`
+- Samsung Galaxy S24 (`SM_S921B`, numéro de série expurgé)
+- Install : `adb -s <device-serial> install -r app/build/outputs/apk/debug/app-debug.apk`
 - Données conservées (`-r`, pas d'`uninstall`)
 
 ## Captures

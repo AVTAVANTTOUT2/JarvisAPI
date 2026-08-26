@@ -1,5 +1,10 @@
 # PRODUCTION_GAP_ANALYSIS — Companion Android JARVIS
 
+> **ARCHIVE — baseline du 16 juillet 2026. Ne décrit pas le code courant.**
+> Conserver ce rapport uniquement comme preuve historique de la version 1.2.0.
+> Pour l’état livré, consulter [`android/README.md`](../README.md), et pour les
+> absences actuelles [`FUTURE_FEATURES.md`](./FUTURE_FEATURES.md).
+
 **Date d’audit :** 2026-07-16  
 **Branche de départ :** `main` @ `476d14c` (après merge PR #33)  
 **Version audité :** `versionName 1.2.0` / `versionCode 7`  

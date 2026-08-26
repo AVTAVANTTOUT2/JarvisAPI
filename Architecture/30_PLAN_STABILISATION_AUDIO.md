@@ -27,7 +27,7 @@ remplacées par le contrat réellement déployé ; elles ne décrivent plus la c
 | 3 | `codex/phase-3-audio-daemon-resilience` | P0 | Partiel | Plus d'abandon silencieux après crash ou micro muet ; preuves matérielles encore requises |
 | 4 | `codex/phase-4-local-tts-resilience` | P1 | Terminé techniquement | Qwen3 local testé, erreurs actionnables, aucun repli silencieux |
 | 5 | `codex/phase-5-voice-websockets` | P1 | Terminé techniquement | Poussoir, mains libres et temps réel partagent le même contrat STT |
-| 6 | `codex/phase-6-recording-diarization` | P2 | À faire | Enregistrements longs fiables ; diarisation locale explicitement optionnelle |
+| 6 | `codex/phase-6-recording-diarization` | P2 | Partiel — spool backend | Reprise backend livrée ; client et preuves longues manquants |
 | 7 | `codex/phase-7-audio-observability` | P1 | Partiel | Dashboard et outil de campagne livrés ; campagne 24 h encore à exécuter |
 
 ## Phase 0 — Retrait du fournisseur legacy
@@ -105,6 +105,12 @@ manuel micro refusé puis réautorisé ; observation 24 h avant clôture.
 **Sortie** : contrats WebSocket automatisés et validation navigateur desktop/mobile.
 
 ## Phase 6 — Enregistrements longs et diarisation
+
+**État courant** : `audio/recording_spool.py` fournit la persistance bornée,
+la reprise, la réconciliation et la purge, couvertes par
+`tests/test_recording_spool.py`. Aucun client canonique ne pilote encore ce
+protocole et les campagnes 1/30/180 minutes ne sont pas attestées ; la phase ne
+peut donc pas être déclarée terminée.
 
 - Valider la concaténation des fragments MediaRecorder avant transcription.
 - Introduire un moteur de diarisation local dans une PR distincte, ou conserver

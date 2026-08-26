@@ -43,7 +43,7 @@ Depuis du code async, utiliser `await event_bus.emit(event)`. Depuis un chemin s
 
 ## Couche API — Phase 4
 
-`main.py` est un point d'assemblage : configuration FastAPI/CORS, montage de 20 `APIRouter` sous `api/router_*.py` plus Fitness, branchement des WebSockets de chat et de TV, configuration de `pipeline.py`, frontend et lancement Uvicorn. Le contrat public compte 283 opérations HTTP et 2 WebSockets ; l'OpenAPI expose 252 chemins.
+`main.py` est un point d'assemblage : configuration FastAPI/CORS, montage de 22 `APIRouter` sous `api/router_*.py` plus Fitness, branchement des WebSockets de chat et de TV, configuration de `pipeline.py`, frontend et lancement Uvicorn. Le runtime compte 316 opérations HTTP et 2 WebSockets ; l'OpenAPI expose 281 chemins.
 
 - `api/router_*.py` contient exactement 22 routeurs par domaine ; Fitness porte le 23e routeur monté et aucun routeur ne dépasse 500 lignes.
 - `api/lifespan.py`, `api/middleware.py` et `api/frontend.py` portent le cycle de vie, la sécurité HTTP et le serving des frontends.
@@ -481,9 +481,8 @@ validation avant tout démarrage. »
 - `AGENTIC_REQUIRE_PLAN_APPROVAL=false` restaure le démarrage immédiat sur le
   chemin d'entrée agentique. C'est un **retour au comportement d'avant ce lot**,
   pas une option de confort : il rouvre exactement le cas que le lot ferme.
-- Si le pilotage est indisponible au moment de la demande, le chemin retombe
-  sur le démarrage direct plutôt que de perdre la demande — le cas est
-  journalisé, jamais silencieux.
+- Si le pilotage ou sa persistance est indisponible, la porte échoue fermée :
+  elle renvoie `planning_unavailable` et confirme que rien n'a été lancé.
 - La détection ne lit aucune source d'elle-même — elle dépend de ce que les
   connecteurs lui passent.
 - Le score de détection est une heuristique explicable, pas un modèle : il
@@ -1299,7 +1298,15 @@ Détails du flux :
 
 ### Mode écoute continue (enregistrement long)
 
-**Pas** de réponse entre les phrases. Le client envoie `recording_start` + label, puis des **blobs WebM** toutes les 5 s (`MediaRecorder.start(5000)`), `getUserMedia` **sans** echoCancellation/noiseSuppression. Tant que `active_recording.is_active`, le serveur **accumule** les octets (pas de STT). `recording_stop` → transcription segment par segment (fichiers valides) → `ContinuousRecording._synthesize` (Haiku par morceaux de texte, puis Sonnet) → `create_task` / `calendar_client.create_event` / `add_fact` / `upsert_person` / `save_episode` / notif macOS. Table `recordings` ; WebSocket : `recording_processing`, `recording_transcribing` (progress), `recording_analyzing`, `recording_done`.
+Le backend accepte `recording_start`, des chunks binaires puis
+`recording_stop`. `audio/recording_spool.py` persiste les chunks sous une racine
+bornée et `ContinuousRecording` sait reprendre, réconcilier et purger les
+sessions ; ces propriétés sont couvertes par `tests/test_recording_spool.py`.
+
+Ce protocole backend n'est pas encore un parcours produit complet : aucun
+client canonique n'émet actuellement les commandes d'enregistrement long, les
+scénarios 1/30/180 minutes ne sont pas attestés et les actions aval ne doivent
+pas être présentées comme validées de bout en bout.
 
 ### Mode conversation continue (legacy — chat)
 
@@ -1317,7 +1324,7 @@ VOICE_SILENCE_DURATION_MS=1200     # fin de phrase ; page /voice (client)
 VOICE_MIN_SPEECH_MS=400
 VOICE_MAX_TOKENS=500               # réponses ML courtes pour la voix
 
-# Écoute continue (enregistrement long, page /voice)
+# Backend d'enregistrement long (client canonique restant à livrer)
 RECORDING_MAX_DURATION_MIN=180
 RECORDING_CHUNK_SIZE_MB=20
 RECORDING_SUMMARY_ONLY=false
@@ -1435,8 +1442,8 @@ seconde passe LLM comprises.
 
 ```
 jarvis/
-├── main.py                  # Assemblage FastAPI/Uvicorn (211 lignes)
-├── api/                     # 17 routeurs (+ Fitness monté séparément) + support API
+├── main.py                  # Assemblage FastAPI/Uvicorn (269 lignes)
+├── api/                     # 22 routeurs (+ Fitness monté séparément) + support API
 ├── config.py                # Charge .env, expose tous les settings
 ├── llm.py                   # Client DeepSeek API (chat, stream, classify)
 ├── actions.py               # execute_action : tâches, mails, terminal, ordinateur…
