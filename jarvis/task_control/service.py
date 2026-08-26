@@ -16,7 +16,8 @@ import asyncio
 from dataclasses import replace
 from datetime import datetime
 import logging
-from typing import Any, Iterable, Mapping, NamedTuple
+from pathlib import Path
+from typing import Any, Iterable, Mapping, NamedTuple, Sequence
 import uuid
 
 from database.core import current_profile_id
@@ -45,6 +46,8 @@ from .models import (
     TaskPlan,
     TaskPriority,
     TaskSource,
+    TaskSourceChannel,
+    TaskSourceType,
     TaskStatus,
     clamp_text,
     new_id,
@@ -299,6 +302,85 @@ class TaskControlService:
             task = await self.plan_task(task.task_id, context=planning_context)
         return task
 
+    async def create_engineering_task(
+        self,
+        *,
+        title: str,
+        user_request: str,
+        repo_root: Path,
+        required_tests: Sequence[str | Sequence[str]],
+        acceptance_criteria: Sequence[str] = (),
+        commit_message: str | None = None,
+        idempotency_key: str | None = None,
+        runtime_id: str,
+        runtime_version: str,
+        source: TaskSource | None = None,
+        conversation_id: str | None = None,
+        autoplan: bool = True,
+    ) -> ControlTask:
+        """Crée une livraison de code interne, sans préparer ni lancer quoi que ce soit.
+
+        La route générique ``POST /api/tasks`` n'expose pas ce contrat. Les
+        validations, le dépôt et l'identité du runtime sont normalisés ici puis
+        liés au futur plan par une empreinte déterministe.
+        """
+
+        from jarvis.agentic.turn_context import AGENTIC_ROUTING_METADATA_KEY
+
+        from .engineering import (
+            ENGINEERING_DELIVERY_METADATA_KEY,
+            build_engineering_delivery_contract,
+        )
+
+        request = str(user_request or "").strip()
+        if not request:
+            raise ValueError("demande de développement requise")
+        stable_key = idempotency_key or f"task-control-engineering:{uuid.uuid4().hex}"
+        contract = build_engineering_delivery_contract(
+            repo_root=repo_root,
+            required_tests=required_tests,
+            acceptance_criteria=acceptance_criteria,
+            commit_message=commit_message or title,
+            idempotency_key=stable_key,
+            runtime_id=runtime_id,
+            runtime_version=runtime_version,
+        )
+        metadata = {
+            ENGINEERING_DELIVERY_METADATA_KEY: contract.to_metadata(),
+            AGENTIC_ROUTING_METADATA_KEY: {
+                "category": "agentic_reversible",
+                "capability_profile_id": "coding",
+                "permissions": [
+                    "workspace:read",
+                    "workspace:write",
+                    "tests:run",
+                ],
+                "reason": "livraison de code confinée pilotée par Task Control",
+            },
+        }
+        return await self.create_task(
+            title=title,
+            description=request,
+            source=source
+            or TaskSource(
+                source_type=TaskSourceType.USER_REQUEST,
+                channel=TaskSourceChannel.API,
+                excerpt=clamp_text(request, 400),
+            ),
+            conversation_id=conversation_id,
+            metadata=metadata,
+            planning_context={
+                "engineering_runtime": contract.runtime_label,
+                "engineering_validations": [
+                    list(command) for command in contract.required_tests
+                ],
+                "engineering_acceptance_criteria": list(
+                    contract.acceptance_criteria
+                ),
+            },
+            autoplan=autoplan,
+        )
+
     # ── Planification (lecture seule) ─────────────────────────────────────
 
     async def plan_task(
@@ -362,6 +444,16 @@ class TaskControlService:
                 plan: TaskPlan = await self._planner(
                     task, version=version, context=planning_context
                 )
+                from .engineering import (
+                    bind_engineering_contract_to_plan,
+                    engineering_delivery_contract_from_metadata,
+                )
+
+                engineering = engineering_delivery_contract_from_metadata(
+                    task.metadata
+                )
+                if engineering is not None:
+                    plan = bind_engineering_contract_to_plan(plan, engineering)
                 # Le plan que l'utilisateur va lire annonce les capacités
                 # exactes du futur run. Les recalculer au démarrage sans les
                 # avoir écrites ici, c'était faire approuver autre chose que
@@ -509,6 +601,35 @@ class TaskControlService:
 
     # ── Exécution ─────────────────────────────────────────────────────────
 
+    async def _record_launch_failure(
+        self,
+        task_id: str,
+        exc: Exception,
+        *,
+        phase: str,
+        run_id: str | None = None,
+    ) -> ControlTask:
+        task = self.repository.update_task(
+            task_id,
+            agentic_run_id=run_id,
+            status=TaskStatus.FAILED,
+            current_phase=phase,
+            attention_required=True,
+            result_status="failed",
+        )
+        self.repository.append_activity(
+            build_user_activity(
+                task_id=task_id,
+                summary=f"Démarrage impossible ({type(exc).__name__}).",
+                event_type=TaskActivityType.ERROR,
+                run_id=run_id,
+            )
+        )
+        await self._emit(task, "task.control.failed")
+        self._notify(task)
+        await self.finalize(task_id, error="Le runtime n'a pas pu démarrer.")
+        return self.repository.require_task(task_id)
+
     async def start_execution(self, task_id: str) -> ControlTask:
         """Démarre l'exécution. Refuse tout ce qui n'a pas été approuvé."""
 
@@ -523,6 +644,10 @@ class TaskControlService:
         )
 
         from .models import ensure_executable, ensure_permission_fidelity
+        from .engineering import (
+            engineering_delivery_contract_from_metadata,
+            ensure_engineering_contract_approved,
+        )
 
         task = self.repository.require_task(task_id)
         if task.agentic_run_id:
@@ -535,6 +660,24 @@ class TaskControlService:
             else None
         )
         approved = ensure_executable(task, plan)
+        engineering = engineering_delivery_contract_from_metadata(task.metadata)
+        if engineering is not None:
+            ensure_engineering_contract_approved(approved, engineering)
+            registry = getattr(self.agentic, "registry", None)
+            manifest_getter = getattr(registry, "manifest", None)
+            if callable(manifest_getter):
+                active_manifest = manifest_getter(engineering.runtime_id)
+                if (
+                    active_manifest is None
+                    or str(getattr(active_manifest, "version", ""))
+                    != engineering.runtime_version
+                ):
+                    from .models import TaskExecutionRefused
+
+                    raise TaskExecutionRefused(
+                        "la version du runtime a changé depuis le plan ; "
+                        "une nouvelle approbation est requise"
+                    )
 
         routing_raw = task.metadata.get(AGENTIC_ROUTING_METADATA_KEY)
         routing = dict(routing_raw) if isinstance(routing_raw, Mapping) else {}
@@ -561,6 +704,54 @@ class TaskControlService:
         classification_reason = str(routing.get("reason") or "").strip()
         if classification_reason:
             selected_context["classification"] = classification_reason
+
+        worktree = None
+        if engineering is not None:
+            from agents.devagent.agentic_runtime import (
+                build_engineering_instruction,
+                prepare_engineering_worktree,
+            )
+
+            # Cette première mutation (branche + worktree) se trouve après
+            # ``ensure_executable`` et l'empreinte approuvée, jamais au plan.
+            try:
+                worktree = prepare_engineering_worktree(
+                    repo_root=engineering.repo_root,
+                    job_id=engineering.job_id,
+                    reuse_existing=True,
+                )
+            except Exception as exc:
+                logger.exception("préparation du worktree impossible pour %s", task_id)
+                return await self._record_launch_failure(
+                    task_id, exc, phase="worktree_failed"
+                )
+            selected_context.update(
+                {
+                    "request": build_engineering_instruction(
+                        user_request=task.description,
+                        acceptance_criteria=engineering.acceptance_criteria,
+                        evidence={
+                            "task_id": task.task_id,
+                            "plan_version": approved.version,
+                            "plan_digest": approved.digest,
+                        },
+                    ),
+                    "jarvis_owns_delivery": True,
+                    "delivery_owner": "jarvis",
+                    "engineering_contract_digest": engineering.digest,
+                    "required_tests": [
+                        list(command) for command in engineering.required_tests
+                    ],
+                    "base_branch": worktree.base_branch,
+                    "branch_name": worktree.branch,
+                    "required_checks": [],
+                    "remote_identity": (
+                        worktree.remote_identity.to_dict()
+                        if worktree.remote_identity is not None
+                        else None
+                    ),
+                }
+            )
 
         # L'identifiant du run est frappé ici et **associé avant** que le
         # runtime existe. `create_and_start` programme le démarrage sans
@@ -593,36 +784,61 @@ class TaskControlService:
                 capability_profile_id=capability_profile_id,
                 selected_context=selected_context,
                 category=category,
+                runtime_id=engineering.runtime_id if engineering is not None else None,
+                workspace=worktree.workspace if worktree is not None else None,
+                idempotency_key=(
+                    engineering.idempotency_key if engineering is not None else None
+                ),
             )
         except Exception as exc:
             logger.exception("démarrage du runtime impossible pour %s", task_id)
-            task = self.repository.update_task(
-                task_id,
-                # Aucun run n'a été créé : garder l'association laisserait la
-                # tâche pointer vers un identifiant qui n'existe nulle part.
-                agentic_run_id=None,
-                status=TaskStatus.FAILED,
-                current_phase="start_failed",
-                attention_required=True,
-                result_status="failed",
+            # Aucun run n'a été rendu : garder l'identifiant préalloué
+            # laisserait la tâche pointer vers une exécution inexistante.
+            return await self._record_launch_failure(
+                task_id, exc, phase="start_failed"
             )
-            self.repository.append_activity(
-                build_user_activity(
-                    task_id=task_id,
-                    summary=f"Démarrage impossible ({type(exc).__name__}).",
-                    event_type=TaskActivityType.ERROR,
-                )
-            )
-            await self._emit(task, "task.control.failed")
-            self._notify(task)
-            await self.finalize(task_id, error="Le runtime n'a pas pu démarrer.")
-            return self.repository.require_task(task_id)
 
         if run.run_id != run_id:
             # Le service a rendu un autre run que celui demandé (idempotence) :
             # c'est lui qui fait foi, l'association le suit.
             task = self.repository.update_task(task_id, agentic_run_id=run.run_id)
             run_id = run.run_id
+
+        if engineering is not None and worktree is not None:
+            from agents.devagent.finalizer import enqueue_engineering_finalizer
+
+            try:
+                enqueue_engineering_finalizer(
+                    {
+                        "job_id": worktree.job_id,
+                        "run_id": run_id,
+                        "repo_root": str(worktree.repo_root),
+                        "worktree_path": str(worktree.workspace),
+                        "branch_name": worktree.branch,
+                        "base_branch": worktree.base_branch,
+                        "remote_identity": (
+                            worktree.remote_identity.to_dict()
+                            if worktree.remote_identity is not None
+                            else None
+                        ),
+                    },
+                    required_tests=engineering.required_tests,
+                    commit_message=engineering.commit_message,
+                    publish_external=False,
+                    required_checks=(),
+                )
+            except Exception as exc:
+                logger.exception("finalizer non persistant pour %s", task_id)
+                try:
+                    await self.agentic.cancel(run_id)
+                except Exception:
+                    logger.warning("annulation après échec finalizer impossible")
+                return await self._record_launch_failure(
+                    task_id,
+                    exc,
+                    phase="finalizer_enqueue_failed",
+                    run_id=run_id,
+                )
 
         # État **réel** du run, relu après la tentative — jamais un `running`
         # supposé. `expected_status` protège la relecture : si un événement

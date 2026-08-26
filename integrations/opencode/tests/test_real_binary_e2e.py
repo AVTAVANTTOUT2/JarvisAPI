@@ -23,7 +23,7 @@ import shutil
 import socket
 import subprocess
 import sys
-from typing import Any, AsyncGenerator, cast
+from typing import Any, AsyncGenerator, Sequence, cast
 
 import httpx
 import pytest
@@ -50,6 +50,7 @@ from jarvis.agentic.models import (
     ApprovalRequest,
     Artifact,
     RuntimeEvent,
+    ToolCapability,
 )
 
 
@@ -71,7 +72,6 @@ class _InstalledBinary:
         self.manifest = manifest
 
     def verify(self, *, execute_binary: bool = True) -> VerificationReport:
-        assert execute_binary is True
         return VerificationReport(
             True,
             self.manifest.version,
@@ -246,9 +246,11 @@ def _real_runtime(
     layout: RuntimeLayout,
     settings: OpenCodeSettings,
     manifest: ReleaseManifest,
+    *,
+    capabilities: Sequence[ToolCapability] = (),
 ) -> OpenCodeRuntime:
     return OpenCodeRuntime(
-        capabilities=(),
+        capabilities=capabilities,
         layout=layout,
         settings=settings,
         manifest=manifest,
@@ -999,3 +1001,269 @@ async def test_real_binary_repeated_identical_tool_call_is_stopped_early(
     starts = [event for event in events if event.type == "agent.tool.started"]
     assert len(starts) <= 4, "l'incident réel produisait dix démarrages"
     assert str(failure.payload.get("tool") or "").endswith("read")
+
+
+@pytest.mark.asyncio
+async def test_real_binary_task_control_delivery_runs_jarvis_pytest_and_commits(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Preuve C1: demande -> plan approuvé -> édition -> gate/commit/rapport."""
+
+    import config
+    import database
+    from agents.devagent.finalizer import process_engineering_finalizers_once
+    from jarvis.agentic import AgenticService, AgenticRunStatus
+    from jarvis.agentic.models import RuntimePluginManifest
+    from jarvis.event_bus import EventBus
+    from jarvis.task_control.detection import TaskCandidateDetector
+    from jarvis.task_control.models import (
+        PlanDecision,
+        PlanStep,
+        TaskPlan,
+        TaskStatus,
+        new_id,
+    )
+    from jarvis.task_control.service import TaskControlService
+
+    database_path = tmp_path / "task-control-real.db"
+    monkeypatch.setattr(config, "DB_PATH", str(database_path))
+    monkeypatch.setattr(database, "DB_PATH", database_path)
+    database.init_db()
+
+    initial = "def add(left: int, right: int) -> int:\n    return left - right\n"
+    corrected = "def add(left: int, right: int) -> int:\n    return left + right\n"
+    repo = tmp_path / "task-control-repo"
+    repo.mkdir()
+    source = repo / "calculator.py"
+    source.write_text(initial, encoding="utf-8")
+    _init_git_worktree(repo, source)
+    tests_dir = repo / "tests"
+    tests_dir.mkdir()
+    test_file = tests_dir / "test_calculator.py"
+    test_file.write_text(
+        "from calculator import add\n\n\ndef test_add():\n    assert add(2, 3) == 5\n",
+        encoding="utf-8",
+    )
+    for command in (
+        ("git", "config", "user.name", "JARVIS E2E"),
+        ("git", "config", "user.email", "jarvis-e2e@invalid"),
+        ("git", "add", "tests/test_calculator.py"),
+        ("git", "commit", "--quiet", "-m", "fixture tests"),
+    ):
+        subprocess.run(
+            command,
+            cwd=repo,
+            check=True,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+        )
+
+    manifest = ReleaseManifest.load()
+    runtime_root = tmp_path / "task-control-runtime"
+    runtime_root.mkdir()
+    layout = RuntimeLayout.from_integration_root(runtime_root)
+    _install_real_binary(layout)
+    capabilities = (
+        ToolCapability("workspace.read", "workspace:read"),
+        ToolCapability("workspace.edit", "workspace:write"),
+        ToolCapability("tests.run", "tests:run"),
+    )
+    runtime = _real_runtime(
+        layout,
+        _runtime_settings(),
+        manifest,
+        capabilities=capabilities,
+    )
+    plugin_manifest = RuntimePluginManifest(
+        runtime_id="opencode",
+        name="OpenCode real C1 fixture",
+        version=manifest.version,
+        entrypoint="unused:fixture",
+        root=PLUGIN_ROOT,
+        capabilities=capabilities,
+    )
+
+    class _Registry:
+        manifests = (plugin_manifest,)
+
+        async def get(self, runtime_id: str) -> OpenCodeRuntime | None:
+            return runtime if runtime_id == "opencode" else None
+
+        def manifest(self, runtime_id: str) -> RuntimePluginManifest | None:
+            return plugin_manifest if runtime_id == "opencode" else None
+
+    class _Notifications:
+        def create(self, **_kwargs: Any) -> int:
+            return 1
+
+    provider = LoopbackOpenAIProvider()
+    provider.start()
+    template_path = tmp_path / "task-control-opencode.json"
+    _write_provider_template(template_path, provider, edit_permission="allow")
+    monkeypatch.setattr(config_settings, "OPENCODE_CONFIG_TEMPLATE", template_path)
+    bus = EventBus()
+
+    class _AgenticService(AgenticService):
+        async def create_and_start(self, **kwargs: Any):
+            workspace = Path(kwargs["workspace"])
+            provider.register_file_scenario(
+                "CODING_E2E",
+                workspace / "calculator.py",
+                initial=initial,
+                corrected=corrected,
+            )
+            return await super().create_and_start(**kwargs)
+
+    agentic = _AgenticService(
+        registry=cast(Any, _Registry()),
+        bus=bus,
+        notifications=cast(Any, _Notifications()),
+    )
+
+    async def planner(task, *, version: int, context=None) -> TaskPlan:
+        return TaskPlan(
+            plan_id=new_id("plan"),
+            task_id=task.task_id,
+            version=version,
+            objective=task.description,
+            summary="Corriger le calcul puis laisser JARVIS valider et committer.",
+            steps=(PlanStep(index=1, title="Corriger calculator.add"),),
+            success_criteria=("calculator.add(2, 3) retourne 5",),
+        )
+
+    control = TaskControlService(
+        agentic_service=agentic,
+        notifications=cast(Any, _Notifications()),
+        bus=bus,
+        planner=planner,
+        detector=TaskCandidateDetector(),
+    )
+    control.bind_runtime_events()
+
+    async def wait_until(predicate, *, timeout: float = 60.0) -> bool:
+        deadline = asyncio.get_running_loop().time() + timeout
+        while asyncio.get_running_loop().time() < deadline:
+            if predicate():
+                return True
+            await asyncio.sleep(0.05)
+        return predicate()
+
+    task = await control.create_engineering_task(
+        title="Corriger calculator.add",
+        user_request="CODING_E2E Corrige la soustraction en addition.",
+        repo_root=repo,
+        required_tests=("python3 -m pytest tests/test_calculator.py -q",),
+        acceptance_criteria=("calculator.add(2, 3) retourne 5",),
+        idempotency_key="real-task-control-opencode-delivery",
+        runtime_id="opencode",
+        runtime_version=manifest.version,
+    )
+    plan = control.repository.get_plan(task.task_id, 1)
+    assert plan is not None
+    assert f"opencode@{manifest.version}" in plan.tools_expected
+    assert task.status is TaskStatus.AWAITING_PLAN_APPROVAL
+    assert not (repo / ".jarvis").exists()
+    assert provider.trace.snapshot() == ()
+
+    try:
+        task = await control.decide_plan(
+            task.task_id,
+            1,
+            decision=PlanDecision.APPROVED,
+            actor="session:e2e",
+        )
+        assert task.agentic_run_id is not None
+        run_id = task.agentic_run_id
+        reached_review = await wait_until(
+            lambda: agentic.get(run_id).status
+            in {
+                AgenticRunStatus.REVIEWING,
+                AgenticRunStatus.FAILED,
+                AgenticRunStatus.BLOCKED,
+            }
+        )
+        assert reached_review is True
+        assert agentic.get(run_id).status is AgenticRunStatus.REVIEWING
+
+        finalized = await process_engineering_finalizers_once(service=agentic)
+        assert len(finalized) == 1
+        assert finalized[0]["ok"] is True, json.dumps(
+            finalized[0], ensure_ascii=False, sort_keys=True
+        )
+        assert finalized[0]["status"] == "committed"
+        assert len(finalized[0]["validations"]) == 1
+        validation = finalized[0]["validations"][0]
+        assert validation["command"] == [
+            "python3",
+            "-m",
+            "pytest",
+            "tests/test_calculator.py",
+            "-q",
+        ]
+        assert validation["returncode"] == 0
+        assert "1 passed" in validation["stdout"]
+
+        task_completed = await wait_until(
+            lambda: control.repository.require_task(task.task_id).status
+            is TaskStatus.COMPLETED,
+            timeout=10,
+        )
+        assert task_completed is True
+        completed = control.repository.require_task(task.task_id)
+        report = control.repository.latest_report(task.task_id)
+        assert completed.final_report_id is not None
+        assert report is not None
+        assert report.result_status == "completed"
+        assert {
+            "changed_file",
+            "jarvis_test_receipt",
+            "jarvis_effect_receipt",
+        } <= {item["type"] for item in report.data["deliveries"]}
+        assert "jarvis://receipts/" in report.markdown
+
+        workspace = Path(finalized[0]["worktree_path"])
+        assert (workspace / "calculator.py").read_text(encoding="utf-8") == corrected
+        head_message = subprocess.run(
+            ("git", "log", "-1", "--pretty=%s"),
+            cwd=workspace,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        assert head_message == "Corriger calculator.add"
+        assert subprocess.run(
+            ("git", "status", "--porcelain"),
+            cwd=workspace,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout == ""
+
+        artifacts = agentic.artifacts(run_id)
+        assert any(item.type == "changed_file" for item in artifacts)
+        assert any(item.type == "jarvis_test_receipt" for item in artifacts)
+        assert any(item.type == "jarvis_effect_receipt" for item in artifacts)
+        tool_events = [
+            event
+            for event in agentic.events(run_id)
+            if event.type.startswith("agent.tool.")
+        ]
+        assert any(
+            str(event.payload.get("tool") or "").endswith("edit")
+            for event in tool_events
+        )
+        assert not any(
+            "pytest"
+            in json.dumps(dict(event.payload), sort_keys=True, default=str).casefold()
+            for event in tool_events
+        )
+        assert {item.get("scenario") for item in provider.trace.snapshot()} == {
+            "CODING_E2E"
+        }
+    finally:
+        try:
+            await runtime.dispose()
+        finally:
+            provider.close()
