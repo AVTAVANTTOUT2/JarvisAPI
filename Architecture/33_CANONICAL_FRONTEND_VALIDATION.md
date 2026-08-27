@@ -159,8 +159,8 @@ cette campagne ont été retirées du dépôt public.
 
 | Zone | Résultat | Preuve |
 |---|---|---|
-| 1. Auth LockGate (setup, short PIN, wrong secret, unlock+refresh, logout+back, session révoquée) | **PASS** | Backend isolé `:8099`, DB `/tmp/…`, PIN de test. Retest back : `auth_E_back_button_retest.png` |
-| 2. Chat secondaire (rename, pin/unpin, archive, delete, switch) | **PASS** | Mutations UI/API + refresh. Switch retesté dans le panneau messages (`chat_switch_retest.png`) — faux positif sidebar au 1er run |
+| 1. Auth LockGate (setup, short PIN, wrong secret, unlock+refresh, logout+back, session révoquée) | **PASS** | Backend isolé `:8099`, DB `/tmp/…`, PIN de test. Capture du retest retirée du dépôt pour confidentialité. |
+| 2. Chat secondaire (rename, pin/unpin, archive, delete, switch) | **PASS** | Mutations UI/API + refresh. Switch retesté dans le panneau messages ; capture retirée du dépôt pour confidentialité. |
 | 3. Responsive 768 & 1024 (chat, dashboard, tasks, contacts, mission, control) | **PASS** | Pas de scroll horizontal, pages non vides |
 | 4. Console/réseau 12 routes survolées | **PASS** | 0 erreur console bloquante, 0 appel hors-origine `:8081`/`:5173` |
 

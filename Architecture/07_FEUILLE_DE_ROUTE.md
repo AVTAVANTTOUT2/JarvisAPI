@@ -51,10 +51,10 @@ les points de branchement vivent dans
 
 1. Fermer la confidentialité publique et la PR de sécurité séparée ; ne publier
    aucun artefact tant que ces portes ne sont pas vertes.
-2. Livrer le vertical client des enregistrements longs et ses scénarios
-   déterministes 1/30/180 min.
-3. Valider une tâche agentique réelle avec OpenCode, y compris reprise,
+2. Valider une tâche agentique réelle avec OpenCode, y compris reprise,
    annulation, rapport client et retrait du provider.
+3. Livrer le vertical client des enregistrements longs et ses scénarios
+   déterministes 1/30/180 min.
 4. Rejouer les matrices matérielles audio, Android et macOS.
 5. Exécuter la campagne 24 h, compléter observabilité/SLO, puis produire le
    candidat signé.

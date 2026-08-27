@@ -197,6 +197,47 @@ def test_analyze_tables_counts(fake_repo: Path) -> None:
     assert tables["init_pipeline"]["uses_schema_py"] is True
 
 
+def test_event_and_plugin_inventories_are_generated_from_sources(tmp_path: Path) -> None:
+    jarvis = tmp_path / "jarvis"
+    jarvis.mkdir()
+    (jarvis / "event_bus.py").write_text(
+        "EVENT_TYPES: tuple[str, ...] = "
+        "('agent.run.started', 'task.control.completed', 'memory.updated')\n",
+        encoding="utf-8",
+    )
+    plugin = tmp_path / "integrations" / "fixture"
+    plugin.mkdir(parents=True)
+    (plugin / "plugin.json").write_text(
+        json.dumps(
+            {
+                "runtime": {
+                    "id": "fixture",
+                    "version": "1.2.3",
+                    "entrypoint": "adapter:create_runtime",
+                    "capabilities": ["read", "write"],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    events = audit.analyze_events(tmp_path)
+    plugins = audit.analyze_plugins(tmp_path)
+
+    assert events["count"] == 3
+    assert events["agentic_count"] == 1
+    assert events["task_control_count"] == 1
+    assert plugins["count"] == 1
+    assert plugins["plugins"][0] == {
+        "path": "integrations/fixture/plugin.json",
+        "runtime_id": "fixture",
+        "version": "1.2.3",
+        "enabled": True,
+        "entrypoint": "adapter:create_runtime",
+        "capability_count": 2,
+    }
+
+
 def test_api_surface_maps_routes_to_consumers_and_tests(fake_repo: Path) -> None:
     routes = audit.discover_api_routes(fake_repo)
     assert [(route.method, route.path) for route in routes] == [
@@ -450,6 +491,39 @@ def test_public_privacy_scan_rejects_local_identifiers_and_screenshots(
             "public_validation_screenshot",
         ),
     }
+
+
+def test_public_privacy_scan_checks_personal_tokens_inside_tests(tmp_path: Path) -> None:
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    personal = "zeld" + "ris"
+    (tests / "test_fixture.py").write_text(
+        f"MACHINE = 'mac-mini-de-{personal}'\n",
+        encoding="utf-8",
+    )
+
+    findings = audit.scan_public_privacy(tmp_path)
+
+    assert [(item["file"], item["kind"]) for item in findings] == [
+        ("tests/test_fixture.py", "public_personal_identifier")
+    ]
+
+
+def test_public_privacy_scan_rejects_removed_screenshot_references(
+    tmp_path: Path,
+) -> None:
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+    (artifacts / "complement_report.json").write_text(
+        json.dumps({"proof": {"screenshot": "removed-contact.png"}}),
+        encoding="utf-8",
+    )
+
+    findings = audit.scan_public_privacy(tmp_path)
+
+    assert [(item["file"], item["kind"]) for item in findings] == [
+        ("artifacts/complement_report.json", "public_missing_screenshot_reference")
+    ]
 
 
 @pytest.mark.parametrize(

@@ -2738,9 +2738,9 @@ Vérification et ajustement `.env` (voix Kokoro) :
 
 Redémarrage propre effectué via `scripts/jarvis_full_restart.sh` pour appliquer la configuration.
 
-### Soir (21:10) — Alignement partiel sur zeldrisDASH (flush voix)
+### Soir (21:10) — Alignement partiel sur un pipeline vocal de référence (flush voix)
 
-Comparaison avec le pipeline vocal de `zeldrisDASH` (worktree local) : son comportement robuste repose sur des envois audio réguliers même quand la détection de fin de phrase est imparfaite.
+Comparaison avec un pipeline vocal de référence (worktree local) : son comportement robuste repose sur des envois audio réguliers même quand la détection de fin de phrase est imparfaite.
 
 Portage d'un garde-fou équivalent dans JARVIS :
 - `web/src/app/components/views/VoiceView.tsx`

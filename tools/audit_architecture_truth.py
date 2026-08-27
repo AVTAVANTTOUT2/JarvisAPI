@@ -79,6 +79,7 @@ PUBLIC_TEXT_SUFFIXES = {
     ".yml",
 }
 ABSOLUTE_MAC_USER_PATH_RE = re.compile(r"/Users/(?P<user>[A-Za-z0-9._-]+)/")
+PUBLIC_PERSONAL_TOKEN_RE = re.compile(r"(?i)\b" + "zeld" + r"ris(?:dash)?\b")
 IPV4_RE = re.compile(r"(?<![\d.])(?:\d{1,3}\.){3}\d{1,3}(?![\d.])")
 PUBLIC_PRIVATE_IP_ALLOWLIST = {
     "10.0.0.0",
@@ -288,10 +289,22 @@ def load_truth_registry(root: Path) -> tuple[dict[str, Any], list[dict[str, Any]
                 _truth_finding(f"racine documentaire introuvable : {relative_root}")
             )
             continue
+        if relative_root == "." and (root / ".git").exists():
+            tracked = subprocess.run(
+                ["git", "-C", str(root), "ls-files", "*.md"],
+                capture_output=True,
+                check=False,
+                text=True,
+            )
+            if tracked.returncode == 0:
+                governed_markdown.update(
+                    item for item in tracked.stdout.splitlines() if item
+                )
+                continue
         governed_markdown.update(
             path.relative_to(root).as_posix()
             for path in governed_root.rglob("*.md")
-            if path.is_file()
+            if path.is_file() and ".git" not in path.relative_to(root).parts
         )
     classified_paths: dict[str, str] = {}
     for classification in ("current", "historical", "superseded"):
@@ -339,6 +352,26 @@ def load_truth_registry(root: Path) -> tuple[dict[str, Any], list[dict[str, Any]
                             f"{location}.superseded_by doit pointer vers un fichier existant"
                         )
                     )
+
+    compact_current = documentation.get("current_paths", [])
+    if not isinstance(compact_current, list) or any(
+        not isinstance(item, str) or not item for item in compact_current
+    ):
+        findings.append(
+            _truth_finding("documentation.current_paths doit être une liste de chemins")
+        )
+        compact_current = []
+    for relative in compact_current:
+        previous = classified_paths.get(relative)
+        if previous is not None:
+            findings.append(
+                _truth_finding(
+                    f"{relative} est classé à la fois {previous} et current_paths"
+                )
+            )
+        classified_paths[relative] = "current"
+        if not (root / relative).is_file():
+            findings.append(_truth_finding(f"document introuvable : {relative}"))
 
     for relative in sorted(governed_markdown - classified_paths.keys()):
         findings.append(
@@ -441,8 +474,9 @@ def load_truth_registry(root: Path) -> tuple[dict[str, Any], list[dict[str, Any]
 def scan_public_privacy(root: Path) -> list[dict[str, Any]]:
     """Refuse les identifiants locaux dans les surfaces versionnées publiques.
 
-    Les fichiers ``.env*`` sont volontairement hors lecture. Les tests sont
-    exclus car ils utilisent des chemins et réseaux réservés comme fixtures.
+    Les fichiers ``.env*`` sont volontairement hors lecture. Les réseaux et
+    chemins synthétiques des tests restent permis, mais les identifiants
+    personnels connus sont recherchés dans tout fichier texte suivi.
     Les captures de validation dynamiques restent hors Git : elles peuvent
     contenir des contacts, messages, noms de machine ou numéros de téléphone.
     """
@@ -470,12 +504,7 @@ def scan_public_privacy(root: Path) -> list[dict[str, Any]]:
     for path in possible_paths:
         if not path.is_file() or path.suffix.lower() not in PUBLIC_TEXT_SUFFIXES:
             continue
-        relative_parts = path.relative_to(root).parts
-        if any(part in PUBLIC_PRIVACY_IGNORED_PARTS for part in relative_parts):
-            continue
         if path.name.startswith(".env"):
-            continue
-        if ".test." in path.name or ".spec." in path.name:
             continue
         candidates.add(path)
 
@@ -490,7 +519,24 @@ def scan_public_privacy(root: Path) -> list[dict[str, Any]]:
             lines = path.read_text(encoding="utf-8").splitlines()
         except (OSError, UnicodeDecodeError):
             continue
+        fixture_path = any(
+            part in PUBLIC_PRIVACY_IGNORED_PARTS
+            for part in path.relative_to(root).parts
+        ) or ".test." in path.name or ".spec." in path.name
         for line_number, line in enumerate(lines, 1):
+            if PUBLIC_PERSONAL_TOKEN_RE.search(line):
+                findings.append(
+                    {
+                        "file": relative,
+                        "line": line_number,
+                        "kind": "public_personal_identifier",
+                        "severity": "error",
+                        "excerpt": "personal identifier",
+                        "note": "remplacer l'identifiant personnel par une fixture synthétique",
+                    }
+                )
+            if fixture_path:
+                continue
             if ABSOLUTE_MAC_USER_PATH_RE.search(line):
                 findings.append(
                     {
@@ -544,6 +590,28 @@ def scan_public_privacy(root: Path) -> list[dict[str, Any]]:
                         ),
                     }
                 )
+    complement_report = root / "artifacts" / "complement_report.json"
+    report = _read_json(complement_report)
+    if isinstance(report, dict):
+        pending: list[Any] = [report]
+        while pending:
+            value = pending.pop()
+            if isinstance(value, dict):
+                screenshot = value.get("screenshot")
+                if isinstance(screenshot, str) and screenshot.strip():
+                    findings.append(
+                        {
+                            "file": "artifacts/complement_report.json",
+                            "line": 0,
+                            "kind": "public_missing_screenshot_reference",
+                            "severity": "error",
+                            "excerpt": "removed screenshot reference",
+                            "note": "mettre la référence à null et documenter le retrait PII",
+                        }
+                    )
+                pending.extend(value.values())
+            elif isinstance(value, list):
+                pending.extend(value)
     return findings
 
 
@@ -557,7 +625,62 @@ def _current_truth_documents(
             continue
         if claim is None or claim in document.get("required_claims", []):
             result.append(document["path"])
+    if claim is None:
+        result.extend(
+            item
+            for item in registry.get("documentation", {}).get("current_paths", [])
+            if isinstance(item, str)
+        )
     return result
+
+
+def analyze_events(root: Path) -> dict[str, Any]:
+    """Inventorie statiquement le contrat fermé du bus d'événements."""
+
+    source = root / "jarvis/event_bus.py"
+    module = ast.parse(source.read_text(encoding="utf-8"), filename=str(source))
+    values: tuple[str, ...] = ()
+    for node in module.body:
+        target = node.target if isinstance(node, ast.AnnAssign) else None
+        if isinstance(target, ast.Name) and target.id == "EVENT_TYPES":
+            raw = ast.literal_eval(node.value)
+            if isinstance(raw, tuple) and all(isinstance(item, str) for item in raw):
+                values = raw
+            break
+    return {
+        "source": "jarvis/event_bus.py",
+        "count": len(values),
+        "types": list(values),
+        "agentic_count": sum(item.startswith("agent.") for item in values),
+        "task_control_count": sum(item.startswith("task.control.") for item in values),
+    }
+
+
+def analyze_plugins(root: Path) -> dict[str, Any]:
+    """Inventorie les manifests découverts sans importer leur code."""
+
+    plugins: list[dict[str, Any]] = []
+    for path in sorted((root / "integrations").glob("*/plugin.json")):
+        raw = _read_json(path)
+        if not isinstance(raw, dict):
+            continue
+        runtime = raw.get("runtime") if isinstance(raw.get("runtime"), dict) else raw
+        capabilities = runtime.get("capabilities", raw.get("capabilities", []))
+        plugins.append(
+            {
+                "path": path.relative_to(root).as_posix(),
+                "runtime_id": str(runtime.get("id") or runtime.get("runtime_id") or ""),
+                "version": str(runtime.get("version") or ""),
+                "enabled": bool(runtime.get("enabled", raw.get("enabled", True))),
+                "entrypoint": str(runtime.get("entrypoint") or ""),
+                "capability_count": len(capabilities) if isinstance(capabilities, list) else 0,
+            }
+        )
+    return {
+        "discovery_glob": "integrations/*/plugin.json",
+        "count": len(plugins),
+        "plugins": plugins,
+    }
 
 
 def _extract_create_tables(text: str) -> list[str]:
@@ -1984,6 +2107,8 @@ def render_truth_status_markdown(report: dict[str, Any]) -> str:
     for document in documentation.get("current", []):
         claims = ", ".join(document.get("required_claims", [])) or "aucun comptage"
         lines.append(f"- `{document['path']}` — {claims}")
+    for path in documentation.get("current_paths", []):
+        lines.append(f"- `{path}` — aucun comptage")
     lines.extend(["", "### Historical", ""])
     for document in documentation.get("historical", []):
         lines.append(f"- `{document['path']}` — snapshot {document['snapshot_at']}")
@@ -2013,6 +2138,8 @@ def build_report(root: Path) -> dict[str, Any]:
     resolution = analyze_frontend_resolution(root)
     tables = analyze_tables(root)
     api_surface = analyze_api_surface(root)
+    events = analyze_events(root)
+    plugins = analyze_plugins(root)
     registry, registry_findings = load_truth_registry(root)
     frontend_inventory = [asdict(frontend) for frontend in frontends]
     for frontend in frontend_inventory:
@@ -2047,6 +2174,8 @@ def build_report(root: Path) -> dict[str, Any]:
         "resolution": stable_resolution,
         "tables": tables,
         "api_surface": api_surface,
+        "events": events,
+        "plugins": plugins,
         "project_truth": registry,
         "documentation_findings": registry_findings
         + scan_public_privacy(root)
