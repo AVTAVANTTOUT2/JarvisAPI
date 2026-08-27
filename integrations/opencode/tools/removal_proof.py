@@ -259,6 +259,11 @@ def _production_provider_references(root: Path, provider_name: str) -> list[str]
             continue
         except ValueError:
             pass
+        # Les vues de gouvernance inventorient volontairement les plugins
+        # installés et leurs documents. Elles ne constituent ni un import ni
+        # une dépendance du produit après retrait du répertoire du plugin.
+        if relative.parts and relative.parts[0] == "Architecture":
+            continue
         if any(part in _COPY_EXCLUDED_NAMES for part in relative.parts) or (
             relative.parts and relative.parts[0] == "data"
         ):
