@@ -27,9 +27,11 @@ from database import (
     current_profile_id,
     db_transaction,
     enqueue_ingestion_job,
+    get_db,
     get_recording_session,
     list_expired_recording_sessions,
     list_pending_recording_sessions,
+    mark_dead_recording_sessions_failed,
     update_recording_session,
 )
 
@@ -147,6 +149,46 @@ def _session_lock(path: Path) -> Iterator[None]:
         os.close(descriptor)
 
 
+@contextmanager
+def _profile_lock(path: Path) -> Iterator[None]:
+    lock_path = path / ".quota.lock"
+    descriptor = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        yield
+    finally:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
+
+
+def _recording_quota_usage() -> tuple[int, int, int]:
+    with get_db() as conn:
+        sessions = conn.execute(
+            """
+            SELECT
+                SUM(CASE WHEN state = 'capturing' THEN 1 ELSE 0 END) AS active,
+                COALESCE(SUM(CASE WHEN spool_path <> '' THEN size_bytes ELSE 0 END), 0)
+                    AS spool_bytes
+            FROM recording_sessions WHERE profile_id = ?
+            """,
+            (current_profile_id(),),
+        ).fetchone()
+        jobs = conn.execute(
+            """
+            SELECT COUNT(*) FROM ingestion_jobs
+            WHERE profile_id = ? AND source = 'recording'
+              AND job_kind = 'recording_process'
+              AND status IN ('pending', 'running', 'retry')
+            """,
+            (current_profile_id(),),
+        ).fetchone()
+    return (
+        int(sessions["active"] or 0),
+        int(sessions["spool_bytes"] or 0),
+        int(jobs[0] or 0),
+    )
+
+
 def _validated_session_dir(path: Path) -> Path:
     raw_root = _SPOOL_ROOT.absolute()
     raw_candidate = path.absolute()
@@ -206,7 +248,7 @@ class RecordingSpool:
         path = profile_dir / session_id
         path.mkdir(mode=0o700, exist_ok=True)
         path = _validated_session_dir(path)
-        with _session_lock(path):
+        with _profile_lock(profile_dir), _session_lock(path):
             # Deux POST idempotents peuvent atteindre ce point ensemble. Le
             # verrou du dossier déterministe protège aussi la création DB.
             existing = get_recording_session(session_id)
@@ -214,6 +256,19 @@ class RecordingSpool:
                 spool = cls(session_id=session_id, path=path)
                 spool._load_or_rebuild_state()
                 return spool
+            active, spool_bytes, _jobs = _recording_quota_usage()
+            if active >= max(1, int(config.RECORDING_MAX_ACTIVE_SESSIONS)):
+                raise RecordingSpoolError(
+                    "recording_active_session_limit",
+                    "Trop de captures sont déjà ouvertes",
+                    status_code=429,
+                )
+            if spool_bytes >= max(1, int(config.RECORDING_MAX_PROFILE_SPOOL_BYTES)):
+                raise RecordingSpoolError(
+                    "recording_profile_quota_exceeded",
+                    "Quota de stockage audio du profil atteint",
+                    status_code=507,
+                )
             spool = cls(session_id=session_id, path=path)
             spool._write_state()
             _fsync_dir(profile_dir)
@@ -333,9 +388,22 @@ class RecordingSpool:
             int(match.group("duration") or 0),
         )
 
-    def _load_or_rebuild_state(self) -> None:
+    def _load_or_rebuild_state(self, *, verify: bool = False) -> None:
         if self._load_state():
-            return
+            chunks = self.chunk_paths()
+            if len(chunks) == self._next_chunk:
+                if verify:
+                    self._verify_chunks(chunks)
+                return
+            if len(chunks) < self._next_chunk:
+                raise RecordingSpoolError(
+                    "recording_chunk_corrupt",
+                    "Un segment audio accuse a disparu du spool",
+                    status_code=422,
+                )
+            # Un crash peut survenir après le fsync/rename du segment mais
+            # avant le manifeste et l'ACK. Ce suffixe non accuse est récupéré
+            # uniquement après vérification de son contenu réel.
         self.size_bytes = 0
         self.duration_ms = 0
         self._next_chunk = 0
@@ -344,11 +412,57 @@ class RecordingSpool:
             sequence, checksum, duration_ms = self._chunk_metadata(chunk)
             if sequence != expected:
                 raise ValueError("recording_spool_chunk_gap")
+            if _sha256_file(chunk) != checksum:
+                raise RecordingSpoolError(
+                    "recording_chunk_corrupt",
+                    "Le contenu d'un segment audio ne correspond plus a son checksum",
+                    status_code=422,
+                    context={"sequence": sequence},
+                )
             self.size_bytes += chunk.stat().st_size
             self.duration_ms += duration_ms
             self._checksum_value = _chain_checksum(self._checksum_value, checksum)
             self._next_chunk += 1
         self._write_state()
+
+    def _verify_chunks(self, chunks: list[Path] | None = None) -> None:
+        """Vérifie le contenu ACKé et la cohérence exacte du manifeste."""
+
+        paths = self.chunk_paths() if chunks is None else chunks
+        size_bytes = 0
+        duration_ms = 0
+        checksum_value = _EMPTY_CHECKSUM
+        for expected, chunk in enumerate(paths):
+            sequence, stored_checksum, chunk_duration_ms = self._chunk_metadata(chunk)
+            actual_checksum = _sha256_file(chunk)
+            if sequence != expected or actual_checksum != stored_checksum:
+                raise RecordingSpoolError(
+                    "recording_chunk_corrupt",
+                    "Le contenu d'un segment audio ne correspond plus a son checksum",
+                    status_code=422,
+                    context={"sequence": sequence},
+                )
+            size_bytes += chunk.stat().st_size
+            duration_ms += chunk_duration_ms
+            checksum_value = _chain_checksum(checksum_value, actual_checksum)
+        if (
+            len(paths) != self._next_chunk
+            or size_bytes != self.size_bytes
+            or duration_ms != self.duration_ms
+            or checksum_value != self._checksum_value
+        ):
+            raise RecordingSpoolError(
+                "recording_manifest_corrupt",
+                "Le manifeste de l'enregistrement ne correspond plus aux segments",
+                status_code=422,
+            )
+
+    def verify_integrity(self) -> None:
+        """Vérifie sous verrou chaque octet durable avant traitement."""
+
+        path = _validated_session_dir(self.path)
+        with _profile_lock(path.parent), _session_lock(path):
+            self._load_or_rebuild_state(verify=True)
 
     def chunk_paths(self) -> list[Path]:
         path = _validated_session_dir(self.path)
@@ -491,6 +605,23 @@ class RecordingSpool:
                     status_code=422,
                     context={"max_duration_ms": max_duration_ms},
                 )
+            _active, profile_bytes, _jobs = _recording_quota_usage()
+            if self.size_bytes + len(audio_bytes) > max(
+                1, int(config.RECORDING_MAX_SESSION_BYTES)
+            ):
+                raise RecordingSpoolError(
+                    "recording_session_quota_exceeded",
+                    "Quota de stockage de la capture atteint",
+                    status_code=507,
+                )
+            if profile_bytes + len(audio_bytes) > max(
+                1, int(config.RECORDING_MAX_PROFILE_SPOOL_BYTES)
+            ):
+                raise RecordingSpoolError(
+                    "recording_profile_quota_exceeded",
+                    "Quota de stockage audio du profil atteint",
+                    status_code=507,
+                )
 
             name = f"{sequence:08d}-{actual_checksum}-{duration_ms:08d}"
             temporary = path / f".{name}.{uuid.uuid4().hex}.part"
@@ -569,7 +700,7 @@ class RecordingSpool:
         """Scelle une capture annulée et efface son audio sous le même verrou."""
 
         path = _validated_session_dir(self.path)
-        with _session_lock(path):
+        with _profile_lock(path.parent), _session_lock(path):
             session = get_recording_session(self.session_id)
             if session is None:
                 raise RecordingSpoolError(
@@ -610,10 +741,41 @@ class RecordingSpool:
             self._next_chunk = 0
             self._checksum_value = _EMPTY_CHECKSUM
 
+    def expire_capture(self) -> None:
+        """Ferme et purge une capture abandonnée sans la rendre reprenable."""
+
+        path = _validated_session_dir(self.path)
+        with _profile_lock(path.parent), _session_lock(path):
+            session = get_recording_session(self.session_id)
+            if session is None or session.state != "capturing":
+                return
+            update_recording_session(
+                self.session_id,
+                state="failed",
+                error="recording_capture_expired",
+                retention_until=_utc_iso(),
+            )
+            for child in list(path.iterdir()):
+                if child.name == ".lock":
+                    continue
+                if child.is_file() or child.is_symlink():
+                    child.unlink()
+            _fsync_dir(path)
+            update_recording_session(
+                self.session_id,
+                spool_path="",
+                size_bytes=0,
+                checksum="",
+            )
+            self.size_bytes = 0
+            self.duration_ms = 0
+            self._next_chunk = 0
+            self._checksum_value = _EMPTY_CHECKSUM
+
     def read_chunks(self) -> list[bytes]:
         return [chunk.read_bytes() for chunk in self.chunk_paths()]
 
-    def enqueue(self, *, label: str, duration_seconds: int) -> str:
+    def _enqueue_locked(self, *, label: str, duration_seconds: int) -> str:
         # Les helpers réutilisent la connexion ambiante : session scellée et
         # job durable deviennent visibles dans le même commit, jamais entre les
         # deux états.
@@ -638,6 +800,125 @@ class RecordingSpool:
                 require_binding=False,
             )
         return self.session_id
+
+    def seal_and_enqueue(
+        self,
+        *,
+        label: str,
+        duration_seconds: int,
+        expected_chunks: int | None = None,
+    ) -> dict[str, int | str]:
+        """Scelle capture et job sous le verrou partagé avec les uploads."""
+
+        path = _validated_session_dir(self.path)
+        with _profile_lock(path.parent), _session_lock(path):
+            session = get_recording_session(self.session_id)
+            if session is None:
+                raise RecordingSpoolError(
+                    "recording_session_not_found",
+                    "Session d'enregistrement introuvable",
+                    status_code=404,
+                )
+            if session.state in {"queued", "processing", "completed", "ready"}:
+                self._load_or_rebuild_state(verify=True)
+                return {
+                    "session_id": self.session_id,
+                    "duration_seconds": (
+                        (self.duration_ms + 999) // 1000
+                        if self.duration_ms > 0
+                        else max(0, int(duration_seconds))
+                    ),
+                    "received_chunks": self.chunk_count,
+                    "idempotent": True,
+                }
+            if session.state != "capturing" or session.error == "recording_cancelled":
+                raise RecordingSpoolError(
+                    "recording_session_not_completable",
+                    "La session ne peut pas être clôturée dans cet état",
+                    context={"state": session.state},
+                )
+            self._load_or_rebuild_state(verify=True)
+            if expected_chunks is not None and int(expected_chunks) != self.chunk_count:
+                raise RecordingSpoolError(
+                    "recording_chunks_incomplete",
+                    "Des segments annoncés n'ont pas été reçus",
+                    status_code=422,
+                    context={
+                        "expected_chunks": int(expected_chunks),
+                        "received_chunks": self.chunk_count,
+                    },
+                )
+            actual_duration = (
+                (self.duration_ms + 999) // 1000
+                if self.duration_ms > 0
+                else max(0, int(duration_seconds))
+            )
+            if actual_duration > int(config.RECORDING_MAX_DURATION_MIN) * 60:
+                update_recording_session(
+                    self.session_id,
+                    state="failed",
+                    error="recording_duration_exceeded",
+                )
+                raise RecordingSpoolError(
+                    "recording_duration_exceeded",
+                    "Durée maximale d'enregistrement dépassée",
+                    status_code=422,
+                )
+            if self.size_bytes < 3000:
+                update_recording_session(
+                    self.session_id,
+                    state="failed",
+                    error="recording_too_short",
+                )
+                raise RecordingSpoolError(
+                    "recording_too_short",
+                    "Audio trop court pour être transcrit",
+                    status_code=422,
+                )
+            _active, _profile_bytes, jobs = _recording_quota_usage()
+            if jobs >= max(1, int(config.RECORDING_MAX_PENDING_JOBS)):
+                raise RecordingSpoolError(
+                    "recording_queue_full",
+                    "La file de traitement des enregistrements est pleine",
+                    status_code=503,
+                )
+            self._enqueue_locked(label=label, duration_seconds=actual_duration)
+            return {
+                "session_id": self.session_id,
+                "duration_seconds": actual_duration,
+                "received_chunks": self.chunk_count,
+                "idempotent": False,
+            }
+
+    def enqueue(self, *, label: str, duration_seconds: int) -> str:
+        """Réenfile un traitement existant sous verrou avec audio vérifié."""
+
+        path = _validated_session_dir(self.path)
+        with _profile_lock(path.parent), _session_lock(path):
+            session = get_recording_session(self.session_id)
+            if session is None:
+                raise RecordingSpoolError(
+                    "recording_session_not_found",
+                    "Session d'enregistrement introuvable",
+                    status_code=404,
+                )
+            if session.state not in {"capturing", "retry", "failed", "queued"}:
+                raise RecordingSpoolError(
+                    "recording_session_not_queueable",
+                    "La session ne peut pas être enfilée dans cet état",
+                    context={"state": session.state},
+                )
+            self._load_or_rebuild_state(verify=True)
+            _active, _profile_bytes, jobs = _recording_quota_usage()
+            if session.state != "queued" and jobs >= max(
+                1, int(config.RECORDING_MAX_PENDING_JOBS)
+            ):
+                raise RecordingSpoolError(
+                    "recording_queue_full",
+                    "La file de traitement des enregistrements est pleine",
+                    status_code=503,
+                )
+            return self._enqueue_locked(label=label, duration_seconds=duration_seconds)
 
     def mark_succeeded(self, *, transcript: str, summary: str) -> None:
         update_recording_session(
@@ -695,7 +976,29 @@ def purge_expired_recordings(*, limit: int = 100) -> int:
 def reconcile_recording_sessions(*, limit: int = 100) -> int:
     """Réenfile les sessions scellées laissées sans job par une ancienne panne."""
 
-    repaired = 0
+    repaired = mark_dead_recording_sessions_failed()
+    idle_before = _utc_iso(
+        datetime.now(timezone.utc)
+        - timedelta(minutes=max(1, int(config.RECORDING_CAPTURE_IDLE_TTL_MIN)))
+    )
+    for session in list_pending_recording_sessions(
+        states=("capturing",), due_before=idle_before, limit=limit
+    ):
+        if not session.spool_path:
+            continue
+        try:
+            RecordingSpool.open(session.id).expire_capture()
+        except (FileNotFoundError, RecordingSpoolError, ValueError):
+            update_recording_session(
+                session.id,
+                state="failed",
+                error="recording_capture_expired",
+                spool_path="",
+                size_bytes=0,
+                checksum="",
+                retention_until=_utc_iso(),
+            )
+        repaired += 1
     for session in list_pending_recording_sessions(limit=limit):
         if not session.spool_path:
             continue

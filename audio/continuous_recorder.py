@@ -15,6 +15,7 @@ import llm
 from audio.recording_spool import (
     RECORDING_PROCESSING_MAX_ATTEMPTS,
     RecordingSpool,
+    RecordingSpoolError,
     purge_expired_recordings,
     reconcile_recording_sessions,
 )
@@ -211,43 +212,29 @@ class ContinuousRecording:
                 "duration_seconds": duration_sec,
                 "label": self.label,
             }
-        if expected_chunks is not None and int(expected_chunks) != self.spool.chunk_count:
+        try:
+            sealed = self.spool.seal_and_enqueue(
+                label=self.label,
+                duration_seconds=duration_sec,
+                expected_chunks=expected_chunks,
+            )
+        except RecordingSpoolError as exc:
             return {
                 "ok": False,
-                "error": "recording_chunks_incomplete",
-                "expected_chunks": int(expected_chunks),
-                "received_chunks": self.spool.chunk_count,
+                "error": exc.code,
+                **exc.context,
                 "duration_seconds": duration_sec,
                 "label": self.label,
             }
-        if self.spool.duration_ms > 0:
-            duration_sec = (self.spool.duration_ms + 999) // 1000
-        if duration_sec > config.RECORDING_MAX_DURATION_MIN * 60:
-            self.spool.mark_failed("recording_duration_exceeded", terminal=True)
-            return {
-                "ok": False,
-                "error": f"Durée maximale dépassée ({config.RECORDING_MAX_DURATION_MIN} min).",
-                "duration_seconds": duration_sec,
-                "label": self.label,
-            }
-        if self.total_bytes < 3000:
-            self.spool.mark_failed("recording_too_short", terminal=True)
-            return {
-                "ok": False,
-                "error": "Audio trop court pour être transcrit.",
-                "duration_seconds": duration_sec,
-                "label": self.label,
-            }
-        session_id = self.spool.enqueue(
-            label=self.label,
-            duration_seconds=duration_sec,
-        )
+        session_id = str(sealed["session_id"])
+        duration_sec = int(sealed["duration_seconds"])
         return {
             "ok": True,
             "queued": True,
             "session_id": session_id,
             "duration_seconds": duration_sec,
             "label": self.label,
+            "idempotent": bool(sealed.get("idempotent", False)),
         }
 
     @classmethod
@@ -383,11 +370,8 @@ class ContinuousRecording:
         parts_text: list[str] = []
         mb_limit = max(1, config.RECORDING_CHUNK_SIZE_MB) * 1024 * 1024
         if self.spool is not None:
-            paths = [
-                path for path in self.spool.chunk_paths() if path.stat().st_size >= 800
-            ]
-            if not paths:
-                paths = self.spool.chunk_paths()
+            self.spool.verify_integrity()
+            paths = self.spool.chunk_paths()
             n = len(paths)
             segments = ((path.read_bytes(), index) for index, path in enumerate(paths, 1))
         else:
@@ -538,6 +522,9 @@ class ContinuousRecording:
             except Exception as e:
                 logger.exception("[recording] Extraction Haiku segment %d : %s", idx, e)
 
+        if len(partials) != total:
+            raise RecordingProcessingError("recording_extraction_partial")
+
         aggregated = _merge_extractor_parts(partials)
         agg_txt = json.dumps(aggregated, ensure_ascii=False, indent=2)
 
@@ -572,16 +559,7 @@ class ContinuousRecording:
                 return syn
         except Exception as e:
             logger.exception("[recording] Synthèse Sonnet : %s", e)
-
-        return {
-            "title": self.label or "Enregistrement",
-            "summary": transcription[:4000],
-            "tasks": [],
-            "calendar_events": [],
-            "facts": [],
-            "people": [],
-            "patterns_observed": [],
-        }
+        raise RecordingProcessingError("recording_synthesis_failed")
 
     @staticmethod
     def _proposal_summary(synthesis: dict) -> dict:
@@ -626,6 +604,7 @@ class ContinuousRecording:
             )
         except Exception as exc:
             logger.exception("[recording] Épisode dérivé : %s", exc)
+            raise RecordingProcessingError("recording_episode_failed") from exc
 
         if proposals["tasks_proposed"] or proposals["events_proposed"]:
             from jarvis.notification_service import notification_service
@@ -714,11 +693,18 @@ async def process_recording_ingestion_job(
         error_code = (
             exc.code
             if isinstance(exc, RecordingProcessingError)
+            else exc.code
+            if isinstance(exc, RecordingSpoolError)
             else f"recording_{type(exc).__name__.casefold()}"
         )
         recording.spool.mark_failed(
             error_code,
             terminal=(
+                isinstance(exc, RecordingSpoolError)
+                and exc.code
+                in {"recording_chunk_corrupt", "recording_manifest_corrupt"}
+            )
+            or (
                 job.attempts >= min(job.max_attempts, RECORDING_PROCESSING_MAX_ATTEMPTS)
             ),
         )

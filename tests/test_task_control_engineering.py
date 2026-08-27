@@ -43,8 +43,10 @@ class _Agentic:
         self.starts.append(kwargs)
         return _Run(run_id=str(kwargs["run_id"]))
 
-    def get(self, run_id: str) -> _Run:
-        return _Run(run_id=run_id)
+    def get(self, run_id: str) -> _Run | None:
+        if any(str(item.get("run_id")) == run_id for item in self.starts):
+            return _Run(run_id=run_id)
+        return None
 
     def artifacts(self, _run_id: str) -> tuple[Any, ...]:
         return ()
@@ -254,14 +256,17 @@ async def test_runtime_version_drift_is_refused_before_mutation(
         manifest=lambda _runtime_id: SimpleNamespace(version="1.18.17")
     )
 
-    with pytest.raises(TaskExecutionRefused, match="version du runtime"):
-        await service.decide_plan(
-            task.task_id,
-            1,
-            decision=PlanDecision.APPROVED,
-            actor="session:test",
-        )
+    changed = await service.decide_plan(
+        task.task_id,
+        1,
+        decision=PlanDecision.APPROVED,
+        actor="session:test",
+    )
 
+    assert changed.status is TaskStatus.PLAN_REVISION_REQUESTED
+    assert changed.approved_plan_version is None
+    assert changed.approved_plan_digest is None
+    assert changed.current_phase == "runtime_contract_changed"
     assert agentic.starts == []
     assert not (repo / ".jarvis").exists()
 
@@ -304,7 +309,7 @@ async def test_worktree_preparation_failure_becomes_a_terminal_report(
 
 
 @pytest.mark.asyncio
-async def test_finalizer_persistence_failure_cancels_the_started_run(
+async def test_finalizer_persistence_failure_prevents_runtime_start(
     engineering_service: tuple[TaskControlService, _Agentic, Path],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -337,4 +342,51 @@ async def test_finalizer_persistence_failure_cancels_the_started_run(
     assert failed.current_phase == "finalizer_enqueue_failed"
     assert failed.final_report_id is not None
     assert failed.agentic_run_id is not None
-    assert agentic.cancels == [failed.agentic_run_id]
+    assert agentic.starts == []
+    assert agentic.cancels == []
+
+
+@pytest.mark.asyncio
+async def test_interrupted_launch_resumes_same_run_and_finalizer_intent(
+    engineering_service: tuple[TaskControlService, _Agentic, Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, agentic, repo = engineering_service
+    task = await service.create_engineering_task(
+        title="Corriger calculator.add",
+        user_request="Corrige la fonction.",
+        repo_root=repo,
+        required_tests=("python3 -m pytest tests/test_calculator.py -q",),
+        idempotency_key="resume-interrupted-launch",
+        runtime_id="opencode",
+        runtime_version="1.18.16",
+    )
+    original_start = agentic.create_and_start
+
+    async def process_crash(**_kwargs: Any) -> _Run:
+        raise SystemExit("process_crash_after_durable_intent")
+
+    monkeypatch.setattr(agentic, "create_and_start", process_crash)
+    with pytest.raises(SystemExit, match="process_crash_after_durable_intent"):
+        await service.decide_plan(
+            task.task_id,
+            1,
+            decision=PlanDecision.APPROVED,
+            actor="session:test",
+        )
+
+    interrupted = service.repository.require_task(task.task_id)
+    assert interrupted.status is TaskStatus.QUEUED
+    assert interrupted.agentic_run_id is not None
+    records = list((Path(config.DB_PATH).parent / "agentic-finalizers").glob("*.json"))
+    assert len(records) == 1
+    durable = json.loads(records[0].read_text(encoding="utf-8"))
+    assert durable["run_id"] == interrupted.agentic_run_id
+    assert durable["status"] == "pending"
+
+    monkeypatch.setattr(agentic, "create_and_start", original_start)
+    resumed = await service.start_execution(task.task_id)
+    assert resumed.agentic_run_id == interrupted.agentic_run_id
+    assert len(agentic.starts) == 1
+    assert agentic.starts[0]["run_id"] == interrupted.agentic_run_id
+    assert len(list(records[0].parent.glob("*.json"))) == 1

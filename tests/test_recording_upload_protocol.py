@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import errno
 import hashlib
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
@@ -202,6 +204,275 @@ def test_lost_ack_resume_and_replay_are_idempotent(recording_env: Path) -> None:
             expected_checksum=hashlib.sha256(_webm_segment(2)).hexdigest(),
             duration_ms=30_000,
             mime_type="audio/webm",
+        )
+
+
+def test_complete_is_serialized_after_inflight_chunk(
+    recording_env: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from audio import recording_spool
+    from audio.recording_sessions import complete_recording_session
+    from database import get_recording_session, list_ingestion_jobs
+
+    spool = recording_spool.RecordingSpool.create(
+        conversation_id=None,
+        label="Course complete",
+        client_recording_id=str(uuid4()),
+    )
+    payload = _webm_segment(0)
+    append_paused = threading.Event()
+    release_append = threading.Event()
+    original_update = recording_spool.update_recording_session
+
+    def gated_update(session_id: str, **changes):
+        if changes.get("state") == "capturing" and not append_paused.is_set():
+            append_paused.set()
+            assert release_append.wait(timeout=5)
+        return original_update(session_id, **changes)
+
+    monkeypatch.setattr(recording_spool, "update_recording_session", gated_update)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        append_future = executor.submit(
+            spool.append_chunk,
+            sequence=0,
+            audio_bytes=payload,
+            expected_checksum=hashlib.sha256(payload).hexdigest(),
+            duration_ms=30_000,
+            mime_type="audio/webm",
+        )
+        assert append_paused.wait(timeout=5)
+        complete_future = executor.submit(
+            complete_recording_session,
+            spool.session_id,
+            expected_chunks=1,
+            duration_seconds=30,
+        )
+        time.sleep(0.1)
+        assert not complete_future.done()
+        release_append.set()
+        assert append_future.result(timeout=5)["status"] == "accepted"
+        assert complete_future.result(timeout=5)["queued"] is True
+
+    assert get_recording_session(spool.session_id).state == "queued"
+    assert len(list_ingestion_jobs(source="recording")) == 1
+
+
+def test_acked_chunk_corruption_blocks_sealing_and_processing(
+    recording_env: Path,
+) -> None:
+    from audio.recording_spool import RecordingSpool, RecordingSpoolError
+    from database import list_ingestion_jobs
+
+    spool = RecordingSpool.create(
+        conversation_id=None,
+        label="Corruption disque",
+        client_recording_id=str(uuid4()),
+    )
+    for sequence in range(2):
+        payload = _webm_segment(sequence)
+        spool.append_chunk(
+            sequence=sequence,
+            audio_bytes=payload,
+            expected_checksum=hashlib.sha256(payload).hexdigest(),
+            duration_ms=30_000,
+            mime_type="audio/webm",
+        )
+    spool.chunk_paths()[0].write_bytes(b"bad")
+
+    with pytest.raises(RecordingSpoolError, match="recording_chunk_corrupt"):
+        spool.verify_integrity()
+    with pytest.raises(RecordingSpoolError, match="recording_chunk_corrupt"):
+        spool.seal_and_enqueue(
+            label="Corruption disque",
+            duration_seconds=60,
+            expected_chunks=2,
+        )
+    assert list_ingestion_jobs(source="recording") == []
+
+
+def test_final_expired_recording_lease_terminalizes_session(
+    recording_env: Path,
+) -> None:
+    from audio.recording_spool import RecordingSpool
+    from database import (
+        claim_ingestion_jobs,
+        get_db,
+        get_recording_session,
+        list_ingestion_jobs,
+        update_recording_session,
+    )
+
+    spool = RecordingSpool.create(
+        conversation_id=None,
+        label="Worker crash",
+        client_recording_id=str(uuid4()),
+    )
+    payload = _webm_segment(0)
+    spool.append_chunk(
+        sequence=0,
+        audio_bytes=payload,
+        expected_checksum=hashlib.sha256(payload).hexdigest(),
+        duration_ms=30_000,
+        mime_type="audio/webm",
+    )
+    spool.enqueue(label="Worker crash", duration_seconds=30)
+    job_id = list_ingestion_jobs(source="recording")[0].id
+
+    for attempt in range(3):
+        claimed = claim_ingestion_jobs(
+            f"worker-{attempt}",
+            handler_pairs=[("recording", "recording_process")],
+        )
+        assert len(claimed) == 1
+        with get_db() as connection:
+            connection.execute(
+                "UPDATE ingestion_jobs SET lease_expires_at = '1970-01-01 00:00:00' WHERE id = ?",
+                (job_id,),
+            )
+    update_recording_session(spool.session_id, state="processing")
+    assert claim_ingestion_jobs(
+        "worker-final",
+        handler_pairs=[("recording", "recording_process")],
+    ) == []
+
+    assert list_ingestion_jobs(source="recording")[0].status == "dead"
+    session = get_recording_session(spool.session_id)
+    assert session.state == "failed"
+    assert session.error == "recording_worker_crashed"
+    assert session.attempts == 3
+
+
+def test_capture_storage_queue_and_idle_limits_fail_closed(
+    recording_env: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import config
+    from audio.recording_spool import (
+        RecordingSpool,
+        RecordingSpoolError,
+        reconcile_recording_sessions,
+    )
+    from database import get_db, get_recording_session
+
+    monkeypatch.setattr(config, "RECORDING_MAX_ACTIVE_SESSIONS", 1)
+    first = RecordingSpool.create(
+        conversation_id=None,
+        label="Quota actif",
+        client_recording_id=str(uuid4()),
+    )
+    with pytest.raises(RecordingSpoolError, match="active_session_limit"):
+        RecordingSpool.create(
+            conversation_id=None,
+            label="En trop",
+            client_recording_id=str(uuid4()),
+        )
+    first.cancel_capture()
+
+    monkeypatch.setattr(config, "RECORDING_MAX_ACTIVE_SESSIONS", 4)
+    monkeypatch.setattr(config, "RECORDING_MAX_SESSION_BYTES", 5_000)
+    bounded = RecordingSpool.create(
+        conversation_id=None,
+        label="Quota capture",
+        client_recording_id=str(uuid4()),
+    )
+    payload = _webm_segment(0)
+    bounded.append_chunk(
+        sequence=0,
+        audio_bytes=payload,
+        expected_checksum=hashlib.sha256(payload).hexdigest(),
+        duration_ms=30_000,
+        mime_type="audio/webm",
+    )
+    overflow = _webm_segment(1)
+    with pytest.raises(RecordingSpoolError, match="session_quota_exceeded"):
+        bounded.append_chunk(
+            sequence=1,
+            audio_bytes=overflow,
+            expected_checksum=hashlib.sha256(overflow).hexdigest(),
+            duration_ms=30_000,
+            mime_type="audio/webm",
+        )
+
+    monkeypatch.setattr(config, "RECORDING_MAX_SESSION_BYTES", 1024 * 1024)
+    monkeypatch.setattr(config, "RECORDING_MAX_PENDING_JOBS", 1)
+    queued = bounded.seal_and_enqueue(
+        label="Quota capture", duration_seconds=30, expected_chunks=1
+    )
+    assert queued["idempotent"] is False
+    waiting = RecordingSpool.create(
+        conversation_id=None,
+        label="File pleine",
+        client_recording_id=str(uuid4()),
+    )
+    waiting_payload = _webm_segment(0)
+    waiting.append_chunk(
+        sequence=0,
+        audio_bytes=waiting_payload,
+        expected_checksum=hashlib.sha256(waiting_payload).hexdigest(),
+        duration_ms=30_000,
+        mime_type="audio/webm",
+    )
+    with pytest.raises(RecordingSpoolError, match="recording_queue_full"):
+        waiting.seal_and_enqueue(
+            label="File pleine", duration_seconds=30, expected_chunks=1
+        )
+    assert get_recording_session(waiting.session_id).state == "capturing"
+
+    with get_db() as connection:
+        connection.execute(
+            "UPDATE recording_sessions SET updated_at = '1970-01-01 00:00:00' WHERE id = ?",
+            (waiting.session_id,),
+        )
+    assert reconcile_recording_sessions() >= 1
+    expired = get_recording_session(waiting.session_id)
+    assert expired.state == "failed"
+    assert expired.error == "recording_capture_expired"
+    assert expired.spool_path == ""
+
+
+@pytest.mark.asyncio
+async def test_extraction_synthesis_and_episode_failures_are_typed(
+    recording_env: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import config
+    from audio import continuous_recorder
+    from audio.continuous_recorder import ContinuousRecording, RecordingProcessingError
+
+    recording = ContinuousRecording(None)
+    recording.label = "Erreurs typées"
+
+    async def invalid_extraction(**_kwargs):
+        return {"content": "not-json"}
+
+    monkeypatch.setattr(continuous_recorder.llm, "chat", invalid_extraction)
+    with pytest.raises(RecordingProcessingError, match="recording_extraction_partial"):
+        await recording._synthesize("transcription", 30)
+
+    calls = 0
+
+    async def synthesis_failure(**_kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return {"content": '{"summary":"ok"}'}
+        raise RuntimeError("model unavailable")
+
+    monkeypatch.setattr(continuous_recorder.llm, "chat", synthesis_failure)
+    with pytest.raises(RecordingProcessingError, match="recording_synthesis_failed"):
+        await recording._synthesize("transcription", 30)
+
+    def episode_failure(**_kwargs):
+        raise RuntimeError("database unavailable")
+
+    monkeypatch.setattr(continuous_recorder, "save_episode", episode_failure)
+    monkeypatch.setattr(config, "DESKTOP_NOTIFICATIONS", False)
+    with pytest.raises(RecordingProcessingError, match="recording_episode_failed"):
+        await recording._apply_synthesis(
+            {"title": "Titre", "summary": "Résumé"},
+            recording_id=1,
+            session_id=None,
         )
 
 

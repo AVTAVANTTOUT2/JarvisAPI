@@ -162,6 +162,7 @@ ALLOWED_TASK_TRANSITIONS: Mapping[TaskStatus, frozenset[TaskStatus]] = (
             TaskStatus.APPROVED: frozenset(
                 {
                     TaskStatus.QUEUED,
+                    TaskStatus.PLAN_REVISION_REQUESTED,
                     TaskStatus.CANCELLED,
                     TaskStatus.FAILED,
                 }
@@ -174,6 +175,7 @@ ALLOWED_TASK_TRANSITIONS: Mapping[TaskStatus, frozenset[TaskStatus]] = (
             # panne même que ces états servent à éviter.
             TaskStatus.QUEUED: frozenset(
                 {
+                    TaskStatus.PLAN_REVISION_REQUESTED,
                     TaskStatus.RESOURCE_WAIT,
                     TaskStatus.RUNNING,
                     TaskStatus.AWAITING_PERMISSION,
