@@ -638,6 +638,14 @@ def analyze_events(root: Path) -> dict[str, Any]:
     """Inventorie statiquement le contrat fermé du bus d'événements."""
 
     source = root / "jarvis/event_bus.py"
+    if not source.is_file():
+        return {
+            "source": "jarvis/event_bus.py",
+            "count": 0,
+            "types": [],
+            "agentic_count": 0,
+            "task_control_count": 0,
+        }
     module = ast.parse(source.read_text(encoding="utf-8"), filename=str(source))
     values: tuple[str, ...] = ()
     for node in module.body:
