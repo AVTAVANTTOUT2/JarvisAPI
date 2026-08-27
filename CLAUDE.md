@@ -1299,7 +1299,36 @@ Détails du flux :
 
 ### Mode écoute continue (enregistrement long)
 
-**Pas** de réponse entre les phrases. Le client envoie `recording_start` + label, puis des **blobs WebM** toutes les 5 s (`MediaRecorder.start(5000)`), `getUserMedia` **sans** echoCancellation/noiseSuppression. Tant que `active_recording.is_active`, le serveur **accumule** les octets (pas de STT). `recording_stop` → transcription segment par segment (fichiers valides) → `ContinuousRecording._synthesize` (Haiku par morceaux de texte, puis Sonnet) → `create_task` / `calendar_client.create_event` / `add_fact` / `upsert_person` / `save_episode` / notif macOS. Table `recordings` ; WebSocket : `recording_processing`, `recording_transcribing` (progress), `recording_analyzing`, `recording_done`.
+Le contrôle canonique vit dans Documents. Il ouvre explicitement le micro puis
+redémarre `MediaRecorder` toutes les 30 s : chaque blob WebM/MP4 est donc un
+conteneur autonome, et non un timeslice isolé d'un flux unique.
+
+Le protocole REST versionné (`protocol_version=1`) est :
+
+```text
+POST   /api/recording-sessions
+PUT    /api/recording-sessions/{id}/chunks/{sequence}
+GET    /api/recording-sessions/{id}
+POST   /api/recording-sessions/{id}/complete
+DELETE /api/recording-sessions/{id}
+POST   /api/recording-sessions/{id}/retry
+```
+
+Chaque `PUT` fournit `X-Chunk-SHA256`, `X-Chunk-Duration-Ms` et
+`X-Recording-Protocol-Version`. L'ACK `accepted|duplicate` n'est envoyé qu'après
+checksum, rename atomique, fsync et état durable. Un replay identique ne réécrit
+rien ; une séquence en avance ou un hash différent reçoit un conflit. Le client
+persiste uniquement l'identifiant et `next_sequence`, garde au plus deux blobs
+en mémoire et retente au plus trois fois les seules erreurs transitoires.
+`DELETE` est idempotent tant que la capture est ouverte ; il sérialise
+l'annulation avec l'upload et efface les segments avant de confirmer le succès.
+Une session déjà mise en traitement ne peut plus être annulée.
+
+Le spool est la source audio : `ContinuousRecording.from_spool()` ne recharge
+plus tous les blobs, et le worker lit/transcrit un fichier à la fois. La synthèse
+ne publie que des propositions à approuver ; elle ne crée aucune tâche ni aucun
+événement implicitement. Le WebSocket historique `recording_start/stop` reste
+compatible mais n'est plus la surface canonique de capture longue.
 
 ### Mode conversation continue (legacy — chat)
 
@@ -1317,7 +1346,7 @@ VOICE_SILENCE_DURATION_MS=1200     # fin de phrase ; page /voice (client)
 VOICE_MIN_SPEECH_MS=400
 VOICE_MAX_TOKENS=500               # réponses ML courtes pour la voix
 
-# Écoute continue (enregistrement long, page /voice)
+# Enregistrement long (page /documents)
 RECORDING_MAX_DURATION_MIN=180
 RECORDING_CHUNK_SIZE_MB=20
 RECORDING_SUMMARY_ONLY=false
@@ -2823,8 +2852,8 @@ aucune ressource distante).
 ## Mode écoute — diarisation + mémoire conversationnelle + recherche sémantique
 
 Étend le pipeline d'enregistrement existant (déclenchement **explicite** par
-l'utilisateur — `recording_start`/`recording_stop`, jamais d'écoute ambiante
-permanente). Trois briques :
+l'utilisateur depuis Documents, jamais d'écoute ambiante permanente). Trois
+briques :
 
 ### Diarisation locale
 
@@ -2832,11 +2861,11 @@ permanente). Trois briques :
   qu'aucun moteur local dédié n'est installé.
 - Les labels futurs (« A », « B »…) resteront temporaires et propres à un seul
   enregistrement ; aucune identité réelle ne sera déduite automatiquement.
-- `ContinuousRecording._maybe_capture_turns()` : un seul appel STT sur
-  l'audio entier (chunks MediaRecorder concaténés = flux WebM complet),
-  plafonné à 100 Mo, échec silencieux vers 0 tour (la transcription
-  classique reste persistée par ailleurs). L'activation attend la Phase 6 du
-  plan `Architecture/30_PLAN_STABILISATION_AUDIO.md`.
+- `ContinuousRecording._maybe_capture_turns()` conserve l'appel unique pour un
+  ancien enregistrement monobloc. Pour une capture segmentée, il refuse de
+  concaténer l'audio en RAM et retourne explicitement 0 tour ; la transcription
+  classique segmentée reste persistée. Un futur moteur local devra réconcilier
+  les labels entre segments avant d'activer cette option.
 
 ### Attribution des locuteurs (« qui était la personne A ? »)
 

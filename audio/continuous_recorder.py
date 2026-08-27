@@ -13,6 +13,7 @@ from pathlib import Path
 import config
 import llm
 from audio.recording_spool import (
+    RECORDING_PROCESSING_MAX_ATTEMPTS,
     RecordingSpool,
     purge_expired_recordings,
     reconcile_recording_sessions,
@@ -130,11 +131,21 @@ def _stt_timeout_for_bytes(n: int) -> float:
 ProgressFn = Callable[[str, dict[str, object]], Awaitable[None]] | None
 
 
+class RecordingProcessingError(RuntimeError):
+    """Erreur classée du worker, sans contenu audio dans le message."""
+
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
+
+
 class ContinuousRecording:
     """Session d'écoute continue : chunks audio → traitement à l'arrêt."""
 
     def __init__(self, conversation_id: int | None) -> None:
         self.conversation_id = conversation_id
+        # Compatibilité des tests/anciens appels sans spool. Une capture durable
+        # ne remplit jamais cette liste : l'audio reste borné à un segment.
         self.audio_chunks: list[bytes] = []
         self.started_at = datetime.now()
         self.ended_at: datetime | None = None
@@ -168,7 +179,6 @@ class ContinuousRecording:
                 label=self.label or "Enregistrement",
             )
         self.spool.append(audio_bytes)
-        self.audio_chunks.append(audio_bytes)
         self.total_bytes += len(audio_bytes)
         now = time.monotonic()
         if now - self._last_log_wall >= 60.0:
@@ -178,12 +188,22 @@ class ContinuousRecording:
                 self.total_bytes / 1024.0,
             )
 
-    def queue_for_processing(self) -> dict:
+    def queue_for_processing(
+        self,
+        *,
+        duration_seconds: int | None = None,
+        expected_chunks: int | None = None,
+    ) -> dict:
         """Scelle le spool puis enfile le traitement idempotent."""
 
         self.is_active = False
         self.ended_at = datetime.now()
-        duration_sec = int((self.ended_at - self.started_at).total_seconds())
+        measured_duration = int((self.ended_at - self.started_at).total_seconds())
+        duration_sec = (
+            max(0, int(duration_seconds))
+            if duration_seconds is not None
+            else measured_duration
+        )
         if self.spool is None:
             return {
                 "ok": False,
@@ -191,6 +211,17 @@ class ContinuousRecording:
                 "duration_seconds": duration_sec,
                 "label": self.label,
             }
+        if expected_chunks is not None and int(expected_chunks) != self.spool.chunk_count:
+            return {
+                "ok": False,
+                "error": "recording_chunks_incomplete",
+                "expected_chunks": int(expected_chunks),
+                "received_chunks": self.spool.chunk_count,
+                "duration_seconds": duration_sec,
+                "label": self.label,
+            }
+        if self.spool.duration_ms > 0:
+            duration_sec = (self.spool.duration_ms + 999) // 1000
         if duration_sec > config.RECORDING_MAX_DURATION_MIN * 60:
             self.spool.mark_failed("recording_duration_exceeded", terminal=True)
             return {
@@ -233,7 +264,6 @@ class ContinuousRecording:
         recording = cls(session.conversation_id)
         recording.label = session.label
         recording.spool = spool
-        recording.audio_chunks = spool.read_chunks()
         recording.total_bytes = spool.size_bytes
         if session.created_at:
             recording.started_at = datetime.fromisoformat(
@@ -284,21 +314,24 @@ class ContinuousRecording:
             stt = None  # type: ignore[misc, assignment]
 
         if stt is None or not getattr(stt, "available", False):
-            raise RuntimeError("recording_stt_unavailable")
+            raise RecordingProcessingError("recording_stt_unavailable")
 
+        self._raise_if_cancelled()
         self.transcription = await self._transcribe_all(stt, progress)
         if not self.transcription.strip():
-            raise RuntimeError("recording_transcription_empty")
+            raise RecordingProcessingError("recording_transcription_empty")
 
         if progress:
             await progress("recording_analyzing", {"message": "Analyse en cours…"})
 
+        self._raise_if_cancelled()
         self.synthesis = await self._synthesize(self.transcription, duration_sec)
         proposal_results = self._proposal_summary(self.synthesis)
 
         title = (self.synthesis or {}).get("title") or self.label or "Enregistrement"
         summary_text = (self.synthesis or {}).get("summary") or ""
 
+        self._raise_if_cancelled()
         rec_id = save_recording(
             conversation_id=self.conversation_id,
             label=self.label,
@@ -348,27 +381,25 @@ class ContinuousRecording:
     async def _transcribe_all(self, stt, progress: ProgressFn) -> str:
         """Transcrit chaque chunk média séquentiellement (chaque morceau = WebM valide)."""
         parts_text: list[str] = []
-        chunks = [c for c in self.audio_chunks if len(c) >= 800]
-        if not chunks:
-            chunks = self.audio_chunks
-
         mb_limit = max(1, config.RECORDING_CHUNK_SIZE_MB) * 1024 * 1024
-        segment_units: list[bytes] = []
-        for c in chunks:
-            if len(c) <= mb_limit:
-                segment_units.append(c)
-            else:
-                # WebM ne supporte pas la découpe arbitraire — segment entier ou skip
-                logger.warning(
-                    "[recording] Chunk WebM %d Mo > limite %d Mo — transcription entière",
-                    len(c) // (1024 * 1024),
-                    config.RECORDING_CHUNK_SIZE_MB,
-                )
-                segment_units.append(c)
+        if self.spool is not None:
+            paths = [
+                path for path in self.spool.chunk_paths() if path.stat().st_size >= 800
+            ]
+            if not paths:
+                paths = self.spool.chunk_paths()
+            n = len(paths)
+            segments = ((path.read_bytes(), index) for index, path in enumerate(paths, 1))
+        else:
+            chunks = [chunk for chunk in self.audio_chunks if len(chunk) >= 800]
+            if not chunks:
+                chunks = self.audio_chunks
+            n = len(chunks)
+            segments = ((chunk, index) for index, chunk in enumerate(chunks, 1))
 
-        n = len(segment_units)
         failed_segments: list[int] = []
-        for i, seg in enumerate(segment_units, start=1):
+        for seg, i in segments:
+            self._raise_if_cancelled()
             if progress:
                 await progress(
                     "recording_transcribing",
@@ -377,9 +408,13 @@ class ContinuousRecording:
             logger.info(
                 "[recording] Transcription segment %d/%d (%d bytes)", i, n, len(seg)
             )
+            if len(seg) > mb_limit:
+                raise RecordingProcessingError("recording_chunk_too_large")
             to = _stt_timeout_for_bytes(len(seg))
             try:
                 txt = await stt.transcribe(seg, language=config.LANGUAGE, timeout=to)
+            except TimeoutError as exc:
+                raise RecordingProcessingError("recording_stt_timeout") from exc
             except Exception as e:
                 logger.exception("[recording] Erreur STT segment %d : %s", i, e)
                 txt = ""
@@ -389,7 +424,7 @@ class ContinuousRecording:
                 failed_segments.append(i)
 
         if failed_segments:
-            raise RuntimeError("recording_stt_partial")
+            raise RecordingProcessingError("recording_stt_partial")
 
         return "\n\n".join(parts_text)
 
@@ -406,10 +441,24 @@ class ContinuousRecording:
         """
         if not config.DIARIZATION_ENABLED:
             return 0
-        chunks = [c for c in self.audio_chunks if len(c) >= 800] or self.audio_chunks
-        if not chunks:
-            return 0
-        audio = chunks[0] if len(chunks) == 1 else b"".join(chunks)
+        if self.spool is not None:
+            paths = [
+                path for path in self.spool.chunk_paths() if path.stat().st_size >= 800
+            ] or self.spool.chunk_paths()
+            # Les segments indépendants n'ont pas une chronologie de labels
+            # garantie entre appels. Ne jamais les concaténer en RAM.
+            if len(paths) != 1:
+                logger.info(
+                    "[recording] Diarisation ignorée — enregistrement segmenté (%d segments)",
+                    len(paths),
+                )
+                return 0
+            audio = paths[0].read_bytes()
+        else:
+            chunks = [c for c in self.audio_chunks if len(c) >= 800] or self.audio_chunks
+            if not chunks:
+                return 0
+            audio = chunks[0] if len(chunks) == 1 else b"".join(chunks)
         if len(audio) > WARN_BYTES:
             logger.info(
                 "[recording] Diarisation ignorée — audio trop volumineux (%.0f MB)",
@@ -430,6 +479,13 @@ class ContinuousRecording:
         from database import save_conversation_turns
 
         return save_conversation_turns(recording_id, turns)
+
+    def _raise_if_cancelled(self) -> None:
+        if self.spool is None:
+            return
+        session = get_recording_session(self.spool.session_id)
+        if session is not None and session.error == "recording_cancelled":
+            raise RecordingProcessingError("recording_cancelled")
 
     async def _synthesize(self, transcription: str, duration_sec: int) -> dict:
         dur_human = (
@@ -616,6 +672,12 @@ async def process_recording_ingestion_job(
     session = get_recording_session(session_id)
     if session is None:
         raise LookupError("recording_session_not_found")
+    if session.error == "recording_cancelled":
+        return IngestionRunResult(
+            status="ok",
+            item_count=0,
+            completeness="complete",
+        )
     if session.state in {"completed", "ready"}:
         if session.state == "ready":
             update_recording_session(session_id, state="completed", error=None)
@@ -631,12 +693,34 @@ async def process_recording_ingestion_job(
     )
     update_recording_session(session_id, state="processing", error=None)
     try:
-        await recording.stop_and_process()
+        result = await recording.stop_and_process()
+        if not result.get("ok"):
+            raw_error = str(result.get("error") or "recording_processing_failed")
+            code = (
+                raw_error
+                if raw_error.startswith("recording_")
+                else "recording_processing_failed"
+            )
+            raise RecordingProcessingError(code)
     except Exception as exc:
+        refreshed = get_recording_session(session_id)
+        if refreshed is not None and refreshed.error == "recording_cancelled":
+            return IngestionRunResult(
+                status="ok",
+                item_count=0,
+                completeness="complete",
+            )
         assert recording.spool is not None
+        error_code = (
+            exc.code
+            if isinstance(exc, RecordingProcessingError)
+            else f"recording_{type(exc).__name__.casefold()}"
+        )
         recording.spool.mark_failed(
-            type(exc).__name__,
-            terminal=job.attempts >= job.max_attempts,
+            error_code,
+            terminal=(
+                job.attempts >= min(job.max_attempts, RECORDING_PROCESSING_MAX_ATTEMPTS)
+            ),
         )
         raise
     return IngestionRunResult(

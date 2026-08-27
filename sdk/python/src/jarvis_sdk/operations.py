@@ -80,6 +80,14 @@ _OPERATIONS = {
         tag='places',
         summary='Api Places Delete',
     ),
+    'delete_api_recording_sessions_by_session_id': Operation(
+        operation_id='delete_api_recording_sessions_by_session_id',
+        method='DELETE',
+        path='/api/recording-sessions/{session_id}',
+        auth='session',
+        tag='recording-sessions',
+        summary='Api Recording Session Cancel',
+    ),
     'delete_api_tasks': Operation(
         operation_id='delete_api_tasks',
         method='DELETE',
@@ -1039,6 +1047,14 @@ _OPERATIONS = {
         auth='session',
         tag='quality',
         summary='Api Quality Security',
+    ),
+    'get_api_recording_sessions_by_session_id': Operation(
+        operation_id='get_api_recording_sessions_by_session_id',
+        method='GET',
+        path='/api/recording-sessions/{session_id}',
+        auth='session',
+        tag='recording-sessions',
+        summary='Api Recording Session Status',
     ),
     'get_api_recordings': Operation(
         operation_id='get_api_recordings',
@@ -2392,6 +2408,30 @@ _OPERATIONS = {
         tag='quality',
         summary='Api Quality Generate Tests',
     ),
+    'post_api_recording_sessions': Operation(
+        operation_id='post_api_recording_sessions',
+        method='POST',
+        path='/api/recording-sessions',
+        auth='session',
+        tag='recording-sessions',
+        summary='Api Recording Session Start',
+    ),
+    'post_api_recording_sessions_by_session_id_complete': Operation(
+        operation_id='post_api_recording_sessions_by_session_id_complete',
+        method='POST',
+        path='/api/recording-sessions/{session_id}/complete',
+        auth='session',
+        tag='recording-sessions',
+        summary='Api Recording Session Complete',
+    ),
+    'post_api_recording_sessions_by_session_id_retry': Operation(
+        operation_id='post_api_recording_sessions_by_session_id_retry',
+        method='POST',
+        path='/api/recording-sessions/{session_id}/retry',
+        auth='session',
+        tag='recording-sessions',
+        summary='Api Recording Session Retry',
+    ),
     'post_api_recordings_by_recording_id_speakers_by_label_assign': Operation(
         operation_id='post_api_recordings_by_recording_id_speakers_by_label_assign',
         method='POST',
@@ -2527,6 +2567,14 @@ _OPERATIONS = {
         auth='session',
         tag='privacy',
         summary='Api Document Privacy Update',
+    ),
+    'put_api_recording_sessions_by_session_id_chunks_by_sequence': Operation(
+        operation_id='put_api_recording_sessions_by_session_id_chunks_by_sequence',
+        method='PUT',
+        path='/api/recording-sessions/{session_id}/chunks/{sequence}',
+        auth='session',
+        tag='recording-sessions',
+        summary='Api Recording Session Chunk',
     ),
 }
 

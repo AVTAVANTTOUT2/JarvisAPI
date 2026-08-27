@@ -41,6 +41,10 @@ import type {
   FoodStatusResponse,
   FoodSuggestion,
   LlmActionLog,
+  RecordingChunkAck,
+  RecordingDetail,
+  RecordingListResponse,
+  RecordingSessionStatus,
   ScreenActivityRow,
   ServiceInfo,
   SupervisorStatus,
@@ -705,10 +709,64 @@ export const api = {
     request(`/api/briefing?kind=${encodeURIComponent(kind)}`),
 
   getRecordings: (limit?: number) =>
-    request(
+    request<RecordingListResponse>(
       `/api/recordings${limit != null ? `?limit=${encodeURIComponent(String(limit))}` : ''}`,
     ),
-  getRecording: (id: number) => request(`/api/recordings/${id}`),
+  getRecording: (id: number) => request<RecordingDetail>(`/api/recordings/${id}`),
+  startRecordingSession: (body: {
+    client_recording_id: string
+    label: string
+    conversation_id?: number
+  }) => request<RecordingSessionStatus>('/api/recording-sessions', {
+    method: 'POST',
+    body: JSON.stringify({ ...body, protocol_version: 1 }),
+    offline: { queue: false },
+  }),
+  getRecordingSession: (sessionId: string) =>
+    request<RecordingSessionStatus>(`/api/recording-sessions/${encodeURIComponent(sessionId)}`, {
+      offline: { cache: false },
+    }),
+  uploadRecordingChunk: (
+    sessionId: string,
+    sequence: number,
+    blob: Blob,
+    sha256: string,
+    durationMs: number,
+  ) => request<RecordingChunkAck>(
+    `/api/recording-sessions/${encodeURIComponent(sessionId)}/chunks/${encodeURIComponent(String(sequence))}`,
+    {
+      method: 'PUT',
+      body: blob,
+      headers: {
+        'Content-Type': blob.type || 'audio/webm',
+        'X-Chunk-SHA256': sha256,
+        'X-Chunk-Duration-Ms': String(Math.max(1, Math.round(durationMs))),
+        'X-Recording-Protocol-Version': '1',
+      },
+      offline: { queue: false },
+    },
+  ),
+  completeRecordingSession: (
+    sessionId: string,
+    body: { expected_chunks: number; duration_seconds?: number },
+  ) => request<RecordingSessionStatus>(
+    `/api/recording-sessions/${encodeURIComponent(sessionId)}/complete`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ ...body, protocol_version: 1 }),
+      offline: { queue: false },
+    },
+  ),
+  cancelRecordingSession: (sessionId: string) =>
+    request<RecordingSessionStatus>(
+      `/api/recording-sessions/${encodeURIComponent(sessionId)}`,
+      { method: 'DELETE', offline: { queue: false } },
+    ),
+  retryRecordingSession: (sessionId: string) =>
+    request<RecordingSessionStatus>(
+      `/api/recording-sessions/${encodeURIComponent(sessionId)}/retry`,
+      { method: 'POST', offline: { queue: false } },
+    ),
 
   getLocationStatus: () => request('/api/location/status'),
   sendLocation: (body: Record<string, unknown>) =>
