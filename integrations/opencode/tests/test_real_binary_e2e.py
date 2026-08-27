@@ -887,7 +887,19 @@ async def test_real_binary_generic_facade_denies_native_edit_without_mutation(
             "jarvis-e2e", "fixture-model"
         )
         assert runtime._states[run.run_id].agent == "jarvis-executor"
-        assert runtime._states[run.run_id].mcp_broker is not None
+        broker = runtime._states[run.run_id].mcp_broker
+        assert broker is not None
+
+        def forbid_mcp_routing(**_kwargs: Any) -> None:
+            pytest.fail("une permission native ne doit jamais traverser le broker MCP")
+
+        monkeypatch.setattr(broker, "grant_approval", forbid_mcp_routing)
+        monkeypatch.setattr(
+            broker,
+            "approve_and_execute_pending",
+            forbid_mcp_routing,
+        )
+        monkeypatch.setattr(broker, "revoke_approval", forbid_mcp_routing)
         await runtime.start(run)
         events, artifacts, approval_seen = await _collect_facade_terminal(
             runtime,

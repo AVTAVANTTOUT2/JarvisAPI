@@ -320,7 +320,8 @@ def _select_agent(run: AgenticRun, context: AgenticContext) -> str:
     ``jarvis-coding`` autorise l'édition native dans le worktree lorsque
     ``workspace:write`` a déjà été accordé au run. ``jarvis-executor`` garde
     ``edit=ask`` pour les parcours où l'écriture n'est pas pré-autorisée ;
-    l'approbation native y reste bornée (deny-only via MCP, voir tests e2e).
+    l'approbation native y reste bornée par l'endpoint de permission OpenCode,
+    distinct des effets ``mcp:`` exécutés directement par JARVIS.
     """
 
     permissions = set(context.permissions) | set(run.permissions)
