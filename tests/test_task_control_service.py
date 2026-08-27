@@ -715,6 +715,31 @@ async def test_revision_avec_permissions_differentes_exige_une_nouvelle_approbat
 
 
 @pytest.mark.asyncio
+async def test_revision_retire_les_permissions_interdites(service):
+    task = await service.create_task(
+        title="Corrige la régression login et lance les tests",
+        metadata=_routing(
+            "agentic_reversible",
+            "coding",
+            ["workspace:read", "workspace:write", "tests:run"],
+        ),
+    )
+    first = service.repository.get_plan(task.task_id, 1)
+    assert "tests:run" in first.execution_permissions
+
+    task = await service.decide_plan(
+        task.task_id,
+        1,
+        decision=PlanDecision.REVISION_REQUESTED,
+        actor="session:1",
+        comment="Ne lance pas les tests",
+    )
+    second = service.repository.get_plan(task.task_id, 2)
+    assert "tests:run" not in second.execution_permissions
+    assert second.digest != first.digest
+
+
+@pytest.mark.asyncio
 async def test_ancien_plan_sans_permissions_est_refuse_fail_closed(service):
     """Un plan approuvé avant ce contrat ne démarre pas et n'hérite de rien."""
 
