@@ -607,15 +607,11 @@ def _run_full_gates(
     results["validate_generated_contracts"] = _run_checked_gate(
         step="validate_generated_contracts",
         commands=(
-            (
-                sys.executable,
-                "tools/audit_architecture_truth.py",
-                "--check",
-                "--output",
-                "artifacts/architecture_truth.json",
-                "--schema-output",
-                "database/schema.sql",
-            ),
+            # La vérité d'architecture inventorie l'installation courante et
+            # ses preuves de plugin ; elle est vérifiée avant le retrait par
+            # le job Python principal. Dans cette copie jetable sans plugin,
+            # ne rejouer que les contrats génériques qui doivent rester
+            # strictement identiques après démontage.
             (sys.executable, "tools/export_openapi.py", "--check"),
             (sys.executable, "tools/generate_python_sdk.py", "--check"),
             (sys.executable, "tools/audit_technical_debt.py", "--check"),

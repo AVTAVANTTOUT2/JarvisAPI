@@ -88,6 +88,15 @@ PUBLIC_PRIVATE_IP_ALLOWLIST = {
     "172.16.0.0",
     "192.168.0.0",
 }
+DOCUMENT_SCAN_EXCLUDED_PARTS = {
+    ".git",
+    ".next",
+    ".venv",
+    "build",
+    "dist",
+    "node_modules",
+    "venv",
+}
 
 CREATE_TABLE_RE = re.compile(
     r"CREATE\s+(?:VIRTUAL\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[\"']?(\w+)[\"']?",
@@ -304,7 +313,10 @@ def load_truth_registry(root: Path) -> tuple[dict[str, Any], list[dict[str, Any]
         governed_markdown.update(
             path.relative_to(root).as_posix()
             for path in governed_root.rglob("*.md")
-            if path.is_file() and ".git" not in path.relative_to(root).parts
+            if path.is_file()
+            and not DOCUMENT_SCAN_EXCLUDED_PARTS.intersection(
+                path.relative_to(root).parts
+            )
         )
     classified_paths: dict[str, str] = {}
     for classification in ("current", "historical", "superseded"):

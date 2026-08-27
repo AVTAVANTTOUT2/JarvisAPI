@@ -455,6 +455,39 @@ def test_truth_registry_rejects_unclassified_governed_markdown(tmp_path: Path) -
     )
 
 
+def test_truth_registry_ignores_dependencies_without_git_metadata(tmp_path: Path) -> None:
+    architecture = tmp_path / "Architecture"
+    architecture.mkdir()
+    required = (
+        "Architecture/28_VALIDATION_COHERENCE.md",
+        "Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md",
+    )
+    for relative in required:
+        (tmp_path / relative).write_text("# fixture\n", encoding="utf-8")
+    dependency = tmp_path / "web/node_modules/package"
+    dependency.mkdir(parents=True)
+    (dependency / "README.md").write_text("# dependency\n", encoding="utf-8")
+    registry = {
+        "schema_version": 1,
+        "reviewed_at": "2026-08-27",
+        "generated_status_document": required[0],
+        "documentation": {
+            "governed_roots": ["."],
+            "current": [{"path": relative} for relative in required],
+            "historical": [],
+            "superseded": [],
+        },
+        "entries": [],
+    }
+    (architecture / "project_truth_registry.json").write_text(
+        json.dumps(registry), encoding="utf-8"
+    )
+
+    _, findings = audit.load_truth_registry(tmp_path)
+
+    assert not any("node_modules" in finding["file"] for finding in findings)
+
+
 def test_public_privacy_scan_rejects_local_identifiers_and_screenshots(
     tmp_path: Path,
 ) -> None:
