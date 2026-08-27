@@ -23,6 +23,8 @@ _NON_RETRYABLE_ERRORS = frozenset(
         "recording_chunk_too_large",
         "recording_container_invalid",
         "recording_container_unsupported",
+        "recording_chunk_corrupt",
+        "recording_manifest_corrupt",
     }
 )
 
@@ -156,7 +158,7 @@ def complete_recording_session(
     return {
         **recording_session_status(session.id),
         **result,
-        "idempotent": False,
+        "idempotent": bool(result.get("idempotent", False)),
     }
 
 

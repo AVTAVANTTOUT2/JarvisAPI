@@ -30,6 +30,7 @@ from database import (
     get_recording_session,
     list_expired_recording_sessions,
     list_pending_recording_sessions,
+    mark_dead_recording_sessions_failed,
     update_recording_session,
 )
 
@@ -333,9 +334,22 @@ class RecordingSpool:
             int(match.group("duration") or 0),
         )
 
-    def _load_or_rebuild_state(self) -> None:
+    def _load_or_rebuild_state(self, *, verify: bool = False) -> None:
         if self._load_state():
-            return
+            chunks = self.chunk_paths()
+            if len(chunks) == self._next_chunk:
+                if verify:
+                    self._verify_chunks(chunks)
+                return
+            if len(chunks) < self._next_chunk:
+                raise RecordingSpoolError(
+                    "recording_chunk_corrupt",
+                    "Un segment audio accuse a disparu du spool",
+                    status_code=422,
+                )
+            # Un crash peut survenir après le fsync/rename du segment mais
+            # avant le manifeste et l'ACK. Ce suffixe non accuse est récupéré
+            # uniquement après vérification de son contenu réel.
         self.size_bytes = 0
         self.duration_ms = 0
         self._next_chunk = 0
@@ -344,11 +358,57 @@ class RecordingSpool:
             sequence, checksum, duration_ms = self._chunk_metadata(chunk)
             if sequence != expected:
                 raise ValueError("recording_spool_chunk_gap")
+            if _sha256_file(chunk) != checksum:
+                raise RecordingSpoolError(
+                    "recording_chunk_corrupt",
+                    "Le contenu d'un segment audio ne correspond plus a son checksum",
+                    status_code=422,
+                    context={"sequence": sequence},
+                )
             self.size_bytes += chunk.stat().st_size
             self.duration_ms += duration_ms
             self._checksum_value = _chain_checksum(self._checksum_value, checksum)
             self._next_chunk += 1
         self._write_state()
+
+    def _verify_chunks(self, chunks: list[Path] | None = None) -> None:
+        """Vérifie le contenu ACKé et la cohérence exacte du manifeste."""
+
+        paths = self.chunk_paths() if chunks is None else chunks
+        size_bytes = 0
+        duration_ms = 0
+        checksum_value = _EMPTY_CHECKSUM
+        for expected, chunk in enumerate(paths):
+            sequence, stored_checksum, chunk_duration_ms = self._chunk_metadata(chunk)
+            actual_checksum = _sha256_file(chunk)
+            if sequence != expected or actual_checksum != stored_checksum:
+                raise RecordingSpoolError(
+                    "recording_chunk_corrupt",
+                    "Le contenu d'un segment audio ne correspond plus a son checksum",
+                    status_code=422,
+                    context={"sequence": sequence},
+                )
+            size_bytes += chunk.stat().st_size
+            duration_ms += chunk_duration_ms
+            checksum_value = _chain_checksum(checksum_value, actual_checksum)
+        if (
+            len(paths) != self._next_chunk
+            or size_bytes != self.size_bytes
+            or duration_ms != self.duration_ms
+            or checksum_value != self._checksum_value
+        ):
+            raise RecordingSpoolError(
+                "recording_manifest_corrupt",
+                "Le manifeste de l'enregistrement ne correspond plus aux segments",
+                status_code=422,
+            )
+
+    def verify_integrity(self) -> None:
+        """Vérifie sous verrou chaque octet durable avant traitement."""
+
+        path = _validated_session_dir(self.path)
+        with _session_lock(path):
+            self._load_or_rebuild_state(verify=True)
 
     def chunk_paths(self) -> list[Path]:
         path = _validated_session_dir(self.path)
@@ -613,7 +673,7 @@ class RecordingSpool:
     def read_chunks(self) -> list[bytes]:
         return [chunk.read_bytes() for chunk in self.chunk_paths()]
 
-    def enqueue(self, *, label: str, duration_seconds: int) -> str:
+    def _enqueue_locked(self, *, label: str, duration_seconds: int) -> str:
         # Les helpers réutilisent la connexion ambiante : session scellée et
         # job durable deviennent visibles dans le même commit, jamais entre les
         # deux états.
@@ -638,6 +698,109 @@ class RecordingSpool:
                 require_binding=False,
             )
         return self.session_id
+
+    def seal_and_enqueue(
+        self,
+        *,
+        label: str,
+        duration_seconds: int,
+        expected_chunks: int | None = None,
+    ) -> dict[str, int | str]:
+        """Scelle capture et job sous le verrou partagé avec les uploads."""
+
+        path = _validated_session_dir(self.path)
+        with _session_lock(path):
+            session = get_recording_session(self.session_id)
+            if session is None:
+                raise RecordingSpoolError(
+                    "recording_session_not_found",
+                    "Session d'enregistrement introuvable",
+                    status_code=404,
+                )
+            if session.state in {"queued", "processing", "completed", "ready"}:
+                self._load_or_rebuild_state(verify=True)
+                return {
+                    "session_id": self.session_id,
+                    "duration_seconds": (
+                        (self.duration_ms + 999) // 1000
+                        if self.duration_ms > 0
+                        else max(0, int(duration_seconds))
+                    ),
+                    "received_chunks": self.chunk_count,
+                    "idempotent": True,
+                }
+            if session.state != "capturing" or session.error == "recording_cancelled":
+                raise RecordingSpoolError(
+                    "recording_session_not_completable",
+                    "La session ne peut pas être clôturée dans cet état",
+                    context={"state": session.state},
+                )
+            self._load_or_rebuild_state(verify=True)
+            if expected_chunks is not None and int(expected_chunks) != self.chunk_count:
+                raise RecordingSpoolError(
+                    "recording_chunks_incomplete",
+                    "Des segments annoncés n'ont pas été reçus",
+                    status_code=422,
+                    context={
+                        "expected_chunks": int(expected_chunks),
+                        "received_chunks": self.chunk_count,
+                    },
+                )
+            actual_duration = (
+                (self.duration_ms + 999) // 1000
+                if self.duration_ms > 0
+                else max(0, int(duration_seconds))
+            )
+            if actual_duration > int(config.RECORDING_MAX_DURATION_MIN) * 60:
+                update_recording_session(
+                    self.session_id,
+                    state="failed",
+                    error="recording_duration_exceeded",
+                )
+                raise RecordingSpoolError(
+                    "recording_duration_exceeded",
+                    "Durée maximale d'enregistrement dépassée",
+                    status_code=422,
+                )
+            if self.size_bytes < 3000:
+                update_recording_session(
+                    self.session_id,
+                    state="failed",
+                    error="recording_too_short",
+                )
+                raise RecordingSpoolError(
+                    "recording_too_short",
+                    "Audio trop court pour être transcrit",
+                    status_code=422,
+                )
+            self._enqueue_locked(label=label, duration_seconds=actual_duration)
+            return {
+                "session_id": self.session_id,
+                "duration_seconds": actual_duration,
+                "received_chunks": self.chunk_count,
+                "idempotent": False,
+            }
+
+    def enqueue(self, *, label: str, duration_seconds: int) -> str:
+        """Réenfile un traitement existant sous verrou avec audio vérifié."""
+
+        path = _validated_session_dir(self.path)
+        with _session_lock(path):
+            session = get_recording_session(self.session_id)
+            if session is None:
+                raise RecordingSpoolError(
+                    "recording_session_not_found",
+                    "Session d'enregistrement introuvable",
+                    status_code=404,
+                )
+            if session.state not in {"capturing", "retry", "failed", "queued"}:
+                raise RecordingSpoolError(
+                    "recording_session_not_queueable",
+                    "La session ne peut pas être enfilée dans cet état",
+                    context={"state": session.state},
+                )
+            self._load_or_rebuild_state(verify=True)
+            return self._enqueue_locked(label=label, duration_seconds=duration_seconds)
 
     def mark_succeeded(self, *, transcript: str, summary: str) -> None:
         update_recording_session(
@@ -695,7 +858,7 @@ def purge_expired_recordings(*, limit: int = 100) -> int:
 def reconcile_recording_sessions(*, limit: int = 100) -> int:
     """Réenfile les sessions scellées laissées sans job par une ancienne panne."""
 
-    repaired = 0
+    repaired = mark_dead_recording_sessions_failed()
     for session in list_pending_recording_sessions(limit=limit):
         if not session.spool_path:
             continue
