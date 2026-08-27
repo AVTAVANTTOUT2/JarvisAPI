@@ -77,13 +77,33 @@ def _any_host_resolver(*addresses: str):
 
 
 def test_open_world_https_accepts_any_public_host():
-    endpoint = "https://hotels.example/search?city=Barcelona"
+    endpoint = "https://hotels.example.com/search?city=Barcelona"
     assert (
         validate_open_world_https_url(
             endpoint,
             resolver=_any_host_resolver("8.8.8.8"),
         )
         == endpoint
+    )
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "expected"),
+    [
+        ("https://HOTELS.EXAMPLE.COM", "https://hotels.example.com/"),
+        ("https://hotels.example.com:443", "https://hotels.example.com/"),
+        ("https://bücher.example/", "https://xn--bcher-kva.example/"),
+    ],
+)
+def test_open_world_https_canonicalizes_the_exact_browser_destination(
+    endpoint: str, expected: str
+):
+    assert (
+        validate_open_world_https_url(
+            endpoint,
+            resolver=_any_host_resolver("8.8.8.8"),
+        )
+        == expected
     )
 
 
@@ -94,3 +114,112 @@ def test_open_world_https_still_rejects_private_resolution():
             resolver=_any_host_resolver("10.0.0.2"),
         )
     assert caught.value.code == "non_public_address"
+
+
+def test_open_world_https_rejects_mixed_public_and_private_resolution():
+    with pytest.raises(OutboundURLRejected) as caught:
+        validate_open_world_https_url(
+            "https://hotels.example.com/search",
+            resolver=_any_host_resolver("8.8.8.8", "10.0.0.2"),
+        )
+    assert caught.value.code == "non_public_address"
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "file:///etc/passwd",
+        "data:text/plain,secret",
+        "javascript:alert(1)",
+        "blob:https://public.example.com/id",
+        "ftp://public.example.com/file",
+        "https://user@public.example.com/",
+    ],
+)
+def test_open_world_rejects_non_https_and_userinfo(endpoint: str):
+    with pytest.raises(OutboundURLRejected):
+        validate_open_world_https_url(
+            endpoint,
+            resolver=_any_host_resolver("8.8.8.8"),
+        )
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "https://2130706433/",
+        "https://0177.0.0.1/",
+        "https://0x7f000001/",
+        "https://127.1/",
+    ],
+)
+def test_open_world_rejects_ambiguous_ip_representations(endpoint: str):
+    with pytest.raises(OutboundURLRejected) as caught:
+        validate_open_world_https_url(
+            endpoint,
+            resolver=_any_host_resolver("8.8.8.8"),
+        )
+    assert caught.value.code == "ambiguous_ip_address"
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "https://printer/",
+        "https://service.local/",
+        "https://metadata.google.internal/",
+        "https://instance-data.ec2.internal/",
+    ],
+)
+def test_open_world_rejects_local_and_metadata_names(endpoint: str):
+    with pytest.raises(OutboundURLRejected) as caught:
+        validate_open_world_https_url(
+            endpoint,
+            resolver=_any_host_resolver("8.8.8.8"),
+        )
+    assert caught.value.code == "local_hostname"
+
+
+def test_open_world_rejects_ipv4_mapped_ipv6_even_when_public():
+    with pytest.raises(OutboundURLRejected) as caught:
+        validate_open_world_https_url(
+            "https://public.example.com/",
+            resolver=_any_host_resolver("::ffff:8.8.8.8"),
+        )
+    assert caught.value.code == "ambiguous_ip_address"
+
+
+@pytest.mark.parametrize(
+    "address",
+    [
+        "224.0.0.1",
+        "ff02::1",
+        "240.0.0.1",
+        "0.0.0.0",
+    ],
+)
+def test_open_world_rejects_multicast_reserved_and_unspecified(address: str):
+    with pytest.raises(OutboundURLRejected) as caught:
+        validate_open_world_https_url(
+            "https://public.example.com/",
+            resolver=_any_host_resolver(address),
+        )
+    assert caught.value.code == "non_public_address"
+
+
+@pytest.mark.parametrize(
+    "address",
+    [
+        "::127.0.0.1",
+        "64:ff9b::7f00:1",
+        "64:ff9b:1::7f00:1",
+        "2002:7f00:1::",
+    ],
+)
+def test_open_world_rejects_ipv4_encapsulation_in_ipv6(address: str):
+    with pytest.raises(OutboundURLRejected) as caught:
+        validate_open_world_https_url(
+            "https://public.example.com/",
+            resolver=_any_host_resolver(address),
+        )
+    assert caught.value.code == "ambiguous_ip_address"

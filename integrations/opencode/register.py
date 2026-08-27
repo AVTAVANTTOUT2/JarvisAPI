@@ -62,14 +62,9 @@ _DEFAULT_CAPABILITIES = (
     ToolCapability(
         "browser.control",
         "browser:control",
-        "Ouvrir une page HTTPS publique, la voir, puis cliquer ou taper",
+        "Navigation HTTPS publique en lecture avec approbation exacte one-shot",
         risk_level=RiskLevel.MEDIUM,
-    ),
-    ToolCapability(
-        "browser.download",
-        "browser:download",
-        "Téléchargement confiné annoncé pour le profil navigateur",
-        risk_level=RiskLevel.MEDIUM,
+        requires_approval=True,
     ),
     ToolCapability(
         "workspace.edit",

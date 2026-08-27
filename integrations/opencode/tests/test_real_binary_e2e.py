@@ -358,22 +358,7 @@ async def _collect_facade_terminal(
                             expires_at=datetime.now(timezone.utc)
                             + timedelta(minutes=1),
                         )
-                        if approval_flow == "prove_native_edit_limit_then_deny":
-                            with pytest.raises(
-                                RuntimeError,
-                                match="approval_tool_not_effectful",
-                            ):
-                                await runtime.answer_approval(
-                                    run.run_id,
-                                    replace(
-                                        approval, decision=ApprovalDecision.APPROVED
-                                    ),
-                                )
-                            await runtime.answer_approval(
-                                run.run_id,
-                                replace(approval, decision=ApprovalDecision.DENIED),
-                            )
-                        elif approval_flow == "deny":
+                        if approval_flow == "deny":
                             await runtime.answer_approval(
                                 run.run_id,
                                 replace(approval, decision=ApprovalDecision.DENIED),
@@ -838,20 +823,20 @@ async def test_real_binary_generic_facade_gate_red_fix_and_verify_green(
 
 
 @pytest.mark.asyncio
-async def test_real_binary_generic_facade_rejects_edit_and_proves_positive_limit(
+async def test_real_binary_generic_facade_denies_native_edit_without_mutation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Le refus est réel; l'autorisation edit native est refusée sans broker.
+    """Le refus natif réel passe uniquement par l'endpoint OpenCode prévu.
 
-    OpenCode 1.18.16 émet permission.asked pour son outil edit. Même avec un
-    broker MCP mutateur actif, l'outil natif edit n'y est pas enregistré. Le
-    test prouve le verrou approval_tool_not_effectful, puis refuse la demande
-    réelle afin de libérer proprement la session, sans simuler d'autorisation.
+    OpenCode 1.18.16 émet ``permission.asked`` pour son outil ``edit``. Même
+    avec un broker MCP mutateur actif, cet ID natif ne doit jamais être traité
+    comme un effet ``mcp:`` exécuté par JARVIS. Le test refuse la demande via
+    l'endpoint de permission fournisseur et vérifie l'absence de mutation.
 
     En production, ``workspace:write`` sélectionne ``jarvis-coding`` (edit
     allow). Ce scénario force ``jarvis-executor`` pour verrouiller le chemin
-    ``edit=ask`` + élévation MCP.
+    ``edit=ask`` + refus natif.
     """
 
     from integrations.opencode import adapter as adapter_module
@@ -907,7 +892,7 @@ async def test_real_binary_generic_facade_rejects_edit_and_proves_positive_limit
         events, artifacts, approval_seen = await _collect_facade_terminal(
             runtime,
             run,
-            approval_flow="prove_native_edit_limit_then_deny",
+            approval_flow="deny",
             provider=provider,
         )
     finally:
@@ -918,8 +903,13 @@ async def test_real_binary_generic_facade_rejects_edit_and_proves_positive_limit
 
     assert approval_seen is True
     assert target.read_text(encoding="utf-8") == "APPROVAL=before\n"
-    assert any(event.type == "agent.approval.requested" for event in events)
-    assert any(event.type == "agent.approval.resolved" for event in events)
+    requested = [event for event in events if event.type == "agent.approval.requested"]
+    resolved = [event for event in events if event.type == "agent.approval.resolved"]
+    assert len(requested) == 1
+    assert len(resolved) == 1
+    approval_id = str(requested[0].payload["approval_id"])
+    assert not approval_id.startswith("mcp:")
+    assert resolved[0].payload["approval_id"] == approval_id
     assert not any(item.type == "changed_file" for item in artifacts)
 
 

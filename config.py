@@ -537,7 +537,7 @@ BROWSER_ENABLED = _get("BROWSER_ENABLED", "true").lower() == "true"
 BROWSER_HEADLESS = _get("BROWSER_HEADLESS", "true").lower() == "true"
 BROWSER_NAV_TIMEOUT_MS = int(_get("BROWSER_NAV_TIMEOUT_MS", "20000"))
 BROWSER_ACTION_TIMEOUT_MS = int(_get("BROWSER_ACTION_TIMEOUT_MS", "8000"))
-BROWSER_ALLOW_LOOPBACK = _get("BROWSER_ALLOW_LOOPBACK", "false").lower() == "true"
+BROWSER_SESSION_TTL_SECONDS = int(_get("BROWSER_SESSION_TTL_SECONDS", "300"))
 
 # ── Suggestions de repas et suivi de livraison ───────────────
 # Le relevé de menus est en lecture seule : il ne peut rien acheter, mais il

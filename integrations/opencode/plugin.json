@@ -109,18 +109,9 @@
       {
         "name": "browser.control",
         "scope": "browser:control",
-        "description": "Open a public HTTPS page, see it, then click or type. Never pay or complete a booking.",
+        "description": "Public HTTPS read navigation with exact one-shot approval; no mutable method, WebSocket, download, upload, authentication, payment, or booking.",
         "risk_level": "medium",
-        "requires_approval": false,
-        "reversible": true,
-        "timeout_s": 60
-      },
-      {
-        "name": "browser.download",
-        "scope": "browser:download",
-        "description": "Confined download permission declared for browser-profile runs",
-        "risk_level": "medium",
-        "requires_approval": false,
+        "requires_approval": true,
         "reversible": true,
         "timeout_s": 60
       },

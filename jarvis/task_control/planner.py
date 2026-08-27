@@ -75,7 +75,6 @@ KNOWN_PERMISSIONS: frozenset[str] = frozenset(
         "network:read",
         "research:search",
         "browser:control",
-        "browser:download",
         "financial:act",
     }
 )
@@ -209,8 +208,9 @@ def _booking_fallback_payload(task: ControlTask) -> dict[str, Any]:
             {
                 "title": "Consulter les sites dans le navigateur",
                 "detail": (
-                    "Ouvrir les pages avec jarvis_browser (open/see/click/type). "
-                    "Aucun clic de paiement ni de réservation finale."
+                    "Ouvrir une racine HTTPS, lire et lancer uniquement une "
+                    "recherche GET atomique avec jarvis_browser. Aucun clic ni "
+                    "saisie libre, paiement ou réservation finale."
                 ),
                 "expected_result": "Détails de prix, annulation et disponibilité.",
                 "tools": ["browser"],

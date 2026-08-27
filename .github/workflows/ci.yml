@@ -159,6 +159,9 @@ jobs:
           python -m pip install --require-hashes
           -r requirements/locks/ci-linux-x86_64-py312.txt
 
+      - name: Installer Chromium pour l'E2E de sécurité navigateur
+        run: python -m playwright install --with-deps chromium
+
       # Même contrat que scripts/local_ci.py (step_lint) : règles pyflakes F
       # uniquement — noms non définis, imports/variables inutilisés. La
       # configuration vit dans .ruff.toml.

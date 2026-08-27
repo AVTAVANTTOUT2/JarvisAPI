@@ -435,6 +435,85 @@ def test_verifier_refuses_model_text_missing_paths_and_untrusted_receipts(
     assert trusted.verdict is VerificationVerdict.PASS
 
 
+def test_browser_snapshot_is_reliable_read_evidence_not_a_business_effect_receipt() -> None:
+    from integrations.browser_runtime import (
+        clear_browser_receipt,
+        get_browser_snapshot_artifact,
+        mark_browser_receipt_approved,
+        record_browser_receipt,
+    )
+
+    run = replace(_run(), category=AgenticRequestCategory.AGENTIC_EXTERNAL_EFFECT)
+    for status in (
+        AgenticRunStatus.CLASSIFIED,
+        AgenticRunStatus.QUEUED,
+        AgenticRunStatus.PROVISIONING,
+        AgenticRunStatus.RUNNING,
+        AgenticRunStatus.VERIFYING,
+    ):
+        run = run.transition(status)
+    record_browser_receipt(
+        run.run_id,
+        snapshot_id="a" * 32,
+        operation="open",
+        url="https://public.example/private/path?token=secret",
+        title="Public page",
+        text="corps public non persisté",
+        policy_result="allowed",
+    )
+    try:
+        unapproved = get_browser_snapshot_artifact(run.run_id)
+        assert unapproved is not None
+        assert (
+            verify_runtime_completion(run=run, artifacts=(unapproved,)).verdict
+            is VerificationVerdict.FAIL
+        )
+
+        mark_browser_receipt_approved(
+            run.run_id, "b" * 64, snapshot_id="a" * 32
+        )
+        artifact = get_browser_snapshot_artifact(run.run_id)
+        assert artifact is not None
+        assert artifact.metadata["url"] == "https://public.example/"
+        assert (
+            verify_runtime_completion(run=run, artifacts=(artifact,)).verdict
+            is VerificationVerdict.BLOCKED
+        )
+        readonly = replace(run, category=AgenticRequestCategory.AGENTIC_READONLY)
+        assert (
+            verify_runtime_completion(run=readonly, artifacts=(artifact,)).verdict
+            is VerificationVerdict.PASS
+        )
+
+        tampered = replace(
+            artifact,
+            metadata={**artifact.metadata, "content_sha256": "c" * 64},
+        )
+        assert (
+            verify_runtime_completion(run=run, artifacts=(tampered,)).verdict
+            is VerificationVerdict.FAIL
+        )
+
+        record_browser_receipt(
+            run.run_id,
+            snapshot_id="d" * 32,
+            operation="search",
+            url="https://public.example/",
+            title="Public page",
+            text="",
+            policy_result="blocked",
+            block_reason="external_effect_blocked",
+        )
+        blocked = get_browser_snapshot_artifact(run.run_id)
+        assert blocked is not None
+        assert (
+            verify_runtime_completion(run=run, artifacts=(blocked,)).verdict
+            is VerificationVerdict.FAIL
+        )
+    finally:
+        clear_browser_receipt(run.run_id)
+
+
 def test_budget_violation_survives_event_neutralisation() -> None:
     """`budget_exceeded` sans borne nommée n'apprend rien à personne.
 

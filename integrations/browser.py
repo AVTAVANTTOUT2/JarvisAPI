@@ -1,416 +1,387 @@
-"""Navigateur agentique générique — yeux (voir) et mains (cliquer / taper).
-
-Playwright reste facultatif : JARVIS démarre sans. Uber Eats garde son
-parcours dédié ; ici une demande ouverte peut ouvrir un site HTTPS public,
-lire la page, puis agir. Un paiement ou une réservation finale est toujours
-refusé — y compris si le modèle envoie ``confirm: true``.
-"""
+"""Navigateur agentique de recherche, sans mutation externe ni authentification."""
 
 from __future__ import annotations
 
 import asyncio
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import replace
+import hashlib
 import logging
 import re
-import threading
-from typing import Any, Protocol
+from typing import Any
 from urllib.parse import urlsplit
+from uuid import uuid4
 
-from core.outbound_security import OutboundURLRejected, validate_open_world_https_url
-from integrations.playwright_runtime import (
-    PlaywrightUnavailable,
-    import_playwright,
+from core.outbound_security import OutboundURLRejected
+from integrations.browser_driver import BrowserElement
+from integrations.browser_runtime import (
+    BrowserError,
+    BrowserSession,
+    browser_now,
+    clear_browser_receipt,
+    close_session,
+    discard_session,
+    get_browser_snapshot_artifact,
+    get_session,
+    record_browser_receipt,
+    release_session,
+    run_browser_coroutine,
+    set_driver_factory,
+    shutdown,
+    validate_browser_target,
+    validate_target,
+)
+from integrations.browser_security import (
+    BrowserSecurityError,
+    sanitized_browser_path,
+    sanitized_browser_url,
 )
 
 logger = logging.getLogger("jarvis.browser")
 
 BROWSER_TOOL_NAME = "jarvis_browser"
-MAX_SESSIONS = 2
-MAX_ELEMENTS = 60
-MAX_TEXT_CHARS = 4_000
-MAX_NAME_CHARS = 80
 MAX_TYPE_CHARS = 500
-ALLOWED_KEYS = frozenset({"Enter", "Tab", "Escape"})
-_INTERACTIVE = (
-    "a, button, input, select, textarea, "
-    "[role='button'], [role='link'], [role='textbox'], [role='combobox']"
-)
+_SESSION_REF_RE = re.compile(r"^s[0-9]+e[0-9]+$")
 _COMMIT_RE = re.compile(
-    r"(?i)\b("
-    r"pay(?:ment|er)?(?:\s+now)?|acheter|checkout|billing|"
-    r"place\s+order|complete\s+(?:booking|purchase|order)|"
-    r"book\s+now|r[ée]server|confirm(?:er)?\s+"
-    r"(?:booking|reservation|purchase|and\s+pay)"
-    r")\b"
+    r"(?i)\b(pay|payment|payer|acheter|checkout|billing|order|commande|"
+    r"book|booking|r[ée]server|reserva|reservar|pagar|kaufen|bestellen|"
+    r"confirm|confirmer|delete|supprimer|remove|publish|publier|send|envoyer)\b"
 )
-_DESTRUCTIVE_RE = re.compile(
-    r"(?i)\b("
-    r"delete\s+account|supprimer\s+(?:le\s+)?compte|"
-    r"wipe|factory\s+reset|remove\s+permanently|"
-    r"supprime(?:r)?\s+d[ée]finitivement"
-    r")\b"
+_SENSITIVE_AUTOCOMPLETE = frozenset(
+    {
+        "current-password",
+        "new-password",
+        "one-time-code",
+        "username",
+        "webauthn",
+        "cc-name",
+        "cc-number",
+        "cc-exp",
+        "cc-exp-month",
+        "cc-exp-year",
+        "cc-csc",
+        "transaction-amount",
+        "transaction-currency",
+    }
 )
-_CHECKOUT_PATH_RE = re.compile(
-    r"(?i)/(checkout|payment|pay|billing|complete-booking)(/|$|\?)"
+_SENSITIVE_FIELD_RE = re.compile(
+    r"(?i)\b(password|passcode|mot de passe|otp|2fa|verification code|"
+    r"one.?time|credit card|card number|cvv|cvc|iban|bank account|routing|"
+    r"social security|national id|passport|login|sign.?in|connexion)\b"
 )
-_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1", "[::1]"})
 
 BROWSER_INPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
         "op": {
             "type": "string",
-            "enum": ["open", "see", "click", "type", "press", "close"],
+            "enum": ["open", "see", "search", "close"],
         },
         "url": {"type": ["string", "null"], "maxLength": 2000},
-        "ref": {"type": ["string", "null"], "maxLength": 16},
-        "text": {"type": ["string", "null"], "maxLength": 500},
-        "key": {"type": ["string", "null"], "enum": ["Enter", "Tab", "Escape", None]},
+        "ref": {"type": ["string", "null"], "maxLength": 32},
+        "snapshot_id": {"type": ["string", "null"], "maxLength": 64},
+        "element_name": {"type": ["string", "null"], "maxLength": 80},
+        "page_origin": {"type": ["string", "null"], "maxLength": 512},
+        "target_origin": {"type": ["string", "null"], "maxLength": 512},
+        "target_path": {"type": ["string", "null"], "maxLength": 512},
+        "target_sha256": {"type": ["string", "null"], "maxLength": 64},
+        "text": {"type": ["string", "null"], "maxLength": MAX_TYPE_CHARS},
     },
     "required": ["op"],
     "additionalProperties": False,
 }
 
 
-class BrowserError(RuntimeError):
-    """Erreur bornée du navigateur agentique."""
-
-    def __init__(self, code: str, message: str) -> None:
-        super().__init__(message)
-        self.code = code
+def _sha256(value: str) -> str:
+    return hashlib.sha256(value.encode()).hexdigest()
 
 
-@dataclass(frozen=True, slots=True)
-class BrowserElement:
-    ref: str
-    role: str
-    name: str
-    index: int
-
-
-class BrowserDriver(Protocol):
-    url: str
-
-    async def open(self, url: str) -> None: ...
-    async def observe(self) -> tuple[str, str, str, list[BrowserElement]]: ...
-    async def click(self, element: BrowserElement) -> None: ...
-    async def fill(self, element: BrowserElement, text: str) -> None: ...
-    async def press(self, element: BrowserElement, key: str) -> None: ...
-    async def close(self) -> None: ...
-
-
-@dataclass
-class _Session:
-    run_id: str
-    driver: BrowserDriver
-    elements: dict[str, BrowserElement] = field(default_factory=dict)
-    created_at: float = field(default_factory=lambda: 0.0)
-
-
-_SESSIONS: dict[str, _Session] = {}
-_SESSIONS_LOCK = threading.Lock()
-_LOOP: asyncio.AbstractEventLoop | None = None
-_LOOP_THREAD: threading.Thread | None = None
-_LOOP_LOCK = threading.Lock()
-_DRIVER_FACTORY: Any = None
-
-
-def _now() -> float:
-    import time
-
-    return time.monotonic()
-
-
-def set_driver_factory(factory: Any | None) -> None:
-    """Hook de test : injecte un driver sans Playwright ni réseau."""
-
-    global _DRIVER_FACTORY
-    _DRIVER_FACTORY = factory
-
-
-def _settings() -> tuple[bool, bool, int, int, bool]:
-    import config
-
-    enabled = bool(getattr(config, "BROWSER_ENABLED", True))
-    headless = bool(getattr(config, "BROWSER_HEADLESS", True))
-    nav_ms = int(getattr(config, "BROWSER_NAV_TIMEOUT_MS", 20_000))
-    act_ms = int(getattr(config, "BROWSER_ACTION_TIMEOUT_MS", 8_000))
-    loopback = bool(getattr(config, "BROWSER_ALLOW_LOOPBACK", False))
-    return enabled, headless, nav_ms, act_ms, loopback
-
-
-def validate_browser_target(
-    url: str,
-    *,
-    allow_loopback: bool = False,
-    resolver: Any | None = None,
-) -> str:
-    """HTTPS public, ou HTTP(S) loopback si le test l'autorise."""
-
-    candidate = str(url or "").strip()
-    parsed = urlsplit(candidate)
-    host = (parsed.hostname or "").lower().rstrip(".")
-    if allow_loopback and host in _LOOPBACK_HOSTS and parsed.scheme in {"http", "https"}:
-        if parsed.username is not None or parsed.password is not None:
-            raise OutboundURLRejected("https_required", "identifiants interdits dans l'URL")
-        return candidate
-    return validate_open_world_https_url(
-        candidate, resolver=resolver, allow_loopback=allow_loopback
-    )
+def _element_summary(item: BrowserElement) -> dict[str, str]:
+    result = {"ref": item.ref, "role": item.role, "name": item.name}
+    target = item.href
+    if not target and (
+        item.tag == "input"
+        and (item.input_type == "search" or item.role == "searchbox")
+    ):
+        target = item.form_action
+        if target:
+            result["action"] = "search_get"
+    if target:
+        result["target_origin"] = sanitized_browser_url(target)
+        result["target_path"] = sanitized_browser_path(target)
+        result["target_sha256"] = _sha256(target)
+    return result
 
 
 def is_final_commit(name: str, url: str) -> bool:
-    """True si l'acte conclurait un paiement, une réservation ou une destruction."""
+    """Filtre sémantique supplémentaire ; la structure DOM reste l'autorité."""
 
-    label = " ".join(str(name or "").split())
-    if _COMMIT_RE.search(label) or _DESTRUCTIVE_RE.search(label):
-        return True
-    path = urlsplit(url).path or ""
-    if _CHECKOUT_PATH_RE.search(path) and re.search(
-        r"(?i)\b(submit|confirm|envoyer|valider|pay|acheter)\b", label
-    ):
-        return True
-    return False
+    try:
+        path = urlsplit(str(url or "")).path
+    except ValueError:
+        path = ""
+    return bool(_COMMIT_RE.search(f"{name} {path}"))
 
 
-def _ensure_loop() -> asyncio.AbstractEventLoop:
-    global _LOOP, _LOOP_THREAD
-    with _LOOP_LOCK:
-        if _LOOP is not None and _LOOP.is_running():
-            return _LOOP
-        loop = asyncio.new_event_loop()
-
-        def _run() -> None:
-            asyncio.set_event_loop(loop)
-            loop.run_forever()
-
-        thread = threading.Thread(target=_run, name="jarvis-browser", daemon=True)
-        thread.start()
-        _LOOP = loop
-        _LOOP_THREAD = thread
-        return loop
-
-
-def _run(coro: Any, timeout_s: float = 45.0) -> Any:
-    future = asyncio.run_coroutine_threadsafe(coro, _ensure_loop())
-    return future.result(timeout_s)
-
-
-class PlaywrightDriver:
-    """Backend Playwright : un contexte Chromium par session de run."""
-
-    def __init__(self) -> None:
-        self.url = ""
-        self._playwright: Any = None
-        self._browser: Any = None
-        self._context: Any = None
-        self._page: Any = None
-
-    async def start(self, *, headless: bool, nav_ms: int, act_ms: int) -> None:
-        api = import_playwright()
-        self._playwright = await api.async_playwright().start()
-        self._browser = await self._playwright.chromium.launch(headless=headless)
-        self._context = await self._browser.new_context()
-        self._page = await self._context.new_page()
-        self._page.set_default_timeout(act_ms)
-        self._page.set_default_navigation_timeout(nav_ms)
-
-    async def open(self, url: str) -> None:
-        await self._page.goto(url, wait_until="domcontentloaded")
-        self.url = str(self._page.url or url)
-
-    async def observe(self) -> tuple[str, str, str, list[BrowserElement]]:
-        page = self._page
-        self.url = str(page.url or self.url)
-        title = str(await page.title() or "")
-        try:
-            text = str(await page.inner_text("body") or "")
-        except Exception:  # noqa: BLE001 — page vide ou non HTML
-            text = ""
-        locator = page.locator(_INTERACTIVE)
-        count = min(int(await locator.count()), MAX_ELEMENTS)
-        elements: list[BrowserElement] = []
-        for index in range(count):
-            item = locator.nth(index)
-            role = (
-                str(await item.get_attribute("role") or "").strip()
-                or str(await item.evaluate("el => el.tagName") or "").strip().lower()
-            )
-            name = (
-                str(await item.get_attribute("aria-label") or "").strip()
-                or str(await item.get_attribute("placeholder") or "").strip()
-                or " ".join(str(await item.inner_text() or "").split())
-            )
-            elements.append(
-                BrowserElement(
-                    ref=f"e{index + 1}",
-                    role=role[:40],
-                    name=name[:MAX_NAME_CHARS],
-                    index=index,
-                )
-            )
-        return self.url, title[:200], text[:MAX_TEXT_CHARS], elements
-
-    async def click(self, element: BrowserElement) -> None:
-        await self._page.locator(_INTERACTIVE).nth(element.index).click()
-
-    async def fill(self, element: BrowserElement, text: str) -> None:
-        await self._page.locator(_INTERACTIVE).nth(element.index).fill(text)
-
-    async def press(self, element: BrowserElement, key: str) -> None:
-        await self._page.locator(_INTERACTIVE).nth(element.index).press(key)
-
-    async def close(self) -> None:
-        for handle in (self._page, self._context, self._browser):
-            if handle is None:
-                continue
-            closer = getattr(handle, "close", None)
-            if closer is not None:
-                await closer()
-        if self._playwright is not None:
-            await self._playwright.stop()
-        self._page = self._context = self._browser = self._playwright = None
-        self.url = ""
-
-
-async def _make_driver(*, headless: bool, nav_ms: int, act_ms: int) -> BrowserDriver:
-    if _DRIVER_FACTORY is not None:
-        driver = _DRIVER_FACTORY()
-        start = getattr(driver, "start", None)
-        if callable(start):
-            result = start()
-            if asyncio.iscoroutine(result):
-                await result
-        return driver
-    driver = PlaywrightDriver()
-    await driver.start(headless=headless, nav_ms=nav_ms, act_ms=act_ms)
-    return driver
-
-
-def _snapshot(session: _Session, url: str, title: str, text: str) -> dict[str, Any]:
+def _snapshot(
+    session: BrowserSession, url: str, title: str, text: str, snapshot_id: str
+) -> dict[str, Any]:
     return {
-        "url": url,
+        "url": sanitized_browser_url(url),
         "title": title,
         "text": text,
-        "elements": [
-            {"ref": item.ref, "role": item.role, "name": item.name}
-            for item in session.elements.values()
-        ],
+        "snapshot_id": snapshot_id,
+        "elements": [_element_summary(item) for item in session.elements.values()],
     }
 
 
-async def _observe(session: _Session) -> dict[str, Any]:
+async def _observe(session: BrowserSession, *, operation: str) -> dict[str, Any]:
     url, title, text, elements = await session.driver.observe()
-    session.elements = {item.ref: item for item in elements}
+    session.generation += 1
+    snapshot_id = uuid4().hex
+    bound: dict[str, BrowserElement] = {}
+    for ordinal, item in enumerate(elements, start=1):
+        ref = f"s{session.generation}e{ordinal}"
+        bound[ref] = replace(
+            item,
+            ref=ref,
+            generation=session.generation,
+            snapshot_id=snapshot_id,
+            page_url=url,
+        )
+    session.elements = bound
     session.driver.url = url
-    return _snapshot(session, url, title, text)
+    session.last_used_at = browser_now()
+    record_browser_receipt(
+        session.run_id,
+        snapshot_id=snapshot_id,
+        operation=operation,
+        url=url,
+        title=title,
+        text=text,
+        policy_result="allowed",
+    )
+    return _snapshot(session, url, title, text, snapshot_id)
 
 
-async def _session(run_id: str) -> _Session:
-    enabled, headless, nav_ms, act_ms, _loopback = _settings()
-    if not enabled:
-        raise BrowserError("browser_disabled", "navigateur agentique désactivé")
-    evicted: list[_Session] = []
-    with _SESSIONS_LOCK:
-        existing = _SESSIONS.get(run_id)
-        if existing is not None:
-            return existing
-        while len(_SESSIONS) >= MAX_SESSIONS:
-            oldest_id = min(_SESSIONS, key=lambda key: _SESSIONS[key].created_at)
-            evicted.append(_SESSIONS.pop(oldest_id))
-    for stale in evicted:
-        await stale.driver.close()
-    try:
-        driver = await _make_driver(headless=headless, nav_ms=nav_ms, act_ms=act_ms)
-    except PlaywrightUnavailable as exc:
-        raise BrowserError("playwright_unavailable", str(exc)) from exc
-    session = _Session(run_id=run_id, driver=driver, created_at=_now())
-    with _SESSIONS_LOCK:
-        _SESSIONS[run_id] = session
-    return session
-
-
-async def _close(run_id: str) -> dict[str, Any]:
-    with _SESSIONS_LOCK:
-        session = _SESSIONS.pop(run_id, None)
-    if session is not None:
-        await session.driver.close()
-    return {"closed": True, "run_id": run_id}
-
-
-def close_session(run_id: str) -> None:
-    """Ferme la session d'un run, y compris à la fin du broker MCP."""
-
-    if not run_id:
-        return
-    try:
-        _run(_close(run_id), timeout_s=10.0)
-    except Exception:  # noqa: BLE001 — la fermeture ne doit pas masquer l'arrêt du run
-        logger.debug("fermeture navigateur ignorée pour %s", run_id, exc_info=True)
-
-
-def _require_ref(session: _Session, ref: str | None) -> BrowserElement:
+def _require_ref(
+    session: BrowserSession,
+    ref: str | None,
+    snapshot_id: str | None,
+    element_name: str | None,
+    page_origin: str | None,
+) -> BrowserElement:
     key = str(ref or "").strip()
+    expected_snapshot = str(snapshot_id or "").strip()
+    if not expected_snapshot:
+        raise BrowserError("snapshot_required", "snapshot_id requis pour agir")
+    expected_name = str(element_name or "").strip()
+    if not expected_name:
+        raise BrowserError("action_binding_required", "nom d'élément requis pour agir")
+    expected_origin = str(page_origin or "").strip()
+    if not expected_origin:
+        raise BrowserError("action_binding_required", "origine de page requise pour agir")
     element = session.elements.get(key)
-    if element is None:
-        raise BrowserError("unknown_ref", f"référence inconnue : {key or '∅'}")
-    return element
+    if (
+        element is not None
+        and element.snapshot_id == expected_snapshot
+        and element.name == expected_name
+        and sanitized_browser_url(element.page_url) == expected_origin
+    ):
+        return element
+    code = "stale_ref" if _SESSION_REF_RE.fullmatch(key) else "unknown_ref"
+    raise BrowserError(code, f"référence invalide : {key or '∅'}")
+
+
+def _sensitive(element: BrowserElement) -> bool:
+    autocomplete_tokens = frozenset(element.autocomplete.split())
+    description = " ".join(
+        (element.name, element.field_name, element.form_action, element.autocomplete)
+    )
+    return bool(
+        element.input_type in {"file", "password"}
+        or bool(autocomplete_tokens.intersection(_SENSITIVE_AUTOCOMPLETE))
+        or any(token.startswith("cc-") for token in autocomplete_tokens)
+        or element.form_has_password
+        or _SENSITIVE_FIELD_RE.search(description)
+    )
+
+
+def _allow_fill(element: BrowserElement) -> None:
+    if element.disabled or element.readonly:
+        raise BrowserError("field_unavailable", "champ indisponible")
+    if _sensitive(element):
+        raise BrowserError("sensitive_field", "champ sensible interdit")
+    if element.contenteditable or element.tag not in {"input", "textarea"}:
+        raise BrowserError("field_unclassified", "champ impossible à classifier")
+    if element.input_type in {
+        "button",
+        "checkbox",
+        "file",
+        "hidden",
+        "image",
+        "radio",
+        "reset",
+        "submit",
+    }:
+        raise BrowserError("field_unclassified", "champ impossible à classifier")
+
+
+def _validate_open_entrypoint(url: str) -> str:
+    """N'autorise qu'une racine d'origine comme point d'entrée explicite.
+
+    Une URL GET opaque, avec chemin ou query, peut représenter une mutation
+    serveur mal étiquetée. La recherche est donc le seul mécanisme autorisé
+    pour construire une URL avec query, à partir d'un formulaire GET live et
+    classifié.
+    """
+
+    validated = validate_target(url)
+    parsed = urlsplit(validated)
+    if parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
+        raise BrowserError(
+            "entrypoint_blocked",
+            "open accepte uniquement la racine HTTPS publique d'une origine",
+        )
+    return validated
+
+
+def _allow_search_submit(element: BrowserElement) -> None:
+    _allow_fill(element)
+    if is_final_commit(element.name, element.form_action):
+        raise BrowserError("external_effect_blocked", "action finale interdite")
+    if (
+        element.tag != "input"
+        or (element.input_type != "search" and element.role != "searchbox")
+        or element.form_method != "get"
+        or not element.form_action
+        or not element.field_name
+        or element.target not in {"", "_self"}
+    ):
+        raise BrowserError("submit_blocked", "Entrée ne peut pas soumettre ce formulaire")
+
+
+async def _blocked(
+    session: BrowserSession, *, operation: str, error: BrowserError
+) -> dict[str, Any]:
+    snapshot = await _observe(session, operation=operation)
+    record_browser_receipt(
+        session.run_id,
+        snapshot_id=str(snapshot["snapshot_id"]),
+        operation=operation,
+        url=session.driver.url,
+        title=str(snapshot["title"]),
+        text=str(snapshot["text"]),
+        policy_result="blocked",
+        block_reason=error.code,
+    )
+    return {
+        "ok": False,
+        "op": operation,
+        "started": True,
+        "blocked": error.code,
+        "needs_confirmation": False,
+        "message": str(error),
+        **snapshot,
+    }
+
+
+async def _apply_locked(
+    session: BrowserSession, operation: str, arguments: Mapping[str, Any]
+) -> dict[str, Any]:
+    if operation == "open":
+        await session.driver.open(
+            _validate_open_entrypoint(str(arguments.get("url") or ""))
+        )
+        snapshot = await _observe(session, operation=operation)
+        return {"ok": True, "op": operation, "started": True, **snapshot}
+    if operation == "see":
+        if not session.driver.url:
+            raise BrowserError("no_page", "aucune page ouverte")
+        snapshot = await _observe(session, operation=operation)
+        return {"ok": True, "op": operation, "started": True, **snapshot}
+    element = _require_ref(
+        session,
+        arguments.get("ref") if isinstance(arguments.get("ref"), str) else None,
+        (
+            arguments.get("snapshot_id")
+            if isinstance(arguments.get("snapshot_id"), str)
+            else None
+        ),
+        (
+            arguments.get("element_name")
+            if isinstance(arguments.get("element_name"), str)
+            else None
+        ),
+        (
+            arguments.get("page_origin")
+            if isinstance(arguments.get("page_origin"), str)
+            else None
+        ),
+    )
+    try:
+        live = await session.driver.inspect(element)
+    except BrowserSecurityError as exc:
+        session.elements.clear()
+        raise BrowserError(exc.code, str(exc)) from exc
+    try:
+        if operation == "search":
+            _allow_search_submit(live.element)
+            text = str(arguments.get("text") or "")
+            expected_origin = str(arguments.get("target_origin") or "").strip()
+            expected_path = str(arguments.get("target_path") or "").strip()
+            expected_digest = str(arguments.get("target_sha256") or "").strip()
+            if not text or len(text) > MAX_TYPE_CHARS:
+                raise BrowserError("text_invalid", "recherche invalide")
+            if (
+                expected_origin != sanitized_browser_url(live.element.form_action)
+                or expected_path != sanitized_browser_path(live.element.form_action)
+                or expected_path == "[PATH_REDACTED]"
+                or expected_digest != _sha256(live.element.form_action)
+            ):
+                raise BrowserError(
+                    "action_binding_required", "destination de recherche requise"
+                )
+            await session.driver.submit_search(live, text)
+        else:
+            raise BrowserError("op_invalid", f"opération inconnue : {operation}")
+    except BrowserError as exc:
+        return await _blocked(session, operation=operation, error=exc)
+    snapshot = await _observe(session, operation=operation)
+    return {"ok": True, "op": operation, "started": True, **snapshot}
 
 
 async def _apply(run_id: str, arguments: Mapping[str, Any]) -> dict[str, Any]:
-    op = str(arguments.get("op") or "").strip()
-    if op == "close":
-        return await _close(run_id)
-    enabled, _headless, _nav, _act, allow_loopback = _settings()
-    if not enabled:
-        raise BrowserError("browser_disabled", "navigateur agentique désactivé")
-    session = await _session(run_id)
-    if op == "open":
-        target = validate_browser_target(
-            str(arguments.get("url") or ""),
-            allow_loopback=allow_loopback,
-        )
-        await session.driver.open(target)
-        snapshot = await _observe(session)
-        return {"ok": True, "op": op, "started": True, **snapshot}
-    if op == "see":
-        if not session.driver.url and not session.elements:
-            raise BrowserError("no_page", "aucune page ouverte")
-        snapshot = await _observe(session)
-        return {"ok": True, "op": op, "started": True, **snapshot}
-    element = _require_ref(session, arguments.get("ref") if isinstance(arguments.get("ref"), str) else None)
-    current_url = session.driver.url
-    if is_final_commit(element.name, current_url):
-        snapshot = await _observe(session)
-        return {
-            "ok": False,
-            "op": op,
-            "started": True,
-            "blocked": "payment_or_booking",
-            "needs_confirmation": True,
-            "message": (
-                "Paiement, réservation finale ou action destructive : "
-                "je m'arrête. Confirmez vous-même sur la page."
-            ),
-            **snapshot,
-        }
-    if op == "click":
-        await session.driver.click(element)
-    elif op == "type":
-        text = str(arguments.get("text") or "")
-        if not text or len(text) > MAX_TYPE_CHARS:
-            raise BrowserError("text_invalid", "texte à saisir invalide")
-        await session.driver.fill(element, text)
-    elif op == "press":
-        key = str(arguments.get("key") or "")
-        if key not in ALLOWED_KEYS:
-            raise BrowserError("key_invalid", "touche non autorisée")
-        await session.driver.press(element, key)
-    else:
-        raise BrowserError("op_invalid", f"opération inconnue : {op}")
-    snapshot = await _observe(session)
-    return {"ok": True, "op": op, "started": True, **snapshot}
+    operation = str(arguments.get("op") or "").strip()
+    if operation not in {"open", "see", "search", "close"}:
+        raise BrowserError("op_invalid", f"opération inconnue : {operation or '∅'}")
+    if operation == "close":
+        await discard_session(run_id)
+        return {"ok": True, "closed": True, "run_id": run_id}
+    if operation == "open":
+        _validate_open_entrypoint(str(arguments.get("url") or ""))
+    session = await get_session(run_id)
+    try:
+        async with session.operation_lock:
+            if session.closing:
+                raise BrowserError("session_closed", "session navigateur fermée")
+            return await _apply_locked(session, operation, arguments)
+    except asyncio.CancelledError:
+        await discard_session(run_id, session)
+        clear_browser_receipt(run_id)
+        raise
+    except (BrowserSecurityError, OutboundURLRejected):
+        await discard_session(run_id, session)
+        clear_browser_receipt(run_id)
+        raise
+    except BrowserError:
+        raise
+    except Exception:
+        await discard_session(run_id, session)
+        clear_browser_receipt(run_id)
+        raise
+    finally:
+        release_session(session)
 
 
 def apply(run_id: str, arguments: Mapping[str, Any]) -> dict[str, Any]:
@@ -420,22 +391,28 @@ def apply(run_id: str, arguments: Mapping[str, Any]) -> dict[str, Any]:
     if not clean_run or len(clean_run) > 160:
         return {"ok": False, "error": "run_id_invalid", "started": False}
     try:
-        return _run(_apply(clean_run, arguments))
-    except OutboundURLRejected as exc:
+        return run_browser_coroutine(_apply(clean_run, arguments))
+    except (OutboundURLRejected, BrowserSecurityError) as exc:
+        close_session(clean_run)
+        clear_browser_receipt(clean_run)
         return {
             "ok": False,
             "error": exc.code,
-            "message": str(exc),
+            "message": "destination ou requête refusée par la politique navigateur",
             "started": True,
         }
     except BrowserError as exc:
+        if exc.code == "browser_timeout":
+            close_session(clean_run)
         return {
             "ok": False,
             "error": exc.code,
             "message": str(exc),
             "started": exc.code != "browser_disabled",
         }
-    except Exception as exc:  # noqa: BLE001 — frontière outil : jamais d'exception brute
+    except Exception as exc:
+        close_session(clean_run)
+        clear_browser_receipt(clean_run)
         logger.warning("navigateur agentique : %s", type(exc).__name__)
         return {
             "ok": False,
@@ -444,15 +421,17 @@ def apply(run_id: str, arguments: Mapping[str, Any]) -> dict[str, Any]:
             "started": True,
         }
 
-
 __all__ = [
     "BROWSER_INPUT_SCHEMA",
     "BROWSER_TOOL_NAME",
     "BrowserElement",
     "BrowserError",
     "apply",
+    "clear_browser_receipt",
     "close_session",
+    "get_browser_snapshot_artifact",
     "is_final_commit",
     "set_driver_factory",
+    "shutdown",
     "validate_browser_target",
 ]

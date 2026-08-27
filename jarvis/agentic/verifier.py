@@ -15,6 +15,7 @@ import json
 from pathlib import Path
 import re
 from typing import Any, Protocol, runtime_checkable
+from urllib.parse import urlsplit
 import uuid
 
 from .models import (
@@ -32,7 +33,6 @@ from .models import (
 _SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 _FILE_ARTIFACT_TYPES = frozenset(
     {
-        "browser_snapshot",
         "changed_file",
         "facture",
         "file",
@@ -48,6 +48,23 @@ _RECEIPT_ARTIFACT_TYPES = {
     "jarvis_test_receipt": "test",
     "jarvis_effect_receipt": "effect",
 }
+_BROWSER_OPERATIONS = frozenset({"open", "see", "search"})
+_BROWSER_SNAPSHOT_KEYS = frozenset(
+    {
+        "approval_arguments_sha256",
+        "approval_verified",
+        "content_sha256",
+        "issuer",
+        "observed_at",
+        "operation",
+        "policy_result",
+        "run_id",
+        "schema_version",
+        "snapshot_id",
+        "title",
+        "url",
+    }
+)
 
 
 def _canonical_receipt_bytes(metadata: Mapping[str, Any]) -> bytes:
@@ -186,6 +203,66 @@ def _verify_receipt_artifact(
     if hashlib.sha256(encoded).hexdigest() != artifact.sha256.lower():
         return "invalid", "digest du reçu différent du manifeste"
     return "valid", f"reçu JARVIS {expected_kind} vérifié"
+
+
+def _verify_browser_snapshot_artifact(
+    run: AgenticRun, artifact: Artifact
+) -> tuple[str, str]:
+    """Valide une preuve navigateur émise par le parent, sans contenu de page."""
+
+    if artifact.sha256 is None or artifact.size_bytes is None:
+        return "insufficient", "digest et taille du snapshot navigateur obligatoires"
+    metadata = dict(artifact.metadata)
+    if set(metadata) != _BROWSER_SNAPSHOT_KEYS:
+        return "invalid", "champs du snapshot navigateur invalides"
+    snapshot_id = metadata.get("snapshot_id")
+    if (
+        metadata.get("schema_version") != 1
+        or metadata.get("issuer") != "jarvis_browser"
+        or metadata.get("run_id") != run.run_id
+        or metadata.get("policy_result") != "allowed"
+        or metadata.get("approval_verified") is not True
+        or metadata.get("operation") not in _BROWSER_OPERATIONS
+        or not isinstance(snapshot_id, str)
+        or not re.fullmatch(r"[0-9a-f]{32}", snapshot_id)
+        or not isinstance(metadata.get("content_sha256"), str)
+        or not _SHA256_RE.fullmatch(metadata["content_sha256"])
+        or not isinstance(metadata.get("approval_arguments_sha256"), str)
+        or not _SHA256_RE.fullmatch(metadata["approval_arguments_sha256"])
+        or not isinstance(metadata.get("title"), str)
+        or len(metadata["title"]) > 200
+        or "\x00" in metadata["title"]
+    ):
+        return "invalid", "schéma du snapshot navigateur invalide"
+    if artifact.reference != f"jarvis://browser/{run.run_id}/{snapshot_id}":
+        return "invalid", "référence du snapshot navigateur invalide"
+    try:
+        observed = datetime.fromisoformat(
+            str(metadata["observed_at"]).replace("Z", "+00:00")
+        )
+        parsed = urlsplit(str(metadata["url"]))
+        port = parsed.port
+        encoded = _canonical_receipt_bytes(metadata)
+    except (TypeError, ValueError):
+        return "invalid", "snapshot navigateur non canonique"
+    if observed.tzinfo is None or observed.utcoffset() is None:
+        return "invalid", "horodatage du snapshot navigateur invalide"
+    if (
+        parsed.scheme != "https"
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or port not in (None, 443)
+        or parsed.path != "/"
+        or parsed.query
+        or parsed.fragment
+    ):
+        return "invalid", "origine du snapshot navigateur invalide"
+    if artifact.size_bytes != len(encoded):
+        return "invalid", "taille du snapshot navigateur différente"
+    if artifact.sha256.lower() != hashlib.sha256(encoded).hexdigest():
+        return "invalid", "digest du snapshot navigateur différent"
+    return "valid", "snapshot navigateur approuvé et vérifié par JARVIS"
 
 
 @runtime_checkable
@@ -415,6 +492,7 @@ class DeterministicRuntimeVerifier:
         reliable = 0
         file_evidence = 0
         receipt_evidence = 0
+        browser_evidence = 0
         effect_receipts = 0
         test_receipts = 0
         narrative_only = 0
@@ -448,7 +526,11 @@ class DeterministicRuntimeVerifier:
                 structural_violations += 1
                 continue
             validated += 1
-            if candidate.type in _FILE_ARTIFACT_TYPES:
+            if candidate.type == "browser_snapshot":
+                outcome, _reason = _verify_browser_snapshot_artifact(run, candidate)
+                browser_evidence += outcome == "valid"
+                receipt_evidence += outcome == "valid"
+            elif candidate.type in _FILE_ARTIFACT_TYPES:
                 outcome, _reason = _verify_file_artifact(run, candidate)
                 file_evidence += outcome == "valid"
             elif candidate.type in _RECEIPT_ARTIFACT_TYPES:
@@ -530,6 +612,7 @@ class DeterministicRuntimeVerifier:
                 metadata={
                     "reliable_count": reliable,
                     "file_evidence_count": file_evidence,
+                    "browser_evidence_count": browser_evidence,
                     "receipt_evidence_count": receipt_evidence,
                     "effect_receipt_count": effect_receipts,
                     "test_receipt_count": test_receipts,
