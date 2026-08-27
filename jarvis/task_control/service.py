@@ -650,10 +650,18 @@ class TaskControlService:
         )
 
         task = self.repository.require_task(task_id)
+        resume_run_id: str | None = None
         if task.agentic_run_id:
-            # Un run existe déjà : relancer en créerait un second sur la même
-            # approbation, donc deux fois le travail et deux fois la dépense.
-            return task
+            try:
+                existing_run = self.agentic.get(task.agentic_run_id)
+            except Exception:
+                existing_run = None
+            # Un run réellement persisté gagne toujours. En revanche, une
+            # association QUEUED sans run est une intention de lancement
+            # interrompue : elle doit reprendre avec le même identifiant.
+            if existing_run is not None or task.status is not TaskStatus.QUEUED:
+                return task
+            resume_run_id = task.agentic_run_id
         plan = (
             self.repository.get_plan(task_id, task.approved_plan_version)
             if task.approved_plan_version
@@ -672,12 +680,32 @@ class TaskControlService:
                     or str(getattr(active_manifest, "version", ""))
                     != engineering.runtime_version
                 ):
-                    from .models import TaskExecutionRefused
-
-                    raise TaskExecutionRefused(
-                        "la version du runtime a changé depuis le plan ; "
-                        "une nouvelle approbation est requise"
+                    reason = (
+                        "Runtime approuvé indisponible ou version modifiée ; "
+                        "une nouvelle version du plan doit être approuvée."
                     )
+                    task = self.repository.update_task(
+                        task_id,
+                        status=TaskStatus.PLAN_REVISION_REQUESTED,
+                        approved_plan_version=None,
+                        approved_plan_digest=None,
+                        agentic_run_id=None,
+                        current_phase="runtime_contract_changed",
+                        attention_required=True,
+                    )
+                    self.repository.append_activity(
+                        build_user_activity(
+                            task_id=task_id,
+                            summary=reason,
+                            event_type=TaskActivityType.WARNING,
+                        )
+                    )
+                    await self._emit(
+                        task,
+                        "task.control.plan_revision_requested",
+                        spoken_summary=reason,
+                    )
+                    return task
 
         routing_raw = task.metadata.get(AGENTIC_ROUTING_METADATA_KEY)
         routing = dict(routing_raw) if isinstance(routing_raw, Mapping) else {}
@@ -758,13 +786,45 @@ class TaskControlService:
         # l'attendre : ses premiers événements (`queued`, `resource_wait`)
         # partaient donc avant que `find_task_by_run` puisse retrouver la
         # tâche, et étaient perdus. L'association d'abord ferme cette fenêtre.
-        run_id = str(uuid.uuid4())
+        run_id = resume_run_id or str(uuid.uuid4())
         task = self.repository.update_task(
             task_id,
             agentic_run_id=run_id,
             status=TaskStatus.QUEUED,
             current_phase="queued",
         )
+
+        if engineering is not None and worktree is not None:
+            from agents.devagent.finalizer import enqueue_engineering_finalizer
+
+            try:
+                enqueue_engineering_finalizer(
+                    {
+                        "job_id": worktree.job_id,
+                        "run_id": run_id,
+                        "repo_root": str(worktree.repo_root),
+                        "worktree_path": str(worktree.workspace),
+                        "branch_name": worktree.branch,
+                        "base_branch": worktree.base_branch,
+                        "remote_identity": (
+                            worktree.remote_identity.to_dict()
+                            if worktree.remote_identity is not None
+                            else None
+                        ),
+                    },
+                    required_tests=engineering.required_tests,
+                    commit_message=engineering.commit_message,
+                    publish_external=False,
+                    required_checks=(),
+                )
+            except Exception as exc:
+                logger.exception("finalizer non persistant pour %s", task_id)
+                return await self._record_launch_failure(
+                    task_id,
+                    exc,
+                    phase="finalizer_enqueue_failed",
+                    run_id=run_id,
+                )
         try:
             run = await self.agentic.create_and_start(
                 run_id=run_id,
@@ -792,6 +852,19 @@ class TaskControlService:
             )
         except Exception as exc:
             logger.exception("démarrage du runtime impossible pour %s", task_id)
+            if engineering is not None:
+                try:
+                    from agents.devagent.finalizer import (
+                        fail_engineering_finalizer_launch,
+                    )
+
+                    fail_engineering_finalizer_launch(
+                        engineering.job_id,
+                        run_id=run_id,
+                        error_code="runtime_start_failed",
+                    )
+                except Exception:
+                    logger.warning("finalizer de lancement impossible à terminaliser")
             # Aucun run n'a été rendu : garder l'identifiant préalloué
             # laisserait la tâche pointer vers une exécution inexistante.
             return await self._record_launch_failure(
@@ -799,46 +872,21 @@ class TaskControlService:
             )
 
         if run.run_id != run_id:
+            if engineering is not None:
+                try:
+                    await self.agentic.cancel(run.run_id)
+                except Exception:
+                    logger.warning("annulation du run divergent impossible")
+                return await self._record_launch_failure(
+                    task_id,
+                    RuntimeError("le runtime a remplacé l'identifiant signé"),
+                    phase="runtime_identity_mismatch",
+                    run_id=run_id,
+                )
             # Le service a rendu un autre run que celui demandé (idempotence) :
             # c'est lui qui fait foi, l'association le suit.
             task = self.repository.update_task(task_id, agentic_run_id=run.run_id)
             run_id = run.run_id
-
-        if engineering is not None and worktree is not None:
-            from agents.devagent.finalizer import enqueue_engineering_finalizer
-
-            try:
-                enqueue_engineering_finalizer(
-                    {
-                        "job_id": worktree.job_id,
-                        "run_id": run_id,
-                        "repo_root": str(worktree.repo_root),
-                        "worktree_path": str(worktree.workspace),
-                        "branch_name": worktree.branch,
-                        "base_branch": worktree.base_branch,
-                        "remote_identity": (
-                            worktree.remote_identity.to_dict()
-                            if worktree.remote_identity is not None
-                            else None
-                        ),
-                    },
-                    required_tests=engineering.required_tests,
-                    commit_message=engineering.commit_message,
-                    publish_external=False,
-                    required_checks=(),
-                )
-            except Exception as exc:
-                logger.exception("finalizer non persistant pour %s", task_id)
-                try:
-                    await self.agentic.cancel(run_id)
-                except Exception:
-                    logger.warning("annulation après échec finalizer impossible")
-                return await self._record_launch_failure(
-                    task_id,
-                    exc,
-                    phase="finalizer_enqueue_failed",
-                    run_id=run_id,
-                )
 
         # État **réel** du run, relu après la tentative — jamais un `running`
         # supposé. `expected_status` protège la relecture : si un événement
@@ -1204,6 +1252,7 @@ class TaskControlService:
                         "type": item.type,
                         "reference": item.reference,
                         "sha256": item.sha256,
+                        "metadata": dict(getattr(item, "metadata", {}) or {}),
                     }
                     for item in self.agentic.artifacts(task.agentic_run_id)
                 ]

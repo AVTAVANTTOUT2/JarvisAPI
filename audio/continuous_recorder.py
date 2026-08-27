@@ -522,6 +522,9 @@ class ContinuousRecording:
             except Exception as e:
                 logger.exception("[recording] Extraction Haiku segment %d : %s", idx, e)
 
+        if len(partials) != total:
+            raise RecordingProcessingError("recording_extraction_partial")
+
         aggregated = _merge_extractor_parts(partials)
         agg_txt = json.dumps(aggregated, ensure_ascii=False, indent=2)
 
@@ -556,16 +559,7 @@ class ContinuousRecording:
                 return syn
         except Exception as e:
             logger.exception("[recording] Synthèse Sonnet : %s", e)
-
-        return {
-            "title": self.label or "Enregistrement",
-            "summary": transcription[:4000],
-            "tasks": [],
-            "calendar_events": [],
-            "facts": [],
-            "people": [],
-            "patterns_observed": [],
-        }
+        raise RecordingProcessingError("recording_synthesis_failed")
 
     @staticmethod
     def _proposal_summary(synthesis: dict) -> dict:
@@ -610,6 +604,7 @@ class ContinuousRecording:
             )
         except Exception as exc:
             logger.exception("[recording] Épisode dérivé : %s", exc)
+            raise RecordingProcessingError("recording_episode_failed") from exc
 
         if proposals["tasks_proposed"] or proposals["events_proposed"]:
             from jarvis.notification_service import notification_service

@@ -53,6 +53,7 @@ _AUTONOMOUS_PERMISSIONS = (
 )
 _JOB_ID_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9-]{0,63}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_GIT_OBJECT_ID_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 _SAFE_RELATIVE_PATH_RE = re.compile(r"^[A-Za-z0-9._/@+ -]+$")
 _MAX_CHANGED_FILES = 100
 _MAX_CHANGED_FILE_BYTES = 10 * 1024 * 1024
@@ -1390,8 +1391,26 @@ def validate_and_commit_engineering_worktree(
         except (OSError, RuntimeError) as exc:
             return {"ok": False, "status": str(exc), "validations": []}
         if committed == expected:
+            head = run_isolated(
+                ("git", "rev-parse", "HEAD"), cwd=worktree.workspace, timeout=30
+            )
+            commit_sha = str(head.get("stdout") or "").strip().casefold()
+            if head.get("returncode") != 0 or not _GIT_OBJECT_ID_RE.fullmatch(
+                commit_sha
+            ):
+                return {
+                    "ok": False,
+                    "status": "commit_identity_unavailable",
+                    "validations": [],
+                }
             _sync_worktree_lifecycle(worktree, state="delivered")
-            return {"ok": True, "status": "already_committed", "validations": []}
+            return {
+                "ok": True,
+                "status": "already_committed",
+                "validations": [],
+                "commit_sha": commit_sha,
+                "branch_name": worktree.branch,
+            }
         return {"ok": False, "status": "artifact_manifest_mismatch", "validations": []}
     if not expected:
         return {"ok": False, "status": "artifact_manifest_missing", "validations": []}
@@ -1503,6 +1522,16 @@ def validate_and_commit_engineering_worktree(
     except (OSError, RuntimeError):
         return _failure_after_staging(worktree.workspace, "commit_failed", validations)
     committed = commit.get("returncode") == 0
+    commit_sha = ""
+    if committed:
+        head = run_isolated(
+            ("git", "rev-parse", "HEAD"), cwd=worktree.workspace, timeout=30
+        )
+        candidate = str(head.get("stdout") or "").strip().casefold()
+        if head.get("returncode") != 0 or not _GIT_OBJECT_ID_RE.fullmatch(candidate):
+            committed = False
+        else:
+            commit_sha = candidate
     rollback_ok = True
     if not committed:
         rollback_ok = _rollback_index(worktree.workspace)
@@ -1520,6 +1549,8 @@ def validate_and_commit_engineering_worktree(
             else "commit_failed_index_rollback_failed"
         ),
         "validations": validations,
+        "commit_sha": commit_sha,
+        "branch_name": worktree.branch,
         "index_rolled_back": rollback_ok if not committed else None,
         "commit": {
             "returncode": int(commit.get("returncode", 1)),
@@ -1578,7 +1609,11 @@ async def settle_engineering_delivery(
             run_id,
             kind="effect",
             subject="Commit local créé par JARVIS",
-            details={"delivery_status": status},
+            details={
+                "delivery_status": status,
+                "commit_sha": str(delivery.get("commit_sha") or ""),
+                "branch_name": str(delivery.get("branch_name") or ""),
+            },
             artifact_id=f"receipt:effect:devagent:{run_id}",
         )
     verifier = getattr(service, "verify_run", None)

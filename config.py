@@ -327,6 +327,17 @@ RECORDING_MAX_DURATION_MIN = int(
 RECORDING_CHUNK_SIZE_MB = int(
     _get("RECORDING_CHUNK_SIZE_MB", "20")
 )  # taille max par segment local
+RECORDING_MAX_SESSION_BYTES = int(
+    _get("RECORDING_MAX_SESSION_BYTES", str(1024 * 1024 * 1024))
+)  # 1 GiB par capture
+RECORDING_MAX_PROFILE_SPOOL_BYTES = int(
+    _get("RECORDING_MAX_PROFILE_SPOOL_BYTES", str(4 * 1024 * 1024 * 1024))
+)  # 4 GiB de brut par profil
+RECORDING_MAX_ACTIVE_SESSIONS = int(_get("RECORDING_MAX_ACTIVE_SESSIONS", "4"))
+RECORDING_MAX_PENDING_JOBS = int(_get("RECORDING_MAX_PENDING_JOBS", "4"))
+RECORDING_CAPTURE_IDLE_TTL_MIN = int(
+    _get("RECORDING_CAPTURE_IDLE_TTL_MIN", "30")
+)
 RECORDING_SUMMARY_ONLY = (
     _get("RECORDING_SUMMARY_ONLY", "false").lower() == "true"
 )  # n’inclut pas la transcription dans les réponses API/liste

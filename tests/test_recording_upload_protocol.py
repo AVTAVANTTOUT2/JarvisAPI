@@ -343,6 +343,139 @@ def test_final_expired_recording_lease_terminalizes_session(
     assert session.attempts == 3
 
 
+def test_capture_storage_queue_and_idle_limits_fail_closed(
+    recording_env: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import config
+    from audio.recording_spool import (
+        RecordingSpool,
+        RecordingSpoolError,
+        reconcile_recording_sessions,
+    )
+    from database import get_db, get_recording_session
+
+    monkeypatch.setattr(config, "RECORDING_MAX_ACTIVE_SESSIONS", 1)
+    first = RecordingSpool.create(
+        conversation_id=None,
+        label="Quota actif",
+        client_recording_id=str(uuid4()),
+    )
+    with pytest.raises(RecordingSpoolError, match="active_session_limit"):
+        RecordingSpool.create(
+            conversation_id=None,
+            label="En trop",
+            client_recording_id=str(uuid4()),
+        )
+    first.cancel_capture()
+
+    monkeypatch.setattr(config, "RECORDING_MAX_ACTIVE_SESSIONS", 4)
+    monkeypatch.setattr(config, "RECORDING_MAX_SESSION_BYTES", 5_000)
+    bounded = RecordingSpool.create(
+        conversation_id=None,
+        label="Quota capture",
+        client_recording_id=str(uuid4()),
+    )
+    payload = _webm_segment(0)
+    bounded.append_chunk(
+        sequence=0,
+        audio_bytes=payload,
+        expected_checksum=hashlib.sha256(payload).hexdigest(),
+        duration_ms=30_000,
+        mime_type="audio/webm",
+    )
+    overflow = _webm_segment(1)
+    with pytest.raises(RecordingSpoolError, match="session_quota_exceeded"):
+        bounded.append_chunk(
+            sequence=1,
+            audio_bytes=overflow,
+            expected_checksum=hashlib.sha256(overflow).hexdigest(),
+            duration_ms=30_000,
+            mime_type="audio/webm",
+        )
+
+    monkeypatch.setattr(config, "RECORDING_MAX_SESSION_BYTES", 1024 * 1024)
+    monkeypatch.setattr(config, "RECORDING_MAX_PENDING_JOBS", 1)
+    queued = bounded.seal_and_enqueue(
+        label="Quota capture", duration_seconds=30, expected_chunks=1
+    )
+    assert queued["idempotent"] is False
+    waiting = RecordingSpool.create(
+        conversation_id=None,
+        label="File pleine",
+        client_recording_id=str(uuid4()),
+    )
+    waiting_payload = _webm_segment(0)
+    waiting.append_chunk(
+        sequence=0,
+        audio_bytes=waiting_payload,
+        expected_checksum=hashlib.sha256(waiting_payload).hexdigest(),
+        duration_ms=30_000,
+        mime_type="audio/webm",
+    )
+    with pytest.raises(RecordingSpoolError, match="recording_queue_full"):
+        waiting.seal_and_enqueue(
+            label="File pleine", duration_seconds=30, expected_chunks=1
+        )
+    assert get_recording_session(waiting.session_id).state == "capturing"
+
+    with get_db() as connection:
+        connection.execute(
+            "UPDATE recording_sessions SET updated_at = '1970-01-01 00:00:00' WHERE id = ?",
+            (waiting.session_id,),
+        )
+    assert reconcile_recording_sessions() >= 1
+    expired = get_recording_session(waiting.session_id)
+    assert expired.state == "failed"
+    assert expired.error == "recording_capture_expired"
+    assert expired.spool_path == ""
+
+
+@pytest.mark.asyncio
+async def test_extraction_synthesis_and_episode_failures_are_typed(
+    recording_env: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import config
+    from audio import continuous_recorder
+    from audio.continuous_recorder import ContinuousRecording, RecordingProcessingError
+
+    recording = ContinuousRecording(None)
+    recording.label = "Erreurs typées"
+
+    async def invalid_extraction(**_kwargs):
+        return {"content": "not-json"}
+
+    monkeypatch.setattr(continuous_recorder.llm, "chat", invalid_extraction)
+    with pytest.raises(RecordingProcessingError, match="recording_extraction_partial"):
+        await recording._synthesize("transcription", 30)
+
+    calls = 0
+
+    async def synthesis_failure(**_kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return {"content": '{"summary":"ok"}'}
+        raise RuntimeError("model unavailable")
+
+    monkeypatch.setattr(continuous_recorder.llm, "chat", synthesis_failure)
+    with pytest.raises(RecordingProcessingError, match="recording_synthesis_failed"):
+        await recording._synthesize("transcription", 30)
+
+    def episode_failure(**_kwargs):
+        raise RuntimeError("database unavailable")
+
+    monkeypatch.setattr(continuous_recorder, "save_episode", episode_failure)
+    monkeypatch.setattr(config, "DESKTOP_NOTIFICATIONS", False)
+    with pytest.raises(RecordingProcessingError, match="recording_episode_failed"):
+        await recording._apply_synthesis(
+            {"title": "Titre", "summary": "Résumé"},
+            recording_id=1,
+            session_id=None,
+        )
+
+
 def test_crash_after_chunk_fsync_recovers_orphan_without_duplicate(
     recording_env: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -25,6 +25,10 @@ _NON_RETRYABLE_ERRORS = frozenset(
         "recording_container_unsupported",
         "recording_chunk_corrupt",
         "recording_manifest_corrupt",
+        "recording_capture_expired",
+        "recording_active_session_limit",
+        "recording_profile_quota_exceeded",
+        "recording_session_quota_exceeded",
     }
 )
 
