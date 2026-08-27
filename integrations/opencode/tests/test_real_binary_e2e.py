@@ -1004,6 +1004,10 @@ async def test_real_binary_repeated_identical_tool_call_is_stopped_early(
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(
+    sys.platform != "darwin",
+    reason="la validation de livraison exige le sandbox macOS fail-closed",
+)
 async def test_real_binary_task_control_delivery_runs_jarvis_pytest_and_commits(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
