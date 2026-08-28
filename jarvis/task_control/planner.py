@@ -50,6 +50,7 @@ KNOWN_TOOLS: frozenset[str] = frozenset(
         "run_tests",
         "git",
         "web_search",
+        "browser",
         "mail_draft",
         "mail_send",
         "calendar_create",
@@ -72,6 +73,9 @@ KNOWN_PERMISSIONS: frozenset[str] = frozenset(
         "calendar:write",
         "message:send",
         "network:read",
+        "research:search",
+        "browser:control",
+        "financial:act",
     }
 )
 
@@ -79,7 +83,13 @@ KNOWN_PERMISSIONS: frozenset[str] = frozenset(
 #: n'autorise rien : elle prévient seulement l'utilisateur qu'une approbation
 #: d'effet sera demandée au moment venu.
 EXTERNAL_EFFECT_PERMISSIONS: frozenset[str] = frozenset(
-    {"mail:send", "message:send", "calendar:write", "git:push"}
+    {
+        "mail:send",
+        "message:send",
+        "calendar:write",
+        "git:push",
+        "financial:act",
+    }
 )
 
 
@@ -173,6 +183,82 @@ def _steps_from_payload(payload: Mapping[str, Any]) -> tuple[PlanStep, ...]:
     return tuple(steps)
 
 
+def _booking_fallback_payload(task: ControlTask) -> dict[str, Any]:
+    """Repli voyage/réservation : chercher, comparer, s'arrêter avant paiement."""
+
+    return {
+        "objective": task.title,
+        "summary": (
+            "Plan de repli pour une réservation : rechercher des options, "
+            "ouvrir les sites avec jarvis_browser, présenter un comparatif, "
+            "et s'arrêter avant tout paiement."
+        ),
+        "context_understood": clamp_text(task.description, 600),
+        "steps": [
+            {
+                "title": "Rechercher des options",
+                "detail": (
+                    "Interroger le web (dates, lieu, budget s'ils sont connus) "
+                    "pour une première liste d'hôtels, logements ou trajets."
+                ),
+                "expected_result": "Liste courte de candidats avec source.",
+                "tools": ["web_search"],
+                "permissions": ["research:search", "network:read"],
+            },
+            {
+                "title": "Consulter les sites dans le navigateur",
+                "detail": (
+                    "Ouvrir une racine HTTPS, lire et lancer uniquement une "
+                    "recherche GET atomique avec jarvis_browser. Aucun clic ni "
+                    "saisie libre, paiement ou réservation finale."
+                ),
+                "expected_result": "Détails de prix, annulation et disponibilité.",
+                "tools": ["browser"],
+                "permissions": ["browser:control"],
+            },
+            {
+                "title": "Présenter les options et s'arrêter",
+                "detail": (
+                    "Comparer trois options au plus (prix, emplacement, "
+                    "conditions). Demander confirmation avant toute dépense. "
+                    "Ne pas réserver, ne pas payer."
+                ),
+                "expected_result": "Comparatif prêt, paiement non engagé.",
+            },
+        ],
+        "expected_deliverables": [
+            "Comparatif d'options avec prix et sources",
+            "Question de confirmation avant toute dépense",
+        ],
+        "tools_expected": ["web_search", "browser"],
+        "permissions_expected": [
+            "research:search",
+            "network:read",
+            "browser:control",
+            "financial:act",
+        ],
+        "risks": [
+            "Sans Playwright/Chromium, jarvis_browser rend playwright_unavailable "
+            "au lieu d'agir.",
+            "Sans dates ni budget, les prix resteront indicatifs.",
+        ],
+        "assumptions": [
+            "Aucune date, chambre ou budget n'a été fourni sauf mention contraire."
+        ],
+        "success_criteria": [
+            "Des options concrètes sont présentées.",
+            "Aucun paiement ni réservation n'a été effectué.",
+        ],
+        "known_limits": [
+            "Plan de repli : pas de paiement automatique.",
+            "Aucun outil hôtel dédié : le runtime utilise jarvis_browser.",
+            "Paiement et réservation finale restent bloqués.",
+        ],
+        "estimated_duration_s": 900,
+        "degraded": True,
+    }
+
+
 def fallback_plan_payload(task: ControlTask) -> dict[str, Any]:
     """Plan minimal, déterministe, produit sans réseau.
 
@@ -181,6 +267,11 @@ def fallback_plan_payload(task: ControlTask) -> dict[str, Any]:
     ou — pire — une tâche qu'on laisserait démarrer « puisque le plan a
     échoué ».
     """
+
+    from jarvis.agentic.classifier import is_open_world_booking_request
+
+    if is_open_world_booking_request(f"{task.title} {task.description}"):
+        return _booking_fallback_payload(task)
 
     return {
         "objective": task.title,

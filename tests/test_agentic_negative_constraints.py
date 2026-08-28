@@ -44,6 +44,9 @@ REPRO = "Dis-moi si tous les tests passent, mais ne les exécute pas."
     [
         REPRO,
         "ne lance pas les tests",
+        "ne lance surtout pas les tests",
+        "ne deploie vraiment pas en production",
+        "ne merge surtout pas cette branche",
         "n'exécute pas la migration",
         "ne démarre pas le serveur",
         "analyse le code sans exécuter quoi que ce soit",
@@ -377,8 +380,9 @@ def test_resolve_execution_grant_reborne_un_profil_persiste() -> None:
             }
         }
 
-    with pytest.raises(PermissionError):
-        resolve_execution_grant(_Task(), REPRO)
+    grant = resolve_execution_grant(_Task(), REPRO)
+    assert "tests:run" not in grant.permissions
+    assert "workspace:write" not in grant.permissions
 
 
 # --------------------------------------------------------------------------

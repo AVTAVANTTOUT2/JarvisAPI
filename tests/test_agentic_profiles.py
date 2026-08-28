@@ -43,6 +43,9 @@ def test_catalog_contains_exactly_the_eight_minimal_profiles() -> None:
     assert "shell:unrestricted" not in CAPABILITY_PROFILES["coding"].permissions
     assert "git:push" not in CAPABILITY_PROFILES["coding"].permissions
     assert "financial:act" not in CAPABILITY_PROFILES["invoice"].permissions
+    assert "financial:act" not in CAPABILITY_PROFILES["browser"].permissions
+    assert "financial:act" in CAPABILITY_PROFILES["browser"].denied_permissions
+    assert "research:search" in CAPABILITY_PROFILES["browser"].default_permissions
     assert "privilege:elevate" not in CAPABILITY_PROFILES["desktop"].permissions
     personal_read_scopes = {
         "communications:read",
@@ -90,6 +93,16 @@ def test_catalog_contains_exactly_the_eight_minimal_profiles() -> None:
         (
             "Ouvre ce site web dans le navigateur",
             AgenticRequestCategory.WORKFLOW,
+            "browser",
+        ),
+        (
+            "book me a hotel in Barcelona",
+            AgenticRequestCategory.AGENTIC_EXTERNAL_EFFECT,
+            "browser",
+        ),
+        (
+            "réserve-moi un hôtel à Barcelone",
+            AgenticRequestCategory.AGENTIC_EXTERNAL_EFFECT,
             "browser",
         ),
         (

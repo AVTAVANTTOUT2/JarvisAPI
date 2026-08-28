@@ -5,7 +5,7 @@
 **Statut** : Rapport de vérification doc vs code — Phases 1 à 6 et NotificationService implémentés
 
 Runtime SQLite canonique : **119 tables persistantes**, **124 tables physiques avec FTS5**, schéma généré : **126 déclarations de tables**.
-Structure API canonique : **316 opérations HTTP + 2 WebSockets**, **281 chemins OpenAPI**, **22 routeurs api/router_*.py + Fitness = 23 montés**, main.py **269 lignes**.
+Structure API canonique : **322 opérations HTTP + 2 WebSockets**, **286 chemins OpenAPI**, **22 routeurs api/router_*.py + Fitness = 23 montés**, main.py **269 lignes**.
 
 ---
 

@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-19T11:51:23.074378+00:00",
+  "generated_at": "2026-08-27T20:12:31.332275+00:00",
   "repo_root": ".",
   "canonical_formulation": {
     "database": "Le projet crée 119 tables persistantes après init_db() + migrations, plus jusqu'à 5 objets FTS5, soit 124 tables physiques lorsque FTS5 est disponible.",
@@ -546,9 +546,9 @@
   "api_surface": {
     "coverage_scope": "Références statiques par chemin : la méthode HTTP et les assertions comportementales restent vérifiées par les suites de tests.",
     "counts": {
-      "operations": 318,
-      "paths": 283,
-      "consumer_and_tested": 144,
+      "operations": 324,
+      "paths": 288,
+      "consumer_and_tested": 150,
       "consumer_without_path_test": 68,
       "owned_non_frontend_and_tested": 53,
       "owned_non_frontend_without_path_test": 53
@@ -563,9 +563,9 @@
       "tv"
     ],
     "structure": {
-      "http_operations": 316,
+      "http_operations": 322,
       "websocket_operations": 2,
-      "openapi_paths": 281,
+      "openapi_paths": 286,
       "domain_router_modules": 22,
       "mounted_routers": 23,
       "main_lines": 269
@@ -743,6 +743,22 @@
           "tests/test_crud_not_found.py",
           "tests/test_lot1_endpoints.py",
           "tests/test_place_input_contract.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "DELETE",
+        "path": "/api/recording-sessions/{session_id}",
+        "source": "api/router_recordings.py",
+        "line": 227,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_recording_upload_protocol.py"
         ],
         "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
@@ -2411,7 +2427,7 @@
         "method": "GET",
         "path": "/api/memory/search-semantic",
         "source": "api/router_recordings.py",
-        "line": 103,
+        "line": 329,
         "consumers": {},
         "tests": [
           "tests/test_conversation_memory_endpoints.py"
@@ -2909,9 +2925,25 @@
       },
       {
         "method": "GET",
+        "path": "/api/recording-sessions/{session_id}",
+        "source": "api/router_recordings.py",
+        "line": 134,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_recording_upload_protocol.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "GET",
         "path": "/api/recordings",
         "source": "api/router_recordings.py",
-        "line": 27,
+        "line": 253,
         "consumers": {
           "frontend_vite": [
             "web/src/app/components/views/MonitoringView.tsx"
@@ -2925,7 +2957,7 @@
         "method": "GET",
         "path": "/api/recordings/{recording_id}",
         "source": "api/router_recordings.py",
-        "line": 41,
+        "line": 267,
         "consumers": {
           "frontend_next": [
             "frontend/src/lib/api.ts"
@@ -2939,7 +2971,7 @@
         "method": "GET",
         "path": "/api/recordings/{recording_id}/speakers",
         "source": "api/router_recordings.py",
-        "line": 65,
+        "line": 291,
         "consumers": {},
         "tests": [
           "tests/test_conversation_memory_endpoints.py"
@@ -2956,7 +2988,7 @@
         "method": "GET",
         "path": "/api/recordings/{recording_id}/turns",
         "source": "api/router_recordings.py",
-        "line": 55,
+        "line": 281,
         "consumers": {},
         "tests": [
           "tests/test_conversation_memory_endpoints.py"
@@ -5866,9 +5898,57 @@
       },
       {
         "method": "POST",
+        "path": "/api/recording-sessions",
+        "source": "api/router_recordings.py",
+        "line": 117,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_recording_upload_protocol.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/recording-sessions/{session_id}/complete",
+        "source": "api/router_recordings.py",
+        "line": 207,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_recording_upload_protocol.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
+        "path": "/api/recording-sessions/{session_id}/retry",
+        "source": "api/router_recordings.py",
+        "line": 240,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_recording_upload_protocol.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "POST",
         "path": "/api/recordings/{recording_id}/speakers/{label}/assign",
         "source": "api/router_recordings.py",
-        "line": 75,
+        "line": 301,
         "consumers": {},
         "tests": [
           "tests/test_conversation_memory_endpoints.py"
@@ -6162,6 +6242,22 @@
           "frontend/src/auth-client.test.ts",
           "tests/test_document_privacy.py",
           "tests/test_misc_input_contracts.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "PUT",
+        "path": "/api/recording-sessions/{session_id}/chunks/{sequence}",
+        "source": "api/router_recordings.py",
+        "line": 147,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        "tests": [
+          "tests/test_recording_upload_protocol.py"
         ],
         "non_frontend_ownership": null,
         "classification": "consumer_and_tested"

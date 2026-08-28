@@ -39,13 +39,18 @@ Contraintes de contenu :
 - Entre 2 et 12 étapes. Chaque étape doit être vérifiable.
 - N'invente pas d'outils. Utilise seulement : read_file, list_files,
   search_code, write_file, run_command, run_tests, git, web_search,
-  mail_draft, mail_send, calendar_create, imessage_send, notes.
+  browser, mail_draft, mail_send, calendar_create, imessage_send, notes.
 - N'invente pas de permissions. Utilise seulement : workspace:read,
   workspace:write, tasks:read, tasks:write, shell:execute, git:commit,
-  git:push, mail:send, calendar:write, message:send, network:read.
+  git:push, mail:send, calendar:write, message:send, network:read,
+  research:search, browser:control, browser:download, financial:act.
 - Déclare toute permission dont un effet sortira de la machine
-  (mail:send, message:send, calendar:write, git:push). L'utilisateur doit
-  savoir à l'avance qu'une autorisation lui sera demandée.
+  (mail:send, message:send, calendar:write, git:push, financial:act).
+  L'utilisateur doit savoir à l'avance qu'une autorisation lui sera demandée.
+- Pour une réservation (hôtel, vol, Airbnb, voyage) : cherche des options
+  (web_search), consulte les sites dans le navigateur s'il est disponible
+  (browser), présente un comparatif, et ARRÊTE avant tout paiement.
+  Annonce financial:act. N'exécute aucun paiement dans ce plan.
 - Ne rédige aucun raisonnement interne, aucune délibération, aucune trace de
   ta réflexion. Seulement des faits et des intentions.
 - Écris en français, ton sobre, sans emoji.

@@ -16,7 +16,9 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { api } from '@unified/lib/api';
+import type { RecordingDetail, RecordingSummary } from '@unified/types/api';
 import { formatDurationSec, formatRelativeTime } from '@unified/lib/timeFormat';
+import { LongRecordingControl } from '@desktop/app/components/recordings/LongRecordingControl';
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -35,21 +37,6 @@ interface SchoolDoc {
   file_path?: string;
   content_length?: number;
   created_at: string;
-}
-
-interface Recording {
-  id: number;
-  label?: string;
-  title?: string;
-  duration_seconds?: number;
-  summary?: string;
-  created_at: string;
-}
-
-interface RecordingDetail extends Recording {
-  transcription?: string;
-  synthesis?: string;
-  actions_taken?: string | Record<string, unknown>;
 }
 
 interface UploadResult {
@@ -110,6 +97,20 @@ function summariseActions(obj: Record<string, unknown>): string {
   return parts.join(' • ');
 }
 
+function formatSynthesis(value: string | Record<string, unknown> | undefined): string {
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  const keyPoints = value.key_points;
+  if (Array.isArray(keyPoints)) {
+    return keyPoints.filter((item): item is string => typeof item === 'string').slice(0, 8).join(' • ');
+  }
+  for (const key of ['summary', 'title']) {
+    const candidate = value[key];
+    if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
+  }
+  return '';
+}
+
 // ── Sous-composants ───────────────────────────────────────────
 
 function SectionHeader({ title, count }: { title: string; count: number }) {
@@ -136,7 +137,7 @@ export function DocumentsView() {
 
   const [outputs, setOutputs] = useState<OutputFile[]>([]);
   const [schoolDocs, setSchoolDocs] = useState<SchoolDoc[]>([]);
-  const [recordings, setRecordings] = useState<Recording[]>([]);
+  const [recordings, setRecordings] = useState<RecordingSummary[]>([]);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [uploading, setUploading] = useState(false);
   const [uploadResults, setUploadResults] = useState<UploadResult[]>([]);
@@ -154,11 +155,11 @@ export function DocumentsView() {
       const [outputsRes, memoryRes, recordingsRes] = await Promise.all([
         api.getOutputs() as Promise<{ files: OutputFile[] }>,
         api.getMemory() as Promise<{ school_documents?: SchoolDoc[] }>,
-        api.getRecordings() as Promise<Recording[]>,
+        api.getRecordings(),
       ]);
       setOutputs(outputsRes.files ?? []);
       setSchoolDocs(memoryRes.school_documents ?? []);
-      setRecordings(Array.isArray(recordingsRes) ? recordingsRes : []);
+      setRecordings(Array.isArray(recordingsRes.recordings) ? recordingsRes.recordings : []);
     } catch (e) {
       console.error('[DocumentsView] loadDocuments:', e);
     }
@@ -522,8 +523,9 @@ export function DocumentsView() {
       {/* ── Enregistrements ── */}
       <section className="pb-6">
         <SectionHeader title="Enregistrements" count={recordings.length} />
+        <LongRecordingControl onCompleted={() => void loadDocuments()} />
         {recordings.length === 0 ? (
-          <EmptyState message="Aucun enregistrement. Utilise le mode écoute continue sur la page Voix pour enregistrer un cours ou une réunion." />
+          <EmptyState message="Aucun enregistrement traité. Démarre une capture longue ci-dessus ou utilise le mode conversation de la page Voix." />
         ) : (
           <div className="space-y-2">
             {recordings.map((rec) => {
@@ -583,10 +585,10 @@ export function DocumentsView() {
                           )}
 
                           {/* Synthèse / actions */}
-                          {recordingDetail.synthesis && (
+                          {formatSynthesis(recordingDetail.synthesis) && (
                             <div>
                               <p className="font-mono text-xs text-muted-foreground uppercase tracking-wider mb-1.5">Synthèse</p>
-                              <p className="text-sm leading-relaxed">{recordingDetail.synthesis}</p>
+                              <p className="text-sm leading-relaxed">{formatSynthesis(recordingDetail.synthesis)}</p>
                             </div>
                           )}
 

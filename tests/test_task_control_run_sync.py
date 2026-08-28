@@ -17,6 +17,8 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime
+import hashlib
+import json
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +29,8 @@ import database
 from jarvis.agentic import (
     AgenticRunStatus,
     AgenticService,
+    ApprovalDecision,
+    ApprovalRequest,
     RuntimeRegistry,
     discover_runtime_plugins,
 )
@@ -55,6 +59,9 @@ class FakeRuntime:
     runtime_id = "fake-runtime"
     capabilities = (ToolCapability(name="read", scope="workspace:read"),)
 
+    def __init__(self):
+        self.approval_calls = []
+
     async def health(self):
         return RuntimeHealth(RuntimeHealthStatus.HEALTHY, version="1.0.0")
 
@@ -74,7 +81,14 @@ class FakeRuntime:
         return None
 
     async def answer_approval(self, run_id, approval):
-        return None
+        self.approval_calls.append(
+            (
+                run_id,
+                approval.approval_id,
+                approval.decision.value,
+                approval.decision_id,
+            )
+        )
 
     async def stream_events(self, run_id):
         if False:
@@ -368,6 +382,130 @@ async def test_double_start_execution_simultane_ne_cree_quun_run(sync_db: Path):
 
 
 # ── Avec le vrai service agentique ─────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_decision_effet_utilise_le_vrai_contrat_agentique_et_rejoue_une_fois(
+    sync_db: Path, tmp_path: Path
+):
+    """Task Control livre approved/denied avec une clé stable, sans redelivery."""
+
+    bus = EventBus()
+    agentic = AgenticService(
+        registry=RuntimeRegistry(
+            discover_runtime_plugins(_plugin(tmp_path, code=_RUNTIME_CODE))
+        ),
+        bus=bus,
+        read_free_memory_mb=lambda: 8192.0,
+    )
+    service = _control(agentic, bus)
+    actor = "session:approval-tester"
+    try:
+        task = await _approved_task(service, "Décider deux effets réels")
+        run_id = task.agentic_run_id
+        assert run_id is not None
+        assert await _until(
+            lambda: agentic.get(run_id) is not None
+            and agentic.get(run_id).status is AgenticRunStatus.RUNNING
+        )
+        runtime = await agentic.registry.get("fake-runtime")
+        assert runtime is not None
+
+        approved = await agentic.request_approval(
+            ApprovalRequest(
+                approval_id="approval-task-control-approved",
+                run_id=run_id,
+                action="Préparer le brouillon",
+                tool="draft.prepare",
+                summary="Préparer un brouillon réversible",
+            )
+        )
+        assert await _until(
+            lambda: service.repository.require_task(task.task_id).status
+            is TaskStatus.AWAITING_PERMISSION
+        )
+
+        approved_result = await service.decide_effect_approval(
+            task.task_id,
+            approved.approval_id,
+            approved=True,
+            actor=actor,
+        )
+        assert approved_result == {
+            "approval_id": approved.approval_id,
+            "decision": ApprovalDecision.APPROVED.value,
+            "run_status": AgenticRunStatus.RUNNING.value,
+        }
+        approved_replay = await service.decide_effect_approval(
+            task.task_id,
+            approved.approval_id,
+            approved=True,
+            actor=actor,
+        )
+        assert approved_replay == approved_result
+        assert await _until(
+            lambda: service.repository.require_task(task.task_id).status
+            is TaskStatus.RUNNING
+        )
+
+        denied = await agentic.request_approval(
+            ApprovalRequest(
+                approval_id="approval-task-control-denied",
+                run_id=run_id,
+                action="Publier le brouillon",
+                tool="draft.publish",
+                summary="Publier le brouillon à l'extérieur",
+            )
+        )
+        assert await _until(
+            lambda: service.repository.require_task(task.task_id).status
+            is TaskStatus.AWAITING_PERMISSION
+        )
+        denied_result = await service.decide_effect_approval(
+            task.task_id,
+            denied.approval_id,
+            approved=False,
+            actor=actor,
+        )
+        assert denied_result == {
+            "approval_id": denied.approval_id,
+            "decision": ApprovalDecision.DENIED.value,
+            "run_status": AgenticRunStatus.BLOCKED.value,
+        }
+        denied_replay = await service.decide_effect_approval(
+            task.task_id,
+            denied.approval_id,
+            approved=False,
+            actor=actor,
+        )
+        assert denied_replay == denied_result
+        assert await _until(
+            lambda: service.repository.require_task(task.task_id).status
+            is TaskStatus.BLOCKED
+        )
+
+        expected_calls = []
+        for approval, decision in (
+            (approved, ApprovalDecision.APPROVED),
+            (denied, ApprovalDecision.DENIED),
+        ):
+            payload = json.dumps(
+                [task.task_id, approval.approval_id, decision.value],
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ).encode("utf-8")
+            decision_id = f"task-control:{hashlib.sha256(payload).hexdigest()}"
+            assert actor not in decision_id
+            expected_calls.append(
+                (run_id, approval.approval_id, decision.value, decision_id)
+            )
+            stored = agentic.repository.get_approval(approval.approval_id)
+            assert stored is not None
+            assert stored.decision is decision
+            assert stored.decision_id == decision_id
+        assert runtime.approval_calls == expected_calls
+    finally:
+        await agentic.dispose()
 
 
 @pytest.mark.asyncio

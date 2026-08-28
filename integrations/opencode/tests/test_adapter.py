@@ -151,6 +151,38 @@ async def test_empty_final_output_does_not_fabricate_a_runtime_result(
 
 
 @pytest.mark.asyncio
+async def test_artifact_collection_includes_parent_browser_snapshot(
+    tmp_path: Path,
+) -> None:
+    from integrations.browser_runtime import (
+        clear_browser_receipt,
+        mark_browser_receipt_approved,
+        record_browser_receipt,
+    )
+
+    runtime, run = _state(tmp_path, "")
+    record_browser_receipt(
+        run.run_id,
+        snapshot_id="a" * 32,
+        operation="open",
+        url="https://public.example/private/path?token=secret",
+        title="Public page",
+        text="contenu qui ne doit pas être persisté",
+        policy_result="allowed",
+    )
+    mark_browser_receipt_approved(run.run_id, "b" * 64, snapshot_id="a" * 32)
+    try:
+        artifacts = await runtime.get_artifacts(run.run_id)
+    finally:
+        clear_browser_receipt(run.run_id)
+
+    snapshot = next(item for item in artifacts if item.type == "browser_snapshot")
+    assert snapshot.metadata["url"] == "https://public.example/"
+    assert "text" not in snapshot.metadata
+    assert snapshot.metadata["approval_verified"] is True
+
+
+@pytest.mark.asyncio
 async def test_artifact_collection_refuses_more_than_100_files(tmp_path: Path) -> None:
     runtime, run = _state(tmp_path, "")
     state = runtime._states[run.run_id]
@@ -557,6 +589,35 @@ def test_mcp_normalizes_all_read_scopes_for_personal_knowledge(
         assert "jarvis_knowledge_search" in names
         assert "jarvis_knowledge_get" in names
         assert "jarvis_tasks_list" in names
+        assert overlay["mcp"]["jarvis"]["enabled"] is True
+    finally:
+        broker.stop()
+
+
+def test_browser_permissions_mount_jarvis_browser(
+    tmp_path: Path,
+) -> None:
+    runtime, run = _state(tmp_path, "hôtel")
+    state = runtime._states[run.run_id]
+    runtime.layout = RuntimeLayout.from_integration_root(tmp_path / "provider-browser")
+    runtime.layout.ensure()
+    context = AgenticContext(
+        run_id=run.run_id,
+        profile_id=run.profile_id,
+        channel=run.channel,
+        origin=run.origin,
+        permissions=("browser:control", "research:search"),
+    )
+
+    broker, overlay = runtime._capability_overlay(run, context, state.workspace)
+
+    assert broker is not None
+    try:
+        assert broker.capability.scopes == frozenset(
+            {"browser:control", "research:search"}
+        )
+        names = {tool["name"] for tool in broker.registry.list_tools()}
+        assert "jarvis_browser" in names
         assert overlay["mcp"]["jarvis"]["enabled"] is True
     finally:
         broker.stop()

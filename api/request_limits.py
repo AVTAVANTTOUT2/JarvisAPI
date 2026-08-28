@@ -18,6 +18,10 @@ def request_size_limit(method: str, path: str) -> int | None:
 
     if method in _BODY_METHODS and path.startswith("/api/agentic/"):
         return max(1, int(config.AGENTIC_MAX_REQUEST_BYTES))
+    if method == "PUT" and re.fullmatch(
+        r"/api/recording-sessions/[^/]+/chunks/[0-9]+", path
+    ):
+        return max(1, int(config.RECORDING_CHUNK_SIZE_MB)) * 1024 * 1024
     if method != "POST":
         return None
     if path == "/api/mobile/voice/turn":

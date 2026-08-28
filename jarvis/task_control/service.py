@@ -15,8 +15,11 @@ from __future__ import annotations
 import asyncio
 from dataclasses import replace
 from datetime import datetime
+import hashlib
+import json
 import logging
-from typing import Any, Iterable, Mapping, NamedTuple
+from pathlib import Path
+from typing import Any, Iterable, Mapping, NamedTuple, Sequence
 import uuid
 
 from database.core import current_profile_id
@@ -45,6 +48,8 @@ from .models import (
     TaskPlan,
     TaskPriority,
     TaskSource,
+    TaskSourceChannel,
+    TaskSourceType,
     TaskStatus,
     clamp_text,
     new_id,
@@ -53,6 +58,19 @@ from .planner import generate_plan
 from .reports import build_report, result_status_for
 
 logger = logging.getLogger("jarvis")
+
+
+def _effect_approval_decision_id(
+    task_id: str, approval_id: str, decision: str
+) -> str:
+    """Dérive une clé de décision stable sans inclure l'identité de l'acteur."""
+
+    payload = json.dumps(
+        [task_id, approval_id, decision],
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return f"task-control:{hashlib.sha256(payload).hexdigest()}"
 
 #: État de run agentique → état de tâche. Le run reste la source de vérité de
 #: son propre avancement ; la tâche en est la lecture métier.
@@ -140,7 +158,29 @@ class ExecutionGrant(NamedTuple):
     permissions: tuple[str, ...]
 
 
-def resolve_execution_grant(task: ControlTask, objective: str) -> ExecutionGrant:
+def _constraint_text_for_grant(
+    task: ControlTask,
+    objective: str,
+    *,
+    revision_comment: str = "",
+    user_comments: str = "",
+) -> str:
+    """Assemble le texte lu pour les interdictions explicites d'un plan."""
+
+    parts = [
+        part.strip()
+        for part in (revision_comment, user_comments, task.title, objective)
+        if isinstance(part, str) and part.strip()
+    ]
+    return " | ".join(parts)
+
+
+def resolve_execution_grant(
+    task: ControlTask,
+    objective: str,
+    *,
+    constraint_text: str | None = None,
+) -> ExecutionGrant:
     """Calcule la borne de capacités d'une tâche, sans rien démarrer.
 
     Une seule fonction, appelée deux fois : à la planification pour écrire dans
@@ -163,8 +203,11 @@ def resolve_execution_grant(task: ControlTask, objective: str) -> ExecutionGrant
     from jarvis.agentic.models import AgenticRequestCategory
     from jarvis.agentic.turn_context import AGENTIC_ROUTING_METADATA_KEY
 
+    from jarvis.agentic.constraints import extract_request_constraints
+
     routing_raw = task.metadata.get(AGENTIC_ROUTING_METADATA_KEY)
     routing = dict(routing_raw) if isinstance(routing_raw, Mapping) else {}
+    text_for_constraints = constraint_text or objective
     try:
         category = AgenticRequestCategory(str(routing.get("category") or ""))
     except ValueError:
@@ -177,7 +220,7 @@ def resolve_execution_grant(task: ControlTask, objective: str) -> ExecutionGrant
         # Sans cela, un identifiant de profil enregistré rendrait au run une
         # capacité que la demande interdisait explicitement.
         capability_profile = constrain_capability_profile_for_request(
-            get_capability_profile(capability_profile_id), objective
+            get_capability_profile(capability_profile_id), text_for_constraints
         )
     else:
         capability_profile = select_capability_profile(
@@ -201,6 +244,9 @@ def resolve_execution_grant(task: ControlTask, objective: str) -> ExecutionGrant
     )
     if not permissions:
         permissions = capability_profile.default_permissions
+    blocked = extract_request_constraints(text_for_constraints).blocked_permissions
+    if blocked:
+        permissions = tuple(p for p in permissions if p not in blocked)
     if capability_profile.refused_permissions(permissions):
         raise PermissionError("permission hors du profil de capacités JARVIS")
     return ExecutionGrant(category, capability_profile_id, permissions)
@@ -299,6 +345,85 @@ class TaskControlService:
             task = await self.plan_task(task.task_id, context=planning_context)
         return task
 
+    async def create_engineering_task(
+        self,
+        *,
+        title: str,
+        user_request: str,
+        repo_root: Path,
+        required_tests: Sequence[str | Sequence[str]],
+        acceptance_criteria: Sequence[str] = (),
+        commit_message: str | None = None,
+        idempotency_key: str | None = None,
+        runtime_id: str,
+        runtime_version: str,
+        source: TaskSource | None = None,
+        conversation_id: str | None = None,
+        autoplan: bool = True,
+    ) -> ControlTask:
+        """Crée une livraison de code interne, sans préparer ni lancer quoi que ce soit.
+
+        La route générique ``POST /api/tasks`` n'expose pas ce contrat. Les
+        validations, le dépôt et l'identité du runtime sont normalisés ici puis
+        liés au futur plan par une empreinte déterministe.
+        """
+
+        from jarvis.agentic.turn_context import AGENTIC_ROUTING_METADATA_KEY
+
+        from .engineering import (
+            ENGINEERING_DELIVERY_METADATA_KEY,
+            build_engineering_delivery_contract,
+        )
+
+        request = str(user_request or "").strip()
+        if not request:
+            raise ValueError("demande de développement requise")
+        stable_key = idempotency_key or f"task-control-engineering:{uuid.uuid4().hex}"
+        contract = build_engineering_delivery_contract(
+            repo_root=repo_root,
+            required_tests=required_tests,
+            acceptance_criteria=acceptance_criteria,
+            commit_message=commit_message or title,
+            idempotency_key=stable_key,
+            runtime_id=runtime_id,
+            runtime_version=runtime_version,
+        )
+        metadata = {
+            ENGINEERING_DELIVERY_METADATA_KEY: contract.to_metadata(),
+            AGENTIC_ROUTING_METADATA_KEY: {
+                "category": "agentic_reversible",
+                "capability_profile_id": "coding",
+                "permissions": [
+                    "workspace:read",
+                    "workspace:write",
+                    "tests:run",
+                ],
+                "reason": "livraison de code confinée pilotée par Task Control",
+            },
+        }
+        return await self.create_task(
+            title=title,
+            description=request,
+            source=source
+            or TaskSource(
+                source_type=TaskSourceType.USER_REQUEST,
+                channel=TaskSourceChannel.API,
+                excerpt=clamp_text(request, 400),
+            ),
+            conversation_id=conversation_id,
+            metadata=metadata,
+            planning_context={
+                "engineering_runtime": contract.runtime_label,
+                "engineering_validations": [
+                    list(command) for command in contract.required_tests
+                ],
+                "engineering_acceptance_criteria": list(
+                    contract.acceptance_criteria
+                ),
+            },
+            autoplan=autoplan,
+        )
+
     # ── Planification (lecture seule) ─────────────────────────────────────
 
     async def plan_task(
@@ -352,24 +477,41 @@ class TaskControlService:
             if revision_comment:
                 planning_context["user_comments"] = revision_comment
             comments = self.repository.list_comments(task_id, limit=10)
+            user_comments = ""
             if comments:
-                planning_context.setdefault(
-                    "user_comments",
-                    " | ".join(item["body"] for item in comments[-5:]),
-                )
+                user_comments = " | ".join(item["body"] for item in comments[-5:])
+                planning_context.setdefault("user_comments", user_comments)
 
             try:
                 plan: TaskPlan = await self._planner(
                     task, version=version, context=planning_context
                 )
+                from .engineering import (
+                    bind_engineering_contract_to_plan,
+                    engineering_delivery_contract_from_metadata,
+                )
+
+                engineering = engineering_delivery_contract_from_metadata(
+                    task.metadata
+                )
+                if engineering is not None:
+                    plan = bind_engineering_contract_to_plan(plan, engineering)
                 # Le plan que l'utilisateur va lire annonce les capacités
                 # exactes du futur run. Les recalculer au démarrage sans les
                 # avoir écrites ici, c'était faire approuver autre chose que
                 # ce qui s'exécute.
+                constraint_text = _constraint_text_for_grant(
+                    task,
+                    plan.objective,
+                    revision_comment=revision_comment,
+                    user_comments=user_comments,
+                )
                 plan = replace(
                     plan,
                     execution_permissions=resolve_execution_grant(
-                        task, plan.objective
+                        task,
+                        plan.objective,
+                        constraint_text=constraint_text,
                     ).permissions,
                     digest="",
                 )
@@ -509,6 +651,35 @@ class TaskControlService:
 
     # ── Exécution ─────────────────────────────────────────────────────────
 
+    async def _record_launch_failure(
+        self,
+        task_id: str,
+        exc: Exception,
+        *,
+        phase: str,
+        run_id: str | None = None,
+    ) -> ControlTask:
+        task = self.repository.update_task(
+            task_id,
+            agentic_run_id=run_id,
+            status=TaskStatus.FAILED,
+            current_phase=phase,
+            attention_required=True,
+            result_status="failed",
+        )
+        self.repository.append_activity(
+            build_user_activity(
+                task_id=task_id,
+                summary=f"Démarrage impossible ({type(exc).__name__}).",
+                event_type=TaskActivityType.ERROR,
+                run_id=run_id,
+            )
+        )
+        await self._emit(task, "task.control.failed")
+        self._notify(task)
+        await self.finalize(task_id, error="Le runtime n'a pas pu démarrer.")
+        return self.repository.require_task(task_id)
+
     async def start_execution(self, task_id: str) -> ControlTask:
         """Démarre l'exécution. Refuse tout ce qui n'a pas été approuvé."""
 
@@ -523,22 +694,84 @@ class TaskControlService:
         )
 
         from .models import ensure_executable, ensure_permission_fidelity
+        from .engineering import (
+            engineering_delivery_contract_from_metadata,
+            ensure_engineering_contract_approved,
+        )
 
         task = self.repository.require_task(task_id)
+        resume_run_id: str | None = None
         if task.agentic_run_id:
-            # Un run existe déjà : relancer en créerait un second sur la même
-            # approbation, donc deux fois le travail et deux fois la dépense.
-            return task
+            try:
+                existing_run = self.agentic.get(task.agentic_run_id)
+            except Exception:
+                existing_run = None
+            # Un run réellement persisté gagne toujours. En revanche, une
+            # association QUEUED sans run est une intention de lancement
+            # interrompue : elle doit reprendre avec le même identifiant.
+            if existing_run is not None or task.status is not TaskStatus.QUEUED:
+                return task
+            resume_run_id = task.agentic_run_id
         plan = (
             self.repository.get_plan(task_id, task.approved_plan_version)
             if task.approved_plan_version
             else None
         )
         approved = ensure_executable(task, plan)
+        engineering = engineering_delivery_contract_from_metadata(task.metadata)
+        if engineering is not None:
+            ensure_engineering_contract_approved(approved, engineering)
+            registry = getattr(self.agentic, "registry", None)
+            manifest_getter = getattr(registry, "manifest", None)
+            if callable(manifest_getter):
+                active_manifest = manifest_getter(engineering.runtime_id)
+                if (
+                    active_manifest is None
+                    or str(getattr(active_manifest, "version", ""))
+                    != engineering.runtime_version
+                ):
+                    reason = (
+                        "Runtime approuvé indisponible ou version modifiée ; "
+                        "une nouvelle version du plan doit être approuvée."
+                    )
+                    task = self.repository.update_task(
+                        task_id,
+                        status=TaskStatus.PLAN_REVISION_REQUESTED,
+                        approved_plan_version=None,
+                        approved_plan_digest=None,
+                        agentic_run_id=None,
+                        current_phase="runtime_contract_changed",
+                        attention_required=True,
+                    )
+                    self.repository.append_activity(
+                        build_user_activity(
+                            task_id=task_id,
+                            summary=reason,
+                            event_type=TaskActivityType.WARNING,
+                        )
+                    )
+                    await self._emit(
+                        task,
+                        "task.control.plan_revision_requested",
+                        spoken_summary=reason,
+                    )
+                    return task
 
         routing_raw = task.metadata.get(AGENTIC_ROUTING_METADATA_KEY)
         routing = dict(routing_raw) if isinstance(routing_raw, Mapping) else {}
-        grant = resolve_execution_grant(task, approved.objective)
+        comments = self.repository.list_comments(task_id, limit=10)
+        user_comments = (
+            " | ".join(item["body"] for item in comments[-5:]) if comments else ""
+        )
+        grant = resolve_execution_grant(
+            task,
+            approved.objective,
+            constraint_text=_constraint_text_for_grant(
+                task,
+                approved.objective,
+                user_comments=user_comments,
+            ),
+        )
         # Le run reçoit littéralement la liste approuvée. Aucune permission
         # n'est ajoutée ici : toute divergence avec le recalcul est refusée
         # avant qu'un runtime existe.
@@ -562,18 +795,98 @@ class TaskControlService:
         if classification_reason:
             selected_context["classification"] = classification_reason
 
+        worktree = None
+        if engineering is not None:
+            from agents.devagent.agentic_runtime import (
+                build_engineering_instruction,
+                prepare_engineering_worktree,
+            )
+
+            # Cette première mutation (branche + worktree) se trouve après
+            # ``ensure_executable`` et l'empreinte approuvée, jamais au plan.
+            try:
+                worktree = prepare_engineering_worktree(
+                    repo_root=engineering.repo_root,
+                    job_id=engineering.job_id,
+                    reuse_existing=True,
+                )
+            except Exception as exc:
+                logger.exception("préparation du worktree impossible pour %s", task_id)
+                return await self._record_launch_failure(
+                    task_id, exc, phase="worktree_failed"
+                )
+            selected_context.update(
+                {
+                    "request": build_engineering_instruction(
+                        user_request=task.description,
+                        acceptance_criteria=engineering.acceptance_criteria,
+                        evidence={
+                            "task_id": task.task_id,
+                            "plan_version": approved.version,
+                            "plan_digest": approved.digest,
+                        },
+                    ),
+                    "jarvis_owns_delivery": True,
+                    "delivery_owner": "jarvis",
+                    "engineering_contract_digest": engineering.digest,
+                    "required_tests": [
+                        list(command) for command in engineering.required_tests
+                    ],
+                    "base_branch": worktree.base_branch,
+                    "branch_name": worktree.branch,
+                    "required_checks": [],
+                    "remote_identity": (
+                        worktree.remote_identity.to_dict()
+                        if worktree.remote_identity is not None
+                        else None
+                    ),
+                }
+            )
+
         # L'identifiant du run est frappé ici et **associé avant** que le
         # runtime existe. `create_and_start` programme le démarrage sans
         # l'attendre : ses premiers événements (`queued`, `resource_wait`)
         # partaient donc avant que `find_task_by_run` puisse retrouver la
         # tâche, et étaient perdus. L'association d'abord ferme cette fenêtre.
-        run_id = str(uuid.uuid4())
+        run_id = resume_run_id or str(uuid.uuid4())
         task = self.repository.update_task(
             task_id,
             agentic_run_id=run_id,
             status=TaskStatus.QUEUED,
             current_phase="queued",
         )
+
+        if engineering is not None and worktree is not None:
+            from agents.devagent.finalizer import enqueue_engineering_finalizer
+
+            try:
+                enqueue_engineering_finalizer(
+                    {
+                        "job_id": worktree.job_id,
+                        "run_id": run_id,
+                        "repo_root": str(worktree.repo_root),
+                        "worktree_path": str(worktree.workspace),
+                        "branch_name": worktree.branch,
+                        "base_branch": worktree.base_branch,
+                        "remote_identity": (
+                            worktree.remote_identity.to_dict()
+                            if worktree.remote_identity is not None
+                            else None
+                        ),
+                    },
+                    required_tests=engineering.required_tests,
+                    commit_message=engineering.commit_message,
+                    publish_external=False,
+                    required_checks=(),
+                )
+            except Exception as exc:
+                logger.exception("finalizer non persistant pour %s", task_id)
+                return await self._record_launch_failure(
+                    task_id,
+                    exc,
+                    phase="finalizer_enqueue_failed",
+                    run_id=run_id,
+                )
         try:
             run = await self.agentic.create_and_start(
                 run_id=run_id,
@@ -593,32 +906,45 @@ class TaskControlService:
                 capability_profile_id=capability_profile_id,
                 selected_context=selected_context,
                 category=category,
+                runtime_id=engineering.runtime_id if engineering is not None else None,
+                workspace=worktree.workspace if worktree is not None else None,
+                idempotency_key=(
+                    engineering.idempotency_key if engineering is not None else None
+                ),
             )
         except Exception as exc:
             logger.exception("démarrage du runtime impossible pour %s", task_id)
-            task = self.repository.update_task(
-                task_id,
-                # Aucun run n'a été créé : garder l'association laisserait la
-                # tâche pointer vers un identifiant qui n'existe nulle part.
-                agentic_run_id=None,
-                status=TaskStatus.FAILED,
-                current_phase="start_failed",
-                attention_required=True,
-                result_status="failed",
+            if engineering is not None:
+                try:
+                    from agents.devagent.finalizer import (
+                        fail_engineering_finalizer_launch,
+                    )
+
+                    fail_engineering_finalizer_launch(
+                        engineering.job_id,
+                        run_id=run_id,
+                        error_code="runtime_start_failed",
+                    )
+                except Exception:
+                    logger.warning("finalizer de lancement impossible à terminaliser")
+            # Aucun run n'a été rendu : garder l'identifiant préalloué
+            # laisserait la tâche pointer vers une exécution inexistante.
+            return await self._record_launch_failure(
+                task_id, exc, phase="start_failed"
             )
-            self.repository.append_activity(
-                build_user_activity(
-                    task_id=task_id,
-                    summary=f"Démarrage impossible ({type(exc).__name__}).",
-                    event_type=TaskActivityType.ERROR,
-                )
-            )
-            await self._emit(task, "task.control.failed")
-            self._notify(task)
-            await self.finalize(task_id, error="Le runtime n'a pas pu démarrer.")
-            return self.repository.require_task(task_id)
 
         if run.run_id != run_id:
+            if engineering is not None:
+                try:
+                    await self.agentic.cancel(run.run_id)
+                except Exception:
+                    logger.warning("annulation du run divergent impossible")
+                return await self._record_launch_failure(
+                    task_id,
+                    RuntimeError("le runtime a remplacé l'identifiant signé"),
+                    phase="runtime_identity_mismatch",
+                    run_id=run_id,
+                )
             # Le service a rendu un autre run que celui demandé (idempotence) :
             # c'est lui qui fait foi, l'association le suit.
             task = self.repository.update_task(task_id, agentic_run_id=run.run_id)
@@ -794,12 +1120,16 @@ class TaskControlService:
         if not task.agentic_run_id:
             raise TaskNotFound("aucun run associé à cette tâche")
         decision = ApprovalDecision.APPROVED if approved else ApprovalDecision.DENIED
-        result = await self.agentic.decide_approval(
+        decided = await self.agentic.decide_approval(
             task.agentic_run_id,
             approval_id,
-            decision=decision,
-            actor=redact_text(actor, max_chars=120),
+            decision,
+            decided_by=redact_text(actor, max_chars=120),
+            decision_id=_effect_approval_decision_id(
+                task.task_id, approval_id, decision.value
+            ),
         )
+        current_run = self.agentic.get(task.agentic_run_id)
         self.repository.append_activity(
             build_user_activity(
                 task_id=task_id,
@@ -812,8 +1142,10 @@ class TaskControlService:
         )
         return {
             "approval_id": approval_id,
-            "decision": decision.value,
-            "run_status": str(getattr(getattr(result, "status", None), "value", "")),
+            "decision": str(getattr(decided.decision, "value", decided.decision)),
+            "run_status": str(
+                getattr(getattr(current_run, "status", None), "value", "")
+            ),
         }
 
     # ── Interventions utilisateur ─────────────────────────────────────────
@@ -988,6 +1320,7 @@ class TaskControlService:
                         "type": item.type,
                         "reference": item.reference,
                         "sha256": item.sha256,
+                        "metadata": dict(getattr(item, "metadata", {}) or {}),
                     }
                     for item in self.agentic.artifacts(task.agentic_run_id)
                 ]

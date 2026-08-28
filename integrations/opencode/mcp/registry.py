@@ -8,7 +8,9 @@ import threading
 from dataclasses import asdict, dataclass, is_dataclass
 from datetime import date, datetime
 from typing import AbstractSet, Any, Callable, Mapping
+from urllib.parse import urlsplit
 
+from jarvis.agentic.redaction import redact_mapping as redact_agentic_mapping
 from jarvis.security.redaction import redact_persisted_text
 
 from .approvals import ApprovalLedger, arguments_digest
@@ -17,7 +19,7 @@ from .idempotency import IdempotencyJournal
 
 Handler = Callable[[dict[str, Any]], dict[str, Any]]
 ApprovalNeeded = Callable[[Mapping[str, Any]], None]
-DYNAMIC_APPROVAL_TOOLS = frozenset({"jarvis_tasks_create"})
+DYNAMIC_APPROVAL_TOOLS = frozenset({"jarvis_browser", "jarvis_tasks_create"})
 _SECRET_KEY = re.compile(
     r"(token|secret|password|cookie|authorization|api[_-]?key)", re.I
 )
@@ -113,6 +115,7 @@ _ALL_KNOWLEDGE_SOURCE_TYPES = frozenset(
     for source_type in source_types
 )
 _MAX_AUTHORIZED_KNOWLEDGE_UIDS = 512
+_MAX_PENDING_APPROVAL_ARGUMENTS = 128
 
 
 def _serializable(value: Any, *, depth: int = 0) -> Any:
@@ -244,6 +247,9 @@ class ToolDefinition:
     output_schema: dict[str, Any]
     handler: Handler
     effectful: bool = False
+    idempotent: bool = True
+    open_world: bool = False
+    dynamic_approval_requires_scope: bool = False
     alternative_scopes: tuple[str, ...] = ()
 
     def mcp_schema(self) -> dict[str, Any]:
@@ -256,8 +262,8 @@ class ToolDefinition:
             "annotations": {
                 "readOnlyHint": not self.effectful,
                 "destructiveHint": False,
-                "idempotentHint": True,
-                "openWorldHint": False,
+                "idempotentHint": self.idempotent,
+                "openWorldHint": self.open_world,
             },
         }
 
@@ -279,6 +285,10 @@ class ToolRegistry:
         self._closed = False
         self._knowledge_uid_lock = threading.RLock()
         self._authorized_knowledge_uids: dict[str, tuple[str, bool]] = {}
+        self._pending_approval_lock = threading.RLock()
+        self._pending_approval_arguments: dict[
+            str, tuple[str, dict[str, Any], dict[str, Any]]
+        ] = {}
         self._tools = {tool.name: tool for tool in self._default_tools()}
 
     def bind_approval_callback(self, callback: ApprovalNeeded | None) -> None:
@@ -288,7 +298,13 @@ class ToolRegistry:
         self._closed = True
         with self._knowledge_uid_lock:
             self._authorized_knowledge_uids.clear()
+        with self._pending_approval_lock:
+            self._pending_approval_arguments.clear()
         self.revoke_all_approvals()
+        from integrations.browser import close_session
+
+        if not close_session(self.capability.run_id, clear_receipt=True):
+            raise CapabilityError("browser_cleanup_failed")
 
     def _tool_is_scoped(self, tool: ToolDefinition) -> bool:
         scopes = (tool.scope, *tool.alternative_scopes)
@@ -603,6 +619,36 @@ class ToolRegistry:
                 safe_item["hydration_status"] = hydration_status
             return {"item": safe_item}
 
+        from integrations.browser import BROWSER_INPUT_SCHEMA, apply as browser_apply
+
+        def use_browser(arguments: dict[str, Any]) -> dict[str, Any]:
+            values = _strict_object(
+                arguments,
+                allowed={
+                    "op",
+                    "url",
+                    "ref",
+                    "snapshot_id",
+                    "element_name",
+                    "page_origin",
+                    "target_origin",
+                    "target_path",
+                    "target_sha256",
+                    "text",
+                },
+                required={"op"},
+            )
+            result = browser_apply(self.capability.run_id, values)
+            if result.get("ok") is True and values.get("op") != "close":
+                from integrations.browser_runtime import mark_browser_receipt_approved
+
+                mark_browser_receipt_approved(
+                    self.capability.run_id,
+                    arguments_digest(values),
+                    snapshot_id=str(result.get("snapshot_id") or ""),
+                )
+            return result
+
         object_schema = {"type": "object", "additionalProperties": True}
         return (
             ToolDefinition(
@@ -743,6 +789,27 @@ class ToolRegistry:
                 handler=create_task,
                 effectful=True,
             ),
+            ToolDefinition(
+                name="jarvis_browser",
+                title="Voir et agir sur une page web",
+                description=(
+                    "Navigation publique HTTPS en lecture : open limité à la racine, "
+                    "see ou recherche GET atomique sur une référence sNeN. Les clics "
+                    "et la saisie libre sont refusés car leurs effets ne sont pas "
+                    "classifiables avec certitude. Chaque appel exige une approbation "
+                    "exacte et unique. Aucun paiement, "
+                    "POST, WebSocket, téléchargement, upload ni authentification."
+                ),
+                scope="browser:control",
+                risk="reversible",
+                input_schema=BROWSER_INPUT_SCHEMA,
+                output_schema=object_schema,
+                handler=use_browser,
+                effectful=True,
+                idempotent=False,
+                open_world=True,
+                dynamic_approval_requires_scope=True,
+            ),
         )
 
     def grant_approval(
@@ -757,28 +824,109 @@ class ToolRegistry:
         tool = self._tools.get(tool_name)
         if tool is None or not tool.effectful:
             raise CapabilityError("approval_tool_not_effectful")
-        if tool.name not in DYNAMIC_APPROVAL_TOOLS:
+        if tool.name not in DYNAMIC_APPROVAL_TOOLS or (
+            tool.dynamic_approval_requires_scope
+            and not self._tool_is_scoped(tool)
+        ):
             self.capability.require(tool.scope)
+        exact_arguments = dict(arguments)
+        with self._pending_approval_lock:
+            pending = self._pending_approval_arguments.get(approval_id)
+            if tool.name == "jarvis_browser" and pending is None:
+                raise CapabilityError("approval_request_missing")
+            if pending is not None:
+                pending_tool, pending_exact, pending_display = pending
+                if pending_tool != tool_name:
+                    raise CapabilityError("approval_tool_mismatch")
+                if arguments_digest(arguments) != arguments_digest(pending_display):
+                    raise CapabilityError("approval_arguments_mismatch")
+                exact_arguments = pending_exact
         self.approvals.grant(
+            approval_id=approval_id,
+            run_id=run_id,
+            tool_name=tool_name,
+            arguments=exact_arguments,
+            expires_at=expires_at,
+        )
+        with self._pending_approval_lock:
+            self._pending_approval_arguments.pop(approval_id, None)
+
+    def approve_and_execute_pending(
+        self,
+        *,
+        approval_id: str,
+        run_id: str,
+        tool_name: str,
+        arguments: Mapping[str, Any],
+        expires_at: datetime | float,
+    ) -> dict[str, Any]:
+        """Exécute dans le parent l'effet exact présenté à l'utilisateur.
+
+        Les identifiants ``mcp:*`` ne sont pas des permissions OpenCode. Le
+        parent récupère donc les arguments bruts gardés en mémoire, valide que
+        la vue persistée approuvée est inchangée, émet un grant one-shot puis
+        consomme lui-même ce grant. Le child ne reçoit aucune autorité à
+        rejouer l'appel.
+        """
+
+        with self._pending_approval_lock:
+            pending = self._pending_approval_arguments.get(approval_id)
+            if pending is None:
+                raise CapabilityError("approval_request_missing")
+            pending_tool, pending_exact, pending_display = pending
+            if pending_tool != tool_name:
+                raise CapabilityError("approval_tool_mismatch")
+            if arguments_digest(arguments) != arguments_digest(pending_display):
+                raise CapabilityError("approval_arguments_mismatch")
+            exact_arguments = dict(pending_exact)
+        self.grant_approval(
             approval_id=approval_id,
             run_id=run_id,
             tool_name=tool_name,
             arguments=arguments,
             expires_at=expires_at,
         )
+        tool_call_id = "parent:" + hashlib.sha256(approval_id.encode()).hexdigest()
+        return self.call(
+            tool_name,
+            {
+                **exact_arguments,
+                "_jarvis": {
+                    "run_id": run_id,
+                    "tool_call_id": tool_call_id,
+                    "origin": "agent_runtime",
+                    "bypass_agentic_reclassification": True,
+                },
+            },
+        )
 
     def revoke_approval(self, *, approval_id: str, run_id: str) -> bool:
-        return self.approvals.revoke(approval_id=approval_id, run_id=run_id)
+        with self._pending_approval_lock:
+            removed_pending = self._pending_approval_arguments.pop(approval_id, None)
+        return (
+            self.approvals.revoke(approval_id=approval_id, run_id=run_id)
+            or removed_pending is not None
+        )
 
     def revoke_all_approvals(self) -> int:
-        return self.approvals.revoke_all()
+        with self._pending_approval_lock:
+            pending_count = len(self._pending_approval_arguments)
+            self._pending_approval_arguments.clear()
+        return self.approvals.revoke_all() + pending_count
 
     def list_tools(self) -> list[dict[str, Any]]:
         if self._closed:
             return []
         schemas: list[dict[str, Any]] = []
         for tool in self._tools.values():
-            eligible = tool.effectful and tool.name in DYNAMIC_APPROVAL_TOOLS
+            eligible = (
+                tool.effectful
+                and tool.name in DYNAMIC_APPROVAL_TOOLS
+                and (
+                    not tool.dynamic_approval_requires_scope
+                    or self._tool_is_scoped(tool)
+                )
+            )
             scoped = self._tool_is_scoped(tool)
             if (
                 tool.effectful
@@ -801,26 +949,105 @@ class ToolRegistry:
                 f"{self.capability.run_id}\0{tool.name}\0{digest}".encode("utf-8")
             ).hexdigest()[:32]
         )
+        callback = self._on_approval_needed
+        if callback is None:
+            return
+        display_arguments = redact(dict(arguments))
+        if tool.name == "jarvis_browser":
+            from integrations.browser_security import (
+                sanitized_browser_path,
+                sanitized_browser_url,
+            )
+
+            display_arguments = {
+                key: value
+                for key, value in dict(arguments).items()
+                if key
+                not in {
+                    "element_name",
+                    "page_origin",
+                    "target_origin",
+                    "target_path",
+                    "text",
+                    "url",
+                }
+            }
+            if "url" in arguments:
+                raw_url = str(arguments.get("url") or "")
+                display_arguments.update(
+                    {
+                        "url_origin": sanitized_browser_url(raw_url),
+                        "url_path": sanitized_browser_path(raw_url),
+                        "url_sha256": hashlib.sha256(raw_url.encode()).hexdigest(),
+                        "url_has_query": bool(urlsplit(raw_url).query),
+                    }
+                )
+            if "text" in arguments:
+                raw_text = str(arguments.get("text") or "")
+                display_arguments["text_preview"] = redact_persisted_text(
+                    raw_text.replace("\x00", "")
+                )[:160]
+                display_arguments["text_sha256"] = hashlib.sha256(
+                    raw_text.encode()
+                ).hexdigest()
+                display_arguments["text_chars"] = len(raw_text)
+            if "element_name" in arguments:
+                display_arguments["element_name"] = redact_persisted_text(
+                    str(arguments.get("element_name") or "")
+                )[:80]
+            for key in ("page_origin", "target_origin"):
+                if key in arguments:
+                    display_arguments[key] = sanitized_browser_url(
+                        str(arguments.get(key) or "")
+                    )
+            if "target_path" in arguments:
+                raw_path = str(arguments.get("target_path") or "")
+                display_arguments["target_path"] = redact_persisted_text(
+                    raw_path.replace("\x00", "")
+                )[:512]
+        display_arguments = redact_agentic_mapping(display_arguments)
+        with self._pending_approval_lock:
+            self._pending_approval_arguments[approval_id] = (
+                tool.name,
+                dict(arguments),
+                dict(display_arguments),
+            )
+            while (
+                len(self._pending_approval_arguments)
+                > _MAX_PENDING_APPROVAL_ARGUMENTS
+            ):
+                oldest_approval_id = next(iter(self._pending_approval_arguments))
+                del self._pending_approval_arguments[oldest_approval_id]
         payload = {
             "approval_id": approval_id,
             "run_id": self.capability.run_id,
             "tool": tool.name,
             "action": tool.title,
-            "sanitized_arguments": redact(dict(arguments)),
+            "sanitized_arguments": display_arguments,
             "risks": ("Action JARVIS soumise à confirmation utilisateur.",),
             "workspace": str(self.capability.workspace),
             "profile_id": self.capability.profile_id,
             "arguments_digest": digest,
         }
-        callback = self._on_approval_needed
-        if callback is not None:
+        try:
             callback(payload)
+        except Exception:
+            with self._pending_approval_lock:
+                self._pending_approval_arguments.pop(approval_id, None)
+            raise
 
     def call(self, name: str, arguments: Mapping[str, Any]) -> dict[str, Any]:
         tool = self._tools.get(name)
         if tool is None:
             raise KeyError("unknown_tool")
-        eligible = tool.effectful and tool.name in DYNAMIC_APPROVAL_TOOLS
+        eligible = (
+            tool.effectful
+            and tool.name in DYNAMIC_APPROVAL_TOOLS
+            and (
+                not tool.dynamic_approval_requires_scope
+                or self._tool_is_scoped(tool)
+            )
+        )
         if not eligible:
             self._require_tool_scope(tool)
         values = dict(arguments)

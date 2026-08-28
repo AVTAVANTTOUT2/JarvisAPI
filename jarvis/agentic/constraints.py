@@ -38,7 +38,6 @@ NO_EXECUTION_BLOCKED_PERMISSIONS: frozenset[str] = frozenset(
         "ocr:run",
         "media:transcode",
         "obs:test",
-        "browser:download",
         "documents:download",
         "desktop:applescript",
     }
@@ -142,12 +141,16 @@ _WRITE_VERBS = (
 )
 # « ne les/la/leur/lui/l'/le/me … » — l' élidé et lui manquaient.
 _CLITICS = r"(?:les?\s+|la\s+|leur\s+|lui\s+|[ml]es\s+|l\s*'?\s*)?"
+# Adverbes courants entre le verbe et « pas » : « ne lance surtout pas ».
+_ADVERS_BEFORE_NEG = r"(?:(?:\w+)\s+)*"
 
 _NO_EXECUTION_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(
-        rf"\bne\s+{_CLITICS}(?:{_EXEC_VERBS})\s+(?:pas|rien)\b"
+        rf"\bne\s+{_CLITICS}(?:{_EXEC_VERBS})\s+{_ADVERS_BEFORE_NEG}(?:pas|rien)\b"
     ),
-    re.compile(rf"\bn\s*'?\s*(?:{_EXEC_VERBS})\s+(?:pas|rien)\b"),
+    re.compile(
+        rf"\bn\s*'?\s*(?:{_EXEC_VERBS})\s+{_ADVERS_BEFORE_NEG}(?:pas|rien)\b"
+    ),
     re.compile(rf"\bsans\s+(?:les?\s+|la\s+)?(?:{_EXEC_VERBS})\b"),
     re.compile(rf"\b(?:do\s+not|don\s*'?\s*t|never)\s+(?:{_EXEC_VERBS})\b"),
     re.compile(rf"\bwithout\s+(?:{_EXEC_VERBS})(?:ning|ing)?\b"),
@@ -158,9 +161,11 @@ _NO_EXECUTION_PATTERNS: tuple[re.Pattern[str], ...] = (
 
 _NO_MODIFICATION_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(
-        rf"\bne\s+{_CLITICS}(?:{_WRITE_VERBS})\s+(?:pas|rien)\b"
+        rf"\bne\s+{_CLITICS}(?:{_WRITE_VERBS})\s+{_ADVERS_BEFORE_NEG}(?:pas|rien)\b"
     ),
-    re.compile(rf"\bn\s*'?\s*(?:{_WRITE_VERBS})\s+(?:pas|rien)\b"),
+    re.compile(
+        rf"\bn\s*'?\s*(?:{_WRITE_VERBS})\s+{_ADVERS_BEFORE_NEG}(?:pas|rien)\b"
+    ),
     re.compile(rf"\bsans\s+(?:les?\s+|la\s+|rien\s+)?(?:{_WRITE_VERBS})r?\b"),
     re.compile(rf"\b(?:do\s+not|don\s*'?\s*t|never)\s+(?:{_WRITE_VERBS})\b"),
     re.compile(r"\bsans\s+(?:rien\s+)?(?:modifier|changer|toucher|ecrire|envoyer)\b"),

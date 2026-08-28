@@ -756,6 +756,7 @@ def claim_ingestion_jobs(
             """,
             (now, now, now, profile_id, now),
         )
+        _mark_dead_recording_sessions_failed(conn, profile_id=profile_id, now=now)
         clauses = [
             "profile_id = ?",
             "status IN ('pending', 'retry')",
@@ -827,6 +828,51 @@ def claim_ingestion_jobs(
         raise
     finally:
         conn.close()
+
+
+def _mark_dead_recording_sessions_failed(conn, *, profile_id: str, now: str) -> int:
+    cursor = conn.execute(
+        """
+        UPDATE recording_sessions
+        SET state = 'failed', error = 'recording_worker_crashed',
+            attempts = MAX(
+                attempts,
+                COALESCE((
+                    SELECT MAX(ingestion_jobs.attempts)
+                    FROM ingestion_jobs
+                    WHERE ingestion_jobs.profile_id = recording_sessions.profile_id
+                      AND ingestion_jobs.source = 'recording'
+                      AND ingestion_jobs.job_kind = 'recording_process'
+                      AND ingestion_jobs.dedupe_key = 'recording:' || recording_sessions.id
+                      AND ingestion_jobs.status = 'dead'
+                ), attempts)
+            ),
+            updated_at = ?
+        WHERE profile_id = ? AND state = 'processing'
+          AND EXISTS (
+              SELECT 1 FROM ingestion_jobs
+              WHERE ingestion_jobs.profile_id = recording_sessions.profile_id
+                AND ingestion_jobs.source = 'recording'
+                AND ingestion_jobs.job_kind = 'recording_process'
+                AND ingestion_jobs.dedupe_key = 'recording:' || recording_sessions.id
+                AND ingestion_jobs.status = 'dead'
+          )
+        """,
+        (now, profile_id),
+    )
+    return int(cursor.rowcount)
+
+
+def mark_dead_recording_sessions_failed() -> int:
+    """Terminalise les sessions dont le dernier worker ne peut plus reprendre."""
+
+    profile_id = current_profile_id()
+    with get_db() as conn:
+        return _mark_dead_recording_sessions_failed(
+            conn,
+            profile_id=profile_id,
+            now=sqlite_utc_timestamp(),
+        )
 
 
 def complete_ingestion_job(job_id: int, lease_token: str) -> bool:
@@ -1259,6 +1305,7 @@ __all__ = [
     "list_ingestion_jobs",
     "list_ingestion_source_states",
     "list_pending_recording_sessions",
+    "mark_dead_recording_sessions_failed",
     "normalize_contact_identity",
     "renew_ingestion_job_lease",
     "touch_ingestion_heartbeat",

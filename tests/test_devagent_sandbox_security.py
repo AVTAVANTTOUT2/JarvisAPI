@@ -338,13 +338,27 @@ def test_validation_uses_the_jarvis_virtualenv_toolchain(tmp_path: Path) -> None
 
     assert toolchain == Path(sys.prefix).resolve()
     assert str(toolchain / "bin") in agentic_runtime._trusted_path(tmp_path).split(":")
-    assert str(toolchain) in agentic_runtime._validation_read_roots(tmp_path)
+    read_roots = agentic_runtime._validation_read_roots(tmp_path)
+    assert str(toolchain) in read_roots
+    runtime_root = Path(sys.base_prefix).resolve()
+    assert str(runtime_root) in read_roots
+    python = agentic_runtime._trusted_executable("python3", tmp_path)
+    assert toolchain in python.parents
     profile = agentic_runtime._sandbox_profile(tmp_path, tmp_path / "home")
     assert f'(subpath "{toolchain}")' in profile
+    assert f'(subpath "{runtime_root}")' in profile
     write_rules = [
         line for line in profile.splitlines() if line.startswith("(allow file-write*")
     ]
     assert write_rules and all(str(toolchain) not in line for line in write_rules)
+
+
+def test_validation_disables_python_bytecode_side_effects(tmp_path: Path) -> None:
+    from agents.devagent import agentic_runtime
+
+    isolated_home = tmp_path / "home"
+    environment = agentic_runtime._sandbox_env(tmp_path, isolated_home)
+    assert environment["PYTHONDONTWRITEBYTECODE"] == "1"
 
 
 def test_validation_sandbox_allows_traversing_toward_allowed_roots() -> None:

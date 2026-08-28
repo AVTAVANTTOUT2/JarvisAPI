@@ -327,6 +327,17 @@ RECORDING_MAX_DURATION_MIN = int(
 RECORDING_CHUNK_SIZE_MB = int(
     _get("RECORDING_CHUNK_SIZE_MB", "20")
 )  # taille max par segment local
+RECORDING_MAX_SESSION_BYTES = int(
+    _get("RECORDING_MAX_SESSION_BYTES", str(1024 * 1024 * 1024))
+)  # 1 GiB par capture
+RECORDING_MAX_PROFILE_SPOOL_BYTES = int(
+    _get("RECORDING_MAX_PROFILE_SPOOL_BYTES", str(4 * 1024 * 1024 * 1024))
+)  # 4 GiB de brut par profil
+RECORDING_MAX_ACTIVE_SESSIONS = int(_get("RECORDING_MAX_ACTIVE_SESSIONS", "4"))
+RECORDING_MAX_PENDING_JOBS = int(_get("RECORDING_MAX_PENDING_JOBS", "4"))
+RECORDING_CAPTURE_IDLE_TTL_MIN = int(
+    _get("RECORDING_CAPTURE_IDLE_TTL_MIN", "30")
+)
 RECORDING_SUMMARY_ONLY = (
     _get("RECORDING_SUMMARY_ONLY", "false").lower() == "true"
 )  # n’inclut pas la transcription dans les réponses API/liste
@@ -576,6 +587,14 @@ UBER_EATS_LOCALE = _get("UBER_EATS_LOCALE", "fr-FR")
 UBER_EATS_NAV_TIMEOUT_MS = int(_get("UBER_EATS_NAV_TIMEOUT_MS", "30000"))
 UBER_EATS_ACTION_TIMEOUT_MS = int(_get("UBER_EATS_ACTION_TIMEOUT_MS", "10000"))
 UBER_EATS_PLAN_TTL_SECONDS = int(_get("UBER_EATS_PLAN_TTL_SECONDS", "600"))
+
+# ── Navigateur agentique générique (yeux + mains) ────────────
+# Distinct d'Uber Eats : n'importe quel HTTPS public, jamais un paiement.
+BROWSER_ENABLED = _get("BROWSER_ENABLED", "true").lower() == "true"
+BROWSER_HEADLESS = _get("BROWSER_HEADLESS", "true").lower() == "true"
+BROWSER_NAV_TIMEOUT_MS = int(_get("BROWSER_NAV_TIMEOUT_MS", "20000"))
+BROWSER_ACTION_TIMEOUT_MS = int(_get("BROWSER_ACTION_TIMEOUT_MS", "8000"))
+BROWSER_SESSION_TTL_SECONDS = int(_get("BROWSER_SESSION_TTL_SECONDS", "300"))
 
 # ── Suggestions de repas et suivi de livraison ───────────────
 # Le relevé de menus est en lecture seule : il ne peut rien acheter, mais il
