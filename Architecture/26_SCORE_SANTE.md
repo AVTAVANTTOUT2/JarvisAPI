@@ -1,5 +1,10 @@
 # 26 — Score de Santé de l'Architecture
 
+> **ARCHIVE — métrique du 11 juillet 2026.** Ce score n’est pas recalculé et ne
+> décrit pas la santé courante. Consulter le
+> [registre de vérité](./project_truth_registry.json) et sa
+> [vue générée](./28_VALIDATION_COHERENCE.md).
+
 **Date** : 11 juillet 2026
 **Statut** : Métrique de référence — mesuré après chaque phase
 

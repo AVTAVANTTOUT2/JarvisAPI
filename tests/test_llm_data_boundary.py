@@ -362,3 +362,40 @@ def test_llm_egress_keeps_contact_pii_and_redacts_api_keys():
     assert secret not in wrapped
     assert "[PERSON_" not in wrapped
     assert redact_for_external_llm(raw).count("Marie Martin") == 1
+
+
+def test_sanitize_outbound_chat_messages_redacts_secrets_keeps_pii():
+    from jarvis.security.llm_data_boundary import sanitize_outbound_chat_messages
+
+    secret = "sk-outboundSanitizeBoundary123456789"
+    system, messages = sanitize_outbound_chat_messages(
+        [
+            {"role": "user", "content": f"Clé {secret} pour Marie Martin"},
+            {"role": "assistant", "content": None},
+            {"role": "user", "content": "suite +33612345678"},
+        ],
+        system=f"sys {secret}",
+    )
+
+    assert secret not in system
+    assert "sys " in system
+    assert len(messages) == 2
+    assert secret not in messages[0]["content"]
+    assert "Marie Martin" in messages[0]["content"]
+    assert "+33612345678" in messages[1]["content"]
+
+
+def test_sanitize_outbound_chat_messages_empty_and_truncation():
+    from jarvis.security.llm_data_boundary import sanitize_outbound_chat_messages
+
+    system, messages = sanitize_outbound_chat_messages(None, system="")
+    assert system == ""
+    assert messages == []
+
+    long_body = "x" * 200
+    _, truncated = sanitize_outbound_chat_messages(
+        [{"role": "user", "content": long_body}],
+        max_chars=40,
+    )
+    assert len(truncated) == 1
+    assert "TRONQUÉ À LA FRONTIÈRE LLM" in truncated[0]["content"]

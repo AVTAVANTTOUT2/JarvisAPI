@@ -124,6 +124,73 @@ export interface ConversationDocument {
   created_at: string
 }
 
+export interface RecordingSummary {
+  id: number
+  label?: string
+  title?: string
+  duration_seconds?: number
+  summary?: string
+  created_at: string
+  audio_size_kb?: number
+}
+
+export interface RecordingDetail extends RecordingSummary {
+  transcription?: string
+  synthesis?: string | Record<string, unknown>
+  actions_taken?: string | Record<string, unknown>
+}
+
+export interface RecordingListResponse {
+  recordings: RecordingSummary[]
+}
+
+export type RecordingSessionState =
+  | 'capturing'
+  | 'queued'
+  | 'ready'
+  | 'processing'
+  | 'retry'
+  | 'partial'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+  | 'expired'
+
+export interface RecordingSessionStatus {
+  ok: boolean
+  protocol_version: 1
+  session_id: string
+  state: RecordingSessionState
+  label: string
+  next_sequence: number
+  received_chunks: number
+  size_bytes: number
+  duration_ms: number
+  duration_seconds: number
+  checksum: string
+  attempts: number
+  max_attempts: number
+  retryable: boolean
+  error_code: string | null
+  queued?: boolean
+  idempotent?: boolean
+}
+
+export interface RecordingChunkAck {
+  ok: true
+  protocol_version: 1
+  session_id: string
+  sequence: number
+  status: 'accepted' | 'duplicate'
+  accepted: boolean
+  duplicate: boolean
+  next_sequence: number
+  received_chunks: number
+  size_bytes: number
+  duration_ms: number
+  checksum: string
+}
+
 export interface ConversationDetail extends ConversationSummary {
   messages: ConversationMessage[]
   documents: ConversationDocument[]

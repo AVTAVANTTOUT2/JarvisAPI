@@ -33,7 +33,9 @@ curl -s -b cookies.txt http://127.0.0.1:8081/api/apple/shortcuts/status | jq
 2. Ouvre **`/shortcuts` → Installés**.
 3. Clique **Enregistrer** (ou importe tous les non listés).
 4. Définis un alias vocal (« chambre ») dans l’onglet Registre.
-5. Dis à JARVIS : « lance le raccourci chambre » → confirme le plan.
+5. Dis à JARVIS : « lance le raccourci chambre ». Un raccourci **low** dont
+   tu as décoché la confirmation se lance tout de suite (profil `standard` /
+   `majordomo`). Sinon, confirme le plan.
 
 ### Via API
 

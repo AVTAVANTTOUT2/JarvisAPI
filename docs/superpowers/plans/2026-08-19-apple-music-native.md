@@ -1,5 +1,11 @@
 # Apple Music natif — hors runtime agentique
 
+> **Statut : implémenté sur `origin/main` @ `6becf26` ; plan archivé.**
+> **Preuve :** `integrations/apple_music.py`, le fast-path de chat, l’adapter
+> média partagé, `tests/test_apple_music.py` et les contrats agentiques associés.
+> Les validations nécessitant Music.app et Apple Events restent propres au Mac
+> cible ; les checkboxes ci-dessous conservent l’historique réel du plan.
+
 > **For agentic workers:** Implement task-by-task. Steps use checkbox syntax.
 
 **Goal:** « met du werenoi » joue Werenoi dans Music.app au tour suivant, sans tâche, sans plan, sans runtime agentique. Le Control Center (`/control`) affiche si le MCP est up ou down.

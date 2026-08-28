@@ -73,6 +73,7 @@ from .ingestion import (
     list_ingestion_jobs,
     list_ingestion_source_states,
     list_pending_recording_sessions,
+    mark_dead_recording_sessions_failed,
     normalize_contact_identity,
     renew_ingestion_job_lease,
     touch_ingestion_heartbeat,

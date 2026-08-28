@@ -197,6 +197,47 @@ def test_analyze_tables_counts(fake_repo: Path) -> None:
     assert tables["init_pipeline"]["uses_schema_py"] is True
 
 
+def test_event_and_plugin_inventories_are_generated_from_sources(tmp_path: Path) -> None:
+    jarvis = tmp_path / "jarvis"
+    jarvis.mkdir()
+    (jarvis / "event_bus.py").write_text(
+        "EVENT_TYPES: tuple[str, ...] = "
+        "('agent.run.started', 'task.control.completed', 'memory.updated')\n",
+        encoding="utf-8",
+    )
+    plugin = tmp_path / "integrations" / "fixture"
+    plugin.mkdir(parents=True)
+    (plugin / "plugin.json").write_text(
+        json.dumps(
+            {
+                "runtime": {
+                    "id": "fixture",
+                    "version": "1.2.3",
+                    "entrypoint": "adapter:create_runtime",
+                    "capabilities": ["read", "write"],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    events = audit.analyze_events(tmp_path)
+    plugins = audit.analyze_plugins(tmp_path)
+
+    assert events["count"] == 3
+    assert events["agentic_count"] == 1
+    assert events["task_control_count"] == 1
+    assert plugins["count"] == 1
+    assert plugins["plugins"][0] == {
+        "path": "integrations/fixture/plugin.json",
+        "runtime_id": "fixture",
+        "version": "1.2.3",
+        "enabled": True,
+        "entrypoint": "adapter:create_runtime",
+        "capability_count": 2,
+    }
+
+
 def test_api_surface_maps_routes_to_consumers_and_tests(fake_repo: Path) -> None:
     routes = audit.discover_api_routes(fake_repo)
     assert [(route.method, route.path) for route in routes] == [
@@ -282,14 +323,240 @@ def test_api_ownership_policy_is_exact_and_rejects_client_masking(
     )
 
 
-def test_doc_scan_flags_readme_errors(fake_repo: Path) -> None:
+def test_numeric_claim_scan_rejects_new_contradictions_even_with_canonical_lines(
+    fake_repo: Path,
+) -> None:
     tables = audit.analyze_tables(fake_repo)
-    findings = audit.scan_doc_contradictions(fake_repo, tables)
+    api_surface = audit.analyze_api_surface(fake_repo)
+    current = fake_repo / "CURRENT.md"
+    current.write_text(
+        audit._canonical_count_line(tables)
+        + "\n"
+        + audit._canonical_api_line(api_surface)
+        + "\n"
+        + audit._canonical_api_structure_line(api_surface)
+        + "\n"
+        + "Autre résumé courant : 999 tables persistantes et 888 tables physiques.\n"
+        + "Surface API bis : 77 opérations, 66 chemins.\n"
+        + "Structure bis : 55 opérations HTTP, 44 chemins OpenAPI, 12 routeurs, "
+        + "main.py 175 lignes.\n",
+        encoding="utf-8",
+    )
+    registry = {
+        "documentation": {
+            "current": [
+                {
+                    "path": "CURRENT.md",
+                    "required_claims": [
+                        "database",
+                        "api_surface",
+                        "api_structure",
+                    ],
+                }
+            ]
+        }
+    }
+
+    findings = audit.scan_numeric_claims(
+        fake_repo, tables, api_surface, registry
+    )
     kinds = {f["kind"] for f in findings}
-    assert "tables_26_plus" in kinds
-    assert "tables_72" in kinds
-    assert "web_as_spa_principale" in kinds
-    assert any(f["severity"] == "error" for f in findings)
+    assert kinds == {
+        "api_http_operations",
+        "api_main_lines",
+        "api_openapi_paths",
+        "api_operations",
+        "api_paths",
+        "api_routers",
+        "sqlite_persistent_tables",
+        "sqlite_physical_tables",
+    }
+    assert all(finding["severity"] == "error" for finding in findings)
+
+
+def test_numeric_claim_scan_ignores_registered_historical_snapshot(
+    fake_repo: Path,
+) -> None:
+    historical = fake_repo / "HISTORICAL.md"
+    historical.write_text(
+        "Snapshot daté : 12 tables persistantes, 17 opérations HTTP.\n",
+        encoding="utf-8",
+    )
+    registry = {
+        "documentation": {
+            "current": [],
+            "historical": [
+                {"path": "HISTORICAL.md", "snapshot_at": "2026-01-01"}
+            ],
+        }
+    }
+
+    assert (
+        audit.scan_numeric_claims(
+            fake_repo,
+            audit.analyze_tables(fake_repo),
+            audit.analyze_api_surface(fake_repo),
+            registry,
+        )
+        == []
+    )
+
+
+def test_truth_registry_rejects_unclassified_governed_markdown(tmp_path: Path) -> None:
+    architecture = tmp_path / "Architecture"
+    architecture.mkdir()
+    for name in (
+        "28_VALIDATION_COHERENCE.md",
+        "32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md",
+        "GUIDE.md",
+    ):
+        (architecture / name).write_text(f"# {name}\n", encoding="utf-8")
+    registry_path = architecture / "project_truth_registry.json"
+    registry = {
+        "schema_version": 1,
+        "reviewed_at": "2026-08-27",
+        "generated_status_document": "Architecture/28_VALIDATION_COHERENCE.md",
+        "documentation": {
+            "governed_roots": ["Architecture"],
+            "current": [
+                {"path": "Architecture/28_VALIDATION_COHERENCE.md"},
+                {"path": "Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md"},
+            ],
+            "historical": [],
+            "superseded": [],
+        },
+        "entries": [
+            {
+                "id": "documentation",
+                "domain": "Documentation",
+                "scope": "main",
+                "status": "PARTIAL",
+                "summary": "Corpus gouverné.",
+                "evidence": [],
+                "gaps": ["Validation de fixture."],
+                "validation_gates": [],
+            }
+        ],
+    }
+    registry_path.write_text(json.dumps(registry), encoding="utf-8")
+
+    _, findings = audit.load_truth_registry(tmp_path)
+    assert any(
+        finding["kind"] == "truth_document_unclassified"
+        and finding["file"] == "Architecture/GUIDE.md"
+        for finding in findings
+    )
+
+    registry["documentation"]["current"].append({"path": "Architecture/GUIDE.md"})
+    registry_path.write_text(json.dumps(registry), encoding="utf-8")
+    _, findings = audit.load_truth_registry(tmp_path)
+    assert not any(
+        finding["kind"] == "truth_document_unclassified" for finding in findings
+    )
+
+
+def test_truth_registry_ignores_dependencies_without_git_metadata(tmp_path: Path) -> None:
+    architecture = tmp_path / "Architecture"
+    architecture.mkdir()
+    required = (
+        "Architecture/28_VALIDATION_COHERENCE.md",
+        "Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md",
+    )
+    for relative in required:
+        (tmp_path / relative).write_text("# fixture\n", encoding="utf-8")
+    dependency = tmp_path / "web/node_modules/package"
+    dependency.mkdir(parents=True)
+    (dependency / "README.md").write_text("# dependency\n", encoding="utf-8")
+    registry = {
+        "schema_version": 1,
+        "reviewed_at": "2026-08-27",
+        "generated_status_document": required[0],
+        "documentation": {
+            "governed_roots": ["."],
+            "current": [{"path": relative} for relative in required],
+            "historical": [],
+            "superseded": [],
+        },
+        "entries": [],
+    }
+    (architecture / "project_truth_registry.json").write_text(
+        json.dumps(registry), encoding="utf-8"
+    )
+
+    _, findings = audit.load_truth_registry(tmp_path)
+
+    assert not any("node_modules" in finding["file"] for finding in findings)
+
+
+def test_public_privacy_scan_rejects_local_identifiers_and_screenshots(
+    tmp_path: Path,
+) -> None:
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "LEAK.md").write_text(
+        "checkout /Users/private-account/JarvisAPI ; TV 192.168.44.9\n",
+        encoding="utf-8",
+    )
+    package = tmp_path / "packages" / "public-client"
+    package.mkdir(parents=True)
+    (package / "PORTABILITY.md").write_text(
+        "cache /Users/another-account/private-cache/\n",
+        encoding="utf-8",
+    )
+    screenshots = tmp_path / "artifacts" / "validation_screenshots"
+    screenshots.mkdir(parents=True)
+    (screenshots / "contacts.png").write_bytes(b"not-a-real-image")
+
+    findings = audit.scan_public_privacy(tmp_path)
+
+    assert {
+        (finding["file"], finding["kind"])
+        for finding in findings
+    } == {
+        ("docs/LEAK.md", "public_absolute_user_path"),
+        ("docs/LEAK.md", "public_private_ipv4"),
+        (
+            "packages/public-client/PORTABILITY.md",
+            "public_absolute_user_path",
+        ),
+        (
+            "artifacts/validation_screenshots/contacts.png",
+            "public_validation_screenshot",
+        ),
+    }
+
+
+def test_public_privacy_scan_checks_personal_tokens_inside_tests(tmp_path: Path) -> None:
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    personal = "zeld" + "ris"
+    (tests / "test_fixture.py").write_text(
+        f"MACHINE = 'mac-mini-de-{personal}'\n",
+        encoding="utf-8",
+    )
+
+    findings = audit.scan_public_privacy(tmp_path)
+
+    assert [(item["file"], item["kind"]) for item in findings] == [
+        ("tests/test_fixture.py", "public_personal_identifier")
+    ]
+
+
+def test_public_privacy_scan_rejects_removed_screenshot_references(
+    tmp_path: Path,
+) -> None:
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+    (artifacts / "complement_report.json").write_text(
+        json.dumps({"proof": {"screenshot": "removed-contact.png"}}),
+        encoding="utf-8",
+    )
+
+    findings = audit.scan_public_privacy(tmp_path)
+
+    assert [(item["file"], item["kind"]) for item in findings] == [
+        ("artifacts/complement_report.json", "public_missing_screenshot_reference")
+    ]
 
 
 @pytest.mark.parametrize(
@@ -332,13 +599,38 @@ def test_frontend_doc_scan_accepts_current_runtime(tmp_path: Path) -> None:
 
 def test_build_report_and_cli(fake_repo: Path, tmp_path: Path) -> None:
     out = tmp_path / "out" / "architecture_truth.json"
-    rc = audit.main(["--root", str(fake_repo), "--output", str(out)])
+    status = tmp_path / "out" / "status.md"
+    rc = audit.main(
+        [
+            "--root",
+            str(fake_repo),
+            "--output",
+            str(out),
+            "--status-output",
+            str(status),
+        ]
+    )
     assert rc == 0
     data = json.loads(out.read_text(encoding="utf-8"))
     assert "canonical_formulation" in data
     assert data["resolution"]["supervisor_priority"] == "frontend/out_only"
     assert data["resolution"]["fastapi_uses_unified_first"] is True
     assert data["tables"]["counts"]["schema_sql_applicatives"] == 1
+    assert status.read_text(encoding="utf-8").startswith(
+        "# 28 — État de vérité du projet\n"
+    )
+    check_args = [
+        "--root",
+        str(fake_repo),
+        "--output",
+        str(out),
+        "--status-output",
+        str(status),
+        "--check",
+    ]
+    assert audit.main(check_args) == 0
+    status.write_text("rendu périmé\n", encoding="utf-8")
+    assert audit.main(check_args) == 1
 
 
 def test_check_mode_rejects_a_stale_report(fake_repo: Path, tmp_path: Path) -> None:
@@ -374,23 +666,28 @@ def test_real_repo_smoke_counts_stable() -> None:
 
     api_surface = audit.analyze_api_surface(ROOT)
     assert api_surface["counts"] == {
-        "operations": 318,
-        "paths": 283,
-        "consumer_and_tested": 144,
+        "operations": 324,
+        "paths": 288,
+        "consumer_and_tested": 150,
         "consumer_without_path_test": 68,
         "owned_non_frontend_and_tested": 53,
         "owned_non_frontend_without_path_test": 53,
     }
     assert api_surface["structure"] == {
-        "http_operations": 316,
+        "http_operations": 322,
         "websocket_operations": 2,
-        "openapi_paths": 281,
+        "openapi_paths": 286,
         "domain_router_modules": 22,
         "mounted_routers": 23,
         "main_lines": 269,
     }
     assert api_surface["ownership_policy"]["rules"] == 40
     assert api_surface["ownership_policy"]["findings"] == []
+
+    registry, findings = audit.load_truth_registry(ROOT)
+    assert findings == []
+    assert len(registry["entries"]) == 14
+    assert {entry["status"] for entry in registry["entries"]} <= audit.TRUTH_STATUSES
 
 
 def test_generated_runtime_schema_replays_a_fresh_database() -> None:
@@ -420,6 +717,8 @@ def test_versioned_architecture_artifacts_match_runtime() -> None:
                 str(ROOT / "artifacts" / "architecture_truth.json"),
                 "--schema-output",
                 str(ROOT / "database" / "schema.sql"),
+                "--status-output",
+                str(ROOT / "Architecture" / "28_VALIDATION_COHERENCE.md"),
                 "--check",
             ]
         )

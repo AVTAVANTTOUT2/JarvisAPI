@@ -1,5 +1,11 @@
 # Resource Guard Implementation Plan
 
+> **Statut : implémenté sur `origin/main` @ `6becf26` ; plan archivé.**
+> **Preuve :** `jarvis/resource_guard.py`, branchement dans `supervisor.py`,
+> `tests/test_resource_guard.py` et `tests/test_supervisor_resource_guard.py`.
+> Les cases originales restent décochées ; le smoke `memory_pressure` réel sur
+> macOS demeure une validation d’exploitation, pas une preuve reconstruite.
+
 > **For agentic workers:** Implement task-by-task. Steps use checkbox syntax.
 
 **Goal:** Watchdog RAM/process JARVIS-only dans le supervisor pour stopper Ollama idle et tuer TTS/daemons orphelins ou en double.

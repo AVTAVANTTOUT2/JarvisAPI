@@ -4,7 +4,7 @@ Point d'entrée dédié à l'écran de monitoring TV.
 Serveur HTTP simple, IP whitelist, Jinja2 templates, endpoints JSON.
 
 Démarrage:
-    cd /Users/zeldris/JarvisAPI/tv
+    cd <checkout-jarvis>/tv
     python3 server.py
 """
 

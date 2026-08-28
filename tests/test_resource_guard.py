@@ -15,7 +15,7 @@ from jarvis.resource_guard import (
     plan_actions,
 )
 
-PROJECT = Path("/Users/zeldris/JARVIS")
+PROJECT = Path("/Users/example/JARVIS")
 
 
 def _cfg(**overrides) -> GuardConfig:
@@ -50,14 +50,14 @@ def test_classify_accepts_jarvis_markers() -> None:
     assert classify_cmdline("ollama serve", PROJECT) == "ollama_serve"
     assert (
         classify_cmdline(
-            "/opt/homebrew/bin/ollama runner --model /Users/zeldris/.ollama/models/blobs/x",
+            "/opt/homebrew/bin/ollama runner --model /Users/example/.ollama/models/blobs/x",
             PROJECT,
         )
         == "ollama_runner"
     )
     assert (
         classify_cmdline(
-            "llama-server --model /Users/zeldris/.ollama/models/blobs/abc",
+            "llama-server --model /Users/example/.ollama/models/blobs/abc",
             PROJECT,
         )
         == "ollama_runner"

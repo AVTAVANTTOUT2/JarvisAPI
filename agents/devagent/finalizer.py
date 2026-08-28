@@ -314,6 +314,31 @@ def enqueue_engineering_finalizer(
     return {"job_id": job_id, "status": "pending"}
 
 
+def fail_engineering_finalizer_launch(
+    job_id: str,
+    *,
+    run_id: str,
+    error_code: str,
+) -> None:
+    """Ferme une intention dont le runtime a explicitement refusé le départ."""
+
+    path = _record_path(str(job_id))
+    record = _read_record(path)
+    if str(record.get("run_id") or "") != str(run_id):
+        raise RuntimeError("run de finalisation incohérent")
+    if record.get("status") in {"completed", "failed"}:
+        return
+    _write_record(
+        path,
+        {
+            **record,
+            "status": "failed",
+            "error_code": redact_text(error_code, max_chars=120),
+            "updated_at": datetime.now(UTC).isoformat(),
+        },
+    )
+
+
 async def process_engineering_finalizers_once(
     *,
     service: Any | None = None,
@@ -422,6 +447,7 @@ async def run_engineering_finalizer_worker(
 
 __all__ = [
     "enqueue_engineering_finalizer",
+    "fail_engineering_finalizer_launch",
     "process_engineering_finalizers_once",
     "run_engineering_finalizer_worker",
 ]

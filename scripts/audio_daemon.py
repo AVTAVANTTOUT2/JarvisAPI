@@ -141,7 +141,6 @@ STT_GHOST_PHRASES: list[str] = [
     "like and subscribe",
     "subtitles by",
     "thank you for watching",
-    "musique",
     "\u266a",  # ♪
     "[musique]",
     "[applaudissements]",

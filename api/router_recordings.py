@@ -4,12 +4,26 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import Literal
+from uuid import UUID
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 import config
 from api.errors import api_error, internal_error
+from audio.recording_sessions import (
+    cancel_recording_session,
+    complete_recording_session,
+    recording_session_status,
+    retry_recording_session,
+    start_recording_session,
+)
+from audio.recording_spool import (
+    RECORDING_PROTOCOL_VERSION,
+    RecordingSpool,
+    RecordingSpoolError,
+)
 from database import get_recording, get_recordings
 
 router = APIRouter()
@@ -22,6 +36,218 @@ class SpeakerAssignmentRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, str_strip_whitespace=True)
 
     name: str = Field(min_length=1, max_length=200)
+
+
+class RecordingSessionStartRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, str_strip_whitespace=True)
+
+    client_recording_id: str = Field(
+        min_length=36,
+        max_length=36,
+        pattern=r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$",
+    )
+    protocol_version: Literal[1] = 1
+    conversation_id: int | None = Field(default=None, ge=1)
+    label: str = Field(default="Enregistrement", min_length=1, max_length=200)
+
+
+class RecordingSessionCompleteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    expected_chunks: int = Field(ge=1)
+    duration_seconds: int | None = Field(default=None, ge=0)
+    protocol_version: Literal[1] = 1
+
+
+class RecordingSessionStatusResponse(BaseModel):
+    protocol_version: Literal[1]
+    ok: bool
+    session_id: str
+    state: Literal[
+        "capturing",
+        "queued",
+        "ready",
+        "processing",
+        "retry",
+        "partial",
+        "completed",
+        "failed",
+        "cancelled",
+        "expired",
+    ]
+    label: str
+    next_sequence: int
+    received_chunks: int
+    size_bytes: int
+    duration_ms: int
+    duration_seconds: int
+    checksum: str
+    attempts: int
+    max_attempts: int
+    retryable: bool
+    error_code: str | None
+    queued: bool | None = None
+    idempotent: bool | None = None
+
+
+class RecordingChunkAckResponse(BaseModel):
+    protocol_version: Literal[1]
+    ok: Literal[True]
+    session_id: str
+    sequence: int
+    status: Literal["accepted", "duplicate"]
+    accepted: bool
+    duplicate: bool
+    next_sequence: int
+    received_chunks: int
+    size_bytes: int
+    duration_ms: int
+    checksum: str
+
+
+def _raise_recording_error(exc: RecordingSpoolError) -> None:
+    raise api_error(
+        exc.status_code,
+        exc.code,
+        exc.message,
+        context=exc.context,
+    ) from exc
+
+
+@router.post(
+    "/api/recording-sessions",
+    response_model=RecordingSessionStatusResponse,
+)
+async def api_recording_session_start(body: RecordingSessionStartRequest):
+    """Crée une capture longue idempotente, locale et reprenable."""
+
+    try:
+        return start_recording_session(
+            client_recording_id=str(UUID(body.client_recording_id)),
+            conversation_id=body.conversation_id,
+            label=body.label,
+        )
+    except RecordingSpoolError as exc:
+        _raise_recording_error(exc)
+
+
+@router.get(
+    "/api/recording-sessions/{session_id}",
+    response_model=RecordingSessionStatusResponse,
+)
+async def api_recording_session_status(session_id: UUID):
+    """Retourne le prochain segment attendu après reprise ou crash."""
+
+    try:
+        return recording_session_status(str(session_id))
+    except RecordingSpoolError as exc:
+        _raise_recording_error(exc)
+
+
+@router.put(
+    "/api/recording-sessions/{session_id}/chunks/{sequence}",
+    response_model=RecordingChunkAckResponse,
+    openapi_extra={
+        "requestBody": {
+            "required": True,
+            "content": {
+                media_type: {
+                    "schema": {"type": "string", "format": "binary"},
+                }
+                for media_type in ("audio/webm", "audio/mp4", "audio/ogg")
+            },
+        }
+    },
+)
+async def api_recording_session_chunk(
+    session_id: UUID,
+    sequence: int,
+    request: Request,
+    chunk_sha256: str = Header(alias="X-Chunk-SHA256", min_length=64, max_length=64),
+    chunk_duration_ms: int = Header(
+        alias="X-Chunk-Duration-Ms",
+        ge=1,
+        le=60_000,
+    ),
+    recording_protocol_version: int = Header(
+        alias="X-Recording-Protocol-Version",
+        ge=1,
+    ),
+):
+    """ACK un segment uniquement après checksum, fsync et mise à jour durable."""
+
+    try:
+        if recording_protocol_version != RECORDING_PROTOCOL_VERSION:
+            raise RecordingSpoolError(
+                "recording_protocol_version_unsupported",
+                "Version du protocole d'enregistrement non prise en charge",
+                status_code=426,
+                context={"supported_version": RECORDING_PROTOCOL_VERSION},
+            )
+        spool = RecordingSpool.open(str(session_id))
+        return spool.append_chunk(
+            sequence=sequence,
+            audio_bytes=await request.body(),
+            expected_checksum=chunk_sha256,
+            duration_ms=chunk_duration_ms,
+            mime_type=request.headers.get("content-type", ""),
+        )
+    except LookupError:
+        _raise_recording_error(
+            RecordingSpoolError(
+                "recording_session_not_found",
+                "Session d'enregistrement introuvable",
+                status_code=404,
+            )
+        )
+    except RecordingSpoolError as exc:
+        _raise_recording_error(exc)
+
+
+@router.post(
+    "/api/recording-sessions/{session_id}/complete",
+    response_model=RecordingSessionStatusResponse,
+)
+async def api_recording_session_complete(
+    session_id: UUID,
+    body: RecordingSessionCompleteRequest,
+):
+    """Scelle une capture complète et enfile un traitement borné."""
+
+    try:
+        return complete_recording_session(
+            str(session_id),
+            expected_chunks=body.expected_chunks,
+            duration_seconds=body.duration_seconds,
+        )
+    except RecordingSpoolError as exc:
+        _raise_recording_error(exc)
+
+
+@router.delete(
+    "/api/recording-sessions/{session_id}",
+    response_model=RecordingSessionStatusResponse,
+)
+async def api_recording_session_cancel(session_id: UUID):
+    """Annule sans effet dérivé et détruit les segments audio bruts."""
+
+    try:
+        return cancel_recording_session(str(session_id))
+    except RecordingSpoolError as exc:
+        _raise_recording_error(exc)
+
+
+@router.post(
+    "/api/recording-sessions/{session_id}/retry",
+    response_model=RecordingSessionStatusResponse,
+)
+async def api_recording_session_retry(session_id: UUID):
+    """Réenfile une erreur transitoire sans dépasser trois tentatives."""
+
+    try:
+        return retry_recording_session(str(session_id))
+    except RecordingSpoolError as exc:
+        _raise_recording_error(exc)
 
 
 @router.get("/api/recordings")

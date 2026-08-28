@@ -1,5 +1,9 @@
 # 27 — Rapport Final : Prêt pour le Refactoring
 
+> **ARCHIVE — clôture du 11 juillet 2026.** Les nombres, fichiers et statuts
+> ci-dessous sont une photographie historique. L’état courant est généré dans
+> [`28_VALIDATION_COHERENCE.md`](./28_VALIDATION_COHERENCE.md).
+
 **Date** : 11 juillet 2026
 **Statut** : Rapport vivant — Phases 1 à 6 implémentées et validées sur `main`
 

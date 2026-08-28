@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+import hashlib
 import json
 import os
 import socket
@@ -645,6 +646,170 @@ def test_research_scope_alone_exposes_no_personal_knowledge_tool(
                 },
             },
         )
+
+
+def test_browser_scope_requires_exact_one_shot_parent_approval(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    effects: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        "integrations.browser.apply",
+        lambda _run_id, arguments: effects.append(dict(arguments))
+        or {"ok": True, "started": True, "url": "https://hotels.example/"},
+    )
+    approved_receipts: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        "integrations.browser_runtime.mark_browser_receipt_approved",
+        lambda run_id, digest, **_kwargs: approved_receipts.append((run_id, digest)),
+    )
+    registry = ToolRegistry(
+        _capability(tmp_path, scopes=("browser:control",)),
+        journal=IdempotencyJournal(tmp_path / "browser-journal.json"),
+    )
+    names = {tool["name"] for tool in registry.list_tools()}
+    assert "jarvis_browser" in names
+    assert "jarvis_knowledge_search" not in names
+    schema = next(
+        tool for tool in registry.list_tools() if tool["name"] == "jarvis_browser"
+    )
+    assert schema["annotations"] == {
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": True,
+    }
+
+    trusted = {
+        "run_id": registry.capability.run_id,
+        "tool_call_id": "mcp:browser-open",
+        "origin": "agent_runtime",
+        "bypass_agentic_reclassification": True,
+    }
+    arguments = {"op": "open", "url": "https://hotels.example/"}
+    pending: list[Mapping[str, Any]] = []
+    registry.bind_approval_callback(pending.append)
+    with pytest.raises(CapabilityError, match="approval_request_missing"):
+        registry.grant_approval(
+            approval_id="browser-not-requested",
+            run_id=registry.capability.run_id,
+            tool_name="jarvis_browser",
+            arguments=arguments,
+            expires_at=time.time() + 60,
+        )
+    with pytest.raises(CapabilityError, match="tool_approval_required"):
+        registry.call("jarvis_browser", {**arguments, "_jarvis": trusted})
+    assert effects == []
+    assert pending and pending[0]["sanitized_arguments"] == {
+        "op": "open",
+        "url_origin": "https://hotels.example/",
+        "url_path": "/",
+        "url_sha256": hashlib.sha256(arguments["url"].encode()).hexdigest(),
+        "url_has_query": False,
+    }
+    assert pending[0]["arguments_digest"] != ""
+
+    with pytest.raises(CapabilityError, match="tool_approval_required"):
+        registry.call(
+            "jarvis_browser",
+            {**arguments, "confirmed": True, "_jarvis": trusted},
+        )
+    assert effects == []
+
+    with pytest.raises(CapabilityError, match="approval_arguments_mismatch"):
+        registry.approve_and_execute_pending(
+            approval_id=str(pending[0]["approval_id"]),
+            run_id=registry.capability.run_id,
+            tool_name="jarvis_browser",
+            arguments={**pending[0]["sanitized_arguments"], "url_path": "/other"},
+            expires_at=time.time() + 60,
+        )
+    result = registry.approve_and_execute_pending(
+        approval_id=str(pending[0]["approval_id"]),
+        run_id=registry.capability.run_id,
+        tool_name="jarvis_browser",
+        arguments=pending[0]["sanitized_arguments"],
+        expires_at=time.time() + 60,
+    )
+    assert result["ok"] is True
+    assert result["data"]["started"] is True
+    assert result["data"]["url"] == "https://hotels.example/"
+    assert effects == [arguments]
+    assert approved_receipts and approved_receipts[0][0] == registry.capability.run_id
+    with pytest.raises(CapabilityError, match="approval_request_missing"):
+        registry.approve_and_execute_pending(
+            approval_id=str(pending[0]["approval_id"]),
+            run_id=registry.capability.run_id,
+            tool_name="jarvis_browser",
+            arguments=pending[0]["sanitized_arguments"],
+            expires_at=time.time() + 60,
+        )
+    with pytest.raises(CapabilityError, match="tool_approval_consumed"):
+        registry.call("jarvis_browser", {**arguments, "_jarvis": trusted})
+
+    denied_root = tmp_path / "denied"
+    denied_root.mkdir()
+    readonly = ToolRegistry(
+        _capability(denied_root, scopes=("research:search",)),
+        journal=IdempotencyJournal(tmp_path / "browser-denied.json"),
+    )
+    assert "jarvis_browser" not in {tool["name"] for tool in readonly.list_tools()}
+    with pytest.raises(CapabilityError, match="capability_scope_denied"):
+        readonly.call(
+            "jarvis_browser",
+            {
+                "op": "see",
+                "_jarvis": {
+                    "run_id": readonly.capability.run_id,
+                    "tool_call_id": "mcp:browser-denied",
+                    "origin": "agent_runtime",
+                    "bypass_agentic_reclassification": True,
+                },
+            },
+        )
+    with pytest.raises(CapabilityError, match="capability_scope_denied"):
+        readonly.grant_approval(
+            approval_id="scope-escalation",
+            run_id=readonly.capability.run_id,
+            tool_name="jarvis_browser",
+            arguments={"op": "see"},
+            expires_at=time.time() + 60,
+        )
+
+
+@pytest.mark.parametrize(
+    ("raw_url", "effective_origin"),
+    [
+        ("https://faß.de/", "https://fass.de/"),
+        ("https://bücher.example/", "https://xn--bcher-kva.example/"),
+        ("https://EXAMPLE.COM.:443", "https://example.com/"),
+    ],
+)
+def test_browser_approval_displays_the_effective_canonical_origin(
+    tmp_path: Path, raw_url: str, effective_origin: str
+) -> None:
+    registry = ToolRegistry(
+        _capability(tmp_path, scopes=("browser:control",)),
+        journal=IdempotencyJournal(tmp_path / "browser-canonical-journal.json"),
+    )
+    pending: list[Mapping[str, Any]] = []
+    registry.bind_approval_callback(pending.append)
+    trusted = {
+        "run_id": registry.capability.run_id,
+        "tool_call_id": "mcp:browser-canonical",
+        "origin": "agent_runtime",
+        "bypass_agentic_reclassification": True,
+    }
+
+    with pytest.raises(CapabilityError, match="tool_approval_required"):
+        registry.call(
+            "jarvis_browser",
+            {"op": "open", "url": raw_url, "_jarvis": trusted},
+        )
+
+    assert len(pending) == 1
+    display = pending[0]["sanitized_arguments"]
+    assert display["url_origin"] == effective_origin
+    assert display["url_sha256"] == hashlib.sha256(raw_url.encode()).hexdigest()
 
 
 def test_knowledge_source_types_are_partitioned_by_exact_read_scope() -> None:

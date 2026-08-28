@@ -177,7 +177,7 @@ idempotentes.
 | Données | SQLite, WAL, FTS5, embeddings locaux avec sentence-transformers |
 | Raisonnement | DeepSeek Flash et Main, API compatible OpenAI |
 | IA locale | Ollama pour la surveillance d'écran et le tri local des notifications |
-| Audio | faster-whisper, Silero VAD, Kokoro, TTSKit et synthèse vocale macOS |
+| Audio | faster-whisper, Silero VAD et Qwen3-TTS local via MLX |
 | Intégrations | AppleScript, Tailscale, Google Cast, API météo |
 | Tests | pytest, Vitest, Testing Library et Playwright |
 
@@ -310,7 +310,7 @@ nettoyage, la suppression et le rollback.
 | `DB_PATH` | Emplacement de la base SQLite. |
 | `DATABASE_ENCRYPTION_ENABLED` | Ouvre les bases avec SQLCipher après migration via `tools/database_encryption.py`. |
 | `BACKUP_CLOUD_ENABLED` / `BACKUP_CLOUD_URL` | Réplique uniquement les sauvegardes Fernet V2 vers une collection WebDAV HTTPS. |
-| `STT_ENGINE` / `TTS_ENGINE` | Moteurs de transcription et de synthèse vocale. |
+| `STT_ENGINE` / `TTS_PROVIDER` | Moteurs locaux de transcription et de synthèse vocale. |
 | `IMESSAGE_TARGET` | Active le bridge iMessage pour le numéro ou l'adresse indiquée. |
 | `IMESSAGE_SEND_ENABLED` | Autorise explicitement l'envoi d'iMessages. Désactivé par défaut. |
 | `DAEMON_ENABLED` | Active les fonctions proactives en arrière-plan. |

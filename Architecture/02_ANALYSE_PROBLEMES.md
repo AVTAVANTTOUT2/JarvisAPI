@@ -1,5 +1,11 @@
 # 02 — Analyse des Problèmes
 
+> **ARCHIVE — photographie du 11 juillet 2026.** Les totaux et priorités de ce
+> document ne décrivent pas l’état courant. Consulter le
+> [registre de vérité](./project_truth_registry.json), la
+> [roadmap active](./07_FEUILLE_DE_ROUTE.md) et le
+> [registre de dette généré](./23_TECHNICAL_DEBT.md).
+
 **Date** : 11 juillet 2026
 **Total** : 23 problèmes (4 CRITIQUES, 6 MAJEURS, 8 MODÉRÉS, 5 MINEURS)
 

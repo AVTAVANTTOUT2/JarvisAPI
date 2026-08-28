@@ -5,6 +5,11 @@
  */
 const { chromium } = require('@playwright/test');
 const fs = require('fs');
+const path = require('path');
+
+const ROOT = path.resolve(__dirname, '..');
+const SCREENSHOTS = path.join(ROOT, 'artifacts', 'validation_screenshots', 'complement');
+fs.mkdirSync(SCREENSHOTS, { recursive: true });
 
 const MAIN = 'http://localhost:9000';
 const TOKEN = process.env.PROD_TOKEN;
@@ -84,7 +89,7 @@ const B = Number(process.env.CONV_B);
       : 'FAIL';
 
   await page.screenshot({
-    path: '/Users/zeldris/JARVIS/artifacts/validation_screenshots/complement/chat_switch_retest.png',
+    path: path.join(SCREENSHOTS, 'chat_switch_retest.png'),
   });
 
   // cleanup

@@ -1,5 +1,9 @@
 # 05 — Plan de Migration
 
+> **ARCHIVE — plan de juillet 2026 exécuté ou superseded.** Ne pas relancer ces
+> phases ni utiliser leurs durées comme roadmap. La planification active vit
+> dans [`07_FEUILLE_DE_ROUTE.md`](./07_FEUILLE_DE_ROUTE.md).
+
 **Date** : 11 juillet 2026
 **Durée totale** : 15 jours (6 phases)
 **Principe** : Chaque phase est indépendante, testable, réversible, sans interruption de service.

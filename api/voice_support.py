@@ -46,9 +46,14 @@ def _fallback_action_response(action_type: str, result: dict) -> str:
         desc = data.get("description", "")
         return f"Il fait {temp} degres a {city}, {desc}."
 
-    if action_type == "open_app":
-        app_name = result.get("app_name", "l'application")
-        return f"{app_name} est ouverte."
+    if action_type in {"open_app", "launch"}:
+        app_name = result.get("app_name")
+        target = result.get("target")
+        if app_name and result.get("kind") == "app":
+            return f"{app_name} est ouverte."
+        if target:
+            return f"C'est ouvert : {target}."
+        return "C'est ouvert."
 
     if action_type == "task":
         return "Tache creee."

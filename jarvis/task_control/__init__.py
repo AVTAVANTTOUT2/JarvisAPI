@@ -37,6 +37,15 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     # Planification
     "generate_plan": (".planner", "generate_plan"),
     "build_plan": (".planner", "build_plan"),
+    # Livraison de code interne (non exposée par la route générique)
+    "EngineeringDeliveryContract": (
+        ".engineering",
+        "EngineeringDeliveryContract",
+    ),
+    "ENGINEERING_DELIVERY_METADATA_KEY": (
+        ".engineering",
+        "ENGINEERING_DELIVERY_METADATA_KEY",
+    ),
     # Détection
     "DetectionInput": (".detection", "DetectionInput"),
     "DetectedTask": (".detection", "DetectedTask"),

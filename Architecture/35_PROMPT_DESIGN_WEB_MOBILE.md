@@ -1,5 +1,9 @@
 # Prompt design — interface mobile JARVIS
 
+> **ARCHIVE — prompt de conception déjà exécuté.** Ne pas l’utiliser comme
+> description du runtime courant ; consulter
+> [`32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md`](./32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md).
+
 À donner à Claude pour la conception visuelle et UX de `web_mobile/`.
 Brief autonome : tout le contexte nécessaire est ici.
 

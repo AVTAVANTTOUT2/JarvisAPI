@@ -370,6 +370,15 @@ async def build_chapter(person_id: int, year_month: str) -> dict[str, Any]:
         )
         status = "partial"
 
+    # ponytail: ne jamais rétrograder un chapitre complet — budget/LLM reprendront au prochain run.
+    if (
+        existing
+        and existing.get("status") == "complete"
+        and status != "complete"
+    ):
+        existing["deferred"] = True
+        return existing
+
     return upsert_chapter(
         person_id=int(person_id),
         year_month=year_month,

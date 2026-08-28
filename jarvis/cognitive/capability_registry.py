@@ -120,13 +120,18 @@ class CapabilityRegistry:
                 "Ouvrir une application macOS",
                 action_type="open_app",
             ),
+            "computer.launch": Capability(
+                "computer.launch", computer_on, "low", False, "jarvis_tool",
+                "Ouvrir une URL, un fichier du home, ou une application",
+                action_type="launch",
+            ),
             "apple.shortcuts.run": Capability(
                 "apple.shortcuts.run",
                 bool(getattr(config, "APPLE_SHORTCUTS_ENABLED", False)),
                 "medium",
-                True,
+                not config.trust_allows("local.shortcuts"),
                 "jarvis_tool",
-                "Lancer un raccourci Shortcuts.app allowlisté (confirmation)",
+                "Lancer un raccourci Shortcuts.app allowlisté",
                 action_type="run_shortcut",
             ),
             "tv.control": Capability(

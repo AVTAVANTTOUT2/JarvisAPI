@@ -3459,6 +3459,280 @@
         "title": "ProgramSessionUpdate",
         "type": "object"
       },
+      "RecordingChunkAckResponse": {
+        "properties": {
+          "accepted": {
+            "title": "Accepted",
+            "type": "boolean"
+          },
+          "checksum": {
+            "title": "Checksum",
+            "type": "string"
+          },
+          "duplicate": {
+            "title": "Duplicate",
+            "type": "boolean"
+          },
+          "duration_ms": {
+            "title": "Duration Ms",
+            "type": "integer"
+          },
+          "next_sequence": {
+            "title": "Next Sequence",
+            "type": "integer"
+          },
+          "ok": {
+            "const": true,
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "protocol_version": {
+            "const": 1,
+            "title": "Protocol Version",
+            "type": "integer"
+          },
+          "received_chunks": {
+            "title": "Received Chunks",
+            "type": "integer"
+          },
+          "sequence": {
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "size_bytes": {
+            "title": "Size Bytes",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "accepted",
+              "duplicate"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "ok",
+          "session_id",
+          "sequence",
+          "status",
+          "accepted",
+          "duplicate",
+          "next_sequence",
+          "received_chunks",
+          "size_bytes",
+          "duration_ms",
+          "checksum"
+        ],
+        "title": "RecordingChunkAckResponse",
+        "type": "object"
+      },
+      "RecordingSessionCompleteRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "duration_seconds": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Seconds"
+          },
+          "expected_chunks": {
+            "minimum": 1.0,
+            "title": "Expected Chunks",
+            "type": "integer"
+          },
+          "protocol_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Protocol Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_chunks"
+        ],
+        "title": "RecordingSessionCompleteRequest",
+        "type": "object"
+      },
+      "RecordingSessionStartRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "client_recording_id": {
+            "maxLength": 36,
+            "minLength": 36,
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$",
+            "title": "Client Recording Id",
+            "type": "string"
+          },
+          "conversation_id": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conversation Id"
+          },
+          "label": {
+            "default": "Enregistrement",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "protocol_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Protocol Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "client_recording_id"
+        ],
+        "title": "RecordingSessionStartRequest",
+        "type": "object"
+      },
+      "RecordingSessionStatusResponse": {
+        "properties": {
+          "attempts": {
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "checksum": {
+            "title": "Checksum",
+            "type": "string"
+          },
+          "duration_ms": {
+            "title": "Duration Ms",
+            "type": "integer"
+          },
+          "duration_seconds": {
+            "title": "Duration Seconds",
+            "type": "integer"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "idempotent": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idempotent"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "max_attempts": {
+            "title": "Max Attempts",
+            "type": "integer"
+          },
+          "next_sequence": {
+            "title": "Next Sequence",
+            "type": "integer"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "protocol_version": {
+            "const": 1,
+            "title": "Protocol Version",
+            "type": "integer"
+          },
+          "queued": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Queued"
+          },
+          "received_chunks": {
+            "title": "Received Chunks",
+            "type": "integer"
+          },
+          "retryable": {
+            "title": "Retryable",
+            "type": "boolean"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "size_bytes": {
+            "title": "Size Bytes",
+            "type": "integer"
+          },
+          "state": {
+            "enum": [
+              "capturing",
+              "queued",
+              "ready",
+              "processing",
+              "retry",
+              "partial",
+              "completed",
+              "failed",
+              "cancelled",
+              "expired"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "ok",
+          "session_id",
+          "state",
+          "label",
+          "next_sequence",
+          "received_chunks",
+          "size_bytes",
+          "duration_ms",
+          "duration_seconds",
+          "checksum",
+          "attempts",
+          "max_attempts",
+          "retryable",
+          "error_code"
+        ],
+        "title": "RecordingSessionStatusResponse",
+        "type": "object"
+      },
       "RegistryCreateRequest": {
         "additionalProperties": false,
         "properties": {
@@ -18485,6 +18759,437 @@
         "x-jarvis-csrf-origin-required": true
       }
     },
+    "/api/recording-sessions": {
+      "post": {
+        "description": "Crée une capture longue idempotente, locale et reprenable.",
+        "operationId": "post_api_recording_sessions",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordingSessionStartRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordingSessionStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "428": {
+            "$ref": "#/components/responses/SetupRequired"
+          }
+        },
+        "security": [
+          {
+            "csrfToken": [],
+            "sessionCookie": []
+          }
+        ],
+        "summary": "Api Recording Session Start",
+        "tags": [
+          "recording-sessions"
+        ],
+        "x-jarvis-authentication": "session",
+        "x-jarvis-csrf-origin-required": true
+      }
+    },
+    "/api/recording-sessions/{session_id}": {
+      "delete": {
+        "description": "Annule sans effet dérivé et détruit les segments audio bruts.",
+        "operationId": "delete_api_recording_sessions_by_session_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordingSessionStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "428": {
+            "$ref": "#/components/responses/SetupRequired"
+          }
+        },
+        "security": [
+          {
+            "csrfToken": [],
+            "sessionCookie": []
+          }
+        ],
+        "summary": "Api Recording Session Cancel",
+        "tags": [
+          "recording-sessions"
+        ],
+        "x-jarvis-authentication": "session",
+        "x-jarvis-csrf-origin-required": true
+      },
+      "get": {
+        "description": "Retourne le prochain segment attendu après reprise ou crash.",
+        "operationId": "get_api_recording_sessions_by_session_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordingSessionStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "428": {
+            "$ref": "#/components/responses/SetupRequired"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "summary": "Api Recording Session Status",
+        "tags": [
+          "recording-sessions"
+        ],
+        "x-jarvis-authentication": "session"
+      }
+    },
+    "/api/recording-sessions/{session_id}/chunks/{sequence}": {
+      "put": {
+        "description": "ACK un segment uniquement après checksum, fsync et mise à jour durable.",
+        "operationId": "put_api_recording_sessions_by_session_id_chunks_by_sequence",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sequence",
+            "required": true,
+            "schema": {
+              "title": "Sequence",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Chunk-SHA256",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "minLength": 64,
+              "title": "X-Chunk-Sha256",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Chunk-Duration-Ms",
+            "required": true,
+            "schema": {
+              "maximum": 60000,
+              "minimum": 1,
+              "title": "X-Chunk-Duration-Ms",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Recording-Protocol-Version",
+            "required": true,
+            "schema": {
+              "minimum": 1,
+              "title": "X-Recording-Protocol-Version",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "audio/mp4": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            },
+            "audio/ogg": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            },
+            "audio/webm": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordingChunkAckResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "428": {
+            "$ref": "#/components/responses/SetupRequired"
+          }
+        },
+        "security": [
+          {
+            "csrfToken": [],
+            "sessionCookie": []
+          }
+        ],
+        "summary": "Api Recording Session Chunk",
+        "tags": [
+          "recording-sessions"
+        ],
+        "x-jarvis-authentication": "session",
+        "x-jarvis-csrf-origin-required": true
+      }
+    },
+    "/api/recording-sessions/{session_id}/complete": {
+      "post": {
+        "description": "Scelle une capture complète et enfile un traitement borné.",
+        "operationId": "post_api_recording_sessions_by_session_id_complete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordingSessionCompleteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordingSessionStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "428": {
+            "$ref": "#/components/responses/SetupRequired"
+          }
+        },
+        "security": [
+          {
+            "csrfToken": [],
+            "sessionCookie": []
+          }
+        ],
+        "summary": "Api Recording Session Complete",
+        "tags": [
+          "recording-sessions"
+        ],
+        "x-jarvis-authentication": "session",
+        "x-jarvis-csrf-origin-required": true
+      }
+    },
+    "/api/recording-sessions/{session_id}/retry": {
+      "post": {
+        "description": "Réenfile une erreur transitoire sans dépasser trois tentatives.",
+        "operationId": "post_api_recording_sessions_by_session_id_retry",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordingSessionStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "428": {
+            "$ref": "#/components/responses/SetupRequired"
+          }
+        },
+        "security": [
+          {
+            "csrfToken": [],
+            "sessionCookie": []
+          }
+        ],
+        "summary": "Api Recording Session Retry",
+        "tags": [
+          "recording-sessions"
+        ],
+        "x-jarvis-authentication": "session",
+        "x-jarvis-csrf-origin-required": true
+      }
+    },
     "/api/recordings": {
       "get": {
         "description": "Liste des enregistrements continus (sans transcription complète).",
@@ -21775,6 +22480,10 @@
     {
       "description": "Opérations du domaine JARVIS « quality ».",
       "name": "quality"
+    },
+    {
+      "description": "Opérations du domaine JARVIS « recording-sessions ».",
+      "name": "recording-sessions"
     },
     {
       "description": "Opérations du domaine JARVIS « recordings ».",

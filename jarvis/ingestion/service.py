@@ -63,7 +63,7 @@ _SOURCE_ALIASES = {
     "imessage": "imessage",
     "calendar": "calendar",
 }
-_INGESTION_LEASE_SECONDS = 180
+_INGESTION_LEASE_SECONDS = 45
 
 
 def _create_ingestion_proposal(
@@ -447,12 +447,13 @@ async def _mail_sync(
     page_size = max(1, min(100, int(binding.settings.get("page_size", 50))))
     max_pages = max(1, min(20, int(binding.settings.get("max_pages_per_run", 5))))
     offset = 0
+    resume_offset = 0
     if state and state.completeness == "partial":
-        offset = max(0, int(state.cursor.get("offset", 0)) - page_size)
+        resume_offset = max(0, int(state.cursor.get("offset", 0)) - page_size)
     item_count = 0
     complete = False
     last_item_at: str | None = None
-    for _ in range(max_pages):
+    for page_index in range(max_pages + int(resume_offset > 0)):
         result = await mail_client.get_recent_page_result(
             page_size,
             offset=offset,
@@ -517,6 +518,8 @@ async def _mail_sync(
             offset = 0
             break
         offset = max(offset + len(result.messages), int(result.next_offset))
+        if page_index == 0 and resume_offset:
+            offset = resume_offset
     with get_db() as conn:
         total = int(conn.execute("SELECT COUNT(*) FROM email_summaries").fetchone()[0])
     return IngestionRunResult(

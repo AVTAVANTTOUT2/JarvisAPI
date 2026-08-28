@@ -9,7 +9,7 @@ const { chromium } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
 
-const ROOT = '/Users/zeldris/JARVIS';
+const ROOT = path.resolve(__dirname, '..');
 const OUT = path.join(ROOT, 'artifacts', 'validation_screenshots', 'complement');
 fs.mkdirSync(OUT, { recursive: true });
 

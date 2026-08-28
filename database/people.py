@@ -498,17 +498,55 @@ def _merge_people_ids(conn: sqlite3.Connection, keep_id: int, drop_id: int) -> N
         ).fetchall()
     }
     if "person_month_chapters" in tables:
-        conn.execute(
-            """
-            UPDATE OR IGNORE person_month_chapters
-            SET person_id = ? WHERE person_id = ?
-            """,
-            (keep_id, drop_id),
-        )
-        conn.execute(
-            "DELETE FROM person_month_chapters WHERE person_id = ?",
+        drop_chapters = conn.execute(
+            "SELECT * FROM person_month_chapters WHERE person_id = ?",
             (drop_id,),
-        )
+        ).fetchall()
+        for row in drop_chapters:
+            year_month = str(row["year_month"])
+            existing = conn.execute(
+                """
+                SELECT id FROM person_month_chapters
+                WHERE person_id = ? AND year_month = ?
+                """,
+                (keep_id, year_month),
+            ).fetchone()
+            if existing:
+                drop_narrative = str(row["narrative"] or "").strip()
+                conn.execute(
+                    """
+                    UPDATE person_month_chapters
+                    SET message_count = message_count + ?,
+                        sent_count = sent_count + ?,
+                        recv_count = recv_count + ?,
+                        narrative = CASE
+                            WHEN TRIM(COALESCE(narrative, '')) = '' THEN ?
+                            WHEN ? = '' THEN narrative
+                            ELSE narrative || char(10) || char(10) || ?
+                        END,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE person_id = ? AND year_month = ?
+                    """,
+                    (
+                        int(row["message_count"] or 0),
+                        int(row["sent_count"] or 0),
+                        int(row["recv_count"] or 0),
+                        drop_narrative,
+                        drop_narrative,
+                        drop_narrative,
+                        keep_id,
+                        year_month,
+                    ),
+                )
+                conn.execute(
+                    "DELETE FROM person_month_chapters WHERE id = ?",
+                    (int(row["id"]),),
+                )
+            else:
+                conn.execute(
+                    "UPDATE person_month_chapters SET person_id = ? WHERE id = ?",
+                    (keep_id, int(row["id"])),
+                )
     conn.execute("DELETE FROM people WHERE id = ?", (drop_id,))
 
 

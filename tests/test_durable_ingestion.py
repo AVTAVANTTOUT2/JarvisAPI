@@ -550,6 +550,12 @@ def test_jobs_use_fenced_leases_and_health_never_exposes_payload(
     assert list_ingestion_jobs(source="recording")[0].status == "dead"
 
 
+def test_crashed_ingestion_job_is_reclaimable_within_freshness_slo() -> None:
+    from jarvis.ingestion.service import _INGESTION_LEASE_SECONDS
+
+    assert _INGESTION_LEASE_SECONDS <= 45
+
+
 def test_recording_sessions_separate_pending_and_expired(ingestion_db: Path) -> None:
     from database.ingestion import (
         create_recording_session,
@@ -651,6 +657,39 @@ async def test_partial_mail_scan_never_deletes_cached_messages(
         state.cursor["deletion_reconciliation"]
         == "unsupported_without_full_mailbox_scan"
     )
+
+
+@pytest.mark.asyncio
+async def test_partial_mail_backfill_refreshes_head_after_restart(
+    ingestion_db: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from database import get_db
+    from database.ingestion import bind_connector, enqueue_ingestion_job
+    from integrations import mail as mail_module
+    from jarvis.ingestion.service import run_ingestion_maintenance_once
+
+    fake = _PagedMail([_mail_message("backlog", index) for index in range(6)])
+    monkeypatch.setattr(mail_module, "mail_client", fake)
+    bind_connector(
+        "mail",
+        permission_state="granted",
+        settings={"page_size": 1, "max_pages_per_run": 2},
+    )
+
+    await run_ingestion_maintenance_once()
+    assert fake.offsets == [0, 1]
+
+    fake.messages.insert(0, _mail_message("fresh", 0))
+    fake.offsets.clear()
+    enqueue_ingestion_job("mail", dedupe_key="sync:restart")
+    await run_ingestion_maintenance_once()
+
+    assert fake.offsets == [0, 1, 2]
+    with get_db() as conn:
+        assert conn.execute(
+            "SELECT 1 FROM email_summaries WHERE gmail_id = 'fresh-0'"
+        ).fetchone()
 
 
 def _mail_message(prefix: str, index: int) -> dict[str, Any]:

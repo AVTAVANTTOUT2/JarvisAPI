@@ -327,6 +327,17 @@ RECORDING_MAX_DURATION_MIN = int(
 RECORDING_CHUNK_SIZE_MB = int(
     _get("RECORDING_CHUNK_SIZE_MB", "20")
 )  # taille max par segment local
+RECORDING_MAX_SESSION_BYTES = int(
+    _get("RECORDING_MAX_SESSION_BYTES", str(1024 * 1024 * 1024))
+)  # 1 GiB par capture
+RECORDING_MAX_PROFILE_SPOOL_BYTES = int(
+    _get("RECORDING_MAX_PROFILE_SPOOL_BYTES", str(4 * 1024 * 1024 * 1024))
+)  # 4 GiB de brut par profil
+RECORDING_MAX_ACTIVE_SESSIONS = int(_get("RECORDING_MAX_ACTIVE_SESSIONS", "4"))
+RECORDING_MAX_PENDING_JOBS = int(_get("RECORDING_MAX_PENDING_JOBS", "4"))
+RECORDING_CAPTURE_IDLE_TTL_MIN = int(
+    _get("RECORDING_CAPTURE_IDLE_TTL_MIN", "30")
+)
 RECORDING_SUMMARY_ONLY = (
     _get("RECORDING_SUMMARY_ONLY", "false").lower() == "true"
 )  # n’inclut pas la transcription dans les réponses API/liste
@@ -440,6 +451,51 @@ COMPUTER_TIMEOUT = int(_get("COMPUTER_TIMEOUT", "30"))
 COMPUTER_ALLOWED_APPS = frozenset(
     a.strip().lower() for a in _get("COMPUTER_ALLOWED_APPS", "").split(",") if a.strip()
 )
+# Schémas passés à ``/usr/bin/open``. ``javascript`` / ``data`` / SMB sont
+# toujours retirés, même s'ils apparaissent dans la liste.
+DEFAULT_LAUNCH_URL_SCHEMES = (
+    "https,http,file,youtube,spotify,maps,"
+    "x-apple.systempreferences,shortcuts,mailto"
+)
+_LAUNCH_SCHEME_BLOCKLIST = frozenset(
+    {"javascript", "data", "smb", "afp", "ssh", "telnet", "ftp"}
+)
+LAUNCH_URL_SCHEMES = frozenset(
+    scheme.strip().lower()
+    for scheme in _get("LAUNCH_URL_SCHEMES", DEFAULT_LAUNCH_URL_SCHEMES).split(",")
+    if scheme.strip()
+) - _LAUNCH_SCHEME_BLOCKLIST
+
+# Charte de confiance : classes de pouvoir, pas une permission par app.
+# restricted = install neuve (Shortcuts toujours confirmés).
+# majordomo = machine perso (launch + raccourcis low de confiance en auto).
+TRUST_PROFILES = frozenset({"restricted", "standard", "majordomo"})
+_TRUST_RAW = _get("JARVIS_TRUST_PROFILE", "restricted").strip().lower()
+JARVIS_TRUST_PROFILE = _TRUST_RAW if _TRUST_RAW in TRUST_PROFILES else "restricted"
+_TRUST_ALLOWED_CLASSES: dict[str, frozenset[str]] = {
+    "restricted": frozenset({"local.launch", "local.read", "local.media"}),
+    "standard": frozenset(
+        {"local.launch", "local.read", "local.media", "local.shortcuts"}
+    ),
+    "majordomo": frozenset(
+        {"local.launch", "local.read", "local.media", "local.shortcuts"}
+    ),
+}
+
+
+def parse_trust_profile(raw: str | None) -> str:
+    value = (raw or "restricted").strip().lower()
+    return value if value in TRUST_PROFILES else "restricted"
+
+
+def trust_allows(class_name: str, *, profile: str | None = None) -> bool:
+    """True si la charte accorde cette classe. Send/money/shell ne passent jamais ici."""
+    resolved = parse_trust_profile(
+        profile if profile is not None else JARVIS_TRUST_PROFILE
+    )
+    return class_name in _TRUST_ALLOWED_CLASSES[resolved]
+
+
 # Les commandes proposées par un LLM sont confinées ici et doivent toujours
 # être confirmées avant une exécution sans shell.
 LLM_SHELL_WORKSPACE = _get(
@@ -451,8 +507,9 @@ LLM_SHELL_MAX_TIMEOUT = int(_get("LLM_SHELL_MAX_TIMEOUT", "120"))
 LLM_SHELL_PLAN_TTL_SECONDS = int(_get("LLM_SHELL_PLAN_TTL_SECONDS", "600"))
 
 # ── Apple Shortcuts (Raccourcis.app) ─────────────────────────
-# Opt-in : le LLM ne peut lancer que des raccourcis présents dans le registre
-# SQLite, après confirmation humaine (plan opaque à usage unique).
+# Opt-in : le LLM ne lance que des raccourcis du registre SQLite.
+# Autorun seulement si risk=low, case confirmation décochée, et
+# trust_allows("local.shortcuts"). Sinon plan opaque à usage unique.
 APPLE_SHORTCUTS_ENABLED = _get("APPLE_SHORTCUTS_ENABLED", "false").lower() == "true"
 APPLE_SHORTCUTS_BIN = _get("APPLE_SHORTCUTS_BIN", "")
 APPLE_SHORTCUTS_WORKSPACE = _get(
@@ -530,6 +587,14 @@ UBER_EATS_LOCALE = _get("UBER_EATS_LOCALE", "fr-FR")
 UBER_EATS_NAV_TIMEOUT_MS = int(_get("UBER_EATS_NAV_TIMEOUT_MS", "30000"))
 UBER_EATS_ACTION_TIMEOUT_MS = int(_get("UBER_EATS_ACTION_TIMEOUT_MS", "10000"))
 UBER_EATS_PLAN_TTL_SECONDS = int(_get("UBER_EATS_PLAN_TTL_SECONDS", "600"))
+
+# ── Navigateur agentique générique (yeux + mains) ────────────
+# Distinct d'Uber Eats : n'importe quel HTTPS public, jamais un paiement.
+BROWSER_ENABLED = _get("BROWSER_ENABLED", "true").lower() == "true"
+BROWSER_HEADLESS = _get("BROWSER_HEADLESS", "true").lower() == "true"
+BROWSER_NAV_TIMEOUT_MS = int(_get("BROWSER_NAV_TIMEOUT_MS", "20000"))
+BROWSER_ACTION_TIMEOUT_MS = int(_get("BROWSER_ACTION_TIMEOUT_MS", "8000"))
+BROWSER_SESSION_TTL_SECONDS = int(_get("BROWSER_SESSION_TTL_SECONDS", "300"))
 
 # ── Suggestions de repas et suivi de livraison ───────────────
 # Le relevé de menus est en lecture seule : il ne peut rien acheter, mais il
@@ -618,7 +683,7 @@ INGESTION_IMESSAGE_WATCH_ENABLED = (
 INGESTION_IMESSAGE_WATCH_DEBOUNCE_MS = int(
     _get("INGESTION_IMESSAGE_WATCH_DEBOUNCE_MS", "300")
 )
-INGESTION_MAIL_INTERVAL_S = float(_get("INGESTION_MAIL_INTERVAL_S", "120"))
+INGESTION_MAIL_INTERVAL_S = float(_get("INGESTION_MAIL_INTERVAL_S", "60"))
 INGESTION_CALENDAR_INTERVAL_S = float(_get("INGESTION_CALENDAR_INTERVAL_S", "300"))
 # Chapitres mensuels par personne (job d'ingestion, jamais chat.db).
 PERSON_HISTORY_MAX_CHAPTERS_PER_RUN = int(

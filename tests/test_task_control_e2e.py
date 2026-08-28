@@ -58,6 +58,8 @@ class _Approval:
     scope: str = "run"
     expires_at: datetime | None = None
     decision: Any = field(default_factory=lambda: _Decision("pending"))
+    decision_by: str | None = None
+    decision_id: str | None = None
     decision_at: datetime | None = None
 
 
@@ -95,29 +97,55 @@ class _Agentic:
     sent_effects: list[str] = field(default_factory=list)
     approvals_by_run: dict[str, list[_Approval]] = field(default_factory=dict)
     artifacts_by_run: dict[str, list[_Artifact]] = field(default_factory=dict)
+    runs: dict[str, _Run] = field(default_factory=dict)
 
     async def create_and_start(self, **kwargs: Any) -> _Run:
         self.starts.append(kwargs)
-        return _Run(run_id=f"run_{len(self.starts)}")
+        run = _Run(run_id=f"run_{len(self.starts)}")
+        self.runs[run.run_id] = run
+        return run
 
     async def cancel(self, run_id: str) -> None:
         self.cancels.append(run_id)
 
-    async def decide_approval(self, run_id, approval_id, *, decision, actor):
+    async def decide_approval(
+        self,
+        run_id,
+        approval_id,
+        decision,
+        *,
+        decided_by,
+        decision_id,
+    ):
         for approval in self.approvals_by_run.get(run_id, []):
             if approval.approval_id != approval_id:
                 continue
             if getattr(approval.decision, "value", "pending") != "pending":
+                if (
+                    approval.decision.value == decision.value
+                    and approval.decision_id == decision_id
+                ):
+                    return approval
                 raise RuntimeError("approbation déjà décidée")
             approval.decision = decision
+            approval.decision_by = decided_by
+            approval.decision_id = decision_id
+            approval.decision_at = datetime.now()
             if decision.value == "approved":
                 # L'effet n'a lieu qu'ici : approuver le plan ne l'a pas
                 # produit, et le refus n'y mène jamais.
                 self.sent_effects.append(approval.action)
-        return _Run(run_id=run_id)
+            approvals = self.approvals_by_run.get(run_id, [])
+            pending = any(item.decision.value == "pending" for item in approvals)
+            denied = any(item.decision.value == "denied" for item in approvals)
+            self.runs[run_id].status = _Decision(
+                "awaiting_approval" if pending else "blocked" if denied else "running"
+            )
+            return approval
+        raise RuntimeError("approbation absente")
 
     def get(self, run_id: str) -> _Run:
-        return _Run(run_id=run_id)
+        return self.runs[run_id]
 
     def approvals(self, run_id: str) -> list[_Approval]:
         return self.approvals_by_run.get(run_id, [])
@@ -443,10 +471,10 @@ async def test_scenario_d_permission_email_refusee_puis_accordee(e2e):
     )
     assert service.agentic.sent_effects == ["Envoyer un e-mail au fournisseur"]
 
-    with pytest.raises(RuntimeError):
-        await service.decide_effect_approval(
-            task.task_id, "ap_2", approved=True, actor="session:1"
-        )
+    replay = await service.decide_effect_approval(
+        task.task_id, "ap_2", approved=True, actor="session:1"
+    )
+    assert replay["decision"] == "approved"
     assert len(service.agentic.sent_effects) == 1, "l'effet n'est pas rejouable"
 
 

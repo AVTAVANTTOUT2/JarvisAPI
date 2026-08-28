@@ -1,7 +1,7 @@
 # 30 — Plan de stabilisation audio après la PR #17
 
 **Date initiale** : 15 juillet 2026
-**Mise à jour d'état** : 10 août 2026
+**Mise à jour d'état** : 27 août 2026
 **Point de départ** : PR #17, pipeline natif macOS local  
 **Règle** : une phase = une PR réversible, avec tests et preuve de validation
 
@@ -27,7 +27,7 @@ remplacées par le contrat réellement déployé ; elles ne décrivent plus la c
 | 3 | `codex/phase-3-audio-daemon-resilience` | P0 | Partiel | Plus d'abandon silencieux après crash ou micro muet ; preuves matérielles encore requises |
 | 4 | `codex/phase-4-local-tts-resilience` | P1 | Terminé techniquement | Qwen3 local testé, erreurs actionnables, aucun repli silencieux |
 | 5 | `codex/phase-5-voice-websockets` | P1 | Terminé techniquement | Poussoir, mains libres et temps réel partagent le même contrat STT |
-| 6 | `codex/phase-6-recording-diarization` | P2 | À faire | Enregistrements longs fiables ; diarisation locale explicitement optionnelle |
+| 6 | `codex/phase-6-recording-diarization` | P2 | Partiel | Capture longue reprenable livrée et testée virtuellement ; validation navigateur/STT réelle et diarisation locale restent ouvertes |
 | 7 | `codex/phase-7-audio-observability` | P1 | Partiel | Dashboard et outil de campagne livrés ; campagne 24 h encore à exécuter |
 
 ## Phase 0 — Retrait du fournisseur legacy
@@ -106,14 +106,38 @@ manuel micro refusé puis réautorisé ; observation 24 h avant clôture.
 
 ## Phase 6 — Enregistrements longs et diarisation
 
-- Valider la concaténation des fragments MediaRecorder avant transcription.
+**État technique au 27/08** : le vertical de capture longue ne concatène plus
+des timeslices ambigus. L'UI canonique redémarre `MediaRecorder` toutes les 30 s
+et produit ainsi des segments autonomes. Le protocole REST v1
+`/api/recording-sessions` porte `sequence + SHA-256 + durée`, n'ACK qu'après
+écriture atomique/fsync, reprend depuis `next_sequence`, déduplique un replay
+identique et refuse un trou ou un replay différent. La file client garde au plus
+deux blobs et chaque upload a trois essais transitoires maximum.
+
+Le worker relit un seul fichier à la fois ; ni la reprise ni la transcription
+segmentée ne reconstruisent l'audio complet en RAM. `complete` et le job
+d'ingestion sont idempotents, `cancel` ne s'applique qu'à une capture ouverte et
+détruit l'audio brut sous le verrou d'upload, et les dérivés
+restent uniques par `recording_session_id`. La liste Documents consomme
+désormais l'enveloppe API réelle et expose démarrage, reprise, état, annulation
+et retry.
+
+- Valider les segments MediaRecorder indépendants avant transcription.
 - Introduire un moteur de diarisation local dans une PR distincte, ou conserver
   la fonction désactivée avec un statut explicite.
 - Classer séparément les erreurs STT, extraction, synthèse et actions aval.
 - Rendre les reprises idempotentes pour éviter les tâches et faits dupliqués.
 
-**Sortie** : tests 1/30/180 minutes, reprise après erreur et preuve d'absence de
-doublons.
+**Preuve automatisée** : `tests/test_recording_upload_protocol.py` simule
+1/30/180 minutes sans attente murale et couvre ACK perdu, reprise après crash,
+replay, trou, mauvais checksum/conteneur, stockage plein, timeout STT,
+annulation, retry borné et unicité du job. Les tests UI couvrent l'enveloppe
+Documents et le contrat de retry/cursor.
+
+**Toujours requis avant clôture** : capture MediaRecorder réelle de 180 minutes,
+transcription locale réelle sur le Mac cible, mesure RSS/latence/disque et essai
+de reprise après crash physique. Ces preuves sont `NOT_EXECUTED`; la campagne
+24 h reste en Phase 7.
 
 ## Phase 7 — Observabilité et clôture
 
