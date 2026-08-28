@@ -1,5 +1,12 @@
 # Android Production Wave 1 Implementation Plan
 
+> **Statut : implémenté puis superseded par le client Android 2.1.0-ui sur
+> `origin/main` @ `6becf26`.** **Preuve :**
+> `android/app/src/main/kotlin/fr/jarvis/companion/core/database/JarvisDatabase.kt`,
+> `navigation/JarvisNavHost.kt`, `core/sync/`, `tests/test_mobile_bearer_routes.py`
+> et les tests JVM Android. Les cases historiques restent inchangées ; les
+> parcours sur appareil et la signature de distribution ne sont pas attestés.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Fondation production du Companion Android (Bearer métier, Room/Sync, navigation, onboarding, Accueil réel) sans casser pairing/Keystore/GPS/voix PTT.

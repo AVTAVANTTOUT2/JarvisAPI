@@ -102,6 +102,10 @@ def test_launch_agent_plists_are_valid(tmp_path):
         payload = plistlib.loads(path.read_bytes())
         assert payload["Label"].startswith("com.jarvis.")
         assert payload["ProgramArguments"]
+        if path.parent == ROOT / "tv":
+            template = path.read_text(encoding="utf-8")
+            assert "/Users/" not in template
+            assert "__JARVIS_ROOT__" in template
         if path.name == "com.jarvis.tv-browser.plist":
             assert payload["RunAtLoad"] is False
         else:

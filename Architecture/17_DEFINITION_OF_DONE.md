@@ -1,137 +1,91 @@
 # 17 — Definition of Done
 
-> **Archive des phases de refactoring de juillet 2026.** Les preuves restent
-> utiles, mais les fallbacks cités ont depuis été retirés.
+**Revue :** 27 août 2026
+**Référence :** `origin/main` @ `6becf26cb3ea4ab47acb1996a2a9125500446ab7`
+**Statut :** règle de gouvernance active.
 
-**Date** : 11 juillet 2026
-**Statut** : Règle de gouvernance
+Les checklists et métriques des phases de refactoring de juillet 2026 sont des
+preuves historiques. Elles vivent dans
+[`06_PLAN_TESTS.md`](./06_PLAN_TESTS.md) et
+[`19_VALIDATION_FINALE.md`](./19_VALIDATION_FINALE.md) ; elles ne définissent
+plus l’état courant.
 
----
+## Critères universels
 
-Ce document définit les critères obligatoires pour considérer une phase de refactoring comme terminée.
+Une livraison n’est terminée que si tous les critères applicables sont prouvés :
 
-## Critères universels (toutes phases)
+- le comportement demandé est implémenté sans élargissement implicite de
+  permissions ni effet externe non autorisé ;
+- les tests ciblés, la suite pertinente, le lint/typecheck et
+  `git diff --check` passent dans l’environnement documenté ;
+- tout artefact généré est régénéré depuis sa source puis validé en mode
+  `--check` ; aucun compteur générable n’est maintenu à la main ;
+- chaque Markdown des racines gouvernées est classé dans le registre de vérité,
+  les snapshots portent un bandeau archive/superseded et tous les liens locaux
+  sont valides ;
+- aucun secret, PII, chemin utilisateur, IP personnelle, identifiant de
+  matériel ou capture issue de données réelles n’est publié ;
+- les migrations sont idempotentes, la compatibilité et le rollback des données
+  sont testés, et aucune base réelle n’est utilisée dans les tests ;
+- les files, caches et buffers ont une borne démontrée ; reprise, idempotence,
+  dédoublonnage, annulation et nettoyage sont testés pour les tâches longues ;
+- les contrats publics modifiés régénèrent OpenAPI et SDK et conservent une
+  stratégie de compatibilité explicite ;
+- l’observabilité permet de distinguer succès, attente, erreur, annulation et
+  état dégradé sans journaliser de charge utile sensible ;
+- le rollback est décrit par fichiers, données et procédure de vérification.
 
-Chaque phase doit satisfaire AU MINIMUM :
+## Nature des preuves
 
-| # | Critère | Vérification |
+| Type | Ce qu’il autorise à déclarer | Ce qu’il n’autorise pas |
 |---|---|---|
-| 1 | **Tous les tests passent** | `python -m pytest tests/ -q` → 0 échec |
-| 2 | **Couverture minimale atteinte** | La couverture ne doit PAS baisser vs avant la phase. Cible : +5% par phase. |
-| 3 | **Documentation mise à jour** | README, CLAUDE.md, et les fichiers Architecture/ sont à jour |
-| 4 | **ADR mis à jour** | Tout ADR modifié par la phase a son statut changé (Proposé → Accepté → Implémenté) |
-| 5 | **Performances égales ou meilleures** | Temps de démarrage, latence API, utilisation mémoire — pas de régression >10% |
-| 6 | **Aucun nouveau warning critique** | `grep -i "error\|critical" data/logs/backend.log` des dernières 24h |
-| 7 | **Plan de rollback documenté** | Dans le message de commit ou le document de phase : comment revenir en arrière |
-| 8 | **Code review passée** | Review par un pair ou auto-review avec la checklist Architecture/ |
+| Test automatisé | invariant déterministe couvert par le test cité | qualité humaine, matériel, signature ou endurance |
+| Build/lint statique | assemblage et contrat de compilation | parcours utilisateur réel |
+| Validation matérielle | résultat exact sur appareil/Mac identifié dans un artefact privé expurgé | généralisation à tous les appareils |
+| Campagne prolongée | stabilité pendant la durée réellement archivée | campagne 24 h si l’artefact couvre moins |
+| Snapshot historique | état à sa date et son SHA | état actuel |
 
-## Critères spécifiques par phase
+Une case ou un texte ancien ne vaut jamais preuve rétroactive. Si la preuve
+n’existe pas, le registre conserve `PARTIAL` ou
+`IMPLEMENTED_NEEDS_REAL_VALIDATION`.
 
-### Phase 1 — Quick Wins P0
+## Portes par surface
 
-- [x] `busy_timeout` configuré → `PRAGMA busy_timeout` retourne 5000 (vérifié par test le 14/07/2026)
-- [x] Race condition WS → snapshot défensif + asyncio.Lock, mutations sérialisées et I/O réseau hors verrou (vérifié par 2 tests le 14/07/2026)
-- [x] Curseurs ROWID → registre central persistant, offsets monotones nommés, aucun ancien attribut mémoire
-- [x] Cycle main↔daemon → aucun import de `main` dans `jarvis_daemon.py` ou `audio_daemon.py`
-- [x] `pipeline.py` existe, est configuré par `main.py` et consommé par les deux daemons
+### Backend et données
 
-La validation opérationnelle sur 24 heures n'est pas reproductible en CI faute de logs de production. Elle reste un contrôle de déploiement ; les invariants de code de la Phase 1 sont couverts par 7 tests ciblés déterministes.
+- auth, CSRF/origine et autorisations échouent fermés ;
+- concurrence, transactions, timeouts et erreurs sont couverts ;
+- le schéma frais et les migrations sont rejoués en mémoire ;
+- logs et réponses publiques sont expurgés.
 
-### Phase 2 — Database modulaire
+### Frontend, Android et macOS
 
-- [x] `wc -l database/__init__.py` = 236 lignes après ajout du réexport `event_log` en Phase 3 (< 500)
-- [x] Aucun import cassé → `python -c "from database import *"` réussit
-- [x] Chaque module extrait a un docstring et des type hints — contrôlé par test statique
-- [x] La couverture de tests n'a pas baissé — 538 passants, 1 ignoré après extraction ; 542 passants, 1 ignoré après Phase 3
+- chargement, vide, succès, erreur, offline et révocation sont visibles ;
+- aucune donnée privée n’est montée avant l’authentification ;
+- accessibilité, reprise réseau et annulation sont couvertes ;
+- les validations appareil, signature et notarisation restent ouvertes tant
+  que leurs artefacts n’existent pas.
 
-### Phase 3 — Event bus actif
+### Audio et tâches longues
 
-- [x] 10 types d'événements immuables, versionnés et documentés dans `jarvis/events.py`
-- [x] `rg -l "event_bus\.emit" --glob '*.py' .` → 13 fichiers correspondants, dont 11 émetteurs de production
-- [x] `rg -l "event_bus\.on" --glob '*.py' .` → 3 fichiers consommateurs réels
-- [x] Le polling périodique notifications/tâches de la PWA est remplacé par le flux SSE et les invalidations React Query
-- [x] Table `event_log` créée par `init_db()`, alimentée après commit et idempotente par `event_id`
+- permission refusée, périphérique absent, crash et reconnexion sont gérés ;
+- aucun repli cloud silencieux ;
+- les scénarios 1/30/180 minutes, la RAM bornée et l’absence de doublons sont
+  requis avant de déclarer les enregistrements longs terminés ;
+- une campagne 24 h n’est déclarée qu’avec son artefact daté.
 
-Preuves exécutées le 14/07/2026 : 4 tests Phase 3 passants, suite backend complète à 542 passants et 1 ignoré, build PWA réussi, `compileall` et `git diff --check` réussis. Le journal rend un futur rejeu possible, mais le rejeu automatique reste hors périmètre. L'observation opérationnelle sur 24 heures n'est pas vérifiable dans l'environnement de test.
+### Agentique et effets externes
 
-### Phase 4 — Routeurs FastAPI
+- plan et permissions exactes sont affichés avant démarrage ;
+- chaque effet sensible possède son approbation propre, non rejouable ;
+- reprise après crash, annulation, rapport final et démontabilité du provider
+  sont prouvés ;
+- aucune fusion, publication, envoi ou paiement sans autorité explicite.
 
-- [x] `wc -l main.py` < 500 lignes — 211 lignes
-- [x] Exactement 12 fichiers `api/router_*.py` exposent des `APIRouter`
-- [x] Les signatures des 269 opérations HTTP et des 2 WebSockets, ainsi que les 239 chemins OpenAPI, sont inventoriées et verrouillées ; les endpoints couverts passent via `TestClient`
-- [x] Le lifespan extrait dans `api/lifespan.py` est monté explicitement et la suite de non-régression reste verte
+## Porte de release
 
-Preuves exécutées le 14/07/2026 : 6 tests Phase 4 passants, suite complète à 548 passants et 1 ignoré, `compileall`, Ruff et `git diff --check` réussis. Tous les modules `api/` restent à 500 lignes ou moins et aucun n'importe `main.py`. Aucun serveur réel, campagne `curl` exhaustive ou observation opérationnelle sur 24 h n'a été exécuté dans cet environnement.
-
-### Phase 5 — Apple Data Service
-
-- [x] `AppleDataService` est l'unique ouverture applicative de `chat.db` (`mode=ro` + `PRAGMA query_only`)
-- [x] `apple_epoch_to_datetime()` n'est définie que dans `integrations/apple_data.py`
-- [x] Les consommateurs iMessage sont migrés directement ou via `IMessageReader` (bridge, daemons, import/backfill, diagnostics, TV et analyseurs relationnels)
-- [x] Tests d'intégration passent avec mock de chat.db et garde-fou AST contre les accès directs
-
-Preuves exécutées le 14/07/2026 : 67 tests ciblés passants, suite backend complète à 555 passants et 1 ignoré, `compileall` et `git diff --check` réussis. La validation Full Disk Access/TCC sur un `chat.db` réel et l'observation opérationnelle 24 h restent manuelles.
-
-### Phase 6 — Frontend unifié
-
-- [x] `frontend/package.json` est le manifeste canonique du frontend unifié ; les manifestes historiques restent uniquement pour les fallbacks réversibles
-- [x] Les vues desktop ET mobile sont réutilisées par le layout responsive et leurs builds réussissent
-- [x] `cd frontend && pnpm test` → 10 passants, 0 échec
-- [x] Le SDK auth est dans `jarvis_auth/` et importé par le frontend, `web/` et `pwa/`
-- [x] L'ancien frontend (`web/dist/`, `pwa/out/`) coexiste sans erreur
-- [x] Playwright E2E passe sur desktop + mobile (3 scénarios)
-
-Preuves exécutées le 14/07/2026 : typecheck et build Next.js 15 de 25 pages, 10 tests Vitest (dont cleanup des services privés au soft lock), 3 E2E Playwright, 4 contrats FastAPI, 18 tests web historiques et builds des deux fallbacks. Le workflow CI comprend désormais un job dédié au frontend unifié, en plus du fallback Vite, et les trois jobs sont passés sur le commit de merge `main`. Le Service Worker unifié exclut les API et données privées. Le rejeu backend complet reste indisponible localement car l'environnement ne fournit pas `portaudio.h` à PyAudio ; les appareils physiques, le comportement d'installation natif et l'observation opérationnelle 24 h restent des validations manuelles.
-
-### NotificationService — dette post-phases
-
-- [x] Les 16 producteurs applicatifs utilisent `notification_service.create()` ; aucun appel direct à `create_notification()` ne subsiste dans `agents/` et `scripts/`.
-- [x] Priorités normalisées, déduplication atomique par `source`/`title`/`email_id` et index appliqué aux bases existantes.
-- [x] Web Push best-effort et `notification.created` ne sont déclenchés qu'après une nouvelle insertion validée.
-- [x] La façade publique `database.create_notification()` et les routes API restent rétrocompatibles.
-
-Preuves exécutées le 14/07/2026 : 5 contrats `tests/test_notification_service.py`, 15 tests ciblés avec Web Push/Event Bus, puis 565 tests backend collectés en quatre lots (564 passants, 1 ignoré). Rollback : revert des commits `refactor: centralize notification orchestration` et `docs: document notification service`.
-
-### Stabilisation audio post-PR #17
-
-- [x] Chaque moteur configuré distingue disponibilité déclarée et préchargement réussi.
-- [x] Aucun fournisseur STT cloud ni secret associé dans le code, l'UI ou la configuration.
-- [x] Les moteurs optionnels absents ne produisent pas d'incident tant qu'ils ne sont pas sélectionnés.
-- [x] Les chemins poussoir, mains libres, temps réel et daemon partagent le contrat STT local.
-- [ ] Les scénarios permission micro refusée, crash loop et saturation ont un test ou une preuve manuelle.
-- [ ] Une observation de 24 h sur le Mac cible clôt les phases critiques.
-
-Preuves techniques réactualisées le 10/08/2026 : contrats de configuration et
-d'absence de repli cloud, tests TTS locaux, test matériel Qwen3 explicite et
-suite standard isolée du GPU. Les deux dernières cases restent volontairement
-ouvertes jusqu'aux preuves matérielles et à l'artefact de campagne 24 h.
-
-Le détail, l'ordre des PR et les rollbacks sont définis dans `30_PLAN_STABILISATION_AUDIO.md`.
-
-## Checklist de code review
-
-Avant de merger une phase, vérifier :
-
-```
-[ ] Pas de duplication introduite (DRY)
-[ ] Pas de lazy import (tous les imports sont top-level ou justifiés)
-[ ] Pas de god object créé (>500 lignes)
-[ ] Type hints sur toutes les fonctions publiques
-[ ] Docstrings sur toutes les classes et fonctions publiques
-[ ] Pas de `except Exception` nu (toujours spécifier le type)
-[ ] Pas de `print()` (utiliser `logging`)
-[ ] Pas de secret dans le code (tout dans `.env`)
-[ ] Tests pour le nouveau code
-[ ] Tests pour les edge cases (null, vide, erreur)
-```
-
-## Métriques de succès par phase
-
-| Phase | Critère principal | Seuil |
-|---|---|---|
-| 1 | Problèmes P0 résolus | 4/4 |
-| 2 | Lignes database/__init__.py | < 500 |
-| 3 | Événements actifs | ≥ 10 types |
-| 4 | Lignes main.py | < 500 |
-| 5 | Connexions directes chat.db | 0 (hors apple_data) |
-| 6 | Applications frontend | 1 |
+La release exige en plus : statut P0 fermé, candidat identifié par SHA, builds
+reproductibles, scans PII/secrets, validation physique applicable, signature,
+notarisation le cas échéant, notes, hashes, rollback testé et approbation
+humaine. Un build unsigned ou une checklist non signée reste un candidat
+technique, jamais une release distribuable.

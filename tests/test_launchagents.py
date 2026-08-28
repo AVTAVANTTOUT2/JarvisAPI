@@ -66,7 +66,7 @@ def test_cli_generates_both_plists_in_paths_with_spaces(tmp_path: Path) -> None:
         assert payload["WorkingDirectory"] == str(repo)
         assert payload["StandardOutPath"].startswith(str(repo / "data" / "logs"))
         assert payload["StandardErrorPath"].startswith(str(repo / "data" / "logs"))
-        assert "/Users/zeldris/JarvisAPI" not in path.read_text(encoding="utf-8")
+        assert "/Users/example/JarvisAPI" not in path.read_text(encoding="utf-8")
 
 
 def test_generation_fails_when_backend_venv_is_missing(tmp_path: Path) -> None:

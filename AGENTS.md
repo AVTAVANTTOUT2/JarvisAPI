@@ -26,10 +26,10 @@ modules se dégradent proprement (avertissements au démarrage, pas d'erreur).
   tests échouent avec `result["ok"] is False`. Activé, ils passent.
 - Lint et tests : commandes dans `README.md` (« Tests »). En résumé :
   `ruff check .` puis `python -m pytest tests/ jarvis/tests agents/devagent -q`.
-- Note d'état (peut évoluer) : sur la suite standard, deux tests de
-  `tests/test_universal_memory_e2e.py` (ranking de récupération cross-source)
-  échouent indépendamment de l'environnement (FTS5 est bien disponible). Ce
-  n'est pas un problème de setup.
+- Les tests de récupération cross-source dans
+  `tests/test_universal_memory_e2e.py` font partie de la suite normale. Ne pas
+  maintenir ici de liste de tests supposés cassés : une régression se constate
+  par l’exécution courante et la CI.
 
 ### Lancer le backend
 

@@ -710,7 +710,7 @@ Dernière extension (mai 2026) : persistance + API complètes, intégration `bui
 ### Lancement quotidien
 
 ```bash
-cd /Users/zeldris/JarvisAPI
+cd /Users/<user>/JarvisAPI
 source venv/bin/activate
 python main.py
 # → http://localhost:8081
@@ -723,11 +723,11 @@ La **PWA** est un client Next.js pur (zéro logique métier). Toutes les routes 
 ```bash
 # Démarrage local (deux terminaux)
 # Terminal 1 — backend
-cd /Users/zeldris/JarvisAPI && source venv/bin/activate && python main.py
+cd /Users/<user>/JarvisAPI && source venv/bin/activate && python main.py
 # → http://localhost:8081
 
 # Terminal 2 — PWA
-cd /Users/zeldris/JarvisAPI/pwa && npm run dev
+cd /Users/<user>/JarvisAPI/pwa && npm run dev
 # → http://localhost:3000
 ```
 
@@ -754,7 +754,7 @@ NEXT_PUBLIC_JARVIS_API_URL=http://127.0.0.1:8081
 
 L'interface PWA a été entièrement repensée pour atteindre une qualité **iOS-native** :
 
-**Parser briefing structuré** ([`pwa/src/lib/briefing-parser.ts`](pwa/src/lib/briefing-parser.ts)) — au lieu d'afficher le briefing comme un mur de texte brut, le contenu est parsé en sections typées :
+**Parser briefing structuré** (`pwa/src/lib/briefing-parser.ts`, fichier historique supprimé) — au lieu d'afficher le briefing comme un mur de texte brut, le contenu est parsé en sections typées :
 
 - `emails` (compteur + flag urgent)
 - `agenda` (texte)
@@ -765,7 +765,7 @@ L'interface PWA a été entièrement repensée pour atteindre une qualité **iOS
 - `attention` (Point d'attention final, ton violet)
 - `intro` (préambule éventuel)
 
-Chaque section a son rendu visuel dédié dans [`BriefingCard.tsx`](pwa/src/components/dashboard/BriefingCard.tsx) avec icône Lucide (`Mail`, `Calendar`, `Target`, `MessageCircle`, `Cloud`, `AlertTriangle`, `Star`). **Aucun emoji** dans toute l'app.
+Chaque section avait son rendu visuel dédié dans `pwa/src/components/dashboard/BriefingCard.tsx` (fichier historique supprimé) avec icône Lucide (`Mail`, `Calendar`, `Target`, `MessageCircle`, `Cloud`, `AlertTriangle`, `Star`). **Aucun emoji** dans toute l'app.
 
 **4 pages refondues** :
 
@@ -776,16 +776,16 @@ Chaque section a son rendu visuel dédié dans [`BriefingCard.tsx`](pwa/src/comp
 | `/tasks` | barre de progression dégradé bleu→vert + créateur rapide (input + pills priorité) + liste groupée (En cours / À faire / Terminées collapsibles) avec toggle done par tap | `ProgressBar`, `TaskCreator`, `TaskItem`, `TaskList` |
 | `/config` | état live du backend en sections (Système, Intégrations, Audio, Mémoire, LLM, Watchers) avec badges ACTIF/INACTIF, refresh manuel, polling 30 s | section reusable + `IntegrationRow`, `MemStat` |
 
-**Styles globaux** ([`pwa/src/app/globals.css`](pwa/src/app/globals.css)) : safe areas iOS (`env(safe-area-inset-*)`), animation `pageEnter` (200ms fadeIn) sur chaque navigation, `tabular-nums` partout sur les chiffres, scrollbar invisible, `100dvh` body, overscroll bloqué.
+**Styles globaux** (`pwa/src/app/globals.css`, fichier historique supprimé) : safe areas iOS (`env(safe-area-inset-*)`), animation `pageEnter` (200ms fadeIn) sur chaque navigation, `tabular-nums` partout sur les chiffres, scrollbar invisible, `100dvh` body, overscroll bloqué.
 
-**Bottom nav** ([`BottomNav.tsx`](pwa/src/components/layout/BottomNav.tsx)) : 4 onglets (Dashboard / Mails / Tâches / Config) avec icônes Lucide, état actif en `text-[#4A9EFF]` + `strokeWidth` augmenté, `backdrop-blur-[30px]`, safe-area-inset-bottom respecté.
+**Bottom nav** (`pwa/src/components/layout/BottomNav.tsx`, fichier historique supprimé) : 4 onglets (Dashboard / Mails / Tâches / Config) avec icônes Lucide, état actif en `text-[#4A9EFF]` + `strokeWidth` augmenté, `backdrop-blur-[30px]`, safe-area-inset-bottom respecté.
 
 **Nettoyage** : 14 fichiers legacy supprimés (hooks `useMails`/`useCalendar`/`useTasks`/`useSummary`, composants `MorningSummary`/`StatsGrid`/`AgendaTimeline`/`QuickActions`/`PageHeader`/`StatusBar`/`PullToRefresh`, shared `Card`/`Badge`/`IconBox`/`Skeleton`, types orphelins, `lib/utils.ts`). Dependance `clsx` retirée (69 packages npm en moins).
 
 **Tests** :
 
-- [`pwa/scripts/test-parser.mjs`](pwa/scripts/test-parser.mjs) — 12 assertions sur le parser briefing (compile via le tsc local, importe le module ESM, valide structure + count + items + absence de marqueurs Markdown résiduels). `cd pwa && node scripts/test-parser.mjs`.
-- [`pwa/scripts/test-endpoints.sh`](pwa/scripts/test-endpoints.sh) — 12 endpoints proxifiés testés (status, integrations, tasks, briefing, notifications, people, journal, patterns, calendar). `bash pwa/scripts/test-endpoints.sh`.
+- `pwa/scripts/test-parser.mjs` (historique, supprimé) — 12 assertions sur le parser briefing (compile via le tsc local, importe le module ESM, valide structure + count + items + absence de marqueurs Markdown résiduels). `cd pwa && node scripts/test-parser.mjs`.
+- `pwa/scripts/test-endpoints.sh` (historique, supprimé) — 12 endpoints proxifiés testés (status, integrations, tasks, briefing, notifications, people, journal, patterns, calendar). `bash pwa/scripts/test-endpoints.sh`.
 
 **Règles design strictes** :
 
@@ -801,7 +801,7 @@ Chaque section a son rendu visuel dédié dans [`BriefingCard.tsx`](pwa/src/comp
 
 Le PWA envoie en continu la position de l'iPhone au backend via l'API `Geolocation` du navigateur, alimentant `LocationManager` (tables `location_history`, `places`, `visits`, `trips`, `location_patterns`).
 
-**Service tracking** ([`pwa/src/lib/geolocation.ts`](pwa/src/lib/geolocation.ts)) :
+**Service tracking** (`pwa/src/lib/geolocation.ts`, fichier historique supprimé) :
 
 | Fonction | Rôle |
 |---|---|
@@ -820,7 +820,7 @@ Le PWA envoie en continu la position de l'iPhone au backend via l'API `Geolocati
 - **Envoi forcé** au bout de 10 min même sans mouvement (heartbeat)
 - **Auto-stop** sur `PERMISSION_DENIED` (code 1)
 
-**Démarrage auto** dans [`pwa/src/app/client-layout.tsx`](pwa/src/app/client-layout.tsx) :
+**Démarrage auto** dans `pwa/src/app/client-layout.tsx` (fichier historique supprimé) :
 
 - Vérifie la permission via `navigator.permissions.query`
 - Si `granted` → `startTracking()` immédiatement (pas de prompt intempestif)
@@ -829,8 +829,8 @@ Le PWA envoie en continu la position de l'iPhone au backend via l'API `Geolocati
 
 **UI** :
 
-- **Widget Dashboard** ([`LocationWidget.tsx`](pwa/src/components/dashboard/LocationWidget.tsx)) — affiche le lieu courant (nom ou "Position non nommée"), heure de dernière maj, durée passée à l'endroit, bouton refresh, liste des visites du jour. Bouton "Nommer cet endroit" inline avec input + validation Enter quand la position n'est rattachée à aucun lieu.
-- **Section Config** ([`LocationConfig.tsx`](pwa/src/components/config/LocationConfig.tsx)) — toggle ON/OFF du tracking (déclenche `requestPermission()` au premier OFF→ON), état de la permission, stats (dernier envoi, erreurs, intervalle, distance min), liste des lieux connus avec compteur de visites, patterns géo détectés.
+- **Widget Dashboard** (`pwa/src/components/dashboard/LocationWidget.tsx`, fichier historique supprimé) — affiche le lieu courant (nom ou "Position non nommée"), heure de dernière maj, durée passée à l'endroit, bouton refresh, liste des visites du jour. Bouton "Nommer cet endroit" inline avec input + validation Enter quand la position n'est rattachée à aucun lieu.
+- **Section Config** (`pwa/src/components/config/LocationConfig.tsx`, fichier historique supprimé) — toggle ON/OFF du tracking (déclenche `requestPermission()` au premier OFF→ON), état de la permission, stats (dernier envoi, erreurs, intervalle, distance min), liste des lieux connus avec compteur de visites, patterns géo détectés.
 
 **Contrainte iOS Safari** : pas de background geolocation. Le tracking ne marche qu'au premier plan. Compensé par :
 
@@ -841,7 +841,7 @@ Le PWA envoie en continu la position de l'iPhone au backend via l'API `Geolocati
 **Catégories de lieux backend** (contrainte `CHECK` SQL) :
 `home`, `school`, `work`, `gym`, `restaurant`, `shop`, `friend`, `family`, `medical`, `transport`, `leisure`, `other`. La PWA envoie `other` par défaut pour `name-current` ; à modifier ensuite via `PUT /api/places/{id}`.
 
-**Test E2E** : [`pwa/scripts/test-location.sh`](pwa/scripts/test-location.sh) — 10 assertions sur les endpoints localisation (POST point, status, history, places, visits, trips, patterns, batch, name-current + cleanup DELETE).
+**Test E2E historique** : `pwa/scripts/test-location.sh` (supprimé) — 10 assertions sur les endpoints localisation (POST point, status, history, places, visits, trips, patterns, batch, name-current + cleanup DELETE).
 
 ```bash
 bash pwa/scripts/test-location.sh
@@ -893,7 +893,7 @@ chmod +x scripts/jarvis_full_restart.sh   # une fois
 Pour **arrêter** JARVIS sans relancer (backend FastAPI, workers intégrés iMessage / email watcher / daemon / scheduler, et Vite en mode `--dev`) :
 
 ```bash
-cd /Users/zeldris/JarvisAPI
+cd /Users/<user>/JarvisAPI
 WEB_PORT=$(grep -E '^WEB_PORT=' .env 2>/dev/null | tail -1 | cut -d= -f2 | tr -d ' ')
 WEB_PORT=${WEB_PORT:-8080}
 VITE_PORT=${VITE_DEV_PORT:-5173}
@@ -1418,13 +1418,13 @@ JARVIS peut être contacté **depuis ton iPhone** via iMessage : tu envoies un m
 #    → ajouter Terminal.app (ou iTerm/VSCode/Cursor selon où tu lances JARVIS)
 
 # 2. Renseigner ton numéro dans .env
-echo 'IMESSAGE_TARGET=+33612345678' >> .env
+echo 'IMESSAGE_TARGET=<phone-e164>' >> .env
 # (optionnel) Pour ne répondre qu'aux messages commençant par "jarvis" :
 echo 'IMESSAGE_PREFIX=jarvis' >> .env
 
 # 3. Lancer JARVIS
 python main.py
-# → log "iMessage bridge activé — écoute les messages de +33612345678"
+# → log "iMessage bridge activé — écoute les messages de <phone-e164>"
 
 # 4. Depuis ton iPhone, envoie un iMessage à ton propre numéro
 #    "jarvis quel temps fait-il à Lille ?"
@@ -1787,7 +1787,7 @@ Checklist exhaustive exécutée automatiquement (API, WebSocket, DB, logs).
 ### Fonctionnalités absentes
 
 3. **Scheduler (APScheduler/cron)** — Les briefings matin (07:30), soir (22:00) et résumé hebdomadaire ne se déclenchent pas automatiquement. Déclenchement uniquement via UI ou `/api/briefing`.
-4. **Carnet Contacts macOS** — Pas d'intégration Contacts.app pour résoudre les numéros iMessage en noms. Le `+33612345678` reste un numéro au lieu d'afficher un prénom.
+4. **Carnet Contacts macOS** — Pas d'intégration Contacts.app pour résoudre les numéros iMessage en noms. Le `<phone-e164>` reste un numéro au lieu d'afficher un prénom.
 
 ### Non testables (nécessitent un navigateur)
 
@@ -2258,7 +2258,7 @@ Vérification :
 Demande exécutée : fusion des doublons visibles dans la liste contacts (`Bertille Doublon`, `Elias`, `Bertille`).
 
 Constat :
-- les 3 fiches pointaient vers le même handle iMessage : `+33612345678`
+- les 3 fiches pointaient vers le même handle iMessage : `<phone-e164>`
 
 Opérations effectuées :
 - conservation de la fiche `Bertille`
@@ -2738,9 +2738,9 @@ Vérification et ajustement `.env` (voix Kokoro) :
 
 Redémarrage propre effectué via `scripts/jarvis_full_restart.sh` pour appliquer la configuration.
 
-### Soir (21:10) — Alignement partiel sur zeldrisDASH (flush voix)
+### Soir (21:10) — Alignement partiel sur un pipeline vocal de référence (flush voix)
 
-Comparaison avec le pipeline vocal de `zeldrisDASH` (worktree local) : son comportement robuste repose sur des envois audio réguliers même quand la détection de fin de phrase est imparfaite.
+Comparaison avec un pipeline vocal de référence (worktree local) : son comportement robuste repose sur des envois audio réguliers même quand la détection de fin de phrase est imparfaite.
 
 Portage d'un garde-fou équivalent dans JARVIS :
 - `web/src/app/components/views/VoiceView.tsx`
@@ -2976,9 +2976,9 @@ proposer des actions à partir du contenu des messages — JAMAIS de texte brut 
 
 ### 2026-05-06 — Remplacement de `chat.db` (Messages)
 
-- Sauvegarde créée : `/Users/zeldris/Library/Messages/chat.db.backup-20260506-225402`
-- Base remplacée : `/Users/zeldris/Library/Messages/chat.db`
-- Source utilisée : `/Users/zeldris/Desktop/chat.db`
+- Sauvegarde créée : `/Users/<user>/Library/Messages/chat.db.backup-20260506-225402`
+- Base remplacée : `/Users/<user>/Library/Messages/chat.db`
+- Source utilisée : `/Users/<user>/Desktop/chat.db`
 
 ### 2026-05-06 — Protocole de démarrage et reprise
 
@@ -3014,7 +3014,7 @@ proposer des actions à partir du contenu des messages — JAMAIS de texte brut 
   - `conversation_rows: 323`
   - `records_upserted: 323`
   - `db_result: {'input_records': 323, 'created': 0, 'updated': 323, 'dates_corrected': 0, 'profiles_upserted': 323, 'cache_upserted': 323, 'merged_duplicates': 0}`
-- `sync_contacts.py` exécuté via `PYTHONPATH=/Users/zeldris/JarvisAPI` (résolution import `database`) : `exit_code=0`.
+- `sync_contacts.py` exécuté via `PYTHONPATH=/Users/<user>/JarvisAPI` (résolution import `database`) : `exit_code=0`.
 
 ### 2026-05-06 — Correctif critique boucle iMessage
 
@@ -3111,7 +3111,7 @@ proposer des actions à partir du contenu des messages — JAMAIS de texte brut 
 ### 2026-05-07 — Tentative capture d'écran Bureau
 
 - Demande utilisateur: prendre une capture d'écran et la déposer sur le Bureau.
-- Commande exécutée: `screencapture "/Users/zeldris/Desktop/capture_20260507_1428.png"`.
+- Commande exécutée: `screencapture "/Users/<user>/Desktop/capture_20260507_1428.png"`.
 - Résultat: échec `could not create image from display` (capture écran indisponible dans ce contexte d'exécution).
 
 ### 2026-05-10 — Restauration solution démarrage services (transcript perdu)
@@ -3169,7 +3169,7 @@ tv/
 ### Architecture
 
 - **Serveur** : FastAPI + Uvicorn port **5174**, HTTP uniquement (reseau local).
-- **Securite** : middleware IP whitelist (`192.168.1.0/24`, `100.64.0.0/10`, `127.0.0.1`). Hors whitelist → 403.
+- **Securite** : middleware IP whitelist (`<lan-cidr>`, `100.64.0.0/10`, `127.0.0.1`). Hors whitelist → 403.
 - **Donnees** : double source — SQLite read-only (`data/jarvis.db`) + proxy vers backend principal (`https://127.0.0.1:8081`).
 - **Frontend** : vanilla JS, CSS grid, Three.js CDN pour le globe 3D. Zero npm/webpack.
 
@@ -3257,7 +3257,7 @@ AudioDaemon._broadcast_state() → broadcast_ws() (main.py :8081)
 
 Setup TV Philips :
 ```bash
-adb connect 192.168.3.82:5555
+adb connect <tv-ip>:5555
 adb shell am start -a android.intent.action.VIEW \
     -d "http://IP_MAC_MINI:5174" \
     -n com.android.chrome/com.google.android.apps.chrome.Main
@@ -3556,10 +3556,10 @@ Corrections appliquées : whitelist IP, launchd, ADB pour la TV Philips.
 - Aucun. Tous les fichiers sont préexistants dans `tv/`.
 
 **Fichiers modifiés :**
-- `tv/config.py` — ajout du sous-réseau `192.168.3.0/24` dans `WHITELIST_NETWORKS` (la TV
+- `tv/config.py` — ajout du sous-réseau `<lan-cidr>` dans `WHITELIST_NETWORKS` (la TV
   Philips est sur ce réseau).
 - `tv/com.jarvis.tv.plist` — correction du path Python : `/usr/bin/python3` →
-  `/Users/zeldris/JarvisAPI/venv/bin/python3` (les dépendances sont dans le venv).
+  `/Users/<user>/JarvisAPI/venv/bin/python3` (les dépendances sont dans le venv).
 - `tv/server.py` — route `/v2` supprimée (était cassée).
 
 **Installation launchd :**
@@ -3592,8 +3592,8 @@ launchctl load ~/Library/LaunchAgents/com.jarvis.tv.plist
 
 **Lancement sur TV Philips :**
 ```bash
-adb connect 192.168.3.82
-adb shell am start -a android.intent.action.VIEW -d "http://192.168.3.52:5174"
+adb connect <tv-ip>
+adb shell am start -a android.intent.action.VIEW -d "http://<mac-ip>:5174"
 ```
 
 ### 2026-06-30 — Fix dashboard TV (rendu cassé + endpoints déconnectés)
@@ -3644,7 +3644,7 @@ ADB forward tcp:9222 → localabstract:chrome_devtools_remote
   ↓
 Kiwi Browser (Chromium 137) sur TV Philips
   ↓
-Dashboard JARVIS WAR ROOM (http://192.168.3.52:5174/)
+Dashboard JARVIS WAR ROOM (http://<mac-ip>:5174/)
 ```
 
 **Outils MCP disponibles :**
@@ -3702,7 +3702,7 @@ bash scripts/launch_tv_browser.sh
 | Fichier | Changement |
 |---------|-----------|
 | `actions.py` | Ajout `_action_tv()` + dispatch `action_type == "tv"`. Mapping 20+ commandes (`off`, `on`, `home`, `back`, `vol_up`, `vol_down`, `mute`, `play`...) vers keycodes Android. Execution via `adb shell input keyevent`. |
-| `config.py` | Ajout `TV_IP` (192.168.3.82) et `TV_ADB_PORT` (5555). |
+| `config.py` | Ajout `TV_IP` (<tv-ip>) et `TV_ADB_PORT` (5555). |
 | `prompts/persona.txt` | Documentation action `tv` pour le LLM : commandes disponibles, exemples d'usage. |
 
 **Commandes disponibles :**

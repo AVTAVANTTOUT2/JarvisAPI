@@ -1,5 +1,9 @@
 # 14 — AI Service (ADR-014)
 
+> **ARCHIVE — proposition du 11 juillet 2026.** La politique LLM actuelle vit
+> dans [`LLM_POLICY.md`](./LLM_POLICY.md) et le routage dans
+> [`COGNITIVE_ROUTING.md`](./COGNITIVE_ROUTING.md).
+
 **Date** : 11 juillet 2026
 **ADR** : ADR-014
 **Statut** : Proposé

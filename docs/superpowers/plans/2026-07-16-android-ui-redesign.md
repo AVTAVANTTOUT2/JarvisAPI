@@ -1,5 +1,13 @@
 # Android UI Redesign Implementation Plan
 
+> **Statut : implémenté sur `origin/main` @ `6becf26` ; plan archivé.**
+> **Preuve :** `android/app/src/main/kotlin/fr/jarvis/companion/core/ui/`,
+> `navigation/`, les écrans `feature/`, les tests JVM correspondants et le
+> snapshot historique
+> `android/docs/validation/ANDROID_UI_REDESIGN_VALIDATION.md`. Les cases ne sont
+> pas une certification rétroactive ; accessibilité et release doivent être
+> rejouées sur l’appareil cible.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Terminer la refonte visuelle Compose de JARVIS Companion, préserver tous les contrats fonctionnels existants et ouvrir une PR dédiée vérifiée sur le Samsung S24.

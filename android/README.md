@@ -1,4 +1,4 @@
-# JARVIS Android 2.0.0-alpha02 — chat texte natif (Vague 2)
+# JARVIS Android 2.1.0-ui — compagnon natif
 
 Application **100 % native Kotlin** (Jetpack Compose) qui relie le téléphone au JARVIS du Mac via HTTPS.
 
@@ -19,11 +19,9 @@ Application **100 % native Kotlin** (Jetpack Compose) qui relie le téléphone a
 - diagnostics (rapport sans secrets) ;
 - confiance CA privée JARVIS — **pas** de certificate pinning strict.
 
-## Hors Vague 2 (prochaines vagues)
-
-Conversation vocale continue, UI tâches/agenda complète, version `2.0.0`.
-
-**Vague 2B** : file GPS Room + batch Bearer + écran Localisation. Voir `docs/LOCATION.md`.
+Les tests JVM et les builds CI ne remplacent pas la validation sur appareil :
+pairage, réseau HTTPS, reprise offline, localisation et audio doivent être
+rejoués sur le matériel cible avant release.
 
 ## HTTPS côté Mac (obligatoire)
 
@@ -47,10 +45,13 @@ Par défaut (aucune clé cloud audio) :
 
 | Rôle | Moteur | Modèle / voix |
 |---|---|---|
-| STT | faster-whisper | `large-v3-turbo` |
-| TTS | Edge Henri (FR) / macOS Thomas | WAV/MP3/M4A |
+| STT | faster-whisper local | `small`, avec relecture `large-v3-turbo` si nécessaire |
+| TTS | Qwen3-TTS local | `mlx-community/Qwen3-TTS-12Hz-0.6B-Base-6bit` |
 
-Pas de repli Edge ni fournisseur cloud audio retiré lorsque `TTS_ENGINE=kokoro`. Voir `docs/VOICE.md` et `native_audio/README.md`.
+Aucun repli réseau n'est autorisé. Voir
+[`docs/audio/QWEN3_LOCAL_STATUS.md`](../docs/audio/QWEN3_LOCAL_STATUS.md) à la
+racine du dépôt et [`docs/VOICE.md`](docs/VOICE.md) pour le contrat Android
+courant.
 
 ## Build
 
@@ -64,9 +65,9 @@ cd android
 
 Documentation production :
 
-- [`docs/PRODUCTION_GAP_ANALYSIS.md`](docs/PRODUCTION_GAP_ANALYSIS.md) — audit code 1.2.0
+- [`docs/PRODUCTION_GAP_ANALYSIS.md`](docs/PRODUCTION_GAP_ANALYSIS.md) — snapshot historique 1.2.0
 - [`docs/API_CONTRACTS_PRODUCTION.md`](docs/API_CONTRACTS_PRODUCTION.md) — contrats FastAPI
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — périmètre
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — architecture superseded
 - [`docs/VOICE.md`](docs/VOICE.md) — voix PTT
 
 | Artefact | Usage |
@@ -83,7 +84,7 @@ apksigner verify --verbose --print-certs app/build/outputs/apk/debug/app-debug.a
 shasum -a 256 app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Version courante : **versionName 2.0.0-alpha02** / **versionCode 8**.
+Version courante : **versionName 2.1.0-ui** / **versionCode 10**.
 
 ## Firebase (optionnel)
 
@@ -97,4 +98,6 @@ pytest tests/test_mobile_pairing.py tests/test_mobile_voice.py
 cd android && ./gradlew testDebugUnitTest lintDebug assembleDebug
 ```
 
-Validation appareil réelle : installation APK + pairage HTTPS + un tour vocal (micro → Whisper → DeepSeek → Kokoro → lecture). Voir `RELEASE_CHECKLIST.md` à la racine du dépôt.
+Validation appareil réelle : installation APK + pairage HTTPS + un tour vocal
+(micro → Whisper local → DeepSeek → Qwen3-TTS local → lecture). Voir
+`RELEASE_CHECKLIST.md` à la racine du dépôt.

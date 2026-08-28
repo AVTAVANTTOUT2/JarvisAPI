@@ -20,8 +20,17 @@ open "http://127.0.0.1:5174/?token=${TV_AUTH_TOKEN}"
 
 ## Service macOS (launchd)
 
+Les plists versionnés sont des templates portables. Remplacer
+`__JARVIS_ROOT__` lors de l’installation ; launchd ne développe pas ce placeholder.
+
 ```bash
-cp ~/JarvisAPI/tv/com.jarvis.tv.plist ~/Library/LaunchAgents/
+repo_root="$(git rev-parse --show-toplevel)"
+escaped_root="$(printf '%s' "$repo_root" | sed 's/[&|]/\\&/g')"
+mkdir -p "$HOME/Library/LaunchAgents"
+sed "s|__JARVIS_ROOT__|$escaped_root|g" tv/com.jarvis.tv.plist \
+  > "$HOME/Library/LaunchAgents/com.jarvis.tv.plist"
+sed "s|__JARVIS_ROOT__|$escaped_root|g" tv/com.jarvis.tv-browser.plist \
+  > "$HOME/Library/LaunchAgents/com.jarvis.tv-browser.plist"
 launchctl load ~/Library/LaunchAgents/com.jarvis.tv.plist
 launchctl list | grep jarvis.tv
 ```
@@ -53,7 +62,7 @@ protections doivent être déclarées explicitement :
 ```bash
 export TV_HOST=0.0.0.0
 export TV_ALLOW_NETWORK_BIND=true
-export TV_ALLOWED_NETWORKS=192.168.1.0/24
+export TV_ALLOWED_NETWORKS='<lan-cidr>'
 export TV_AUTH_TOKEN='<jeton-aléatoire-long>'
 python3 server.py
 ```
@@ -66,11 +75,11 @@ Le bridge TV réseau est également fail-closed. Il ne lance ni `adb connect`,
 ni forward CDP au démarrage du MCP. Pour une activation manuelle :
 
 ```bash
-export TV_IP=192.168.1.50
+export TV_IP='<tv-ip>'
 export TV_ALLOW_NETWORK_ADB=true
-export TV_DASHBOARD_URL=http://192.168.1.10:5174/
+export TV_DASHBOARD_URL='http://<mac-ip>:5174/'
 export TV_DASHBOARD_TOKEN="$TV_AUTH_TOKEN"
-export TV_ALLOWED_NAVIGATION_HOSTS=192.168.1.10:5174
+export TV_ALLOWED_NAVIGATION_HOSTS='<mac-ip>:5174'
 cd ~/JarvisAPI
 bash scripts/launch_tv_browser.sh
 ```

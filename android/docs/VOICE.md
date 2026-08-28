@@ -1,64 +1,63 @@
 # Conversation vocale Android
 
-Push-to-talk natif entre le Companion Android et le Mac JARVIS.
+**Revue :** 27 août 2026
+**Statut :** push-to-talk implémenté ; validation appareil réelle requise.
 
-## Flux
+La source exécutable est
+`android/app/src/main/kotlin/fr/jarvis/companion/voice/` côté téléphone et
+`api/router_mobile_voice.py` + `api/mobile_voice_service.py` côté Mac.
+
+## Flux courant
 
 ```text
-Microphone Android (AAC/M4A mono 16 kHz)
-  → POST /api/mobile/voice/turn (HTTPS, Bearer token natif)
-  → STT local Mac (faster-whisper, modèle configuré)
-  → pipeline JARVIS (_process_message_internal, voice_mode=true)
-  → TTS Mac (Edge Henri FR par défaut ; macOS Thomas en local ; Kokoro = EN only)
-  → JSON { transcript, response_text, audio_base64 }
+Microphone Android (AAC/M4A mono)
+  → POST /api/mobile/voice/turn (HTTPS, Bearer natif)
+  → STT local Mac (faster-whisper par défaut)
+  → pipeline JARVIS (voice_mode=true)
+  → TTS local Qwen3-TTS via MLX
+  → JSON { transcript, response_text, audio_base64, stt_engine }
   → lecture MediaPlayer sur le téléphone
 ```
 
-## Configuration serveur (.env.config)
+Aucun repli TTS réseau n’est autorisé. Le moteur canonique, son modèle et les
+preuves locales sont documentés dans
+[`docs/audio/QWEN3_LOCAL_STATUS.md`](../../docs/audio/QWEN3_LOCAL_STATUS.md).
+
+## Configuration de référence
+
+Les exemples publics vivent dans `.env.config.example` et `.env.example` :
 
 ```env
+STT_ENGINE=faster-whisper
 AUDIO_DAEMON_STT_ENGINE=faster-whisper
-AUDIO_DAEMON_STT_MODEL=large-v3-turbo
-TTS_ENGINE=edge
-TTS_VOICE=fr-FR-HenriNeural
-WEB_HTTPS=true
-WEB_HTTPS_BEHIND_PROXY=false
+TTS_PROVIDER=qwen3_local
+TTS_MODEL_PATH=mlx-community/Qwen3-TTS-12Hz-0.6B-Base-6bit
 ```
 
-Pour Tailscale Serve/Caddy/nginx, conserver `WEB_HOST=127.0.0.1`,
-mettre `WEB_HTTPS=false` et `WEB_HTTPS_BEHIND_PROXY=true`. Le transport
-Android reste HTTPS ; seul le relais local proxy → Uvicorn utilise HTTP.
-
-> **Voix FR** : le modèle Kokoro installé (`v0.19`) n’a que des voix EN (`af_nicole`).
-> Pour du français natif, utiliser `TTS_ENGINE=edge` (Henri) ou `macos` (Thomas).
+Les limites du tour mobile sont pilotées par
+`MOBILE_VOICE_MAX_BYTES`, `MOBILE_VOICE_MIN_BYTES`,
+`MOBILE_VOICE_MAX_DURATION_SEC`, `MOBILE_VOICE_STT_TIMEOUT_SEC`,
+`MOBILE_VOICE_LLM_TIMEOUT_SEC` et `MOBILE_VOICE_TTS_TIMEOUT_SEC`.
+Le code de `config.py` fait foi pour leurs valeurs.
 
 ## Interaction Android
 
-- **Tap** sur le micro pour démarrer, **tap** à nouveau pour envoyer (pas besoin de maintenir).
-- Bouton Annuler pendant l’enregistrement.
+- premier tap : démarrer l’enregistrement ;
+- second tap / bouton STOP : arrêter et envoyer ;
+- bouton Annuler : supprimer le fichier temporaire et revenir à l’état initial ;
+- le wake word Porcupine ouvre l’écran vocal sans conserver un flux micro
+  distant permanent ;
+- le jeton reste dans `JarvisSecureStore` (Android Keystore) ;
+- aucune WebView.
 
-Limites (surchargeables) :
-
-| Variable | Défaut |
-|---|---|
-| MOBILE_VOICE_MAX_BYTES | 5 Mo |
-| MOBILE_VOICE_MIN_BYTES | 1000 |
-| MOBILE_VOICE_STT_TIMEOUT_SEC | 120 |
-| MOBILE_VOICE_LLM_TIMEOUT_SEC | 90 |
-| MOBILE_VOICE_TTS_TIMEOUT_SEC | 60 |
-
-## Android
-
-- Écran **Conversation vocale** depuis le dashboard (appairage requis).
-- Push-to-talk : maintenir le bouton micro, relâcher pour envoyer.
-- Wake word Porcupine ouvre l'écran vocal sans enregistrer en arrière-plan.
-- Aucune WebView ; token dans Android Keystore via `JarvisSecureStore`.
-
-## Tests
+## Validation
 
 ```bash
 python -m pytest tests/test_mobile_voice.py -q
-cd android && ./gradlew test lintDebug assembleDebug
+cd android && ./gradlew testDebugUnitTest lintDebug assembleDebug
 ```
 
-Validation appareil réelle : enregistrement + réponse Kokoro sur Mac avec modèles installés.
+Ces contrôles ne prouvent pas le microphone, le haut-parleur, les permissions,
+la latence, la veille ni la reconnexion du téléphone cible. La matrice
+matérielle doit archiver un enregistrement, sa transcription, la réponse audio
+Qwen3, l’annulation et la reprise réseau avant release.

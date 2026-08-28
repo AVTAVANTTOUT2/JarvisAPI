@@ -1,5 +1,9 @@
 # 06 — Plan de Tests
 
+> **ARCHIVE — campagne de juillet 2026.** Les nombres de tests ci-dessous sont
+> figés et ne constituent pas une baseline actuelle. Les commandes courantes
+> vivent dans [`README.md`](../README.md) et la CI.
+
 **Date initiale** : 11 juillet 2026
 
 **Dernière validation locale** : 14 juillet 2026

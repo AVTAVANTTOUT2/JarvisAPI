@@ -1432,7 +1432,7 @@ def test_llm_boundary_strips_paths_and_plan_ids() -> None:
             "currency": "EUR",
             "dry_run": False,
             "plan_id": "secret-plan-token",
-            "screenshot_path": "/Users/zeldris/JARVIS/data/uber_eats_screenshots/x.png",
+            "screenshot_path": "/Users/example/JARVIS/data/uber_eats_screenshots/x.png",
             "message": "Commande passée chez Chez Pierre pour 24,90 €.",
         },
     )
