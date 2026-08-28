@@ -15,6 +15,8 @@ from __future__ import annotations
 import asyncio
 from dataclasses import replace
 from datetime import datetime
+import hashlib
+import json
 import logging
 from typing import Any, Iterable, Mapping, NamedTuple
 import uuid
@@ -53,6 +55,19 @@ from .planner import generate_plan
 from .reports import build_report, result_status_for
 
 logger = logging.getLogger("jarvis")
+
+
+def _effect_approval_decision_id(
+    task_id: str, approval_id: str, decision: str
+) -> str:
+    """Dérive une clé de décision stable sans inclure l'identité de l'acteur."""
+
+    payload = json.dumps(
+        [task_id, approval_id, decision],
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return f"task-control:{hashlib.sha256(payload).hexdigest()}"
 
 #: État de run agentique → état de tâche. Le run reste la source de vérité de
 #: son propre avancement ; la tâche en est la lecture métier.
@@ -794,12 +809,16 @@ class TaskControlService:
         if not task.agentic_run_id:
             raise TaskNotFound("aucun run associé à cette tâche")
         decision = ApprovalDecision.APPROVED if approved else ApprovalDecision.DENIED
-        result = await self.agentic.decide_approval(
+        decided = await self.agentic.decide_approval(
             task.agentic_run_id,
             approval_id,
-            decision=decision,
-            actor=redact_text(actor, max_chars=120),
+            decision,
+            decided_by=redact_text(actor, max_chars=120),
+            decision_id=_effect_approval_decision_id(
+                task.task_id, approval_id, decision.value
+            ),
         )
+        current_run = self.agentic.get(task.agentic_run_id)
         self.repository.append_activity(
             build_user_activity(
                 task_id=task_id,
@@ -812,8 +831,10 @@ class TaskControlService:
         )
         return {
             "approval_id": approval_id,
-            "decision": decision.value,
-            "run_status": str(getattr(getattr(result, "status", None), "value", "")),
+            "decision": str(getattr(decided.decision, "value", decided.decision)),
+            "run_status": str(
+                getattr(getattr(current_run, "status", None), "value", "")
+            ),
         }
 
     # ── Interventions utilisateur ─────────────────────────────────────────

@@ -107,6 +107,15 @@
         "timeout_s": 60
       },
       {
+        "name": "browser.control",
+        "scope": "browser:control",
+        "description": "Public HTTPS read navigation with exact one-shot approval; no mutable method, WebSocket, download, upload, authentication, payment, or booking.",
+        "risk_level": "medium",
+        "requires_approval": true,
+        "reversible": true,
+        "timeout_s": 60
+      },
+      {
         "name": "workspace.edit",
         "scope": "workspace:write",
         "description": "Apply reversible edits confined to the selected workspace",

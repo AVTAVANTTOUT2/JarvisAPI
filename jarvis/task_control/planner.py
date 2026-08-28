@@ -75,7 +75,6 @@ KNOWN_PERMISSIONS: frozenset[str] = frozenset(
         "network:read",
         "research:search",
         "browser:control",
-        "browser:download",
         "financial:act",
     }
 )
@@ -191,8 +190,8 @@ def _booking_fallback_payload(task: ControlTask) -> dict[str, Any]:
         "objective": task.title,
         "summary": (
             "Plan de repli pour une réservation : rechercher des options, "
-            "consulter les sites dans un navigateur s'il est disponible, "
-            "présenter un comparatif, et s'arrêter avant tout paiement."
+            "ouvrir les sites avec jarvis_browser, présenter un comparatif, "
+            "et s'arrêter avant tout paiement."
         ),
         "context_understood": clamp_text(task.description, 600),
         "steps": [
@@ -209,9 +208,9 @@ def _booking_fallback_payload(task: ControlTask) -> dict[str, Any]:
             {
                 "title": "Consulter les sites dans le navigateur",
                 "detail": (
-                    "Ouvrir les pages de réservation si un navigateur agentique "
-                    "est disponible ; sinon s'en tenir aux résultats de recherche. "
-                    "Aucun clic de paiement."
+                    "Ouvrir une racine HTTPS, lire et lancer uniquement une "
+                    "recherche GET atomique avec jarvis_browser. Aucun clic ni "
+                    "saisie libre, paiement ou réservation finale."
                 ),
                 "expected_result": "Détails de prix, annulation et disponibilité.",
                 "tools": ["browser"],
@@ -239,8 +238,8 @@ def _booking_fallback_payload(task: ControlTask) -> dict[str, Any]:
             "financial:act",
         ],
         "risks": [
-            "Le navigateur agentique peut être absent : la recherche web reste "
-            "alors la seule source.",
+            "Sans Playwright/Chromium, jarvis_browser rend playwright_unavailable "
+            "au lieu d'agir.",
             "Sans dates ni budget, les prix resteront indicatifs.",
         ],
         "assumptions": [
@@ -252,8 +251,8 @@ def _booking_fallback_payload(task: ControlTask) -> dict[str, Any]:
         ],
         "known_limits": [
             "Plan de repli : pas de paiement automatique.",
-            "Aucun outil hôtel dédié : le runtime peut n'avoir que la recherche.",
-            "Un navigateur générique n'est pas garanti sur cette machine.",
+            "Aucun outil hôtel dédié : le runtime utilise jarvis_browser.",
+            "Paiement et réservation finale restent bloqués.",
         ],
         "estimated_duration_s": 900,
         "degraded": True,

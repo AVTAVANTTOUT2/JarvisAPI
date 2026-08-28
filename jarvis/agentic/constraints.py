@@ -38,7 +38,6 @@ NO_EXECUTION_BLOCKED_PERMISSIONS: frozenset[str] = frozenset(
         "ocr:run",
         "media:transcode",
         "obs:test",
-        "browser:download",
         "documents:download",
         "desktop:applescript",
     }
