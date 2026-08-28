@@ -10,6 +10,13 @@ config/plugin workspace hostiles, reprise d'orphelin, MCP readonly et mutateur
 approuvé, budgets/doom-loop, approbations/idempotence/inbox, vérification,
 DevAgent worktree/tests/commit/draft PR/CI, clients et preuve de suppression.
 
+La preuve C1 `test_real_binary_task_control_delivery_runs_jarvis_pytest_and_commits`
+traverse en plus la frontière produit complète : requête utilisateur, plan
+Task Control signé et approuvé, vrai binaire épinglé, édition du worktree,
+`pytest` lancé par JARVIS, reçu de test, commit local et rapport final. Le
+provider de modèle est une fixture loopback ; le run DeepSeek de production
+reste `NOT_EXECUTED` tant qu'aucune clé n'est injectée dans le processus.
+
 Commandes canoniques :
 
 ```bash

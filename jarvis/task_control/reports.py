@@ -78,6 +78,40 @@ def _delivery_lines(artifacts: Sequence[Mapping[str, Any]]) -> list[str]:
         checksum = str(artifact.get("sha256") or "")
         suffix = f" · `{checksum[:12]}`" if checksum else ""
         lines.append(f"- **{label}** — `{reference}`{suffix}")
+        metadata = artifact.get("metadata")
+        details = metadata.get("details") if isinstance(metadata, Mapping) else None
+        if kind == "jarvis_effect_receipt" and isinstance(details, Mapping):
+            commit_sha = str(details.get("commit_sha") or "").strip()
+            branch_name = clamp_text(details.get("branch_name") or "", 200)
+            if commit_sha:
+                lines.append(f"- **Commit** — `{commit_sha}`")
+            if branch_name:
+                lines.append(f"- **Branche** — `{branch_name}`")
+    return lines
+
+
+def _receipt_test_lines(artifacts: Sequence[Mapping[str, Any]]) -> list[str]:
+    lines: list[str] = []
+    for artifact in artifacts[:50]:
+        if str(artifact.get("type") or "") != "jarvis_test_receipt":
+            continue
+        metadata = artifact.get("metadata")
+        details = metadata.get("details") if isinstance(metadata, Mapping) else None
+        validations = details.get("validations") if isinstance(details, Mapping) else None
+        if not isinstance(validations, (list, tuple)):
+            continue
+        for validation in validations[:20]:
+            if not isinstance(validation, Mapping):
+                continue
+            command = validation.get("command")
+            if not isinstance(command, (list, tuple)):
+                continue
+            rendered = clamp_text(" ".join(str(item) for item in command), 350)
+            returncode = int(validation.get("returncode", 1))
+            lines.append(
+                f"`{rendered}` — {'réussi' if returncode == 0 else 'échec'} "
+                f"(code {returncode})"
+            )
     return lines
 
 
@@ -153,6 +187,9 @@ def build_report_markdown(
     result_status = result_status_for(task)
     label = _RESULT_LABELS.get(result_status, result_status)
     digest = _activity_digest(activities)
+    digest["tests"] = list(
+        dict.fromkeys([*digest["tests"], *_receipt_test_lines(artifacts)])
+    )[:25]
     requested, used, refused = _approval_lines(approvals)
     deliveries = _delivery_lines(artifacts)
 
@@ -254,6 +291,12 @@ def build_report_markdown(
                 "type": str(artifact.get("type") or "artifact"),
                 "reference": clamp_text(artifact.get("reference") or "", 400),
                 "sha256": str(artifact.get("sha256") or ""),
+                "details": (
+                    dict(artifact["metadata"].get("details") or {})
+                    if isinstance(artifact.get("metadata"), Mapping)
+                    and isinstance(artifact["metadata"].get("details"), Mapping)
+                    else {}
+                ),
             }
             for artifact in artifacts[:50]
             if str(artifact.get("reference") or "").strip()

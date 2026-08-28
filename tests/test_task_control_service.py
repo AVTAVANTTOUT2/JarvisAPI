@@ -352,6 +352,58 @@ async def test_completion_produit_un_rapport_avec_lieu_de_livraison(service):
 
 
 @pytest.mark.asyncio
+async def test_engineering_receipts_render_tests_commit_and_branch(service):
+    task = await service.create_task(title="Livrer le correctif")
+    task = await service.decide_plan(
+        task.task_id, 1, decision=PlanDecision.APPROVED, actor="session:1"
+    )
+
+    class _Receipt:
+        artifact_id = ""
+        reference = ""
+        sha256 = "a" * 64
+        size_bytes = 100
+
+        def __init__(self, kind: str, details: dict[str, Any]) -> None:
+            self.type = kind
+            self.artifact_id = f"receipt:{kind}"
+            self.reference = f"jarvis://receipts/{self.artifact_id}"
+            self.metadata = {"details": details}
+
+    service.agentic.artifacts_by_run[task.agentic_run_id] = [
+        _Receipt(
+            "jarvis_test_receipt",
+            {
+                "validations": [
+                    {
+                        "command": ["python3", "-m", "pytest", "tests/test_fix.py", "-q"],
+                        "returncode": 0,
+                    }
+                ]
+            },
+        ),
+        _Receipt(
+            "jarvis_effect_receipt",
+            {"commit_sha": "b" * 40, "branch_name": "jarvis/agentic/fix"},
+        ),
+    ]
+    await service.on_runtime_event(
+        "agent.run.completed",
+        {"run_id": task.agentic_run_id, "status": "completed", "progress": 1.0},
+    )
+
+    report = service.repository.latest_report(task.task_id)
+    assert report is not None
+    assert "_Aucun test exécuté._" not in report.markdown
+    assert "tests/test_fix.py" in report.markdown
+    assert "b" * 40 in report.markdown
+    assert "jarvis/agentic/fix" in report.markdown
+    assert report.data["tests"] == [
+        "`python3 -m pytest tests/test_fix.py -q` — réussi (code 0)"
+    ]
+
+
+@pytest.mark.asyncio
 async def test_echec_de_demarrage_ne_laisse_pas_la_tache_en_route(service):
     service.agentic.fail_start = True
     task = await service.create_task(title="Tâche impossible")
