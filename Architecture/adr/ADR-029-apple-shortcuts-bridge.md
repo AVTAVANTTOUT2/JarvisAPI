@@ -20,8 +20,11 @@ ni offrir des recettes iOS fiables au-delà du POST GPS legacy.
 2. **Opt-in** `APPLE_SHORTCUTS_ENABLED=false` par défaut.
 3. **Registre SQLite** (`apple_shortcut_registry`) : le LLM ne peut cibler
    que des noms/alias enregistrés par l'utilisateur.
-4. **Plan opaque + confirmation** (même famille que `terminal` / `food_order`) :
-   un `confirmed:true` du modèle sans plan serveur est ignoré.
+4. **Plan opaque + confirmation** par défaut (même famille que `terminal` /
+   `food_order`) : un `confirmed:true` du modèle sans plan serveur est ignoré.
+   **Amendé par [ADR-037](./ADR-037-charte-majordome.md)** : un raccourci
+   `risk=low` avec `requires_confirmation=0` s'exécute sans plan si la charte
+   accorde `local.shortcuts`.
 5. **Entrée texte** écrite uniquement dans `APPLE_SHORTCUTS_WORKSPACE`
    (jamais un chemin fourni par le modèle).
 6. **Ingest iOS** (`/api/apple/shortcuts/ask|task`) authentifié par

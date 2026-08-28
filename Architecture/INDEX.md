@@ -69,7 +69,7 @@ Voir [32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md](./32_FRONTEND_DATABASE_SOURCE_OF_
 | [34_SDK_DEVELOPPEURS.md](./34_SDK_DEVELOPPEURS.md) | SDK Python, génération depuis OpenAPI, transport et erreurs |
 | [api_route_ownership.json](./api_route_ownership.json) | Attribution contrôlée des opérations sans client direct |
 | [36_CANAL_WEBSOCKET_TV.md](./36_CANAL_WEBSOCKET_TV.md) | Canal `/ws/tv/events` — authentifié, lecture seule, séparé du chat |
-| [adr/](./adr/) | ADR individuels — ADR-016 à ADR-036 |
+| [adr/](./adr/) | ADR individuels — ADR-016 à ADR-037 |
 | [diagrams/](./diagrams/) | Diagrammes Mermaid source |
 | [audit/](./audit/) | Rapports d'audit détaillés par domaine |
 | [audit/RAPPORT_PIRE_AUDIT.md](./audit/RAPPORT_PIRE_AUDIT.md) | Consolidation sorties agents Cursor (P01–P18) + findings pire→moindre |
@@ -221,6 +221,7 @@ Chaque phase est **indépendante**, **réversible**, **testée**, et **sans inte
 - [adr/ADR-016](./adr/ADR-016-applescript-integration-apple.md) — AppleScript comme unique intégration Apple
 - [adr/ADR-029](./adr/ADR-029-apple-shortcuts-bridge.md) — Pont Shortcuts.app allowlisté (CLI + confirmation)
 - [adr/ADR-036](./adr/ADR-036-apple-music-outil-jarvis.md) — Apple Music via MCP local, hors runtime agentique
+- [adr/ADR-037](./adr/ADR-037-charte-majordome.md) — Primitifs `launch` + charte de confiance, hors goutte-à-goutte
 - [adr/ADR-017](./adr/ADR-017-sqlite-base-unique.md) — SQLite comme base de données unique
 - [adr/ADR-018](./adr/ADR-018-dual-llm-router.md) — Architecture dual-LLM (local + cloud)
 - [adr/ADR-019](./adr/ADR-019-SUPERVISOR-FRONTEND-PRIORITY.md) — Priorité frontend supervisor

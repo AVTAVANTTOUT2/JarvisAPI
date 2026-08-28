@@ -440,6 +440,51 @@ COMPUTER_TIMEOUT = int(_get("COMPUTER_TIMEOUT", "30"))
 COMPUTER_ALLOWED_APPS = frozenset(
     a.strip().lower() for a in _get("COMPUTER_ALLOWED_APPS", "").split(",") if a.strip()
 )
+# Schémas passés à ``/usr/bin/open``. ``javascript`` / ``data`` / SMB sont
+# toujours retirés, même s'ils apparaissent dans la liste.
+DEFAULT_LAUNCH_URL_SCHEMES = (
+    "https,http,file,youtube,spotify,maps,"
+    "x-apple.systempreferences,shortcuts,mailto"
+)
+_LAUNCH_SCHEME_BLOCKLIST = frozenset(
+    {"javascript", "data", "smb", "afp", "ssh", "telnet", "ftp"}
+)
+LAUNCH_URL_SCHEMES = frozenset(
+    scheme.strip().lower()
+    for scheme in _get("LAUNCH_URL_SCHEMES", DEFAULT_LAUNCH_URL_SCHEMES).split(",")
+    if scheme.strip()
+) - _LAUNCH_SCHEME_BLOCKLIST
+
+# Charte de confiance : classes de pouvoir, pas une permission par app.
+# restricted = install neuve (Shortcuts toujours confirmés).
+# majordomo = machine perso (launch + raccourcis low de confiance en auto).
+TRUST_PROFILES = frozenset({"restricted", "standard", "majordomo"})
+_TRUST_RAW = _get("JARVIS_TRUST_PROFILE", "restricted").strip().lower()
+JARVIS_TRUST_PROFILE = _TRUST_RAW if _TRUST_RAW in TRUST_PROFILES else "restricted"
+_TRUST_ALLOWED_CLASSES: dict[str, frozenset[str]] = {
+    "restricted": frozenset({"local.launch", "local.read", "local.media"}),
+    "standard": frozenset(
+        {"local.launch", "local.read", "local.media", "local.shortcuts"}
+    ),
+    "majordomo": frozenset(
+        {"local.launch", "local.read", "local.media", "local.shortcuts"}
+    ),
+}
+
+
+def parse_trust_profile(raw: str | None) -> str:
+    value = (raw or "restricted").strip().lower()
+    return value if value in TRUST_PROFILES else "restricted"
+
+
+def trust_allows(class_name: str, *, profile: str | None = None) -> bool:
+    """True si la charte accorde cette classe. Send/money/shell ne passent jamais ici."""
+    resolved = parse_trust_profile(
+        profile if profile is not None else JARVIS_TRUST_PROFILE
+    )
+    return class_name in _TRUST_ALLOWED_CLASSES[resolved]
+
+
 # Les commandes proposées par un LLM sont confinées ici et doivent toujours
 # être confirmées avant une exécution sans shell.
 LLM_SHELL_WORKSPACE = _get(
@@ -451,8 +496,9 @@ LLM_SHELL_MAX_TIMEOUT = int(_get("LLM_SHELL_MAX_TIMEOUT", "120"))
 LLM_SHELL_PLAN_TTL_SECONDS = int(_get("LLM_SHELL_PLAN_TTL_SECONDS", "600"))
 
 # ── Apple Shortcuts (Raccourcis.app) ─────────────────────────
-# Opt-in : le LLM ne peut lancer que des raccourcis présents dans le registre
-# SQLite, après confirmation humaine (plan opaque à usage unique).
+# Opt-in : le LLM ne lance que des raccourcis du registre SQLite.
+# Autorun seulement si risk=low, case confirmation décochée, et
+# trust_allows("local.shortcuts"). Sinon plan opaque à usage unique.
 APPLE_SHORTCUTS_ENABLED = _get("APPLE_SHORTCUTS_ENABLED", "false").lower() == "true"
 APPLE_SHORTCUTS_BIN = _get("APPLE_SHORTCUTS_BIN", "")
 APPLE_SHORTCUTS_WORKSPACE = _get(

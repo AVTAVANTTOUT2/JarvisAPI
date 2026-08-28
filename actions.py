@@ -46,8 +46,8 @@ async def execute_action(
             out = await _action_note(action)
         elif action_type == "terminal":
             out = await _action_terminal(action)
-        elif action_type == "open_app":
-            out = await _action_open_app(action)
+        elif action_type in {"open_app", "launch"}:
+            out = await _action_launch(action)
         elif action_type == "find_file":
             out = await _action_find_file(action)
         elif action_type == "clipboard":
@@ -789,6 +789,17 @@ async def _action_music(action: dict) -> dict:
     return await asyncio.to_thread(execute_music_action, action)
 
 
+def _shortcut_may_autorun(row: dict) -> bool:
+    """Raccourci low + case confirmation décochée + charte standard/majordome."""
+    import config as cfg
+
+    if bool(row.get("requires_confirmation", True)):
+        return False
+    if str(row.get("risk") or "") != "low":
+        return False
+    return bool(cfg.trust_allows("local.shortcuts"))
+
+
 async def _action_run_shortcut(action: dict) -> dict:
     """Lance un raccourci Apple enregistré — plan opaque puis confirmation.
 
@@ -904,6 +915,38 @@ async def _action_run_shortcut(action: dict) -> dict:
     input_text = action.get("input")
     if input_text is not None:
         input_text = str(input_text)
+    if _shortcut_may_autorun(row):
+        if input_text is not None and not bool(row["allow_input"]):
+            return {
+                "ok": False,
+                "message": "Ce raccourci n'accepte pas d'entrée texte.",
+            }
+        try:
+            result = await run_shortcut_async(
+                str(row["name"]),
+                input_text=input_text,
+            )
+        except AppleShortcutsError as exc:
+            record_shortcut_run(
+                registry_id=int(row["id"]),
+                shortcut_name=str(row["name"]),
+                ok=False,
+                input_preview=input_text,
+                output_preview=None,
+                error=exc.message,
+                plan_id=None,
+            )
+            return {"ok": False, "message": exc.message}
+        record_shortcut_run(
+            registry_id=int(row["id"]),
+            shortcut_name=str(row["name"]),
+            ok=True,
+            input_preview=input_text,
+            output_preview=result.get("output"),
+            error=None,
+            plan_id=None,
+        )
+        return result
     try:
         plan = create_plan(
             shortcut_name=row["name"],
@@ -996,21 +1039,61 @@ async def _generate_shell_commands(instruction: str) -> list[str] | dict:
     return commands
 
 
-async def _action_open_app(action: dict) -> dict:
+async def _action_launch(action: dict) -> dict:
+    """Ouvre une URL, un fichier du home, ou une application — sans confirmation."""
     from integrations.computer import computer
+    from integrations.launch_targets import resolve_launch_target
 
-    name = (
+    if not computer or not computer.allowed:
+        return {"ok": False, "message": "Accès ordinateur désactivé."}
+
+    url = str(action.get("url") or "").strip()
+    path = str(action.get("path") or "").strip()
+    query = str(action.get("query") or "").strip()
+    host_or_name = (
         action.get("app_name")
         or action.get("name")
         or action.get("app")
         or action.get("application")
         or ""
-    ).strip()
-    if not computer or not computer.allowed:
-        return {"ok": False, "message": "Accès ordinateur désactivé."}
-    if not name:
-        return {"ok": False, "message": "Nom d'application manquant."}
-    return await computer.open_app(name)
+    )
+    host_or_name = str(host_or_name).strip()
+
+    if url or path or query:
+        spec, error = resolve_launch_target(
+            url=url or None,
+            path=path or None,
+            query=query or None,
+            app=host_or_name or None,
+            home=computer.home,
+        )
+    else:
+        spec, error = resolve_launch_target(
+            name=host_or_name or None,
+            home=computer.home,
+        )
+    if spec is None:
+        return {"ok": False, "message": error}
+
+    result = await computer.launch(spec)
+    if not result.get("ok"):
+        return {
+            "ok": False,
+            "message": result.get("error") or result.get("message") or "Ouverture impossible.",
+        }
+    label = spec.app or spec.target
+    return {
+        "ok": True,
+        "message": f"Ouverture de {spec.target}.",
+        "kind": spec.kind,
+        "target": spec.target,
+        "app_name": label,
+    }
+
+
+async def _action_open_app(action: dict) -> dict:
+    """Alias historique — même handler que ``launch``."""
+    return await _action_launch(action)
 
 
 async def _action_find_file(action: dict) -> dict:

@@ -11,6 +11,12 @@ from typing import Sequence
 import config
 
 from ._applescript import run_applescript_async
+from .launch_targets import (
+    LaunchSpec,
+    is_safe_app_name,
+    open_target_allowed,
+    resolve_launch_target,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -59,22 +65,8 @@ class ComputerControl:
         }:
             return True, ""
 
-        if len(argv) == 3 and argv[:2] == (_OPEN, "-a"):
-            name = argv[2]
-            if not (
-                0 < len(name) <= 128
-                and not any(ord(char) < 32 for char in name)
-                and "/" not in name
-                and "\\" not in name
-            ):
-                return False, "nom d'application invalide"
-            # `open_app` s'exécute sans confirmation : une allowlist renseignée
-            # borne ce que peut lancer un bloc ```action``` produit sous
-            # injection de prompt. Vide = comportement historique.
-            allowed = config.COMPUTER_ALLOWED_APPS
-            if allowed and name.strip().lower() not in allowed:
-                return False, "application hors de COMPUTER_ALLOWED_APPS"
-            return True, ""
+        if argv and argv[0] == _OPEN:
+            return self._validate_open_argv(argv)
 
         if len(argv) == 6 and argv[0] == _FIND:
             base, depth_flag, depth, name_flag, pattern = argv[1:]
@@ -103,6 +95,27 @@ class ComputerControl:
             return False, "arguments find invalides"
 
         return False, "commande absente de l'allowlist interne"
+
+    def _app_allowed(self, name: str) -> tuple[bool, str]:
+        if not is_safe_app_name(name):
+            return False, "nom d'application invalide"
+        allowed = config.COMPUTER_ALLOWED_APPS
+        if allowed and name.strip().lower() not in allowed:
+            return False, "application hors de COMPUTER_ALLOWED_APPS"
+        return True, ""
+
+    def _validate_open_argv(self, argv: tuple[str, ...]) -> tuple[bool, str]:
+        """``open -a App``, ``open URL``, ``open -a App URL|path``, ``open path``."""
+        if len(argv) == 3 and argv[1] == "-a":
+            return self._app_allowed(argv[2])
+        if len(argv) == 4 and argv[1] == "-a":
+            ok, reason = self._app_allowed(argv[2])
+            if not ok:
+                return False, reason
+            return open_target_allowed(argv[3], home=self.home)
+        if len(argv) == 2:
+            return open_target_allowed(argv[1], home=self.home)
+        return False, "forme open interdite"
 
     async def _run_argv(
         self,
@@ -182,6 +195,21 @@ class ComputerControl:
         if not app_name.strip():
             return {"ok": False, "error": "nom d'application vide"}
         return await self._run_argv((_OPEN, "-a", app_name.strip()), timeout=30)
+
+    async def open_url(self, url: str, app: str | None = None) -> dict:
+        spec, error = resolve_launch_target(url=url, app=app, home=self.home)
+        if spec is None:
+            return {"ok": False, "error": error}
+        return await self._run_argv(spec.argv(_OPEN), timeout=30)
+
+    async def open_path(self, path: str, app: str | None = None) -> dict:
+        spec, error = resolve_launch_target(path=path, app=app, home=self.home)
+        if spec is None:
+            return {"ok": False, "error": error}
+        return await self._run_argv(spec.argv(_OPEN), timeout=30)
+
+    async def launch(self, spec: LaunchSpec) -> dict:
+        return await self._run_argv(spec.argv(_OPEN), timeout=30)
 
     async def run_applescript(self, script: str) -> dict:
         """Exécute AppleScript via ``osascript -e`` (sans shell fragile)."""
