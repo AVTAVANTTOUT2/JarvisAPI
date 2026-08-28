@@ -30,8 +30,18 @@ def probe_macos_permissions() -> dict[str, Any]:
     }
 
 
+def probe_macos_permissions_safe() -> dict[str, Any]:
+    """Ne lève jamais : l'état des intégrations ne doit pas tomber pour une sonde."""
+    try:
+        return probe_macos_permissions()
+    except Exception:  # noqa: BLE001
+        return {"available": False, "reason": "status_failed", "checks": []}
+
+
 def _full_disk_access_state() -> CheckState:
-    chat_db = Path.home() / "Library" / "Messages" / "chat.db"
+    from integrations.apple_data import DEFAULT_CHAT_DB_PATH
+
+    chat_db = Path(DEFAULT_CHAT_DB_PATH)
     if not chat_db.exists():
         return "unknown"
     try:

@@ -20,6 +20,7 @@ from api.daemon_support import _audio_daemon_status_payload
 from api.errors import internal_error
 from api.chat_context import prepare_turn
 from api.misc_status import _computer_status_payload
+from integrations.macos_permissions import probe_macos_permissions_safe
 from database import (
     clear_llm_logs,
     get_event_replay_window,
@@ -41,16 +42,6 @@ def _apple_music_status_payload() -> dict[str, Any]:
     except Exception as exc:  # noqa: BLE001
         logger.warning("[integrations] apple_music status: %s", exc)
         return {"available": False, "healthy": False, "error": "status_failed"}
-
-
-def _macos_permissions_payload() -> dict[str, Any]:
-    try:
-        from integrations.macos_permissions import probe_macos_permissions
-
-        return probe_macos_permissions()
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("[integrations] macos_permissions status: %s", exc)
-        return {"available": False, "reason": "status_failed", "checks": []}
 
 
 def _apple_shortcuts_status_payload() -> dict[str, Any]:
@@ -136,7 +127,7 @@ async def api_integrations():
         "computer": _computer_status_payload(),
         "apple_shortcuts": _apple_shortcuts_status_payload(),
         "apple_music": _apple_music_status_payload(),
-        "macos_permissions": _macos_permissions_payload(),
+        "macos_permissions": probe_macos_permissions_safe(),
         "location_tracking": getattr(config, "LOCATION_TRACKING", True),
         "audio_daemon": _audio_daemon_status_payload(),
     }
