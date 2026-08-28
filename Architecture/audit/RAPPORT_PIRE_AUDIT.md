@@ -1,5 +1,10 @@
 # RAPPORT PIRE AUDIT — Consolidation des sorties Cursor
 
+> **ARCHIVE — consolidation du 31 juillet 2026.** Les findings ci-dessous sont
+> conservés comme preuves historiques et peuvent avoir été corrigés depuis.
+> Pour l’état courant, utiliser le
+> [registre de vérité](../project_truth_registry.json).
+
 > Généré le 2026-07-31 15:07 UTC à partir des conversations cloud agents (audits ligne par ligne P01–P18).
 > Sorties brutes complètes : `rapports_bruts/`. Findings classés du plus grave au moindre grave.
 > Traitement correctif prévu via Claude Opus, audit par audit — aucun correctif n’est appliqué ici.
@@ -66,7 +71,7 @@
 
 #### G-001 — `F-P01-001` (P01)
 - Titre : ** LaunchAgents pointent vers un chemin inexistant
-- Preuve : ** `ProgramArguments` / `WorkingDirectory` / logs → `/Users/zeldris/JarvisAPI/...` ; `ls /Users/zeldris/JarvisAPI` → *No such file or directory* ; workspace réel = `/Users/zeldris/JARVIS`.
+- Preuve : ** `ProgramArguments` / `WorkingDirectory` / logs → `/Users/<user>/JarvisAPI/...` ; `ls /Users/<user>/JarvisAPI` → *No such file or directory* ; workspace réel = `/Users/<user>/JARVIS`.
 - Impact : ** `launchd` ne peut pas démarrer supervisor ni daemon iMessage depuis ces plists.
 - Rapport : [`P01_bootstrap_config_assemblage.md`](./rapports_bruts/P01_bootstrap_config_assemblage.md)
 
@@ -365,7 +370,7 @@
 #### G-053 — `F-P17-005` (P17)
 - Titre : ADB réseau + forward CDP auto au boot (LaunchAgent)
 - Type : sécurité
-- Preuve : `scripts/launch_tv_browser.sh:9-12,25-57` ; `tv/com.jarvis.tv-browser.plist:12-13,22-27` (`RunAtLoad`, `TV_IP=192.168.3.82`) ; MCP `adb connect` + `adb forward tcp:9222` (`scripts/tv_mcp_server.py:104-127`).
+- Preuve : `scripts/launch_tv_browser.sh:9-12,25-57` ; `tv/com.jarvis.tv-browser.plist:12-13,22-27` (`RunAtLoad`, `TV_IP=<tv-ip>`) ; MCP `adb connect` + `adb forward tcp:9222` (`scripts/tv_mcp_server.py:104-127`).
 - Impact : au login macOS, connexion ADB TCP non authentifiée vers la TV + bridge CDP local. Qui contrôle le LAN TV (port 5555) ou le localhost Mac (9222) contrôle le navigateur kiosk (et via ADB : shell TV). `settings put global policy_control immersive.full=*` (L37) mute le chrome système.
 - Rapport : [`P17_tv_war_room_mcp.md`](./rapports_bruts/P17_tv_war_room_mcp.md)
 
@@ -772,7 +777,7 @@
 #### G-124 — `F-P17-007` (P17)
 - Titre : IPs d’infra et chemins utilisateur commités (TV_IP / dashboard / plists)
 - Type : sécurité
-- Preuve : défauts `192.168.3.82` / `192.168.3.52:5174` dans `scripts/tv_mcp_server.py:39-42`, `scripts/launch_tv_browser.sh:9-12`, `tv/com.jarvis.tv-browser.plist:22-23` ; chemins `/Users/zeldris/JarvisAPI/...` dans les deux plists (`tv/com.jarvis.tv.plist:9-19`, `tv-browser.plist:10-18`).
+- Preuve : défauts `<tv-ip>` / `<mac-ip>:5174` dans `scripts/tv_mcp_server.py:39-42`, `scripts/launch_tv_browser.sh:9-12`, `tv/com.jarvis.tv-browser.plist:22-23` ; chemins `/Users/<user>/JarvisAPI/...` dans les deux plists (`tv/com.jarvis.tv.plist:9-19`, `tv-browser.plist:10-18`).
 - Impact : pas de secret cryptographique, mais fingerprinting réseau + username + arborescence ; plists cassés si le path réel diffère (`JARVIS` vs `JarvisAPI` — cohérent avec F-P01-001).
 - Rapport : [`P17_tv_war_room_mcp.md`](./rapports_bruts/P17_tv_war_room_mcp.md)
 
@@ -1095,7 +1100,7 @@
 #### G-181 — `F-P17-014` (P17)
 - Titre : README whitelist incomplète vs `config.py`
 - Type : doc-drift
-- Preuve : `tv/README.md:40` liste `192.168.1.0/24, 100.64.0.0/10, 127.0.0.1` — omet `192.168.3.0/24` présent `tv/config.py:29`.
+- Preuve : `tv/README.md:40` liste `<documented-lan-cidr>, 100.64.0.0/10, 127.0.0.1` — omet `<configured-lan-cidr>` présent `tv/config.py:29`.
 - Impact : opérateur croit le réseau TV exclu ; il est inclus.
 - Rapport : [`P17_tv_war_room_mcp.md`](./rapports_bruts/P17_tv_war_room_mcp.md)
 
@@ -1369,7 +1374,7 @@ SCHEMA_SOURCE: PROMPTS_AUDIT_LIGNE_PAR_LIGNE.md — ABSENT du workspace ; schém
 | 4 | Montage routers / ordre middleware | **OK+ÉCART DOC** | 16 `include_router` + 1 WS ; pas de double montage ; security outer vs CORS |
 | 5 | `pipeline.py` contrat vs duplication | **OK** | Façade pure ; zéro logique métier ; handlers injectés depuis `main` |
 | 6 | `requirements*.txt` imports critiques / pins | **ÉCART** | `mlx-audio` absent (venv séparé) ; `aiohttp` absent ; pins `==X.*` larges |
-| 7 | LaunchAgent plists | **CRITIQUE** | Chemins `/Users/zeldris/JarvisAPI` inexistants ; KeepAlive OK ; pas de secret dans env plist |
+| 7 | LaunchAgent plists | **CRITIQUE** | Chemins `/Users/<user>/JarvisAPI` inexistants ; KeepAlive OK ; pas de secret dans env plist |
 | 8 | Contradiction CLAUDE.md (preuve in-périmètre) | **OUI** | 12 routers / 175 lignes / PIN 6 vs `.env.example` 4 |
 
 ---
@@ -1379,7 +1384,7 @@ SCHEMA_SOURCE: PROMPTS_AUDIT_LIGNE_PAR_LIGNE.md — ABSENT du workspace ; schém
 ### F-P01-001 — CRITIQUE
 **Titre:** LaunchAgents pointent vers un chemin inexistant  
 **Fichier:** `com.jarvis.supervisor.plist` L10–15, L30–33 ; `com.jarvis.imessage-daemon.plist` L10–17, L28–32  
-**Preuve:** `ProgramArguments` / `WorkingDirectory` / logs → `/Users/zeldris/JarvisAPI/...` ; `ls /Users/zeldris/JarvisAPI` → *No such file or directory* ; workspace réel = `/Users/zeldris/JARVIS`.  
+**Preuve:** `ProgramArguments` / `WorkingDirectory` / logs → `/Users/<user>/JarvisAPI/...` ; `ls /Users/<user>/JarvisAPI` → *No such file or directory* ; workspace réel = `/Users/<user>/JARVIS`.
 **Impact:** `launchd` ne peut pas démarrer supervisor ni daemon iMessage depuis ces plists.  
 **Reco:** Régénérer les plists avec le chemin réel du dépôt (ou variable / script d’install) ; vérifier `launchctl print`.
 
@@ -4859,7 +4864,7 @@ Audit lecture seule — aucun commit / PR.
 - Couverture estimée : 95 % (sources texte 100 % ; polices woff2 non décompilées ; payload gzip de `front_tv/` inspecté structurellement, pas décompressé byte-à-byte)
 
 ## Synthèse exécutive
-Le bridge CDP côté Mac cible bien `localhost`, mais le serveur TV bind `0.0.0.0:5174` sans session, avec une IP whitelist contournable via `X-Forwarded-For` — fuite PII réaliste (mails, iMessage, tâches) en lecture SQLite directe. MCP n’expose pas de shell libre, mais `tv_navigate` accepte toute URL et `tv_press_key` accepte tout keycode hors allowlist. IPs LAN (`192.168.3.82` / `.52`) et username macOS sont versionnés dans plists/scripts. XSS contenu largement échappé sur `tv-v2` (chemin actif) ; injection de classe CSS résiduelle sur le JS legacy. `aiohttp` est importé par le MCP et absent de `requirements.txt`. LaunchAgents auto-start réveillent ADB + CDP + dashboard au boot.
+Le bridge CDP côté Mac cible bien `localhost`, mais le serveur TV bind `0.0.0.0:5174` sans session, avec une IP whitelist contournable via `X-Forwarded-For` — fuite PII réaliste (mails, iMessage, tâches) en lecture SQLite directe. MCP n’expose pas de shell libre, mais `tv_navigate` accepte toute URL et `tv_press_key` accepte tout keycode hors allowlist. IPs LAN (`<tv-ip>` / `<mac-ip>`) et username macOS sont versionnés dans plists/scripts. XSS contenu largement échappé sur `tv-v2` (chemin actif) ; injection de classe CSS résiduelle sur le JS legacy. `aiohttp` est importé par le MCP et absent de `requirements.txt`. LaunchAgents auto-start réveillent ADB + CDP + dashboard au boot.
 
 ## Findings
 
@@ -4885,7 +4890,7 @@ Combiné à `TV_HOST=0.0.0.0` (`tv/config.py:18`) et absence totale d’auth ses
 - Titre : Dashboard TV = lecture PII sans auth (contournement auth API principale)
 - Preuve : `tv/server.py:361-394` + data_sources SQLite `mode=ro` (`tv/data_sources/emails.py:25-32`, `messages.py:96-105`, `notifications.py:39-55`, `tasks.py:38-53`) ; `tv/config.py:18-19` bind all interfaces ; whitelist `/24` + Tailscale `100.64.0.0/10` (`tv/config.py:27-32`).
 - Impact : surface « monitoring » exposée au LAN/Tailnet sans PIN ; iMessage, résumés mails, tâches, mood, coûts API. Contourne le fail-closed auth du backend (frontière P02).
-- Repro / condition : machine dans `192.168.3.0/24` ou Tailscale, ou bypass F-P17-001.
+- Repro / condition : machine dans `<lan-cidr>` ou Tailscale, ou bypass F-P17-001.
 - Correctif proposé : auth dédiée TV (token device / cookie session) ; réduire whitelist ; ne pas binder `0.0.0.0` sans TLS+auth.
 - Confiance : haute
 
@@ -4922,9 +4927,9 @@ code, _, _ = await adb("shell", "input", "keyevent", keycode)
 - Sévérité : HIGH
 - Type : sécurité
 - Titre : ADB réseau + forward CDP auto au boot (LaunchAgent)
-- Preuve : `scripts/launch_tv_browser.sh:9-12,25-57` ; `tv/com.jarvis.tv-browser.plist:12-13,22-27` (`RunAtLoad`, `TV_IP=192.168.3.82`) ; MCP `adb connect` + `adb forward tcp:9222` (`scripts/tv_mcp_server.py:104-127`).
+- Preuve : `scripts/launch_tv_browser.sh:9-12,25-57` ; `tv/com.jarvis.tv-browser.plist:12-13,22-27` (`RunAtLoad`, `TV_IP=<tv-ip>`) ; MCP `adb connect` + `adb forward tcp:9222` (`scripts/tv_mcp_server.py:104-127`).
 - Impact : au login macOS, connexion ADB TCP non authentifiée vers la TV + bridge CDP local. Qui contrôle le LAN TV (port 5555) ou le localhost Mac (9222) contrôle le navigateur kiosk (et via ADB : shell TV). `settings put global policy_control immersive.full=*` (L37) mute le chrome système.
-- Repro / condition : LaunchAgent chargé ; `adb connect 192.168.3.82:5555` depuis le LAN.
+- Repro / condition : LaunchAgent chargé ; `adb connect <tv-ip>:5555` depuis le LAN.
 - Correctif proposé : ADB USB ou clé/auth ; ne pas `RunAtLoad` le bridge CDP ; documenter risque ; restreindre forward.
 - Confiance : haute
 
@@ -4942,7 +4947,7 @@ code, _, _ = await adb("shell", "input", "keyevent", keycode)
 - Sévérité : MEDIUM
 - Type : sécurité
 - Titre : IPs d’infra et chemins utilisateur commités (TV_IP / dashboard / plists)
-- Preuve : défauts `192.168.3.82` / `192.168.3.52:5174` dans `scripts/tv_mcp_server.py:39-42`, `scripts/launch_tv_browser.sh:9-12`, `tv/com.jarvis.tv-browser.plist:22-23` ; chemins `/Users/zeldris/JarvisAPI/...` dans les deux plists (`tv/com.jarvis.tv.plist:9-19`, `tv-browser.plist:10-18`).
+- Preuve : défauts `<tv-ip>` / `<mac-ip>:5174` dans `scripts/tv_mcp_server.py:39-42`, `scripts/launch_tv_browser.sh:9-12`, `tv/com.jarvis.tv-browser.plist:22-23` ; chemins `/Users/<user>/JarvisAPI/...` dans les deux plists (`tv/com.jarvis.tv.plist:9-19`, `tv-browser.plist:10-18`).
 - Impact : pas de secret cryptographique, mais fingerprinting réseau + username + arborescence ; plists cassés si le path réel diffère (`JARVIS` vs `JarvisAPI` — cohérent avec F-P01-001).
 - Repro / condition : clone public du dépôt.
 - Correctif proposé : défauts vides / placeholders ; env only ; plists générés hors git ou template sans IP/user.
@@ -5017,7 +5022,7 @@ code, _, _ = await adb("shell", "input", "keyevent", keycode)
 - Sévérité : LOW
 - Type : doc-drift
 - Titre : README whitelist incomplète vs `config.py`
-- Preuve : `tv/README.md:40` liste `192.168.1.0/24, 100.64.0.0/10, 127.0.0.1` — omet `192.168.3.0/24` présent `tv/config.py:29`.
+- Preuve : `tv/README.md:40` liste `<documented-lan-cidr>, 100.64.0.0/10, 127.0.0.1` — omet `<configured-lan-cidr>` présent `tv/config.py:29`.
 - Impact : opérateur croit le réseau TV exclu ; il est inclus.
 - Correctif proposé : aligner doc et code.
 - Confiance : haute
@@ -5044,7 +5049,7 @@ code, _, _ = await adb("shell", "input", "keyevent", keycode)
 |---|---|---|
 | 1. CDP localhost only | **PARTIEL OK** | Client MCP → `localhost` (`tv_mcp_server.py:76`) ; `adb forward` local ; TV ADB TCP LAN = hors localhost |
 | 2. Pas de commande arbitraire via MCP | **PARTIEL OK** | Pas de shell libre ; URL libre + keycode libre (F-003/004) |
-| 3. Secrets TV_IP dans repo | **KO** | IPs + `/Users/zeldris/...` versionnés (F-007) — pas de clé API TV |
+| 3. Secrets TV_IP dans repo | **KO** | IPs + `/Users/<user>/...` versionnés (F-007) — pas de clé API TV |
 | 4. XSS dashboard | **PARTIEL OK** | `tv-v2` + `esc`/`textContent` OK ; legacy class injection + CDN (F-008/009) |
 | 5. LaunchAgent auto-start risques | **KO** | `RunAtLoad` browser+server ; KeepAlive server ; ADB/CDP/immersive (F-005/011) |
 | Auth dashboard TV | **KO** | IP only + XFF bypass (F-001/002) |
@@ -5056,7 +5061,7 @@ code, _, _ = await adb("shell", "input", "keyevent", keycode)
 ## Frontières / dépendances
 - Signale vers **P02** (auth) : TV lit `jarvis.db` et proxy `/api/calendar|/api/status` sans session → contournement du verrou fail-closed.
 - Signale vers **P04** (WS) : `tv/server.py` `_ws_listener` ouvre `ws://BACKEND/ws` sans credentials.
-- Signale vers **P01** (requirements/plists) : `aiohttp` manquant ; chemins LaunchAgent `/Users/zeldris/JarvisAPI` (déjà F-P01-001).
+- Signale vers **P01** (requirements/plists) : `aiohttp` manquant ; chemins LaunchAgent `/Users/<user>/JarvisAPI` (déjà F-P01-001).
 - Signale vers **P08** (intégrations) : `integrations.apple_data` pour iMessage TV (`messages.py`).
 - Attendus consommés ailleurs : port `5174` CORS (`main.py` hors périmètre), supervisor contrôle TV, actions Chromecast/`TV_IP` dans `config.py` racine / `actions.py` (hors inclusion stricte — noté frontière).
 

@@ -88,6 +88,14 @@ voices.bin
 resume_conversations_*.md
 logs/
 artifacts/release_soak*.json
+artifacts/validation_screenshots/**/*.jpeg
+artifacts/validation_screenshots/**/*.jpg
+artifacts/validation_screenshots/**/*.png
+artifacts/validation_screenshots/**/*.webp
+native_mac/artifacts/*.jpeg
+native_mac/artifacts/*.jpg
+native_mac/artifacts/*.png
+native_mac/artifacts/*.webp
 .worktrees/
 
 # Cursor delegation worktrees

@@ -1,5 +1,9 @@
 # Audit de cybersécurité — JARVIS API (août 2026)
 
+> **ARCHIVE — revue ponctuelle d’août 2026.** Ce rapport conserve ses constats
+> à la date de l’audit ; il ne certifie pas la posture de `main`. Consulter
+> l’entrée `security` du [registre courant](./project_truth_registry.json).
+
 Revue de code manuelle de l'ensemble du dépôt (411 fichiers Python, backend
 FastAPI, trois arbres frontend, serveur TV, agent distant, companion Android).
 Portée : authentification, autorisation, exécution de commandes, injection,

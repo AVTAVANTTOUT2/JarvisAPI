@@ -43,7 +43,7 @@ Depuis du code async, utiliser `await event_bus.emit(event)`. Depuis un chemin s
 
 ## Couche API — Phase 4
 
-`main.py` est un point d'assemblage : configuration FastAPI/CORS, montage de 20 `APIRouter` sous `api/router_*.py` plus Fitness, branchement des WebSockets de chat et de TV, configuration de `pipeline.py`, frontend et lancement Uvicorn. Le contrat public compte 283 opérations HTTP et 2 WebSockets ; l'OpenAPI expose 252 chemins.
+`main.py` est un point d'assemblage : configuration FastAPI/CORS, montage de 22 `APIRouter` sous `api/router_*.py` plus Fitness, branchement des WebSockets de chat et de TV, configuration de `pipeline.py`, frontend et lancement Uvicorn. Le contrat public compte 322 opérations HTTP et 2 WebSockets ; l'OpenAPI expose 286 chemins.
 
 - `api/router_*.py` contient exactement 22 routeurs par domaine ; Fitness porte le 23e routeur monté et aucun routeur ne dépasse 500 lignes.
 - `api/lifespan.py`, `api/middleware.py` et `api/frontend.py` portent le cycle de vie, la sécurité HTTP et le serving des frontends.
@@ -1470,7 +1470,7 @@ seconde passe LLM comprises.
 ```
 jarvis/
 ├── main.py                  # Assemblage FastAPI/Uvicorn (211 lignes)
-├── api/                     # 17 routeurs (+ Fitness monté séparément) + support API
+├── api/                     # 22 routeurs (+ Fitness monté séparément) + support API
 ├── config.py                # Charge .env, expose tous les settings
 ├── llm.py                   # Client DeepSeek API (chat, stream, classify)
 ├── actions.py               # execute_action : tâches, mails, terminal, ordinateur…

@@ -1,5 +1,12 @@
 # Vague 2B Offline Location — Implementation Plan
 
+> **Statut : implémenté sur `origin/main` @ `6becf26` ; plan archivé.**
+> **Preuve :** `api/router_location.py`, `tests/test_location_batch.py`,
+> `android/app/src/main/kotlin/fr/jarvis/companion/core/sync/LocationSyncWorker.kt`,
+> `services/JarvisLocationService.kt` et les tests Android associés. Les cases
+> ci-dessous sont le journal d’exécution d’origine et ne sont pas cochées
+> rétroactivement ; la validation GPS sur appareil reste à rejouer.
+
 > **For agentic workers:** Execute task-by-task. Checkbox tracking.
 
 **Goal:** Android GPS offline-first with Room queue, idempotent batch sync, WorkManager, UI.

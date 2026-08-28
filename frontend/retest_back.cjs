@@ -1,6 +1,11 @@
 /* Retests ciblés : (1) back-button après logout, (2) switch conversation sans mixing (scopé zone messages). */
 const { chromium } = require('@playwright/test');
 const fs = require('fs');
+const path = require('path');
+
+const ROOT = path.resolve(__dirname, '..');
+const SCREENSHOTS = path.join(ROOT, 'artifacts', 'validation_screenshots', 'complement');
+fs.mkdirSync(SCREENSHOTS, { recursive: true });
 
 const AUTH_BASE = 'http://127.0.0.1:8099';
 const MAIN_BASE = 'http://localhost:9000';
@@ -38,7 +43,7 @@ const PROD_TOKEN = process.env.PROD_TOKEN;
     const bodyText = await page.locator('body').innerText();
     // Données privées = contenu métier visible hors gate
     const privateVisible = !gateOnBack && /tableau de bord|conversation|contacts actifs|tâche/i.test(bodyText);
-    await page.screenshot({ path: '/Users/zeldris/JARVIS/artifacts/validation_screenshots/complement/auth_E_back_button_retest.png' });
+    await page.screenshot({ path: path.join(SCREENSHOTS, 'auth_E_back_button_retest.png') });
     out.back_button = {
       dash_private_before: dashPrivate,
       gate_after_logout: gateAfterLogout,

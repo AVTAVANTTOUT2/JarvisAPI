@@ -6,7 +6,7 @@
     "title": "** LaunchAgents pointent vers un chemin inexistant",
     "type": "",
     "impact": "** `launchd` ne peut pas démarrer supervisor ni daemon iMessage depuis ces plists.",
-    "preuve": "** `ProgramArguments` / `WorkingDirectory` / logs → `/Users/zeldris/JarvisAPI/...` ; `ls /Users/zeldris/JarvisAPI` → *No such file or directory* ; workspace réel = `/Users/zeldris/JARVIS`."
+    "preuve": "** `ProgramArguments` / `WorkingDirectory` / logs → `/Users/<user>/JarvisAPI/...` ; `ls /Users/<user>/JarvisAPI` → *No such file or directory* ; workspace réel = `/Users/<user>/JARVIS`."
   },
   {
     "id": "P13-F-01",
@@ -474,7 +474,7 @@
     "title": "ADB réseau + forward CDP auto au boot (LaunchAgent)",
     "type": "sécurité",
     "impact": "au login macOS, connexion ADB TCP non authentifiée vers la TV + bridge CDP local. Qui contrôle le LAN TV (port 5555) ou le localhost Mac (9222) contrôle le navigateur kiosk (et via ADB : shell TV). `settings put global policy_control immersive.full=*` (L37) mute le chrome système.",
-    "preuve": "`scripts/launch_tv_browser.sh:9-12,25-57` ; `tv/com.jarvis.tv-browser.plist:12-13,22-27` (`RunAtLoad`, `TV_IP=192.168.3.82`) ; MCP `adb connect` + `adb forward tcp:9222` (`scripts/tv_mcp_server.py:104-127`)."
+    "preuve": "`scripts/launch_tv_browser.sh:9-12,25-57` ; `tv/com.jarvis.tv-browser.plist:12-13,22-27` (`RunAtLoad`, `TV_IP=<tv-ip>`) ; MCP `adb connect` + `adb forward tcp:9222` (`scripts/tv_mcp_server.py:104-127`)."
   },
   {
     "id": "F-P17-006",
@@ -1113,7 +1113,7 @@
     "title": "IPs d’infra et chemins utilisateur commités (TV_IP / dashboard / plists)",
     "type": "sécurité",
     "impact": "pas de secret cryptographique, mais fingerprinting réseau + username + arborescence ; plists cassés si le path réel diffère (`JARVIS` vs `JarvisAPI` — cohérent avec F-P01-001).",
-    "preuve": "défauts `192.168.3.82` / `192.168.3.52:5174` dans `scripts/tv_mcp_server.py:39-42`, `scripts/launch_tv_browser.sh:9-12`, `tv/com.jarvis.tv-browser.plist:22-23` ; chemins `/Users/zeldris/JarvisAPI/...` dans les deux plists (`tv/com.jarvis.tv.plist:9-19`, `tv-browser.plist:10-18`)."
+    "preuve": "défauts `<tv-ip>` / `<mac-ip>:5174` dans `scripts/tv_mcp_server.py:39-42`, `scripts/launch_tv_browser.sh:9-12`, `tv/com.jarvis.tv-browser.plist:22-23` ; chemins `/Users/<user>/JarvisAPI/...` dans les deux plists (`tv/com.jarvis.tv.plist:9-19`, `tv-browser.plist:10-18`)."
   },
   {
     "id": "F-P17-008",
@@ -1626,7 +1626,7 @@
     "title": "README whitelist incomplète vs `config.py`",
     "type": "doc-drift",
     "impact": "opérateur croit le réseau TV exclu ; il est inclus.",
-    "preuve": "`tv/README.md:40` liste `192.168.1.0/24, 100.64.0.0/10, 127.0.0.1` — omet `192.168.3.0/24` présent `tv/config.py:29`."
+    "preuve": "`tv/README.md:40` liste `<documented-lan-cidr>, 100.64.0.0/10, 127.0.0.1` — omet `<configured-lan-cidr>` présent `tv/config.py:29`."
   },
   {
     "id": "F-P18-012",

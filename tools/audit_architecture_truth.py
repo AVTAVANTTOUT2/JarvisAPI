@@ -2,7 +2,8 @@
 """Génère et vérifie la vérité frontends + API + schéma SQLite (code only).
 
 Produit ``artifacts/architecture_truth.json`` et, sur demande, le schéma
-SQLite déterministe d'une base fraîche, sans :
+SQLite déterministe d'une base fraîche ainsi que la vue humaine du registre,
+sans :
 - démarrer de services ;
 - ouvrir ``data/jarvis.db`` ;
 - exécuter de migrations ailleurs que dans une base ``:memory:``.
@@ -10,8 +11,11 @@ SQLite déterministe d'une base fraîche, sans :
 Usage::
 
     python tools/audit_architecture_truth.py
-    python tools/audit_architecture_truth.py --schema-output database/schema.sql
-    python tools/audit_architecture_truth.py --check --schema-output database/schema.sql
+    python tools/audit_architecture_truth.py --schema-output database/schema.sql \
+      --status-output Architecture/28_VALIDATION_COHERENCE.md
+    python tools/audit_architecture_truth.py --check \
+      --schema-output database/schema.sql \
+      --status-output Architecture/28_VALIDATION_COHERENCE.md
 """
 
 from __future__ import annotations
@@ -19,10 +23,13 @@ from __future__ import annotations
 import argparse
 import ast
 import copy
+import hashlib
 import importlib.util
+import ipaddress
 import json
 import re
 import sqlite3
+import subprocess
 import sys
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
@@ -30,58 +37,70 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
+TRUTH_REGISTRY_PATH = "Architecture/project_truth_registry.json"
+TRUTH_STATUS_PATH = "Architecture/28_VALIDATION_COHERENCE.md"
+TRUTH_STATUSES = {
+    "IMPLEMENTED_VERIFIED",
+    "IMPLEMENTED_NEEDS_REAL_VALIDATION",
+    "PARTIAL",
+    "NOT_IMPLEMENTED",
+    "SUPERSEDED",
+    "HISTORICAL_ONLY",
+}
+TRUTH_CLAIMS = {"database", "api_surface", "api_structure", "frontend"}
+
+PUBLIC_TEXT_SUFFIXES = {
+    ".cjs",
+    ".conf",
+    ".css",
+    ".go",
+    ".gradle",
+    ".html",
+    ".ini",
+    ".java",
+    ".js",
+    ".jsx",
+    ".json",
+    ".kt",
+    ".md",
+    ".mjs",
+    ".plist",
+    ".properties",
+    ".py",
+    ".sh",
+    ".sql",
+    ".swift",
+    ".toml",
+    ".txt",
+    ".ts",
+    ".tsx",
+    ".xml",
+    ".yaml",
+    ".yml",
+}
+ABSOLUTE_MAC_USER_PATH_RE = re.compile(r"/Users/(?P<user>[A-Za-z0-9._-]+)/")
+PUBLIC_PERSONAL_TOKEN_RE = re.compile(r"(?i)\b" + "zeld" + r"ris(?:dash)?\b")
+IPV4_RE = re.compile(r"(?<![\d.])(?:\d{1,3}\.){3}\d{1,3}(?![\d.])")
+PUBLIC_PRIVATE_IP_ALLOWLIST = {
+    "10.0.0.0",
+    "10.0.2.2",
+    "127.0.0.1",
+    "172.16.0.0",
+    "192.168.0.0",
+}
+DOCUMENT_SCAN_EXCLUDED_PARTS = {
+    ".git",
+    ".next",
+    ".venv",
+    "build",
+    "dist",
+    "node_modules",
+    "venv",
+}
 
 CREATE_TABLE_RE = re.compile(
     r"CREATE\s+(?:VIRTUAL\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[\"']?(\w+)[\"']?",
     re.IGNORECASE,
-)
-
-DOC_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
-    ("tables_26_plus", re.compile(r"26\+\s*tables", re.I)),
-    ("tables_schema_dump", re.compile(r"\b(?:44|46)\s+tables?\b", re.I)),
-    ("tables_72", re.compile(r"\b72\s+tables?\b", re.I)),
-    ("tables_73", re.compile(r"\b73\s+tables?\b|\b73e\s+table\b", re.I)),
-    (
-        "nextjs_14_as_primary",
-        re.compile(r"frontend\s+canonique[^\n]{0,40}Next\.js\s*14", re.I),
-    ),
-    ("web_as_spa_principale", re.compile(r"`web/`\s*\(SPA principale", re.I)),
-    ("schema_sql_as_runtime", re.compile(r"schema\.sql[^\n]{0,60}init_db", re.I)),
-    (
-        "supervisor_vite_only",
-        re.compile(
-            r"supervisor[^\n]{0,80}(sert\s+encore\s+web/dist|sert\s+uniquement\s+web/dist|"
-            r"web/dist\s+\(pas\s+frontend/out\))",
-            re.I,
-        ),
-    ),
-]
-
-SCAN_DOCS = (
-    "README.md",
-    "CLAUDE.md",
-    "Architecture/INDEX.md",
-    "Architecture/01_CARTOGRAPHIE.md",
-    "Architecture/28_VALIDATION_COHERENCE.md",
-    "Architecture/adr/ADR-017-sqlite-base-unique.md",
-)
-
-CANONICAL_COUNT_DOCS = (
-    "CLAUDE.md",
-    "Architecture/INDEX.md",
-    "Architecture/01_CARTOGRAPHIE.md",
-    "Architecture/28_VALIDATION_COHERENCE.md",
-    "Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md",
-    "Architecture/adr/ADR-017-sqlite-base-unique.md",
-)
-
-CANONICAL_API_DOCS = (
-    "CLAUDE.md",
-    "Architecture/INDEX.md",
-    "Architecture/01_CARTOGRAPHIE.md",
-    "Architecture/03_AUDIT_TECHNIQUE.md",
-    "Architecture/28_VALIDATION_COHERENCE.md",
-    "Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md",
 )
 
 CANONICAL_FRONTEND_DOCS = (
@@ -101,23 +120,6 @@ RETIRED_FRONTEND_DOC_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
         "retired_vite_port",
         re.compile(r"(?:localhost|127\.0\.0\.1):5173", re.I),
     ),
-)
-
-STALE_API_DOC_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"\b12\s+routeurs?\b", re.I),
-    re.compile(r"\b12\s+`?APIRouter", re.I),
-    re.compile(r"\b174\s+opérations?\b", re.I),
-    re.compile(r"\b157\s+chemins?\b", re.I),
-    re.compile(r"\b207\s+opérations?\b", re.I),
-    re.compile(r"\b189\s+chemins?\b", re.I),
-    re.compile(r"\b175\s+lignes?\b", re.I),
-    # `261 opérations HTTP` a été une valeur périmée, puis est redevenue la
-    # vérité calculée en ajoutant les deux routes de santé. Un motif qui
-    # interdit le nombre exact que le même outil réclame rend la documentation
-    # impossible à écrire : l'interdiction est levée, la formulation canonique
-    # ci-dessus reste la seule contrainte.
-    re.compile(r"\b231\s+chemins?\s+OpenAPI\b", re.I),
-    re.compile(r"PIN\s+6\s+chiffres", re.I),
 )
 
 FTS_SHADOW_SUFFIXES = {"config", "content", "data", "docsize", "idx"}
@@ -167,6 +169,12 @@ IGNORED_SOURCE_PARTS = {
     "dist",
     "node_modules",
     "out",
+}
+PUBLIC_PRIVACY_IGNORED_PARTS = IGNORED_SOURCE_PARTS | {
+    "androidTest",
+    "locks",
+    "test",
+    "tests",
 }
 CONSUMER_SURFACES = {
     "frontend_next": ("frontend",),
@@ -222,6 +230,477 @@ def _read_json(path: Path) -> dict[str, Any] | None:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
+
+
+def _truth_finding(
+    note: str,
+    *,
+    kind: str = "truth_registry_invalid",
+    file: str = TRUTH_REGISTRY_PATH,
+) -> dict[str, Any]:
+    return {
+        "file": file,
+        "line": 0,
+        "kind": kind,
+        "severity": "error",
+        "excerpt": kind,
+        "note": note,
+    }
+
+
+def load_truth_registry(root: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Charge et valide le registre manuel qui borne les affirmations courantes.
+
+    Les mini-dépôts des tests unitaires peuvent ne pas embarquer Architecture/.
+    Un dépôt complet, reconnaissable à son document 32, doit en revanche toujours
+    fournir le registre.
+    """
+    path = root / TRUTH_REGISTRY_PATH
+    if not path.is_file():
+        if not (root / "Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md").exists():
+            return {}, []
+        return {}, [_truth_finding(f"registre absent : {TRUTH_REGISTRY_PATH}")]
+
+    try:
+        raw = path.read_bytes()
+        registry = json.loads(raw)
+    except (OSError, json.JSONDecodeError) as error:
+        return {}, [_truth_finding(f"registre JSON illisible : {error}")]
+    if not isinstance(registry, dict):
+        return {}, [_truth_finding("la racine du registre doit être un objet JSON")]
+
+    findings: list[dict[str, Any]] = []
+    if registry.get("schema_version") != 1:
+        findings.append(_truth_finding("schema_version doit valoir 1"))
+    reviewed_at = registry.get("reviewed_at")
+    if not isinstance(reviewed_at, str) or not re.fullmatch(
+        r"\d{4}-\d{2}-\d{2}", reviewed_at
+    ):
+        findings.append(_truth_finding("reviewed_at doit être une date YYYY-MM-DD"))
+
+    documentation = registry.get("documentation")
+    if not isinstance(documentation, dict):
+        findings.append(_truth_finding("documentation doit être un objet"))
+        documentation = {}
+    governed_roots = documentation.get("governed_roots", [])
+    if not isinstance(governed_roots, list) or not governed_roots or any(
+        not isinstance(item, str) or not item for item in governed_roots
+    ):
+        findings.append(
+            _truth_finding("documentation.governed_roots doit être une liste non vide")
+        )
+        governed_roots = []
+    governed_markdown: set[str] = set()
+    for relative_root in governed_roots:
+        governed_root = root / relative_root
+        if not governed_root.is_dir():
+            findings.append(
+                _truth_finding(f"racine documentaire introuvable : {relative_root}")
+            )
+            continue
+        if relative_root == "." and (root / ".git").exists():
+            tracked = subprocess.run(
+                ["git", "-C", str(root), "ls-files", "*.md"],
+                capture_output=True,
+                check=False,
+                text=True,
+            )
+            if tracked.returncode == 0:
+                governed_markdown.update(
+                    item for item in tracked.stdout.splitlines() if item
+                )
+                continue
+        governed_markdown.update(
+            path.relative_to(root).as_posix()
+            for path in governed_root.rglob("*.md")
+            if path.is_file()
+            and not DOCUMENT_SCAN_EXCLUDED_PARTS.intersection(
+                path.relative_to(root).parts
+            )
+        )
+    classified_paths: dict[str, str] = {}
+    for classification in ("current", "historical", "superseded"):
+        documents = documentation.get(classification, [])
+        if not isinstance(documents, list):
+            findings.append(
+                _truth_finding(f"documentation.{classification} doit être une liste")
+            )
+            continue
+        for index, document in enumerate(documents):
+            location = f"documentation.{classification}[{index}]"
+            if not isinstance(document, dict) or not isinstance(
+                document.get("path"), str
+            ):
+                findings.append(_truth_finding(f"{location}.path est obligatoire"))
+                continue
+            relative = document["path"]
+            previous = classified_paths.get(relative)
+            if previous is not None:
+                findings.append(
+                    _truth_finding(
+                        f"{relative} est classé à la fois {previous} et {classification}"
+                    )
+                )
+            classified_paths[relative] = classification
+            if not (root / relative).is_file():
+                findings.append(_truth_finding(f"document introuvable : {relative}"))
+            if classification == "current":
+                claims = document.get("required_claims", [])
+                if not isinstance(claims, list) or any(
+                    claim not in TRUTH_CLAIMS for claim in claims
+                ):
+                    findings.append(
+                        _truth_finding(
+                            f"{location}.required_claims contient une valeur inconnue"
+                        )
+                    )
+            elif classification == "historical" and not document.get("snapshot_at"):
+                findings.append(_truth_finding(f"{location}.snapshot_at est obligatoire"))
+            elif classification == "superseded":
+                replacement = document.get("superseded_by")
+                if not isinstance(replacement, str) or not (root / replacement).is_file():
+                    findings.append(
+                        _truth_finding(
+                            f"{location}.superseded_by doit pointer vers un fichier existant"
+                        )
+                    )
+
+    compact_current = documentation.get("current_paths", [])
+    if not isinstance(compact_current, list) or any(
+        not isinstance(item, str) or not item for item in compact_current
+    ):
+        findings.append(
+            _truth_finding("documentation.current_paths doit être une liste de chemins")
+        )
+        compact_current = []
+    for relative in compact_current:
+        previous = classified_paths.get(relative)
+        if previous is not None:
+            findings.append(
+                _truth_finding(
+                    f"{relative} est classé à la fois {previous} et current_paths"
+                )
+            )
+        classified_paths[relative] = "current"
+        if not (root / relative).is_file():
+            findings.append(_truth_finding(f"document introuvable : {relative}"))
+
+    for relative in sorted(governed_markdown - classified_paths.keys()):
+        findings.append(
+            _truth_finding(
+                f"document Markdown non classé : {relative}",
+                kind="truth_document_unclassified",
+                file=relative,
+            )
+        )
+
+    status_document = registry.get("generated_status_document")
+    if status_document != TRUTH_STATUS_PATH:
+        findings.append(
+            _truth_finding(
+                f"generated_status_document doit valoir {TRUTH_STATUS_PATH}"
+            )
+        )
+    if classified_paths.get(TRUTH_STATUS_PATH) != "current":
+        findings.append(
+            _truth_finding(f"{TRUTH_STATUS_PATH} doit être classé current")
+        )
+
+    entries = registry.get("entries")
+    if not isinstance(entries, list) or not entries:
+        findings.append(_truth_finding("entries doit être une liste non vide"))
+        entries = []
+    ids: set[str] = set()
+    for index, entry in enumerate(entries):
+        location = f"entries[{index}]"
+        if not isinstance(entry, dict):
+            findings.append(_truth_finding(f"{location} doit être un objet"))
+            continue
+        entry_id = entry.get("id")
+        if not isinstance(entry_id, str) or not entry_id:
+            findings.append(_truth_finding(f"{location}.id est obligatoire"))
+        elif entry_id in ids:
+            findings.append(_truth_finding(f"id dupliqué : {entry_id}"))
+        else:
+            ids.add(entry_id)
+        status = entry.get("status")
+        if status not in TRUTH_STATUSES:
+            findings.append(_truth_finding(f"{location}.status est inconnu : {status}"))
+        for field_name in ("domain", "scope", "summary"):
+            if not isinstance(entry.get(field_name), str) or not entry[field_name]:
+                findings.append(_truth_finding(f"{location}.{field_name} est obligatoire"))
+        evidence = entry.get("evidence", [])
+        if not isinstance(evidence, list):
+            findings.append(_truth_finding(f"{location}.evidence doit être une liste"))
+            evidence = []
+        evidence_kinds: set[str] = set()
+        for evidence_index, item in enumerate(evidence):
+            if not isinstance(item, dict) or not isinstance(item.get("path"), str):
+                findings.append(
+                    _truth_finding(
+                        f"{location}.evidence[{evidence_index}] doit fournir un path"
+                    )
+                )
+                continue
+            evidence_kinds.add(str(item.get("kind", "")))
+            if not (root / item["path"]).exists():
+                findings.append(
+                    _truth_finding(f"preuve introuvable : {item['path']}")
+                )
+        gaps = entry.get("gaps", [])
+        gates = entry.get("validation_gates", [])
+        if not isinstance(gaps, list) or not isinstance(gates, list):
+            findings.append(
+                _truth_finding(f"{location}.gaps et validation_gates doivent être des listes")
+            )
+            continue
+        if status == "IMPLEMENTED_VERIFIED":
+            if not evidence_kinds.intersection({"code", "artifact", "config"}):
+                findings.append(
+                    _truth_finding(f"{location} vérifié requiert une preuve de code")
+                )
+            if not evidence_kinds.intersection({"test", "ci"}):
+                findings.append(
+                    _truth_finding(f"{location} vérifié requiert une preuve test/CI")
+                )
+            if gates:
+                findings.append(
+                    _truth_finding(f"{location} vérifié ne peut avoir de gate pending")
+                )
+        if status == "IMPLEMENTED_NEEDS_REAL_VALIDATION" and not gates:
+            findings.append(
+                _truth_finding(f"{location} requiert au moins une validation réelle")
+            )
+        if status in {"PARTIAL", "NOT_IMPLEMENTED"} and not gaps:
+            findings.append(_truth_finding(f"{location} requiert au moins un écart"))
+        if status == "SUPERSEDED" and not entry.get("superseded_by"):
+            findings.append(_truth_finding(f"{location}.superseded_by est obligatoire"))
+        if status == "HISTORICAL_ONLY" and not entry.get("snapshot_at"):
+            findings.append(_truth_finding(f"{location}.snapshot_at est obligatoire"))
+
+    registry["sha256"] = hashlib.sha256(raw).hexdigest()
+    registry["path"] = TRUTH_REGISTRY_PATH
+    return registry, findings
+
+
+def scan_public_privacy(root: Path) -> list[dict[str, Any]]:
+    """Refuse les identifiants locaux dans les surfaces versionnées publiques.
+
+    Les fichiers ``.env*`` sont volontairement hors lecture. Les réseaux et
+    chemins synthétiques des tests restent permis, mais les identifiants
+    personnels connus sont recherchés dans tout fichier texte suivi.
+    Les captures de validation dynamiques restent hors Git : elles peuvent
+    contenir des contacts, messages, noms de machine ou numéros de téléphone.
+    """
+
+    findings: list[dict[str, Any]] = []
+    tracked_paths: set[str] | None = None
+    if (root / ".git").exists():
+        result = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "-z"],
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode == 0:
+            tracked_paths = {
+                item.decode("utf-8")
+                for item in result.stdout.split(b"\0")
+                if item
+            }
+    if tracked_paths is None:
+        possible_paths = root.rglob("*")
+    else:
+        possible_paths = (root / relative for relative in tracked_paths)
+
+    candidates: set[Path] = set()
+    for path in possible_paths:
+        if not path.is_file() or path.suffix.lower() not in PUBLIC_TEXT_SUFFIXES:
+            continue
+        if path.name.startswith(".env"):
+            continue
+        candidates.add(path)
+
+    private_networks = (
+        ipaddress.ip_network("10.0.0.0/8"),
+        ipaddress.ip_network("172.16.0.0/12"),
+        ipaddress.ip_network("192.168.0.0/16"),
+    )
+    for path in sorted(candidates):
+        relative = path.relative_to(root).as_posix()
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except (OSError, UnicodeDecodeError):
+            continue
+        fixture_path = any(
+            part in PUBLIC_PRIVACY_IGNORED_PARTS
+            for part in path.relative_to(root).parts
+        ) or ".test." in path.name or ".spec." in path.name
+        for line_number, line in enumerate(lines, 1):
+            if PUBLIC_PERSONAL_TOKEN_RE.search(line):
+                findings.append(
+                    {
+                        "file": relative,
+                        "line": line_number,
+                        "kind": "public_personal_identifier",
+                        "severity": "error",
+                        "excerpt": "personal identifier",
+                        "note": "remplacer l'identifiant personnel par une fixture synthétique",
+                    }
+                )
+            if fixture_path:
+                continue
+            if ABSOLUTE_MAC_USER_PATH_RE.search(line):
+                findings.append(
+                    {
+                        "file": relative,
+                        "line": line_number,
+                        "kind": "public_absolute_user_path",
+                        "severity": "error",
+                        "excerpt": "absolute macOS user path",
+                        "note": "remplacer le chemin utilisateur par un placeholder portable",
+                    }
+                )
+            for match in IPV4_RE.finditer(line):
+                value = match.group(0)
+                if value in PUBLIC_PRIVATE_IP_ALLOWLIST:
+                    continue
+                try:
+                    address = ipaddress.ip_address(value)
+                except ValueError:
+                    continue
+                if any(address in network for network in private_networks):
+                    findings.append(
+                        {
+                            "file": relative,
+                            "line": line_number,
+                            "kind": "public_private_ipv4",
+                            "severity": "error",
+                            "excerpt": "private IPv4 address",
+                            "note": "remplacer l'adresse privée par un placeholder explicite",
+                        }
+                    )
+
+    screenshot_root = root / "artifacts" / "validation_screenshots"
+    if screenshot_root.is_dir():
+        for path in sorted(screenshot_root.rglob("*")):
+            relative = path.relative_to(root).as_posix()
+            if (
+                path.is_file()
+                and path.suffix.lower() in {".jpeg", ".jpg", ".png", ".webp"}
+                and (tracked_paths is None or relative in tracked_paths)
+            ):
+                findings.append(
+                    {
+                        "file": relative,
+                        "line": 0,
+                        "kind": "public_validation_screenshot",
+                        "severity": "error",
+                        "excerpt": "dynamic validation screenshot",
+                        "note": (
+                            "retirer la capture dynamique de Git ou la remplacer par "
+                            "une fixture entièrement synthétique"
+                        ),
+                    }
+                )
+    complement_report = root / "artifacts" / "complement_report.json"
+    report = _read_json(complement_report)
+    if isinstance(report, dict):
+        pending: list[Any] = [report]
+        while pending:
+            value = pending.pop()
+            if isinstance(value, dict):
+                screenshot = value.get("screenshot")
+                if isinstance(screenshot, str) and screenshot.strip():
+                    findings.append(
+                        {
+                            "file": "artifacts/complement_report.json",
+                            "line": 0,
+                            "kind": "public_missing_screenshot_reference",
+                            "severity": "error",
+                            "excerpt": "removed screenshot reference",
+                            "note": "mettre la référence à null et documenter le retrait PII",
+                        }
+                    )
+                pending.extend(value.values())
+            elif isinstance(value, list):
+                pending.extend(value)
+    return findings
+
+
+def _current_truth_documents(
+    registry: dict[str, Any], claim: str | None = None
+) -> list[str]:
+    documents = registry.get("documentation", {}).get("current", [])
+    result: list[str] = []
+    for document in documents:
+        if not isinstance(document, dict) or not isinstance(document.get("path"), str):
+            continue
+        if claim is None or claim in document.get("required_claims", []):
+            result.append(document["path"])
+    if claim is None:
+        result.extend(
+            item
+            for item in registry.get("documentation", {}).get("current_paths", [])
+            if isinstance(item, str)
+        )
+    return result
+
+
+def analyze_events(root: Path) -> dict[str, Any]:
+    """Inventorie statiquement le contrat fermé du bus d'événements."""
+
+    source = root / "jarvis/event_bus.py"
+    if not source.is_file():
+        return {
+            "source": "jarvis/event_bus.py",
+            "count": 0,
+            "types": [],
+            "agentic_count": 0,
+            "task_control_count": 0,
+        }
+    module = ast.parse(source.read_text(encoding="utf-8"), filename=str(source))
+    values: tuple[str, ...] = ()
+    for node in module.body:
+        target = node.target if isinstance(node, ast.AnnAssign) else None
+        if isinstance(target, ast.Name) and target.id == "EVENT_TYPES":
+            raw = ast.literal_eval(node.value)
+            if isinstance(raw, tuple) and all(isinstance(item, str) for item in raw):
+                values = raw
+            break
+    return {
+        "source": "jarvis/event_bus.py",
+        "count": len(values),
+        "types": list(values),
+        "agentic_count": sum(item.startswith("agent.") for item in values),
+        "task_control_count": sum(item.startswith("task.control.") for item in values),
+    }
+
+
+def analyze_plugins(root: Path) -> dict[str, Any]:
+    """Inventorie les manifests découverts sans importer leur code."""
+
+    plugins: list[dict[str, Any]] = []
+    for path in sorted((root / "integrations").glob("*/plugin.json")):
+        raw = _read_json(path)
+        if not isinstance(raw, dict):
+            continue
+        runtime = raw.get("runtime") if isinstance(raw.get("runtime"), dict) else raw
+        capabilities = runtime.get("capabilities", raw.get("capabilities", []))
+        plugins.append(
+            {
+                "path": path.relative_to(root).as_posix(),
+                "runtime_id": str(runtime.get("id") or runtime.get("runtime_id") or ""),
+                "version": str(runtime.get("version") or ""),
+                "enabled": bool(runtime.get("enabled", raw.get("enabled", True))),
+                "entrypoint": str(runtime.get("entrypoint") or ""),
+                "capability_count": len(capabilities) if isinstance(capabilities, list) else 0,
+            }
+        )
+    return {
+        "discovery_glob": "integrations/*/plugin.json",
+        "count": len(plugins),
+        "plugins": plugins,
+    }
 
 
 def _extract_create_tables(text: str) -> list[str]:
@@ -1311,15 +1790,12 @@ def _canonical_api_structure_line(api_surface: dict[str, Any]) -> str:
 
 
 def scan_canonical_count_docs(
-    root: Path, tables: dict[str, Any]
+    root: Path, tables: dict[str, Any], registry: dict[str, Any]
 ) -> list[dict[str, Any]]:
     """Exige la formulation calculée dans chaque document de référence courant."""
-    # Les mini dépôts des tests unitaires n'embarquent pas le corpus Architecture.
-    if not (root / "Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md").is_file():
-        return []
     expected = _canonical_count_line(tables)
     findings: list[dict[str, Any]] = []
-    for rel in CANONICAL_COUNT_DOCS:
+    for rel in _current_truth_documents(registry, "database"):
         path = root / rel
         text = path.read_text(encoding="utf-8") if path.is_file() else ""
         if expected not in text:
@@ -1337,40 +1813,37 @@ def scan_canonical_count_docs(
 
 
 def scan_canonical_api_doc(
-    root: Path, api_surface: dict[str, Any]
+    root: Path, api_surface: dict[str, Any], registry: dict[str, Any]
 ) -> list[dict[str, Any]]:
     """Synchronise le résumé humain avec l'inventaire API généré."""
-    relative = "Architecture/32_FRONTEND_DATABASE_SOURCE_OF_TRUTH.md"
-    path = root / relative
-    if not path.is_file():
-        return []
     expected = _canonical_api_line(api_surface)
-    text = path.read_text(encoding="utf-8")
-    if expected in text:
-        return []
-    return [
-        {
-            "file": relative,
-            "line": 0,
-            "kind": "canonical_api_surface_counts",
-            "severity": "error",
-            "excerpt": "formulation canonique API absente ou périmée",
-            "note": f"Attendu exactement : {expected}",
-        }
-    ]
+    findings: list[dict[str, Any]] = []
+    for relative in _current_truth_documents(registry, "api_surface"):
+        path = root / relative
+        text = path.read_text(encoding="utf-8") if path.is_file() else ""
+        if expected not in text:
+            findings.append(
+                {
+                    "file": relative,
+                    "line": 0,
+                    "kind": "canonical_api_surface_counts",
+                    "severity": "error",
+                    "excerpt": "formulation canonique API absente ou périmée",
+                    "note": f"Attendu exactement : {expected}",
+                }
+            )
+    return findings
 
 
 def scan_api_structure_docs(
-    root: Path, api_surface: dict[str, Any]
+    root: Path, api_surface: dict[str, Any], registry: dict[str, Any]
 ) -> list[dict[str, Any]]:
-    """Interdit les anciens fingerprints API et exige le résumé calculé."""
+    """Exige le fingerprint API calculé dans ses documents courants."""
     expected = _canonical_api_structure_line(api_surface)
     findings: list[dict[str, Any]] = []
-    for relative in CANONICAL_API_DOCS:
+    for relative in _current_truth_documents(registry, "api_structure"):
         path = root / relative
-        if not path.is_file():
-            continue
-        text = path.read_text(encoding="utf-8")
+        text = path.read_text(encoding="utf-8") if path.is_file() else ""
         if expected not in text:
             findings.append(
                 {
@@ -1383,30 +1856,12 @@ def scan_api_structure_docs(
                 }
             )
 
-    candidates = [root / "CLAUDE.md"]
-    architecture = root / "Architecture"
-    if architecture.is_dir():
-        candidates.extend(sorted(architecture.glob("*.md")))
-    for path in candidates:
-        if not path.is_file():
-            continue
-        text = path.read_text(encoding="utf-8")
-        for pattern in STALE_API_DOC_PATTERNS:
-            for match in pattern.finditer(text):
-                findings.append(
-                    {
-                        "file": path.relative_to(root).as_posix(),
-                        "line": text.count("\n", 0, match.start()) + 1,
-                        "kind": "stale_api_structure_claim",
-                        "severity": "error",
-                        "excerpt": match.group(0),
-                        "note": f"Remplacer par la vérité calculée : {expected}",
-                    }
-                )
     return findings
 
 
-def scan_canonical_frontend_docs(root: Path) -> list[dict[str, Any]]:
+def scan_canonical_frontend_docs(
+    root: Path, registry: dict[str, Any] | None = None
+) -> list[dict[str, Any]]:
     """Interdit les anciens runtimes frontend dans les documents courants.
 
     Les rapports historiques datés ne font volontairement pas partie de ce
@@ -1414,7 +1869,12 @@ def scan_canonical_frontend_docs(root: Path) -> list[dict[str, Any]]:
     marquée comme archive.
     """
     findings: list[dict[str, Any]] = []
-    for relative in CANONICAL_FRONTEND_DOCS:
+    relatives = (
+        _current_truth_documents(registry, "frontend")
+        if registry
+        else list(CANONICAL_FRONTEND_DOCS)
+    )
+    for relative in relatives:
         path = root / relative
         if not path.is_file():
             continue
@@ -1438,70 +1898,259 @@ def scan_canonical_frontend_docs(root: Path) -> list[dict[str, Any]]:
     return findings
 
 
-def scan_doc_contradictions(root: Path, tables: dict[str, Any]) -> list[dict[str, Any]]:
-    findings: list[dict[str, Any]] = []
-    expected_physical = tables["counts"]["physiques_max_default_fts_on"]
-    expected_persist = tables["counts"]["persistantes_post_init"]
-    schema_sql_count = tables["counts"]["schema_sql_applicatives"]
+def _numeric_claim_finding(
+    relative: str,
+    line_number: int,
+    kind: str,
+    excerpt: str,
+    actual: int,
+    expected: set[int],
+) -> dict[str, Any]:
+    expected_text = " ou ".join(str(value) for value in sorted(expected))
+    return {
+        "file": relative,
+        "line": line_number,
+        "kind": kind,
+        "severity": "error",
+        "excerpt": excerpt.strip(),
+        "note": f"assertion {actual} contradictoire ; attendu {expected_text}",
+    }
 
-    for rel in SCAN_DOCS:
-        path = root / rel
-        if not path.is_file():
-            continue
-        text = path.read_text(encoding="utf-8")
-        for kind, pattern in DOC_PATTERNS:
-            for match in pattern.finditer(text):
-                line_no = text.count("\n", 0, match.start()) + 1
-                severity = "warning"
-                note = match.group(0)
-                if kind == "tables_schema_dump":
-                    mentioned = int(re.search(r"\d+", match.group(0)).group())
-                    if mentioned == schema_sql_count:
-                        severity = "info"
-                        note = (
-                            f"{match.group(0)} — cohérent avec "
-                            f"schema.sql={schema_sql_count} si contextualisé"
-                        )
-                    else:
-                        severity = "warning"
-                        note = (
-                            f"{match.group(0)} — dump schema.sql actuel="
-                            f"{schema_sql_count}"
-                        )
-                if kind in {"tables_72", "tables_26_plus"}:
-                    severity = "error"
-                    note = (
-                        f"{match.group(0)} contredit persistantes={expected_persist} "
-                        f"/ physiques={expected_physical}"
-                    )
-                if kind == "tables_73" and expected_physical != 73:
-                    severity = "warning"
-                    note = (
-                        f"{match.group(0)} — attendu actuel physiques={expected_physical} "
-                        f"(persistantes={expected_persist})"
-                    )
-                if kind == "web_as_spa_principale":
-                    severity = "error"
-                    note = (
-                        "`web/` n'est plus le frontend canonique (Phase 6 → frontend/)"
-                    )
-                if kind == "supervisor_vite_only":
-                    severity = "error"
-                    note = (
-                        "La documentation affirme encore que le supervisor sert "
-                        "uniquement web/dist — attendu : frontend/out uniquement"
-                    )
-                findings.append(
-                    {
-                        "file": rel,
-                        "line": line_no,
-                        "kind": kind,
-                        "severity": severity,
-                        "excerpt": match.group(0),
-                        "note": note,
-                    }
-                )
+
+def scan_numeric_claims(
+    root: Path,
+    tables: dict[str, Any],
+    api_surface: dict[str, Any],
+    registry: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Détecte toute valeur typée contradictoire dans les documents courants.
+
+    Contrairement à une blacklist de nombres historiques, les attentes viennent
+    du code audité. Une nouvelle valeur périmée échoue donc sans modifier ce
+    scanner. Les documents historiques et superseded sont exclus par registre.
+    """
+    findings: list[dict[str, Any]] = []
+    counts = tables["counts"]
+    structure = api_surface["structure"]
+    surface_counts = api_surface["counts"]
+    database_patterns: tuple[tuple[str, re.Pattern[str], set[int]], ...] = (
+        (
+            "sqlite_persistent_tables",
+            re.compile(r"(?P<value>\d+)\s+(?:tables?\s+)?persistantes?", re.I),
+            {counts["persistantes_post_init"]},
+        ),
+        (
+            "sqlite_physical_tables",
+            re.compile(r"(?P<value>\d+)\s+(?:tables?\s+)?physiques?", re.I),
+            {counts["physiques_max_default_fts_on"]},
+        ),
+        (
+            "sqlite_schema_declarations",
+            re.compile(r"(?P<value>\d+)\s+déclarations?\s+de\s+tables?", re.I),
+            {counts["schema_sql_applicatives"]},
+        ),
+        (
+            "sqlite_table_count",
+            re.compile(r"(?P<value>\d+)\+?\s+tables?\s+(?:SQLite|SQL)\b", re.I),
+            {
+                counts["persistantes_post_init"],
+                counts["physiques_max_default_fts_on"],
+            },
+        ),
+    )
+    api_surface_patterns: tuple[tuple[str, re.Pattern[str], set[int]], ...] = (
+        (
+            "api_operations",
+            re.compile(
+                r"(?P<value>\d+)\s+opérations?\b"
+                r"(?!\s+(?:HTTP|sans|avec|consommées?|attribuées?|distinctes?)\b)",
+                re.I,
+            ),
+            {surface_counts["operations"]},
+        ),
+        (
+            "api_paths",
+            re.compile(
+                r"(?P<value>\d+)\s+chemins?\b"
+                r"(?!\s+(?:OpenAPI|sans|avec|consommés?|référencés?|distincts?)\b)",
+                re.I,
+            ),
+            {surface_counts["paths"]},
+        ),
+    )
+    api_structure_patterns: tuple[tuple[str, re.Pattern[str], set[int]], ...] = (
+        (
+            "api_http_operations",
+            re.compile(r"(?P<value>\d+)\s+opérations?\s+HTTP\b", re.I),
+            {structure["http_operations"]},
+        ),
+        (
+            "api_openapi_paths",
+            re.compile(r"(?P<value>\d+)\s+chemins?\s+OpenAPI\b", re.I),
+            {structure["openapi_paths"]},
+        ),
+        (
+            "api_websockets",
+            re.compile(r"(?P<value>\d+)\s+WebSockets?\b", re.I),
+            {structure["websocket_operations"]},
+        ),
+        (
+            "api_routers",
+            re.compile(r"(?P<value>\d+)\s+routeurs?\b", re.I),
+            {structure["domain_router_modules"], structure["mounted_routers"]},
+        ),
+        (
+            "api_main_lines",
+            re.compile(r"main\.py[^\d\n]{0,24}(?P<value>\d+)\s+lignes?", re.I),
+            {structure["main_lines"]},
+        ),
+        (
+            "api_main_lines",
+            re.compile(r"(?P<value>\d+)\s+lignes?[^\n]{0,24}main\.py", re.I),
+            {structure["main_lines"]},
+        ),
+    )
+
+    for claim, patterns in (
+        ("database", database_patterns),
+        ("api_surface", api_surface_patterns),
+        ("api_structure", api_structure_patterns),
+    ):
+        for relative in _current_truth_documents(registry, claim):
+            path = root / relative
+            if not path.is_file():
+                continue
+            seen: set[tuple[int, int, int, str]] = set()
+            for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                for kind, pattern, expected in patterns:
+                    for match in pattern.finditer(line):
+                        key = (line_number, match.start(), match.end(), kind)
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        actual = int(match.group("value"))
+                        if actual not in expected:
+                            findings.append(
+                                _numeric_claim_finding(
+                                    relative,
+                                    line_number,
+                                    kind,
+                                    match.group(0),
+                                    actual,
+                                    expected,
+                                )
+                            )
     return findings
+
+
+def _markdown_cell(value: str) -> str:
+    return value.replace("|", "\\|").replace("\n", " ")
+
+
+def render_truth_status_markdown(report: dict[str, Any]) -> str:
+    """Rend la vue humaine déterministe du registre et des métriques calculées."""
+    registry = report.get("project_truth", {})
+    tables = report["tables"]
+    api_surface = report["api_surface"]
+    lines = [
+        "# 28 — État de vérité du projet",
+        "",
+        "<!-- GENERATED FILE — DO NOT EDIT. -->",
+        "<!-- Source: Architecture/project_truth_registry.json + code runtime. -->",
+        "<!-- Regenerate: python tools/audit_architecture_truth.py --schema-output database/schema.sql --status-output Architecture/28_VALIDATION_COHERENCE.md -->",
+        "",
+        f"**Revue du registre** : {registry.get('reviewed_at', 'inconnue')}",
+        "",
+        _canonical_count_line(tables),
+        "",
+        _canonical_api_line(api_surface),
+        "",
+        _canonical_api_structure_line(api_surface),
+        "",
+        "Les statuts décrivent ce qui est démontré sur `main`. "
+        "`IMPLEMENTED_VERIFIED` signifie qu'une preuve de code et une preuve "
+        "automatisée existent ; ce statut ne remplace pas une validation matérielle "
+        "lorsqu'elle est explicitement demandée.",
+        "",
+        "## Matrice de vérité",
+        "",
+        "| Domaine | Portée | Statut | État et preuves |",
+        "|---|---|---|---|",
+    ]
+    for entry in registry.get("entries", []):
+        evidence = ", ".join(
+            f"`{item['path']}` ({item.get('kind', 'preuve')})"
+            for item in entry.get("evidence", [])
+            if isinstance(item, dict) and item.get("path")
+        )
+        details = entry.get("summary", "")
+        if evidence:
+            details += f" Preuves : {evidence}."
+        gaps = entry.get("gaps", [])
+        if gaps:
+            details += " Écarts : " + " ".join(str(gap) for gap in gaps)
+        gates = entry.get("validation_gates", [])
+        if gates:
+            details += " Validation restante : " + " ".join(
+                str(gate) for gate in gates
+            )
+        lines.append(
+            "| "
+            + " | ".join(
+                _markdown_cell(str(value))
+                for value in (
+                    entry.get("domain", ""),
+                    entry.get("scope", ""),
+                    entry.get("status", ""),
+                    details,
+                )
+            )
+            + " |"
+        )
+
+    lines.extend(
+        [
+            "",
+            "## Périmètre documentaire",
+            "",
+            "Chaque Markdown des racines gouvernées doit être classé. Dans les "
+            "documents `current`, seuls les types déclarés dans `required_claims` "
+            "portent des assertions numériques opposables. Les documents "
+            "`historical` conservent une photographie datée ; les documents "
+            "`superseded` renvoient vers leur remplacement.",
+            "",
+            "### Current",
+            "",
+        ]
+    )
+    documentation = registry.get("documentation", {})
+    for document in documentation.get("current", []):
+        claims = ", ".join(document.get("required_claims", [])) or "aucun comptage"
+        lines.append(f"- `{document['path']}` — {claims}")
+    for path in documentation.get("current_paths", []):
+        lines.append(f"- `{path}` — aucun comptage")
+    lines.extend(["", "### Historical", ""])
+    for document in documentation.get("historical", []):
+        lines.append(f"- `{document['path']}` — snapshot {document['snapshot_at']}")
+    lines.extend(["", "### Superseded", ""])
+    for document in documentation.get("superseded", []):
+        lines.append(
+            f"- `{document['path']}` → `{document['superseded_by']}`"
+        )
+    lines.extend(
+        [
+            "",
+            "## Contrôle",
+            "",
+            "Le job CI recalcule les métriques depuis le code, valide le registre, "
+            "refuse tout Markdown gouverné non classé, recherche les assertions "
+            "typées contradictoires et les identifiants locaux dans les surfaces "
+            "publiques, puis compare ce rendu, `database/schema.sql` et "
+            "`artifacts/architecture_truth.json`.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
 
 
 def build_report(root: Path) -> dict[str, Any]:
@@ -1509,7 +2158,9 @@ def build_report(root: Path) -> dict[str, Any]:
     resolution = analyze_frontend_resolution(root)
     tables = analyze_tables(root)
     api_surface = analyze_api_surface(root)
-    contradictions = scan_doc_contradictions(root, tables)
+    events = analyze_events(root)
+    plugins = analyze_plugins(root)
+    registry, registry_findings = load_truth_registry(root)
     frontend_inventory = [asdict(frontend) for frontend in frontends]
     for frontend in frontend_inventory:
         frontend.pop("output_present", None)
@@ -1543,11 +2194,16 @@ def build_report(root: Path) -> dict[str, Any]:
         "resolution": stable_resolution,
         "tables": tables,
         "api_surface": api_surface,
-        "documentation_findings": contradictions
-        + scan_canonical_count_docs(root, tables)
-        + scan_canonical_api_doc(root, api_surface)
-        + scan_api_structure_docs(root, api_surface)
-        + scan_canonical_frontend_docs(root)
+        "events": events,
+        "plugins": plugins,
+        "project_truth": registry,
+        "documentation_findings": registry_findings
+        + scan_public_privacy(root)
+        + scan_numeric_claims(root, tables, api_surface, registry)
+        + scan_canonical_count_docs(root, tables, registry)
+        + scan_canonical_api_doc(root, api_surface, registry)
+        + scan_api_structure_docs(root, api_surface, registry)
+        + scan_canonical_frontend_docs(root, registry)
         + api_surface["ownership_policy"]["findings"]
         + [
             {
@@ -1584,6 +2240,11 @@ def main(argv: list[str] | None = None) -> int:
         help="Écrire ou vérifier le miroir DDL du schéma runtime frais",
     )
     parser.add_argument(
+        "--status-output",
+        type=Path,
+        help="Écrire ou vérifier la vue Markdown générée du registre de vérité",
+    )
+    parser.add_argument(
         "--check",
         action="store_true",
         help="Ne rien écrire et échouer si les artefacts ou documents divergent",
@@ -1595,15 +2256,31 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     root = args.root.resolve()
+    schema_output = args.schema_output
+    if schema_output is not None and not schema_output.is_absolute():
+        schema_output = root / schema_output
+    status_output = args.status_output
+    if status_output is not None and not status_output.is_absolute():
+        status_output = root / status_output
 
     expected_schema: str | None = None
-    if args.schema_output is not None:
+    if schema_output is not None:
         expected_schema = render_runtime_schema(root)
         if not args.check:
-            args.schema_output.parent.mkdir(parents=True, exist_ok=True)
-            args.schema_output.write_text(expected_schema, encoding="utf-8")
+            schema_output.parent.mkdir(parents=True, exist_ok=True)
+            schema_output.write_text(expected_schema, encoding="utf-8")
 
     report = build_report(root)
+    expected_status: str | None = None
+    if status_output is not None:
+        expected_status = render_truth_status_markdown(report)
+        if not args.check:
+            status_output.parent.mkdir(parents=True, exist_ok=True)
+            status_output.write_text(expected_status, encoding="utf-8")
+            # Le rapport versionné doit décrire le corpus après régénération,
+            # pas les contradictions de l'ancien rendu remplacé à l'instant.
+            report = build_report(root)
+            expected_status = render_truth_status_markdown(report)
     payload = json.dumps(report, indent=2, ensure_ascii=False) + "\n"
     if args.stdout:
         sys.stdout.write(payload)
@@ -1623,14 +2300,22 @@ def main(argv: list[str] | None = None) -> int:
                     failures.append(
                         "artifacts/architecture_truth.json diverge du code runtime"
                     )
-        if args.schema_output is not None:
+        if schema_output is not None:
             current_schema = (
-                args.schema_output.read_text(encoding="utf-8")
-                if args.schema_output.is_file()
+                schema_output.read_text(encoding="utf-8")
+                if schema_output.is_file()
                 else None
             )
             if current_schema != expected_schema:
-                failures.append(f"{args.schema_output} diverge du schéma runtime frais")
+                failures.append(f"{schema_output} diverge du schéma runtime frais")
+        if status_output is not None:
+            current_status = (
+                status_output.read_text(encoding="utf-8")
+                if status_output.is_file()
+                else None
+            )
+            if current_status != expected_status:
+                failures.append(f"{status_output} diverge du registre de vérité")
         failures.extend(f"{finding['file']}: {finding['note']}" for finding in errors)
         if failures:
             for failure in failures:

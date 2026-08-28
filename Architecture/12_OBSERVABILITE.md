@@ -1,11 +1,22 @@
 # 12 — Observabilité
 
 **Date** : 11 juillet 2026
-**Statut** : Proposé
+**Statut** : PARTIAL — sondes runtime livrées, export et alerting cibles
 
 ---
 
-## Endpoints de santé
+## État runtime actuel
+
+Le runtime expose et teste `GET /api/health/live`, `GET /health/live`,
+`GET /health/ready`, `GET /api/health/detail` et
+`GET /api/metrics/history`. Le détail et l'historique restent authentifiés ; les
+sondes live/ready sont limitées à leur contrat opérationnel.
+
+Il n'existe pas encore d'export Prometheus, de règles d'alerte ni de SLO
+opérationnels. Les sections suivantes décrivent cette cible : leurs chemins et
+exemples ne sont pas des contrats runtime actuels.
+
+## Cible non livrée : endpoints de santé
 
 ### `GET /health`
 

@@ -510,7 +510,7 @@ export function VoiceView() {
         const recordingElapsed = performance.now() - recordingStartedAtRef.current
         if (recordingElapsed >= MAX_UTTERANCE_MS) {
           // Filet de sécurité: on force un envoi périodique, même si le VAD n'a pas
-          // détecté clairement la fin de phrase (inspiration comportement zeldrisDASH).
+          // détecté clairement la fin de phrase (inspiration pipeline de référence).
           hasSpokeRef.current = true
           silenceStartRef.current = 0
           speechStartRef.current = 0
