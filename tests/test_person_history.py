@@ -225,6 +225,71 @@ def test_invalid_llm_json_falls_back_to_deterministic_partial(
     assert "Janvier" in result["narrative"] or "2026-01" in result["narrative"]
 
 
+def test_complete_chapter_not_downgraded_when_llm_fails_on_rebuild(
+    history_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import asyncio
+
+    from database import get_db
+    from scripts.person_history import build_chapter
+
+    good_narrative = "Janvier a été riche en échanges."
+
+    async def _chat_ok(**_kwargs):
+        return {
+            "content": json.dumps(
+                {
+                    "highlights": [],
+                    "narrative": good_narrative,
+                    "mood_arc": "stable",
+                }
+            ),
+            "tokens_in": 12,
+            "tokens_out": 30,
+            "cost": 0.0,
+            "model": "deepseek-v4-flash",
+        }
+
+    monkeypatch.setattr("llm.chat", _chat_ok)
+
+    with get_db() as conn:
+        person_id = _seed_ada_with_noise(conn)
+        handle_id = conn.execute(
+            "SELECT handle_id FROM imessage_messages WHERE apple_rowid = 101"
+        ).fetchone()[0]
+
+    first = asyncio.run(build_chapter(int(person_id), "2026-01"))
+    assert first["status"] == "complete"
+    assert first["narrative"] == good_narrative
+
+    with get_db() as conn:
+        conn.execute(
+            """
+            INSERT INTO imessage_messages(
+                apple_rowid, guid, handle_id, text, occurred_at_utc, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                102,
+                "guid-ada-102",
+                handle_id,
+                "Ada confirme le vol",
+                "2026-01-16T10:00:00Z",
+                "2026-01-16T10:00:00Z",
+            ),
+        )
+
+    async def _chat_fail(**_kwargs):
+        raise RuntimeError("LLM indisponible")
+
+    monkeypatch.setattr("llm.chat", _chat_fail)
+
+    second = asyncio.run(build_chapter(int(person_id), "2026-01"))
+    assert second.get("deferred") is True
+    assert second["status"] == "complete"
+    assert second["narrative"] == good_narrative
+
+
 def test_history_query_uses_month_chapters_not_raw_imessage(history_db: Path) -> None:
     from database import get_db
     from database.person_history import upsert_chapter
