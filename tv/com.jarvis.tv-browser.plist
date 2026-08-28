@@ -7,16 +7,16 @@
     <key>ProgramArguments</key>
     <array>
         <string>/bin/bash</string>
-        <string>/Users/zeldris/JarvisAPI/scripts/launch_tv_browser.sh</string>
+        <string>__JARVIS_ROOT__/scripts/launch_tv_browser.sh</string>
     </array>
     <key>RunAtLoad</key>
     <false/>
     <key>KeepAlive</key>
     <false/>
     <key>StandardOutPath</key>
-    <string>/Users/zeldris/JarvisAPI/data/logs/tv_browser_launcher.log</string>
+    <string>__JARVIS_ROOT__/data/logs/tv_browser_launcher.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/zeldris/JarvisAPI/data/logs/tv_browser_launcher.err</string>
+    <string>__JARVIS_ROOT__/data/logs/tv_browser_launcher.err</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>TV_ADB_PORT</key>

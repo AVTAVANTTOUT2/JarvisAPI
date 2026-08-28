@@ -39,9 +39,10 @@
       "statut": "PASS",
       "retest": {
         "file": "frontend/retest_back.cjs",
-        "screenshot": "artifacts/validation_screenshots/complement/auth_E_back_button_retest.png",
+        "screenshot": null,
         "note": "Premier FAIL = goBack sans historique utile. Retest avec /dashboard dans l’historique : LockGate sur back, pas de flash privé.",
-        "statut": "PASS"
+        "statut": "PASS",
+        "screenshot_status": "removed_for_privacy"
       }
     },
     "session_revoked": {
@@ -78,7 +79,7 @@
       "statut": "PASS",
       "retest": {
         "file": "frontend/retest_switch.cjs",
-        "screenshot": "artifacts/validation_screenshots/complement/chat_switch_retest.png",
+        "screenshot": null,
         "note": "Premier FAIL = sélecteur matchant la sidebar (snippets). Retest panneau messages (min-h-0+px-3+py-4) : PASS. API détail cohérente.",
         "after_b": {
           "has_beta": true,
@@ -88,7 +89,8 @@
           "has_alpha": true,
           "has_beta": false
         },
-        "statut": "PASS"
+        "statut": "PASS",
+        "screenshot_status": "removed_for_privacy"
       }
     },
     "archive": {
@@ -125,8 +127,9 @@
         "body_empty": false,
         "scrollWidth": 768,
         "clientWidth": 768,
-        "screenshot": "responsive_768_chat.png",
-        "statut": "PASS"
+        "screenshot": null,
+        "statut": "PASS",
+        "screenshot_status": "removed_for_privacy"
       },
       "/dashboard": {
         "hscroll": false,
@@ -134,8 +137,9 @@
         "body_empty": false,
         "scrollWidth": 768,
         "clientWidth": 768,
-        "screenshot": "responsive_768_dashboard.png",
-        "statut": "PASS"
+        "screenshot": null,
+        "statut": "PASS",
+        "screenshot_status": "removed_for_privacy"
       },
       "/tasks": {
         "hscroll": false,
@@ -143,8 +147,9 @@
         "body_empty": false,
         "scrollWidth": 768,
         "clientWidth": 768,
-        "screenshot": "responsive_768_tasks.png",
-        "statut": "PASS"
+        "screenshot": null,
+        "statut": "PASS",
+        "screenshot_status": "removed_for_privacy"
       },
       "/contacts": {
         "hscroll": false,
@@ -152,8 +157,9 @@
         "body_empty": false,
         "scrollWidth": 768,
         "clientWidth": 768,
-        "screenshot": "responsive_768_contacts.png",
-        "statut": "PASS"
+        "screenshot": null,
+        "statut": "PASS",
+        "screenshot_status": "removed_for_privacy"
       },
       "/mission": {
         "hscroll": false,
@@ -161,8 +167,9 @@
         "body_empty": false,
         "scrollWidth": 768,
         "clientWidth": 768,
-        "screenshot": "responsive_768_mission.png",
-        "statut": "PASS"
+        "screenshot": null,
+        "statut": "PASS",
+        "screenshot_status": "removed_for_privacy"
       },
       "/control": {
         "hscroll": false,
@@ -170,8 +177,9 @@
         "body_empty": false,
         "scrollWidth": 768,
         "clientWidth": 768,
-        "screenshot": "responsive_768_control.png",
-        "statut": "PASS"
+        "screenshot": null,
+        "statut": "PASS",
+        "screenshot_status": "removed_for_privacy"
       }
     },
     "1024": {
@@ -181,8 +189,9 @@
         "body_empty": false,
         "scrollWidth": 1024,
         "clientWidth": 1024,
-        "screenshot": "responsive_1024_chat.png",
-        "statut": "PASS"
+        "screenshot": null,
+        "statut": "PASS",
+        "screenshot_status": "removed_for_privacy"
       },
       "/dashboard": {
         "hscroll": false,
@@ -190,8 +199,9 @@
         "body_empty": false,
         "scrollWidth": 1024,
         "clientWidth": 1024,
-        "screenshot": "responsive_1024_dashboard.png",
-        "statut": "PASS"
+        "screenshot": null,
+        "statut": "PASS",
+        "screenshot_status": "removed_for_privacy"
       },
       "/tasks": {
         "hscroll": false,
@@ -199,8 +209,9 @@
         "body_empty": false,
         "scrollWidth": 1024,
         "clientWidth": 1024,
-        "screenshot": "responsive_1024_tasks.png",
-        "statut": "PASS"
+        "screenshot": null,
+        "statut": "PASS",
+        "screenshot_status": "removed_for_privacy"
       },
       "/contacts": {
         "hscroll": false,
@@ -208,8 +219,9 @@
         "body_empty": false,
         "scrollWidth": 1024,
         "clientWidth": 1024,
-        "screenshot": "responsive_1024_contacts.png",
-        "statut": "PASS"
+        "screenshot": null,
+        "statut": "PASS",
+        "screenshot_status": "removed_for_privacy"
       },
       "/mission": {
         "hscroll": false,
@@ -217,8 +229,9 @@
         "body_empty": false,
         "scrollWidth": 1024,
         "clientWidth": 1024,
-        "screenshot": "responsive_1024_mission.png",
-        "statut": "PASS"
+        "screenshot": null,
+        "statut": "PASS",
+        "screenshot_status": "removed_for_privacy"
       },
       "/control": {
         "hscroll": false,
@@ -226,8 +239,9 @@
         "body_empty": false,
         "scrollWidth": 1024,
         "clientWidth": 1024,
-        "screenshot": "responsive_1024_control.png",
-        "statut": "PASS"
+        "screenshot": null,
+        "statut": "PASS",
+        "screenshot_status": "removed_for_privacy"
       }
     }
   },
@@ -238,8 +252,9 @@
       "console_errors": [],
       "bad_status": [],
       "wrong_origin_calls": [],
-      "screenshot": "route_calendar.png",
-      "statut": "PASS"
+      "screenshot": null,
+      "statut": "PASS",
+      "screenshot_status": "removed_for_privacy"
     },
     "/map": {
       "http_200": true,
@@ -247,8 +262,9 @@
       "console_errors": [],
       "bad_status": [],
       "wrong_origin_calls": [],
-      "screenshot": "route_map.png",
-      "statut": "PASS"
+      "screenshot": null,
+      "statut": "PASS",
+      "screenshot_status": "removed_for_privacy"
     },
     "/documents": {
       "http_200": true,
@@ -256,8 +272,9 @@
       "console_errors": [],
       "bad_status": [],
       "wrong_origin_calls": [],
-      "screenshot": "route_documents.png",
-      "statut": "PASS"
+      "screenshot": null,
+      "statut": "PASS",
+      "screenshot_status": "removed_for_privacy"
     },
     "/analytics": {
       "http_200": true,
@@ -265,8 +282,9 @@
       "console_errors": [],
       "bad_status": [],
       "wrong_origin_calls": [],
-      "screenshot": "route_analytics.png",
-      "statut": "PASS"
+      "screenshot": null,
+      "statut": "PASS",
+      "screenshot_status": "removed_for_privacy"
     },
     "/search": {
       "http_200": true,
@@ -274,8 +292,9 @@
       "console_errors": [],
       "bad_status": [],
       "wrong_origin_calls": [],
-      "screenshot": "route_search.png",
-      "statut": "PASS"
+      "screenshot": null,
+      "statut": "PASS",
+      "screenshot_status": "removed_for_privacy"
     },
     "/data": {
       "http_200": true,
@@ -283,8 +302,9 @@
       "console_errors": [],
       "bad_status": [],
       "wrong_origin_calls": [],
-      "screenshot": "route_data.png",
-      "statut": "PASS"
+      "screenshot": null,
+      "statut": "PASS",
+      "screenshot_status": "removed_for_privacy"
     },
     "/logs": {
       "http_200": true,
@@ -292,8 +312,9 @@
       "console_errors": [],
       "bad_status": [],
       "wrong_origin_calls": [],
-      "screenshot": "route_logs.png",
-      "statut": "PASS"
+      "screenshot": null,
+      "statut": "PASS",
+      "screenshot_status": "removed_for_privacy"
     },
     "/voice": {
       "http_200": true,
@@ -301,8 +322,9 @@
       "console_errors": [],
       "bad_status": [],
       "wrong_origin_calls": [],
-      "screenshot": "route_voice.png",
-      "statut": "PASS"
+      "screenshot": null,
+      "statut": "PASS",
+      "screenshot_status": "removed_for_privacy"
     },
     "/voice-debug": {
       "http_200": true,
@@ -310,8 +332,9 @@
       "console_errors": [],
       "bad_status": [],
       "wrong_origin_calls": [],
-      "screenshot": "route_voice-debug.png",
-      "statut": "PASS"
+      "screenshot": null,
+      "statut": "PASS",
+      "screenshot_status": "removed_for_privacy"
     },
     "/monitoring": {
       "http_200": true,
@@ -319,8 +342,9 @@
       "console_errors": [],
       "bad_status": [],
       "wrong_origin_calls": [],
-      "screenshot": "route_monitoring.png",
-      "statut": "PASS"
+      "screenshot": null,
+      "statut": "PASS",
+      "screenshot_status": "removed_for_privacy"
     },
     "/mobile": {
       "http_200": true,
@@ -328,8 +352,9 @@
       "console_errors": [],
       "bad_status": [],
       "wrong_origin_calls": [],
-      "screenshot": "route_mobile.png",
-      "statut": "PASS"
+      "screenshot": null,
+      "statut": "PASS",
+      "screenshot_status": "removed_for_privacy"
     },
     "/control": {
       "http_200": true,
@@ -337,8 +362,9 @@
       "console_errors": [],
       "bad_status": [],
       "wrong_origin_calls": [],
-      "screenshot": "route_control.png",
-      "statut": "PASS"
+      "screenshot": null,
+      "statut": "PASS",
+      "screenshot_status": "removed_for_privacy"
     }
   },
   "issues": [

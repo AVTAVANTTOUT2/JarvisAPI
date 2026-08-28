@@ -54,7 +54,7 @@ SCHEMA_SOURCE: PROMPTS_AUDIT_LIGNE_PAR_LIGNE.md — ABSENT du workspace ; schém
 | 4 | Montage routers / ordre middleware | **OK+ÉCART DOC** | 16 `include_router` + 1 WS ; pas de double montage ; security outer vs CORS |
 | 5 | `pipeline.py` contrat vs duplication | **OK** | Façade pure ; zéro logique métier ; handlers injectés depuis `main` |
 | 6 | `requirements*.txt` imports critiques / pins | **ÉCART** | `mlx-audio` absent (venv séparé) ; `aiohttp` absent ; pins `==X.*` larges |
-| 7 | LaunchAgent plists | **CRITIQUE** | Chemins `/Users/zeldris/JarvisAPI` inexistants ; KeepAlive OK ; pas de secret dans env plist |
+| 7 | LaunchAgent plists | **CRITIQUE** | Chemins `/Users/<user>/JarvisAPI` inexistants ; KeepAlive OK ; pas de secret dans env plist |
 | 8 | Contradiction CLAUDE.md (preuve in-périmètre) | **OUI** | 12 routers / 175 lignes / PIN 6 vs `.env.example` 4 |
 
 ---
@@ -64,7 +64,7 @@ SCHEMA_SOURCE: PROMPTS_AUDIT_LIGNE_PAR_LIGNE.md — ABSENT du workspace ; schém
 ### F-P01-001 — CRITIQUE
 **Titre:** LaunchAgents pointent vers un chemin inexistant  
 **Fichier:** `com.jarvis.supervisor.plist` L10–15, L30–33 ; `com.jarvis.imessage-daemon.plist` L10–17, L28–32  
-**Preuve:** `ProgramArguments` / `WorkingDirectory` / logs → `/Users/zeldris/JarvisAPI/...` ; `ls /Users/zeldris/JarvisAPI` → *No such file or directory* ; workspace réel = `/Users/zeldris/JARVIS`.  
+**Preuve:** `ProgramArguments` / `WorkingDirectory` / logs → `/Users/<user>/JarvisAPI/...` ; `ls /Users/<user>/JarvisAPI` → *No such file or directory* ; workspace réel = `/Users/<user>/JARVIS`.
 **Impact:** `launchd` ne peut pas démarrer supervisor ni daemon iMessage depuis ces plists.  
 **Reco:** Régénérer les plists avec le chemin réel du dépôt (ou variable / script d’install) ; vérifier `launchctl print`.
 

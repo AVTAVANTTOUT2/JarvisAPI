@@ -29,7 +29,7 @@ def _no_app_allowlist(monkeypatch: pytest.MonkeyPatch):
     "name",
     [
         "/Applications/Evil.app",
-        "../../Users/zeldris/Downloads/Evil.app",
+        "../../Users/example/Downloads/Evil.app",
         "Safari/../Evil",
         "C:\\Evil.app",
         "Sa\nfari",

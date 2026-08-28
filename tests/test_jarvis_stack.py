@@ -30,7 +30,7 @@ from scripts.jarvis_stack import (
 )
 
 
-ROOT = Path("/Users/zeldris/JARVIS")
+ROOT = Path("/Users/example/JARVIS")
 
 
 def _proc(
@@ -106,7 +106,7 @@ OWNED_CASES = (
         "frontend_dev",
         _proc(
             21,
-            "node /Users/zeldris/JARVIS/frontend/node_modules/next/dist/bin/next",
+            "node /Users/example/JARVIS/frontend/node_modules/next/dist/bin/next",
             cwd=f"{ROOT}/frontend",
         ),
     ),
@@ -117,12 +117,12 @@ PROTECTED_CASES = (
     _proc(100, "Cursor Helper (Plugin): extension-host JARVIS [1-88]"),
     _proc(
         101,
-        "cursor-agent --worker-dir /Users/zeldris/JARVIS --name ~/JARVIS",
+        "cursor-agent --worker-dir /Users/example/JARVIS --name ~/JARVIS",
         cwd=str(ROOT),
     ),
     _proc(
         102,
-        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node --working-dir /Users/zeldris/JARVIS",
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node --working-dir /Users/example/JARVIS",
         cwd=str(ROOT),
     ),
     _proc(103, "python -m pytest tests/test_jarvis_stack.py", cwd=str(ROOT)),
@@ -133,7 +133,7 @@ PROTECTED_CASES = (
         cwd=str(ROOT),
     ),
     _proc(106, "/usr/bin/python3 /other/project/main.py", cwd="/other/project"),
-    _proc(107, "node /usr/local/bin/vite", cwd="/Users/zeldris/other-app"),
+    _proc(107, "node /usr/local/bin/vite", cwd="/Users/example/other-app"),
     _proc(108, "postgres"),
     _proc(109, "caffeinate -d -i", ppid=1),
 )

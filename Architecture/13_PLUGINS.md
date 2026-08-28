@@ -1,5 +1,9 @@
 # 13 — Architecture de Plugins (ADR-013)
 
+> **ARCHIVE — proposition du 11 juillet 2026.** Le runtime courant découvre les
+> providers via `integrations/*/plugin.json` ; consulter
+> [`28_VALIDATION_COHERENCE.md`](./28_VALIDATION_COHERENCE.md) et les ADR récents.
+
 **Date** : 11 juillet 2026
 **ADR** : ADR-013
 **Statut** : Proposé

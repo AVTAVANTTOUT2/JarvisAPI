@@ -2,7 +2,7 @@ import Foundation
 
 struct TailscalePeer: Identifiable, Equatable, Sendable {
     let id: String
-    /// Nom court affiché, par exemple `mac-mini-de-zeldris`.
+    /// Nom court affiché, par exemple `mac-mini-example`.
     let name: String
     /// Nom MagicDNS complet, sans point final.
     let dnsName: String

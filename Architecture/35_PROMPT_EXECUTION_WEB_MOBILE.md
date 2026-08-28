@@ -10,7 +10,7 @@ qui est nécessaire est ici ou dans le cahier des charges référencé.
 
 ## MISSION
 
-Dans le dépôt `/Users/zeldris/JARVIS` (Python 3.12 + FastAPI, frontend Next.js 15
+Dans le dépôt `/Users/<user>/JARVIS` (Python 3.12 + FastAPI, frontend Next.js 15
 + Vite), construire **une interface web mobile entièrement nouvelle et isolée**
 dans `web_mobile/`, rediriger automatiquement les téléphones vers elle, et
 **supprimer l'ancienne PWA `pwa/`**.

@@ -1,99 +1,76 @@
-# 07 — Feuille de Route Technique
+# 07 — Feuille de route active
 
-**Date** : 11 août 2026
+**Revue :** 27 août 2026
+**Référence code :** `origin/main` @ `6becf26cb3ea4ab47acb1996a2a9125500446ab7`
+**Source des statuts :** [registre de vérité](./project_truth_registry.json) et
+[vue générée](./28_VALIDATION_COHERENCE.md).
 
-## Priorisation
+Ce document fixe l’ordre de livraison et les preuves de sortie. Il ne redéfinit
+pas l’état du code : toute évolution d’un statut se fait d’abord dans le
+registre, avec ses preuves, puis cette vue est révisée. Les anciens numéros de
+PR et métriques de juillet sont conservés uniquement dans les documents classés
+`historical`.
 
-Les travaux sont classés selon l'ordre de priorité suivant :
+## Légende
 
-1. **Corrections critiques** — Risque immédiat pour les données ou la sécurité
-2. **Fiabilité** — Stabilité du système 24/7
-3. **Sécurité** — Protection des données personnelles
-4. **Cohérence des données** — Absence de doublons, intégrité
-5. **Performances** — Temps de réponse, utilisation ressources
-6. **Simplification de l'architecture** — Maintenabilité long terme
-7. **Expérience utilisateur** — Interface unifiée, offline
-8. **Nouvelles fonctionnalités** — Ajouts après stabilisation
+| État roadmap | Statut du registre |
+|---|---|
+| fait | `IMPLEMENTED_VERIFIED` |
+| partiel | `PARTIAL` |
+| matériel requis | `IMPLEMENTED_NEEDS_REAL_VALIDATION` |
+| à faire | écart explicite d’une entrée `PARTIAL` ou `NOT_IMPLEMENTED` |
+| futur | capacité volontairement absente et non engagée pour la release courante |
 
-## Roadmap
+## Lots actifs
 
-> Les cases cochées le 11 août 2026 correspondent à du code implémenté et
-> validé dans la pile de PR brouillon #202, #204 à #212. Elles ne signifient
-> pas que ces PR ont été fusionnées sur `main`. Les validations 24 h, audio et
-> appareils physiques restent volontairement ouvertes tant que leurs preuves
-> réelles ne sont pas archivées.
+| Priorité | Famille / entrée du registre | État | Propriétaire ou environnement | Preuve actuelle | Preuve de fin attendue | Dépendances |
+|---|---|---|---|---|---|---|
+| P0 | Sécurité — `security` | partiel | backend + CI + revue sécurité | middleware auth/CSRF et audit de confidentialité versionné | PR de sécurité séparée intégrée par SHA, scan PII/secrets sans écart, frontières egress testées, aucune donnée réelle dans les artefacts publics | PR #282 traitée séparément ; politique de release |
+| P0 | Release — `release` | partiel | CI puis Mac/appareils cibles | builds et checklists versionnés | candidat signé, notes, hashes, rollback testé et artefacts archivés | sorties sécurité, Android et macOS |
+| P1 | Pilotage agentique — `task-control` | partiel | backend + clients canonique/macOS/Android | persistance, approbation de plan et garde fail-closed automatisés | vraie tâche longue : plan lu/approuvé, états task/run cohérents, rapport visible dans chaque client, reprise après crash sans double effet | provider réel et validation humaine |
+| P1 | OpenCode — `opencode` | matériel requis | binaire et fournisseur réels dans un worktree jetable | adaptateur et pont MCP testés hors processus réel | tâche de développement réelle vérifiée, annulation/reprise, démontabilité du provider et worktree propre | pilotage agentique |
+| P1 | Enregistrements longs — `long-recordings` | partiel | backend + navigateur canonique | spool persistant, réconciliation et purge testés | scénarios virtuels 1/30/180 min, reprise, dédoublonnage, annulation, progression/export UI et RAM bornée prouvés | protocole client canonique |
+| P1 | Audio — `audio` | matériel requis | Mac cible, micro et haut-parleur réels | STT local, Qwen3-TTS local et daemon testés hors matériel | permissions micro, coupure/reconnexion, files bornées, campagne 24 h et écoute humaine archivées | enregistrements longs pour les scénarios prolongés |
+| P1 | Android — `android` | matériel requis | téléphone physique cible | app native, tests JVM/instrumentés et garde-fous release versionnés | pairage, Keystore, biométrie, Room, WorkManager, DataStore, chat/WS/offline, GPS, FCM, wake word, voix, navigation et diagnostics rejoués sur appareil | backend HTTPS et candidat release |
+| P1 | macOS — `macos` | matériel requis | Mac cible + identité Developer ID | app SwiftUI, widget, cible de tests et build Release CI | signature, notarisation, réseau/Tailscale, terminal SSH, widget, notifications, task-control, veille et reconnexion validés | candidat release |
+| P2 | Observabilité — `observability` | partiel | backend + exploitation | sondes et historique de métriques testés | export, alertes et SLO opérables pendant la campagne 24 h | pile stable |
+| P2 | Fonctionnalités Android futures | futur | produit Android | absence déclarée dans [FUTURE_FEATURES](../android/docs/FUTURE_FEATURES.md) | une PR par capacité avec code, tests et validation appareil ; sinon le placeholder reste inerte | release courante non bloquée |
 
-### Q3 2026 — Stabilisation (Juillet-Août)
+## Backlog Android explicitement futur
 
-**Semaine 1 — Fondations**
-- [x] Audit architectural complet
-- [x] Phase 1 : Quick Wins P0 (validée le 14/07/2026)
-  - `busy_timeout` SQLite, race WS, curseur ROWID, `pipeline.py`
-- [x] Phase 2 : Database modulaire (validée le 14/07/2026 — façade 236 lignes, 25 modules après ajout du journal Phase 3)
+Les capacités suivantes restent `futur` parce que leur logique est déclarée
+absente et leurs placeholders sont inertes : conversation vocale continue,
+wake word avancé, carte live, historique de trajets, création d’événement,
+mutations de tâches, pièces jointes chat, slash commands, actions de
+notifications, multi-device, détail de file offline, vues mémoire et contacts,
+automatisations, widgets et dashboard personnalisable. La preuve détaillée et
+les points de branchement vivent dans
+[`android/docs/FUTURE_FEATURES.md`](../android/docs/FUTURE_FEATURES.md).
 
-**Semaine 2 — Découplage**
-- [x] Phase 3 : Event bus actif (validée le 14/07/2026 — 10 événements, 3 consommateurs, PWA temps réel)
-- [x] Phase 4 : Routeurs FastAPI (validée le 14/07/2026, puis étendue — 19 routeurs montés, `main.py` sous 500 lignes, contrat API verrouillé)
-- [x] Phase 5 : Apple Data Service (validée le 14/07/2026 — accès `chat.db` centralisé et conversion Apple unique)
+## Ordre recommandé
 
-**Semaines 3-4 — Unification**
-- [x] Phase 6 : Frontend unifié + SDK Auth (validée sur `main` le 14/07/2026 — Next.js 15 responsive, LockGate partagé, wrapper API unique, fallbacks conservés)
-- [x] CI de non-régression complète (Python, Vite et Next.js unifié) sur le commit de merge Phase 6
-- [x] NotificationService : 16 producteurs migrés, déduplication atomique, Web Push et contrat de compatibilité validés le 14/07/2026
-- [x] Porte de release backend reproductible : lock Python 3.12 propre, suite standard sans réservation Metal, cycle de vie Qwen3/Event Bus fiabilisé
-- [x] Outillage de campagne 24 h livré (`tools/run_release_soak.py`, artefact JSON borné et sans payload sensible)
-- [x] Socle de stabilisation audio post-PR #17 : STT local partagé, Qwen3 local explicite, moteurs optionnels sans repli silencieux et contrats automatisés
-- [ ] Validation manuelle sur appareils réels (installation, veille, GPS et ergonomie)
-- [ ] Clôture audio : campagne 24 h sur le Mac cible, scénarios micro réels et enregistrements 1/30/180 minutes selon `30_PLAN_STABILISATION_AUDIO.md`
+1. Fermer la confidentialité publique et la PR de sécurité séparée ; ne publier
+   aucun artefact tant que ces portes ne sont pas vertes.
+2. Valider une tâche agentique réelle avec OpenCode, y compris reprise,
+   annulation, rapport client et retrait du provider.
+3. Livrer le vertical client des enregistrements longs et ses scénarios
+   déterministes 1/30/180 min.
+4. Rejouer les matrices matérielles audio, Android et macOS.
+5. Exécuter la campagne 24 h, compléter observabilité/SLO, puis produire le
+   candidat signé.
+6. Publier seulement après notes de version, hashes, preuve de rollback et
+   approbation humaine.
 
-### Q4 2026 — Améliorations (Septembre-Décembre)
+## Critères de sortie globaux
 
-**Fondation solide acquise → nouvelles features possibles**
-
-- [x] Offline First complet — accès IndexedDB généralisé, lectures dégradées, écritures en file et reprise réseau livrés par la PR #202
-- [x] Sync queue — checksum, version d'entité, détection et résolution explicite des conflits livrés par la PR #204
-- [x] Health Dashboard (`/health`) — contrat backend unifié, sonde publique `/api/health/live` et vue responsive livrés par la PR #199
-- [x] Monitoring opérationnel instantané — métriques santé/voix publiques, rafraîchissement borné et états dégradés/indisponibles validés par la PR #199
-- [x] Historique des métriques — séries temporelles, rétention bornée et tendances livrées par la PR #207
-- [x] Socle de recherche unifiée backend (FTS5 + embeddings)
-- [x] Expérience de recherche unifiée dans le frontend — classement partagé, états offline et navigation vers les résultats livrés par la PR #205
-- [x] Portes biométriques natives — secret interactif lié au jeu biométrique sur macOS ; verrou d’interface Android avec jeton Keystore accessible aux workers H24, livré par la PR #206
-
-### Ordre recommandé de clôture
-
-1. Terminer et archiver la campagne de release 24 h, les scénarios micro réels et les preuves sur appareils physiques.
-2. Attendre la fin de toutes les CI de la pile, puis intégrer dans l'ordre #202, #204, #205, #206, #207, #208, #209, #210, #211 et #212 après feu vert explicite.
-3. Après intégration, publier les notes de version et taguer le contrat OpenAPI et le SDK Python `1.0.0`.
-
-### 2027 — Maturité
-
-- [x] Mode multi-utilisateur — profils isolés de bout en bout et contexte explicite livrés par la PR #208
-- [x] Chiffrement complet au repos — SQLCipher, migration atomique et politique fail-closed livrés par la PR #209
-- [x] Sauvegarde cloud chiffrée — réplication WebDAV chiffrée, vérifiée et sans secret persistant livrée par la PR #210
-- [x] API publique documentée (OpenAPI) — contrat OpenAPI 3.1 versionné `1.0.0`, 269 opérations et documentation protégée livrés par la PR #211
-- [x] SDK développeurs — client Python `1.0.0` généré depuis le contrat, sans dépendance runtime et avec transport sécurisé livré par la PR #212
-
-## Règle d'or
-
-**Toute nouvelle fonctionnalité doit être justifiée si une faiblesse critique d'architecture reste non résolue.**
-
-Avant d'ajouter une feature :
-1. Tous les P0 sont-ils corrigés ?
-2. Tous les P1 sont-ils au moins planifiés ?
-3. La nouvelle feature introduit-elle de la duplication ?
-4. La nouvelle feature a-t-elle des tests ?
-
-## Métriques de succès
-
-| Métrique | État actuel | Cible Q3 2026 | Cible Q4 2026 |
-|---|---|---|---|
-| Problèmes critiques | 0 | 0 | 0 |
-| Problèmes majeurs | 1 | 1 | 0 |
-| God objects API/DB (>1000 lignes) | 0 | 0 | 0 |
-| Duplications majeures | 8 | 3 | 0 |
-| Couverture tests backend | ~60% | 80% | 90% |
-| Tests frontend | 28 Vitest + 3 E2E | 50+ | 100+ |
-| Applications frontend | 1 prioritaire + 2 fallbacks de rollback | 1 + fallbacks | 1 |
-| Connexions directes `chat.db` | 0 hors `AppleDataService` | 0 | 0 |
-| Temps démarrage backend | ~3s | <2s | <1s |
-| UI polling notifications/tâches | Push SSE depuis Phase 3 | Push | Push |
+- aucune entrée P0 avec écart ouvert ;
+- chaque état `fait` possède une preuve code et une preuve automatisée qui
+  démontrent précisément l’affirmation ;
+- chaque état `matériel requis` possède un artefact daté du matériel cible ;
+- aucun secret, chemin utilisateur, IP personnelle, numéro de série, capture
+  issue de données réelles ou donnée vocale réelle dans les fichiers publics ;
+- liens Markdown, générateurs, registre de dette, OpenAPI/SDK concernés et suite
+  pertinente verts ;
+- aucune campagne, signature, notarisation ou validation physique déclarée sans
+  artefact ;
+- rollback documenté et testable avant toute release.

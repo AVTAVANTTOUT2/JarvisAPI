@@ -1,5 +1,9 @@
 # 16 — Contrats API
 
+> **ARCHIVE — proposition du 11 juillet 2026.** Le contrat HTTP public courant
+> est généré dans `openapi/jarvis.openapi.json` et documenté par
+> [`33_API_PUBLIQUE_OPENAPI.md`](./33_API_PUBLIQUE_OPENAPI.md).
+
 **Date** : 11 juillet 2026
 **Statut** : Proposé
 

@@ -756,8 +756,9 @@ signalement de la souris ne verra pas les clics.
   détecte la perte, la reconnexion reste un geste explicite.
 - La première connexion à un hôte inconnu demande une confirmation dans le
   terminal — c'est voulu, et non contournable depuis l'interface.
-- Le rendu est vérifié hors écran et par des bancs d'essai dédiés, pas par une
-  suite de tests versionnée : le projet Xcode n'a pas de cible de tests.
+- Le projet Xcode possède la cible unitaire `JarvisMacTests`, actuellement
+  centrée sur les contrats task-control. Le rendu du terminal reste vérifié
+  hors écran et par des bancs dédiés ; sa couverture UI n'est pas complète.
 
 ---
 

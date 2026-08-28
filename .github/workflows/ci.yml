@@ -203,6 +203,7 @@ jobs:
           --check
           --output artifacts/architecture_truth.json
           --schema-output database/schema.sql
+          --status-output Architecture/28_VALIDATION_COHERENCE.md
 
       - name: Vérifier le contrat OpenAPI public
         run: python tools/export_openapi.py --check
