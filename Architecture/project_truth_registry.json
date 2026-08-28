@@ -40,6 +40,7 @@
       "docs/superpowers/plans/2026-08-06-resource-guard.md",
       "docs/superpowers/plans/2026-08-19-apple-music-native.md",
       "docs/superpowers/plans/2026-08-19-person-history-memory.md",
+      "docs/superpowers/plans/2026-08-20-majordome-launch.md",
       "docs/superpowers/specs/2026-07-16-android-offline-location-design.md",
       "docs/superpowers/specs/2026-07-16-android-production-wave1-design.md",
       "docs/superpowers/specs/2026-08-06-resource-guard-design.md",
@@ -359,6 +360,10 @@
         },
         {
           "path": "Architecture/adr/ADR-036-apple-music-outil-jarvis.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/adr/ADR-037-charte-majordome.md",
           "required_claims": []
         },
         {

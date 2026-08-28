@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-28T12:17:07.499671+00:00",
+  "generated_at": "2026-08-28T13:12:47.330348+00:00",
   "repo_root": ".",
   "canonical_formulation": {
     "database": "Le projet crée 119 tables persistantes après init_db() + migrations, plus jusqu'à 5 objets FTS5, soit 124 tables physiques lorsque FTS5 est disponible.",
@@ -6457,6 +6457,7 @@
         "docs/superpowers/plans/2026-08-06-resource-guard.md",
         "docs/superpowers/plans/2026-08-19-apple-music-native.md",
         "docs/superpowers/plans/2026-08-19-person-history-memory.md",
+        "docs/superpowers/plans/2026-08-20-majordome-launch.md",
         "docs/superpowers/specs/2026-07-16-android-offline-location-design.md",
         "docs/superpowers/specs/2026-07-16-android-production-wave1-design.md",
         "docs/superpowers/specs/2026-08-06-resource-guard-design.md",
@@ -6776,6 +6777,10 @@
         },
         {
           "path": "Architecture/adr/ADR-036-apple-music-outil-jarvis.md",
+          "required_claims": []
+        },
+        {
+          "path": "Architecture/adr/ADR-037-charte-majordome.md",
           "required_claims": []
         },
         {
@@ -7269,7 +7274,7 @@
         "validation_gates": []
       }
     ],
-    "sha256": "d655e8a23ee8a30a187b7921d098b56b6cf533bfb88c4a9d748c45024d1b7c62",
+    "sha256": "04dd59d7d986687786b4508d174f6ce2325d72330504d5f3955cd302ab9453c7",
     "path": "Architecture/project_truth_registry.json"
   },
   "documentation_findings": [],
