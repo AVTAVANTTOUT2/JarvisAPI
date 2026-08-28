@@ -155,7 +155,29 @@ class ExecutionGrant(NamedTuple):
     permissions: tuple[str, ...]
 
 
-def resolve_execution_grant(task: ControlTask, objective: str) -> ExecutionGrant:
+def _constraint_text_for_grant(
+    task: ControlTask,
+    objective: str,
+    *,
+    revision_comment: str = "",
+    user_comments: str = "",
+) -> str:
+    """Assemble le texte lu pour les interdictions explicites d'un plan."""
+
+    parts = [
+        part.strip()
+        for part in (revision_comment, user_comments, task.title, objective)
+        if isinstance(part, str) and part.strip()
+    ]
+    return " | ".join(parts)
+
+
+def resolve_execution_grant(
+    task: ControlTask,
+    objective: str,
+    *,
+    constraint_text: str | None = None,
+) -> ExecutionGrant:
     """Calcule la borne de capacités d'une tâche, sans rien démarrer.
 
     Une seule fonction, appelée deux fois : à la planification pour écrire dans
@@ -178,8 +200,11 @@ def resolve_execution_grant(task: ControlTask, objective: str) -> ExecutionGrant
     from jarvis.agentic.models import AgenticRequestCategory
     from jarvis.agentic.turn_context import AGENTIC_ROUTING_METADATA_KEY
 
+    from jarvis.agentic.constraints import extract_request_constraints
+
     routing_raw = task.metadata.get(AGENTIC_ROUTING_METADATA_KEY)
     routing = dict(routing_raw) if isinstance(routing_raw, Mapping) else {}
+    text_for_constraints = constraint_text or objective
     try:
         category = AgenticRequestCategory(str(routing.get("category") or ""))
     except ValueError:
@@ -192,7 +217,7 @@ def resolve_execution_grant(task: ControlTask, objective: str) -> ExecutionGrant
         # Sans cela, un identifiant de profil enregistré rendrait au run une
         # capacité que la demande interdisait explicitement.
         capability_profile = constrain_capability_profile_for_request(
-            get_capability_profile(capability_profile_id), objective
+            get_capability_profile(capability_profile_id), text_for_constraints
         )
     else:
         capability_profile = select_capability_profile(
@@ -216,6 +241,9 @@ def resolve_execution_grant(task: ControlTask, objective: str) -> ExecutionGrant
     )
     if not permissions:
         permissions = capability_profile.default_permissions
+    blocked = extract_request_constraints(text_for_constraints).blocked_permissions
+    if blocked:
+        permissions = tuple(p for p in permissions if p not in blocked)
     if capability_profile.refused_permissions(permissions):
         raise PermissionError("permission hors du profil de capacités JARVIS")
     return ExecutionGrant(category, capability_profile_id, permissions)
@@ -367,11 +395,10 @@ class TaskControlService:
             if revision_comment:
                 planning_context["user_comments"] = revision_comment
             comments = self.repository.list_comments(task_id, limit=10)
+            user_comments = ""
             if comments:
-                planning_context.setdefault(
-                    "user_comments",
-                    " | ".join(item["body"] for item in comments[-5:]),
-                )
+                user_comments = " | ".join(item["body"] for item in comments[-5:])
+                planning_context.setdefault("user_comments", user_comments)
 
             try:
                 plan: TaskPlan = await self._planner(
@@ -381,10 +408,18 @@ class TaskControlService:
                 # exactes du futur run. Les recalculer au démarrage sans les
                 # avoir écrites ici, c'était faire approuver autre chose que
                 # ce qui s'exécute.
+                constraint_text = _constraint_text_for_grant(
+                    task,
+                    plan.objective,
+                    revision_comment=revision_comment,
+                    user_comments=user_comments,
+                )
                 plan = replace(
                     plan,
                     execution_permissions=resolve_execution_grant(
-                        task, plan.objective
+                        task,
+                        plan.objective,
+                        constraint_text=constraint_text,
                     ).permissions,
                     digest="",
                 )
@@ -553,7 +588,19 @@ class TaskControlService:
 
         routing_raw = task.metadata.get(AGENTIC_ROUTING_METADATA_KEY)
         routing = dict(routing_raw) if isinstance(routing_raw, Mapping) else {}
-        grant = resolve_execution_grant(task, approved.objective)
+        comments = self.repository.list_comments(task_id, limit=10)
+        user_comments = (
+            " | ".join(item["body"] for item in comments[-5:]) if comments else ""
+        )
+        grant = resolve_execution_grant(
+            task,
+            approved.objective,
+            constraint_text=_constraint_text_for_grant(
+                task,
+                approved.objective,
+                user_comments=user_comments,
+            ),
+        )
         # Le run reçoit littéralement la liste approuvée. Aucune permission
         # n'est ajoutée ici : toute divergence avec le recalcul est refusée
         # avant qu'un runtime existe.
