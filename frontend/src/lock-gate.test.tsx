@@ -1,5 +1,4 @@
-import { fireEvent, screen, waitFor } from '@testing-library/dom'
-import { act, cleanup, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { LockGate, setActiveProfileId, type AuthClient, type AuthStatus } from '@jarvis/auth'
@@ -92,9 +91,13 @@ describe('shared LockGate', () => {
     fireEvent.change(await screen.findByLabelText('Code de déverrouillage'), { target: { value: '1234' } })
     fireEvent.click(screen.getByRole('button', { name: 'Déverrouiller' }))
 
-    await waitFor(() => expect(screen.getByText('Données privées')).toBeInTheDocument())
+    // Le contenu est un rendu ; onAuthenticated est un useEffect. Attendre
+    // seulement le DOM restaure IS_REACT_ACT_ENVIRONMENT avant l'effet.
+    await waitFor(() => {
+      expect(screen.getByText('Données privées')).toBeInTheDocument()
+      expect(startPrivateServices).toHaveBeenCalledOnce()
+    })
     expect(client.unlock).toHaveBeenCalledWith('1234')
-    expect(startPrivateServices).toHaveBeenCalledOnce()
   })
 
   it('requires a four-digit PIN or a ten-character passphrase during setup', async () => {
