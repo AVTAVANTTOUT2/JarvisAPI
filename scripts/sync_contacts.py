@@ -23,14 +23,17 @@ def _looks_like_handle_not_name(name: str) -> bool:
 
 
 def _merge_into_existing(conn, keep_id: int, drop_id: int) -> None:
-    conn.execute(
-        "UPDATE people_events SET person_id = ? WHERE person_id = ?",
-        (keep_id, drop_id),
-    )
-    conn.execute(
-        "UPDATE relationship_events SET person_id = ? WHERE person_id = ?",
-        (keep_id, drop_id),
-    )
+    """Fusionne un doublon Contacts.app vers la fiche canonique.
+
+    La déduplication de ``relationship_profiles`` reste locale : le chemin
+    macOS sync peut avoir deux profils pour le même contact. Les chapitres
+    mensuels passent par ``_merge_people_ids`` — un ``DELETE`` direct sur
+    ``people`` les effaçait via CASCADE.
+    """
+    from database.people import _merge_people_ids
+
+    if keep_id == drop_id:
+        return
     keep_prof = conn.execute(
         "SELECT id FROM relationship_profiles WHERE person_id = ?",
         (keep_id,),
@@ -47,7 +50,7 @@ def _merge_into_existing(conn, keep_id: int, drop_id: int) -> None:
             "UPDATE relationship_profiles SET person_id = ? WHERE person_id = ?",
             (keep_id, drop_id),
         )
-    conn.execute("DELETE FROM people WHERE id = ?", (drop_id,))
+    _merge_people_ids(conn, keep_id, drop_id)
 
 
 def _similar(a: str, b: str) -> bool:
