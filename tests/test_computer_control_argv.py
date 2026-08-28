@@ -7,6 +7,8 @@ barrière est donc `_validate_argv`.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from integrations.computer import _OPEN, ComputerControl
@@ -98,17 +100,36 @@ def test_allowlist_does_not_loosen_the_path_check(
     "argv",
     [
         (_OPEN, "-a"),
-        (_OPEN, "-a", "Safari", "https://example.invalid"),
         (_OPEN, "Safari"),
         (_OPEN, "-e", "Safari"),
+        (_OPEN, "-a", "Safari", "--args", "whatever"),
+        (_OPEN, "javascript:alert(1)"),
+        (_OPEN, "-a", "Safari", "javascript:alert(1)"),
     ],
 )
-def test_only_the_exact_open_dash_a_form_is_accepted(
+def test_forbidden_open_forms_are_rejected(
     computer: ComputerControl, argv: tuple[str, ...]
 ):
-    """Aucun argument supplémentaire : `open -a App <fichier|URL>` est refusé."""
+    """``open --args``, schémas dangereux et formes incomplètes restent hors allowlist."""
     ok, _ = computer._validate_argv(argv)
     assert ok is False
+
+
+def test_open_url_and_open_app_with_url_are_accepted(computer: ComputerControl):
+    url = "https://www.youtube.com/@Squeezie"
+    ok, reason = computer._validate_argv((_OPEN, url))
+    assert ok is True, reason
+    ok, reason = computer._validate_argv((_OPEN, "-a", "Safari", url))
+    assert ok is True, reason
+
+
+def test_open_path_outside_home_is_rejected(
+    computer: ComputerControl, tmp_path: Path
+):
+    computer.home = str(tmp_path)
+    ok, reason = computer._validate_argv((_OPEN, "/etc/passwd"))
+    assert ok is False
+    assert reason == "chemin hors du home"
 
 
 @pytest.mark.asyncio

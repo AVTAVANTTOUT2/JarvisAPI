@@ -40,9 +40,14 @@ def test_read_only_and_launch_actions_stay_immediate() -> None:
     mod = _load_chat_actions()
     assert "find_file" not in mod.ACTIONS_REQUIRING_CONFIRMATION
     assert "open_app" not in mod.ACTIONS_REQUIRING_CONFIRMATION
+    assert "launch" not in mod.ACTIONS_REQUIRING_CONFIRMATION
     assert mod._should_defer_action(
         "J'ouvre Safari.",
         {"type": "open_app", "app_name": "Safari"},
+    ) is False
+    assert mod._should_defer_action(
+        "Chaîne de Squeezie.",
+        {"type": "launch", "url": "https://www.youtube.com/@Squeezie"},
     ) is False
 
 

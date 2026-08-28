@@ -43,6 +43,7 @@ ACTIONS_WITH_FOLLOWUP = frozenset(
         "calendar",
         "calendar_create",
         "open_app",
+        "launch",
         "mail_read",
         "name_place",
         "where_am_i",

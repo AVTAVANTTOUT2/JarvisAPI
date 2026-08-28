@@ -99,6 +99,7 @@ Chaque Markdown des racines gouvernées doit être classé. Dans les documents `
 - `Architecture/adr/ADR-033-git-ownership.md` — aucun comptage
 - `Architecture/adr/ADR-034-cycle-de-vie-des-taches-agentiques.md` — aucun comptage
 - `Architecture/adr/ADR-036-apple-music-outil-jarvis.md` — aucun comptage
+- `Architecture/adr/ADR-037-charte-majordome.md` — aucun comptage
 - `Architecture/diagrams/README.md` — aucun comptage
 - `.ai/workspaces/ws12/HANDOFF_TO_CURSOR.md` — aucun comptage
 - `AGENTS.md` — aucun comptage
@@ -133,6 +134,7 @@ Chaque Markdown des racines gouvernées doit être classé. Dans les documents `
 - `docs/superpowers/plans/2026-08-06-resource-guard.md` — aucun comptage
 - `docs/superpowers/plans/2026-08-19-apple-music-native.md` — aucun comptage
 - `docs/superpowers/plans/2026-08-19-person-history-memory.md` — aucun comptage
+- `docs/superpowers/plans/2026-08-20-majordome-launch.md` — aucun comptage
 - `docs/superpowers/specs/2026-07-16-android-offline-location-design.md` — aucun comptage
 - `docs/superpowers/specs/2026-07-16-android-production-wave1-design.md` — aucun comptage
 - `docs/superpowers/specs/2026-08-06-resource-guard-design.md` — aucun comptage

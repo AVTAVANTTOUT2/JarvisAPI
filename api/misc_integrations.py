@@ -20,6 +20,7 @@ from api.daemon_support import _audio_daemon_status_payload
 from api.errors import internal_error
 from api.chat_context import prepare_turn
 from api.misc_status import _computer_status_payload
+from integrations.macos_permissions import probe_macos_permissions_safe
 from database import (
     clear_llm_logs,
     get_event_replay_window,
@@ -126,6 +127,7 @@ async def api_integrations():
         "computer": _computer_status_payload(),
         "apple_shortcuts": _apple_shortcuts_status_payload(),
         "apple_music": _apple_music_status_payload(),
+        "macos_permissions": probe_macos_permissions_safe(),
         "location_tracking": getattr(config, "LOCATION_TRACKING", True),
         "audio_daemon": _audio_daemon_status_payload(),
     }
