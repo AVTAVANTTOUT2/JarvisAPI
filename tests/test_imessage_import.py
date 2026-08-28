@@ -988,9 +988,19 @@ class TestAttachmentOnlyMessages:
         importer, chat_db = importer_with_memory_db
         from database import get_db
 
+        hids = _seed_handles(chat_db, [{"id": "+33600000001"}])
+        _seed_chats(chat_db, [{"identifier": "+33600000001"}])
         message_id = _seed_messages(
             chat_db,
-            [{"guid": "deleted-guid", "text": "gone", "date": 1}],
+            [
+                {
+                    "guid": "deleted-guid",
+                    "text": "gone",
+                    "date": 1,
+                    "handle_id": hids[0],
+                    "cache_roomnames": "+33600000001",
+                }
+            ],
         )[0]
         importer._import_message_batch(
             chat_db, {}, {}, from_rowid=message_id, to_rowid=message_id
@@ -1010,6 +1020,38 @@ class TestAttachmentOnlyMessages:
                     "SELECT 1 FROM imessage_messages WHERE guid = 'deleted-guid'"
                 ).fetchone()
                 is None
+            )
+
+    def test_reconcile_deleted_messages_refuses_empty_source_inventory(
+        self, importer_with_memory_db
+    ):
+        """Un chat.db vide ne doit pas purger tout le miroir jarvis.db."""
+        importer, chat_db = importer_with_memory_db
+        from database import get_db
+
+        message_id = _seed_messages(
+            chat_db,
+            [{"guid": "keep-guid", "text": "stay", "date": 1}],
+        )[0]
+        importer._import_message_batch(
+            chat_db, {}, {}, from_rowid=message_id, to_rowid=message_id
+        )
+        chat_db.execute("DELETE FROM message")
+
+        with (
+            patch.object(importer, "is_available", return_value=True),
+            patch.object(importer, "_open_chat_db", return_value=chat_db),
+            patch.object(importer, "_close_chat_db"),
+        ):
+            with pytest.raises(RuntimeError, match="sans messages, handles ni chats"):
+                importer.reconcile_deleted_messages()
+
+        with get_db() as conn:
+            assert (
+                conn.execute(
+                    "SELECT 1 FROM imessage_messages WHERE guid = 'keep-guid'"
+                ).fetchone()
+                is not None
             )
 
 

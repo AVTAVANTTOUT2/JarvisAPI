@@ -823,6 +823,7 @@ def upsert_calendar_events(
     """Persiste puis réconcilie une fenêtre Calendar collectée intégralement."""
 
     rows = []
+    input_count = len(events or ())
     now = sqlite_utc_timestamp()
     for event in events:
         title = str(event.get("title") or event.get("summary") or "").strip()
@@ -885,6 +886,14 @@ def upsert_calendar_events(
                 rows,
             )
         if window_start and window_end:
+            # Des événements reçus mais tous impersistables (titre ou date
+            # manquants) ne prouvent rien sur la fenêtre : réconcilier ici
+            # effacerait le cache sur un simple défaut de parsing. Une fenêtre
+            # réellement vide, elle, est réconciliée : juger si la source est
+            # digne de confiance appartient à l'appelant, qui seul connaît le
+            # statut du connecteur.
+            if input_count > 0 and not rows:
+                return 0
             present_ids = {str(row[0]) for row in rows}
             cached_ids = {
                 str(row["external_id"])
