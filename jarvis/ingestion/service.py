@@ -864,20 +864,32 @@ async def _calendar_sync(
             ),
         )
 
-    if fetched_event_count == 0:
+    # Calendar.app peut répondre sans erreur et sans événement quand ses comptes
+    # ne sont pas encore chargés : `status="ok"` ne distingue pas ce cas d'une
+    # fenêtre réellement vide. Purger sur cette seule lecture détruirait un
+    # backfill entier. On diffère donc d'un cycle, une fois par fenêtre : si la
+    # fenêtre est toujours vide au passage suivant, la suppression est réelle et
+    # la réconciliation a lieu. Une suppression n'est pas perdue, seulement
+    # retardée d'un intervalle de synchronisation.
+    empty_window_key = f"{from_iso}|{to_iso}"
+    already_deferred = str(cursor.get("empty_window_deferred") or "") == empty_window_key
+    if fetched_event_count == 0 and not already_deferred:
         from database.knowledge import get_cached_calendar_events
 
         if get_cached_calendar_events(from_iso=from_iso, to_iso=to_iso, limit=1):
             logger.warning(
                 "calendar sync: réponse vide de Calendar.app mais des événements "
-                "restent en cache pour la fenêtre %s..%s",
+                "restent en cache pour la fenêtre %s..%s ; réconciliation "
+                "différée d'un cycle",
                 from_iso,
                 to_iso,
             )
+            deferred_cursor = dict(cursor)
+            deferred_cursor["empty_window_deferred"] = empty_window_key
             return IngestionRunResult(
                 status="degraded",
                 item_count=state.item_count if state else 0,
-                cursor=dict(state.cursor) if state and state.cursor else {},
+                cursor=deferred_cursor,
                 completeness=state.completeness if state else "partial",
                 coverage_start_utc=state.coverage_start_utc if state else from_iso,
                 coverage_end_utc=state.coverage_end_utc if state else to_iso,

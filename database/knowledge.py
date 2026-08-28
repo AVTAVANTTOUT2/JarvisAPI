@@ -886,6 +886,12 @@ def upsert_calendar_events(
                 rows,
             )
         if window_start and window_end:
+            # Des événements reçus mais tous impersistables (titre ou date
+            # manquants) ne prouvent rien sur la fenêtre : réconcilier ici
+            # effacerait le cache sur un simple défaut de parsing. Une fenêtre
+            # réellement vide, elle, est réconciliée : juger si la source est
+            # digne de confiance appartient à l'appelant, qui seul connaît le
+            # statut du connecteur.
             if input_count > 0 and not rows:
                 return 0
             present_ids = {str(row[0]) for row in rows}
@@ -900,8 +906,6 @@ def upsert_calendar_events(
                     (str(window_end), str(window_start)),
                 ).fetchall()
             }
-            if input_count == 0 and cached_ids:
-                return 0
             stale_ids = sorted(cached_ids - present_ids)
             if stale_ids:
                 conn.executemany(

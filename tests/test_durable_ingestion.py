@@ -1110,10 +1110,12 @@ async def test_calendar_filter_excluding_all_events_preserves_cached_rows(
     assert row is not None
 
 
-def test_calendar_upsert_skips_reconciliation_on_empty_fetch_with_cache(
-    ingestion_db: Path,
-) -> None:
-    """Une réponse Calendar vide ne doit pas purger une fenêtre déjà en cache."""
+def test_calendar_upsert_reconciles_an_empty_window(ingestion_db: Path) -> None:
+    """La couche base réconcilie une fenêtre vide : juger la source est au-dessus.
+
+    Bloquer ici rendrait toute suppression d'événement définitivement invisible,
+    y compris pour les appelants qui ont déjà vérifié le statut du connecteur.
+    """
 
     from database import get_cached_calendar_events, get_db
     from database.knowledge import upsert_calendar_events
@@ -1141,13 +1143,13 @@ def test_calendar_upsert_skips_reconciliation_on_empty_fetch_with_cache(
         window_end=window_end.isoformat(),
     )
 
-    assert len(get_cached_calendar_events()) == 1
+    assert get_cached_calendar_events() == []
     with get_db() as conn:
         row = conn.execute(
             "SELECT external_id FROM calendar_events WHERE external_id = ?",
             ("kept-event",),
         ).fetchone()
-    assert row is not None
+    assert row is None
 
 
 @pytest.mark.asyncio
@@ -1162,7 +1164,7 @@ async def test_calendar_empty_fetch_with_cache_preserves_rows(
     from database.knowledge import upsert_calendar_events
     from integrations import calendar_api
     from integrations.calendar_api import CalendarQueryResult
-    from jarvis.ingestion.models import IngestionJob
+    from jarvis.ingestion.models import IngestionJob, IngestionSourceState
     from jarvis.ingestion.service import _calendar_sync
 
     window_start = datetime(2026, 8, 10, 8, 0, tzinfo=timezone.utc)
@@ -1215,6 +1217,20 @@ async def test_calendar_empty_fetch_with_cache_preserves_rows(
             ("kept-event",),
         ).fetchone()
     assert row is not None
+
+    # Le report vaut une fois. Une deuxième fenêtre vide d'affilée est une
+    # vraie suppression : elle doit être répercutée, sinon un événement
+    # supprimé resterait en cache pour toujours.
+    deferred_state = IngestionSourceState(
+        source="calendar",
+        profile_id="default",
+        cursor=dict(result.cursor),
+    )
+    second = await _calendar_sync(job, binding, deferred_state)
+
+    assert second.status == "ok"
+    assert get_cached_calendar_events() == []
+    assert "empty_window_deferred" not in second.cursor
 
 
 @pytest.mark.asyncio
