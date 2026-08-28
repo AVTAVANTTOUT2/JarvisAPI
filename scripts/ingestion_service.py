@@ -59,7 +59,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
 def _bind_local(sources: list[str]) -> int:
     init_db()
     intervals = {
-        "mail": int(getattr(config, "INGESTION_MAIL_INTERVAL_S", 120)),
+        "mail": int(getattr(config, "INGESTION_MAIL_INTERVAL_S", 60)),
         "imessage": int(getattr(config, "INGESTION_IMESSAGE_INTERVAL_S", 30)),
         "calendar": int(getattr(config, "INGESTION_CALENDAR_INTERVAL_S", 300)),
     }

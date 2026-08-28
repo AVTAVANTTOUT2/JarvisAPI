@@ -97,6 +97,14 @@ def test_single_word_command_accepted() -> None:
         assert _is_acceptable_transcript(word, used_local_stt=False, segments=[])
 
 
+def test_music_command_accepted() -> None:
+    from scripts.audio_daemon import _is_acceptable_transcript
+
+    assert _is_acceptable_transcript(
+        "Mets de la musique.", used_local_stt=False, segments=[]
+    )
+
+
 def test_native_play_tts_streams_local_chunks() -> None:
     """Le daemon joue les fragments du fournisseur local, sans autre chemin."""
     from scripts.audio_daemon import AudioDaemon
