@@ -31,7 +31,7 @@ Le bus applicatif est actif et conserve la compatibilité de construction histor
 - Les mutations de `database/tasks.py`, `notifications.py`, `conversations.py`, `episodes.py`, `facts.py`, `patterns.py` et `people.py` émettent **après commit**.
 - `database/event_log.py` journalise tous les événements dans la table SQLite `event_log`.
 Runtime SQLite canonique : **119 tables persistantes**, **124 tables physiques avec FTS5**, schéma généré : **126 déclarations de tables**.
-Structure API canonique : **322 opérations HTTP + 2 WebSockets**, **286 chemins OpenAPI**, **22 routeurs api/router_*.py + Fitness = 23 montés**, main.py **269 lignes**.
+Structure API canonique : **323 opérations HTTP + 3 WebSockets**, **287 chemins OpenAPI**, **23 routeurs api/router_*.py + Fitness = 24 montés**, main.py **271 lignes**.
   `database/schema.sql` est désormais un miroir généré et contrôlé du schéma frais ;
   `init_db()` continue d'exécuter exclusivement `schema.py` puis `migrations.py`.
 - `websocket_registry.py` diffuse les événements de domaine aux sockets actives et `scripts/audio_daemon.py` traite les notifications `urgent/high`.
@@ -43,9 +43,9 @@ Depuis du code async, utiliser `await event_bus.emit(event)`. Depuis un chemin s
 
 ## Couche API — Phase 4
 
-`main.py` est un point d'assemblage : configuration FastAPI/CORS, montage de 22 `APIRouter` sous `api/router_*.py` plus Fitness, branchement des WebSockets de chat et de TV, configuration de `pipeline.py`, frontend et lancement Uvicorn. Le contrat public compte 322 opérations HTTP et 2 WebSockets ; l'OpenAPI expose 286 chemins.
+`main.py` est un point d'assemblage : configuration FastAPI/CORS, montage de 23 `APIRouter` sous `api/router_*.py` plus Fitness, branchement des WebSockets de chat, TV et Voice HUD, configuration de `pipeline.py`, frontend et lancement Uvicorn. Le contrat public compte 323 opérations HTTP et 3 WebSockets ; l'OpenAPI expose 287 chemins.
 
-- `api/router_*.py` contient exactement 22 routeurs par domaine ; Fitness porte le 23e routeur monté et aucun routeur ne dépasse 500 lignes.
+- `api/router_*.py` contient exactement 23 routeurs par domaine ; Fitness porte le 24e routeur monté et aucun routeur ne dépasse 500 lignes.
 - `api/lifespan.py`, `api/middleware.py` et `api/frontend.py` portent le cycle de vie, la sécurité HTTP et le serving des frontends.
 - `api/ws_handler.py`, `api/ws_messages.py`, `api/chat_*.py` et `api/voice_*.py` séparent le transport WebSocket, le contexte, les actions et les pipelines texte/vocal.
 - Tous les modules `api/*.py` restent à 500 lignes au plus et aucun n'importe `main.py`.
@@ -1470,7 +1470,7 @@ seconde passe LLM comprises.
 ```
 jarvis/
 ├── main.py                  # Assemblage FastAPI/Uvicorn (211 lignes)
-├── api/                     # 22 routeurs (+ Fitness monté séparément) + support API
+├── api/                     # 23 routeurs (+ Fitness monté séparément) + support API
 ├── config.py                # Charge .env, expose tous les settings
 ├── llm.py                   # Client DeepSeek API (chat, stream, classify)
 ├── actions.py               # execute_action : tâches, mails, terminal, ordinateur…
