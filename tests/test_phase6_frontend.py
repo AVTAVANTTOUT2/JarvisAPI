@@ -26,6 +26,7 @@ def test_unified_frontend_is_prioritized_and_routes_are_static(tmp_path, monkeyp
     unified = tmp_path / "frontend"
     _write(unified / "index.html", "unified-root")
     _write(unified / "dashboard" / "index.html", "unified-dashboard")
+    _write(unified / "voice-display" / "index.html", "voice-display")
     _write(unified / "_next" / "static" / "app.js", "asset")
     _write(unified / "manifest.webmanifest", "{}")
 
@@ -36,6 +37,7 @@ def test_unified_frontend_is_prioritized_and_routes_are_static(tmp_path, monkeyp
     with TestClient(app) as client:
         assert client.get("/").text == "unified-root"
         assert client.get("/dashboard").text == "unified-dashboard"
+        assert client.get("/voice-display").text == "voice-display"
         assert client.get("/_next/static/app.js").text == "asset"
         assert client.get("/unknown").status_code == 404
 
