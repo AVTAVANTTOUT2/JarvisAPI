@@ -63,4 +63,5 @@ roadmap.
 ## Extensions produit récentes
 
 - [Audit Voice HUD du 29 août 2026](./audit/VOICE_DISPLAY_AUDIT_2026-08-29.md)
+- [Validation Voice HUD du 29 août 2026](./audit/VOICE_DISPLAY_VALIDATION_2026-08-29.md)
 - [Guide produit et technique Voice HUD](../docs/VOICE_DISPLAY.md)
