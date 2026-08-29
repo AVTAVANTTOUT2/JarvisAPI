@@ -16,6 +16,8 @@
     "baseUrl": ".",
     "paths": {
       "idb": ["./node_modules/idb"],
+      "react": ["./node_modules/@types/react/index.d.ts"],
+      "react/jsx-runtime": ["./node_modules/@types/react/jsx-runtime.d.ts"],
       "@jarvis/auth": ["./node_modules/@jarvis/auth/src/index.ts"],
       "@desktop/*": ["./src/*"],
       "@unified/*": ["../frontend/src/*"]
