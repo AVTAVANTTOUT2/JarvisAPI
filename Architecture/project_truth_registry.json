@@ -29,6 +29,7 @@
       "docs/APPLE_SHORTCUTS.md",
       "docs/CLAW3D.md",
       "docs/PYTHON_DEPENDENCIES.md",
+      "docs/VOICE_DISPLAY.md",
       "docs/audio/CUSTOM_VOICE.md",
       "docs/audio/LOCAL_TTS_ARCHITECTURE.md",
       "docs/audio/QWEN3_LOCAL_STATUS.md",
@@ -435,6 +436,14 @@
         {
           "path": "Architecture/35_PROMPT_EXECUTION_WEB_MOBILE.md",
           "snapshot_at": "2026-07-30"
+        },
+        {
+          "path": "Architecture/audit/VOICE_DISPLAY_AUDIT_2026-08-29.md",
+          "snapshot_at": "2026-08-29"
+        },
+        {
+          "path": "Architecture/audit/VOICE_DISPLAY_VALIDATION_2026-08-29.md",
+          "snapshot_at": "2026-08-29"
         },
         {
           "path": "Architecture/audit/CLAW3D_OPENCLAW_GAP_AUDIT_2026-08-11.md",
