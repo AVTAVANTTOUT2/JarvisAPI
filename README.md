@@ -433,6 +433,7 @@ JarvisAPI/
 - [Architecture/INDEX.md](./Architecture/INDEX.md) : architecture, audits et décisions techniques.
 - [CLAUDE.md](./CLAUDE.md) : référence détaillée du code, des routes et des conventions.
 - [STARTUP_PROTOCOL.md](./STARTUP_PROTOCOL.md) : installation macOS, permissions et reprise après incident.
+- [docs/VOICE_DISPLAY.md](./docs/VOICE_DISPLAY.md) : écran vocal temps réel, mode kiosk et reprise.
 - [android/README.md](./android/README.md) : configuration et build de l'application Android.
 - [tv/README.md](./tv/README.md) : tableau de bord TV.
 - [CHANGELOG_HISTORIQUE.md](./CHANGELOG_HISTORIQUE.md) : historique détaillé du projet.

@@ -137,9 +137,11 @@ def _isolate_app_lifespan(monkeypatch: pytest.MonkeyPatch):
 async def _drain_event_bus_consumers():
     """Ne ferme jamais une boucle avec des écritures ou consommateurs actifs."""
     yield
+    from api.llm_logging import flush_pending_llm_logs
     from api.voice_fastpath import flush_pending_persists
     from jarvis.event_bus import event_bus
 
+    await flush_pending_llm_logs()
     # La persistance vocale peut émettre vers le bus après son écriture SQLite.
     # La vider d'abord évite qu'un événement tardif recrée un worker au moment
     # où pytest-asyncio ferme la boucle fonctionnelle.

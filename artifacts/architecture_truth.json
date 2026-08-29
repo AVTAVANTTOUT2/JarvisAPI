@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-28T13:12:47.330348+00:00",
+  "generated_at": "2026-08-29T10:18:17.711010+00:00",
   "repo_root": ".",
   "canonical_formulation": {
     "database": "Le projet crée 119 tables persistantes après init_db() + migrations, plus jusqu'à 5 objets FTS5, soit 124 tables physiques lorsque FTS5 est disponible.",
@@ -546,9 +546,9 @@
   "api_surface": {
     "coverage_scope": "Références statiques par chemin : la méthode HTTP et les assertions comportementales restent vérifiées par les suites de tests.",
     "counts": {
-      "operations": 324,
-      "paths": 288,
-      "consumer_and_tested": 150,
+      "operations": 326,
+      "paths": 290,
+      "consumer_and_tested": 152,
       "consumer_without_path_test": 68,
       "owned_non_frontend_and_tested": 53,
       "owned_non_frontend_without_path_test": 53
@@ -563,12 +563,12 @@
       "tv"
     ],
     "structure": {
-      "http_operations": 322,
-      "websocket_operations": 2,
-      "openapi_paths": 286,
-      "domain_router_modules": 22,
-      "mounted_routers": 23,
-      "main_lines": 269
+      "http_operations": 323,
+      "websocket_operations": 3,
+      "openapi_paths": 287,
+      "domain_router_modules": 23,
+      "mounted_routers": 24,
+      "main_lines": 271
     },
     "ownership_policy": {
       "path": "Architecture/api_route_ownership.json",
@@ -1143,6 +1143,7 @@
         "tests": [
           "frontend/e2e/critical-flows.spec.ts",
           "frontend/e2e/unified.spec.ts",
+          "frontend/e2e/voice-display.spec.ts",
           "tests/test_mobile_pairing.py",
           "tests/test_public_openapi.py",
           "tests/test_security_middleware.py"
@@ -3514,6 +3515,23 @@
         "tests": [],
         "non_frontend_ownership": null,
         "classification": "consumer_without_path_test"
+      },
+      {
+        "method": "GET",
+        "path": "/api/voice-display/snapshot",
+        "source": "api/router_voice_display.py",
+        "line": 17,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/components/voice-display/useVoiceDisplay.ts"
+          ]
+        },
+        "tests": [
+          "frontend/e2e/voice-display.spec.ts",
+          "tests/test_voice_display.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
       },
       {
         "method": "GET",
@@ -6266,7 +6284,7 @@
         "method": "WEBSOCKET",
         "path": "/ws",
         "source": "main.py",
-        "line": 175,
+        "line": 177,
         "consumers": {
           "frontend_next": [
             "frontend/public/sw.js"
@@ -6306,7 +6324,7 @@
         "method": "WEBSOCKET",
         "path": "/ws/tv/events",
         "source": "main.py",
-        "line": 178,
+        "line": 180,
         "consumers": {
           "tv": [
             "tv/config.py"
@@ -6315,6 +6333,23 @@
         "tests": [
           "tests/test_runtime_degradation.py",
           "tests/test_ws_tv_events.py"
+        ],
+        "non_frontend_ownership": null,
+        "classification": "consumer_and_tested"
+      },
+      {
+        "method": "WEBSOCKET",
+        "path": "/ws/voice-display",
+        "source": "api/router_voice_display.py",
+        "line": 24,
+        "consumers": {
+          "frontend_next": [
+            "frontend/src/components/voice-display/useVoiceDisplay.ts"
+          ]
+        },
+        "tests": [
+          "frontend/e2e/voice-display.spec.ts",
+          "tests/test_voice_display.py"
         ],
         "non_frontend_ownership": null,
         "classification": "consumer_and_tested"
@@ -6446,6 +6481,7 @@
         "docs/APPLE_SHORTCUTS.md",
         "docs/CLAW3D.md",
         "docs/PYTHON_DEPENDENCIES.md",
+        "docs/VOICE_DISPLAY.md",
         "docs/audio/CUSTOM_VOICE.md",
         "docs/audio/LOCAL_TTS_ARCHITECTURE.md",
         "docs/audio/QWEN3_LOCAL_STATUS.md",
@@ -6852,6 +6888,14 @@
         {
           "path": "Architecture/35_PROMPT_EXECUTION_WEB_MOBILE.md",
           "snapshot_at": "2026-07-30"
+        },
+        {
+          "path": "Architecture/audit/VOICE_DISPLAY_AUDIT_2026-08-29.md",
+          "snapshot_at": "2026-08-29"
+        },
+        {
+          "path": "Architecture/audit/VOICE_DISPLAY_VALIDATION_2026-08-29.md",
+          "snapshot_at": "2026-08-29"
         },
         {
           "path": "Architecture/audit/CLAW3D_OPENCLAW_GAP_AUDIT_2026-08-11.md",
@@ -7274,7 +7318,7 @@
         "validation_gates": []
       }
     ],
-    "sha256": "04dd59d7d986687786b4508d174f6ce2325d72330504d5f3955cd302ab9453c7",
+    "sha256": "2d32fc81683fdf8b60ec83dc61a3f8fdb3994673b43f40da6d440f4675d657a1",
     "path": "Architecture/project_truth_registry.json"
   },
   "documentation_findings": [],

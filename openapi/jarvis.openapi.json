@@ -22074,6 +22074,38 @@
         "x-jarvis-authentication": "session"
       }
     },
+    "/api/voice-display/snapshot": {
+      "get": {
+        "description": "Opération JARVIS `GET /api/voice-display/snapshot`.",
+        "operationId": "get_api_voice_display_snapshot",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "428": {
+            "$ref": "#/components/responses/SetupRequired"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "summary": "Voice Display Snapshot",
+        "tags": [
+          "voice-display"
+        ],
+        "x-jarvis-authentication": "session"
+      }
+    },
     "/api/voice/metrics": {
       "get": {
         "description": "P50 / p95 par étape du pipeline vocal (STT, LLM, TTS, total).",
@@ -22556,6 +22588,10 @@
     {
       "description": "Opérations du domaine JARVIS « voice-debug ».",
       "name": "voice-debug"
+    },
+    {
+      "description": "Opérations du domaine JARVIS « voice-display ».",
+      "name": "voice-display"
     }
   ],
   "x-jarvis-contract-version": "1.0.0",

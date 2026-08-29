@@ -95,6 +95,7 @@ from api.router_tasks import router as tasks_router
 from api.router_task_control import router as task_control_router
 from api.router_cognitive import router as cognitive_router
 from api.router_visual import router as visual_router
+from api.router_voice_display import router as voice_display_router
 from api.voice_processing import _process_voice_fast
 from api.ws_handler import websocket_endpoint
 from api.ws_tv import TV_EVENTS_WS_PATH, tv_events_websocket
@@ -171,6 +172,7 @@ app.include_router(tasks_router)
 app.include_router(task_control_router)
 app.include_router(cognitive_router)
 app.include_router(visual_router)
+app.include_router(voice_display_router)
 install_openapi(app)
 app.websocket("/ws")(websocket_endpoint)
 # Canal TV : descendant, authentifié par le jeton supervisor, sans commande.

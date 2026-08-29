@@ -8,9 +8,9 @@
 
 Runtime SQLite canonique : **119 tables persistantes**, **124 tables physiques avec FTS5**, schéma généré : **126 déclarations de tables**.
 
-Surface API canonique : **324 opérations**, **288 chemins**, **150 consommées et testées**, **68 consommées sans référence de test**, **53 non-frontend documentées et testées**, **53 non-frontend documentées sans référence de test**, **0 non attribuées**.
+Surface API canonique : **326 opérations**, **290 chemins**, **152 consommées et testées**, **68 consommées sans référence de test**, **53 non-frontend documentées et testées**, **53 non-frontend documentées sans référence de test**, **0 non attribuées**.
 
-Structure API canonique : **322 opérations HTTP + 2 WebSockets**, **286 chemins OpenAPI**, **22 routeurs api/router_*.py + Fitness = 23 montés**, main.py **269 lignes**.
+Structure API canonique : **323 opérations HTTP + 3 WebSockets**, **287 chemins OpenAPI**, **23 routeurs api/router_*.py + Fitness = 24 montés**, main.py **271 lignes**.
 
 Les statuts décrivent ce qui est démontré sur `main`. `IMPLEMENTED_VERIFIED` signifie qu'une preuve de code et une preuve automatisée existent ; ce statut ne remplace pas une validation matérielle lorsqu'elle est explicitement demandée.
 
@@ -123,6 +123,7 @@ Chaque Markdown des racines gouvernées doit être classé. Dans les documents `
 - `docs/APPLE_SHORTCUTS.md` — aucun comptage
 - `docs/CLAW3D.md` — aucun comptage
 - `docs/PYTHON_DEPENDENCIES.md` — aucun comptage
+- `docs/VOICE_DISPLAY.md` — aucun comptage
 - `docs/audio/CUSTOM_VOICE.md` — aucun comptage
 - `docs/audio/LOCAL_TTS_ARCHITECTURE.md` — aucun comptage
 - `docs/audio/QWEN3_LOCAL_STATUS.md` — aucun comptage
@@ -206,6 +207,8 @@ Chaque Markdown des racines gouvernées doit être classé. Dans les documents `
 - `Architecture/35_CAHIER_DES_CHARGES_WEB_MOBILE.md` — snapshot 2026-07-30
 - `Architecture/35_PROMPT_DESIGN_WEB_MOBILE.md` — snapshot 2026-07-30
 - `Architecture/35_PROMPT_EXECUTION_WEB_MOBILE.md` — snapshot 2026-07-30
+- `Architecture/audit/VOICE_DISPLAY_AUDIT_2026-08-29.md` — snapshot 2026-08-29
+- `Architecture/audit/VOICE_DISPLAY_VALIDATION_2026-08-29.md` — snapshot 2026-08-29
 - `Architecture/audit/CLAW3D_OPENCLAW_GAP_AUDIT_2026-08-11.md` — snapshot 2026-08-11
 - `Architecture/audit/PROMPTS_AUDIT_LIGNE_PAR_LIGNE.md` — snapshot 2026-07-31
 - `Architecture/audit/RAPPORT_PIRE_AUDIT.md` — snapshot 2026-07-31

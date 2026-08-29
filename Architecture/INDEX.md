@@ -11,9 +11,9 @@ La source structurée des statuts et de la classification documentaire est
 
 Runtime SQLite canonique : **119 tables persistantes**, **124 tables physiques avec FTS5**, schéma généré : **126 déclarations de tables**.
 
-Surface API canonique : **324 opérations**, **288 chemins**, **150 consommées et testées**, **68 consommées sans référence de test**, **53 non-frontend documentées et testées**, **53 non-frontend documentées sans référence de test**, **0 non attribuées**.
+Surface API canonique : **326 opérations**, **290 chemins**, **152 consommées et testées**, **68 consommées sans référence de test**, **53 non-frontend documentées et testées**, **53 non-frontend documentées sans référence de test**, **0 non attribuées**.
 
-Structure API canonique : **322 opérations HTTP + 2 WebSockets**, **286 chemins OpenAPI**, **22 routeurs api/router_*.py + Fitness = 23 montés**, main.py **269 lignes**.
+Structure API canonique : **323 opérations HTTP + 3 WebSockets**, **287 chemins OpenAPI**, **23 routeurs api/router_*.py + Fitness = 24 montés**, main.py **271 lignes**.
 
 ## Points d’entrée actuels
 
@@ -60,3 +60,8 @@ Les audits de juillet/août et leurs rapports bruts restent consultables sous
 [`audit/`](./audit/), avec leur statut historique. Les plans migratoires
 achevés sont eux aussi des archives et ne doivent pas être relancés comme
 roadmap.
+## Extensions produit récentes
+
+- [Audit Voice HUD du 29 août 2026](./audit/VOICE_DISPLAY_AUDIT_2026-08-29.md)
+- [Validation Voice HUD du 29 août 2026](./audit/VOICE_DISPLAY_VALIDATION_2026-08-29.md)
+- [Guide produit et technique Voice HUD](../docs/VOICE_DISPLAY.md)

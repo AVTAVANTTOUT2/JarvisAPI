@@ -40,6 +40,11 @@ async def cancel_current_voice_turn(conv_session: dict) -> None:
             pass
     conv_session["is_speaking"] = False
     conv_session["cancelled_turn_id"] = conv_session.get("turn_id")
+    if conv_session.get("speech_text"):
+        conv_session["paused_text"] = conv_session["speech_text"]
+    from jarvis.voice_display import voice_display
+
+    voice_display.safely("speech_finished", interrupted=True)
 
 
 async def handle_voice_cancel_message(ws: WebSocket, conv_session: dict | None) -> None:
@@ -160,6 +165,38 @@ async def _handle_hands_free_blob(
 
         await ws.send_json({"type": "transcript", "content": text})
 
+        from jarvis.voice_display import voice_display
+
+        voice_display.safely(
+            "transcript", text, conversation_id=cid
+        )
+        voice_display.safely("processing")
+
+        if text.casefold().strip(" .!?…") in {"continue", "reprends", "reprend", "poursuis"} and conv_session.get("paused_text"):
+            conv_session["is_processing"] = False
+            turn_id = _new_turn_id()
+            cancel_event = asyncio.Event()
+            conv_session["turn_id"] = turn_id
+            conv_session["cancel_event"] = cancel_event
+            conv_session["is_speaking"] = True
+            voice_display.safely("publish", "voice.speech.resumed")
+            tts_task = asyncio.create_task(
+                _send_tts_streaming(
+                    ws,
+                    str(conv_session["paused_text"]),
+                    str(conv_session.get("speech_emotion") or "neutral"),
+                    turn_id=turn_id,
+                    cancel_event=cancel_event,
+                ),
+                name=f"tts-resume-{turn_id}",
+            )
+            conv_session["tts_task"] = tts_task
+            status = await tts_task
+            if status == "cancelled":
+                voice_display.safely("speech_finished", interrupted=True)
+                await ws.send_json({"type": "listening"})
+            return
+
         conv_session["is_processing"] = False
         turn_id = _new_turn_id()
         cancel_event = asyncio.Event()
@@ -180,6 +217,9 @@ async def _handle_hands_free_blob(
                 return
             display_text = finalize_assistant_display_text(result.get("text", ""))
             emotion = result.get("emotion", "neutral") or "neutral"
+            conv_session["speech_text"] = display_text
+            conv_session["speech_emotion"] = emotion
+            conv_session.pop("paused_text", None)
             action = result.get("action")
             action_result = result.get("action_result")
             if action is not None or action_result is not None:
@@ -207,6 +247,8 @@ async def _handle_hands_free_blob(
                 "emotion": emotion,
                 "turn_id": turn_id,
             })
+            voice_display.safely("result", result, display_text)
+            voice_display.safely("speech_started")
             _t_tts = _time.time()
             tts_task = asyncio.create_task(
                 _send_tts_streaming(

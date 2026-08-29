@@ -189,6 +189,12 @@ async def websocket_endpoint(ws: WebSocket):
                         }
                     )
                     await ws.send_json({"type": "listening"})
+                    from jarvis.voice_display import voice_display
+
+                    voice_display.safely(
+                        "ensure_turn", conv_session["conversation_id"]
+                    )
+                    voice_display.safely("publish", "voice.listening.started")
                     continue
 
                 if msg_type == "conversation_stop":
@@ -227,6 +233,10 @@ async def websocket_endpoint(ws: WebSocket):
                     is_speaking = False
                     if conv_session and conv_session.get("active"):
                         conv_session["is_speaking"] = False
+                        conv_session.pop("paused_text", None)
+                        from jarvis.voice_display import voice_display
+
+                        voice_display.safely("speech_finished")
                         await ws.send_json({"type": "listening"})
                         continue
                     if conversation_mode:

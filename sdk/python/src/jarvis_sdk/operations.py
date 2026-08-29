@@ -1304,6 +1304,14 @@ _OPERATIONS = {
         tag='voice-debug',
         summary='Api Voice Debug Logs',
     ),
+    'get_api_voice_display_snapshot': Operation(
+        operation_id='get_api_voice_display_snapshot',
+        method='GET',
+        path='/api/voice-display/snapshot',
+        auth='session',
+        tag='voice-display',
+        summary='Voice Display Snapshot',
+    ),
     'get_api_voice_metrics': Operation(
         operation_id='get_api_voice_metrics',
         method='GET',

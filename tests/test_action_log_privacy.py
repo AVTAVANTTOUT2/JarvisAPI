@@ -24,6 +24,21 @@ def action_log_db(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     return db_path
 
 
+@pytest.mark.asyncio
+async def test_scheduled_llm_log_can_be_flushed(monkeypatch: pytest.MonkeyPatch):
+    from api import llm_logging
+
+    calls = []
+    monkeypatch.setattr(llm_logging, "log_llm_action", lambda *args: calls.append(args))
+    llm_logging._schedule_llm_log(
+        agent="test", action_type="flush", payload={}, status="success"
+    )
+
+    await llm_logging.flush_pending_llm_logs()
+
+    assert len(calls) == 1
+
+
 def _client():
     import main
     from fastapi.testclient import TestClient

@@ -181,6 +181,11 @@ async def lifespan(app: FastAPI):
                 """
                 await broadcast_ws(event)
                 publish_audio_daemon_state(event)
+                from jarvis.voice_display import voice_display
+
+                # Fail-open comme tous les autres producteurs : le HUD ne doit
+                # jamais interrompre la diffusion d'état du daemon vocal.
+                voice_display.safely("ingest_audio_daemon_event", event)
 
             audio_daemon.set_broadcast(_broadcast_daemon_state)
             audio_daemon_task = asyncio.create_task(
@@ -292,6 +297,9 @@ async def lifespan(app: FastAPI):
         except Exception as exc:
             logger.warning("[shutdown] arrêt du runtime agentique : %s", exc)
 
+    from api.llm_logging import flush_pending_llm_logs
+
+    await flush_pending_llm_logs()
     await event_bus.wait_until_idle()
     event_bus.unbind_loop()
     logger.info("Arrêt JARVIS.")

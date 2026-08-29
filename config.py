@@ -192,6 +192,15 @@ VOICE_LLM_STREAMING = _get("VOICE_LLM_STREAMING", "true").lower() in (
     "yes",
 )
 
+# Voice HUD — consommateur visuel optionnel du pipeline vocal canonique.
+# Le flux reste strictement descendant et borné ; le désactiver ne change
+# jamais le traitement STT/LLM/TTS.
+VOICE_DISPLAY_ENABLED = _get("VOICE_DISPLAY_ENABLED", "false").lower() == "true"
+VOICE_DISPLAY_EVENT_RETENTION = _positive_int("VOICE_DISPLAY_EVENT_RETENTION", 512)
+VOICE_DISPLAY_PRIVACY_TIMEOUT_SECONDS = _positive_int(
+    "VOICE_DISPLAY_PRIVACY_TIMEOUT_SECONDS", 300
+)
+
 # ── Politique de parole ─────────────────────────────────────────────────────
 # `rare`  : l'honorifique « Monsieur » est réservé à une véritable ouverture ou
 #           fermeture de session et aux rituels, une fois au maximum.

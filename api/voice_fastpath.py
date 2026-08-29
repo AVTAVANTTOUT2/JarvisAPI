@@ -39,7 +39,7 @@ coupe la lecture et rend la main ; l'absence de réponse *est* la réponse.
 """
 
 _VOICE_CONTROL_COMMANDS: tuple[tuple[tuple[str, ...], str], ...] = (
-    (("arrete", "arrête", "stop", "tais-toi", "tais toi", "chut", "silence", "stoppe",
+    (("arrete", "arrête", "stop", "pause", "tais-toi", "tais toi", "chut", "silence", "stoppe",
       "plus court", "coupe"),
      SILENT_ACKNOWLEDGEMENT),
     (("annule", "annule tout", "laisse tomber", "oublie", "oublie ca", "oublie ça"),

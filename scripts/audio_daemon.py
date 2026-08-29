@@ -1746,6 +1746,8 @@ class AudioDaemon:
             state_payload["action"] = result["action"]
         if (result or {}).get("action_result") is not None:
             state_payload["action_result"] = result["action_result"]
+        if (result or {}).get("knowledge"):
+            state_payload["knowledge"] = result["knowledge"]
         await self._broadcast_state(state_payload)
 
         # Vérifier interruption avant TTS
