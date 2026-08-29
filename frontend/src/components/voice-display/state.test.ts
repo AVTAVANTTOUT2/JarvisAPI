@@ -55,6 +55,43 @@ describe('voiceHudReducer', () => {
     expect(current.session.state).toBe('listening')
   })
 
+  it('clears previous turn content when a new turn starts', () => {
+    const previous = snapshot(3)
+    previous.session.state = 'result'
+    previous.session.privacy_mode = true
+    previous.session.transcript_final = 'ancienne demande'
+    previous.session.activities = [{ label: 'ancienne analyse' }]
+    previous.session.answer = {
+      title: 'Ancienne réponse',
+      spoken_summary: 'ancienne réponse',
+      visual_summary: 'ancienne réponse',
+      sections: [],
+      sources: [],
+      claims: [],
+      suggested_voice_actions: [],
+      speech_segments: [],
+      status: 'complete',
+      created_at: emittedAt,
+      completed_at: emittedAt,
+    }
+    let state = voiceHudReducer(initialVoiceHudState(), { type: 'snapshot', snapshot: previous })
+    const started = event(4, 'voice.session.started', { conversation_id: 1 })
+    started.turn_id = 'turn-2'
+
+    state = voiceHudReducer(state, { type: 'event', event: started })
+
+    expect(state.session).toMatchObject({
+      turn_id: 'turn-2',
+      conversation_id: 1,
+      state: 'listening',
+      privacy_mode: true,
+      transcript_final: '',
+      activities: [],
+      last_sequence: 4,
+    })
+    expect(state.session.answer).toBeUndefined()
+  })
+
   it('moves from partial transcript to final understanding', () => {
     let state = voiceHudReducer(initialVoiceHudState(), { type: 'event', event: event(1, 'voice.transcript.partial', { text: 'trois écr' }) })
     expect(state.session.transcript_partial).toBe('trois écr')

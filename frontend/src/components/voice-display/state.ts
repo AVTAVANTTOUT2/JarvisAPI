@@ -61,11 +61,17 @@ function applyEvent(session: VoiceDisplaySession, event: VoiceDisplayEvent): Voi
   switch (event.type) {
     case 'voice.session.started':
       return {
-        ...next,
+        ...initialVoiceHudState().session,
         session_id: event.session_id,
         turn_id: event.turn_id,
+        conversation_id: typeof payload.conversation_id === 'number' ? payload.conversation_id : null,
+        started_at: event.emitted_at,
+        updated_at: event.emitted_at,
+        locale: session.locale,
+        privacy_mode: session.privacy_mode,
         state: 'listening',
         microphone_state: 'listening',
+        last_sequence: event.sequence,
       }
     case 'voice.session.completed':
       return { ...next, state: 'idle', microphone_state: 'unknown' }

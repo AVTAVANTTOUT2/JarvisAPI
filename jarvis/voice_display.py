@@ -370,16 +370,18 @@ class VoiceDisplayCoordinator:
             return None
 
     def ensure_turn(self, conversation_id: int | None = None) -> None:
-        if self._session.state != "idle" and (
+        if self._session.state not in {"idle", "result", "error"} and (
             conversation_id is None or self._session.conversation_id == conversation_id
         ):
             return
+        privacy_mode = self._session.privacy_mode
         session_id = f"voice-{conversation_id or uuid.uuid4().hex[:12]}"
         turn_id = f"turn-{uuid.uuid4().hex[:12]}"
         self._session = VoiceDisplaySession(
             session_id=session_id, turn_id=turn_id, conversation_id=conversation_id,
             state="listening", microphone_state="listening",
             locale=getattr(config, "LANGUAGE", "fr-FR"),
+            privacy_mode=privacy_mode,
         )
         self.publish("voice.session.started", {"conversation_id": conversation_id})
 
