@@ -123,6 +123,7 @@ Chaque Markdown des racines gouvernées doit être classé. Dans les documents `
 - `docs/APPLE_SHORTCUTS.md` — aucun comptage
 - `docs/CLAW3D.md` — aucun comptage
 - `docs/PYTHON_DEPENDENCIES.md` — aucun comptage
+- `docs/VOICE_DISPLAY.md` — aucun comptage
 - `docs/audio/CUSTOM_VOICE.md` — aucun comptage
 - `docs/audio/LOCAL_TTS_ARCHITECTURE.md` — aucun comptage
 - `docs/audio/QWEN3_LOCAL_STATUS.md` — aucun comptage
@@ -206,6 +207,8 @@ Chaque Markdown des racines gouvernées doit être classé. Dans les documents `
 - `Architecture/35_CAHIER_DES_CHARGES_WEB_MOBILE.md` — snapshot 2026-07-30
 - `Architecture/35_PROMPT_DESIGN_WEB_MOBILE.md` — snapshot 2026-07-30
 - `Architecture/35_PROMPT_EXECUTION_WEB_MOBILE.md` — snapshot 2026-07-30
+- `Architecture/audit/VOICE_DISPLAY_AUDIT_2026-08-29.md` — snapshot 2026-08-29
+- `Architecture/audit/VOICE_DISPLAY_VALIDATION_2026-08-29.md` — snapshot 2026-08-29
 - `Architecture/audit/CLAW3D_OPENCLAW_GAP_AUDIT_2026-08-11.md` — snapshot 2026-08-11
 - `Architecture/audit/PROMPTS_AUDIT_LIGNE_PAR_LIGNE.md` — snapshot 2026-07-31
 - `Architecture/audit/RAPPORT_PIRE_AUDIT.md` — snapshot 2026-07-31
