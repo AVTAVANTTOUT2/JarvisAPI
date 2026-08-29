@@ -24,6 +24,7 @@ borné ; toute commande cliente autre que `pong` ferme la connexion en `4405`.
 | Audit dette technique | **OK**, 41 dettes recensées, 0 active |
 | Vérité d’architecture | **OK** |
 | Contrat OpenAPI versionné | **synchronisé** |
+| SDK Python généré | **24 tests passés**, wheel construite |
 | Tests unitaires `frontend/` | **58 passés** |
 | Tests unitaires `web/` | **83 passés** |
 | TypeScript `frontend/` et `web/` | **OK** |
