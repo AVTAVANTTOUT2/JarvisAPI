@@ -160,7 +160,7 @@ export function AnswerRenderer({
 
   return (
     <div className="vd-answer">
-      {answer.sections.sort((a, b) => a.order - b.order).map((section) => (
+      {answer.sections.filter((section) => section.type !== 'source_list').sort((a, b) => a.order - b.order).map((section) => (
         <div
           key={section.id}
           className={`vd-renderer ${activeTargets.has(section.id) ? 'is-speaking' : ''}`}
@@ -179,7 +179,8 @@ export function AnswerRenderer({
       </section>
       {answer.sources.length > 0 && (
         <aside className="vd-source-strip" aria-label="Sources consultées">
-          {answer.sources.slice(0, 6).map((source, index) => (
+          <p className="vd-source-strip-label">Sources consultées · {answer.sources.length}</p>
+          {answer.sources.map((source, index) => (
             <div key={source.id} className={source.id === sourceId ? 'is-focused' : ''}>
               <b>{index + 1}</b>
               <span>{source.title}</span>
