@@ -150,6 +150,25 @@ async def _process_voice_fast(
             trace=trace,
         )
 
+    from jarvis.voice_display import handle_voice_display_command
+
+    if display_command := handle_voice_display_command(text):
+        result = _deterministic_voice_result(
+            text=text,
+            reply=str(display_command["reply"]),
+            model="voice-display-control",
+            conversation_id=conversation_id,
+            started_at=started_at,
+            stt_ms=stt_ms,
+            trace=trace,
+        )
+        result["action"] = {
+            "type": "voice_display_navigation",
+            "intent": display_command["intent"],
+        }
+        result["action_result"] = {"ok": True, **display_command}
+        return result
+
     hail = match_trivial_hail(text)
     if hail is not None:
         result = _deterministic_voice_result(

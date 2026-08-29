@@ -181,6 +181,9 @@ async def lifespan(app: FastAPI):
                 """
                 await broadcast_ws(event)
                 publish_audio_daemon_state(event)
+                from jarvis.voice_display import voice_display
+
+                voice_display.ingest_audio_daemon_event(event)
 
             audio_daemon.set_broadcast(_broadcast_daemon_state)
             audio_daemon_task = asyncio.create_task(
