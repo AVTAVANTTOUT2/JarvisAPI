@@ -70,6 +70,33 @@ async def test_launch_rejects_javascript_url(allow_computer):
 
 
 @pytest.mark.asyncio
+async def test_launch_rejects_shortcuts_url_bypass(allow_computer):
+    result = await execute_action(
+        {
+            "type": "launch",
+            "url": "shortcuts://run-shortcut?name=UnregisteredShortcut",
+        }
+    )
+    assert result["ok"] is False
+    assert allow_computer == []
+    assert "raccourcis" in result["message"]
+
+
+@pytest.mark.asyncio
+async def test_launch_rejects_percent_encoded_file_traversal(
+    allow_computer, tmp_path: Path
+):
+    result = await execute_action(
+        {
+            "type": "launch",
+            "url": f"file://{tmp_path}/%2e%2e/%2e%2e/etc/passwd",
+        }
+    )
+    assert result["ok"] is False
+    assert allow_computer == []
+
+
+@pytest.mark.asyncio
 async def test_launch_is_inert_without_computer_access(
     monkeypatch: pytest.MonkeyPatch,
 ):

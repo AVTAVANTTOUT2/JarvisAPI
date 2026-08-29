@@ -67,6 +67,29 @@ def test_file_url_outside_home_is_rejected(home: str):
     assert error == "chemin hors du home"
 
 
+def test_file_url_percent_encoded_traversal_is_rejected(home: str):
+    escaped = f"file://{home}/%2e%2e/%2e%2e/etc/passwd"
+    spec, error = resolve_launch_target(url=escaped, home=home)
+    assert spec is None
+    assert error == "chemin hors du home"
+
+
+def test_file_url_double_encoded_traversal_is_rejected(home: str):
+    escaped = f"file://{home}/%252e%252e/%252e%252e/etc/passwd"
+    spec, error = resolve_launch_target(url=escaped, home=home)
+    assert spec is None
+    assert error == "chemin hors du home"
+
+
+def test_shortcuts_scheme_is_rejected(home: str):
+    spec, error = resolve_launch_target(
+        url="shortcuts://run-shortcut?name=UnregisteredShortcut",
+        home=home,
+    )
+    assert spec is None
+    assert "raccourcis" in error
+
+
 def test_path_inside_home_is_accepted(home: str, tmp_path: Path):
     target = tmp_path / "rapport.pdf"
     target.write_text("x", encoding="utf-8")
