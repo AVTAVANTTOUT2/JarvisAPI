@@ -9,6 +9,18 @@ from typing import Any
 from database import log_llm_action
 
 logger = logging.getLogger("jarvis")
+_pending_llm_logs: set[asyncio.Task[None]] = set()
+
+
+async def flush_pending_llm_logs(timeout: float = 5.0) -> None:
+    """Attend les journaux différés avant un teardown ou un arrêt propre."""
+    pending = {task for task in _pending_llm_logs if not task.done()}
+    if not pending:
+        return
+    try:
+        await asyncio.wait_for(asyncio.gather(*pending, return_exceptions=True), timeout)
+    except asyncio.TimeoutError:
+        logger.warning("[llm-log] %d écriture(s) encore en vol à l'arrêt", len(pending))
 
 
 def _schedule_llm_log(
@@ -38,4 +50,6 @@ def _schedule_llm_log(
         except Exception:
             logger.debug("[llm-log] async failed", exc_info=True)
 
-    asyncio.create_task(_runner())
+    task = asyncio.create_task(_runner())
+    _pending_llm_logs.add(task)
+    task.add_done_callback(_pending_llm_logs.discard)

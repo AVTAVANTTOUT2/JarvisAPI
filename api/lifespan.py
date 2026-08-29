@@ -295,6 +295,9 @@ async def lifespan(app: FastAPI):
         except Exception as exc:
             logger.warning("[shutdown] arrêt du runtime agentique : %s", exc)
 
+    from api.llm_logging import flush_pending_llm_logs
+
+    await flush_pending_llm_logs()
     await event_bus.wait_until_idle()
     event_bus.unbind_loop()
     logger.info("Arrêt JARVIS.")
