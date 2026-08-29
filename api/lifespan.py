@@ -183,7 +183,9 @@ async def lifespan(app: FastAPI):
                 publish_audio_daemon_state(event)
                 from jarvis.voice_display import voice_display
 
-                voice_display.ingest_audio_daemon_event(event)
+                # Fail-open comme tous les autres producteurs : le HUD ne doit
+                # jamais interrompre la diffusion d'état du daemon vocal.
+                voice_display.safely("ingest_audio_daemon_event", event)
 
             audio_daemon.set_broadcast(_broadcast_daemon_state)
             audio_daemon_task = asyncio.create_task(

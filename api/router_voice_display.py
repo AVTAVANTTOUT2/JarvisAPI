@@ -71,6 +71,8 @@ async def voice_display_websocket(ws: WebSocket) -> None:
                     "sequence": voice_display.snapshot().session.last_sequence,
                 })
                 continue
+            if event_task in done:
+                await ws.send_json(event_task.result().model_dump(mode="json"))
             if receive_task in done:
                 packet = receive_task.result()
                 if packet.get("type") == "websocket.disconnect":
@@ -83,9 +85,6 @@ async def voice_display_websocket(ws: WebSocket) -> None:
                 if message.get("type") != "pong":
                     await ws.close(code=4405)
                     break
-            elif event_task in done:
-                event = event_task.result()
-                await ws.send_json(event.model_dump(mode="json"))
     except WebSocketDisconnect:
         pass
     finally:
