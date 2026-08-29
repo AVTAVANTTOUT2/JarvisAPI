@@ -1,6 +1,6 @@
 import { Suspense, lazy, type ReactNode } from 'react';
 import { LockGate } from '@jarvis/auth';
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { BigBrotherLayout } from '@desktop/app/components/layout/BigBrotherLayout';
 import { InstallPrompt } from '@desktop/app/components/pwa/InstallPrompt';
 import { NotificationsPrompt } from '@desktop/app/components/pwa/NotificationsPrompt';
@@ -35,6 +35,7 @@ const FitnessView = lazy(() => import('@desktop/app/components/views/FitnessView
 const FoodView = lazy(() => import('@desktop/app/components/views/FoodView'));
 const AppleShortcutsView = lazy(() => import('@desktop/app/components/views/AppleShortcutsView'));
 const ProfilesView = lazy(() => import('@desktop/app/components/views/ProfilesView'));
+const VoiceDisplayView = lazy(() => import('@unified/components/voice-display/VoiceDisplayView'));
 
 function S({ children }: { children: ReactNode }) {
   return (
@@ -50,6 +51,11 @@ function S({ children }: { children: ReactNode }) {
   );
 }
 
+function GlobalPrompts() {
+  if (useLocation().pathname === '/voice-display') return null;
+  return <><InstallPrompt /><NotificationsPrompt /><OfflineStatus /></>;
+}
+
 export default function App() {
   return (
     <LockGate
@@ -60,6 +66,7 @@ export default function App() {
     >
       <BrowserRouter>
         <Routes>
+          <Route path="/voice-display" element={<S><VoiceDisplayView /></S>} />
           <Route path="/" element={<BigBrotherLayout />}>
             <Route index element={<Navigate to="/chat" replace />} />
             <Route path="chat" element={<ChatView />} />
@@ -89,10 +96,8 @@ export default function App() {
             <Route path="*" element={<Navigate to="/chat" replace />} />
           </Route>
         </Routes>
+        <GlobalPrompts />
       </BrowserRouter>
-      <InstallPrompt />
-      <NotificationsPrompt />
-      <OfflineStatus />
     </LockGate>
   );
 }

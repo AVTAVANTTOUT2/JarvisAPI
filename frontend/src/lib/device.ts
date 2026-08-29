@@ -11,6 +11,7 @@ export const UNIFIED_ROUTES = [
   'logs', 'monitoring', 'health', 'voice-debug', 'control', 'mission', 'mobile', 'mails', 'config',
   'cognitive', 'scheduler',
   'profiles',
+  'voice-display',
 ] as const
 
 export function routeSegment(pathname: string): string {
