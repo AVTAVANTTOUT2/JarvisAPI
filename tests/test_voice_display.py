@@ -241,6 +241,24 @@ def test_hundreds_of_turns_and_reconnections_remain_bounded():
     assert voice_display._subscriptions == set()
 
 
+def test_new_turn_replaces_previous_turn_state_in_same_conversation():
+    voice_display.ensure_turn(42)
+    first_turn_id = voice_display.snapshot().session.turn_id
+    voice_display.transcript("première demande", conversation_id=42)
+    voice_display.processing()
+    voice_display.result({}, "première réponse")
+    voice_display.publish("voice.display.privacy.enabled")
+
+    voice_display.transcript("seconde demande", conversation_id=42)
+
+    session = voice_display.snapshot().session
+    assert session.turn_id != first_turn_id
+    assert session.transcript_final == "seconde demande"
+    assert session.answer is None
+    assert session.activities == []
+    assert session.privacy_mode is True
+
+
 def _app(monkeypatch: pytest.MonkeyPatch) -> FastAPI:
     async def activate(_ws):
         return True

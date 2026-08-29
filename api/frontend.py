@@ -30,7 +30,7 @@ _SPA_SEGMENTS = frozenset({
     "chat", "voice", "tasks", "fitness", "food", "documents", "memory", "status",
     "dashboard", "contacts", "map", "analytics", "search", "data",
     "conversations", "calendar", "logs", "monitoring",
-    "voice-debug", "control", "mission",
+    "voice-debug", "voice-display", "control", "mission",
 })
 
 

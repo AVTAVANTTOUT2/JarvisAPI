@@ -100,6 +100,7 @@
 .vd-claims p { margin: 0; color: #dce3e9; font-size: clamp(13px, .9vw, 17px); }
 .vd-claims span { display: block; margin-top: 8px; color: var(--vd-muted); font-size: 10px; text-transform: uppercase; letter-spacing: .08em; }
 .vd-source-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); border: 1px solid var(--vd-line); }
+.vd-source-strip-label { grid-column: 1 / -1; margin: 0; padding: 12px 14px; border-bottom: 1px solid var(--vd-line); color: var(--vd-accent); font: 600 10px/1 ui-monospace, monospace; text-transform: uppercase; letter-spacing: .16em; }
 .vd-source-strip > div { min-width: 0; padding: 14px; display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; border-right: 1px solid var(--vd-line); }
 .vd-source-strip b { color: var(--vd-accent); font-family: ui-monospace, monospace; }
 .vd-source-strip span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
