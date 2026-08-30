@@ -17,6 +17,7 @@ from datetime import datetime, time as datetime_time, timedelta, timezone
 from database.core import current_profile_id
 from database.email import cache_email_preview, get_recent_emails_from_db
 from database.knowledge import (
+    get_cached_calendar_events,
     upsert_calendar_events,
     update_knowledge_source_state,
 )
@@ -43,6 +44,9 @@ _IMESSAGE_TTL_SECONDS = 60.0
 _lock_guard = threading.Lock()
 _locks: dict[tuple[str, str], asyncio.Lock] = {}
 _last_refresh: dict[tuple[str, str], float] = {}
+# ponytail: defer map en mémoire seulement — un redémarrage rediffère une fois
+# avant purge ; aligné sur ingestion `empty_window_deferred`.
+_calendar_empty_deferred: dict[tuple[str, str], str] = {}
 
 
 def _update_live_source_state(*args: object, **kwargs: object) -> None:
@@ -162,10 +166,37 @@ async def _refresh_calendar(
                 )
                 if events is None:
                     raise RuntimeError("calendar_no_response")
+            from_iso = start.isoformat()
+            to_iso = end.isoformat()
+            empty_window_key = f"{from_iso}|{to_iso}"
+            defer_key = (cache_key, empty_window_key)
+            if not events:
+                if get_cached_calendar_events(
+                    from_iso=from_iso, to_iso=to_iso, limit=1
+                ):
+                    if _calendar_empty_deferred.get(defer_key) != empty_window_key:
+                        _calendar_empty_deferred[defer_key] = empty_window_key
+                        logger.warning(
+                            "calendar live: réponse vide mais le cache contient "
+                            "encore des événements pour %s..%s ; réconciliation "
+                            "différée d'un cycle",
+                            from_iso,
+                            to_iso,
+                        )
+                        _update_live_source_state(
+                            "calendar_live",
+                            "calendar",
+                            status="degraded",
+                            error_code="calendar_empty_fetch_with_cache",
+                        )
+                        _last_refresh[cache_key] = time.monotonic()
+                        return "degraded"
+            else:
+                _calendar_empty_deferred.pop(defer_key, None)
             upserted = upsert_calendar_events(
                 events,
-                window_start=start.isoformat(),
-                window_end=end.isoformat(),
+                window_start=from_iso,
+                window_end=to_iso,
             )
             now = sqlite_utc_timestamp()
             _update_live_source_state(

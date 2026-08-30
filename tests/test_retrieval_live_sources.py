@@ -189,8 +189,67 @@ async def test_calendar_refresh_removes_events_deleted_from_live_window(
 
     calendar.events = []
     reset_live_source_cache_for_tests()
+    # Premier vide différé : le cache reste tant que Calendar peut répondre ok sans
+    # événements (comptes pas chargés, etc.).
+    assert await refresh_live_sources(request) == {"calendar": "degraded"}
+    assert get_cached_calendar_events(limit=5)[0]["external_id"] == "event-removed"
+
+    reset_live_source_cache_for_tests()
     assert await refresh_live_sources(request) == {"calendar": "ok"}
     assert get_cached_calendar_events(limit=5) == []
+
+
+@pytest.mark.asyncio
+async def test_calendar_live_empty_fetch_with_cache_preserves_rows(
+    live_source_db,
+    monkeypatch,
+):
+    """Un refresh live status=ok avec events=() ne doit pas effacer le cache."""
+
+    from datetime import datetime, timezone
+
+    import integrations
+    from database.knowledge import get_cached_calendar_events, upsert_calendar_events
+    from integrations.calendar_api import CalendarQueryResult
+    from jarvis.retrieval import RetrievalRequest
+    from jarvis.retrieval.live_sources import (
+        refresh_live_sources,
+        reset_live_source_cache_for_tests,
+    )
+
+    window_start = datetime(2026, 8, 10, 8, 0, tzinfo=timezone.utc)
+    window_end = datetime(2026, 8, 20, 8, 0, tzinfo=timezone.utc)
+    upsert_calendar_events(
+        [
+            {
+                "uid": "kept-event",
+                "title": "Réunion existante",
+                "start": window_start.isoformat(),
+                "end": window_end.isoformat(),
+                "calendar": "Travail",
+            }
+        ],
+        window_start=window_start.isoformat(),
+        window_end=window_end.isoformat(),
+    )
+    assert len(get_cached_calendar_events()) == 1
+
+    class CalendarStub:
+        def is_available(self) -> bool:
+            return True
+
+        async def get_events_result(self, start: str, end: str):
+            return CalendarQueryResult(status="ok", events=())
+
+    request = RetrievalRequest(
+        query="agenda",
+        from_iso=window_start.isoformat(),
+        to_iso=window_end.isoformat(),
+    )
+
+    reset_live_source_cache_for_tests()
+    assert await refresh_live_sources(request) == {"calendar": "degraded"}
+    assert len(get_cached_calendar_events()) == 1
 
 
 @pytest.mark.asyncio
