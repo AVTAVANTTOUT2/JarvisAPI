@@ -291,3 +291,54 @@ def test_disabled_snapshot_returns_404(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(config, "VOICE_DISPLAY_ENABLED", False, raising=False)
     with TestClient(_app(monkeypatch)) as client:
         assert client.get("/api/voice-display/snapshot").status_code == 404
+
+
+def test_safely_noop_when_disabled(monkeypatch: pytest.MonkeyPatch):
+    """HUD éteint : safely ne touche pas le pipeline vocal."""
+    monkeypatch.setattr(config, "VOICE_DISPLAY_ENABLED", False, raising=False)
+    calls: list[tuple] = []
+
+    def track(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise AssertionError("publish ne doit pas être appelé")
+
+    monkeypatch.setattr(voice_display, "publish", track)
+    assert voice_display.safely("publish", "voice.listening.started") is None
+    assert calls == []
+
+
+def test_safely_returns_method_result():
+    voice_display.ensure_turn(11)
+    event = voice_display.safely("publish", "voice.listening.started")
+    assert event is not None
+    assert event.type == "voice.listening.started"
+    assert event.sequence >= 1
+
+
+def test_safely_swallows_exceptions_without_propagating(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Fail-open : une erreur HUD ne remonte jamais vers STT/LLM/TTS."""
+
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("hud payload invalid")
+
+    monkeypatch.setattr(voice_display, "publish", boom)
+    assert voice_display.safely("publish", "voice.listening.started") is None
+    assert voice_display.safely("does_not_exist") is None
+
+
+def test_safely_swallows_ingest_audio_daemon_failure(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    def boom(_raw):
+        raise ValueError("daemon event malformed")
+
+    monkeypatch.setattr(voice_display, "ingest_audio_daemon_event", boom)
+    assert (
+        voice_display.safely(
+            "ingest_audio_daemon_event",
+            {"type": "voice.state", "state": "processing", "transcript": "x"},
+        )
+        is None
+    )
