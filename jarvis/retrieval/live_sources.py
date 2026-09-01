@@ -17,6 +17,7 @@ from datetime import datetime, time as datetime_time, timedelta, timezone
 from database.core import current_profile_id
 from database.email import cache_email_preview, get_recent_emails_from_db
 from database.knowledge import (
+    get_cached_calendar_events,
     upsert_calendar_events,
     update_knowledge_source_state,
 )
@@ -43,6 +44,7 @@ _IMESSAGE_TTL_SECONDS = 60.0
 _lock_guard = threading.Lock()
 _locks: dict[tuple[str, str], asyncio.Lock] = {}
 _last_refresh: dict[tuple[str, str], float] = {}
+_empty_calendar_window_deferred: dict[tuple[str, str], str] = {}
 
 
 def _update_live_source_state(*args: object, **kwargs: object) -> None:
@@ -162,6 +164,30 @@ async def _refresh_calendar(
                 )
                 if events is None:
                     raise RuntimeError("calendar_no_response")
+            window_start_iso = start.isoformat()
+            window_end_iso = end.isoformat()
+            empty_window_key = f"{window_start_iso}|{window_end_iso}"
+            if not events and get_cached_calendar_events(
+                from_iso=window_start_iso, to_iso=window_end_iso, limit=1
+            ):
+                if _empty_calendar_window_deferred.get(cache_key) != empty_window_key:
+                    logger.warning(
+                        "[retrieval] Calendar live: fenêtre vide mais cache non vide "
+                        "(%s) ; réconciliation différée",
+                        empty_window_key,
+                    )
+                    _empty_calendar_window_deferred[cache_key] = empty_window_key
+                    _update_live_source_state(
+                        "calendar_live",
+                        "calendar",
+                        status="degraded",
+                        error_code="calendar_empty_fetch_with_cache",
+                    )
+                    _last_refresh[cache_key] = time.monotonic()
+                    return "degraded"
+            elif events:
+                _empty_calendar_window_deferred.pop(cache_key, None)
+
             upserted = upsert_calendar_events(
                 events,
                 window_start=start.isoformat(),
@@ -301,3 +327,4 @@ def reset_live_source_cache_for_tests() -> None:
     with _lock_guard:
         _last_refresh.clear()
         _locks.clear()
+        _empty_calendar_window_deferred.clear()
