@@ -97,6 +97,20 @@ async def test_launch_rejects_percent_encoded_file_traversal(
 
 
 @pytest.mark.asyncio
+async def test_launch_rejects_percent_encoded_path_traversal(
+    allow_computer, tmp_path: Path
+):
+    result = await execute_action(
+        {
+            "type": "launch",
+            "path": f"{tmp_path}/%2e%2e/%2e%2e/etc/passwd",
+        }
+    )
+    assert result["ok"] is False
+    assert allow_computer == []
+
+
+@pytest.mark.asyncio
 async def test_launch_is_inert_without_computer_access(
     monkeypatch: pytest.MonkeyPatch,
 ):

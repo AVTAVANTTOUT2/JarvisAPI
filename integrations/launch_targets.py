@@ -107,7 +107,7 @@ def is_safe_app_name(name: str) -> bool:
 
 def is_allowed_home_path(raw: str, *, home: str) -> tuple[bool, str]:
     """Fichier ou dossier sous ``home`` uniquement (après résolution des liens)."""
-    text = (raw or "").strip()
+    text = _decoded_file_path((raw or "").strip())
     if not text:
         return False, "chemin vide"
     if any(ord(char) < 32 for char in text):

@@ -90,6 +90,15 @@ def test_shortcuts_scheme_is_rejected(home: str):
     assert "raccourcis" in error
 
 
+def test_path_field_percent_encoded_traversal_is_rejected(home: str):
+    spec, error = resolve_launch_target(
+        path=f"{home}/%2e%2e/%2e%2e/etc/passwd",
+        home=home,
+    )
+    assert spec is None
+    assert error == "chemin hors du home"
+
+
 def test_path_inside_home_is_accepted(home: str, tmp_path: Path):
     target = tmp_path / "rapport.pdf"
     target.write_text("x", encoding="utf-8")
