@@ -10,7 +10,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 DEFAULT_LAUNCH_SCHEMES = frozenset(
     {
@@ -84,6 +84,17 @@ def launch_schemes() -> frozenset[str]:
     return schemes - BLOCKED_LAUNCH_SCHEMES
 
 
+def _decoded_file_path(raw_path: str) -> str:
+    """Décode les pourcent-encodings avant validation (évite %2e%2e → ..)."""
+    path = raw_path or ""
+    for _ in range(3):
+        decoded = unquote(path)
+        if decoded == path:
+            break
+        path = decoded
+    return path
+
+
 def is_safe_app_name(name: str) -> bool:
     cleaned = (name or "").strip()
     return (
@@ -129,10 +140,12 @@ def is_allowed_launch_url(url: str, *, home: str) -> tuple[bool, str]:
         return False, "schéma manquant"
     if scheme in BLOCKED_LAUNCH_SCHEMES or scheme not in launch_schemes():
         return False, "schéma interdit"
+    if scheme == "shortcuts":
+        return False, "schéma réservé aux raccourcis enregistrés"
     if parsed.username is not None or parsed.password is not None:
         return False, "identifiants interdits dans l'url"
     if scheme == "file":
-        path = parsed.path or ""
+        path = _decoded_file_path(parsed.path or "")
         ok, detail = is_allowed_home_path(path, home=home)
         if not ok:
             return False, detail
