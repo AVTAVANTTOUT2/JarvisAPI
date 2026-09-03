@@ -11,11 +11,13 @@ from starlette.websockets import WebSocketDisconnect
 import config
 from api import router_voice_display
 from api.ws_handsfree import cancel_current_voice_turn
+from database.core import use_profile
 from jarvis.voice_display import (
     ClaimEvidence,
     SourceEvidence,
     VoiceDisplayEvent,
     answer_from_result,
+    reset_all_voice_displays,
     voice_display,
 )
 
@@ -27,11 +29,9 @@ def enabled_voice_display(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(
         config, "VOICE_DISPLAY_PRIVACY_TIMEOUT_SECONDS", 300, raising=False
     )
-    voice_display.reset()
+    reset_all_voice_displays()
     yield
-    for subscription in tuple(voice_display._subscriptions):
-        voice_display.unsubscribe(subscription)
-    voice_display.reset()
+    reset_all_voice_displays()
 
 
 def test_schema_version_and_confirmed_claim_require_real_evidence():
@@ -291,3 +291,22 @@ def test_disabled_snapshot_returns_404(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(config, "VOICE_DISPLAY_ENABLED", False, raising=False)
     with TestClient(_app(monkeypatch)) as client:
         assert client.get("/api/voice-display/snapshot").status_code == 404
+
+
+def test_voice_display_isolates_profiles():
+    with use_profile("alice"):
+        voice_display.transcript("secret alice")
+        alice_transcript = voice_display.snapshot().session.transcript_final
+
+    with use_profile("bob"):
+        assert voice_display.snapshot().session.transcript_final != alice_transcript
+        voice_display.transcript("secret bob")
+        bob_transcript = voice_display.snapshot().session.transcript_final
+
+    with use_profile("alice"):
+        assert voice_display.snapshot().session.transcript_final == alice_transcript
+        assert "alice" in alice_transcript.casefold()
+
+    with use_profile("bob"):
+        assert voice_display.snapshot().session.transcript_final == bob_transcript
+        assert "bob" in bob_transcript.casefold()

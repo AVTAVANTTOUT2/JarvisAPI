@@ -612,15 +612,58 @@ class VoiceDisplayCoordinator:
         return None
 
 
-voice_display = VoiceDisplayCoordinator()
+_COORDINATORS: dict[str, VoiceDisplayCoordinator] = {}
+_COORDINATORS_LOCK = threading.RLock()
+
+
+def get_voice_display_coordinator(profile_id: str | None = None) -> VoiceDisplayCoordinator:
+    """Retourne le coordinateur HUD isolé pour le profil demandé ou actif."""
+    from database.core import current_profile_id, normalize_profile_id
+
+    selected = normalize_profile_id(profile_id or current_profile_id())
+    with _COORDINATORS_LOCK:
+        coordinator = _COORDINATORS.get(selected)
+        if coordinator is None:
+            coordinator = VoiceDisplayCoordinator()
+            _COORDINATORS[selected] = coordinator
+        return coordinator
+
+
+def reset_all_voice_displays() -> None:
+    """Réinitialise tous les coordinateurs HUD (tests uniquement)."""
+    with _COORDINATORS_LOCK:
+        for coordinator in _COORDINATORS.values():
+            for subscription in tuple(coordinator._subscriptions):
+                coordinator.unsubscribe(subscription)
+            coordinator.reset()
+        _COORDINATORS.clear()
+
+
+class ProfileScopedVoiceDisplay:
+    """Facade qui isole le HUD par profil utilisateur."""
+
+    @staticmethod
+    def enabled() -> bool:
+        return VoiceDisplayCoordinator.enabled()
+
+    def _coord(self, profile_id: str | None = None) -> VoiceDisplayCoordinator:
+        return get_voice_display_coordinator(profile_id)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._coord(), name)
+
+
+voice_display = ProfileScopedVoiceDisplay()
 
 
 def handle_voice_display_command(text: str) -> dict[str, Any] | None:
-    return voice_display.navigation_command(text)
+    return get_voice_display_coordinator().navigation_command(text)
 
 
 __all__ = [
     "ClaimEvidence", "SCHEMA_VERSION", "SourceEvidence", "SpeechSegment", "VisualAnswer",
     "VisualSection", "VoiceAction", "VoiceDisplayEvent", "VoiceDisplaySession",
-    "VoiceDisplaySnapshot", "answer_from_result", "handle_voice_display_command", "voice_display",
+    "VoiceDisplaySnapshot", "ProfileScopedVoiceDisplay", "answer_from_result",
+    "get_voice_display_coordinator", "handle_voice_display_command",
+    "reset_all_voice_displays", "voice_display",
 ]
