@@ -126,7 +126,7 @@ _EXAMPLE_LEAD_IN = re.compile(
 # d'exécution ou de modification. Le verbe est nommé : « ne me dérange pas »
 # n'est pas une interdiction d'exécution.
 _EXEC_VERBS = (
-    r"execute|executes|executez|exec|lance|lances|lancez|lancer|demarre|demarres|"
+    r"execute|executes|executez|executer|exec|lance|lances|lancez|lancer|demarre|demarres|"
     r"demarrez|demarrer|run|runs|start|starts|trigger|triggers|launch|launches|"
     r"deploies|deploient|deployez|deployer|deploys|deploying|deploie|deploy|"
     r"merging|merges|mergez|merge|fusionnes|fusionnez|fusionner|fusionne"
@@ -145,6 +145,8 @@ _CLITICS = r"(?:les?\s+|la\s+|leur\s+|lui\s+|[ml]es\s+|l\s*'?\s*)?"
 _ADVERS_BEFORE_NEG = r"(?:(?:\w+)\s+)*"
 
 _NO_EXECUTION_PATTERNS: tuple[re.Pattern[str], ...] = (
+    # « ne pas lancer » — infinitif après « pas », distinct de « ne lance pas ».
+    re.compile(rf"\bne\s+pas\s+(?:{_EXEC_VERBS})\b"),
     re.compile(
         rf"\bne\s+{_CLITICS}(?:{_EXEC_VERBS})\s+{_ADVERS_BEFORE_NEG}(?:pas|rien)\b"
     ),
@@ -160,6 +162,7 @@ _NO_EXECUTION_PATTERNS: tuple[re.Pattern[str], ...] = (
 )
 
 _NO_MODIFICATION_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(rf"\bne\s+pas\s+(?:{_WRITE_VERBS})\b"),
     re.compile(
         rf"\bne\s+{_CLITICS}(?:{_WRITE_VERBS})\s+{_ADVERS_BEFORE_NEG}(?:pas|rien)\b"
     ),
