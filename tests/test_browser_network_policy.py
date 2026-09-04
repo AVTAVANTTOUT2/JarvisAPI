@@ -13,6 +13,7 @@ from integrations.browser_security import (
     BrowserRequestGuard,
     BrowserSecurityError,
     SecureEgressProxy,
+    sanitized_browser_path,
     sanitized_browser_url,
 )
 
@@ -294,6 +295,31 @@ def test_browser_url_sanitizer_keeps_only_public_origin(
     value: str, expected: str
 ) -> None:
     assert sanitized_browser_url(value) == expected
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (
+            "https://public.example/private/token?q=secret#fragment",
+            "/private/token",
+        ),
+        ("https://public.example/", "/"),
+        (
+            "https://user:pass@public.example/private/token?q=secret",
+            "[PATH_REDACTED]",
+        ),
+        ("file:///etc/passwd", "[PATH_REDACTED]"),
+        ("http://public.example/path", "[PATH_REDACTED]"),
+        ("not a url", "[PATH_REDACTED]"),
+        ("https://public.example/" + ("a" * 520), "[PATH_REDACTED]"),
+        ("https://public.example/bad\x00path", "[PATH_REDACTED]"),
+    ],
+)
+def test_browser_path_sanitizer_keeps_bounded_path_only(
+    value: str, expected: str
+) -> None:
+    assert sanitized_browser_path(value) == expected
 
 
 class _PinnedPolicy:
