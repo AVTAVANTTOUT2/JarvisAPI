@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-29T10:18:17.711010+00:00",
+  "generated_at": "2026-09-02T10:19:43.804512+00:00",
   "repo_root": ".",
   "canonical_formulation": {
     "database": "Le projet crée 119 tables persistantes après init_db() + migrations, plus jusqu'à 5 objets FTS5, soit 124 tables physiques lorsque FTS5 est disponible.",
@@ -2239,6 +2239,7 @@
           ]
         },
         "tests": [
+          "tests/test_macos_permissions.py",
           "tests/test_no_open_interpreter.py"
         ],
         "non_frontend_ownership": null,
