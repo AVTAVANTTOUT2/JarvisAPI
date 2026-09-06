@@ -1684,6 +1684,38 @@ class IMessageImporter:
 
         return stats
 
+    def reconcile_inventory_counts(self) -> dict[str, int]:
+        """Compteurs chat.db + jarvis.db pour juger une réconciliation à inventaire vide."""
+
+        if not self.is_available():
+            raise RuntimeError("chat.db inaccessible — inventaire impossible")
+        chat_conn = self._open_chat_db()
+        try:
+            source_count = int(
+                chat_conn.execute("SELECT COUNT(*) c FROM message").fetchone()["c"]
+            )
+            handle_count = int(
+                chat_conn.execute("SELECT COUNT(*) c FROM handle").fetchone()["c"]
+            )
+            chat_count = int(
+                chat_conn.execute("SELECT COUNT(*) c FROM chat").fetchone()["c"]
+            )
+        finally:
+            self._close_chat_db()
+
+        with get_db() as jarvis_conn:
+            cached_count = int(
+                jarvis_conn.execute(
+                    "SELECT COUNT(*) c FROM imessage_messages"
+                ).fetchone()["c"]
+            )
+        return {
+            "source_count": source_count,
+            "handle_count": handle_count,
+            "chat_count": chat_count,
+            "cached_count": cached_count,
+        }
+
     def reconcile_deleted_messages(self) -> int:
         """Supprime localement uniquement après un inventaire complet de chat.db."""
 
