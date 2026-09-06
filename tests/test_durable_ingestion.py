@@ -817,6 +817,109 @@ async def test_imessage_sync_already_running_is_not_a_coverage_failure(
     assert result.error_code is None
 
 
+@pytest.mark.asyncio
+async def test_imessage_empty_inventory_with_handles_defers_deletion_reconcile(
+    ingestion_db: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    from database.ingestion import bind_connector
+    from integrations import imessage_import as imessage_module
+    from jarvis.ingestion.service import _imessage_sync
+
+    class _Importer:
+        @staticmethod
+        def is_available() -> bool:
+            return True
+
+        @staticmethod
+        def sync_incremental() -> SimpleNamespace:
+            return SimpleNamespace(
+                reconciliation={"ok": True}, total_failed=0, errors=[]
+            )
+
+        @staticmethod
+        def reconcile_inventory_counts() -> dict[str, int]:
+            return {
+                "source_count": 0,
+                "cached_count": 3,
+                "handle_count": 2,
+                "chat_count": 1,
+            }
+
+        @staticmethod
+        def reconcile_deleted_messages() -> int:
+            raise AssertionError("first empty inventory must defer reconciliation")
+
+    monkeypatch.setattr(imessage_module, "imessage_importer", _Importer())
+    binding = bind_connector("imessage", consent_source="explicit_test")
+
+    result = await _imessage_sync(None, binding, None)  # type: ignore[arg-type]
+
+    assert result.status == "degraded"
+    assert result.error_code == "imessage_empty_inventory_deferred"
+    assert result.cursor.get("empty_inventory_deferred") is True
+
+
+@pytest.mark.asyncio
+async def test_imessage_empty_inventory_reconciles_after_deferral(
+    ingestion_db: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    from database.ingestion import bind_connector
+    from jarvis.ingestion.models import IngestionSourceState
+    from integrations import imessage_import as imessage_module
+    from jarvis.ingestion.service import _imessage_sync
+
+    reconciled = {"called": False}
+
+    class _Importer:
+        @staticmethod
+        def is_available() -> bool:
+            return True
+
+        @staticmethod
+        def sync_incremental() -> SimpleNamespace:
+            return SimpleNamespace(
+                reconciliation={"ok": True}, total_failed=0, errors=[]
+            )
+
+        @staticmethod
+        def reconcile_inventory_counts() -> dict[str, int]:
+            return {
+                "source_count": 0,
+                "cached_count": 3,
+                "handle_count": 2,
+                "chat_count": 1,
+            }
+
+        @staticmethod
+        def reconcile_deleted_messages() -> int:
+            reconciled["called"] = True
+            return 2
+
+    monkeypatch.setattr(imessage_module, "imessage_importer", _Importer())
+    binding = bind_connector("imessage", consent_source="explicit_test")
+    state = IngestionSourceState(
+        source="imessage",
+        profile_id="default",
+        status="idle",
+        cursor={"empty_inventory_deferred": True},
+        completeness="partial",
+        item_count=3,
+        consecutive_failures=0,
+    )
+
+    result = await _imessage_sync(None, binding, state)  # type: ignore[arg-type]
+
+    assert reconciled["called"] is True
+    assert result.status == "ok"
+    assert "empty_inventory_deferred" not in result.cursor
+
+
 def test_refresh_device_hash_keeps_granted_imessage_binding(
     ingestion_db: Path,
     monkeypatch: pytest.MonkeyPatch,

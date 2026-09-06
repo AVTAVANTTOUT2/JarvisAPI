@@ -670,17 +670,78 @@ async def _imessage_sync(
     reconcile_failed = bool(reconciliation) and reconciliation.get("ok") is False
     failed = int(result.total_failed or 0)
     has_failure = bool(failed or result.errors or reconcile_failed)
+    ingestion_cursor = dict(state.cursor) if state and state.cursor else {}
+    already_deferred = ingestion_cursor.get("empty_inventory_deferred") is True
     deletion_reconcile_failed = False
     if not has_failure:
         try:
-            await asyncio.to_thread(imessage_importer.reconcile_deleted_messages)
+            inventory = await asyncio.to_thread(
+                imessage_importer.reconcile_inventory_counts
+            )
         except Exception as exc:
             deletion_reconcile_failed = True
             has_failure = True
             logger.warning(
-                "[ingestion] iMessage deletion reconciliation failed: %s",
+                "[ingestion] iMessage inventory probe failed: %s",
                 type(exc).__name__,
             )
+        else:
+            transient_empty_inventory = (
+                inventory["source_count"] == 0
+                and inventory["cached_count"] > 0
+                and (
+                    inventory["handle_count"] > 0 or inventory["chat_count"] > 0
+                )
+            )
+            if transient_empty_inventory and not already_deferred:
+                logger.warning(
+                    "[ingestion] chat.db sans messages mais avec handles/chats "
+                    "alors que jarvis.db contient encore des messages ; "
+                    "réconciliation différée d'un cycle"
+                )
+                deferred_cursor = dict(ingestion_cursor)
+                deferred_cursor["empty_inventory_deferred"] = True
+                with get_db() as conn:
+                    cursor_row = conn.execute(
+                        "SELECT last_apple_rowid FROM imessage_sync_cursor WHERE id = 1"
+                    ).fetchone()
+                    aggregate = conn.execute(
+                        """
+                        SELECT COUNT(*) AS count, MIN(occurred_at_utc) AS first_at,
+                               MAX(occurred_at_utc) AS last_at
+                        FROM imessage_messages
+                        """
+                    ).fetchone()
+                return IngestionRunResult(
+                    status="degraded",
+                    item_count=int(aggregate["count"] if aggregate else 0),
+                    cursor={
+                        **deferred_cursor,
+                        "last_apple_rowid": int(
+                            cursor_row["last_apple_rowid"] if cursor_row else 0
+                        ),
+                        "full_history": False,
+                        "namespace_complete": False,
+                    },
+                    completeness="partial",
+                    coverage_start_utc=aggregate["first_at"] if aggregate else None,
+                    coverage_end_utc=aggregate["last_at"] if aggregate else None,
+                    last_item_at=aggregate["last_at"] if aggregate else None,
+                    error_code="imessage_empty_inventory_deferred",
+                    error_message=(
+                        "chat.db sans messages mais avec handles/chats alors que "
+                        "le miroir jarvis.db contient encore des messages"
+                    ),
+                )
+            try:
+                await asyncio.to_thread(imessage_importer.reconcile_deleted_messages)
+            except Exception as exc:
+                deletion_reconcile_failed = True
+                has_failure = True
+                logger.warning(
+                    "[ingestion] iMessage deletion reconciliation failed: %s",
+                    type(exc).__name__,
+                )
     if state and state.last_success_at:
         with get_db() as conn:
             new_messages = conn.execute(
@@ -717,14 +778,23 @@ async def _imessage_sync(
         error_code = "imessage_reconciliation_failed"
     elif has_failure:
         error_code = "imessage_partial_import"
+    success_cursor = {
+        "last_apple_rowid": int(cursor["last_apple_rowid"] if cursor else 0),
+        "full_history": not has_failure,
+        "namespace_complete": not has_failure,
+    }
+    if not has_failure:
+        success_cursor.update(
+            {
+                key: value
+                for key, value in ingestion_cursor.items()
+                if key != "empty_inventory_deferred"
+            }
+        )
     return IngestionRunResult(
         status="degraded" if has_failure else "ok",
         item_count=int(aggregate["count"] if aggregate else 0),
-        cursor={
-            "last_apple_rowid": int(cursor["last_apple_rowid"] if cursor else 0),
-            "full_history": not has_failure,
-            "namespace_complete": not has_failure,
-        },
+        cursor=success_cursor,
         completeness="partial" if has_failure else "complete",
         coverage_start_utc=aggregate["first_at"] if aggregate else None,
         coverage_end_utc=aggregate["last_at"] if aggregate else None,

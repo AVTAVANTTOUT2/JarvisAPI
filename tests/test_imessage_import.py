@@ -1054,6 +1054,39 @@ class TestAttachmentOnlyMessages:
                 is not None
             )
 
+    def test_reconcile_deleted_messages_purges_when_handles_present_without_defer(
+        self, importer_with_memory_db
+    ):
+        """Sans différé service, un chat.db initialisé mais sans messages purge tout."""
+        importer, chat_db = importer_with_memory_db
+        from database import get_db
+
+        hids = _seed_handles(chat_db, [{"id": "+33600000001", "service": "iMessage"}])
+        _seed_chats(chat_db, [{"identifier": "+33600000001", "style": 0}])
+        message_id = _seed_messages(
+            chat_db,
+            [{"guid": "keep-guid", "text": "stay", "date": 1, "handle_id": hids[0]}],
+        )[0]
+        importer._import_message_batch(
+            chat_db, {}, {}, from_rowid=message_id, to_rowid=message_id
+        )
+        chat_db.execute("DELETE FROM message")
+
+        with (
+            patch.object(importer, "is_available", return_value=True),
+            patch.object(importer, "_open_chat_db", return_value=chat_db),
+            patch.object(importer, "_close_chat_db"),
+        ):
+            assert importer.reconcile_deleted_messages() == 1
+
+        with get_db() as conn:
+            assert (
+                conn.execute(
+                    "SELECT 1 FROM imessage_messages WHERE guid = 'keep-guid'"
+                ).fetchone()
+                is None
+            )
+
 
 class TestHandleZeroResolution:
     """Messages Apple avec handle_id=0 relies via chat_message_join."""
