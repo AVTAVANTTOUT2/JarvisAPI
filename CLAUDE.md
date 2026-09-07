@@ -806,6 +806,73 @@ EMAIL_CHECK_INTERVAL=120      # secondes entre 2 scans (défaut 2 min)
 - 50 mails/jour : ~$0.05/jour, ~$1.50/mois
 - L'hydratation du cache au boot garantit que **chaque mail n'est analysé qu'une seule fois** dans toute la vie de la base SQLite.
 
+## Ingestion durable (mail, iMessage, calendrier)
+
+Le worker `scripts/ingestion_service.py` (`com.jarvis.ingestion` via launchd) synchronise
+**mail**, **iMessage** et **calendrier** dans SQLite pour le RAG, les briefings et le
+retrieval. Le backend FastAPI **ne forke pas** ce worker après le chargement de
+Torch/uvloop — la readiness et `/api/data-health` exposent l'état du service externe
+(`api/lifespan.py`).
+
+### Architecture
+
+| Module | Rôle |
+|---|---|
+| `jarvis/ingestion/service.py` | Worker : files `ingestion_jobs`, baux, handlers par source |
+| `database/ingestion.py` | Liaisons connecteur (`connector_bindings`), état (`ingestion_source_state`) |
+| `integrations/imessage_import.py` | Import incrémental `chat.db` → `imessage_messages` |
+| `database/knowledge.py` | Cache calendrier (`calendar_events`) |
+| `database/email.py` | Cache mail (`email_messages`) |
+
+Sources obligatoires : `mail`, `imessage`, `calendar`
+(`jarvis/ingestion/models.REQUIRED_CONNECTOR_SOURCES`). Liaison explicite :
+
+```bash
+python scripts/ingestion_service.py bind-local --source mail imessage calendar
+```
+
+### Garde-fous anti-purge (#283)
+
+L'ingestion **ne doit jamais effacer un cache entier** sur une source vide ou non
+fiable :
+
+| Source | Situation | Comportement |
+|---|---|---|
+| iMessage | `chat.db` sans message, handle ni chat alors que `jarvis.db` contient encore des messages | `reconcile_deleted_messages` lève une erreur — pas de purge |
+| Calendrier | Événements reçus mais tous impersistables (titre/date manquants) | Pas de réconciliation de fenêtre (`upsert_calendar_events`) |
+| Calendrier | `status=ok` avec `events=()` alors que le cache contient des lignes | Réconciliation **différée d'un cycle** (`empty_window_deferred` dans le curseur) ; deux lectures vides consécutives valent suppression réelle |
+| Calendrier | Filtre connecteur excluant tous les événements | Fenêtre conservée (`calendar_filter_excluded_all`) |
+
+Tests : `tests/test_durable_ingestion.py`, `tests/test_imessage_import.py`.
+
+### Observabilité
+
+| Route | Verrou | Contenu |
+|---|---|---|
+| `GET /api/health/ready` | **public** | Readiness ingestion : heartbeat worker + fraîcheur des trois connecteurs |
+| `GET /api/data-health` | session standard | Détail : couvertures, lag, files `ingestion_jobs`, codes d'erreur par source |
+
+Le worker publie un heartbeat (`INGESTION_HEARTBEAT_INTERVAL_S`, défaut 10 s) ;
+`/api/health/ready` répond `503` si le heartbeat dépasse
+`INGESTION_HEARTBEAT_MAX_AGE_S` (défaut 30 s) ou si un connecteur lié est périmé
+(2× l'intervalle de sync de la source).
+
+### Variables d'env
+
+```bash
+INGESTION_SERVICE_ENABLED=true
+INGESTION_HEARTBEAT_INTERVAL_S=10
+INGESTION_HEARTBEAT_MAX_AGE_S=30
+INGESTION_IMESSAGE_INTERVAL_S=30
+INGESTION_IMESSAGE_WATCH_ENABLED=true
+INGESTION_MAIL_INTERVAL_S=60
+INGESTION_CALENDAR_INTERVAL_S=300
+```
+
+L'email watcher (`scripts/email_watcher.py`) reste un pipeline **analytique**
+(Haiku → notifications/tâches) ; l'ingestion durable alimente le **cache SQLite**
+consulté par le RAG et les agents.
+
 ## Contrôle ordinateur (macOS)
 
 JARVIS peut exécuter des actions sur le Mac local via `integrations/computer.py` (subprocess + AppleScript), pilotées par des blocs ```action``` dans les réponses (voir `prompts/persona.txt`).
@@ -1715,7 +1782,9 @@ mesure rien de neuf : il rappelle les primitives existantes et les traduit en
 | Route | Verrou | Contenu |
 |---|---|---|
 | `GET /api/health/live` | **public** | `{"status": "ok"}`. Rien d'autre : ni version, ni hôte, ni composant, ni compteur |
+| `GET /api/health/ready` | **public** | Readiness ingestion : heartbeat du worker + fraîcheur mail/iMessage/calendrier |
 | `GET /api/health/detail` | session standard | Agrégat complet des composants, `?refresh=true` force une resonde |
+| `GET /api/data-health` | session standard | Diagnostic ingestion authentifié (couvertures, lag, files de jobs) |
 
 La sonde de vie est publique par nécessité : un superviseur ou un launchd doit
 pouvoir distinguer « application verrouillée » de « application morte », et le

@@ -67,3 +67,4 @@ roadmap.
 - [Audit Voice HUD du 29 août 2026](./audit/VOICE_DISPLAY_AUDIT_2026-08-29.md)
 - [Validation Voice HUD du 29 août 2026](./audit/VOICE_DISPLAY_VALIDATION_2026-08-29.md)
 - [Guide produit et technique Voice HUD](../docs/VOICE_DISPLAY.md)
+- Ingestion durable mail/iMessage/calendrier — section « Ingestion durable » de [`CLAUDE.md`](../CLAUDE.md) (garde-fous #283, `/api/data-health`)
