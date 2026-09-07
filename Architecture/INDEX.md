@@ -62,6 +62,9 @@ achevés sont eux aussi des archives et ne doivent pas être relancés comme
 roadmap.
 ## Extensions produit récentes
 
+- [ADR-037 — charte majordome et primitif `launch`](./adr/ADR-037-charte-majordome.md)
+- [Mémoire relationnelle — chapitres mensuels](../docs/superpowers/specs/2026-08-19-person-history-memory-design.md)
 - [Audit Voice HUD du 29 août 2026](./audit/VOICE_DISPLAY_AUDIT_2026-08-29.md)
 - [Validation Voice HUD du 29 août 2026](./audit/VOICE_DISPLAY_VALIDATION_2026-08-29.md)
 - [Guide produit et technique Voice HUD](../docs/VOICE_DISPLAY.md)
+- Ingestion durable mail/iMessage/calendrier — section « Ingestion durable » de [`CLAUDE.md`](../CLAUDE.md) (garde-fous #283, `/api/data-health`)
