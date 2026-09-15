@@ -267,6 +267,85 @@ async def test_daemon_still_scans_when_bridge_running_for_other_contacts(
     daemon._local_triage = triage
     await daemon._check_imessage()
 
-    assert advanced == [("daemon.notifications", 102)]
+    assert advanced == [
+        ("daemon.notifications", 101),
+        ("daemon.notifications", 102),
+    ]
     assert len(created) == 1
     assert created[0]["title"] == "Message de +33622222222"
+
+
+@pytest.mark.asyncio
+async def test_daemon_advances_cursor_after_each_row_not_before_batch(monkeypatch):
+    """Le curseur ne doit pas avancer avant le traitement (perte de notifs)."""
+    from scripts.jarvis_daemon import JarvisDaemon
+
+    class ReaderStub:
+        @staticmethod
+        def is_available() -> bool:
+            return True
+
+        @staticmethod
+        def get_new_messages(since_rowid, limit=50, incoming_only=False, **_k):
+            del incoming_only, limit
+            return [
+                {
+                    "rowid": since_rowid + 1,
+                    "text": "Premier",
+                    "is_from_me": False,
+                    "handle": "+33600000001",
+                },
+                {
+                    "rowid": since_rowid + 2,
+                    "text": "Deuxième",
+                    "is_from_me": False,
+                    "handle": "+33600000002",
+                },
+            ]
+
+    advanced: list[tuple[str, int]] = []
+    notifications_created: list[int] = []
+
+    class Notif:
+        @staticmethod
+        def create(**kwargs):
+            del kwargs
+            notifications_created.append(1)
+
+    monkeypatch.setattr("integrations.imessage.imessage_bridge", None)
+    monkeypatch.setattr(
+        "integrations.imessage_reader.imessage_reader",
+        ReaderStub(),
+    )
+    monkeypatch.setattr("scripts.jarvis_daemon.notification_service", Notif)
+    monkeypatch.setattr(
+        "integrations.imessage_cursor.get_consumer_cursor", lambda _n: 100
+    )
+    monkeypatch.setattr(
+        "integrations.imessage_cursor.advance_consumer_cursor",
+        lambda n, v: advanced.append((n, v)) or v,
+    )
+
+    daemon = JarvisDaemon.__new__(JarvisDaemon)
+    daemon.imessage_cursor_name = "daemon.notifications"
+    daemon.known_msg_ids = set()
+    daemon.tts_queue = asyncio.Queue()
+
+    call_count = 0
+
+    async def triage_crash_on_second(_text):
+        nonlocal call_count
+        call_count += 1
+        if call_count >= 2:
+            raise RuntimeError("simulated crash mid-batch")
+        return False
+
+    daemon._local_triage = triage_crash_on_second
+
+    try:
+        await daemon._check_imessage()
+    except RuntimeError:
+        pass
+
+    assert advanced == [("daemon.notifications", 101)]
+    assert len(notifications_created) == 1
