@@ -329,28 +329,25 @@ class JarvisDaemon:
             logger.warning("[daemon] iMessage scan : %s", e)
             return
 
-        if rows:
-            advance_consumer_cursor(
-                self.imessage_cursor_name,
-                max(int(row["rowid"]) for row in rows),
-            )
-
         for row in rows:
             rowid = int(row["rowid"])
 
             if rowid in self.known_msg_ids:
+                advance_consumer_cursor(self.imessage_cursor_name, rowid)
                 continue
-            self.known_msg_ids.add(rowid)
 
             if row["is_from_me"]:
+                advance_consumer_cursor(self.imessage_cursor_name, rowid)
                 continue
 
             handle = row["handle"] or ""
             if bridge_running and bridge_target and handle == bridge_target:
+                advance_consumer_cursor(self.imessage_cursor_name, rowid)
                 continue
 
             text = (row["text"] or "").strip()
             if not text:
+                advance_consumer_cursor(self.imessage_cursor_name, rowid)
                 continue
 
             sender = handle
@@ -400,6 +397,9 @@ class JarvisDaemon:
                 )
             except Exception as e:
                 logger.debug("[daemon] détection de tâche iMessage : %s", e)
+
+            self.known_msg_ids.add(rowid)
+            advance_consumer_cursor(self.imessage_cursor_name, rowid)
 
     async def _check_mail(self) -> None:
         """Annonce les propositions Mail déjà persistées par l'ingestion."""

@@ -180,7 +180,6 @@ class IMessageBridge:
             return []
 
         messages = []
-        max_rowid = last_check_rowid
         for row in rows:
             rowid = int(row["rowid"])
             messages.append(
@@ -191,10 +190,6 @@ class IMessageBridge:
                     "handle": row["handle"],
                 }
             )
-            max_rowid = max(max_rowid, rowid)
-
-        if max_rowid > last_check_rowid:
-            advance_consumer_cursor(self.cursor_name, max_rowid)
 
         return messages
 
@@ -448,15 +443,13 @@ class IMessageBridge:
         while self.running:
             try:
                 messages = await loop.run_in_executor(None, self._get_new_messages)
-                # `_get_new_messages` avance le curseur persistant AVANT traitement
-                # AVANT qu'on lance le traitement → garantit qu'un message ne
-                # peut pas être retraité même si le LLM met du temps à répondre.
                 for msg in messages:
                     text = (msg.get("text") or "").strip()
                     rowid = int(msg["rowid"])
                     # Garde-fou anti-boucle : ne traite jamais deux fois le même ROWID.
                     if rowid in self.processed_rowids:
                         logger.debug("[iMessage] rowid déjà traité — skip (%s)", rowid)
+                        advance_consumer_cursor(self.cursor_name, rowid)
                         continue
                     self.processed_rowids.add(rowid)
                     if len(self.processed_rowids) > self._processed_rowids_max:
@@ -475,6 +468,7 @@ class IMessageBridge:
                         logger.info(
                             f"[iMessage] Écho détecté — skip (rowid={msg['rowid']})"
                         )
+                        advance_consumer_cursor(self.cursor_name, rowid)
                         continue
 
                     response = await self._process_message(
@@ -488,6 +482,7 @@ class IMessageBridge:
                         # le voir et — bien que filtré par is_from_me=0 — on
                         # évite les conditions de course sur ROWID).
                         await asyncio.sleep(1.0)
+                    advance_consumer_cursor(self.cursor_name, rowid)
             except asyncio.CancelledError:
                 logger.info("[iMessage] Polling annulé (CancelledError)")
                 break
