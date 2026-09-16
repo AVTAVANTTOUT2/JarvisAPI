@@ -349,3 +349,117 @@ async def test_daemon_advances_cursor_after_each_row_not_before_batch(monkeypatc
 
     assert advanced == [("daemon.notifications", 101)]
     assert len(notifications_created) == 1
+
+
+def test_bridge_get_new_messages_does_not_advance_cursor_before_processing(
+    monkeypatch,
+):
+    """Le bridge ne doit pas avancer le curseur dans _get_new_messages."""
+    from integrations.imessage import IMessageBridge
+
+    advanced: list[tuple[str, int]] = []
+
+    class ReaderStub:
+        @staticmethod
+        def get_new_messages(since_rowid, handle=None, incoming_only=False):
+            del handle, incoming_only
+            return [
+                {
+                    "rowid": since_rowid + 1,
+                    "text": "Bonjour",
+                    "date": 1,
+                    "handle": "+33611111111",
+                },
+                {
+                    "rowid": since_rowid + 2,
+                    "text": "Suite",
+                    "date": 2,
+                    "handle": "+33611111111",
+                },
+            ]
+
+    bridge = IMessageBridge("+33611111111")
+    bridge._reader = ReaderStub()
+    monkeypatch.setattr(
+        "integrations.imessage_cursor.get_consumer_cursor", lambda _n: 100
+    )
+    monkeypatch.setattr(
+        "integrations.imessage_cursor.advance_consumer_cursor",
+        lambda n, v: advanced.append((n, v)) or v,
+    )
+
+    messages = bridge._get_new_messages()
+
+    assert len(messages) == 2
+    assert advanced == []
+
+
+@pytest.mark.asyncio
+async def test_bridge_advances_cursor_after_each_message_not_before_batch(monkeypatch):
+    """Crash mid-batch : le bridge ne doit pas perdre les messages restants."""
+    from integrations.imessage import IMessageBridge
+
+    class ReaderStub:
+        @staticmethod
+        def get_new_messages(since_rowid, handle=None, incoming_only=False):
+            del handle, incoming_only
+            return [
+                {
+                    "rowid": since_rowid + 1,
+                    "text": "Premier",
+                    "date": 1,
+                    "handle": "+33611111111",
+                },
+                {
+                    "rowid": since_rowid + 2,
+                    "text": "Deuxième",
+                    "date": 2,
+                    "handle": "+33611111111",
+                },
+            ]
+
+    advanced: list[tuple[str, int]] = []
+    bridge = IMessageBridge("+33611111111")
+    bridge._reader = ReaderStub()
+    monkeypatch.setattr(
+        "integrations.imessage_cursor.get_consumer_cursor", lambda _n: 100
+    )
+    monkeypatch.setattr(
+        "integrations.imessage_cursor.advance_consumer_cursor",
+        lambda n, v: advanced.append((n, v)) or v,
+    )
+
+    call_count = 0
+
+    async def process_crash_on_second(text, idempotency_key=None):
+        nonlocal call_count
+        del text, idempotency_key
+        call_count += 1
+        if call_count >= 2:
+            raise RuntimeError("simulated crash mid-batch")
+        return "ok"
+
+    messages = bridge._get_new_messages()
+    assert advanced == []
+
+    try:
+        for msg in messages:
+            text = (msg.get("text") or "").strip()
+            rowid = int(msg["rowid"])
+            if rowid in bridge.processed_rowids:
+                advance_consumer_cursor(bridge.cursor_name, rowid)
+                continue
+            bridge.processed_rowids.add(rowid)
+            if bridge._is_echo(text):
+                advance_consumer_cursor(bridge.cursor_name, rowid)
+                continue
+            response = await process_crash_on_second(
+                text, idempotency_key=f"imessage:{rowid}"
+            )
+            if response:
+                bridge._send_message(response)
+            advance_consumer_cursor(bridge.cursor_name, rowid)
+    except RuntimeError:
+        pass
+
+    assert advanced == [("bridge.reply:+33611111111", 101)]
