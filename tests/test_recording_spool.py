@@ -319,6 +319,23 @@ async def test_terminal_recording_job_replay_skips_stt_and_reenqueue(
     assert get_recording_session(session.id).state == "completed"
 
 
+def test_reconcile_does_not_expire_fresh_capturing_session(tmp_db) -> None:
+    """idle_before doit utiliser le format SQLite, pas ISO, pour updated_at."""
+    from audio.recording_spool import reconcile_recording_sessions
+    from database import create_recording_session, get_recording_session
+
+    session = create_recording_session(
+        spool_path=str(tmp_db.parent / "fresh-capture"),
+        state="capturing",
+    )
+
+    assert reconcile_recording_sessions() == 0
+    refreshed = get_recording_session(session.id)
+    assert refreshed is not None
+    assert refreshed.state == "capturing"
+    assert refreshed.spool_path
+
+
 def test_desktop_notification_claim_is_at_most_once(tmp_db) -> None:
     from database import (
         claim_recording_desktop_notification,
