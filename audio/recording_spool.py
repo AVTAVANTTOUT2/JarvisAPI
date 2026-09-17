@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 import config
+from database.time_buckets import sqlite_utc_timestamp
 from database import (
     create_recording_session,
     current_profile_id,
@@ -977,7 +978,7 @@ def reconcile_recording_sessions(*, limit: int = 100) -> int:
     """Réenfile les sessions scellées laissées sans job par une ancienne panne."""
 
     repaired = mark_dead_recording_sessions_failed()
-    idle_before = _utc_iso(
+    idle_before = sqlite_utc_timestamp(
         datetime.now(timezone.utc)
         - timedelta(minutes=max(1, int(config.RECORDING_CAPTURE_IDLE_TTL_MIN)))
     )
