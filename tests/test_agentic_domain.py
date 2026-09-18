@@ -324,6 +324,117 @@ def test_budget_guard_and_doom_loop_detection_are_deterministic():
     )
 
 
+def test_doom_loop_detector_rejects_invalid_window_or_threshold():
+    with pytest.raises(ValueError, match="invalide"):
+        DoomLoopDetector(window_size=3)
+    with pytest.raises(ValueError, match="invalide"):
+        DoomLoopDetector(repeat_limit=1)
+
+
+def test_doom_loop_same_error_across_distinct_tools():
+    """Trois échecs au même code, même avec des outils différents, sont une boucle."""
+
+    detector = DoomLoopDetector()
+    assert (
+        detector.record(tool="search", arguments={"q": "a"}, error_code="timeout")
+        is None
+    )
+    assert (
+        detector.record(tool="fetch", arguments={"url": "b"}, error_code="timeout")
+        is None
+    )
+    assert (
+        detector.record(tool="parse", arguments={"src": "c"}, error_code="timeout")
+        == "same_error"
+    )
+
+
+def test_doom_loop_no_progress_requires_full_window_without_progress():
+    detector = DoomLoopDetector(window_size=4, repeat_limit=3)
+    for index in range(3):
+        assert (
+            detector.record(
+                tool=f"tool-{index}",
+                arguments={"n": index},
+                progress=False,
+            )
+            is None
+        )
+    assert (
+        detector.record(tool="tool-3", arguments={"n": 3}, progress=False)
+        == "no_progress"
+    )
+
+
+def test_doom_loop_progress_flag_prevents_no_progress_verdict():
+    detector = DoomLoopDetector(window_size=4, repeat_limit=3)
+    assert detector.record(tool="a", arguments={"n": 1}, progress=True) is None
+    assert detector.record(tool="b", arguments={"n": 2}, progress=False) is None
+    assert detector.record(tool="c", arguments={"n": 3}, progress=False) is None
+    assert detector.record(tool="d", arguments={"n": 4}, progress=False) is None
+
+
+def test_doom_loop_alternating_pattern_ab_ab_ab():
+    """L'alternance n'est visible que si la fenêtre n'est pas déjà « no_progress »."""
+
+    detector = DoomLoopDetector()
+    sequence = (
+        ("read", {"path": "a"}, True),
+        ("write", {"path": "b"}, False),
+        ("read", {"path": "a"}, False),
+        ("write", {"path": "b"}, False),
+        ("read", {"path": "a"}, False),
+        ("write", {"path": "b"}, False),
+    )
+    for index, (tool, arguments, progress) in enumerate(sequence):
+        verdict = detector.record(
+            tool=tool, arguments=arguments, progress=progress
+        )
+        if index < 5:
+            assert verdict is None
+        else:
+            assert verdict == "alternating_pattern"
+
+
+def test_doom_loop_arguments_hash_is_stable_after_secret_redaction():
+    """Deux secrets différents ne doivent pas masquer une répétition d'action."""
+
+    detector = DoomLoopDetector()
+    assert (
+        detector.record(
+            tool="http",
+            arguments={"url": "https://api.example/x", "token": "sk-aaa111222333"},
+        )
+        is None
+    )
+    assert (
+        detector.record(
+            tool="http",
+            arguments={"url": "https://api.example/x", "token": "sk-zzz999888777"},
+        )
+        is None
+    )
+    assert (
+        detector.record(
+            tool="http",
+            arguments={"url": "https://api.example/x", "token": "sk-different-value"},
+        )
+        == "same_tool_arguments"
+    )
+
+
+def test_doom_loop_reset_clears_detection_state():
+    detector = DoomLoopDetector()
+    for _ in range(3):
+        detector.record(tool="read", arguments={"path": "a"})
+    detector.reset()
+    assert detector.record(tool="read", arguments={"path": "a"}) is None
+    assert detector.record(tool="read", arguments={"path": "a"}) is None
+    assert (
+        detector.record(tool="read", arguments={"path": "a"}) == "same_tool_arguments"
+    )
+
+
 def test_generic_verifier_maps_contract_evidence_to_all_verdicts(tmp_path: Path):
     content = b"verified report"
     (tmp_path / "report.txt").write_bytes(content)
