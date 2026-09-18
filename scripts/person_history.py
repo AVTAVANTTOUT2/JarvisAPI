@@ -265,6 +265,13 @@ async def build_chapter(person_id: int, year_month: str) -> dict[str, Any]:
     recv_count = len(messages) - sent_count
     rowids = [int(row["apple_rowid"]) for row in messages if row.get("apple_rowid")]
     if not messages:
+        # ponytail: résolution handle vide (sync, fusion) ne doit pas effacer un chapitre existant.
+        if existing and (
+            existing.get("status") == "complete"
+            or int(existing.get("message_count") or 0) > 0
+        ):
+            existing["deferred"] = True
+            return existing
         return upsert_chapter(
             person_id=int(person_id),
             year_month=year_month,
