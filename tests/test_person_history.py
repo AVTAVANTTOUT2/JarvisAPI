@@ -225,6 +225,48 @@ def test_invalid_llm_json_falls_back_to_deterministic_partial(
     assert "Janvier" in result["narrative"] or "2026-01" in result["narrative"]
 
 
+def test_complete_chapter_not_wiped_when_message_resolution_returns_empty(
+    history_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import asyncio
+
+    from database import get_db
+    from scripts.person_history import build_chapter
+
+    good_narrative = "Janvier a été riche en échanges."
+
+    async def _chat_ok(**_kwargs):
+        return {
+            "content": json.dumps(
+                {
+                    "highlights": [],
+                    "narrative": good_narrative,
+                    "mood_arc": "stable",
+                }
+            ),
+            "tokens_in": 12,
+            "tokens_out": 30,
+            "cost": 0.0,
+            "model": "deepseek-v4-flash",
+        }
+
+    monkeypatch.setattr("llm.chat", _chat_ok)
+
+    with get_db() as conn:
+        person_id = _seed_ada_with_noise(conn)
+
+    first = asyncio.run(build_chapter(int(person_id), "2026-01"))
+    assert first["status"] == "complete"
+    assert first["narrative"] == good_narrative
+
+    monkeypatch.setattr("scripts.person_history._list_person_messages", lambda *_a, **_k: [])
+
+    second = asyncio.run(build_chapter(int(person_id), "2026-01"))
+    assert second.get("deferred") is True
+    assert second["status"] == "complete"
+    assert second["narrative"] == good_narrative
+
+
 def test_complete_chapter_not_downgraded_when_llm_fails_on_rebuild(
     history_db: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
