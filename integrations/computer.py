@@ -7,6 +7,7 @@ import logging
 import re
 from pathlib import Path
 from typing import Sequence
+from urllib.parse import unquote, urlsplit
 
 import config
 
@@ -104,6 +105,29 @@ class ComputerControl:
             return False, "application hors de COMPUTER_ALLOWED_APPS"
         return True, ""
 
+    def _app_name_from_open_target(self, raw: str) -> str | None:
+        """Nom du bundle si la cible ``open`` est un ``.app`` sous $HOME."""
+        text = (raw or "").strip()
+        if not text:
+            return None
+        if "://" in text:
+            parsed = urlsplit(text)
+            if (parsed.scheme or "").lower() != "file":
+                return None
+            path_text = parsed.path or ""
+            for _ in range(3):
+                decoded = unquote(path_text)
+                if decoded == path_text:
+                    break
+                path_text = decoded
+            path = Path(path_text)
+        else:
+            path = Path(text).expanduser()
+        if path.suffix.lower() != ".app":
+            return None
+        stem = path.stem.strip()
+        return stem or None
+
     def _validate_open_argv(self, argv: tuple[str, ...]) -> tuple[bool, str]:
         """``open -a App``, ``open URL``, ``open -a App URL|path``, ``open path``."""
         if len(argv) == 3 and argv[1] == "-a":
@@ -112,9 +136,21 @@ class ComputerControl:
             ok, reason = self._app_allowed(argv[2])
             if not ok:
                 return False, reason
-            return open_target_allowed(argv[3], home=self.home)
+            ok, reason = open_target_allowed(argv[3], home=self.home)
+            if not ok:
+                return False, reason
+            bundle = self._app_name_from_open_target(argv[3])
+            if bundle is not None:
+                return self._app_allowed(bundle)
+            return True, ""
         if len(argv) == 2:
-            return open_target_allowed(argv[1], home=self.home)
+            ok, reason = open_target_allowed(argv[1], home=self.home)
+            if not ok:
+                return False, reason
+            bundle = self._app_name_from_open_target(argv[1])
+            if bundle is not None:
+                return self._app_allowed(bundle)
+            return True, ""
         return False, "forme open interdite"
 
     async def _run_argv(

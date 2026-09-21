@@ -7,6 +7,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+import config
+
 from actions import execute_action
 from integrations.computer import _OPEN, computer as computer_singleton
 
@@ -108,6 +110,46 @@ async def test_launch_rejects_percent_encoded_path_traversal(
     )
     assert result["ok"] is False
     assert allow_computer == []
+
+
+def test_open_app_bundle_path_respects_computer_allowed_apps(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    app_dir = tmp_path / "Applications"
+    app_dir.mkdir()
+    terminal_app = app_dir / "Terminal.app"
+    terminal_app.mkdir()
+    safari_app = app_dir / "Safari.app"
+    safari_app.mkdir()
+    monkeypatch.setattr(config, "COMPUTER_ALLOWED_APPS", frozenset({"safari"}))
+    computer_singleton.home = str(tmp_path)
+
+    blocked, reason = computer_singleton._validate_open_argv(
+        (_OPEN, str(terminal_app))
+    )
+    assert blocked is False
+    assert "COMPUTER_ALLOWED_APPS" in reason
+
+    allowed, reason = computer_singleton._validate_open_argv((_OPEN, str(safari_app)))
+    assert allowed is True
+    assert reason == ""
+
+
+def test_open_file_url_app_bundle_respects_computer_allowed_apps(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    app_dir = tmp_path / "Applications"
+    app_dir.mkdir()
+    terminal_app = app_dir / "Terminal.app"
+    terminal_app.mkdir()
+    monkeypatch.setattr(config, "COMPUTER_ALLOWED_APPS", frozenset({"safari"}))
+    computer_singleton.home = str(tmp_path)
+
+    blocked, reason = computer_singleton._validate_open_argv(
+        (_OPEN, f"file://{terminal_app}")
+    )
+    assert blocked is False
+    assert "COMPUTER_ALLOWED_APPS" in reason
 
 
 @pytest.mark.asyncio
