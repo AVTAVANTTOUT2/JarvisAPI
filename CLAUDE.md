@@ -1962,6 +1962,8 @@ Le retrieval (`jarvis/retrieval/coordinator.py`) classe les questions contacts a
 
 Si un mois manque pour une question *histoire*, un job est enfilé ; l'événement `person.chapter_updated` part sur le bus SSE après commit. Le runtime agentique **n'écrit jamais** dans `person_month_chapters` — uniquement l'ingestion et les corrections de code (task-control).
 
+Un chapitre déjà `complete` n'est **jamais rétrogradé** si le LLM échoue ou si le budget est épuisé lors d'une régénération : `build_chapter()` conserve la version existante (`deferred: true`) et retente au prochain run.
+
 Plafonds : `PERSON_HISTORY_MAX_CHAPTERS_PER_RUN` (8), `PERSON_HISTORY_MAX_MESSAGES_PER_CHAPTER` (400), `PERSON_HISTORY_DAILY_TOKEN_BUDGET` (80 000 tokens/jour). Spécification complète : `docs/superpowers/specs/2026-08-19-person-history-memory-design.md`.
 
 ### Agent mémoire enrichi
