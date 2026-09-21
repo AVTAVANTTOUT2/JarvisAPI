@@ -806,13 +806,112 @@ EMAIL_CHECK_INTERVAL=120      # secondes entre 2 scans (défaut 2 min)
 - 50 mails/jour : ~$0.05/jour, ~$1.50/mois
 - L'hydratation du cache au boot garantit que **chaque mail n'est analysé qu'une seule fois** dans toute la vie de la base SQLite.
 
+## Ingestion durable (mail, iMessage, calendrier)
+
+Le worker `scripts/ingestion_service.py` (`com.jarvis.ingestion` via launchd) synchronise
+**mail**, **iMessage** et **calendrier** dans SQLite pour le RAG, les briefings et le
+retrieval. Le backend FastAPI **ne forke pas** ce worker après le chargement de
+Torch/uvloop — la readiness et `/api/data-health` exposent l'état du service externe
+(`api/lifespan.py`).
+
+### Architecture
+
+| Module | Rôle |
+|---|---|
+| `jarvis/ingestion/service.py` | Worker : files `ingestion_jobs`, baux, handlers par source |
+| `database/ingestion.py` | Liaisons connecteur (`connector_bindings`), état (`ingestion_source_state`) |
+| `integrations/imessage_import.py` | Import incrémental `chat.db` → `imessage_messages` |
+| `database/knowledge.py` | Cache calendrier (`calendar_events`) |
+| `database/email.py` | Cache mail (`email_messages`) |
+
+Sources obligatoires : `mail`, `imessage`, `calendar`
+(`jarvis/ingestion/models.REQUIRED_CONNECTOR_SOURCES`). Liaison explicite :
+
+```bash
+python scripts/ingestion_service.py bind-local --source mail imessage calendar
+```
+
+### Garde-fous anti-purge (#283)
+
+L'ingestion **ne doit jamais effacer un cache entier** sur une source vide ou non
+fiable :
+
+| Source | Situation | Comportement |
+|---|---|---|
+| iMessage | `chat.db` sans message, handle ni chat alors que `jarvis.db` contient encore des messages | `reconcile_deleted_messages` lève une erreur — pas de purge |
+| Calendrier | Événements reçus mais tous impersistables (titre/date manquants) | Pas de réconciliation de fenêtre (`upsert_calendar_events`) |
+| Calendrier | `status=ok` avec `events=()` alors que le cache contient des lignes | Réconciliation **différée d'un cycle** (`empty_window_deferred` dans le curseur) ; deux lectures vides consécutives valent suppression réelle |
+| Calendrier | Filtre connecteur excluant tous les événements | Fenêtre conservée (`calendar_filter_excluded_all`) |
+
+Tests : `tests/test_durable_ingestion.py`, `tests/test_imessage_import.py`.
+
+### Observabilité
+
+| Route | Verrou | Contenu |
+|---|---|---|
+| `GET /api/health/ready` | **public** | Readiness ingestion : heartbeat worker + fraîcheur des trois connecteurs |
+| `GET /api/data-health` | session standard | Détail : couvertures, lag, files `ingestion_jobs`, codes d'erreur par source |
+
+Le worker publie un heartbeat (`INGESTION_HEARTBEAT_INTERVAL_S`, défaut 10 s) ;
+`/api/health/ready` répond `503` si le heartbeat dépasse
+`INGESTION_HEARTBEAT_MAX_AGE_S` (défaut 30 s) ou si un connecteur lié est périmé
+(2× l'intervalle de sync de la source).
+
+### Variables d'env
+
+```bash
+INGESTION_SERVICE_ENABLED=true
+INGESTION_HEARTBEAT_INTERVAL_S=10
+INGESTION_HEARTBEAT_MAX_AGE_S=30
+INGESTION_IMESSAGE_INTERVAL_S=30
+INGESTION_IMESSAGE_WATCH_ENABLED=true
+INGESTION_MAIL_INTERVAL_S=60
+INGESTION_CALENDAR_INTERVAL_S=300
+```
+
+L'email watcher (`scripts/email_watcher.py`) reste un pipeline **analytique**
+(Haiku → notifications/tâches) ; l'ingestion durable alimente le **cache SQLite**
+consulté par le RAG et les agents.
+
 ## Contrôle ordinateur (macOS)
 
 JARVIS peut exécuter des actions sur le Mac local via `integrations/computer.py` (subprocess + AppleScript), pilotées par des blocs ```action``` dans les réponses (voir `prompts/persona.txt`).
 
-**Module** : `ComputerControl` — `run(str)` legacy est déprécié et refuse toute exécution ; les helpers `open_app`, `find_files`, `clipboard` (`pbcopy` / `pbpaste`), `get_battery` / `get_wifi` / `get_disk_space`, `get_running_apps`, `get_active_window` et `run_applescript` utilisent des argv fixes validés, sans shell, avec un environnement enfant minimal.
+**Module** : `ComputerControl` — `run(str)` legacy est déprécié et refuse toute exécution ; les helpers `launch` / `open_app`, `find_files`, `clipboard` (`pbcopy` / `pbpaste`), `get_battery` / `get_wifi` / `get_disk_space`, `get_running_apps`, `get_active_window` et `run_applescript` utilisent des argv fixes validés, sans shell, avec un environnement enfant minimal.
 
-**Actions** (`actions.py` → `execute_action`) : `terminal`, `open_app`, `find_file`, `clipboard`, `system_info`. Les types autorisés à déclencher une **2e passe LLM** passent d'abord par une allowlist de champs, des plafonds et la frontière secrets/PII de `jarvis/security/llm_data_boundary.py`. Le presse-papiers est local-only et ne déclenche jamais cette seconde passe — flag `ACTIONS_WITH_FOLLOWUP` dans `api/chat_actions.py`.
+**Actions** (`actions.py` → `execute_action`) : `terminal`, `launch` (alias `open_app`), `find_file`, `clipboard`, `system_info`, `run_shortcut`. Les types autorisés à déclencher une **2e passe LLM** passent d'abord par une allowlist de champs, des plafonds et la frontière secrets/PII de `jarvis/security/llm_data_boundary.py`. Le presse-papiers est local-only et ne déclenche jamais cette seconde passe — flag `ACTIONS_WITH_FOLLOWUP` dans `api/chat_actions.py`.
+
+### Primitif `launch` (ADR-037)
+
+`launch` et `open_app` partagent le même handler (`_action_launch`). La cible est résolue par `integrations/launch_targets.resolve_launch_target()` puis ouverte via `/usr/bin/open` — jamais via le shell LLM.
+
+| Champ action | Rôle |
+|---|---|
+| `url` | http(s), schémas allowlistés (`LAUNCH_URL_SCHEMES`), ou requête catalogue (ex. YouTube → `@slug`) |
+| `path` | Fichier ou dossier sous `$HOME` uniquement |
+| `name` / `app_name` / `app` | Nom d'application (`open -a`) |
+| `query` | Recherche catalogue hôte (YouTube, Spotify, Maps) |
+
+Refusés : `javascript:`, `data:`, chemins hors home, `open --args`, credentials dans l'URL. `mailto:` ouvre le composeur ; l'envoi reste l'action `mail` confirmée.
+
+Exemple : « ouvre la chaîne de Squeezie » → `{"type":"launch","url":"https://www.youtube.com/@Squeezie"}` sans confirmation.
+
+### Charte de confiance (`JARVIS_TRUST_PROFILE`)
+
+Trois profils (`restricted` par défaut, `standard`, `majordomo`) ; helper `config.trust_allows(class_name)`. Décision complète : `Architecture/adr/ADR-037-charte-majordome.md`.
+
+| Classe | restricted | standard / majordomo |
+|---|---|---|
+| `local.launch`, `local.read`, `local.media` | auto | auto |
+| `local.shortcuts` (risk=low, `requires_confirmation=0`) | confirmé | auto |
+| `local.shortcuts` (risk=high/medium) | confirmé | confirmé |
+| `comms.send`, `money`, `shell`, `destructive`, `agentic.code` | confirmé | confirmé |
+
+`launch` n'est pas dans `ACTIONS_REQUIRING_CONFIRMATION`. Mail, iMessage, Uber et le terminal restent confirmés quel que soit le profil.
+
+### Apple Shortcuts
+
+Opt-in `APPLE_SHORTCUTS_ENABLED`. `_action_run_shortcut` n'exécute sans plan que si le raccourci est au registre SQLite, `risk=low`, `requires_confirmation=0` et `trust_allows("local.shortcuts")`. Sinon : plan opaque + `action_confirm` (même logique que le terminal).
 
 **Sécurité terminal LLM** : `_action_terminal()` n'appelle jamais
 `ComputerControl.run()`. Il construit un plan opaque via
@@ -825,10 +924,13 @@ valeur `confirmed:true` sans plan serveur est ignorée.
 **WebSocket** : message `action_confirm` exécute l’action avec confirmation et, si besoin, envoie `response_followup` + persistance de la synthèse.
 
 **Config** : `COMPUTER_ACCESS`, `COMPUTER_SHELL`, `COMPUTER_TIMEOUT`,
+`JARVIS_TRUST_PROFILE`, `LAUNCH_URL_SCHEMES`, `APPLE_SHORTCUTS_ENABLED`,
 `LLM_SHELL_WORKSPACE`, `LLM_SHELL_MAX_COMMANDS`,
-`LLM_SHELL_MAX_TIMEOUT`, `LLM_SHELL_PLAN_TTL_SECONDS` dans `.env`.
-**`/api/status`** et **`/api/integrations`** exposent
-`computer: { available }`. Le chemin du shell reste une valeur de
+`LLM_SHELL_MAX_TIMEOUT`, `LLM_SHELL_PLAN_TTL_SECONDS` dans `.env` /
+`.env.config` (flags applicatifs hors secrets). **`/api/status`** et
+**`/api/integrations`** exposent `computer: { available }` et
+`macos_permissions` (sondes TCC lecture seule via
+`scripts/macos_permission_doctor.py`). Le chemin du shell reste une valeur de
 configuration locale : le publier n'apprenait rien à l'interface et décrivait
 l'environnement du poste à qui lisait la réponse.
 
@@ -1680,7 +1782,9 @@ mesure rien de neuf : il rappelle les primitives existantes et les traduit en
 | Route | Verrou | Contenu |
 |---|---|---|
 | `GET /api/health/live` | **public** | `{"status": "ok"}`. Rien d'autre : ni version, ni hôte, ni composant, ni compteur |
+| `GET /api/health/ready` | **public** | Readiness ingestion : heartbeat du worker + fraîcheur mail/iMessage/calendrier |
 | `GET /api/health/detail` | session standard | Agrégat complet des composants, `?refresh=true` force une resonde |
+| `GET /api/data-health` | session standard | Diagnostic ingestion authentifié (couvertures, lag, files de jobs) |
 
 La sonde de vie est publique par nécessité : un superviseur ou un launchd doit
 pouvoir distinguer « application verrouillée » de « application morte », et le
@@ -1844,6 +1948,24 @@ L'orchestrateur formate ce dict en texte dense injecté dans `memory_context` du
 - **Vue Contacts (UI + API)** : `GET /api/people` utilise `get_people_sorted_by_recent()` qui retourne maintenant `message_count` (colonne `imessage_count` synchronisée depuis `imessage_analysis_cache`). Description IA (`GET` / `POST .../description*`). **`PATCH /api/people/{name}`** (renommage). **`POST .../ask`** (Sonnet, logs `[contact_chat]`). **Analytics** : **`GET /api/people/{name}/analytics`** → `ContactAnalytics.compute_all()` (Python pur). **Timeline Haiku** : **`GET /api/people/{name}/timeline`**. **Actions** : **`POST .../send`** (`send_imessage_to_address`), **`POST .../suggest-message`** (Haiku), **`POST .../remind`** → `create_task` catégorie `relation`. UI : sections score, tendance, sentiment, sujets, non-répondus, échanges, patterns, dates, actions, timeline ; même style glass que le reste.
 - **Renommage automatique** : lors de l'analyse iMessage, si le nom du contact est un numéro de téléphone et que Haiku retourne un `likely_name`, le contact est automatiquement renommé via `rename_person_if_phone_number()`.
 
+### Chapitres mensuels (mémoire relationnelle)
+
+Un job d'ingestion (`scripts/person_history.py`, file `ingestion_jobs`) distille **un chapitre par personne et par mois civil** (`TIMEZONE`) depuis `imessage_messages` déjà importés — jamais depuis `chat.db` directement. Table `person_month_chapters` : statuts `empty` / `partial` / `complete`, highlights typés, hash de contenu pour éviter les régénérations inutiles.
+
+Le retrieval (`jarvis/retrieval/coordinator.py`) classe les questions contacts avant tout LLM :
+
+| Type | Déclencheur (heuristique) | Sources lues |
+|---|---|---|
+| Identité | « qui est… », « c'est qui… » | dossier + 3 derniers chapitres |
+| Histoire | « histoire avec », « depuis le début » | tous les chapitres, synthèse Main si besoin |
+| Fait récent | dates explicites, « hier », « ce week-end » | `imessage_messages` bornés (`time_buckets`) |
+
+Si un mois manque pour une question *histoire*, un job est enfilé ; l'événement `person.chapter_updated` part sur le bus SSE après commit. Le runtime agentique **n'écrit jamais** dans `person_month_chapters` — uniquement l'ingestion et les corrections de code (task-control).
+
+Un chapitre déjà `complete` n'est **jamais rétrogradé** si le LLM échoue ou si le budget est épuisé lors d'une régénération : `build_chapter()` conserve la version existante (`deferred: true`) et retente au prochain run.
+
+Plafonds : `PERSON_HISTORY_MAX_CHAPTERS_PER_RUN` (8), `PERSON_HISTORY_MAX_MESSAGES_PER_CHAPTER` (400), `PERSON_HISTORY_DAILY_TOKEN_BUDGET` (80 000 tokens/jour). Spécification complète : `docs/superpowers/specs/2026-08-19-person-history-memory-design.md`.
+
 ### Agent mémoire enrichi
 
 `agents/memory.py` stocke maintenant aussi dans les nouvelles tables :
@@ -1868,6 +1990,8 @@ L'orchestrateur formate ce dict en texte dense injecté dans `memory_context` du
 | `/api/people/{name}/ask` | POST | `{"question":"..."}` — réponse Sonnet contextualisée (profil + timeline + derniers messages iMessage via `get_recent_conversation` / handle profil) |
 | `/api/people/{name}/description` | GET | Description courte en cache (`people.ai_description`) ou génération Haiku puis cache |
 | `/api/people/{name}/description/refresh` | POST | Efface le cache et régénère la description |
+| `/api/people/{name}/history` | GET | `?from=YYYY-MM&to=YYYY-MM` — chapitres mensuels (`person_month_chapters`) |
+| `/api/people/{name}/history/rebuild` | POST | Enfile un job d'ingestion des chapitres manquants (202) |
 | `/api/relationship/{name}` | GET | Profil complet : person + relationship_profile + timeline |
 
 ## Prompt caching — implémentation
