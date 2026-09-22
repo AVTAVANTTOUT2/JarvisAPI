@@ -27,6 +27,7 @@ from database import (
     get_db,
     get_ingestion_source_state,
     init_db,
+    ingestion_job_lease_active,
     list_connector_bindings,
     list_ingestion_jobs,
     refresh_local_connector_device_hash,
@@ -64,6 +65,30 @@ _SOURCE_ALIASES = {
     "calendar": "calendar",
 }
 _INGESTION_LEASE_SECONDS = 45
+
+
+def _job_lease_active(job: IngestionJob) -> bool:
+    token = job.lease_token or ""
+    if not token:
+        return False
+    return ingestion_job_lease_active(job.id, token)
+
+
+def _lease_lost_result(
+    job: IngestionJob,
+    state: IngestionSourceState | None,
+) -> IngestionRunResult:
+    return IngestionRunResult(
+        status="degraded",
+        item_count=state.item_count if state else 0,
+        cursor=dict(state.cursor) if state and state.cursor else {},
+        completeness=state.completeness if state else "unknown",
+        coverage_start_utc=state.coverage_start_utc if state else None,
+        coverage_end_utc=state.coverage_end_utc if state else None,
+        last_item_at=state.last_item_at if state else None,
+        error_code="ingestion_lease_lost",
+        error_message="worker lease expired before completion",
+    )
 
 
 def _create_ingestion_proposal(
@@ -672,6 +697,8 @@ async def _imessage_sync(
     has_failure = bool(failed or result.errors or reconcile_failed)
     deletion_reconcile_failed = False
     if not has_failure:
+        if not _job_lease_active(job):
+            return _lease_lost_result(job, state)
         try:
             await asyncio.to_thread(imessage_importer.reconcile_deleted_messages)
         except Exception as exc:
@@ -901,6 +928,9 @@ async def _calendar_sync(
                 ),
             )
 
+    if not _job_lease_active(job):
+        return _lease_lost_result(job, state)
+
     upsert_calendar_events(events, window_start=from_iso, window_end=to_iso)
     with get_db() as conn:
         aggregate = conn.execute(
@@ -968,7 +998,9 @@ async def _invoke_handler(
 
 
 async def _renew_claimed_job_lease(
-    job: IngestionJob, stop_event: asyncio.Event
+    job: IngestionJob,
+    stop_event: asyncio.Event,
+    lease_lost: asyncio.Event,
 ) -> None:
     interval = max(5.0, _INGESTION_LEASE_SECONDS / 3)
     while not stop_event.is_set():
@@ -981,6 +1013,7 @@ async def _renew_claimed_job_lease(
                 job.lease_token or "",
                 lease_seconds=_INGESTION_LEASE_SECONDS,
             ):
+                lease_lost.set()
                 logger.error(
                     "[ingestion] lease lost source=%s kind=%s",
                     job.source,
@@ -1036,7 +1069,10 @@ async def _process_profile_jobs(
             increment_generation=True,
         )
         lease_stop = asyncio.Event()
-        lease_task = asyncio.create_task(_renew_claimed_job_lease(job, lease_stop))
+        lease_lost = asyncio.Event()
+        lease_task = asyncio.create_task(
+            _renew_claimed_job_lease(job, lease_stop, lease_lost)
+        )
         try:
             try:
                 result = await _invoke_handler(handler, job, binding, state)
@@ -1046,6 +1082,14 @@ async def _process_profile_jobs(
                     job.source,
                     job.job_kind,
                 )
+                if lease_lost.is_set() or not _job_lease_active(job):
+                    logger.warning(
+                        "[ingestion] handler exception ignored after lease loss "
+                        "source=%s kind=%s",
+                        job.source,
+                        job.job_kind,
+                    )
+                    continue
                 if fail_ingestion_job(
                     job.id,
                     job.lease_token,
@@ -1069,6 +1113,14 @@ async def _process_profile_jobs(
             lease_task.cancel()
             with suppress(asyncio.CancelledError):
                 await lease_task
+        if lease_lost.is_set() or not _job_lease_active(job):
+            logger.warning(
+                "[ingestion] discarding handler result after lease loss "
+                "source=%s kind=%s",
+                job.source,
+                job.job_kind,
+            )
+            continue
         if result.status == "ok":
             if complete_ingestion_job(job.id, job.lease_token):
                 finished = sqlite_utc_timestamp()

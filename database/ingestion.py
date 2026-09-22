@@ -923,6 +923,21 @@ def renew_ingestion_job_lease(
     return bool(cursor.rowcount)
 
 
+def ingestion_job_lease_active(job_id: int, lease_token: str) -> bool:
+    """Vérifie que ce worker détient encore le claim courant."""
+
+    with get_db() as conn:
+        row = conn.execute(
+            """
+            SELECT 1 FROM ingestion_jobs
+            WHERE id = ? AND profile_id = ? AND status = 'running'
+              AND lease_token = ?
+            """,
+            (int(job_id), current_profile_id(), str(lease_token)),
+        ).fetchone()
+    return row is not None
+
+
 def fail_ingestion_job(
     job_id: int,
     lease_token: str,
@@ -1307,6 +1322,7 @@ __all__ = [
     "list_pending_recording_sessions",
     "mark_dead_recording_sessions_failed",
     "normalize_contact_identity",
+    "ingestion_job_lease_active",
     "renew_ingestion_job_lease",
     "touch_ingestion_heartbeat",
     "unbind_connector",
