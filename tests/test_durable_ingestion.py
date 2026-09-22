@@ -1354,3 +1354,93 @@ def test_calendar_upsert_skips_reconciliation_when_events_unpersistable(
             ("kept-event",),
         ).fetchone()
     assert row is not None
+
+
+def test_ingestion_job_lease_active_rejects_stale_token(ingestion_db: Path) -> None:
+    from database.ingestion import (
+        claim_ingestion_jobs,
+        enqueue_ingestion_job,
+        ingestion_job_lease_active,
+    )
+
+    job = enqueue_ingestion_job(
+        "recording",
+        job_kind="recording_process",
+        dedupe_key="recording:lease-check",
+        require_binding=False,
+    )
+    claimed = claim_ingestion_jobs(
+        "worker",
+        handler_pairs=[("recording", "recording_process")],
+    )[0]
+    token = claimed.lease_token or ""
+    assert ingestion_job_lease_active(job.id, token) is True
+    assert ingestion_job_lease_active(job.id, "stale-token") is False
+
+
+@pytest.mark.asyncio
+async def test_calendar_sync_skips_reconcile_when_lease_lost(
+    ingestion_db: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Un worker sans lease ne doit pas purger le cache calendrier."""
+
+    from database import get_cached_calendar_events, get_db
+    from database.ingestion import bind_connector
+    from database.knowledge import upsert_calendar_events
+    from integrations import calendar_api
+    from integrations.calendar_api import CalendarQueryResult
+    from jarvis.ingestion.models import IngestionJob, IngestionSourceState
+    from jarvis.ingestion.service import _calendar_sync
+
+    window_start = datetime(2026, 8, 10, 8, 0, tzinfo=timezone.utc)
+    window_end = datetime(2026, 8, 20, 8, 0, tzinfo=timezone.utc)
+    upsert_calendar_events(
+        [
+            {
+                "uid": "kept-event",
+                "title": "Réunion existante",
+                "start": window_start.isoformat(),
+                "end": window_end.isoformat(),
+                "calendar": "Travail",
+            }
+        ],
+        window_start=window_start.isoformat(),
+        window_end=window_end.isoformat(),
+    )
+
+    class _EmptyCalendar:
+        async def get_events_result(self, start: str, end: str) -> CalendarQueryResult:
+            return CalendarQueryResult(status="ok", events=())
+
+    monkeypatch.setattr(calendar_api, "calendar_client", _EmptyCalendar())
+    binding = bind_connector("calendar", consent_source="explicit_test", settings={})
+    deferred_key = f"{window_start.isoformat()}|{window_end.isoformat()}"
+    job = IngestionJob(
+        id=1,
+        profile_id="default",
+        source="calendar",
+        job_kind="sync",
+        dedupe_key="sync:lease-lost",
+        payload={
+            "from_iso": window_start.isoformat(),
+            "to_iso": window_end.isoformat(),
+        },
+        lease_token="stale-token",
+    )
+    state = IngestionSourceState(
+        source="calendar",
+        profile_id="default",
+        cursor={"empty_window_deferred": deferred_key},
+    )
+
+    result = await _calendar_sync(job, binding, state)
+
+    assert result.error_code == "ingestion_lease_lost"
+    assert len(get_cached_calendar_events()) == 1
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT external_id FROM calendar_events WHERE external_id = ?",
+            ("kept-event",),
+        ).fetchone()
+    assert row is not None

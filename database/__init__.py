@@ -75,6 +75,7 @@ from .ingestion import (
     list_pending_recording_sessions,
     mark_dead_recording_sessions_failed,
     normalize_contact_identity,
+    ingestion_job_lease_active,
     renew_ingestion_job_lease,
     touch_ingestion_heartbeat,
     unbind_connector,
