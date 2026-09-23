@@ -145,8 +145,8 @@ _CLITICS = r"(?:les?\s+|la\s+|leur\s+|lui\s+|[ml]es\s+|l\s*'?\s*)?"
 _ADVERS_BEFORE_NEG = r"(?:(?:\w+)\s+)*"
 
 _NO_EXECUTION_PATTERNS: tuple[re.Pattern[str], ...] = (
-    # « ne pas lancer » — infinitif après « pas », distinct de « ne lance pas ».
-    re.compile(rf"\bne\s+pas\s+(?:{_EXEC_VERBS})\b"),
+    # « ne pas lancer » / « ne pas les lancer » — infinitif après « pas ».
+    re.compile(rf"\bne\s+pas\s+{_CLITICS}(?:{_EXEC_VERBS})\b"),
     re.compile(
         rf"\bne\s+{_CLITICS}(?:{_EXEC_VERBS})\s+{_ADVERS_BEFORE_NEG}(?:pas|rien)\b"
     ),
@@ -162,7 +162,7 @@ _NO_EXECUTION_PATTERNS: tuple[re.Pattern[str], ...] = (
 )
 
 _NO_MODIFICATION_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(rf"\bne\s+pas\s+(?:{_WRITE_VERBS})\b"),
+    re.compile(rf"\bne\s+pas\s+{_CLITICS}(?:{_WRITE_VERBS})\b"),
     re.compile(
         rf"\bne\s+{_CLITICS}(?:{_WRITE_VERBS})\s+{_ADVERS_BEFORE_NEG}(?:pas|rien)\b"
     ),

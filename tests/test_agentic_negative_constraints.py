@@ -60,6 +60,9 @@ REPRO = "Dis-moi si tous les tests passent, mais ne les exécute pas."
         "ne pas lancer les tests",
         "ne pas exécuter la migration",
         "Dis-moi si tous les tests passent, mais ne pas lancer les tests.",
+        "ne pas les lancer",
+        "ne pas les exécuter",
+        "Dis-moi si tous les tests passent, mais ne pas les lancer.",
     ],
 )
 def test_interdictions_execution_francaises(request_text: str) -> None:
@@ -99,6 +102,7 @@ def test_interdictions_execution_anglaises(request_text: str) -> None:
         "ne rien toucher, seulement inspecter",
         "ne pas modifier le code",
         "Fais un audit complet du dépôt, ne pas modifier les fichiers.",
+        "ne pas les modifier",
     ],
 )
 def test_interdictions_modification(request_text: str) -> None:
