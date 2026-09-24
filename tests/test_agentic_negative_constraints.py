@@ -63,6 +63,8 @@ REPRO = "Dis-moi si tous les tests passent, mais ne les exécute pas."
         "ne pas les lancer",
         "ne pas les exécuter",
         "Dis-moi si tous les tests passent, mais ne pas les lancer.",
+        "Dis-moi si tous les tests passent — interdiction de lancer les tests.",
+        "interdiction d'exécuter la migration",
     ],
 )
 def test_interdictions_execution_francaises(request_text: str) -> None:
@@ -210,6 +212,16 @@ def test_repro_ne_produit_aucune_categorie_deleguee() -> None:
     classification = classify_agentic_request(REPRO, adaptive=True)
     assert classification.category is AgenticRequestCategory.DIRECT_ACTION
     # La preuve que répondre exigeait l'action interdite est conservée.
+    assert classification.blocked_category is AgenticRequestCategory.WORKFLOW
+    assert classification.constraints.no_execution is True
+
+
+def test_interdiction_de_lancer_bloque_workflow() -> None:
+    classification = classify_agentic_request(
+        "Dis-moi si tous les tests passent — interdiction de lancer les tests.",
+        adaptive=True,
+    )
+    assert classification.category is AgenticRequestCategory.DIRECT_ACTION
     assert classification.blocked_category is AgenticRequestCategory.WORKFLOW
     assert classification.constraints.no_execution is True
 

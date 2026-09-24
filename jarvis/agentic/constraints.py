@@ -159,6 +159,8 @@ _NO_EXECUTION_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\bsans\s+(?:rien\s+)?(?:executer|lancer|demarrer|deployer|fusionner)\b"),
     re.compile(r"\bwithout\s+(?:running|executing|starting|launching|deploying|merging)\b"),
     re.compile(r"\bne\s+rien\s+(?:executer|lancer|demarrer|deployer|fusionner)\b"),
+    # « interdiction de lancer » / « interdiction d'exécuter » — formule nominale.
+    re.compile(rf"\binterdiction\s+d(?:e\s+|'\s*)(?:{_EXEC_VERBS})\b"),
 )
 
 _NO_MODIFICATION_PATTERNS: tuple[re.Pattern[str], ...] = (
@@ -177,6 +179,7 @@ _NO_MODIFICATION_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\blecture\s+seule\b"),
     re.compile(r"\bread[\s-]?only\b"),
     re.compile(r"\ben\s+lecture\s+seule\b"),
+    re.compile(rf"\binterdiction\s+d(?:e\s+|'\s*)(?:{_WRITE_VERBS})r?\b"),
 )
 
 _ANSWER_ONLY_PATTERNS: tuple[re.Pattern[str], ...] = (
