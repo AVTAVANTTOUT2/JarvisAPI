@@ -126,7 +126,7 @@ _EXAMPLE_LEAD_IN = re.compile(
 # d'exécution ou de modification. Le verbe est nommé : « ne me dérange pas »
 # n'est pas une interdiction d'exécution.
 _EXEC_VERBS = (
-    r"execute|executes|executez|exec|lance|lances|lancez|lancer|demarre|demarres|"
+    r"execute|executes|executez|executer|exec|lance|lances|lancez|lancer|demarre|demarres|"
     r"demarrez|demarrer|run|runs|start|starts|trigger|triggers|launch|launches|"
     r"deploies|deploient|deployez|deployer|deploys|deploying|deploie|deploy|"
     r"merging|merges|mergez|merge|fusionnes|fusionnez|fusionner|fusionne"
@@ -145,6 +145,8 @@ _CLITICS = r"(?:les?\s+|la\s+|leur\s+|lui\s+|[ml]es\s+|l\s*'?\s*)?"
 _ADVERS_BEFORE_NEG = r"(?:(?:\w+)\s+)*"
 
 _NO_EXECUTION_PATTERNS: tuple[re.Pattern[str], ...] = (
+    # « ne pas lancer » / « ne pas les lancer » — infinitif après « pas ».
+    re.compile(rf"\bne\s+pas\s+{_CLITICS}(?:{_EXEC_VERBS})\b"),
     re.compile(
         rf"\bne\s+{_CLITICS}(?:{_EXEC_VERBS})\s+{_ADVERS_BEFORE_NEG}(?:pas|rien)\b"
     ),
@@ -157,9 +159,12 @@ _NO_EXECUTION_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\bsans\s+(?:rien\s+)?(?:executer|lancer|demarrer|deployer|fusionner)\b"),
     re.compile(r"\bwithout\s+(?:running|executing|starting|launching|deploying|merging)\b"),
     re.compile(r"\bne\s+rien\s+(?:executer|lancer|demarrer|deployer|fusionner)\b"),
+    # « interdiction de lancer » / « interdiction d'exécuter » — formule nominale.
+    re.compile(rf"\binterdiction\s+d(?:e\s+|'\s*)(?:{_EXEC_VERBS})\b"),
 )
 
 _NO_MODIFICATION_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(rf"\bne\s+pas\s+{_CLITICS}(?:{_WRITE_VERBS})\b"),
     re.compile(
         rf"\bne\s+{_CLITICS}(?:{_WRITE_VERBS})\s+{_ADVERS_BEFORE_NEG}(?:pas|rien)\b"
     ),
@@ -174,6 +179,7 @@ _NO_MODIFICATION_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\blecture\s+seule\b"),
     re.compile(r"\bread[\s-]?only\b"),
     re.compile(r"\ben\s+lecture\s+seule\b"),
+    re.compile(rf"\binterdiction\s+d(?:e\s+|'\s*)(?:{_WRITE_VERBS})r?\b"),
 )
 
 _ANSWER_ONLY_PATTERNS: tuple[re.Pattern[str], ...] = (
