@@ -34,22 +34,12 @@ def _merge_into_existing(conn, keep_id: int, drop_id: int) -> None:
 
     if keep_id == drop_id:
         return
-    keep_prof = conn.execute(
-        "SELECT id FROM relationship_profiles WHERE person_id = ?",
-        (keep_id,),
-    ).fetchone()
-    dup_profiles = conn.execute(
-        "SELECT id FROM relationship_profiles WHERE person_id = ?",
-        (drop_id,),
-    ).fetchall()
-    if keep_prof:
-        for row in dup_profiles:
-            conn.execute("DELETE FROM relationship_profiles WHERE id = ?", (row["id"],))
-    else:
-        conn.execute(
-            "UPDATE relationship_profiles SET person_id = ? WHERE person_id = ?",
-            (keep_id, drop_id),
-        )
+    # Reparenter les profils du doublon : un DELETE effaçait le handle iMessage
+    # et rendait l'historique du contact invisible après sync Contacts.app.
+    conn.execute(
+        "UPDATE relationship_profiles SET person_id = ? WHERE person_id = ?",
+        (keep_id, drop_id),
+    )
     _merge_people_ids(conn, keep_id, drop_id)
 
 
