@@ -714,3 +714,35 @@ def test_sync_contacts_merge_preserves_month_chapters(history_db: Path) -> None:
     assert chapter is not None
     assert chapter["message_count"] == 3
     assert "Chapitre juillet." in chapter["narrative"]
+
+
+def test_sync_contacts_merge_preserves_imessage_handle(history_db: Path) -> None:
+    from database import get_db
+    from scripts.sync_contacts import _merge_into_existing
+
+    with get_db() as conn:
+        keep_id = conn.execute(
+            "INSERT INTO people(name) VALUES ('Marie Martin')"
+        ).lastrowid
+        drop_id = conn.execute(
+            "INSERT INTO people(name) VALUES ('+33612345678')"
+        ).lastrowid
+        conn.execute(
+            "INSERT INTO relationship_profiles (person_id, handle) VALUES (?, ?)",
+            (int(keep_id), "marie@icloud.com"),
+        )
+        conn.execute(
+            "INSERT INTO relationship_profiles (person_id, handle) VALUES (?, ?)",
+            (int(drop_id), "+33612345678"),
+        )
+        _merge_into_existing(conn, int(keep_id), int(drop_id))
+
+        handles = {
+            str(row["handle"])
+            for row in conn.execute(
+                "SELECT handle FROM relationship_profiles WHERE person_id = ?",
+                (int(keep_id),),
+            ).fetchall()
+            if row["handle"]
+        }
+    assert handles == {"marie@icloud.com", "+33612345678"}
