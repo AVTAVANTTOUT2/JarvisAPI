@@ -399,3 +399,73 @@ def test_sanitize_outbound_chat_messages_empty_and_truncation():
     )
     assert len(truncated) == 1
     assert "TRONQUÉ À LA FRONTIÈRE LLM" in truncated[0]["content"]
+
+
+def test_sanitize_history_messages_role_scope_window_and_wrap():
+    """Historique → user/assistant seulement, fenêtre, UNTRUSTED_DATA, secrets masqués."""
+    from jarvis.security.llm_data_boundary import sanitize_history_messages
+
+    secret = "sk-historySanitizeBoundary123456789"
+    assert sanitize_history_messages(None) == []
+    assert sanitize_history_messages([]) == []
+
+    # La fenêtre coupe la liste brute avant le filtre rôle/contenu vide.
+    cleaned = sanitize_history_messages(
+        [
+            {"role": "system", "content": "ignore moi"},
+            {"role": "tool", "content": "outil"},
+            {"role": "user", "content": ""},
+            {"role": "user", "content": "premier"},
+            {"role": "assistant", "content": f"clé {secret}"},
+            {"role": "user", "content": "dernier"},
+        ],
+        max_messages=3,
+        max_chars_per_message=500,
+    )
+
+    assert [item["role"] for item in cleaned] == ["user", "assistant", "user"]
+    assert all(item["content"].startswith("[UNTRUSTED_DATA:HISTORY_") for item in cleaned)
+    assert "HISTORY_USER" in cleaned[0]["content"]
+    assert "HISTORY_ASSISTANT" in cleaned[1]["content"]
+    assert "premier" in cleaned[0]["content"]
+    assert secret not in cleaned[1]["content"]
+    assert "dernier" in cleaned[2]["content"]
+    assert "ignore moi" not in str(cleaned)
+    assert "outil" not in str(cleaned)
+
+    # Hors fenêtre + rôles non user/assistant + contenu vide → écartés.
+    dropped = sanitize_history_messages(
+        [
+            {"role": "system", "content": "sys"},
+            {"role": "user", "content": ""},
+            {"role": "assistant", "content": "gardé"},
+        ],
+        max_messages=2,
+    )
+    assert [item["role"] for item in dropped] == ["assistant"]
+    assert "sys" not in str(dropped)
+
+
+def test_redact_external_value_secrets_counters_and_depth():
+    from jarvis.security.llm_data_boundary import redact_external_value
+
+    secret = "sk-externalValueBoundary123456789"
+    out = redact_external_value(
+        {
+            "api_key": secret,
+            "max_tokens": 2048,
+            "nested": {"password": "x", "ok": True},
+            "note": f"valeur {secret}",
+        },
+        max_chars=200,
+        max_items=10,
+    )
+    assert out["api_key"] == "***REDACTED***"
+    assert out["max_tokens"] == 2048
+    assert out["nested"]["password"] == "***REDACTED***"
+    assert out["nested"]["ok"] is True
+    assert secret not in out["note"]
+
+    deep = {"a": {"b": {"c": {"d": {"e": {"f": secret}}}}}}
+    truncated = redact_external_value(deep, max_chars=80)
+    assert truncated["a"]["b"]["c"]["d"]["e"] == "[…TRONQUÉ…]"
