@@ -56,6 +56,10 @@ Ouvrir `http://127.0.0.1:8080/voice-display`, ou le mode dédié :
 ./scripts/launch_voice_display.sh
 ```
 
+La route est dans la liste blanche SPA de `api/frontend.py` (`voice-display`) : un
+rechargement dur sert `frontend/out/voice-display/index.html` au lieu de retomber
+sur 404.
+
 Le lanceur utilise Chrome en mode kiosk et ne contient aucun secret. Pour le
 lancer à l’ouverture de session macOS, ajouter ce script dans Réglages Système
 → Général → Ouverture. `VOICE_DISPLAY_URL` permet de changer l’URL sans modifier

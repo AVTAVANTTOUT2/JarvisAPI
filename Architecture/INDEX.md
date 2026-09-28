@@ -1,7 +1,7 @@
 # Architecture — index canonique JARVIS API
 
-**Revue :** 27 août 2026
-**Référence code :** `origin/main` @ `6becf26cb3ea4ab47acb1996a2a9125500446ab7`
+**Revue :** 28 septembre 2026
+**Référence code :** `origin/main` @ `67968ed` (Voice HUD route directe #296)
 
 La source structurée des statuts et de la classification documentaire est
 [`project_truth_registry.json`](./project_truth_registry.json). La vue humaine
@@ -62,6 +62,9 @@ achevés sont eux aussi des archives et ne doivent pas être relancés comme
 roadmap.
 ## Extensions produit récentes
 
+- [ADR-037 — charte majordome et primitif `launch`](./adr/ADR-037-charte-majordome.md)
+- [Mémoire relationnelle — chapitres mensuels](../docs/superpowers/specs/2026-08-19-person-history-memory-design.md)
 - [Audit Voice HUD du 29 août 2026](./audit/VOICE_DISPLAY_AUDIT_2026-08-29.md)
 - [Validation Voice HUD du 29 août 2026](./audit/VOICE_DISPLAY_VALIDATION_2026-08-29.md)
 - [Guide produit et technique Voice HUD](../docs/VOICE_DISPLAY.md)
+- Ingestion durable mail/iMessage/calendrier — section « Ingestion durable » de [`CLAUDE.md`](../CLAUDE.md) (garde-fous #283, `/api/data-health`)
