@@ -1,7 +1,7 @@
 # Architecture — index canonique JARVIS API
 
-**Revue :** 27 août 2026
-**Référence code :** `origin/main` @ `6becf26cb3ea4ab47acb1996a2a9125500446ab7`
+**Revue :** 28 septembre 2026
+**Référence code :** `origin/main` @ `67968ed` (Voice HUD route directe #296)
 
 La source structurée des statuts et de la classification documentaire est
 [`project_truth_registry.json`](./project_truth_registry.json). La vue humaine

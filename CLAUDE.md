@@ -1365,6 +1365,28 @@ Détection de parole par volume en temps réel via Web Audio API `AnalyserNode` 
 4. `orchestrator.handle_stream()` strip le tag du flux streaming (les chunks n'affichent PAS `[warm]` dans la bulle).
 5. `_process_message()` (`api/ws_messages.py`, pipeline WebSocket texte + audio) passe `emotion` à `tts.synthesize()` pour adapter la voix.
 
+### Voice HUD — page `/voice-display` (kiosk temps réel)
+
+Écran plein écran **lecture seule** branché sur le pipeline vocal canonique : transcription,
+outils réellement exécutés, sources et réponse structurée, segment TTS en cours. Aucun outil
+n'est déclenché depuis le HUD ; le STT, l'orchestrateur et le TTS restent inchangés.
+
+| Composant | Rôle |
+|---|---|
+| `jarvis/voice_display.py` | Hub d'état borné, modèles Pydantic, publication d'événements |
+| `api/router_voice_display.py` | `GET /api/voice-display/snapshot`, `WS /ws/voice-display` |
+| `frontend` route `voice-display` | Vue React kiosk ; segment whitelist dans `api/frontend.py` |
+| `scripts/launch_voice_display.sh` | Chrome kiosk macOS (sans secret embarqué) |
+
+Activation : `VOICE_DISPLAY_ENABLED=true` (défaut `false`). Le WebSocket exige la même
+session que le bureau (`resolve_websocket_auth`) et active le profil isolé du handshake
+(`activate_websocket_profile` — cookie `jarvis_profile` ou en-tête `X-Jarvis-Profile`).
+Canal **descendant** : seul `pong` est accepté côté client ; toute autre trame → `4405`.
+
+Le 4e WebSocket applicatif du backend (avec `/ws` chat et le canal TV) est
+`/ws/voice-display`. Guide complet, captures et diagnostic :
+`docs/VOICE_DISPLAY.md` ; audits : `Architecture/audit/VOICE_DISPLAY_*.md`.
+
 ### Mode conversation mains libres — page `/voice` (recommandé)
 
 Pipeline vocal complet :
