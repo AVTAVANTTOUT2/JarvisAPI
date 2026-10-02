@@ -245,6 +245,40 @@ def test_cors_is_empty_by_default_and_uses_only_explicit_exact_origins():
     ) == ["https://localhost:5173", "https://jarvis.example:8443"]
 
 
+@pytest.mark.parametrize(
+    "value",
+    [
+        "https://user:pass@jarvis.example",
+        "https://jarvis.example?q=1",
+        "https://jarvis.example#frag",
+        "https://jarvis.example/path",
+        "ftp://jarvis.example",
+        "not-a-url",
+        "",
+    ],
+)
+def test_canonical_origin_rejects_credentials_query_fragment_and_non_http(value):
+    """Origine CSRF : seuls schéma+hôte+port exacts passent — pas d'userinfo."""
+    from api.middleware import _canonical_origin
+
+    assert _canonical_origin(value) is None
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("https://Jarvis.Example.", ("https", "jarvis.example", 443)),
+        ("http://localhost", ("http", "localhost", 80)),
+        ("https://jarvis.example:8443", ("https", "jarvis.example", 8443)),
+        ("http://127.0.0.1:8080/", ("http", "127.0.0.1", 8080)),
+    ],
+)
+def test_canonical_origin_normalizes_scheme_host_port(value, expected):
+    from api.middleware import _canonical_origin
+
+    assert _canonical_origin(value) == expected
+
+
 def test_supervisor_preserved_host_matches_exact_origin(tmp_db):
     with _client() as client:
         authenticate(client)
