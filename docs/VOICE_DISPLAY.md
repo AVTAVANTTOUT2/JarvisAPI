@@ -56,6 +56,10 @@ Ouvrir `http://127.0.0.1:8080/voice-display`, ou le mode dédié :
 ./scripts/launch_voice_display.sh
 ```
 
+La route est dans la liste blanche SPA de `api/frontend.py` (`voice-display`) : un
+rechargement dur sert `frontend/out/voice-display/index.html` au lieu de retomber
+sur 404.
+
 Le lanceur utilise Chrome en mode kiosk et ne contient aucun secret. Pour le
 lancer à l’ouverture de session macOS, ajouter ce script dans Réglages Système
 → Général → Ouverture. `VOICE_DISPLAY_URL` permet de changer l’URL sans modifier
@@ -94,6 +98,22 @@ Les producteurs actuels publient les états d’écoute, transcriptions disponib
 début/fin du tour canonique, sources reçues, résultat final, parole,
 interruption, focus, retour, effacement et confidentialité. Aucun événement de
 progression n’est synthétisé lorsqu’un outil ne remonte son résultat qu’à la fin.
+
+### Tours vocaux consécutifs (#296)
+
+Un nouvel énoncé dans la **même** conversation ne doit pas laisser activités,
+réponse ou pile de navigation du tour précédent à l’écran.
+
+- **Backend** (`VoiceDisplayCoordinator.ensure_turn` dans `jarvis/voice_display.py`) :
+  ouvre un tour neuf lorsque la session est en `idle`, `result` ou `error`, ou
+  lorsque l’identifiant de conversation change. Le `privacy_mode` actif est
+  conservé ; un `voice.session.started` est publié avec le `conversation_id`.
+- **Client** (`frontend/src/components/voice-display/state.ts`) : à réception de
+  `voice.session.started`, l’état visuel repart de la session initiale (transcription,
+  réponse, activités, navigation) tout en gardant `locale` et `privacy_mode`.
+
+Régression verrouillée par `tests/test_voice_display.py`
+(`test_new_turn_replaces_previous_turn_state_in_same_conversation`).
 
 ### Provenance
 
