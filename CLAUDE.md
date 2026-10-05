@@ -1384,8 +1384,11 @@ session que le bureau (`resolve_websocket_auth`) et active le profil isolé du h
 Canal **descendant** : seul `pong` est accepté côté client ; toute autre trame → `4405`.
 
 Le 4e WebSocket applicatif du backend (avec `/ws` chat et le canal TV) est
-`/ws/voice-display`. Guide complet, captures et diagnostic :
-`docs/VOICE_DISPLAY.md` ; audits : `Architecture/audit/VOICE_DISPLAY_*.md`.
+`/ws/voice-display`. Chaque nouveau tour vocal réinitialise l’affichage (états
+`result` / `error` inclus) sans désactiver le mode privé — détail dans
+`docs/VOICE_DISPLAY.md` § « Tours vocaux consécutifs ». Guide complet, captures
+et diagnostic : `docs/VOICE_DISPLAY.md` ; audits :
+`Architecture/audit/VOICE_DISPLAY_*.md`.
 
 ### Mode conversation mains libres — page `/voice` (recommandé)
 
