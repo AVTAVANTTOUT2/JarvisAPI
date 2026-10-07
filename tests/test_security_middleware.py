@@ -279,6 +279,22 @@ def test_canonical_origin_normalizes_scheme_host_port(value, expected):
     assert _canonical_origin(value) == expected
 
 
+def test_mobile_bearer_allowlist_matrix():
+    """Bearer Companion : lecture métier + pin/archive + agentic, pas d'admin."""
+    from api.middleware import _mobile_bearer_allows
+
+    assert _mobile_bearer_allows("GET", "/api/agentic/runtime/status") is True
+    assert _mobile_bearer_allows("GET", "/api/agentic/runs") is True
+    assert _mobile_bearer_allows("GET", "/api/conversations/12") is True
+    assert _mobile_bearer_allows("POST", "/api/conversations/1/pin") is True
+    assert _mobile_bearer_allows("POST", "/api/agentic/runs") is True
+    assert _mobile_bearer_allows("POST", "/api/agentic/runs/r1/pause") is True
+    assert _mobile_bearer_allows("GET", "/api/auth/sessions") is False
+    assert _mobile_bearer_allows("POST", "/api/tasks") is False
+    assert _mobile_bearer_allows("POST", "/api/conversations/1/upload") is False
+    assert _mobile_bearer_allows("DELETE", "/api/auth/sessions/1") is False
+
+
 def test_supervisor_preserved_host_matches_exact_origin(tmp_db):
     with _client() as client:
         authenticate(client)
