@@ -245,6 +245,56 @@ def test_cors_is_empty_by_default_and_uses_only_explicit_exact_origins():
     ) == ["https://localhost:5173", "https://jarvis.example:8443"]
 
 
+@pytest.mark.parametrize(
+    "value",
+    [
+        "https://user:pass@jarvis.example",
+        "https://jarvis.example?q=1",
+        "https://jarvis.example#frag",
+        "https://jarvis.example/path",
+        "ftp://jarvis.example",
+        "not-a-url",
+        "",
+    ],
+)
+def test_canonical_origin_rejects_credentials_query_fragment_and_non_http(value):
+    """Origine CSRF : seuls schéma+hôte+port exacts passent — pas d'userinfo."""
+    from api.middleware import _canonical_origin
+
+    assert _canonical_origin(value) is None
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("https://Jarvis.Example.", ("https", "jarvis.example", 443)),
+        ("http://localhost", ("http", "localhost", 80)),
+        ("https://jarvis.example:8443", ("https", "jarvis.example", 8443)),
+        ("http://127.0.0.1:8080/", ("http", "127.0.0.1", 8080)),
+    ],
+)
+def test_canonical_origin_normalizes_scheme_host_port(value, expected):
+    from api.middleware import _canonical_origin
+
+    assert _canonical_origin(value) == expected
+
+
+def test_mobile_bearer_allowlist_matrix():
+    """Bearer Companion : lecture métier + pin/archive + agentic, pas d'admin."""
+    from api.middleware import _mobile_bearer_allows
+
+    assert _mobile_bearer_allows("GET", "/api/agentic/runtime/status") is True
+    assert _mobile_bearer_allows("GET", "/api/agentic/runs") is True
+    assert _mobile_bearer_allows("GET", "/api/conversations/12") is True
+    assert _mobile_bearer_allows("POST", "/api/conversations/1/pin") is True
+    assert _mobile_bearer_allows("POST", "/api/agentic/runs") is True
+    assert _mobile_bearer_allows("POST", "/api/agentic/runs/r1/pause") is True
+    assert _mobile_bearer_allows("GET", "/api/auth/sessions") is False
+    assert _mobile_bearer_allows("POST", "/api/tasks") is False
+    assert _mobile_bearer_allows("POST", "/api/conversations/1/upload") is False
+    assert _mobile_bearer_allows("DELETE", "/api/auth/sessions/1") is False
+
+
 def test_supervisor_preserved_host_matches_exact_origin(tmp_db):
     with _client() as client:
         authenticate(client)

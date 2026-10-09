@@ -8,6 +8,8 @@ import pytest
 
 from core.outbound_security import (
     OutboundURLRejected,
+    _host_allowed,
+    _normalized_allowlist,
     validate_open_world_https_url,
     validate_public_https_url,
 )
@@ -223,3 +225,45 @@ def test_open_world_rejects_ipv4_encapsulation_in_ipv6(address: str):
             resolver=_any_host_resolver(address),
         )
     assert caught.value.code == "ambiguous_ip_address"
+
+
+def test_wildcard_allowlist_matches_subdomain_not_apex_or_sibling():
+    """``*.suffix`` exige un label avant le suffixe — pas l'apex ni un sibling."""
+    allowed = _normalized_allowlist("*.googleapis.com, FCM.Googleapis.COM.")
+    assert allowed == ("*.googleapis.com", "fcm.googleapis.com")
+    assert _host_allowed("foo.googleapis.com", allowed) is True
+    assert _host_allowed("fcm.googleapis.com", allowed) is True
+    assert _host_allowed("googleapis.com", allowed) is False
+    assert _host_allowed("evilgoogleapis.com", allowed) is False
+
+
+def test_wildcard_allowlist_accepted_via_public_https_validator():
+    endpoint = "https://push.googleapis.com/v1/send"
+    assert (
+        validate_public_https_url(
+            endpoint,
+            allowed_hosts="*.googleapis.com",
+            resolver=_any_host_resolver("8.8.8.8"),
+        )
+        == endpoint
+    )
+
+
+def test_empty_allowlist_rejects_even_exact_host():
+    with pytest.raises(OutboundURLRejected) as caught:
+        validate_public_https_url(
+            "https://fcm.googleapis.com/fcm/send/abc",
+            allowed_hosts="",
+            resolver=_resolver("8.8.8.8"),
+        )
+    assert caught.value.code == "host_not_allowed"
+
+
+def test_wildcard_allowlist_rejects_apex_via_public_https_validator():
+    with pytest.raises(OutboundURLRejected) as caught:
+        validate_public_https_url(
+            "https://googleapis.com/",
+            allowed_hosts="*.googleapis.com",
+            resolver=_any_host_resolver("8.8.8.8"),
+        )
+    assert caught.value.code == "host_not_allowed"
