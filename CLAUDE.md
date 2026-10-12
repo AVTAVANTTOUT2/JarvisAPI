@@ -873,6 +873,51 @@ L'email watcher (`scripts/email_watcher.py`) reste un pipeline **analytique**
 (Haiku → notifications/tâches) ; l'ingestion durable alimente le **cache SQLite**
 consulté par le RAG et les agents.
 
+## Navigateur agentique — recherche publique fail-closed (#282)
+
+Le runtime agentique peut **lire** le Web public via Playwright, sans connexion,
+sans paiement et sans mutation côté serveur. L'outil MCP `jarvis_browser`
+(`integrations/browser.py`) expose uniquement `open`, `see`, `search` et `close`.
+
+### Frontière réseau
+
+`integrations/browser_security.py` et `core.outbound_security` imposent :
+
+- schémas **HTTPS/WSS** uniquement, résolution DNS revalidée avant tunnel ;
+- méthodes réseau **GET/HEAD** seulement ;
+- refus des IP privées, loopback et destinations non publiques ;
+- invalidation de session sur violation (`BrowserSecurityError`).
+
+Les journaux et artefacts ne conservent que l'**origine** (`sanitized_browser_url`),
+jamais chemin, query ou identifiants.
+
+### Comportement produit
+
+- Aucun champ mot de passe, OTP ou carte : détection heuristique + refus.
+- Les libellés de commit final (payer, commander, confirmer, envoyer…) bloquent
+  l'action (`is_final_commit`).
+- Les snapshots portent un reçu signé vérifié par `jarvis/agentic/verifier.py`
+  (`issuer=jarvis_browser`, opérations `open|see|search`).
+
+Profil typique : `browser` (`browser:control`, `research:search`). Distinct du
+pilotage Uber Eats (session utilisateur, sélecteurs DOM) et du bridge TV CDP
+(lecture seule côté salon).
+
+### Variables d'env
+
+```bash
+BROWSER_ENABLED=true
+BROWSER_HEADLESS=true
+BROWSER_NAV_TIMEOUT_MS=20000
+BROWSER_ACTION_TIMEOUT_MS=8000
+BROWSER_SESSION_TTL_SECONDS=300
+```
+
+Playwright est import tardif (`integrations/browser_runtime.py`) : JARVIS démarre
+sans lui ; l'absence du binaire dégrade le composant, pas le backend entier.
+
+Tests : `tests/test_browser.py`.
+
 ## Contrôle ordinateur (macOS)
 
 JARVIS peut exécuter des actions sur le Mac local via `integrations/computer.py` (subprocess + AppleScript), pilotées par des blocs ```action``` dans les réponses (voir `prompts/persona.txt`).

@@ -1,7 +1,7 @@
 # Architecture — index canonique JARVIS API
 
-**Revue :** 5 octobre 2026
-**Référence code :** `origin/main` @ `67968ed` (Voice HUD route directe et reset inter-tours #296)
+**Revue :** 12 octobre 2026
+**Référence code :** `origin/main` @ `67968ed` (Voice HUD #296, navigateur agentique fail-closed #282)
 
 La source structurée des statuts et de la classification documentaire est
 [`project_truth_registry.json`](./project_truth_registry.json). La vue humaine
@@ -68,3 +68,4 @@ roadmap.
 - [Validation Voice HUD du 29 août 2026](./audit/VOICE_DISPLAY_VALIDATION_2026-08-29.md)
 - [Guide produit et technique Voice HUD](../docs/VOICE_DISPLAY.md)
 - Ingestion durable mail/iMessage/calendrier — section « Ingestion durable » de [`CLAUDE.md`](../CLAUDE.md) (garde-fous #283, `/api/data-health`)
+- Navigateur agentique recherche publique — section « Navigateur agentique » de [`CLAUDE.md`](../CLAUDE.md) (#282, `integrations/browser*.py`)
