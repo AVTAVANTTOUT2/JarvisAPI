@@ -259,14 +259,23 @@ def test_new_turn_replaces_previous_turn_state_in_same_conversation():
     assert session.privacy_mode is True
 
 
-def _app(monkeypatch: pytest.MonkeyPatch) -> FastAPI:
+def _app(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    configured: bool = True,
+    auth_result: tuple[object | None, object | None] = ({"id": "test"}, None),
+) -> FastAPI:
     async def activate(_ws):
         return True
 
     monkeypatch.setattr(router_voice_display, "activate_websocket_profile", activate)
-    monkeypatch.setattr(router_voice_display.auth, "is_configured", lambda: True)
     monkeypatch.setattr(
-        router_voice_display, "resolve_websocket_auth", lambda _ws: ({"id": "test"}, None)
+        router_voice_display.auth, "is_configured", lambda: configured
+    )
+    monkeypatch.setattr(
+        router_voice_display,
+        "resolve_websocket_auth",
+        lambda _ws: auth_result,
     )
     app = FastAPI()
     app.include_router(router_voice_display.router)
@@ -291,6 +300,39 @@ def test_disabled_snapshot_returns_404(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(config, "VOICE_DISPLAY_ENABLED", False, raising=False)
     with TestClient(_app(monkeypatch)) as client:
         assert client.get("/api/voice-display/snapshot").status_code == 404
+
+
+def test_disabled_websocket_closes_with_4404(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(config, "VOICE_DISPLAY_ENABLED", False, raising=False)
+    with TestClient(_app(monkeypatch)) as client:
+        with pytest.raises(WebSocketDisconnect) as closed:
+            with client.websocket_connect("/ws/voice-display") as ws:
+                ws.receive_json()
+        assert closed.value.code == 4404
+
+
+def test_websocket_rejects_when_auth_not_configured(monkeypatch: pytest.MonkeyPatch):
+    with TestClient(_app(monkeypatch, configured=False)) as client:
+        with pytest.raises(WebSocketDisconnect) as closed:
+            with client.websocket_connect("/ws/voice-display"):
+                pass
+        assert closed.value.code == 4428
+
+
+def test_websocket_rejects_without_session(monkeypatch: pytest.MonkeyPatch):
+    with TestClient(_app(monkeypatch, auth_result=(None, None))) as client:
+        with pytest.raises(WebSocketDisconnect) as closed:
+            with client.websocket_connect("/ws/voice-display"):
+                pass
+        assert closed.value.code == 4401
+
+
+def test_websocket_rejects_invalid_since_query(monkeypatch: pytest.MonkeyPatch):
+    with TestClient(_app(monkeypatch)) as client:
+        with pytest.raises(WebSocketDisconnect) as closed:
+            with client.websocket_connect("/ws/voice-display?since=not-a-number"):
+                pass
+        assert closed.value.code == 4400
 
 
 def test_safely_noop_when_disabled(monkeypatch: pytest.MonkeyPatch):
