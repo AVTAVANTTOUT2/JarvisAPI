@@ -259,6 +259,35 @@ def test_new_turn_replaces_previous_turn_state_in_same_conversation():
     assert session.privacy_mode is True
 
 
+def test_ensure_turn_is_noop_mid_listening_but_resets_after_result():
+    """#296 : un nouveau tour démarre depuis result/error, pas au milieu."""
+    voice_display.ensure_turn(7)
+    mid_turn = voice_display.snapshot().session.turn_id
+    voice_display.ensure_turn(7)
+    assert voice_display.snapshot().session.turn_id == mid_turn
+
+    voice_display.result({}, "réponse")
+    voice_display.publish("voice.display.privacy.enabled")
+    assert voice_display.snapshot().session.state == "result"
+
+    voice_display.ensure_turn(7)
+    session = voice_display.snapshot().session
+    assert session.turn_id != mid_turn
+    assert session.state == "listening"
+    assert session.answer is None
+    assert session.privacy_mode is True
+
+
+def test_ensure_turn_resets_from_error_state():
+    voice_display.ensure_turn(3)
+    voice_display.publish("voice.error", {"message": "échec outil"})
+    assert voice_display.snapshot().session.state == "error"
+
+    voice_display.ensure_turn(3)
+    assert voice_display.snapshot().session.state == "listening"
+    assert voice_display.snapshot().session.activities == []
+
+
 def _app(
     monkeypatch: pytest.MonkeyPatch,
     *,
