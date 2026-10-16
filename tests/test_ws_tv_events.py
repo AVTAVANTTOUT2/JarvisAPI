@@ -667,6 +667,73 @@ def test_transcripts_are_included_only_when_explicitly_allowed(
     assert event.payload["jarvis_text"] == "Bonjour Monsieur"
 
 
+def test_transcripts_are_stripped_at_construction_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Sans opt-in, le texte de conversation ne quitte pas le constructeur."""
+    monkeypatch.setattr(config, "TV_EVENTS_INCLUDE_TRANSCRIPTS", False, raising=False)
+
+    event = build_tv_event(
+        TV_VOICE_STATE,
+        state="speaking",
+        payload={
+            "enabled": True,
+            "jarvis_text": "Bonjour Monsieur",
+            "user_text": "quelle heure",
+        },
+    )
+
+    assert event.payload == {"enabled": True}
+
+
+def test_nested_payload_depth_and_sequences_are_bounded():
+    """Un producteur généreux ne doit pas gonfler la trame TV au salon."""
+    nested = build_tv_event(
+        TV_SYSTEM,
+        state="ok",
+        payload={
+            "service": "backend",
+            "detail": {"layer1": {"layer2": {"layer3": "profond"}}},
+        },
+    )
+    assert nested.payload["detail"] == {
+        "layer1": {"layer2": "{'layer3': 'profond'}"}
+    }
+
+    sequenced = build_tv_event(
+        TV_SYSTEM,
+        state="ok",
+        payload={"service": "backend", "detail": list(range(20))},
+    )
+    assert sequenced.payload["detail"] == list(range(10))
+
+    wide = build_tv_event(
+        TV_SYSTEM,
+        state="ok",
+        payload={
+            "service": "backend",
+            "detail": {f"k{i}": i for i in range(20)},
+        },
+    )
+    assert len(wide.payload["detail"]) == 10
+
+
+def test_non_finite_floats_are_dropped_from_tv_payloads():
+    event = build_tv_event(
+        TV_SYSTEM,
+        state="error",
+        payload={"service": "backend", "detail": float("nan")},
+    )
+    assert event.payload["detail"] is None
+
+    infinite = build_tv_event(
+        TV_SYSTEM,
+        state="error",
+        payload={"service": "backend", "detail": float("inf")},
+    )
+    assert infinite.payload["detail"] is None
+
+
 def test_audio_daemon_state_is_translated_into_a_voice_state_event():
     published = tv_events.publish_audio_daemon_state(
         {

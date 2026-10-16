@@ -333,6 +333,53 @@ def test_reverse_proxy_uses_public_https_scheme_for_csrf(monkeypatch):
     assert _csrf_origin_allowed(request) is True
 
 
+def test_browser_websocket_origin_accepts_configured_allowlist(monkeypatch):
+    """Cookie WS : Origin exacte du Host, ou entrée CSRF_ALLOWED_ORIGINS."""
+    from starlette.datastructures import Headers
+
+    from api.middleware import browser_websocket_origin_allowed
+
+    monkeypatch.setattr(
+        "config.CSRF_ALLOWED_ORIGINS",
+        "https://jarvis.example.ts.net",
+        raising=False,
+    )
+    monkeypatch.setattr("config.WEB_HTTPS_BEHIND_PROXY", False, raising=False)
+
+    class _WS:
+        def __init__(self, headers: dict[str, str], *, scheme: str = "ws") -> None:
+            self.headers = Headers(
+                raw=[(key.lower().encode(), value.encode()) for key, value in headers.items()]
+            )
+            self.client = type("C", (), {"host": "127.0.0.1"})()
+            self.url = type("U", (), {"scheme": scheme})()
+
+    assert (
+        browser_websocket_origin_allowed(
+            _WS(
+                {
+                    "Origin": "https://jarvis.example.ts.net",
+                    "Host": "127.0.0.1:8080",
+                }
+            )
+        )
+        is True
+    )
+    assert (
+        browser_websocket_origin_allowed(
+            _WS({"Origin": "https://evil.example", "Host": "127.0.0.1:8080"})
+        )
+        is False
+    )
+    assert (
+        browser_websocket_origin_allowed(
+            _WS({"Origin": "http://127.0.0.1:8080", "Host": "127.0.0.1:8080"})
+        )
+        is True
+    )
+    assert browser_websocket_origin_allowed(_WS({"Host": "127.0.0.1:8080"})) is False
+
+
 def test_cookie_mutation_without_origin_header_rejected(tmp_db):
     """Une mutation navigateur portée par cookie exige une Origin exacte."""
     with _client() as client:
