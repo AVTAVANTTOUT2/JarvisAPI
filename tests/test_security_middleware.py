@@ -245,6 +245,56 @@ def test_cors_is_empty_by_default_and_uses_only_explicit_exact_origins():
     ) == ["https://localhost:5173", "https://jarvis.example:8443"]
 
 
+@pytest.mark.parametrize(
+    "value",
+    [
+        "https://user:pass@jarvis.example",
+        "https://jarvis.example?q=1",
+        "https://jarvis.example#frag",
+        "https://jarvis.example/path",
+        "ftp://jarvis.example",
+        "not-a-url",
+        "",
+    ],
+)
+def test_canonical_origin_rejects_credentials_query_fragment_and_non_http(value):
+    """Origine CSRF : seuls schéma+hôte+port exacts passent — pas d'userinfo."""
+    from api.middleware import _canonical_origin
+
+    assert _canonical_origin(value) is None
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("https://Jarvis.Example.", ("https", "jarvis.example", 443)),
+        ("http://localhost", ("http", "localhost", 80)),
+        ("https://jarvis.example:8443", ("https", "jarvis.example", 8443)),
+        ("http://127.0.0.1:8080/", ("http", "127.0.0.1", 8080)),
+    ],
+)
+def test_canonical_origin_normalizes_scheme_host_port(value, expected):
+    from api.middleware import _canonical_origin
+
+    assert _canonical_origin(value) == expected
+
+
+def test_mobile_bearer_allowlist_matrix():
+    """Bearer Companion : lecture métier + pin/archive + agentic, pas d'admin."""
+    from api.middleware import _mobile_bearer_allows
+
+    assert _mobile_bearer_allows("GET", "/api/agentic/runtime/status") is True
+    assert _mobile_bearer_allows("GET", "/api/agentic/runs") is True
+    assert _mobile_bearer_allows("GET", "/api/conversations/12") is True
+    assert _mobile_bearer_allows("POST", "/api/conversations/1/pin") is True
+    assert _mobile_bearer_allows("POST", "/api/agentic/runs") is True
+    assert _mobile_bearer_allows("POST", "/api/agentic/runs/r1/pause") is True
+    assert _mobile_bearer_allows("GET", "/api/auth/sessions") is False
+    assert _mobile_bearer_allows("POST", "/api/tasks") is False
+    assert _mobile_bearer_allows("POST", "/api/conversations/1/upload") is False
+    assert _mobile_bearer_allows("DELETE", "/api/auth/sessions/1") is False
+
+
 def test_supervisor_preserved_host_matches_exact_origin(tmp_db):
     with _client() as client:
         authenticate(client)
@@ -281,6 +331,53 @@ def test_reverse_proxy_uses_public_https_scheme_for_csrf(monkeypatch):
     )
 
     assert _csrf_origin_allowed(request) is True
+
+
+def test_browser_websocket_origin_accepts_configured_allowlist(monkeypatch):
+    """Cookie WS : Origin exacte du Host, ou entrée CSRF_ALLOWED_ORIGINS."""
+    from starlette.datastructures import Headers
+
+    from api.middleware import browser_websocket_origin_allowed
+
+    monkeypatch.setattr(
+        "config.CSRF_ALLOWED_ORIGINS",
+        "https://jarvis.example.ts.net",
+        raising=False,
+    )
+    monkeypatch.setattr("config.WEB_HTTPS_BEHIND_PROXY", False, raising=False)
+
+    class _WS:
+        def __init__(self, headers: dict[str, str], *, scheme: str = "ws") -> None:
+            self.headers = Headers(
+                raw=[(key.lower().encode(), value.encode()) for key, value in headers.items()]
+            )
+            self.client = type("C", (), {"host": "127.0.0.1"})()
+            self.url = type("U", (), {"scheme": scheme})()
+
+    assert (
+        browser_websocket_origin_allowed(
+            _WS(
+                {
+                    "Origin": "https://jarvis.example.ts.net",
+                    "Host": "127.0.0.1:8080",
+                }
+            )
+        )
+        is True
+    )
+    assert (
+        browser_websocket_origin_allowed(
+            _WS({"Origin": "https://evil.example", "Host": "127.0.0.1:8080"})
+        )
+        is False
+    )
+    assert (
+        browser_websocket_origin_allowed(
+            _WS({"Origin": "http://127.0.0.1:8080", "Host": "127.0.0.1:8080"})
+        )
+        is True
+    )
+    assert browser_websocket_origin_allowed(_WS({"Host": "127.0.0.1:8080"})) is False
 
 
 def test_cookie_mutation_without_origin_header_rejected(tmp_db):

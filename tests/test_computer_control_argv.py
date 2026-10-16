@@ -11,7 +11,12 @@ from pathlib import Path
 
 import pytest
 
-from integrations.computer import _OPEN, ComputerControl
+from integrations.computer import (
+    _FIND,
+    _OPEN,
+    _minimal_child_environment,
+    ComputerControl,
+)
 
 
 @pytest.fixture
@@ -140,3 +145,43 @@ async def test_open_app_is_inert_without_computer_access(
     control.allowed = False
     result = await control.open_app("Safari")
     assert result["ok"] is False
+
+
+def test_find_argv_accepts_home_confined_maxdepth_iname(
+    computer: ComputerControl, tmp_path: Path
+):
+    computer.home = str(tmp_path)
+    argv = (_FIND, str(tmp_path), "-maxdepth", "6", "-iname", "*notes*")
+    ok, reason = computer._validate_argv(argv)
+    assert ok is True, reason
+
+
+@pytest.mark.parametrize(
+    "argv_builder",
+    [
+        lambda home: (_FIND, "/etc", "-maxdepth", "6", "-iname", "*notes*"),
+        lambda home: (_FIND, str(home), "-maxdepth", "7", "-iname", "*notes*"),
+        lambda home: (_FIND, str(home), "-maxdepth", "6", "-name", "*notes*"),
+        lambda home: (_FIND, str(home), "-maxdepth", "6", "-iname", "notes"),
+        lambda home: (_FIND, str(home), "-maxdepth", "6", "-iname", "*notes/../x*"),
+        lambda home: (_FIND, str(home), "-maxdepth", "6", "-iname", "*notes;*"),
+        lambda home: (_FIND, str(home), "-maxdepth", "6", "-iname", f"*{'a' * 201}*"),
+    ],
+)
+def test_find_argv_rejects_escape_and_malformed_queries(
+    computer: ComputerControl, tmp_path: Path, argv_builder
+):
+    computer.home = str(tmp_path)
+    ok, reason = computer._validate_argv(argv_builder(tmp_path))
+    assert ok is False
+    assert reason == "arguments find invalides"
+
+
+def test_minimal_child_environment_is_closed_and_has_no_secrets(tmp_path: Path):
+    env = _minimal_child_environment(str(tmp_path))
+    assert set(env) == {"PATH", "HOME", "USER", "TMPDIR", "LANG", "LC_ALL"}
+    assert env["HOME"] == str(tmp_path)
+    assert env["USER"] == tmp_path.name
+    assert "API_KEY" not in env
+    assert "DEEPSEEK_API_KEY" not in env
+    assert "TOKEN" not in env

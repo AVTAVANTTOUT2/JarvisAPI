@@ -70,6 +70,21 @@ async def test_launch_rejects_javascript_url(allow_computer):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "url",
+    [
+        "data:text/html,hi",
+        "file:///etc/passwd",
+        "smb://fileserver/share",
+    ],
+)
+async def test_launch_rejects_dangerous_urls(allow_computer, url: str):
+    result = await execute_action({"type": "launch", "url": url})
+    assert result["ok"] is False
+    assert allow_computer == []
+
+
+@pytest.mark.asyncio
 async def test_launch_is_inert_without_computer_access(
     monkeypatch: pytest.MonkeyPatch,
 ):

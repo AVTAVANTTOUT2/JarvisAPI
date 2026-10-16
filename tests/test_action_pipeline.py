@@ -109,3 +109,28 @@ class TestFinalizeDisplayText:
         out = _display.sanitize_streaming_display(raw)
         assert "```" not in out
         assert "Je regarde." in out
+
+
+class TestExtractLeadingEmotion:
+    def test_valid_emotion_is_stripped_case_insensitive(self) -> None:
+        emotion, clean = _display.extract_leading_emotion("[URGENT]\nAlerte feu.")
+        assert emotion == "urgent"
+        assert clean == "Alerte feu."
+
+    def test_invalid_emotion_tag_is_kept_in_text(self) -> None:
+        raw = "[happy]\nÇa va."
+        emotion, clean = _display.extract_leading_emotion(raw)
+        assert emotion == "neutral"
+        assert clean == raw
+
+    def test_empty_and_untagged_default_to_neutral(self) -> None:
+        assert _display.extract_leading_emotion("") == ("neutral", "")
+        assert _display.extract_leading_emotion("  Bonjour.") == (
+            "neutral",
+            "  Bonjour.",
+        )
+
+    def test_leading_whitespace_still_matches_tag(self) -> None:
+        emotion, clean = _display.extract_leading_emotion("  [warm]\nSalut.")
+        assert emotion == "warm"
+        assert clean == "Salut."

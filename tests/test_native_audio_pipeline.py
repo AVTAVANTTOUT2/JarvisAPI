@@ -105,6 +105,39 @@ def test_music_command_accepted() -> None:
     )
 
 
+def test_music_play_phrases_accepted_despite_musique_token() -> None:
+    """Régression #291 : une vraie commande musicale n'est pas un ghost STT."""
+    from scripts.audio_daemon import _is_acceptable_transcript, _is_stt_hallucination
+
+    for phrase in (
+        "Mets de la musique.",
+        "Joue de la musique rock",
+        "Lance la musique",
+    ):
+        assert not _is_stt_hallucination(phrase)
+        assert _is_acceptable_transcript(
+            phrase, used_local_stt=False, segments=[]
+        )
+
+
+def test_stt_ghost_artifacts_still_rejected() -> None:
+    from scripts.audio_daemon import _is_acceptable_transcript, _is_stt_hallucination
+
+    for ghost in ("[musique]", "♪", "sous-titres realises par Amara.org"):
+        assert _is_stt_hallucination(ghost)
+        assert not _is_acceptable_transcript(
+            ghost, used_local_stt=False, segments=[]
+        )
+
+    # Sous-chaîne ghost intentionnelle : « merci pour » reste bruit TV.
+    assert _is_stt_hallucination("merci pour la musique")
+    assert not _is_acceptable_transcript(
+        "merci pour la musique", used_local_stt=False, segments=[]
+    )
+    assert not _is_acceptable_transcript("", used_local_stt=False, segments=[])
+    assert not _is_acceptable_transcript("a", used_local_stt=False, segments=[])
+
+
 def test_native_play_tts_streams_local_chunks() -> None:
     """Le daemon joue les fragments du fournisseur local, sans autre chemin."""
     from scripts.audio_daemon import AudioDaemon

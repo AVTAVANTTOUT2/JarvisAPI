@@ -27,6 +27,7 @@ from jarvis.task_control.models import (
     TaskStatus,
     compute_plan_digest,
     ensure_executable,
+    ensure_permission_fidelity,
     new_id,
     validate_task_transition,
 )
@@ -214,6 +215,72 @@ def test_execution_acceptee_quand_tout_concorde():
         task, approved_plan_version=plan.version, approved_plan_digest=plan.digest
     )
     assert ensure_executable(task, plan) is plan
+
+
+# ── Fidélité des permissions d'exécution ───────────────────────────────────
+
+
+def test_permission_fidelity_accepte_la_liste_approuvee_exacte():
+    task = _task()
+    plan = _plan(
+        task,
+        execution_permissions=("workspace:read", "tests:run"),
+    )
+    assert ensure_permission_fidelity(plan, ["workspace:read", "tests:run"]) == (
+        "workspace:read",
+        "tests:run",
+    )
+
+
+def test_permission_fidelity_refuse_un_plan_sans_liste():
+    """Un plan legacy sans liste ne doit pas recevoir la liste recalculée."""
+
+    task = _task()
+    plan = _plan(task, execution_permissions=())
+    with pytest.raises(TaskExecutionRefused, match="sans liste"):
+        ensure_permission_fidelity(plan, ["workspace:read"])
+
+
+def test_permission_fidelity_refuse_une_elevation():
+    task = _task()
+    plan = _plan(task, execution_permissions=("workspace:read",))
+    with pytest.raises(TaskExecutionRefused, match="changé"):
+        ensure_permission_fidelity(
+            plan, ["workspace:read", "workspace:write"]
+        )
+
+
+def test_permission_fidelity_refuse_une_liste_plus_etroite():
+    task = _task()
+    plan = _plan(
+        task,
+        execution_permissions=("workspace:read", "tests:run"),
+    )
+    with pytest.raises(TaskExecutionRefused, match="changé"):
+        ensure_permission_fidelity(plan, ["workspace:read"])
+
+
+def test_permission_fidelity_refuse_un_reordonnancement():
+    """L'ordre fait partie du contrat lu et approuvé."""
+
+    task = _task()
+    plan = _plan(
+        task,
+        execution_permissions=("tests:run", "workspace:read"),
+    )
+    with pytest.raises(TaskExecutionRefused, match="changé"):
+        ensure_permission_fidelity(plan, ["workspace:read", "tests:run"])
+
+
+def test_permission_fidelity_deduplique_la_liste_resolue_avant_comparaison():
+    task = _task()
+    plan = _plan(
+        task,
+        execution_permissions=("workspace:read", "tests:run"),
+    )
+    assert ensure_permission_fidelity(
+        plan, ["workspace:read", "tests:run", "workspace:read"]
+    ) == ("workspace:read", "tests:run")
 
 
 # ── Bornes et normalisation ────────────────────────────────────────────────
