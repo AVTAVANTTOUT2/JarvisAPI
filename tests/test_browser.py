@@ -10,6 +10,7 @@ import pytest
 from core.outbound_security import OutboundURLRejected
 from integrations.browser import (
     BrowserElement,
+    _allow_search_submit,
     apply,
     clear_browser_receipt,
     close_session,
@@ -19,6 +20,7 @@ from integrations.browser import (
     validate_browser_target,
 )
 from integrations.browser_runtime import (
+    BrowserError,
     mark_browser_receipt_approved,
     record_browser_receipt,
 )
@@ -360,6 +362,39 @@ def test_search_is_one_atomic_classified_get(fake_browser: FakeDriver) -> None:
 
     assert submitted["ok"] is True
     assert fake_browser.searches == ["https://hotels.example/search?q=Paris"]
+
+
+def _search_element(**overrides: object) -> BrowserElement:
+    values = {
+        "tag": "input",
+        "input_type": "search",
+        "form_action": "https://hotels.example/search",
+        "form_method": "get",
+        "field_name": "q",
+        "target": "",
+        "handle": object(),
+    }
+    values.update(overrides)
+    return _element("Destination", 0, role="searchbox", **values)
+
+
+@pytest.mark.parametrize(
+    ("overrides",),
+    [
+        ({"form_method": "post"},),
+        ({"target": "_blank"},),
+        ({"field_name": ""},),
+        ({"form_action": ""},),
+    ],
+)
+def test_search_structural_gates_reject_unsafe_forms(overrides: dict) -> None:
+    with pytest.raises(BrowserError) as raised:
+        _allow_search_submit(_search_element(**overrides))
+    assert raised.value.code == "submit_blocked"
+
+
+def test_search_structural_gates_accept_classified_get() -> None:
+    _allow_search_submit(_search_element())
 
 
 def test_search_refuses_checkout_even_when_label_is_neutral(

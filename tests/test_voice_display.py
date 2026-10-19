@@ -15,6 +15,7 @@ from jarvis.voice_display import (
     ClaimEvidence,
     SourceEvidence,
     VoiceDisplayEvent,
+    _safe_data,
     answer_from_result,
     voice_display,
 )
@@ -111,6 +112,26 @@ def test_sensitive_values_are_redacted_and_absolute_paths_are_reduced():
     assert answer.visual_summary == "[masqué]"
     assert "secret-value" not in str(answer.model_dump())
     assert "/Users/alice" not in str(answer.model_dump())
+
+
+def test_safe_data_drops_secret_named_keys_and_bounds_depth_and_lists():
+    scrubbed = _safe_data(
+        {
+            "title": "ok",
+            "api_key": "sk-leak",
+            "password": "x",
+            "nested": {"token": "abc", "label": "y"},
+            "items": list(range(20)),
+            "deep": {"a": {"b": {"c": {"d": "too-deep"}}}},
+        }
+    )
+    assert scrubbed["title"] == "ok"
+    assert "api_key" not in scrubbed
+    assert "password" not in scrubbed
+    assert scrubbed["nested"] == {"label": "y"}
+    assert len(scrubbed["items"]) == 12
+    # depth>3 coupe avant d'entrer dans le 4e niveau d'imbrication
+    assert scrubbed["deep"] == {"a": {"b": {"c": None}}}
 
 
 def test_privacy_navigation_focus_back_and_clear_are_backend_canonical():

@@ -331,3 +331,70 @@ def test_attention_requise_derivee_de_letat():
     task = _task(status=TaskStatus.AWAITING_PERMISSION)
     assert task.needs_attention is True
     assert _task(status=TaskStatus.RUNNING).needs_attention is False
+
+
+# ── Conversion run → tâche + texte de contraintes (#285) ───────────────────
+
+
+def test_resource_wait_event_overrides_queued_status():
+    from jarvis.task_control.service import task_status_for_run
+
+    assert (
+        task_status_for_run("queued", event_type="agent.run.resource_wait")
+        == TaskStatus.RESOURCE_WAIT
+    )
+    assert task_status_for_run("provisioning") == TaskStatus.QUEUED
+    assert task_status_for_run("paused") == TaskStatus.BLOCKED
+    assert task_status_for_run("not_a_status") is None
+
+
+def test_constraint_text_prefers_revision_and_comments_over_objective():
+    from jarvis.task_control.service import _constraint_text_for_grant
+
+    task = _task(title="Corrige le login")
+    text = _constraint_text_for_grant(
+        task,
+        "Corrige le login et lance les tests",
+        revision_comment="Ne lance pas les tests",
+        user_comments="Lecture seule seulement",
+    )
+    assert text.startswith("Ne lance pas les tests | Lecture seule seulement")
+    assert "Corrige le login" in text
+    assert _constraint_text_for_grant(task, "  ", revision_comment="") == "Corrige le login"
+
+
+def test_grant_drops_tests_run_when_only_revision_bans_execution():
+    """L'interdiction vit dans le commentaire de révision, pas dans l'objectif."""
+    from jarvis.agentic.turn_context import AGENTIC_ROUTING_METADATA_KEY
+    from jarvis.task_control.service import (
+        _constraint_text_for_grant,
+        resolve_execution_grant,
+    )
+
+    task = _task(
+        title="Corrige la régression login",
+        metadata={
+            AGENTIC_ROUTING_METADATA_KEY: {
+                "category": "agentic_reversible",
+                "capability_profile_id": "coding",
+                "permissions": [
+                    "workspace:read",
+                    "workspace:write",
+                    "tests:run",
+                ],
+            }
+        },
+    )
+    objective = "Corrige la régression login et lance les tests"
+    without_ban = resolve_execution_grant(task, objective)
+    assert "tests:run" in without_ban.permissions
+
+    with_ban = resolve_execution_grant(
+        task,
+        objective,
+        constraint_text=_constraint_text_for_grant(
+            task, objective, revision_comment="Ne lance pas les tests"
+        ),
+    )
+    assert "tests:run" not in with_ban.permissions
+    assert "workspace:read" in with_ban.permissions
