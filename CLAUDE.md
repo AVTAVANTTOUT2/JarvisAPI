@@ -918,6 +918,41 @@ sans lui ; l'absence du binaire dégrade le composant, pas le backend entier.
 
 Tests : `tests/test_browser.py`.
 
+## Apple Music — lecture locale via MCP (hors agentique)
+
+La lecture simple dans Music.app n'est **pas** une mission agentique : pas de plan,
+pas de tâche, pas de runtime d'exécution pour « mets du Werenoi » ou « pause ».
+
+| Composant | Rôle |
+|---|---|
+| `integrations/apple_music.py` | Client stdio vers le binaire `apple-music-mcp` (PATH ou `~/.local/bin`) |
+| `maybe_handle_music_intent()` | Fast-path **avant** `maybe_start_agentic_run` — chat REST, WebSocket et voix |
+| `execute_music_action()` | Dispatch des blocs `action` `type: music` (`actions.py`) |
+| `jarvis/health.py` | Composant `apple_music` (non critique ; absent sur Linux CI → `unknown`) |
+| `/api/integrations`, Control Center | État via `doctor` (~10 s de cache), `can_control: false` |
+
+Intent déterministe (`parse_intent`) : verbes de lecture (`joue`, `mets`, `play`…),
+transport (`pause`, `suivant`, `stop`), volume. Les requêtes du type « lance les
+tests » ou « lance la tâche » ne sont **pas** capturées (`_BLOCKED_QUERY`).
+
+Recherche **bibliothèque locale** uniquement en v0.1.0 du MCP — pas de
+`catalog_search` Apple Music. Titre absent de la lib → message explicite, pas de
+repli agentique.
+
+Actions allowlistées : `play`, `pause`, `next`, `previous`, `stop`, `state`,
+`set_volume`. Le runtime agentique média peut toujours monter le même binaire
+pour des workflows multi-étapes (transcode, ffmpeg) ; le playback court-circuite
+l'agentique.
+
+**Daemon vocal :** `STT_GHOST_PHRASES` dans `scripts/audio_daemon.py` filtre les
+hallucinations STT (sous-titrage, « thank you for watching », marqueur `[musique]`).
+Le mot **musique** seul n'est pas rejeté — sinon « Mets de la musique » serait
+ignoré avant le fast-path (`tests/test_native_audio_pipeline.py`).
+
+Décision et historique d'implémentation :
+`docs/superpowers/plans/2026-08-19-apple-music-native.md`. Tests :
+`tests/test_apple_music.py`.
+
 ## Contrôle ordinateur (macOS)
 
 JARVIS peut exécuter des actions sur le Mac local via `integrations/computer.py` (subprocess + AppleScript), pilotées par des blocs ```action``` dans les réponses (voir `prompts/persona.txt`).

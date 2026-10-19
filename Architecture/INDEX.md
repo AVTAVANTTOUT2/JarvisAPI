@@ -69,3 +69,4 @@ roadmap.
 - [Guide produit et technique Voice HUD](../docs/VOICE_DISPLAY.md)
 - Ingestion durable mail/iMessage/calendrier — section « Ingestion durable » de [`CLAUDE.md`](../CLAUDE.md) (garde-fous #283, `/api/data-health`)
 - Navigateur agentique recherche publique — section « Navigateur agentique » de [`CLAUDE.md`](../CLAUDE.md) (#282, `integrations/browser*.py`)
+- Apple Music MCP (lecture locale, hors agentique) — section « Apple Music » de [`CLAUDE.md`](../CLAUDE.md) ; plan [`2026-08-19-apple-music-native.md`](../docs/superpowers/plans/2026-08-19-apple-music-native.md)
