@@ -14,6 +14,7 @@ import pytest
 from actions import _action_terminal
 from integrations.shell_safety import (
     ShellPlanError,
+    _contains_sensitive_path,
     _safe_environment,
     analyze_command,
     execute_shell_plan,
@@ -318,8 +319,14 @@ async def test_workspace_write_is_confined_to_plan_directory():
         "cat --file=.ssh/id_rsa",
         "cat .env",
         "cat .env.local",
+        "cat .env-staging",
         "cat secret.pem",
+        "cat cert.p12",
+        "cat store.pfx",
+        "cat app.mobileprovision",
         "cat credentials.json",
+        "cat secrets.prod.yaml",
+        "cat signing.properties",
         "git show HEAD:.env",
         "pwd; whoami",
         "ls | head",
@@ -333,6 +340,32 @@ def test_dangerous_or_out_of_scope_commands_are_not_in_allowlist(
     workspace.mkdir()
     with pytest.raises(ShellPlanError):
         analyze_command(command, workspace=workspace)
+
+
+@pytest.mark.parametrize(
+    "token",
+    [
+        ".env-prod",
+        "secrets.prod",
+        "credentials.yaml",
+        "path/to/keychain",
+        "nested/.aws/config",
+        "cert.p12",
+        "legacy.pfx",
+        "profile.mobileprovision",
+        "id_rsa.key",
+    ],
+)
+def test_contains_sensitive_path_blocks_secret_suffixes_and_prefixes(token: str) -> None:
+    assert _contains_sensitive_path(token) is True
+
+
+@pytest.mark.parametrize(
+    "token",
+    ["readme.md", "src/main.py", "notes.txt", "package.json"],
+)
+def test_contains_sensitive_path_allows_ordinary_workspace_files(token: str) -> None:
+    assert _contains_sensitive_path(token) is False
 
 
 @pytest.mark.parametrize(

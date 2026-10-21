@@ -4,7 +4,13 @@ from __future__ import annotations
 
 from pathlib import PurePath
 
-from jarvis.agentic.redaction import REDACTED, redact_selected_context, redact_value
+from jarvis.agentic.redaction import (
+    REDACTED,
+    redact_mapping,
+    redact_selected_context,
+    redact_text,
+    redact_value,
+)
 
 
 def test_redact_selected_context_masks_sensitive_keys_and_secret_patterns() -> None:
@@ -67,3 +73,28 @@ def test_redact_value_path_basename_and_max_depth() -> None:
     assert redact_value(PurePath("/Users/alice/secret/notes.txt")) == "notes.txt"
     nested: dict = {"a": {"b": {"c": {"d": {"e": {"f": {"g": "deep"}}}}}}}
     assert redact_value(nested)["a"]["b"]["c"]["d"]["e"]["f"] == "[MAX_DEPTH]"
+
+
+def test_redact_text_scrubs_secrets_and_truncates() -> None:
+    scrubbed = redact_text("Authorization: Bearer abcd1234secret more")
+    assert REDACTED in scrubbed
+    assert "abcd1234secret" not in scrubbed
+    truncated = redact_text("x" * 600, max_chars=40)
+    assert truncated.endswith("…[tronqué]")
+    assert len(truncated) <= 40
+
+
+def test_redact_mapping_masks_sensitive_keys_and_preserves_scalars() -> None:
+    safe = redact_mapping(
+        {
+            "cookie": "session=abc",
+            "count": 2,
+            "note": "password=hunter2 visible",
+            "items": ["ok", "token=leak-value-here"],
+        }
+    )
+    assert safe["cookie"] == REDACTED
+    assert safe["count"] == 2
+    assert "hunter2" not in safe["note"]
+    assert REDACTED in safe["items"][1]
+    assert safe["items"][0] == "ok"

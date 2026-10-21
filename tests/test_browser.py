@@ -10,6 +10,7 @@ import pytest
 from core.outbound_security import OutboundURLRejected
 from integrations.browser import (
     BrowserElement,
+    _allow_fill,
     _allow_search_submit,
     apply,
     clear_browser_receipt,
@@ -395,6 +396,51 @@ def test_search_structural_gates_reject_unsafe_forms(overrides: dict) -> None:
 
 def test_search_structural_gates_accept_classified_get() -> None:
     _allow_search_submit(_search_element())
+
+
+@pytest.mark.parametrize(
+    ("overrides", "code"),
+    [
+        ({"disabled": True}, "field_unavailable"),
+        ({"readonly": True}, "field_unavailable"),
+        ({"contenteditable": True}, "field_unclassified"),
+        ({"tag": "div", "role": "textbox", "input_type": "text"}, "field_unclassified"),
+        ({"input_type": "checkbox"}, "field_unclassified"),
+        ({"input_type": "hidden"}, "field_unclassified"),
+        ({"input_type": "submit"}, "field_unclassified"),
+        ({"form_has_password": True}, "sensitive_field"),
+        ({"name": "Mot de passe"}, "sensitive_field"),
+        ({"autocomplete": "username"}, "sensitive_field"),
+    ],
+)
+def test_fill_structural_gates_reject_unusable_or_sensitive_fields(
+    overrides: dict, code: str
+) -> None:
+    """`_allow_fill` borne toute saisie — y compris via search — avant mutation DOM."""
+    values = {
+        "tag": "input",
+        "input_type": "text",
+        "role": "textbox",
+        "handle": object(),
+    }
+    values.update(overrides)
+    name = str(values.pop("name", "Query"))
+    with pytest.raises(BrowserError) as raised:
+        _allow_fill(_element(name, 0, **values))
+    assert raised.value.code == code
+
+
+def test_fill_structural_gates_accept_plain_text_input() -> None:
+    _allow_fill(
+        _element(
+            "Query",
+            0,
+            tag="input",
+            role="textbox",
+            input_type="text",
+            handle=object(),
+        )
+    )
 
 
 def test_search_refuses_checkout_even_when_label_is_neutral(
