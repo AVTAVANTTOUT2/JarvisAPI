@@ -27,6 +27,7 @@ from jarvis.task_control.models import (
     TaskStatus,
     compute_plan_digest,
     ensure_executable,
+    ensure_permission_fidelity,
     new_id,
     validate_task_transition,
 )
@@ -216,6 +217,72 @@ def test_execution_acceptee_quand_tout_concorde():
     assert ensure_executable(task, plan) is plan
 
 
+# ── Fidélité des permissions d'exécution ───────────────────────────────────
+
+
+def test_permission_fidelity_accepte_la_liste_approuvee_exacte():
+    task = _task()
+    plan = _plan(
+        task,
+        execution_permissions=("workspace:read", "tests:run"),
+    )
+    assert ensure_permission_fidelity(plan, ["workspace:read", "tests:run"]) == (
+        "workspace:read",
+        "tests:run",
+    )
+
+
+def test_permission_fidelity_refuse_un_plan_sans_liste():
+    """Un plan legacy sans liste ne doit pas recevoir la liste recalculée."""
+
+    task = _task()
+    plan = _plan(task, execution_permissions=())
+    with pytest.raises(TaskExecutionRefused, match="sans liste"):
+        ensure_permission_fidelity(plan, ["workspace:read"])
+
+
+def test_permission_fidelity_refuse_une_elevation():
+    task = _task()
+    plan = _plan(task, execution_permissions=("workspace:read",))
+    with pytest.raises(TaskExecutionRefused, match="changé"):
+        ensure_permission_fidelity(
+            plan, ["workspace:read", "workspace:write"]
+        )
+
+
+def test_permission_fidelity_refuse_une_liste_plus_etroite():
+    task = _task()
+    plan = _plan(
+        task,
+        execution_permissions=("workspace:read", "tests:run"),
+    )
+    with pytest.raises(TaskExecutionRefused, match="changé"):
+        ensure_permission_fidelity(plan, ["workspace:read"])
+
+
+def test_permission_fidelity_refuse_un_reordonnancement():
+    """L'ordre fait partie du contrat lu et approuvé."""
+
+    task = _task()
+    plan = _plan(
+        task,
+        execution_permissions=("tests:run", "workspace:read"),
+    )
+    with pytest.raises(TaskExecutionRefused, match="changé"):
+        ensure_permission_fidelity(plan, ["workspace:read", "tests:run"])
+
+
+def test_permission_fidelity_deduplique_la_liste_resolue_avant_comparaison():
+    task = _task()
+    plan = _plan(
+        task,
+        execution_permissions=("workspace:read", "tests:run"),
+    )
+    assert ensure_permission_fidelity(
+        plan, ["workspace:read", "tests:run", "workspace:read"]
+    ) == ("workspace:read", "tests:run")
+
+
 # ── Bornes et normalisation ────────────────────────────────────────────────
 
 
@@ -264,3 +331,70 @@ def test_attention_requise_derivee_de_letat():
     task = _task(status=TaskStatus.AWAITING_PERMISSION)
     assert task.needs_attention is True
     assert _task(status=TaskStatus.RUNNING).needs_attention is False
+
+
+# ── Conversion run → tâche + texte de contraintes (#285) ───────────────────
+
+
+def test_resource_wait_event_overrides_queued_status():
+    from jarvis.task_control.service import task_status_for_run
+
+    assert (
+        task_status_for_run("queued", event_type="agent.run.resource_wait")
+        == TaskStatus.RESOURCE_WAIT
+    )
+    assert task_status_for_run("provisioning") == TaskStatus.QUEUED
+    assert task_status_for_run("paused") == TaskStatus.BLOCKED
+    assert task_status_for_run("not_a_status") is None
+
+
+def test_constraint_text_prefers_revision_and_comments_over_objective():
+    from jarvis.task_control.service import _constraint_text_for_grant
+
+    task = _task(title="Corrige le login")
+    text = _constraint_text_for_grant(
+        task,
+        "Corrige le login et lance les tests",
+        revision_comment="Ne lance pas les tests",
+        user_comments="Lecture seule seulement",
+    )
+    assert text.startswith("Ne lance pas les tests | Lecture seule seulement")
+    assert "Corrige le login" in text
+    assert _constraint_text_for_grant(task, "  ", revision_comment="") == "Corrige le login"
+
+
+def test_grant_drops_tests_run_when_only_revision_bans_execution():
+    """L'interdiction vit dans le commentaire de révision, pas dans l'objectif."""
+    from jarvis.agentic.turn_context import AGENTIC_ROUTING_METADATA_KEY
+    from jarvis.task_control.service import (
+        _constraint_text_for_grant,
+        resolve_execution_grant,
+    )
+
+    task = _task(
+        title="Corrige la régression login",
+        metadata={
+            AGENTIC_ROUTING_METADATA_KEY: {
+                "category": "agentic_reversible",
+                "capability_profile_id": "coding",
+                "permissions": [
+                    "workspace:read",
+                    "workspace:write",
+                    "tests:run",
+                ],
+            }
+        },
+    )
+    objective = "Corrige la régression login et lance les tests"
+    without_ban = resolve_execution_grant(task, objective)
+    assert "tests:run" in without_ban.permissions
+
+    with_ban = resolve_execution_grant(
+        task,
+        objective,
+        constraint_text=_constraint_text_for_grant(
+            task, objective, revision_comment="Ne lance pas les tests"
+        ),
+    )
+    assert "tests:run" not in with_ban.permissions
+    assert "workspace:read" in with_ban.permissions
