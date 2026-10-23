@@ -543,3 +543,22 @@ def test_inline_secret_assignments_are_rejected(command: str, tmp_path: Path):
     workspace.mkdir()
     with pytest.raises(ShellPlanError, match="secret"):
         analyze_command(command, workspace=workspace)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "rg TODO --file=/etc/passwd",
+        "rg pattern path=/var/log/syslog",
+        "cat notes=~/.ssh/id_rsa",
+        "head log=../../outside.txt",
+    ],
+)
+def test_path_tokens_after_equals_cannot_escape_workspace(
+    command: str, tmp_path: Path
+) -> None:
+    """``flag=/absolu`` et ``~`` / ``..`` après ``=`` restent refusés (pas seulement le token nu)."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    with pytest.raises(ShellPlanError):
+        analyze_command(command, workspace=workspace)

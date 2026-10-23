@@ -13,6 +13,7 @@ from integrations.browser_security import (
     BrowserRequestGuard,
     BrowserSecurityError,
     SecureEgressProxy,
+    _connect_authority,
     sanitized_browser_path,
     sanitized_browser_url,
 )
@@ -287,6 +288,7 @@ async def test_request_guard_blocks_every_websocket_without_connecting() -> None
         ("https://faß.de./private", "https://fass.de/"),
         ("https://bücher.example/private", "https://xn--bcher-kva.example/"),
         ("https://EXAMPLE.COM.:443/", "https://example.com/"),
+        ("wss://EXAMPLE.COM/socket?token=x", "wss://example.com/"),
         ("file:///etc/passwd", "[URL_REDACTED]"),
         ("not a url", "[URL_REDACTED]"),
     ],
@@ -295,6 +297,52 @@ def test_browser_url_sanitizer_keeps_only_public_origin(
     value: str, expected: str
 ) -> None:
     assert sanitized_browser_url(value) == expected
+
+
+@pytest.mark.parametrize(
+    ("authority", "host", "port"),
+    [
+        ("public.example:443", "public.example", 443),
+        ("example.com:8443", "example.com", 8443),
+        ("[2001:db8::1]:443", "2001:db8::1", 443),
+        ("[::1]:1", "::1", 1),
+    ],
+)
+def test_connect_authority_parses_host_port_and_ipv6(
+    authority: str, host: str, port: int
+) -> None:
+    """Le proxy CONNECT n'accepte qu'hôte+port — base de l'épinglage IP."""
+    assert _connect_authority(authority) == (host, port)
+
+
+@pytest.mark.parametrize(
+    "authority",
+    [
+        "",
+        "   ",
+        "public.example",
+        "public.example:",
+        ":443",
+        "user@public.example:443",
+        "public.example:443:extra",
+        "public.example:0",
+        "public.example:65536",
+        "public.example:notaport",
+        "[2001:db8::1]",
+        "[2001:db8::1]:",
+        "[2001:db8::1]443",
+        "public\x00.example:443",
+        "public.example:\t443",
+        "[::1",
+    ],
+)
+def test_connect_authority_rejects_userinfo_bad_ports_and_control_chars(
+    authority: str,
+) -> None:
+    """Userinfo, ports hors plage ou caractères de contrôle → refus avant DNS."""
+    with pytest.raises(OutboundURLRejected) as raised:
+        _connect_authority(authority)
+    assert raised.value.code == "invalid_url"
 
 
 @pytest.mark.parametrize(

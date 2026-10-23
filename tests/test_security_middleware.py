@@ -392,6 +392,20 @@ def test_cookie_mutation_without_origin_header_rejected(tmp_db):
     assert r.json()["error"] == "csrf_check_failed"
 
 
+def test_cookie_mutation_referer_cannot_replace_missing_origin(tmp_db):
+    """Referer n'est pas un repli CSRF : sans Origin, la mutation reste refusée."""
+    with _client() as client:
+        authenticate(client)
+        del client.headers["Origin"]
+        r = client.post(
+            "/api/life-context",
+            json={"context_type": "test", "description": "x"},
+            headers={"Referer": "http://testserver/life"},
+        )
+    assert r.status_code == 403
+    assert r.json()["error"] == "csrf_check_failed"
+
+
 def test_post_without_csrf_token_rejected_even_same_origin(tmp_db):
     with _client() as client:
         authenticate(client)
