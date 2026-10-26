@@ -23,6 +23,7 @@ from integrations.opencode.security.environment import (
 )
 from integrations.opencode.security.paths import (
     PathSecurityError,
+    ensure_within,
     safe_archive_member,
     validate_loopback_url,
 )
@@ -326,6 +327,42 @@ def test_child_environment_requires_explicit_allowlist_for_extra_values(
 def test_archive_member_validation_rejects_traversal(name: str) -> None:
     with pytest.raises(PathSecurityError):
         safe_archive_member(name)
+
+
+def test_ensure_within_accepts_relative_child(tmp_path: Path) -> None:
+    root = tmp_path / "workspace"
+    root.mkdir()
+    child = root / "artifacts" / "note.txt"
+    child.parent.mkdir()
+    child.write_text("ok", encoding="utf-8")
+
+    resolved = ensure_within(root, Path("artifacts/note.txt"), must_exist=True)
+
+    assert resolved == child.resolve()
+    assert resolved.is_file()
+
+
+def test_ensure_within_rejects_absolute_outside_root(tmp_path: Path) -> None:
+    root = tmp_path / "workspace"
+    root.mkdir()
+    outside = tmp_path / "outside.txt"
+    outside.write_text("nope", encoding="utf-8")
+
+    with pytest.raises(PathSecurityError, match="hors frontière"):
+        ensure_within(root, outside)
+
+
+def test_ensure_within_rejects_symlink_component(tmp_path: Path) -> None:
+    root = tmp_path / "workspace"
+    root.mkdir()
+    real = tmp_path / "real"
+    real.mkdir()
+    (real / "secret.txt").write_text("leak", encoding="utf-8")
+    link = root / "escape"
+    link.symlink_to(real)
+
+    with pytest.raises(PathSecurityError, match="Lien|réanalyse"):
+        ensure_within(root, Path("escape/secret.txt"), reject_symlinks=True)
 
 
 def test_only_explicit_ipv4_loopback_origins_are_accepted() -> None:
