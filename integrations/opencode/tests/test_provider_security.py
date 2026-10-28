@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -24,6 +25,8 @@ from integrations.opencode.security.environment import (
 from integrations.opencode.security.paths import (
     PathSecurityError,
     ensure_within,
+    is_link_like,
+    is_regular_file_without_links,
     safe_archive_member,
     validate_loopback_url,
 )
@@ -365,6 +368,67 @@ def test_ensure_within_rejects_symlink_component(tmp_path: Path) -> None:
         ensure_within(root, Path("escape/secret.txt"), reject_symlinks=True)
 
 
+def test_ensure_within_rejects_missing_when_required(tmp_path: Path) -> None:
+    root = tmp_path / "workspace"
+    root.mkdir()
+
+    with pytest.raises(PathSecurityError, match="absent"):
+        ensure_within(root, Path("missing.bin"), must_exist=True)
+
+
+def test_ensure_within_confines_even_when_symlink_checks_disabled(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "workspace"
+    root.mkdir()
+    outside = tmp_path / "outside.txt"
+    outside.write_text("nope", encoding="utf-8")
+
+    with pytest.raises(PathSecurityError, match="hors frontière"):
+        ensure_within(root, outside, reject_symlinks=False)
+
+
+def test_is_link_like_detects_symlinks_not_missing_or_plain(tmp_path: Path) -> None:
+    missing = tmp_path / "gone"
+    plain = tmp_path / "plain.txt"
+    plain.write_text("ok", encoding="utf-8")
+    linked = tmp_path / "linked.txt"
+    linked.symlink_to(plain)
+
+    assert is_link_like(missing) is False
+    assert is_link_like(plain) is False
+    assert is_link_like(linked) is True
+
+
+def test_is_regular_file_without_links_rejects_symlink_dir_hardlink_and_missing(
+    tmp_path: Path,
+) -> None:
+    missing = tmp_path / "absent.bin"
+    directory = tmp_path / "dir"
+    directory.mkdir()
+    plain = tmp_path / "binary"
+    plain.write_bytes(b"\x7fELF")
+    symlink = tmp_path / "binary.link"
+    symlink.symlink_to(plain)
+    hardlink = tmp_path / "binary.hard"
+    os.link(plain, hardlink)
+
+    assert is_regular_file_without_links(missing) is False
+    assert is_regular_file_without_links(directory) is False
+    assert is_regular_file_without_links(symlink) is False
+    assert is_regular_file_without_links(hardlink) is False
+    assert is_regular_file_without_links(plain) is False  # nlink >= 2 via hardlink
+    alone = tmp_path / "alone.bin"
+    alone.write_bytes(b"ok")
+    assert is_regular_file_without_links(alone) is True
+
+
+def test_archive_member_validation_accepts_relative_posix_name() -> None:
+    assert safe_archive_member("pkg/binary").as_posix() == "pkg/binary"
+    with pytest.raises(PathSecurityError):
+        safe_archive_member("bin/\x00evil")
+
+
 def test_only_explicit_ipv4_loopback_origins_are_accepted() -> None:
     assert validate_loopback_url("http://127.0.0.1:4096") == "http://127.0.0.1:4096"
     for value in (
@@ -373,6 +437,9 @@ def test_only_explicit_ipv4_loopback_origins_are_accepted() -> None:
         "https://127.0.0.1:4096",
         "http://127.0.0.1:4096/path",
         "http://user:pass@127.0.0.1:4096",
+        "http://127.0.0.1:4096?x=1",
+        "http://127.0.0.1:4096#frag",
+        "http://127.0.0.1",
     ):
         with pytest.raises(PathSecurityError):
             validate_loopback_url(value)
