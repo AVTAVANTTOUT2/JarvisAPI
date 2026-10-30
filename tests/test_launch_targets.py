@@ -45,6 +45,27 @@ def test_youtube_handle_with_app_expands(home: str):
     assert spec.app == "YouTube"
 
 
+@pytest.mark.parametrize(
+    "handle",
+    [
+        "../etc/passwd",
+        "bad handle",
+        "@@@",
+        "a" * 65,
+    ],
+)
+def test_invalid_youtube_handle_is_rejected(home: str, handle: str):
+    by_query, query_error = resolve_launch_target(
+        query=handle, app="YouTube", home=home
+    )
+    assert by_query is None
+    assert query_error == "identifiant youtube invalide"
+
+    by_url, url_error = resolve_launch_target(url=handle, app="YouTube", home=home)
+    assert by_url is None
+    assert url_error == "identifiant youtube invalide"
+
+
 def test_bare_handle_without_youtube_hint_is_ambiguous(home: str):
     spec, error = resolve_launch_target(query="Squeezie", home=home)
     assert spec is None

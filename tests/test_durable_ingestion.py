@@ -1234,6 +1234,151 @@ async def test_calendar_empty_fetch_with_cache_preserves_rows(
 
 
 @pytest.mark.asyncio
+async def test_calendar_empty_fetch_without_cache_is_ok(
+    ingestion_db: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fenêtre vide sans cache : sync froid OK, pas de report empty_window_deferred."""
+
+    from database import get_cached_calendar_events
+    from database.ingestion import bind_connector
+    from integrations import calendar_api
+    from integrations.calendar_api import CalendarQueryResult
+    from jarvis.ingestion.models import IngestionJob
+    from jarvis.ingestion.service import _calendar_sync
+
+    window_start = datetime(2026, 8, 10, 8, 0, tzinfo=timezone.utc)
+    window_end = datetime(2026, 8, 20, 8, 0, tzinfo=timezone.utc)
+    assert get_cached_calendar_events() == []
+
+    class _EmptyCalendar:
+        async def get_events_result(self, start: str, end: str) -> CalendarQueryResult:
+            return CalendarQueryResult(status="ok", events=())
+
+    monkeypatch.setattr(calendar_api, "calendar_client", _EmptyCalendar())
+    binding = bind_connector(
+        "calendar",
+        consent_source="explicit_test",
+        settings={},
+    )
+    job = IngestionJob(
+        id=1,
+        profile_id="default",
+        source="calendar",
+        job_kind="sync",
+        dedupe_key="sync:empty-cold",
+        payload={
+            "from_iso": window_start.isoformat(),
+            "to_iso": window_end.isoformat(),
+        },
+    )
+
+    result = await _calendar_sync(job, binding, None)
+
+    assert result.status == "ok"
+    assert result.error_code is None
+    assert "empty_window_deferred" not in result.cursor
+    assert get_cached_calendar_events() == []
+
+
+@pytest.mark.asyncio
+async def test_calendar_recovers_after_empty_deferral_with_fresh_events(
+    ingestion_db: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Après report empty+cache, un fetch non vide upsert et efface empty_window_deferred."""
+
+    from database import get_cached_calendar_events, get_db
+    from database.ingestion import bind_connector
+    from database.knowledge import upsert_calendar_events
+    from integrations import calendar_api
+    from integrations.calendar_api import CalendarQueryResult
+    from jarvis.ingestion.models import IngestionJob, IngestionSourceState
+    from jarvis.ingestion.service import _calendar_sync
+
+    window_start = datetime(2026, 8, 10, 8, 0, tzinfo=timezone.utc)
+    window_end = datetime(2026, 8, 20, 8, 0, tzinfo=timezone.utc)
+    upsert_calendar_events(
+        [
+            {
+                "uid": "stale-event",
+                "title": "Ancien",
+                "start": window_start.isoformat(),
+                "end": window_end.isoformat(),
+                "calendar": "Travail",
+            }
+        ],
+        window_start=window_start.isoformat(),
+        window_end=window_end.isoformat(),
+    )
+
+    class _EmptyThenFresh:
+        calls = 0
+
+        async def get_events_result(self, start: str, end: str) -> CalendarQueryResult:
+            self.calls += 1
+            if self.calls == 1:
+                return CalendarQueryResult(status="ok", events=())
+            return CalendarQueryResult(
+                status="ok",
+                events=(
+                    {
+                        "uid": "fresh-event",
+                        "title": "Nouveau",
+                        "start": start,
+                        "end": end,
+                        "calendar": "Travail",
+                    },
+                ),
+            )
+
+    client = _EmptyThenFresh()
+    monkeypatch.setattr(calendar_api, "calendar_client", client)
+    binding = bind_connector(
+        "calendar",
+        consent_source="explicit_test",
+        settings={},
+    )
+    job = IngestionJob(
+        id=1,
+        profile_id="default",
+        source="calendar",
+        job_kind="sync",
+        dedupe_key="sync:empty-then-fresh",
+        payload={
+            "from_iso": window_start.isoformat(),
+            "to_iso": window_end.isoformat(),
+        },
+    )
+
+    deferred = await _calendar_sync(job, binding, None)
+    assert deferred.status == "degraded"
+    assert deferred.error_code == "calendar_empty_fetch_with_cache"
+    assert deferred.cursor.get("empty_window_deferred")
+
+    recovered = await _calendar_sync(
+        job,
+        binding,
+        IngestionSourceState(
+            source="calendar",
+            profile_id="default",
+            cursor=dict(deferred.cursor),
+        ),
+    )
+
+    assert recovered.status == "ok"
+    assert "empty_window_deferred" not in recovered.cursor
+    cached = get_cached_calendar_events()
+    assert any(row.get("external_id") == "fresh-event" for row in cached)
+    with get_db() as conn:
+        stale = conn.execute(
+            "SELECT external_id FROM calendar_events WHERE external_id = ?",
+            ("stale-event",),
+        ).fetchone()
+    assert stale is None
+
+
+@pytest.mark.asyncio
 async def test_calendar_filter_excluded_all_preserves_source_cursor(
     ingestion_db: Path,
     monkeypatch: pytest.MonkeyPatch,
