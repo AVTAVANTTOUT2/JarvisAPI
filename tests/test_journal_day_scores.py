@@ -81,25 +81,41 @@ def test_upsert_day_score_overwrites(tmp_db):
 
 
 def test_get_top_days_by_exceptional_score(tmp_db):
-    from database import get_top_days, upsert_day_score
+    from datetime import timedelta
 
-    upsert_day_score("2026-07-08", exceptional_score=80, luck_score=60, factors={})
-    upsert_day_score("2026-07-09", exceptional_score=30, luck_score=90, factors={})
-    upsert_day_score("2026-07-10", exceptional_score=95, luck_score=40, factors={})
+    from database import get_top_days, upsert_day_score
+    from database.time_buckets import local_datetime
+
+    today = local_datetime().date()
+    older = (today - timedelta(days=4)).isoformat()
+    mid = (today - timedelta(days=3)).isoformat()
+    best = (today - timedelta(days=2)).isoformat()
+
+    upsert_day_score(older, exceptional_score=80, luck_score=60, factors={})
+    upsert_day_score(mid, exceptional_score=30, luck_score=90, factors={})
+    upsert_day_score(best, exceptional_score=95, luck_score=40, factors={})
 
     top = get_top_days(metric="exceptional_score", limit=2, days=90)
-    assert [d["date"] for d in top] == ["2026-07-10", "2026-07-08"]
+    assert [d["date"] for d in top] == [best, older]
 
 
 def test_get_top_days_by_luck_score(tmp_db):
-    from database import get_top_days, upsert_day_score
+    from datetime import timedelta
 
-    upsert_day_score("2026-07-08", exceptional_score=80, luck_score=60, factors={})
-    upsert_day_score("2026-07-09", exceptional_score=30, luck_score=90, factors={})
-    upsert_day_score("2026-07-10", exceptional_score=95, luck_score=40, factors={})
+    from database import get_top_days, upsert_day_score
+    from database.time_buckets import local_datetime
+
+    today = local_datetime().date()
+    older = (today - timedelta(days=4)).isoformat()
+    luckiest = (today - timedelta(days=3)).isoformat()
+    recent = (today - timedelta(days=2)).isoformat()
+
+    upsert_day_score(older, exceptional_score=80, luck_score=60, factors={})
+    upsert_day_score(luckiest, exceptional_score=30, luck_score=90, factors={})
+    upsert_day_score(recent, exceptional_score=95, luck_score=40, factors={})
 
     top = get_top_days(metric="luck_score", limit=1, days=90)
-    assert top[0]["date"] == "2026-07-09"
+    assert top[0]["date"] == luckiest
 
 
 def test_get_top_days_rejects_invalid_metric(tmp_db):

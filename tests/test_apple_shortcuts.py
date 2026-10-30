@@ -347,6 +347,60 @@ async def test_high_risk_shortcut_still_needs_confirmation_when_unchecked(
     assert first["needs_confirmation"] is True
 
 
+def test_shortcut_may_autorun_respects_trust_risk_and_confirmation(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """restricted refuse l'autorun même si le registre dit low + sans confirmation."""
+    from actions import _shortcut_may_autorun
+
+    row = {"risk": "low", "requires_confirmation": False}
+    monkeypatch.setattr("config.trust_allows", lambda name, **kwargs: False)
+    assert _shortcut_may_autorun(row) is False
+
+    monkeypatch.setattr("config.trust_allows", lambda name, **kwargs: True)
+    assert _shortcut_may_autorun(row) is True
+    assert _shortcut_may_autorun({"risk": "high", "requires_confirmation": False}) is False
+    assert _shortcut_may_autorun({"risk": "low", "requires_confirmation": True}) is False
+    assert _shortcut_may_autorun({"risk": "low"}) is False
+
+
+@pytest.mark.asyncio
+async def test_restricted_profile_forces_shortcut_confirmation_plan(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from actions import execute_action
+
+    monkeypatch.setattr(
+        "integrations.apple_shortcuts.resolve_shortcuts_bin",
+        lambda: "/usr/bin/shortcuts",
+    )
+    monkeypatch.setattr("integrations.apple_shortcuts.is_macos", lambda: True)
+    monkeypatch.setattr(
+        "config.trust_allows",
+        lambda name, **kwargs: False if name == "local.shortcuts" else True,
+    )
+    register_shortcut(
+        name="SnapRestricted",
+        alias="snap-restricted",
+        risk="low",
+        requires_confirmation=False,
+    )
+    ran: list[str] = []
+
+    async def fake_run(name, *, input_text=None, timeout=None):
+        ran.append(name)
+        return {"ok": True, "shortcut_name": name, "output": "done", "message": "ok"}
+
+    monkeypatch.setattr(
+        "integrations.apple_shortcuts.run_shortcut_async",
+        fake_run,
+    )
+    first = await execute_action({"type": "run_shortcut", "alias": "snap-restricted"})
+    assert first["ok"] is True
+    assert first["needs_confirmation"] is True
+    assert ran == []
+
+
 def test_recipes_catalog_is_complete():
     recipes = list_recipes()
     assert len(recipes) >= 5
