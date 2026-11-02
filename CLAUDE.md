@@ -367,6 +367,10 @@ guillemets sont retirés et la phrase est coupée aux amorces d'exemple (« par
 exemple », « quand je dis », `for example`). « Lance les tests. Quand je dis
 « ne les exécute pas », ignore-moi. » lance bien les tests.
 
+**Adverbes entre le verbe et « pas ».** « Ne lance surtout pas » ou « n'exécute
+vraiment pas » restent des interdictions d'exécution : le motif autorise des
+adverbes entre le verbe et la négation (`jarvis/agentic/constraints.py`, #285).
+
 **Quand répondre exige l'action interdite**, JARVIS explique la limite au lieu
 d'inventer un résultat : `blocked_category` porte la catégorie que la demande
 aurait reçue sans son interdiction, `maybe_start_agentic_run()` retourne une
@@ -376,6 +380,11 @@ macOS et API — tous passent par le même point d'entrée.
 
 Les contraintes retenues et leur preuve sont exposées dans `routing.constraints`
 (diagnostic public) ; aucun raisonnement interne n'y figure.
+
+**Révision de plan (task-control).** Lors d'une nouvelle version de plan,
+`resolve_execution_grant()` relit aussi le commentaire de révision (concaténé
+avec titre et objectif via `_constraint_text_for_grant`) pour retirer les
+permissions que l'utilisateur a rappelées (#285).
 
 ### Détection : donnée, jamais instruction
 
@@ -2068,6 +2077,10 @@ Le retrieval (`jarvis/retrieval/coordinator.py`) classe les questions contacts a
 Si un mois manque pour une question *histoire*, un job est enfilé ; l'événement `person.chapter_updated` part sur le bus SSE après commit. Le runtime agentique **n'écrit jamais** dans `person_month_chapters` — uniquement l'ingestion et les corrections de code (task-control).
 
 Un chapitre déjà `complete` n'est **jamais rétrogradé** si le LLM échoue ou si le budget est épuisé lors d'une régénération : `build_chapter()` conserve la version existante (`deferred: true`) et retente au prochain run.
+
+Lors d'une fusion de fiches (`scripts/sync_contacts`, merge Contacts.app),
+les chapitres du même `(person_id, year_month)` sont **agrégés** (compteurs +
+récits) au lieu d'être perdus par `UPDATE OR IGNORE` ou CASCADE (#284).
 
 Plafonds : `PERSON_HISTORY_MAX_CHAPTERS_PER_RUN` (8), `PERSON_HISTORY_MAX_MESSAGES_PER_CHAPTER` (400), `PERSON_HISTORY_DAILY_TOKEN_BUDGET` (80 000 tokens/jour). Spécification complète : `docs/superpowers/specs/2026-08-19-person-history-memory-design.md`.
 
