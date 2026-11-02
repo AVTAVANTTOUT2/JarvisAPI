@@ -758,6 +758,92 @@ def test_merge_people_preserves_conflicting_month_chapters(history_db: Path) -> 
     assert "Chapitre fusionné." in chapter["narrative"]
 
 
+def test_merge_people_adopts_drop_narrative_when_keep_is_empty(
+    history_db: Path,
+) -> None:
+    from database import get_db
+    from database.people import _merge_people_ids
+    from database.person_history import get_chapter
+
+    with get_db() as conn:
+        keep_id = conn.execute(
+            "INSERT INTO people(name) VALUES ('KeepEmpty')"
+        ).lastrowid
+        drop_id = conn.execute(
+            "INSERT INTO people(name) VALUES ('+33600000002')"
+        ).lastrowid
+        conn.execute(
+            """
+            INSERT INTO person_month_chapters (
+                person_id, year_month, period_start_utc, period_end_utc, status,
+                message_count, sent_count, recv_count, highlights_json, narrative,
+                mood_arc, content_hash
+            ) VALUES (?, '2026-09', '2026-09-01T00:00:00Z', '2026-09-30T23:59:59Z',
+                      'partial', 4, 1, 3, '[]', '', '', 'keep-empty')
+            """,
+            (keep_id,),
+        )
+        conn.execute(
+            """
+            INSERT INTO person_month_chapters (
+                person_id, year_month, period_start_utc, period_end_utc, status,
+                message_count, sent_count, recv_count, highlights_json, narrative,
+                mood_arc, content_hash
+            ) VALUES (?, '2026-09', '2026-09-01T00:00:00Z', '2026-09-30T23:59:59Z',
+                      'complete', 6, 2, 4, '[]', 'Seul récit restant.', '', 'drop-text')
+            """,
+            (drop_id,),
+        )
+        _merge_people_ids(conn, int(keep_id), int(drop_id))
+
+    chapter = get_chapter(int(keep_id), "2026-09")
+    assert chapter is not None
+    assert chapter["message_count"] == 10
+    assert chapter["narrative"] == "Seul récit restant."
+
+
+def test_merge_people_keeps_narrative_when_drop_is_empty(history_db: Path) -> None:
+    from database import get_db
+    from database.people import _merge_people_ids
+    from database.person_history import get_chapter
+
+    with get_db() as conn:
+        keep_id = conn.execute(
+            "INSERT INTO people(name) VALUES ('KeepText')"
+        ).lastrowid
+        drop_id = conn.execute(
+            "INSERT INTO people(name) VALUES ('+33600000003')"
+        ).lastrowid
+        conn.execute(
+            """
+            INSERT INTO person_month_chapters (
+                person_id, year_month, period_start_utc, period_end_utc, status,
+                message_count, sent_count, recv_count, highlights_json, narrative,
+                mood_arc, content_hash
+            ) VALUES (?, '2026-10', '2026-10-01T00:00:00Z', '2026-10-31T23:59:59Z',
+                      'complete', 8, 5, 3, '[]', 'Récit conserve.', '', 'keep-text')
+            """,
+            (keep_id,),
+        )
+        conn.execute(
+            """
+            INSERT INTO person_month_chapters (
+                person_id, year_month, period_start_utc, period_end_utc, status,
+                message_count, sent_count, recv_count, highlights_json, narrative,
+                mood_arc, content_hash
+            ) VALUES (?, '2026-10', '2026-10-01T00:00:00Z', '2026-10-31T23:59:59Z',
+                      'partial', 2, 0, 2, '[]', '', '', 'drop-empty')
+            """,
+            (drop_id,),
+        )
+        _merge_people_ids(conn, int(keep_id), int(drop_id))
+
+    chapter = get_chapter(int(keep_id), "2026-10")
+    assert chapter is not None
+    assert chapter["message_count"] == 10
+    assert chapter["narrative"] == "Récit conserve."
+
+
 def test_sync_contacts_merge_preserves_month_chapters(history_db: Path) -> None:
     from database import get_db
     from database.person_history import get_chapter

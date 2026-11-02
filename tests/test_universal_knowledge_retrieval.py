@@ -1422,3 +1422,73 @@ def test_resumed_backfill_keeps_cumulative_source_count(knowledge_db: Path) -> N
     assert first["indexed"] == 2
     assert second["indexed"] == 1
     assert states["user_notes"]["item_count"] == 3
+
+
+@pytest.mark.parametrize(
+    ("source_type", "source_id"),
+    [
+        ("", "doc-1"),
+        ("note", ""),
+        ("  ", "doc-1"),
+        ("note", "   "),
+    ],
+)
+def test_canonical_knowledge_uid_rejects_blank_source(
+    source_type: str, source_id: str
+) -> None:
+    from database.knowledge import canonical_knowledge_uid
+
+    with pytest.raises(ValueError, match="knowledge_source_required"):
+        canonical_knowledge_uid(source_type, source_id)
+
+
+def test_upsert_knowledge_item_rejects_empty_text_without_fallback(
+    knowledge_db: Path,
+) -> None:
+    from database.knowledge import upsert_knowledge_item
+
+    with pytest.raises(ValueError, match="knowledge_text_required"):
+        upsert_knowledge_item(
+            source_type="note",
+            source_id="blank-1",
+            searchable_text="   ",
+            title="",
+            summary="",
+        )
+
+
+def test_upsert_knowledge_item_falls_back_to_title_when_text_blank(
+    knowledge_db: Path,
+) -> None:
+    from database.knowledge import get_knowledge_item_row, upsert_knowledge_item
+
+    uid = upsert_knowledge_item(
+        source_type="note",
+        source_id="title-fallback",
+        searchable_text="  ",
+        title="Titre de secours",
+        summary="",
+    )
+    row = get_knowledge_item_row(uid)
+    assert row is not None
+    assert row["searchable_text"] == "Titre de secours"
+
+
+def test_enqueue_knowledge_job_rejects_unknown_operation(knowledge_db: Path) -> None:
+    from database.knowledge import enqueue_knowledge_job
+
+    with pytest.raises(ValueError, match="knowledge_job_operation_invalid"):
+        enqueue_knowledge_job("note", "x", operation="rename")
+
+
+def test_update_knowledge_source_state_rejects_unknown_status(
+    knowledge_db: Path,
+) -> None:
+    from database.knowledge import update_knowledge_source_state
+
+    with pytest.raises(ValueError, match="knowledge_source_status_invalid"):
+        update_knowledge_source_state(
+            "user_notes",
+            "note",
+            status="pending",
+        )

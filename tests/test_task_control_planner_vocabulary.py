@@ -2,12 +2,20 @@
 
 from __future__ import annotations
 
+from typing import Any
+
+import pytest
+
 from jarvis.task_control.models import ControlTask, new_id
 from jarvis.task_control.planner import (
     KNOWN_PERMISSIONS,
     KNOWN_TOOLS,
+    PlanGenerationError,
     _filter_vocabulary,
     build_plan,
+    extract_json_object,
+    fallback_plan_payload,
+    generate_plan,
 )
 
 
@@ -104,3 +112,45 @@ def test_build_plan_unions_step_vocabulary_into_plan_level():
     )
     assert plan.tools_expected == ("web_search", "write_file")
     assert plan.permissions_expected == ("research:search", "workspace:write")
+
+
+@pytest.mark.parametrize("raw", ["", "   ", "pas du json", "[]", "null"])
+def test_extract_json_object_rejects_empty_or_non_object(raw: str) -> None:
+    with pytest.raises(PlanGenerationError):
+        extract_json_object(raw)
+
+
+def test_extract_json_object_accepts_fenced_and_embedded_payloads() -> None:
+    fenced = extract_json_object(
+        'Voici le plan:\n```json\n{"objective": "Relire", "steps": []}\n```\n'
+    )
+    assert fenced["objective"] == "Relire"
+
+    embedded = extract_json_object(
+        'Analyse terminée. {"objective": "Noter", "summary": "ok"} Fin.'
+    )
+    assert embedded["objective"] == "Noter"
+    assert embedded["summary"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_generate_plan_falls_back_when_llm_returns_garbage() -> None:
+    task = ControlTask(
+        task_id=new_id("task"),
+        profile_id="default",
+        title="Relire le dépôt",
+        description="Produire un rapport sans modifier.",
+    )
+
+    class _BrokenLLM:
+        async def chat(self, **_kwargs: Any) -> dict[str, str]:
+            return {"content": "je ne sais pas planifier"}
+
+    plan = await generate_plan(task, version=1, llm_module=_BrokenLLM())
+    expected = build_plan(task, fallback_plan_payload(task), version=1)
+    assert plan.objective == expected.objective
+    assert plan.tools_expected == expected.tools_expected
+    assert plan.permissions_expected == expected.permissions_expected
+    assert [step.title for step in plan.steps] == [
+        step.title for step in expected.steps
+    ]
