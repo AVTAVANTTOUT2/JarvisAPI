@@ -10,6 +10,8 @@ from core.outbound_security import (
     OutboundURLRejected,
     _host_allowed,
     _normalized_allowlist,
+    canonicalize_open_world_https_url,
+    resolve_open_world_https_url,
     validate_open_world_https_url,
     validate_public_https_url,
 )
@@ -267,3 +269,55 @@ def test_wildcard_allowlist_rejects_apex_via_public_https_validator():
             resolver=_any_host_resolver("8.8.8.8"),
         )
     assert caught.value.code == "host_not_allowed"
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "expected"),
+    [
+        ("https://HOTELS.EXAMPLE.COM", "https://hotels.example.com/"),
+        ("https://hotels.example.com:443/path", "https://hotels.example.com/path"),
+        ("https://bücher.example/", "https://xn--bcher-kva.example/"),
+    ],
+)
+def test_canonicalize_open_world_https_is_syntax_only(
+    endpoint: str, expected: str
+):
+    # Pure : pas de resolver, pas de DNS — uniquement normalise host/port/path.
+    assert canonicalize_open_world_https_url(endpoint) == expected
+
+
+def test_resolve_open_world_https_pins_sorted_public_addresses():
+    import ipaddress
+
+    endpoint = resolve_open_world_https_url(
+        "https://hotels.example.com/search",
+        resolver=_any_host_resolver("8.8.8.8", "1.1.1.1"),
+    )
+    assert endpoint.url == "https://hotels.example.com/search"
+    assert endpoint.host == "hotels.example.com"
+    assert endpoint.port == 443
+    assert endpoint.addresses == (
+        ipaddress.ip_address("1.1.1.1"),
+        ipaddress.ip_address("8.8.8.8"),
+    )
+
+
+def test_resolve_open_world_https_fails_closed_when_dns_returns_nothing():
+    with pytest.raises(OutboundURLRejected) as caught:
+        resolve_open_world_https_url(
+            "https://missing.example.com/",
+            resolver=_any_host_resolver(),
+        )
+    assert caught.value.code == "dns_resolution_failed"
+
+
+def test_resolve_open_world_https_fails_closed_when_dns_raises():
+    def boom(host: str, port: int, *, type: int):  # noqa: ARG001
+        raise OSError("nxdomain")
+
+    with pytest.raises(OutboundURLRejected) as caught:
+        resolve_open_world_https_url(
+            "https://missing.example.com/",
+            resolver=boom,
+        )
+    assert caught.value.code == "dns_resolution_failed"

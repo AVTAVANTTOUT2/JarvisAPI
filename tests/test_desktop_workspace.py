@@ -49,3 +49,61 @@ def test_returns_none_when_desktop_is_not_requested(tmp_path: Path) -> None:
         resolve_desktop_workspace("corrige le bug dans le dépôt", home=tmp_path)
         is None
     )
+
+
+def test_rejects_missing_desktop(tmp_path: Path) -> None:
+    assert (
+        resolve_desktop_workspace(
+            "crée un dossier appelé projetx sur le bureau",
+            home=tmp_path,
+        )
+        is None
+    )
+    assert not (tmp_path / "Desktop").exists()
+
+
+def test_rejects_symlinked_desktop(tmp_path: Path) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (tmp_path / "Desktop").symlink_to(outside)
+
+    assert (
+        resolve_desktop_workspace(
+            "crée un dossier appelé projetx sur le bureau",
+            home=tmp_path,
+        )
+        is None
+    )
+    assert not (outside / "projetx").exists()
+
+
+def test_rejects_symlinked_candidate_folder(tmp_path: Path) -> None:
+    desktop = tmp_path / "Desktop"
+    desktop.mkdir()
+    outside = tmp_path / "escape"
+    outside.mkdir()
+    (desktop / "projetx").symlink_to(outside)
+
+    assert (
+        resolve_desktop_workspace(
+            "crée un dossier appelé projetx sur le bureau",
+            home=tmp_path,
+            create=False,
+        )
+        is None
+    )
+
+
+def test_create_false_does_not_mkdir_missing_folder(tmp_path: Path) -> None:
+    desktop = tmp_path / "Desktop"
+    desktop.mkdir()
+
+    assert (
+        resolve_desktop_workspace(
+            "crée un dossier appelé projetx sur le bureau",
+            home=tmp_path,
+            create=False,
+        )
+        is None
+    )
+    assert not (desktop / "projetx").exists()
