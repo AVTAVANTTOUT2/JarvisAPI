@@ -369,8 +369,17 @@ class VoiceDisplayCoordinator:
             logger.warning("[voice-display] événement ignoré", exc_info=True)
             return None
 
-    def ensure_turn(self, conversation_id: int | None = None) -> None:
-        if self._session.state not in {"idle", "result", "error"} and (
+    def ensure_turn(
+        self,
+        conversation_id: int | None = None,
+        *,
+        force_new: bool = False,
+    ) -> None:
+        stale_turn = force_new and (
+            self._session.answer is not None
+            or self._session.state in {"listening", "result", "speaking", "error"}
+        )
+        if not stale_turn and self._session.state not in {"idle", "result", "error"} and (
             conversation_id is None or self._session.conversation_id == conversation_id
         ):
             return
@@ -484,7 +493,7 @@ class VoiceDisplayCoordinator:
             self._subscriptions.discard(subscription)
 
     def transcript(self, text: str, *, partial: bool = False, conversation_id: int | None = None) -> None:
-        self.ensure_turn(conversation_id)
+        self.ensure_turn(conversation_id, force_new=not partial)
         self.publish("voice.transcript.partial" if partial else "voice.transcript.final", {"text": _text(text, 4_000)})
 
     def processing(self, label: str = "Analyse de la demande") -> None:
