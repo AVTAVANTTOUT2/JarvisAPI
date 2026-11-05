@@ -259,6 +259,26 @@ def test_new_turn_replaces_previous_turn_state_in_same_conversation():
     assert session.privacy_mode is True
 
 
+def test_final_transcript_after_listening_clears_previous_answer():
+    """Après un tour daemon (listening.started), la question suivante ne garde pas la réponse."""
+    voice_display.ensure_turn(99)
+    voice_display.transcript("première question")
+    voice_display.result({}, "Contenu sensible de la première réponse.")
+    voice_display.speech_started()
+    voice_display.speech_finished()
+    voice_display.publish("voice.listening.started")
+    listening = voice_display.snapshot().session
+    assert listening.state == "listening"
+    assert listening.answer is not None
+
+    voice_display.transcript("deuxième question")
+
+    session = voice_display.snapshot().session
+    assert session.transcript_final == "deuxième question"
+    assert session.answer is None
+    assert session.state == "understanding"
+
+
 def _app(monkeypatch: pytest.MonkeyPatch) -> FastAPI:
     async def activate(_ws):
         return True
