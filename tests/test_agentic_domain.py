@@ -723,6 +723,95 @@ def test_browser_snapshot_is_reliable_read_evidence_not_a_business_effect_receip
         clear_browser_receipt(run.run_id)
 
 
+def test_verifier_rejects_symlink_workspace_traversal_and_linked_file(
+    tmp_path: Path,
+) -> None:
+    """Les preuves fichier restent confinées : pas de workspace/lien/traversée."""
+
+    content = b"preuve locale"
+    digest = hashlib.sha256(content).hexdigest()
+
+    real_workspace = tmp_path / "real"
+    real_workspace.mkdir()
+    (real_workspace / "report.txt").write_bytes(content)
+    linked_workspace = tmp_path / "linked-workspace"
+    linked_workspace.symlink_to(real_workspace, target_is_directory=True)
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_bytes(content)
+    confined = tmp_path / "confined"
+    confined.mkdir()
+    (confined / "report.txt").write_bytes(content)
+    (confined / "escape.txt").symlink_to(outside / "secret.txt")
+
+    def _verifying(workspace: Path) -> AgenticRun:
+        run = replace(_run(), workspace=str(workspace))
+        for status in (
+            AgenticRunStatus.CLASSIFIED,
+            AgenticRunStatus.QUEUED,
+            AgenticRunStatus.PROVISIONING,
+            AgenticRunStatus.RUNNING,
+            AgenticRunStatus.VERIFYING,
+        ):
+            run = run.transition(status)
+        return run
+
+    run_sw = _verifying(linked_workspace)
+    assert (
+        verify_runtime_completion(
+            run=run_sw,
+            artifacts=(
+                Artifact(
+                    artifact_id="symlink-workspace",
+                    run_id=run_sw.run_id,
+                    type="changed_file",
+                    reference="report.txt",
+                    sha256=digest,
+                    size_bytes=len(content),
+                ),
+            ),
+        ).verdict
+        is VerificationVerdict.FAIL
+    )
+
+    run_trav = _verifying(confined)
+    assert (
+        verify_runtime_completion(
+            run=run_trav,
+            artifacts=(
+                Artifact(
+                    artifact_id="traversal",
+                    run_id=run_trav.run_id,
+                    type="changed_file",
+                    reference="../outside/secret.txt",
+                    sha256=digest,
+                    size_bytes=len(content),
+                ),
+            ),
+        ).verdict
+        is VerificationVerdict.FAIL
+    )
+
+    run_link = _verifying(confined)
+    assert (
+        verify_runtime_completion(
+            run=run_link,
+            artifacts=(
+                Artifact(
+                    artifact_id="linked-file",
+                    run_id=run_link.run_id,
+                    type="changed_file",
+                    reference="escape.txt",
+                    sha256=digest,
+                    size_bytes=len(content),
+                ),
+            ),
+        ).verdict
+        is VerificationVerdict.FAIL
+    )
+
+
 def test_budget_violation_survives_event_neutralisation() -> None:
     """`budget_exceeded` sans borne nommée n'apprend rien à personne.
 

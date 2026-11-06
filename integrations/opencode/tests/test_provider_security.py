@@ -400,6 +400,30 @@ def test_is_link_like_detects_symlinks_not_missing_or_plain(tmp_path: Path) -> N
     assert is_link_like(linked) is True
 
 
+def test_is_link_like_treats_windows_reparse_point_as_link(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Jonction / reparse Windows : même refus que symlink, sans dépendre de NTFS."""
+
+    from types import SimpleNamespace
+
+    import integrations.opencode.security.paths as paths_module
+
+    target = tmp_path / "reparse.txt"
+    target.write_text("ok", encoding="utf-8")
+    monkeypatch.setattr(
+        paths_module.stat_module, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400, raising=False
+    )
+    monkeypatch.setattr(Path, "is_symlink", lambda self: False)
+    monkeypatch.setattr(
+        Path,
+        "lstat",
+        lambda self: SimpleNamespace(st_file_attributes=0x400),
+    )
+
+    assert is_link_like(target) is True
+
+
 def test_is_regular_file_without_links_rejects_symlink_dir_hardlink_and_missing(
     tmp_path: Path,
 ) -> None:

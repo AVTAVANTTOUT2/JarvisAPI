@@ -136,6 +136,7 @@ def fake_browser(monkeypatch: pytest.MonkeyPatch) -> FakeDriver:
     yield driver
     for run_id in (
         "run-browser",
+        "run-binding",
         "run-disabled",
         "run-invalid",
         "run-sensitive",
@@ -600,3 +601,68 @@ def test_support_ticket_request_does_not_select_browser() -> None:
         AgenticRequestCategory.AGENTIC_EXTERNAL_EFFECT,
     )
     assert profile.profile_id != "browser"
+
+
+@pytest.mark.parametrize(
+    ("missing_field", "error_code"),
+    [
+        ("snapshot_id", "snapshot_required"),
+        ("element_name", "action_binding_required"),
+        ("page_origin", "action_binding_required"),
+    ],
+)
+def test_search_requires_snapshot_name_and_origin_binding(
+    fake_browser: FakeDriver, missing_field: str, error_code: str
+) -> None:
+    """Sans liaison snapshot/nom/origine, une action ne doit jamais atteindre le DOM."""
+
+    opened = apply(
+        "run-binding", {"op": "open", "url": "https://hotels.example/"}
+    )
+    search = _named(opened, "Destination")
+    arguments = {
+        "op": "search",
+        "ref": search["ref"],
+        "snapshot_id": opened["snapshot_id"],
+        "element_name": search["name"],
+        "page_origin": opened["url"],
+        "target_origin": search["target_origin"],
+        "target_path": search["target_path"],
+        "target_sha256": search["target_sha256"],
+        "text": "Paris",
+    }
+    arguments[missing_field] = ""
+
+    result = apply("run-binding", arguments)
+
+    assert result["ok"] is False
+    assert result["error"] == error_code
+    assert fake_browser.searches == []
+
+
+def test_search_rejects_mismatched_element_name_as_stale_ref(
+    fake_browser: FakeDriver,
+) -> None:
+    opened = apply(
+        "run-binding", {"op": "open", "url": "https://hotels.example/"}
+    )
+    search = _named(opened, "Destination")
+
+    result = apply(
+        "run-binding",
+        {
+            "op": "search",
+            "ref": search["ref"],
+            "snapshot_id": opened["snapshot_id"],
+            "element_name": "Autre champ",
+            "page_origin": opened["url"],
+            "target_origin": search["target_origin"],
+            "target_path": search["target_path"],
+            "target_sha256": search["target_sha256"],
+            "text": "Paris",
+        },
+    )
+
+    assert result["ok"] is False
+    assert result["error"] == "stale_ref"
+    assert fake_browser.searches == []
